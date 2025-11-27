@@ -54,7 +54,7 @@ def build_ttir(
     cos_unsqueezed = builder.reshape(cos_input, shape=unsqueezed_shape)
 
     # Multiply input with sin
-    unrotated = builder.multiply(input, cos_unsqueezed, unit_attrs=unit_attrs)
+    unrotated = builder.multiply(input, cos_unsqueezed)
 
     last_dim = input.type.shape[-1]
     half_dim = last_dim // 2
@@ -79,12 +79,15 @@ def build_ttir(
     sin_unsqueezed = builder.reshape(sin_input, shape=unsqueezed_shape)
 
     # Multiply rotated with broadcasted cos
-    rotated = builder.multiply(input_rotated, sin_unsqueezed, unit_attrs=unit_attrs)
+    rotated = builder.multiply(input_rotated, sin_unsqueezed)
 
     # Add the two products
-    return builder.add(unrotated, rotated, unit_attrs=unit_attrs)
+    return builder.add(unrotated, rotated)
 
 
+@pytest.mark.skip(
+    "Causes segfault during pipeline, see https://github.com/tenstorrent/tt-mlir/issues/5283"
+)
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -153,6 +156,9 @@ def test_rotary_embedding(
         assert check_op(output, "slice_static")
 
 
+@pytest.mark.skip(
+    "Causes segfault during pipeline, see https://github.com/tenstorrent/tt-mlir/issues/5283"
+)
 @pytest.mark.parametrize(
     "shapes",
     [

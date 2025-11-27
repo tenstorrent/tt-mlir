@@ -868,7 +868,8 @@ inline flatbuffers::Offset<::tt::target::ttnn::MemoryDesc>
 toFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
              ttcore::TensorMeshAttr tensorMesh, ttnn::BufferType bufferType,
              ttnn::TensorMemoryLayoutAttr memLayoutAttr,
-             ttcore::GridAttr shardGrid, ttcore::GridAttr deviceGrid) {
+             ttcore::GridAttr shardGrid, ttcore::GridAttr deviceGrid,
+             bool exactGrid) {
   auto shapeInt64 = memref.getShape();
   std::vector<int32_t> shape(shapeInt64.begin(), shapeInt64.end());
   ttcore::DataType dtype = ttcore::DataType::Float32;
@@ -905,21 +906,36 @@ toFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
       shape[0] *= tileShape.y();
       shape[1] *= tileShape.x();
 
-      auto coreRangeSetAttr = ttnn::CoreRangeSetAttr::get(
-          ctx, llvm::map_to_vector(
-                   ttcore::utils::toCoreRangeSet(
-                       shardGrid.getShape(),
-                       ttnn::optimizer_utils::
-                           createSingleDeviceVirtualToPhysicalAffineMap(
-                               ctx, memLayoutAttr.getValue(),
-                               deviceGrid.getShape())),
-                   [ctx](const auto &range) {
-                     const auto [loc, size] = range;
-                     return ttnn::CoreRangeAttr::get(
-                         ctx, ttnn::CoreCoordAttr::get(ctx, loc[0], loc[1]),
-                         ttnn::CoreCoordAttr::get(ctx, loc[0] + size[0] - 1,
-                                                  loc[1] + size[1] - 1));
-                   }));
+      ttnn::CoreRangeSetAttr coreRangeSetAttr;
+      // For TTNN JIT, the sharding core range has already been set by the user.
+      // This means that for height and width sharding, the grid in the
+      // TTNNLayoutAttr is not a virtual Mx1 or 1xN grid that would require
+      // collapsing. This is required to distinguish between 3x4 and 2x6 as
+      // sharding grids for height and width sharding.
+      // Note that the core coord is (X,Y) but the grid shape is (Y,X).
+      if (exactGrid) {
+        coreRangeSetAttr = ttnn::CoreRangeSetAttr::get(
+            ctx, ttnn::CoreRangeAttr::get(
+                     ctx, ttnn::CoreCoordAttr::get(ctx, 0, 0),
+                     ttnn::CoreCoordAttr::get(ctx, shardGrid.getShape()[1] - 1,
+                                              shardGrid.getShape()[0] - 1)));
+      } else {
+        coreRangeSetAttr = ttnn::CoreRangeSetAttr::get(
+            ctx, llvm::map_to_vector(
+                     ttcore::utils::toCoreRangeSet(
+                         shardGrid.getShape(),
+                         ttnn::optimizer_utils::
+                             createSingleDeviceVirtualToPhysicalAffineMap(
+                                 ctx, memLayoutAttr.getValue(),
+                                 deviceGrid.getShape())),
+                     [ctx](const auto &range) {
+                       const auto [loc, size] = range;
+                       return ttnn::CoreRangeAttr::get(
+                           ctx, ttnn::CoreCoordAttr::get(ctx, loc[0], loc[1]),
+                           ttnn::CoreCoordAttr::get(ctx, loc[0] + size[0] - 1,
+                                                    loc[1] + size[1] - 1));
+                     }));
+      }
       shardSpecAttr = ttnn::ShardSpecAttr::get(
           ctx, coreRangeSetAttr, ttnn::ShapeAttr::get(ctx, shape),
           ttnn::ShardOrientationAttr::get(ctx,
@@ -951,7 +967,8 @@ ttnnLayoutAttrToFlatbuffer(FlatbufferObjectCache &cache,
       *cache.fbb, toFlatbuffer(cache, ttcore::OOBVal::Undef),
       toFlatbuffer(cache, layoutAttr.getMemref(), layoutAttr.getTensorMesh(),
                    layoutAttr.getBufferType(), layoutAttr.getMemLayout(),
-                   layoutAttr.getGrid(), deviceAttr.getWorkerGrid()));
+                   layoutAttr.getGrid(), deviceAttr.getWorkerGrid(),
+                   layoutAttr.getExactGrid()));
 }
 
 inline ::tt::target::ttnn::CoreType
@@ -1010,6 +1027,26 @@ toFlatbuffer(FlatbufferObjectCache &cache,
     break;
   }
   return fbMathFidelity;
+}
+
+inline ::tt::target::Topology toFlatbuffer(FlatbufferObjectCache &cache,
+                                           ttcore::Topology topology) {
+  ::tt::target::Topology fbTopology;
+  switch (topology) {
+  case ttcore::Topology::Ring:
+    fbTopology = ::tt::target::Topology::Ring;
+    break;
+  case ttcore::Topology::Linear:
+    fbTopology = ::tt::target::Topology::Linear;
+    break;
+  case ttcore::Topology::Mesh:
+    fbTopology = ::tt::target::Topology::Mesh;
+    break;
+  case ttcore::Topology::Torus:
+    fbTopology = ::tt::target::Topology::Torus;
+    break;
+  }
+  return fbTopology;
 }
 
 } // namespace mlir::tt

@@ -5,8 +5,9 @@
 from __future__ import annotations
 
 import inspect
+import math
 from dataclasses import dataclass
-from typing import List, Optional, Union, Tuple, Callable, Dict, Any
+from typing import List, Optional, Union, Tuple, Callable, Dict, Any, Sequence
 import torch
 from enum import Enum, auto
 import re
@@ -127,9 +128,7 @@ class StableHLOBuilder(Builder):
         op_stablehlo_function: Callable,
         golden_kwargs: dict = {},
     ):
-        op_golden_function = builder_golden.get_golden_function(
-            op_stablehlo_function, **golden_kwargs
-        )
+        op_golden_function = get_golden_function(op_stablehlo_function, **golden_kwargs)
         if op_golden_function is None:
             return None
 
@@ -1299,6 +1298,75 @@ class StableHLOBuilder(Builder):
             unit_attrs=unit_attrs,
             sharding_attr=sharding_attr,
             stablehlo_kwargs={"permutation": permutation},
+        )
+
+    def reshape(
+        self,
+        in0: Operand,
+        shape: Sequence[int],
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.reshape``.
+
+        *Tensor reshape operation.*
+
+        Reinterprets the dimensions of ``in0`` without changing the data layout.
+        Constraint: product of dimensions must be equal; no -1 or dynamic dims here.
+
+        .. code-block:: mlir
+
+            %input = ... : tensor<2x3xf32>
+            %result = stablehlo.reshape %input : (tensor<2x3xf32>) -> tensor<1x6xf32>
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to reshape
+        shape : Sequence[int]
+            The desired output shape
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+        sharding_attr : *Optional[sdy.TensorShardingPerValueAttr]*
+            Optional sharding attribute for the output tensor
+
+        Returns
+        -------
+        (*OpView*)
+            The reshaped tensor
+        """
+
+        input_type = self._get_type(in0)
+        shape_tuple = tuple(int(d) for d in shape)
+
+        # static-only: allow zero, forbid negatives / inferred (-1)
+        if any((not isinstance(d, int)) or (d < 0) for d in shape_tuple):
+            raise ValueError(
+                f"stablehlo.reshape expects a static non-negative-int shape, got {shape_tuple}"
+            )
+
+        if math.prod(input_type.shape) != math.prod(shape_tuple):
+            raise ValueError(
+                "number of elements must be the same for reshape: "
+                f"{math.prod(input_type.shape)} != {math.prod(shape_tuple)}"
+            )
+
+        out_elem_type = input_type.element_type
+
+        return self._op_proxy(
+            stablehlo.ReshapeOp,
+            inputs=[in0],
+            unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
+            # create result type inside _op_proxy using these hints:
+            output_shape=shape_tuple,
+            output_type=out_elem_type,
+            # tell how to call the op: ReshapeOp(result_type, in0)
+            organize_stablehlo_args=lambda i, o, k: (o, i[0]),
+            # golden wiring: provide input tensor(s) and pass `shape`
+            organize_golden_args=lambda i: (self._get_golden_tensor(i[0]),),
+            golden_kwargs={"shape": shape_tuple},
         )
 
     # ----- Reduce Operations -----

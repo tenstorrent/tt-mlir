@@ -4,7 +4,7 @@
 
 #include "Constants.h"
 
-#include "tt-metalium/fabric.hpp"
+#include "tt-metalium/experimental/fabric/fabric.hpp"
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/dylib.h"
@@ -37,19 +37,6 @@
 namespace tt::runtime::ttnn {
 
 using ::tt::runtime::DeviceRuntime;
-
-static tt::runtime::MemoryView
-createMemoryView(const tt::tt_metal::detail::MemoryView &memoryView) {
-  return tt::runtime::MemoryView{
-      .numBanks = memoryView.num_banks,
-      .totalBytesPerBank = memoryView.total_bytes_per_bank,
-      .totalBytesAllocatedPerBank = memoryView.total_bytes_allocated_per_bank,
-      .totalBytesFreePerBank = memoryView.total_bytes_free_per_bank,
-      .largestContiguousBytesFreePerBank =
-          memoryView.largest_contiguous_bytes_free_per_bank,
-      .blockTable = memoryView.block_table,
-  };
-}
 
 template <typename T>
 static ::ttnn::Tensor createBorrowedTTNNTensor(void *rawData,
@@ -461,14 +448,6 @@ tt::target::Arch getArch() {
   return ::tt::runtime::common::toTargetArch(::tt::tt_metal::hal::get_arch());
 }
 
-void enablePersistentKernelCache() {
-  ::tt::tt_metal::detail::EnablePersistentKernelCache();
-}
-
-void disablePersistentKernelCache() {
-  ::tt::tt_metal::detail::DisablePersistentKernelCache();
-}
-
 size_t getNumAvailableDevices() {
   return ::tt::tt_metal::GetNumAvailableDevices();
 }
@@ -687,29 +666,7 @@ void readDeviceProfilerResults(Device deviceHandle) {
 
 std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
 getMemoryView(Device deviceHandle) {
-  std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
-      memoryMap;
-  ::ttnn::MeshDevice &meshDevice =
-      deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
-
-  auto dramMemoryView = ::tt::tt_metal::detail::GetMemoryView(
-      &meshDevice, ::ttnn::BufferType::DRAM);
-  auto l1MemoryView = ::tt::tt_metal::detail::GetMemoryView(
-      &meshDevice, ::ttnn::BufferType::L1);
-  auto l1SmallMemoryView = ::tt::tt_metal::detail::GetMemoryView(
-      &meshDevice, ::ttnn::BufferType::L1_SMALL);
-  auto traceMemoryView = ::tt::tt_metal::detail::GetMemoryView(
-      &meshDevice, ::ttnn::BufferType::TRACE);
-
-  memoryMap[tt::runtime::MemoryBufferType::DRAM] =
-      createMemoryView(dramMemoryView);
-  memoryMap[tt::runtime::MemoryBufferType::L1] = createMemoryView(l1MemoryView);
-  memoryMap[tt::runtime::MemoryBufferType::L1_SMALL] =
-      createMemoryView(l1SmallMemoryView);
-  memoryMap[tt::runtime::MemoryBufferType::TRACE] =
-      createMemoryView(traceMemoryView);
-
-  return memoryMap;
+  return utils::getMemoryView(deviceHandle);
 }
 
 void setFabricConfig(tt::runtime::FabricConfig config) {
@@ -1185,6 +1142,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_AllGatherOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::AllReduceOp: {
+    tensorRef = opContext.type_as_AllReduceOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::ReduceScatterOp: {
     tensorRef = opContext.type_as_ReduceScatterOp()->out();
     break;
@@ -1215,6 +1176,10 @@ getOpOutputRef(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::FillCacheOp: {
     tensorRef = opContext.type_as_FillCacheOp()->cache();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PagedFillCacheOp: {
+    tensorRef = opContext.type_as_PagedFillCacheOp()->cache();
     break;
   }
   case ::tt::target::ttnn::OpType::UpdateCacheOp: {
@@ -1255,6 +1220,11 @@ getOpOutputRef(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::ScaledDotProductAttentionDecodeOp: {
     tensorRef = opContext.type_as_ScaledDotProductAttentionDecodeOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PagedScaledDotProductAttentionDecodeOp: {
+    tensorRef =
+        opContext.type_as_PagedScaledDotProductAttentionDecodeOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::ScaledDotProductAttentionOp: {
@@ -1527,6 +1497,10 @@ getOpInputRefs(OpContext opContextHandle,
     tensorRefs = {opContext.type_as_AllGatherOp()->in()};
     break;
   }
+  case ::tt::target::ttnn::OpType::AllReduceOp: {
+    tensorRefs = {opContext.type_as_AllReduceOp()->in()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::ReduceScatterOp: {
     tensorRefs = {opContext.type_as_ReduceScatterOp()->in()};
     break;
@@ -1568,6 +1542,13 @@ getOpInputRefs(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::FillCacheOp: {
     tensorRefs = {opContext.type_as_FillCacheOp()->cache(),
                   opContext.type_as_FillCacheOp()->input()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PagedFillCacheOp: {
+    tensorRefs = {opContext.type_as_PagedFillCacheOp()->cache(),
+                  opContext.type_as_PagedFillCacheOp()->input(),
+                  opContext.type_as_PagedFillCacheOp()->page_table(),
+                  opContext.type_as_PagedFillCacheOp()->batch_idx_tensor()};
     break;
   }
   case ::tt::target::ttnn::OpType::LoadCachedOp: {
@@ -1658,6 +1639,21 @@ getOpInputRefs(OpContext opContextHandle,
         opContext.type_as_ScaledDotProductAttentionOp()->attention_mask()};
     break;
   }
+  case ::tt::target::ttnn::OpType::PagedScaledDotProductAttentionDecodeOp: {
+    tensorRefs = {
+        opContext.type_as_PagedScaledDotProductAttentionDecodeOp()->query(),
+        opContext.type_as_PagedScaledDotProductAttentionDecodeOp()->key(),
+        opContext.type_as_PagedScaledDotProductAttentionDecodeOp()->value(),
+        opContext.type_as_PagedScaledDotProductAttentionDecodeOp()
+            ->page_table(),
+        opContext.type_as_PagedScaledDotProductAttentionDecodeOp()
+            ->attention_mask(),
+        opContext.type_as_PagedScaledDotProductAttentionDecodeOp()
+            ->cur_pos_tensor(),
+        opContext.type_as_PagedScaledDotProductAttentionDecodeOp()
+            ->attention_sink()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::RotaryEmbeddingLlamaOp: {
     tensorRefs = {opContext.type_as_RotaryEmbeddingLlamaOp()->input(),
                   opContext.type_as_RotaryEmbeddingLlamaOp()->cos_cache(),
@@ -1703,11 +1699,24 @@ std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
        std::vector<::tt::runtime::Tensor> &inputs) {
 
-  ProgramExecutor executor(deviceHandle, executableHandle, programIndex,
-                           inputs);
-  executor.execute();
+  ::tt::runtime::utils::logMemoryStateIfNeeded(
+      utils::getMemoryView(deviceHandle),
+      ::tt::runtime::MemoryLogLevel::Program,
+      "Device memory state before submit");
+
+  std::unique_ptr<ProgramExecutor> executor = std::make_unique<ProgramExecutor>(
+      deviceHandle, executableHandle, programIndex, inputs);
+
+  executor->execute();
   std::vector<::tt::runtime::Tensor> outputTensors =
-      executor.gatherOutputTensors();
+      executor->gatherOutputTensors();
+
+  executor.reset();
+
+  ::tt::runtime::utils::logMemoryStateIfNeeded(
+      utils::getMemoryView(deviceHandle),
+      ::tt::runtime::MemoryLogLevel::Program,
+      "Device memory state after submit");
 
   return outputTensors;
 }

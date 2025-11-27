@@ -30,6 +30,7 @@ uint32_t getNumShards(Tensor tensor);
 
 void setMlirHome(std::string_view mlirHome);
 void setMetalHome(std::string_view metalHome);
+void setMemoryLogLevel(const MemoryLogLevel &logLevel);
 
 std::vector<DeviceRuntime> getAvailableDeviceRuntimes();
 DeviceRuntime getCurrentDeviceRuntime();
@@ -128,9 +129,6 @@ bool getTensorRetain(Tensor tensor);
 void setTensorRetain(Tensor tensor, bool retain);
 
 tt::target::Arch getArch();
-
-void enablePersistentKernelCache();
-void disablePersistentKernelCache();
 
 size_t getNumAvailableDevices();
 

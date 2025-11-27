@@ -35,7 +35,7 @@ ShardSolver L1ChainConfig::resolveWithSolver(
   // Generate reshard specs where needed.
   //
   ShardSolver shardSolver(tensorTypePossibleLayouts, legalConfigs, opL1MemSpecs,
-                          l1ChainedOps, usableL1CacheSize, overrideReshardEdges,
+                          l1ChainedOps, overrideReshardEdges,
                           overrideOutputLayout);
 
   state = shardSolver.resolve() ? L1ChainState::Resolved : L1ChainState::Failed;

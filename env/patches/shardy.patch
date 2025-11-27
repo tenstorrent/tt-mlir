@@ -831,3 +831,16 @@ index 47ce53e..63b2424 100644
        .Case<stablehlo::BitcastConvertOp>(
            [](stablehlo::BitcastConvertOp bitcastConvert) {
              ArrayRef<int64_t> inShape =
+@@ -685,6 +716,12 @@ OpShardingRuleAttr createOpShardingRule(Operation* op,
+                   /*isBlocked=*/usedByRngBitGenerator)
+               .build();
+         }
++        // Check if the custom call implements the ShardingRuleOpInterface.
++        if (auto shardingRuleOp =
++                  llvm::dyn_cast<ShardingRuleOpInterface>(customCall.getOperation())) {
++          return shardingRuleOp.getShardingRule();
++        }
++
+         // TODO(b/327191011): output unregistered op stats instead.
+         static llvm::once_flag onceFlag;
+         emitOpWarningOnce(

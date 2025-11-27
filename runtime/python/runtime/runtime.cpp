@@ -285,14 +285,6 @@ void registerRuntimeBindings(nb::module_ &m) {
              ::tt::runtime::FabricConfig::FABRIC_2D_TORUS_Y)
       .value("FABRIC_2D_TORUS_XY",
              ::tt::runtime::FabricConfig::FABRIC_2D_TORUS_XY)
-      .value("FABRIC_2D_DYNAMIC",
-             ::tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC)
-      .value("FABRIC_2D_DYNAMIC_TORUS_X",
-             ::tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_X)
-      .value("FABRIC_2D_DYNAMIC_TORUS_Y",
-             ::tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_Y)
-      .value("FABRIC_2D_DYNAMIC_TORUS_XY",
-             ::tt::runtime::FabricConfig::FABRIC_2D_DYNAMIC_TORUS_XY)
       .value("CUSTOM", ::tt::runtime::FabricConfig::CUSTOM);
 
   nb::enum_<::tt::target::Arch>(m, "Arch")
@@ -300,10 +292,18 @@ void registerRuntimeBindings(nb::module_ &m) {
       .value("WORMHOLE_B0", ::tt::target::Arch::Wormhole_b0)
       .value("BLACKHOLE", ::tt::target::Arch::Blackhole);
 
+  nb::enum_<::tt::runtime::MemoryLogLevel>(m, "MemoryLogLevel", nb::is_flag())
+      .value("NONE", ::tt::runtime::MemoryLogLevel::NONE)
+      .value("PROGRAM", ::tt::runtime::MemoryLogLevel::Program)
+      .value("OPERATION", ::tt::runtime::MemoryLogLevel::Operation)
+      .value("ANY", ::tt::runtime::MemoryLogLevel::ANY);
+
   m.def("set_mlir_home", &tt::runtime::setMlirHome, nb::arg("mlir_home"),
         "Set the MLIR home directory");
   m.def("set_metal_home", &tt::runtime::setMetalHome, nb::arg("metal_home"),
         "Set the Metal home directory");
+  m.def("set_memory_log_level", &tt::runtime::setMemoryLogLevel,
+        nb::arg("log_level"), "Set the memory log level");
   m.def("get_current_device_runtime", &tt::runtime::getCurrentDeviceRuntime,
         "Get the backend device runtime type");
   m.def("get_available_device_runtimes",
@@ -378,14 +378,6 @@ void registerRuntimeBindings(nb::module_ &m) {
       "Create a multi-device host tensor with owned memory");
   m.def("get_arch", &tt::runtime::getArch,
         "Get the architecture of the device");
-  m.def("enable_persistent_kernel_cache",
-        &tt::runtime::enablePersistentKernelCache,
-        "Enable persistent kernel cache, which will cache kernel binaries on "
-        "disk usable across runs.");
-  m.def("disable_persistent_kernel_cache",
-        &tt::runtime::disablePersistentKernelCache,
-        "Disable persistent kernel cache, which will disable caching kernel "
-        "binaries on disk.");
   m.def("get_num_available_devices", &tt::runtime::getNumAvailableDevices,
         "Get the number of available devices");
   m.def("open_mesh_device", &tt::runtime::openMeshDevice,

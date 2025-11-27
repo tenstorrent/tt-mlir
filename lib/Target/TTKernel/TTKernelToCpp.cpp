@@ -128,6 +128,9 @@ public:
       builder->create<emitc::IncludeOp>(
           loc, "compute_kernel_api/eltwise_unary/relu.h",
           /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(
+          loc, "compute_kernel_api/eltwise_unary/binop_with_scalar.h",
+          /*isStandard=*/false);
       // Must define macros REDUCE_OP and REDUCE_DIM before including reduce.h
       // because they are default template parameters values in reduce api.
       builder->create<emitc::VerbatimOp>(loc,
@@ -163,10 +166,6 @@ public:
 
     builder->create<emitc::IncludeOp>(loc, "debug/dprint.h",
                                       /*isStandard=*/false);
-
-    builder->create<emitc::VerbatimOp>(
-        loc, "template <> uint8_t DebugPrintTypeToId<size_t>() { return "
-             "DPrintUINT32; }");
 
     builder->create<emitc::VerbatimOp>(loc, R""""(
 namespace ttmlir {

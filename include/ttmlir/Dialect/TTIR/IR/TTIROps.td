@@ -561,6 +561,30 @@ def TTIR_BitwiseNotOp : TTIR_ElementwiseUnaryOp<"bitwise_not", [TTIR_Involution]
     }];
 }
 
+def TTIR_MishOp: TTIR_ElementwiseUnaryOp<"mish"> {
+  let summary = "Elementwise Mish activation operation.";
+  let description = [{
+    The `mish` operation computes the Mish activation function of each element in the input tensor.
+
+    Mish is a smooth, self-regularized, non-monotonic activation function that combines
+    properties of both ReLU-like and smooth activation functions. It has been shown to improve
+    performance in deep learning applications, particularly in computer vision tasks.
+
+    Example:
+    ```mlir
+    // Compute Mish of all elements in %input
+    %result = ttir.mish(%input, %output) : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
+    // Input tensor:
+    // [[-2.0, -1.0, 0.0, 1.0], ... ]
+    // Output tensor:
+    // [[-0.252, -0.303, 0.0, 0.865], ... ]
+    ```
+
+    Mathematical definition: mish(x) = x * tanh(softplus(x)) = x * tanh(ln(1 + e^x))
+  }];
+}
+
+
 def TTIR_NegOp: TTIR_ElementwiseUnaryOp<"neg", [TTIR_Involution]> {
     let summary = "Elementwise negate operation.";
     let description = [{
@@ -3152,6 +3176,27 @@ def TTIR_FillCacheOp : TTIR_NamedOp<"fill_cache"> {
   }];
 }
 
+def TTIR_PagedFillCacheOp : TTIR_NamedOp<"paged_fill_cache"> {
+  let summary = "Paged fill cache op.";
+  let description = [{
+    Fills the `cache` tensor in-place with values from `input` at `batch_idx_tensor`.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$cache,
+                       AnyRankedTensor:$input,
+                       AnyRankedTensor:$page_table,
+                       Optional<AnyRankedTensor>:$batch_idx_tensor);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  // The cache tensor is modified in place by this operation, thus it acts as the DPS output of this operation.
+  let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getCacheMutable(); }
+  }];
+
+  let hasVerifier = 1;
+}
+
 def TTIR_BroadcastOp : TTIR_NamedOp<"broadcast"> {
     let summary = "Broadcast operation.";
     let description = [{
@@ -5577,6 +5622,28 @@ def TTIR_ScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"scaled_dot_product_at
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+}
+
+def TTIR_PagedScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"paged_scaled_dot_product_attention_decode", [AttrSizedOperandSegments]> {
+  let summary = "Paged scaled dot product attention decode operation.";
+  let description = [{
+    Paged scaled dot product attention decode operation.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$query,
+                       AnyRankedTensor:$key,
+                       AnyRankedTensor:$value,
+                       AnyRankedTensor:$page_table,
+                       AnyRankedTensor:$output,
+                       DefaultValuedAttr<BoolAttr, "true">:$is_causal,
+                       Optional<AnyRankedTensor>:$attention_mask,
+                       Optional<AnyRankedTensor>:$cur_pos_tensor,
+                       Optional<AnyRankedTensor>:$attention_sink,
+                       OptionalAttr<F32Attr>:$scale);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
 }
 
 

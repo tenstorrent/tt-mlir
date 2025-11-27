@@ -86,6 +86,8 @@ public:
   void setWorkerShutdownTimeout(const std::chrono::seconds &timeout);
 
   // Runtime APIs
+  void setMemoryLogLevel(const MemoryLogLevel &logLevel);
+
   SystemDesc getCurrentSystemDesc(
       std::optional<::tt::runtime::DispatchCoreType> dispatchCoreType =
           std::nullopt,
@@ -198,6 +200,10 @@ private:
       std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
 
   void handleConfigureRuntimeContextResponse(
+      const std::vector<SizedBuffer> &responseBuffers,
+      std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+
+  void handleSetMemoryLogLevelResponse(
       const std::vector<SizedBuffer> &responseBuffers,
       std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
 

@@ -133,15 +133,19 @@ void *getRawHostDataPtr(const ::ttnn::Tensor &tensor);
     const ::ttnn::Layout &layout = ::ttnn::Layout::ROW_MAJOR,
     const ::ttnn::MemoryConfig &memoryConfig = ::ttnn::DRAM_MEMORY_CONFIG);
 
+std::unordered_map<::tt::runtime::MemoryBufferType, ::tt::runtime::MemoryView>
+getMemoryView(Device deviceHandle);
+
 template <typename T>
 inline ::ttnn::Tensor createTTNNTensor(
     const void *rawData, const ::ttnn::Shape &shape,
-    const ::ttnn::DataType &dataType, ::ttnn::MeshDevice *device = nullptr,
+    const ::ttnn::DataType &outputDataType,
+    ::ttnn::MeshDevice *device = nullptr,
     const ::ttnn::Layout &layout = ::ttnn::Layout::ROW_MAJOR,
     const ::ttnn::MemoryConfig &memoryConfig = ::ttnn::DRAM_MEMORY_CONFIG) {
   std::uint64_t numElements = shape.volume();
   ::ttnn::TensorSpec tensorSpec =
-      createTensorSpec(shape, dataType, layout, memoryConfig);
+      createTensorSpec(shape, outputDataType, layout, memoryConfig);
   if (rawData != nullptr) {
     const T *typedData = static_cast<const T *>(rawData);
     ::ttsl::Span<const T> data(typedData, typedData + numElements);

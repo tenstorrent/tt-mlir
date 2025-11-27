@@ -3,6 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
+#include "ttmlir/Asserts.h"
+#include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+#include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
+#include "ttmlir/Utils.h"
 
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
@@ -51,6 +55,27 @@ mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
   auto canonicalToInput = mlir::AffineMap::get(rank, 0, mapExprs, ctx);
 
   return canonicalToInput.compose(outputToCanonical);
+}
+
+// Calculate a reblock affine map given a shape and new grid shape.
+std::pair<mlir::SmallVector<int64_t>, mlir::AffineMap>
+calculateReblockMapForGrid(mlir::ArrayRef<int64_t> tensorShape,
+                           mlir::ArrayRef<int64_t> newGridShape,
+                           mlir::MLIRContext *context) {
+  assert(tensorShape.size() % 2 == 0 &&
+         "Expected even rank for grid + shard dimensions");
+  assert(newGridShape.size() == tensorShape.size() / 2 &&
+         "New grid shape must match grid rank of tensor shape");
+  mlir::SmallVector<int64_t> newTensorShape(tensorShape);
+  for (size_t i = 0; i < newGridShape.size(); i++) {
+    size_t j = i + newGridShape.size();
+    assert((tensorShape[i] * tensorShape[j]) % newGridShape[i] == 0 &&
+           "New grid shape must evenly divide tensor shape");
+    newTensorShape[j] = tensorShape[i] * tensorShape[j] / newGridShape[i];
+    newTensorShape[i] = newGridShape[i];
+  }
+  return {newTensorShape,
+          calculateReblockMap(tensorShape, newTensorShape, context)};
 }
 
 llvm::SmallVector<int64_t>
@@ -126,6 +151,38 @@ AffineMap concatInversePermutationMap(mlir::ArrayRef<AffineMap> affineMaps,
   // Invert the permutation to get a map that we can use to get the loop
   // bounds. Above example becomes: (d0, d1, d2, d3, d4, d5) -> (d0, d3, d1)
   return mlir::inversePermutation(concat);
+}
+
+Value getPhysicalTensorOrMemref(mlir::Value tensorOrMemref) {
+
+  TT_assertv((mlir::isa<mlir::RankedTensorType>(tensorOrMemref.getType()) ||
+              mlir::isa<mlir::MemRefType>(tensorOrMemref.getType())),
+             "Expected a tensor or memref type");
+  auto physTensor = tensorOrMemref;
+
+  if (auto viewOp = mlir::dyn_cast<mlir::tt::d2m::ViewOpInterface>(
+          tensorOrMemref.getDefiningOp())) {
+    physTensor = viewOp.getInput();
+  } else if (auto toLayoutOp = mlir::dyn_cast<mlir::tt::d2m::ToLayoutOp>(
+                 tensorOrMemref.getDefiningOp())) {
+    return getPhysicalTensorOrMemref(toLayoutOp.getInitOperand());
+
+  } else if (auto genericOp = mlir::dyn_cast<mlir::tt::d2m::GenericOp>(
+                 tensorOrMemref.getDefiningOp())) {
+    // Assume that if the defining op is a generic op, the output is the first
+    // of the outputs.
+    physTensor = getPhysicalTensorOrMemref(genericOp.getOutputs()[0]);
+  }
+
+  return physTensor;
+}
+
+ArrayRef<int64_t> getGridShape(Value tensorOrMemref) {
+  TT_assertv((mlir::isa<RankedTensorType>(tensorOrMemref.getType()) ||
+              mlir::isa<MemRefType>(tensorOrMemref.getType())),
+             "Expected a tensor or memref type");
+  return ttcore::getDeviceLayout(tensorOrMemref)
+      .getGridShape(mlir::cast<ShapedType>(tensorOrMemref.getType()));
 }
 
 } // namespace mlir::tt::d2m::utils

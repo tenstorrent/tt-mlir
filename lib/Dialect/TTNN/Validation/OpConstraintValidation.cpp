@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Interfaces/OpModelError.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Support/Logger.h"
 
 #include "mlir/IR/BuiltinOps.h"
@@ -22,27 +23,27 @@ namespace op_constraint_validation {
 
 static ValidationResult
 validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
-                    const OpConfig &config, float tensorL1UsageCap);
+                    const OpConfig &config);
 
 //----------- Public API implementations ----------
 
 ValidationResult validateOperation(Operation *op,
                                    llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
-                                   const OpConfig &config,
-                                   float tensorL1UsageCap) {
-  return validateConstraints(op, inputLayouts, config, tensorL1UsageCap);
+                                   const OpConfig &config) {
+  return validateConstraints(op, inputLayouts, config);
 }
 
-std::vector<ValidationResult> validateWithMultipleAttributes(
-    Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
-    llvm::ArrayRef<OpConfig> opConfigs,
-    llvm::ArrayRef<OpConfig> referenceConfigs, float tensorL1UsageCap) {
+std::vector<ValidationResult>
+validateWithMultipleAttributes(Operation *op,
+                               llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+                               llvm::ArrayRef<OpConfig> opConfigs,
+                               llvm::ArrayRef<OpConfig> referenceConfigs) {
 
   std::vector<ValidationResult> results;
   for (const auto &testConfig : opConfigs) {
     // 1. Call core constraint checking.
     ValidationResult constraintResult =
-        validateConstraints(op, inputLayouts, testConfig, tensorL1UsageCap);
+        validateConstraints(op, inputLayouts, testConfig);
 
     // If not supported, backend error, or validation error - add to results
     // and continue (don't fail early, collect all results)
@@ -82,7 +83,10 @@ std::vector<ValidationResult> validateWithMultipleAttributes(
 
 static ValidationResult
 validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
-                    const OpConfig &config, float tensorL1UsageCap) {
+                    const OpConfig &config) {
+
+  // Get tensorL1UsageCap from module attribute
+  const float tensorL1UsageCap = utils::getTensorL1UsageCap(op);
 
   // Check that operation supports OpModel interface.
   auto backend = mlir::dyn_cast<OpModel>(op);
@@ -130,14 +134,15 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
                        op->getName(), op->getLoc(),
                        ttmlir::utils::firstNLines(errorMsg, 8),
                        config.outputLayout);
-          result = ValidationResult::metalBackendError(std::move(errorMsg));
+          result = ValidationResult::metalBackendError(
+              ttmlir::utils::firstNLines(errorMsg, 8));
         });
 
     return result;
   }
 
-  auto [cBUsagePeak, tensorUsage, peakMemoryUsage, outputTensorUsage,
-        outputLayout] = l1UsageExp.get();
+  auto [cbPeakUsage, l1BuffersPeakUsage, overallPeakL1Usage,
+        outputTensorUsagePerCore, outputLayout] = l1UsageExp.get();
 
   TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
                "Backend returned output layout: {}, layout={}, dtype={}",
@@ -150,37 +155,24 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
   ttcore::ChipDescAttr chipDesc = systemDesc.getChipDescs()[0];
   uint64_t usableL1CacheSize = chipDesc.getUsableL1Size();
 
-  // Calculate total L1 usage from all input layouts.
-  uint64_t totalInputL1Usage = 0;
-  for (const TTNNLayoutAttr &inputLayout : inputLayouts) {
-    if (inputLayout.getBufferType() == BufferType::L1) {
-      totalInputL1Usage += inputLayout.getShardSizeInBytes();
-    }
-  }
-
-  // TODO(rpavlovicTT): switch to new constraints usage API once it is ready.
-  // https://github.com/tenstorrent/tt-mlir/issues/4143
-  bool l1UsageValid = (totalInputL1Usage + tensorUsage + cBUsagePeak) <
-                      tensorL1UsageCap * usableL1CacheSize;
-
-  if (!l1UsageValid) {
-    TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
-                 "Not enough L1 memory. OpModel constraints failed: {} "
-                 "totalInputL1Usage: {}, tensorUsage: {}, cBUsagePeak: {}, "
-                 "total: {}, limit: {}",
-                 op->getName(), totalInputL1Usage, tensorUsage, cBUsagePeak,
-                 totalInputL1Usage + tensorUsage + cBUsagePeak,
-                 static_cast<uint64_t>(tensorL1UsageCap * usableL1CacheSize));
+  if (overallPeakL1Usage > tensorL1UsageCap * usableL1CacheSize) {
+    TTMLIR_DEBUG(
+        ttmlir::LogComponent::OpValidation,
+        "Not enough L1 memory. OpModel constraints failed for op {} \n"
+        "overallPeakL1Usage: {} [cbPeakUsage={}, l1BuffersPeakUsage={}] "
+        "limit: {}",
+        ttmlir::opToString(op), overallPeakL1Usage, cbPeakUsage,
+        l1BuffersPeakUsage,
+        static_cast<uint64_t>(tensorL1UsageCap * usableL1CacheSize));
     return ValidationResult::outOfMemoryError("Not enough L1 memory");
   }
 
-  TTMLIR_DEBUG(
-      ttmlir::LogComponent::OpValidation,
-      "OpModel constraints valid. Op: {}\nOutputLayout: {}\n"
-      "L1 usage: cBUsagePeak: {}, tensorUsage: {}, outputTensorUsage: {}, "
-      "totalInputL1Usage: {}, totalL1Usage: {}",
-      op->getName(), outputLayout, cBUsagePeak, tensorUsage, outputTensorUsage,
-      totalInputL1Usage, cBUsagePeak + tensorUsage + totalInputL1Usage);
+  TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+               "OpModel constraints valid. Op: {}\nOutputLayout: {}\n"
+               "L1 usage: overallPeakL1Usage={}, cbPeakUsage={}, "
+               "l1BuffersPeakUsage={}, outputTensorUsagePerCore={}",
+               ttmlir::opToString(op), outputLayout, overallPeakL1Usage,
+               cbPeakUsage, l1BuffersPeakUsage, outputTensorUsagePerCore);
 
   return ValidationResult::success(0, outputLayout);
 }

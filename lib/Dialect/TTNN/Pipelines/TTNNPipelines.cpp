@@ -13,7 +13,7 @@
 #include "ttmlir/Dialect/TTCore/Utils/PopulateArgumentTypes.h"
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
-#include "ttmlir/Dialect/TTNN/Transforms/OptimizerPassesWrapper.h"
+#include "ttmlir/Dialect/TTNN/Transforms/DevicePassesWrapper.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Support/Logger.h"
 #include "ttmlir/Transforms/Passes.h"
@@ -89,13 +89,14 @@ void createTTNNPipelineAnalysisPasses(
 #ifdef TTMLIR_ENABLE_OPMODEL
     ttnn::TTNNOptimizerOptions optimizerOptions(options);
     // Wrap all Optimizer passes with device lifecycle management.
-    OptimizerPassesWrapperOptions wrapperOptions;
+    DevicePassesWrapperOptions wrapperOptions;
     wrapperOptions.devicePtr = options.devicePtr;
+    wrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
 
     ttnn::TTNNOperationValidationAndFallbackOptions validationOptions{
         options.tensorL1UsageCap};
 
-    pm.addPass(createOptimizerPassesWrapper(
+    pm.addPass(createDevicePassesWrapper(
         [optimizerOptions, validationOptions](OpPassManager &innerPm) {
           // All Optimizer passes will be run inside the wrapper.
           innerPm.addPass(
@@ -124,6 +125,38 @@ void createTTNNPipelineLoweringPasses(
   // Add pass to remove unused values.
   if (options.removeDeadValuesEnabled) {
     pm.addPass(mlir::createRemoveDeadValuesPass());
+  }
+}
+
+// Create TTNN fusing pass.
+// If optimizer is enabled we wrap fusing pass inside optimizer wrapper
+// to ensure device is properly initialized. This is required for op constraint
+// validation for certain fusing patterns.
+// If optimizer is not enabled we just add fusing pass directly and we don't
+// do op constraint validation.
+void createTTNNFusingPass(OpPassManager &pm,
+                          const TTIRToTTNNBackendPipelineOptions &options) {
+  if (options.enableFusing) {
+    if (options.optimizerPassEnabled) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+      DevicePassesWrapperOptions wrapperOptions;
+      wrapperOptions.devicePtr = options.devicePtr;
+      wrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
+
+      pm.addPass(createDevicePassesWrapper(
+          [](OpPassManager &innerPm) {
+            TTNNFusingOptions fusingOptions;
+            fusingOptions.enableOpConstraints = true;
+            innerPm.addPass(mlir::tt::ttnn::createTTNNFusing(fusingOptions));
+          },
+          wrapperOptions));
+#else
+      llvm::llvm_unreachable_internal(
+          "TTNNOptimizer passes require OpModel support to be enabled.");
+#endif
+    } else {
+      pm.addPass(mlir::tt::ttnn::createTTNNFusing());
+    }
   }
 }
 
@@ -160,6 +193,9 @@ void createTTNNPipelineDeallocPass(
 
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+  // Resolve options controlled by optimization_level.
+  options.resolveOptimizationLevelOptions();
+
   pm.addPass(mlir::createCanonicalizerPass());
 
   // Add Decomposition pass here to ensure it runs before hoisting.
@@ -192,12 +228,16 @@ void createTTIRToTTNNBackendPipeline(
   devicePm.addPass(ttir::createTTIRQuantDataTypeConversionPass(quantOptions));
 
   createTTNNPipelineLoweringPasses(devicePm, options);
-  if (options.enableFusing) {
-    devicePm.addPass(tt::ttnn::createTTNNFusing());
-  }
+  createTTNNFusingPass(devicePm, options);
+
   createTTNNPipelineWorkaroundPass(devicePm, options);
   if (options.enableConstEval) {
     devicePm.addPass(transforms::createConstEvalHoistTransform());
+  }
+  // Add BFP8 weight conversion pass before analysis passes.
+  // Analysis passes need to know data formats to decide on shardings.
+  if (options.experimentalBfp8Weights) {
+    devicePm.addPass(createTTNNWeightBFP8Conversion());
   }
   createTTNNPipelineAnalysisPasses(devicePm, options);
   // We need to re-run const-eval to pick up const prepare conv2d weight ops
@@ -217,6 +257,15 @@ void createTTIRToTTNNBackendPipeline(
   // Run lowering to LLVM pass on hoisted funcs in CPUModule.
   ttir::LinalgToLLVMPipelineOptions linalgToLLVMOptions;
   ttir::createTTIRToCPUPipeline(pm, linalgToLLVMOptions);
+
+  ttnn::TTNNCollectPerfMetricsOptions metricsOptions{
+      options.ttnnPerfMetricsOutputFile,
+      options.ttnnPerfMetricsVerboseOutputEnabled, options.enableTrace};
+
+  if (options.ttnnPerfMetricsEnabled) {
+    devicePm.addPass(
+        mlir::tt::ttnn::createTTNNCollectPerfMetrics(metricsOptions));
+  }
 }
 
 void createTTNNBackendToEmitCPipeline(
@@ -276,6 +325,8 @@ void createTTNNBackendToEmitPyPipeline(
   }
 
   pm.addPass(createConvertTTNNToEmitPyPass());
+
+  pm.addPass(createEmitPyNameVarsPass());
 }
 
 void createTTIRToEmitCPipeline(OpPassManager &pm,

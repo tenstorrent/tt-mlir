@@ -84,4 +84,11 @@ void RuntimeContext::setCurrentFabricConfig(
   currentFabricConfig_.store(config, std::memory_order_relaxed);
 }
 
+MemoryLogLevel RuntimeContext::getMemoryLogLevel() const {
+  return memoryLogLevel_.load(std::memory_order_relaxed);
+}
+
+void RuntimeContext::setMemoryLogLevel(const MemoryLogLevel &logLevel) {
+  memoryLogLevel_.store(logLevel, std::memory_order_relaxed);
+}
 } // namespace tt::runtime
