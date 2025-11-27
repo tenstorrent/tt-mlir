@@ -642,10 +642,10 @@ private:
 };
 } // namespace
 
-// Decompose SelectAndScatter into MaxPool2dWithIndices + ScatterInDim:
+// Decompose SelectAndScatter into MaxPool2dWithIndices + Scatter:
 // 1. MaxPool2dWithIndices finds the maximum values and their flattened indices
 // within each pooling window.
-// 2. ScatterInDim scatters the corresponding source values back into those
+// 2. Scatter scatters the corresponding source values back into those
 // positions.
 //
 // This decomposition currently supports only SelectAndScatter operations where
@@ -654,7 +654,7 @@ private:
 // workloads.
 //
 // If multiple windows overlap (e.g., stride < window size), several source
-// values may map to the same index. In that case, ScatterInDim reduces them
+// values may map to the same index. In that case, Scatter reduces them
 // using the reduction function specified in the scatter operation (e.g., add,
 // multiply, etc.).
 //
@@ -685,7 +685,7 @@ private:
 //   - Indices:    [[ 4,  6],
 //                  [13, 15]]
 //
-// Step 2: ScatterInDim
+// Step 2: Scatter
 //   - Scatter the source values [[10,20],[30,40]] into the flattened positions
 //   above.
 //   - Result (reshaped back to 4x4):
@@ -841,7 +841,7 @@ public:
         permutation, "_permuteFullTensor");
 
     // Calling MaxPool2dWithIndices op on operand
-    // and obtaining indices which will be used for ScatterInDim
+    // and obtaining indices which will be used for Scatter
     auto pooledType = RankedTensorType::get(sourcePermShape,
                                             source.getType().getElementType());
     auto indicesType =
@@ -858,7 +858,7 @@ public:
 
     auto indices = maxPoolOp.getResultIndices();
 
-    // Reshape for ScatterInDim (N,H*W,1,C)
+    // Reshape for Scatter (N,H*W,1,C)
     auto reshapedIndicesType =
         getNHWFlattenedType(mlir::cast<RankedTensorType>(indices.getType()));
     auto reshapedIndices = generateReshape(indices, reshapedIndicesType,
@@ -874,7 +874,7 @@ public:
     auto reshapedFullTensor = generateReshape(
         fullTensor, reshapedFullTensorType, rewriter, "_reshapeFullTensor");
 
-    // Calling ScatterInDim to scatter source values back to positions
+    // Calling Scatter to scatter source values back to positions
     // in the full tensor as indicated by previously obtained indices
     auto scatterOutputType =
         mlir::cast<RankedTensorType>(reshapedFullTensorType);
@@ -882,7 +882,7 @@ public:
     // TODO(umales): Right now, if there are multiple source values mapping to
     // the same index, they are overwritten. Once
     // https://github.com/tenstorrent/tt-mlir/issues/5091 is resolved, we can
-    // add reduction type in call to ScatterInDim. Reduction type will be
+    // add reduction type in call to Scatter. Reduction type will be
     // derived from the scatter block in SelectAndScatter.
 
     auto scatterResult = rewriter.create<ttir::ScatterOp>(
@@ -3450,7 +3450,7 @@ private:
     if (!input_batching_dims.empty() ||
         !scatter_indices_batching_dims.empty()) {
       return rewriter.notifyMatchFailure(
-          op, "ScatterInDim doesn't currently support scatter with batching "
+          op, "Scatter doesn't currently support scatter with batching "
               "dimensions");
     }
 
@@ -3500,7 +3500,7 @@ private:
     for (int64_t i = 0; i < updateRank; ++i) {
       if (!dimsCovered[i]) {
         return rewriter.notifyMatchFailure(
-            op, "ScatterInDim does not support window scatter.");
+            op, "Scatter does not support window scatter.");
       }
     }
 
