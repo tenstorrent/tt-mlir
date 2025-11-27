@@ -494,9 +494,9 @@ TEST_F(OpModelTest, ArgMax) {
       layoutDRAMRowMajor);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
-  EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   auto runtimeExp = OpModel<ArgMaxOp>::getOpRuntime(
       tensorShape, layoutDRAMRowMajor, 1, false, false, layoutDRAMRowMajor);
@@ -509,9 +509,9 @@ TEST_F(OpModelTest, ArgMax) {
       layoutDRAMRowMajor);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
-  EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   runtimeExp = OpModel<ArgMaxOp>::getOpRuntime(
       tensorShape, layoutDRAMRowMajor, 1, true, false, layoutDRAMRowMajor);
@@ -528,9 +528,9 @@ TEST_F(OpModelTest, ArgMax) {
       layoutDRAMRowMajor2);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
-  EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   runtimeExp = OpModel<ArgMaxOp>::getOpRuntime(
       tensorShape2, layoutDRAMRowMajor2, 1, false, false, layoutDRAMRowMajor2);
@@ -556,18 +556,18 @@ TEST_F(OpModelTest, Prod) {
       CreateWorkerGrid(), tensorShape, layoutDRAM, 0, false, layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
-  EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   constraintsExp = op_model::OpModel<ProdOp>::getOpConstraints(
       CreateWorkerGrid(), tensorShape, layoutDRAM, 0, false,
       layoutL1Interleaved);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
-  EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_GT(opCstr.tensorL1PeakSize, 0);
+  EXPECT_GT(opCstr.outputL1BufferSize, 0);
 
   constraintsExp = op_model::OpModel<ProdOp>::getOpConstraints(
       CreateWorkerGrid(), tensorShape, layoutL1Interleaved, 0, false,
@@ -593,45 +593,45 @@ TEST_F(OpModelTest, SoftmaxInterleaved) {
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayoutReadBack] =
       constraintsExp.get();
-  EXPECT_GE(cbSize, 0);
-  EXPECT_GE(outputSize, 0);
-  EXPECT_GE(l1PeakSize, 0);
+  EXPECT_GT(cbSize, 0);
+  EXPECT_EQ(outputSize, 0);
+  EXPECT_EQ(l1PeakSize, 0);
 
   constraintsExp = OpModel<SoftmaxOp>::getOpConstraints(
       CreateWorkerGrid(), tensorShape, inputLayout_dram, -1, false,
       inputLayout_l1);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
-  EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_GT(opCstr.tensorL1PeakSize, 0);
+  EXPECT_GT(opCstr.outputL1BufferSize, 0);
 
   constraintsExp = OpModel<SoftmaxOp>::getOpConstraints(
       CreateWorkerGrid(), tensorShape, inputLayout_l1, -1, false,
       inputLayout_dram);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
-  EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   constraintsExp = OpModel<SoftmaxOp>::getOpConstraints(
       CreateWorkerGrid(), tensorShape, inputLayout_l1, -1, false,
       inputLayout_l1);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
-  EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_GT(opCstr.outputL1BufferSize, 0);
 
   constraintsExp = OpModel<SoftmaxOp>::getOpConstraints(
       CreateWorkerGrid(), tensorShape, inputLayout_dram, -1, false,
       inputLayout_dram);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
-  EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   std::vector<std::tuple<TTNNLayoutAttr, TTNNLayoutAttr>> layout_combinations =
       {{inputLayout_dram, inputLayout_dram},
@@ -691,10 +691,10 @@ TEST_F(OpModelTest, Scatter) {
       inputLayoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
-  EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.peakL1MemorySize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_GT(opCstr.peakL1MemorySize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   auto runtimeExp = OpModel<ScatterOp>::getOpRuntime(
       inputShape, inputLayoutDRAM, indexSourceShape, indexLayoutDRAM,
@@ -708,10 +708,10 @@ TEST_F(OpModelTest, Scatter) {
       indexLayoutL1, indexSourceShape, sourceLayoutL1, dim, inputLayoutL1);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
-  EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.peakL1MemorySize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_GT(opCstr.tensorL1PeakSize, 0);
+  EXPECT_GT(opCstr.peakL1MemorySize, 0);
+  EXPECT_GT(opCstr.outputL1BufferSize, 0);
 
   runtimeExp = OpModel<ScatterOp>::getOpRuntime(
       inputShape, inputLayoutL1, indexSourceShape, indexLayoutL1,
@@ -735,9 +735,9 @@ TEST_F(OpModelTest, Reshape) {
       layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
-  EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   auto runtimeExp = OpModel<ReshapeOp>::getOpRuntime(
       tensorShape, layoutDRAM, {workerCoresN300 * 4, 256}, layoutDRAM);
@@ -749,9 +749,9 @@ TEST_F(OpModelTest, Reshape) {
       layoutL1);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
-  EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_GT(opCstr.tensorL1PeakSize, 0);
+  EXPECT_GT(opCstr.outputL1BufferSize, 0);
 
   runtimeExp = OpModel<ReshapeOp>::getOpRuntime(
       tensorShape, layoutDRAM, {workerCoresN300 * 4, 256}, layoutL1);
@@ -778,8 +778,8 @@ TEST_F(OpModelTest, Slice) {
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
-  EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   auto runtimeExp = OpModel<SliceStaticOp>::getOpRuntime(
       inputTensorShape, layoutDRAM, begins, ends, step, layoutDRAM);
@@ -812,9 +812,9 @@ TEST_F(OpModelTest, SliceDynamic) {
       beginsLayoutDRAM, endsShape, endsLayoutDRAM, step, outputLayoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
-  EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   auto runtimeExp = OpModel<SliceDynamicOp>::getOpRuntime(
       inputTensorShape, inputLayoutDRAM, beginsShape, beginsLayoutDRAM,
@@ -840,9 +840,9 @@ TEST_F(OpModelTest, ToLayout) {
       layoutDRAMRowMajor);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
-  EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
   ExpectLayoutsEQ(layoutDRAMRowMajor, opCstr.outputLayout);
 
   auto runtimeExp = OpModel<ToLayoutOp>::getOpRuntime(
@@ -866,9 +866,9 @@ TEST_F(OpModelTest, ToLayout) {
       layoutDRAMRowMajor);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
-  EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
   ExpectLayoutsEQ(layoutDRAMRowMajor, opCstr.outputLayout);
 
   runtimeExp = OpModel<ToLayoutOp>::getOpRuntime(
@@ -898,7 +898,7 @@ TEST_F(OpModelTest, ToMemoryConfig) {
   OpConstraints &opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
   EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   auto runtimeExp = OpModel<ToMemoryConfigOp>::getOpRuntime(
       tensorShape, inputLayoutL1Tiled, memoryConfig, outputLayoutDRAMTiled);
@@ -923,9 +923,9 @@ TEST_F(OpModelTest, ToMemoryConfig) {
       outputLayoutL1Tiled);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
-  EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_GT(opCstr.tensorL1PeakSize, 0);
+  EXPECT_GT(opCstr.outputL1BufferSize, 0);
 
   runtimeExp = OpModel<ToMemoryConfigOp>::getOpRuntime(
       tensorShape, inputLayoutL1Tiled, memoryConfig, outputLayoutL1Tiled);
@@ -945,9 +945,9 @@ TEST_F(OpModelTest, Concat) {
       {layoutL1Interleaved, layoutL1Interleaved}, 0, layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
   EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   auto runtimeExp = OpModel<ConcatOp>::getOpRuntime(
       {inputTensorShape, inputTensorShape},
@@ -973,9 +973,9 @@ TEST_F(OpModelTest, Transpose) {
       CreateWorkerGrid(), tensorShape, layoutDRAM, 0, 1, layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
-  EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   auto runtimeExp = OpModel<TransposeOp>::getOpRuntime(tensorShape, layoutDRAM,
                                                        0, 1, layoutDRAM);
@@ -986,9 +986,9 @@ TEST_F(OpModelTest, Transpose) {
       CreateWorkerGrid(), tensorShape, layoutDRAM, 0, 1, layoutL1Interleaved);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
-  EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_GT(opCstr.tensorL1PeakSize, 0);
+  EXPECT_GT(opCstr.outputL1BufferSize, 0);
 
   runtimeExp = OpModel<TransposeOp>::getOpRuntime(tensorShape, layoutDRAM, 0, 1,
                                                   layoutL1Interleaved);
@@ -1024,9 +1024,9 @@ TEST_F(OpModelTest, MorehCumSum) {
       CreateWorkerGrid(), tensorShape, layoutDRAM, 0, layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
-  EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   auto runtimeExp = op_model::OpModel<MorehCumSumOp>::getOpRuntime(
       tensorShape, layoutDRAM, 0, layoutDRAM);
@@ -1037,9 +1037,9 @@ TEST_F(OpModelTest, MorehCumSum) {
       CreateWorkerGrid(), tensorShape, layoutDRAM, 0, layoutL1Interleaved);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
-  EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_GT(opCstr.tensorL1PeakSize, 0);
+  EXPECT_GT(opCstr.outputL1BufferSize, 0);
 
   runtimeExp = op_model::OpModel<MorehCumSumOp>::getOpRuntime(
       tensorShape, layoutDRAM, 0, layoutL1Interleaved);
@@ -1178,9 +1178,9 @@ TEST_F(OpModelTest, NLPConcatHeadsDecodeOp) {
           outputLayout);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
+  EXPECT_EQ(opCstr.cbL1PeakSize, 0);
   EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.outputL1BufferSize, 0);
 
   auto runtimeExp = op_model::OpModel<NLPConcatHeadsDecodeOp>::getOpRuntime(
       inputShape, inputLayout, numHeadsUnpadded, outputLayout);
@@ -1356,9 +1356,9 @@ TEST_F(OpModelTest, RepeatInterleave) {
       CreateWorkerGrid(), tensorShape, layoutDRAM, 2, 0, layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
-  EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   auto runtimeExp = op_model::OpModel<RepeatInterleaveOp>::getOpRuntime(
       tensorShape, layoutDRAM, 2, 0, layoutDRAM);
@@ -1369,9 +1369,9 @@ TEST_F(OpModelTest, RepeatInterleave) {
       CreateWorkerGrid(), tensorShape, layoutDRAM, 2, 0, layoutL1Interleaved);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
-  EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   runtimeExp = op_model::OpModel<RepeatInterleaveOp>::getOpRuntime(
       tensorShape, layoutDRAM, 2, 0, layoutL1Interleaved);
@@ -1383,9 +1383,9 @@ TEST_F(OpModelTest, RepeatInterleave) {
       layoutL1WSharded);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
   EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   runtimeExp = op_model::OpModel<RepeatInterleaveOp>::getOpRuntime(
       tensorShape, layoutL1Interleaved, 2, 0, layoutL1WSharded);
@@ -1413,9 +1413,9 @@ TEST_F(OpModelTest, Repeat) {
       CreateWorkerGrid(), tensorShape, layoutDRAM, repeatDims, layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
-  EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   auto runtimeExp = op_model::OpModel<RepeatOp>::getOpRuntime(
       tensorShape, layoutDRAM, repeatDims, layoutDRAM);
@@ -1427,9 +1427,9 @@ TEST_F(OpModelTest, Repeat) {
       layoutL1Interleaved);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
-  EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   runtimeExp = op_model::OpModel<RepeatOp>::getOpRuntime(
       tensorShape, layoutDRAM, repeatDims, layoutL1Interleaved);
@@ -1441,9 +1441,9 @@ TEST_F(OpModelTest, Repeat) {
       layoutL1WSharded);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
   EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.outputL1BufferSize, 0);
 
   runtimeExp = op_model::OpModel<RepeatOp>::getOpRuntime(
       tensorShape, layoutL1Interleaved, repeatDims, layoutL1WSharded);
@@ -1473,9 +1473,9 @@ TEST_F(OpModelTest, Pad) {
       layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
-  EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   auto runtimeExp = op_model::OpModel<PadOp>::getOpRuntime(
       tensorShape, layoutDRAM, padding, padValue, false, layoutDRAM);
@@ -1487,9 +1487,9 @@ TEST_F(OpModelTest, Pad) {
       layoutL1Interleaved);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
-  EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_GT(opCstr.tensorL1PeakSize, 0);
+  EXPECT_GT(opCstr.outputL1BufferSize, 0);
 
   runtimeExp = op_model::OpModel<PadOp>::getOpRuntime(
       tensorShape, layoutDRAM, padding, padValue, false, layoutL1Interleaved);
@@ -1527,9 +1527,9 @@ TEST_F(OpModelTest, Sort) {
       CreateWorkerGrid(), tensorShape, layoutDRAM, 0, false, false, layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
-  EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   auto runtimeExp = op_model::OpModel<SortOp>::getOpRuntime(
       tensorShape, layoutDRAM, 0, false, false, layoutDRAM);
@@ -1541,9 +1541,9 @@ TEST_F(OpModelTest, Sort) {
       layoutL1Interleaved);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
-  EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_GT(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   runtimeExp = op_model::OpModel<SortOp>::getOpRuntime(
       tensorShape, layoutDRAM, 0, false, false, layoutL1Interleaved);
@@ -1604,7 +1604,7 @@ TEST_F(OpModelTest, MaxPool2dWithIndices) {
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
   EXPECT_GT(opCstr.peakL1MemorySize, 0);
   EXPECT_GT(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   constraintsExp = op_model::OpModel<MaxPool2dWithIndicesOp>::getOpConstraints(
       CreateWorkerGrid(), inputShape, layoutDRAM, batchSize, inputHeight,
@@ -1616,7 +1616,7 @@ TEST_F(OpModelTest, MaxPool2dWithIndices) {
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
   EXPECT_GT(opCstr.peakL1MemorySize, 0);
   EXPECT_GT(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   constraintsExp = op_model::OpModel<MaxPool2dWithIndicesOp>::getOpConstraints(
       CreateWorkerGrid(), inputShape, layoutL1Interleaved, batchSize,
@@ -1644,27 +1644,27 @@ TEST_F(OpModelTest, SoftmaxSharded) {
       inputLayout_l1_hs);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
   EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.outputL1BufferSize, 0);
 
   constraintsExp = OpModel<SoftmaxOp>::getOpConstraints(
       CreateWorkerGrid(), tensorShape, inputLayout_l1_hs, -2, false,
       inputLayout_l1_i);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
   EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.outputL1BufferSize, 0);
 
   constraintsExp = OpModel<SoftmaxOp>::getOpConstraints(
       CreateWorkerGrid(), tensorShape, inputLayout_l1_i, -2, false,
       inputLayout_l1_hs);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
   EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.outputL1BufferSize, 0);
 
   auto runtimeExp = OpModel<SoftmaxOp>::getOpRuntime(
       tensorShape, inputLayout_l1_i, -2, false, inputLayout_l1_hs);
@@ -1692,9 +1692,9 @@ TEST_F(OpModelTest, Typecast) {
       inputLayoutDRAMIF32);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
-  EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   auto runtimeExp = OpModel<TypecastOp>::getOpRuntime(
       tensorShape, inputLayoutDRAMIBF16,
@@ -2846,7 +2846,7 @@ protected:
                   outputLayoutReadBack] = constraintsExp.get();
       EXPECT_GT(cbSize, 0);
       EXPECT_GT(l1PeakSize, 0);
-      EXPECT_GE(outputSize, 0);
+      EXPECT_EQ(outputSize, 0);
     } else {
       // Must clean up the error
       llvm::consumeError(constraintsExp.takeError());
@@ -3353,8 +3353,8 @@ TEST_P(OpModelUpsampleParam, UpsampleParam) {
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
                 outputLayoutReadBack] = constraintsExp.get();
     EXPECT_GT(cbSize, 0);
-    EXPECT_GE(l1PeakSize, 0);
-    EXPECT_GE(outputSize, 0);
+    EXPECT_EQ(l1PeakSize, 0);
+    EXPECT_EQ(outputSize, 0);
   } else {
     // Must clean up the error
     llvm::consumeError(constraintsExp.takeError());
@@ -3479,10 +3479,10 @@ TEST_F(OpModelTest, EmbeddingBackwardOp) {
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayoutReadBack] =
       constraintsExp.get();
-  EXPECT_GE(cbSize, 0);
-  EXPECT_GE(l1PeakSize, 0);
-  EXPECT_GE(totalPeakSize, 0);
-  EXPECT_GE(outputSize, 0);
+  EXPECT_GT(cbSize, 0);
+  EXPECT_EQ(l1PeakSize, 0);
+  EXPECT_EQ(totalPeakSize, 0);
+  EXPECT_GT(outputSize, 0);
 
   auto runtimeExp = OpModel<EmbeddingBackwardOp>::getOpRuntime(
       inputShape, inputLayout, weightShape, weightLayout, inGradientShape,
@@ -3504,9 +3504,9 @@ TEST_F(OpModelTest, Where) {
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayoutReadBack] =
       constraintsExp.get();
-  EXPECT_GE(cbSize, 0);
-  EXPECT_GE(l1PeakSize, 0);
-  EXPECT_GE(outputSize, 0);
+  EXPECT_GT(cbSize, 0);
+  EXPECT_GT(l1PeakSize, 0);
+  EXPECT_GT(outputSize, 0);
 
   auto runtimeExp = OpModel<WhereOp>::getOpRuntime(
       inputTensorShape, inputLayout, inputTensorShape, inputLayout,
@@ -3539,9 +3539,9 @@ TEST_F(OpModelTest, EmptyOp) {
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayoutReadBack] =
       constraintsExp.get();
-  EXPECT_GE(cbSize, 0);
-  EXPECT_GE(l1PeakSize, 0);
-  EXPECT_GE(outputSize, 0);
+  EXPECT_EQ(cbSize, 0);
+  EXPECT_GT(l1PeakSize, 0);
+  EXPECT_GT(outputSize, 0);
 }
 
 TEST_F(OpModelTest, ArangeOp) {
@@ -3574,9 +3574,9 @@ TEST_F(OpModelTest, ArangeOp) {
   auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayoutReadBack] =
       constraintsExp.get();
   // Basic assertions to verify the op constraints are computed
-  EXPECT_GE(cbSize, 0);
-  EXPECT_GE(l1PeakSize, 0);
-  EXPECT_GE(outputSize, 0);
+  EXPECT_EQ(cbSize, 0);
+  EXPECT_EQ(l1PeakSize, 0);
+  EXPECT_EQ(outputSize, 0);
 }
 
 // ==== Creation Ops ====
@@ -3640,10 +3640,10 @@ TEST_F(OpModelTest, FullOp) {
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayoutReadBack] =
       constraintsExp.get();
-  EXPECT_GE(cbSize, 0);
-  EXPECT_GE(l1PeakSize, 0);
-  EXPECT_GE(totalPeakSize, 0);
-  EXPECT_GE(outputSize, 0);
+  EXPECT_EQ(cbSize, 0);
+  EXPECT_EQ(l1PeakSize, 0);
+  EXPECT_EQ(totalPeakSize, 0);
+  EXPECT_EQ(outputSize, 0);
 }
 
 class OpModelPrepareConv2dWeightsParam
@@ -3711,9 +3711,9 @@ TEST_P(OpModelPrepareConv2dWeightsParam, PrepareConv2dWeights) {
   const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
               outputLayoutReadBack] = constraintsExp.get();
   EXPECT_GE(cbSize, 0);
-  EXPECT_GE(l1PeakSize, 0);
-  EXPECT_GE(totalPeakSize, 0);
-  EXPECT_GE(outputSize, 0);
+  EXPECT_EQ(l1PeakSize, 0);
+  EXPECT_EQ(totalPeakSize, 0);
+  EXPECT_EQ(outputSize, 0);
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -3803,9 +3803,9 @@ TEST_P(OpModelPrepareConv2dBiasParam, PrepareConv2dBias) {
   const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
               outputLayoutReadBack] = constraintsExp.get();
   EXPECT_GE(cbSize, 0);
-  EXPECT_GE(l1PeakSize, 0);
-  EXPECT_GE(totalPeakSize, 0);
-  EXPECT_GE(outputSize, 0);
+  EXPECT_EQ(l1PeakSize, 0);
+  EXPECT_EQ(totalPeakSize, 0);
+  EXPECT_EQ(outputSize, 0);
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -4316,9 +4316,9 @@ TEST_F(OpModelTest, RandOp) {
       outputLayoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
-  EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   // Test RandOp with L1 output
   constraintsExp = OpModel<RandOp>::getOpConstraints(
@@ -4327,9 +4327,9 @@ TEST_F(OpModelTest, RandOp) {
       outputLayoutL1);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
-  EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_GT(opCstr.tensorL1PeakSize, 0);
+  EXPECT_GT(opCstr.outputL1BufferSize, 0);
 
   // Test RandOp with custom range parameters
   constraintsExp = OpModel<RandOp>::getOpConstraints(
@@ -4338,9 +4338,9 @@ TEST_F(OpModelTest, RandOp) {
       outputLayoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
-  EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   // Test RandOp with Float32 data type
   constraintsExp = OpModel<RandOp>::getOpConstraints(
@@ -4349,9 +4349,9 @@ TEST_F(OpModelTest, RandOp) {
       outputLayoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
-  EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 }
 
 TEST_F(OpModelTest, FillCacheOp) {
@@ -4378,9 +4378,9 @@ TEST_F(OpModelTest, FillCacheOp) {
 
   if (constraintsExp) {
     OpConstraints &opCstr = constraintsExp.get();
-    EXPECT_GE(opCstr.cbL1PeakSize, 0);
-    EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-    EXPECT_GE(opCstr.outputL1BufferSize, 0);
+    EXPECT_GT(opCstr.cbL1PeakSize, 0);
+    EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+    EXPECT_EQ(opCstr.outputL1BufferSize, 0);
   }
 
   // Test with L1 output layout
@@ -4407,9 +4407,9 @@ TEST_F(OpModelTest, FillCacheOp) {
       batchOffset, cacheLayoutL1);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   auto opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
   EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.outputL1BufferSize, 0);
 
   // Test FillCacheOp runtime estimation
   auto runtimeExp = OpModel<FillCacheOp>::getOpRuntime(
@@ -4451,9 +4451,9 @@ TEST_F(OpModelTest, UpdateCacheOp) {
 
   if (constraintsExp) {
     OpConstraints &opCstr = constraintsExp.get();
-    EXPECT_GE(opCstr.cbL1PeakSize, 0);
-    EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-    EXPECT_GE(opCstr.outputL1BufferSize, 0);
+    EXPECT_GT(opCstr.cbL1PeakSize, 0);
+    EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+    EXPECT_EQ(opCstr.outputL1BufferSize, 0);
   }
 
   // Test with L1 output layout
@@ -4480,9 +4480,9 @@ TEST_F(OpModelTest, UpdateCacheOp) {
       updateIndexShape, updateIndexLayoutL1, batchOffset, cacheLayoutL1);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   auto opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
   EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.outputL1BufferSize, 0);
 
   // Test UpdateCacheOp runtime estimation
   auto runtimeExp = OpModel<UpdateCacheOp>::getOpRuntime(
@@ -4521,9 +4521,9 @@ TEST_F(OpModelTest, PagedUpdateCacheOp) {
 
   if (constraintsExp) {
     OpConstraints &opCstr = constraintsExp.get();
-    EXPECT_GE(opCstr.cbL1PeakSize, 0);
+    EXPECT_GT(opCstr.cbL1PeakSize, 0);
     EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-    EXPECT_GE(opCstr.outputL1BufferSize, 0);
+    EXPECT_EQ(opCstr.outputL1BufferSize, 0);
     EXPECT_GE(opCstr.peakL1MemorySize, 0);
   }
 }
@@ -4554,10 +4554,10 @@ TEST_F(OpModelTest, PagedFillCacheOp) {
 
   if (constraintsExp) {
     OpConstraints &opCstr = constraintsExp.get();
-    EXPECT_GE(opCstr.cbL1PeakSize, 0);
-    EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-    EXPECT_GE(opCstr.outputL1BufferSize, 0);
-    EXPECT_GE(opCstr.peakL1MemorySize, 0);
+    EXPECT_GT(opCstr.cbL1PeakSize, 0);
+    EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+    EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+    EXPECT_GT(opCstr.peakL1MemorySize, 0);
   }
 
   auto runtimeExp = OpModel<PagedFillCacheOp>::getOpRuntime(
@@ -5657,9 +5657,9 @@ TEST_F(OpModelTest, AssignOp) {
       std::nullopt);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
-  EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   auto runtimeExp = OpModel<AssignOp>::getOpRuntime(
       tensorShape, tensorLayoutDRAM_F32, memoryConfigDRAM_F32, std::nullopt);
@@ -5679,9 +5679,9 @@ TEST_F(OpModelTest, AssignOp) {
       std::nullopt);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
   EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.outputL1BufferSize, 0);
 
   runtimeExp = OpModel<AssignOp>::getOpRuntime(
       tensorShape, tensorLayoutL1_F32, memoryConfigL1_F32, std::nullopt);
@@ -5704,9 +5704,9 @@ TEST_F(OpModelTest, AssignOp) {
       outputDtype);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
-  EXPECT_GE(opCstr.cbL1PeakSize, 0);
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
   EXPECT_GE(opCstr.tensorL1PeakSize, 0);
-  EXPECT_GE(opCstr.outputL1BufferSize, 0);
+  EXPECT_GT(opCstr.outputL1BufferSize, 0);
 
   runtimeExp = OpModel<AssignOp>::getOpRuntime(
       tensorShape, tensorLayoutL1_F32, memoryConfigL1_BF16, outputDtype);
