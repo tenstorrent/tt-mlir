@@ -5,15 +5,14 @@
 #ifndef TTMLIR_DIALECT_D2M_UTILS_VIRTUALGRID_H
 #define TTMLIR_DIALECT_D2M_UTILS_VIRTUALGRID_H
 
+#include "ttmlir/Asserts.h"
+#include "ttmlir/Utils.h"
+
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "ttmlir/Asserts.h"
-#include "ttmlir/Utils.h"
 #include "llvm/ADT/SmallVector.h"
-
-#include <cmath>
 
 namespace ttmlir::d2m::utils::grids {
 
