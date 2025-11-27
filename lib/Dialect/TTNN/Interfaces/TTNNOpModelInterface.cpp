@@ -249,7 +249,7 @@ getPoolingOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
       op_model::OpModel<OpT>::getOpConstraints, op, deviceGrid, inputShape,
       inputs[0], op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
       op.getChannels(), op.getKernelSize(), op.getStride(), op.getPadding(),
-      op.getDilation(), op.getCeilMode(), op.getInPlaceHalo(),
+      op.getDilation(), op.getCeilMode(), op.getReallocateHaloOutput(),
       opConfig.outputLayout);
 }
 
@@ -265,7 +265,7 @@ getPoolingOpRuntime(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
       op_model::OpModel<OpT>::getOpRuntime, op, inputShape, inputs[0],
       op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
       op.getChannels(), op.getKernelSize(), op.getStride(), op.getPadding(),
-      op.getDilation(), op.getCeilMode(), op.getInPlaceHalo(),
+      op.getDilation(), op.getCeilMode(), op.getReallocateHaloOutput(),
       opConfig.outputLayout);
 }
 
@@ -289,9 +289,9 @@ getMaxPool2dWithIndicesOpConstraints(OpT op,
       op_model::OpModel<OpT>::getOpConstraints, op, deviceGrid, inputShape,
       inputs[0], op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
       op.getChannels(), op.getKernelSize(), op.getStride(), op.getPadding(),
-      op.getDilation(), op.getCeilMode(), op.getInPlaceHalo(),
-      /*deallocate_input*/ false, /*reallocate_halo_output*/ true,
-      /*return_indices*/ true, opConfig.outputLayout);
+      op.getDilation(), op.getCeilMode(), op.getReallocateHaloOutput(),
+      /*deallocate_input*/ false, /*return_indices*/ true,
+      opConfig.outputLayout);
 }
 
 template <typename OpT>
@@ -307,9 +307,9 @@ getMaxPool2dWithIndicesOpRuntime(OpT op,
       op_model::OpModel<OpT>::getOpRuntime, op, inputShape, inputs[0],
       op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
       op.getChannels(), op.getKernelSize(), op.getStride(), op.getPadding(),
-      op.getDilation(), op.getCeilMode(), op.getInPlaceHalo(),
-      /*deallocate_input*/ false, /*reallocate_halo_output*/ true,
-      /*return_indices*/ true, opConfig.outputLayout);
+      op.getDilation(), op.getCeilMode(), op.getReallocateHaloOutput(),
+      /*deallocate_input*/ false, /*return_indices*/ true,
+      opConfig.outputLayout);
 }
 
 template <typename OpT>
@@ -3549,6 +3549,15 @@ static RMSNormOptionalArgs
 unpackRMSNormOptionalArgs(const std::vector<TTNNLayoutAttr> &inputs,
                           RMSNormOp op) {
   RMSNormOptionalArgs ret;
+  if (inputs.size() == 2) {
+    if (op.getWeight()) {
+      ret.weightShape = op.getWeight().getType().getShape();
+      ret.weightLayout = inputs[1];
+    } else if (op.getBias()) {
+      ret.biasShape = op.getBias().getType().getShape();
+      ret.biasLayout = inputs[1];
+    }
+  }
   if (inputs.size() == 3) {
     ret.weightShape = op.getWeight().getType().getShape();
     ret.biasShape = op.getBias().getType().getShape();
@@ -3561,12 +3570,6 @@ unpackRMSNormOptionalArgs(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<op_model::OpConstraints>
 RMSNormOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                             const OpConfig &opConfig) {
-  assert((inputs.size() == 1 || inputs.size() == 3) &&
-         "ttnn::rms_norm can either have 1 input tensor (representing the "
-         "main input) or 3 input tensors (representing main input tensor, "
-         "weight and bias). The usage of this op with 2 input tensors is "
-         "discouraged as it's ambiguous.");
-
   llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
   if (!check) {
     return check.takeError();
@@ -3588,12 +3591,6 @@ RMSNormOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<size_t>
 RMSNormOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                         const OpConfig &opConfig) {
-  assert((inputs.size() == 1 || inputs.size() == 3) &&
-         "ttnn::rms_norm can either have 1 input tensor (representing the "
-         "main input) or 3 input tensors (representing main input tensor, "
-         "weight and bias). The usage of this op with 2 input tensors is "
-         "discouraged as it's ambiguous.");
-
   const auto inputShape = getInput().getType().getShape();
 
   RMSNormOptionalArgs optionalArgs = unpackRMSNormOptionalArgs(inputs, *this);

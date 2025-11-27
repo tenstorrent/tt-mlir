@@ -13,6 +13,11 @@ table ConfigureRuntimeContextCommand {
   mlir_home: string;
   metal_home: string;
   current_device_runtime: tt.runtime.flatbuffer.DeviceRuntime;
+  memory_log_level: tt.runtime.flatbuffer.MemoryLogLevel;
+}
+
+table SetMemoryLogLevelCommand {
+  memory_log_level: tt.runtime.flatbuffer.MemoryLogLevel;
 }
 
 table GetSystemDescCommand {
@@ -142,6 +147,7 @@ table ShutdownCommand {
 
 union CommandType {
   ConfigureRuntimeContextCommand,
+  SetMemoryLogLevelCommand,
   GetSystemDescCommand,
   SetFabricConfigCommand,
   GetNumAvailableDevicesCommand,

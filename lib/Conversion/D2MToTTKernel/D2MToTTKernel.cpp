@@ -8,7 +8,6 @@
 #include "ttmlir/Dialect/D2M/Analysis/CBProducerConsumer.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
-#include "ttmlir/Dialect/D2M/IR/D2MTraits.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Utils.h"
@@ -380,6 +379,7 @@ struct OpMap {};
 // clang-format off
 using ComputeOpMap = OpMap<
   // FPU.
+  std::pair<d2m::TileBcastOp,       std::pair<ttkernel::UnaryBcastInitOp,          ttkernel::UnaryBcastTileOp>>,
   std::pair<d2m::TileMatmulOp,      std::pair<ttkernel::MatmulInitOp,              ttkernel::MatmulTilesOp>>,
   std::pair<d2m::TileMatmulBlockOp, std::pair<ttkernel::MatmulBlockInitOp,         ttkernel::ExperimentalMatmulBlockOp>>,
 
@@ -592,6 +592,28 @@ public:
       rewriter.create<ttkernel::ReduceTileOp>(
           op->getLoc(), cbA, cbB, adaptor.getA(), adaptor.getB(),
           adaptor.getC(), reduce_type, kernel_reduce_dim);
+    } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileBcastOp>) {
+      ttkernel::BcastType bcastType = ttkernel::BcastType::None;
+      switch (op.getBcastType()) {
+      case d2m::TileBcastType::Col:
+        bcastType = ttkernel::BcastType::Col;
+        break;
+      case d2m::TileBcastType::Row:
+        bcastType = ttkernel::BcastType::Row;
+        break;
+      case d2m::TileBcastType::Scalar:
+        bcastType = ttkernel::BcastType::Scalar;
+        break;
+      case d2m::TileBcastType::None:
+        bcastType = ttkernel::BcastType::None;
+        break;
+      }
+      auto cb = getCB(rewriter, op.getInput());
+      auto dstIdx = getDstIdxFromResult(op.getResult());
+      rewriter.create<ttkernel::UnaryBcastInitOp>(op->getLoc(), cb, cb,
+                                                  bcastType);
+      rewriter.create<ttkernel::UnaryBcastTileOp>(
+          op->getLoc(), cb, adaptor.getInput(), dstIdx, bcastType);
     } else if constexpr (arity == 2) {
       // Get DST index from result, or use LHS index for in-place operations.
       std::optional<Value> maybeDstIdx =
@@ -1612,6 +1634,7 @@ void populateD2MToTTKernelPatterns(
                ttkernel::MemRefSubviewRewriter,
 
                // FPU.
+               ttkernel::D2MFPUOpsRewriter<d2m::TileBcastOp>,
                ttkernel::D2MFPUOpsRewriter<d2m::TileMatmulOp>,
                ttkernel::D2MFPUOpsRewriter<d2m::TileMatmulBlockOp>,
 

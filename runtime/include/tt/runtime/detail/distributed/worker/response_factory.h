@@ -18,6 +18,10 @@ public:
                                  const std::string &errorMessage);
 
   static void
+  buildSetMemoryLogLevelResponse(::flatbuffers::FlatBufferBuilder &fbb,
+                                 uint64_t commandId);
+
+  static void
   buildConfigureRuntimeContextResponse(::flatbuffers::FlatBufferBuilder &fbb,
                                        uint64_t commandId);
 

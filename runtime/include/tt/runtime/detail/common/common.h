@@ -13,8 +13,8 @@
 #include "tt-metalium/host_api.hpp"
 #include "tt-metalium/mesh_device.hpp"
 
-#include "tt-metalium/fabric_edm_types.hpp"
-#include "tt-metalium/fabric_types.hpp"
+#include "tt-metalium/experimental/fabric/fabric_edm_types.hpp"
+#include "tt-metalium/experimental/fabric/fabric_types.hpp"
 #include "tt/runtime/detail/common/flatbuffer_operator_ostream.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/types.h"

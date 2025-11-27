@@ -2391,7 +2391,7 @@ TEST_F(OpModelBase, maxPool2dWithIndicesOp) {
   MemoryConfigAttr memoryConfigAttr = nullptr;
   TensorMemoryLayoutAttr appliedShardScheme = nullptr;
   bool ceilMode = false;
-  bool inPlaceHalo = false;
+  bool reallocateHaloOutput = true;
 
   llvm::SmallVector<int32_t, 2> kernelSize = {kernelHeight, kernelWidth};
   llvm::SmallVector<int32_t, 2> stride = {strideHeight, strideWidth};
@@ -2404,7 +2404,7 @@ TEST_F(OpModelBase, maxPool2dWithIndicesOp) {
       mlir::TypeRange{pooledValues.getType(), indices.getType()}, input,
       batchSize, inputHeight, inputWidth, numChannels, kernelSize, stride,
       padding, dilation, memoryConfigAttr, appliedShardScheme, ceilMode,
-      inPlaceHalo);
+      reallocateHaloOutput);
   maxPool2dWithIndices->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto constraintsExp = getOpConstraints(maxPool2dWithIndices.getOperation());
@@ -2738,8 +2738,8 @@ TEST_F(OpModelBase, Conv2dInterfaceConfigs) {
   const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
       constraintsExp.get();
 
-  EXPECT_EQ(cbSize, 69696);
-  EXPECT_EQ(l1PeakSize, 61836);
+  EXPECT_EQ(cbSize, 102464);
+  EXPECT_EQ(l1PeakSize, 61796);
   EXPECT_EQ(outputSize, 0);
 
   runtimeExp =
@@ -2805,7 +2805,7 @@ TEST_F(OpModelBase, conv2dInterfaceComputeKernelConfig) {
       constraintsExp.get();
 
   EXPECT_EQ(cbSize, 65600);
-  EXPECT_EQ(l1PeakSize, 61836);
+  EXPECT_EQ(l1PeakSize, 61796);
   EXPECT_EQ(outputSize, 0);
 
   auto runtimeExp =
@@ -2856,7 +2856,7 @@ TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
       /*activation=*/nullptr,
       /*deallocate_activation=*/BoolAttr::get(&context, false),
       /*reallocate_halo_output=*/BoolAttr::get(&context, true),
-      /*act_block_h_override=*/0, /*act_block_w_div=*/1,
+      /*act_block_h_override=*/32, /*act_block_w_div=*/1,
       /*reshard_if_not_optimal=*/BoolAttr::get(&context, false),
       /*override_sharding_config=*/BoolAttr::get(&context, false),
       /*shard_layout=*/std::nullopt,
@@ -3144,7 +3144,7 @@ TEST_F(OpModelBase, maxPool2DOp) {
   MemoryConfigAttr memoryConfigAttr = nullptr;
   TensorMemoryLayoutAttr appliedShardScheme = nullptr;
   bool ceilMode = false;
-  bool inPlaceHalo = false;
+  bool reallocateHaloOutput = true;
 
   llvm::SmallVector<int32_t, 2> kernelSize = {kernelHeight, kernelWidth};
   llvm::SmallVector<int32_t, 2> stride = {strideHeight, strideWidth};
@@ -3154,7 +3154,7 @@ TEST_F(OpModelBase, maxPool2DOp) {
   auto maxPool2DOp = builder.create<MaxPool2dOp>(
       builder.getUnknownLoc(), output.getType(), input, batchSize, inputHeight,
       inputWidth, numChannels, kernelSize, stride, padding, dilation,
-      memoryConfigAttr, appliedShardScheme, ceilMode, inPlaceHalo);
+      memoryConfigAttr, appliedShardScheme, ceilMode, reallocateHaloOutput);
   maxPool2DOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   constexpr int32_t numRuns = 10;
@@ -3214,7 +3214,7 @@ TEST_F(OpModelBase, avgPool2DOp) {
   MemoryConfigAttr memoryConfigAttr = nullptr;
   TensorMemoryLayoutAttr appliedShardScheme = nullptr;
   bool ceilMode = false;
-  bool inPlaceHalo = false;
+  bool reallocateHaloOutput = true;
 
   llvm::SmallVector<int32_t, 2> kernelSize = {kernelHeight, kernelWidth};
   llvm::SmallVector<int32_t, 2> stride = {strideHeight, strideWidth};
@@ -3224,7 +3224,7 @@ TEST_F(OpModelBase, avgPool2DOp) {
   auto avgPool2DOp = builder.create<AvgPool2dOp>(
       builder.getUnknownLoc(), output.getType(), input, batchSize, inputHeight,
       inputWidth, numChannels, kernelSize, stride, padding, dilation,
-      memoryConfigAttr, appliedShardScheme, ceilMode, inPlaceHalo);
+      memoryConfigAttr, appliedShardScheme, ceilMode, reallocateHaloOutput);
   avgPool2DOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto backend = dyn_cast<OpModel>(avgPool2DOp.getOperation());
