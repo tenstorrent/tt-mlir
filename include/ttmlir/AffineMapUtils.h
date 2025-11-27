@@ -85,6 +85,14 @@ inline mlir::AffineMap affineMapDropBackResults(mlir::AffineMap map,
       map.getNumResults() - numResultsToDrop, map.getNumResults())));
 }
 
+/// Returns a new affine map by taking just the first N results of input map
+inline mlir::AffineMap affineMapTakeFrontResults(mlir::AffineMap map,
+                                                 unsigned numResultsToTake) {
+  TT_assert(numResultsToTake <= map.getNumResults());
+  return map.dropResults(llvm::to_vector(
+      llvm::seq<int64_t>(numResultsToTake, map.getNumResults())));
+}
+
 /// Returns a new affine map with only the selected result.
 inline mlir::AffineMap affineMapSelectOneOutput(mlir::AffineMap map,
                                                 unsigned selectedResult) {
@@ -113,22 +121,26 @@ fullyApplyAffineMap(mlir::OpBuilder &builder, mlir::Location loc,
 /// Derives a new grid shape by sampling an affine map over a reference grid
 /// shape.
 inline llvm::SmallVector<int64_t>
-applyMapToGrid(mlir::ArrayRef<int64_t> gridShape, mlir::AffineMap map) {
-  using namespace llvm;
-  if (!map || map.isIdentity()) {
-    return SmallVector<int64_t>(gridShape.begin(), gridShape.end());
-  }
-
-  SmallVector<int64_t> resultGridShape =
-      SmallVector<int64_t>(map.getNumResults(), 0);
+applyMapToGrid(mlir::ArrayRef<int64_t> gridShape, mlir::AffineMap map,
+               bool assertResultStartsAtOrigin = true) {
   TT_assertv(gridShape.size() == map.getNumDims(),
              "Grid shape must have the same number of dimensions as the map");
-  ttmlir::utils::sample(gridShape, [&](SmallVector<int64_t, 8> point) {
-    SmallVector<int64_t> virtualPoint = map.compose(point);
+  llvm::SmallVector<int64_t> lowerBound = llvm::SmallVector<int64_t>(
+      map.getNumResults(), std::numeric_limits<int64_t>::max());
+  llvm::SmallVector<int64_t> resultGridShape =
+      llvm::SmallVector<int64_t>(map.getNumResults(), 0);
+  ttmlir::utils::sample(gridShape, [&](llvm::SmallVector<int64_t, 8> point) {
+    llvm::SmallVector<int64_t> virtualPoint = map.compose(point);
     for (size_t i = 0; i < virtualPoint.size(); ++i) {
       resultGridShape[i] = std::max(resultGridShape[i], virtualPoint[i] + 1);
+      lowerBound[i] = std::min(lowerBound[i], virtualPoint[i]);
     }
   });
+  if (assertResultStartsAtOrigin) {
+    TT_assertv(std::all_of(lowerBound.begin(), lowerBound.end(),
+                           [](int64_t x) { return x == 0; }),
+               "Grid must start at origin");
+  }
   return resultGridShape;
 }
 
