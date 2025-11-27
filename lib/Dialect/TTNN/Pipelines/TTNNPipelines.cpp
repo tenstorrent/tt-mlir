@@ -13,7 +13,7 @@
 #include "ttmlir/Dialect/TTCore/Utils/PopulateArgumentTypes.h"
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
-#include "ttmlir/Dialect/TTNN/Transforms/OptimizerPassesWrapper.h"
+#include "ttmlir/Dialect/TTNN/Transforms/DevicePassWrapper.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Support/Logger.h"
 #include "ttmlir/Transforms/Passes.h"
@@ -89,14 +89,14 @@ void createTTNNPipelineAnalysisPasses(
 #ifdef TTMLIR_ENABLE_OPMODEL
     ttnn::TTNNOptimizerOptions optimizerOptions(options);
     // Wrap all Optimizer passes with device lifecycle management.
-    OptimizerPassesWrapperOptions wrapperOptions;
+    DevicePassWrapperOptions wrapperOptions;
     wrapperOptions.devicePtr = options.devicePtr;
     wrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
 
     ttnn::TTNNOperationValidationAndFallbackOptions validationOptions{
         options.tensorL1UsageCap};
 
-    pm.addPass(createOptimizerPassesWrapper(
+    pm.addPass(createDevicePassWrapper(
         [optimizerOptions, validationOptions](OpPassManager &innerPm) {
           // All Optimizer passes will be run inside the wrapper.
           innerPm.addPass(
@@ -139,11 +139,11 @@ void createTTNNFusingPass(OpPassManager &pm,
   if (options.enableFusing) {
     if (options.optimizerPassEnabled) {
 #ifdef TTMLIR_ENABLE_OPMODEL
-      OptimizerPassesWrapperOptions wrapperOptions;
+      DevicePassWrapperOptions wrapperOptions;
       wrapperOptions.devicePtr = options.devicePtr;
       wrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
 
-      pm.addPass(createOptimizerPassesWrapper(
+      pm.addPass(createDevicePassWrapper(
           [](OpPassManager &innerPm) {
             TTNNFusingOptions fusingOptions;
             fusingOptions.enableOpConstraints = true;
