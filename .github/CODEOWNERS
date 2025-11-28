@@ -1,6 +1,6 @@
 # Misc
 /env/ @nsmithtt @vwellsTT
-*.fbs @jnie-TT @nsmithtt
+*.fbs @nsmithtt
 /.github/CODEOWNERS @vmilosevic @tapspatel @nsmithtt @sdjordjevicTT @tt-mpantic
 LICENSE @nsmithtt
 
@@ -46,7 +46,7 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 
 # TTNN Conversions
 /include/ttmlir/Conversion/TTIRToTTIRDecomposition/ @tenstorrent/forge-developers-mlir-core
-/include/ttmlir/Conversion/TTIRToTTNN/ @tenstorrent/forge-developers-mlir-core @jnie-TT
+/include/ttmlir/Conversion/TTIRToTTNN/ @tenstorrent/forge-developers-mlir-core
 /include/ttmlir/Conversion/TTNNToEmitC/ @tenstorrent/forge-developers-mlir-core
 /include/ttmlir/Conversion/TTNNToEmitPy/ @tenstorrent/forge-developers-mlir-core
 /lib/Conversion/TTIRToTTIRDecomposition/ @tenstorrent/forge-developers-mlir-core
