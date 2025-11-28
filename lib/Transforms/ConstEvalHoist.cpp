@@ -656,7 +656,9 @@ private:
                        builder.getUnitAttr());
     newFuncOp.setPrivate();
 
-    // Retain input attributes from original function.
+    // Retain connv2dWeight input attributes from original function.
+    // This is required because TTNNLayout pass places the
+    // conv2d weights in the system memory.
     for (auto [newArgIdx, input] : llvm::enumerate(inputs)) {
       // Check if input argument is also original function argument.
       auto *maybeFunctionArgument =
@@ -670,7 +672,6 @@ private:
       auto originalArgIdx = maybeFunctionArgument->getArgNumber();
 
       // Check for existence of ttmlir::utils::g_conv2dWeightAttrName
-      // TODO(dmilinkovic): this is ugly; consider copying all attributes
       if (auto attr = originalFunc.getArgAttrOfType<mlir::Attribute>(
               originalArgIdx, ttmlir::utils::g_conv2dWeightAttrName)) {
         newFuncOp.setArgAttr(newArgIdx, ttmlir::utils::g_conv2dWeightAttrName,
