@@ -14,7 +14,6 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/ValueRange.h"
-#include "mlir/Interfaces/DestinationStyleOpInterface.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/STLExtras.h"
@@ -23,6 +22,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/IR/Value.h"
 #include "llvm/Support/Casting.h"
+#include <mlir/Interfaces/DestinationStyleOpInterface.h>
 #include <string>
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
@@ -89,12 +89,6 @@ std::string generateHoistedFuncName(const OpsVectorType &ops) {
 
 // Helper function to collect input arguments to a set of operations.
 //
-// If an argument represents a DPS output of a result-producing op,
-// it is not considered an input argument and is skipped - instead of these,
-// internally created ttir.empty tensors will be used.
-//
-// This ugly logic related to DPS arguments should be temporary,
-// as the DPS semantics should be removed from the TTIR dialect in the future.
 static ValuesVectorType
 collectInputArguments(const OpsVectorType &operations,
                       const OpsVectorType &resultProviders) {
@@ -106,17 +100,6 @@ collectInputArguments(const OpsVectorType &operations,
       // input argument to the set of operations.
       if (llvm::is_contained(operations, operand.getDefiningOp())) {
         continue;
-      }
-
-      // Here, we know that the operand should be an input argument.
-
-      // If the argument is a DPS output of a result-producing op, skip it.
-      if (llvm::is_contained(resultProviders, op)) {
-        if (auto dpsOp = mlir::dyn_cast<DestinationStyleOpInterface>(op)) {
-          if (llvm::is_contained(dpsOp.getDpsInits(), operand)) {
-            continue;
-          }
-        }
       }
 
       // Insert the argument if not already present.
@@ -213,9 +196,15 @@ collectOutputProviders(const OpsVectorType &operations,
   OpsVectorType outputProviders;
   for (auto outputValue : outputValues) {
     auto *definingOp = outputValue.getDefiningOp();
+    
     assert(definingOp && "Output value does not have a defining operation!");
+    
     assert(llvm::is_contained(operations, definingOp) &&
            "Output value's defining operation is not in the hoisted ops set!");
+
+    assert(!mlir::isa<DestinationStyleOpInterface>(definingOp) &&
+           "DPS ops as result providers are not supported!");
+    
     outputProviders.push_back(definingOp);
   }
   return outputProviders;
@@ -349,49 +338,6 @@ static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
       // for later.
       if (llvm::is_contained(resultProviders, opToHoist)) {
         clonedResultProviders.push_back(clonedOp);
-
-        // If the result producer is a DPS op, its output argument might have
-        // been skipped in collectInputArguments - create an empty tensor to
-        // use as the DPS init instead.
-        //
-        // This ugly workaround should be temporary, as in the future, the DPS
-        // semantics should be removed entirely from the TTIR dialect.
-        if (auto dpsOp =
-                mlir::dyn_cast<DestinationStyleOpInterface>(opToHoist)) {
-          auto originalDpsInit = dpsOp.getDpsInits().front();
-
-          bool dpsInitSkipped = true;
-
-          // DPS init doesn't exist in the input arguments.
-          dpsInitSkipped &=
-              !llvm::is_contained(inputArguments, originalDpsInit);
-
-          // DPS init hasn't been produced by another op in the hoisted set.
-          dpsInitSkipped &= !llvm::is_contained(
-              descriptor.operations, originalDpsInit.getDefiningOp());
-
-          if (dpsInitSkipped) {
-            auto clonedDpsOp =
-                llvm::dyn_cast<DestinationStyleOpInterface>(clonedOp);
-
-            auto clonedDpsInit = clonedDpsOp.getDpsInits().front();
-
-            builder.setInsertionPoint(clonedOp);
-
-            auto tensorType =
-                mlir::dyn_cast<mlir::RankedTensorType>(clonedDpsInit.getType());
-
-            assert(tensorType && "DPS init is not a RankedTensorType!");
-
-            auto emptyTensor = builder.create<mlir::tt::ttir::EmptyOp>(
-                targetModule->getLoc(), tensorType.getShape(),
-                tensorType.getElementType(), tensorType.getEncoding());
-
-            clonedDpsOp.setDpsInitOperand(0, emptyTensor->getResult(0));
-
-            builder.setInsertionPointAfter(clonedOp);
-          }
-        }
       }
     }
 
