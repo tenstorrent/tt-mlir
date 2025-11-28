@@ -1688,16 +1688,9 @@ private:
 // Scaled sum to mean pattern matcher that transforms:
 //   multiply(sum<dim=[2,3]>(act), 1/(h*w))
 // into:
-//   mean<dim=3>(reshape(act, [N,C,1,H*W]))
-//
-// The pattern reshapes input from [N, C, H, W] to [N, C, 1, H*W], then applies
-// mean on dimension 3 with keepdim=true, as it is more efficient than reducing
-// by two dimensions.
-// If the original sum had keepdim=false, then the result is
-// reshaped to remove the spatial dimensions too.
+//   mean<dim=[2,3]>(act)
 //
 // Matches decomposed global average pooling from torch-xla.
-
 class ScaledSumToMeanPattern : public mlir::OpRewritePattern<MultiplyOp> {
   using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
 
@@ -1722,18 +1715,10 @@ public:
       return mlir::failure();
     }
 
-    auto input = sumOp.getInput();
-    auto loc = sumOp.getLoc();
+    auto meanOp = createMeanOp(rewriter, sumOp);
 
-    auto reshapedInput = createInputReshape(rewriter, loc, input);
-    auto meanOp = createMean(rewriter, loc, reshapedInput);
+    rewriter.replaceOp(multiplyOp, meanOp.getResult());
 
-    auto result = meanOp.getResult();
-    if (!sumOp.getKeepDim()) {
-      result = createOutputReshape(rewriter, loc, result);
-    }
-
-    rewriter.replaceOp(multiplyOp, result);
     return mlir::success();
   }
 
@@ -1775,6 +1760,114 @@ private:
     float tolerance =
         std::max(FLOAT_TOLERANCE, std::abs(expectedValue) * FLOAT_TOLERANCE);
     return isFullOpWithValue(fullOp, expectedValue, tolerance);
+  }
+
+  MeanOp createMeanOp(mlir::PatternRewriter &rewriter, SumOp sumOp) const {
+    auto outputType =
+        createPoolingOutputType(sumOp.getInput().getType(), sumOp.getKeepDim());
+
+    auto loc = sumOp.getLoc();
+
+    auto meanOp = rewriter.create<MeanOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_mean"), outputType,
+        sumOp.getInput(),
+        /*keep_dim=*/rewriter.getBoolAttr(sumOp.getKeepDim()),
+        /*dim_arg=*/
+        rewriter.getArrayAttr({rewriter.getI32IntegerAttr(SPATIAL_HEIGHT_DIM),
+                               rewriter.getI32IntegerAttr(SPATIAL_WIDTH_DIM)}));
+
+    return meanOp;
+  }
+
+  RankedTensorType createPoolingOutputType(RankedTensorType inputType,
+                                           bool keepDim) const {
+    SmallVector<int64_t> poolOutputShape;
+    ArrayRef<int64_t> inputShape = inputType.getShape();
+
+    if (keepDim) {
+      poolOutputShape.assign(inputShape.begin(), inputShape.end());
+      poolOutputShape[SPATIAL_HEIGHT_DIM] = 1;
+      poolOutputShape[SPATIAL_WIDTH_DIM] = 1;
+    } else {
+      poolOutputShape.reserve(inputShape.size() - 2);
+      for (size_t i = 0; i < inputShape.size(); ++i) {
+        if (i != SPATIAL_HEIGHT_DIM && i != SPATIAL_WIDTH_DIM) {
+          poolOutputShape.push_back(inputShape[i]);
+        }
+      }
+    }
+    return RankedTensorType::get(poolOutputShape, inputType.getElementType(),
+                                 inputType.getEncoding());
+  }
+};
+
+// Spatial mean optimization pattern that transforms:
+//   mean<dim=[1,2]>(act)
+// into:
+//   mean<dim=2>(reshape(act, [N,1,H*W,C]))
+//
+// The pattern reshapes input from [N, C, H, W] to [N, 1, H*W, C], then applies
+// mean on dimension 2 with keepdim=true, as it is more efficient than reducing
+// by two dimensions.
+// If the original mean had keepdim=false, then the result is
+// reshaped to remove the spatial dimensions too.
+class SpatialMeanOptimizationPattern : public mlir::OpRewritePattern<MeanOp> {
+  using mlir::OpRewritePattern<MeanOp>::OpRewritePattern;
+
+private:
+  static constexpr int64_t EXPECTED_INPUT_RANK = 4;
+  static constexpr int64_t SPATIAL_HEIGHT_DIM = 1;
+  static constexpr int64_t SPATIAL_WIDTH_DIM = 2;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(MeanOp meanOp, mlir::PatternRewriter &rewriter) const final {
+    if (!isValidMean(meanOp)) {
+      return mlir::failure();
+    }
+
+    auto input = meanOp.getInput();
+    auto loc = meanOp.getLoc();
+    bool keepDim = meanOp.getKeepDim();
+
+    auto reshapedInput = createInputReshape(rewriter, loc, input);
+    auto newMeanOp = createMean(rewriter, loc, reshapedInput);
+
+    auto result = newMeanOp.getResult();
+    if (!keepDim) {
+      result = createOutputReshape(rewriter, loc, result);
+    }
+
+    rewriter.replaceOp(meanOp, result);
+    return mlir::success();
+  }
+
+private:
+  static bool isValidMean(MeanOp meanOp) {
+    if (!meanOp || !meanOp.getDimArg() || !meanOp->hasOneUse()) {
+      return false;
+    }
+
+    auto inputShape = meanOp.getInput().getType().getShape();
+    if (inputShape.size() != EXPECTED_INPUT_RANK) {
+      return false;
+    }
+
+    auto reduceDims = *meanOp.getDimArg();
+    if (reduceDims.size() != 2) {
+      return false;
+    }
+
+    llvm::SmallSet<int64_t, 4> dimSet;
+    for (mlir::Attribute attr : reduceDims) {
+      auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr);
+      if (!intAttr) {
+        return false;
+      }
+      dimSet.insert(intAttr.getInt());
+    }
+    return dimSet.contains(SPATIAL_HEIGHT_DIM) &&
+           dimSet.contains(SPATIAL_WIDTH_DIM);
   }
 
   static ReshapeOp createInputReshape(mlir::PatternRewriter &rewriter,
@@ -2892,6 +2985,7 @@ public:
       patterns.add<AveragePoolingWithPoolingDenominatorFusionPattern>(
           &getContext());
       patterns.add<ScaledSumToMeanPattern>(&getContext());
+      patterns.add<SpatialMeanOptimizationPattern>(&getContext());
       patterns.add<MatmulWithBiasFusionPattern>(&getContext());
 
       patterns.add<GeluFusionPattern>(&getContext());
