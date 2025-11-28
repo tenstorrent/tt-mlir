@@ -56,7 +56,28 @@ class D2M_GenericRegionOp<string mnemonic, list<Trait> traits = []> :
     D2M_Op<mnemonic, [D2M_GenericParent] # traits> {}
 
 class D2M_GenericRegionComputeOp<string mnemonic, list<Trait> traits = []> :
-    D2M_GenericRegionOp<mnemonic, [D2M_GenericRegionComputeOpTrait, D2M_OperandLoadStoreRegisterOpInterface] # traits> {}
+    D2M_GenericRegionOp<mnemonic, [D2M_GenericRegionComputeOpTrait, D2M_OperandLoadStoreRegisterOpInterface] # traits> {
+
+  // Accessor methods for optional result DST register index attribute.
+  // The result_dst_index attribute is dynamically attached by DST allocation passes
+  // and communicates which DST register slice holds the result of this operation.
+  // This enables the backend to retrieve results without searching for store
+  // operations (which may not exist with register reuse optimization).
+  let extraClassDeclaration = [{
+    // Get the result DST index if it has been assigned, otherwise return std::nullopt.
+    std::optional<uint64_t> getResultDstIndex() {
+      if (auto attr = (*this)->getAttrOfType<::mlir::IntegerAttr>("result_dst_index")) {
+        return attr.getUInt();
+      }
+      return std::nullopt;
+    }
+
+    // Set the result DST index for this operation.
+    void setResultDstIndex(::mlir::OpBuilder &builder, uint64_t index) {
+      (*this)->setAttr("result_dst_index", builder.getI64IntegerAttr(index));
+    }
+  }];
+}
 
 class D2M_GenericRegionComputeUnaryDstOp<string mnemonic, list<Trait> traits = []> :
     D2M_GenericRegionComputeOp<mnemonic, traits> {
@@ -626,11 +647,15 @@ def D2M_AcquireDstOp : D2M_GenericRegionComputeOp<"acquire_dst",
     let summary = "Acquire Destination Register op.";
     let description = [{
       This op returns a memref with memory space dest that models the destination register
-      resource on tensorrent hardware. Example IR:
+      resource on Tenstorrent hardware. Example IR:
 
       ```mlir
       %dst = d2m.acquire_dst() : memref<2x4x!tt.tile<32x32, f32>, #tt.memory_space<dst>>
       ```
+
+      The acquire_dst operation models the beginning of DST register usage. The
+      TTKernelControlDstSection pass handles inserting the corresponding commit,
+      wait, and release operations around pack_tile operations.
     }];
 
     let results = (outs RegisterDstMemRef:$result);

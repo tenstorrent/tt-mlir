@@ -1,5 +1,6 @@
-// RUN: ttmlir-opt --ttir-to-ttmetal-pipeline -o %t.mlir %s
-// RUN: FileCheck %s --input-file=%t.mlir
+// RUN: ttmlir-opt --ttcore-register-device --ttir-to-ttmetal-pipeline="dst-allocation-strategy=legacy" --convert-d2m-to-ttmetal --canonicalize %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-to-ttmetal-pipeline="dst-allocation-strategy=graph-coloring-greedy" --convert-d2m-to-ttmetal --canonicalize %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-to-ttmetal-pipeline="dst-allocation-strategy=graph-coloring-cb" --convert-d2m-to-ttmetal --canonicalize %s | FileCheck %s
 // Higher-dimension tests requires:
 //   Permute: https://github.com/tenstorrent/tt-mlir/issues/3025
 //   Reshape: https://github.com/tenstorrent/tt-mlir/issues/3027

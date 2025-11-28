@@ -149,6 +149,14 @@ struct TTIRToTTMetalPipelineOptions
       llvm::cl::desc("Set policy for sizing stream buffers ('min', 'max')."),
       llvm::cl::init("max")};
 
+  // Option to control whether d2m-allocate inserts deallocs or delegates to
+  // d2m-insert-deallocs pass.
+  Option<bool> insertDeallocs{
+      *this, "insert-deallocs",
+      llvm::cl::desc("Insert deallocs in d2m-allocate pass (true) or use "
+                     "separate d2m-insert-deallocs pass (false)."),
+      llvm::cl::init(false)};
+
   // Option to ingest a mix of ttnn and ttir ops and lower through D2m to TTNN
   // GenericOp.
   Option<bool> ttnnMode{*this, "ttnn-mode",
@@ -162,6 +170,17 @@ struct TTIRToTTMetalPipelineOptions
       llvm::cl::desc("Target data format for global conversion: "
                      "f32, bf16, or bfp_bf8. Disabled by default."),
       llvm::cl::init("")};
+
+  // Option to select the DST allocation strategy for the pipeline.
+  // 'legacy' or 'bump': Uses the old incremental D2MInsertDstRegisterAccess
+  // allocator. The 'graph-coloring-greedy' and 'graph-coloring-cb'
+  // are passed through the D2MInsertDstRegisterGC pass.
+  Option<std::string> dstAllocationStrategy{
+      *this, "dst-allocation-strategy",
+      llvm::cl::desc(
+          "DST allocation strategy ('legacy', 'graph-coloring-greedy', or "
+          "'graph-coloring-cb')."),
+      llvm::cl::init("graph-coloring-cb")};
 };
 
 void createTTIRBufferizationPipeline(

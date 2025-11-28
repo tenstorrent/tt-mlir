@@ -1,4 +1,5 @@
 add_mlir_library(MLIRD2MUtils
+  TileMatmulUtils.cpp
   Utils.cpp
 
   ADDITIONAL_HEADER_DIRS
@@ -6,4 +7,5 @@ add_mlir_library(MLIRD2MUtils
 
   LINK_LIBS PUBLIC
   MLIRIR
+  MLIRLinalgTransforms
 )

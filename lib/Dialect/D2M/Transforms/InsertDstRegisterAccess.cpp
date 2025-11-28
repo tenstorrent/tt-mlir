@@ -5,12 +5,12 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+#include "ttmlir/Dialect/D2M/Utils/TileMatmulUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
-#include "mlir/Dialect/Affine/LoopUtils.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -31,15 +31,6 @@ struct OperationTypes {
   bool hasLinalgGeneric = false;
   bool hasMarkedAffineLoops = false;
 };
-
-static bool hasTileMatmul(linalg::GenericOp linalgGenericOp) {
-  bool hasTileMatmul = false;
-  linalgGenericOp->walk([&](d2m::TileMatmulOp) {
-    hasTileMatmul = true;
-    return WalkResult::interrupt();
-  });
-  return hasTileMatmul;
-}
 
 struct D2MInsertDstRegisterAccessRewriter final
     : public OpRewritePattern<GenericOp> {
@@ -145,7 +136,7 @@ public:
       // (these are tile_matmul ops when useTileMatmul=false).
       WalkResult walkResult =
           block.walk([&](linalg::GenericOp linalgGenericOp) {
-            if (!useTileMatmul && hasTileMatmul(linalgGenericOp)) {
+            if (!useTileMatmul && utils::hasTileMatmulOp(linalgGenericOp)) {
               // Only use tile matmul block rewrite when not in explicit
               // datamovement form. Explicit datamovement form should fall
               // through to regular linalg-to-affine conversion.
@@ -274,7 +265,7 @@ public:
     return {canonicalType, maxDstSlice};
   }
 
-  static AcquireDstOp insertAcquireDst(PatternRewriter &rewriter, Location loc,
+  static AcquireDstOp insertAcquireDst(RewriterBase &rewriter, Location loc,
                                        Region &region,
                                        const CopyInfoMap &copyInfos,
                                        Operation *outermostInnerComputeLoop,
@@ -302,7 +293,8 @@ public:
                         rewriter.getAttr<ttcore::MemorySpaceAttr>(
                             ttcore::MemorySpace::RegisterDst));
 
-    return rewriter.create<AcquireDstOp>(loc, dstType);
+    AcquireDstOp acquireDst = rewriter.create<AcquireDstOp>(loc, dstType);
+    return acquireDst;
   }
 
   // Walk all compute ops in the region and collect:
@@ -377,6 +369,16 @@ public:
           collectDstLoadOrStore<affine::AffineStoreOp>(
               gOp, potentialStore, copyInfos, dstSlice,
               outermostInnerComputeLoop);
+
+          // Attach result_dst_index attribute to the compute operation.
+          // This enables the backend to retrieve the DST index without
+          // searching for store operations (which may not exist with register
+          // reuse).
+          computeOp->setAttr(
+              "result_dst_index",
+              mlir::IntegerAttr::get(
+                  mlir::IntegerType::get(computeOp->getContext(), 64),
+                  dstSlice));
         } else {
           // The consumer is another compute op, set or allocate an intermediate
           // DST slice for it.
@@ -405,6 +407,13 @@ public:
                                     outermostInnerComputeLoop);
           } else {
             dstIntermediates[computeOp] = {dstSlice, outermostInnerComputeLoop};
+
+            // Attach result_dst_index attribute for intermediate values.
+            computeOp->setAttr(
+                "result_dst_index",
+                mlir::IntegerAttr::get(
+                    mlir::IntegerType::get(computeOp->getContext(), 64),
+                    dstSlice));
           }
         }
       }
@@ -872,7 +881,7 @@ public:
   //   tuple(l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices).
   static std::tuple<AffineMap, SmallVector<Value>, AffineMap,
                     SmallVector<Value>>
-  buildIndices(PatternRewriter &rewriter, Location loc,
+  buildIndices(RewriterBase &rewriter, Location loc,
                const mlir::IRMapping &irMapper, ValueRange currentIndices,
                int dstSlice, AffineMap map) {
     AffineMap l1AccessMap = map;
@@ -976,7 +985,7 @@ public:
     // handled by the tile_matmul_block rewrite in the pattern).
     WalkResult walkResult = moduleOp->walk([&](linalg::GenericOp op) {
       // Allow linalg ops with tile_matmul when useTileMatmul=false
-      if (!useTileMatmul && hasTileMatmul(op)) {
+      if (!useTileMatmul && utils::hasTileMatmulOp(op)) {
         return WalkResult::advance();
       }
       // All other linalg ops should have been converted

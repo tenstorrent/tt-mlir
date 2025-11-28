@@ -1,5 +1,6 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine="use-tile-matmul=true" --d2m-insert-dst-register-access="use-tile-matmul=true max-dst-physical-size-tiles=32" --canonicalize -o %t %s
-// RUN: FileCheck %s --input-file=%t
+// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine="use-tile-matmul=true" --d2m-insert-dst-register-access="use-tile-matmul=true max-dst-physical-size-tiles=32" --canonicalize %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine="use-tile-matmul=true" --d2m-insert-dst-register-gc="coloring-strategy=greedy use-tile-matmul=true max-dst-physical-size-tiles=32" --canonicalize %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine="use-tile-matmul=true" --d2m-insert-dst-register-gc="coloring-strategy=chaitin-briggs use-tile-matmul=true max-dst-physical-size-tiles=32" --canonicalize %s | FileCheck %s
 
 #l1_ = #ttcore.memory_space<l1>
 module {
@@ -58,9 +59,10 @@ module {
       // CHECK: %[[C0:.*]] = arith.constant 0 : index
       // CHECK: %[[DST:.*]] = d2m.acquire_dst() : memref<1x3x2x!ttcore.tile<32x32, f32>, #dst>
 
-      // Check conditional initialization loop structure (2D loop for initialization)
+      // Check conditional initialization loop structure (3D loop for initialization)
       // CHECK: affine.for %[[INIT_I:.*]] = 0 to 3 {
       // CHECK-NEXT: affine.for %[[INIT_J:.*]] = 0 to 2 {
+      // CHECK-NEXT: affine.for %[[INIT_K:.*]] = 0 to 3 {
 
       // Check for iteration index and conditional initialization
       // CHECK: %[[ITER2:.*]] = d2m.iter_index(2) : index
@@ -69,7 +71,7 @@ module {
 
       // Check initialization: load from l1, store to dst
       // CHECK: %[[INIT_VAL:.*]] = affine.load {{%.*}}[%[[INIT_I]], %[[INIT_J]]] : memref<3x2x!ttcore.tile<32x32, f32>, #l1>
-      // CHECK: affine.store %[[INIT_VAL]], %[[DST]][0, %[[INIT_I]], %[[INIT_J]]] : memref<1x3x2x!ttcore.tile<32x32, f32>, #dst>
+      // CHECK: affine.store %[[INIT_VAL]], %[[DST]][[[DSTIDX:[0-9]+]], %[[INIT_I]], %[[INIT_J]]] : memref<[[DSTSIZE2:[0-9]+]]x3x2x!ttcore.tile<32x32, f32>, #dst>
 
       // Check main computation loop structure (3D loop nest)
       // CHECK: affine.for %[[I:.*]] = 0 to 3 {
@@ -110,9 +112,10 @@ module {
         }
       }
 
-      // Check final writeback loop structure (2D loop)
+      // Check final writeback loop structure (3D loop)
       // CHECK: affine.for %[[WB_I:.*]] = 0 to 3 {
       // CHECK-NEXT: affine.for %[[WB_J:.*]] = 0 to 2 {
+      // CHECK-NEXT: affine.for %[[WB_K:.*]] = 0 to 3 {
 
       // Check writeback: load from dst, store to l1
       // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]][0, %[[WB_I]], %[[WB_J]]] : memref<1x3x2x!ttcore.tile<32x32, f32>, #dst>

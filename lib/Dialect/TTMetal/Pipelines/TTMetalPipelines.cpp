@@ -145,22 +145,42 @@ void createTTIRToTTMetalMiddleendPipeline(
         options.maxDstPhysicalSizeTiles;
   }
   pm.addPass(d2m::createD2MGenericTileComputeLoops(tileComputeLoopsOptions));
+
   d2m::D2MLinalgToAffineOptions linalgToAffineOptions;
   {
     linalgToAffineOptions.useTileMatmul = options.useTileMatmul;
     linalgToAffineOptions.markRootLoops = true;
   }
   pm.addPass(d2m::createD2MLinalgToAffine(linalgToAffineOptions));
-  d2m::D2MInsertDstRegisterAccessOptions insertDstRegisterAccessOptions;
-  {
-    insertDstRegisterAccessOptions.useTileMatmul = options.useTileMatmul;
-    insertDstRegisterAccessOptions.maxDstPhysicalSizeTiles =
-        options.maxDstPhysicalSizeTiles;
-  }
-  pm.addPass(
-      d2m::createD2MInsertDstRegisterAccess(insertDstRegisterAccessOptions));
 
-  pm.addPass(d2m::createD2MSFPUTileLoopFission());
+  // Dispatch to appropriate DST allocation strategy.
+  std::string dstStrategy = options.dstAllocationStrategy;
+  if (dstStrategy == "legacy" || dstStrategy == "bump") {
+    // Use legacy incremental allocator
+    // Order: DST Allocation → Fission (legacy works with this order)
+    d2m::D2MInsertDstRegisterAccessOptions insertDstRegisterAccessOptions;
+    {
+      insertDstRegisterAccessOptions.useTileMatmul = options.useTileMatmul;
+      insertDstRegisterAccessOptions.maxDstPhysicalSizeTiles =
+          options.maxDstPhysicalSizeTiles;
+    }
+    pm.addPass(
+        d2m::createD2MInsertDstRegisterAccess(insertDstRegisterAccessOptions));
+    pm.addPass(d2m::createD2MSFPUTileLoopFission());
+  } else if (dstStrategy == "graph-coloring-greedy" ||
+             dstStrategy == "graph-coloring-cb") {
+    // Use a graph coloring allocator with the specified strategy
+    // Order: Fission → DST Allocation (correct architectural order)
+    pm.addPass(d2m::createD2MSFPUTileLoopFission());
+    OpPassManager &funcPm = pm.nest<func::FuncOp>();
+    d2m::D2MInsertDstRegisterGCOptions gcOptions;
+    {
+      gcOptions.maxDstPhysicalSizeTiles = options.maxDstPhysicalSizeTiles;
+      gcOptions.coloringStrategy = dstStrategy;
+      gcOptions.useTileMatmul = options.useTileMatmul;
+    }
+    funcPm.addPass(d2m::createD2MInsertDstRegisterGC(gcOptions));
+  }
   pm.addPass(mlir::createCanonicalizerPass());
 
   OpPassManager &funcPm = pm.nest<func::FuncOp>();

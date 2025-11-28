@@ -12,6 +12,8 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/Affine/Utils.h"
 #include "mlir/Dialect/Affine/ViewLikeInterfaceUtils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -98,17 +100,39 @@ static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
   llvm_unreachable("Expected load or subview op");
 }
 
-static Value getDstIdxFromResult(Value d2mOpResult) {
+// Try to get the DST index from the result of a D2M operation.
+// Returns std::nullopt if no store to DST is found (intermediate value).
+static std::optional<Value>
+tryGetDstIdxFromResult(ConversionPatternRewriter &rewriter, Operation *op,
+                       Value d2mOpResult) {
+  Operation *defOp = d2mOpResult.getDefiningOp();
+  if (!defOp) {
+    return std::nullopt;
+  }
+
+  // First, try to use the result_dst_index attribute (preferred).
+  if (auto resultDstIndexAttr =
+          defOp->getAttrOfType<mlir::IntegerAttr>("result_dst_index")) {
+    return rewriter.create<arith::ConstantIndexOp>(op->getLoc(),
+                                                   resultDstIndexAttr.getInt());
+  }
+
+  // Fallback: find the store op that stores this result to DST.
   memref::StoreOp storeOp;
-  for (Operation *op : d2mOpResult.getUsers()) {
-    auto maybeStore = mlir::dyn_cast<memref::StoreOp>(op);
+  for (Operation *user : d2mOpResult.getUsers()) {
+    auto maybeStore = mlir::dyn_cast<memref::StoreOp>(user);
     if (maybeStore && ttcore::getMemorySpace(maybeStore.getMemRef()) ==
                           ttcore::MemorySpace::RegisterDst) {
-      storeOp = mlir::cast<memref::StoreOp>(op);
+      storeOp = maybeStore;
       break;
     }
   }
-  assert(storeOp && "Expected store op.");
+
+  if (!storeOp) {
+    // No store to DST - this is an intermediate value.
+    return std::nullopt;
+  }
+
   assert(storeOp.getIndices().size() == 1 &&
          "Expected single index in store op");
   return storeOp.getIndices().front();
@@ -158,13 +182,21 @@ static void setInsertionPointAfterOperands(OpBuilder &rewriter,
   Operation *latestDefOp = nullptr;
   for (Value operand : operands) {
     Operation *definingOp = operand.getDefiningOp();
-    if (!latestDefOp ||
-        (definingOp && !definingOp->isBeforeInBlock(latestDefOp))) {
+    if (!definingOp) {
+      continue;
+    }
+    // Only compare operations in the same block.
+    if (!latestDefOp) {
+      latestDefOp = definingOp;
+    } else if (definingOp->getBlock() == latestDefOp->getBlock() &&
+               latestDefOp->isBeforeInBlock(definingOp)) {
       latestDefOp = definingOp;
     }
   }
 
-  assert(latestDefOp != nullptr);
+  if (!latestDefOp) {
+    return;
+  }
 
   // Only move the insertion point if we're pushing it downward in the
   // topological order.
@@ -577,18 +609,30 @@ public:
         break;
       }
       auto cb = getCB(rewriter, op.getInput());
-      auto dstIdx = getDstIdxFromResult(op.getResult());
+      std::optional<Value> maybeDstIdx =
+          tryGetDstIdxFromResult(rewriter, op, op.getResult());
+      if (!maybeDstIdx) {
+        return rewriter.notifyMatchFailure(
+            op, "failed to get DST index from result");
+      }
+      Value dstIdx = maybeDstIdx.value();
       rewriter.create<ttkernel::UnaryBcastInitOp>(op->getLoc(), cb, cb,
                                                   bcastType);
       rewriter.create<ttkernel::UnaryBcastTileOp>(
           op->getLoc(), cb, adaptor.getInput(), dstIdx, bcastType);
     } else if constexpr (arity == 2) {
-      auto dstIdx = getDstIdxFromResult(op.getResult());
+      // Get DST index from result, or use LHS index for in-place operations.
+      std::optional<Value> maybeDstIdx =
+          tryGetDstIdxFromResult(rewriter, op, op.getResult());
+      Value resultDstIdx = maybeDstIdx.value_or(adaptor.getLhs());
       rewriter.create<InitOp>(op->getLoc(), getCB(rewriter, op.getLhs()),
                               getCB(rewriter, op.getRhs()));
       rewriter.create<FPUOp>(op->getLoc(), getCB(rewriter, op.getLhs()),
                              getCB(rewriter, op.getRhs()), adaptor.getLhs(),
-                             adaptor.getRhs(), dstIdx);
+                             adaptor.getRhs(), resultDstIdx);
+      // Replace the op with the DST index for downstream consumers.
+      rewriter.replaceOp(op, resultDstIdx);
+      return success();
     } else {
       return llvm::failure();
     }
@@ -777,16 +821,29 @@ public:
       } else {
         // Binary tile operation
         OpBuilder::InsertionGuard guard(rewriter);
-        const auto dstIdx = getDstIdxFromResult(op.getResult());
+        // Get DST index from result, or use LHS index for in-place operations.
+        Value resultDstIdx =
+            tryGetDstIdxFromResult(rewriter, op, op.getResult())
+                .value_or(adaptor.getLhs());
         setInsertionPointAfterOperands(
-            rewriter, {adaptor.getLhs(), adaptor.getRhs(), dstIdx},
+            rewriter, {adaptor.getLhs(), adaptor.getRhs(), resultDstIdx},
             /*allowHoisting*/ false);
         rewriter.create<SFPUOp>(op->getLoc(), adaptor.getLhs(),
-                                adaptor.getRhs(), dstIdx);
+                                adaptor.getRhs(), resultDstIdx);
       }
     }
 
-    rewriter.eraseOp(op);
+    // Replace the op with the DST index where the result is stored.
+    // For unary ops (arity == 1), use getInput(); for binary ops use getLhs().
+    Value fallbackIdx;
+    if constexpr (arity == 1) {
+      fallbackIdx = adaptor.getInput();
+    } else {
+      fallbackIdx = adaptor.getLhs();
+    }
+    Value resultDstIdx = tryGetDstIdxFromResult(rewriter, op, op.getResult())
+                             .value_or(fallbackIdx);
+    rewriter.replaceOp(op, resultDstIdx);
     return success();
   }
 };
@@ -874,12 +931,15 @@ public:
     Value tileIndex = adaptor.getInput();
 
     // Get the destination index where the result will be stored.
-    Value dstIdx = getDstIdxFromResult(op.getResult());
+    // Use input index for in-place operations if no explicit store.
+    Value resultDstIdx = tryGetDstIdxFromResult(rewriter, op, op.getResult())
+                             .value_or(tileIndex);
 
     rewriter.create<ttkernel::TransposeTileOp>(op->getLoc(), inCB, tileIndex,
-                                               dstIdx);
+                                               resultDstIdx);
 
-    rewriter.eraseOp(op);
+    // Replace the op with the DST index where the result is stored.
+    rewriter.replaceOp(op, resultDstIdx);
     return success();
   }
 };

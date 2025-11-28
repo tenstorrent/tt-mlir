@@ -1,5 +1,6 @@
-// RUN: ttmlir-opt --ttir-to-ttmetal-pipeline="use-tile-matmul=false" -o %t.mlir %s
-// RUN: FileCheck %s --input-file=%t.mlir
+// RUN: ttmlir-opt --ttir-to-ttmetal-pipeline="dst-allocation-strategy=legacy" %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttmetal-pipeline="dst-allocation-strategy=graph-coloring-greedy" %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttmetal-pipeline="dst-allocation-strategy=graph-coloring-cb" %s | FileCheck %s
 
 !ttype = tensor<128x96xf32>
 

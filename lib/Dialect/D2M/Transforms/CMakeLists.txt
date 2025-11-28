@@ -9,8 +9,10 @@ add_mlir_dialect_library(MLIRD2MTransforms
         GenericRegionsToFuncs.cpp
         GenericReplaceGlobals.cpp
         GenericTileComputeLoops.cpp
+        GraphColoringStrategy.cpp
         GridSelection.cpp
         InsertDstRegisterAccess.cpp
+        InsertDstRegisterGC.cpp
         InsertStreams.cpp
         LinalgToAffine.cpp
         LowerToLayout.cpp
@@ -30,4 +32,4 @@ add_mlir_dialect_library(MLIRD2MTransforms
         LINK_LIBS PUBLIC
         MLIRD2MAnalysis
         MLIRD2MUtils
-        )
+)
