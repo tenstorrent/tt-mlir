@@ -702,6 +702,37 @@ def test_matmul(device, shape_grid_layouts, dtype, graph_capture):
     "shape_grid_layouts",
     [
         (
+            ((1024, 1024)),
+            ((1024, 1024)),
+        ),
+        (
+            ((32, 2048)),
+            ((2048, 32)),
+        ),
+    ],
+)
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("graph_capture", [False])
+def test_matmul_dram(device, shape_grid_layouts, dtype, graph_capture):
+    input0, input1 = shape_grid_layouts
+    max_grid = (0, 0)
+    compiled_op = ttnn_jit.jit(
+        debug=True,
+        max_grid=max_grid,
+        graph_capture=graph_capture,
+        compile_only=False,
+    )(matmul)
+    input0_tensor = create_dram_tensor(device, input0, dtype)
+    input1_tensor = create_dram_tensor(device, input1, dtype)
+    output = compiled_op(input0_tensor, input1_tensor)
+    golden_output = ttnn.matmul(input0_tensor, input1_tensor)
+    assert all_close_check(output, golden_output)
+
+
+@pytest.mark.parametrize(
+    "shape_grid_layouts",
+    [
+        (
             ((1024, 1024), (7, 7), ttnn.TensorMemoryLayout.BLOCK_SHARDED),
             ((1024, 1024), (7, 7), ttnn.TensorMemoryLayout.BLOCK_SHARDED),
         ),
