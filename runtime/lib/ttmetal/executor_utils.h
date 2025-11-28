@@ -627,24 +627,7 @@ inline void checkHostTensorSizeMatchWithMeshBufferSize(
   std::visit(
       utils::overloaded{
           [&](const TensorDesc &tensorDesc) {
-            auto bufferSize = meshBuffer.get()->size();
-            auto tensorSize = tensorDesc.sizeBytes();
-            if (bufferSize != tensorSize) {
-              LOG_ERROR("Buffer size mismatch:");
-              LOG_ERROR("  meshBuffer.size() = ", bufferSize, " bytes (",
-                        bufferSize / 1024, " KB)");
-              LOG_ERROR("  tensorDesc.sizeBytes() = ", tensorSize, " bytes (",
-                        tensorSize / 1024, " KB)");
-              LOG_ERROR("  ratio = ",
-                        (static_cast<double>(bufferSize) / tensorSize), "x");
-              LOG_ERROR("  tensorDesc.shape = [", tensorDesc.shape[0], ", ",
-                        tensorDesc.shape[1], ", ", tensorDesc.shape[2], ", ",
-                        tensorDesc.shape[3], "]");
-              LOG_ERROR("  tensorDesc.stride = [", tensorDesc.stride[0], ", ",
-                        tensorDesc.stride[1], ", ", tensorDesc.stride[2], ", ",
-                        tensorDesc.stride[3], "]");
-            }
-            LOG_ASSERT(bufferSize == tensorSize);
+            LOG_ASSERT(meshBuffer.get()->size() == tensorDesc.sizeBytes());
           },
           [&](const HostBuffer &hostBuffer) {
             LOG_ASSERT(meshBuffer.get()->size() ==

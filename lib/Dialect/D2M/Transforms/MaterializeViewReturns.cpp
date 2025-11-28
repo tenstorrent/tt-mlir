@@ -62,12 +62,6 @@ Value materializeView(OpBuilder &builder, Location loc, Value viewResult) {
   auto emptyOp = builder.create<d2m::EmptyOp>(
       loc, tensorType.getShape(), tensorType.getElementType(), newLayout);
 
-  // Allocate output storage for the materialized view result.
-  auto layout =
-      mlir::dyn_cast_or_null<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
-  auto emptyOp = builder.create<d2m::EmptyOp>(
-      loc, tensorType.getShape(), tensorType.getElementType(), layout);
-
   // Extract the grid from the tensor's layout to determine core distribution.
   ttcore::GridAttr grid = getGridFromType(tensorType);
   TT_assert(grid != nullptr);
@@ -120,6 +114,8 @@ public:
         for (OpOperand &opOperand : returnOp->getOpOperands()) {
           Operation *definingOp = opOperand.get().getDefiningOp();
 
+          // Case 1: Direct view return (should not happen with proper
+          // pipelines).
           if (isViewOp(definingOp)) {
             // Insert a generic op to materialize the view before returning.
             // This ensures the tensor transformation represented by the view
@@ -127,6 +123,29 @@ public:
             Value materialized =
                 materializeView(builder, returnOp.getLoc(), opOperand.get());
             opOperand.set(materialized);
+            continue;
+          }
+
+          // Case 2: View consumed by device-to-host ToLayoutOp before return.
+          // Pattern: %view = view_layout ... -> %host = to_layout %view ->
+          // return %host. We need to materialize the view BEFORE the
+          // device-to-host transfer.
+          if (auto toLayoutOp =
+                  mlir::dyn_cast_if_present<d2m::ToLayoutOp>(definingOp)) {
+            if (toLayoutOp.isDeviceToHost()) {
+              Value toLayoutInput = toLayoutOp.getInput();
+              Operation *inputDefiningOp = toLayoutInput.getDefiningOp();
+
+              if (isViewOp(inputDefiningOp)) {
+                // Materialize the view before the device-to-host transfer.
+                builder.setInsertionPoint(toLayoutOp);
+                Value materialized = materializeView(
+                    builder, toLayoutOp.getLoc(), toLayoutInput);
+
+                // Update the ToLayoutOp to use the materialized value.
+                toLayoutOp.getInputMutable().assign(materialized);
+              }
+            }
           }
         }
       });

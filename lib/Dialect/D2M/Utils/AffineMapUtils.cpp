@@ -257,8 +257,9 @@ mlir::AffineMap buildDeviceToPhysicalMap(ArrayRef<int64_t> physicalShape,
   physicalExprs.reserve(rank);
 
   // Reconstruct physical coordinates from grid and shard coordinates.
-  // Device coordinates have form: [grid[0], grid[1], ..., shard[0], shard[1],
-  // ...] Physical index: physical[i] = grid[i] * shardSize + shard[i]
+  // Device coordinates have the form [grid[0], ..., grid[n], shard[0], ...,
+  // shard[n]], and the physical index is: physical[i] = grid[i] * shardSize +
+  // shard[i].
   for (size_t i = 0; i < rank; ++i) {
     mlir::AffineExpr gridDim = getAffineDimExpr(i, context);
     mlir::AffineExpr shardDim = getAffineDimExpr(rank + i, context);
@@ -434,18 +435,6 @@ buildLayoutTransformMap(mlir::tt::ttcore::MetalLayoutAttr fromLayout,
                         mlir::RankedTensorType fromType,
                         mlir::tt::ttcore::MetalLayoutAttr toLayout,
                         mlir::RankedTensorType toType) {
-  llvm::errs() << "  fromLayout: " << fromLayout << "\n";
-  llvm::errs() << "  toLayout: " << toLayout << "\n";
-  llvm::errs() << "  fromType.getShape(): [";
-  for (auto s : fromType.getShape()) {
-    llvm::errs() << s << ", ";
-  }
-  llvm::errs() << "]\n";
-  llvm::errs() << "  toType.getShape(): [";
-  for (auto s : toType.getShape()) {
-    llvm::errs() << s << ", ";
-  }
-  llvm::errs() << "]\n";
   MLIRContext *context = fromLayout.getContext();
 
   // Precondition: Both layouts must have the same logical shape.
@@ -475,7 +464,7 @@ buildLayoutTransformMap(mlir::tt::ttcore::MetalLayoutAttr fromLayout,
   auto toPhysicalShapeVec = toLayout.getPhysicalShape({}); // Scalars
   ArrayRef<int64_t> toPhysicalShape = toPhysicalShapeVec;
 
-  // Logical shape is always in scalars
+  // Logical shape is always in scalars.
   ArrayRef<int64_t> logicalShapeInUnits = logicalShape;
 
   // Grid shape is the number of shards, independent of units.
@@ -484,66 +473,19 @@ buildLayoutTransformMap(mlir::tt::ttcore::MetalLayoutAttr fromLayout,
   ArrayRef<int64_t> fromGridShape = fromLayout.getGridShape(fromType);
   ArrayRef<int64_t> toGridShape = toLayout.getGridShape(toType);
 
-  // DEBUG: Print shapes for tracing
-  llvm::errs() << "DEBUG buildLayoutTransformMap:\n";
-  llvm::errs() << "  Logical shape: [";
-  for (size_t i = 0; i < logicalShape.size(); i++) {
-    llvm::errs() << logicalShape[i];
-    if (i + 1 < logicalShape.size()) {
-      llvm::errs() << ", ";
-    }
-  }
-  llvm::errs() << "]\n";
-
-  llvm::errs() << "  FROM (input) physical: [";
-  for (size_t i = 0; i < fromPhysicalShape.size(); i++) {
-    llvm::errs() << fromPhysicalShape[i];
-    if (i + 1 < fromPhysicalShape.size()) {
-      llvm::errs() << ", ";
-    }
-  }
-  llvm::errs() << "], grid: [";
-  for (size_t i = 0; i < fromGridShape.size(); i++) {
-    llvm::errs() << fromGridShape[i];
-    if (i + 1 < fromGridShape.size()) {
-      llvm::errs() << ", ";
-    }
-  }
-  llvm::errs() << "]\n";
-
-  llvm::errs() << "  TO (output) physical: [";
-  for (size_t i = 0; i < toPhysicalShape.size(); i++) {
-    llvm::errs() << toPhysicalShape[i];
-    if (i + 1 < toPhysicalShape.size()) {
-      llvm::errs() << ", ";
-    }
-  }
-  llvm::errs() << "], grid: [";
-  for (size_t i = 0; i < toGridShape.size(); i++) {
-    llvm::errs() << toGridShape[i];
-    if (i + 1 < toGridShape.size()) {
-      llvm::errs() << ", ";
-    }
-  }
-  llvm::errs() << "]\n";
-
   // Build OUTPUT device → logical map.
   // OUTPUT device → OUTPUT physical.
   auto toDeviceToToPhysical =
       buildDeviceToPhysicalMap(toPhysicalShape, toGridShape, context);
-  llvm::errs() << "  TO device→physical: " << toDeviceToToPhysical << "\n";
 
   // OUTPUT physical → logical (inverse of collapse).
   auto toAlignments = toLayout.getDimAlignments();
   auto toPhysicalToLogical = buildPhysicalToLogicalMap(
       logicalShapeInUnits, toPhysicalShape, toAlignments,
       toLayout.getCollapsedIntervals(), context);
-  llvm::errs() << "  TO physical→logical: " << toPhysicalToLogical << "\n";
 
   // Compose: OUTPUT device → OUTPUT physical → logical.
   auto toDeviceToLogical = toPhysicalToLogical.compose(toDeviceToToPhysical);
-  llvm::errs() << "  TO device→logical (composed): " << toDeviceToLogical
-               << "\n";
 
   // Account for existing index map on OUTPUT.
   auto toExistingIndexMap = toLayout.getIndexAffineMap();
@@ -557,41 +499,29 @@ buildLayoutTransformMap(mlir::tt::ttcore::MetalLayoutAttr fromLayout,
   auto logicalToFromPhysical = buildLogicalToPhysicalMap(
       logicalShapeInUnits, fromPhysicalShape, fromAlignments,
       fromLayout.getCollapsedIntervals(), context);
-  llvm::errs() << "  FROM logical→physical: " << logicalToFromPhysical << "\n";
 
   // INPUT physical → INPUT device.
   auto fromPhysicalToFromDevice =
       buildPhysicalToDeviceMap(fromPhysicalShape, fromGridShape, context);
-  llvm::errs() << "  FROM physical→device: " << fromPhysicalToFromDevice
-               << "\n";
 
   // Compose: logical → INPUT physical → INPUT device.
   auto logicalToFromDevice =
       fromPhysicalToFromDevice.compose(logicalToFromPhysical);
-  llvm::errs() << "  FROM logical→device (composed): " << logicalToFromDevice
-               << "\n";
 
   // Simplify before composing with existing index maps to avoid exponential
   // complexity growth.
   logicalToFromDevice = mlir::simplifyAffineMap(logicalToFromDevice);
-  llvm::errs() << "  FROM logical→device (simplified): " << logicalToFromDevice
-               << "\n";
 
   // NOTE: Do NOT compose the INPUT index_map here. The index_map (core
   // virtualization map) will be composed later in DeviceAttr::getMemoryMap
   // when generating the actual DMA. Composing it here would apply it twice,
-  // causing incorrect coordinates (e.g., for virtual core 42: first apply
-  // gives (2, 5), second apply gives (2, 0) which is wrong).
+  // causing incorrect virtual-to-physical coordinate translation.
 
   // Compose: OUTPUT device → logical → INPUT device.
   auto result = logicalToFromDevice.compose(toDeviceToLogical);
-  llvm::errs() << "  FINAL (before simplify): " << result << "\n";
 
   // Simplify and return.
-  result = mlir::simplifyAffineMap(result);
-  llvm::errs() << "  FINAL (simplified): " << result << "\n";
-
-  return result;
+  return mlir::simplifyAffineMap(result);
 }
 
 } // namespace mlir::tt::d2m::utils
