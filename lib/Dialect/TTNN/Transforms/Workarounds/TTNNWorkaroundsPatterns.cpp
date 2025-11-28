@@ -393,7 +393,8 @@ public:
           workarounds::decomposition::
               ScaledDotProductAttentionDecodeConfigRewritePattern,
           workarounds::decomposition::
-              ScaledDotProductAttentionPadQueryRewritePattern>(&getContext());
+              ScaledDotProductAttentionPadTileDimsRewritePattern>(
+          &getContext());
 
       runRewritePatterns(std::move(patterns),
                          GreedyRewriteConfig::kNoLimit /*maxIterations*/);

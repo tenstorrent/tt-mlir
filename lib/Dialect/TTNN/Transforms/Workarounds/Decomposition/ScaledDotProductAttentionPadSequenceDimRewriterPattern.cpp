@@ -7,7 +7,9 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 // Workaround which adds padding to ScaledDotProductAttention query, key, and
-// value sequence dimensions to make them multiples of tile size (TILE_HEIGHT).
+// value tensors to make:
+// - sequence dimensions (dim -2) multiples of TILE_HEIGHT
+// - head dimensions (dim -1) multiples of TILE_WIDTH
 // The attention mask is also padded accordingly in both sequence dimensions.
 // After the operation, the result is sliced back to the original shape.
 // Metal issue reference: https://github.com/tenstorrent/tt-metal/issues/32502
@@ -43,8 +45,8 @@ Value padDimension(Value tensor, int64_t targetLen, int64_t dim,
       .getResult();
 }
 
-Value sliceSequenceDimension(Value tensor, int64_t originalSeqLen,
-                             PatternRewriter &rewriter, Location loc) {
+Value sliceDimension(Value tensor, int64_t originalLen, int64_t dim,
+                     PatternRewriter &rewriter, Location loc) {
   auto tensorType = mlir::dyn_cast<RankedTensorType>(tensor.getType());
   if (!tensorType) {
     return tensor;
@@ -52,14 +54,13 @@ Value sliceSequenceDimension(Value tensor, int64_t originalSeqLen,
 
   ArrayRef<int64_t> shape = tensorType.getShape();
   int64_t rank = tensorType.getRank();
-  int64_t seqDim = rank - 2;
 
   SmallVector<int64_t> slicedShape(shape.begin(), shape.end());
-  slicedShape[seqDim] = originalSeqLen;
+  slicedShape[dim] = originalLen;
 
   SmallVector<int32_t> begins(rank, 0);
   SmallVector<int32_t> ends(shape.begin(), shape.end());
-  ends[seqDim] = originalSeqLen;
+  ends[dim] = originalLen;
   SmallVector<int32_t> steps(rank, 1);
 
   auto slicedType =
@@ -74,7 +75,8 @@ Value sliceSequenceDimension(Value tensor, int64_t originalSeqLen,
 
 } // namespace
 
-LogicalResult ScaledDotProductAttentionPadQueryRewritePattern::matchAndRewrite(
+LogicalResult
+ScaledDotProductAttentionPadTileDimsRewritePattern::matchAndRewrite(
     ttnn::ScaledDotProductAttentionOp srcOp, PatternRewriter &rewriter) const {
 
   // Only apply workaround when attention mask is present
@@ -93,46 +95,66 @@ LogicalResult ScaledDotProductAttentionPadQueryRewritePattern::matchAndRewrite(
   int64_t keySeqLen = keyType.getShape()[keyType.getRank() - 2];
   int64_t valueSeqLen = valueType.getShape()[valueType.getRank() - 2];
 
-  bool queryNeedsPadding = (querySeqLen % TILE_HEIGHT != 0);
-  bool keyNeedsPadding = (keySeqLen % TILE_HEIGHT != 0);
-  bool valueNeedsPadding = (valueSeqLen % TILE_HEIGHT != 0);
+  // Query, key, and value share the same head_dim
+  int64_t headDim = queryType.getShape()[queryType.getRank() - 1];
 
-  if (!queryNeedsPadding && !keyNeedsPadding && !valueNeedsPadding) {
+  bool querySeqNeedsPadding = (querySeqLen % TILE_HEIGHT != 0);
+  bool keySeqNeedsPadding = (keySeqLen % TILE_HEIGHT != 0);
+  bool valueSeqNeedsPadding = (valueSeqLen % TILE_HEIGHT != 0);
+  bool headDimNeedsPadding = (headDim % TILE_WIDTH != 0);
+
+  bool anySeqNeedsPadding =
+      querySeqNeedsPadding || keySeqNeedsPadding || valueSeqNeedsPadding;
+
+  if (!anySeqNeedsPadding && !headDimNeedsPadding) {
     return failure();
   }
 
   Value paddedQuery = srcOp.getQuery();
   Value paddedMask = srcOp.getAttentionMask();
 
-  if (queryNeedsPadding) {
+  if (querySeqNeedsPadding) {
     int64_t paddedQuerySeqLen =
         llvm::divideCeil(querySeqLen, TILE_HEIGHT) * TILE_HEIGHT;
     paddedQuery =
-        padDimension(srcOp.getQuery(), paddedQuerySeqLen,
-                     queryType.getRank() - 2, rewriter, srcOp.getLoc());
+        padDimension(paddedQuery, paddedQuerySeqLen, queryType.getRank() - 2,
+                     rewriter, srcOp.getLoc());
     auto maskType = mlir::dyn_cast<RankedTensorType>(paddedMask.getType());
     paddedMask = padDimension(paddedMask, paddedQuerySeqLen,
                               maskType.getRank() - 2, rewriter, srcOp.getLoc());
   }
 
   Value paddedKey = srcOp.getKey();
-  if (keyNeedsPadding) {
+  if (keySeqNeedsPadding) {
     int64_t paddedKeySeqLen =
         llvm::divideCeil(keySeqLen, TILE_HEIGHT) * TILE_HEIGHT;
-    paddedKey = padDimension(srcOp.getKey(), paddedKeySeqLen,
-                             keyType.getRank() - 2, rewriter, srcOp.getLoc());
+    paddedKey = padDimension(paddedKey, paddedKeySeqLen, keyType.getRank() - 2,
+                             rewriter, srcOp.getLoc());
     auto maskType = mlir::dyn_cast<RankedTensorType>(paddedMask.getType());
     paddedMask = padDimension(paddedMask, paddedKeySeqLen,
                               maskType.getRank() - 1, rewriter, srcOp.getLoc());
   }
 
   Value paddedValue = srcOp.getValue();
-  if (valueNeedsPadding) {
+  if (valueSeqNeedsPadding) {
     int64_t paddedValueSeqLen =
         llvm::divideCeil(valueSeqLen, TILE_HEIGHT) * TILE_HEIGHT;
     paddedValue =
-        padDimension(srcOp.getValue(), paddedValueSeqLen,
-                     valueType.getRank() - 2, rewriter, srcOp.getLoc());
+        padDimension(paddedValue, paddedValueSeqLen, valueType.getRank() - 2,
+                     rewriter, srcOp.getLoc());
+  }
+
+  // Pad head_dim for all tensors (they share the same head_dim)
+  if (headDimNeedsPadding) {
+    int64_t paddedHeadDim = llvm::divideCeil(headDim, TILE_WIDTH) * TILE_WIDTH;
+    paddedQuery =
+        padDimension(paddedQuery, paddedHeadDim, queryType.getRank() - 1,
+                     rewriter, srcOp.getLoc());
+    paddedKey = padDimension(paddedKey, paddedHeadDim, keyType.getRank() - 1,
+                             rewriter, srcOp.getLoc());
+    paddedValue =
+        padDimension(paddedValue, paddedHeadDim, valueType.getRank() - 1,
+                     rewriter, srcOp.getLoc());
   }
 
   auto resultType = paddedQuery.getType();
@@ -141,11 +163,19 @@ LogicalResult ScaledDotProductAttentionPadQueryRewritePattern::matchAndRewrite(
       paddedMask, srcOp.getIsCausal(), srcOp.getScaleAttr(),
       srcOp.getSlidingWindowSizeAttr(), srcOp.getMemoryConfigAttr());
 
-  // Slice the result back to original query sequence length if it was padded
+  // Slice the result back to original dimensions if they were padded
   Value result = sdpaOp.getResult();
-  if (queryNeedsPadding) {
-    result =
-        sliceSequenceDimension(result, querySeqLen, rewriter, srcOp.getLoc());
+  auto resultTensorType = mlir::dyn_cast<RankedTensorType>(result.getType());
+  int64_t resultRank = resultTensorType.getRank();
+
+  if (querySeqNeedsPadding) {
+    result = sliceDimension(result, querySeqLen, resultRank - 2, rewriter,
+                            srcOp.getLoc());
+  }
+
+  if (headDimNeedsPadding) {
+    result = sliceDimension(result, headDim, resultRank - 1, rewriter,
+                            srcOp.getLoc());
   }
 
   rewriter.replaceOp(srcOp, result);
