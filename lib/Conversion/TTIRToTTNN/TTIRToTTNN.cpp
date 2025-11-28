@@ -573,12 +573,23 @@ private:
         std::distance(loadCachedOp.getResults().begin(),
                       llvm::find(loadCachedOp.getResults(), value));
 
+    if (valueIndex < 0 || valueIndex >= loadCachedOp.getNumResults()) {
+      return {op, value};
+    }
+
     auto callee = loadCachedOp.getCallee();
     auto calleeFunc = mlir::dyn_cast<func::FuncOp>(
         loadCachedOp->getParentOfType<mlir::ModuleOp>().lookupSymbol(callee));
+    if (!calleeFunc) {
+      return {op, value};
+    }
 
     auto *terminatorOp = calleeFunc.getBody().back().getTerminator();
     auto returnOp = mlir::dyn_cast<func::ReturnOp>(terminatorOp);
+    if (!returnOp) {
+      return {op, value};
+    }
+
     auto returnValue = returnOp.getOperand(valueIndex);
     auto *definingOp = returnValue.getDefiningOp();
 
