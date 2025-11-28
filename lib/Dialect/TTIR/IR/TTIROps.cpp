@@ -655,7 +655,7 @@ bool mlir::tt::ttir::Conv2dOp::isBiasCompatible(llvm::ArrayRef<int64_t> bias) {
         "bias must be a 5D tensor with shape (1,1,1,1,C_out)");
   }
 
-  if (this->getOutput().getType().getRank() != 5) {
+  if (this->getResult().getType().getRank() != 5) {
     return this->emitOpError("output must be a 5D tensor");
   }
 

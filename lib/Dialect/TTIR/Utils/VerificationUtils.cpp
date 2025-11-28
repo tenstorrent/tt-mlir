@@ -283,7 +283,7 @@ getConv3dInputDims(mlir::tt::ttir::Conv3dOp *op) {
 }
 
 OutputTensorDims3d getConv3dOutputDims(mlir::tt::ttir::Conv3dOp *op) {
-  auto outputType = op->getOutput().getType();
+  auto outputType = op->getResult().getType();
   OutputTensorDims3d outputDims;
   outputDims.batchSize =
       outputType.getDimSize(llvm::to_underlying(OutputDim3d::OUTPUT_BATCH));
