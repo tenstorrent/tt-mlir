@@ -3558,7 +3558,7 @@ def ttir_max_pool2d_with_indices(
     return output_nhwc, indices_nhwc.to(torch.int64)
 
 
-def ttir_scatter_in_dim_golden(
+def ttir_scatter_golden(
     input_tensor: GoldenMapTensor,
     index: GoldenMapTensor,
     source: GoldenMapTensor,
@@ -3717,7 +3717,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.ArgMaxOp: argmax_golden,
     ttir.LinearOp: linear_golden,
     ttir.DotGeneralOp: ttir_dot_general_golden,
-    ttir.ScatterInDimOp: ttir_scatter_in_dim_golden,
+    ttir.ScatterOp: ttir_scatter_golden,
     # Layout operations (identity functions) — accept and ignore extra kwargs like reinterpretLayout
     ttir.ToLayoutOp: (lambda x, **kwargs: x),
     # Cache operations

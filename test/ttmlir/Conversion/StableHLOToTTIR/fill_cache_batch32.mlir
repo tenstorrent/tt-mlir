@@ -1,6 +1,5 @@
-
-// RUN: ttmlir-opt --ttir-fusing -o %t.mlir %s
-// RUN: FileCheck %s --input-file=%t.mlir
+// RUN: ttmlir-opt --stablehlo-to-ttir-pipeline -o %t %s
+// RUN: FileCheck %s --input-file=%t
 module {
   func.func @forward(%cache: tensor<32x8x128x128xbf16>, %indices: tensor<32xi64>, %fill_value: tensor<32x8x32x128xbf16>) -> tensor<32x8x128x128xbf16> {
     // CHECK: "ttir.slice_static"
@@ -67,7 +66,10 @@ module {
     // CHECK: "ttir.fill_cache"
     // CHECK: "ttir.slice_static"
     // CHECK: "ttir.fill_cache"
-    %filled_cache = "ttir.scatter"(%cache, %indices, %fill_value) <{index_vector_dim = 1 : i32, indices_are_sorted = false, input_batching_dims = array<i32>, inserted_window_dims = array<i32: 2>, scatter_dims_to_operand_dims = array<i32: 2>, scatter_indices_batching_dims = array<i32>, unique_indices = false, update_window_dims = array<i32: 0, 1, 3>}> : (tensor<32x8x128x128xbf16>, tensor<32xi64>, tensor<32x8x32x128xbf16>) -> tensor<32x8x128x128xbf16>
+    %filled_cache = "stablehlo.scatter"(%cache, %indices, %fill_value) <{indices_are_sorted = false, scatter_dimension_numbers = #stablehlo.scatter<update_window_dims = [0, 1, 3], inserted_window_dims = [2], scatter_dims_to_operand_dims = [2], index_vector_dim = 1>, unique_indices = false}> ({
+    ^bb0(%arg3: tensor<bf16>, %arg4: tensor<bf16>):
+      stablehlo.return %arg4 : tensor<bf16>
+    }) : (tensor<32x8x128x128xbf16>, tensor<32xi64>, tensor<32x8x32x128xbf16>) -> tensor<32x8x128x128xbf16>
 
     return %filled_cache : tensor<32x8x128x128xbf16>
   }

@@ -363,10 +363,10 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
 
         return reverse_module, reverse_builder
 
-    ################ ttir.ScatterInDimOp ###############
+    ################ ttir.ScatterOp ###############
 
-    @tag(ttir.ScatterInDimOp)
-    def scatter_in_dim(
+    @tag(ttir.ScatterOp)
+    def scatter(
         self,
         in0: Operand,
         index: Operand,
@@ -376,7 +376,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
-        ttir_op = self.get_opview_from_method(TTIRBuilder.scatter_in_dim)
+        ttir_op = self.get_opview_from_method(TTIRBuilder.scatter)
 
         if output_type is None:
             output_type = self.get_type(in0)
@@ -412,13 +412,13 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
 
         return op
 
-    @parse(ttir.ScatterInDimOp)
-    def scatter_in_dim_parser(
+    @parse(ttir.ScatterOp)
+    def scatter_parser(
         self,
-        old_op: ttir.ScatterInDimOp,
+        old_op: ttir.ScatterOp,
         global_dict: Dict[Operand, Operand],
     ) -> Operation:
-        ttir_op = self.get_opview_from_parser(TTIRBuilder.scatter_in_dim_parser)
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.scatter_parser)
 
         in0 = global_dict[old_op.input]
         index = global_dict[old_op.index]
@@ -449,23 +449,23 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
 
         return new_op
 
-    @split(ttir.ScatterInDimOp)
-    def scatter_in_dim_split(
+    @split(ttir.ScatterOp)
+    def scatter_split(
         self,
-        old_op: ttir.ScatterInDimOp,
+        old_op: ttir.ScatterOp,
     ) -> Tuple[Module, TTIRBuilder]:
-        ttir_op = self.get_opview_from_split(TTIRBuilder.scatter_in_dim_split)
+        ttir_op = self.get_opview_from_split(TTIRBuilder.scatter_split)
 
         old_ctx = old_op.context
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
-            scatter_in_dim_module = Module.create()
-            scatter_in_dim_builder = TTIRBuilder(old_ctx, old_loc)
+            scatter_module = Module.create()
+            scatter_builder = TTIRBuilder(old_ctx, old_loc)
             op_input_types = [old_op.input.type, old_op.index.type, old_op.source.type]
 
-            with InsertionPoint(scatter_in_dim_module.body):
+            with InsertionPoint(scatter_module.body):
 
-                @func.func(*op_input_types, name="scatter_in_dim_module")
+                @func.func(*op_input_types, name="scatter_module")
                 def decorated_func(*inputs):
                     in0 = inputs[0]
                     index = inputs[1]
@@ -508,24 +508,20 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                         golden_output = op_golden_function(
                             input0, input_index, input_source, dim_attr
                         )
-                        scatter_in_dim_builder._set_golden_tensor(new_op, golden_output)
-                        scatter_in_dim_builder._set_output_ordering([new_op])
-                        scatter_in_dim_builder._set_golden_tensor(
-                            queried_input0, input0
-                        )
-                        scatter_in_dim_builder._set_golden_tensor(
-                            queried_index0, input_index
-                        )
-                        scatter_in_dim_builder._set_golden_tensor(
+                        scatter_builder._set_golden_tensor(new_op, golden_output)
+                        scatter_builder._set_output_ordering([new_op])
+                        scatter_builder._set_golden_tensor(queried_input0, input0)
+                        scatter_builder._set_golden_tensor(queried_index0, input_index)
+                        scatter_builder._set_golden_tensor(
                             queried_source0, input_source
                         )
-                        scatter_in_dim_builder._set_input_ordering(
+                        scatter_builder._set_input_ordering(
                             [queried_input0, queried_index0, queried_source0]
                         )
 
                     return new_op
 
-        return scatter_in_dim_module, scatter_in_dim_builder
+        return scatter_module, scatter_builder
 
     ################ ttir.MaxPool2dWithIndicesOp ###############
 

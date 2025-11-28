@@ -3634,23 +3634,6 @@ mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
 //===----------------------------------------------------------------------===//
 
 ::mlir::LogicalResult mlir::tt::ttir::ScatterOp::verify() {
-
-  ArrayRef<int64_t> inputShape =
-      mlir::cast<RankedTensorType>(getInput().getType()).getShape();
-
-  if (getUpdateWindowDims().size() + getInsertedWindowDims().size() !=
-      inputShape.size()) {
-    return emitOpError("Batching currently not supported");
-  }
-
-  return success();
-}
-
-//===----------------------------------------------------------------------===//
-// ScatterInDimOp
-//===----------------------------------------------------------------------===//
-
-::mlir::LogicalResult mlir::tt::ttir::ScatterInDimOp::verify() {
   const ::mlir::RankedTensorType inputType = getInput().getType();
   const ::mlir::RankedTensorType indexType = getIndex().getType();
   const ::mlir::RankedTensorType sourceType = getSource().getType();
