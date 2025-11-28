@@ -294,9 +294,11 @@ inline ttir::ReshapeOp createReshapeOp(PatternRewriter &rewriter, Location loc,
   auto shapeAttr =
       rewriter.getI32ArrayAttr(llvm::SmallVector<int32_t>(targetShape));
 
-  return ttir::utils::createDPSOp<ttir::ReshapeOp>(
-      rewriter, loc, targetShape, inputType.getElementType(),
-      inputType.getEncoding(), input, shapeAttr);
+  return rewriter.create<ttir::ReshapeOp>(
+      loc,
+      RankedTensorType::get(targetShape, inputType.getElementType(),
+                            inputType.getEncoding()),
+      input, shapeAttr);
 }
 
 // Helper function to flatten a tensor to 1D.

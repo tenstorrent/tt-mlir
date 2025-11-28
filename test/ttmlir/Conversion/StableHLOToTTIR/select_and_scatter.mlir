@@ -11,7 +11,7 @@ module @jit_test_select_and_scatter attributes {} {
     // CHECK: "ttir.max_pool2d_with_indices"
     // CHECK: ceil_mode = false, dilation = array<i32: 1, 1>, kernel = array<i32: 2, 2>, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 2, 2>
     // CHECK: "ttir.reshape"
-    // CHECK: <{shape = [1 : i32, 4 : i32, 1 : i32, 1 : i32]}> : (tensor<1x2x2x1xi32>, tensor<1x4x1x1xi32>) -> tensor<1x4x1x1xi32>
+    // CHECK: <{shape = [1 : i32, 4 : i32, 1 : i32, 1 : i32]}> : (tensor<1x2x2x1xi32>) -> tensor<1x4x1x1xi32>
     // CHECK: "ttir.scatter"
     // CHECK: "ttir.reshape"
     // CHECK: <{shape = [1 : i32, 4 : i32, 4 : i32, 1 : i32]}> : (tensor<1x16x1x1xbf16>) -> tensor<1x4x4x1xbf16>
@@ -37,7 +37,7 @@ module @jit_test_select_and_scatter attributes {} {
     // CHECK: "ttir.max_pool2d_with_indices"
     // CHECK: ceil_mode = false, dilation = array<i32: 1, 1>, kernel = array<i32: 2, 2>, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 2, 2>
     // CHECK: "ttir.reshape"
-    // CHECK: <{shape = [1 : i32, 9 : i32, 1 : i32, 1 : i32]}> : (tensor<1x3x3x1xi32>, tensor<1x9x1x1xi32>) -> tensor<1x9x1x1xi32>
+    // CHECK: <{shape = [1 : i32, 9 : i32, 1 : i32, 1 : i32]}> : (tensor<1x3x3x1xi32>) -> tensor<1x9x1x1xi32>
     // CHECK: "ttir.scatter"
     // CHECK: "ttir.reshape"
     // CHECK: <{shape = [1 : i32, 4 : i32, 4 : i32, 1 : i32]}> : (tensor<1x16x1x1xbf16>) -> tensor<1x4x4x1xbf16>

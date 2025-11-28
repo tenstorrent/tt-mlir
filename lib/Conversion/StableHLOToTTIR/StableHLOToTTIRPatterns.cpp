@@ -3207,12 +3207,11 @@ public:
               sliceOutputShape, updatesType.getElementType(), nullptr);
 
           // Create slice op.
-          auto slicedUpdates =
-              rewriter.create<ttir::SliceStaticOp>(
-                  scatterOp.getLoc(), slicedUpdatesType, updates,
-                  rewriter.getI32ArrayAttr(sliceStarts),
-                  rewriter.getI32ArrayAttr(sliceEnds),
-                  rewriter.getI32ArrayAttr(sliceSteps));
+          auto slicedUpdates = rewriter.create<ttir::SliceStaticOp>(
+              scatterOp.getLoc(), slicedUpdatesType, updates,
+              rewriter.getI32ArrayAttr(sliceStarts),
+              rewriter.getI32ArrayAttr(sliceEnds),
+              rewriter.getI32ArrayAttr(sliceSteps));
           // create fill cache op for this batch.
           cache = rewriter.create<mlir::tt::ttir::FillCacheOp>(
               scatterOp.getLoc(),
@@ -3391,8 +3390,8 @@ public:
 
       // Create ScatterInDimOp.
       rewriter.replaceOpWithNewOp<ttir::ScatterOp>(
-          srcOp, outputType, inputTensor, finalIndexTensor,
-          updateTensor, dimAttr);
+          srcOp, outputType, inputTensor, finalIndexTensor, updateTensor,
+          dimAttr);
       return success();
     }
 
@@ -3421,9 +3420,8 @@ public:
           mlir::cast<RankedTensorType>(flattenedInput.getType());
 
       Value scatterResult = rewriter.create<ttir::ScatterOp>(
-          srcOp.getLoc(), flattenedInputType.getShape(),
-          flattenedInputType.getElementType(), flattenedInputType.getEncoding(),
-          flattenedInput, finalIndexTensor, flattenedUpdate, dimAttr);
+          srcOp.getLoc(), flattenedInputType, flattenedInput, finalIndexTensor,
+          flattenedUpdate, dimAttr);
 
       // Reshape result back to original input shape.
       Value reshapedResult =
@@ -3655,11 +3653,13 @@ private:
       auto endsAttr = rewriter.getI32ArrayAttr(ends);
       auto stepsAttr = rewriter.getI32ArrayAttr(steps);
 
+      RankedTensorType sliceResultType = RankedTensorType::get(
+          sliceShape, indexType.getElementType(), indexType.getEncoding());
+
       Value dimensionIndices = rewriter.create<ttir::SliceStaticOp>(
           ttmlir::utils::appendLocationSuffix(
               op.getLoc(), "_dim_" + std::to_string(dim) + "_slice"),
-          sliceShape, indexType.getElementType(), indexType.getEncoding(),
-          indexTensor, beginsAttr, endsAttr, stepsAttr);
+          sliceResultType, indexTensor, beginsAttr, endsAttr, stepsAttr);
 
       // Multiply by stride if stride > 1.
       if (strides[dim] > 1) {
@@ -3674,22 +3674,26 @@ private:
                 op.getLoc(), "_stride_" + std::to_string(dim)),
             dimIndexType, scalarAttr);
 
+        RankedTensorType multiplyResultType = RankedTensorType::get(
+            sliceShape, indexType.getElementType(), indexType.getEncoding());
+
         dimensionIndices = rewriter.create<ttir::MultiplyOp>(
             ttmlir::utils::appendLocationSuffix(
                 op.getLoc(), "_dim_" + std::to_string(dim) + "_stride_mul"),
-            sliceShape, indexType.getElementType(), indexType.getEncoding(),
-            dimensionIndices, strideTensor);
+            multiplyResultType, dimensionIndices, strideTensor);
       }
 
       // Add to flat indices.
       if (flatIndices == nullptr) {
         flatIndices = dimensionIndices;
       } else {
+        RankedTensorType addResultType = RankedTensorType::get(
+            sliceShape, indexType.getElementType(), indexType.getEncoding());
+
         flatIndices = rewriter.create<ttir::AddOp>(
             ttmlir::utils::appendLocationSuffix(
                 op.getLoc(), "_add_dim_" + std::to_string(dim)),
-            sliceShape, indexType.getElementType(), indexType.getEncoding(),
-            flatIndices, dimensionIndices);
+            addResultType, flatIndices, dimensionIndices);
       }
     }
 
@@ -4100,9 +4104,8 @@ public:
 
       auto dimAttr = rewriter.getI32IntegerAttr(0);
       Value scatterResult = rewriter.create<ttir::ScatterOp>(
-          srcOp.getLoc(), flattenedInputType.getShape(),
-          flattenedInputType.getElementType(), flattenedInputType.getEncoding(),
-          flattenedInput, flatIndicesTensor, flattenedUpdate, dimAttr);
+          srcOp.getLoc(), flattenedInputType, flattenedInput, flatIndicesTensor,
+          flattenedUpdate, dimAttr);
 
       // Reshape result back to original output shape.
       rewriter.replaceOpWithNewOp<ttir::ReshapeOp>(
