@@ -62,6 +62,7 @@ union OpType {
   EmptyOp,
   EndTraceCaptureOp,
   ExecuteTraceOp,
+  ExperimentalEltwiseBinaryBackwardOp,
   FillCacheOp,
   FromDeviceOp,
   FullOp,
