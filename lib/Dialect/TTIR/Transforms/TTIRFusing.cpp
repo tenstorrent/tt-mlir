@@ -1686,9 +1686,9 @@ private:
 };
 
 // Scaled sum to mean pattern matcher that transforms:
-//   multiply(sum<dim=[2,3]>(act), 1/(h*w))
+//   multiply(sum<dim=[...]>(act), 1/(dim1*dim2*...))
 // into:
-//   mean<dim=[2,3]>(act)
+//   mean<dim=[...]>(act)
 //
 // Matches decomposed global average pooling from torch-xla.
 class ScaledSumToMeanPattern : public mlir::OpRewritePattern<MultiplyOp> {
@@ -1696,26 +1696,38 @@ class ScaledSumToMeanPattern : public mlir::OpRewritePattern<MultiplyOp> {
 
 private:
   static constexpr float FLOAT_TOLERANCE = 1e-4f;
-  static constexpr int64_t EXPECTED_INPUT_RANK = 4;
-  static constexpr int64_t SPATIAL_HEIGHT_DIM = 2;
-  static constexpr int64_t SPATIAL_WIDTH_DIM = 3;
 
 public:
   mlir::LogicalResult
   matchAndRewrite(MultiplyOp multiplyOp,
                   mlir::PatternRewriter &rewriter) const final {
     SumOp sumOp = multiplyOp.getLhs().getDefiningOp<SumOp>();
-    if (!isValidSum(sumOp)) {
+    if (!sumOp || !sumOp.getDimArg() || !sumOp->hasOneUse()) {
       return mlir::failure();
     }
 
-    FullOp fullOp = multiplyOp.getRhs().getDefiningOp<FullOp>();
+    auto reduceDims = *sumOp.getDimArg();
+    if (reduceDims.size() < 1) {
+      return mlir::failure();
+    }
+
+    // Extract reduce dimensions
+    SmallVector<int64_t> reduceDimIndices;
+    for (mlir::Attribute attr : reduceDims) {
+      auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr);
+      if (!intAttr) {
+        return mlir::failure();
+      }
+      reduceDimIndices.push_back(intAttr.getInt());
+    }
+
     auto inputShape = sumOp.getInput().getType().getShape();
-    if (!isValidScale(fullOp, inputShape)) {
+    FullOp fullOp = multiplyOp.getRhs().getDefiningOp<FullOp>();
+    if (!isValidScale(fullOp, inputShape, reduceDimIndices)) {
       return mlir::failure();
     }
 
-    auto meanOp = createMeanOp(rewriter, sumOp);
+    auto meanOp = createMeanOp(rewriter, sumOp, reduceDimIndices);
 
     rewriter.replaceOp(multiplyOp, meanOp.getResult());
 
@@ -1723,80 +1735,77 @@ public:
   }
 
 private:
-  static bool isValidSum(SumOp sumOp) {
-    if (!sumOp || !sumOp.getDimArg() || !sumOp->hasOneUse()) {
-      return false;
-    }
-
-    auto inputShape = sumOp.getInput().getType().getShape();
-    if (inputShape.size() != EXPECTED_INPUT_RANK) {
-      return false;
-    }
-
-    auto reduceDims = *sumOp.getDimArg();
-    if (reduceDims.size() != 2) {
-      return false;
-    }
-
-    llvm::SmallSet<int64_t, 2> dimSet;
-    for (mlir::Attribute attr : reduceDims) {
-      auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr);
-      if (!intAttr) {
-        return false;
-      }
-      dimSet.insert(intAttr.getInt());
-    }
-    return dimSet.contains(SPATIAL_HEIGHT_DIM) &&
-           dimSet.contains(SPATIAL_WIDTH_DIM);
-  }
-
-  static bool isValidScale(FullOp fullOp, ArrayRef<int64_t> inputShape) {
+  static bool isValidScale(FullOp fullOp, ArrayRef<int64_t> inputShape,
+                           ArrayRef<int64_t> reduceDimIndices) {
     if (!fullOp) {
       return false;
     }
-    int64_t h = inputShape[SPATIAL_HEIGHT_DIM];
-    int64_t w = inputShape[SPATIAL_WIDTH_DIM];
-    float expectedValue = 1.0f / static_cast<float>(h * w);
+
+    // Calculate expected value as 1 / (dim1 * dim2 * ...)
+    int64_t product = 1;
+    for (int64_t dim : reduceDimIndices) {
+      if (dim < 0 || static_cast<size_t>(dim) >= inputShape.size()) {
+        return false;
+      }
+      if (inputShape[dim] <= 0) {
+        return false;
+      }
+      product *= inputShape[dim];
+    }
+
+    float expectedValue = 1.0f / static_cast<float>(product);
     float tolerance =
         std::max(FLOAT_TOLERANCE, std::abs(expectedValue) * FLOAT_TOLERANCE);
     return isFullOpWithValue(fullOp, expectedValue, tolerance);
   }
 
-  MeanOp createMeanOp(mlir::PatternRewriter &rewriter, SumOp sumOp) const {
+  MeanOp createMeanOp(mlir::PatternRewriter &rewriter, SumOp sumOp,
+                      ArrayRef<int64_t> reduceDimIndices) const {
+    auto inputType = sumOp.getInput().getType();
     auto outputType =
-        createPoolingOutputType(sumOp.getInput().getType(), sumOp.getKeepDim());
+        createMeanOutputType(inputType, sumOp.getKeepDim(), reduceDimIndices);
 
     auto loc = sumOp.getLoc();
+
+    SmallVector<mlir::Attribute> dimAttrs;
+    for (int64_t dim : reduceDimIndices) {
+      dimAttrs.push_back(rewriter.getI32IntegerAttr(dim));
+    }
 
     auto meanOp = rewriter.create<MeanOp>(
         ttmlir::utils::appendLocationSuffix(loc, "_mean"), outputType,
         sumOp.getInput(),
         /*keep_dim=*/rewriter.getBoolAttr(sumOp.getKeepDim()),
-        /*dim_arg=*/
-        rewriter.getArrayAttr({rewriter.getI32IntegerAttr(SPATIAL_HEIGHT_DIM),
-                               rewriter.getI32IntegerAttr(SPATIAL_WIDTH_DIM)}));
+        /*dim_arg=*/rewriter.getArrayAttr(dimAttrs));
 
     return meanOp;
   }
 
-  RankedTensorType createPoolingOutputType(RankedTensorType inputType,
-                                           bool keepDim) const {
-    SmallVector<int64_t> poolOutputShape;
+  RankedTensorType
+  createMeanOutputType(RankedTensorType inputType, bool keepDim,
+                       ArrayRef<int64_t> reduceDimIndices) const {
+    SmallVector<int64_t> outputShape;
     ArrayRef<int64_t> inputShape = inputType.getShape();
 
+    llvm::SmallSet<int64_t, 4> reduceDimSet(reduceDimIndices.begin(),
+                                            reduceDimIndices.end());
+
     if (keepDim) {
-      poolOutputShape.assign(inputShape.begin(), inputShape.end());
-      poolOutputShape[SPATIAL_HEIGHT_DIM] = 1;
-      poolOutputShape[SPATIAL_WIDTH_DIM] = 1;
+      outputShape.assign(inputShape.begin(), inputShape.end());
+      for (int64_t dim : reduceDimIndices) {
+        if (static_cast<size_t>(dim) < outputShape.size()) {
+          outputShape[dim] = 1;
+        }
+      }
     } else {
-      poolOutputShape.reserve(inputShape.size() - 2);
+      outputShape.reserve(inputShape.size() - reduceDimIndices.size());
       for (size_t i = 0; i < inputShape.size(); ++i) {
-        if (i != SPATIAL_HEIGHT_DIM && i != SPATIAL_WIDTH_DIM) {
-          poolOutputShape.push_back(inputShape[i]);
+        if (!reduceDimSet.contains(static_cast<int64_t>(i))) {
+          outputShape.push_back(inputShape[i]);
         }
       }
     }
-    return RankedTensorType::get(poolOutputShape, inputType.getElementType(),
+    return RankedTensorType::get(outputShape, inputType.getElementType(),
                                  inputType.getEncoding());
   }
 };
