@@ -3350,7 +3350,7 @@ TEST_F(OpModelBase, GeluBackwardOp) {
   const auto &[cbSizeNone, l1PeakSizeNone, totalPeakSizeNone, outputSizeNone,
                outputLayoutNone] = constraintsExpNone.get();
   EXPECT_EQ(cbSizeNone, 12288);
-  EXPECT_EQ(l1PeakSizeNone, 2048);
+  EXPECT_EQ(l1PeakSizeNone, 6144);
   EXPECT_EQ(outputSizeNone, 2048);
 
   auto runtimeExpNone = getOpRuntime(geluBackwardOpNone.getOperation());
@@ -3377,7 +3377,7 @@ TEST_F(OpModelBase, GeluBackwardOp) {
   const auto &[cbSizeTanh, l1PeakSizeTanh, totalPeakSizeTanh, outputSizeTanh,
                outputLayoutTanh] = constraintsExpTanh.get();
   EXPECT_EQ(cbSizeTanh, 12288);
-  EXPECT_EQ(l1PeakSizeTanh, 2048);
+  EXPECT_EQ(l1PeakSizeTanh, 6144);
   EXPECT_EQ(outputSizeTanh, 2048);
 
   auto runtimeExpTanh = getOpRuntime(geluBackwardOpTanh.getOperation());
