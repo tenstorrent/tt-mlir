@@ -2,6 +2,76 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+"""
+TTIR Builder Module
+===================
+
+This module provides the TTIRBuilder class for constructing MLIR programs in the
+TTIR (Tenstorrent Intermediate Representation) dialect.
+
+The TTIR dialect represents high-level tensor operations in the TT-MLIR compilation
+stack, providing a hardware-agnostic intermediate representation that sits between
+frontend dialects (like StableHLO) and backend dialects (like TTNN and TTMetal).
+
+Classes
+-------
+TTIRBuilderMeta
+    Metaclass that builds operation mapping tables during class creation.
+TTIRBuilder
+    Main builder class providing Python API for TTIR operations.
+
+Key Features
+------------
+- **Automatic Operation Mapping**: Metaclass automatically builds lookup tables
+  from operation names to OpView classes and builder methods.
+- **Golden Tensor System**: Automatically computes and stores expected outputs
+  for validation during compilation and execution.
+- **Distributed Operations**: Support for multi-device operations with mesh
+  configuration and collective communication primitives.
+- **Comprehensive Operations**: Includes elementwise, reduction, convolution,
+  pooling, data movement, and special operations.
+
+Examples
+--------
+Basic TTIR module construction::
+
+    from ttmlir.ir import Context, Location
+    from builder.ttir.ttir_builder import TTIRBuilder
+    import torch
+
+    ctx = Context()
+    location = Location.unknown(ctx)
+    builder = TTIRBuilder(ctx, location)
+
+    # Create simple addition
+    input1 = builder.make_input((128, 128), torch.float32)
+    input2 = builder.make_input((128, 128), torch.float32)
+    result = builder.add(input1, input2)
+
+Distributed operation with device mesh::
+
+    from collections import OrderedDict
+
+    builder = TTIRBuilder(
+        ctx, location,
+        mesh_name="device_mesh",
+        mesh_dict=OrderedDict([("x", 2), ("y", 4)])  # 2x4 device grid
+    )
+
+    input_tensor = builder.make_input((256, 256), torch.float32)
+    reduced = builder.all_reduce(
+        input_tensor,
+        reduce_type="#ttcore.reduce_type<sum>",
+        cluster_axis=1
+    )
+
+See Also
+--------
+builder.base.builder : Base builder class providing common functionality
+builder.base.builder_utils : Compilation and execution utilities
+golden : Golden tensor computation module
+"""
+
 from __future__ import annotations
 import inspect
 from dataclasses import dataclass
@@ -19,7 +89,46 @@ from golden import *
 
 
 class TTIRBuilderMeta(type):
+    """
+    Metaclass for TTIRBuilder that builds operation mapping tables.
+
+    This metaclass automatically constructs lookup tables when the TTIRBuilder
+    class is created, establishing relationships between operation names, OpView
+    classes, builder methods, parser methods, and split methods.
+
+    Notes
+    -----
+    The metaclass is invoked once during class creation and builds four key maps:
+<<<<<<< HEAD
+    
+=======
+>>>>>>> 34eed86fd1987171b45b7dd8ee4f008f6e89e826
+    - opname_to_opview_map: Operation name strings to OpView classes
+    - opview_to_builder_map: OpView classes to builder method callables
+    - opview_to_parser_map: OpView classes to parser method callables
+    - opview_to_split_map: OpView classes to split method callables
+    """
+
     def __new__(mcls, name, bases, namespace):
+        """
+        Create and initialize the TTIRBuilder class with operation maps.
+
+        Parameters
+        ----------
+        mcls : type
+            The metaclass itself.
+        name : str
+            Name of the class being created.
+        bases : tuple
+            Base classes of the class being created.
+        namespace : dict
+            Class namespace dictionary containing attributes and methods.
+
+        Returns
+        -------
+        type
+            The created class with initialized operation mapping tables.
+        """
         cls = super().__new__(mcls, name, bases, namespace)
         cls.build_opname_to_opview_map()
         cls.build_opview_to_builder_map()
@@ -29,6 +138,102 @@ class TTIRBuilderMeta(type):
 
 
 class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
+    """
+<<<<<<< HEAD
+    TTIR (Tenstorrent Intermediate Representation) dialect builder.
+=======
+    TTIR dialect builder.
+>>>>>>> 34eed86fd1987171b45b7dd8ee4f008f6e89e826
+
+    The TTIRBuilder provides a Python API for constructing MLIR programs in the
+    TTIR dialect. It extends the base Builder class with TTIR-specific operations
+    including elementwise operations, reductions, convolutions, data movement,
+    and collective communication primitives.
+
+    The TTIR dialect represents high-level tensor operations in the TT-MLIR
+    compilation stack, sitting between frontend dialects (like StableHLO) and
+    backend dialects (like TTNN and TTMetal). Operations at this level are
+    hardware-agnostic but optimized for Tenstorrent architectures.
+
+    Attributes
+    ----------
+    opname_to_opview_map : Dict[str, OpView]
+        Maps operation name strings (e.g., "ttir.abs") to OpView classes.
+    opview_to_builder_map : Dict[OpView, Callable]
+        Maps OpView classes to their builder method implementations.
+    opview_to_parser_map : Dict[OpView, Callable]
+        Maps OpView classes to their parser method implementations.
+    opview_to_split_map : Dict[OpView, Callable]
+        Maps OpView classes to their split/decomposition methods.
+
+    Parameters
+    ----------
+    ctx : Context
+        MLIR context for IR construction.
+    location : Location
+        Default location for operations (for debugging/error reporting).
+    mesh_name : Union[List[str], str], optional
+        Name(s) of device mesh(es) for distributed operations. Default is "mesh".
+    mesh_dict : Union[List[OrderedDict[str, int]], OrderedDict[str, int]], optional
+        Mesh configuration(s) specifying device grid dimensions.
+        Default is OrderedDict([("x", 1), ("y", 1)]) for single device.
+    disable_golden_check : bool, optional
+        If True, disables golden tensor generation and validation. Default is False.
+
+    Examples
+    --------
+<<<<<<< HEAD
+    Basic TTIR module construction::
+=======
+    Basic TTIR module construction:
+>>>>>>> 34eed86fd1987171b45b7dd8ee4f008f6e89e826
+
+        ctx = Context()
+        location = Location.unknown(ctx)
+        builder = TTIRBuilder(ctx, location)
+
+        # Create simple addition
+        input1 = builder.make_input((128, 128), torch.float32)
+        input2 = builder.make_input((128, 128), torch.float32)
+        result = builder.add(input1, input2)
+
+<<<<<<< HEAD
+    Distributed operation with mesh::
+=======
+    Distributed operation with mesh:
+>>>>>>> 34eed86fd1987171b45b7dd8ee4f008f6e89e826
+
+        builder = TTIRBuilder(
+            ctx, location,
+            mesh_name="device_mesh",
+            mesh_dict=OrderedDict([("x", 2), ("y", 4)])  # 2x4 device grid
+        )
+
+        input_tensor = builder.make_input((256, 256), torch.float32)
+        # Perform all-reduce across devices
+        reduced = builder.all_reduce(
+            input_tensor,
+            reduce_type="#ttcore.reduce_type<sum>",
+            cluster_axis=1
+        )
+
+    Notes
+    -----
+    - All operation methods return OpView objects representing MLIR operations
+    - Golden tensors are automatically computed and stored for validation
+    - Operations support optional unit_attrs parameter for compiler hints
+    - The builder uses a generic _op_proxy method to handle common operation logic
+    - Mesh operations require appropriate mesh_name and mesh_dict configuration
+
+<<<<<<< HEAD
+    See Also
+    --------
+    Builder : Base builder class providing common functionality
+    builder.base.builder_utils.compile_and_execute_ttir : Compilation and execution utilities
+=======
+>>>>>>> 34eed86fd1987171b45b7dd8ee4f008f6e89e826
+    """
+
     opname_to_opview_map: Dict[str, OpView] = {}
     opview_to_builder_map: Dict[OpView, Callable] = {}
     opview_to_parser_map: Dict[OpView, Callable] = {}
@@ -46,11 +251,65 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         ] = OrderedDict([("x", 1), ("y", 1)]),
         disable_golden_check: bool = False,
     ):
+        """
+        Initialize TTIRBuilder with MLIR context and mesh configuration.
+<<<<<<< HEAD
+=======
+
+        Parameters
+        ----------
+        ctx : Context
+            MLIR context for IR construction. This context manages the lifetime
+            of MLIR objects and provides thread-local state.
+        location : Location
+            Default source location for operations. Used for error reporting and
+            debugging information in the generated IR.
+        mesh_name : Union[List[str], str], optional
+            Name(s) of device mesh(es) for distributed operations.
+            Can be a single string for one mesh or a list of strings for multiple
+            meshes. Default is "mesh".
+        mesh_dict : Union[List[OrderedDict[str, int]], OrderedDict[str, int]], optional
+            Mesh configuration(s) specifying device grid dimensions.
+            Each dictionary maps dimension names to sizes (e.g., {"x": 2, "y": 4}
+            for a 2x4 device grid). Can be a single OrderedDict or a list for
+            multiple meshes. Default is OrderedDict([("x", 1), ("y", 1)]).
+        disable_golden_check : bool, optional
+            If True, disables automatic golden tensor generation and validation.
+            This can improve build time during development but skips correctness
+            checks. Default is False.
+
+        Notes
+        -----
+        The builder inherits initialization from the base Builder class, which
+        sets up the MLIR context, location tracking, and golden tensor system.
+        """
         super().__init__(ctx, location, mesh_name, mesh_dict, disable_golden_check)
 
     # ----- Class helper methods -----
 
     def tag(name):
+        """
+        Decorator to tag a method with its corresponding OpView class.
+
+        Associates a builder method with a specific TTIR OpView class, enabling
+        automatic lookup from OpView to builder method.
+
+        Parameters
+        ----------
+        name : str or type
+            The OpView class or operation name to associate with the method.
+
+        Returns
+        -------
+        Callable
+            Decorator function that tags the method.
+
+        Examples
+        --------
+        @tag(ttir.AbsOp)
+        def abs(self, in0, unit_attrs=None):
+            return self._op_proxy(ttir.AbsOp, [in0], unit_attrs=unit_attrs)
+        """
         def decorator(func):
             func._tag = name
             return func
@@ -58,6 +317,29 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         return decorator
 
     def parse(name):
+        """
+        Decorator to tag a method as a parser for a specific OpView.
+
+        Associates a parser method with a TTIR OpView class, enabling automatic
+        lookup from OpView to parser method for MLIR parsing operations.
+
+        Parameters
+        ----------
+        name : str or type
+            The OpView class or operation name to associate with the parser.
+
+        Returns
+        -------
+        Callable
+            Decorator function that tags the parser method.
+
+        Examples
+        --------
+        @parse(ttir.ConvolutionOp)
+        def parse_convolution(self, op):
+            # Parse convolution operation attributes
+            pass
+        """
         def decorator(func):
             func._parse = name
             return func
@@ -65,6 +347,27 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         return decorator
 
     def split(name):
+        """
+        Decorator to tag a method as a split function for a specific OpView.
+
+        Associates a split method with a TTIR OpView class, enabling automatic
+        lookup from OpView to split method for operation decomposition.
+
+        Parameters
+        ----------
+        name : str or type
+            The OpView class or operation name to associate with the split function.
+
+        Returns
+        -------
+        Callable
+            Decorator function that tags the split method.
+
+        Notes
+        -----
+        Split functions are used to decompose complex operations into simpler
+        ones during compilation or optimization passes.
+        """
         def decorator(func):
             func._split = name
             return func
@@ -73,6 +376,18 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
 
     @classmethod
     def build_opname_to_opview_map(cls):
+        """
+        Build mapping from operation names to OpView classes.
+
+        Scans the ttir module for all OpView classes and creates a dictionary
+        mapping operation names (e.g., "ttir.abs") to their corresponding OpView
+        classes (e.g., ttir.AbsOp).
+
+        Notes
+        -----
+        This method is called automatically by the metaclass during class creation.
+        The mapping is stored in cls.opname_to_opview_map.
+        """
         for name, obj in inspect.getmembers(ttir, inspect.isclass):
             if issubclass(obj, OpView) and obj is not OpView:
                 op_name = getattr(obj, "OPERATION_NAME", None)
@@ -82,6 +397,21 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
 
     @classmethod
     def build_opview_to_builder_map(cls):
+        """
+        Build mapping from OpView classes to builder methods.
+
+        Scans the class for methods decorated with @tag and creates a dictionary
+        mapping OpView classes to their corresponding builder methods.
+
+        Notes
+        -----
+        This method is called automatically by the metaclass during class creation.
+        The mapping is stored in cls.opview_to_builder_map.
+
+        See Also
+        --------
+        tag : Decorator for tagging builder methods with OpView classes.
+        """
         for attr_name in dir(cls):
             attr = getattr(cls, attr_name)
             func = attr
@@ -91,6 +421,17 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
 
     @classmethod
     def build_opview_to_parser_map(cls):
+        """
+        Build mapping from OpView classes to parser methods.
+
+        Scans the class for methods decorated with @parse and creates a dictionary
+        mapping OpView classes to their corresponding parser methods.
+
+        Notes
+        -----
+        This method is called automatically by the metaclass during class creation.
+        The mapping is stored in cls.opview_to_parser_map.
+        """
         for attr_name in dir(cls):
             attr = getattr(cls, attr_name)
             func = attr
@@ -100,6 +441,22 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
 
     @classmethod
     def build_opview_to_split(cls, map):
+        """
+        Build mapping from OpView classes to split methods.
+
+        Scans the class for methods decorated with @split and creates a dictionary
+        mapping OpView classes to their corresponding split/decomposition methods.
+
+        Parameters
+        ----------
+        map : Any
+            Unused parameter (appears to be a typo in the method signature).
+
+        Notes
+        -----
+        This method is called automatically by the metaclass during class creation.
+        The mapping is stored in cls.opview_to_split_map.
+        """
         for attr_name in dir(cls):
             attr = getattr(cls, attr_name)
             func = attr
@@ -108,20 +465,417 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                 cls.opview_to_split_map[func._split] = attr
 
     def get_opview_from_method(self, method: func) -> OpView:
+        """
+        Get the OpView class associated with a builder method.
+
+        Parameters
+        ----------
+        method : func
+            Builder method to query.
+
+        Returns
+        -------
+        OpView or None
+            The OpView class tagged to the method, or None if not tagged.
+        """
         return getattr(method, "_tag", None)
 
     def get_opview_from_parser(self, parser: func) -> OpView:
+        """
+        Get the OpView class associated with a parser method.
+
+        Parameters
+        ----------
+        parser : func
+            Parser method to query.
+
+        Returns
+        -------
+        OpView or None
+            The OpView class tagged to the parser, or None if not tagged.
+        """
         return getattr(parser, "_parse", None)
 
     def get_opview_from_split(self, split: func) -> OpView:
+        """
+        Get the OpView class associated with a split method.
+
+        Parameters
+        ----------
+        split : func
+            Split method to query.
+
+        Returns
+        -------
+        OpView or None
+            The OpView class tagged to the split method, or None if not tagged.
+        """
         return getattr(split, "_split", None)
 
     def get_parser_from_opview(self, opview: OpView) -> Callable:
+        """
+        Get the parser method for a given OpView class.
+
+        Parameters
+        ----------
+        opview : OpView
+            The OpView class to find a parser for.
+
+        Returns
+        -------
+        Callable
+            The parser method associated with the OpView.
+
+        Raises
+        ------
+        AssertionError
+            If no parser is found for the given OpView.
+        """
         if opview not in self.opview_to_parser_map:
             assert False, f"No parser found for opview {opview}"
         return self.opview_to_parser_map.get(opview)
 
     def get_split_from_opview(self, opview: OpView) -> Callable:
+        """
+        Get the split method for a given OpView class.
+
+        Parameters
+        ----------
+        opview : OpView
+            The OpView class to find a split method for.
+
+        Returns
+        -------
+        Callable
+            The split method associated with the OpView.
+
+        Raises
+        ------
+        AssertionError
+            If no split method is found for the given OpView.
+        """
+        if opview not in self.opview_to_split_map:
+            assert False, f"No split function found for opview {opview}"
+        return self.opview_to_split_map.get(opview)
+
+    # ----- Private methods ----
+
+    # ----- Private methods -----
+
+    def _get_empty_op(self, tensor_type: RankedTensorType) -> OpView:
+        """Get TTIR-specific empty operation.
+
+        Creates a TTIR EmptyOp for the given tensor type. This overrides the
+        base Builder's abstract method to provide dialect-specific empty tensor
+        creation
+>>>>>>> 34eed86fd1987171b45b7dd8ee4f008f6e89e826
+
+        Parameters
+        ----------
+        ctx : Context
+            MLIR context for IR construction. This context manages the lifetime
+            of MLIR objects and provides thread-local state.
+        location : Location
+            Default source location for operations. Used for error reporting and
+            debugging information in the generated IR.
+        mesh_name : Union[List[str], str], optional
+            Name(s) of device mesh(es) for distributed operations.
+            Can be a single string for one mesh or a list of strings for multiple
+            meshes. Default is "mesh".
+        mesh_dict : Union[List[OrderedDict[str, int]], OrderedDict[str, int]], optional
+            Mesh configuration(s) specifying device grid dimensions.
+            Each dictionary maps dimension names to sizes (e.g., {"x": 2, "y": 4}
+            for a 2x4 device grid). Can be a single OrderedDict or a list for
+            multiple meshes. Default is OrderedDict([("x", 1), ("y", 1)]).
+        disable_golden_check : bool, optional
+            If True, disables automatic golden tensor generation and validation.
+            This can improve build time during development but skips correctness
+            checks. Default is False.
+
+        Notes
+        -----
+        The builder inherits initialization from the base Builder class, which
+        sets up the MLIR context, location tracking, and golden tensor system.
+        """
+        super().__init__(ctx, location, mesh_name, mesh_dict, disable_golden_check)
+
+    # ----- Class helper methods -----
+
+    def tag(name):
+        """
+        Decorator to tag a method with its corresponding OpView class.
+
+        Associates a builder method with a specific TTIR OpView class, enabling
+        automatic lookup from OpView to builder method.
+
+        Parameters
+        ----------
+        name : str or type
+            The OpView class or operation name to associate with the method.
+
+        Returns
+        -------
+        Callable
+            Decorator function that tags the method.
+
+        Examples
+        --------
+        @tag(ttir.AbsOp)
+        def abs(self, in0, unit_attrs=None):
+            return self._op_proxy(ttir.AbsOp, [in0], unit_attrs=unit_attrs)
+        """
+        def decorator(func):
+            func._tag = name
+            return func
+
+        return decorator
+
+    def parse(name):
+        """
+        Decorator to tag a method as a parser for a specific OpView.
+
+        Associates a parser method with a TTIR OpView class, enabling automatic
+        lookup from OpView to parser method for MLIR parsing operations.
+
+        Parameters
+        ----------
+        name : str or type
+            The OpView class or operation name to associate with the parser.
+
+        Returns
+        -------
+        Callable
+            Decorator function that tags the parser method.
+
+        Examples
+        --------
+        @parse(ttir.ConvolutionOp)
+        def parse_convolution(self, op):
+            # Parse convolution operation attributes
+            pass
+        """
+        def decorator(func):
+            func._parse = name
+            return func
+
+        return decorator
+
+    def split(name):
+        """
+        Decorator to tag a method as a split function for a specific OpView.
+
+        Associates a split method with a TTIR OpView class, enabling automatic
+        lookup from OpView to split method for operation decomposition.
+
+        Parameters
+        ----------
+        name : str or type
+            The OpView class or operation name to associate with the split function.
+
+        Returns
+        -------
+        Callable
+            Decorator function that tags the split method.
+
+        Notes
+        -----
+        Split functions are used to decompose complex operations into simpler
+        ones during compilation or optimization passes.
+        """
+        def decorator(func):
+            func._split = name
+            return func
+
+        return decorator
+
+    @classmethod
+    def build_opname_to_opview_map(cls):
+        """
+        Build mapping from operation names to OpView classes.
+
+        Scans the ttir module for all OpView classes and creates a dictionary
+        mapping operation names (e.g., "ttir.abs") to their corresponding OpView
+        classes (e.g., ttir.AbsOp).
+
+        Notes
+        -----
+        This method is called automatically by the metaclass during class creation.
+        The mapping is stored in cls.opname_to_opview_map.
+        """
+        for name, obj in inspect.getmembers(ttir, inspect.isclass):
+            if issubclass(obj, OpView) and obj is not OpView:
+                op_name = getattr(obj, "OPERATION_NAME", None)
+
+                if op_name is not None:
+                    cls.opname_to_opview_map[op_name] = obj
+
+    @classmethod
+    def build_opview_to_builder_map(cls):
+        """
+        Build mapping from OpView classes to builder methods.
+
+        Scans the class for methods decorated with @tag and creates a dictionary
+        mapping OpView classes to their corresponding builder methods.
+
+        Notes
+        -----
+        This method is called automatically by the metaclass during class creation.
+        The mapping is stored in cls.opview_to_builder_map.
+
+        See Also
+        --------
+        tag : Decorator for tagging builder methods with OpView classes.
+        """
+        for attr_name in dir(cls):
+            attr = getattr(cls, attr_name)
+            func = attr
+
+            if callable(attr) and hasattr(func, "_tag"):
+                cls.opview_to_builder_map[func._tag] = attr
+
+    @classmethod
+    def build_opview_to_parser_map(cls):
+        """
+        Build mapping from OpView classes to parser methods.
+
+        Scans the class for methods decorated with @parse and creates a dictionary
+        mapping OpView classes to their corresponding parser methods.
+
+        Notes
+        -----
+        This method is called automatically by the metaclass during class creation.
+        The mapping is stored in cls.opview_to_parser_map.
+
+        See Also
+        --------
+        parse : Decorator for tagging parser methods with OpView classes.
+        """
+        for attr_name in dir(cls):
+            attr = getattr(cls, attr_name)
+            func = attr
+
+            if callable(attr) and hasattr(func, "_parse"):
+                cls.opview_to_parser_map[func._parse] = attr
+
+    @classmethod
+    def build_opview_to_split(cls, map):
+        """
+        Build mapping from OpView classes to split methods.
+
+        Scans the class for methods decorated with @split and creates a dictionary
+        mapping OpView classes to their corresponding split/decomposition methods.
+
+        Parameters
+        ----------
+        map : Any
+            Unused parameter (appears to be a typo in the method signature).
+
+        Notes
+        -----
+        This method is called automatically by the metaclass during class creation.
+        The mapping is stored in cls.opview_to_split_map.
+
+        See Also
+        --------
+        split : Decorator for tagging split methods with OpView classes.
+        """
+        for attr_name in dir(cls):
+            attr = getattr(cls, attr_name)
+            func = attr
+
+            if callable(attr) and hasattr(func, "_split"):
+                cls.opview_to_split_map[func._split] = attr
+
+    def get_opview_from_method(self, method: func) -> OpView:
+        """
+        Get the OpView class associated with a builder method.
+
+        Parameters
+        ----------
+        method : func
+            Builder method to query.
+
+        Returns
+        -------
+        OpView or None
+            The OpView class tagged to the method, or None if not tagged.
+        """
+        return getattr(method, "_tag", None)
+
+    def get_opview_from_parser(self, parser: func) -> OpView:
+        """
+        Get the OpView class associated with a parser method.
+
+        Parameters
+        ----------
+        parser : func
+            Parser method to query.
+
+        Returns
+        -------
+        OpView or None
+            The OpView class tagged to the parser, or None if not tagged.
+        """
+        return getattr(parser, "_parse", None)
+
+    def get_opview_from_split(self, split: func) -> OpView:
+        """
+        Get the OpView class associated with a split method.
+
+        Parameters
+        ----------
+        split : func
+            Split method to query.
+
+        Returns
+        -------
+        OpView or None
+            The OpView class tagged to the split method, or None if not tagged.
+        """
+        return getattr(split, "_split", None)
+
+    def get_parser_from_opview(self, opview: OpView) -> Callable:
+        """
+        Get the parser method for a given OpView class.
+
+        Parameters
+        ----------
+        opview : OpView
+            The OpView class to find a parser for.
+
+        Returns
+        -------
+        Callable
+            The parser method associated with the OpView.
+
+        Raises
+        ------
+        AssertionError
+            If no parser is found for the given OpView.
+        """
+        if opview not in self.opview_to_parser_map:
+            assert False, f"No parser found for opview {opview}"
+        return self.opview_to_parser_map.get(opview)
+
+    def get_split_from_opview(self, opview: OpView) -> Callable:
+        """
+        Get the split method for a given OpView class.
+
+        Parameters
+        ----------
+        opview : OpView
+            The OpView class to find a split method for.
+
+        Returns
+        -------
+        Callable
+            The split method associated with the OpView.
+
+        Raises
+        ------
+        AssertionError
+            If no split method is found for the given OpView.
+        """
         if opview not in self.opview_to_split_map:
             assert False, f"No split function found for opview {opview}"
         return self.opview_to_split_map.get(opview)
@@ -3415,6 +4169,34 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
+        """
+        Create reshape operation to change tensor dimensions.
+
+        Reshapes input tensor to specified shape, preserving total element count.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor operand.
+        shape : List[int]
+            Target shape as list of dimension sizes.
+        output_type : Optional[torch.dtype], optional
+            Data type for output tensor. Defaults to type of in0.
+        loc : Optional[str], optional
+            Source location name for debugging. If None, uses default location.
+        unit_attrs : Optional[List[str]], optional
+            Unit attributes for compiler hints.
+
+        Returns
+        -------
+        OpView
+            MLIR operation representing reshape.
+
+        Notes
+        -----
+        Total element count must remain constant. Negative dimension values
+        are not supported (unlike NumPy/PyTorch).
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.reshape)
         shape_attr = ArrayAttr.get(
             [IntegerAttr.get(IntegerType.get_signless(32), s) for s in shape]
@@ -3651,6 +4433,32 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
+        """
+        Create elementwise multiplication operation.
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor operand.
+        in1 : Operand
+            Second input tensor operand.
+        output_type : Optional[torch.dtype], optional
+            Data type for output tensor. Defaults to type of in0.
+        loc : Optional[str], optional
+            Source location name for debugging. If None, uses default location.
+        unit_attrs : Optional[List[str]], optional
+            Unit attributes for compiler hints (e.g., ["ttir.should_hoist"]).
+
+        Returns
+        -------
+        OpView
+            MLIR operation representing elementwise multiplication.
+
+        Notes
+        -----
+        Broadcasting is supported according to TTIR dialect rules. Golden tensor
+        is automatically computed for validation.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.multiply)
 
         if output_type is None:
@@ -4041,6 +4849,32 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
+        """
+        Create elementwise addition operation.
+
+        Parameters
+        ----------
+        in0 : Operand
+            First input tensor operand.
+        in1 : Operand
+            Second input tensor operand.
+        output_type : Optional[torch.dtype], optional
+            Data type for output tensor. Defaults to type of in0.
+        loc : Optional[str], optional
+            Source location name for debugging. If None, uses default location.
+        unit_attrs : Optional[List[str]], optional
+            Unit attributes for compiler hints (e.g., ["ttir.should_hoist"]).
+
+        Returns
+        -------
+        OpView
+            MLIR operation representing elementwise addition.
+
+        Notes
+        -----
+        Broadcasting is supported according to TTIR dialect rules. Golden tensor
+        is automatically computed for validation.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.add)
 
         if output_type is None:
@@ -4182,6 +5016,32 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
+        """
+        Create sigmoid activation operation.
+
+        Computes sigmoid(x) = 1 / (1 + exp(-x)) elementwise.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor operand.
+        output_type : Optional[torch.dtype], optional
+            Data type for output tensor. Defaults to type of in0.
+        loc : Optional[str], optional
+            Source location name for debugging. If None, uses default location.
+        unit_attrs : Optional[List[str]], optional
+            Unit attributes for compiler hints.
+
+        Returns
+        -------
+        OpView
+            MLIR operation representing sigmoid activation.
+
+        Notes
+        -----
+        Output values are in range (0, 1). Golden tensor is computed using
+        PyTorch's sigmoid implementation for validation.
+        """
         ttir_op = self.get_opview_from_method(TTIRBuilder.sigmoid)
 
         if output_type is None:
@@ -8616,6 +9476,34 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         bias: Optional[Operand] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
+        """
+        Create matrix multiplication operation.
+
+        Performs matrix multiplication between two tensors, with optional bias addition.
+        Supports batched matrix multiplication for higher-dimensional inputs.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Left matrix operand with shape (..., M, K).
+        in1 : Operand
+            Right matrix operand with shape (..., K, N).
+        bias : Optional[Operand], optional
+            Bias tensor to add after multiplication. Shape must be broadcastable
+            to output shape (..., M, N).
+        unit_attrs : Optional[List[str]], optional
+            Unit attributes for compiler hints.
+
+        Returns
+        -------
+        OpView
+            MLIR operation representing matrix multiplication.
+
+        Notes
+        -----
+        Inner dimensions (K) must match. Batch dimensions are broadcasted according
+        to standard rules. If bias is provided, it is added to the result elementwise.
+        """
         inputs = [in0, in1]
         if bias:
             inputs.append(bias)
