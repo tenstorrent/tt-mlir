@@ -3257,25 +3257,23 @@ def TTIR_Conv3dOp : TTIR_NamedOp<"conv3d"> {
       %input = ... : tensor<1x8x28x28x4xf32>     // Batch=1, Depth=8, H=28, W=28, Channels=4
       %weight = ... : tensor<16x4x3x3x3xf32>     // 16 output channels, 4 input channels, 3x3x3 kernel
       %bias = ... : tensor<1x1x1x1x16xf32>       // Bias for 16 output channels
-      %output = ttir.empty() : tensor<1x6x26x26x16xf32>
-      %result = ttir.conv3d(%input, %weight, %bias, %output) {
+      %result = ttir.conv3d(%input, %weight, %bias) {
           stride = [1, 1, 1],
           padding = [0, 0, 0],
           groups = 1,
           padding_mode = "zeros"
-      } : tensor<1x8x28x28x4xf32>, tensor<16x4x3x3x3xf32>, tensor<1x1x1x1x16xf32>, tensor<1x6x26x26x16xf32> -> tensor<1x6x26x26x16xf32>
+      } : (tensor<1x8x28x28x4xf32>, tensor<16x4x3x3x3xf32>, tensor<1x1x1x1x16xf32>) -> tensor<1x6x26x26x16xf32>
 
       // Convolution with stride 2 and padding
       %input = ... : tensor<1x8x28x28x4xf32>     // Batch size 1, Depth=8, H=28, W=28, Channels=4
       %weight = ... : tensor<16x4x3x3x3xf32>     // 16 output channels, 4 input channels, 3x3x3 kernel
       %bias = ... : tensor<1x1x1x1x16xf32>       // Bias for 16 output channels
-      %output = ttir.empty() : tensor<1x4x14x14x16xf32> // Output shape with stride 2
-      %result = ttir.conv3d(%input, %weight, %bias, %output) {
+      %result = ttir.conv3d(%input, %weight, %bias) {
           stride = [2, 2, 2],
           padding = [1, 1, 1],
           groups = 1,
           padding_mode = "zeros"
-      } : tensor<1x8x28x28x4xf32>, tensor<16x4x3x3x3xf32>, tensor<1x1x1x1x16xf32>, tensor<1x4x14x14x16xf32> -> tensor<1x4x14x14x16xf32>
+      } : (tensor<1x8x28x28x4xf32>, tensor<16x4x3x3x3xf32>, tensor<1x1x1x1x16xf32>) -> tensor<1x4x14x14x16xf32>
       ```
 
       Inputs:
@@ -3300,7 +3298,7 @@ def TTIR_Conv3dOp : TTIR_NamedOp<"conv3d"> {
       - `padding_mode` (StrAttr): "zeros" or "replicate" - padding fill strategy.
       - `groups` (i32): Number of blocked connections from input channels to output channels.
 
-      Outputs:
+      Output:
       - `result` AnyRankedTensor: 5D tensor in format (N, D_out, H_out, W_out, C_out) where:
         - `D_out = (D_in + 2*pD - K_D) / sD + 1`
         - `H_out = (H_in + 2*pH - K_H) / sH + 1`
@@ -3310,7 +3308,6 @@ def TTIR_Conv3dOp : TTIR_NamedOp<"conv3d"> {
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$weight,
                          Optional<AnyRankedTensor>:$bias,
-                         AnyRankedTensor:$output,
                          AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$stride,
                          AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$padding,
                          I32Attr:$groups,

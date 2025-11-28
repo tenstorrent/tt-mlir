@@ -829,8 +829,8 @@ public:
     }
 
     auto convLayoutAttr = op.getConvolutionLayoutAttr();
-    auto outputType =
-        mlir::cast<RankedTensorType>(adaptor.getOutput().getType());
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(op.getType()));
 
     // Permute input to NDHWC layout
     Value input = adaptor.getInput();
@@ -838,9 +838,10 @@ public:
     auto inputPermutation = generateConvPermutation(op, conv3dLayout);
     auto permutedInputShape =
         ttmlir::utils::applyPermutation(inputType.getShape(), inputPermutation);
-    Value permutedInput = ttir::utils::createDPSOp<ttir::PermuteOp>(
-        rewriter, ttmlir::utils::appendLocationSuffix(op.getLoc(), "_input"),
-        permutedInputShape, inputType.getElementType(), inputType.getEncoding(),
+    Value permutedInput = rewriter.create<ttir::PermuteOp>(
+        ttmlir::utils::appendLocationSuffix(op.getLoc(), "_input"),
+        RankedTensorType::get(permutedInputShape, inputType.getElementType(),
+                              inputType.getEncoding()),
         input, inputPermutation);
 
     Value result =
@@ -864,8 +865,7 @@ public:
         llvm::ArrayRef(conv3dLayout), llvm::ArrayRef(outputLayout));
 
     rewriter.replaceOpWithNewOp<ttir::PermuteOp>(op, op.getResult().getType(),
-                                                 result, adaptor.getOutput(),
-                                                 outputPermutation);
+                                                 result, outputPermutation);
 
     return success();
   }
@@ -922,10 +922,11 @@ private:
         generateConvKernelPermutation(op, conv3dKernelLayout);
     auto weightOutputShape = ::ttmlir::utils::applyPermutation(
         weightType.getShape(), kernelPermutation);
-    permutedWeight = ttir::utils::createDPSOp<ttir::PermuteOp>(
-        rewriter, ttmlir::utils::appendLocationSuffix(op.getLoc(), "_weight"),
-        weightOutputShape, weightType.getElementType(),
-        weightType.getEncoding(), permutedWeight, kernelPermutation);
+    permutedWeight = rewriter.create<ttir::PermuteOp>(
+        ttmlir::utils::appendLocationSuffix(op.getLoc(), "_weight"),
+        RankedTensorType::get(weightOutputShape, weightType.getElementType(),
+                              weightType.getEncoding()),
+        permutedWeight, kernelPermutation);
 
     // If bias is provided, permute it to NDHWC format (1,1,1,1,C_out)
     Value biasValue = adaptor.getBias();
@@ -960,18 +961,18 @@ private:
         llvm::SmallVector<int64_t> permutedBiasShape =
             ttmlir::utils::applyPermutation(biasType.getShape(),
                                             biasPermutation);
-        biasValue = ttir::utils::createDPSOp<ttir::PermuteOp>(
-            rewriter,
+        biasValue = rewriter.create<ttir::PermuteOp>(
             ttmlir::utils::appendLocationSuffix(op.getLoc(), "_bias_permute"),
-            permutedBiasShape, biasType.getElementType(),
-            biasType.getEncoding(), biasValue, biasPermutation);
+            RankedTensorType::get(permutedBiasShape, biasType.getElementType(),
+                                  biasType.getEncoding()),
+            biasValue, biasPermutation);
       }
       // Bias is now in NDHWC format (1,1,1,1,C_out) as required by Conv3dOp
     }
 
-    mlir::Value newConv = ttir::utils::createDPSOp<ttir::Conv3dOp>(
-        rewriter, op.getLoc(), outputType, Value(permutedInput),
-        Value(permutedWeight), biasValue, strideAttr, paddingAttr, groupsAttr,
+    mlir::Value newConv = rewriter.create<ttir::Conv3dOp>(
+        op.getLoc(), outputType, Value(permutedInput), Value(permutedWeight),
+        biasValue, strideAttr, paddingAttr, groupsAttr,
         /*padding_mode=*/nullptr);
 
     return newConv;
