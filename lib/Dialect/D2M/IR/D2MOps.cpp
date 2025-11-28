@@ -657,12 +657,12 @@ mlir::LogicalResult d2m::ViewLayoutOp::verify() {
               resultTensor.getEncoding());
 
       if (inputLayout && resultLayout) {
-        // Both have layouts: verify logical shapes match
+        // Both have layouts: verify logical shapes match.
         if (inputLayout.getLogicalShape() != resultLayout.getLogicalShape()) {
           return emitOpError("view must preserve logical shape");
         }
       } else if (!inputLayout && !resultLayout) {
-        // Neither has layout: verify device tensor shapes match
+        // Neither has layout: verify device tensor shapes match.
         int64_t inputElements = 1, outputElements = 1;
         for (auto d : inputType.getShape()) {
           inputElements *= d;
@@ -698,16 +698,6 @@ mlir::LogicalResult d2m::ViewLayoutOp::verify() {
       if (inputLayout.getMemorySpace() != resultLayout.getMemorySpace()) {
         return emitOpError("view cannot change memory space");
       }
-
-      // if (inputLayout.getCollapsedIntervals() !=
-      //     resultLayout.getCollapsedIntervals()) {
-      //   return emitOpError("view cannot change collapsed intervals");
-      // }
-
-      // if (inputLayout.getDimAlignments() != resultLayout.getDimAlignments())
-      // {
-      //   return emitOpError("view cannot change dim alignments");
-      // }
     }
   }
 
@@ -957,11 +947,11 @@ void d2m::GenericOp::build(
             tensorType.getEncoding());
 
         // If the operand has ViewLayoutAttr (from StreamLayoutOp), get the
-        // layout from storage
+        // layout from the underlying storage.
         if (!layout) {
           if (auto viewAttr = mlir::dyn_cast_if_present<ttcore::ViewLayoutAttr>(
                   tensorType.getEncoding())) {
-            // Find the defining StreamLayoutOp to get its storage layout
+            // Find the defining StreamLayoutOp to get its storage layout.
             for (auto operand : state.operands) {
               if (operand.getType() == t) {
                 if (auto streamOp =
@@ -1674,7 +1664,7 @@ d2m::GenericOp::getOperandShardShapes(bool convertTileToScalar) {
           tensorType.getEncoding());
 
       // If operand has ViewLayoutAttr (from StreamLayoutOp), get layout from
-      // storage
+      // the underlying storage.
       if (!layout) {
         if (mlir::isa_and_nonnull<ttcore::ViewLayoutAttr>(
                 tensorType.getEncoding())) {
