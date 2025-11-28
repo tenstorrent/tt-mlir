@@ -122,7 +122,7 @@ public:
 
   class DstStackAllocator {
   public:
-    DstStackAllocator() { initSliceStack(); }
+    DstStackAllocator() = delete;
 
     DstStackAllocator(unsigned dstSliceCapacityIn) {
       dstSliceCapacity = dstSliceCapacityIn;
@@ -212,8 +212,7 @@ public:
     unsigned getCurrSliceIndex() { return currSliceIndex; }
 
   private:
-    // TODO(mbagherbeikTT) grab the number properly
-    unsigned dstSliceCapacity = 8;
+    unsigned dstSliceCapacity = -1;
 
     unsigned currSliceIndex = 0;
 
@@ -316,6 +315,13 @@ public:
       return false;
     }
 
+    // 2 separate allocation paths for now
+    // isScheduled = true:
+    //     - goes through stack allocator, can only contain eltwise ops
+    //     - creates 2 loop nests: (1) load + compute loops (2) store loops
+    // isScheduled = false:
+    //     - goes through bump allocator, handles matmuls and reductions
+    //     - creates 3 loop nests: (1) load (2) compute (3) store
     bool isScheduled = outermostInnerComputeLoop->hasAttr("d2m.scheduled");
     outermostInnerComputeLoop->removeAttr("d2m.scheduled");
 
@@ -1241,30 +1247,25 @@ public:
 
       rewriter.setInsertionPoint(loopNestOrOp);
 
-      if (!copyInfo.loads.empty()) {
+      // Don't need insertion/loop guards since no matmuls or reductions
+      dataCopyGenerateScheduled<affine::AffineLoadOp>(
+          rewriter, loopNestOrOp, copyInfo.loads,
+          // Load/store dst access generation.
+          [&](PatternRewriter &rewriter, Location loc, Value cb,
+              AffineMap l1AccessMap, ValueRange l1AccessIndices,
+              AffineMap dstAccessMap, ValueRange dstAccessIndices) {
+            auto l1Load = rewriter.create<affine::AffineLoadOp>(
+                loc, cb, l1AccessMap, l1AccessIndices);
+            rewriter.create<affine::AffineStoreOp>(
+                loc, l1Load.getResult(), dst, dstAccessMap, dstAccessIndices);
+          },
+          // Replacement of the original load with one from dst.
+          [&](PatternRewriter &rewriter, affine::AffineLoadOp op,
+              AffineMap dstAccessMap, ValueRange dstAccessIndices) {
+            rewriter.replaceOpWithNewOp<affine::AffineLoadOp>(
+                op, dst, dstAccessMap, dstAccessIndices);
+          });
 
-        // auto guard = insertGuardForLoopNest(rewriter, loc,
-        // copyInfo.loads[0].guardDims); if (guard) {
-        //   rewriter.setInsertionPointToStart(&guard.getThenRegion().front());
-        // }
-        dataCopyGenerateScheduled<affine::AffineLoadOp>(
-            rewriter, loopNestOrOp, copyInfo.loads,
-            // Load/store dst access generation.
-            [&](PatternRewriter &rewriter, Location loc, Value cb,
-                AffineMap l1AccessMap, ValueRange l1AccessIndices,
-                AffineMap dstAccessMap, ValueRange dstAccessIndices) {
-              auto l1Load = rewriter.create<affine::AffineLoadOp>(
-                  loc, cb, l1AccessMap, l1AccessIndices);
-              rewriter.create<affine::AffineStoreOp>(
-                  loc, l1Load.getResult(), dst, dstAccessMap, dstAccessIndices);
-            },
-            // Replacement of the original load with one from dst.
-            [&](PatternRewriter &rewriter, affine::AffineLoadOp op,
-                AffineMap dstAccessMap, ValueRange dstAccessIndices) {
-              rewriter.replaceOpWithNewOp<affine::AffineLoadOp>(
-                  op, dst, dstAccessMap, dstAccessIndices);
-            });
-      }
       rewriter.restoreInsertionPoint(insertionPointAfterLoopNest);
       dataCopyGenerate<affine::AffineStoreOp>(
           rewriter, loopNestOrOp, copyInfo.stores,
