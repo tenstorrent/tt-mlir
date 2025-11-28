@@ -51,9 +51,18 @@ target_link_libraries(TTMLIRRuntime
 )
 
 target_link_libraries(TTMLIRRuntime PUBLIC coverage_config)
-
-set_target_properties(TTMLIRRuntime PROPERTIES INSTALL_RPATH "$ORIGIN;${TTMETAL_LIBRARY_DIR}")
-set_target_properties(TTMLIRRuntime PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE)
+if (TTMLIR_ENABLE_TTNN_JIT)
+  # ttnn-jit wheel requires custom rpaths when installed into a tt-metal dev venv
+  set_target_properties(TTMLIRRuntime PROPERTIES
+    INSTALL_RPATH "${JIT_WHEEL_RPATHS}"
+    BUILD_WITH_INSTALL_RPATH TRUE
+  )
+else()
+  set_target_properties(TTMLIRRuntime PROPERTIES
+    INSTALL_RPATH "$ORIGIN;${TTMETAL_LIBRARY_DIR}"
+    BUILD_WITH_INSTALL_RPATH TRUE
+  )
+endif()
 
 add_dependencies(TTMLIRRuntime FBS_GENERATION RUNTIME_FBS_GENERATION)
 

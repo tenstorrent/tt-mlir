@@ -6,7 +6,6 @@ module @jit_dynamic_slice attributes {} {
     // CHECK: = "ttir.concat"
     // CHECK: = "ttir.constant"
     // CHECK: = "ttir.add"
-    // CHECK: = ttir.empty
     // CHECK: = "ttir.slice_dynamic"
     %0 = stablehlo.dynamic_slice %arg0, %arg1, %arg2, sizes = [8, 8] : (tensor<32x64xf32>, tensor<i32>, tensor<i32>) -> tensor<8x8xf32>
     return %0 : tensor<8x8xf32>

@@ -9,15 +9,13 @@ module @L1InterleavedTestLargeTensorSharded attributes {} {
     // CHECK-DAG: #[[DRAM_LAYOUT:.*]] = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<128x128x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
     // CHECK-DAG: #[[SHARDED_LAYOUT:.*]] = #ttnn.ttnn_layout<{{.*}}, <height_sharded>>
 
-    %0 = ttir.empty() : tensor<4096x4096xbf16>
     // CHECK: "ttnn.relu"{{.*}}-> tensor<4096x4096xbf16, #[[DRAM_LAYOUT]]>
-    %1 = "ttir.relu"(%arg0, %0) : (tensor<4096x4096xbf16>, tensor<4096x4096xbf16>) -> tensor<4096x4096xbf16>
+    %0 = "ttir.relu"(%arg0) : (tensor<4096x4096xbf16>) -> tensor<4096x4096xbf16>
 
     // CHECK: "ttnn.add"{{.*}}-> tensor<4096x4096xbf16, #[[SHARDED_LAYOUT]]>
-    %2 = ttir.empty() : tensor<4096x4096xbf16>
-    %3 = "ttir.add"(%1, %arg1, %2) : (tensor<4096x4096xbf16>, tensor<4096x4096xbf16>, tensor<4096x4096xbf16>) -> tensor<4096x4096xbf16> loc(#loc)
+    %1 = "ttir.add"(%0, %arg1) : (tensor<4096x4096xbf16>, tensor<4096x4096xbf16>) -> tensor<4096x4096xbf16> loc(#loc)
 
-    return %3 : tensor<4096x4096xbf16>
+    return %1 : tensor<4096x4096xbf16>
   }
 }
 #loc = loc("add_op")

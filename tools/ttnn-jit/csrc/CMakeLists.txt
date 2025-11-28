@@ -9,7 +9,7 @@ set(JIT_SOURCES
 )
 
 add_library(JITCPP SHARED ${JIT_SOURCES})
-set_target_properties(JITCPP PROPERTIES CXX_STANDARD 20)
+set_property(TARGET JITCPP PROPERTY CXX_STANDARD 20)
 
 target_link_libraries(JITCPP
   PRIVATE
@@ -49,12 +49,6 @@ nanobind_add_module(
   __init__.cpp
 )
 set_property(TARGET _ttnn_jit PROPERTY CXX_STANDARD 20)
-set_target_properties(_ttnn_jit PROPERTIES
-  INSTALL_RPATH "$ORIGIN"
-  BUILD_RPATH "$ORIGIN;$<TARGET_FILE_DIR:JITCPP>"
-  BUILD_WITH_INSTALL_RPATH FALSE
-  LIBRARY_OUTPUT_DIRECTORY "${TTMLIR_PYTHON_PACKAGES_DIR}/ttnn_jit"
-)
 target_include_directories(_ttnn_jit
   SYSTEM PRIVATE ${pybind11_INCLUDE_DIRS}
   PRIVATE

@@ -28,21 +28,19 @@ public:
       return llvm::failure();
     }
 
-    auto dps = mlir::cast<mlir::DestinationStyleOpInterface>(op);
-
     bool operandsChanged = false;
     llvm::SmallVector<int64_t> implicitBroadcastedShape;
 
     // Remove all explicit broadcasts from the operands and compute the shape
     // that would result from implicit broadcasting.
-    for (int64_t i = 0; i < dps.getNumDpsInputs(); ++i) {
-      mlir::Value operand = dps->getOperand(i);
+    for (int64_t i = 0; i < op->getNumOperands(); ++i) {
+      mlir::Value operand = op->getOperand(i);
       ::llvm::ArrayRef<int64_t> originalOperandShape;
       if (auto broadcastOp = mlir::dyn_cast_if_present<ttir::BroadcastOp>(
               operand.getDefiningOp())) {
         originalOperandShape = broadcastOp.getInput().getType().getShape();
         rewriter.modifyOpInPlace(
-            dps, [&]() { dps->setOperand(i, broadcastOp.getInput()); });
+            op, [&]() { op->setOperand(i, broadcastOp.getInput()); });
         operandsChanged = true;
       } else {
         originalOperandShape =
@@ -55,7 +53,7 @@ public:
              "Operands must be broadcast-compatible");
     }
 
-    auto resultType = mlir::cast<RankedTensorType>(dps->getResult(0).getType());
+    auto resultType = mlir::cast<RankedTensorType>(op->getResult(0).getType());
     llvm::ArrayRef<int64_t> resultShape = resultType.getShape();
 
     if (implicitBroadcastedShape == resultShape) {
@@ -66,18 +64,18 @@ public:
     // add an explicit broadcast to the operation’s output.
     auto newResultType = mlir::RankedTensorType::get(
         implicitBroadcastedShape, resultType.getElementType());
-    rewriter.modifyOpInPlace(dps, [&]() {
-      dps.getDpsInits()[0].setType(newResultType);
-      dps->getResult(0).setType(newResultType);
-    });
+    rewriter.modifyOpInPlace(
+        op, [&]() { op->getResult(0).setType(newResultType); });
 
-    rewriter.setInsertionPointAfter(dps);
+    rewriter.setInsertionPointAfter(op);
     auto broadcastDimensions = ttmlir::utils::getBroadcastDimensions<int64_t>(
         implicitBroadcastedShape, resultShape);
-    auto broadcastOp = ttir::utils::createDPSOp<ttir::BroadcastOp>(
-        rewriter, dps->getLoc(), resultShape, newResultType.getElementType(),
-        newResultType.getEncoding(), dps->getResult(0), broadcastDimensions);
-    rewriter.replaceAllUsesExcept(dps->getResult(0), broadcastOp.getResult(),
+    auto broadcastOp = rewriter.create<ttir::BroadcastOp>(
+        op->getLoc(),
+        RankedTensorType::get(resultShape, newResultType.getElementType(),
+                              newResultType.getEncoding()),
+        op->getResult(0), broadcastDimensions);
+    rewriter.replaceAllUsesExcept(op->getResult(0), broadcastOp.getResult(),
                                   broadcastOp);
 
     return llvm::success();

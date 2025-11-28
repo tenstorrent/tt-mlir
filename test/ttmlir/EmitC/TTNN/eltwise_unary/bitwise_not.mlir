@@ -4,7 +4,6 @@
 // RUN: ttmlir-translate --mlir-to-cpp -o %basename_t.cpp %t2.mlir
 
 func.func @bitwise_not(%arg0: tensor<64x128xi32>) -> tensor<64x128xi32> {
-    %0 = ttir.empty() : tensor<64x128xi32>
-    %1 = "ttir.bitwise_not"(%arg0, %0) : (tensor<64x128xi32>, tensor<64x128xi32>) -> tensor<64x128xi32>
+    %1 = "ttir.bitwise_not"(%arg0) : (tensor<64x128xi32>) -> tensor<64x128xi32>
     return %1 : tensor<64x128xi32>
 }

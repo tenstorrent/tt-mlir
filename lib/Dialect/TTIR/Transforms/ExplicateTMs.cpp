@@ -28,10 +28,9 @@ public:
     int64_t maxRank = getMaxRankForOperands(op);
     bool hasChanged = false;
 
-    auto dps = mlir::cast<mlir::DestinationStyleOpInterface>(op.getOperation());
-    for (mlir::OpOperand *operand : dps.getDpsInputOperands()) {
-      auto operandType = mlir::cast<mlir::RankedTensorType>(
-          op->getOperand(operand->getOperandNumber()).getType());
+    for (mlir::OpOperand &operand : op->getOpOperands()) {
+      auto operandType =
+          mlir::cast<mlir::RankedTensorType>(operand.get().getType());
       int64_t operandRank = operandType.getRank();
 
       if (operandRank == maxRank) {
@@ -44,17 +43,16 @@ public:
                       operandType.getShape().end());
 
       // Create a new reshape operation.
-      auto reshapeOp = ttir::utils::createDPSOp<ttir::ReshapeOp>(
-          rewriter,
+      auto reshapeOp = rewriter.create<ttir::ReshapeOp>(
           ttmlir::utils::appendLocationSuffix(op.getLoc(), "_reshape"),
-          newShape, operandType.getElementType(), operandType.getEncoding(),
-          op->getOperand(operand->getOperandNumber()),
+          RankedTensorType::get(newShape, operandType.getElementType(),
+                                operandType.getEncoding()),
+          op->getOperand(operand.getOperandNumber()),
           rewriter.getI32ArrayAttr(llvm::to_vector_of<int32_t>(newShape)));
 
       // Replace operand with the new reshape operation.
-      rewriter.modifyOpInPlace(op, [&]() {
-        op->setOperand(operand->getOperandNumber(), reshapeOp);
-      });
+      rewriter.modifyOpInPlace(
+          op, [&]() { op->setOperand(operand.getOperandNumber(), reshapeOp); });
       hasChanged = true;
     }
 
@@ -63,12 +61,10 @@ public:
 
 private:
   int64_t getMaxRankForOperands(ElementwiseInterfaceType op) const {
-    auto dps = mlir::cast<mlir::DestinationStyleOpInterface>(op.getOperation());
     int64_t maxRank = 0;
-    for (mlir::OpOperand *operand : dps.getDpsInputOperands()) {
+    for (mlir::OpOperand &operand : op->getOpOperands()) {
       maxRank = std::max(
-          maxRank, mlir::cast<mlir::RankedTensorType>(
-                       op->getOperand(operand->getOperandNumber()).getType())
+          maxRank, mlir::cast<mlir::RankedTensorType>(operand.get().getType())
                        .getRank());
     }
 
@@ -95,10 +91,9 @@ public:
         getBroadcastedShapeForOperands(op);
     bool hasChanged = false;
 
-    auto dps = mlir::cast<mlir::DestinationStyleOpInterface>(op.getOperation());
-    for (mlir::OpOperand *operand : dps.getDpsInputOperands()) {
-      auto operandType = mlir::cast<mlir::RankedTensorType>(
-          op->getOperand(operand->getOperandNumber()).getType());
+    for (mlir::OpOperand &operand : op->getOpOperands()) {
+      auto operandType =
+          mlir::cast<mlir::RankedTensorType>(operand.get().getType());
       llvm::ArrayRef<int64_t> operandShape = operandType.getShape();
 
       llvm::SmallVector<int64_t> broadcastDimensions =
@@ -109,16 +104,15 @@ public:
       }
 
       // Create a new broadcast operation.
-      auto broadcastOp = ttir::utils::createDPSOp<ttir::BroadcastOp>(
-          rewriter,
+      auto broadcastOp = rewriter.create<ttir::BroadcastOp>(
           ttmlir::utils::appendLocationSuffix(op.getLoc(), "_broadcast"),
-          broadcastedShape, operandType.getElementType(),
-          operandType.getEncoding(),
-          op->getOperand(operand->getOperandNumber()), broadcastDimensions);
+          RankedTensorType::get(broadcastedShape, operandType.getElementType(),
+                                operandType.getEncoding()),
+          op->getOperand(operand.getOperandNumber()), broadcastDimensions);
 
       // Replace operand with the new broadcast operation.
       rewriter.modifyOpInPlace(op, [&]() {
-        op->setOperand(operand->getOperandNumber(), broadcastOp);
+        op->setOperand(operand.getOperandNumber(), broadcastOp);
       });
       hasChanged = true;
     }
@@ -133,24 +127,20 @@ private:
           op->getOperand(operandIdx).getType());
     };
 
-    auto dps = mlir::cast<mlir::DestinationStyleOpInterface>(op.getOperation());
-    ::llvm::SmallVector<::mlir::OpOperand *> dpsOperands =
-        dps.getDpsInputOperands();
-    return llvm::all_of(dpsOperands, [&](mlir::OpOperand *operand) {
-      return getOperandType(operand->getOperandNumber()).getRank() ==
-             getOperandType(dpsOperands.front()->getOperandNumber()).getRank();
+    return llvm::all_of(op->getOpOperands(), [&](mlir::OpOperand &operand) {
+      return getOperandType(operand.getOperandNumber()).getRank() ==
+             getOperandType(op->getOpOperands().front().getOperandNumber())
+                 .getRank();
     });
   }
 
   llvm::SmallVector<int64_t>
   getBroadcastedShapeForOperands(ElementwiseInterfaceType op) const {
     llvm::SmallVector<int64_t> broadcastedShape;
-    auto dps = mlir::cast<mlir::DestinationStyleOpInterface>(op.getOperation());
-    for (mlir::OpOperand *operand : dps.getDpsInputOperands()) {
+    for (mlir::OpOperand &operand : op->getOpOperands()) {
       llvm::SmallVector<int64_t> prevBroadcastedShape = broadcastedShape;
       llvm::ArrayRef<int64_t> operandShape =
-          mlir::cast<mlir::RankedTensorType>(
-              op->getOperand(operand->getOperandNumber()).getType())
+          mlir::cast<mlir::RankedTensorType>(operand.get().getType())
               .getShape();
       mlir::OpTrait::util::getBroadcastedShape(prevBroadcastedShape,
                                                operandShape, broadcastedShape);

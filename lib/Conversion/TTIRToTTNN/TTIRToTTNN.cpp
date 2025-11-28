@@ -249,16 +249,10 @@ public:
   LogicalResult
   matchAndRewrite(TTIROpTy op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    SmallVector<Type> resultTypes;
-    if (failed(this->getTypeConverter()->convertTypes(op->getResultTypes(),
-                                                      resultTypes))) {
-      return failure();
-    }
+    auto resultType = this->getTypeConverter()->convertType(op.getType());
+    auto inputs = adaptor.getOperands();
 
-    static_assert(ttir::utils::has_dps_trait_v<TTIROpTy>);
-    auto inputs =
-        ttir::utils::getDpsInputsFromAdaptor(adaptor, op.getNumDpsInits());
-    rewriter.replaceOpWithNewOp<TTNNOpTy>(op, resultTypes, inputs);
+    rewriter.replaceOpWithNewOp<TTNNOpTy>(op, resultType, inputs);
     return success();
   }
 };
@@ -276,10 +270,8 @@ public:
   LogicalResult
   matchAndRewrite(TTIROpTy op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    static_assert(ttir::utils::has_dps_trait_v<TTIROpTy>);
-
     rewriter.replaceOpWithNewOp<TTNNOpTy>(
-        op, this->getTypeConverter()->convertType(op.getResult().getType()),
+        op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getLhs(), adaptor.getRhs());
     return success();
   }
@@ -1778,17 +1770,16 @@ public:
 } // namespace
 
 //===----------------------------------------------------------------------===//
-// ScatterInDimOp
+// ScatterOp
 //===----------------------------------------------------------------------===//
 
 namespace {
-class ScatterInDimOpConversionPattern
-    : public OpConversionPattern<ttir::ScatterInDimOp> {
-  using OpConversionPattern<ttir::ScatterInDimOp>::OpConversionPattern;
+class ScatterOpConversionPattern : public OpConversionPattern<ttir::ScatterOp> {
+  using OpConversionPattern<ttir::ScatterOp>::OpConversionPattern;
 
 public:
   LogicalResult
-  matchAndRewrite(ttir::ScatterInDimOp op, OpAdaptor adaptor,
+  matchAndRewrite(ttir::ScatterOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::ScatterOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
@@ -2292,7 +2283,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            PagedFillCacheOpConversionPattern,
            PagedUpdateCacheOpConversionPattern,
            FillCacheOpConversionPattern,
-           ScatterInDimOpConversionPattern,
+           ScatterOpConversionPattern,
            PermuteOpConversionPattern,
            UpsampleOpConversionPattern,
            AllToAllOpConversionPattern,

@@ -5,8 +5,7 @@ module {
     func.func @test_conv_sliced_batch_group_count() -> tensor<1x768x768xbf16>{
         %0 = ttir.empty() : tensor<1x9x3072xbf16>
         %1 = ttir.empty() : tensor<1x9x768xbf16>
-        %2 = ttir.empty() : tensor<1x768x768xbf16>
-        %3 = "ttir.convolution"(%0, %1, %2) <{
+        %3 = "ttir.convolution"(%0, %1) <{
             batch_group_count = 4 : i64,
             convolution_layout = #ttir<
                 convolution_layout input_batch = 2,
@@ -24,7 +23,7 @@ module {
             weight_dilation = array<i64: 1>,
             window_reversal = array<i1: false>,
             window_strides = array<i64: 1>
-            }> : (tensor<1x9x3072xbf16>, tensor<1x9x768xbf16>, tensor<1x768x768xbf16>) -> tensor<1x768x768xbf16>
+            }> : (tensor<1x9x3072xbf16>, tensor<1x9x768xbf16>) -> tensor<1x768x768xbf16>
         return %3 : tensor<1x768x768xbf16>
     }
 
@@ -32,8 +31,7 @@ module {
     func.func @test_conv2d_sliced_batch_group_count() -> tensor<1x16x32x32xbf16> {
         %0 = ttir.empty() : tensor<2x4x32x32xbf16>
         %1 = ttir.empty() : tensor<16x4x3x3xbf16>
-        %2 = ttir.empty() : tensor<1x16x32x32xbf16>
-        %3 = "ttir.convolution"(%0, %1, %2) <{
+        %3 = "ttir.convolution"(%0, %1) <{
             batch_group_count = 2 : i64,
             convolution_layout = #ttir<
                 convolution_layout input_batch = 0,
@@ -51,7 +49,7 @@ module {
             weight_dilation = array<i64: 1, 1>,
             window_reversal = array<i1: false, false>,
             window_strides = array<i64: 1, 1>
-            }> : (tensor<2x4x32x32xbf16>, tensor<16x4x3x3xbf16>, tensor<1x16x32x32xbf16>) -> tensor<1x16x32x32xbf16>
+            }> : (tensor<2x4x32x32xbf16>, tensor<16x4x3x3xbf16>) -> tensor<1x16x32x32xbf16>
         return %3 : tensor<1x16x32x32xbf16>
     }
 }

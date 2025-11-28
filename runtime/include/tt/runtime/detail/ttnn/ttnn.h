@@ -171,6 +171,7 @@ std::vector<uint32_t> getMeshOffset(Device meshDevice);
 std::vector<int> getDeviceIds(Device meshDevice);
 size_t getNumHwCqs(Device meshDevice);
 bool isProgramCacheEnabled(Device meshDevice);
+void clearProgramCache(Device meshDevice);
 size_t getL1SmallSize(Device meshDevice);
 size_t getTraceRegionSize(Device meshDevice);
 size_t getNumDramChannels(Device meshDevice);

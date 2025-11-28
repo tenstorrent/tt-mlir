@@ -7,7 +7,7 @@ module @conv_transpose attributes {} {
     // CHECK-LABEL: @test_conv_transpose2d
     %0 = stablehlo.transpose %arg1, dims = [2, 3, 1, 0] : (tensor<256x128x2x2xf32>) -> tensor<2x2x128x256xf32>
     %1 = stablehlo.reverse %0, dims = [0, 1] : tensor<2x2x128x256xf32>
-    // CHECK: %{{[0-9]+}} = "ttir.convolution"(%arg0, %{{[0-9]+}}, %{{[0-9]+}})
+    // CHECK: %{{[0-9]+}} = "ttir.convolution"(%arg0, %{{[0-9]+}})
     // CHECK-SAME: batch_group_count = 1 : i64,
     // CHECK-SAME: convolution_layout = #ttir<convolution_layout input_batch = 0,
     // CHECK-SAME: input_feature = 1,
@@ -24,7 +24,7 @@ module @conv_transpose attributes {} {
     // CHECK-SAME: weight_dilation = array<i64: 1, 1>,
     // CHECK-SAME: window_reversal = array<i1: false, false>,
     // CHECK-SAME: window_strides = array<i64: 1, 1>
-    // CHECK-SAME: (tensor<1x256x32x32xf32>, tensor<2x2x128x256xf32>, tensor<1x128x64x64xf32>)
+    // CHECK-SAME: (tensor<1x256x32x32xf32>, tensor<2x2x128x256xf32>)
     // CHECK-SAME: -> tensor<1x128x64x64xf32>
     %2 = stablehlo.convolution(%arg0, %1) dim_numbers = [b, f, 0, 1]x[0, 1, o, i]->[b, f, 0, 1], window = {stride = [1, 1], pad = [[1, 1], [1, 1]], lhs_dilate = [2, 2], rhs_dilate = [1, 1]} {batch_group_count = 1 : i64, feature_group_count = 1 : i64} : (tensor<1x256x32x32xf32>, tensor<2x2x128x256xf32>) -> tensor<1x128x64x64xf32>
     %3 = stablehlo.reshape %arg2 : (tensor<128xf32>) -> tensor<128x1x1xf32>

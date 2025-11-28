@@ -311,9 +311,11 @@ void handleBufferCast(const void *oldBuffer, void *newBuffer,
 }
 
 void logMemoryStateIfNeeded(
-    const std::unordered_map<tt::runtime::MemoryBufferType,
-                             tt::runtime::MemoryView> &memoryState,
-    ::tt::runtime::MemoryLogLevel level, std::string_view prefix) {
+    const std::function<std::unordered_map<tt::runtime::MemoryBufferType,
+                                           tt::runtime::MemoryView>(
+        tt::runtime::Device)> &getMemoryView,
+    tt::runtime::Device device, ::tt::runtime::MemoryLogLevel level,
+    std::string_view prefix) {
   constexpr std::array<tt::runtime::MemoryBufferType, 4> MEMORY_TYPES = {
       tt::runtime::MemoryBufferType::DRAM, tt::runtime::MemoryBufferType::L1,
       tt::runtime::MemoryBufferType::L1_SMALL,
@@ -325,6 +327,8 @@ void logMemoryStateIfNeeded(
   if (!(currentLogLevel & level)) {
     return;
   }
+
+  auto memoryState = getMemoryView(device);
 
   if (!prefix.empty()) {
     LOG_INFO(prefix);

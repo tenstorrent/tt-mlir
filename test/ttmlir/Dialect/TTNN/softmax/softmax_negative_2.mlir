@@ -2,8 +2,7 @@
 // CHECK: error: 'ttir.softmax' op Dimension attribute must be within the bounds of the input tensor
 module attributes {} {
   func.func @forward(%arg0: tensor<512x1024xbf16>) -> tensor<512x1024xbf16> {
-    %0 = ttir.empty() : tensor<512x1024xbf16>
-    %1 = "ttir.softmax"(%arg0, %0) <{dimension = -3 : si32}> : (tensor<512x1024xbf16>, tensor<512x1024xbf16>) -> tensor<512x1024xbf16>
+    %1 = "ttir.softmax"(%arg0) <{dimension = -3 : si32}> : (tensor<512x1024xbf16>) -> tensor<512x1024xbf16>
     return %1 : tensor<512x1024xbf16>
   }
 }

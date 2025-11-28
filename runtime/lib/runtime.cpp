@@ -675,6 +675,17 @@ bool isProgramCacheEnabled(Device meshDevice) {
       });
 }
 
+void clearProgramCache(Device meshDevice) {
+  using RetType = void;
+  DISPATCH_TO_CURRENT_RUNTIME(
+      RetType, [&]() { ::tt::runtime::ttnn::clearProgramCache(meshDevice); },
+      [&]() { ::tt::runtime::ttmetal::clearProgramCache(meshDevice); },
+      [&]() {
+        detail::fatalNotImplemented("clearProgramCache",
+                                    HostRuntime::Distributed);
+      });
+}
+
 size_t getL1SmallSize(Device meshDevice) {
   using RetType = size_t;
   return DISPATCH_TO_CURRENT_RUNTIME(

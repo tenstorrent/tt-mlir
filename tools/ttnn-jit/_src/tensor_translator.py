@@ -103,6 +103,8 @@ def _ttcore_dtype_from_ttnn_dtype(dtype):
             return ttcore.DataType.BFloat16
         case "DataType.FLOAT32":
             return ttcore.DataType.Float32
+        case "DataType.BFLOAT8_B":
+            return ttcore.DataType.BFP_BFloat8
         case "DataType.INT32":
             return ttcore.DataType.Int32
         case _:

@@ -176,8 +176,10 @@ bool isSupportedDataType(::tt::target::DataType dataType);
 getUnsupportedDataTypeAlias(::tt::target::DataType unsupportedDataType);
 
 void logMemoryStateIfNeeded(
-    const std::unordered_map<tt::runtime::MemoryBufferType,
-                             tt::runtime::MemoryView> &memoryState,
+    const std::function<std::unordered_map<tt::runtime::MemoryBufferType,
+                                           tt::runtime::MemoryView>(
+        tt::runtime::Device)> &getMemoryView,
+    tt::runtime::Device device,
     ::tt::runtime::MemoryLogLevel level = ::tt::runtime::MemoryLogLevel::ANY,
     std::string_view prefix = "");
 

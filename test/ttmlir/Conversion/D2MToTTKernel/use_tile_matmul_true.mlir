@@ -9,13 +9,13 @@
 
 module {
   // CHECK-LABEL: func.func @test_tile_matmul
-  func.func @test_tile_matmul(%lhs: !lhs, %rhs: !rhs, %out: !matmul_result) -> (!matmul_result) {
+  func.func @test_tile_matmul(%lhs: !lhs, %rhs: !rhs) -> (!matmul_result) {
     // CHECK-NOT: ttir.matmul
     // CHECK-NOT: matmul_block
     // CHECK: mm_init
     // CHECK: mm_init_short
     // CHECK: matmul_tiles
-    %r = "ttir.matmul"(%lhs, %rhs, %out) : (!lhs, !rhs, !matmul_result) -> (!matmul_result)
+    %r = "ttir.matmul"(%lhs, %rhs) : (!lhs, !rhs) -> (!matmul_result)
     return %r : !matmul_result
   }
 }

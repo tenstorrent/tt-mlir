@@ -39,11 +39,20 @@ nanobind_add_module(
   ${TTMLIR_RUNTIME_PYTHON_SRCS}
 )
 
-set_target_properties(_ttmlir_runtime PROPERTIES
-  INSTALL_RPATH "$ORIGIN"
-  BUILD_RPATH "$ORIGIN;$<TARGET_FILE_DIR:TTMLIRRuntime>"
-  BUILD_WITH_INSTALL_RPATH FALSE
-)
+if (TTMLIR_ENABLE_TTNN_JIT)
+  # ttnn-jit wheel requires custom rpaths when installed into a tt-metal dev venv
+  set_target_properties(_ttmlir_runtime PROPERTIES
+    INSTALL_RPATH "${JIT_WHEEL_RPATHS}"
+    BUILD_RPATH "$ORIGIN;$<TARGET_FILE_DIR:TTMLIRRuntime>"
+    BUILD_WITH_INSTALL_RPATH FALSE
+  )
+else()
+  set_target_properties(_ttmlir_runtime PROPERTIES
+    INSTALL_RPATH "$ORIGIN"
+    BUILD_RPATH "$ORIGIN;$<TARGET_FILE_DIR:TTMLIRRuntime>"
+    BUILD_WITH_INSTALL_RPATH FALSE
+  )
+endif()
 
 target_include_directories(_ttmlir_runtime
   PRIVATE

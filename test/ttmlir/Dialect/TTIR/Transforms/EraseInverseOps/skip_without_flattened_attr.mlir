@@ -13,10 +13,8 @@ module {
 
         // Without flattened_compat_info and force=false, this permute should NOT
         // be commuted above the exp operation
-        %0 = tensor.empty() : tensor<32x64xbf16>
-        %1 = "ttir.exp"(%arg0, %0) : (tensor<32x64xbf16>, tensor<32x64xbf16>) -> tensor<32x64xbf16>
-        %2 = tensor.empty() : tensor<64x32xbf16>
-        %3 = "ttir.permute"(%1, %2) <{permutation = array<i64: 1, 0>}> : (tensor<32x64xbf16>, tensor<64x32xbf16>) -> tensor<64x32xbf16>
+        %1 = "ttir.exp"(%arg0) : (tensor<32x64xbf16>) -> tensor<32x64xbf16>
+        %3 = "ttir.permute"(%1) <{permutation = array<i64: 1, 0>}> : (tensor<32x64xbf16>) -> tensor<64x32xbf16>
         return %3 : tensor<64x32xbf16>
     }
 }
@@ -29,12 +27,9 @@ module {
         // CHECK: return %[[PERMUTE2]]
 
         // These inverse permutations should NOT be erased without flattened_compat_info
-        %0 = tensor.empty() : tensor<1x224x224x3xbf16>
-        %1 = "ttir.permute"(%arg0, %0) <{permutation = array<i64: 0, 2, 3, 1>}> : (tensor<1x3x224x224xbf16>, tensor<1x224x224x3xbf16>) -> tensor<1x224x224x3xbf16>
-        %2 = tensor.empty() : tensor<1x224x224x3xbf16>
-        %3 = "ttir.exp"(%1, %2) : (tensor<1x224x224x3xbf16>, tensor<1x224x224x3xbf16>) -> tensor<1x224x224x3xbf16>
-        %4 = tensor.empty() : tensor<1x3x224x224xbf16>
-        %5 = "ttir.permute"(%3, %4) <{permutation = array<i64: 0, 3, 1, 2>}> : (tensor<1x224x224x3xbf16>, tensor<1x3x224x224xbf16>) -> tensor<1x3x224x224xbf16>
+        %1 = "ttir.permute"(%arg0) <{permutation = array<i64: 0, 2, 3, 1>}> : (tensor<1x3x224x224xbf16>) -> tensor<1x224x224x3xbf16>
+        %3 = "ttir.exp"(%1) : (tensor<1x224x224x3xbf16>) -> tensor<1x224x224x3xbf16>
+        %5 = "ttir.permute"(%3) <{permutation = array<i64: 0, 3, 1, 2>}> : (tensor<1x224x224x3xbf16>) -> tensor<1x3x224x224xbf16>
         return %5 : tensor<1x3x224x224xbf16>
     }
 }

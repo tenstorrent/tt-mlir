@@ -7,9 +7,9 @@ module @TwoGelus attributes {mhlo.cross_program_prefetches = [], mhlo.frontend_a
         %0 = stablehlo.reshape %arg0 : (tensor<32x32xf32>) -> tensor<1x32x32xf32>
         %1 = stablehlo.reshape %0 : (tensor<1x32x32xf32>) -> tensor<32x32xf32>
         // CHECK: ttir.gelu
-        // CHECK-SAME: (tensor<32x16xf32>, tensor<32x16xf32>) -> tensor<32x16xf32>
+        // CHECK-SAME: (tensor<32x16xf32>) -> tensor<32x16xf32>
         // CHECK: ttir.gelu
-        // CHECK-SAME: (tensor<32x16xf32>, tensor<32x16xf32>) -> tensor<32x16xf32>
+        // CHECK-SAME: (tensor<32x16xf32>) -> tensor<32x16xf32>
         %2 = stablehlo.composite "tenstorrent.gelu_tanh" %1 {composite_attributes = {approximate = "tanh"}, decomposition = @tenstorrent.gelu_tanh.impl_0} : (tensor<32x32xf32>) -> tensor<32x32xf32>
         %3 = stablehlo.composite "tenstorrent.gelu_tanh" %2 {composite_attributes = {approximate = "tanh"}, decomposition = @tenstorrent.gelu_tanh.impl} : (tensor<32x32xf32>) -> tensor<32x32xf32>
         return %3 : tensor<32x32xf32>

@@ -33,6 +33,7 @@ void registerRuntimeBindings(nb::module_ &m) {
       .def("get_device_ids", &tt::runtime::getDeviceIds)
       .def("get_num_hw_cqs", &tt::runtime::getNumHwCqs)
       .def("is_program_cache_enabled", &tt::runtime::isProgramCacheEnabled)
+      .def("clear_program_cache", &tt::runtime::clearProgramCache)
       .def("get_l1_small_size", &tt::runtime::getL1SmallSize)
       .def("get_trace_region_size", &tt::runtime::getTraceRegionSize)
       .def("get_num_dram_channels", &tt::runtime::getNumDramChannels)

@@ -10,13 +10,10 @@ module @L1InterleavedTestConv2D attributes {} {
     %arg2: tensor<64x32x1x1xbf16>,
     %arg3: tensor<64x64x1x1xbf16>
   ) -> tensor<4x32x32x64xbf16> {
-    %0 = ttir.empty() : tensor<4x32x32x32xbf16>
-    %1 = "ttir.conv2d"(%arg0, %arg1, %0) {dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}: (tensor<4x32x32x16xbf16>, tensor<32x16x3x3xbf16>, tensor<4x32x32x32xbf16>) -> tensor<4x32x32x32xbf16>
-    %2 = ttir.empty() : tensor<4x32x32x64xbf16>
-    %3 = "ttir.conv2d"(%1, %arg2, %2) {dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}: (tensor<4x32x32x32xbf16>, tensor<64x32x1x1xbf16>, tensor<4x32x32x64xbf16>) -> tensor<4x32x32x64xbf16>
-    %4 = ttir.empty() : tensor<4x32x32x64xbf16>
-    %5 = "ttir.conv2d"(%3, %arg3, %4) {dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}: (tensor<4x32x32x64xbf16>, tensor<64x64x1x1xbf16>, tensor<4x32x32x64xbf16>) -> tensor<4x32x32x64xbf16>
-    return %5 : tensor<4x32x32x64xbf16>
+    %0 = "ttir.conv2d"(%arg0, %arg1) {dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}: (tensor<4x32x32x16xbf16>, tensor<32x16x3x3xbf16>) -> tensor<4x32x32x32xbf16>
+    %1 = "ttir.conv2d"(%0, %arg2) {dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}: (tensor<4x32x32x32xbf16>, tensor<64x32x1x1xbf16>) -> tensor<4x32x32x64xbf16>
+    %2 = "ttir.conv2d"(%1, %arg3) {dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 1, 1>}: (tensor<4x32x32x64xbf16>, tensor<64x64x1x1xbf16>) -> tensor<4x32x32x64xbf16>
+    return %2 : tensor<4x32x32x64xbf16>
   }
 }
 
