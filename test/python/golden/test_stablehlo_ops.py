@@ -808,3 +808,58 @@ def test_reduce_min(
         target=target,
         device=device,
     )
+
+
+@pytest.mark.parametrize("shape", [(1, 1, 64, 32), (1, 3, 256, 256)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_constant(shape: Shape, dtype: torch.dtype, target: str, request, device):
+    def constant_fn(builder: StableHLOBuilder):
+        if dtype.is_floating_point:
+            tensor = torch.randn(shape, dtype=dtype)
+        else:
+            tensor = torch.randint(-10, 10, shape, dtype=dtype)
+        builder.set_graph_level_check(True)
+        return builder.constant(tensor)
+
+    compile_and_execute_shlo(
+        constant_fn,
+        [],
+        [],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("start_indices_val", [[32, 32]], ids=shape_str)
+@pytest.mark.parametrize("slice_sizes", [[64, 64]], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_dynamic_slice(
+    shape: Shape,
+    start_indices_val: List[int],
+    slice_sizes: List[int],
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    def dynamic_slice_fn(in0: Operand, builder: StableHLOBuilder):
+
+        builder.set_graph_level_check(True)
+        return builder.dynamic_slice(in0, start_indices_val, slice_sizes=slice_sizes)
+
+    compile_and_execute_shlo(
+        dynamic_slice_fn,
+        [shape],
+        [dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
