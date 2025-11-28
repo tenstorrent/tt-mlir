@@ -211,12 +211,12 @@ void createTTIRToTTNNBackendPipeline(
   OpPassManager &devicePm =
       pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
 
-  // Element type normalization should be the first pass in the pipeline.
-  // This pass should be applied only to the ops in the Device
-  // Module, since we aren't restricted with element types on CPU.
+  // We need canonicalization before element type normalization to clean up
+  // any redundant ops which may interfere with type conversion.
   ttir::ElementTypeNormalizationOptions elementTypeNormalizationOptions;
   elementTypeNormalizationOptions.enableBfp8Conversion =
       options.enableBfp8Conversion;
+  devicePm.addPass(mlir::createCanonicalizerPass());
   devicePm.addPass(
       ttir::createElementTypeNormalization(elementTypeNormalizationOptions));
 
