@@ -1330,7 +1330,7 @@ public:
     // Denominator pooling op must have all inputs be either a FullOp or a
     // ConstantOp, or trace back to one through broadcast/reshape ops.
     for (Value input : denominator.getInputs()) {
-      if (traceToFullOrConstantOp(input)==nullptr) {
+      if (traceToFullOrConstantOp(input) == nullptr) {
         return mlir::failure();
       }
     }
@@ -1537,12 +1537,10 @@ private:
       return nullptr;
     }
 
-    // Base case: directly a FullOp or ConstantOp
     if (isa<FullOp, ConstantOp>(defOp)) {
       return value;
     }
 
-    // Trace through broadcast and reshape operations
     if (auto broadcastOp = dyn_cast<BroadcastOp>(defOp)) {
       return traceToFullOrConstantOp(broadcastOp.getInput());
     }
@@ -1550,7 +1548,6 @@ private:
       return traceToFullOrConstantOp(reshapeOp.getInput());
     }
 
-    // If we hit any other operation type, return null
     return nullptr;
   }
 };
