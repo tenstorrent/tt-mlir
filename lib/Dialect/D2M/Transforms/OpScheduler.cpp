@@ -322,7 +322,7 @@ public:
 
   LogicalResult matchAndRewrite(GenericOp op,
                                 PatternRewriter &rewriter) const final {
-    if (!op.isNonTriviallyEltwiseFused()) {
+    if (!op.isNontriviallyEltwiseFused()) {
       return failure();
     }
 

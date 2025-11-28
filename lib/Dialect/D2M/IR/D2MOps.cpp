@@ -1879,7 +1879,7 @@ bool d2m::GenericOp::hasComputeOpsInRegion(unsigned regionIndex) {
   return hasCompute;
 }
 
-bool d2m::GenericOp::isNonTriviallyEltwiseFused() {
+bool d2m::GenericOp::isNontriviallyEltwiseFused() {
   // if all parallel --> no reductions --> eltwise only
   if (!this->isAllParallel()) {
     return false;

@@ -32,9 +32,12 @@ def D2MOpScheduler : Pass<"d2m-op-scheduler", "::mlir::ModuleOp"> {
   let summary = "Performs op scheduling within each affine.for loop nest in the d2m.generic block to minimize total required register slices.";
   let description = [{
     This pass scans `d2m.generic` ops that are non-trivially fused (3+ input operands) to
-    find nested affine.for loop-nests with attribute "d2m.linalg_root" on the root loop. It then builds an operation tree from the ops contained in the lowest level loop under the root,
-    and then uses a Sethi-Ullman scheduling algorithm in conjunction with the tree to reorder the ops. This is done such that the final
-    sequence of ops requires the minimal number of dst register slices to execute.
+    find nested affine.for loop-nests with attribute "d2m.linalg_root" on the root loop.
+    It then builds an operation tree from the ops contained in the lowest level loop
+    under the root, and then uses a Sethi-Ullman scheduling algorithm in conjunction
+    with the tree to reorder the ops. This is done such that the final sequence of ops
+    requires the minimal number of dst register slices to execute. Adds tag "d2m.scheduled"
+    to the root loop for use by downstream D2MInsertDstRegisterAccess pass.
   }];
 
   list<Option> options = [
