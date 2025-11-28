@@ -62,7 +62,7 @@ func.func @scaled_sum_to_mean_with_spatial_optimization(%input: tensor<8x16x32x6
     return %6 : tensor<8x64x1x1xbf16>
 }
 
-// Test with single dimension reduction: sum on dim [2] 
+// Test with single dimension reduction: sum on dim [2]
 func.func @scaled_sum_to_mean_single_dim(%input: tensor<4x8x16xbf16>) -> tensor<4x8xbf16> {
     // CHECK-LABEL: func.func @scaled_sum_to_mean_single_dim
     %0 = "ttir.constant"() <{value = dense<6.25E-2> : tensor<4x8xbf16>}> : () -> tensor<4x8xbf16>
