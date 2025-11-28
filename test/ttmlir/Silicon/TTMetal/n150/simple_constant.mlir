@@ -5,8 +5,7 @@
 module {
   // CHECK-LABEL: func.func public @add5
   func.func public @add5(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
-    // CHECK: memref.get_global
-    // CHECK: "ttmetal.enqueue_write_buffer"
+    // CHECK: "ttmetal.create_buffer"
     // CHECK: "ttmetal.enqueue_write_buffer"
     // CHECK: memref.alloc
     // CHECK-NOT: #ttcore.host_layout
@@ -18,11 +17,7 @@ module {
 
   // CHECK-LABEL: func.func public @add5_unaligned
   func.func public @add5_unaligned(%arg0: tensor<9x43x7xf32>) -> tensor<9x43x7xf32> {
-    // CHECK: memref.get_global
-    // CHECK: memref.alloc
-    // CHECK-SAME: #ttcore.host_layout
-    // CHECK: memref.copy
-    // CHECK: "ttmetal.enqueue_write_buffer"
+    // CHECK: "ttmetal.create_buffer"
     // CHECK: memref.alloc
     // CHECK-SAME: #ttcore.host_layout
     // CHECK: memref.copy
