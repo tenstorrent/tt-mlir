@@ -1328,11 +1328,11 @@ public:
     }
 
     // Denominator pooling op must have all inputs be either a FullOp or a
-    // ConstantOp.
-    if (!llvm::all_of(denominator.getInputs(), [](Value v) {
-          return llvm::isa_and_present<FullOp, ConstantOp>(v.getDefiningOp());
-        })) {
-      return mlir::failure();
+    // ConstantOp, or trace back to one through broadcast/reshape ops.
+    for (Value input : denominator.getInputs()) {
+      if (traceToFullOrConstantOp(input)==nullptr) {
+        return mlir::failure();
+      }
     }
 
     // Besides the padding attribute, all attributes of the denominator must
@@ -1368,11 +1368,18 @@ public:
       }
     }
 
-    // For each denominator input, if it is a FullOp, its fill value must be 1
-    // If it is a constant op, its value must be a tensor filled with ones, and
-    // padded with zeroes according to the padding attribute of the numerator.
+    // For each denominator input, trace through broadcast/reshape to find the
+    // underlying FullOp or ConstantOp. If it is a FullOp, its fill value must
+    // be 1. If it is a constant op, its value must be a tensor filled with
+    // ones, and padded with zeroes according to the padding attribute of the
+    // numerator.
     for (Value input : denominator.getInputs()) {
-      if (FullOp inputOp = input.getDefiningOp<FullOp>()) {
+      Value tracedInput = traceToFullOrConstantOp(input);
+      if (!tracedInput) {
+        return mlir::failure();
+      }
+
+      if (FullOp inputOp = tracedInput.getDefiningOp<FullOp>()) {
         // If the denominator is a pool of a full op, then
         // the numerator must have a padding attribute of all zeros.
         if (numerator.getPadding().empty()) {
@@ -1400,7 +1407,7 @@ public:
         } else {
           return mlir::failure();
         }
-      } else if (ConstantOp inputOp = input.getDefiningOp<ConstantOp>()) {
+      } else if (ConstantOp inputOp = tracedInput.getDefiningOp<ConstantOp>()) {
         Type constantElementType = inputOp.getValue().getElementType();
         if (isa<IntegerType>(constantElementType)) {
           auto values = inputOp.getValue().getValues<APInt>();
@@ -1520,6 +1527,31 @@ private:
       }
     }
     return true;
+  }
+
+  // Helper function to trace a value through broadcast/reshape ops and return
+  // the underlying FullOp or ConstantOp value.
+  static Value traceToFullOrConstantOp(Value value) {
+    Operation *defOp = value.getDefiningOp();
+    if (!defOp) {
+      return nullptr;
+    }
+
+    // Base case: directly a FullOp or ConstantOp
+    if (isa<FullOp, ConstantOp>(defOp)) {
+      return value;
+    }
+
+    // Trace through broadcast and reshape operations
+    if (auto broadcastOp = dyn_cast<BroadcastOp>(defOp)) {
+      return traceToFullOrConstantOp(broadcastOp.getInput());
+    }
+    if (auto reshapeOp = dyn_cast<ReshapeOp>(defOp)) {
+      return traceToFullOrConstantOp(reshapeOp.getInput());
+    }
+
+    // If we hit any other operation type, return null
+    return nullptr;
   }
 };
 
