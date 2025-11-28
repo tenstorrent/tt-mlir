@@ -308,6 +308,9 @@ void createTTNNBackendToEmitPyPipeline(
 
   pm.addPass(createTTNNAdjustDeallocs());
 
+  pm.addPass(createTTNNSimplifyLocsForCodegen());
+  pm.addPass(createTTNNPrettifyForCodegen());
+
   pm.addPass(ttcore::createTTCoreUnwrapDeviceModulePass());
 
   // Apply EmitPy-specific workarounds before conversion
