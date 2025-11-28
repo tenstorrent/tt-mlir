@@ -4988,11 +4988,9 @@ mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp::verify() {
 
   RankedTensorType lhsType = getLhs().getType();
   RankedTensorType rhsType = getRhs().getType();
-  RankedTensorType outputType = getOutput().getType();
 
   int64_t lhsRank = lhsType.getRank();
   int64_t rhsRank = rhsType.getRank();
-  int64_t outputRank = outputType.getRank();
 
   if (lhsRank < 2 || lhsRank > 4) {
     return emitOpError(
@@ -5006,23 +5004,11 @@ mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp::verify() {
            << rhsRank;
   }
 
-  if (outputRank < 2 || outputRank > 4) {
-    return emitOpError("output tensor must have rank 2, 3, or 4, but got rank ")
-           << outputRank;
-  }
-
   if (lhsRank != rhsRank) {
     return emitOpError("gradient tensor (lhs) and input tensor (rhs) must have "
                        "the same rank, "
                        "but got lhs rank ")
            << lhsRank << " and rhs rank " << rhsRank;
-  }
-
-  if (lhsRank != outputRank) {
-    return emitOpError(
-               "input tensors and output tensor must have the same rank, "
-               "but got input rank ")
-           << lhsRank << " and output rank " << outputRank;
   }
 
   return success();

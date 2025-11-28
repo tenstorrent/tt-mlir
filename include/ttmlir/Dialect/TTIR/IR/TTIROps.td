@@ -1897,11 +1897,11 @@ def TTIR_GeluBackwardOp : TTIR_ElementwiseBinaryOp<"gelu_bw"> {
     Example:
     ```mlir
     // Compute GELU backward pass
-    %result = ttir.gelu_bw(%grad, %input, %output) :
+    %result = ttir.gelu_bw(%grad, %input) :
       (tensor<4x4xf32>, tensor<4x4xf32>, tensor<4x4xf32>) -> tensor<4x4xf32>
 
     // With tanh approximation
-    %result = ttir.gelu_bw(%grad, %input, %output) {approximate = "tanh"} :
+    %result = ttir.gelu_bw(%grad, %input) {approximate = "tanh"} :
       (tensor<4x4xf32>, tensor<4x4xf32>, tensor<4x4xf32>) -> tensor<4x4xf32>
     ```
 
@@ -1916,7 +1916,6 @@ def TTIR_GeluBackwardOp : TTIR_ElementwiseBinaryOp<"gelu_bw"> {
 
   let arguments = (ins AnyRankedTensor:$lhs,
                        AnyRankedTensor:$rhs,
-                       AnyRankedTensor:$output,
                        DefaultValuedAttr<StrAttr, "\"none\"">:$approximate);
 
   let results = (outs AnyRankedTensor:$result);
