@@ -1,7 +1,7 @@
 // RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access --canonicalize -o %t %s
-// RUN: FileCheck %s --input-file=%t --check-prefixes=CHECK,LEGACY
-// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-gc="coloring-strategy=greedy" --canonicalize %s | FileCheck %s --check-prefixes=CHECK,GREEDY
-// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-gc="coloring-strategy=chaitin-briggs" --canonicalize %s | FileCheck %s --check-prefixes=CHECK,CHAITIN
+// RUN: FileCheck %s --input-file=%t
+// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-gc="coloring-strategy=greedy" --canonicalize %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-gc="coloring-strategy=chaitin-briggs" --canonicalize %s | FileCheck %s
 
 // Test for intermediate compute operations in chains.
 // When a compute operation's result is consumed by another compute operation
@@ -15,14 +15,11 @@ module {
   // CHECK-LABEL: func.func @intermediate_compute
   // CHECK: %[[DST:.*]] = d2m.acquire_dst() : memref<{{[0-9]+}}x1x1x!ttcore.tile<32x32, f32>,
   // CHECK: affine.for
-  // LEGACY: d2m.tile_sub{{.*}}result_dst_index = 2
-  // GREEDY: d2m.tile_sub{{.*}}result_dst_index = 2
-  // CHAITIN: d2m.tile_sub{{.*}}result_dst_index = 2
+  // CHECK: d2m.tile_sub{{.*}}result_dst_index = 2
   // CHECK:   affine.store
   // CHECK:   affine.load
-  // LEGACY: d2m.tile_nez{{.*}}result_dst_index = 2
-  // GREEDY: d2m.tile_nez{{.*}}result_dst_index = 0
-  // CHAITIN: d2m.tile_nez{{.*}}result_dst_index = 2
+  // tile_nez is an in-place unary op, so it coalesces with its input (tile_sub at index 2).
+  // CHECK: d2m.tile_nez{{.*}}result_dst_index = 2
   // CHECK:   affine.store
 
   func.func @intermediate_compute(

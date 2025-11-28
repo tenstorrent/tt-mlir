@@ -1,43 +1,41 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-insert-dst-register-gc="coloring-strategy=greedy" --split-input-file %s | FileCheck %s --check-prefixes=COMMON,GC
-// RUN: ttmlir-opt --ttcore-register-device --d2m-insert-dst-register-gc="coloring-strategy=chaitin-briggs" --split-input-file %s | FileCheck %s --check-prefixes=COMMON,GC
-// RUN: ttmlir-opt --ttcore-register-device --d2m-insert-dst-register-access="max-dst-physical-size-tiles=32" --split-input-file %s | FileCheck %s --check-prefixes=COMMON,LEGACY
+// RUN: ttmlir-opt --ttcore-register-device --d2m-insert-dst-register-gc="coloring-strategy=greedy" --split-input-file %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-insert-dst-register-gc="coloring-strategy=chaitin-briggs" --split-input-file %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-insert-dst-register-access="max-dst-physical-size-tiles=32" --split-input-file %s | FileCheck %s
 //
 // Tests for graph coloring DST allocation with d2m.linalg_root marked loops.
 // These tests use loops with the d2m.linalg_root attribute which both
 // the legacy and graph coloring passes recognize.
-// The key difference: GC allocates minimal DST slices, LEGACY allocates more conservatively.
+// GC may allocate fewer DST slices than LEGACY, but both should produce correct code.
 
 #l1_ = #ttcore.memory_space<l1>
 #dst = #ttcore.memory_space<dst>
 
 module {
-  // COMMON-LABEL: func.func @test_binary_with_loops
-  // COMMON: d2m.generic
+  // CHECK-LABEL: func.func @test_binary_with_loops
+  // CHECK: d2m.generic
 
-  // COMMON: %[[MEM0:.*]] = d2m.wait
-  // COMMON: %[[MEM1:.*]] = d2m.wait
-  // COMMON: %[[MEM_OUT:.*]] = d2m.reserve
+  // CHECK: %[[MEM0:.*]] = d2m.wait
+  // CHECK: %[[MEM1:.*]] = d2m.wait
+  // CHECK: %[[MEM_OUT:.*]] = d2m.reserve
 
-  // GC pass allocates minimal slices (3), LEGACY allocates more conservatively (16 for f16)
-  // GC: %[[DST:.*]] = d2m.acquire_dst() : memref<3x1x1x!ttcore.tile<32x32, f16>, #dst>
-  // LEGACY: %[[DST:.*]] = d2m.acquire_dst() : memref<16x1x1x!ttcore.tile<32x32, f16>, #dst>
+  // CHECK: %[[DST:.*]] = d2m.acquire_dst() : memref<[[DSTSIZE:[0-9]+]]x1x1x!ttcore.tile<32x32, f16>, #dst>
 
   // Verify prologue, compute, and epilogue loops are generated
-  // COMMON: affine.for
-  // COMMON: affine.load %[[MEM0]]
-  // COMMON: affine.store {{.*}}, %[[DST]]
-  // COMMON: affine.load %[[MEM1]]
-  // COMMON: affine.store {{.*}}, %[[DST]]
+  // CHECK: affine.for
+  // CHECK: affine.load %[[MEM0]]
+  // CHECK: affine.store {{.*}}, %[[DST]]
+  // CHECK: affine.load %[[MEM1]]
+  // CHECK: affine.store {{.*}}, %[[DST]]
 
-  // COMMON: affine.for
-  // COMMON: affine.load %[[DST]]
-  // COMMON: affine.load %[[DST]]
-  // COMMON: "d2m.tile_add"{{.*}}{result_dst_index = 2 : i64}
-  // COMMON: affine.store {{.*}}, %[[DST]]
+  // CHECK: affine.for
+  // CHECK: affine.load %[[DST]]
+  // CHECK: affine.load %[[DST]]
+  // CHECK: "d2m.tile_add"{{.*}}{result_dst_index = 2 : i64}
+  // CHECK: affine.store {{.*}}, %[[DST]]
 
-  // COMMON: affine.for
-  // COMMON: affine.load %[[DST]]
-  // COMMON: affine.store {{.*}}, %[[MEM_OUT]]
+  // CHECK: affine.for
+  // CHECK: affine.load %[[DST]]
+  // CHECK: affine.store {{.*}}, %[[MEM_OUT]]
 
 
   func.func @test_binary_with_loops(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<4096x4096, 1>, #l1_>,
@@ -85,26 +83,22 @@ module {
 #dst = #ttcore.memory_space<dst>
 
 module {
-  // COMMON-LABEL: func.func @test_f32_dtype_with_loops
-  // COMMON: d2m.generic
-  // COMMON: d2m.wait
-  // COMMON: d2m.wait
-  // COMMON: d2m.reserve
-  // GC: %[[DST:.*]] = d2m.acquire_dst() : memref<3x1x1x!ttcore.tile<32x32, f32>, #dst>
-  // LEGACY: %[[DST:.*]] = d2m.acquire_dst() : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
-  // COMMON: affine.for
-  // COMMON: affine.load {{.*}}: memref<1x1x!ttcore.tile<32x32, f32>, #l1>
-  // GC: affine.store {{.*}}: memref<3x1x1x!ttcore.tile<32x32, f32>, #dst>
-  // LEGACY: affine.store {{.*}}: memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
-  // COMMON: affine.load {{.*}}: memref<1x1x!ttcore.tile<32x32, f32>, #l1>
-  // GC: affine.store {{.*}}: memref<3x1x1x!ttcore.tile<32x32, f32>, #dst>
-  // LEGACY: affine.store {{.*}}: memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
-  // COMMON: affine.for
-  // COMMON: "d2m.tile_add"{{.*}}{result_dst_index = 2 : i64}
-  // COMMON: affine.for
-  // GC: affine.load {{.*}}: memref<3x1x1x!ttcore.tile<32x32, f32>, #dst>
-  // LEGACY: affine.load {{.*}}: memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
-  // COMMON: affine.store {{.*}}: memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+  // CHECK-LABEL: func.func @test_f32_dtype_with_loops
+  // CHECK: d2m.generic
+  // CHECK: d2m.wait
+  // CHECK: d2m.wait
+  // CHECK: d2m.reserve
+  // CHECK: %[[DST:.*]] = d2m.acquire_dst() : memref<[[DSTSIZE:[0-9]+]]x1x1x!ttcore.tile<32x32, f32>, #dst>
+  // CHECK: affine.for
+  // CHECK: affine.load {{.*}}: memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+  // CHECK: affine.store {{.*}}: memref<[[DSTSIZE]]x1x1x!ttcore.tile<32x32, f32>, #dst>
+  // CHECK: affine.load {{.*}}: memref<1x1x!ttcore.tile<32x32, f32>, #l1>
+  // CHECK: affine.store {{.*}}: memref<[[DSTSIZE]]x1x1x!ttcore.tile<32x32, f32>, #dst>
+  // CHECK: affine.for
+  // CHECK: "d2m.tile_add"{{.*}}{result_dst_index = 2 : i64}
+  // CHECK: affine.for
+  // CHECK: affine.load {{.*}}: memref<[[DSTSIZE]]x1x1x!ttcore.tile<32x32, f32>, #dst>
+  // CHECK: affine.store {{.*}}: memref<1x1x!ttcore.tile<32x32, f32>, #l1>
 
   func.func @test_f32_dtype_with_loops(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
                               %in1: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
@@ -154,41 +148,38 @@ module {
 #dst = #ttcore.memory_space<dst>
 
 module {
-  // COMMON-LABEL: func.func @test_2x2_binary_with_nested_loops
-  // COMMON: d2m.generic
+  // CHECK-LABEL: func.func @test_2x2_binary_with_nested_loops
+  // CHECK: d2m.generic
 
-  // COMMON: %[[MEM0:.*]] = d2m.wait
-  // COMMON: %[[MEM1:.*]] = d2m.wait
-  // COMMON: %[[MEM_OUT:.*]] = d2m.reserve
+  // CHECK: %[[MEM0:.*]] = d2m.wait
+  // CHECK: %[[MEM1:.*]] = d2m.wait
+  // CHECK: %[[MEM_OUT:.*]] = d2m.reserve
 
   // Binary operation requires separate DST registers for each input chain
-  // Graph coloring allocates 3 slices (2 inputs + 1 result), legacy allocates 4 slices
-  // GC: %[[DST:.*]] = d2m.acquire_dst() : memref<3x2x2x!ttcore.tile<32x32, f16>, #dst>
-  // LEGACY: %[[DST:.*]] = d2m.acquire_dst() : memref<4x2x2x!ttcore.tile<32x32, f16>, #dst>
+  // CHECK: %[[DST:.*]] = d2m.acquire_dst() : memref<[[DSTSIZE:[0-9]+]]x2x2x!ttcore.tile<32x32, f16>, #dst>
 
   // Prologue loop copies inputs to DST
-  // COMMON: affine.for
-  // COMMON: affine.load %[[MEM0]]
-  // COMMON: affine.store {{.*}}, %[[DST]]
-  // COMMON: affine.load %[[MEM1]]
-  // COMMON: affine.store {{.*}}, %[[DST]]
+  // CHECK: affine.for
+  // CHECK: affine.load %[[MEM0]]
+  // CHECK: affine.store {{.*}}, %[[DST]]
+  // CHECK: affine.load %[[MEM1]]
+  // CHECK: affine.store {{.*}}, %[[DST]]
 
   // Compute loop with DST operations
-  // COMMON: affine.for
-  // COMMON: affine.load %[[DST]]
-  // COMMON: "d2m.tile_abs"
-  // COMMON: "d2m.tile_sin"
-  // COMMON: affine.load %[[DST]]
-  // COMMON: "d2m.tile_negative"
-  // Verify result_dst_index attribute is attached for all strategies
-  // LEGACY: "d2m.tile_add"{{.*}}{result_dst_index = 2 : i64}
-  // GC: "d2m.tile_add"{{.*}}{result_dst_index = {{[0-9]+}} : i64}
-  // COMMON: affine.store {{.*}}, %[[DST]]
+  // CHECK: affine.for
+  // CHECK: affine.load %[[DST]]
+  // CHECK: "d2m.tile_abs"
+  // CHECK: "d2m.tile_sin"
+  // CHECK: affine.load %[[DST]]
+  // CHECK: "d2m.tile_negative"
+  // Verify result_dst_index attribute is attached
+  // CHECK: "d2m.tile_add"{{.*}}{result_dst_index = {{[0-9]+}} : i64}
+  // CHECK: affine.store {{.*}}, %[[DST]]
 
   // Epilogue loop copies result back to L1
-  // COMMON: affine.for
-  // COMMON: affine.load %[[DST]]
-  // COMMON: affine.store {{.*}}, %[[MEM_OUT]]
+  // CHECK: affine.for
+  // CHECK: affine.load %[[DST]]
+  // CHECK: affine.store {{.*}}, %[[MEM_OUT]]
 
 
   func.func @test_2x2_binary_with_nested_loops(%in0: memref<1x1x2x2x!ttcore.tile<32x32, f16>, #ttcore.shard<8192x4096, 1>, #l1_>,

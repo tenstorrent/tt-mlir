@@ -1,6 +1,6 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access="max-dst-physical-size-tiles=32" --canonicalize %s | FileCheck %s --check-prefixes=CHECK,LEGACY
-// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-gc="coloring-strategy=greedy max-dst-physical-size-tiles=32" --canonicalize %s | FileCheck %s --check-prefixes=CHECK,GREEDY
-// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-gc="coloring-strategy=chaitin-briggs max-dst-physical-size-tiles=32" --canonicalize %s | FileCheck %s --check-prefixes=CHECK,CHAITIN
+// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access="max-dst-physical-size-tiles=32" --canonicalize %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-gc="coloring-strategy=greedy max-dst-physical-size-tiles=32" --canonicalize %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-gc="coloring-strategy=chaitin-briggs max-dst-physical-size-tiles=32" --canonicalize %s | FileCheck %s
 //
 // This test exercises DST allocation with large DST capacity (32 tiles) for eltwise operations.
 
@@ -69,18 +69,10 @@ module {
             // CHECK: %[[DST_DIV:.*]] = affine.load %[[DST]][2, %[[ARG_I]], %[[ARG_J]]] : memref<[[DSTSIZE]]x1x1x!ttcore.tile<32x32, f32>, #dst>
             %0 = "d2m.tile_div"(%in, %in_17) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
             %1 = "d2m.tile_recip"(%0) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-            // LEGACY: %[[RECIP_RESULT:.*]] = "d2m.tile_recip"(%[[DST_DIV]]) {result_dst_index = 2 : i64}
-            // LEGACY: affine.store %[[RECIP_RESULT]], %[[DST]][2, %[[ARG_I]], %[[ARG_J]]] : memref<[[DSTSIZE]]x1x1x!ttcore.tile<32x32, f32>, #dst>
-            // LEGACY: %[[FINAL_VAL:.*]] = affine.load %[[DST]][2, %[[ARG_I]], %[[ARG_J]]] : memref<[[DSTSIZE]]x1x1x!ttcore.tile<32x32, f32>, #dst>
-            //
-            // GREEDY: %[[RECIP_RESULT:.*]] = "d2m.tile_recip"(%[[DST_DIV]]) {result_dst_index = 0 : i64}
-            // GREEDY: affine.store %[[RECIP_RESULT]], %[[DST]][0, %[[ARG_I]], %[[ARG_J]]] : memref<[[DSTSIZE]]x1x1x!ttcore.tile<32x32, f32>, #dst>
-            // GREEDY: %[[FINAL_VAL:.*]] = affine.load %[[DST]][0, %[[ARG_I]], %[[ARG_J]]] : memref<[[DSTSIZE]]x1x1x!ttcore.tile<32x32, f32>, #dst>
-            //
-            // CHAITIN: %[[RECIP_RESULT:.*]] = "d2m.tile_recip"(%[[DST_DIV]]) {result_dst_index = 2 : i64}
-            // CHAITIN: affine.store %[[RECIP_RESULT]], %[[DST]][2, %[[ARG_I]], %[[ARG_J]]] : memref<[[DSTSIZE]]x1x1x!ttcore.tile<32x32, f32>, #dst>
-            // CHAITIN: %[[FINAL_VAL:.*]] = affine.load %[[DST]][2, %[[ARG_I]], %[[ARG_J]]] : memref<[[DSTSIZE]]x1x1x!ttcore.tile<32x32, f32>, #dst>
-            //
+            // tile_recip is an in-place unary op, so it coalesces with its input (tile_div at index 2).
+            // CHECK: %[[RECIP_RESULT:.*]] = "d2m.tile_recip"(%[[DST_DIV]]) {result_dst_index = 2 : i64}
+            // CHECK: affine.store %[[RECIP_RESULT]], %[[DST]][2, %[[ARG_I]], %[[ARG_J]]] : memref<[[DSTSIZE]]x1x1x!ttcore.tile<32x32, f32>, #dst>
+            // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]][2, %[[ARG_I]], %[[ARG_J]]] : memref<[[DSTSIZE]]x1x1x!ttcore.tile<32x32, f32>, #dst>
             // CHECK: affine.store %[[FINAL_VAL]], {{.*}} : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
             linalg.yield %1 : !ttcore.tile<32x32, f32>
           }
@@ -117,27 +109,13 @@ module {
             %0 = "d2m.tile_sub"(%in, %in_17) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
             %1 = "d2m.tile_eqz"(%0) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
             %2 = "d2m.tile_eqz"(%1) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-            // LEGACY: %[[EQZ1_RESULT:.*]] = "d2m.tile_eqz"(%[[DST_SUB]]) {result_dst_index = 2 : i64}
-            // LEGACY: affine.store %[[EQZ1_RESULT]], %[[DST]][2, %[[ARG_I]], %[[ARG_J]]] : memref<[[DSTSIZE]]x1x1x!ttcore.tile<32x32, f32>, #dst>
-            // LEGACY: %[[DST_EQZ1:.*]] = affine.load %[[DST]][2, %[[ARG_I]], %[[ARG_J]]] : memref<[[DSTSIZE]]x1x1x!ttcore.tile<32x32, f32>, #dst>
-            // LEGACY: %[[EQZ2_RESULT:.*]] = "d2m.tile_eqz"(%[[DST_EQZ1]]) {result_dst_index = 2 : i64}
-            // LEGACY: affine.store %[[EQZ2_RESULT]], %[[DST]][2, %[[ARG_I]], %[[ARG_J]]] : memref<[[DSTSIZE]]x1x1x!ttcore.tile<32x32, f32>, #dst>
-            // LEGACY: %[[FINAL_VAL:.*]] = affine.load %[[DST]][2, %[[ARG_I]], %[[ARG_J]]] : memref<[[DSTSIZE]]x1x1x!ttcore.tile<32x32, f32>, #dst>
-            //
-            // GREEDY: %[[EQZ1_RESULT:.*]] = "d2m.tile_eqz"(%[[DST_SUB]]) {result_dst_index = 0 : i64}
-            // GREEDY: affine.store %[[EQZ1_RESULT]], %[[DST]][0, %[[ARG_I]], %[[ARG_J]]] : memref<[[DSTSIZE]]x1x1x!ttcore.tile<32x32, f32>, #dst>
-            // GREEDY: %[[DST_EQZ1:.*]] = affine.load %[[DST]][0, %[[ARG_I]], %[[ARG_J]]] : memref<[[DSTSIZE]]x1x1x!ttcore.tile<32x32, f32>, #dst>
-            // GREEDY: %[[EQZ2_RESULT:.*]] = "d2m.tile_eqz"(%[[DST_EQZ1]]) {result_dst_index = 0 : i64}
-            // GREEDY: affine.store %[[EQZ2_RESULT]], %[[DST]][0, %[[ARG_I]], %[[ARG_J]]] : memref<[[DSTSIZE]]x1x1x!ttcore.tile<32x32, f32>, #dst>
-            // GREEDY: %[[FINAL_VAL:.*]] = affine.load %[[DST]][0, %[[ARG_I]], %[[ARG_J]]] : memref<[[DSTSIZE]]x1x1x!ttcore.tile<32x32, f32>, #dst>
-            //
-            // CHAITIN: %[[EQZ1_RESULT:.*]] = "d2m.tile_eqz"(%[[DST_SUB]]) {result_dst_index = 2 : i64}
-            // CHAITIN: affine.store %[[EQZ1_RESULT]], %[[DST]][2, %[[ARG_I]], %[[ARG_J]]] : memref<[[DSTSIZE]]x1x1x!ttcore.tile<32x32, f32>, #dst>
-            // CHAITIN: %[[DST_EQZ1:.*]] = affine.load %[[DST]][2, %[[ARG_I]], %[[ARG_J]]] : memref<[[DSTSIZE]]x1x1x!ttcore.tile<32x32, f32>, #dst>
-            // CHAITIN: %[[EQZ2_RESULT:.*]] = "d2m.tile_eqz"(%[[DST_EQZ1]]) {result_dst_index = 2 : i64}
-            // CHAITIN: affine.store %[[EQZ2_RESULT]], %[[DST]][2, %[[ARG_I]], %[[ARG_J]]] : memref<[[DSTSIZE]]x1x1x!ttcore.tile<32x32, f32>, #dst>
-            // CHAITIN: %[[FINAL_VAL:.*]] = affine.load %[[DST]][2, %[[ARG_I]], %[[ARG_J]]] : memref<[[DSTSIZE]]x1x1x!ttcore.tile<32x32, f32>, #dst>
-            //
+            // tile_eqz is an in-place unary op, so both coalesce with their inputs (all at index 2).
+            // CHECK: %[[EQZ1_RESULT:.*]] = "d2m.tile_eqz"(%[[DST_SUB]]) {result_dst_index = 2 : i64}
+            // CHECK: affine.store %[[EQZ1_RESULT]], %[[DST]][2, %[[ARG_I]], %[[ARG_J]]] : memref<[[DSTSIZE]]x1x1x!ttcore.tile<32x32, f32>, #dst>
+            // CHECK: %[[DST_EQZ1:.*]] = affine.load %[[DST]][2, %[[ARG_I]], %[[ARG_J]]] : memref<[[DSTSIZE]]x1x1x!ttcore.tile<32x32, f32>, #dst>
+            // CHECK: %[[EQZ2_RESULT:.*]] = "d2m.tile_eqz"(%[[DST_EQZ1]]) {result_dst_index = 2 : i64}
+            // CHECK: affine.store %[[EQZ2_RESULT]], %[[DST]][2, %[[ARG_I]], %[[ARG_J]]] : memref<[[DSTSIZE]]x1x1x!ttcore.tile<32x32, f32>, #dst>
+            // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]][2, %[[ARG_I]], %[[ARG_J]]] : memref<[[DSTSIZE]]x1x1x!ttcore.tile<32x32, f32>, #dst>
             // CHECK: affine.store %[[FINAL_VAL]], {{.*}} : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
             linalg.yield %2 : !ttcore.tile<32x32, f32>
           }

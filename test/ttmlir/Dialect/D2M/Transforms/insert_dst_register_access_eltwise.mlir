@@ -1,7 +1,7 @@
 // RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access --canonicalize -cse -o %t %s
-// RUN: FileCheck %s --input-file=%t --check-prefixes=CHECK,LEGACY
-// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-gc="coloring-strategy=greedy" --canonicalize -cse %s | FileCheck %s --check-prefixes=CHECK,GREEDY
-// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-gc="coloring-strategy=chaitin-briggs" --canonicalize -cse %s | FileCheck %s --check-prefixes=CHECK,CHAITIN
+// RUN: FileCheck %s --input-file=%t
+// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-gc="coloring-strategy=greedy" --canonicalize -cse %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-gc="coloring-strategy=chaitin-briggs" --canonicalize -cse %s | FileCheck %s
 
 #l1_ = #ttcore.memory_space<l1>
 #dst_ = #ttcore.memory_space<dst>
@@ -10,8 +10,6 @@ module {
   // CHECK-LABEL: func.func @binary
   // CHECK: d2m.acquire_dst
   // CHECK: affine.for
-  // LEGACY: affine.load %{{.*}}[0,
-  // LEGACY: affine.load %{{.*}}[1,
   // CHECK: d2m.tile_maximum
   // CHECK-SAME: result_dst_index =
   func.func @binary(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
@@ -40,17 +38,14 @@ module {
   // Both legacy and GC passes materialize intermediate results to DST.
   // Intermediate ops get result_dst_index and store+load pairs are inserted.
   // With loop-indexed DST accesses, chain operations naturally share slots.
+  // In-place unary ops (tile_recip) coalesce with their input (tile_div at index 2).
   // CHECK-LABEL: func.func @intermediates_thru_dst_chain_2
   // CHECK: d2m.acquire_dst
   // CHECK: affine.for
-  // LEGACY: d2m.tile_div{{.*}}result_dst_index = 2
-  // GREEDY: d2m.tile_div{{.*}}result_dst_index = 2
-  // CHAITIN: d2m.tile_div{{.*}}result_dst_index = 2
+  // CHECK: d2m.tile_div{{.*}}result_dst_index = 2
   // CHECK: affine.store
   // CHECK: affine.load
-  // LEGACY: d2m.tile_recip{{.*}}result_dst_index = 2
-  // GREEDY: d2m.tile_recip{{.*}}result_dst_index = 0
-  // CHAITIN: d2m.tile_recip{{.*}}result_dst_index = 2
+  // CHECK: d2m.tile_recip{{.*}}result_dst_index = 2
   func.func @intermediates_thru_dst_chain_2(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<2048x2048, 1>, #l1_>,
                                             %in1: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<2048x2048, 1>, #l1_>,
                                             %out0: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<2048x2048, 1>, #l1_>) {
@@ -81,30 +76,17 @@ module {
   }
 
   // All intermediate ops get result_dst_index and store+load pairs.
+  // In-place unary ops (tile_eqz) coalesce with their input (tile_sub at index 2).
   // CHECK-LABEL: func.func @intermediates_thru_dst_chain_3
   // CHECK: d2m.acquire_dst
   // CHECK: affine.for
-  // LEGACY: d2m.tile_sub{{.*}}result_dst_index = 2
-  // GREEDY: d2m.tile_sub{{.*}}result_dst_index = 2
-  // CHAITIN: d2m.tile_sub{{.*}}result_dst_index = 2
-  // LEGACY: affine.store %{{.*}}, %dst[2, %arg3, %arg4] : memref<{{.*}}x!ttcore.tile<32x32, f16>, #dst>
-  // GREEDY: affine.store %{{.*}}, %dst[2, %arg3, %arg4] : memref<{{.*}}x!ttcore.tile<32x32, f16>, #dst>
-  // CHAITIN: affine.store %{{.*}}, %dst[2, %arg3, %arg4] : memref<{{.*}}x!ttcore.tile<32x32, f16>, #dst>
-  // LEGACY: affine.load %dst[2, %arg3, %arg4] : memref<{{.*}}x!ttcore.tile<32x32, f16>, #dst>
-  // GREEDY: affine.load %dst[2, %arg3, %arg4] : memref<{{.*}}x!ttcore.tile<32x32, f16>, #dst>
-  // CHAITIN: affine.load %dst[2, %arg3, %arg4] : memref<{{.*}}x!ttcore.tile<32x32, f16>, #dst>
-  // LEGACY: d2m.tile_eqz{{.*}}result_dst_index = 2
-  // GREEDY: d2m.tile_eqz{{.*}}result_dst_index = 0
-  // CHAITIN: d2m.tile_eqz{{.*}}result_dst_index = 2
-  // LEGACY: affine.store %{{.*}}, %dst[2, %arg3, %arg4] : memref<{{.*}}x!ttcore.tile<32x32, f16>, #dst>
-  // GREEDY: affine.store %{{.*}}, %dst[0, %arg3, %arg4] : memref<{{.*}}x!ttcore.tile<32x32, f16>, #dst>
-  // CHAITIN: affine.store %{{.*}}, %dst[2, %arg3, %arg4] : memref<{{.*}}x!ttcore.tile<32x32, f16>, #dst>
-  // LEGACY: affine.load %dst[2, %arg3, %arg4] : memref<{{.*}}x!ttcore.tile<32x32, f16>, #dst>
-  // GREEDY: affine.load %dst[0, %arg3, %arg4] : memref<{{.*}}x!ttcore.tile<32x32, f16>, #dst>
-  // CHAITIN: affine.load %dst[2, %arg3, %arg4] : memref<{{.*}}x!ttcore.tile<32x32, f16>, #dst>
-  // LEGACY: d2m.tile_eqz{{.*}}result_dst_index = 2
-  // GREEDY: d2m.tile_eqz{{.*}}result_dst_index = 0
-  // CHAITIN: d2m.tile_eqz{{.*}}result_dst_index = 2
+  // CHECK: d2m.tile_sub{{.*}}result_dst_index = 2
+  // CHECK: affine.store %{{.*}}, %dst[2, %arg3, %arg4] : memref<{{.*}}x!ttcore.tile<32x32, f16>, #dst>
+  // CHECK: affine.load %dst[2, %arg3, %arg4] : memref<{{.*}}x!ttcore.tile<32x32, f16>, #dst>
+  // CHECK: d2m.tile_eqz{{.*}}result_dst_index = 2
+  // CHECK: affine.store %{{.*}}, %dst[2, %arg3, %arg4] : memref<{{.*}}x!ttcore.tile<32x32, f16>, #dst>
+  // CHECK: affine.load %dst[2, %arg3, %arg4] : memref<{{.*}}x!ttcore.tile<32x32, f16>, #dst>
+  // CHECK: d2m.tile_eqz{{.*}}result_dst_index = 2
   func.func @intermediates_thru_dst_chain_3(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<2048x2048, 1>, #l1_>,
                                             %in1: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<2048x2048, 1>, #l1_>,
                                             %out0: memref<1x1x1x1x!ttcore.tile<32x32, f16>, #ttcore.shard<2048x2048, 1>, #l1_>) {

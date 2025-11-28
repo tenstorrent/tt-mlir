@@ -21,6 +21,8 @@
 #include "mlir/IR/PatternMatch.h"
 #include "ttmlir/Utils.h"
 
+#include "llvm/ADT/EquivalenceClasses.h"
+
 #include <algorithm>
 #include <numeric>
 
@@ -102,6 +104,7 @@ struct D2MInsertDstRegisterGCPass
   /// This function:
   /// 1. Applies coalescing constraints for in-place operations (e.g., unary ops
   ///    like exp_tile where input and output must use the same DST index)
+  ///    using LLVM's EquivalenceClasses for transitive coalescing
   /// 2. Renumbers colors to use consecutive indices starting from 0
   ///
   /// \param coloring The coloring result from graph coloring (modified
@@ -110,10 +113,37 @@ struct D2MInsertDstRegisterGCPass
   static uint32_t normalizeDstIndices(
       std::vector<unsigned> &coloring,
       const std::vector<std::pair<size_t, size_t>> &coalescingPairs) {
-    // Apply coalescing constraints: for in-place ops, the store must use the
-    // same color as the input load.
-    for (const auto &[storeIdx, loadIdx] : coalescingPairs) {
-      coloring[storeIdx] = coloring[loadIdx];
+    // Use LLVM's EquivalenceClasses for transitive coalescing.
+    // This ensures that chains like (A,B), (B,C), (C,D) all get the same color.
+    llvm::EquivalenceClasses<size_t> ec;
+
+    // Insert all nodes and union coalesced pairs.
+    for (size_t i = 0; i < coloring.size(); ++i) {
+      ec.insert(i);
+    }
+    for (const auto &[idx1, idx2] : coalescingPairs) {
+      ec.unionSets(idx1, idx2);
+    }
+
+    // For each equivalence class, find the maximum color among all members.
+    // We use maximum because coalesced nodes should share the color of the
+    // most constrained member (the one with highest color, meaning it had
+    // the most interference and needed a higher-numbered slot).
+    llvm::DenseMap<size_t, unsigned> leaderToMaxColor;
+    for (size_t i = 0; i < coloring.size(); ++i) {
+      size_t leader = ec.getLeaderValue(i);
+      auto it = leaderToMaxColor.find(leader);
+      if (it == leaderToMaxColor.end()) {
+        leaderToMaxColor[leader] = coloring[i];
+      } else {
+        it->second = std::max(it->second, coloring[i]);
+      }
+    }
+
+    // Assign the maximum color of each equivalence class to all members.
+    for (size_t i = 0; i < coloring.size(); ++i) {
+      size_t leader = ec.getLeaderValue(i);
+      coloring[i] = leaderToMaxColor[leader];
     }
 
     // Renumber colors to use consecutive indices starting from 0.

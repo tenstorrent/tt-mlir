@@ -282,6 +282,12 @@ mlir::tt::d2m::InterferenceGraphResult buildIndexGraphFromDstOperations(
         return true;
       }
     }
+    // Intermediate compute ops also produce values - check if result is live.
+    if (mlir::isa<OperandLoadStoreRegisterOpInterface>(op1)) {
+      if (op1->getNumResults() > 0 && isLiveAt(op1->getResult(0), op2)) {
+        return true;
+      }
+    }
     return false;
   };
 
@@ -344,20 +350,63 @@ mlir::tt::d2m::InterferenceGraphResult buildIndexGraphFromDstOperations(
   }
 
   // Handle intermediate compute ops in chains (those whose results feed other
-  // compute ops, not L1 stores). For in-place operations, the intermediate
-  // result must use the same DST index as its input.
+  // compute ops, not L1 stores).
+  // - For in-place operations: coalesce with input (same DST index).
+  // - For non-in-place operations: add interference edges (different DST index).
+  // - If the compute op also has a result store entry, coalesce them.
   for (auto &[computeOp, intermediateIdx] : intermediateComputeOpIdx) {
     auto iface = mlir::dyn_cast<OperandLoadStoreRegisterOpInterface>(computeOp);
-    if (!iface || !iface.getDstRegInPlace()) {
+    if (!iface) {
       continue;
     }
 
-    // Find the input for this intermediate compute op.
-    const auto &inputLoads = computeOpInputLoads[computeOp];
-    if (!inputLoads.empty()) {
-      // In-place intermediate op: must use same DST index as input.
-      result.coalescingPairs.emplace_back(intermediateIdx, inputLoads[0]);
+    // If this compute op also has a result store, coalesce the intermediate
+    // entry with the store entry (they represent the same DST location).
+    if (auto storeIt = computeOpResultStore.find(computeOp);
+        storeIt != computeOpResultStore.end()) {
+      result.coalescingPairs.emplace_back(intermediateIdx, storeIt->second);
     }
+
+    const auto &inputLoads = computeOpInputLoads[computeOp];
+    if (iface.getDstRegInPlace()) {
+      // In-place intermediate op: must use same DST index as input.
+      if (!inputLoads.empty()) {
+        result.coalescingPairs.emplace_back(intermediateIdx, inputLoads[0]);
+      }
+    } else {
+      // Non-in-place intermediate op: must not reuse input DST slots.
+      // Add interference edges from this intermediate to all its inputs.
+      for (size_t inputLoadIdx : inputLoads) {
+        // Avoid duplicate edges.
+        if (std::find(result.adjacencyList[intermediateIdx].begin(),
+                      result.adjacencyList[intermediateIdx].end(),
+                      inputLoadIdx) ==
+            result.adjacencyList[intermediateIdx].end()) {
+          result.adjacencyList[intermediateIdx].push_back(inputLoadIdx);
+          result.adjacencyList[inputLoadIdx].push_back(intermediateIdx);
+        }
+      }
+    }
+  }
+
+  // Remove interference edges between nodes in coalescing pairs.
+  // Coalesced nodes must have the same color, so they cannot interfere.
+  // This ensures graph coloring succeeds before we apply coalescing post-hoc.
+  llvm::DenseSet<std::pair<size_t, size_t>> coalescedPairs;
+  for (const auto &[idx1, idx2] : result.coalescingPairs) {
+    coalescedPairs.insert({std::min(idx1, idx2), std::max(idx1, idx2)});
+  }
+
+  for (size_t node = 0; node < result.adjacencyList.size(); ++node) {
+    auto &neighbors = result.adjacencyList[node];
+    neighbors.erase(
+        std::remove_if(neighbors.begin(), neighbors.end(),
+                       [&](size_t neighbor) {
+                         size_t minIdx = std::min(node, neighbor);
+                         size_t maxIdx = std::max(node, neighbor);
+                         return coalescedPairs.count({minIdx, maxIdx}) > 0;
+                       }),
+        neighbors.end());
   }
 
   return result;
