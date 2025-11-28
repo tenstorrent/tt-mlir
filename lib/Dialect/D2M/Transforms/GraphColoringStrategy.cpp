@@ -169,6 +169,9 @@ mlir::tt::d2m::InterferenceGraphResult buildIndexGraphFromDstOperations(
   llvm::DenseMap<mlir::Operation *, llvm::SmallVector<size_t>>
       computeOpInputLoads;
   llvm::DenseMap<mlir::Operation *, size_t> computeOpResultStore;
+  // Track intermediate compute ops (those in dstAccesses that are compute ops,
+  // not loads or stores). These are ops whose results feed other compute ops.
+  llvm::MapVector<mlir::Operation *, size_t> intermediateComputeOpIdx;
 
   // Helper to link compute operations to their DST accesses.
   auto processLoad = [&](affine::AffineLoadOp loadOp, size_t loadIdx) {
@@ -190,6 +193,24 @@ mlir::tt::d2m::InterferenceGraphResult buildIndexGraphFromDstOperations(
     }
   };
 
+  // Helper to process intermediate compute ops in the chain.
+  // These ops produce values consumed by other compute ops (not stored to L1).
+  auto processIntermediateComputeOp = [&](mlir::Operation *computeOp,
+                                          size_t idx) {
+    intermediateComputeOpIdx[computeOp] = idx;
+    // Also track the input loads for this intermediate compute op.
+    for (mlir::Value operand : computeOp->getOperands()) {
+      if (auto *defOp = operand.getDefiningOp()) {
+        // Check if the defining op is another compute op (chained
+        // intermediate).
+        if (auto *it = intermediateComputeOpIdx.find(defOp);
+            it != intermediateComputeOpIdx.end()) {
+          computeOpInputLoads[computeOp].push_back(it->second);
+        }
+      }
+    }
+  };
+
   // Process all DST accesses to link compute ops to their loads/stores.
   for (size_t i = 0; i < totalAccesses; ++i) {
     mlir::Operation *accessOp = dstAccesses[i].first;
@@ -197,6 +218,9 @@ mlir::tt::d2m::InterferenceGraphResult buildIndexGraphFromDstOperations(
       processLoad(loadOp, i);
     } else if (auto storeOp = mlir::dyn_cast<affine::AffineStoreOp>(accessOp)) {
       processStore(storeOp, i);
+    } else if (mlir::isa<OperandLoadStoreRegisterOpInterface>(accessOp)) {
+      // This is an intermediate compute op in the chain.
+      processIntermediateComputeOp(accessOp, i);
     }
   }
 
@@ -316,6 +340,23 @@ mlir::tt::d2m::InterferenceGraphResult buildIndexGraphFromDstOperations(
           result.adjacencyList[inputLoadIdx].push_back(resultStoreIdx);
         }
       }
+    }
+  }
+
+  // Handle intermediate compute ops in chains (those whose results feed other
+  // compute ops, not L1 stores). For in-place operations, the intermediate
+  // result must use the same DST index as its input.
+  for (auto &[computeOp, intermediateIdx] : intermediateComputeOpIdx) {
+    auto iface = mlir::dyn_cast<OperandLoadStoreRegisterOpInterface>(computeOp);
+    if (!iface || !iface.getDstRegInPlace()) {
+      continue;
+    }
+
+    // Find the input for this intermediate compute op.
+    const auto &inputLoads = computeOpInputLoads[computeOp];
+    if (!inputLoads.empty()) {
+      // In-place intermediate op: must use same DST index as input.
+      result.coalescingPairs.emplace_back(intermediateIdx, inputLoads[0]);
     }
   }
 
