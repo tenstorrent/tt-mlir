@@ -62,12 +62,16 @@ private:
       }
     });
 
-    // Adding DPS semantics by adding an extra output arguments
+    // Adding DPS semantics by adding extra output arguments
     for (auto funcOp : hoistedFuncs) {
       OpBuilder builder(funcOp);
 
       auto returnOp = llvm::dyn_cast<func::ReturnOp>(
           funcOp.getBody().back().getTerminator());
+
+      assert(returnOp &&
+             "Hoisted function does not have a valid return operation!");
+
       auto returnedValues = returnOp.getOperands();
 
       const auto returnTypes = llvm::to_vector<4>(

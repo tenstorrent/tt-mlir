@@ -262,7 +262,7 @@ struct CPUHoistedOpsDescriptor {
 
   CPUHoistedOpsDescriptor(const OpsVectorType &ops,
                           const ValuesVectorType &outputs, std::string name)
-      : operations(ops), outputValues(outputs), funcName(name) {}
+      : operations(ops), outputValues(outputs), funcName(std::move(name)) {}
 };
 
 // Helper function to hoist an arbitrary set of ops into a new function in
