@@ -134,6 +134,16 @@ def log(
     return builder.log(in0, unit_attrs=unit_attrs)
 
 
+def get_dimension_size(
+    in0: Operand,
+    builder: StableHLOBuilder,
+    dimension: int = 0,
+    unit_attrs: Optional[List[str]] = None,
+):
+    builder.set_graph_level_check(True)
+    return builder.get_dimension_size(in0, dimension=dimension, unit_attrs=unit_attrs)
+
+
 def and_(
     in0: Operand,
     in1: Operand,
@@ -247,6 +257,37 @@ def test_binary_ops(
 def test_unary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
+    compile_and_execute_shlo(
+        test_fn,
+        [shape],
+        [dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
+    "shape,dimension",
+    [
+        ((2, 3, 4), 0),
+        ((2, 3, 4), 1),
+        ((2, 3, 4), 2),
+    ],
+    ids=["dim0", "dim1", "dim2"],
+)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_get_dimension_size(shape, dimension, dtype, target, request, device):
+    def test_fn(in0: Operand, builder: StableHLOBuilder):
+        # ensure golden check is enabled and provide a concrete input golden
+        input_golden = torch.ones(shape, dtype=dtype)
+        builder.set_goldens({in0: input_golden}, {})
+        builder.set_graph_level_check(True)
+        return builder.get_dimension_size(in0, dimension=dimension)
+
     compile_and_execute_shlo(
         test_fn,
         [shape],
