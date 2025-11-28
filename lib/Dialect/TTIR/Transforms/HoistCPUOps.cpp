@@ -191,7 +191,7 @@ performResultConversions(const ValuesVectorType &outputValues) {
 // Helper function to collect the operations producing the output values of a
 // set of operations.
 static OpsVectorType
-collectResultProducers(const OpsVectorType &operations,
+collectOutputProducers(const OpsVectorType &operations,
                        const ValuesVectorType &outputValues) {
   OpsVectorType outputProducers;
   for (auto outputValue : outputValues) {
@@ -204,6 +204,9 @@ collectResultProducers(const OpsVectorType &operations,
 
     assert(!mlir::isa<DestinationStyleOpInterface>(definingOp) &&
            "DPS ops as output producers are not supported!");
+
+    assert(definingOp->getNumResults() == 1 &&
+           "Output producer ops with multiple results are not supported!");
 
     outputProducers.push_back(definingOp);
   }
@@ -263,7 +266,7 @@ static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
   mlir::MLIRContext *context = sourceModule.getContext();
 
   const auto outputProducers =
-      collectResultProducers(descriptor.operations, descriptor.outputValues);
+      collectOutputProducers(descriptor.operations, descriptor.outputValues);
 
   const auto resultTypes = performResultConversions(descriptor.outputValues);
 
