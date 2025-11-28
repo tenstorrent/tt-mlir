@@ -100,7 +100,6 @@ class TTIRCompiler(ast.NodeVisitor):
         with InsertionPoint(self.insert_point), Location.unknown():
             for stmt in node.body:
                 self.visit(stmt)
-        print(f"end of module")
 
     def visit_Return(self, node):
         # TODO: handle more than one return, i.e. tuples, expressions etc.
@@ -115,12 +114,10 @@ class TTIRCompiler(ast.NodeVisitor):
             func.ReturnOp([])
 
     def visit_Expr(self, node):
-        print(f"Called visit_Expr with node: {node}")
         # NOTE: will catch function calls and expressions where return values not used.
         return self.visit(node.value)
 
     def visit_FunctionDef(self, node):
-        print(f"Called visit_FunctionDef with node: {node}")
         input_types = []
         for arg in node.args.args:
             name = arg.arg
@@ -153,20 +150,21 @@ class TTIRCompiler(ast.NodeVisitor):
         if self.return_type is not None:
             # Get the old block before creating new function
             old_block = self.func_entry.regions[0].blocks[0]
-    
+
             # Create new function with correct return type
-            new_func_entry = func.FuncOp(name=node.name, type=(input_types, [self.return_type]))
-    
+            new_func_entry = func.FuncOp(
+                name=node.name, type=(input_types, [self.return_type])
+            )
+
             # The new function's region is empty (no blocks), so directly append the old block to it
             new_region = new_func_entry.regions[0]
             old_block.append_to(new_region)
-    
+
             # Erase the old function
             self.func_entry.erase()
             self.func_entry = new_func_entry
 
     def visit_Call(self, node):
-        print(f"Called visit_Call with node: {node}")
         # If function is an attribute, it's a ttnn op call (eg: ttnn.exp(tensor))
         if isinstance(node.func, ast.Attribute):
             return self.visit(node.func, args=node.args)
@@ -189,7 +187,6 @@ class TTIRCompiler(ast.NodeVisitor):
         return op
 
     def visit_Attribute(self, node, args=[]):
-        print(f"Called visit_Attribute with node: {node} and args: {args}")
         assert len(args) >= 1, "Must pass at least one argument (tensor)"
 
         # Map function names to their MLIR dialect equivalents
@@ -203,11 +200,8 @@ class TTIRCompiler(ast.NodeVisitor):
         ), "First argument cannot be a constant"
 
         tensor_arg = self.visit(args[0])
-        print("Armin: tensor_arg: ", tensor_arg)
 
         func_args = [tensor_arg]
-        print("Armin: func_args: ", func_args)
-        print("Armin: args: ", args)
         for func_arg in args[1:]:
             arg = self.visit(func_arg, tensor=tensor_arg)
             func_args.append(arg)
@@ -217,7 +211,6 @@ class TTIRCompiler(ast.NodeVisitor):
             [RankedTensorType.maybe_downcast(tensor.type) for tensor in func_args],
         )
         func_args = [result_type] + func_args
-        print(f"Armin: after func_args {func_args}")
         func = self._fn_map[attr_name]
         op = func(*func_args)
         op.owner.attributes["ttnn.hoist_generic_via_d2m"] = UnitAttr.get(self.ctx)
@@ -228,12 +221,10 @@ class TTIRCompiler(ast.NodeVisitor):
                 self.ctx, self._ttcore_dtype_from_mlir_dtype(result_type.element_type)
             )
             op.owner.attributes["dtype"] = dtype
-        print(f"op: {op}")
         return op
 
     # Statements
     def visit_Assign(self, node):
-        print(f"Called visit_Assign with node: {node}")
         # If there is any sort of scope change (control flow), this will just break.
         assert len(node.targets) == 1, "Only single assignments supported"
         name = node.targets[0].id
@@ -247,7 +238,6 @@ class TTIRCompiler(ast.NodeVisitor):
 
     # Literals
     def visit_Name(self, node):
-        print(f"Called visit_Name with node: {node}")
         var_name = node.id
         existing_var_table = self._var_exists(var_name)
         if existing_var_table:
@@ -256,7 +246,6 @@ class TTIRCompiler(ast.NodeVisitor):
         return None
 
     def visit_Constant(self, node, tensor=None):
-        print(f"Called visit_Constant with tensor: {tensor} on node: {node}")
         assert tensor is not None, "Tensor must be provided for constants"
         element_type = tensor.type.element_type
         if isinstance(element_type, IntegerType):
@@ -292,7 +281,6 @@ class TTIRCompiler(ast.NodeVisitor):
         )
 
     def visit(self, node: ast.AST, **kwargs):
-        print(f"Called visit with node: {node} and kwargs: {kwargs}")
         if any(
             isinstance(node, supported_node) for supported_node in self.supported_nodes
         ):

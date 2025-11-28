@@ -6,6 +6,7 @@ from ttmlir.ir import *
 from ttmlir.dialects import ttnn, ttcore
 
 DRAM_GRID_SIZE = [1, 1]
+OUTPUT_TENSOR_DERIVATION_REQUIRED = ["matmul"]
 
 
 def _get_collapsed_linear_affine_map(
@@ -273,7 +274,7 @@ def _get_output_grid_shape(op_name, input_layouts):
         in1_grid = _get_virtual_grid_shape(input_layouts[1])
         return [in0_grid[0], in1_grid[1]]
     else:
-        return input_layouts[0].grid_shape
+        return _get_virtual_grid_shape(input_layouts[0])
 
 
 def _create_tensor_layout_with_shape(ctx, layout, new_shape, new_grid_shape):
@@ -301,16 +302,23 @@ def _create_tensor_layout_with_shape(ctx, layout, new_shape, new_grid_shape):
     )
 
 
-def create_output_tensor(ctx, op_name, input_types):
+def create_output_tensor(ctx, op_name, input_types, debug=True):
+    if op_name not in OUTPUT_TENSOR_DERIVATION_REQUIRED:
+        if debug:
+            print(
+                f'Deriving the output tensor type is not required for op "{op_name}". Returning input type: {input_types[0]}'
+            )
+        return input_types[0]
+
     input_layouts = [
         ttnn.ir.TTNNLayoutAttr.maybe_downcast(tensor.encoding) for tensor in input_types
     ]
     shape = _get_output_shape(op_name, [tensor.shape for tensor in input_types])
     grid_shape = _get_output_grid_shape(op_name, input_layouts)
     layout = _create_tensor_layout_with_shape(ctx, input_layouts[0], shape, grid_shape)
-    print(f"shape: {shape}, layout: {layout}")
     output_type = RankedTensorType.get(shape, input_types[0].element_type, layout)
-    print(f"output_type: {output_type}")
+    if debug:
+        print(f'Output tensor type for op "{op_name}": {output_type}')
     return output_type
 
 

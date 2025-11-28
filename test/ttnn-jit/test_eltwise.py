@@ -651,13 +651,21 @@ def matmul(input0, input1):
     return ttnn.matmul(input0, input1)
 
 
+def matmul_composite(input0, input1):
+    a = ttnn.abs(input0)
+    b = ttnn.sin(input1)
+    c = ttnn.matmul(a, b)
+    d = ttnn.abs(c)
+    return d
+
+
 @pytest.mark.parametrize(
     "shape_grid_layouts",
     [
-        # (
-        #     ((1024, 1024), (7, 7), ttnn.TensorMemoryLayout.BLOCK_SHARDED),
-        #     ((1024, 1024), (7, 7), ttnn.TensorMemoryLayout.BLOCK_SHARDED),
-        # ),
+        (
+            ((1024, 1024), (7, 7), ttnn.TensorMemoryLayout.BLOCK_SHARDED),
+            ((1024, 1024), (7, 7), ttnn.TensorMemoryLayout.BLOCK_SHARDED),
+        ),
         (
             ((32, 2048), (7, 7), ttnn.TensorMemoryLayout.WIDTH_SHARDED),
             ((2048, 32), (7, 7), ttnn.TensorMemoryLayout.HEIGHT_SHARDED),
@@ -683,8 +691,50 @@ def test_matmul(device, shape_grid_layouts, dtype, graph_capture):
         device, input1[0], max_grid, dtype, memory_layout=input1[2]
     )
     output = compiled_op(input0_tensor, input1_tensor)
-    # golden_output = ttnn.matmul(input0_tensor, input1_tensor)
-    # assert all_close_check(output, golden_output)
+    # Send tensor to DRAM to avoid having to set the matmul program config in the golden path
+    input0_tensor = ttnn.to_memory_config(input0_tensor, ttnn.DRAM_MEMORY_CONFIG)
+    input1_tensor = ttnn.to_memory_config(input1_tensor, ttnn.DRAM_MEMORY_CONFIG)
+    golden_output = ttnn.matmul(input0_tensor, input1_tensor)
+    assert all_close_check(output, golden_output)
+
+
+@pytest.mark.parametrize(
+    "shape_grid_layouts",
+    [
+        (
+            ((1024, 1024), (7, 7), ttnn.TensorMemoryLayout.BLOCK_SHARDED),
+            ((1024, 1024), (7, 7), ttnn.TensorMemoryLayout.BLOCK_SHARDED),
+        ),
+        (
+            ((32, 2048), (7, 7), ttnn.TensorMemoryLayout.WIDTH_SHARDED),
+            ((2048, 32), (7, 7), ttnn.TensorMemoryLayout.HEIGHT_SHARDED),
+        ),
+    ],
+)
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("graph_capture", [False])
+def test_matmul_composite(device, shape_grid_layouts, dtype, graph_capture):
+    input0, input1 = shape_grid_layouts
+    max_grid = input0[1]
+    assert input1[1] == max_grid
+    compiled_op = ttnn_jit.jit(
+        debug=True,
+        max_grid=max_grid,
+        graph_capture=graph_capture,
+        compile_only=False,
+    )(matmul_composite)
+    input0_tensor = create_sharded_tile_tensor(
+        device, input0[0], max_grid, dtype, memory_layout=input0[2]
+    )
+    input1_tensor = create_sharded_tile_tensor(
+        device, input1[0], max_grid, dtype, memory_layout=input1[2]
+    )
+    output = compiled_op(input0_tensor, input1_tensor)
+    # Send tensor to DRAM to avoid having to set the matmul program config in the golden path
+    input0_tensor = ttnn.to_memory_config(input0_tensor, ttnn.DRAM_MEMORY_CONFIG)
+    input1_tensor = ttnn.to_memory_config(input1_tensor, ttnn.DRAM_MEMORY_CONFIG)
+    golden_output = matmul_composite(input0_tensor, input1_tensor)
+    assert all_close_check(output, golden_output)
 
 
 # ------------------------------------------------------------
