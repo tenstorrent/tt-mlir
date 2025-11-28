@@ -91,7 +91,7 @@ std::string generateHoistedFuncName(const OpsVectorType &ops) {
 //
 static ValuesVectorType
 collectInputArguments(const OpsVectorType &operations,
-                      const OpsVectorType &resultProviders) {
+                      const OpsVectorType &outputProducers) {
   ValuesVectorType inputArguments;
 
   for (auto *op : operations) {
@@ -191,9 +191,9 @@ performResultConversions(const ValuesVectorType &outputValues) {
 // Helper function to collect the operations producing the output values of a
 // set of operations.
 static OpsVectorType
-collectOutputProviders(const OpsVectorType &operations,
+collectResultProducers(const OpsVectorType &operations,
                        const ValuesVectorType &outputValues) {
-  OpsVectorType outputProviders;
+  OpsVectorType outputProducers;
   for (auto outputValue : outputValues) {
     auto *definingOp = outputValue.getDefiningOp();
 
@@ -203,11 +203,11 @@ collectOutputProviders(const OpsVectorType &operations,
            "Output value's defining operation is not in the hoisted ops set!");
 
     assert(!mlir::isa<DestinationStyleOpInterface>(definingOp) &&
-           "DPS ops as result providers are not supported!");
+           "DPS ops as output producers are not supported!");
 
-    outputProviders.push_back(definingOp);
+    outputProducers.push_back(definingOp);
   }
-  return outputProviders;
+  return outputProducers;
 }
 
 // Helper function to convert results of callOp back to original types,
@@ -262,13 +262,13 @@ static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
                                       mlir::ModuleOp targetModule) {
   mlir::MLIRContext *context = sourceModule.getContext();
 
-  const auto resultProviders =
-      collectOutputProviders(descriptor.operations, descriptor.outputValues);
+  const auto outputProducers =
+      collectResultProducers(descriptor.operations, descriptor.outputValues);
 
   const auto resultTypes = performResultConversions(descriptor.outputValues);
 
   const auto inputArguments =
-      collectInputArguments(descriptor.operations, resultProviders);
+      collectInputArguments(descriptor.operations, outputProducers);
 
   // Convert argument and gather types for function signature.
   TypesVectorType argumentTypes;
@@ -311,7 +311,7 @@ static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
     }
 
     // Clone each operation, but modify its type if needed.
-    OpsVectorType clonedResultProviders;
+    OpsVectorType clonedOutputProducers;
 
     for (auto *opToHoist : descriptor.operations) {
       auto *clonedOp = builder.clone(*opToHoist, mapping);
@@ -334,17 +334,17 @@ static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
         }
       }
 
-      // Check if this is the result producing op. If it is, keep track of it
+      // Check if this is the output producing op. If it is, keep track of it
       // for later.
-      if (llvm::is_contained(resultProviders, opToHoist)) {
-        clonedResultProviders.push_back(clonedOp);
+      if (llvm::is_contained(outputProducers, opToHoist)) {
+        clonedOutputProducers.push_back(clonedOp);
       }
     }
 
-    // Add return op to the function from the cloned result providers.
+    // Add return op to the function from the cloned output producers.
     llvm::SmallVector<mlir::Value, 4> returnValues;
-    for (auto *resultProvider : clonedResultProviders) {
-      returnValues.push_back(resultProvider->getResult(0));
+    for (auto *outputProducer : clonedOutputProducers) {
+      returnValues.push_back(outputProducer->getResult(0));
     }
 
     builder.create<mlir::func::ReturnOp>(targetModule->getLoc(), returnValues);
