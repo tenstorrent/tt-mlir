@@ -35,7 +35,7 @@ createCoreVirtMaps(mlir::MLIRContext *context,
   using namespace llvm;
   using namespace mlir;
 
-  TT_assertv(targetGrid.size() == 2ul, "Target grid must have 2 dimensions {1}",
+  TT_assertv(targetGrid.size() == 2ul, "Target grid must have 2 dimensions {}",
              targetGrid.size());
   TT_assertv(virtualGrid.size() == 2ul,
              "Virtual grid only supported for 2D shapes.");
@@ -46,7 +46,7 @@ createCoreVirtMaps(mlir::MLIRContext *context,
 
   TT_assertv((is2DWidthSharded || is2DHeightSharded),
              "Only supporting 2D width or height sharding (actual grid shape = "
-             "{1})",
+             "{})",
              ttmlir::utils::formatIterable(virtualGrid, "x"));
 
   SmallVector<AffineExpr> forwardMapExprs;
