@@ -1707,27 +1707,14 @@ public:
     }
 
     auto reduceDims = *sumOp.getDimArg();
-    if (reduceDims.size() < 1) {
-      return mlir::failure();
-    }
-
-    // Extract reduce dimensions
-    SmallVector<int64_t> reduceDimIndices;
-    for (mlir::Attribute attr : reduceDims) {
-      auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr);
-      if (!intAttr) {
-        return mlir::failure();
-      }
-      reduceDimIndices.push_back(intAttr.getInt());
-    }
-
     auto inputShape = sumOp.getInput().getType().getShape();
+
     FullOp fullOp = multiplyOp.getRhs().getDefiningOp<FullOp>();
-    if (!isValidScale(fullOp, inputShape, reduceDimIndices)) {
+    if (!isValidScale(fullOp, inputShape, reduceDims)) {
       return mlir::failure();
     }
 
-    auto meanOp = createMeanOp(rewriter, sumOp, reduceDimIndices);
+    auto meanOp = createMeanOp(rewriter, sumOp, reduceDims);
 
     rewriter.replaceOp(multiplyOp, meanOp.getResult());
 
@@ -1736,71 +1723,73 @@ public:
 
 private:
   static bool isValidScale(FullOp fullOp, ArrayRef<int64_t> inputShape,
-                           ArrayRef<int64_t> reduceDimIndices) {
+                           ArrayAttr reduceDims) {
     if (!fullOp) {
       return false;
     }
 
     // Calculate expected value as 1 / (dim1 * dim2 * ...)
     int64_t product = 1;
-    for (int64_t dim : reduceDimIndices) {
-      if (dim < 0 || static_cast<size_t>(dim) >= inputShape.size()) {
+    for (mlir::Attribute attr : reduceDims) {
+      auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr);
+      if (!intAttr) {
         return false;
       }
+      int64_t dim = (intAttr.getInt() + inputShape.size()) % inputShape.size();
       if (inputShape[dim] <= 0) {
         return false;
       }
       product *= inputShape[dim];
     }
 
-    float expectedValue = 1.0f / static_cast<float>(product);
+    float expectedValue = 1.0f / product;
     float tolerance =
         std::max(FLOAT_TOLERANCE, std::abs(expectedValue) * FLOAT_TOLERANCE);
     return isFullOpWithValue(fullOp, expectedValue, tolerance);
   }
 
   MeanOp createMeanOp(mlir::PatternRewriter &rewriter, SumOp sumOp,
-                      ArrayRef<int64_t> reduceDimIndices) const {
+                      ArrayAttr reduceDims) const {
     auto inputType = sumOp.getInput().getType();
     auto outputType =
-        createMeanOutputType(inputType, sumOp.getKeepDim(), reduceDimIndices);
+        createMeanOutputType(inputType, sumOp.getKeepDim(), reduceDims);
 
     auto loc = sumOp.getLoc();
-
-    SmallVector<mlir::Attribute> dimAttrs;
-    for (int64_t dim : reduceDimIndices) {
-      dimAttrs.push_back(rewriter.getI32IntegerAttr(dim));
-    }
 
     auto meanOp = rewriter.create<MeanOp>(
         ttmlir::utils::appendLocationSuffix(loc, "_mean"), outputType,
         sumOp.getInput(),
         /*keep_dim=*/rewriter.getBoolAttr(sumOp.getKeepDim()),
-        /*dim_arg=*/rewriter.getArrayAttr(dimAttrs));
+        /*dim_arg=*/reduceDims);
 
     return meanOp;
   }
 
-  RankedTensorType
-  createMeanOutputType(RankedTensorType inputType, bool keepDim,
-                       ArrayRef<int64_t> reduceDimIndices) const {
+  RankedTensorType createMeanOutputType(RankedTensorType inputType,
+                                        bool keepDim,
+                                        ArrayAttr reduceDims) const {
     SmallVector<int64_t> outputShape;
     ArrayRef<int64_t> inputShape = inputType.getShape();
 
-    llvm::SmallSet<int64_t, 4> reduceDimSet(reduceDimIndices.begin(),
-                                            reduceDimIndices.end());
+    SmallVector<int64_t> reduceDimIndices;
+    reduceDimIndices.reserve(reduceDims.size());
+    for (mlir::Attribute attr : reduceDims) {
+      auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr);
+      if (intAttr) {
+        reduceDimIndices.push_back(intAttr.getInt());
+      }
+    }
 
     if (keepDim) {
       outputShape.assign(inputShape.begin(), inputShape.end());
       for (int64_t dim : reduceDimIndices) {
-        if (static_cast<size_t>(dim) < outputShape.size()) {
-          outputShape[dim] = 1;
-        }
+        dim = (dim + inputShape.size()) % inputShape.size();
+        outputShape[dim] = 1;
       }
     } else {
       outputShape.reserve(inputShape.size() - reduceDimIndices.size());
       for (size_t i = 0; i < inputShape.size(); ++i) {
-        if (!reduceDimSet.contains(static_cast<int64_t>(i))) {
+        if (!llvm::is_contained(reduceDimIndices, i)) {
           outputShape.push_back(inputShape[i]);
         }
       }
