@@ -2235,16 +2235,11 @@ private:
     RankedTensorType linearOutputType = RankedTensorType::get(
         linearOutputShape, keyMatmulOp.getType().getElementType());
 
-    Value matmulDpsOutput = rewriter.create<EmptyOp>(
-        keyMatmulOp.getLoc(), linearOutputType.getShape(),
-        linearOutputType.getElementType(), linearOutputType.getEncoding());
-
     SmallVector<Value> inputs;
     if (concatenatedBias) {
-      inputs = {reshapeOutput, concatenatedWeightMatrix, concatenatedBias,
-                matmulDpsOutput};
+      inputs = {reshapeOutput, concatenatedWeightMatrix, concatenatedBias};
     } else {
-      inputs = {reshapeOutput, concatenatedWeightMatrix, matmulDpsOutput};
+      inputs = {reshapeOutput, concatenatedWeightMatrix};
     }
 
     MatMulOpType matrixMultOp = rewriter.create<MatMulOpType>(
@@ -2262,9 +2257,9 @@ private:
     int32_t batchSize = inputShape[I_BATCH_SIZE];
     int32_t sequenceLength = inputShape[I_SEQUENCE_LENGTH];
 
-    auto queryType = permuteOps[0].getOutput().getType();
-    auto keyType = permuteOps[1].getOutput().getType();
-    auto valueType = permuteOps[2].getOutput().getType();
+    auto queryType = permuteOps[0].getType();
+    auto keyType = permuteOps[1].getType();
+    auto valueType = permuteOps[2].getType();
 
     auto queryShape = queryType.getShape();
     auto keyShape = keyType.getShape();
@@ -2282,9 +2277,10 @@ private:
     auto queryReshapeEncoding = queryMatmulOp.getType().getEncoding();
     SmallVector<int32_t> queryReshapeShapeI32(queryReshapeShape.begin(),
                                               queryReshapeShape.end());
-    ReshapeOp queryReshape = ttir::utils::createDPSOp<ttir::ReshapeOp>(
-        rewriter, matrixMultOp.getLoc(), queryReshapeShape,
-        queryReshapeElementType, queryReshapeEncoding, queryMatmulOp,
+    RankedTensorType queryReshapeTy = RankedTensorType::get(
+        queryReshapeShape, queryReshapeElementType, queryReshapeEncoding);
+    ReshapeOp queryReshapeOp = rewriter.create<ReshapeOp>(
+        matrixMultOp.getLoc(), queryReshapeTy, queryMatmulOp.getResult(),
         rewriter.getI32ArrayAttr(queryReshapeShapeI32));
 
     SmallVector<int64_t> kvReshapeShape = {batchSize, sequenceLength,
@@ -2293,28 +2289,19 @@ private:
     auto kvReshapeEncoding = keyMatmulOp.getType().getEncoding();
     SmallVector<int32_t> kvReshapeShapeI32(kvReshapeShape.begin(),
                                            kvReshapeShape.end());
-    ReshapeOp kvReshape = ttir::utils::createDPSOp<ttir::ReshapeOp>(
-        rewriter, matrixMultOp.getLoc(), kvReshapeShape, kvReshapeElementType,
-        kvReshapeEncoding, matrixMultOp,
+    RankedTensorType kvReshapeTy = RankedTensorType::get(
+        kvReshapeShape, kvReshapeElementType, kvReshapeEncoding);
+    ReshapeOp kvReshapeOp = rewriter.create<ReshapeOp>(
+        matrixMultOp.getLoc(), kvReshapeTy, matrixMultOp.getResult(),
         rewriter.getI32ArrayAttr(kvReshapeShapeI32));
 
     // Create split qkv op.
-    Value queryOutput = rewriter.create<EmptyOp>(
-        matrixMultOp.getLoc(), queryShape, queryType.getElementType(),
-        queryType.getEncoding());
-    Value keyOutput = rewriter.create<EmptyOp>(matrixMultOp.getLoc(), keyShape,
-                                               keyType.getElementType(),
-                                               keyType.getEncoding());
-    Value valueOutput = rewriter.create<EmptyOp>(
-        matrixMultOp.getLoc(), valueShape, valueType.getElementType(),
-        valueType.getEncoding());
-
     // Determine if need to transpose key based on key and value.
     bool transposeKey = isKeyTransposed(keyShape, valueShape);
     auto splitOp = rewriter.create<SplitQueryKeyValueAndSplitHeadsOp>(
         matrixMultOp->getLoc(), ArrayRef<Type>{queryType, keyType, valueType},
-        queryReshape.getResult(), kvReshape.getResult(), queryOutput, keyOutput,
-        valueOutput, rewriter.getUI32IntegerAttr(numQueryHeads),
+        queryReshapeOp.getResult(), kvReshapeOp.getResult(),
+        rewriter.getUI32IntegerAttr(numQueryHeads),
         rewriter.getUI32IntegerAttr(numKVHeads),
         rewriter.getBoolAttr(transposeKey) /*transpose_key*/);
 
