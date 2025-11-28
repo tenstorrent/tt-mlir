@@ -285,6 +285,49 @@ inline bool isTransposedConv(ttir::ConvolutionOp convolutionOp) {
 
   return isTransposed;
 }
+
+// Helper function to create a reshape operation.
+inline ttir::ReshapeOp createReshapeOp(PatternRewriter &rewriter, Location loc,
+                                       Value input,
+                                       ::llvm::ArrayRef<int64_t> targetShape) {
+  auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
+  auto shapeAttr =
+      rewriter.getI32ArrayAttr(llvm::SmallVector<int32_t>(targetShape));
+
+  return rewriter.create<ttir::ReshapeOp>(
+      loc,
+      RankedTensorType::get(targetShape, inputType.getElementType(),
+                            inputType.getEncoding()),
+      input, shapeAttr);
+}
+
+// Helper function to flatten a tensor to 1D.
+// It flattens tensor on given location with optional suffix to the location
+// name.
+inline Value flattenTensor(PatternRewriter &rewriter, Location loc,
+                           Value tensor, const std::string &suffix = "") {
+  RankedTensorType tensorType = mlir::cast<RankedTensorType>(tensor.getType());
+  ArrayRef<int64_t> tensorShape = tensorType.getShape();
+
+  // Calculate total number of elements (product of all dimensions).
+  int64_t totalElements = 1;
+  for (int64_t dim : tensorShape) {
+    totalElements *= dim;
+  }
+
+  // Create new 1D shape.
+  llvm::SmallVector<int64_t> flattenedShape = {totalElements};
+
+  // Create location with optional suffix.
+  Location reshapeLocation =
+      suffix.empty() ? loc : ttmlir::utils::appendLocationSuffix(loc, suffix);
+
+  // Reshape tensor to 1D.
+  Value flattenedTensor =
+      createReshapeOp(rewriter, reshapeLocation, tensor, flattenedShape);
+
+  return flattenedTensor;
+}
 } // namespace mlir::tt::ttir::utils
 
 #endif // TTMLIR_DIALECT_TTIR_UTILS_UTILS_H
