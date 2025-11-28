@@ -569,11 +569,11 @@ private:
       return {op, value};
     }
 
-    int valueIndex =
+    size_t valueIndex =
         std::distance(loadCachedOp.getResults().begin(),
                       llvm::find(loadCachedOp.getResults(), value));
 
-    if (valueIndex < 0 || valueIndex >= loadCachedOp.getNumResults()) {
+    if (valueIndex >= loadCachedOp.getNumResults()) {
       return {op, value};
     }
 
