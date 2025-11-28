@@ -13,6 +13,7 @@
 #include "operations/ccl/reduce_scatter.h"
 #include "operations/context/get_device.h"
 #include "operations/conv/conv2d.h"
+#include "operations/conv/conv3d.h"
 #include "operations/conv/conv_transpose2d.h"
 #include "operations/conv/prepare_conv2d_bias.h"
 #include "operations/conv/prepare_conv2d_weights.h"
@@ -356,6 +357,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::Conv2dOp: {
     return operations::conv::run(op->type_as_Conv2dOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::Conv3dOp: {
+    return operations::conv::run(op->type_as_Conv3dOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::ConvTranspose2dOp: {
     return operations::conv::run(op->type_as_ConvTranspose2dOp(), getContext());

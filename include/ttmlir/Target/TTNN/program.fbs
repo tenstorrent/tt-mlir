@@ -48,6 +48,7 @@ union OpType {
   ConstantOp,
   Conv2dOp,
   ConvTranspose2dOp,
+  Conv3dOp,
   CpuOp,
   DeallocateOp,
   EltwiseBinaryCompositeOp,
