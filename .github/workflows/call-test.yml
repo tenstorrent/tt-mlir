@@ -16,6 +16,11 @@ on:
         required: false
         type: number
         default: 60
+      test_workflow:
+        description: 'Test workflow'
+        required: false
+        type: string
+        default: 'onPR'
 
 permissions:
   checks: write
@@ -118,6 +123,7 @@ jobs:
         TTRT_LOGGER_LEVEL: "WARNING"
         LOGURU_LEVEL: "ERROR"
         TT_METAL_LOGGER_LEVEL: "FATAL"
+        TTMLIR_TEST_WORKFLOW: ${{ inputs.test_workflow }}
       run: |
         # Run Tests
         source env/activate
