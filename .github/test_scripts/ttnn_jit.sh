@@ -20,7 +20,7 @@ pip install ttnn_jit*.whl --upgrade
 
 echo "Running ttnn-jit tests..."
 if [ "$TTMLIR_TEST_WORKFLOW" == "nightly" ]; then
-    pytest -v $WORK_DIR/test/ttnn-jit/nightly/ --junit-xml=$TEST_REPORT_PATH
+    pytest -v $WORK_DIR/test/ttnn-jit/ --junit-xml=$TEST_REPORT_PATH
 else
     pytest -v $WORK_DIR/test/ttnn-jit/onPR/ --junit-xml=$TEST_REPORT_PATH
 fi
