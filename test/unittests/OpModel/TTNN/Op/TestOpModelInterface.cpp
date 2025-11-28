@@ -1865,7 +1865,7 @@ TEST_F(OpModelBase, SplitQueryKeyValueAndSplitHeadsOpInterface) {
     auto l1 = constraintsExp.get();
     const auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
         l1;
-    EXPECT_EQ(cbSize, 0);
+    EXPECT_GT(cbSize, 0);
     EXPECT_GE(l1PeakSize, 0);
     EXPECT_GT(outputSize, 0);
     EXPECT_GE(totalPeakSize, 0);
@@ -1948,7 +1948,7 @@ TEST_F(OpModelBase, ScaledDotProductAttentionDecodeOpInterface) {
 
     EXPECT_GT(cbSize, 0);
     EXPECT_GT(totalPeakSize, 0);
-    EXPECT_GT(l1PeakSize, 0);
+    EXPECT_EQ(l1PeakSize, 0);
     EXPECT_EQ(outputSize, 0);
 
     ASSERT_TRUE(outputLayout);
@@ -2128,7 +2128,7 @@ TEST_F(OpModelBase, ScaledDotProductAttentionOpInterface) {
 
     EXPECT_GT(cbSize, 0);
     EXPECT_GT(totalPeakSize, 0);
-    EXPECT_GT(l1PeakSize, 0);
+    EXPECT_EQ(l1PeakSize, 0);
     EXPECT_EQ(outputSize, 0);
 
     ASSERT_TRUE(outputLayout);

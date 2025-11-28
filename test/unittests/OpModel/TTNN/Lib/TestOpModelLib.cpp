@@ -612,7 +612,7 @@ TEST_F(OpModelTest, SoftmaxInterleaved) {
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
-  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_GT(opCstr.tensorL1PeakSize, 0);
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   constraintsExp = OpModel<SoftmaxOp>::getOpConstraints(
@@ -621,7 +621,7 @@ TEST_F(OpModelTest, SoftmaxInterleaved) {
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
-  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_GT(opCstr.tensorL1PeakSize, 0);
   EXPECT_GT(opCstr.outputL1BufferSize, 0);
 
   constraintsExp = OpModel<SoftmaxOp>::getOpConstraints(
@@ -3480,8 +3480,8 @@ TEST_F(OpModelTest, EmbeddingBackwardOp) {
   auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayoutReadBack] =
       constraintsExp.get();
   EXPECT_GT(cbSize, 0);
-  EXPECT_EQ(l1PeakSize, 0);
-  EXPECT_EQ(totalPeakSize, 0);
+  EXPECT_GT(l1PeakSize, 0);
+  EXPECT_GT(totalPeakSize, 0);
   EXPECT_GT(outputSize, 0);
 
   auto runtimeExp = OpModel<EmbeddingBackwardOp>::getOpRuntime(
