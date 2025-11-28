@@ -122,7 +122,14 @@ public:
 
   class DstStackAllocator {
   public:
-    int64_t allocate(bool isStore = false) {
+    DstStackAllocator() { initSliceStack(); }
+
+    DstStackAllocator(unsigned dstSliceCapacityIn) {
+      dstSliceCapacity = dstSliceCapacityIn;
+      initSliceStack();
+    }
+
+    unsigned allocate(bool isStore = false) {
       assert(!sliceStack.empty() && "Out of dst slices");
 
       currSliceIndex = sliceStack.pop_back_val();
@@ -156,11 +163,11 @@ public:
       return currSliceIndex;
     }
 
-    int64_t deallocate() {
+    unsigned deallocate() {
       assert(!(inputStack.empty() && outputQueue.empty()) &&
              "Deallocating non-existent dst slice");
 
-      int64_t id;
+      unsigned id;
 
       if (!inputStack.empty()) {
         id = inputStack.pop_back_val();
@@ -202,16 +209,27 @@ public:
     void setStoreToDst() { storedToDst = true; }
     bool didStoreToDst() { return storedToDst; }
 
-    int64_t getCurrSliceIndex() { return currSliceIndex; }
+    unsigned getCurrSliceIndex() { return currSliceIndex; }
 
   private:
-    int64_t currSliceIndex = 0;
+    // TODO(mbagherbeikTT) grab the number properly
+    unsigned dstSliceCapacity = 8;
 
-    SmallVector<int64_t, 8> inputStack;
-    std::deque<int64_t> outputQueue;
-    SmallVector<int64_t, 8> sliceStack = {7, 6, 5, 4, 3, 2, 1, 0};
+    unsigned currSliceIndex = 0;
+
+    SmallVector<unsigned, 16> inputStack;
+    std::deque<unsigned> outputQueue;
+    SmallVector<unsigned, 16> sliceStack;
 
     bool storedToDst = false;
+
+    void initSliceStack() {
+      assert(dstSliceCapacity > 0 && dstSliceCapacity <= 16);
+
+      for (int i = dstSliceCapacity - 1; i >= 0; --i) {
+        sliceStack.push_back(static_cast<unsigned>(i));
+      }
+    }
   };
 
   LogicalResult matchAndRewrite(GenericOp gOp,
@@ -304,10 +322,10 @@ public:
     // override dstCapacity if going through fused/scheduled path
     unsigned dstCapacityScheduled = dstCapacity;
     if (isScheduled) {
-      if (op->getNumOperands() > 3) {
+      if (gOp->getNumOperands() > 3) {
         dstCapacityScheduled = 4;
       }
-      if (op->getNumOperands() > 4) {
+      if (gOp->getNumOperands() > 4) {
         dstCapacityScheduled = 8;
       }
     }
@@ -326,9 +344,9 @@ public:
     }
 
     // 2. Insert acquire dst.
-    AcquireDstOp acquireDst = insertAcquireDst(
-        rewriter, loc, region, copyInfos, outermostInnerComputeLoop,
-        isScheduled ? dstCapacityScheduled : dstCapacity);
+    AcquireDstOp acquireDst =
+        insertAcquireDst(rewriter, loc, region, copyInfos,
+                         outermostInnerComputeLoop, dstCapacity);
     Value dst = acquireDst.getResult();
 
     // 3. Generate data copy loops to/from dst and output cb.
@@ -1059,9 +1077,10 @@ public:
   // Return both the copy nest info and dst allocation info.
   static DstAccessCollection
   collectDstAccessesScheduled(GenericOp op, Region &region,
-                              Operation *outermostInnerComputeLoop) {
+                              Operation *outermostInnerComputeLoop,
+                              unsigned dstCapacity) {
     CopyInfoMap copyInfos;
-    DstStackAllocator dstStackAllocator;
+    DstStackAllocator dstStackAllocator(dstCapacity);
     DstRegisterAllocation dstRegisterAllocation;
     region.walk<WalkOrder::PreOrder>([&](OperandLoadStoreRegisterOpInterface
                                              computeOp) {

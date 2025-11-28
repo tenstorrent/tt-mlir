@@ -153,7 +153,13 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(d2m::createD2MLinalgToAffine(linalgToAffineOptions));
 
   d2m::D2MOpSchedulerOptions opSchedulerOptions;
-  { opSchedulerOptions.enableOpScheduler = options.enableOpScheduler; }
+  {
+    // TODO(mbagherbeikTT)
+    // Has to be hard enabled for now until DST allocation is made fully
+    // consistent with elementwise fusion
+    opSchedulerOptions.enableOpScheduler = true; /* options.enableOpScheduler */
+    ;
+  }
   pm.addPass(d2m::createD2MOpScheduler(opSchedulerOptions));
 
   d2m::D2MInsertDstRegisterAccessOptions insertDstRegisterAccessOptions;
