@@ -286,21 +286,20 @@ private:
                                    PermuteOp permuteOperand) const override {
     // Favorable if all reshape users are permutes (reshape-permute-reshape) or
     // input of permute is reshape (permute-reshape-permute). Reduces TMs.
-    // auto reshapeUsers = op.getResult().getUsers();
-    // bool allReshapeUsersArePermute =
-    //     !reshapeUsers.empty() &&
-    //     llvm::all_of(reshapeUsers,
-    //                  [](Operation *user) { return isa<PermuteOp>(user); });
-    // llvm::outs() << "allReshapeUsersArePermute: " <<
-    // allReshapeUsersArePermute
-    //              << "\n";
-    // llvm::outs() << permuteOperand.getInput().getDefiningOp() << "\n";
-    // bool permuteInputIsReshape =
-    //     permuteOperand.getInput().getDefiningOp() &&
-    //     dyn_cast<ReshapeOp>(permuteOperand.getInput().getDefiningOp()) !=
-    //         nullptr;
-    // llvm::outs() << "permuteInputIsReshape: " << permuteInputIsReshape <<
-    // "\n"; return allReshapeUsersArePermute || permuteInputIsReshape;
+    auto reshapeUsers = op.getResult().getUsers();
+    bool allReshapeUsersArePermute =
+        !reshapeUsers.empty() &&
+        llvm::all_of(reshapeUsers,
+                     [](Operation *user) { return isa<PermuteOp>(user); });
+    llvm::outs() << "allReshapeUsersArePermute: " << allReshapeUsersArePermute
+                 << "\n";
+    llvm::outs() << permuteOperand.getInput().getDefiningOp() << "\n";
+    bool permuteInputIsReshape =
+        permuteOperand.getInput().getDefiningOp() &&
+        dyn_cast<ReshapeOp>(permuteOperand.getInput().getDefiningOp()) !=
+            nullptr;
+    llvm::outs() << "permuteInputIsReshape: " << permuteInputIsReshape << "\n";
+    return allReshapeUsersArePermute || permuteInputIsReshape;
     return true;
   }
 };

@@ -56,7 +56,7 @@ public:
                         }) &&
            "isCommuteUpwardsViable/Favorable should have ensured all users "
            "are identical TMs");
-
+    llvm::outs() << "Replacing users of reduce with new reduce\n";
     for (auto *user : users) {
       rewriter.replaceOp(user, newReduce);
     }
@@ -143,20 +143,13 @@ private:
 
   bool isCommuteUpwardsViable(ReduceOpType op, PermuteOp) const override {
     // Commute when reduce has keepdim = false is not currently supported
-    return op.getKeepDim();
+    // return op.getKeepDim();
+    return false;
   }
 
   bool isCommuteUpwardsFavorable(ReduceOpType op, PermuteOp) const override {
-    // We should always commute a permute above a reduce if all users are an
-    // identical permutation. This includes the case where there is one user.
-    auto dimArg = op.getDimArg();
-    if (dimArg && dimArg->size() == 1) {
-      auto dimAttr = cast<IntegerAttr>((*dimArg)[0]);
-      if (dimAttr.getInt() == 3) {
-        llvm::outs() << "Not commuting downwards since reduce dim is  3\n";
-        return false;
-      }
-    }
+
+    llvm::outs() << "Checking users of reduce for identical TMs\n";
     SmallVector<Operation *> users(op->getUsers());
     return !users.empty() && checkAllUsersAreIdenticalTms(users);
   }
@@ -168,31 +161,24 @@ private:
 
   bool isCommuteDownwardsFavorable(ReduceOpType op,
                                    PermuteOp permuteOperand) const override {
-    // Don't commute if reduce dimension is only one number and it is 3
-    auto dimArg = op.getDimArg();
-    if (dimArg && dimArg->size() == 1) {
-      auto dimAttr = cast<IntegerAttr>((*dimArg)[0]);
-      if (dimAttr.getInt() == 3) {
-        llvm::outs() << "Not commuting downwards since reduce dim is  3\n";
-        return false;
-      }
-    }
 
     // Commuting downwards is favorable if all other operands satisfy one
     // of the following:
     // - Are an identical TM
     // - Are on a consteval-able path
 
-    auto dps = mlir::cast<mlir::DestinationStyleOpInterface>(op.getOperation());
-    for (mlir::OpOperand *operand : dps.getDpsInputOperands()) {
-      auto operandValue = operand->get();
-      if (checkIdenticalTms(operandValue.getDefiningOp(), permuteOperand) ||
-          ttcore::valueTracesToConstantArgs(operandValue)) {
-        continue;
-      }
-      return false;
-    }
-    return true;
+    // auto dps =
+    // mlir::cast<mlir::DestinationStyleOpInterface>(op.getOperation()); for
+    // (mlir::OpOperand *operand : dps.getDpsInputOperands()) {
+    //   auto operandValue = operand->get();
+    //   if (checkIdenticalTms(operandValue.getDefiningOp(), permuteOperand) ||
+    //       ttcore::valueTracesToConstantArgs(operandValue)) {
+    //     continue;
+    //   }
+    //   return false;
+    // }
+    // return true;
+    return false;
   }
 };
 } // namespace

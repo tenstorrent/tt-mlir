@@ -383,6 +383,7 @@ getReshapeAxesMapping(
       axesGroups.emplace_back();
     } else if (inputShape[inputIndex] == 1) {
       ++inputIndex;
+      outputIndex--;
       missingOutputIndices.push_back((*axesIds)[inputIndex]);
     } else {
       llvm::SmallVector<int64_t> group;
@@ -398,10 +399,10 @@ getReshapeAxesMapping(
       if (consumed != outputShape[outputIndex]) {
         llvm::outs() << "Consumed: " << consumed
                      << " != outputShape[outputIndex]: "
-                     << outputShape[outputIndex] << "\n";
-
-        llvm::outs() << "\n";
-        llvm::outs() << "axesGroups: ";
+                     << outputShape[outputIndex] << " ";
+        llvm::outs() << "InputShape[" << inputIndex - 1
+                     << "]: " << inputShape[inputIndex - 1] << "\n";
+        llvm::outs() << "- axesGroups: ";
         for (const auto &group : axesGroups) {
           llvm::outs() << "[";
           for (const auto &dim : group) {
@@ -409,7 +410,7 @@ getReshapeAxesMapping(
           }
           llvm::outs() << "] ";
         }
-        llvm::outs() << "\n";
+        llvm::outs() << "\n\n";
         return {};
       }
 
@@ -422,7 +423,28 @@ getReshapeAxesMapping(
       missingOutputIndices.push_back((*axesIds)[inputIndex]);
       ++inputIndex;
     } else {
-      assert(false && "remaining input dimensions must be 1");
+      llvm::outs() << "Input shape: ";
+      for (const auto &dim : inputShape) {
+        llvm::outs() << dim << " ";
+      }
+      llvm::outs() << "\n";
+      llvm::outs() << "Output shape: ";
+      for (const auto &dim : outputShape) {
+        llvm::outs() << dim << " ";
+      }
+      llvm::outs() << "\n";
+      llvm::outs() << "Remaining input dimension " << inputIndex << " has size "
+                   << inputShape[inputIndex] << " (expected 1)\n";
+      llvm::outs() << "axesGroups: ";
+      for (const auto &group : axesGroups) {
+        llvm::outs() << "[";
+        for (const auto &dim : group) {
+          llvm::outs() << dim << " ";
+        }
+        llvm::outs() << "] ";
+      }
+      llvm::outs() << "\n";
+      return std::nullopt;
     }
   }
   llvm::outs() << "axesGroups: ";
