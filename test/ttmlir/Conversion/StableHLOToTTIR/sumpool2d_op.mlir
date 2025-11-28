@@ -74,22 +74,22 @@ func.func public @test_avgpool2d_workaround(%arg0: tensor<8x256x6x6xf32>) -> ten
 func.func @test_reduce_window_2d(%arg0: tensor<7x7xbf16>) -> tensor<1x1xbf16> {
   // CHECK-LABEL: @test_reduce_window_2d
   %cst = stablehlo.constant dense<0.000000e+00> : tensor<bf16>
-  // CHECK: %{{[0-9]+}} = "ttir.reshape"(%arg0, %{{[0-9]+}})
+  // CHECK: %{{[0-9]+}} = "ttir.reshape"(%arg0)
   // CHECK-SAME: shape = [1 : i32, 1 : i32, 7 : i32, 7 : i32]
-  // CHECK-SAME: (tensor<7x7xbf16>, tensor<1x1x7x7xbf16>)
+  // CHECK-SAME: (tensor<7x7xbf16>)
   // CHECK-SAME: -> tensor<1x1x7x7xbf16>
-  // CHECK: %{{[0-9]+}} = "ttir.pooling"(%{{[0-9]+}}, %{{[0-9]+}})
+  // CHECK: %{{[0-9]+}} = "ttir.pooling"(%{{[0-9]+}})
   // CHECK-SAME: base_dilations = array<i64: 1, 1, 1, 1>
   // CHECK-SAME: padding = array<i64: 0, 0, 0, 0, 0, 0, 0, 0>
   // CHECK-SAME: pooling_method = #ttir<pooling_method Sum>
   // CHECK-SAME: window_dilations = array<i64: 1, 1, 1, 1>
   // CHECK-SAME: window_dimensions = array<i64: 1, 1, 7, 7>
   // CHECK-SAME: window_strides = array<i64: 1, 1, 1, 1>
-  // CHECK-SAME: (tensor<1x1x7x7xbf16>, tensor<1x1x1x1xbf16>)
+  // CHECK-SAME: (tensor<1x1x7x7xbf16>)
   // CHECK-SAME: -> tensor<1x1x1x1xbf16>
-  // CHECK: %{{[0-9]+}} = "ttir.reshape"(%{{[0-9]+}}, %{{[0-9]+}})
+  // CHECK: %{{[0-9]+}} = "ttir.reshape"(%{{[0-9]+}})
   // CHECK-SAME: shape = [1 : i32, 1 : i32]
-  // CHECK-SAME: (tensor<1x1x1x1xbf16>, tensor<1x1xbf16>)
+  // CHECK-SAME: (tensor<1x1x1x1xbf16>)
   // CHECK-SAME: -> tensor<1x1xbf16>
   %0 = "stablehlo.reduce_window"(%arg0, %cst) <{window_dimensions = array<i64: 7, 7>}> ({
     ^bb0(%arg1: tensor<bf16>, %arg2: tensor<bf16>):

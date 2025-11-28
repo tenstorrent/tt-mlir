@@ -1977,11 +1977,11 @@ public:
         std::optional<mlir::Operation *> divOp = extractDivisor(srcOp);
         if (divOp && i == 0) {
           method = ttir::PoolingMethod::Average;
-        ttir::PoolingOp poolingOp = rewriter.create<ttir::PoolingOp>(
-            srcOp.getLoc(), resultType, input, method, windowDimensions,
-            windowStrides, baseDilations, window_dilations, padding);
-        resultVals.push_back(poolingOp.getResult(0));
-        (*divOp)->getResult(0).replaceAllUsesWith(poolingOp.getResult(0));
+          ttir::PoolingOp poolingOp = rewriter.create<ttir::PoolingOp>(
+              srcOp.getLoc(), resultType, input, method,
+              adjustedWindowDimensions, adjustedWindowStrides,
+              adjustedBaseDilations, adjustedWindowDilations, adjustedPadding);
+          (*divOp)->getResult(0).replaceAllUsesWith(poolingOp.getResult(0));
           Value result = poolingOp->getResult(0);
 
           // Reshape 4D output back to 2D if needed: [1, 1, H, W] -> [H, W].
@@ -2005,9 +2005,9 @@ public:
         return rewriter.notifyMatchFailure(srcOp, "Unsupported pooling method");
       }
       ttir::PoolingOp poolingOp = rewriter.create<ttir::PoolingOp>(
-        srcOp.getLoc(), resultType, input, method, windowDimensions,
-        windowStrides, baseDilations, window_dilations, padding);
-    llvm::append_range(resultVals, poolingOp.getResults());
+          srcOp.getLoc(), resultType, input, method, adjustedWindowDimensions,
+          adjustedWindowStrides, adjustedBaseDilations, adjustedWindowDilations,
+          adjustedPadding);
 
       Value result = poolingOp.getResult(0);
 
