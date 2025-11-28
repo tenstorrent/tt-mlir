@@ -2,7 +2,7 @@
 // RUN: FileCheck %s --input-file=%t
 
 module {
-  // CHECK-LABEL: func.func @matmul_with_multiply_const_eval_0
+  // CHECK-LABEL: func.func private @matmul_with_multiply_const_eval_0
   // CHECK: "ttnn.matmul"
 
   // CHECK-LABEL: func.func private @trace_0_matmul_with_multiply

@@ -44,6 +44,7 @@ struct ConvertTTIRToTTNNPass
     target.addIllegalDialect<ttir::TTIRDialect>();
     target.addLegalOp<ttcore::DeviceOp>();
     target.addLegalOp<ttcore::OptimizationBarrierOp>();
+    target.addLegalOp<ttcore::LoadCachedOp>();
 
     TypeConverter typeConverter;
     // All types map 1:1.

@@ -304,16 +304,16 @@ createCpuOp(FlatbufferObjectCache &cache, func::CallOp op, uint32_t dylib_id) {
         getOperandThroughDPSOps(input)));
   }
 
-  // For now, assume we will get exactly 1 result tensor from our call -- this
-  // is hardcoded assumption for all ops AFAICT.
-  auto output =
-      cache.getOrCreate(*op.getResults().begin(), tensorValueToFlatbuffer);
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> outs;
+  for (auto output : op.getResults()) {
+    outs.push_back(cache.getOrCreate(output, tensorValueToFlatbuffer));
+  }
 
   llvm::SmallString<24> funcName =
       tt::utils::convertDylibFuncName(op.getCallee());
 
   return ::tt::target::ttnn::CreateCpuOp(
-      *cache.fbb, cache.fbb->CreateVector(ins), output,
+      *cache.fbb, cache.fbb->CreateVector(ins), cache.fbb->CreateVector(outs),
       cache.fbb->CreateString(funcName.c_str()), dylib_id);
 }
 

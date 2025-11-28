@@ -455,7 +455,7 @@ void MCQExecutor::execute(const target::metal::CpuCommand *command) {
           });
 
   auto packedInputs = tt::runtime::common::packTensors(
-      command->ins(), command->out(), dataFuncPtr, allSizesAndStrides);
+      command->ins(), dataFuncPtr, allSizesAndStrides);
 
   common::WrappedFunc func =
       dylibManager.getFunc(command->dylib_id(), command->func_name()->c_str());

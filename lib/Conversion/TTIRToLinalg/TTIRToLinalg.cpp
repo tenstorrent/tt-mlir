@@ -2023,6 +2023,82 @@ public:
 } // namespace
 
 namespace {
+// Template conversion pattern for constant fill operations (zeros, ones).
+template <typename TTIROpTy, int64_t FillValue>
+class NamedFillOpConversionPattern : public OpConversionPattern<TTIROpTy> {
+public:
+  using OpConversionPattern<TTIROpTy>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(TTIROpTy op, typename TTIROpTy::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    Attribute fillAttr = createDenseElementsAttr(resultType, FillValue);
+    if (!fillAttr) {
+      return rewriter.notifyMatchFailure(
+          op, "Unsupported element type for constant fill");
+    }
+
+    auto constOp = rewriter.create<arith::ConstantOp>(
+        op.getLoc(), resultType, cast<DenseElementsAttr>(fillAttr));
+
+    rewriter.replaceOp(op, constOp.getResult());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+// Conversion pattern for ttir.full operation.
+class FullOpConversionPattern : public OpConversionPattern<ttir::FullOp> {
+public:
+  using OpConversionPattern<ttir::FullOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::FullOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    Attribute fillValue = adaptor.getFillValue();
+    Type elementType = resultType.getElementType();
+
+    // Extract numeric value as double.
+    double value;
+    if (auto floatAttr = dyn_cast<FloatAttr>(fillValue)) {
+      value = floatAttr.getValue().convertToDouble();
+    } else if (auto intAttr = dyn_cast<IntegerAttr>(fillValue)) {
+      value = static_cast<double>(intAttr.getInt());
+    } else {
+      return rewriter.notifyMatchFailure(op, "Unsupported fill_value type");
+    }
+
+    // Create DenseElementsAttr with appropriate element type.
+    DenseElementsAttr fillAttr;
+    if (auto floatType = dyn_cast<FloatType>(elementType)) {
+      APFloat apFloat(value);
+      bool lostInfo;
+      apFloat.convert(floatType.getFloatSemantics(),
+                      APFloat::rmNearestTiesToEven, &lostInfo);
+      fillAttr = DenseElementsAttr::get(resultType, apFloat);
+    } else if (auto intType = dyn_cast<IntegerType>(elementType)) {
+      fillAttr = DenseElementsAttr::get(
+          resultType, APInt(intType.getWidth(), static_cast<int64_t>(value)));
+    } else {
+      return rewriter.notifyMatchFailure(op, "Unsupported element type");
+    }
+
+    rewriter.replaceOpWithNewOp<arith::ConstantOp>(op, resultType, fillAttr);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class MeanOpConversionPattern : public OpConversionPattern<ttir::MeanOp> {
 public:
   using OpConversionPattern<ttir::MeanOp>::OpConversionPattern;
@@ -2144,7 +2220,9 @@ void populateTTIRToLinalgPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
       SoftmaxOpConversionPattern, EmptyOpConversionPattern,
       PermuteOpConversionPattern, SliceStaticOpConversionPattern,
       ConstantOpConversionPattern, EmbeddingOpConversionPattern,
-      ReluOpConversionPattern>(typeConverter, ctx);
+      ReluOpConversionPattern, NamedFillOpConversionPattern<ttir::ZerosOp, 0>,
+      NamedFillOpConversionPattern<ttir::OnesOp, 1>, FullOpConversionPattern>(
+      typeConverter, ctx);
 }
 
 void populateTTIRToTosaPatterns(MLIRContext *ctx, RewritePatternSet &patterns,

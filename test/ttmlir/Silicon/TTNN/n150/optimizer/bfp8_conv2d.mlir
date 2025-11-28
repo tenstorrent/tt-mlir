@@ -4,12 +4,12 @@
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
 
 module  {
-  // CHECK-LABEL: func.func @conv2d_bf16_to_bfp8_const_eval_0
+  // CHECK-LABEL: func.func private @conv2d_bf16_to_bfp8_const_eval_0
   // CHECK: "ttnn.prepare_conv2d_bias"
   // CHECK-SAME: tensor<1x1x1x64xbf16, #ttnn.ttnn_layout<{{.*}}, memref<1x64xbf16, #ttnn.buffer_type<system_memory
   // CHECK-SAME: -> tensor<1x1x1x64x!ttcore.tile<32x32, bfp_bf8
 
-  // CHECK-LABEL: func.func @conv2d_bf16_to_bfp8_const_eval_1
+  // CHECK-LABEL: func.func private @conv2d_bf16_to_bfp8_const_eval_1
   // CHECK: "ttnn.prepare_conv2d_weights"
   // CHECK-SAME: tensor<64x64x3x3xbf16, #ttnn.ttnn_layout<{{.*}}, memref<12288x3xbf16, #ttnn.buffer_type<system_memory
   // CHECK-SAME: -> tensor<1x1x576x64x!ttcore.tile<32x32, bfp_bf8

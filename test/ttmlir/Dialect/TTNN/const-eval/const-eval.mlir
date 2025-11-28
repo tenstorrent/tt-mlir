@@ -2,7 +2,7 @@
 // RUN: FileCheck %s --input-file=%t
 
 module {
-  // CHECK-LABEL: func.func @forward_const_eval_0
+  // CHECK-LABEL: func.func private @forward_const_eval_0
   // CHECK: = "ttnn.subtract"(%{{.*}}, %{{.*}})
 
   // CHECK: func.func @forward(
@@ -16,10 +16,10 @@ module {
     return %2 : tensor<32x32xbf16>
   }
 
-  // CHECK-LABEL: func.func @forward_split_const_eval_0
+  // CHECK-LABEL: func.func private @forward_split_const_eval_0
   // CHECK: = "ttnn.add"(%{{.*}}, %{{.*}})
 
-  // CHECK-LABEL: func.func @forward_split_const_eval_1
+  // CHECK-LABEL: func.func private @forward_split_const_eval_1
   // CHECK: = "ttnn.add"(%{{.*}}, %{{.*}})
 
   // CHECK: func.func @forward_split(
@@ -37,7 +37,7 @@ module {
     return %4 : tensor<32x32xbf16>
   }
 
-  // CHECK-LABEL: func.func @forward_merge_const_eval_0
+  // CHECK-LABEL: func.func private @forward_merge_const_eval_0
   // CHECK: = "ttnn.add"(%{{.*}}, %{{.*}})
   // CHECK: = "ttnn.add"(%{{.*}}, %{{.*}})
   // CHECK: = "ttnn.subtract"(%{{.*}}, %{{.*}})
@@ -55,7 +55,7 @@ module {
     return %4 : tensor<32x32xbf16>
   }
 
-  // CHECK-LABEL: func.func @forward_merge_return_multiple_values_const_eval_0
+  // CHECK-LABEL: func.func private @forward_merge_return_multiple_values_const_eval_0
   // CHECK: = "ttnn.add"(%{{.*}}, %{{.*}})
   // CHECK: = "ttnn.add"(%{{.*}}, %{{.*}})
   // CHECK: = "ttnn.subtract"(%{{.*}}, %{{.*}})
@@ -75,7 +75,7 @@ module {
     return %5 : tensor<32x32xbf16>
   }
 
-  // CHECK-LABEL: func.func @forward_reuse_zeros_const_eval_0
+  // CHECK-LABEL: func.func private @forward_reuse_zeros_const_eval_0
   // CHECK: = "ttnn.get_device"
   // CHECK: = "ttnn.zeros"(%{{.*}})
   // CHECK: = "ttnn.add"(%{{.*}}, %{{.*}})
@@ -97,7 +97,7 @@ module {
   }
 
 
-  // CHECK-LABEL: func.func @forward_reuse_constant_merge_const_eval_0
+  // CHECK-LABEL: func.func private @forward_reuse_constant_merge_const_eval_0
   // CHECK: = "ttnn.get_device"
   // CHECK: = "ttnn.full"(%{{.*}})
   // CHECK: = "ttnn.add"(%{{.*}}, %{{.*}})
@@ -118,7 +118,7 @@ module {
     return %5 : tensor<32x32xbf16>
   }
 
-  // CHECK-LABEL: func.func @non_splat_constant_const_eval_0
+  // CHECK-LABEL: func.func private @non_splat_constant_const_eval_0
   // CHECK: = "ttnn.get_device"
   // CHECK: = "ttnn.constant"(%0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>, value = dense<{{\[\[}}1.000000e+00, 2.000000e+00], [3.000000e+00, 4.000000e+00]]>
   // CHECK: = "ttnn.neg"
@@ -134,7 +134,7 @@ module {
     return %2 : tensor<2x2xbf16>
   }
 
-  // CHECK-LABEL: func.func @creation_ops_const_eval_0
+  // CHECK-LABEL: func.func private @creation_ops_const_eval_0
   // CHECK: "ttnn.zeros"
   // CHECK: "ttnn.ones"
   // CHECK: "ttnn.add"
@@ -155,7 +155,7 @@ module {
     return %4: tensor<4x4xbf16>
   }
 
-  // CHECK-LABEL: func.func @forward_all_const_const_eval
+  // CHECK-LABEL: func.func private @forward_all_const_const_eval
   // CHECK: "ttnn.add"
 
 
