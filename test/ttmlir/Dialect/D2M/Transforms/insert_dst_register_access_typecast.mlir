@@ -1,5 +1,7 @@
 // RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access="max-dst-physical-size-tiles=32" --canonicalize -o %t %s
 // RUN: FileCheck %s --input-file=%t
+// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-gc="coloring-strategy=greedy max-dst-physical-size-tiles=32" --canonicalize %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-gc="coloring-strategy=chaitin-briggs max-dst-physical-size-tiles=32" --canonicalize %s | FileCheck %s
 
 // Test that InsertDstRegisterAccess correctly inserts d2m.dst_reinterpret_cast operations
 // when handling typecast operations with mismatched input/output types.
@@ -31,7 +33,7 @@ module {
       // CHECK-NEXT: affine.for %{{.*}} = 0 to 8 {
       // Typecast with dst_reinterpret_cast to dst type
       // CHECK: %[[DST_LOAD:.*]] = affine.load %[[DST]]
-      // CHECK: %[[TYPECAST:.*]] = "d2m.tile_typecast"(%[[DST_LOAD]]) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f16>
+      // CHECK: %[[TYPECAST:.*]] = "d2m.tile_typecast"(%[[DST_LOAD]]) {result_dst_index = 0 : i64} : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f16>
       // CHECK: %[[CAST_TO_DST:.*]] = "d2m.dst_reinterpret_cast"(%[[TYPECAST]]) : (!ttcore.tile<32x32, f16>) -> !ttcore.tile<32x32, f32>
       // CHECK: affine.store %[[CAST_TO_DST]], %[[DST]]
 

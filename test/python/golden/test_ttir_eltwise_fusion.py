@@ -45,6 +45,7 @@ gridParams = [
 # Utilities
 ### ----------------------------------------------------------------------- ###
 
+
 # Generic utility to build a repeated op chain for unary or binary ops
 def repeat_op_chain(
     op: Callable[..., Operand],
@@ -88,6 +89,7 @@ def repeat_op_chain(
 
 
 ##--##-------------------------------------------------------------------##--##
+
 
 # Generic utility to build a binary reduction tree for binary ops
 def binary_reduction_tree(
@@ -289,6 +291,7 @@ def test_eltwise_sanity_check_unary_op(
 # Test: Long Unary Chain
 ### ----------------------------------------------------------------------- ###
 
+
 # unary ops are done in place, should be able to fuse
 # indefinitely
 def unary_chain(in0: Operand, builder: TTIRBuilder):
@@ -393,6 +396,7 @@ def test_eltwise_fuse_converging_unary_branches(
 
 ##--##-------------------------------------------------------------------##--##
 
+
 # TODO(mbagherbeikTT): figure out why a 4 input add fails without setting goldens
 # so we can use the helper functions and not have to manually copy paste
 # the same code for different tests. Or any way of setting goldens easily in
@@ -464,7 +468,7 @@ def test_eltwise_fuse_binary_reduction_tree(
         module_dump=True,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
-        print_ir=enablePrintIR,
+        print_ir=True,
         device=device,
     )
 

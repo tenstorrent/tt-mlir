@@ -1,4 +1,6 @@
-// RUN: ttmlir-opt %s --ttir-to-ttmetal-pipeline | FileCheck %s
+// RUN: ttmlir-opt %s --ttir-to-ttmetal-pipeline="dst-allocation-strategy=legacy" | FileCheck %s
+// RUN: ttmlir-opt %s --ttir-to-ttmetal-pipeline="dst-allocation-strategy=graph-coloring-greedy" | FileCheck %s
+// RUN: ttmlir-opt %s --ttir-to-ttmetal-pipeline="dst-allocation-strategy=graph-coloring-cb" | FileCheck %s
 
 // Check for basic structure of the lowered IR
 // CHECK: #l1 = #ttcore.memory_space<l1>
