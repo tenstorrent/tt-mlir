@@ -39,7 +39,7 @@ module {
 
     // CHECK-NOT: memref.alloc()
     // CHECK-NOT: d2m.stream_layout
-    %storage_in = memref.alloc() : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>
+    %storage_in = memref.alloc() {address = 1024 : i64, alignment = 32 : i64} : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>
     %stream_input  = "d2m.stream_layout" (%metal_input_l1, %storage_in)
           : (memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>,
              memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>)
@@ -47,7 +47,7 @@ module {
 
     // CHECK-NOT: memref.alloc()
     // CHECK-NOT: d2m.stream_layout
-    %storage_out = memref.alloc() : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>
+    %storage_out = memref.alloc() {address = 1024 : i64, alignment = 32 : i64} : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>
     %stream_output  = "d2m.stream_layout" (%metal_output_l1, %storage_out)
           : (memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>,
              memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #ttcore.memory_space<l1>>)

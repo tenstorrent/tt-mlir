@@ -14,6 +14,11 @@
 
 namespace tt::runtime::ttnn::operations::generic_op {
 
+struct ProgramDescCacheEntry {
+  std::shared_ptr<::tt::tt_metal::ProgramDescriptor> programDescriptor;
+  std::vector<std::shared_ptr<::tt::tt_metal::Buffer>> ownedBuffers;
+};
+
 static ::tt::tt_metal::SemaphoreDescriptor createSemaphoreDescriptor(
     const ::tt::target::ttnn::SemaphoreDescriptor &kernelSemaphoreDescriptor) {
   return ::tt::tt_metal::SemaphoreDescriptor{
@@ -36,21 +41,43 @@ static ::tt::tt_metal::SemaphoreDescriptor createSemaphoreDescriptor(
   return cbFormatDescriptor;
 }
 
-static ::tt::tt_metal::CBDescriptor
-createCBDescriptor(const ::tt::target::ttnn::KernelCBDescriptor &cbDesc,
-                   const std::vector<::ttnn::Tensor> &ioTensors) {
+static ::tt::tt_metal::CBDescriptor createCBDescriptor(
+    const ::tt::target::ttnn::KernelCBDescriptor &cbDesc,
+    const std::vector<::ttnn::Tensor> &ioTensors,
+    std::vector<std::shared_ptr<::tt::tt_metal::Buffer>> &ownedBuffers) {
   // Right now, metal assumes only one CBFormatDescriptor per KernelDescriptor
+  ::tt::tt_metal::CBFormatDescriptor formatDescriptor =
+      createCBFormatDescriptor(*cbDesc.formats()->Get(0));
+
   tt::tt_metal::Buffer *buffer = nullptr;
   if (cbDesc.buffer()) {
-    uint32_t tensorIdx = cbDesc.buffer()->tensor_operand_index();
-    buffer = ioTensors[tensorIdx].buffer();
+    if (cbDesc.buffer_type() == ::tt::target::ttnn::KernelGlobalCBOrAddress::
+                                    KernelGlobalCBIndexOfTensor) {
+      if (const auto *tensorBuffer =
+              cbDesc.buffer_as_KernelGlobalCBIndexOfTensor();
+          tensorBuffer) {
+        uint32_t tensorIdx = tensorBuffer->tensor_operand_index();
+        buffer = ioTensors[tensorIdx].buffer();
+      }
+    } else if (cbDesc.buffer_type() ==
+               ::tt::target::ttnn::KernelGlobalCBOrAddress::KernelCBAddress) {
+      if (const auto *cbAddress = cbDesc.buffer_as_KernelCBAddress();
+          cbAddress) {
+        uint32_t cb_address = cbAddress->address();
+        std::shared_ptr<::tt::tt_metal::Buffer> deviceBuffer =
+            ::tt::tt_metal::Buffer::create(
+                ioTensors[0].device(), cb_address, cbDesc.total_size(),
+                formatDescriptor.page_size, ::tt::tt_metal::BufferType::L1);
+        ownedBuffers.push_back(deviceBuffer);
+        buffer = deviceBuffer.get();
+      }
+    }
   }
   tt::tt_metal::CBDescriptor cbDescriptor = {
       .total_size = cbDesc.total_size(),
       .core_ranges =
           tt::runtime::ttnn::utils::toTTNNCoreRangeSet(*cbDesc.core_range()),
-      .format_descriptors = {createCBFormatDescriptor(
-          *cbDesc.formats()->Get(0))},
+      .format_descriptors = {formatDescriptor},
       .remote_format_descriptors = {},
       .buffer = buffer};
   return cbDescriptor;
@@ -216,12 +243,14 @@ createKernelDescriptor(const ::tt::target::ttnn::KernelDescriptor &kernelDesc,
   return kernelDescriptor;
 }
 
-static std::shared_ptr<::tt::tt_metal::ProgramDescriptor>
-createProgramDescriptor(
+static std::shared_ptr<ProgramDescCacheEntry> createProgramDescriptor(
     const ::tt::target::ttnn::ProgramDescriptor *programDesc,
     const std::vector<::ttnn::Tensor> &ioTensors) {
-  auto programDescriptor =
+  auto programDescCacheEntry = std::make_shared<ProgramDescCacheEntry>();
+  programDescCacheEntry->programDescriptor =
       std::make_shared<::tt::tt_metal::ProgramDescriptor>();
+  auto &programDescriptor = programDescCacheEntry->programDescriptor;
+  auto &ownedBuffers = programDescCacheEntry->ownedBuffers;
   for (const tt::target::ttnn::KernelDescriptor *kernelDesc :
        *programDesc->kernels()) {
     programDescriptor->kernels.push_back(
@@ -229,14 +258,15 @@ createProgramDescriptor(
   }
   for (const tt::target::ttnn::KernelCBDescriptor *cbDesc :
        *programDesc->cbs()) {
-    programDescriptor->cbs.push_back(createCBDescriptor(*cbDesc, ioTensors));
+    programDescriptor->cbs.push_back(
+        createCBDescriptor(*cbDesc, ioTensors, ownedBuffers));
   }
   for (const tt::target::ttnn::SemaphoreDescriptor *semaphoreDesc :
        *programDesc->semaphores()) {
     programDescriptor->semaphores.push_back(
         createSemaphoreDescriptor(*semaphoreDesc));
   }
-  return programDescriptor;
+  return programDescCacheEntry;
 }
 
 void overrideArgs(
@@ -246,7 +276,6 @@ void overrideArgs(
   for (size_t i = 0; i < programDescriptor->kernels.size(); ++i) {
     const auto *kernelDesc = programDesc->kernels()->Get(i);
     auto &kernel = programDescriptor->kernels[i];
-    kernel.compile_time_args = createKernelArgs(*kernelDesc->ct_args());
     kernel.common_runtime_args =
         createKernelArgs(*kernelDesc->common_rt_args(), ioTensors);
 
@@ -270,9 +299,16 @@ void overrideArgs(
     const auto *cbDesc = programDesc->cbs()->Get(i);
     auto &cb = programDescriptor->cbs[i];
 
-    // Not all CBs have a backing L1 buffer.
-    if (cbDesc->buffer()) {
-      cb.buffer = ioTensors[cbDesc->buffer()->tensor_operand_index()].buffer();
+    // Not all CBs have a backing L1 buffer. Statically allocated CBs are
+    // compile time only.
+    if (cbDesc->buffer_type() == ::tt::target::ttnn::KernelGlobalCBOrAddress::
+                                     KernelGlobalCBIndexOfTensor) {
+      if (const auto *tensorBuffer =
+              cbDesc->buffer_as_KernelGlobalCBIndexOfTensor();
+          tensorBuffer) {
+        uint32_t tensorIdx = tensorBuffer->tensor_operand_index();
+        cb.buffer = ioTensors[tensorIdx].buffer();
+      }
     }
   }
 }
@@ -296,15 +332,19 @@ void run(const ::tt::target::ttnn::GenericOp *op, ProgramContext &context) {
 
   std::shared_ptr<::tt::tt_metal::ProgramDescriptor> programDescriptor;
   if (cachedPtr) {
-    programDescriptor =
-        std::static_pointer_cast<::tt::tt_metal::ProgramDescriptor>(cachedPtr);
+    auto programDescCacheEntry =
+        std::static_pointer_cast<ProgramDescCacheEntry>(cachedPtr);
+    programDescriptor = programDescCacheEntry->programDescriptor;
     overrideArgs(programDesc, ioTensors, programDescriptor);
   } else {
-    programDescriptor = createProgramDescriptor(programDesc, ioTensors);
+
+    auto programDescCacheEntry =
+        createProgramDescriptor(programDesc, ioTensors);
+    programDescriptor = programDescCacheEntry->programDescriptor;
     programDescriptor->custom_program_hash =
         reinterpret_cast<ttsl::hash::hash_t>(hash);
-    programDescCache->insert(hash,
-                             std::static_pointer_cast<void>(programDescriptor));
+    programDescCache->insert(
+        hash, std::static_pointer_cast<void>(programDescCacheEntry));
   }
 
   ::ttnn::Tensor outputTensor =

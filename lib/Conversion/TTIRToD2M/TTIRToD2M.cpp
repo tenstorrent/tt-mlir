@@ -11,8 +11,10 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Utils/StructuredOpsUtils.h"
 #include "mlir/IR/AffineExpr.h"
@@ -201,12 +203,42 @@ protected:
     return result;
   }
 
+  // Check if a value has any uses that require TTNN tensors (return operations
+  // or TTNN operations).
+  static bool needsTTNNCast(Value value) {
+    for (OpOperand &use : value.getUses()) {
+      Operation *user = use.getOwner();
+      // Check if it's a return operation
+      if (mlir::isa<mlir::func::ReturnOp>(user)) {
+        return true;
+      }
+      // Check if it's a TTNN operation
+      if (mlir::isa<ttnn::TTNNDialect>(user->getDialect())) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   Operation *unLayoutResult(mlir::ConversionPatternRewriter &rewriter,
-                            Value fromValue, Type toResultType) const {
+                            Value fromValue, Value toValue) const {
+    Type toResultType = toValue.getType();
     if (isTTNNTensor(toResultType)) {
       assert(ttnnMode && "Unexpected TTNN tensor as op result");
-      return rewriter.create<ttir::TTNNMetalLayoutCastOp>(
-          fromValue.getLoc(), toResultType, fromValue);
+      
+      // Check if the original result feeds a return statement or TTNN operation.
+      // If this value feeds a return or TTNN op, we need to cast back to TTNN.
+      // Otherwise, for intermediate values, we can keep the metal layout.
+      if (needsTTNNCast(toValue)) {
+        return rewriter.create<ttir::TTNNMetalLayoutCastOp>(
+            fromValue.getLoc(), toResultType, fromValue);
+      }
+      
+      // Intermediate value - create d2m.empty with metal layout directly.
+      auto metalType = mlir::cast<RankedTensorType>(fromValue.getType());
+      return rewriter.create<d2m::EmptyOp>(
+          fromValue.getLoc(), metalType.getShape(),
+          metalType.getElementType(), metalType.getEncoding());
     }
     auto output =
         rewriter.create<d2m::EmptyOp>(fromValue.getLoc(), toResultType);
@@ -561,7 +593,7 @@ private:
     rewriter.restoreInsertionPoint(insertPoint);
 
     rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
-                                          op->getResult(0).getType()));
+                                          op->getResult(0)));
     return llvm::success();
   }
 
@@ -696,7 +728,7 @@ private:
     rewriter.restoreInsertionPoint(insertPoint);
 
     rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
-                                          op->getResult(0).getType()));
+                                          op->getResult(0)));
     return llvm::success();
   }
 
@@ -931,7 +963,7 @@ private:
     rewriter.restoreInsertionPoint(insertPoint);
 
     rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
-                                          op->getResult(0).getType()));
+                                          op->getResult(0)));
     return llvm::success();
   }
 
@@ -1088,7 +1120,7 @@ public:
         });
 
     rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
-                                          op->getResult(0).getType()));
+                                          op->getResult(0)));
     return success();
   }
 
