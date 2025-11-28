@@ -19,7 +19,6 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
-#include <mlir/IR/Attributes.h>
 
 namespace mlir::tt::transforms {
 

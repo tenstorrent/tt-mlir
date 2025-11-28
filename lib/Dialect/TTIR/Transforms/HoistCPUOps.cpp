@@ -20,7 +20,6 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/IR/Value.h"
 #include "llvm/Support/Casting.h"
 #include <mlir/Interfaces/DestinationStyleOpInterface.h>
 #include <string>
