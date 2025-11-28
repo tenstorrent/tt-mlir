@@ -31,7 +31,8 @@ struct DstAnalysisResult {
   /// Optional breakdown of slice requirements per sub-operation.
   /// Maps each operation to its assigned color/slice number.
   /// Useful for detailed diagnostics and debugging.
-  llvm::DenseMap<Operation *, unsigned> operationSlices;
+  /// Uses MapVector for deterministic iteration order.
+  llvm::MapVector<Operation *, unsigned> operationSlices;
 
   /// Identified DST accesses that need allocation.
   /// Each pair contains the operation and its index within the access

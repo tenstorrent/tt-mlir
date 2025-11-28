@@ -50,10 +50,12 @@ struct D2MInsertDstRegisterAccessRewriter final
 public:
   D2MInsertDstRegisterAccessRewriter(mlir::MLIRContext *ctx, bool useTileMatmul,
                                      unsigned maxDstPhysicalSizeTiles,
-                                     llvm::StringRef allocationStrategy)
+                                     llvm::StringRef allocationStrategy,
+                                     const DstAnalysisResult &analysisResult)
       : OpRewritePattern<GenericOp>(ctx), useTileMatmul(useTileMatmul),
         maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles),
-        allocationStrategy(allocationStrategy) {};
+        allocationStrategy(allocationStrategy),
+        analysisResult(analysisResult) {};
 
   // Records a CB<->DST affine.load/store op, which DST slice it accesses, and
   // some special considerations for looping over the tensor shard while doing
@@ -116,6 +118,7 @@ public:
   public:
     virtual ~DstAllocationStrategy() = default;
     virtual int allocate() = 0;
+    virtual void setCurrentOperation(Operation *op) {} // Optional for strategies
     virtual void setStoreToDst() = 0;
     virtual bool didStoreToDst() = 0;
     virtual int getCurrSliceIndex() = 0;
@@ -134,6 +137,42 @@ public:
   private:
     int nextSliceIndex = 0;
     bool storedToDst = false;
+  };
+
+  // Graph coloring allocation strategy using pre-computed slice assignments.
+  // Stores operation-to-slice mapping from DstAnalysis and performs lookups.
+  class GraphColoringDstAllocationStrategy : public DstAllocationStrategy {
+  public:
+    explicit GraphColoringDstAllocationStrategy(
+        const llvm::MapVector<Operation *, unsigned> &operationSlices)
+        : operationSlices(operationSlices), currentOp(nullptr),
+          fallbackIndex(0), storedToDst(false) {}
+
+    int allocate() override {
+      auto it = operationSlices.find(currentOp);
+      if (currentOp && it != operationSlices.end()) {
+        return static_cast<int>(it->second);
+      }
+      // Fallback for operations not in pre-computed map (shouldn't happen)
+      return fallbackIndex++;
+    }
+
+    void setCurrentOperation(Operation *op) override { currentOp = op; }
+
+    void setStoreToDst() override { storedToDst = true; }
+    bool didStoreToDst() override { return storedToDst; }
+    int getCurrSliceIndex() override {
+      auto it = operationSlices.find(currentOp);
+      return currentOp && it != operationSlices.end()
+                 ? static_cast<int>(it->second)
+                 : fallbackIndex - 1;
+    }
+
+  private:
+    const llvm::MapVector<Operation *, unsigned> &operationSlices;
+    Operation *currentOp;
+    int fallbackIndex;
+    bool storedToDst;
   };
 
   LogicalResult matchAndRewrite(GenericOp gOp,
@@ -170,10 +209,16 @@ public:
               // through to regular linalg-to-affine conversion.
               if (!gOp.isExplicitDatamovementForm()) {
                 // Create fresh strategy for this nest
-                DstSliceAllocationState strategy;
+                std::unique_ptr<DstAllocationStrategy> strategy;
+                if (allocationStrategy == "basic") {
+                  strategy = std::make_unique<DstSliceAllocationState>();
+                } else {
+                  strategy = std::make_unique<GraphColoringDstAllocationStrategy>(
+                      analysisResult.operationSlices);
+                }
                 if (rewriteTileMatmulAsTileMatmulBlock(
                         rewriter, gOp, *genericRegion, linalgGenericOp,
-                        dstCapacity, strategy, modified)) {
+                        dstCapacity, *strategy, modified)) {
                   return WalkResult::interrupt();
                 }
                 return WalkResult::advance();
@@ -203,13 +248,19 @@ public:
 
         // Create fresh strategy for each loop nest (important for multiple
         // nests)
-        DstSliceAllocationState strategy;
+        std::unique_ptr<DstAllocationStrategy> strategy;
+        if (allocationStrategy == "basic") {
+          strategy = std::make_unique<DstSliceAllocationState>();
+        } else {
+          strategy = std::make_unique<GraphColoringDstAllocationStrategy>(
+              analysisResult.operationSlices);
+        }
 
         // Insert DST register access for this loop nest.
         Region &dstRegisterAccessRegion = forOp.getRegion();
         modified |=
             insertDstRegisterAccess(rewriter, gOp, dstRegisterAccessRegion,
-                                    dstCapacity, strategy, forOp);
+                                    dstCapacity, *strategy, forOp);
       });
     }
     return success(modified);
@@ -364,6 +415,7 @@ public:
         auto potentialLoad = computeOp->getOperand(operandIdx)
                                  .getDefiningOp<affine::AffineLoadOp>();
         if (potentialLoad && notDstMemspace(potentialLoad)) {
+          strategy.setCurrentOperation(potentialLoad);
           collectDstLoadOrStore<affine::AffineLoadOp>(
               gOp, potentialLoad, copyInfos, strategy.allocate(),
               outermostInnerComputeLoop);
@@ -398,6 +450,7 @@ public:
                 "output tile.");
             dstSlice = strategy.getCurrSliceIndex();
           } else {
+            strategy.setCurrentOperation(potentialStore);
             dstSlice = strategy.allocate();
             strategy.setStoreToDst();
           }
@@ -416,6 +469,7 @@ public:
 
           // If op stores to dst in place or has scalar rhs, we don't need to
           // allocate a new dst register, just use the current dst index.
+          strategy.setCurrentOperation(computeOp);
           int dstSlice =
               (computeOp.getDstRegInPlace() || computeOp.isScalarOperand(1))
                   ? strategy.getCurrSliceIndex()
@@ -918,6 +972,7 @@ public:
   bool useTileMatmul = false;
   unsigned maxDstPhysicalSizeTiles = 0;
   llvm::StringRef allocationStrategy = "basic";
+  DstAnalysisResult analysisResult; // Pre-computed graph coloring results
 };
 } // namespace
 
@@ -1008,13 +1063,25 @@ public:
       return signalPassFailure();
     }
 
-    // TODO: Wire graph coloring strategies ('greedy' and 'chaitin-briggs').
-    // For now, only 'basic' strategy is implemented. Graph coloring requires
-    // integrating DstAnalysis::analyze() to pre-compute slice assignments.
-    if (allocationStrategy != "basic") {
-      moduleOp.emitWarning() << "Graph coloring strategy '" << allocationStrategy
-                             << "' requested but not yet implemented. "
-                             << "Falling back to 'basic' strategy.";
+    // Pre-compute graph coloring analysis if needed
+    DstAnalysisResult analysisResult;
+    std::unique_ptr<DstAnalysis> dstAnalysis;
+
+    if (allocationStrategy == "greedy") {
+      dstAnalysis = createGreedyDstAnalysis();
+    } else if (allocationStrategy == "chaitin-briggs") {
+      dstAnalysis = createChaitinBriggsDstAnalysis();
+    }
+
+    if (dstAnalysis) {
+      // Run analysis on entire module
+      analysisResult = dstAnalysis->analyze(moduleOp);
+
+      if (!analysisResult.isValid) {
+        moduleOp.emitError() << "Graph coloring failed: "
+            << analysisResult.failureReason.value_or("Unknown error");
+        return signalPassFailure();
+      }
     }
 
     // Check precondition: linalg.generic ops should be converted to affine,
@@ -1042,7 +1109,7 @@ public:
 
     patterns.add<D2MInsertDstRegisterAccessRewriter>(
         ctx, useTileMatmul, maxDstPhysicalSizeTiles.getValue(),
-        allocationStrategy);
+        allocationStrategy, analysisResult);
 
     patterns.add<D2MPackerMaskResetRewriter<TileReduceSumOp>,
                  D2MPackerMaskResetRewriter<TileReduceMaxOp>>(ctx);
