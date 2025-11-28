@@ -4872,8 +4872,8 @@ llvm::Expected<Conv3dSpecs> prepareConv3dSpecs(
   // Get output dtype in this order: explicit outputDtype → outputLayout →
   // BFLOAT16
   std::optional<::tt::tt_metal::DataType> dtype;
-  if (outputDtype.has_value()) {
-    dtype = conversion::getDataType(outputDtype->getValue());
+  if (outputDtype.has_value() && outputDtype.value()) {
+    dtype = conversion::getDataType(outputDtype.value().getValue());
   }
   if (!dtype) {
     dtype = detail::getNullableDataType(outputLayout);
