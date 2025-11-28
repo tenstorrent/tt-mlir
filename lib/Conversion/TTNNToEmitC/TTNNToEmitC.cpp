@@ -435,7 +435,7 @@ class ExperimentalGeluBackwardOpConversionPattern
 private:
   std::string getPrefixSearchPattern() const override { return "ttnn.gelu_bw"; }
   std::string getPrefixSwapPattern() const override {
-    return "ttnn::experimental::gelu_backward";
+    return "ttnn::experimental::gelu_bw";
   }
 
 public:
