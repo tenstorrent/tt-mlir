@@ -13,12 +13,12 @@ module {
   // CHECK: builtin.module
 
   // CHECK-LABEL: func.func private @forward_const_eval_0{{.*}} -> tensor<32x32xbf16
-  
+
   // CHECK: [[ARG0:%[0-9]+]] = "ttnn.typecast"(%arg0)
   // CHECK: "ttnn.from_device"([[ARG0]])
   // CHECK: [[ARG1:%[0-9]+]] = "ttnn.typecast"(%arg1)
   // CHECK: "ttnn.from_device"([[ARG1]])
-  
+
   // CHECK: call @hoisted_forward_const_eval_0_decl
 
   // CHECK: [[RES:%[0-9]+]] = "ttnn.to_dtype"
@@ -49,4 +49,3 @@ module {
   // CHECK: builtin.module {
   // CHECK-LABEL: llvm.func @hoisted_forward_const_eval_0{{.*}}
 }
-

@@ -196,15 +196,15 @@ collectOutputProviders(const OpsVectorType &operations,
   OpsVectorType outputProviders;
   for (auto outputValue : outputValues) {
     auto *definingOp = outputValue.getDefiningOp();
-    
+
     assert(definingOp && "Output value does not have a defining operation!");
-    
+
     assert(llvm::is_contained(operations, definingOp) &&
            "Output value's defining operation is not in the hoisted ops set!");
 
     assert(!mlir::isa<DestinationStyleOpInterface>(definingOp) &&
            "DPS ops as result providers are not supported!");
-    
+
     outputProviders.push_back(definingOp);
   }
   return outputProviders;

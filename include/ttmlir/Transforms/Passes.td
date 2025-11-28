@@ -58,38 +58,6 @@ def UndoConstEvalTransform : Pass<"undo-const-eval", "mlir::ModuleOp"> {
   let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect"];
 }
 
-def RemoveReturnValues: Pass<"ttir-remove-return-values", "::mlir::ModuleOp"> {
-  let summary = "Remove return values from functions.";
-  let description = [{
-    This pass finds functions with return values and transforms them to have no return
-    values.  We use this on the CPU hoisting path, since we want to avoid RVO issues at
-    runtime, but model the functions as returning values during some intermediate stages
-    to avoid op elimination, track which operation is the final output (corresponding
-    to DPS output tensor), etc.
-
-    Example:
-    ```mlir
-    // Before
-    func.func @hoisted_op(%arg0: tensor<4x4xf32>, %arg1: tensor<4x4xf32>) -> tensor<4x4xf32> {
-      %0 = linalg.generic ... {
-        ...
-      } : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
-      return %0 : tensor<4x4xf32>
-    }
-
-    // After
-    func.func @hoisted_op(%arg0: tensor<4x4xf32>, %arg1: tensor<4x4xf32>) {
-      %0 = linalg.generic ... {
-        ...
-      } : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
-      return
-    }
-    ```
-  }];
-
-  let dependentDialects = ["mlir::func::FuncDialect"];
-}
-
 def ConvertCPUHoistedFunctionsToDPS: Pass<"convert-cpu-hoisted-functions-to-dps", "::mlir::ModuleOp"> {
   let summary = "Enables Destination Passing Style semantics in the CPU-hoisted functions.";
   let description = [{

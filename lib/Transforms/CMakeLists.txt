@@ -4,7 +4,6 @@ add_mlir_extension_library(TTMLIRTransforms
         ConvertCPUHoistedFunctionsToDPS.cpp
         EmbedCudaTargetAttributes.cpp
         ExtractGPUModules.cpp
-        RemoveReturnValues.cpp
 
         ADDITIONAL_HEADER_DIRS
         ${PROJECT_SOURCE_DIR}/include/ttmlir
