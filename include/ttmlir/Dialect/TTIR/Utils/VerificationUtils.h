@@ -177,7 +177,7 @@ inline OutputTensorDims getConv2dOutputDims(mlir::tt::ttir::Conv2dOp *op) {
   mlir::tt::ttir::FlattenedCompatInfoAttr flatInfo =
       op->getFlattenedCompatInfoAttr();
   OutputTensorDims outputDims;
-  auto outputType = op->getOutput().getType();
+  auto outputType = op->getType();
   if (flatInfo) {
     outputDims.flattenedDim = outputType.getDimSize(FLATTENED_DIM);
     outputDims.outputChannels =

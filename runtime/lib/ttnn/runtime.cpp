@@ -1702,10 +1702,12 @@ std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
        std::vector<::tt::runtime::Tensor> &inputs) {
 
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
   ::tt::runtime::utils::logMemoryStateIfNeeded(
-      utils::getMemoryView(deviceHandle),
+      ::tt::runtime::ttnn::utils::getMemoryView, deviceHandle,
       ::tt::runtime::MemoryLogLevel::Program,
       "Device memory state before submit");
+#endif
 
   std::unique_ptr<ProgramExecutor> executor = std::make_unique<ProgramExecutor>(
       deviceHandle, executableHandle, programIndex, inputs);
@@ -1716,10 +1718,12 @@ submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
 
   executor.reset();
 
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
   ::tt::runtime::utils::logMemoryStateIfNeeded(
-      utils::getMemoryView(deviceHandle),
+      ::tt::runtime::ttnn::utils::getMemoryView, deviceHandle,
       ::tt::runtime::MemoryLogLevel::Program,
       "Device memory state after submit");
+#endif
 
   return outputTensors;
 }

@@ -162,7 +162,6 @@ def test_permute(
     [
         [
             (1, 8, 1, 12, 64),
-            (1, 8, 1, 12, 64),
         ]
     ],
     ids=shapes_list_str,
@@ -175,12 +174,11 @@ def test_repeat_interleave(
 ):
     def repeat_interleave_wrapper(
         in0: Operand,
-        in1: Operand,
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
         return builder.repeat_interleave(
-            in0, in1, repeats=repeats, dim=dim, unit_attrs=unit_attrs
+            in0, repeats=repeats, dim=dim, unit_attrs=unit_attrs
         )
 
     repeat_interleave_wrapper.__name__ = "repeat_interleave"

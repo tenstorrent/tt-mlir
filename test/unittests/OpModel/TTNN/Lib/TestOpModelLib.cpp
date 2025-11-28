@@ -3574,7 +3574,7 @@ INSTANTIATE_TEST_SUITE_P(
             // Weight: [vocab_size=256, hidden_size=128]
             detail::TestTensor{
                 {256, 128}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
-            detail::ExpectedResult{true, 16384, 8192, 16384 + 8192, 4096}),
+            detail::ExpectedResult{true, 16384, 8192, 16384 + 8192, 2048}),
         std::make_tuple(
             // Input: [batch=2, seq_len=512] (sharded)
             detail::TestTensor{{2, 512},
@@ -3584,7 +3584,7 @@ INSTANTIATE_TEST_SUITE_P(
             // Weight: [vocab_size=512, hidden_size=256]
             detail::TestTensor{
                 {512, 256}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
-            detail::ExpectedResult{true, 32768, 16384, 32768 + 16384, 8192})));
+            detail::ExpectedResult{true, 32768, 16384, 32768 + 16384, 4096})));
 
 TEST_F(OpModelTest, EmbeddingBackwardOp) {
   llvm::SmallVector<int64_t> inputShape = {2, 1024};
