@@ -3077,6 +3077,22 @@ private:
       return false;
     }
 
+    // Verify that intermediate operations have single uses.
+    // If any intermediate result (like attention weights) is used elsewhere
+    // (e.g., returned as output), we cannot safely fuse without duplicating
+    // computation.
+    if (!components.qkMatmul.getResult().hasOneUse()) {
+      return false;
+    }
+
+    // Check that the entire chain from attentionMatmul input back to softmax
+    // has single uses. This catches cases where intermediate layout ops
+    // (typecast, reshape) between softmax and the matmul are used elsewhere.
+    if (!chainHasSingleUses(components.attentionMatmul.getA(),
+                            components.softmax)) {
+      return false;
+    }
+
     auto qType = mlir::dyn_cast<RankedTensorType>(components.query.getType());
     auto kType = mlir::dyn_cast<RankedTensorType>(components.key.getType());
     auto vType = mlir::dyn_cast<RankedTensorType>(components.value.getType());
@@ -3168,6 +3184,35 @@ private:
   bool isLayoutOp(Operation *op) const {
     return isa<TypecastOp, ReshapeOp, PermuteOp, BroadcastOp,
                RepeatInterleaveOp>(op);
+  }
+
+  // Check that all operations in the chain from 'start' to 'end' have single
+  // uses. This ensures intermediate results (like attention weights after
+  // softmax) are not used elsewhere.
+  bool chainHasSingleUses(Value start, Operation *end) const {
+    Value v = start;
+    while (v) {
+      Operation *defOp = v.getDefiningOp();
+      if (!defOp) {
+        return false;
+      }
+
+      if (defOp == end) {
+        return true;
+      }
+
+      if (!v.hasOneUse()) {
+        return false;
+      }
+
+      if (isLayoutOp(defOp)) {
+        v = defOp->getOperand(0);
+        continue;
+      }
+
+      break;
+    }
+    return false;
   }
 
   Value traceToSourceTensor(Value v) const {
