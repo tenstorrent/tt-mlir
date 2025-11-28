@@ -51,6 +51,7 @@ jobs:
       docker_image: ${{ needs.build-image.outputs.docker-image }}
       test_matrix: ${{ needs.prepare-run.outputs.test_matrix }}
       timeout: ${{ fromJson(needs.prepare-run.outputs.test_timeout) }}
+      test_workflow: 'nightly'
 
   fail-notify:
     if: always()
