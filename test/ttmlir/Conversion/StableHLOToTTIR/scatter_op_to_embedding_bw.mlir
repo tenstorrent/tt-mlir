@@ -6,7 +6,7 @@ module {
   func.func @test_embedding_backward(%weight: tensor<2x128xf32>, %indices: tensor<1x10x1xsi32>, %gradient: tensor<1x10x128xf32>) -> tensor<2x128xf32> {
     %c0 = stablehlo.constant dense<0.0> : tensor<2x128xf32>
     // CHECK: "ttir.embedding_backward"
-    // CHECK: (tensor<1x10x1xsi32>, tensor<2x128xf32>, tensor<1x10x128xf32>, tensor<2x128xf32>) -> tensor<2x128xf32>
+    // CHECK: (tensor<1x10x1xsi32>, tensor<2x128xf32>, tensor<1x10x128xf32>) -> tensor<2x128xf32>
     %result = "stablehlo.scatter"(%weight, %indices, %gradient) ({
     ^bb0(%arg0: tensor<f32>, %arg1: tensor<f32>):
       %sum = stablehlo.add %arg0, %arg1 : tensor<f32>

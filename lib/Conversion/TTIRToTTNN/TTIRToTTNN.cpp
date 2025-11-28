@@ -451,9 +451,7 @@ public:
           ttmlir::utils::appendLocationSuffix(loc, "_pad_indices"),
           paddedIndicesType, inputIndices,
           rewriter.getDenseI32ArrayAttr(indicesPadding),
-          /*value=*/rewriter.getF32FloatAttr(0.0),
-          /*use_multicore=*/rewriter.getBoolAttr(true),
-          /*memory_config=*/nullptr);
+          rewriter.getF32FloatAttr(0.0), rewriter.getBoolAttr(true), nullptr);
 
       llvm::SmallVector<int64_t> paddedGradShape(gradShape);
       paddedGradShape[gradShape.size() - 2] = paddedSeqLen;
@@ -476,9 +474,7 @@ public:
           ttmlir::utils::appendLocationSuffix(loc, "_pad_gradient"),
           paddedGradType, adaptor.getInGradient(),
           rewriter.getDenseI32ArrayAttr(gradPadding),
-          /*value=*/rewriter.getF32FloatAttr(0.0),
-          /*use_multicore=*/rewriter.getBoolAttr(true),
-          /*memory_config=*/nullptr);
+          rewriter.getF32FloatAttr(0.0), rewriter.getBoolAttr(true), nullptr);
     }
 
     // Reshape grad tensor to [1, 1, R, C] where R is all the first N-1
