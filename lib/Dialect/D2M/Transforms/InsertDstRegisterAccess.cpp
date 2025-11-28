@@ -3,7 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Asserts.h"
+#include "ttmlir/Dialect/D2M/Analysis/DstAnalysis.h"
+#include "ttmlir/Dialect/D2M/Analysis/DstAnalysisBasic.h"
+#include "ttmlir/Dialect/D2M/Analysis/DstAnalysisGraphColoring.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
+#include "ttmlir/Dialect/D2M/Transforms/GraphColoringStrategy.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
@@ -45,9 +49,11 @@ struct D2MInsertDstRegisterAccessRewriter final
     : public OpRewritePattern<GenericOp> {
 public:
   D2MInsertDstRegisterAccessRewriter(mlir::MLIRContext *ctx, bool useTileMatmul,
-                                     unsigned maxDstPhysicalSizeTiles)
+                                     unsigned maxDstPhysicalSizeTiles,
+                                     llvm::StringRef allocationStrategy)
       : OpRewritePattern<GenericOp>(ctx), useTileMatmul(useTileMatmul),
-        maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles) {};
+        maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles),
+        allocationStrategy(allocationStrategy) {};
 
   // Records a CB<->DST affine.load/store op, which DST slice it accesses, and
   // some special considerations for looping over the tensor shard while doing
@@ -911,6 +917,7 @@ public:
 
   bool useTileMatmul = false;
   unsigned maxDstPhysicalSizeTiles = 0;
+  llvm::StringRef allocationStrategy = "basic";
 };
 } // namespace
 
@@ -993,6 +1000,23 @@ public:
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
 
+    // Validate allocation strategy option
+    if (allocationStrategy != "basic" && allocationStrategy != "greedy" &&
+        allocationStrategy != "chaitin-briggs") {
+      moduleOp.emitError() << "Invalid allocation strategy '" << allocationStrategy
+                           << "'. Valid options are: 'basic', 'greedy', 'chaitin-briggs'.";
+      return signalPassFailure();
+    }
+
+    // TODO: Wire graph coloring strategies ('greedy' and 'chaitin-briggs').
+    // For now, only 'basic' strategy is implemented. Graph coloring requires
+    // integrating DstAnalysis::analyze() to pre-compute slice assignments.
+    if (allocationStrategy != "basic") {
+      moduleOp.emitWarning() << "Graph coloring strategy '" << allocationStrategy
+                             << "' requested but not yet implemented. "
+                             << "Falling back to 'basic' strategy.";
+    }
+
     // Check precondition: linalg.generic ops should be converted to affine,
     // EXCEPT those with tile_matmul when useTileMatmul=false (they'll be
     // handled by the tile_matmul_block rewrite in the pattern).
@@ -1017,7 +1041,8 @@ public:
     RewritePatternSet patterns(ctx);
 
     patterns.add<D2MInsertDstRegisterAccessRewriter>(
-        ctx, useTileMatmul, maxDstPhysicalSizeTiles.getValue());
+        ctx, useTileMatmul, maxDstPhysicalSizeTiles.getValue(),
+        allocationStrategy);
 
     patterns.add<D2MPackerMaskResetRewriter<TileReduceSumOp>,
                  D2MPackerMaskResetRewriter<TileReduceMaxOp>>(ctx);
