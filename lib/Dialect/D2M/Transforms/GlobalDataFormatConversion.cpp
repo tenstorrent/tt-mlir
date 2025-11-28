@@ -116,6 +116,11 @@ struct D2MGlobalDataFormatConversion
         return true;
       }
 
+      // Skip ops with the exclusion attribute
+      if (op->hasAttr("preserveDataFormat")) {
+        return true;
+      }
+
       // Convert all other operations to use the target format
       return llvm::all_of(op->getResultTypes(), [&bodyConverter](Type type) {
         return bodyConverter.isLegal(type);
