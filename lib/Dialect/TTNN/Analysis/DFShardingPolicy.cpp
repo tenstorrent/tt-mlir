@@ -217,7 +217,9 @@ void DFShardingPolicy::pickOpShardConfigs(ShardSolver &shardSolver,
         // If we have a tie, prefer layout that is not BlockSharded.
         //
         if (configIterator->outputLayout.getMemLayout().getValue() !=
-            ttnn::TensorMemoryLayout::BlockSharded) {
+                ttnn::TensorMemoryLayout::BlockSharded &&
+            selectedConfig->outputLayout.getMemLayout().getValue() ==
+                ttnn::TensorMemoryLayout::BlockSharded) {
           selectedConfig = configIterator.get();
         }
       }
