@@ -1,5 +1,6 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access --canonicalize -o %t %s --split-input-file
-// RUN: FileCheck %s --input-file=%t
+// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access='allocation-strategy=basic' --canonicalize %s --split-input-file | FileCheck %s --check-prefixes=CHECK,BASIC
+// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access='allocation-strategy=greedy' --canonicalize %s --split-input-file | FileCheck %s --check-prefixes=CHECK,GREEDY
+// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access='allocation-strategy=chaitin-briggs' --canonicalize %s --split-input-file | FileCheck %s --check-prefixes=CHECK,CHAITIN
 //
 // Test that InsertDstRegisterAccess correctly handles d2m.generic operations
 // in explicit datamovement form (empty block_factors, indexing_maps, and iterator_types).
@@ -36,6 +37,33 @@ module {
 
       // CHECK: %[[DST:.*]] = d2m.acquire_dst() : memref<{{.*}}x!ttcore.tile<32x32, f32>, #dst>
       // CHECK: affine.for
+      // CHECK: affine.for
+      // CHECK: %[[ARG0_VAL:.*]] = affine.load %{{.*}}
+      // BASIC: affine.store %[[ARG0_VAL]], %[[DST]][0, %{{.*}}, %{{.*}}]
+      // GREEDY: affine.store %[[ARG0_VAL]], %[[DST]][0, %{{.*}}, %{{.*}}]
+      // CHAITIN: affine.store %[[ARG0_VAL]], %[[DST]][2, %{{.*}}, %{{.*}}]
+      // CHECK: %[[ARG1_VAL:.*]] = affine.load %{{.*}}
+      // BASIC: affine.store %[[ARG1_VAL]], %[[DST]][1, %{{.*}}, %{{.*}}]
+      // GREEDY: affine.store %[[ARG1_VAL]], %[[DST]][1, %{{.*}}, %{{.*}}]
+      // CHAITIN: affine.store %[[ARG1_VAL]], %[[DST]][1, %{{.*}}, %{{.*}}]
+      // CHECK: affine.for
+      // CHECK: affine.for
+      // BASIC: %[[DST0_VAL:.*]] = affine.load %[[DST]][0, %{{.*}}, %{{.*}}]
+      // GREEDY: %[[DST0_VAL:.*]] = affine.load %[[DST]][0, %{{.*}}, %{{.*}}]
+      // CHAITIN: %[[DST0_VAL:.*]] = affine.load %[[DST]][2, %{{.*}}, %{{.*}}]
+      // BASIC: %[[DST1_VAL:.*]] = affine.load %[[DST]][1, %{{.*}}, %{{.*}}]
+      // GREEDY: %[[DST1_VAL:.*]] = affine.load %[[DST]][1, %{{.*}}, %{{.*}}]
+      // CHAITIN: %[[DST1_VAL:.*]] = affine.load %[[DST]][1, %{{.*}}, %{{.*}}]
+      // CHECK: %[[ADD_RESULT:.*]] = "d2m.tile_add"(%[[DST0_VAL]], %[[DST1_VAL]])
+      // BASIC: affine.store %[[ADD_RESULT]], %[[DST]][2, %{{.*}}, %{{.*}}]
+      // GREEDY: affine.store %[[ADD_RESULT]], %[[DST]][2, %{{.*}}, %{{.*}}]
+      // CHAITIN: affine.store %[[ADD_RESULT]], %[[DST]][0, %{{.*}}, %{{.*}}]
+      // CHECK: affine.for
+      // CHECK: affine.for
+      // BASIC: %[[FINAL_VAL:.*]] = affine.load %[[DST]][2, %{{.*}}, %{{.*}}]
+      // GREEDY: %[[FINAL_VAL:.*]] = affine.load %[[DST]][2, %{{.*}}, %{{.*}}]
+      // CHAITIN: %[[FINAL_VAL:.*]] = affine.load %[[DST]][0, %{{.*}}, %{{.*}}]
+      // CHECK: affine.store %[[FINAL_VAL]], %{{.*}}
       linalg.generic {
         indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>],
         iterator_types = ["parallel", "parallel"]
@@ -43,19 +71,7 @@ module {
       ins(%subview, %subview_1 : memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>, memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>)
       outs(%subview_2 : memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>) {
       ^bb0(%arg0: !ttcore.tile<32x32, f32>, %arg1: !ttcore.tile<32x32, f32>, %arg2: !ttcore.tile<32x32, f32>):
-        // Verify DST register access is inserted
-        // CHECK: %[[ARG0_VAL:.*]] = affine.load %{{.*}}
-        // CHECK: affine.store %[[ARG0_VAL]], %[[DST]]
-        // CHECK: %[[ARG1_VAL:.*]] = affine.load %{{.*}}
-        // CHECK: affine.store %[[ARG1_VAL]], %[[DST]]
-        // CHECK: %[[DST0_VAL:.*]] = affine.load %[[DST]]
-        // CHECK: %[[DST1_VAL:.*]] = affine.load %[[DST]]
-        // CHECK: %[[ADD_RESULT:.*]] = "d2m.tile_add"(%[[DST0_VAL]], %[[DST1_VAL]])
         %0 = "d2m.tile_add"(%arg0, %arg1) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-
-        // CHECK: affine.store %[[ADD_RESULT]], %[[DST]]
-        // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]]
-        // CHECK: affine.store %[[FINAL_VAL]], %{{.*}}
         linalg.yield %0 : !ttcore.tile<32x32, f32>
       }
     }

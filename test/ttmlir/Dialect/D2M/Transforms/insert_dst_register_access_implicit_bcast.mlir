@@ -1,5 +1,6 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access --canonicalize -o %t %s
-// RUN: FileCheck %s --input-file=%t
+// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access='allocation-strategy=basic' --canonicalize %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access='allocation-strategy=greedy' --canonicalize %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access='allocation-strategy=chaitin-briggs' --canonicalize %s | FileCheck %s
 
 #l1_ = #ttcore.memory_space<l1>
 
@@ -28,6 +29,7 @@ module {
           %subview = memref.subview %0[%arg2, %arg3] [1, 1] [1, 1] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_> to memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>
           %subview_1 = memref.subview %1[%arg2, 0] [1, 1] [1, 1] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_> to memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>
           %subview_2 = memref.subview %2[%arg2, %arg3] [1, 1] [1, 1] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_> to memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>
+          // CHECK: %[[DST:.*]] = d2m.acquire_dst()
           // CHECK: affine.for
           // CHECK: affine.for
           // CHECK: %[[DIM1:.*]] = d2m.iter_index(1) : index

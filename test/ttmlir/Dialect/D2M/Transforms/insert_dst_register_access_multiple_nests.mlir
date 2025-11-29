@@ -1,5 +1,6 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-generic-tile-compute-loops --d2m-linalg-to-affine --d2m-insert-dst-register-access --canonicalize -o %t %s
-// RUN: FileCheck %s --input-file=%t
+// RUN: ttmlir-opt --ttcore-register-device --d2m-generic-tile-compute-loops --d2m-linalg-to-affine --d2m-insert-dst-register-access='allocation-strategy=basic' --canonicalize %s | FileCheck %s --check-prefixes=CHECK,BASIC
+// RUN: ttmlir-opt --ttcore-register-device --d2m-generic-tile-compute-loops --d2m-linalg-to-affine --d2m-insert-dst-register-access='allocation-strategy=greedy' --canonicalize %s | FileCheck %s --check-prefixes=CHECK,GREEDY
+// RUN: ttmlir-opt --ttcore-register-device --d2m-generic-tile-compute-loops --d2m-linalg-to-affine --d2m-insert-dst-register-access='allocation-strategy=chaitin-briggs' --canonicalize %s | FileCheck %s --check-prefixes=CHECK,CHAITIN
 
 func.func @cosh(%alloc_1 : memref<4x4x8x12x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #ttcore.memory_space<l1>>,
                 %alloc   : memref<4x4x8x12x!ttcore.tile<32x32, bf16>, #ttcore.shard<2048x2048, 1>, #ttcore.memory_space<l1>>,
@@ -35,15 +36,63 @@ func.func @cosh(%alloc_1 : memref<4x4x8x12x!ttcore.tile<32x32, bf16>, #ttcore.sh
       %0 = "d2m.tile_exp"(%in) : (!ttcore.tile<32x32, bf16>) -> !ttcore.tile<32x32, bf16>
       linalg.yield %0 : !ttcore.tile<32x32, bf16>
     }
-    // CHECK: d2m.acquire_dst
-    // CHECK: d2m.tile_add
+    // CHECK: %[[DST:.*]] = d2m.acquire_dst() : memref<8x1x1x!ttcore.tile<32x32, bf16>
+    // CHECK: affine.for
+    // CHECK: affine.for
+    // BASIC: affine.store %{{.*}}, %[[DST]][0, %{{.*}}, %{{.*}}] : memref<8x1x1x!ttcore.tile<32x32, bf16>
+    // BASIC: affine.store %{{.*}}, %[[DST]][1, %{{.*}}, %{{.*}}] : memref<8x1x1x!ttcore.tile<32x32, bf16>
+    // GREEDY: affine.store %{{.*}}, %[[DST]][0, %{{.*}}, %{{.*}}] : memref<8x1x1x!ttcore.tile<32x32, bf16>
+    // GREEDY: affine.store %{{.*}}, %[[DST]][1, %{{.*}}, %{{.*}}] : memref<8x1x1x!ttcore.tile<32x32, bf16>
+    // CHAITIN: affine.store %{{.*}}, %[[DST]][2, %{{.*}}, %{{.*}}] : memref<8x1x1x!ttcore.tile<32x32, bf16>
+    // CHAITIN: affine.store %{{.*}}, %[[DST]][1, %{{.*}}, %{{.*}}] : memref<8x1x1x!ttcore.tile<32x32, bf16>
+    // CHECK: affine.for
+    // CHECK: affine.for
+    // BASIC: %{{.*}} = affine.load %[[DST]][0, %{{.*}}, %{{.*}}] : memref<8x1x1x!ttcore.tile<32x32, bf16>
+    // BASIC: %{{.*}} = affine.load %[[DST]][1, %{{.*}}, %{{.*}}] : memref<8x1x1x!ttcore.tile<32x32, bf16>
+    // GREEDY: %{{.*}} = affine.load %[[DST]][0, %{{.*}}, %{{.*}}] : memref<8x1x1x!ttcore.tile<32x32, bf16>
+    // GREEDY: %{{.*}} = affine.load %[[DST]][1, %{{.*}}, %{{.*}}] : memref<8x1x1x!ttcore.tile<32x32, bf16>
+    // CHAITIN: %{{.*}} = affine.load %[[DST]][2, %{{.*}}, %{{.*}}] : memref<8x1x1x!ttcore.tile<32x32, bf16>
+    // CHAITIN: %{{.*}} = affine.load %[[DST]][1, %{{.*}}, %{{.*}}] : memref<8x1x1x!ttcore.tile<32x32, bf16>
+    // CHECK: %{{.*}} = "d2m.tile_add"
+    // BASIC: affine.store %{{.*}}, %[[DST]][2, %{{.*}}, %{{.*}}] : memref<8x1x1x!ttcore.tile<32x32, bf16>
+    // GREEDY: affine.store %{{.*}}, %[[DST]][2, %{{.*}}, %{{.*}}] : memref<8x1x1x!ttcore.tile<32x32, bf16>
+    // CHAITIN: affine.store %{{.*}}, %[[DST]][0, %{{.*}}, %{{.*}}] : memref<8x1x1x!ttcore.tile<32x32, bf16>
+    // CHECK: affine.for
+    // CHECK: affine.for
+    // BASIC: %{{.*}} = affine.load %[[DST]][2, %{{.*}}, %{{.*}}] : memref<8x1x1x!ttcore.tile<32x32, bf16>
+    // GREEDY: %{{.*}} = affine.load %[[DST]][2, %{{.*}}, %{{.*}}] : memref<8x1x1x!ttcore.tile<32x32, bf16>
+    // CHAITIN: %{{.*}} = affine.load %[[DST]][0, %{{.*}}, %{{.*}}] : memref<8x1x1x!ttcore.tile<32x32, bf16>
     linalg.generic {indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = ["parallel", "parallel"]} ins(%cb3, %alloc_8 : memref<8x12x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>, memref<8x12x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>) outs(%cb3 : memref<8x12x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>) {
     ^bb0(%in: !ttcore.tile<32x32, bf16>, %in_9: !ttcore.tile<32x32, bf16>, %out: !ttcore.tile<32x32, bf16>):
       %0 = "d2m.tile_add"(%in, %in_9) : (!ttcore.tile<32x32, bf16>, !ttcore.tile<32x32, bf16>) -> !ttcore.tile<32x32, bf16>
       linalg.yield %0 : !ttcore.tile<32x32, bf16>
     }
-    // CHECK: d2m.acquire_dst
-    // CHECK: d2m.tile_mul
+    // CHECK: %[[DST2:.*]] = d2m.acquire_dst() : memref<8x1x1x!ttcore.tile<32x32, bf16>
+    // CHECK: affine.for
+    // CHECK: affine.for
+    // BASIC: affine.store %{{.*}}, %[[DST2]][0, %{{.*}}, %{{.*}}] : memref<8x1x1x!ttcore.tile<32x32, bf16>
+    // BASIC: affine.store %{{.*}}, %[[DST2]][1, %{{.*}}, %{{.*}}] : memref<8x1x1x!ttcore.tile<32x32, bf16>
+    // GREEDY: affine.store %{{.*}}, %[[DST2]][0, %{{.*}}, %{{.*}}] : memref<8x1x1x!ttcore.tile<32x32, bf16>
+    // GREEDY: affine.store %{{.*}}, %[[DST2]][1, %{{.*}}, %{{.*}}] : memref<8x1x1x!ttcore.tile<32x32, bf16>
+    // CHAITIN: affine.store %{{.*}}, %[[DST2]][2, %{{.*}}, %{{.*}}] : memref<8x1x1x!ttcore.tile<32x32, bf16>
+    // CHAITIN: affine.store %{{.*}}, %[[DST2]][1, %{{.*}}, %{{.*}}] : memref<8x1x1x!ttcore.tile<32x32, bf16>
+    // CHECK: affine.for
+    // CHECK: affine.for
+    // BASIC: %{{.*}} = affine.load %[[DST2]][0, %{{.*}}, %{{.*}}] : memref<8x1x1x!ttcore.tile<32x32, bf16>
+    // BASIC: %{{.*}} = affine.load %[[DST2]][1, %{{.*}}, %{{.*}}] : memref<8x1x1x!ttcore.tile<32x32, bf16>
+    // GREEDY: %{{.*}} = affine.load %[[DST2]][0, %{{.*}}, %{{.*}}] : memref<8x1x1x!ttcore.tile<32x32, bf16>
+    // GREEDY: %{{.*}} = affine.load %[[DST2]][1, %{{.*}}, %{{.*}}] : memref<8x1x1x!ttcore.tile<32x32, bf16>
+    // CHAITIN: %{{.*}} = affine.load %[[DST2]][2, %{{.*}}, %{{.*}}] : memref<8x1x1x!ttcore.tile<32x32, bf16>
+    // CHAITIN: %{{.*}} = affine.load %[[DST2]][1, %{{.*}}, %{{.*}}] : memref<8x1x1x!ttcore.tile<32x32, bf16>
+    // CHECK: %{{.*}} = "d2m.tile_mul"
+    // BASIC: affine.store %{{.*}}, %[[DST2]][2, %{{.*}}, %{{.*}}] : memref<8x1x1x!ttcore.tile<32x32, bf16>
+    // GREEDY: affine.store %{{.*}}, %[[DST2]][2, %{{.*}}, %{{.*}}] : memref<8x1x1x!ttcore.tile<32x32, bf16>
+    // CHAITIN: affine.store %{{.*}}, %[[DST2]][0, %{{.*}}, %{{.*}}] : memref<8x1x1x!ttcore.tile<32x32, bf16>
+    // CHECK: affine.for
+    // CHECK: affine.for
+    // BASIC: %{{.*}} = affine.load %[[DST2]][2, %{{.*}}, %{{.*}}] : memref<8x1x1x!ttcore.tile<32x32, bf16>
+    // GREEDY: %{{.*}} = affine.load %[[DST2]][2, %{{.*}}, %{{.*}}] : memref<8x1x1x!ttcore.tile<32x32, bf16>
+    // CHAITIN: %{{.*}} = affine.load %[[DST2]][0, %{{.*}}, %{{.*}}] : memref<8x1x1x!ttcore.tile<32x32, bf16>
     linalg.generic {indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = ["parallel", "parallel"]} ins(%cb3, %cb2 : memref<8x12x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>, memref<8x12x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>) outs(%cb3 : memref<8x12x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>) {
     ^bb0(%in: !ttcore.tile<32x32, bf16>, %in_9: !ttcore.tile<32x32, bf16>, %out: !ttcore.tile<32x32, bf16>):
       %0 = "d2m.tile_mul"(%in, %in_9) : (!ttcore.tile<32x32, bf16>, !ttcore.tile<32x32, bf16>) -> !ttcore.tile<32x32, bf16>
