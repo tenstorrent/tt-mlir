@@ -162,6 +162,15 @@ struct TTIRToTTMetalPipelineOptions
       llvm::cl::desc("Target data format for global conversion: "
                      "f32, bf16, or bfp_bf8. Disabled by default."),
       llvm::cl::init("")};
+
+  // Option to set the allocation strategy for the D2MInsertDstRegisterAccess
+  // pass.
+  Option<std::string> allocationStrategy{
+      *this, "dst-strategy",
+      llvm::cl::desc(
+          "DST allocation strategy for the D2MInsertDstRegisterAccess pass: "
+          "basic, greedy, chaitin-briggs."),
+      llvm::cl::init("greedy")};
 };
 
 void createTTIRBufferizationPipeline(
