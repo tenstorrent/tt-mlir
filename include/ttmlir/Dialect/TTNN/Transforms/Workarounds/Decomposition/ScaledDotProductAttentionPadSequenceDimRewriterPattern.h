@@ -12,15 +12,15 @@
 
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
-// TTNN ScaledDotProductAttention requires sequence dimensions to be aligned to
-// TILE_HEIGHT (32) and head dimensions to be aligned to TILE_WIDTH (32).
-// This workaround pads the query, key, and value tensors':
-// - sequence dimensions (dim -2) to be multiples of TILE_HEIGHT
-// - head dimensions (dim -1) to be multiples of TILE_WIDTH
-// The attention mask is also padded:
-// - dim -2 is padded to match the padded query sequence length
-// - dim -1 is padded to match the padded key sequence length
-// The result is then sliced back to the original shape.
+// Workaround which adds padding to ScaledDotProductAttention query, key, and
+// value tensors to make:
+// - sequence dimensions (dim -2) multiples of TILE_HEIGHT - Metal issue
+// reference: https://github.com/tenstorrent/tt-metal/issues/32502
+// - head dimensions (dim -1) multiples of TILE_WIDTH - Metal issue reference:
+// https://github.com/tenstorrent/tt-metal/issues/33434 The attention mask is
+// also padded accordingly in both sequence dimensions. After the operation, the
+// result is sliced back to the original shape.
+
 class ScaledDotProductAttentionPadTileDimsRewritePattern
     : public OpRewritePattern<ttnn::ScaledDotProductAttentionOp> {
 public:

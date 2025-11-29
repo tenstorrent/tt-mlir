@@ -111,104 +111,88 @@ def build_ttir(
 @pytest.mark.parametrize(
     "shapes",
     [
-        # Standard attention shape: [batch, num_heads, seq_len, head_dim]
+        # LLaMA-7B style: 32 heads, 128 head_dim
         [
-            (1, 8, 128, 64),  # query
-            (1, 8, 128, 64),  # key
-            (1, 8, 128, 64),  # value
+            (1, 32, 512, 128),
+            (1, 32, 512, 128),
+            (1, 32, 512, 128),
         ],
-        # Smaller seq_len
+        # Mistral-7B GQA: 32 Q heads, 8 KV heads (4:1 ratio), 128 head_dim
         [
-            (1, 4, 32, 64),
-            (1, 4, 32, 64),
-            (1, 4, 32, 64),
+            (1, 32, 512, 128),
+            (1, 8, 512, 128),
+            (1, 8, 512, 128),
         ],
-        # Larger batch
+        # LLaMA-2-70B GQA: 64 Q heads, 8 KV heads (8:1 ratio), 128 head_dim
         [
-            (2, 8, 64, 64),
-            (2, 8, 64, 64),
-            (2, 8, 64, 64),
-        ],
-        # Grouped-Query Attention (GQA): 8 query heads, 2 KV heads (4:1 ratio)
-        [
-            (1, 8, 128, 64),
-            (1, 2, 128, 64),
-            (1, 2, 128, 64),
-        ],
-        # Multi-Query Attention (MQA): 8 query heads, 1 KV head (8:1 ratio)
-        [
-            (1, 8, 128, 64),
-            (1, 1, 128, 64),
-            (1, 1, 128, 64),
-        ],
-        # SDPA decode: query_seq_len=1, standard cache size
-        [
-            (1, 8, 1, 64),
-            (1, 8, 128, 64),
-            (1, 8, 128, 64),
-        ],
-        # SDPA decode: larger batch
-        [
-            (2, 8, 1, 64),
-            (2, 8, 64, 64),
-            (2, 8, 64, 64),
-        ],
-        # SDPA decode: larger cache size
-        [
-            (1, 8, 1, 64),
-            (1, 8, 512, 64),
-            (1, 8, 512, 64),
-        ],
-        # SDPA decode: different head dimension
-        [
-            (1, 8, 1, 128),
+            (1, 64, 256, 128),
             (1, 8, 256, 128),
             (1, 8, 256, 128),
         ],
-        # GQA decode: 32 query heads, 8 KV heads (4:1 ratio), query_seq_len=1
+        # BERT-base: 12 heads, 64 head_dim, seq=512
         [
-            (1, 32, 1, 128),
-            (1, 8, 256, 128),
-            (1, 8, 256, 128),
+            (1, 12, 512, 64),
+            (1, 12, 512, 64),
+            (1, 12, 512, 64),
         ],
-        # MQA decode: 8 query heads, 1 KV head, query_seq_len=1
+        # ViT-B/16: 12 heads, 64 head_dim, seq=197 (196 patches + CLS token)
         [
-            (1, 8, 1, 64),
-            (1, 1, 128, 64),
-            (1, 1, 128, 64),
+            (1, 12, 197, 64),
+            (1, 12, 197, 64),
+            (1, 12, 197, 64),
+        ],
+        # GPT-2 small: 12 heads, 64 head_dim, seq=1024
+        [
+            (1, 12, 1024, 64),
+            (1, 12, 1024, 64),
+            (1, 12, 1024, 64),
+        ],
+        # Stable Diffusion cross-attention: different Q/K seq_lens (latent to text)
+        [
+            (1, 8, 4096, 64),
+            (1, 8, 77, 64),
+            (1, 8, 77, 64),
+        ],
+        # Phi-3 style GQA: 32 Q heads, 8 KV heads, 96 head_dim (not divisible by 32)
+        [
+            (1, 32, 256, 96),
+            (1, 8, 256, 96),
+            (1, 8, 256, 96),
         ],
     ],
 )
-@pytest.mark.parametrize("dtypes", [[torch.bfloat16] * 3])
+@pytest.mark.parametrize("use_mask", [False, True])
 @pytest.mark.parametrize("target", ["ttnn"])
-def test_sdpa_basic(
-    shapes: List[Shape], dtypes: List[torch.dtype], target: str, request, device
-):
+def test_sdpa(shapes: List[Shape], use_mask: bool, target: str, request, device):
     """
-    Test basic Scaled Dot Product Attention pattern fusion without mask.
+    Test Scaled Dot Product Attention pattern fusion (prefill) with optional mask.
     This test implements the SDPA operation as a sequence of TTIR ops:
     - Transpose key
     - Q @ K^T matmul
     - Scale by 1/sqrt(head_dim)
+    - Add attention mask (optional, causal triu mask)
     - Softmax
     - @ V matmul
 
     Expected to fuse into ttnn.scaled_dot_product_attention
     """
+    query_shape, key_shape, value_shape = shapes
+    mask_shape = (query_shape[0], 1, query_shape[2], key_shape[2])
+    input_shapes = shapes + [mask_shape] if use_mask else shapes
+    dtypes = [torch.bfloat16] * len(input_shapes)
 
-    def sdpa_basic(
+    def sdpa_no_mask(
         query: Operand,
         key: Operand,
         value: Operand,
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
-        # Create input tensors
-        query_data = torch.randn(shapes[0], dtype=dtypes[0])
-        key_data = torch.randn(shapes[1], dtype=dtypes[1])
-        value_data = torch.randn(shapes[2], dtype=dtypes[2])
+        query_data = torch.randn(query_shape, dtype=torch.bfloat16)
+        key_data = torch.randn(key_shape, dtype=torch.bfloat16)
+        value_data = torch.randn(value_shape, dtype=torch.bfloat16)
 
-        head_dim = shapes[0][-1]
+        head_dim = query_shape[-1]
         scale = 1.0 / math.sqrt(head_dim)
 
         golden_output = build_torch_golden(
@@ -225,9 +209,52 @@ def test_sdpa_basic(
         )
         return result
 
+    def sdpa_with_mask(
+        query: Operand,
+        key: Operand,
+        value: Operand,
+        attention_mask: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        query_data = torch.randn(query_shape, dtype=torch.bfloat16)
+        key_data = torch.randn(key_shape, dtype=torch.bfloat16)
+        value_data = torch.randn(value_shape, dtype=torch.bfloat16)
+        mask_data = torch.triu(
+            torch.full(mask_shape, float("-inf"), dtype=torch.bfloat16), diagonal=1
+        )
+
+        head_dim = query_shape[-1]
+        scale = 1.0 / math.sqrt(head_dim)
+
+        golden_output = build_torch_golden(
+            query_data, key_data, value_data, scale=scale, attention_mask=mask_data
+        )
+
+        result = build_ttir(
+            query,
+            key,
+            value,
+            builder,
+            scale=scale,
+            attention_mask=attention_mask,
+            unit_attrs=unit_attrs,
+        )
+
+        builder.set_goldens(
+            {
+                query: query_data,
+                key: key_data,
+                value: value_data,
+                attention_mask: mask_data,
+            },
+            {result: golden_output},
+        )
+        return result
+
     output = compile_and_execute_ttir(
-        sdpa_basic,
-        shapes,
+        sdpa_with_mask if use_mask else sdpa_no_mask,
+        input_shapes,
         dtypes,
         target=target,
         test_base=request.node.name,
@@ -242,59 +269,102 @@ def test_sdpa_basic(
 @pytest.mark.parametrize(
     "shapes",
     [
-        # Query, Key, Value, and mask shapes
+        # LLaMA-7B decode: 32 heads, 128 head_dim, kv_seq=2048
         [
-            (1, 8, 64, 64),  # query
-            (1, 8, 64, 64),  # key
-            (1, 8, 64, 64),  # value
-            (1, 1, 64, 64),  # attention mask (broadcasts over heads)
+            (1, 32, 1, 128),
+            (1, 32, 2048, 128),
+            (1, 32, 2048, 128),
         ],
+        # Mistral-7B GQA decode: 32 Q heads, 8 KV heads, 128 head_dim, kv_seq=2048
         [
-            (1, 4, 32, 64),  # query
-            (1, 4, 32, 64),  # key
-            (1, 4, 32, 64),  # value
-            (1, 1, 32, 32),  # attention mask
+            (1, 32, 1, 128),
+            (1, 8, 2048, 128),
+            (1, 8, 2048, 128),
         ],
-        # Query seq_len not divisible by 32
+        # LLaMA-2-70B GQA decode: 64 Q heads, 8 KV heads (8:1 ratio), 128 head_dim
+        pytest.param(
+            [
+                (1, 64, 1, 128),
+                (1, 8, 2048, 128),
+                (1, 8, 2048, 128),
+            ],
+            marks=pytest.mark.xfail(
+                reason="Metal issue reference: https://github.com/tenstorrent/tt-metal/issues/33440"
+            ),
+        ),
+        # GPT-2 decode: 12 heads, 64 head_dim, kv_seq=1024
         [
-            (1, 8, 63, 64),  # query
-            (1, 8, 64, 64),  # key
-            (1, 8, 64, 64),  # value
-            (1, 1, 63, 64),  # attention mask
+            (1, 12, 1, 64),
+            (1, 12, 1024, 64),
+            (1, 12, 1024, 64),
         ],
-        # Key/Value seq_len not divisible by 32
+        # Batched decode for throughput: batch=32 (common for serving)
         [
-            (1, 8, 64, 64),  # query
-            (1, 8, 50, 64),  # key
-            (1, 8, 50, 64),  # value
-            (1, 1, 64, 50),  # attention mask
+            (32, 32, 1, 128),
+            (32, 32, 512, 128),
+            (32, 32, 512, 128),
         ],
-        # Both query and key/value seq_len not divisible by 32
+        # Batched GQA decode: batch=8, Mistral-style
         [
-            (1, 4, 100, 64),  # query
-            (1, 4, 77, 64),  # key
-            (1, 4, 77, 64),  # value
-            (1, 1, 100, 77),  # attention mask
+            (8, 32, 1, 128),
+            (8, 8, 1024, 128),
+            (8, 8, 1024, 128),
+        ],
+        # Phi-3 style GQA decode: 32 Q heads, 8 KV heads, 96 head_dim (not divisible by 32)
+        [
+            (1, 32, 1, 96),
+            (1, 8, 1024, 96),
+            (1, 8, 1024, 96),
         ],
     ],
 )
-@pytest.mark.parametrize("dtypes", [[torch.bfloat16] * 4])
+@pytest.mark.parametrize("use_mask", [False, True])
 @pytest.mark.parametrize("target", ["ttnn"])
-def test_sdpa_with_mask(
-    shapes: List[Shape], dtypes: List[torch.dtype], target: str, request, device
-):
+def test_sdpa_decode(shapes: List[Shape], use_mask: bool, target: str, request, device):
     """
-    Test Scaled Dot Product Attention pattern fusion with attention mask.
+    Test Scaled Dot Product Attention pattern fusion for decode (query_seq_len=1).
     This test implements the SDPA operation as a sequence of TTIR ops:
     - Transpose key
     - Q @ K^T matmul
     - Scale by 1/sqrt(head_dim)
-    - Add attention mask
+    - Add attention mask (optional, zeros mask for decode)
     - Softmax
     - @ V matmul
 
     Expected to fuse into ttnn.scaled_dot_product_attention
     """
+    query_shape, key_shape, value_shape = shapes
+    mask_shape = (query_shape[0], 1, query_shape[2], key_shape[2])
+    input_shapes = shapes + [mask_shape] if use_mask else shapes
+    dtypes = [torch.bfloat16] * len(input_shapes)
+
+    def sdpa_no_mask(
+        query: Operand,
+        key: Operand,
+        value: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        query_data = torch.randn(query_shape, dtype=torch.bfloat16)
+        key_data = torch.randn(key_shape, dtype=torch.bfloat16)
+        value_data = torch.randn(value_shape, dtype=torch.bfloat16)
+
+        head_dim = query_shape[-1]
+        scale = 1.0 / math.sqrt(head_dim)
+
+        golden_output = build_torch_golden(
+            query_data, key_data, value_data, scale=scale
+        )
+
+        result = build_ttir(
+            query, key, value, builder, scale=scale, unit_attrs=unit_attrs
+        )
+
+        builder.set_goldens(
+            {query: query_data, key: key_data, value: value_data},
+            {result: golden_output},
+        )
+        return result
 
     def sdpa_with_mask(
         query: Operand,
@@ -304,14 +374,13 @@ def test_sdpa_with_mask(
         builder: TTIRBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
-        query_data = torch.randn(shapes[0], dtype=dtypes[0])
-        key_data = torch.randn(shapes[1], dtype=dtypes[1])
-        value_data = torch.randn(shapes[2], dtype=dtypes[2])
+        query_data = torch.randn(query_shape, dtype=torch.bfloat16)
+        key_data = torch.randn(key_shape, dtype=torch.bfloat16)
+        value_data = torch.randn(value_shape, dtype=torch.bfloat16)
+        # For decode, use zeros mask (no causal masking needed)
+        mask_data = torch.zeros(mask_shape, dtype=torch.bfloat16)
 
-        # Attention mask typically has large negative values for masked positions
-        mask_data = torch.randn(shapes[3], dtype=dtypes[3]) * -1000.0
-
-        head_dim = shapes[0][-1]
+        head_dim = query_shape[-1]
         scale = 1.0 / math.sqrt(head_dim)
 
         golden_output = build_torch_golden(
@@ -340,195 +409,14 @@ def test_sdpa_with_mask(
         return result
 
     output = compile_and_execute_ttir(
-        sdpa_with_mask,
-        shapes,
+        sdpa_with_mask if use_mask else sdpa_no_mask,
+        input_shapes,
         dtypes,
         target=target,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         device=device,
-    )
-
-    assert check_op(output, "scaled_dot_product_attention")
-
-
-@pytest.mark.parametrize(
-    "shapes",
-    [
-        # Query seq_len not divisible by 32
-        [
-            (1, 8, 63, 64),  # query
-            (1, 8, 64, 64),  # key
-            (1, 8, 64, 64),  # value
-            (1, 1, 63, 64),  # attention mask
-        ],
-        # Key/Value seq_len not divisible by 32
-        [
-            (1, 8, 64, 64),  # query
-            (1, 8, 50, 64),  # key
-            (1, 8, 50, 64),  # value
-            (1, 1, 64, 50),  # attention mask
-        ],
-        # Both query and key/value seq_len not divisible by 32
-        [
-            (1, 4, 100, 64),  # query
-            (1, 4, 77, 64),  # key
-            (1, 4, 77, 64),  # value
-            (1, 1, 100, 77),  # attention mask
-        ],
-    ],
-)
-@pytest.mark.parametrize("dtypes", [[torch.bfloat16] * 4])
-@pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.xfail(
-    # Metal issue reference: https://github.com/tenstorrent/tt-metal/issues/32503
-    reason="SDPA with non-32-divisible shapes fails without ttnn-workaround pass"
-)
-def test_sdpa_with_mask_no_workaround(
-    shapes: List[Shape], dtypes: List[torch.dtype], target: str, request, device
-):
-    """
-    Test Scaled Dot Product Attention pattern fusion with attention mask and
-    non-32-divisible sequence lengths, with ttnn-workaround pass disabled.
-    """
-
-    def sdpa_with_mask_no_workaround(
-        query: Operand,
-        key: Operand,
-        value: Operand,
-        attention_mask: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        query_data = torch.randn(shapes[0], dtype=dtypes[0])
-        key_data = torch.randn(shapes[1], dtype=dtypes[1])
-        value_data = torch.randn(shapes[2], dtype=dtypes[2])
-
-        # Attention mask typically has large negative values for masked positions
-        mask_data = torch.randn(shapes[3], dtype=dtypes[3]) * -1000.0
-
-        head_dim = shapes[0][-1]
-        scale = 1.0 / math.sqrt(head_dim)
-
-        golden_output = build_torch_golden(
-            query_data, key_data, value_data, scale=scale, attention_mask=mask_data
-        )
-
-        result = build_ttir(
-            query,
-            key,
-            value,
-            builder,
-            scale=scale,
-            attention_mask=attention_mask,
-            unit_attrs=unit_attrs,
-        )
-
-        builder.set_goldens(
-            {
-                query: query_data,
-                key: key_data,
-                value: value_data,
-                attention_mask: mask_data,
-            },
-            {result: golden_output},
-        )
-        return result
-
-    output = compile_and_execute_ttir(
-        sdpa_with_mask_no_workaround,
-        shapes,
-        dtypes,
-        target=target,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        device=device,
-        pipeline_options=["disable-workarounds=true"],
-    )
-
-    assert check_op(output, "scaled_dot_product_attention")
-
-
-@pytest.mark.parametrize(
-    "shapes",
-    [
-        [
-            (32, 32, 1, 64),
-            (32, 8, 128, 64),
-            (32, 8, 128, 64),
-            (1, 1, 1, 128),
-        ]
-    ],
-)
-@pytest.mark.parametrize("dtypes", [[torch.bfloat16] * 4])
-@pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.xfail(
-    # Metal issue reference: https://github.com/tenstorrent/tt-metal/issues/32641
-    reason="SDPA decode without program config set fails (without ttnn-workaround pass)"
-)
-def test_sdpa_decode_no_workaround(
-    shapes: List[Shape], dtypes: List[torch.dtype], target: str, request, device
-):
-    """
-    Test Scaled Dot Product Attention Decode without program config set,
-    with ttnn-workaround pass disabled.
-    """
-
-    def test_sdpa_decode_no_workaround(
-        query: Operand,
-        key: Operand,
-        value: Operand,
-        attention_mask: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        query_data = torch.randn(shapes[0], dtype=dtypes[0])
-        key_data = torch.randn(shapes[1], dtype=dtypes[1])
-        value_data = torch.randn(shapes[2], dtype=dtypes[2])
-
-        # Attention mask typically has large negative values for masked positions
-        mask_data = torch.randn(shapes[3], dtype=dtypes[3]) * -1000.0
-
-        head_dim = shapes[0][-1]
-        scale = 1.0 / math.sqrt(head_dim)
-
-        golden_output = build_torch_golden(
-            query_data, key_data, value_data, scale=scale, attention_mask=mask_data
-        )
-
-        result = build_ttir(
-            query,
-            key,
-            value,
-            builder,
-            scale=scale,
-            attention_mask=attention_mask,
-            unit_attrs=unit_attrs,
-        )
-
-        builder.set_goldens(
-            {
-                query: query_data,
-                key: key_data,
-                value: value_data,
-                attention_mask: mask_data,
-            },
-            {result: golden_output},
-        )
-        return result
-
-    output = compile_and_execute_ttir(
-        test_sdpa_decode_no_workaround,
-        shapes,
-        dtypes,
-        target=target,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        device=device,
-        pipeline_options=["disable-workarounds=true"],
     )
 
     assert check_op(output, "scaled_dot_product_attention")

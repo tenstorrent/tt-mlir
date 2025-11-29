@@ -8,17 +8,19 @@
 
 // Workaround which adds padding to ScaledDotProductAttention query, key, and
 // value tensors to make:
-// - sequence dimensions (dim -2) multiples of TILE_HEIGHT
-// - head dimensions (dim -1) multiples of TILE_WIDTH
-// The attention mask is also padded accordingly in both sequence dimensions.
-// After the operation, the result is sliced back to the original shape.
-// Metal issue reference: https://github.com/tenstorrent/tt-metal/issues/32502
+// - sequence dimensions (dim -2) multiples of TILE_HEIGHT - Metal issue
+// reference: https://github.com/tenstorrent/tt-metal/issues/32502
+// - head dimensions (dim -1) multiples of TILE_WIDTH - Metal issue reference:
+// https://github.com/tenstorrent/tt-metal/issues/33434 The attention mask is
+// also padded accordingly in both sequence dimensions. After the operation, the
+// result is sliced back to the original shape.
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
 namespace {
 
 Value padDimension(Value tensor, int64_t targetLen, int64_t dim,
-                   PatternRewriter &rewriter, Location loc) {
+                   PatternRewriter &rewriter, Location loc,
+                   float padValue = 0.0f) {
   auto tensorType = mlir::dyn_cast<RankedTensorType>(tensor.getType());
   if (!tensorType) {
     return tensor;
@@ -38,10 +40,10 @@ Value padDimension(Value tensor, int64_t targetLen, int64_t dim,
       utils::RankedTensorTypeFactory::create(tensorType, paddedShape);
 
   return rewriter
-      .create<PadOp>(loc, paddedType, tensor,
-                     rewriter.getDenseI32ArrayAttr(padding),
-                     rewriter.getF32FloatAttr(0.0f), rewriter.getBoolAttr(true),
-                     /*memory_config=*/nullptr)
+      .create<PadOp>(
+          loc, paddedType, tensor, rewriter.getDenseI32ArrayAttr(padding),
+          rewriter.getF32FloatAttr(padValue), rewriter.getBoolAttr(true),
+          /*memory_config=*/nullptr)
       .getResult();
 }
 
@@ -121,7 +123,8 @@ ScaledDotProductAttentionPadTileDimsRewritePattern::matchAndRewrite(
                      rewriter, srcOp.getLoc());
     auto maskType = mlir::dyn_cast<RankedTensorType>(paddedMask.getType());
     paddedMask = padDimension(paddedMask, paddedQuerySeqLen,
-                              maskType.getRank() - 2, rewriter, srcOp.getLoc());
+                              maskType.getRank() - 2, rewriter, srcOp.getLoc(),
+                              -std::numeric_limits<float>::infinity());
   }
 
   Value paddedKey = srcOp.getKey();
@@ -132,7 +135,8 @@ ScaledDotProductAttentionPadTileDimsRewritePattern::matchAndRewrite(
                              rewriter, srcOp.getLoc());
     auto maskType = mlir::dyn_cast<RankedTensorType>(paddedMask.getType());
     paddedMask = padDimension(paddedMask, paddedKeySeqLen,
-                              maskType.getRank() - 1, rewriter, srcOp.getLoc());
+                              maskType.getRank() - 1, rewriter, srcOp.getLoc(),
+                              -std::numeric_limits<float>::infinity());
   }
 
   Value paddedValue = srcOp.getValue();
