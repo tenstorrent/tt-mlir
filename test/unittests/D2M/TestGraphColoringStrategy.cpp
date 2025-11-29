@@ -36,8 +36,8 @@ struct GraphColoringStrategyTest : public gtest::Test {
 
 enum class ColoringStrategyType { ChaitinBriggs, Greedy };
 
-std::string strategyTypeName(
-    const gtest::TestParamInfo<ColoringStrategyType> &info) {
+std::string
+strategyTypeName(const gtest::TestParamInfo<ColoringStrategyType> &info) {
   switch (info.param) {
   case ColoringStrategyType::ChaitinBriggs:
     return "ChaitinBriggs";
@@ -323,17 +323,13 @@ TEST_P(GraphColoringParamTest, LongPath) {
   }
 }
 
-//===----------------------------------------------------------------------===//
-// Strategy-Specific Tests (Non-Parameterized)
-//===----------------------------------------------------------------------===//
-
-TEST_F(GraphColoringStrategyTest, ChaitinBriggsColoringNoColors) {
-  ChaitinBriggsColoring coloring;
+TEST_P(GraphColoringParamTest, ColoringWithZeroColorsAlwaysFails) {
+  auto coloring = createStrategy();
 
   std::vector<std::vector<size_t>> adjList = {{1}, {0}};
   std::vector<unsigned> coloringResult;
 
-  auto result = coloring.colorGraph(adjList, 0, coloringResult);
+  auto result = coloring->colorGraph(adjList, 0, coloringResult);
   EXPECT_TRUE(failed(result));
 }
 
@@ -466,14 +462,14 @@ TEST_F(GraphColoringStrategyTest, EquivalenceClassesTransitive) {
   EXPECT_FALSE(ec.isEquivalent(0, 3));
 }
 
-TEST_F(GraphColoringStrategyTest, GraphContractionWithCoalescing) {
+TEST_P(GraphColoringParamTest, GraphContractionWithCoalescing) {
   // Test that graph contraction properly handles coalesced nodes.
   // Original graph: 0 -- 1 -- 2 -- 3
   // Coalescing: (0,1) and (2,3)
   // Contracted graph: A -- B where A = {0,1} and B = {2,3}
   // This should be 2-colorable.
 
-  ChaitinBriggsColoring coloring;
+  auto coloring = createStrategy();
 
   // Build original adjacency list.
   std::vector<std::vector<size_t>> origAdjList = {
@@ -532,7 +528,8 @@ TEST_F(GraphColoringStrategyTest, GraphContractionWithCoalescing) {
       size_t contractedNeighbor = leaderToContracted[neighborLeader];
       if (std::find(contractedAdjList[contractedNode].begin(),
                     contractedAdjList[contractedNode].end(),
-                    contractedNeighbor) == contractedAdjList[contractedNode].end()) {
+                    contractedNeighbor) ==
+          contractedAdjList[contractedNode].end()) {
         contractedAdjList[contractedNode].push_back(contractedNeighbor);
       }
     }
@@ -545,7 +542,8 @@ TEST_F(GraphColoringStrategyTest, GraphContractionWithCoalescing) {
 
   // Color the contracted graph.
   std::vector<unsigned> contractedColoring;
-  EXPECT_TRUE(succeeded(coloring.colorGraph(contractedAdjList, 2, contractedColoring)));
+  EXPECT_TRUE(succeeded(
+      coloring->colorGraph(contractedAdjList, 2, contractedColoring)));
   EXPECT_EQ(contractedColoring.size(), 2u);
   EXPECT_NE(contractedColoring[0], contractedColoring[1]);
 
@@ -564,12 +562,12 @@ TEST_F(GraphColoringStrategyTest, GraphContractionWithCoalescing) {
   EXPECT_NE(coloring_result[0], coloring_result[2]);
 }
 
-TEST_F(GraphColoringStrategyTest, CoalescingReducesChromaticNumber) {
+TEST_P(GraphColoringParamTest, CoalescingReducesChromaticNumber) {
   // Test that coalescing can reduce the chromatic number.
   // Triangle graph (K3): requires 3 colors without coalescing.
   // With coalescing (0,2): reduces to 2 nodes, requires 2 colors.
 
-  ChaitinBriggsColoring coloring;
+  auto coloring = createStrategy();
 
   // Original triangle: 0 -- 1 -- 2 -- 0.
   std::vector<std::vector<size_t>> origAdjList = {
@@ -580,9 +578,9 @@ TEST_F(GraphColoringStrategyTest, CoalescingReducesChromaticNumber) {
 
   // Without coalescing, requires 3 colors.
   std::vector<unsigned> result3;
-  EXPECT_TRUE(succeeded(coloring.colorGraph(origAdjList, 3, result3)));
+  EXPECT_TRUE(succeeded(coloring->colorGraph(origAdjList, 3, result3)));
   std::vector<unsigned> result2;
-  EXPECT_TRUE(failed(coloring.colorGraph(origAdjList, 2, result2)));
+  EXPECT_TRUE(failed(coloring->colorGraph(origAdjList, 2, result2)));
 
   // With coalescing (0,2): nodes 0 and 2 must have same color.
   llvm::EquivalenceClasses<size_t> ec;
@@ -635,7 +633,8 @@ TEST_F(GraphColoringStrategyTest, CoalescingReducesChromaticNumber) {
       size_t contractedNeighbor = leaderToContracted[neighborLeader];
       if (std::find(contractedAdjList[contractedNode].begin(),
                     contractedAdjList[contractedNode].end(),
-                    contractedNeighbor) == contractedAdjList[contractedNode].end()) {
+                    contractedNeighbor) ==
+          contractedAdjList[contractedNode].end()) {
         contractedAdjList[contractedNode].push_back(contractedNeighbor);
       }
     }
@@ -643,24 +642,158 @@ TEST_F(GraphColoringStrategyTest, CoalescingReducesChromaticNumber) {
 
   // Contracted graph should be 2-colorable.
   std::vector<unsigned> contractedColoring;
-  EXPECT_TRUE(succeeded(coloring.colorGraph(contractedAdjList, 2, contractedColoring)));
+  EXPECT_TRUE(succeeded(
+      coloring->colorGraph(contractedAdjList, 2, contractedColoring)));
 }
 
-TEST_F(GraphColoringStrategyTest, CoalescingWithMultiplePairs) {
+// Parameterized test fixture for DstAnalysis tests that need MLIR context.
+struct DstAnalysisParamTest
+    : public gtest::TestWithParam<ColoringStrategyType> {
+  void SetUp() override {
+    ctx = std::make_unique<MLIRContext>();
+    ctx->loadDialect<func::FuncDialect, d2m::D2MDialect, ttcore::TTCoreDialect,
+                     affine::AffineDialect, arith::ArithDialect>();
+  }
+
+  std::unique_ptr<DstAnalysis> createAnalysis() {
+    switch (GetParam()) {
+    case ColoringStrategyType::ChaitinBriggs:
+      return createChaitinBriggsDstAnalysis();
+    case ColoringStrategyType::Greedy:
+      return createGreedyDstAnalysis();
+    }
+    llvm_unreachable("Unknown strategy type");
+  }
+
+  std::unique_ptr<MLIRContext> ctx;
+};
+
+INSTANTIATE_TEST_SUITE_P(AllStrategies, DstAnalysisParamTest,
+                         gtest::Values(ColoringStrategyType::ChaitinBriggs,
+                                       ColoringStrategyType::Greedy),
+                         strategyTypeName);
+
+// Test that the interference graph correctly identifies interference between
+// two loads that both feed into tile_add, where one goes through tile_bcast.
+// This is the exact scenario from the failing pytest:
+//   %load0 = affine.load %subview[...]        // Load for bcast
+//   %bcast = "d2m.tile_bcast"(%load0)         // Intermediate compute op
+//   %load1 = affine.load %subview_41[...]     // Load second operand (direct)
+//   %add = "d2m.tile_add"(%bcast, %load1)     // Both operands must be in DST
+// The loads %load0 and %load1 must interfere because tile_add needs both
+// operands simultaneously in DST.
+TEST_P(DstAnalysisParamTest, TileBcastIntermediateOpInterference) {
+  const char *moduleStr = R"(
+    #l1_ = #ttcore.memory_space<l1>
+    #device = #ttcore.device<workerGrid = #ttcore.grid<1x1, (d0, d1) -> (0, d0, d1)>,
+      l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0),
+      dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0),
+      meshShape = , chipIds = [0]>
+    module attributes {ttcore.device = #device} {
+      func.func @bcast_add(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
+                           %in1: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
+                           %out: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>) {
+        d2m.generic {
+          block_factors = [1, 1],
+          grid = #ttcore.grid<1x1>,
+          indexing_maps = [
+            affine_map<(d0, d1) -> (d0, d1)>,
+            affine_map<(d0, d1) -> (d0, d1)>,
+            affine_map<(d0, d1) -> (d0, d1)>
+          ],
+          iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>],
+          threads = [#d2m.thread<compute>]
+        } ins(%in0, %in1 :
+              memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
+              memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>)
+          outs(%out : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>) {
+        ^compute0(%cb0: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>>,
+                  %cb1: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>>,
+                  %cb_out: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>>):
+          %c0 = arith.constant 0 : index
+          %mem0 = d2m.wait %cb0 : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>>
+                                   -> memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
+          %mem1 = d2m.wait %cb1 : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>>
+                                   -> memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
+          %mem_out = d2m.reserve %cb_out : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>>
+                                           -> memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
+          // Load for bcast - this load's value flows through tile_bcast to tile_add
+          %val0 = affine.load %mem0[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
+          // Intermediate compute op: tile_bcast
+          %bcast = "d2m.tile_bcast"(%val0) <{bcast_type = #d2m<tile_bcast_type col>}>
+              : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+          // Direct load for second operand
+          %val1 = affine.load %mem1[%c0, %c0] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
+          // tile_add consumes both: bcast result (from val0) and val1 directly
+          // Both %val0 and %val1 must be in DST when tile_add executes
+          %result = "d2m.tile_add"(%bcast, %val1)
+              : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+          affine.store %result, %mem_out[%c0, %c0]
+              : memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
+        }
+        return
+      }
+    }
+  )";
+
+  ParserConfig config(ctx.get(), /*verifyAfterParse=*/false);
+  OwningOpRef<ModuleOp> module = parseSourceString<ModuleOp>(moduleStr, config);
+  ASSERT_TRUE(module);
+
+  auto funcOp = module->lookupSymbol<func::FuncOp>("bcast_add");
+  ASSERT_TRUE(funcOp);
+
+  auto analysis = createAnalysis();
+  auto result = analysis->analyze(funcOp);
+  EXPECT_TRUE(result.isValid) << "Analysis should succeed";
+
+  // The two loads (val0 and val1) must have different DST slots because
+  // they both need to be in DST when tile_add executes.
+  // Find the load operations and verify they have different assigned slots.
+  mlir::Operation *load0 = nullptr;
+  mlir::Operation *load1 = nullptr;
+  funcOp->walk([&](mlir::affine::AffineLoadOp loadOp) {
+    if (!load0) {
+      load0 = loadOp;
+    } else {
+      load1 = loadOp;
+    }
+  });
+
+  ASSERT_TRUE(load0 != nullptr) << "Should find first load";
+  ASSERT_TRUE(load1 != nullptr) << "Should find second load";
+
+  auto *it0 = result.operationSlices.find(load0);
+  auto *it1 = result.operationSlices.find(load1);
+
+  ASSERT_TRUE(it0 != result.operationSlices.end())
+      << "First load should have assigned slot";
+  ASSERT_TRUE(it1 != result.operationSlices.end())
+      << "Second load should have assigned slot";
+
+  // The two loads must have DIFFERENT DST slots because they interfere (both
+  // needed by tile_add simultaneously).
+  EXPECT_NE(it0->second, it1->second)
+      << "Loads feeding tile_add (one through bcast) must have different DST "
+         "slots. Got slot "
+      << it0->second << " for load0 and slot " << it1->second << " for load1";
+}
+
+TEST_P(GraphColoringParamTest, CoalescingWithMultiplePairs) {
   // Test coalescing with multiple independent pairs.
   // Graph: 0 -- 1 -- 2 -- 3 -- 4 -- 5
   // Coalescing: (0,1), (2,3), (4,5)
   // Contracted: A -- B -- C (linear, 2-colorable).
 
-  ChaitinBriggsColoring coloring;
+  auto coloring = createStrategy();
 
   std::vector<std::vector<size_t>> origAdjList = {
-      {1},       // 0
-      {0, 2},    // 1
-      {1, 3},    // 2
-      {2, 4},    // 3
-      {3, 5},    // 4
-      {4}        // 5
+      {1},    // 0
+      {0, 2}, // 1
+      {1, 3}, // 2
+      {2, 4}, // 3
+      {3, 5}, // 4
+      {4}     // 5
   };
 
   llvm::EquivalenceClasses<size_t> ec;
@@ -710,7 +843,8 @@ TEST_F(GraphColoringStrategyTest, CoalescingWithMultiplePairs) {
       size_t contractedNeighbor = leaderToContracted[neighborLeader];
       if (std::find(contractedAdjList[contractedNode].begin(),
                     contractedAdjList[contractedNode].end(),
-                    contractedNeighbor) == contractedAdjList[contractedNode].end()) {
+                    contractedNeighbor) ==
+          contractedAdjList[contractedNode].end()) {
         contractedAdjList[contractedNode].push_back(contractedNeighbor);
       }
     }
@@ -718,7 +852,8 @@ TEST_F(GraphColoringStrategyTest, CoalescingWithMultiplePairs) {
 
   // Contracted graph: A -- B -- C (linear chain, 2-colorable).
   std::vector<unsigned> contractedColoring;
-  EXPECT_TRUE(succeeded(coloring.colorGraph(contractedAdjList, 2, contractedColoring)));
+  EXPECT_TRUE(succeeded(
+      coloring->colorGraph(contractedAdjList, 2, contractedColoring)));
   EXPECT_EQ(contractedColoring.size(), 3u);
 
   // Propagate colors.
