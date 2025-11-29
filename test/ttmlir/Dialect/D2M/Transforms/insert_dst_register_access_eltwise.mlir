@@ -41,6 +41,53 @@ module {
         // CHECK: affine.store %[[FINAL_VAL]], %[[ARG2:.*]]
         linalg.yield %0 : !ttcore.tile<32x32, f32>
       }
+  }
+    return
+  }
+
+  // CHECK-LABEL: func.func @binary_comparison_chain
+  func.func @binary_comparison_chain(%in0: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                     %in1: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                     %out0: memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>) {
+    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>], threads = [#d2m.thread<compute>]}
+        ins(%in0, %in1 : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>, memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out0 : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>) {
+    ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>>, %arg2_cb: !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>>):
+      %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
+      %cb1 = d2m.wait %arg1_cb : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
+      %cb2 = d2m.reserve %arg2_cb : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
+      %c0 = arith.constant 0 : index
+      %subview = memref.subview %cb0[%c0, %c0] [1, 1] [1, 1] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_> to memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>
+      %subview_1 = memref.subview %cb1[%c0, %c0] [1, 1] [1, 1] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_> to memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>
+      %subview_2 = memref.subview %cb2[%c0, %c0] [1, 1] [1, 1] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_> to memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>
+      linalg.generic {indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = ["parallel", "parallel"]} ins(%subview, %subview_1 : memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>, memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>) outs(%subview_2 : memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>) {
+      ^bb0(%arg0: !ttcore.tile<32x32, f32>, %arg1: !ttcore.tile<32x32, f32>, %arg2: !ttcore.tile<32x32, f32>):
+        // CHECK: %[[DST:.*]] = d2m.acquire_dst()
+        // CHECK: %[[ARG0_VAL:.*]] = affine.load %[[ARG0:.*]]
+        // CHECK: affine.store %[[ARG0_VAL]], %[[DST]]
+        // CHECK: %[[ARG1_VAL:.*]] = affine.load %[[ARG1:.*]]
+        // CHECK: affine.store %[[ARG1_VAL]], %[[DST]]
+        // CHECK: %[[DST0:.*]] = affine.load %[[DST]]
+        // CHECK: %[[DST1:.*]] = affine.load %[[DST]]
+        %0 = "d2m.tile_sub"(%arg0, %arg1) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+        // CHECK: %[[SUB_RESULT:.*]] = "d2m.tile_sub"(%[[DST0]], %[[DST1]])
+        // BASIC: affine.store %[[SUB_RESULT]], %[[DST]][2, 0, 0]
+        // GREEDY: affine.store %[[SUB_RESULT]], %[[DST]][0, 0, 0]
+        // CHAITIN: affine.store %[[SUB_RESULT]], %[[DST]][0, 0, 0]
+        // BASIC: %[[SUB_LOADED:.*]] = affine.load %[[DST]][2, 0, 0]
+        // GREEDY: %[[SUB_LOADED:.*]] = affine.load %[[DST]][0, 0, 0]
+        // CHAITIN: %[[SUB_LOADED:.*]] = affine.load %[[DST]][0, 0, 0]
+        %1 = "d2m.tile_nez"(%0) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+        // CHECK: %[[NEZ_RESULT:.*]] = "d2m.tile_nez"(%[[SUB_LOADED]])
+        // BASIC: affine.store %[[NEZ_RESULT]], %[[DST]][2, 0, 0]
+        // GREEDY: affine.store %[[NEZ_RESULT]], %[[DST]][0, 0, 0]
+        // CHAITIN: affine.store %[[NEZ_RESULT]], %[[DST]][0, 0, 0]
+        // BASIC: %[[FINAL_VAL:.*]] = affine.load %[[DST]][2, 0, 0]
+        // GREEDY: %[[FINAL_VAL:.*]] = affine.load %[[DST]][0, 0, 0]
+        // CHAITIN: %[[FINAL_VAL:.*]] = affine.load %[[DST]][0, 0, 0]
+        // CHECK: affine.store %[[FINAL_VAL]], %[[ARG2:.*]]
+        linalg.yield %1 : !ttcore.tile<32x32, f32>
+      }
     }
     return
   }

@@ -51,6 +51,20 @@ identifyDstAccesses(mlir::Operation *op, mlir::Region &region) {
       }
     }
 
+    // If this compute op produces a DST value that will be consumed by another
+    // compute op (non in-place), record the producer itself so the allocation
+    // strategy can look it up later.
+    if (!computeOp.getDstRegInPlace() && !operation->getUsers().empty()) {
+      for (Operation *user : operation->getUsers()) {
+        if (llvm::isa<OperandLoadStoreRegisterOpInterface>(user)) {
+          if (seenOps.insert(operation).second) {
+            dstAccesses.push_back({operation, index++});
+          }
+          break;
+        }
+      }
+    }
+
     // Check if the result store needs a separate DST slice
     // If getDstRegInPlace() == false, the store needs its own slice
     if (!computeOp.getDstRegInPlace()) {
