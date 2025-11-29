@@ -17,6 +17,7 @@ class ColoringStrategy;
 /// \param maxSlices Maximum allowed DST slices. Typically obtained from
 ///   DstCapacityAnalysis::getMinDstCapacity(). Defaults to UINT_MAX.
 std::unique_ptr<DstAnalysis>
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 createGraphColoringDstAnalysis(std::unique_ptr<ColoringStrategy> strategy,
                                unsigned maxSlices = UINT_MAX);
 

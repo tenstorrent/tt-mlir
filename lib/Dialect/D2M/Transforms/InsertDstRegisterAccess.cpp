@@ -146,11 +146,10 @@ public:
   public:
     explicit GraphColoringDstAllocationStrategy(
         const llvm::MapVector<Operation *, unsigned> &operationSlices)
-        : operationSlices(operationSlices), currentOp(nullptr),
-          fallbackIndex(0), storedToDst(false) {}
+        : operationSlices(operationSlices) {}
 
     int allocate() override {
-      auto it = operationSlices.find(currentOp);
+      const auto *it = operationSlices.find(currentOp);
       if (currentOp && it != operationSlices.end()) {
         return static_cast<int>(it->second);
       }
@@ -163,17 +162,18 @@ public:
     void setStoreToDst() override { storedToDst = true; }
     bool didStoreToDst() override { return storedToDst; }
     int getCurrSliceIndex() override {
-      auto it = operationSlices.find(currentOp);
+      const auto *it = operationSlices.find(currentOp);
       return currentOp && it != operationSlices.end()
                  ? static_cast<int>(it->second)
                  : fallbackIndex - 1;
     }
 
   private:
+    // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
     const llvm::MapVector<Operation *, unsigned> &operationSlices;
-    Operation *currentOp;
-    int fallbackIndex;
-    bool storedToDst;
+    Operation *currentOp = nullptr;
+    int fallbackIndex = 0;
+    bool storedToDst = false;
   };
 
   LogicalResult matchAndRewrite(GenericOp gOp,

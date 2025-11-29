@@ -164,6 +164,7 @@ private:
 } // namespace
 
 std::unique_ptr<DstAnalysis>
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 createGraphColoringDstAnalysis(std::unique_ptr<ColoringStrategy> strategy,
                                unsigned maxSlices) {
   return std::make_unique<DstAnalysisGraphColoring>(
