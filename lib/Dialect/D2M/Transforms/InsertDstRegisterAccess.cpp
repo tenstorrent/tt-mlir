@@ -118,7 +118,8 @@ public:
   public:
     virtual ~DstAllocationStrategy() = default;
     virtual int allocate() = 0;
-    virtual void setCurrentOperation(Operation *op) {} // Optional for strategies
+    virtual void setCurrentOperation(Operation *op) {
+    } // Optional for strategies
     virtual void setStoreToDst() = 0;
     virtual bool didStoreToDst() = 0;
     virtual int getCurrSliceIndex() = 0;
@@ -213,8 +214,9 @@ public:
                 if (allocationStrategy == "basic") {
                   strategy = std::make_unique<DstSliceAllocationState>();
                 } else {
-                  strategy = std::make_unique<GraphColoringDstAllocationStrategy>(
-                      analysisResult.operationSlices);
+                  strategy =
+                      std::make_unique<GraphColoringDstAllocationStrategy>(
+                          analysisResult.operationSlices);
                 }
                 if (rewriteTileMatmulAsTileMatmulBlock(
                         rewriter, gOp, *genericRegion, linalgGenericOp,
@@ -1058,8 +1060,9 @@ public:
     // Validate allocation strategy option
     if (allocationStrategy != "basic" && allocationStrategy != "greedy" &&
         allocationStrategy != "chaitin-briggs") {
-      moduleOp.emitError() << "Invalid allocation strategy '" << allocationStrategy
-                           << "'. Valid options are: 'basic', 'greedy', 'chaitin-briggs'.";
+      moduleOp.emitError()
+          << "Invalid allocation strategy '" << allocationStrategy
+          << "'. Valid options are: 'basic', 'greedy', 'chaitin-briggs'.";
       return signalPassFailure();
     }
 
@@ -1078,7 +1081,8 @@ public:
       analysisResult = dstAnalysis->analyze(moduleOp);
 
       if (!analysisResult.isValid) {
-        moduleOp.emitError() << "Graph coloring failed: "
+        moduleOp.emitError()
+            << "Graph coloring failed: "
             << analysisResult.failureReason.value_or("Unknown error");
         return signalPassFailure();
       }

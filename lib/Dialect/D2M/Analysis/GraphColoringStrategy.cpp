@@ -352,7 +352,8 @@ mlir::tt::d2m::InterferenceGraphResult buildIndexGraphFromDstOperations(
   // Handle intermediate compute ops in chains (those whose results feed other
   // compute ops, not L1 stores).
   // - For in-place operations: coalesce with input (same DST index).
-  // - For non-in-place operations: add interference edges (different DST index).
+  // - For non-in-place operations: add interference edges (different DST
+  // index).
   // - If the compute op also has a result store entry, coalesce them.
   for (auto &[computeOp, intermediateIdx] : intermediateComputeOpIdx) {
     auto iface = mlir::dyn_cast<OperandLoadStoreRegisterOpInterface>(computeOp);
@@ -399,14 +400,14 @@ mlir::tt::d2m::InterferenceGraphResult buildIndexGraphFromDstOperations(
 
   for (size_t node = 0; node < result.adjacencyList.size(); ++node) {
     auto &neighbors = result.adjacencyList[node];
-    neighbors.erase(
-        std::remove_if(neighbors.begin(), neighbors.end(),
-                       [&](size_t neighbor) {
-                         size_t minIdx = std::min(node, neighbor);
-                         size_t maxIdx = std::max(node, neighbor);
-                         return coalescedPairs.count({minIdx, maxIdx}) > 0;
-                       }),
-        neighbors.end());
+    neighbors.erase(std::remove_if(neighbors.begin(), neighbors.end(),
+                                   [&](size_t neighbor) {
+                                     size_t minIdx = std::min(node, neighbor);
+                                     size_t maxIdx = std::max(node, neighbor);
+                                     return coalescedPairs.count(
+                                                {minIdx, maxIdx}) > 0;
+                                   }),
+                    neighbors.end());
   }
 
   return result;
