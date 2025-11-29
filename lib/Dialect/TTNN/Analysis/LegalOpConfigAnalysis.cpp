@@ -115,14 +115,15 @@ applyConv2dConfigOverrides(ConvOpT op,
   // ConvTranspose2d to avoid circular buffer clash. Apply after overrides to
   // ensure it's not overridden by a 0 value.
   // https://github.com/tenstorrent/tt-mlir/issues/6047
-  if (llvm::isa<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp>(op.getOperation())) {
-    auto currentOverride = conv2dConfigAttr.getActBlockHOverride();
-    // Only apply workaround if act_block_h_override is not set or is 0
-    if (!currentOverride || *currentOverride == 0) {
-      conv2dConfigAttr =
-          conv2dConfigAttr.withActBlockHOverride(ttnn::TILE_HEIGHT);
-    }
-  }
+  // if (llvm::isa<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp>(op.getOperation()))
+  // {
+  //   auto currentOverride = conv2dConfigAttr.getActBlockHOverride();
+  //   // Only apply workaround if act_block_h_override is not set or is 0
+  //   if (!currentOverride || *currentOverride == 0) {
+  //     conv2dConfigAttr =
+  //         conv2dConfigAttr.withActBlockHOverride(ttnn::TILE_HEIGHT);
+  //   }
+  // }
 
   TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                "Conv2d config after overrides: {}", conv2dConfigAttr);
@@ -200,14 +201,14 @@ void LegalOpConfigAnalysis::fillOpSpecificAttrs() {
         // ConvTranspose2d to avoid circular buffer clash. Apply here in case
         // applyConv2dConfigOverrides was not called.
         // https://github.com/tenstorrent/tt-mlir/issues/6047
-        if (llvm::isa<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp>(
-                convOp.getOperation())) {
-          auto currentOverride = conv2dConfigAttrBase.getActBlockHOverride();
-          if (!currentOverride || *currentOverride == 0) {
-            conv2dConfigAttrBase =
-                conv2dConfigAttrBase.withActBlockHOverride(ttnn::TILE_HEIGHT);
-          }
-        }
+        // if (llvm::isa<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp>(
+        //         convOp.getOperation())) {
+        //   auto currentOverride = conv2dConfigAttrBase.getActBlockHOverride();
+        //   if (!currentOverride || *currentOverride == 0) {
+        //     conv2dConfigAttrBase =
+        //         conv2dConfigAttrBase.withActBlockHOverride(ttnn::TILE_HEIGHT);
+        //   }
+        // }
 
         // If weights dtype is not set, set it to the weight tensor dtype.
         if (!conv2dConfigAttrBase.getWeightsDtype().has_value()) {
