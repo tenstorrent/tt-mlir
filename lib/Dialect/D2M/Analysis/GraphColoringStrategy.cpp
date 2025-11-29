@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/D2M/Transforms/GraphColoringStrategy.h"
 
+#include "mlir/Analysis/Liveness.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
 #include "llvm/ADT/EquivalenceClasses.h"
@@ -340,33 +341,19 @@ mlir::tt::d2m::InterferenceGraphResult buildIndexGraphFromDstOperations(
     dstAccessOps.push_back(op);
   }
 
-  // For operations in nested regions (loops), assume conservative interference.
-  // Build a map from each DST access to its containing loops.
-  llvm::MapVector<mlir::Operation *, llvm::SmallVector<mlir::Operation *>>
-      opToLoops;
-  for (mlir::Operation *op : dstAccessOps) {
-    llvm::SmallVector<mlir::Operation *> loops;
-    mlir::Operation *parent = op->getParentOp();
-    while (parent && parent->getParentRegion() == &region) {
-      if (isa<affine::AffineForOp>(parent)) {
-        loops.push_back(parent);
-      }
-      parent = parent->getParentOp();
-    }
-    opToLoops[op] = loops;
-  }
+  // Use MLIR's Liveness analysis for interference detection.
+  mlir::Operation *parentOp = region.getParentOp();
+  mlir::Liveness liveness(parentOp);
 
-  // Helper to check if a value is live at an operation.
-  auto isLiveAt = [](mlir::Value value, mlir::Operation *op) {
-    // A value is live at op if any of its uses come at or after op.
+  // Helper to check if a value is live at an operation using MLIR Liveness.
+  // A value is live at op if it is NOT dead after the operation preceding op.
+  auto isLiveAt = [&liveness](mlir::Value value, mlir::Operation *op) {
     for (mlir::OpOperand &use : value.getUses()) {
-      mlir::Operation *user = use.getOwner();
-      if (user == op ||
-          (user->getBlock() == op->getBlock() && !user->isBeforeInBlock(op))) {
+      if (use.getOwner() == op) {
         return true;
       }
     }
-    return false;
+    return !liveness.isDeadAfter(value, op);
   };
 
   // Helper to check if two DST access operations interfere via liveness.
@@ -499,12 +486,13 @@ mlir::tt::d2m::InterferenceGraphResult buildIndexGraphFromDstOperations(
   // Coalesced nodes must have the same color, so they cannot interfere.
   for (size_t node = 0; node < result.adjacencyList.size(); ++node) {
     auto &neighbors = result.adjacencyList[node];
-    neighbors.erase(std::remove_if(neighbors.begin(), neighbors.end(),
-                                   [&](size_t neighbor) {
-                                     return result.coalescedClasses.isEquivalent(
-                                         node, neighbor);
-                                   }),
-                    neighbors.end());
+    neighbors.erase(
+        std::remove_if(neighbors.begin(), neighbors.end(),
+                       [&](size_t neighbor) {
+                         return result.coalescedClasses.isEquivalent(node,
+                                                                     neighbor);
+                       }),
+        neighbors.end());
   }
 
   return result;
