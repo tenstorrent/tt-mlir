@@ -107,17 +107,51 @@ mlir::LogicalResult ChaitinBriggsColoring::colorGraph(
 //                          GreedyColoring Implementation
 //===----------------------------------------------------------------------===//
 
+/// Greedy graph coloring with priority-based ordering and eviction.
+/// Inspired by LLVM's RegAllocGreedy register allocator.
+///
+/// Key features:
+/// - Priority-based ordering: processes high-degree nodes first
+/// - Eviction: can evict lower-priority (lower-degree) neighbors when stuck
+/// - Cascade tracking: prevents infinite eviction loops
 LogicalResult GreedyColoring::colorGraph(
     const std::vector<std::vector<size_t>> &adjacencyList, unsigned numColors,
     std::vector<unsigned> &coloring) {
-  coloring.assign(adjacencyList.size(), UINT_MAX);
-  std::vector<bool> usedColors(numColors, false);
 
-  for (size_t node = 0; node < adjacencyList.size(); ++node) {
-    // Reset used colors.
-    std::fill(usedColors.begin(), usedColors.end(), false);
+  size_t numNodes = adjacencyList.size();
+  coloring.assign(numNodes, UINT_MAX);
 
-    // Mark colors used by neighbors.
+  if (numNodes == 0) {
+    return success();
+  }
+
+  // Step 1: Build priority queue - process high-degree nodes first.
+  // Higher degree nodes are harder to color, so we prioritize them.
+  std::vector<std::pair<size_t, size_t>> priorityQueue; // (degree, node)
+  for (size_t i = 0; i < numNodes; ++i) {
+    priorityQueue.emplace_back(adjacencyList[i].size(), i);
+  }
+  std::sort(priorityQueue.begin(), priorityQueue.end(),
+            [](const auto &a, const auto &b) { return a.first > b.first; });
+
+  // Cascade tracking to prevent infinite eviction loops.
+  // Each node tracks its cascade number - if we try to evict a node that
+  // was already evicted in this cascade, we skip it.
+  std::vector<unsigned> cascadeNumber(numNodes, 0);
+  unsigned currentCascade = 0;
+
+  // Worklist of nodes to (re)color.
+  std::deque<size_t> worklist;
+  for (const auto &[degree, node] : priorityQueue) {
+    worklist.push_back(node);
+  }
+
+  while (!worklist.empty()) {
+    size_t node = worklist.front();
+    worklist.pop_front();
+
+    // Find colors used by neighbors.
+    std::vector<bool> usedColors(numColors, false);
     for (size_t neighbor : adjacencyList[node]) {
       if (coloring[neighbor] != UINT_MAX) {
         usedColors[coloring[neighbor]] = true;
@@ -125,19 +159,58 @@ LogicalResult GreedyColoring::colorGraph(
     }
 
     // Find first available color.
-    unsigned color = 0;
-    for (; color < numColors; ++color) {
-      if (!usedColors[color]) {
+    unsigned color = UINT_MAX;
+    for (unsigned c = 0; c < numColors; ++c) {
+      if (!usedColors[c]) {
+        color = c;
         break;
       }
     }
 
-    // If no color available, this is a spill.
-    if (color >= numColors) {
-      return failure(); // Spill - not enough colors.
+    if (color != UINT_MAX) {
+      coloring[node] = color;
+      continue;
     }
 
-    coloring[node] = color;
+    // Step 2: Try eviction - find lowest-degree neighbor to evict.
+    // Only evict neighbors with lower priority (lower degree) than current
+    // node.
+    size_t nodeDegree = adjacencyList[node].size();
+    size_t victimNode = SIZE_MAX;
+    size_t victimDegree = SIZE_MAX;
+    unsigned victimColor = UINT_MAX;
+
+    for (size_t neighbor : adjacencyList[node]) {
+      if (coloring[neighbor] == UINT_MAX) {
+        continue;
+      }
+      size_t neighborDegree = adjacencyList[neighbor].size();
+
+      // Only evict lower-priority (lower-degree) nodes.
+      // Also check cascade to prevent infinite loops.
+      if (neighborDegree < nodeDegree && neighborDegree < victimDegree &&
+          cascadeNumber[neighbor] < currentCascade + 1) {
+        victimNode = neighbor;
+        victimDegree = neighborDegree;
+        victimColor = coloring[neighbor];
+      }
+    }
+
+    if (victimNode != SIZE_MAX) {
+      // Evict the victim.
+      coloring[victimNode] = UINT_MAX;
+      cascadeNumber[victimNode] = ++currentCascade;
+
+      // Assign freed color to current node.
+      coloring[node] = victimColor;
+
+      // Re-add victim to worklist for recoloring.
+      worklist.push_back(victimNode);
+      continue;
+    }
+
+    // No eviction possible - spill.
+    return failure();
   }
 
   return success();
@@ -221,6 +294,28 @@ mlir::tt::d2m::InterferenceGraphResult buildIndexGraphFromDstOperations(
     } else if (mlir::isa<OperandLoadStoreRegisterOpInterface>(accessOp)) {
       // This is an intermediate compute op in the chain.
       processIntermediateComputeOp(accessOp, i);
+    }
+  }
+
+  // Add interference edges between sibling operands of the same compute op.
+  // All inputs to a compute operation are live simultaneously and must have
+  // different DST slices. This is critical for binary operations like tile_add
+  // where both operands must be loaded into DST before the operation executes.
+  for (const auto &[computeOp, inputLoadIndices] : computeOpInputLoads) {
+    // Add pairwise interference edges between all input loads.
+    for (size_t i = 0; i < inputLoadIndices.size(); ++i) {
+      for (size_t j = i + 1; j < inputLoadIndices.size(); ++j) {
+        size_t idx1 = inputLoadIndices[i];
+        size_t idx2 = inputLoadIndices[j];
+
+        // Avoid duplicate edges.
+        if (std::find(result.adjacencyList[idx1].begin(),
+                      result.adjacencyList[idx1].end(),
+                      idx2) == result.adjacencyList[idx1].end()) {
+          result.adjacencyList[idx1].push_back(idx2);
+          result.adjacencyList[idx2].push_back(idx1);
+        }
+      }
     }
   }
 
