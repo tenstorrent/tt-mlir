@@ -98,18 +98,78 @@ public:
                 InterferenceGraph::buildIndexGraphFromDstOperations(
                     region, dstAccesses);
 
-            // Try coloring with minimum number of colors.
+            // Contract the graph: merge equivalence classes into single nodes.
+            // This reduces the graph size and ensures coalesced nodes get the
+            // same color.
+            llvm::DenseMap<size_t, size_t> nodeToLeader;
+            llvm::DenseMap<size_t, size_t> leaderToContracted;
+            std::vector<size_t> contractedToLeader;
+
+            // First pass: find the node with maximum degree in each equiv class
+            // to use as the representative (leader) for that class.
+            llvm::DenseMap<size_t, size_t> classToMaxDegreeNode;
+            llvm::DenseMap<size_t, size_t> classMaxDegree;
+            for (size_t i = 0; i < dstAccesses.size(); ++i) {
+              size_t classLeader =
+                  graphResult.coalescedClasses.getLeaderValue(i);
+              size_t degree = graphResult.adjacencyList[i].size();
+              if (classToMaxDegreeNode.find(classLeader) ==
+                      classToMaxDegreeNode.end() ||
+                  degree > classMaxDegree[classLeader]) {
+                classToMaxDegreeNode[classLeader] = i;
+                classMaxDegree[classLeader] = degree;
+              }
+            }
+
+            // Build mapping from each node to its equivalence class leader
+            // (the node with max degree in the class).
+            for (size_t i = 0; i < dstAccesses.size(); ++i) {
+              size_t classLeader =
+                  graphResult.coalescedClasses.getLeaderValue(i);
+              size_t leader = classToMaxDegreeNode[classLeader];
+              nodeToLeader[i] = leader;
+              if (leaderToContracted.find(leader) == leaderToContracted.end()) {
+                size_t contractedIdx = contractedToLeader.size();
+                leaderToContracted[leader] = contractedIdx;
+                contractedToLeader.push_back(leader);
+              }
+            }
+
+            // Build contracted adjacency list.
+            size_t numContractedNodes = contractedToLeader.size();
+            std::vector<std::vector<size_t>> contractedAdjList(
+                numContractedNodes);
+            for (size_t node = 0; node < dstAccesses.size(); ++node) {
+              size_t leader = nodeToLeader[node];
+              size_t contractedNode = leaderToContracted[leader];
+              for (size_t neighbor : graphResult.adjacencyList[node]) {
+                size_t neighborLeader = nodeToLeader[neighbor];
+                if (leader == neighborLeader) {
+                  continue; // Skip edges within same equivalence class.
+                }
+                size_t contractedNeighbor = leaderToContracted[neighborLeader];
+                // Avoid duplicate edges.
+                if (std::find(contractedAdjList[contractedNode].begin(),
+                              contractedAdjList[contractedNode].end(),
+                              contractedNeighbor) ==
+                    contractedAdjList[contractedNode].end()) {
+                  contractedAdjList[contractedNode].push_back(contractedNeighbor);
+                }
+              }
+            }
+
+            // Try coloring the contracted graph with minimum number of colors.
             // Start from 1 and increase until we find a valid coloring.
             // Respect maxSlicesAllowed constraint: fail if exceeded.
-            std::vector<unsigned> coloring;
+            std::vector<unsigned> contractedColoring;
             unsigned numColors = 1;
             const unsigned maxAttempts = std::min(
-                static_cast<unsigned>(dstAccesses.size()), maxSlicesAllowed);
+                static_cast<unsigned>(numContractedNodes), maxSlicesAllowed);
 
             bool coloringSucceeded = false;
             for (; numColors <= maxAttempts; ++numColors) {
               if (succeeded(coloringStrategy->colorGraph(
-                      graphResult.adjacencyList, numColors, coloring))) {
+                      contractedAdjList, numColors, contractedColoring))) {
                 coloringSucceeded = true;
                 break;
               }
@@ -119,7 +179,7 @@ public:
               result.isValid = false;
               unsigned minRequired =
                   InterferenceGraph::computeChromatic_Lowerbound(
-                      graphResult.adjacencyList);
+                      contractedAdjList);
               result.numSlicesRequired = minRequired;
               result.failureReason = llvm::formatv(
                   "Graph coloring failed: requires {0} slices but only {1} "
@@ -128,7 +188,15 @@ public:
               return mlir::WalkResult::interrupt();
             }
 
-            // Find actual number of colors used
+            // Propagate colors from contracted graph back to original nodes.
+            std::vector<unsigned> coloring(dstAccesses.size());
+            for (size_t i = 0; i < dstAccesses.size(); ++i) {
+              size_t leader = nodeToLeader[i];
+              size_t contractedIdx = leaderToContracted[leader];
+              coloring[i] = contractedColoring[contractedIdx];
+            }
+
+            // Find actual number of colors used.
             unsigned colorsUsed = 0;
             for (unsigned color : coloring) {
               colorsUsed = std::max(colorsUsed, color + 1);
@@ -136,7 +204,7 @@ public:
 
             maxSlicesNeeded = std::max(maxSlicesNeeded, colorsUsed);
 
-            // Record per-operation breakdown
+            // Record per-operation breakdown.
             for (size_t i = 0; i < dstAccesses.size(); ++i) {
               auto &[accessOp, idx] = dstAccesses[i];
               result.operationSlices[accessOp] = coloring[i];

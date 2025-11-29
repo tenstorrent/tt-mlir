@@ -7,6 +7,7 @@
 
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LogicalResult.h"
+#include "llvm/ADT/EquivalenceClasses.h"
 
 namespace mlir::tt::d2m {
 
@@ -18,6 +19,9 @@ struct InterferenceGraphResult {
   /// same color. These represent in-place operations where the result store
   /// must use the same DST index as the input load.
   std::vector<std::pair<size_t, size_t>> coalescingPairs;
+  /// Equivalence classes for coalesced nodes. All nodes in an equivalence
+  /// class must receive the same color.
+  llvm::EquivalenceClasses<size_t> coalescedClasses;
 };
 
 /// Utility functions for building interference graphs.
