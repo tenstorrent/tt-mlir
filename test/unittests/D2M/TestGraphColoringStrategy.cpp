@@ -31,25 +31,56 @@ struct GraphColoringStrategyTest : public gtest::Test {
 };
 
 //===----------------------------------------------------------------------===//
-// Tests for ChaitinBriggsColoring
+// Parameterized Tests for Graph Coloring Strategies
 //===----------------------------------------------------------------------===//
 
-TEST_F(GraphColoringStrategyTest, ChaitinBriggsColoringEmptyGraph) {
-  ChaitinBriggsColoring coloring;
+enum class ColoringStrategyType { ChaitinBriggs, Greedy };
+
+std::string strategyTypeName(
+    const gtest::TestParamInfo<ColoringStrategyType> &info) {
+  switch (info.param) {
+  case ColoringStrategyType::ChaitinBriggs:
+    return "ChaitinBriggs";
+  case ColoringStrategyType::Greedy:
+    return "Greedy";
+  }
+  llvm_unreachable("Unknown strategy type");
+}
+
+struct GraphColoringParamTest
+    : public gtest::TestWithParam<ColoringStrategyType> {
+  std::unique_ptr<ColoringStrategy> createStrategy() {
+    switch (GetParam()) {
+    case ColoringStrategyType::ChaitinBriggs:
+      return std::make_unique<ChaitinBriggsColoring>();
+    case ColoringStrategyType::Greedy:
+      return std::make_unique<GreedyColoring>();
+    }
+    llvm_unreachable("Unknown strategy type");
+  }
+};
+
+INSTANTIATE_TEST_SUITE_P(AllStrategies, GraphColoringParamTest,
+                         gtest::Values(ColoringStrategyType::ChaitinBriggs,
+                                       ColoringStrategyType::Greedy),
+                         strategyTypeName);
+
+TEST_P(GraphColoringParamTest, EmptyGraph) {
+  auto coloring = createStrategy();
   std::vector<std::vector<size_t>> adjacencyList;
   std::vector<unsigned> result;
 
-  EXPECT_TRUE(succeeded(coloring.colorGraph(adjacencyList, 3, result)));
+  EXPECT_TRUE(succeeded(coloring->colorGraph(adjacencyList, 3, result)));
   EXPECT_TRUE(result.empty());
 }
 
-TEST_F(GraphColoringStrategyTest, ChaitinBriggsColoringSimpleGraph) {
-  ChaitinBriggsColoring coloring;
+TEST_P(GraphColoringParamTest, SimpleLinearGraph) {
+  auto coloring = createStrategy();
   // Graph: 0 -- 1 -- 2 (linear chain)
   std::vector<std::vector<size_t>> adjacencyList = {{1}, {0, 2}, {1}};
   std::vector<unsigned> result;
 
-  EXPECT_TRUE(succeeded(coloring.colorGraph(adjacencyList, 2, result)));
+  EXPECT_TRUE(succeeded(coloring->colorGraph(adjacencyList, 2, result)));
   EXPECT_EQ(result.size(), 3u);
 
   // Nodes 0 and 1 should have different colors.
@@ -59,103 +90,19 @@ TEST_F(GraphColoringStrategyTest, ChaitinBriggsColoringSimpleGraph) {
   // Nodes 0 and 2 can have the same color (not adjacent).
 }
 
-TEST_F(GraphColoringStrategyTest, ChaitinBriggsColoringIndexGraph) {
-  ChaitinBriggsColoring coloring;
-
-  std::vector<std::vector<size_t>> adjList = {{1}, {0, 2}, {1}};
-
-  std::vector<unsigned> coloringResult;
-  auto result = coloring.colorGraph(adjList, 2, coloringResult);
-
-  EXPECT_TRUE(succeeded(result));
-  EXPECT_EQ(coloringResult.size(), 3u);
-
-  EXPECT_NE(coloringResult[0], coloringResult[1]);
-  EXPECT_NE(coloringResult[1], coloringResult[2]);
-}
-
-TEST_F(GraphColoringStrategyTest, ChaitinBriggsColoringSpill) {
-  ChaitinBriggsColoring coloring;
-
+TEST_P(GraphColoringParamTest, TriangleSpill) {
+  auto coloring = createStrategy();
+  // Triangle graph (K3): requires 3 colors, fails with 2.
   std::vector<std::vector<size_t>> adjList = {{1, 2}, {0, 2}, {0, 1}};
 
   std::vector<unsigned> coloringResult;
-  auto result = coloring.colorGraph(adjList, 2, coloringResult);
+  auto result = coloring->colorGraph(adjList, 2, coloringResult);
 
   EXPECT_TRUE(failed(result));
 }
 
-TEST_F(GraphColoringStrategyTest, ChaitinBriggsColoringNoColors) {
-  ChaitinBriggsColoring coloring;
-
-  std::vector<std::vector<size_t>> adjList = {{1}, {0}};
-  std::vector<unsigned> coloringResult;
-
-  auto result = coloring.colorGraph(adjList, 0, coloringResult);
-  EXPECT_TRUE(failed(result));
-}
-
-//===----------------------------------------------------------------------===//
-// Tests for GreedyColoring
-//===----------------------------------------------------------------------===//
-
-TEST_F(GraphColoringStrategyTest, GreedyColoringEmptyGraph) {
-  GreedyColoring coloring;
-  std::vector<std::vector<size_t>> adjacencyList;
-  std::vector<unsigned> result;
-
-  EXPECT_TRUE(succeeded(coloring.colorGraph(adjacencyList, 3, result)));
-  EXPECT_EQ(result.size(), 0u);
-}
-
-TEST_F(GraphColoringStrategyTest, GreedyColoringSimpleGraph) {
-  GreedyColoring coloring;
-  // Graph: 0 -- 1 -- 2 (linear chain)
-  std::vector<std::vector<size_t>> adjacencyList = {{1}, {0, 2}, {1}};
-  std::vector<unsigned> result;
-
-  EXPECT_TRUE(succeeded(coloring.colorGraph(adjacencyList, 2, result)));
-  EXPECT_EQ(result.size(), 3u);
-
-  // Nodes 0 and 1 should have different colors.
-  EXPECT_NE(result[0], result[1]);
-  // Nodes 1 and 2 should have different colors.
-  EXPECT_NE(result[1], result[2]);
-  // Nodes 0 and 2 can have the same color (not adjacent).
-}
-
-TEST_F(GraphColoringStrategyTest, GreedyColoringIndexGraph) {
-  GreedyColoring coloring;
-
-  std::vector<std::vector<size_t>> adjList = {{1}, {0, 2}, {1}};
-
-  std::vector<unsigned> coloringResult;
-  auto result = coloring.colorGraph(adjList, 2, coloringResult);
-
-  EXPECT_TRUE(succeeded(result));
-  EXPECT_EQ(coloringResult.size(), 3u);
-
-  EXPECT_NE(coloringResult[0], coloringResult[1]);
-  EXPECT_NE(coloringResult[1], coloringResult[2]);
-}
-
-TEST_F(GraphColoringStrategyTest, GreedyColoringSpill) {
-  GreedyColoring coloring;
-
-  std::vector<std::vector<size_t>> adjList = {{1, 2}, {0, 2}, {0, 1}};
-
-  std::vector<unsigned> coloringResult;
-  auto result = coloring.colorGraph(adjList, 2, coloringResult);
-
-  EXPECT_TRUE(failed(result));
-}
-
-//===----------------------------------------------------------------------===//
-// Larger Graph Coloring Tests
-//===----------------------------------------------------------------------===//
-
-TEST_F(GraphColoringStrategyTest, ChaitinBriggsColoringSquareGraph) {
-  ChaitinBriggsColoring coloring;
+TEST_P(GraphColoringParamTest, SquareGraph) {
+  auto coloring = createStrategy();
 
   // Square graph (4-cycle):
   //     A --- B
@@ -171,7 +118,7 @@ TEST_F(GraphColoringStrategyTest, ChaitinBriggsColoringSquareGraph) {
   };
 
   std::vector<unsigned> result;
-  EXPECT_TRUE(succeeded(coloring.colorGraph(adjList, 2, result)));
+  EXPECT_TRUE(succeeded(coloring->colorGraph(adjList, 2, result)));
   EXPECT_EQ(result.size(), 4u);
 
   // Verify proper coloring: adjacent nodes have different colors.
@@ -189,36 +136,8 @@ TEST_F(GraphColoringStrategyTest, ChaitinBriggsColoringSquareGraph) {
   }
 }
 
-TEST_F(GraphColoringStrategyTest, GreedyColoringSquareGraph) {
-  GreedyColoring coloring;
-
-  // Square graph (4-cycle):
-  //     A --- B
-  //     |     |
-  //     B --- A
-  //
-  // 2-colorable (A=color0, B=color1):
-  std::vector<std::vector<size_t>> adjList = {{1, 3}, {0, 2}, {1, 3}, {0, 2}};
-
-  std::vector<unsigned> result;
-  EXPECT_TRUE(succeeded(coloring.colorGraph(adjList, 2, result)));
-  EXPECT_EQ(result.size(), 4u);
-
-  EXPECT_NE(result[0], result[1]);
-  EXPECT_NE(result[0], result[3]);
-  EXPECT_NE(result[1], result[2]);
-  EXPECT_NE(result[2], result[3]);
-
-  EXPECT_EQ(result[0], result[2]);
-  EXPECT_EQ(result[1], result[3]);
-
-  for (auto color : result) {
-    EXPECT_LT(color, 2u);
-  }
-}
-
-TEST_F(GraphColoringStrategyTest, ChaitinBriggsColoringPentagon) {
-  ChaitinBriggsColoring coloring;
+TEST_P(GraphColoringParamTest, Pentagon) {
+  auto coloring = createStrategy();
 
   // Pentagon (5-cycle):
   //       0
@@ -238,7 +157,7 @@ TEST_F(GraphColoringStrategyTest, ChaitinBriggsColoringPentagon) {
   };
 
   std::vector<unsigned> result;
-  EXPECT_TRUE(succeeded(coloring.colorGraph(adjList, 3, result)));
+  EXPECT_TRUE(succeeded(coloring->colorGraph(adjList, 3, result)));
   EXPECT_EQ(result.size(), 5u);
 
   // Verify proper coloring (adjacent nodes have different colors).
@@ -250,42 +169,11 @@ TEST_F(GraphColoringStrategyTest, ChaitinBriggsColoringPentagon) {
 
   // Should fail with only 2 colors.
   std::vector<unsigned> result2;
-  EXPECT_TRUE(failed(coloring.colorGraph(adjList, 2, result2)));
+  EXPECT_TRUE(failed(coloring->colorGraph(adjList, 2, result2)));
 }
 
-TEST_F(GraphColoringStrategyTest, GreedyColoringPentagon) {
-  GreedyColoring coloring;
-
-  // Pentagon (5-cycle):
-  //       0
-  //      / \
-  //     4   1
-  //     |   |
-  //     3---2
-  //
-  // Requires 3 colors (odd cycle).
-  // Multiple valid colorings exist, so we only verify it's a valid coloring.
-  std::vector<std::vector<size_t>> adjList = {
-      {1, 4}, {0, 2}, {1, 3}, {2, 4}, {0, 3}};
-
-  std::vector<unsigned> result;
-  EXPECT_TRUE(succeeded(coloring.colorGraph(adjList, 3, result)));
-  EXPECT_EQ(result.size(), 5u);
-
-  // Verify proper coloring (adjacent nodes have different colors).
-  EXPECT_NE(result[0], result[1]);
-  EXPECT_NE(result[0], result[4]);
-  EXPECT_NE(result[1], result[2]);
-  EXPECT_NE(result[2], result[3]);
-  EXPECT_NE(result[3], result[4]);
-
-  // Should fail with only 2 colors.
-  std::vector<unsigned> result2;
-  EXPECT_TRUE(failed(coloring.colorGraph(adjList, 2, result2)));
-}
-
-TEST_F(GraphColoringStrategyTest, ChaitinBriggsColoringStar) {
-  ChaitinBriggsColoring coloring;
+TEST_P(GraphColoringParamTest, Star) {
+  auto coloring = createStrategy();
 
   // Star graph (center node connected to all others):
   //       A
@@ -304,7 +192,7 @@ TEST_F(GraphColoringStrategyTest, ChaitinBriggsColoringStar) {
   };
 
   std::vector<unsigned> result;
-  EXPECT_TRUE(succeeded(coloring.colorGraph(adjList, 2, result)));
+  EXPECT_TRUE(succeeded(coloring->colorGraph(adjList, 2, result)));
   EXPECT_EQ(result.size(), 5u);
 
   // Center must have different color from all outer nodes.
@@ -317,6 +205,136 @@ TEST_F(GraphColoringStrategyTest, ChaitinBriggsColoringStar) {
   EXPECT_EQ(result[1], result[2]);
   EXPECT_EQ(result[2], result[3]);
   EXPECT_EQ(result[3], result[4]);
+}
+
+TEST_P(GraphColoringParamTest, BinaryTree) {
+  auto coloring = createStrategy();
+
+  // Binary tree (depth 2):
+  //         A
+  //        / \
+  //       B   B
+  //      / \ / \
+  //     A  A A  A
+  //
+  // 2-colorable (bipartite): A=color0, B=color1
+  std::vector<std::vector<size_t>> adjList = {
+      {1, 2},    // 0 connects to 1, 2
+      {0, 3, 4}, // 1 connects to 0, 3, 4
+      {0, 5, 6}, // 2 connects to 0, 5, 6
+      {1},       // 3 connects to 1
+      {1},       // 4 connects to 1
+      {2},       // 5 connects to 2
+      {2}        // 6 connects to 2
+  };
+
+  std::vector<unsigned> result;
+  EXPECT_TRUE(succeeded(coloring->colorGraph(adjList, 2, result)));
+  EXPECT_EQ(result.size(), 7u);
+
+  // Verify proper coloring.
+  EXPECT_NE(result[0], result[1]);
+  EXPECT_NE(result[0], result[2]);
+  EXPECT_NE(result[1], result[3]);
+  EXPECT_NE(result[1], result[4]);
+  EXPECT_NE(result[2], result[5]);
+  EXPECT_NE(result[2], result[6]);
+
+  for (auto idx = 3; idx < 7; ++idx) {
+    EXPECT_EQ(result[idx], result[0]);
+  }
+
+  // Verify it's 2-colorable.
+  for (auto color : result) {
+    EXPECT_LT(color, 2u);
+  }
+}
+
+TEST_P(GraphColoringParamTest, CompleteGraph) {
+  auto coloring = createStrategy();
+
+  // Complete graph K5 (every node connected to every other):
+  //     A---B
+  //     |\ /|
+  //     | X |
+  //     |/ \|
+  //     D---C
+  //      \ /
+  //       E
+  //
+  // Requires 5 colors: A=color0, B=color1, C=color2, D=color3, E=color4
+  std::vector<std::vector<size_t>> adjList = {
+      {1, 2, 3, 4}, // 0 connects to all others
+      {0, 2, 3, 4}, // 1 connects to all others
+      {0, 1, 3, 4}, // 2 connects to all others
+      {0, 1, 2, 4}, // 3 connects to all others
+      {0, 1, 2, 3}  // 4 connects to all others
+  };
+
+  std::vector<unsigned> result;
+  EXPECT_TRUE(succeeded(coloring->colorGraph(adjList, 5, result)));
+  EXPECT_EQ(result.size(), 5u);
+
+  // Every node must have a different color.
+  for (size_t i = 0; i < result.size(); ++i) {
+    for (size_t j = i + 1; j < result.size(); ++j) {
+      EXPECT_NE(result[i], result[j]);
+    }
+  }
+
+  // Should fail with fewer colors.
+  std::vector<unsigned> result2;
+  EXPECT_TRUE(failed(coloring->colorGraph(adjList, 4, result2)));
+}
+
+TEST_P(GraphColoringParamTest, LongPath) {
+  auto coloring = createStrategy();
+
+  // Long path graph (10 nodes):
+  // A---B---A---B---A---B---A---B---A---B
+  //
+  // 2-colorable: A=color0, B=color1 (alternating)
+  std::vector<std::vector<size_t>> adjList = {
+      {1},    // 0
+      {0, 2}, // 1
+      {1, 3}, // 2
+      {2, 4}, // 3
+      {3, 5}, // 4
+      {4, 6}, // 5
+      {5, 7}, // 6
+      {6, 8}, // 7
+      {7, 9}, // 8
+      {8}     // 9
+  };
+
+  std::vector<unsigned> result;
+  EXPECT_TRUE(succeeded(coloring->colorGraph(adjList, 2, result)));
+  EXPECT_EQ(result.size(), 10u);
+
+  // Verify proper coloring (adjacent nodes have different colors).
+  for (size_t i = 0; i < 9; ++i) {
+    EXPECT_NE(result[i], result[i + 1]);
+    EXPECT_EQ(result[i], i % 2 == 0 ? result[0] : result[1]);
+  }
+
+  // Verify it's 2-colorable.
+  for (auto color : result) {
+    EXPECT_LT(color, 2u);
+  }
+}
+
+//===----------------------------------------------------------------------===//
+// Strategy-Specific Tests (Non-Parameterized)
+//===----------------------------------------------------------------------===//
+
+TEST_F(GraphColoringStrategyTest, ChaitinBriggsColoringNoColors) {
+  ChaitinBriggsColoring coloring;
+
+  std::vector<std::vector<size_t>> adjList = {{1}, {0}};
+  std::vector<unsigned> coloringResult;
+
+  auto result = coloring.colorGraph(adjList, 0, coloringResult);
+  EXPECT_TRUE(failed(result));
 }
 
 //===----------------------------------------------------------------------===//
@@ -402,235 +420,323 @@ TEST_F(DstAnalysisGraphColoringTest, ReportsFailureWhenColoringFails) {
   EXPECT_EQ(result.numSlicesRequired, 3u);
 }
 
-TEST_F(GraphColoringStrategyTest, GreedyColoringStar) {
-  GreedyColoring coloring;
+//===----------------------------------------------------------------------===//
+// Tests for EquivalenceClasses and Coalescing
+//===----------------------------------------------------------------------===//
 
-  // Star graph (center node connected to all others):
-  //       A
-  //       |
-  //   A---B---A
-  //       |
-  //       A
-  //
-  // 2-colorable: A=color0 (outer), B=color1 (center)
-  std::vector<std::vector<size_t>> adjList = {{1, 2, 3, 4}, {0}, {0}, {0}, {0}};
+TEST_F(GraphColoringStrategyTest, EquivalenceClassesBasic) {
+  // Test that equivalence classes properly merge coalescing pairs.
+  llvm::EquivalenceClasses<size_t> ec;
 
-  std::vector<unsigned> result;
-  EXPECT_TRUE(succeeded(coloring.colorGraph(adjList, 2, result)));
-  EXPECT_EQ(result.size(), 5u);
+  // Insert nodes 0-4.
+  for (size_t i = 0; i < 5; ++i) {
+    ec.insert(i);
+  }
 
-  EXPECT_NE(result[0], result[1]);
-  EXPECT_NE(result[0], result[2]);
-  EXPECT_NE(result[0], result[3]);
-  EXPECT_NE(result[0], result[4]);
+  // Create coalescing pairs: (0,1), (2,3).
+  ec.unionSets(0, 1);
+  ec.unionSets(2, 3);
 
-  EXPECT_EQ(result[1], result[2]);
-  EXPECT_EQ(result[2], result[3]);
-  EXPECT_EQ(result[3], result[4]);
+  // Verify equivalence relationships.
+  EXPECT_TRUE(ec.isEquivalent(0, 1));
+  EXPECT_TRUE(ec.isEquivalent(2, 3));
+  EXPECT_FALSE(ec.isEquivalent(0, 2));
+  EXPECT_FALSE(ec.isEquivalent(1, 3));
+  EXPECT_FALSE(ec.isEquivalent(0, 4));
+
+  // Node 4 should be in its own class.
+  EXPECT_EQ(ec.getLeaderValue(4), 4u);
 }
 
-TEST_F(GraphColoringStrategyTest, ChaitinBriggsColoringBinaryTree) {
+TEST_F(GraphColoringStrategyTest, EquivalenceClassesTransitive) {
+  // Test transitive closure: if (0,1) and (1,2) are coalesced, then (0,2).
+  llvm::EquivalenceClasses<size_t> ec;
+
+  for (size_t i = 0; i < 4; ++i) {
+    ec.insert(i);
+  }
+
+  ec.unionSets(0, 1);
+  ec.unionSets(1, 2);
+
+  // All three should be in the same equivalence class.
+  EXPECT_TRUE(ec.isEquivalent(0, 1));
+  EXPECT_TRUE(ec.isEquivalent(1, 2));
+  EXPECT_TRUE(ec.isEquivalent(0, 2));
+  EXPECT_FALSE(ec.isEquivalent(0, 3));
+}
+
+TEST_F(GraphColoringStrategyTest, GraphContractionWithCoalescing) {
+  // Test that graph contraction properly handles coalesced nodes.
+  // Original graph: 0 -- 1 -- 2 -- 3
+  // Coalescing: (0,1) and (2,3)
+  // Contracted graph: A -- B where A = {0,1} and B = {2,3}
+  // This should be 2-colorable.
+
   ChaitinBriggsColoring coloring;
 
-  // Binary tree (depth 2):
-  //         A
-  //        / \
-  //       B   B
-  //      / \ / \
-  //     A  A A  A
-  //
-  // 2-colorable (bipartite): A=color0, B=color1
-  std::vector<std::vector<size_t>> adjList = {
-      {1, 2},    // 0 connects to 1, 2
-      {0, 3, 4}, // 1 connects to 0, 3, 4
-      {0, 5, 6}, // 2 connects to 0, 5, 6
-      {1},       // 3 connects to 1
-      {1},       // 4 connects to 1
-      {2},       // 5 connects to 2
-      {2}        // 6 connects to 2
+  // Build original adjacency list.
+  std::vector<std::vector<size_t>> origAdjList = {
+      {1},    // 0 connects to 1
+      {0, 2}, // 1 connects to 0, 2
+      {1, 3}, // 2 connects to 1, 3
+      {2}     // 3 connects to 2
   };
 
-  std::vector<unsigned> result;
-  EXPECT_TRUE(succeeded(coloring.colorGraph(adjList, 2, result)));
-  EXPECT_EQ(result.size(), 7u);
+  // Build equivalence classes.
+  llvm::EquivalenceClasses<size_t> ec;
+  for (size_t i = 0; i < 4; ++i) {
+    ec.insert(i);
+  }
+  ec.unionSets(0, 1); // Coalesce 0 and 1.
+  ec.unionSets(2, 3); // Coalesce 2 and 3.
 
-  // Verify proper coloring.
-  EXPECT_NE(result[0], result[1]);
-  EXPECT_NE(result[0], result[2]);
-  EXPECT_NE(result[1], result[3]);
-  EXPECT_NE(result[1], result[4]);
-  EXPECT_NE(result[2], result[5]);
-  EXPECT_NE(result[2], result[6]);
-
-  for (auto idx = 3; idx < 7; ++idx) {
-    EXPECT_EQ(result[idx], result[0]);
+  // Remove edges between coalesced nodes.
+  for (size_t node = 0; node < origAdjList.size(); ++node) {
+    auto &neighbors = origAdjList[node];
+    neighbors.erase(std::remove_if(neighbors.begin(), neighbors.end(),
+                                   [&](size_t neighbor) {
+                                     return ec.isEquivalent(node, neighbor);
+                                   }),
+                    neighbors.end());
   }
 
-  // Verify it's 2-colorable.
-  for (auto color : result) {
-    EXPECT_LT(color, 2u);
-  }
-}
+  // Build contracted graph.
+  llvm::DenseMap<size_t, size_t> nodeToLeader;
+  llvm::DenseMap<size_t, size_t> leaderToContracted;
+  std::vector<size_t> contractedToLeader;
 
-TEST_F(GraphColoringStrategyTest, GreedyColoringBinaryTree) {
-  GreedyColoring coloring;
-
-  // Binary tree (depth 2):
-  //         A
-  //        / \
-  //       B   B
-  //      / \ / \
-  //     A  A A  A
-  //
-  // 2-colorable (bipartite): A=color0, B=color1
-  std::vector<std::vector<size_t>> adjList = {{1, 2}, {0, 3, 4}, {0, 5, 6}, {1},
-                                              {1},    {2},       {2}};
-
-  std::vector<unsigned> result;
-  EXPECT_TRUE(succeeded(coloring.colorGraph(adjList, 2, result)));
-  EXPECT_EQ(result.size(), 7u);
-
-  EXPECT_NE(result[0], result[1]);
-  EXPECT_NE(result[0], result[2]);
-  EXPECT_NE(result[1], result[3]);
-  EXPECT_NE(result[1], result[4]);
-  EXPECT_NE(result[2], result[5]);
-  EXPECT_NE(result[2], result[6]);
-
-  for (auto idx = 3; idx < 7; ++idx) {
-    EXPECT_EQ(result[idx], result[0]);
-  }
-
-  for (auto color : result) {
-    EXPECT_LT(color, 2u);
-  }
-}
-
-TEST_F(GraphColoringStrategyTest, ChaitinBriggsColoringCompleteGraph) {
-  ChaitinBriggsColoring coloring;
-
-  // Complete graph K5 (every node connected to every other):
-  //     A---B
-  //     |\ /|
-  //     | X |
-  //     |/ \|
-  //     D---C
-  //      \ /
-  //       E
-  //
-  // Requires 5 colors: A=color0, B=color1, C=color2, D=color3, E=color4
-  std::vector<std::vector<size_t>> adjList = {
-      {1, 2, 3, 4}, // 0 connects to all others
-      {0, 2, 3, 4}, // 1 connects to all others
-      {0, 1, 3, 4}, // 2 connects to all others
-      {0, 1, 2, 4}, // 3 connects to all others
-      {0, 1, 2, 3}  // 4 connects to all others
-  };
-
-  std::vector<unsigned> result;
-  EXPECT_TRUE(succeeded(coloring.colorGraph(adjList, 5, result)));
-  EXPECT_EQ(result.size(), 5u);
-
-  // Every node must have a different color.
-  for (size_t i = 0; i < result.size(); ++i) {
-    for (size_t j = i + 1; j < result.size(); ++j) {
-      EXPECT_NE(result[i], result[j]);
+  for (size_t i = 0; i < 4; ++i) {
+    size_t leader = ec.getLeaderValue(i);
+    nodeToLeader[i] = leader;
+    if (leaderToContracted.find(leader) == leaderToContracted.end()) {
+      size_t idx = contractedToLeader.size();
+      leaderToContracted[leader] = idx;
+      contractedToLeader.push_back(leader);
     }
   }
 
-  // Should fail with fewer colors.
-  std::vector<unsigned> result2;
-  EXPECT_TRUE(failed(coloring.colorGraph(adjList, 4, result2)));
-}
+  // Should have 2 contracted nodes.
+  EXPECT_EQ(contractedToLeader.size(), 2u);
 
-TEST_F(GraphColoringStrategyTest, GreedyColoringCompleteGraph) {
-  GreedyColoring coloring;
-
-  // Complete graph K5 (every node connected to every other):
-  //     A---B
-  //     |\ /|
-  //     | X |
-  //     |/ \|
-  //     D---C
-  //      \ /
-  //       E
-  //
-  // Requires 5 colors: A=color0, B=color1, C=color2, D=color3, E=color4
-  std::vector<std::vector<size_t>> adjList = {
-      {1, 2, 3, 4}, {0, 2, 3, 4}, {0, 1, 3, 4}, {0, 1, 2, 4}, {0, 1, 2, 3}};
-
-  std::vector<unsigned> result;
-  EXPECT_TRUE(succeeded(coloring.colorGraph(adjList, 5, result)));
-  EXPECT_EQ(result.size(), 5u);
-
-  for (size_t i = 0; i < result.size(); ++i) {
-    for (size_t j = i + 1; j < result.size(); ++j) {
-      EXPECT_NE(result[i], result[j]);
+  // Build contracted adjacency list.
+  std::vector<std::vector<size_t>> contractedAdjList(contractedToLeader.size());
+  for (size_t node = 0; node < 4; ++node) {
+    size_t leader = nodeToLeader[node];
+    size_t contractedNode = leaderToContracted[leader];
+    for (size_t neighbor : origAdjList[node]) {
+      size_t neighborLeader = nodeToLeader[neighbor];
+      if (leader == neighborLeader) {
+        continue;
+      }
+      size_t contractedNeighbor = leaderToContracted[neighborLeader];
+      if (std::find(contractedAdjList[contractedNode].begin(),
+                    contractedAdjList[contractedNode].end(),
+                    contractedNeighbor) == contractedAdjList[contractedNode].end()) {
+        contractedAdjList[contractedNode].push_back(contractedNeighbor);
+      }
     }
   }
 
-  std::vector<unsigned> result2;
-  EXPECT_TRUE(failed(coloring.colorGraph(adjList, 4, result2)));
+  // Contracted graph should be 2 nodes connected by 1 edge.
+  EXPECT_EQ(contractedAdjList.size(), 2u);
+  EXPECT_EQ(contractedAdjList[0].size(), 1u);
+  EXPECT_EQ(contractedAdjList[1].size(), 1u);
+
+  // Color the contracted graph.
+  std::vector<unsigned> contractedColoring;
+  EXPECT_TRUE(succeeded(coloring.colorGraph(contractedAdjList, 2, contractedColoring)));
+  EXPECT_EQ(contractedColoring.size(), 2u);
+  EXPECT_NE(contractedColoring[0], contractedColoring[1]);
+
+  // Propagate colors to original nodes.
+  std::vector<unsigned> coloring_result(4);
+  for (size_t i = 0; i < 4; ++i) {
+    size_t leader = nodeToLeader[i];
+    size_t contractedIdx = leaderToContracted[leader];
+    coloring_result[i] = contractedColoring[contractedIdx];
+  }
+
+  // Coalesced nodes should have the same color.
+  EXPECT_EQ(coloring_result[0], coloring_result[1]);
+  EXPECT_EQ(coloring_result[2], coloring_result[3]);
+  // Different equivalence classes should have different colors.
+  EXPECT_NE(coloring_result[0], coloring_result[2]);
 }
 
-TEST_F(GraphColoringStrategyTest, ChaitinBriggsColoringLargerPath) {
+TEST_F(GraphColoringStrategyTest, CoalescingReducesChromaticNumber) {
+  // Test that coalescing can reduce the chromatic number.
+  // Triangle graph (K3): requires 3 colors without coalescing.
+  // With coalescing (0,2): reduces to 2 nodes, requires 2 colors.
+
   ChaitinBriggsColoring coloring;
 
-  // Long path graph (10 nodes):
-  // A---B---A---B---A---B---A---B---A---B
-  //
-  // 2-colorable: A=color0, B=color1 (alternating)
-  std::vector<std::vector<size_t>> adjList = {
-      {1},    // 0
-      {0, 2}, // 1
-      {1, 3}, // 2
-      {2, 4}, // 3
-      {3, 5}, // 4
-      {4, 6}, // 5
-      {5, 7}, // 6
-      {6, 8}, // 7
-      {7, 9}, // 8
-      {8}     // 9
+  // Original triangle: 0 -- 1 -- 2 -- 0.
+  std::vector<std::vector<size_t>> origAdjList = {
+      {1, 2}, // 0 connects to 1, 2
+      {0, 2}, // 1 connects to 0, 2
+      {0, 1}  // 2 connects to 0, 1
   };
 
-  std::vector<unsigned> result;
-  EXPECT_TRUE(succeeded(coloring.colorGraph(adjList, 2, result)));
-  EXPECT_EQ(result.size(), 10u);
+  // Without coalescing, requires 3 colors.
+  std::vector<unsigned> result3;
+  EXPECT_TRUE(succeeded(coloring.colorGraph(origAdjList, 3, result3)));
+  std::vector<unsigned> result2;
+  EXPECT_TRUE(failed(coloring.colorGraph(origAdjList, 2, result2)));
 
-  // Verify proper coloring (adjacent nodes have different colors).
-  for (size_t i = 0; i < 9; ++i) {
-    EXPECT_NE(result[i], result[i + 1]);
-    EXPECT_EQ(result[i], i % 2 == 0 ? result[0] : result[1]);
+  // With coalescing (0,2): nodes 0 and 2 must have same color.
+  llvm::EquivalenceClasses<size_t> ec;
+  for (size_t i = 0; i < 3; ++i) {
+    ec.insert(i);
+  }
+  ec.unionSets(0, 2);
+
+  // Remove edge between coalesced nodes (0,2).
+  std::vector<std::vector<size_t>> coalescedAdjList = origAdjList;
+  for (size_t node = 0; node < coalescedAdjList.size(); ++node) {
+    auto &neighbors = coalescedAdjList[node];
+    neighbors.erase(std::remove_if(neighbors.begin(), neighbors.end(),
+                                   [&](size_t neighbor) {
+                                     return ec.isEquivalent(node, neighbor);
+                                   }),
+                    neighbors.end());
   }
 
-  // Verify it's 2-colorable.
-  for (auto color : result) {
-    EXPECT_LT(color, 2u);
+  // After removing (0,2) edge: 0 -- 1 -- 2 (linear).
+  EXPECT_EQ(coalescedAdjList[0].size(), 1u); // 0 connects only to 1.
+  EXPECT_EQ(coalescedAdjList[2].size(), 1u); // 2 connects only to 1.
+
+  // Build contracted graph: 2 nodes (class {0,2} and class {1}).
+  llvm::DenseMap<size_t, size_t> nodeToLeader;
+  llvm::DenseMap<size_t, size_t> leaderToContracted;
+  std::vector<size_t> contractedToLeader;
+
+  for (size_t i = 0; i < 3; ++i) {
+    size_t leader = ec.getLeaderValue(i);
+    nodeToLeader[i] = leader;
+    if (leaderToContracted.find(leader) == leaderToContracted.end()) {
+      size_t idx = contractedToLeader.size();
+      leaderToContracted[leader] = idx;
+      contractedToLeader.push_back(leader);
+    }
   }
+
+  EXPECT_EQ(contractedToLeader.size(), 2u);
+
+  std::vector<std::vector<size_t>> contractedAdjList(2);
+  for (size_t node = 0; node < 3; ++node) {
+    size_t leader = nodeToLeader[node];
+    size_t contractedNode = leaderToContracted[leader];
+    for (size_t neighbor : coalescedAdjList[node]) {
+      size_t neighborLeader = nodeToLeader[neighbor];
+      if (leader == neighborLeader) {
+        continue;
+      }
+      size_t contractedNeighbor = leaderToContracted[neighborLeader];
+      if (std::find(contractedAdjList[contractedNode].begin(),
+                    contractedAdjList[contractedNode].end(),
+                    contractedNeighbor) == contractedAdjList[contractedNode].end()) {
+        contractedAdjList[contractedNode].push_back(contractedNeighbor);
+      }
+    }
+  }
+
+  // Contracted graph should be 2-colorable.
+  std::vector<unsigned> contractedColoring;
+  EXPECT_TRUE(succeeded(coloring.colorGraph(contractedAdjList, 2, contractedColoring)));
 }
 
-TEST_F(GraphColoringStrategyTest, GreedyColoringLargerPath) {
-  GreedyColoring coloring;
+TEST_F(GraphColoringStrategyTest, CoalescingWithMultiplePairs) {
+  // Test coalescing with multiple independent pairs.
+  // Graph: 0 -- 1 -- 2 -- 3 -- 4 -- 5
+  // Coalescing: (0,1), (2,3), (4,5)
+  // Contracted: A -- B -- C (linear, 2-colorable).
 
-  // Long path graph (10 nodes):
-  // A---B---A---B---A---B---A---B---A---B
-  //
-  // 2-colorable: A=color0, B=color1 (alternating)
-  std::vector<std::vector<size_t>> adjList = {
-      {1}, {0, 2}, {1, 3}, {2, 4}, {3, 5}, {4, 6}, {5, 7}, {6, 8}, {7, 9}, {8}};
+  ChaitinBriggsColoring coloring;
 
-  std::vector<unsigned> result;
-  EXPECT_TRUE(succeeded(coloring.colorGraph(adjList, 2, result)));
-  EXPECT_EQ(result.size(), 10u);
+  std::vector<std::vector<size_t>> origAdjList = {
+      {1},       // 0
+      {0, 2},    // 1
+      {1, 3},    // 2
+      {2, 4},    // 3
+      {3, 5},    // 4
+      {4}        // 5
+  };
 
-  for (size_t i = 0; i < 9; ++i) {
-    EXPECT_NE(result[i], result[i + 1]);
-    EXPECT_EQ(result[i], i % 2 == 0 ? result[0] : result[1]);
+  llvm::EquivalenceClasses<size_t> ec;
+  for (size_t i = 0; i < 6; ++i) {
+    ec.insert(i);
+  }
+  ec.unionSets(0, 1);
+  ec.unionSets(2, 3);
+  ec.unionSets(4, 5);
+
+  // Remove intra-class edges.
+  for (size_t node = 0; node < origAdjList.size(); ++node) {
+    auto &neighbors = origAdjList[node];
+    neighbors.erase(std::remove_if(neighbors.begin(), neighbors.end(),
+                                   [&](size_t neighbor) {
+                                     return ec.isEquivalent(node, neighbor);
+                                   }),
+                    neighbors.end());
   }
 
-  for (auto color : result) {
-    EXPECT_LT(color, 2u);
+  // Build contracted graph.
+  llvm::DenseMap<size_t, size_t> nodeToLeader;
+  llvm::DenseMap<size_t, size_t> leaderToContracted;
+  std::vector<size_t> contractedToLeader;
+
+  for (size_t i = 0; i < 6; ++i) {
+    size_t leader = ec.getLeaderValue(i);
+    nodeToLeader[i] = leader;
+    if (leaderToContracted.find(leader) == leaderToContracted.end()) {
+      size_t idx = contractedToLeader.size();
+      leaderToContracted[leader] = idx;
+      contractedToLeader.push_back(leader);
+    }
   }
+
+  EXPECT_EQ(contractedToLeader.size(), 3u);
+
+  std::vector<std::vector<size_t>> contractedAdjList(3);
+  for (size_t node = 0; node < 6; ++node) {
+    size_t leader = nodeToLeader[node];
+    size_t contractedNode = leaderToContracted[leader];
+    for (size_t neighbor : origAdjList[node]) {
+      size_t neighborLeader = nodeToLeader[neighbor];
+      if (leader == neighborLeader) {
+        continue;
+      }
+      size_t contractedNeighbor = leaderToContracted[neighborLeader];
+      if (std::find(contractedAdjList[contractedNode].begin(),
+                    contractedAdjList[contractedNode].end(),
+                    contractedNeighbor) == contractedAdjList[contractedNode].end()) {
+        contractedAdjList[contractedNode].push_back(contractedNeighbor);
+      }
+    }
+  }
+
+  // Contracted graph: A -- B -- C (linear chain, 2-colorable).
+  std::vector<unsigned> contractedColoring;
+  EXPECT_TRUE(succeeded(coloring.colorGraph(contractedAdjList, 2, contractedColoring)));
+  EXPECT_EQ(contractedColoring.size(), 3u);
+
+  // Propagate colors.
+  std::vector<unsigned> coloring_result(6);
+  for (size_t i = 0; i < 6; ++i) {
+    size_t leader = nodeToLeader[i];
+    size_t contractedIdx = leaderToContracted[leader];
+    coloring_result[i] = contractedColoring[contractedIdx];
+  }
+
+  // Verify coalesced nodes have same color.
+  EXPECT_EQ(coloring_result[0], coloring_result[1]);
+  EXPECT_EQ(coloring_result[2], coloring_result[3]);
+  EXPECT_EQ(coloring_result[4], coloring_result[5]);
+
+  // Verify adjacent contracted nodes have different colors.
+  EXPECT_NE(coloring_result[1], coloring_result[2]);
+  EXPECT_NE(coloring_result[3], coloring_result[4]);
 }
 
 } // namespace mlir::tt::d2m

@@ -1057,6 +1057,11 @@ public:
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
 
+    // Debug: print allocation strategy
+    llvm::errs()
+        << "[DEBUG] D2MInsertDstRegisterAccess pass running with strategy: "
+        << allocationStrategy << "\n";
+
     // Validate allocation strategy option
     if (allocationStrategy != "basic" && allocationStrategy != "greedy" &&
         allocationStrategy != "chaitin-briggs") {

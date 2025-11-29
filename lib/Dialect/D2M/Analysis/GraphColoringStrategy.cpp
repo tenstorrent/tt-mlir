@@ -6,7 +6,9 @@
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
+#include "llvm/ADT/EquivalenceClasses.h"
 #include <algorithm>
+#include <deque>
 
 namespace mlir::tt::d2m {
 
@@ -299,8 +301,7 @@ mlir::tt::d2m::InterferenceGraphResult buildIndexGraphFromDstOperations(
 
   // Add interference edges between sibling operands of the same compute op.
   // All inputs to a compute operation are live simultaneously and must have
-  // different DST slices. This is critical for binary operations like tile_add
-  // where both operands must be loaded into DST before the operation executes.
+  // different DST slices.
   for (const auto &[computeOp, inputLoadIndices] : computeOpInputLoads) {
     // Add pairwise interference edges between all input loads.
     for (size_t i = 0; i < inputLoadIndices.size(); ++i) {
@@ -341,7 +342,7 @@ mlir::tt::d2m::InterferenceGraphResult buildIndexGraphFromDstOperations(
 
   // For operations in nested regions (loops), assume conservative interference.
   // Build a map from each DST access to its containing loops.
-  llvm::DenseMap<mlir::Operation *, llvm::SmallVector<mlir::Operation *>>
+  llvm::MapVector<mlir::Operation *, llvm::SmallVector<mlir::Operation *>>
       opToLoops;
   for (mlir::Operation *op : dstAccessOps) {
     llvm::SmallVector<mlir::Operation *> loops;
@@ -485,22 +486,23 @@ mlir::tt::d2m::InterferenceGraphResult buildIndexGraphFromDstOperations(
     }
   }
 
-  // Remove interference edges between nodes in coalescing pairs.
-  // Coalesced nodes must have the same color, so they cannot interfere.
-  // This ensures graph coloring succeeds before we apply coalescing post-hoc.
-  llvm::DenseSet<std::pair<size_t, size_t>> coalescedPairs;
+  // Build equivalence classes from coalescing pairs.
+  // All nodes in an equivalence class must receive the same color.
+  for (size_t i = 0; i < totalAccesses; ++i) {
+    result.coalescedClasses.insert(i);
+  }
   for (const auto &[idx1, idx2] : result.coalescingPairs) {
-    coalescedPairs.insert({std::min(idx1, idx2), std::max(idx1, idx2)});
+    result.coalescedClasses.unionSets(idx1, idx2);
   }
 
+  // Remove interference edges between nodes in the same equivalence class.
+  // Coalesced nodes must have the same color, so they cannot interfere.
   for (size_t node = 0; node < result.adjacencyList.size(); ++node) {
     auto &neighbors = result.adjacencyList[node];
     neighbors.erase(std::remove_if(neighbors.begin(), neighbors.end(),
                                    [&](size_t neighbor) {
-                                     size_t minIdx = std::min(node, neighbor);
-                                     size_t maxIdx = std::max(node, neighbor);
-                                     return coalescedPairs.count(
-                                                {minIdx, maxIdx}) > 0;
+                                     return result.coalescedClasses.isEquivalent(
+                                         node, neighbor);
                                    }),
                     neighbors.end());
   }
