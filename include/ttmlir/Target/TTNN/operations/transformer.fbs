@@ -44,6 +44,15 @@ table NLPConcatHeadsDecodeOp {
   memcfg: tt.target.ttnn.MemoryConfig;
 }
 
+table SDPAConfig {
+  compute_with_storage_grid_size: tt.target.ttnn.CoreCoord;
+  sub_core_grids: tt.target.ttnn.CoreRangeSet;
+  q_chunk_size: uint64;
+  k_chunk_size: uint64;
+  exp_approx_mode: bool = null;
+  max_cores_per_head_batch: uint32 = null;
+}
+
 table ScaledDotProductAttentionDecodeOp {
   query: tt.target.ttnn.TensorRef;
   key: tt.target.ttnn.TensorRef;
@@ -55,6 +64,7 @@ table ScaledDotProductAttentionDecodeOp {
   scale: float = null;
   out: tt.target.ttnn.TensorRef;
   memcfg: tt.target.ttnn.MemoryConfig;
+  program_config: tt.target.ttnn.SDPAConfig;
 }
 
 table ScaledDotProductAttentionOp {

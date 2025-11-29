@@ -747,6 +747,22 @@ inline ::flatbuffers::Optional<bool> toFlatbuffer(FlatbufferObjectCache &cache,
   return ::flatbuffers::nullopt;
 }
 
+inline ::flatbuffers::Offset<::tt::target::ttnn::SDPAConfig>
+toFlatbuffer(FlatbufferObjectCache &cache,
+             ttnn::SDPAProgramConfigAttr sdpaConfigAttr) {
+  ::tt::target::ttnn::CoreCoord computeWithStorageGridSize =
+      toFlatbuffer(cache, sdpaConfigAttr.getComputeWithStorageGridSize());
+  ::flatbuffers::Offset<::tt::target::ttnn::CoreRangeSet> subCoreGrids;
+  if (sdpaConfigAttr.getSubCoreGrids()) {
+    subCoreGrids = toFlatbuffer(cache, sdpaConfigAttr.getSubCoreGrids());
+  }
+  return ::tt::target::ttnn::CreateSDPAConfig(
+      *cache.fbb, &computeWithStorageGridSize, subCoreGrids,
+      sdpaConfigAttr.getQChunkSize(), sdpaConfigAttr.getKChunkSize(),
+      toFlatbuffer(cache, sdpaConfigAttr.getExpApproxMode()),
+      toFlatbuffer(cache, sdpaConfigAttr.getMaxCoresPerHeadBatch()));
+}
+
 inline ::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>
 toFlatbuffer(FlatbufferObjectCache &cache, ttnn::Conv2dConfigAttr config) {
   ::flatbuffers::Offset<::tt::target::ttnn::UnaryWithParam> activation;
