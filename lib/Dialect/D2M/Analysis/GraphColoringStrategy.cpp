@@ -9,7 +9,6 @@
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
 #include "llvm/ADT/EquivalenceClasses.h"
 #include <algorithm>
-#include <deque>
 
 namespace mlir::tt::d2m {
 
@@ -110,13 +109,15 @@ mlir::LogicalResult ChaitinBriggsColoring::colorGraph(
 //                          GreedyColoring Implementation
 //===----------------------------------------------------------------------===//
 
-/// Greedy graph coloring with priority-based ordering and eviction.
-/// Inspired by LLVM's RegAllocGreedy register allocator.
+/// Simple greedy graph coloring with priority-based ordering.
 ///
 /// Key features:
 /// - Priority-based ordering: processes high-degree nodes first
-/// - Eviction: can evict lower-priority (lower-degree) neighbors when stuck
-/// - Cascade tracking: prevents infinite eviction loops
+/// - Fast single-pass coloring without eviction
+///
+/// This is a straightforward greedy algorithm that processes nodes in order
+/// of decreasing degree and assigns the first available color. Unlike more
+/// complex approaches, it does not attempt to evict previously colored nodes.
 LogicalResult GreedyColoring::colorGraph(
     const std::vector<std::vector<size_t>> &adjacencyList, unsigned numColors,
     std::vector<unsigned> &coloring) {
@@ -128,7 +129,7 @@ LogicalResult GreedyColoring::colorGraph(
     return success();
   }
 
-  // Step 1: Build priority queue - process high-degree nodes first.
+  // Build priority queue - process high-degree nodes first.
   // Higher degree nodes are harder to color, so we prioritize them.
   std::vector<std::pair<size_t, size_t>> priorityQueue; // (degree, node)
   for (size_t i = 0; i < numNodes; ++i) {
@@ -137,22 +138,8 @@ LogicalResult GreedyColoring::colorGraph(
   std::sort(priorityQueue.begin(), priorityQueue.end(),
             [](const auto &a, const auto &b) { return a.first > b.first; });
 
-  // Cascade tracking to prevent infinite eviction loops.
-  // Each node tracks its cascade number - if we try to evict a node that
-  // was already evicted in this cascade, we skip it.
-  std::vector<unsigned> cascadeNumber(numNodes, 0);
-  unsigned currentCascade = 0;
-
-  // Worklist of nodes to (re)color.
-  std::deque<size_t> worklist;
+  // Color nodes in priority order.
   for (const auto &[degree, node] : priorityQueue) {
-    worklist.push_back(node);
-  }
-
-  while (!worklist.empty()) {
-    size_t node = worklist.front();
-    worklist.pop_front();
-
     // Find colors used by neighbors.
     std::vector<bool> usedColors(numColors, false);
     for (size_t neighbor : adjacencyList[node]) {
@@ -170,50 +157,12 @@ LogicalResult GreedyColoring::colorGraph(
       }
     }
 
-    if (color != UINT_MAX) {
-      coloring[node] = color;
-      continue;
+    if (color == UINT_MAX) {
+      // No available color - spill.
+      return failure();
     }
 
-    // Step 2: Try eviction - find lowest-degree neighbor to evict.
-    // Only evict neighbors with lower priority (lower degree) than current
-    // node.
-    size_t nodeDegree = adjacencyList[node].size();
-    size_t victimNode = SIZE_MAX;
-    size_t victimDegree = SIZE_MAX;
-    unsigned victimColor = UINT_MAX;
-
-    for (size_t neighbor : adjacencyList[node]) {
-      if (coloring[neighbor] == UINT_MAX) {
-        continue;
-      }
-      size_t neighborDegree = adjacencyList[neighbor].size();
-
-      // Only evict lower-priority (lower-degree) nodes.
-      // Also check cascade to prevent infinite loops.
-      if (neighborDegree < nodeDegree && neighborDegree < victimDegree &&
-          cascadeNumber[neighbor] < currentCascade + 1) {
-        victimNode = neighbor;
-        victimDegree = neighborDegree;
-        victimColor = coloring[neighbor];
-      }
-    }
-
-    if (victimNode != SIZE_MAX) {
-      // Evict the victim.
-      coloring[victimNode] = UINT_MAX;
-      cascadeNumber[victimNode] = ++currentCascade;
-
-      // Assign freed color to current node.
-      coloring[node] = victimColor;
-
-      // Re-add victim to worklist for recoloring.
-      worklist.push_back(victimNode);
-      continue;
-    }
-
-    // No eviction possible - spill.
-    return failure();
+    coloring[node] = color;
   }
 
   return success();

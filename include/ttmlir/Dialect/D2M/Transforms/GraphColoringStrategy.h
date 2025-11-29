@@ -77,18 +77,15 @@ public:
              unsigned numColors, std::vector<unsigned> &coloring) override;
 };
 
-/// Greedy graph coloring algorithm inspired by LLVM's RegAllocGreedy.
+/// Simple greedy graph coloring algorithm with priority-based ordering.
 ///
 /// Main features:
 /// - Priority-based allocation: processes nodes by degree (highest first)
-/// - Eviction and reassignment: attempts to free up colors when needed
-/// - Spill cost consideration: prefers to spill lower-priority values
+/// - Fast single-pass coloring without eviction
 ///
-/// Fast with good-quality colorings suitable for most real-world cases; best
-/// for quick compilation with acceptable register pressure.
-///
-/// Reference: LLVM's RegAllocGreedy implementation:
-/// https://github.com/llvm/llvm-project/blob/main/llvm/lib/CodeGen/RegAllocGreedy.cpp
+/// Fast with good-quality colorings suitable for most real-world cases.
+/// Processes nodes in order of decreasing degree and assigns the first
+/// available color.
 class GreedyColoring : public ColoringStrategy {
 public:
   LogicalResult
