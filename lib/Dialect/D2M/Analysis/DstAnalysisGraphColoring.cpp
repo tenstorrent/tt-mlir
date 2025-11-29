@@ -6,8 +6,10 @@
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/GraphColoringStrategy.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/Support/FormatVariadic.h"
 
 namespace mlir::tt::d2m {
@@ -20,6 +22,7 @@ namespace {
 static llvm::SmallVector<std::pair<mlir::Operation *, int64_t>>
 identifyDstAccesses(mlir::Operation *op, mlir::Region &region) {
   llvm::SmallVector<std::pair<mlir::Operation *, int64_t>> dstAccesses;
+  llvm::DenseSet<mlir::Operation *> seenOps; // Avoid duplicates
   int64_t index = 0;
 
   // Walk the region looking for D2M compute operations
@@ -35,14 +38,14 @@ identifyDstAccesses(mlir::Operation *op, mlir::Region &region) {
     auto operandsLoadFromDst = computeOp.getOperandsLoadFromDstRegister();
 
     // For each operand that loads from DST, find the corresponding load
-    // operation
+    // operation. This traces through intermediate compute ops like tile_bcast.
     for (int64_t operandIdx : operandsLoadFromDst) {
       mlir::Value operand = operation->getOperand(operandIdx);
 
-      // Trace back through the SSA chain to find the affine.load
-      if (auto *definingOp = operand.getDefiningOp()) {
-        if (auto loadOp =
-                llvm::dyn_cast<mlir::affine::AffineLoadOp>(definingOp)) {
+      // Trace back through the SSA chain to find the affine.load,
+      // going through any intermediate compute ops.
+      if (auto loadOp = utils::traceToAffineLoad(operand)) {
+        if (seenOps.insert(loadOp.getOperation()).second) {
           dstAccesses.push_back({loadOp.getOperation(), index++});
         }
       }
@@ -54,7 +57,9 @@ identifyDstAccesses(mlir::Operation *op, mlir::Region &region) {
       // Find the store operation that stores this operation's result
       for (mlir::Operation *user : operation->getUsers()) {
         if (auto storeOp = llvm::dyn_cast<mlir::affine::AffineStoreOp>(user)) {
-          dstAccesses.push_back({storeOp.getOperation(), index++});
+          if (seenOps.insert(storeOp.getOperation()).second) {
+            dstAccesses.push_back({storeOp.getOperation(), index++});
+          }
         }
       }
     }

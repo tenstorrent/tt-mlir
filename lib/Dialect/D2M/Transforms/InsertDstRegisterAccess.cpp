@@ -150,11 +150,11 @@ public:
 
     int allocate() override {
       const auto *it = operationSlices.find(currentOp);
-      if (currentOp && it != operationSlices.end()) {
-        return static_cast<int>(it->second);
-      }
-      // Fallback for operations not in pre-computed map (shouldn't happen)
-      return fallbackIndex++;
+      TT_assertv((currentOp && it != operationSlices.end()),
+                 "Operation not in pre-computed map - this indicates a mismatch "
+                 "between analysis and pass. The analysis may be tracing through "
+                 "ops (like tile_bcast) that the pass doesn't trace through.");
+      return static_cast<int>(it->second);
     }
 
     void setCurrentOperation(Operation *op) override { currentOp = op; }
@@ -469,23 +469,32 @@ public:
           assert(computeOp->getNumResults() == 1);
           assert(!dstIntermediates.contains(computeOp));
 
+          // Exception: the CB load of the load-bcast pair won't be captured by
+          // the CB->DST load handling loop above. For TileBcastOp, trace through
+          // to find the underlying AffineLoadOp which is what the analysis uses
+          // as the key for DST slot allocation.
+          d2m::TileBcastOp bcastOp = nullptr;
+          affine::AffineLoadOp loadOp = nullptr;
+          if (mlir::isa<d2m::TileBcastOp>(computeOp)) {
+            bcastOp = mlir::cast<d2m::TileBcastOp>(computeOp);
+            loadOp = utils::traceToAffineLoad(computeOp->getOperand(0));
+            TT_assert(loadOp != nullptr);
+          }
+
           // If op stores to dst in place or has scalar rhs, we don't need to
           // allocate a new dst register, just use the current dst index.
-          strategy.setCurrentOperation(computeOp);
+          // For TileBcastOp, use the underlying loadOp as the key since that's
+          // what the analysis stores.
+          strategy.setCurrentOperation(loadOp ? loadOp.getOperation()
+                                              : computeOp);
           int dstSlice =
               (computeOp.getDstRegInPlace() || computeOp.isScalarOperand(1))
                   ? strategy.getCurrSliceIndex()
                   : strategy.allocate();
 
-          // Exception: the CB load of the load-bcast pair won't be captured by
-          // the CB->DST load handling loop above.
-          if (mlir::isa<d2m::TileBcastOp>(computeOp)) {
-            auto loadOp =
-                computeOp->getOperand(0).getDefiningOp<affine::AffineLoadOp>();
-            TT_assert(loadOp != nullptr);
-            auto bcastOp = mlir::cast<d2m::TileBcastOp>(computeOp);
-            collectDstLoadThenBcast(gOp, loadOp, bcastOp, copyInfos, dstSlice,
-                                    outermostInnerComputeLoop);
+          if (bcastOp) {
+            collectDstLoadOrStore(gOp, loadOp, copyInfos, dstSlice,
+                                  outermostInnerComputeLoop, bcastOp);
           } else {
             dstIntermediates[computeOp] = {dstSlice, outermostInnerComputeLoop};
           }
@@ -508,10 +517,15 @@ public:
   }
 
   // Collect a single load or store and determine its loop guard.
+  // For loads, an optional TileBcastOp can be provided if the load goes through
+  // a broadcast operation. This affects the iterator type assertion:
+  // - Without bcast: non-participating dims must be Reduction
+  // - With bcast: non-participating dims must be Parallel (broadcast semantics)
   template <typename LoadOrStoreTy>
   static void collectDstLoadOrStore(GenericOp gOp, LoadOrStoreTy loadOrStore,
                                     CopyInfoMap &copyInfos, int dstSlice,
-                                    Operation *outermostInnerComputeLoop) {
+                                    Operation *outermostInnerComputeLoop,
+                                    d2m::TileBcastOp bcastOp = nullptr) {
     if (!outermostInnerComputeLoop) {
       // If there is no outermostInnerComputeLoop, the common ancestor is the
       // operation itself.
@@ -527,43 +541,25 @@ public:
           gOp.getNonParticipatingLoopDims(blockArg.getArgNumber());
       auto iteratorTypes = gOp.getIteratorTypesValue();
 
+      // With bcast: non-participating dims are Parallel (broadcast semantics)
+      // Without bcast: non-participating dims are Reduction
+      auto expectedIterType = bcastOp ? ttcore::IteratorType::Parallel
+                                      : ttcore::IteratorType::Reduction;
       for (int64_t dim : nonParticipatingLoopDims) {
-        TT_assert(iteratorTypes[dim] == ttcore::IteratorType::Reduction);
+        TT_assert(iteratorTypes[dim] == expectedIterType);
         guardDims.insert(dim);
       }
     }
 
-    iter->second.record(loadOrStore, dstSlice, guardDims);
-  }
-
-  // Collect a load-bcast pair.
-  static void collectDstLoadThenBcast(GenericOp gOp,
-                                      affine::AffineLoadOp loadOp,
-                                      d2m::TileBcastOp bcastOp,
-                                      CopyInfoMap &copyInfos, int dstSlice,
-                                      Operation *outermostInnerComputeLoop) {
-    if (!outermostInnerComputeLoop) {
-      // If there is no outermostInnerComputeLoop, the common ancestor is the
-      // operation itself.
-      outermostInnerComputeLoop = loadOp;
-    }
-
-    auto [iter, _] = copyInfos.try_emplace(outermostInnerComputeLoop);
-    BlockArgument blockArg = lookThroughSubView(loadOp.getMemRef());
-
-    std::set<int64_t> guardDims = {};
-    if (blockArg && !gOp.isExplicitDatamovementForm()) {
-      auto nonParticipatingLoopDims =
-          gOp.getNonParticipatingLoopDims(blockArg.getArgNumber());
-      auto iteratorTypes = gOp.getIteratorTypesValue();
-
-      for (int64_t dim : nonParticipatingLoopDims) {
-        TT_assert(iteratorTypes[dim] == ttcore::IteratorType::Parallel);
-        guardDims.insert(dim);
+    if constexpr (std::is_same_v<LoadOrStoreTy, affine::AffineLoadOp>) {
+      if (bcastOp) {
+        iter->second.record(loadOrStore, bcastOp, dstSlice, guardDims);
+      } else {
+        iter->second.record(loadOrStore, dstSlice, guardDims);
       }
+    } else {
+      iter->second.record(loadOrStore, dstSlice, guardDims);
     }
-
-    iter->second.record(loadOp, bcastOp, dstSlice, guardDims);
   }
 
   /*

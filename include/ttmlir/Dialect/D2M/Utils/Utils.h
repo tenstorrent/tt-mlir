@@ -7,8 +7,13 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
+
+namespace mlir::tt::d2m {
+class TileBcastOp;
+} // namespace mlir::tt::d2m
 
 namespace mlir::tt::d2m::utils {
 
@@ -54,6 +59,22 @@ AffineMap concatInversePermutationMap(mlir::ArrayRef<AffineMap> affineMaps,
 
 // Traces IR to find underlying physical (non-view) tensor/memref.
 Value getPhysicalTensorOrMemref(mlir::Value tensorOrMemref);
+
+/// Trace through the SSA chain to find the affine.load operation.
+/// This traces through intermediate compute operations (like tile_bcast) that
+/// may be between the load and the consuming compute operation.
+///
+/// If `outBcastOp` is non-null and a TileBcastOp is encountered during
+/// tracing, it will be set to that operation. This allows callers to
+/// detect when a load goes through a broadcast without reimplementing
+/// the tracing logic.
+///
+/// @param operand The value to trace through.
+/// @param outBcastOp If non-null, will be set to the TileBcastOp if one is
+/// encountered during tracing.
+/// @return The affine.load operation.
+mlir::affine::AffineLoadOp traceToAffineLoad(mlir::Value operand,
+                                             TileBcastOp *outBcastOp = nullptr);
 
 } // namespace mlir::tt::d2m::utils
 
