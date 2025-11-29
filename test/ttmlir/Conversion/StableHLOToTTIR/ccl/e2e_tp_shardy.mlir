@@ -120,7 +120,7 @@ module @jit_loss_tp attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas
 // CHECK-SAME: shard_dims = array<i64: -1, 1>
 // CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 1, 8>
-// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
+// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1, 1>
 // CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
@@ -140,7 +140,7 @@ module @jit_loss_tp attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas
 // CHECK-SAME: shard_dims = array<i64: -1, 1>
 // CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 1, 8>
-// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
+// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1, 1>
 // CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
@@ -160,7 +160,7 @@ module @jit_loss_tp attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas
 // CHECK-SAME: shard_dims = array<i64: -1, 1>
 // CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 1, 8>
-// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
+// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1, 1>
 // CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
@@ -180,7 +180,7 @@ module @jit_loss_tp attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas
 // CHECK-SAME: shard_dims = array<i64: -1, 1>
 // CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 1, 8>
-// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
+// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1, 1>
 // CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
@@ -200,7 +200,7 @@ module @jit_loss_tp attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas
 // CHECK-SAME: shard_dims = array<i64: -1, 1>
 // CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 1, 8>
-// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
+// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1, 1>
 // CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
@@ -220,4 +220,4 @@ module @jit_loss_tp attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas
 // CHECK-SAME: shard_dims = array<i64: -1, 1>
 // CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 1, 8>
-// CHECK-SAME: shard_type = #ttcore.shard_type<devices>
+// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
