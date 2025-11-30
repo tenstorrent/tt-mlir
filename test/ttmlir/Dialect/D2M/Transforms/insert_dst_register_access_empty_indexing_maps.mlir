@@ -35,41 +35,40 @@ module {
       %subview_1 = memref.subview %cb1[%c0, %c0] [1, 1] [1, 1] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_> to memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>
       %subview_2 = memref.subview %cb2[%c0, %c0] [1, 1] [1, 1] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_> to memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>
 
+      // CHECK: %[[CB0:.*]] = d2m.wait %cb0
+      // CHECK: %[[CB1:.*]] = d2m.wait %cb1
+      // CHECK: %[[CB2:.*]] = d2m.reserve %cb2
       // CHECK: %[[DST:.*]] = d2m.acquire_dst() : memref<{{.*}}x!ttcore.tile<32x32, f32>, #dst>
-      // CHECK: affine.for
-      // CHECK: affine.for
-      // CHECK: %[[ARG0_VAL:.*]] = affine.load %{{.*}}
-      // BASIC: affine.store %[[ARG0_VAL]], %[[DST]][0, %{{.*}}, %{{.*}}]
-      // GREEDY: affine.store %[[ARG0_VAL]], %[[DST]][0, %{{.*}}, %{{.*}}]
-      // CHAITIN: affine.store %[[ARG0_VAL]], %[[DST]][2, %{{.*}}, %{{.*}}]
-      // CHECK: %[[ARG1_VAL:.*]] = affine.load %{{.*}}
-      // BASIC: affine.store %[[ARG1_VAL]], %[[DST]][1, %{{.*}}, %{{.*}}]
-      // GREEDY: affine.store %[[ARG1_VAL]], %[[DST]][1, %{{.*}}, %{{.*}}]
-      // CHAITIN: affine.store %[[ARG1_VAL]], %[[DST]][1, %{{.*}}, %{{.*}}]
-      // CHECK: affine.for
-      // CHECK: affine.for
-      // BASIC: %[[DST0_VAL:.*]] = affine.load %[[DST]][0, %{{.*}}, %{{.*}}]
-      // GREEDY: %[[DST0_VAL:.*]] = affine.load %[[DST]][0, %{{.*}}, %{{.*}}]
-      // CHAITIN: %[[DST0_VAL:.*]] = affine.load %[[DST]][2, %{{.*}}, %{{.*}}]
-      // BASIC: %[[DST1_VAL:.*]] = affine.load %[[DST]][1, %{{.*}}, %{{.*}}]
-      // GREEDY: %[[DST1_VAL:.*]] = affine.load %[[DST]][1, %{{.*}}, %{{.*}}]
-      // CHAITIN: %[[DST1_VAL:.*]] = affine.load %[[DST]][1, %{{.*}}, %{{.*}}]
-      // CHECK: %[[ADD_RESULT:.*]] = "d2m.tile_add"(%[[DST0_VAL]], %[[DST1_VAL]])
-      // BASIC: affine.store %[[ADD_RESULT]], %[[DST]][2, %{{.*}}, %{{.*}}]
-      // GREEDY: affine.store %[[ADD_RESULT]], %[[DST]][2, %{{.*}}, %{{.*}}]
-      // CHAITIN: affine.store %[[ADD_RESULT]], %[[DST]][0, %{{.*}}, %{{.*}}]
-      // CHECK: affine.for
-      // CHECK: affine.for
-      // BASIC: %[[FINAL_VAL:.*]] = affine.load %[[DST]][2, %{{.*}}, %{{.*}}]
-      // GREEDY: %[[FINAL_VAL:.*]] = affine.load %[[DST]][2, %{{.*}}, %{{.*}}]
-      // CHAITIN: %[[FINAL_VAL:.*]] = affine.load %[[DST]][0, %{{.*}}, %{{.*}}]
-      // CHECK: affine.store %[[FINAL_VAL]], %{{.*}}
-      linalg.generic {
-        indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>],
-        iterator_types = ["parallel", "parallel"]
-      }
-      ins(%subview, %subview_1 : memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>, memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>)
-      outs(%subview_2 : memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>) {
+      // CHECK: affine.for %[[I:.*]] = 0 to 1 {
+      // CHECK:   affine.for %[[J:.*]] = 0 to 1 {
+      // CHECK:     %[[CB_0_LD:.*]] = affine.load %[[CB0]][%[[I]], %[[J]]]
+      // CHECK:     affine.store %[[CB_0_LD]], %[[DST]][0, %[[I]], %[[J]]]
+      // CHECK:     %[[CB_1_LD:.*]] = affine.load %[[CB1]][%[[I]], %[[J]]]
+      // CHECK:     affine.store %[[CB_1_LD]], %[[DST]][1, %[[I]], %[[J]]]
+
+      // CHECK: affine.for %[[I:.*]] = 0 to 1 {
+      // CHECK:   affine.for %[[J:.*]] = 0 to 1 {
+      // BASIC-DAG:   %[[DST0_VAL:.*]] = affine.load %[[DST]][0, %[[I]], %[[J]]]
+      // BASIC-DAG:   %[[DST1_VAL:.*]] = affine.load %[[DST]][1, %[[I]], %[[J]]]
+      // GREEDY-DAG:  %[[DST0_VAL:.*]] = affine.load %[[DST]][0, %[[I]], %[[J]]]
+      // GREEDY-DAG:  %[[DST1_VAL:.*]] = affine.load %[[DST]][1, %[[I]], %[[J]]]
+      // CHAITIN-DAG: %[[DST0_VAL:.*]] = affine.load %[[DST]][0, %[[I]], %[[J]]]
+      // CHAITIN-DAG: %[[DST1_VAL:.*]] = affine.load %[[DST]][1, %[[I]], %[[J]]]
+      // CHECK:       %[[ADD_RESULT:.*]] = "d2m.tile_add"(%[[DST0_VAL]], %[[DST1_VAL]])
+      // BASIC:       affine.store %[[ADD_RESULT]], %[[DST]][2, %[[I]], %[[J]]]
+      // GREEDY:      affine.store %[[ADD_RESULT]], %[[DST]][2, %[[I]], %[[J]]]
+      // CHAITIN:     affine.store %[[ADD_RESULT]], %[[DST]][2, %[[I]], %[[J]]]
+
+      // CHECK: affine.for %[[I:.*]] = 0 to 1 {
+      // CHECK:   affine.for %[[J:.*]] = 0 to 1 {
+      // BASIC:     %[[FINAL_VAL:.*]] = affine.load %[[DST]][2, %[[I]], %[[J]]]
+      // GREEDY:    %[[FINAL_VAL:.*]] = affine.load %[[DST]][2, %[[I]], %[[J]]]
+      // CHAITIN:   %[[FINAL_VAL:.*]] = affine.load %[[DST]][2, %[[I]], %[[J]]]
+      // CHECK:     affine.store %[[FINAL_VAL]], %[[CB2]][%[[I]], %[[J]]]
+
+      linalg.generic { indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = ["parallel", "parallel"] } 
+        ins(%subview, %subview_1 : memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>, memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>) 
+        outs(%subview_2 : memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>) {
       ^bb0(%arg0: !ttcore.tile<32x32, f32>, %arg1: !ttcore.tile<32x32, f32>, %arg2: !ttcore.tile<32x32, f32>):
         %0 = "d2m.tile_add"(%arg0, %arg1) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
         linalg.yield %0 : !ttcore.tile<32x32, f32>
@@ -113,10 +112,12 @@ module {
       %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
       %cb1 = d2m.wait %arg1_cb : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
       %cb2 = d2m.reserve %arg2_cb : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1_>> -> memref<1x1x!ttcore.tile<32x32, f32>, #l1_>
-      %c0 = arith.constant 0 : index
+            %c0 = arith.constant 0 : index
       %subview = memref.subview %cb0[%c0, %c0] [1, 1] [1, 1] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_> to memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>
       %subview_1 = memref.subview %cb1[%c0, %c0] [1, 1] [1, 1] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_> to memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>
       %subview_2 = memref.subview %cb2[%c0, %c0] [1, 1] [1, 1] : memref<1x1x!ttcore.tile<32x32, f32>, #l1_> to memref<1x1x!ttcore.tile<32x32, f32>, strided<[1, 1], offset: ?>, #l1_>
+
+      // CHECK: %[[DST:.*]] = d2m.acquire_dst() : memref<{{.*}}x!ttcore.tile<32x32, f32>, #dst>
 
       // CHECK-MATMUL: %[[DST:.*]] = d2m.acquire_dst() : memref<{{.*}}x!ttcore.tile<32x32, f32>, #dst>
       // CHECK-MATMUL: "d2m.tile_matmul_block"

@@ -654,8 +654,6 @@ def test_implicit_bcast_inner_2D(
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
         device=device,
-        custom_pipeline="ttir-to-ttmetal-pipeline",
-        print_ir=True,
     )
 
 

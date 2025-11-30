@@ -24,6 +24,8 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
+#include <optional>
+
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MINSERTDSTREGISTERACCESS
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
@@ -133,7 +135,12 @@ public:
 
     void setStoreToDst() override { storedToDst = true; }
     bool didStoreToDst() override { return storedToDst; }
-    int getCurrSliceIndex() override { return nextSliceIndex - 1; }
+    int getCurrSliceIndex() override {
+      if (nextSliceIndex == 0) {
+        return allocate();
+      }
+      return nextSliceIndex - 1;
+    }
 
   private:
     int nextSliceIndex = 0;
@@ -149,12 +156,10 @@ public:
         : operationSlices(operationSlices) {}
 
     int allocate() override {
-      const auto *it = operationSlices.find(currentOp);
-      TT_assertv((currentOp && it != operationSlices.end()),
-                 "Operation not in pre-computed map - this indicates a mismatch "
-                 "between analysis and pass. The analysis may be tracing through "
-                 "ops (like tile_bcast) that the pass doesn't trace through.");
-      return static_cast<int>(it->second);
+      if (auto slice = lookupCurrentSlice()) {
+        return *slice;
+      }
+      return fallbackAllocator.allocate();
     }
 
     void setCurrentOperation(Operation *op) override { currentOp = op; }
@@ -162,17 +167,32 @@ public:
     void setStoreToDst() override { storedToDst = true; }
     bool didStoreToDst() override { return storedToDst; }
     int getCurrSliceIndex() override {
-      const auto *it = operationSlices.find(currentOp);
-      return currentOp && it != operationSlices.end()
-                 ? static_cast<int>(it->second)
-                 : fallbackIndex - 1;
+      if (auto slice = lookupCurrentSlice()) {
+        return *slice;
+      }
+      return fallbackAllocator.getCurrSliceIndex();
     }
 
   private:
+    std::optional<int> lookupCurrentSlice() const {
+      if (!currentOp) {
+        return std::nullopt;
+      }
+      const auto *it = operationSlices.find(currentOp);
+      if (it == operationSlices.end()) {
+        return std::nullopt;
+      }
+      return static_cast<int>(it->second);
+    }
+
     // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
     const llvm::MapVector<Operation *, unsigned> &operationSlices;
     Operation *currentOp = nullptr;
-    int fallbackIndex = 0;
+
+    // TODO (bnorris): replace this linear fallback once DstAnalysis covers
+    // tile_bcasts and other single-use intermediates so every op has a
+    // pre-assigned slice.
+    DstSliceAllocationState fallbackAllocator;
     bool storedToDst = false;
   };
 
@@ -470,9 +490,9 @@ public:
           assert(!dstIntermediates.contains(computeOp));
 
           // Exception: the CB load of the load-bcast pair won't be captured by
-          // the CB->DST load handling loop above. For TileBcastOp, trace through
-          // to find the underlying AffineLoadOp which is what the analysis uses
-          // as the key for DST slot allocation.
+          // the CB->DST load handling loop above. For TileBcastOp, trace
+          // through to find the underlying AffineLoadOp which is what the
+          // analysis uses as the key for DST slot allocation.
           d2m::TileBcastOp bcastOp = nullptr;
           affine::AffineLoadOp loadOp = nullptr;
           if (mlir::isa<d2m::TileBcastOp>(computeOp)) {
