@@ -2241,8 +2241,17 @@ public:
         op.getKeepDim(), op.getDimArgAttr());
 
     // Create zero constant.
-    Attribute zerAttr =
-        rewriter.getFloatAttr(reduceOutputType.getElementType(), 0.0);
+    auto elementType = reduceOutputType.getElementType();
+    Attribute zerAttr;
+    if (mlir::isa<mlir::FloatType>(elementType)) {
+      zerAttr = rewriter.getFloatAttr(elementType, 0.0);
+    } else if (mlir::isa<mlir::IntegerType>(elementType)) {
+      zerAttr = rewriter.getIntegerAttr(elementType, 0);
+    } else {
+      return rewriter.notifyMatchFailure(
+          op, "reduce_or decomposition only supports floating-point and "
+              "integer element types");
+    }
 
     ElementsAttr zeroConstantAttr =
         DenseElementsAttr::get(reduceOutputType, zerAttr);
