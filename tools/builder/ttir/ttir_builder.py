@@ -7670,7 +7670,7 @@ class TTIRBuilder(Builder):
             ttir.FillCacheOp,
             [in0, in1],
             ttir_kwargs={"batch_offset": batch_offset},
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1]),
+            organize_ttir_args=lambda i, o: (o, i[0], i[1]),
             organize_golden_args=lambda i: (
                 self._get_golden_tensor(i[0]),
                 self._get_golden_tensor(i[1]),
@@ -7738,7 +7738,7 @@ class TTIRBuilder(Builder):
             ttir.UpdateCacheOp,
             [in0, in1, in2],
             ttir_kwargs={"batch_offset": batch_offset},
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1], i[2]),
+            organize_ttir_args=lambda i, o: (o, i[0], i[1], i[2]),
             organize_golden_args=lambda i: (
                 self._get_golden_tensor(i[0]),
                 self._get_golden_tensor(i[1]),
@@ -7829,7 +7829,7 @@ class TTIRBuilder(Builder):
                 "groups": groups,
                 "bias": bias,
             },
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1]),
+            organize_ttir_args=lambda i, o: (o, i[0], i[1]),
             organize_golden_args=lambda i: [
                 self._get_golden_tensor(i[0]),
                 self._get_golden_tensor(i[1]),
@@ -7936,7 +7936,7 @@ class TTIRBuilder(Builder):
                 ),
                 "bias": bias,
             },
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1], o),
+            organize_ttir_args=lambda i, o: (o, i[0], i[1]),
             organize_golden_args=lambda i: [
                 self._get_golden_tensor(i[0]),
                 self._get_golden_tensor(i[1]),

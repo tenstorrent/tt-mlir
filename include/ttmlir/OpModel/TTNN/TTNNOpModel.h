@@ -9,7 +9,6 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpConstraints.h"
 
-#include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/Support/Error.h"
 
@@ -19,16 +18,6 @@ namespace mlir::tt::ttnn::op_model {
 bool isLayoutLegalForTensorShape(llvm::ArrayRef<int64_t> tensorShape,
                                  TTNNLayoutAttr layout,
                                  ttcore::GridAttr maxGrid);
-
-// Calculate the output tensor type of the prepared weights for a conv2d op.
-// Conv2dConfigAttr is used to determine the output tensor type.
-mlir::RankedTensorType
-getPreparedConv2dWeightsOutputTensor(Conv2dOp *op,
-                                     Conv2dConfigAttr conv2dConfig);
-
-mlir::RankedTensorType
-getPreparedConvTranspose2dWeightsOutputTensor(ConvTranspose2dOp *op,
-                                              Conv2dConfigAttr conv2dConfig);
 
 //===----------------------------------------------------------------------===//
 // Device

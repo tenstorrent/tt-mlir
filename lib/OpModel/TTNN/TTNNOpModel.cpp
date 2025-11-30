@@ -550,8 +550,7 @@ createMetalHostTensor(llvm::ArrayRef<int64_t> shape,
 // Transform the standard OIHW weights layout to the ttnn convolution internal
 // layout that is desired. The output shape is dependant on the conv2d config
 // and input memory config.
-static llvm::Expected<::ttnn::TensorSpec>
-getPrepareConv2dWeightsOpOutputTensorSpec(
+llvm::Expected<::ttnn::TensorSpec> getPrepareConv2dWeightsOpOutputTensorSpec(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
     uint32_t in_channels, uint32_t out_channels, uint32_t batch_size,
@@ -746,90 +745,6 @@ getPrepareConv2dBiasOpOutputTensorSpec(
 }
 
 #endif // TTMLIR_ENABLE_OPMODEL
-
-mlir::RankedTensorType
-getPreparedConv2dWeightsOutputTensor(Conv2dOp *op,
-                                     Conv2dConfigAttr conv2dConfig) {
-#ifdef TTMLIR_ENABLE_OPMODEL
-  auto input = op->getInput().getType();
-  auto weight = op->getWeight().getType();
-  auto inputLayout = mlir::cast<TTNNLayoutAttr>(input.getEncoding());
-  auto weightLayout = mlir::cast<TTNNLayoutAttr>(weight.getEncoding());
-
-  llvm::Expected<::ttnn::TensorSpec> outputTensorSpec =
-      getPrepareConv2dWeightsOpOutputTensorSpec(
-          input.getShape(), inputLayout, weight.getShape(), weightLayout,
-          op->getInChannels(), op->getOutChannels(), op->getBatchSize(),
-          op->getInputHeight(), op->getInputWidth(), op->getKernelSize(),
-          op->getStride(), op->getPadding(), op->getDilation(), op->getGroups(),
-          conv2dConfig, op->getConv2dSliceConfigAttr(),
-          op->getBias() != nullptr,
-          /* transpose */ false);
-
-  if (!outputTensorSpec) {
-    llvm::errs() << llvm::toString(outputTensorSpec.takeError());
-    assert(false && "Failed to calculate conv2d prepared weights shape.");
-  }
-
-  // Convert back to RankedTensorType
-  auto deviceGrid =
-      ttcore::lookupDevice(op->getOperation()).getWorkerGrid().getShape();
-
-  auto outputLayout = conversion::getLayoutAttrFromTensorSpec(
-      op->getContext(), outputTensorSpec.get(), deviceGrid);
-
-  auto shape = outputTensorSpec.get().logical_shape();
-
-  return mlir::RankedTensorType::get(
-      llvm::SmallVector<int64_t>(shape.cbegin(), shape.cend()),
-      outputLayout.getScalarElementType(), outputLayout);
-#else
-  assert(false &&
-         "Cannot calculate conv2d prepared weights shape without op model");
-#endif
-}
-
-mlir::RankedTensorType
-getPreparedConvTranspose2dWeightsOutputTensor(ConvTranspose2dOp *op,
-                                              Conv2dConfigAttr conv2dConfig) {
-#ifdef TTMLIR_ENABLE_OPMODEL
-  auto input = op->getInput().getType();
-  auto weight = op->getWeight().getType();
-  auto inputLayout = mlir::cast<TTNNLayoutAttr>(input.getEncoding());
-  auto weightLayout = mlir::cast<TTNNLayoutAttr>(weight.getEncoding());
-
-  llvm::Expected<::ttnn::TensorSpec> outputTensorSpec =
-      getPrepareConv2dWeightsOpOutputTensorSpec(
-          input.getShape(), inputLayout, weight.getShape(), weightLayout,
-          op->getInChannels(), op->getOutChannels(), op->getBatchSize(),
-          op->getInputHeight(), op->getInputWidth(), op->getKernelSize(),
-          op->getStride(), op->getPadding(), op->getDilation(), op->getGroups(),
-          conv2dConfig, /*conv2dSliceConfig=*/nullptr, op->getBias() != nullptr,
-          /* transpose */ true);
-
-  if (!outputTensorSpec) {
-    llvm::errs() << llvm::toString(outputTensorSpec.takeError());
-    assert(false &&
-           "Failed to calculate conv_transpose2d prepared weights shape.");
-  }
-
-  // Convert back to RankedTensorType
-  auto deviceGrid =
-      ttcore::lookupDevice(op->getOperation()).getWorkerGrid().getShape();
-
-  auto outputLayout = conversion::getLayoutAttrFromTensorSpec(
-      op->getContext(), outputTensorSpec.get(), deviceGrid);
-
-  auto shape = outputTensorSpec.get().logical_shape();
-
-  return mlir::RankedTensorType::get(
-      llvm::SmallVector<int64_t>(shape.cbegin(), shape.cend()),
-      outputLayout.getScalarElementType(), outputLayout);
-#else
-  assert(false && "Cannot calculate conv_transpose2d prepared weights shape "
-                  "without op model");
-#endif
-}
 
 //===----------------------------------------------------------------------===//
 // Device
@@ -5303,17 +5218,6 @@ llvm::Expected<OpConstraints> OpModel<PrepareConv2dWeightsOp>::getOpConstraints(
   assert(device != nullptr && "Device is nullptr");
   assert(weightLayout != nullptr && "Weight layout is nullptr");
 
-  if (weightLayout.getBufferType() != BufferType::SystemMemory) {
-    return llvm::createStringError(
-        llvm::inconvertibleErrorCode(),
-        "Conv2d weight tensor assumed to be on host.");
-  }
-  if (weightLayout.getDataType() != ttcore::DataType::Float32 &&
-      weightLayout.getDataType() != ttcore::DataType::BFloat16) {
-    return llvm::createStringError(
-        llvm::inconvertibleErrorCode(),
-        "Conv2d weight tensor assumed to be float32 or bfloat16.");
-  }
   // TODO(#4043): Move this to tt-metal side.
   ::tt::tt_metal::Tensor weightTensor =
       createMetalHostTensor(weightShape, weightLayout.getDataType());
@@ -5375,16 +5279,6 @@ llvm::Expected<OpConstraints> OpModel<PrepareConv2dBiasOp>::getOpConstraints(
   assert(device != nullptr && "Device is nullptr");
   assert(biasLayout != nullptr && "Weight layout is nullptr");
 
-  if (biasLayout.getBufferType() != BufferType::SystemMemory) {
-    return llvm::createStringError(llvm::inconvertibleErrorCode(),
-                                   "Conv2d bias tensor assumed to be on host.");
-  }
-  if (biasLayout.getDataType() != ttcore::DataType::Float32 &&
-      biasLayout.getDataType() != ttcore::DataType::BFloat16) {
-    return llvm::createStringError(
-        llvm::inconvertibleErrorCode(),
-        "Conv2d bias tensor assumed to be float32 or bfloat16.");
-  }
   // TODO(#4043): Move this to tt-metal side.
   ::tt::tt_metal::Tensor biasTensor =
       createMetalHostTensor(biasShape, biasLayout.getDataType());
@@ -5446,17 +5340,6 @@ OpModel<PrepareConvTranspose2dWeightsOp>::getOpConstraints(
   assert(device != nullptr && "Device is nullptr");
   assert(weightLayout != nullptr && "Weight layout is nullptr");
 
-  if (weightLayout.getBufferType() != BufferType::SystemMemory) {
-    return llvm::createStringError(
-        llvm::inconvertibleErrorCode(),
-        "ConvTranspose2d weight tensor assumed to be on host.");
-  }
-  if (weightLayout.getDataType() != ttcore::DataType::Float32 &&
-      weightLayout.getDataType() != ttcore::DataType::BFloat16) {
-    return llvm::createStringError(
-        llvm::inconvertibleErrorCode(),
-        "ConvTranspose2d weight tensor assumed to be float32 or bfloat16.");
-  }
   // TODO(#4043): Move this to tt-metal side.
   ::tt::tt_metal::Tensor weightTensor =
       createMetalHostTensor(weightShape, weightLayout.getDataType());
@@ -5516,17 +5399,6 @@ OpModel<PrepareConvTranspose2dBiasOp>::getOpConstraints(
   assert(device != nullptr && "Device is nullptr");
   assert(biasLayout != nullptr && "Bias layout is nullptr");
 
-  if (biasLayout.getBufferType() != BufferType::SystemMemory) {
-    return llvm::createStringError(
-        llvm::inconvertibleErrorCode(),
-        "ConvTranspose2d bias tensor assumed to be on host.");
-  }
-  if (biasLayout.getDataType() != ttcore::DataType::Float32 &&
-      biasLayout.getDataType() != ttcore::DataType::BFloat16) {
-    return llvm::createStringError(
-        llvm::inconvertibleErrorCode(),
-        "ConvTranspose2d bias tensor assumed to be float32 or bfloat16.");
-  }
   // TODO(#4043): Move this to tt-metal side.
   ::tt::tt_metal::Tensor biasTensor =
       createMetalHostTensor(biasShape, biasLayout.getDataType());
