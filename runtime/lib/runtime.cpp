@@ -126,6 +126,23 @@ void setMetalHome(std::string_view metalHome) {
   LOG_FATAL("runtime is not enabled");
 }
 
+void setMemoryLogLevel(const MemoryLogLevel &logLevel) {
+  using RetType = void;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::RuntimeContext::instance().setMemoryLogLevel(
+            logLevel);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::RuntimeContext::instance().setMemoryLogLevel(
+            logLevel);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::distributed::setMemoryLogLevel(logLevel);
+      });
+}
+
 std::vector<DeviceRuntime> getAvailableDeviceRuntimes() {
   std::vector<DeviceRuntime> runtimes;
 #if defined(TT_RUNTIME_ENABLE_TTNN) && (TT_RUNTIME_ENABLE_TTNN == 1)
@@ -520,28 +537,6 @@ tt::target::Arch getArch() {
       });
 }
 
-void enablePersistentKernelCache() {
-  using RetType = void;
-  DISPATCH_TO_CURRENT_RUNTIME(
-      RetType, [&]() { ::tt::runtime::ttnn::enablePersistentKernelCache(); },
-      [&]() { ::tt::runtime::ttmetal::enablePersistentKernelCache(); },
-      [&]() {
-        detail::fatalNotImplemented("enablePersistentKernelCache",
-                                    HostRuntime::Distributed);
-      });
-}
-
-void disablePersistentKernelCache() {
-  using RetType = void;
-  DISPATCH_TO_CURRENT_RUNTIME(
-      RetType, [&]() { ::tt::runtime::ttnn::disablePersistentKernelCache(); },
-      [&]() { ::tt::runtime::ttmetal::disablePersistentKernelCache(); },
-      [&]() {
-        detail::fatalNotImplemented("disablePersistentKernelCache",
-                                    HostRuntime::Distributed);
-      });
-}
-
 size_t getNumAvailableDevices() {
   using RetType = size_t;
   return DISPATCH_TO_CURRENT_RUNTIME(
@@ -676,6 +671,17 @@ bool isProgramCacheEnabled(Device meshDevice) {
       },
       [&]() -> RetType {
         detail::fatalNotImplemented("isProgramCacheEnabled",
+                                    HostRuntime::Distributed);
+      });
+}
+
+void clearProgramCache(Device meshDevice) {
+  using RetType = void;
+  DISPATCH_TO_CURRENT_RUNTIME(
+      RetType, [&]() { ::tt::runtime::ttnn::clearProgramCache(meshDevice); },
+      [&]() { ::tt::runtime::ttmetal::clearProgramCache(meshDevice); },
+      [&]() {
+        detail::fatalNotImplemented("clearProgramCache",
                                     HostRuntime::Distributed);
       });
 }

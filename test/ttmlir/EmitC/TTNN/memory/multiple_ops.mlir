@@ -13,8 +13,7 @@
 // RUN: FileCheck %s --input-file %t.mlir
 
 func.func @multiple_ops(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>) -> tensor<32x32xbf16> {
-  %0 = ttir.empty() : tensor<32x32xbf16>
   // CHECK: "ttnn.add"{{.*}}
-  %1 = "ttir.add"(%arg0, %arg1, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+  %1 = "ttir.add"(%arg0, %arg1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
   return %1 : tensor<32x32xbf16>
 }

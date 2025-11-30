@@ -2,12 +2,21 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+import os
 import pytest
 import ttrt
 import ttrt.runtime
 import torch
 from ttrt.common.util import *
-from ..utils import Helper, DeviceContext, assert_pcc, get_runtime_tensor_from_torch
+from ..utils import (
+    TT_MLIR_HOME,
+    Helper,
+    DeviceContext,
+    ProgramTestConfig,
+    ProgramTestRunner,
+    assert_pcc,
+    get_runtime_tensor_from_torch,
+)
 
 
 @pytest.mark.parametrize("shape", [(64, 128)])
@@ -270,3 +279,73 @@ def test_unblocking_to_host(num_loops):
             )
 
             assert torch.allclose(torch_input_tensor, torch_output_tensor)
+
+
+@pytest.mark.parametrize(
+    "log_level",
+    [
+        ttrt.runtime.MemoryLogLevel.NONE,
+        ttrt.runtime.MemoryLogLevel.PROGRAM,
+        ttrt.runtime.MemoryLogLevel.OPERATION,
+        ttrt.runtime.MemoryLogLevel.PROGRAM | ttrt.runtime.MemoryLogLevel.OPERATION,
+    ],
+)
+def test_memory_logging(helper, request, capfd, log_level):
+    binary_path = os.path.join(
+        f"{TT_MLIR_HOME}/build/test/ttmlir/Runtime/TTNN/n150/consteval/Output",
+        "binary_ops.mlir.tmp.ttnn",
+    )
+    assert os.path.exists(binary_path), f"Binary file not found: {binary_path}"
+    helper.initialize(request.node.name, binary_path)
+    helper.check_constraints()
+    ttrt.runtime.set_current_device_runtime(ttrt.runtime.DeviceRuntime.TTNN)
+    ttrt.runtime.set_memory_log_level(log_level)
+
+    test_config = ProgramTestConfig(
+        name="binary_ops_consteval",
+        expected_num_inputs=4,
+        compute_golden=lambda inputs: (inputs[0] + inputs[1])
+        * ((inputs[1] + inputs[2]) - (inputs[2] + inputs[3])),
+        description="Binary ops memory logging test",
+    )
+
+    test_runner = ProgramTestRunner(test_config, helper.binary, 0)
+
+    with DeviceContext(mesh_shape=[1, 1]) as device:
+        inputs_runtime_with_layout, _ = test_runner.get_inputs_and_golden(device)
+        test_runner.run_program(device, inputs_runtime_with_layout)
+
+    program_log_str = [
+        "Device memory state before submit",
+        "Device memory state after submit",
+    ]
+    operation_log_str = ["Device memory state before operation"]
+    captured = capfd.readouterr()
+
+    if log_level == ttrt.runtime.MemoryLogLevel.NONE:
+        for log_str in program_log_str + operation_log_str:
+            assert log_str not in captured.out
+
+    elif log_level == ttrt.runtime.MemoryLogLevel.PROGRAM:
+        for log_str in program_log_str:
+            assert log_str in captured.out
+        for log_str in operation_log_str:
+            assert log_str not in captured.out
+
+    elif log_level == ttrt.runtime.MemoryLogLevel.OPERATION:
+        for log_str in operation_log_str:
+            assert log_str in captured.out
+        for log_str in program_log_str:
+            assert log_str not in captured.out
+
+    elif (
+        log_level
+        == ttrt.runtime.MemoryLogLevel.PROGRAM | ttrt.runtime.MemoryLogLevel.OPERATION
+    ):
+        for log_str in program_log_str + operation_log_str:
+            assert log_str in captured.out
+
+    else:
+        raise ValueError(f"Invalid log level: {log_level}")
+
+    helper.teardown()

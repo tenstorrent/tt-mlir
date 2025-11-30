@@ -211,7 +211,7 @@ def TTIR_DeallocOp : TTIR_Op<"dealloc"> {
 //===----------------------------------------------------------------------===//
 
 class TTIR_NamedOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_DPSOp<mnemonic, [Pure] # traits>;
+    TTIR_Op<mnemonic, [TTIROpInterface, Pure] # traits>;
 
 class TTIR_ElementwiseOp<string mnemonic, list<Trait> traits = []> :
     TTIR_NamedOp<mnemonic, [TTIR_Broadcastable] # traits> {
@@ -238,24 +238,15 @@ class TTIR_ElementwiseTernaryOp<string mnemonic, list<Trait> traits = []> :
       - `second` (Tensor): The second input tensor.
       - `third` (Tensor): The third input tensor.
 
-      Outputs:
-      - `output` (Tensor): The output tensor after applying the ternary operation.
+      Output:
+      - `result` (Tensor): The output tensor after applying the ternary operation.
     }];
 
     let arguments = (ins AnyRankedTensor:$first,
                          AnyRankedTensor:$second,
-                         AnyRankedTensor:$third,
-                         AnyRankedTensor:$output);
+                         AnyRankedTensor:$third);
 
     let results = (outs AnyRankedTensor:$result);
-
-    let builders =
-    [
-      OpBuilder<(ins "Value": $first, "Value": $second, "Value": $third, "Value": $output),
-      [{
-        build($_builder, $_state, output.getType(), first, second, third, output);
-      }]>,
-    ];
 }
 
 def TTIR_WhereOp: TTIR_ElementwiseTernaryOp<"where"> {
@@ -274,10 +265,10 @@ def TTIR_WhereOp: TTIR_ElementwiseTernaryOp<"where"> {
       ```mlir
       // Select elements from %true_values where %condition is true,
       // otherwise select from %false_values
-      %result = ttir.where(%condition, %true_values, %false_values, %output) : tensor<4x4xi1>, tensor<4x4xf32>, tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
+      %result = ttir.where(%condition, %true_values, %false_values) : (tensor<4x4xi1>, tensor<4x4xf32>, tensor<4x4xf32>) -> tensor<4x4xf32>
 
       // With broadcasting (condition is a scalar)
-      %result = ttir.where(%scalar_condition, %true_values, %false_values, %output) : tensor<1xi1>, tensor<4x4xf32>, tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
+      %result = ttir.where(%scalar_condition, %true_values, %false_values) : (tensor<1xi1>, tensor<4x4xf32>, tensor<4x4xf32>) -> tensor<4x4xf32>
       ```
 
       This operation is equivalent to the ternary conditional operator (`condition ? true_value : false_value`)
@@ -286,7 +277,7 @@ def TTIR_WhereOp: TTIR_ElementwiseTernaryOp<"where"> {
 }
 
 class TTIR_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseOp<mnemonic, [TwoOperands, TTIR_ElementwiseUnary, TTIR_QuantizableOpInterface] # traits> {
+    TTIR_ElementwiseOp<mnemonic, [OneOperand, TTIR_ElementwiseUnary, TTIR_QuantizableOpInterface] # traits> {
     let summary = "Base class for elementwise operations with one input tensor.";
     let description = [{
       A base class for elementwise operations that apply a unary function to a single input tensor.
@@ -297,24 +288,15 @@ class TTIR_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
       Inputs:
       - `input` (Tensor): The input tensor.
 
-      Outputs:
-      - `output` (Tensor): The output tensor after applying the unary operation.
+      Output:
+      - `result` (Tensor): The output tensor after applying the unary operation.
     }];
 
-    dag commonArgs = (ins AnyRankedTensor:$input,
-                          AnyRankedTensor:$output);
+    dag commonArgs = (ins AnyRankedTensor:$input);
 
     let arguments = commonArgs;
 
     let results = (outs AnyRankedTensor:$result);
-
-    let builders =
-    [
-      OpBuilder<(ins "Value": $input, "Value": $output),
-      [{
-        build($_builder, $_state, output.getType(), input, output);
-      }]>,
-    ];
 }
 
 def TTIR_AbsOp: TTIR_ElementwiseUnaryOp<"abs", [TTIR_Idempotence]> {
@@ -332,14 +314,14 @@ def TTIR_AbsOp: TTIR_ElementwiseUnaryOp<"abs", [TTIR_Idempotence]> {
       Example:
       ```mlir
       // Compute absolute values of all elements in %input
-      %result = ttir.abs(%input, %output) : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
+      %result = ttir.abs(%input) : tensor<4x4xf32> -> tensor<4x4xf32>
       // Input tensor:
       // [[-2.5,  3.7,  0.0,  1.2], ... ]
       // Output tensor:
       // [[2.5, 3.7, 0.0, 1.2], ... ]
 
       // Example with integer tensor
-      %result = ttir.abs(%int_input, %int_output) : tensor<10xi32>, tensor<10xi32> -> tensor<10xi32>
+      %result = ttir.abs(%int_input) : (tensor<10xi32>) -> tensor<10xi32>
       // Input tensor:
       // [-5, 0, 3, -2, ...]
       // Output tensor:
@@ -364,14 +346,14 @@ def TTIR_CbrtOp: TTIR_ElementwiseUnaryOp<"cbrt"> {
       Example:
       ```mlir
       // Compute cubic root of all elements in %input
-      %result = ttir.cbrt(%input, %output) : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
+      %result = ttir.cbrt(%input) : (tensor<4x4xf32>) -> tensor<4x4xf32>
       // Input tensor:
       // [[8.0, 27.0, -8.0, 1.0], ... ]
       // Output tensor:
       // [[2.0, 3.0, -2.0, 1.0], ... ]
 
       // Example with different values
-      %result = ttir.cbrt(%float_input, %float_output) : tensor<3x2xf32>, tensor<3x2xf32> -> tensor<3x2xf32>
+      %result = ttir.cbrt(%float_input) : (tensor<3x2xf32>) -> tensor<3x2xf32>
       // Input tensor:
       // [[125.0, -27.0],
       //  [0.0, 0.001],
@@ -401,14 +383,14 @@ def TTIR_CeilOp: TTIR_ElementwiseUnaryOp<"ceil", [TTIR_Idempotence]> {
       Example:
       ```mlir
       // Compute ceiling of all elements in %input
-      %result = ttir.ceil(%input, %output) : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
+      %result = ttir.ceil(%input) : (tensor<4x4xf32>) -> tensor<4x4xf32>
       // Input tensor:
       // [[1.7, 2.0, -0.3, 4.5], ... ]
       // Output tensor:
       // [[2.0, 2.0, 0.0, 5.0], ... ]
 
       // Example with different values
-      %result = ttir.ceil(%float_input, %float_output) : tensor<3x2xf32>, tensor<3x2xf32> -> tensor<3x2xf32>
+      %result = ttir.ceil(%float_input) : (tensor<3x2xf32>) -> tensor<3x2xf32>
       // Input tensor:
       // [[3.14, -2.5],
       //  [0.0, 0.001],
@@ -433,7 +415,7 @@ def TTIR_CosOp: TTIR_ElementwiseUnaryOp<"cos"> {
       Example:
       ```mlir
       // Compute cosine of all elements in %input
-      %result = ttir.cos(%input, %output) : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
+      %result = ttir.cos(%input) : (tensor<4x4xf32>) -> tensor<4x4xf32>
       // Input tensor:
       // [[1.7, 2.0, -0.3, 4.5], ... ]
       // Output tensor:
@@ -457,7 +439,7 @@ def TTIR_FloorOp: TTIR_ElementwiseUnaryOp<"floor", [TTIR_Idempotence]> {
       Example:
       ```mlir
       // Compute floor of all elements in %input
-      %result = ttir.floor(%input, %output) : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
+      %result = ttir.floor(%input) : (tensor<4x4xf32>) -> tensor<4x4xf32>
       // Input tensor:
       // [[1.7, 2.0, -0.3, 4.5], ... ]
       // Output tensor:
@@ -480,7 +462,7 @@ def TTIR_GeluOp: TTIR_ElementwiseUnaryOp<"gelu"> {
     Example:
     ```mlir
     // Compute GELU of all elements in %input
-    %result = ttir.gelu(%input, %output) : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
+    %result = ttir.gelu(%input) : (tensor<4x4xf32>) -> tensor<4x4xf32>
     // Input tensor:
     // [[1.7, 2.0, -0.3, 4.5], ... ]
     // Output tensor:
@@ -501,7 +483,7 @@ def TTIR_IsFiniteOp: TTIR_ElementwiseUnaryOp<"isfinite"> {
       Example:
       ```mlir
       // Check if all elements in %input are finite
-      %result = ttir.isfinite(%input, %output) : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
+      %result = ttir.isfinite(%input) : (tensor<4x4xf32>) -> tensor<4x4xf32>
       // Input tensor:
       // [[1.7, 2.0, Inf, 4.5], ... ]
       // Output tensor:
@@ -522,7 +504,7 @@ def TTIR_LogicalNotOp: TTIR_ElementwiseUnaryOp<"logical_not"> {
       Example:
       ```mlir
       // Compute logical negation of all elements in %input
-      %result = ttir.logical_not(%input, %output) : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
+      %result = ttir.logical_not(%input) : (tensor<4x4xf32>) -> tensor<4x4xf32>
       // Input tensor:
       // [[1.7, 2.0, -0.0, 4.5], ... ]
       // Output tensor:
@@ -545,12 +527,12 @@ def TTIR_BitwiseNotOp : TTIR_ElementwiseUnaryOp<"bitwise_not", [TTIR_Involution]
       Example:
       ```mlir
       // Bitwise operation with with integer tensors
-      %result = "ttir.bitwise_not"(%operand, %result) : (tensor<2x2xi32>, tensor<2x2xi32>) -> tensor<2x2xi32>
+      %result = "ttir.bitwise_not"(%operand) : (tensor<2x2xi32>) -> tensor<2x2xi32>
       // %operand: [[1, 2], [3, 4]]
       // %result: [[-2, -3], [-4, -5]]
 
       // Example with binary representation (for 8-bit integers)
-      %result = ttir.bitwise_not(%int8_input, %int8_output) : tensor<3xi8>, tensor<3xi8> -> tensor<3xi8>
+      %result = ttir.bitwise_not(%int8_input) : (tensor<3xi8>) -> tensor<3xi8>
       // Input %int8_input:
       // [0, 5, 255]  (binary: [00000000, 00000101, 11111111])
       // Output %int8_output:
@@ -560,6 +542,30 @@ def TTIR_BitwiseNotOp : TTIR_ElementwiseUnaryOp<"bitwise_not", [TTIR_Involution]
       Mathematical definition: bitwise_not(x) = ~x
     }];
 }
+
+def TTIR_MishOp: TTIR_ElementwiseUnaryOp<"mish"> {
+  let summary = "Elementwise Mish activation operation.";
+  let description = [{
+    The `mish` operation computes the Mish activation function of each element in the input tensor.
+
+    Mish is a smooth, self-regularized, non-monotonic activation function that combines
+    properties of both ReLU-like and smooth activation functions. It has been shown to improve
+    performance in deep learning applications, particularly in computer vision tasks.
+
+    Example:
+    ```mlir
+    // Compute Mish of all elements in %input
+    %result = ttir.mish(%input, %output) : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
+    // Input tensor:
+    // [[-2.0, -1.0, 0.0, 1.0], ... ]
+    // Output tensor:
+    // [[-0.252, -0.303, 0.0, 0.865], ... ]
+    ```
+
+    Mathematical definition: mish(x) = x * tanh(softplus(x)) = x * tanh(ln(1 + e^x))
+  }];
+}
+
 
 def TTIR_NegOp: TTIR_ElementwiseUnaryOp<"neg", [TTIR_Involution]> {
     let summary = "Elementwise negate operation.";
@@ -572,7 +578,7 @@ def TTIR_NegOp: TTIR_ElementwiseUnaryOp<"neg", [TTIR_Involution]> {
       Example:
       ```mlir
       // Compute negation of all elements in %input
-      %result = ttir.neg(%input, %output) : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
+      %result = ttir.neg(%input) : (tensor<4x4xf32>) -> tensor<4x4xf32>
       // Input tensor:
       // [[1.7, 2.0, -0.3, 4.5], ... ]
       // Output tensor:
@@ -593,7 +599,7 @@ def TTIR_TanOp: TTIR_ElementwiseUnaryOp<"tan"> {
       Example:
       ```mlir
       // Compute tangent of all elements in %input
-      %result = ttir.tan(%input, %output) : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
+      %result = ttir.tan(%input) : (tensor<4x4xf32>) -> tensor<4x4xf32>
       // Input tensor:
       // [[1.7, 2.0, -0.3, 4.5], ... ]
       // Output tensor:
@@ -615,14 +621,14 @@ def TTIR_AtanOp: TTIR_ElementwiseUnaryOp<"atan"> {
       Example:
       ```mlir
       // Compute arctangent of all elements in %input
-      %result = ttir.atan(%input, %output) : tensor<4xf32>, tensor<4xf32> -> tensor<4xf32>
+      %result = ttir.atan(%input) : (tensor<4xf32>) -> tensor<4xf32>
       // Input tensor:
       // [1.0, 0.5, 0.0, -1.0]
       // Output tensor:
       // [0.785, 0.464, 0.0, -0.785]  // values in radians
 
       // Example with different values
-      %result = ttir.atan(%float_input, %float_output) : tensor<3xf32>, tensor<3xf32> -> tensor<3xf32>
+      %result = ttir.atan(%float_input) : (tensor<3xf32>) -> tensor<3xf32>
       // Input tensor:
       // [0.0, 1.0, 1000.0]
       // Output tensor:
@@ -643,7 +649,7 @@ def TTIR_TanhOp: TTIR_ElementwiseUnaryOp<"tanh"> {
       Example:
       ```mlir
       // Compute hyperbolic tangent of all elements in %input
-      %result = ttir.tanh(%input, %output) : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
+      %result = ttir.tanh(%input) : (tensor<4x4xf32>) -> tensor<4x4xf32>
       // Input tensor:
       // [[1.7, 2.0, -0.3, 4.5], ... ]
       // Output tensor:
@@ -667,7 +673,7 @@ def TTIR_ReciprocalOp : TTIR_ElementwiseUnaryOp<"reciprocal", [TTIR_Involution]>
       Example:
       ```mlir
       // Compute reciprocal of all elements in %input
-      %result = ttir.reciprocal(%input, %output) : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
+      %result = ttir.reciprocal(%input) : (tensor<4x4xf32>) -> tensor<4x4xf32>
       // Input tensor:
       // [[1.7, 2.0, -0.3, 4.5], ... ]
       // Output tensor:
@@ -689,7 +695,7 @@ def TTIR_ReluOp : TTIR_ElementwiseUnaryOp<"relu", [TTIR_Idempotence]> {
       Example:
       ```mlir
       // Compute ReLU of all elements in %input
-      %result = ttir.relu(%input, %output) : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
+      %result = ttir.relu(%input) : (tensor<4x4xf32>) -> tensor<4x4xf32>
       // Input tensor:
       // [[1.7, 2.0, -0.3, 4.5], ... ]
       // Output tensor:
@@ -734,7 +740,7 @@ def TTIR_RsqrtOp : TTIR_ElementwiseUnaryOp<"rsqrt"> {
       Example:
       ```mlir
       // Compute reciprocal square root of all elements in %input
-      %result = ttir.rsqrt(%input, %output) : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
+      %result = ttir.rsqrt(%input) : (tensor<4x4xf32>) -> tensor<4x4xf32>
       // Input tensor:
       // [[1.7, 2.0, -0.3, 4.5], ... ]
       // Output tensor:
@@ -755,7 +761,7 @@ def TTIR_SigmoidOp: TTIR_ElementwiseUnaryOp<"sigmoid"> {
       Example:
       ```mlir
       // Compute sigmoid of all elements in %input
-      %result = ttir.sigmoid(%input, %output) : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
+      %result = ttir.sigmoid(%input) : (tensor<4x4xf32>) -> tensor<4x4xf32>
       // Input tensor:
       // [[1.7, 2.0, -0.3, 4.5], ... ]
       // Output tensor:
@@ -833,7 +839,7 @@ def TTIR_SignOp: TTIR_ElementwiseUnaryOp<"sign", [TTIR_Idempotence]> {
       Example:
       ```mlir
       // Compute sign of all elements in %input
-      %result = ttir.sign(%input, %output) : tensor<2x3xi32>, tensor<2x3xi32> -> tensor<2x3xi32>
+      %result = ttir.sign(%input) : (tensor<2x3xi32>) -> tensor<2x3xi32>
       // Input tensor:
       // [[3, -2, 0],
       //  [1, -4, 4]]
@@ -842,7 +848,7 @@ def TTIR_SignOp: TTIR_ElementwiseUnaryOp<"sign", [TTIR_Idempotence]> {
       //  [1, -1, 1]]
 
       // Example with floating-point values
-      %result = ttir.sign(%float_input, %float_output) : tensor<4xf32>, tensor<4xf32> -> tensor<4xf32>
+      %result = ttir.sign(%float_input) : (tensor<4xf32>) -> tensor<4xf32>
       // Input tensor:
       // [5.7, -0.0, 0.001, -3.14]
       // Output tensor:
@@ -867,7 +873,7 @@ def TTIR_SinOp: TTIR_ElementwiseUnaryOp<"sin"> {
       Example:
       ```mlir
       // Compute sine of all elements in %input
-      %result = ttir.sin(%input, %output) : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
+      %result = ttir.sin(%input) : (tensor<4x4xf32>) -> tensor<4x4xf32>
       // Input tensor:
       // [[1.7, 2.0, -0.3, 4.5], ... ]
       // Output tensor:
@@ -886,7 +892,7 @@ def TTIR_SqrtOp : TTIR_ElementwiseUnaryOp<"sqrt"> {
       Example:
       ```mlir
       // Compute square root of all elements in %input
-      %result = ttir.sqrt(%input, %output) : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
+      %result = ttir.sqrt(%input) : (tensor<4x4xf32>) -> tensor<4x4xf32>
       // Input tensor:
       // [[1.7, 2.0, -0.3, 4.5], ... ]
       // Output tensor:
@@ -909,21 +915,21 @@ def TTIR_TypecastOp: TTIR_ElementwiseUnaryOp<"typecast"> {
       Example:
       ```mlir
       // Cast from int32 to float32
-      %result = ttir.typecast(%input, %output) : tensor<4x4xi32>, tensor<4x4xf32> -> tensor<4x4xf32>
+      %result = ttir.typecast(%input) : (tensor<4x4xi32>) -> tensor<4x4xf32>
       // Input tensor:
       // [[1, 2, -3, 4], ... ]
       // Output tensor:
       // [[1.0, 2.0, -3.0, 4.0], ... ]
 
       // Cast from float32 to int32
-      %result = ttir.typecast(%float_input, %int_output) : tensor<3xf32>, tensor<3xi32> -> tensor<3xi32>
+      %result = ttir.typecast(%float_input) : (tensor<3xf32>) -> tensor<3xi32>
       // Input tensor:
       // [1.7, -2.3, 3.0]
       // Output tensor:
       // [1, -2, 3]  // Note: truncation, not rounding
 
       // Cast from float32 to float64 (higher precision)
-      %result = ttir.typecast(%f32_input, %f64_output) : tensor<2xf32>, tensor<2xf64> -> tensor<2xf64>
+      %result = ttir.typecast(%f32_input) : (tensor<2xf32>) -> tensor<2xf64>
       // Input tensor:
       // [3.14159, 2.71828]
       // Output tensor:
@@ -950,14 +956,14 @@ def TTIR_LogOp: TTIR_ElementwiseUnaryOp<"log"> {
       Example:
       ```mlir
       // Compute natural logarithm of all elements in %input
-      %result = ttir.log(%input, %output) : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
+      %result = ttir.log(%input) : (tensor<4x4xf32>) -> tensor<4x4xf32>
       // Input tensor:
       // [[1.0, 2.718, 7.389, 20.086], ... ]
       // Output tensor:
       // [[0.0, 1.0, 2.0, 3.0], ... ]
 
       // Example with different values
-      %result = ttir.log(%float_input, %float_output) : tensor<3xf32>, tensor<3xf32> -> tensor<3xf32>
+      %result = ttir.log(%float_input) : (tensor<3xf32>) -> tensor<3xf32>
       // Input tensor:
       // [10.0, 100.0, 1000.0]
       // Output tensor:
@@ -981,14 +987,14 @@ def TTIR_Log1pOp: TTIR_ElementwiseUnaryOp<"log1p"> {
       Example:
       ```mlir
       // Compute log1p of all elements in %input
-      %result = ttir.log1p(%input, %output) : tensor<5xf32>, tensor<5xf32> -> tensor<5xf32>
+      %result = ttir.log1p(%input) : (tensor<5xf32>) -> tensor<5xf32>
       // Input tensor:
       // [0.0, -0.999, 7.0, 6.38905621, 15.0]
       // Output tensor:
       // [0.0, -6.90776825, 2.07944155, 2.0, 2.77258873]
 
       // Example with small values where log1p is more accurate than log(1+x)
-      %result = ttir.log1p(%small_input, %small_output) : tensor<3xf32>, tensor<3xf32> -> tensor<3xf32>
+      %result = ttir.log1p(%small_input) : (tensor<3xf32>) -> tensor<3xf32>
       // Input tensor:
       // [1e-10, 1e-7, 1e-5]
       // Output tensor:
@@ -1011,7 +1017,7 @@ def TTIR_Expm1Op: TTIR_ElementwiseUnaryOp<"expm1"> {
     Example:
     ```mlir
     // Compute expm1 of all elements in %input
-    %result = ttir.expm1(%input, %output) : tensor<2x2xf32>, tensor<2x2xf32> -> tensor<2x2xf32>
+    %result = ttir.expm1(%input) : (tensor<2x2xf32>) -> tensor<2x2xf32>
     // Input tensor:
     // [[0.0, 1.0],
     //  [0.0, 0.0]]
@@ -1020,7 +1026,7 @@ def TTIR_Expm1Op: TTIR_ElementwiseUnaryOp<"expm1"> {
     //  [0.0, 0.0]]
 
     // Example with small values where expm1 is more accurate than exp(x)-1
-    %result = ttir.expm1(%small_input, %small_output) : tensor<3xf32>, tensor<3xf32> -> tensor<3xf32>
+    %result = ttir.expm1(%small_input) : (tensor<3xf32>) -> tensor<3xf32>
     // Input tensor:
     // [1e-10, 1e-7, 1e-5]
     // Output tensor:
@@ -1041,7 +1047,7 @@ def TTIR_ExpOp: TTIR_ElementwiseUnaryOp<"exp"> {
       Example:
       ```mlir
       // Compute exponential of all elements in %input
-      %result = ttir.exp(%input, %output) : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
+      %result = ttir.exp(%input) : (tensor<4x4xf32>) -> tensor<4x4xf32>
       // Input tensor:
       // [[1.0, 2.0, -3.0, 4.0], ... ]
       // Output tensor:
@@ -1060,7 +1066,7 @@ def TTIR_ErfOp: TTIR_ElementwiseUnaryOp<"erf"> {
     Example:
     ```mlir
     // Compute error function for all elements in %input
-    %result = ttir.erf(%input, %output) : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
+    %result = ttir.erf(%input) : (tensor<4x4xf32>) -> tensor<4x4xf32>
     // Input tensor with values [0.0, 1.0, -1.0, 2.0]
     // Output tensor with values [0.0, 0.8427, -0.8427, 0.9953]
     ```
@@ -1077,7 +1083,7 @@ def TTIR_ErfcOp: TTIR_ElementwiseUnaryOp<"erfc"> {
     Example:
     ```mlir
     // Compute complementary error function for all elements in %input
-    %result = ttir.erfc(%input, %output) : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
+    %result = ttir.erfc(%input) : (tensor<4x4xf32>) -> tensor<4x4xf32>
     // Input tensor with values [0.0, 1.0, -1.0, 2.0]
     // Output tensor with values [1.0, 0.1573, 1.8427, 0.0047]
     ```
@@ -1101,18 +1107,17 @@ class TTIR_ElementwiseUnaryWithFloatParameterOp<string mnemonic, list<Trait> tra
       such as scaling factors, thresholds, or other numerical constants that affect the operation's
       behavior.
 
-      The operation takes an input tensor, an output tensor, and a floating-point parameter attribute.
+      The operation takes an input tensor and a floating-point parameter attribute.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output,
                          F32Attr:$parameter);
 
     let builders =
     [
-      OpBuilder<(ins "Value": $input, "Value": $output, "FloatAttr": $parameter),
+      OpBuilder<(ins "Value": $input, "FloatAttr": $parameter),
       [{
-        build($_builder, $_state, output.getType(), input, output, parameter);
+        build($_builder, $_state, input.getType(), input, parameter);
       }]>,
     ];
 }
@@ -1132,8 +1137,8 @@ def TTIR_LeakyReluOp : TTIR_ElementwiseUnaryWithFloatParameterOp<"leaky_relu"> {
       Inputs:
       - `input` (Tensor): The input tensor to be activated.
 
-      Outputs:
-      - `output` (Tensor): The tensor after applying the Leaky ReLU activation.
+      Output:
+      - `result` (Tensor): The tensor after applying the Leaky ReLU activation.
 
       Attributes:
       - `parameter` (float): The slope for negative values.
@@ -1141,7 +1146,7 @@ def TTIR_LeakyReluOp : TTIR_ElementwiseUnaryWithFloatParameterOp<"leaky_relu"> {
 }
 
 class TTIR_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
-    TTIR_ElementwiseOp<mnemonic, [ThreeOperands, TTIR_ElementwiseBinary, TTIR_QuantizableOpInterface] #  traits> {
+    TTIR_ElementwiseOp<mnemonic, [TwoOperands, TTIR_ElementwiseBinary, TTIR_QuantizableOpInterface] #  traits> {
     let summary = "Base class for elementwise operations with two input tensors.";
     let description = [{
       A base class for elementwise operations that apply a binary function to corresponding
@@ -1156,23 +1161,14 @@ class TTIR_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
       - `lhs` (Tensor): The left-hand side input tensor.
       - `rhs` (Tensor): The right-hand side input tensor.
 
-      Outputs:
-      - `output` (Tensor): The output tensor after applying the binary operation.
+      Output:
+      - `result` (Tensor): The result tensor after applying the binary operation.
     }];
 
     let arguments = (ins AnyRankedTensor:$lhs,
-                         AnyRankedTensor:$rhs,
-                         AnyRankedTensor:$output);
+                         AnyRankedTensor:$rhs);
 
     let results = (outs AnyRankedTensor:$result);
-
-    let builders =
-    [
-      OpBuilder<(ins "Value": $lhs, "Value": $rhs, "Value": $output),
-      [{
-        build($_builder, $_state, output.getType(), lhs, rhs, output);
-      }]>,
-    ];
 }
 
 // TODO (azecevic): NaN != NaN, otherwise eq(x, x) == 1.
@@ -1191,7 +1187,7 @@ def TTIR_EqualOp : TTIR_ElementwiseBinaryOp<"eq"> {
       Example:
       ```mlir
       // Compare elements for equality
-      %result = ttir.eq(%lhs, %rhs, %output) : tensor<4x4xf32>, tensor<4x4xf32>, tensor<4x4xi1> -> tensor<4x4xi1>
+      %result = ttir.eq(%lhs, %rhs) : (tensor<4x4xf32>, tensor<4x4xf32>) -> tensor<4x4xi1>
       // Input tensors:
       // %lhs: [[1.0, 2.0, 3.0, 2.0], ... ]
       // %rhs: [[1.0, 2.0, 4.0, 5.0], ... ]
@@ -1199,7 +1195,7 @@ def TTIR_EqualOp : TTIR_ElementwiseBinaryOp<"eq"> {
       // [[1, 1, 0, 0], ... ]  // 1 where equal, 0 where not equal
 
       // Example with integer tensors
-      %result = ttir.eq(%int_lhs, %int_rhs, %int_output) : tensor<3xi32>, tensor<3xi32>, tensor<3xi1> -> tensor<3xi1>
+      %result = ttir.eq(%int_lhs, %int_rhs) : (tensor<3xi32>, tensor<3xi32>) -> tensor<3xi1>
       // Input tensors:
       // %int_lhs: [10, -5, 0]
       // %int_rhs: [10, 5, 1]
@@ -1227,7 +1223,7 @@ def TTIR_NotEqualOp : TTIR_ElementwiseBinaryOp<"ne"> {
       Example:
       ```mlir
       // Compare elements for inequality
-      %result = ttir.ne(%lhs, %rhs, %output) : tensor<4x4xf32>, tensor<4x4xf32>, tensor<4x4xi1> -> tensor<4x4xi1>
+      %result = ttir.ne(%lhs, %rhs) : (tensor<4x4xf32>, tensor<4x4xf32>) -> tensor<4x4xi1>
       // Input tensors:
       // %lhs: [[1.0, 2.0, 3.0, 2.0], ... ]
       // %rhs: [[1.0, 2.0, 4.0, 5.0], ... ]
@@ -1235,7 +1231,7 @@ def TTIR_NotEqualOp : TTIR_ElementwiseBinaryOp<"ne"> {
       // [[0, 0, 1, 1], ... ]  // 0 where equal, 1 where not equal
 
       // Example with integer tensors
-      %result = ttir.ne(%int_lhs, %int_rhs, %int_output) : tensor<3xi32>, tensor<3xi32>, tensor<3xi1> -> tensor<3xi1>
+      %result = ttir.ne(%int_lhs, %int_rhs) : (tensor<3xi32>, tensor<3xi32>) -> tensor<3xi1>
       // Input tensors:
       // %int_lhs: [10, -5, 0]
       // %int_rhs: [10, 5, 1]
@@ -1260,7 +1256,7 @@ def TTIR_GreaterEqualOp : TTIR_ElementwiseBinaryOp<"ge"> {
       Example:
       ```mlir
       // Compare elements for greater than or equal to
-      %result = ttir.ge(%lhs, %rhs, %output) : tensor<4x4xf32>, tensor<4x4xf32>, tensor<4x4xi1> -> tensor<4x4xi1>
+      %result = ttir.ge(%lhs, %rhs) : (tensor<4x4xf32>, tensor<4x4xf32>) -> tensor<4x4xi1>
       // Input tensors:
       // %lhs: [[1.0, 2.0, 3.0, 2.0], ... ]
       // %rhs: [[1.0, 2.0, 4.0, 5.0], ... ]
@@ -1268,7 +1264,7 @@ def TTIR_GreaterEqualOp : TTIR_ElementwiseBinaryOp<"ge"> {
       // [[1, 1, 0, 0], ... ]  // 1 where greater or equal, 0 where less
 
       // Example with integer tensors
-      %result = ttir.ge(%int_lhs, %int_rhs, %int_output) : tensor<3xi32>, tensor<3xi32>, tensor<3xi1> -> tensor<3xi1>
+      %result = ttir.ge(%int_lhs, %int_rhs) : (tensor<3xi32>, tensor<3xi32>) -> tensor<3xi1>
       // Input tensors:
       // %int_lhs: [10, -5, 0]
       // %int_rhs: [10, 5, 1]
@@ -1293,7 +1289,7 @@ def TTIR_GreaterThanOp : TTIR_ElementwiseBinaryOp<"gt"> {
       Example:
       ```mlir
       // Compare elements for greater than
-      %result = ttir.gt(%lhs, %rhs, %output) : tensor<4x4xf32>, tensor<4x4xf32>, tensor<4x4xi1> -> tensor<4x4xi1>
+      %result = ttir.gt(%lhs, %rhs) : (tensor<4x4xf32>, tensor<4x4xf32>) -> tensor<4x4xi1>
       // Input tensors:
       // %lhs: [[1.0, 2.0, 3.0, 2.0], ... ]
       // %rhs: [[1.0, 2.0, 4.0, 5.0], ... ]
@@ -1301,7 +1297,7 @@ def TTIR_GreaterThanOp : TTIR_ElementwiseBinaryOp<"gt"> {
       // [[0, 0, 0, 1], ... ]  // 1 where greater, 0 where less or equal
 
       // Example with integer tensors
-      %result = ttir.gt(%int_lhs, %int_rhs, %int_output) : tensor<3xi32>, tensor<3xi32>, tensor<3xi1> -> tensor<3xi1>
+      %result = ttir.gt(%int_lhs, %int_rhs) : (tensor<3xi32>, tensor<3xi32>) -> tensor<3xi1>
       // Input tensors:
       // %int_lhs: [10, -5, 0]
       // %int_rhs: [10, 5, 1]
@@ -1326,7 +1322,7 @@ def TTIR_LessEqualOp : TTIR_ElementwiseBinaryOp<"le"> {
       Example:
       ```mlir
       // Compare elements for less than or equal to
-      %result = ttir.le(%lhs, %rhs, %output) : tensor<4x4xf32>, tensor<4x4xf32>, tensor<4x4xi1> -> tensor<4x4xi1>
+      %result = ttir.le(%lhs, %rhs) : (tensor<4x4xf32>, tensor<4x4xf32>) -> tensor<4x4xi1>
       // Input tensors:
       // %lhs: [[1.0, 2.0, 3.0, 2.0], ... ]
       // %rhs: [[1.0, 2.0, 4.0, 5.0], ... ]
@@ -1334,7 +1330,7 @@ def TTIR_LessEqualOp : TTIR_ElementwiseBinaryOp<"le"> {
       // [[1, 1, 1, 0], ... ]  // 1 where less or equal, 0 where greater
 
       // Example with integer tensors
-      %result = ttir.le(%int_lhs, %int_rhs, %int_output) : tensor<3xi32>, tensor<3xi32>, tensor<3xi1> -> tensor<3xi1>
+      %result = ttir.le(%int_lhs, %int_rhs) : (tensor<3xi32>, tensor<3xi32>) -> tensor<3xi1>
       // Input tensors:
       // %int_lhs: [10, -5, 0]
       // %int_rhs: [10, 5, 1]
@@ -1359,7 +1355,7 @@ def TTIR_LessThanOp : TTIR_ElementwiseBinaryOp<"lt"> {
       Example:
       ```mlir
       // Compare elements for less than
-      %result = ttir.lt(%lhs, %rhs, %output) : tensor<4x4xf32>, tensor<4x4xf32>, tensor<4x4xi1> -> tensor<4x4xi1>
+      %result = ttir.lt(%lhs, %rhs) : (tensor<4x4xf32>, tensor<4x4xf32>) -> tensor<4x4xi1>
       // Input tensors:
       // %lhs: [[1.0, 2.0, 3.0, 2.0], ... ]
       // %rhs: [[1.0, 2.0, 4.0, 5.0], ... ]
@@ -1367,7 +1363,7 @@ def TTIR_LessThanOp : TTIR_ElementwiseBinaryOp<"lt"> {
       // [[0, 0, 0, 1], ... ]  // 1 where less, 0 where greater or equal
 
       // Example with integer tensors
-      %result = ttir.lt(%int_lhs, %int_rhs, %int_output) : tensor<3xi32>, tensor<3xi32>, tensor<3xi1> -> tensor<3xi1>
+      %result = ttir.lt(%int_lhs, %int_rhs) : (tensor<3xi32>, tensor<3xi32>) -> tensor<3xi1>
       // Input tensors:
       // %int_lhs: [10, -5, 0]
       // %int_rhs: [10, 5, 1]
@@ -1391,7 +1387,7 @@ def TTIR_LogicalAndOp : TTIR_ElementwiseBinaryOp<"logical_and", [TTIR_BinaryIdem
       Example:
       ```mlir
       // Logical AND operation
-      %result = ttir.logical_and(%lhs, %rhs, %output) : tensor<4x4xi1>, tensor<4x4xi1>, tensor<4x4xi1> -> tensor<4x4xi1>
+      %result = ttir.logical_and(%lhs, %rhs) : (tensor<4x4xi1>, tensor<4x4xi1>) -> tensor<4x4xi1>
       // Input tensors:
       // %lhs: [[1, 0, 1, 0], ... ]
       // %rhs: [[1, 1, 0, 1], ... ]
@@ -1399,7 +1395,7 @@ def TTIR_LogicalAndOp : TTIR_ElementwiseBinaryOp<"logical_and", [TTIR_BinaryIdem
       // [[1, 0, 0, 0], ... ]  // 1 where both are 1, 0 otherwise
 
       // Example with integer tensors
-      %result = ttir.logical_and(%int_lhs, %int_rhs, %int_output) : tensor<3xi32>, tensor<3xi32>, tensor<3xi1> -> tensor<3xi1>
+      %result = ttir.logical_and(%int_lhs, %int_rhs) : (tensor<3xi32>, tensor<3xi32>) -> tensor<3xi1>
       // Input tensors:
       // %int_lhs: [10, 0, 0]
       // %int_rhs: [10, 5, 1]
@@ -1423,7 +1419,7 @@ def TTIR_LogicalOrOp : TTIR_ElementwiseBinaryOp<"logical_or", [TTIR_BinaryIdempo
       Example:
       ```mlir
       // Logical OR operation
-      %result = ttir.logical_or(%lhs, %rhs, %output) : tensor<4x4xi1>, tensor<4x4xi1>, tensor<4x4xi1> -> tensor<4x4xi1>
+      %result = ttir.logical_or(%lhs, %rhs) : (tensor<4x4xi1>, tensor<4x4xi1>) -> tensor<4x4xi1>
       // Input tensors:
       // %lhs: [[1, 0, 1, 0], ... ]
       // %rhs: [[1, 1, 0, 1], ... ]
@@ -1431,7 +1427,7 @@ def TTIR_LogicalOrOp : TTIR_ElementwiseBinaryOp<"logical_or", [TTIR_BinaryIdempo
       // [[1, 1, 1, 1], ... ]  // 1 where at least one is 1, 0 otherwise
 
       // Example with integer tensors
-      %result = ttir.logical_or(%int_lhs, %int_rhs, %int_output) : tensor<3xi32>, tensor<3xi32>, tensor<3xi1> -> tensor<3xi1>
+      %result = ttir.logical_or(%int_lhs, %int_rhs) : (tensor<3xi32>, tensor<3xi32>) -> tensor<3xi1>
       // Input tensors:
       // %int_lhs: [10, 0, 0]
       // %int_rhs: [10, 5, 1]
@@ -1455,7 +1451,7 @@ def TTIR_LogicalXorOp : TTIR_ElementwiseBinaryOp<"logical_xor"> {
       Example:
       ```mlir
       // Logical XOR operation
-      %result = ttir.logical_xor(%lhs, %rhs, %output) : tensor<4x4xi1>, tensor<4x4xi1>, tensor<4x4xi1> -> tensor<4x4xi1>
+      %result = ttir.logical_xor(%lhs, %rhs) : (tensor<4x4xi1>, tensor<4x4xi1>) -> tensor<4x4xi1>
       // Input tensors:
       // %lhs: [[1, 0, 1, 0], ... ]
       // %rhs: [[1, 1, 0, 1], ... ]
@@ -1463,7 +1459,7 @@ def TTIR_LogicalXorOp : TTIR_ElementwiseBinaryOp<"logical_xor"> {
       // [[0, 1, 1, 1], ... ]  // 1 where exactly one is 1, 0 otherwise
 
       // Example with integer tensors
-      %result = ttir.logical_xor(%int_lhs, %int_rhs, %int_output) : tensor<3xi32>, tensor<3xi32>, tensor<3xi1> -> tensor<3xi1>
+      %result = ttir.logical_xor(%int_lhs, %int_rhs) : (tensor<3xi32>, tensor<3xi32>) -> tensor<3xi1>
       // Input tensors:
       // %int_lhs: [10, 0, 0]
       // %int_rhs: [10, 5, 1]
@@ -1488,7 +1484,7 @@ def TTIR_BitwiseAndOp : TTIR_ElementwiseBinaryOp<"bitwise_and", [TTIR_BinaryIdem
       Example:
       ```mlir
       // Bitwise AND operation
-      %result = ttir.bitwise_and(%lhs, %rhs, %output) : tensor<2x2xi32>, tensor<2x2xi32>, tensor<2x2xi32> -> tensor<2x2xi32>
+      %result = ttir.bitwise_and(%lhs, %rhs) : (tensor<2x2xi32>, tensor<2x2xi32>) -> tensor<2x2xi32>
       // Input tensors:
       // %lhs: [[1, 2], [3, 4]]
       // %rhs: [[5, 6], [7, 8]]
@@ -1496,7 +1492,7 @@ def TTIR_BitwiseAndOp : TTIR_ElementwiseBinaryOp<"bitwise_and", [TTIR_BinaryIdem
       // [[1, 2], [3, 0]]
 
       // Example with binary representation (for 8-bit integers)
-      %result = ttir.bitwise_and(%int8_lhs, %int8_rhs, %int8_output) : tensor<4xi8>, tensor<4xi8>, tensor<4xi8> -> tensor<4xi8>
+      %result = ttir.bitwise_and(%int8_lhs, %int8_rhs) : (tensor<4xi8>, tensor<4xi8>) -> tensor<4xi8>
       // Input tensors:
       // %int8_lhs: [0x0F, 0xAA, 0xFF, 0x00]  (binary: [00001111, 10101010, 11111111, 00000000])
       // %int8_rhs: [0xF0, 0x55, 0xFF, 0x00]  (binary: [11110000, 01010101, 11111111, 00000000])
@@ -1521,7 +1517,7 @@ def TTIR_BitwiseOrOp : TTIR_ElementwiseBinaryOp<"bitwise_or", [TTIR_BinaryIdempo
       Example:
       ```mlir
       // Bitwise OR operation
-      %result = ttir.bitwise_or(%lhs, %rhs, %output) : tensor<2x2xi32>, tensor<2x2xi32>, tensor<2x2xi32> -> tensor<2x2xi32>
+      %result = ttir.bitwise_or(%lhs, %rhs) : (tensor<2x2xi32>, tensor<2x2xi32>) -> tensor<2x2xi32>
       // Input tensors:
       // %lhs: [[1, 2], [3, 4]]
       // %rhs: [[5, 6], [7, 8]]
@@ -1529,7 +1525,7 @@ def TTIR_BitwiseOrOp : TTIR_ElementwiseBinaryOp<"bitwise_or", [TTIR_BinaryIdempo
       // [[5, 6], [7, 12]]
 
       // Example with binary representation (for 8-bit integers)
-      %result = ttir.bitwise_or(%int8_lhs, %int8_rhs, %int8_output) : tensor<4xi8>, tensor<4xi8>, tensor<4xi8> -> tensor<4xi8>
+      %result = ttir.bitwise_or(%int8_lhs, %int8_rhs) : (tensor<4xi8>, tensor<4xi8>) -> tensor<4xi8>
       // Input tensors:
       // %int8_lhs: [0x0F, 0xAA, 0x00, 0x55]  (binary: [00001111, 10101010, 00000000, 01010101])
       // %int8_rhs: [0xF0, 0x55, 0x00, 0xAA]  (binary: [11110000, 01010101, 00000000, 10101010])
@@ -1554,7 +1550,7 @@ def TTIR_BitwiseXorOp : TTIR_ElementwiseBinaryOp<"bitwise_xor"> {
       Example:
       ```mlir
       // Bitwise XOR operation
-      %result = ttir.bitwise_xor(%lhs, %rhs, %output) : tensor<2x2xi32>, tensor<2x2xi32>, tensor<2x2xi32> -> tensor<2x2xi32>
+      %result = ttir.bitwise_xor(%lhs, %rhs) : (tensor<2x2xi32>, tensor<2x2xi32>) -> tensor<2x2xi32>
       // Input tensors:
       // %lhs: [[1, 2], [3, 4]]
       // %rhs: [[5, 6], [7, 8]]
@@ -1562,7 +1558,7 @@ def TTIR_BitwiseXorOp : TTIR_ElementwiseBinaryOp<"bitwise_xor"> {
       // [[4, 4], [4, 12]]
 
       // Example with binary representation (for 8-bit integers)
-      %result = ttir.bitwise_xor(%int8_lhs, %int8_rhs, %int8_output) : tensor<4xi8>, tensor<4xi8>, tensor<4xi8> -> tensor<4xi8>
+      %result = ttir.bitwise_xor(%int8_lhs, %int8_rhs) : (tensor<4xi8>, tensor<4xi8>) -> tensor<4xi8>
       // Input tensors:
       // %int8_lhs: [0x0F, 0xAA, 0xFF, 0x00]  (binary: [00001111, 10101010, 11111111, 00000000])
       // %int8_rhs: [0xF0, 0x55, 0xFF, 0x00]  (binary: [11110000, 01010101, 11111111, 00000000])
@@ -1588,7 +1584,7 @@ def TTIR_MinimumOp :  TTIR_ElementwiseBinaryOp<"minimum", [TTIR_BinaryIdempotenc
       Example:
       ```mlir
       // Minimum operation
-      %result = ttir.minimum(%lhs, %rhs, %output) : tensor<2x3xi32>, tensor<2x3xi32>, tensor<2x3xi32> -> tensor<2x3xi32>
+      %result = ttir.minimum(%lhs, %rhs) : (tensor<2x3xi32>, tensor<2x3xi32>) -> tensor<2x3xi32>
       // Input tensors:
       // %lhs: [[3, 2, 7], [1, 4, 4]]
       // %rhs: [[1, 4, 2], [1, 2, 3]]
@@ -1596,7 +1592,7 @@ def TTIR_MinimumOp :  TTIR_ElementwiseBinaryOp<"minimum", [TTIR_BinaryIdempotenc
       // [[1, 2, 2], [1, 2, 3]]
 
       // Example with floating point values
-      %result = ttir.minimum(%float_lhs, %float_rhs, %float_output) : tensor<3xf32>, tensor<3xf32>, tensor<3xf32> -> tensor<3xf32>
+      %result = ttir.minimum(%float_lhs, %float_rhs) : (tensor<3xf32>, tensor<3xf32>) -> tensor<3xf32>
       // Input tensors:
       // %float_lhs: [3.5, -2.1, 0.0]
       // %float_rhs: [1.2, -5.0, 0.0]
@@ -1641,7 +1637,7 @@ def TTIR_SubtractOp : TTIR_ElementwiseBinaryOp<"subtract"> {
       Example:
       ```mlir
       // Subtraction operation
-      %result = ttir.subtract(%lhs, %rhs, %output) : tensor<3xi32>, tensor<3xi32>, tensor<3xi32> -> tensor<3xi32>
+      %result = ttir.subtract(%lhs, %rhs) : (tensor<3xi32>, tensor<3xi32>) -> tensor<3xi32>
       // Input tensors:
       // %lhs: [10, 20, 30]
       // %rhs: [1, 2, 3]
@@ -1649,7 +1645,7 @@ def TTIR_SubtractOp : TTIR_ElementwiseBinaryOp<"subtract"> {
       // [9, 18, 27]
 
       // Example with floating point values
-      %result = ttir.subtract(%float_lhs, %float_rhs, %float_output) : tensor<3xf32>, tensor<3xf32>, tensor<3xf32> -> tensor<3xf32>
+      %result = ttir.subtract(%float_lhs, %float_rhs) : (tensor<3xf32>, tensor<3xf32>) -> tensor<3xf32>
       // Input tensors:
       // %float_lhs: [3.5, 0.0, -1.2]
       // %float_rhs: [1.5, 2.0, -3.2]
@@ -1675,7 +1671,7 @@ def TTIR_RemainderOp : TTIR_ElementwiseBinaryOp<"remainder"> {
       Example:
       ```mlir
       // Remainder operation
-      %result = ttir.remainder(%lhs, %rhs, %output) : tensor<4xi64>, tensor<4xi64>, tensor<4xi64> -> tensor<4xi64>
+      %result = ttir.remainder(%lhs, %rhs) : (tensor<4xi64>, tensor<4xi64>) -> tensor<4xi64>
       // Input tensors:
       // %lhs: [17, -17, 17, -17]  // Dividends
       // %rhs: [3, 3, -3, -3]      // Divisors
@@ -1683,7 +1679,7 @@ def TTIR_RemainderOp : TTIR_ElementwiseBinaryOp<"remainder"> {
       // [2, -2, 2, -2]
 
       // Example with floating point values
-      %result = ttir.remainder(%float_lhs, %float_rhs, %float_output) : tensor<3xf32>, tensor<3xf32>, tensor<3xf32> -> tensor<3xf32>
+      %result = ttir.remainder(%float_lhs, %float_rhs) : (tensor<3xf32>, tensor<3xf32>) -> tensor<3xf32>
       // Input tensors:
       // %float_lhs: [10.5, -10.5, 3.0]
       // %float_rhs: [3.0, 3.0, 2.0]
@@ -1711,7 +1707,7 @@ def TTIR_PowOp : TTIR_ElementwiseBinaryOp<"pow"> {
       Example:
       ```mlir
       // Power operation
-      %result = ttir.pow(%lhs, %rhs, %output) : tensor<3xf32>, tensor<3xf32>, tensor<3xf32> -> tensor<3xf32>
+      %result = ttir.pow(%lhs, %rhs) : (tensor<3xf32>, tensor<3xf32>) -> tensor<3xf32>
       // Input tensors:
       // %lhs: [2.0, 3.0, 4.0]  // Bases
       // %rhs: [2.0, 2.0, 0.5]  // Exponents
@@ -1719,7 +1715,7 @@ def TTIR_PowOp : TTIR_ElementwiseBinaryOp<"pow"> {
       // [4.0, 9.0, 2.0]
 
       // Example with integer values
-      %result = ttir.pow(%int_lhs, %int_rhs, %int_output) : tensor<3xi32>, tensor<3xi32>, tensor<3xi32> -> tensor<3xi32>
+      %result = ttir.pow(%int_lhs, %int_rhs) : (tensor<3xi32>, tensor<3xi32>) -> tensor<3xi32>
       // Input tensors:
       // %int_lhs: [2, 3, 5]
       // %int_rhs: [3, 2, 1]
@@ -1750,7 +1746,7 @@ def TTIR_Atan2Op :  TTIR_ElementwiseBinaryOp<"atan2"> {
       ```mlir
       // %lhs: [0.0, 1.0, -1.0]
       // %rhs: [1.0, 0.0, 0.0]
-      %result = ttir.atan2(%lhs, %rhs, %output) : tensor<3xf64>, tensor<3xf64>, tensor<3xf64> -> tensor<3xf64>
+      %result = ttir.atan2(%lhs, %rhs) : (tensor<3xf64>, tensor<3xf64>) -> tensor<3xf64>
       // %result: [0.0, 1.57079637, -1.57079637] // [0.0, pi/2, -pi/2]
       ```
       Mathematical definition: atan2(x, y) = arctan(y / x)
@@ -1767,7 +1763,7 @@ def TTIR_AddOp : TTIR_ElementwiseBinaryOp<"add", [DeclareOpInterfaceMethods<TTIR
       Example:
       ```mlir
       // Addition operation
-      %result = ttir.add(%lhs, %rhs, %output) : tensor<3xi32>, tensor<3xi32>, tensor<3xi32> -> tensor<3xi32>
+      %result = ttir.add(%lhs, %rhs) : (tensor<3xi32>, tensor<3xi32>) -> tensor<3xi32>
       // Input tensors:
       // %lhs: [10, 20, 30]
       // %rhs: [1, 2, 3]
@@ -1775,7 +1771,7 @@ def TTIR_AddOp : TTIR_ElementwiseBinaryOp<"add", [DeclareOpInterfaceMethods<TTIR
       // [11, 22, 33]
 
       // Example with floating point values
-      %result = ttir.add(%float_lhs, %float_rhs, %float_output) : tensor<3xf32>, tensor<3xf32>, tensor<3xf32> -> tensor<3xf32>
+      %result = ttir.add(%float_lhs, %float_rhs) : (tensor<3xf32>, tensor<3xf32>) -> tensor<3xf32>
       // Input tensors:
       // %float_lhs: [3.5, 0.0, -1.2]
       // %float_rhs: [1.5, 2.0, -3.2]
@@ -1799,7 +1795,7 @@ def TTIR_MultiplyOp : TTIR_ElementwiseBinaryOp<"multiply"> {
       Example:
       ```mlir
       // Multiplication operation
-      %result = ttir.multiply(%lhs, %rhs, %output) : tensor<3xi32>, tensor<3xi32>, tensor<3xi32> -> tensor<3xi32>
+      %result = ttir.multiply(%lhs, %rhs) : (tensor<3xi32>, tensor<3xi32>) -> tensor<3xi32>
       // Input tensors:
       // %lhs: [10, 20, 30]
       // %rhs: [1, 2, 3]
@@ -1807,7 +1803,7 @@ def TTIR_MultiplyOp : TTIR_ElementwiseBinaryOp<"multiply"> {
       // [10, 40, 90]
 
       // Example with floating point values
-      %result = ttir.multiply(%float_lhs, %float_rhs, %float_output) : tensor<3xf32>, tensor<3xf32>, tensor<3xf32> -> tensor<3xf32>
+      %result = ttir.multiply(%float_lhs, %float_rhs) : (tensor<3xf32>, tensor<3xf32>) -> tensor<3xf32>
       // Input tensors:
       // %float_lhs: [3.5, 0.0, -1.2]
       // %float_rhs: [1.5, 2.0, -3.2]
@@ -1832,7 +1828,7 @@ def TTIR_DivOp : TTIR_ElementwiseBinaryOp<"div"> {
       Example:
       ```mlir
       // Division operation
-      %result = ttir.div(%lhs, %rhs, %output) : tensor<3xi32>, tensor<3xi32>, tensor<3xi32> -> tensor<3xi32>
+      %result = ttir.div(%lhs, %rhs) : (tensor<3xi32>, tensor<3xi32>) -> tensor<3xi32>
       // Input tensors:
       // %lhs: [10, 20, 20]
       // %rhs: [1, 2, 3]
@@ -1840,7 +1836,7 @@ def TTIR_DivOp : TTIR_ElementwiseBinaryOp<"div"> {
       // [10, 10, 6]
 
       // Example with floating point values
-      %result = ttir.div(%float_lhs, %float_rhs, %float_output) : tensor<3xf32>, tensor<3xf32>, tensor<3xf32> -> tensor<3xf32>
+      %result = ttir.div(%float_lhs, %float_rhs) : (tensor<3xf32>, tensor<3xf32>) -> tensor<3xf32>
       // Input tensors:
       // %float_lhs: [3.5, 0.0, -1.2]
       // %float_rhs: [1.5, 2.0, -3.2]
@@ -1866,7 +1862,7 @@ def TTIR_MaximumOp : TTIR_ElementwiseBinaryOp<"maximum"> {
       Example:
       ```mlir
       // Maximum operation
-      %result = ttir.maximum(%lhs, %rhs, %output) : tensor<3x3xi32>, tensor<3x3xi32>, tensor<3x3xi32> -> tensor<3x3xi32>
+      %result = ttir.maximum(%lhs, %rhs) : (tensor<3x3xi32>, tensor<3x3xi32>) -> tensor<3x3xi32>
       // Input tensors:
       // %lhs: [[3, 2, 7], [1, 4, 4]]
       // %rhs: [[1, 4, 2], [1, 2, 3]]
@@ -1880,7 +1876,7 @@ def TTIR_MaximumOp : TTIR_ElementwiseBinaryOp<"maximum"> {
     }];
 }
 
-def TTIR_BatchNormInferenceOp : TTIR_DPSOp<"batch_norm_inference"> {
+def TTIR_BatchNormInferenceOp : TTIR_Op<"batch_norm_inference"> {
   let summary = "BatchNormInference operation";
   let description = [{
     Performs batch normalization inference on the input tensor. Normalizes the `operand` tensor
@@ -1903,11 +1899,11 @@ def TTIR_BatchNormInferenceOp : TTIR_DPSOp<"batch_norm_inference"> {
 
     Example:
     ```mlir
-      // Normalize a batch of activations (inference)
-      %result = ttir.batch_norm(%operand, %scale, %offset, %mean, %variance, %output,
+      // Normalize a batch of activations
+      %result = ttir.batch_norm(%operand, %scale, %offset, %mean, %variance,
                               epsilon = 0.001, dimension = 1) :
             (tensor<8x16x32x32xf32>, tensor<16xf32>, tensor<16xf32>,
-              tensor<16xf32>, tensor<16xf32>, tensor<8x16x32x32xf32>) -> tensor<8x16x32x32xf32>
+              tensor<16xf32>, tensor<16xf32>) -> tensor<8x16x32x32xf32>
     ```
 
     Mathematical definition: batch_norm(x, scale, offset, mean, variance, epsilon, dimension) =
@@ -1919,7 +1915,6 @@ def TTIR_BatchNormInferenceOp : TTIR_DPSOp<"batch_norm_inference"> {
                        AnyRankedTensor:$offset,
                        AnyRankedTensor:$mean,
                        AnyRankedTensor:$variance,
-                       AnyRankedTensor:$output,
                        F32Attr:$epsilon,
                        I32Attr:$dimension);
 
@@ -1928,7 +1923,7 @@ def TTIR_BatchNormInferenceOp : TTIR_DPSOp<"batch_norm_inference"> {
   let hasVerifier = 1;
 }
 
-def TTIR_BatchNormTrainingOp : TTIR_DPSOp<"batch_norm_training"> {
+def TTIR_BatchNormTrainingOp : TTIR_Op<"batch_norm_training"> {
   let summary = "BatchNormTraining operation";
   let description = [{
     Performs batch normalization during training on the input tensor. Normalizes the `operand` tensor
@@ -1977,7 +1972,6 @@ def TTIR_BatchNormTrainingOp : TTIR_DPSOp<"batch_norm_training"> {
                        AnyRankedTensor:$offset,
                        AnyRankedTensor:$running_mean,
                        AnyRankedTensor:$running_variance,
-                       Variadic<AnyRankedTensor>:$outputs,
                        F32Attr:$epsilon,
                        I32Attr:$dimension,
                        F32Attr:$momentum);
@@ -1989,7 +1983,7 @@ def TTIR_BatchNormTrainingOp : TTIR_DPSOp<"batch_norm_training"> {
   let hasVerifier = 1;
 }
 
-def TTIR_RMSNormOp : TTIR_DPSOp<"rms_norm", [AttrSizedOperandSegments]> {
+def TTIR_RMSNormOp : TTIR_Op<"rms_norm", [AttrSizedOperandSegments]> {
   let summary = "RMS normalization operation";
   let description = [{
     Performs RMS (Root Mean Square) normalization on the input tensor. This operation
@@ -2015,13 +2009,11 @@ def TTIR_RMSNormOp : TTIR_DPSOp<"rms_norm", [AttrSizedOperandSegments]> {
     Example:
     ```mlir
       // RMS normalization over last dimension (shape: [2, 4, 8] -> normalize over [8])
-      %result = ttir.rms_norm(%input, %weight, %bias, %output,
-                             normalized_shape = [8], epsilon = 1e-05) :
-            (tensor<2x4x8xf32>, tensor<2x4x8xf32>, tensor<8xf32>, tensor<8xf32>) -> tensor<2x4x8xf32>
+      %result = ttir.rms_norm(%input, %weight, %bias) : <{ normalized_shape = [8], epsilon = 1e-05 }> :
+            (tensor<2x4x8xf32>, tensor<2x4x8xf32>, tensor<8xf32>) -> tensor<2x4x8xf32>
 
       // RMS normalization over last two dimensions (shape: [2, 4, 8] -> normalize over [4, 8])
-      %result = ttir.rms_norm(%input, %weight, %bias, %output,
-                             normalized_shape = [4, 8], epsilon = 1e-05) :
+      %result = ttir.rms_norm(%input, %weight, %bias) : <{ normalized_shape = [4, 8], epsilon = 1e-05) }> :
             (tensor<2x4x8xf32>, tensor<2x4x8xf32>, tensor<4x8xf32>) -> tensor<2x4x8xf32>
     ```
 
@@ -2032,7 +2024,6 @@ def TTIR_RMSNormOp : TTIR_DPSOp<"rms_norm", [AttrSizedOperandSegments]> {
   let arguments = (ins AnyRankedTensor:$input,
                        Optional<AnyRankedTensor>:$weight,
                        Optional<AnyRankedTensor>:$bias,
-                       AnyRankedTensor:$output,
                        DenseI64ArrayAttr:$normalized_shape,
                        DefaultValuedAttr<F32Attr, "1e-05">:$epsilon);
 
@@ -2064,12 +2055,11 @@ class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> :
       - `keep_dim` (Bool): Whether to keep the reduced dimensions or not.
       - `dim_arg` (Array of Int32): Dimensions to reduce along.
 
-      Outputs:
-      - `output` (Tensor): The result tensor after applying the reduction.
+      Output:
+      - `result` (Tensor): The result tensor after applying the reduction.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output,
                          BoolAttr:$keep_dim,
                          OptionalAttr<I32ArrayAttr>:$dim_arg);
 
@@ -2093,8 +2083,7 @@ def TTIR_ArgMaxOp : TTIR_ReductionOp<"argmax"> {
     ```mlir
     // Argmax along dimension 1
     %input = ... : tensor<2x3xf32>
-    %output = ttir.empty() : tensor<2xi32>
-    %result = ttir.argmax(%input, %output) {keep_dim = false, dim_arg = [1: i32]} : tensor<2x3xf32>, tensor<2xi32> -> tensor<2xi32>
+    %result = ttir.argmax(%input) {keep_dim = false, dim_arg = [1: i32]} : (tensor<2x3xf32>) -> tensor<2xi32>
     // Input tensor:
     // [[1.0, 5.0, 3.0],
     //  [2.0, 4.0, 6.0]]
@@ -2103,8 +2092,7 @@ def TTIR_ArgMaxOp : TTIR_ReductionOp<"argmax"> {
 
     // Argmax along dimension 0
     %input = ... : tensor<2x3xf32>
-    %output = ttir.empty() : tensor<3xi32>
-    %result = ttir.argmax(%input, %output) {keep_dim = false, dim_arg = [0: i32]} : tensor<2x3xf32>, tensor<3xi32> -> tensor<3xi32>
+    %result = ttir.argmax(%input) {keep_dim = false, dim_arg = [0: i32]} : (tensor<2x3xf32>) -> tensor<3xi32>
     // Input tensor:
     // [[1.0, 5.0, 3.0],
     //  [2.0, 4.0, 6.0]]
@@ -2113,8 +2101,7 @@ def TTIR_ArgMaxOp : TTIR_ReductionOp<"argmax"> {
 
     // Argmax over all dimensions
     %input = ... : tensor<2x3xf32>
-    %output = ttir.empty() : tensor<i32>
-    %result = ttir.argmax(%input, %output) {keep_dim = false} : tensor<2x3xf32>, tensor<i32> -> tensor<i32>
+    %result = ttir.argmax(%input) {keep_dim = false} : (tensor<2x3xf32>) -> tensor<i32>
     // Input tensor:
     // [[1.0, 5.0, 3.0],
     //  [2.0, 4.0, 6.0]]
@@ -2129,8 +2116,8 @@ def TTIR_ArgMaxOp : TTIR_ReductionOp<"argmax"> {
       - `keep_dim` (Bool): Whether to keep the reduced dimensions or not.
       - `dim_arg` (Array of Int32): Dimensions to reduce along.
 
-      Outputs:
-      - `output` (Tensor): The result tensor after applying the reduction.
+      Output:
+      - `result` (Tensor): The result tensor after applying the reduction.
   }];
 }
 
@@ -2148,8 +2135,7 @@ def TTIR_SumOp : TTIR_ReductionOp<"sum"> {
       ```mlir
       // Sum along dimension 1
       %input = ... : tensor<2x3xf32>
-      %output = ttir.empty() : tensor<2xf32>
-      %result = ttir.sum(%input, %output) {keep_dim = false, dim_arg = [1: i32]} : tensor<2x3xf32>, tensor<2xf32> -> tensor<2xf32>
+      %result = ttir.sum(%input) {keep_dim = false, dim_arg = [1: i32]} : (tensor<2x3xf32>) -> tensor<2xf32>
       // Input tensor:
       // [[1.0, 2.0, 3.0],
       //  [4.0, 5.0, 6.0]]
@@ -2158,8 +2144,7 @@ def TTIR_SumOp : TTIR_ReductionOp<"sum"> {
 
       // Sum along dimension 0
       %input = ... : tensor<2x3xf32>
-      %output = ttir.empty() : tensor<3xf32>
-      %result = ttir.sum(%input, %output) {keep_dim = false, dim_arg = [0: i32]} : tensor<2x3xf32>, tensor<3xf32> -> tensor<3xf32>
+      %result = ttir.sum(%input) {keep_dim = false, dim_arg = [0: i32]} : (tensor<2x3xf32>) -> tensor<3xf32>
       // Input tensor:
       // [[1.0, 2.0, 3.0],
       //  [4.0, 5.0, 6.0]]
@@ -2168,8 +2153,7 @@ def TTIR_SumOp : TTIR_ReductionOp<"sum"> {
 
       // Sum over all dimensions
       %input = ... : tensor<2x3xf32>
-      %output = ttir.empty() : tensor<f32>
-      %result = ttir.sum(%input, %output) {keep_dim = false} : tensor<2x3xf32>, tensor<f32> -> tensor<f32>
+      %result = ttir.sum(%input) {keep_dim = false} : (tensor<2x3xf32>) -> tensor<f32>
       // Input tensor:
       // [[1.0, 2.0, 3.0],
       //  [4.0, 5.0, 6.0]]
@@ -2186,8 +2170,8 @@ def TTIR_SumOp : TTIR_ReductionOp<"sum"> {
       - `keep_dim` (Bool): Whether to keep the reduced dimensions or not.
       - `dim_arg` (Array of Int32): Dimensions to reduce along.
 
-      Outputs:
-      - `output` (Tensor): The result tensor after applying the reduction.
+      Output:
+      - `result` (Tensor): The result tensor after applying the reduction.
     }];
 }
 
@@ -2205,8 +2189,7 @@ def TTIR_MeanOp : TTIR_ReductionOp<"mean"> {
     ```mlir
     // Mean along dimension 1
     %input = ... : tensor<2x3xf32>
-    %output = ttir.empty() : tensor<2xf32>
-    %result = ttir.mean(%input, %output) {keep_dim = false, dim_arg = [1: i32]} : tensor<2x3xf32>, tensor<2xf32> -> tensor<2xf32>
+    %result = ttir.mean(%input) {keep_dim = false, dim_arg = [1: i32]} : (tensor<2x3xf32>) -> tensor<2xf32>
     // Input tensor:
     // [[1.0, 2.0, 3.0],
     //  [4.0, 5.0, 6.0]]
@@ -2215,8 +2198,7 @@ def TTIR_MeanOp : TTIR_ReductionOp<"mean"> {
 
     // Mean along dimension 0
     %input = ... : tensor<2x3xf32>
-    %output = ttir.empty() : tensor<3xf32>
-    %result = ttir.mean(%input, %output) {keep_dim = false, dim_arg = [0: i32]} : tensor<2x3xf32>, tensor<3xf32> -> tensor<3xf32>
+    %result = ttir.mean(%input) {keep_dim = false, dim_arg = [0: i32]} : (tensor<2x3xf32>) -> tensor<3xf32>
     // Input tensor:
     // [[1.0, 2.0, 3.0],
     //  [4.0, 5.0, 6.0]]
@@ -2225,8 +2207,7 @@ def TTIR_MeanOp : TTIR_ReductionOp<"mean"> {
 
     // Mean over all dimensions
     %input = ... : tensor<2x3xf32>
-    %output = ttir.empty() : tensor<f32>
-    %result = ttir.mean(%input, %output) {keep_dim = false} : tensor<2x3xf32>, tensor<f32> -> tensor<f32>
+    %result = ttir.mean(%input) {keep_dim = false} : (tensor<2x3xf32>) -> tensor<f32>
     // Input tensor:
     // [[1.0, 2.0, 3.0],
     //  [4.0, 5.0, 6.0]]
@@ -2245,8 +2226,8 @@ def TTIR_MeanOp : TTIR_ReductionOp<"mean"> {
     - `keep_dim` (Bool): Whether to keep the reduced dimensions or not.
     - `dim_arg` (Array of Int32): Dimensions to reduce along.
 
-    Outputs:
-    - `output` (Tensor): The result tensor after applying the reduction.
+    Output:
+    - `result` (Tensor): The result tensor after applying the reduction.
   }];
 }
 
@@ -2264,8 +2245,7 @@ def TTIR_MaxOp : TTIR_ReductionOp<"max"> {
     ```mlir
     // Maximum along dimension 1
     %input = ... : tensor<2x3xf32>
-    %output = ttir.empty() : tensor<2xf32>
-    %result = ttir.max(%input, %output) {keep_dim = false, dim_arg = [1: i32]} : tensor<2x3xf32>, tensor<2xf32> -> tensor<2xf32>
+    %result = ttir.max(%input) {keep_dim = false, dim_arg = [1: i32]} : (tensor<2x3xf32>) -> tensor<2xf32>
     // Input tensor:
     // [[1.0, 5.0, 3.0],
     //  [4.0, 2.0, 6.0]]
@@ -2274,8 +2254,7 @@ def TTIR_MaxOp : TTIR_ReductionOp<"max"> {
 
     // Maximum along dimension 0
     %input = ... : tensor<2x3xf32>
-    %output = ttir.empty() : tensor<3xf32>
-    %result = ttir.max(%input, %output) {keep_dim = false, dim_arg = [0: i32]} : tensor<2x3xf32>, tensor<3xf32> -> tensor<3xf32>
+    %result = ttir.max(%input) {keep_dim = false, dim_arg = [0: i32]} : (tensor<2x3xf32>) -> tensor<3xf32>
     // Input tensor:
     // [[1.0, 5.0, 3.0],
     //  [4.0, 2.0, 6.0]]
@@ -2284,8 +2263,7 @@ def TTIR_MaxOp : TTIR_ReductionOp<"max"> {
 
     // Maximum over all dimensions
     %input = ... : tensor<2x3xf32>
-    %output = ttir.empty() : tensor<f32>
-    %result = ttir.max(%input, %output) {keep_dim = false} : tensor<2x3xf32>, tensor<f32> -> tensor<f32>
+    %result = ttir.max(%input) {keep_dim = false} : (tensor<2x3xf32>) -> tensor<f32>
     // Input tensor:
     // [[1.0, 5.0, 3.0],
     //  [4.0, 2.0, 6.0]]
@@ -2304,8 +2282,8 @@ def TTIR_MaxOp : TTIR_ReductionOp<"max"> {
     - `keep_dim` (Bool): Whether to keep the reduced dimensions or not.
     - `dim_arg` (Array of Int32): Dimensions to reduce along.
 
-    Outputs:
-    - `output` (Tensor): The result tensor after applying the reduction.
+    Output:
+    - `result` (Tensor): The result tensor after applying the reduction.
   }];
 }
 
@@ -2323,8 +2301,7 @@ def TTIR_MinOp : TTIR_ReductionOp<"min"> {
     ```mlir
     // Minimum along dimension 1
     %input = ... : tensor<2x3xf32>
-    %output = ttir.empty() : tensor<2xf32>
-    %result = ttir.min(%input, %output) {keep_dim = false, dim_arg = [1: i32]} : tensor<2x3xf32>, tensor<2xf32> -> tensor<2xf32>
+    %result = ttir.min(%input) {keep_dim = false, dim_arg = [1: i32]} : (tensor<2x3xf32>) -> tensor<2xf32>
     // Input tensor:
     // [[1.0, 5.0, 3.0],
     //  [4.0, 2.0, 6.0]]
@@ -2333,8 +2310,7 @@ def TTIR_MinOp : TTIR_ReductionOp<"min"> {
 
     // Minimum along dimension 0
     %input = ... : tensor<2x3xf32>
-    %output = ttir.empty() : tensor<3xf32>
-    %result = ttir.min(%input, %output) {keep_dim = false, dim_arg = [0: i32]} : tensor<2x3xf32>, tensor<3xf32> -> tensor<3xf32>
+    %result = ttir.min(%input) {keep_dim = false, dim_arg = [0: i32]} : (tensor<2x3xf32>) -> tensor<3xf32>
     // Input tensor:
     // [[1.0, 5.0, 3.0],
     //  [4.0, 2.0, 6.0]]
@@ -2343,8 +2319,7 @@ def TTIR_MinOp : TTIR_ReductionOp<"min"> {
 
     // Minimum over all dimensions
     %input = ... : tensor<2x3xf32>
-    %output = ttir.empty() : tensor<f32>
-    %result = ttir.min(%input, %output) {keep_dim = false} : tensor<2x3xf32>, tensor<f32> -> tensor<f32>
+    %result = ttir.min(%input) {keep_dim = false} : (tensor<2x3xf32>) -> tensor<f32>
     // Input tensor:
     // [[1.0, 5.0, 3.0],
     //  [4.0, 2.0, 6.0]]
@@ -2363,8 +2338,8 @@ def TTIR_MinOp : TTIR_ReductionOp<"min"> {
     - `keep_dim` (Bool): Whether to keep the reduced dimensions or not.
     - `dim_arg` (Array of Int32): Dimensions to reduce along.
 
-    Outputs:
-    - `output` (Tensor): The result tensor after applying the reduction.
+    Output:
+    - `result` (Tensor): The result tensor after applying the reduction.
   }];
 }
 
@@ -2384,8 +2359,7 @@ def TTIR_ReduceAndOp : TTIR_ReductionOp<"reduce_and"> {
       ```mlir
       // Logical AND reduction along dimension 0
       %input = ... : tensor<4x4xi1>
-      %output = ttir.empty() : tensor<4xi1>
-      %result = ttir.reduce_and(%input, %output) {keep_dim = false, dim_arg = [0: i32]} : tensor<4x4xi1>, tensor<4xi1> -> tensor<4xi1>
+      %result = ttir.reduce_and(%input) {keep_dim = false, dim_arg = [0: i32]} : (tensor<4x4xi1>) -> tensor<4xi1>
       // Input tensor (where 1 represents True and 0 represents False):
       // [[1, 0, 1, 0],
       //  [1, 1, 1, 1],
@@ -2396,8 +2370,7 @@ def TTIR_ReduceAndOp : TTIR_ReductionOp<"reduce_and"> {
 
       // Logical AND reduction along dimension 1
       %input = ... : tensor<4x4xi1>
-      %output = ttir.empty() : tensor<4xi1>
-      %result = ttir.reduce_and(%input, %output) {keep_dim = false, dim_arg = [1: i32]} : tensor<4x4xi1>, tensor<4xi1> -> tensor<4xi1>
+      %result = ttir.reduce_and(%input) {keep_dim = false, dim_arg = [1: i32]} : (tensor<4x4xi1>) -> tensor<4xi1>
       // Input tensor:
       // [[1, 0, 1, 0],
       //  [1, 1, 1, 1],
@@ -2408,8 +2381,7 @@ def TTIR_ReduceAndOp : TTIR_ReductionOp<"reduce_and"> {
 
       // Logical AND reduction over all dimensions
       %input = ... : tensor<4x4xi1>
-      %output = ttir.empty() : tensor<i1>
-      %result = ttir.reduce_and(%input, %output) {keep_dim = false} : tensor<4x4xi1>, tensor<i1> -> tensor<i1>
+      %result = ttir.reduce_and(%input) {keep_dim = false} : (tensor<4x4xi1>) -> tensor<i1>
       // Input tensor:
       // [[1, 0, 1, 0],
       //  [1, 1, 1, 1],
@@ -2428,8 +2400,8 @@ def TTIR_ReduceAndOp : TTIR_ReductionOp<"reduce_and"> {
       - `keep_dim` (Bool): Whether to keep the reduced dimensions or not.
       - `dim_arg` (Array of Int32): Dimensions to reduce along.
 
-      Outputs:
-      - `output` (Tensor): The result tensor after applying the reduction.
+      Output:
+      - `result` (Tensor): The result tensor after applying the reduction.
     }];
 }
 
@@ -2449,8 +2421,7 @@ def TTIR_ReduceOrOp : TTIR_ReductionOp<"reduce_or"> {
       ```mlir
       // Logical OR reduction along dimension 0
       %input = ... : tensor<4x4xi1>
-      %output = ttir.empty() : tensor<4xi1>
-      %result = ttir.reduce_or(%input, %output) {keep_dim = false, dim_arg = [0: i32]} : tensor<4x4xi1>, tensor<4xi1> -> tensor<4xi1>
+      %result = ttir.reduce_or(%input) {keep_dim = false, dim_arg = [0: i32]} : (tensor<4x4xi1>) -> tensor<4xi1>
       // Input tensor (where 1 represents True and 0 represents False):
       // [[1, 0, 0, 0],
       //  [1, 1, 0, 1],
@@ -2461,8 +2432,7 @@ def TTIR_ReduceOrOp : TTIR_ReductionOp<"reduce_or"> {
 
       // Logical OR reduction along dimension 1
       %input = ... : tensor<4x4xi1>
-      %output = ttir.empty() : tensor<4xi1>
-      %result = ttir.reduce_or(%input, %output) {keep_dim = false, dim_arg = [1: i32]} : tensor<4x4xi1>, tensor<4xi1> -> tensor<4xi1>
+      %result = ttir.reduce_or(%input) {keep_dim = false, dim_arg = [1: i32]} : (tensor<4x4xi1>) -> tensor<4xi1>
       // Input tensor:
       // [[1, 0, 0, 0],
       //  [1, 1, 0, 1],
@@ -2473,8 +2443,7 @@ def TTIR_ReduceOrOp : TTIR_ReductionOp<"reduce_or"> {
 
       // Logical OR reduction over all dimensions
       %input = ... : tensor<4x4xi1>
-      %output = ttir.empty() : tensor<i1>
-      %result = ttir.reduce_or(%input, %output) {keep_dim = false} : tensor<4x4xi1>, tensor<i1> -> tensor<i1>
+      %result = ttir.reduce_or(%input) {keep_dim = false} : (tensor<4x4xi1>) -> tensor<i1>
       // Input tensor:
       // [[1, 0, 0, 0],
       //  [1, 1, 0, 1],
@@ -2493,8 +2462,8 @@ def TTIR_ReduceOrOp : TTIR_ReductionOp<"reduce_or"> {
       - `keep_dim` (Bool): Whether to keep the reduced dimensions or not.
       - `dim_arg` (Array of Int32): Dimensions to reduce along.
 
-      Outputs:
-      - `output` (Tensor): The result tensor after applying the reduction.
+      Output:
+      - `result` (Tensor): The result tensor after applying the reduction.
     }];
 }
 
@@ -2512,8 +2481,7 @@ def TTIR_ProdOp : TTIR_ReductionOp<"prod"> {
     ```mlir
     // Product along dimension 0
     %input = ... : tensor<2x3xi32>
-    %output = ttir.empty() : tensor<3xi32>
-    %result = ttir.prod(%input, %output) {keep_dim = false, dim_arg = [0: i32]} : tensor<2x3xi32>, tensor<3xi32> -> tensor<3xi32>
+    %result = ttir.prod(%input) {keep_dim = false, dim_arg = [0: i32]} : (tensor<2x3xi32>) -> tensor<3xi32>
     // Input tensor:
     // [[1, 2, 3],
     //  [4, 5, 6]]
@@ -2522,8 +2490,7 @@ def TTIR_ProdOp : TTIR_ReductionOp<"prod"> {
 
     // Product along dimension 1
     %input = ... : tensor<2x3xi32>
-    %output = ttir.empty() : tensor<2xi32>
-    %result = ttir.prod(%input, %output) {keep_dim = false, dim_arg = [1: i32]} : tensor<2x3xi32>, tensor<2xi32> -> tensor<2xi32>
+    %result = ttir.prod(%input) {keep_dim = false, dim_arg = [1: i32]} : (tensor<2x3xi32>) -> tensor<2xi32>
     // Input tensor:
     // [[1, 2, 3],
     //  [4, 5, 6]]
@@ -2532,8 +2499,7 @@ def TTIR_ProdOp : TTIR_ReductionOp<"prod"> {
 
     // Product over all dimensions
     %input = ... : tensor<2x3xi32>
-    %output = ttir.empty() : tensor<i32>
-    %result = ttir.prod(%input, %output) {keep_dim = false} : tensor<2x3xi32>, tensor<i32> -> tensor<i32>
+    %result = ttir.prod(%input) {keep_dim = false} : (tensor<2x3xi32>) -> tensor<i32>
     // Input tensor:
     // [[1, 2, 3],
     //  [4, 5, 6]]
@@ -2552,8 +2518,8 @@ def TTIR_ProdOp : TTIR_ReductionOp<"prod"> {
     - `keep_dim` (Bool): Whether to keep the reduced dimensions or not.
     - `dim_arg` (Array of Int32): Dimensions to reduce along.
 
-    Outputs:
-    - `output` (Tensor): The result tensor after applying the reduction.
+    Output:
+    - `result` (Tensor): The result tensor after applying the reduction.
   }];
 }
 
@@ -2571,8 +2537,7 @@ def TTIR_EmbeddingOp : TTIR_NamedOp<"embedding"> {
       // Embedding lookup
       %input = ... : tensor<2x3xi32>  // Batch of indices
       %weight = ... : tensor<10x4xf32>  // Embedding table with 10 entries of dimension 4
-      %output = ttir.empty() : tensor<2x3x4xf32>
-      %result = ttir.embedding(%input, %weight, %output) : tensor<2x3xi32>, tensor<10x4xf32>, tensor<2x3x4xf32> -> tensor<2x3x4xf32>
+      %result = ttir.embedding(%input, %weight) : (tensor<2x3xi32>, tensor<10x4xf32>) -> tensor<2x3x4xf32>
 
       // Input tensor (indices):
       // [[0, 2, 5],
@@ -2600,13 +2565,12 @@ def TTIR_EmbeddingOp : TTIR_NamedOp<"embedding"> {
       - `input` (Tensor): The input tensor containing indices.
       - `weight` (Tensor): The embedding table tensor.
 
-      Outputs:
+      Output:
       - `result` (Tensor): The resulting tensor containing the embeddings.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$weight,
-                         AnyRankedTensor:$output);
+                         AnyRankedTensor:$weight);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -2628,9 +2592,8 @@ def TTIR_EmbeddingBackwardOp : TTIR_NamedOp<"embedding_backward"> {
       %input = ... : tensor<2x3xi32>  // Original indices used in the forward pass
       %weight = ... : tensor<10x4xf32>  // Original embedding table
       %in_gradient = ... : tensor<2x3x4xf32>  // Gradient from the forward pass
-      %output = ttir.empty() : tensor<10x4xf32>  // Gradient for the embedding table
-      %result = ttir.embedding_backward(%input, %weight, %in_gradient, %output) :
-          tensor<2x3xi32>, tensor<10x4xf32>, tensor<2x3x4xf32>, tensor<10x4xf32> -> tensor<10x4xf32>
+      %result = ttir.embedding_backward(%input, %weight, %in_gradient) :
+          (tensor<2x3xi32>, tensor<10x4xf32>, tensor<2x3x4xf32>) -> tensor<10x4xf32>
 
       // Input tensor (indices):
       // [[0, 2, 5],
@@ -2656,14 +2619,13 @@ def TTIR_EmbeddingBackwardOp : TTIR_NamedOp<"embedding_backward"> {
       - `weight` (Tensor): The original embedding table tensor.
       - `in_gradient` (Tensor): The gradient tensor from the forward pass.
 
-      Outputs:
+      Output:
       - `result` (Tensor): The gradient tensor for the embedding table.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$weight,
-                         AnyRankedTensor:$in_gradient,
-                         AnyRankedTensor:$output);
+                         AnyRankedTensor:$in_gradient);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -2683,8 +2645,7 @@ def TTIR_CumSumOp : TTIR_NamedOp<"cumsum"> {
     ```mlir
     // Cumulative sum along dimension 0
     %input = ... : tensor<2x3xf32>
-    %output = ttir.empty() : tensor<2x3xf32>
-    %result = ttir.cumsum(%input, %output) {dim = 0 : i64} : tensor<2x3xf32>, tensor<2x3xf32> -> tensor<2x3xf32>
+    %result = ttir.cumsum(%input) {dim = 0 : i64} : (tensor<2x3xf32>) -> tensor<2x3xf32>
     // Input tensor:
     // [[1, 2, 3],
     //  [4, 5, 6]]
@@ -2694,8 +2655,7 @@ def TTIR_CumSumOp : TTIR_NamedOp<"cumsum"> {
 
     // Cumulative sum along dimension 1
     %input = ... : tensor<2x3xf32>
-    %output = ttir.empty() : tensor<2x3xf32>
-    %result = ttir.cumsum(%input, %output) {dim = 1 : i64} : tensor<2x3xf32>, tensor<2x3xf32> -> tensor<2x3xf32>
+    %result = ttir.cumsum(%input) {dim = 1 : i64} : (tensor<2x3xf32>) -> tensor<2x3xf32>
     // Input tensor:
     // [[1, 2, 3],
     //  [4, 5, 6]]
@@ -2710,12 +2670,11 @@ def TTIR_CumSumOp : TTIR_NamedOp<"cumsum"> {
     Attributes:
     - `dim` (Integer): The dimension along which to compute the cumulative sum.
 
-    Outputs:
+    Output:
     - `result` (Tensor): The tensor containing the cumulative sums.
   }];
 
   let arguments = (ins AnyRankedTensor:$input,
-                       AnyRankedTensor:$output,
                        I64Attr:$dim);
 
   let results = (outs AnyRankedTensor:$result);
@@ -2741,8 +2700,7 @@ def TTIR_SoftmaxOp : TTIR_NamedOp<"softmax"> {
       ```mlir
       // Softmax along dimension 1
       %input = ... : tensor<2x3xf32>
-      %output = ttir.empty() : tensor<2x3xf32>
-      %result = ttir.softmax(%input, %output) {dimension = 1 : i32} : tensor<2x3xf32>, tensor<2x3xf32> -> tensor<2x3xf32>
+      %result = ttir.softmax(%input) {dimension = 1 : i32} : (tensor<2x3xf32>) -> tensor<2x3xf32>
       // Input tensor:
       // [[1.0, 2.0, 3.0],
       //  [4.0, 1.0, 2.0]]
@@ -2761,12 +2719,11 @@ def TTIR_SoftmaxOp : TTIR_NamedOp<"softmax"> {
       - `dimension` (Integer): The dimension along which to apply the softmax function.
       - `numericStable` (Boolean, default=false): Whether to use numerically stable computation.
 
-      Outputs:
+      Output:
       - `result` (Tensor): The tensor after applying the softmax function.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output,
                          SI32Attr:$dimension,
                          DefaultValuedAttr<BoolAttr, "false">:$numericStable);
 
@@ -2794,7 +2751,6 @@ def TTIR_SortOp : TTIR_NamedOp<"sort"> {
   }];
 
   let arguments = (ins AnyRankedTensor:$input,
-                       Variadic<AnyRankedTensor>:$output,
                        DefaultValuedAttr<SI32Attr, "-1">:$dim,
                        DefaultValuedAttr<BoolAttr, "false">:$descending,
                        DefaultValuedAttr<BoolAttr, "false">:$stable);
@@ -2818,17 +2774,13 @@ def TTIR_TransposeOp : TTIR_NamedOp<"transpose", [TTIR_TensorManipulation]> {
       ```mlir
       // Transpose dimensions 0 and 1
       %input = ... : tensor<2x3x4xf32>
-      %output = ttir.empty() : tensor<3x2x4xf32>
-      %result = ttir.transpose(%input, %output) {dim0 = 0 : i32, dim1 = 1 : i32} :
-          tensor<2x3x4xf32>, tensor<3x2x4xf32> -> tensor<3x2x4xf32>
+      %result = ttir.transpose(%input) {dim0 = 0 : i32, dim1 = 1 : i32} : (tensor<2x3x4xf32>) -> tensor<3x2x4xf32>
       // Input tensor shape: [2, 3, 4]
       // Output tensor shape: [3, 2, 4]
 
       // Transpose dimensions 1 and 2
       %input = ... : tensor<2x3x4xf32>
-      %output = ttir.empty() : tensor<2x4x3xf32>
-      %result = ttir.transpose(%input, %output) {dim0 = 1 : i32, dim1 = 2 : i32} :
-          tensor<2x3x4xf32>, tensor<2x4x3xf32> -> tensor<2x4x3xf32>
+      %result = ttir.transpose(%input) {dim0 = 1 : i32, dim1 = 2 : i32} : (tensor<2x3x4xf32>) -> tensor<2x4x3xf32>
       // Input tensor shape: [2, 3, 4]
       // Output tensor shape: [2, 4, 3]
       ```
@@ -2840,12 +2792,11 @@ def TTIR_TransposeOp : TTIR_NamedOp<"transpose", [TTIR_TensorManipulation]> {
       - `dim0` (Integer): The first dimension to swap.
       - `dim1` (Integer): The second dimension to swap.
 
-      Outputs:
+      Output:
       - `result` (Tensor): The transposed tensor.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output,
                          SI32Attr:$dim0,
                          SI32Attr:$dim1);
 
@@ -2871,9 +2822,7 @@ def TTIR_ConcatOp : TTIR_NamedOp<"concat"> {
       // Concatenate along dimension 0
       %input1 = ... : tensor<2x3xf32>
       %input2 = ... : tensor<3x3xf32>
-      %output = ttir.empty() : tensor<5x3xf32>
-      %result = ttir.concat(%input1, %input2, %output) {dim = 0 : i32} :
-          tensor<2x3xf32>, tensor<3x3xf32>, tensor<5x3xf32> -> tensor<5x3xf32>
+      %result = ttir.concat(%input1, %input2) {dim = 0 : i32} : (tensor<2x3xf32>, tensor<3x3xf32>) -> tensor<5x3xf32>
       // Input1 shape: [2, 3]
       // Input2 shape: [3, 3]
       // Output shape: [5, 3]
@@ -2881,9 +2830,7 @@ def TTIR_ConcatOp : TTIR_NamedOp<"concat"> {
       // Concatenate along dimension 1
       %input1 = ... : tensor<2x3xf32>
       %input2 = ... : tensor<2x2xf32>
-      %output = ttir.empty() : tensor<2x5xf32>
-      %result = ttir.concat(%input1, %input2, %output) {dim = 1 : i32} :
-          tensor<2x3xf32>, tensor<2x2xf32>, tensor<2x5xf32> -> tensor<2x5xf32>
+      %result = ttir.concat(%input1, %input2) {dim = 1 : i32} : (tensor<2x3xf32>, tensor<2x2xf32>) -> tensor<2x5xf32>
       // Input1 shape: [2, 3]
       // Input2 shape: [2, 2]
       // Output shape: [2, 5]
@@ -2895,12 +2842,11 @@ def TTIR_ConcatOp : TTIR_NamedOp<"concat"> {
       Attributes:
       - `dim` (Integer): The dimension along which to concatenate the tensors.
 
-      Outputs:
+      Output:
       - `result` (Tensor): The concatenated tensor.
     }];
 
     let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
-                         AnyRankedTensor:$output,
                          SI32Attr:$dim);
 
     let results = (outs AnyRankedTensor:$result);
@@ -2924,9 +2870,7 @@ def TTIR_RepeatOp : TTIR_NamedOp<"repeat"> {
     ```mlir
     // Repeat a 2x3 tensor with repeat dimensions [2, 2]
     %input = ... : tensor<2x3xf32>
-    %output = ttir.empty() : tensor<4x6xf32>
-    %result = ttir.repeat(%input, %output) {repeat_dimensions = [2, 2]} :
-        tensor<2x3xf32>, tensor<4x6xf32> -> tensor<4x6xf32>
+    %result = ttir.repeat(%input) {repeat_dimensions = [2, 2]} : (tensor<2x3xf32>) -> tensor<4x6xf32>
     // Input tensor:
     // [[1.0, 2.0, 3.0],
     //  [4.0, 5.0, 6.0]]
@@ -2938,9 +2882,7 @@ def TTIR_RepeatOp : TTIR_NamedOp<"repeat"> {
 
     // Repeat a 2x2 tensor with repeat dimensions [1, 3]
     %input = ... : tensor<2x2xf32>
-    %output = ttir.empty() : tensor<2x6xf32>
-    %result = ttir.repeat(%input, %output) {repeat_dimensions = [1, 3]} :
-        tensor<2x2xf32>, tensor<2x6xf32> -> tensor<2x6xf32>
+    %result = ttir.repeat(%input) {repeat_dimensions = [1, 3]} : (tensor<2x2xf32>) -> tensor<2x6xf32>
     // Input tensor:
     // [[1.0, 2.0],
     //  [3.0, 4.0]]
@@ -2955,12 +2897,11 @@ def TTIR_RepeatOp : TTIR_NamedOp<"repeat"> {
     Attributes:
     - `repeat_dimensions` (Array of Integer): The number of times to repeat the tensor along each dimension.
 
-    Outputs:
+    Output:
     - `result` (Tensor): The repeated tensor.
   }];
 
   let arguments = (ins AnyRankedTensor:$input,
-                       AnyRankedTensor:$output,
                        DenseI64ArrayAttr:$repeat_dimensions);
 
   let results = (outs AnyRankedTensor:$result);
@@ -2981,9 +2922,7 @@ def TTIR_RepeatInterleaveOp : TTIR_NamedOp<"repeat_interleave"> {
       ```mlir
       // Repeat interleave along dimension 0 with repeats=2
       %input = ... : tensor<2x3xf32>
-      %output = ttir.empty() : tensor<4x3xf32>
-      %result = ttir.repeat_interleave(%input, %output) {repeats = 2 : ui32, dim = 0 : i32} :
-          tensor<2x3xf32>, tensor<4x3xf32> -> tensor<4x3xf32>
+      %result = ttir.repeat_interleave(%input) {repeats = 2 : ui32, dim = 0 : i32} : (tensor<2x3xf32>) -> tensor<4x3xf32>
       // Input tensor:
       // [[1.0, 2.0, 3.0],
       //  [4.0, 5.0, 6.0]]
@@ -2995,9 +2934,7 @@ def TTIR_RepeatInterleaveOp : TTIR_NamedOp<"repeat_interleave"> {
 
       // Repeat interleave along dimension 1 with repeats=3
       %input = ... : tensor<2x2xf32>
-      %output = ttir.empty() : tensor<2x6xf32>
-      %result = ttir.repeat_interleave(%input, %output) {repeats = 3 : ui32, dim = 1 : i32} :
-          tensor<2x2xf32>, tensor<2x6xf32> -> tensor<2x6xf32>
+      %result = ttir.repeat_interleave(%input) {repeats = 3 : ui32, dim = 1 : i32} : (tensor<2x2xf32>) -> tensor<2x6xf32>
       // Input tensor:
       // [[1.0, 2.0],
       //  [3.0, 4.0]]
@@ -3013,12 +2950,11 @@ def TTIR_RepeatInterleaveOp : TTIR_NamedOp<"repeat_interleave"> {
       - `repeats` (Integer): The number of times to repeat each element.
       - `dim` (Integer): The dimension along which to repeat elements.
 
-      Outputs:
+      Output:
       - `result` (Tensor): The tensor with repeated elements.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output,
                          UI32Attr:$repeats,
                          SI32Attr:$dim);
 
@@ -3055,7 +2991,7 @@ def TTIR_UpdateCacheOp : TTIR_NamedOp<"update_cache"> {
     Attributes:
     - `batch_offset` (Integer): Offset in the batch dimension.
 
-    Outputs:
+    Output:
     - `result` (Tensor): The updated cache tensor.
   }];
 
@@ -3135,7 +3071,7 @@ def TTIR_FillCacheOp : TTIR_NamedOp<"fill_cache"> {
     Attributes:
     - `batch_offset` (Integer): Offset in the batch dimension.
 
-    Outputs:
+    Output:
     - `result` (Tensor): The filled cache tensor.
   }];
 
@@ -3152,6 +3088,27 @@ def TTIR_FillCacheOp : TTIR_NamedOp<"fill_cache"> {
   }];
 }
 
+def TTIR_PagedFillCacheOp : TTIR_NamedOp<"paged_fill_cache"> {
+  let summary = "Paged fill cache op.";
+  let description = [{
+    Fills the `cache` tensor in-place with values from `input` at `batch_idx_tensor`.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$cache,
+                       AnyRankedTensor:$input,
+                       AnyRankedTensor:$page_table,
+                       Optional<AnyRankedTensor>:$batch_idx_tensor);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  // The cache tensor is modified in place by this operation, thus it acts as the DPS output of this operation.
+  let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getCacheMutable(); }
+  }];
+
+  let hasVerifier = 1;
+}
+
 def TTIR_BroadcastOp : TTIR_NamedOp<"broadcast"> {
     let summary = "Broadcast operation.";
     let description = [{
@@ -3165,16 +3122,12 @@ def TTIR_BroadcastOp : TTIR_NamedOp<"broadcast"> {
       ```mlir
       // Broadcast a tensor from shape [1, 1, 32] to [1, 16, 32]
       %input = ... : tensor<1x1x32xf32>
-      %output = ttir.empty() : tensor<1x16x32xf32>
-      %result = ttir.broadcast(%input, %output) {broadcast_dimensions = [1, 16, 1]} :
-          tensor<1x1x32xf32>, tensor<1x16x32xf32> -> tensor<1x16x32xf32>
+      %result = ttir.broadcast(%input) {broadcast_dimensions = [1, 16, 1]} : (tensor<1x1x32xf32>) -> tensor<1x16x32xf32>
       // The input tensor is repeated 16 times along the second dimension
 
       // Broadcast a tensor from shape [1, 3] to [2, 3]
       %input = ... : tensor<1x3xf32>
-      %output = ttir.empty() : tensor<2x3xf32>
-      %result = ttir.broadcast(%input, %output) {broadcast_dimensions = [2, 1]} :
-          tensor<1x3xf32>, tensor<2x3xf32> -> tensor<2x3xf32>
+      %result = ttir.broadcast(%input) {broadcast_dimensions = [2, 1]} : (tensor<1x3xf32>) -> tensor<2x3xf32>
       // The input tensor is repeated 2 times along the first dimension
       ```
 
@@ -3188,12 +3141,11 @@ def TTIR_BroadcastOp : TTIR_NamedOp<"broadcast"> {
       Attributes:
       - `broadcast_dimensions` (Array of Integer): The number of times to broadcast the tensor along each dimension.
 
-      Outputs:
+      Output:
       - `result` (Tensor): The broadcasted tensor.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output,
                          DenseI64ArrayAttr:$broadcast_dimensions);
 
     let results = (outs AnyRankedTensor:$result);
@@ -3218,25 +3170,23 @@ def TTIR_Conv2dOp : TTIR_NamedOp<"conv2d"> {
       %input = ... : tensor<1x28x28x3xf32>    // Batch size 1, 28x28 image, 3 channels
       %weight = ... : tensor<16x3x3x3xf32>    // 16 output channels, 3 input channels, 3x3 kernel
       %bias = ... : tensor<1x1x1x16xf32>      // Bias for 16 output channels
-      %output = ttir.empty() : tensor<1x26x26x16xf32>  // Output shape with no padding
-      %result = ttir.conv2d(%input, %weight, %bias, %output) {
+      %result = ttir.conv2d(%input, %weight, %bias) {
           stride = [1, 1],
           padding = [0, 0, 0, 0],
           dilation = [1, 1],
           groups = 1
-      } : tensor<1x28x28x3xf32>, tensor<16x3x3x3xf32>, tensor<1x1x1x16xf32>, tensor<1x26x26x16xf32> -> tensor<1x26x26x16xf32>
+      } : (tensor<1x28x28x3xf32>, tensor<16x3x3x3xf32>, tensor<1x1x1x16xf32>) -> tensor<1x26x26x16xf32>
 
       // Convolution with stride 2 and padding
       %input = ... : tensor<1x28x28x3xf32>    // Batch size 1, 28x28 image, 3 channels
       %weight = ... : tensor<16x3x3x3xf32>    // 16 output channels, 3 input channels, 3x3 kernel
       %bias = ... : tensor<1x1x1x16xf32>      // Bias for 16 output channels
-      %output = ttir.empty() : tensor<1x14x14x16xf32>  // Output shape with stride 2
-      %result = ttir.conv2d(%input, %weight, %bias, %output) {
+      %result = ttir.conv2d(%input, %weight, %bias) {
           stride = [2, 2],
           padding = [1, 1, 1, 1],
           dilation = [1, 1],
           groups = 1
-      } : tensor<1x28x28x3xf32>, tensor<16x3x3x3xf32>, tensor<1x1x1x16xf32>, tensor<1x14x14x16xf32> -> tensor<1x14x14x16xf32>
+      } : (tensor<1x28x28x3xf32>, tensor<16x3x3x3xf32>, tensor<1x1x1x16xf32>) -> tensor<1x14x14x16xf32>
       ```
 
       Inputs:
@@ -3266,7 +3216,7 @@ def TTIR_Conv2dOp : TTIR_NamedOp<"conv2d"> {
         - array<2xi32>: [dH, dW] where dH is dilation for height and dW is dilation for width.
       - `groups` (i32): Number of blocked connections from input channels to output channels. Input and output channels must both be divisible by groups.
 
-      Outputs:
+      Output:
       - `result` AnyRankedTensor: expected in the following format (N, H_out, W_out, O) where:
         - `H_out = (H_in + pT + pB - dH * (K_H - 1) - 1) / sH + 1`
         - `W_out = (W_in + pL + pR - dW * (K_W - 1) - 1) / sW + 1`
@@ -3275,7 +3225,6 @@ def TTIR_Conv2dOp : TTIR_NamedOp<"conv2d"> {
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$weight,
                          Optional<AnyRankedTensor>:$bias,
-                         AnyRankedTensor:$output,
                          AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$stride,
                          AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$padding,
                          AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$dilation,
@@ -3286,7 +3235,6 @@ def TTIR_Conv2dOp : TTIR_NamedOp<"conv2d"> {
       // Get number of output channels
       int64_t getOutputChannelSize();
       bool isBiasCompatible(llvm::ArrayRef<int64_t> biasDims);
-      MutableOperandRange getDpsInitsMutable() { return ttir::getDpsOutputs(this); }
     }];
 
     let results = (outs AnyRankedTensor:$result);
@@ -3309,27 +3257,25 @@ def TTIR_ConvTranspose2dOp : TTIR_NamedOp<"conv_transpose2d"> {
       %input = ... : tensor<1x14x14x16xf32>   // Batch size 1, 14x14 feature map, 16 channels
       %weight = ... : tensor<16x8x3x3xf32>    // 16 input channels, 8 output channels, 3x3 kernel
       %bias = ... : tensor<1x1x1x8xf32>       // Bias for 8 output channels
-      %output = ttir.empty() : tensor<1x28x28x8xf32>  // Output shape with stride 2
-      %result = ttir.conv_transpose2d(%input, %weight, %bias, %output) {
+      %result = ttir.conv_transpose2d(%input, %weight, %bias) {
           stride = [2, 2],
           padding = [0, 0, 0, 0],
           dilation = [1, 1],
           output_padding = [0, 0],
           groups = 1
-      } : tensor<1x14x14x16xf32>, tensor<16x8x3x3xf32>, tensor<1x1x1x8xf32>, tensor<1x28x28x8xf32> -> tensor<1x28x28x8xf32>
+      } : (tensor<1x14x14x16xf32>, tensor<16x8x3x3xf32>, tensor<1x1x1x8xf32>) -> tensor<1x28x28x8xf32>
 
       // Transposed convolution with padding and output padding
       %input = ... : tensor<1x14x14x16xf32>   // Batch size 1, 14x14 feature map, 16 channels
       %weight = ... : tensor<16x8x4x4xf32>    // 16 input channels, 8 output channels, 4x4 kernel
       %bias = ... : tensor<1x1x1x8xf32>       // Bias for 8 output channels
-      %output = ttir.empty() : tensor<1x29x29x8xf32>  // Output shape with output padding
-      %result = ttir.conv_transpose2d(%input, %weight, %bias, %output) {
+      %result = ttir.conv_transpose2d(%input, %weight, %bias) {
           stride = [2, 2],
           padding = [1, 1, 1, 1],
           dilation = [1, 1],
           output_padding = [1, 1],
           groups = 1
-      } : tensor<1x14x14x16xf32>, tensor<16x8x4x4xf32>, tensor<1x1x1x8xf32>, tensor<1x29x29x8xf32> -> tensor<1x29x29x8xf32>
+      } : (tensor<1x14x14x16xf32>, tensor<16x8x4x4xf32>, tensor<1x1x1x8xf32>) -> tensor<1x29x29x8xf32>
       ```
 
       Inputs:
@@ -3353,7 +3299,7 @@ def TTIR_ConvTranspose2dOp : TTIR_NamedOp<"conv_transpose2d"> {
       - `dilation` (i32 | array<2xi32>): Controls the spacing between the kernel points
       - `groups` i32: Controls the connections between inputs and outputs. Must be divisible by input and output channels.
 
-      Outputs:
+      Output:
       - `result` AnyRankedTensor: expected in the following format (N, H_out, W_out, O) where:
         - H_out = (H_in - 1) * stride[0] - (padding_top + padding_bottom) + dilation[0] * (K_H - 1) + output_padding[0] + 1
         - W_out = (W_in - 1) * stride[1] - (padding_left + padding_right) + dilation[1] * (K_W - 1) + output_padding[1] + 1
@@ -3362,7 +3308,6 @@ def TTIR_ConvTranspose2dOp : TTIR_NamedOp<"conv_transpose2d"> {
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$weight,
                          Optional<AnyRankedTensor>:$bias,
-                         AnyRankedTensor:$output,
                          AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$stride,
                          AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$padding,
                          AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$output_padding,
@@ -3387,8 +3332,7 @@ def TTIR_ConvolutionOp : TTIR_NamedOp<"convolution", [DeclareOpInterfaceMethods<
     // 2D convolution using the generalized convolution operation
     %lhs = ... : tensor<1x32x32x3xf32>     // Input tensor: batch size 1, 32x32 image, 3 channels
     %rhs = ... : tensor<5x5x3x16xf32>      // Filter tensor: 5x5 kernel, 3 input channels, 16 output channels
-    %output = ttir.empty() : tensor<1x28x28x16xf32>  // Output tensor
-    %result = ttir.convolution(%lhs, %rhs, %output) {
+    %result = ttir.convolution(%lhs, %rhs) {
         window_strides = [1, 1],
         padding = [[0, 0], [0, 0]],
         lhs_dilation = [1, 1],
@@ -3407,7 +3351,7 @@ def TTIR_ConvolutionOp : TTIR_NamedOp<"convolution", [DeclareOpInterfaceMethods<
         },
         feature_group_count = 1,
         batch_group_count = 1
-    } : tensor<1x32x32x3xf32>, tensor<5x5x3x16xf32>, tensor<1x28x28x16xf32> -> tensor<1x28x28x16xf32>
+    } : (tensor<1x32x32x3xf32>, tensor<5x5x3x16xf32>) -> tensor<1x28x28x16xf32>
     ```
 
     Inputs:
@@ -3425,7 +3369,7 @@ def TTIR_ConvolutionOp : TTIR_NamedOp<"convolution", [DeclareOpInterfaceMethods<
     - `feature_group_count` (Integer): Number of feature groups for grouped convolution.
     - `batch_group_count` (Integer): Number of batch groups for grouped convolution.
 
-    Outputs:
+    Output:
     - `result` (Tensor): Output tensor containing the result of the convolution.
   }];
 
@@ -3433,7 +3377,6 @@ def TTIR_ConvolutionOp : TTIR_NamedOp<"convolution", [DeclareOpInterfaceMethods<
     AnyRankedTensor:$input,
     AnyRankedTensor:$weight,
     Optional<AnyRankedTensor>:$bias,
-    AnyRankedTensor:$output,
     DenseI64ArrayAttr:$window_strides,
     DenseI64ArrayAttr:$padding,
     DenseI64ArrayAttr:$input_dilation,
@@ -3444,7 +3387,7 @@ def TTIR_ConvolutionOp : TTIR_NamedOp<"convolution", [DeclareOpInterfaceMethods<
     ConfinedAttr<I64Attr, [IntPositive]>:$batch_group_count
   );
 
-  let results = (outs AnyRankedTensor);
+  let results = (outs AnyRankedTensor:$result);
   let hasVerifier = 1;
 }
 
@@ -3462,8 +3405,7 @@ def TTIR_GatherOp: TTIR_NamedOp<"gather"> {
       // Basic gather example: gather elements from a 2D tensor using indices
       %input = ... : tensor<5x3xf32>         // Input tensor with shape [5,3]
       %indices = ... : tensor<2xi64>         // Indices tensor with values [2, 1]
-      %output = ttir.empty() : tensor<3xf32> // Output tensor
-      %result = ttir.gather(%input, %indices, %output) {
+      %result = ttir.gather(%input, %indices) {
           offset_dims = [0],                 // Output dimensions that are gathered from input
           collapsed_slice_dims = [0],        // Input dimensions that are collapsed
           operand_batching_dims = [],        // Batch dimensions of the input
@@ -3472,7 +3414,7 @@ def TTIR_GatherOp: TTIR_NamedOp<"gather"> {
           index_vector_dim = 0,              // Which dimension of indices contains the index vector
           slice_sizes = [1, 3],              // Size of the slice to extract from each position
           indices_are_sorted = false         // Whether indices are sorted
-      } : tensor<5x3xf32>, tensor<2xi64>, tensor<3xf32> -> tensor<3xf32>
+      } : (tensor<5x3xf32>, tensor<2xi64>) -> tensor<3xf32>
 
       // This gathers a slice of size [1,3] starting at position [2,0] from the input tensor,
       // which results in the values from the third row of the input tensor.
@@ -3492,12 +3434,11 @@ def TTIR_GatherOp: TTIR_NamedOp<"gather"> {
       - `slice_sizes` (Array of Integer): Size of the slice to extract from each position.
       - `indices_are_sorted` (Boolean): Whether indices are sorted (for optimization).
 
-      Outputs:
+      Output:
       - `result` (Tensor): The gathered tensor.
     }];
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$start_indices,
-                         AnyRankedTensor:$output,
                          DenseI64ArrayAttr:$offset_dims,
                          DenseI64ArrayAttr:$collapsed_slice_dims,
                          DenseI64ArrayAttr:$operand_batching_dims,
@@ -3509,7 +3450,7 @@ def TTIR_GatherOp: TTIR_NamedOp<"gather"> {
     let results = (outs AnyRankedTensor:$result);
 }
 
-def TTIR_PoolingOp : TTIR_NamedOp<"pooling", [AttrSizedOperandSegments, DeclareOpInterfaceMethods<TTIR_QuantizableOpInterface, ["rewriteWithQuantizedInputs"]>]> {
+def TTIR_PoolingOp : TTIR_NamedOp<"pooling", [DeclareOpInterfaceMethods<TTIR_QuantizableOpInterface, ["rewriteWithQuantizedInputs"]>]> {
   let summary = "General pooling operation.";
   let description = [{
     The `pooling` operation is a generalized pooling operation that can implement various pooling methods
@@ -3522,27 +3463,26 @@ def TTIR_PoolingOp : TTIR_NamedOp<"pooling", [AttrSizedOperandSegments, DeclareO
     ```mlir
     // Max pooling with 2x2 window and stride 2
     %input = ... : tensor<1x32x32x16xf32>    // Batch size 1, 32x32 feature map, 16 channels
-    %output = ttir.empty() : tensor<1x16x16x16xf32>  // Output tensor
-    %result = ttir.pooling(%input, %output) {
+    %result = ttir.pooling(%input) {
         pooling_method = "MAX",
         window_dimensions = [1, 2, 2, 1],
         window_strides = [1, 2, 2, 1],
         base_dilations = [1, 1, 1, 1],
         window_dilations = [1, 1, 1, 1],
         padding = [0, 0, 0, 0, 0, 0, 0, 0]
-    } : tensor<1x32x32x16xf32>, tensor<1x16x16x16xf32> -> tensor<1x16x16x16xf32>
+    } : (tensor<1x32x32x16xf32>) -> tensor<1x16x16x16xf32>
 
     // Average pooling with 3x3 window and stride 2
     %input = ... : tensor<1x32x32x16xf32>    // Batch size 1, 32x32 feature map, 16 channels
-    %output = ttir.empty() : tensor<1x15x15x16xf32>  // Output tensor
-    %result = ttir.pooling(%input, %output) {
+    %result = ttir.pooling(%input) {
         pooling_method = "AVG",
         window_dimensions = [1, 3, 3, 1],
         window_strides = [1, 2, 2, 1],
         base_dilations = [1, 1, 1, 1],
         window_dilations = [1, 1, 1, 1],
         padding = [0, 0, 0, 0, 0, 0, 0, 0]
-    } : tensor<1x32x32x16xf32>, tensor<1x15x15x16xf32> -> tensor<1x15x15x16xf32>
+    } : (tensor<1x32x32x16xf32>) -> tensor<1x15x15x16xf32>
+    ```
 
     Inputs:
     - `inputs` (Variadic Tensor): Input tensors to be pooled.
@@ -3561,7 +3501,6 @@ def TTIR_PoolingOp : TTIR_NamedOp<"pooling", [AttrSizedOperandSegments, DeclareO
 
   let arguments = (ins
     Variadic<AnyRankedTensor>:$inputs,
-    Variadic<AnyRankedTensor>:$outputs,
     TTIR_PoolingMethodAttr:$pooling_method,
     DenseI64ArrayAttr:$window_dimensions,
     DenseI64ArrayAttr:$window_strides,
@@ -3570,7 +3509,7 @@ def TTIR_PoolingOp : TTIR_NamedOp<"pooling", [AttrSizedOperandSegments, DeclareO
     DenseI64ArrayAttr:$padding
   );
 
-  let results = (outs Variadic<AnyRankedTensor>);
+  let results = (outs Variadic<AnyRankedTensor>:$results);
 
   let hasVerifier = 1;
 
@@ -3592,17 +3531,16 @@ def TTIR_AvgPool2dOp : TTIR_NamedOp<"avg_pool2d"> {
     %input = ... : tensor<1x3x3x1xf32>  // 3x3 input tensor with values:
                                         // [[[1, 2, 3],
                                         //   [4, 5, 6],
-                                        //   [7, 8, 9]]]]
-    %output = ttir.empty() : tensor<1x2x2x1xf32>
-    %result = ttir.avg_pool2d(%input, %output) {
+                                        //   [7, 8, 9]]]
+    %result = ttir.avg_pool2d(%input) {
         kernel = [2, 2],
         stride = [1, 1],
         dilation = [1, 1],
         padding = [0, 0, 0, 0],
         ceil_mode = false
-    } : tensor<1x3x3x1xf32>, tensor<1x2x2x1xf32> -> tensor<1x2x2x1xf32>
+    } : (tensor<1x3x3x1xf32>) -> tensor<1x2x2x1xf32>
     // Result: [[[3, 4],
-    //           [6, 7]]]]
+    //           [6, 7]]]
     // Where: 3 = (1+2+4+5)/4, 4 = (2+3+5+6)/4, 6 = (4+5+7+8)/4, 7 = (5+6+8+9)/4
     ```
 
@@ -3626,12 +3564,11 @@ def TTIR_AvgPool2dOp : TTIR_NamedOp<"avg_pool2d"> {
     - `ceil_mode` (Boolean): When true, uses ceil instead of floor for output shape calculation.
     - `count_include_pad` (Boolean): When true, include padding in the average calculation (default: True)
 
-    Outputs:
+    Output:
     - `result` (Tensor): Output tensor after average pooling.
   }];
 
   let arguments = (ins AnyRankedTensor:$input,
-                       AnyRankedTensor:$output,
                        AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$kernel,
                        AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$stride,
                        AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$dilation,
@@ -3662,17 +3599,16 @@ def TTIR_MaxPool2dOp : TTIR_NamedOp<"max_pool2d"> {
     %input = ... : tensor<1x3x3x1xf32>  // 3x3 input tensor with values:
                                         // [[[1, 2, 3],
                                         //   [4, 5, 6],
-                                        //   [7, 8, 9]]]]
-    %output = ttir.empty() : tensor<1x2x2x1xf32>
-    %result = ttir.max_pool2d(%input, %output) {
+                                        //   [7, 8, 9]]]
+    %result = ttir.max_pool2d(%input) {
         kernel = [2, 2],
         stride = [1, 1],
         dilation = [1, 1],
         padding = [0, 0, 0, 0],
         ceil_mode = false
-    } : tensor<1x3x3x1xf32>, tensor<1x2x2x1xf32> -> tensor<1x2x2x1xf32>
+    } : (tensor<1x3x3x1xf32>) -> tensor<1x2x2x1xf32>
     // Result: [[[5, 6],
-    //           [8, 9]]]]
+    //           [8, 9]]]
     // Where: 5 = max(1,2,4,5), 6 = max(2,3,5,6), 8 = max(4,5,7,8), 9 = max(5,6,8,9)
     ```
 
@@ -3695,12 +3631,11 @@ def TTIR_MaxPool2dOp : TTIR_NamedOp<"max_pool2d"> {
         - array<4xi32>: [pT, pL, pB, pR] for top, left, bottom, and right padding respectively.
     - `ceil_mode` (Boolean): When true, uses ceil instead of floor for output shape calculation.
 
-    Outputs:
+    Output:
     - `result` (Tensor): Output tensor after maximum pooling.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output,
                          AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$kernel,
                          AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$stride,
                          AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$dilation,
@@ -3805,15 +3740,11 @@ def TTIR_ReshapeOp: TTIR_NamedOp<"reshape", [TTIR_TensorManipulation]> {
       ```mlir
       // Reshape a 2x3 tensor to a 1x6 tensor
       %input = ... : tensor<2x3xf32>  // Input tensor with shape [2,3]
-      %output = ttir.empty() : tensor<1x6xf32>  // Output tensor with shape [1,6]
-      %result = ttir.reshape(%input, %output) {shape = [1, 6]} :
-          tensor<2x3xf32>, tensor<1x6xf32> -> tensor<1x6xf32>
+      %result = ttir.reshape(%input) {shape = [1, 6]} : (tensor<2x3xf32>) -> tensor<1x6xf32>
 
       // Reshape a 3D tensor to a 2D tensor
       %input = ... : tensor<2x3x4xf32>  // Input tensor with shape [2,3,4]
-      %output = ttir.empty() : tensor<6x4xf32>  // Output tensor with shape [6,4]
-      %result = ttir.reshape(%input, %output) {shape = [6, 4]} :
-          tensor<2x3x4xf32>, tensor<6x4xf32> -> tensor<6x4xf32>
+      %result = ttir.reshape(%input) {shape = [6, 4]} : (tensor<2x3x4xf32>) -> tensor<6x4xf32>
       ```
 
       Inputs:
@@ -3822,7 +3753,7 @@ def TTIR_ReshapeOp: TTIR_NamedOp<"reshape", [TTIR_TensorManipulation]> {
       Attributes:
       - `shape` (Array of Integer): The new shape for the tensor.
 
-      Outputs:
+      Output:
       - `result` (Tensor): The reshaped tensor.
 
       Note: The total number of elements in the input tensor must equal the total number of elements
@@ -3831,7 +3762,6 @@ def TTIR_ReshapeOp: TTIR_NamedOp<"reshape", [TTIR_TensorManipulation]> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output,
                          I32ArrayAttr:$shape);
 
     let results = (outs AnyRankedTensor:$result);
@@ -3860,11 +3790,10 @@ def TTIR_PadOp: TTIR_NamedOp<"pad"> {
       %input = ... : tensor<2x3xf32>  // Input tensor with values:
                                       // [[1, 2, 3],
                                       //  [4, 5, 6]]
-      %output = ttir.empty() : tensor<3x5xf32>  // Output tensor shape
-      %result = ttir.pad(%input, %output) {
+      %result = ttir.pad(%input) {
           padding = [1, 0, 1, 1],  // Format: [dim0_low, dim0_high, dim1_low, dim1_high]
           value = 0.0 : f32
-      } : tensor<2x3xf32>, tensor<3x5xf32> -> tensor<3x5xf32>
+      } : (tensor<2x3xf32>) -> tensor<3x5xf32>
       // Result:
       // [[0, 0, 0, 0, 0],
       //  [0, 1, 2, 3, 0],
@@ -3878,7 +3807,7 @@ def TTIR_PadOp: TTIR_NamedOp<"pad"> {
       - `padding` (Array of Integer): The padding values for each dimension, specified as [dim0_low, dim0_high, dim1_low, dim1_high, ...].
       - `value` (Float): The constant value to use for the padding elements.
 
-      Outputs:
+      Output:
       - `result` (Tensor): The padded tensor.
 
       Note: The shape of the output tensor must match the shape of the input tensor plus the padding specified
@@ -3887,7 +3816,6 @@ def TTIR_PadOp: TTIR_NamedOp<"pad"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output,
                          DenseI32ArrayAttr:$padding,
                          F32Attr:$value);
 
@@ -3913,24 +3841,22 @@ def TTIR_SliceStaticOp: TTIR_NamedOp<"slice_static"> {
                                       //  [5,  6,  7,  8],
                                       //  [9,  10, 11, 12],
                                       //  [13, 14, 15, 16]]
-      %output = ttir.empty() : tensor<2x2xf32>  // Output tensor shape
-      %result = ttir.slice_static(%input, %output) {
+      %result = ttir.slice_static(%input) {
           begins = [1, 1],  // Start indices for each dimension
           ends = [3, 3],    // End indices for each dimension (exclusive)
           step = [1, 1]     // Step size for each dimension
-      } : tensor<4x4xf32>, tensor<2x2xf32> -> tensor<2x2xf32>
+      } : (tensor<4x4xf32>) -> tensor<2x2xf32>
       // Result:
       // [[6,  7],
       //  [10, 11]]
 
       // Extract elements with a step of 2
       %input = ... : tensor<5xf32>  // Input tensor with values: [1, 2, 3, 4, 5]
-      %output = ttir.empty() : tensor<3xf32>  // Output tensor shape
-      %result = ttir.slice_static(%input, %output) {
+      %result = ttir.slice_static(%input) {
           begins = [0],  // Start index
           ends = [5],    // End index (exclusive)
           step = [2]     // Step size
-      } : tensor<5xf32>, tensor<3xf32> -> tensor<3xf32>
+      } : (tensor<5xf32>) -> tensor<3xf32>
       // Result: [1, 3, 5]
       ```
 
@@ -3942,7 +3868,7 @@ def TTIR_SliceStaticOp: TTIR_NamedOp<"slice_static"> {
       - `ends` (Array of Integer): The ending indices (exclusive) for the slice in each dimension.
       - `step` (Array of Integer): The step sizes for the slice in each dimension.
 
-      Outputs:
+      Output:
       - `result` (Tensor): The sliced tensor.
 
       Note: The shape of the output tensor is determined by the slice parameters. For each dimension i,
@@ -3951,7 +3877,6 @@ def TTIR_SliceStaticOp: TTIR_NamedOp<"slice_static"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output,
                          I32ArrayAttr:$begins,
                          I32ArrayAttr:$ends,
                          I32ArrayAttr:$step);
@@ -3980,10 +3905,9 @@ def TTIR_SliceDynamicOp: TTIR_NamedOp<"slice_dynamic"> {
                                       //  [13, 14, 15, 16]]
       %begins = ... : tensor<2xi32>   // Tensor with values [1, 1]
       %ends = ... : tensor<2xi32>     // Tensor with values [3, 3]
-      %output = ttir.empty() : tensor<2x2xf32>  // Output tensor shape
-      %result = ttir.slice_dynamic(%input, %begins, %ends, %output) {
+      %result = ttir.slice_dynamic(%input, %begins, %ends) <{
           step = [1, 1]     // Step size for each dimension
-      } : tensor<4x4xf32>, tensor<2xi32>, tensor<2xi32>, tensor<2x2xf32> -> tensor<2x2xf32>
+      }> : (tensor<4x4xf32>, tensor<2xi32>, tensor<2xi32>) -> tensor<2x2xf32>
       // Result:
       // [[6,  7],
       //  [10, 11]]
@@ -3992,10 +3916,9 @@ def TTIR_SliceDynamicOp: TTIR_NamedOp<"slice_dynamic"> {
       %input = ... : tensor<5xf32>    // Input tensor with values: [1, 2, 3, 4, 5]
       %begins = ... : tensor<1xi32>   // Tensor with values [0]
       %ends = ... : tensor<1xi32>     // Tensor with values [5]
-      %output = ttir.empty() : tensor<3xf32>  // Output tensor shape
-      %result = ttir.slice_dynamic(%input, %begins, %ends, %output) {
+      %result = ttir.slice_dynamic(%input, %begins, %ends) <{
           step = [2]        // Step size
-      } : tensor<5xf32>, tensor<1xi32>, tensor<1xi32>, tensor<3xf32> -> tensor<3xf32>
+      }> : (tensor<5xf32>, tensor<1xi32>, tensor<1xi32>) -> tensor<3xf32>
       // Result: [1, 3, 5]
       ```
 
@@ -4017,7 +3940,6 @@ def TTIR_SliceDynamicOp: TTIR_NamedOp<"slice_dynamic"> {
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$begins,
                          AnyRankedTensor:$ends,
-                         AnyRankedTensor:$output,
                          OptionalAttr<I32ArrayAttr>:$step);
 
     let results = (outs AnyRankedTensor:$result);
@@ -4038,13 +3960,12 @@ def TTIR_IndexSelectOp: TTIR_NamedOp<"index_select"> {
       ```mlir
       // Select elements 2, 3, 4 from a 1D tensor along dimension 0
       %input = ... : tensor<6xf32>  // Input tensor with values: [1, 2, 3, 4, 5, 6]
-      %output = ttir.empty() : tensor<3xf32>  // Output tensor shape
-      %result = ttir.index_select(%input, %output) {
+      %result = ttir.index_select(%input) {
           dim = 0 : i32,     // Dimension to select from
           begin = 2 : i32,   // Start index
           length = 3 : i32,  // Number of elements to select
           stride = 0 : i32   // No stride (consecutive elements)
-      } : tensor<6xf32>, tensor<3xf32> -> tensor<3xf32>
+      } : (tensor<6xf32>) -> tensor<3xf32>
       // Result: [3, 4, 5]
 
       // Select every other row from a 2D tensor
@@ -4053,13 +3974,12 @@ def TTIR_IndexSelectOp: TTIR_NamedOp<"index_select"> {
                                       //  [4, 5, 6],
                                       //  [7, 8, 9],
                                       //  [10, 11, 12]]
-      %output = ttir.empty() : tensor<2x3xf32>  // Output tensor shape
-      %result = ttir.index_select(%input, %output) {
+      %result = ttir.index_select(%input) {
           dim = 0 : i32,     // Select along rows
           begin = 0 : i32,   // Start from the first row
           length = 2 : i32,  // Select 2 rows
           stride = 2 : i32   // Select every other row
-      } : tensor<4x3xf32>, tensor<2x3xf32> -> tensor<2x3xf32>
+      } : (tensor<4x3xf32>) -> tensor<2x3xf32>
       // Result:
       // [[1, 2, 3],
       //  [7, 8, 9]]
@@ -4074,7 +3994,7 @@ def TTIR_IndexSelectOp: TTIR_NamedOp<"index_select"> {
       - `length` (Integer): The number of elements to select.
       - `stride` (Integer, default=0): The step size for selection. A value of 0 means no stride (consecutive elements).
 
-      Outputs:
+      Output:
       - `result` (Tensor): The selected tensor.
 
       Note: The shape of the output tensor is the same as the input tensor except for the selected dimension,
@@ -4083,7 +4003,6 @@ def TTIR_IndexSelectOp: TTIR_NamedOp<"index_select"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output,
                          SI32Attr:$dim,
                          SI32Attr:$begin,
                          SI32Attr:$length,
@@ -4108,13 +4027,12 @@ def TTIR_IndexOp: TTIR_NamedOp<"index"> {
       ```mlir
       // Extract elements with indices 1, 3, 5 from dimension 0 of a 1D tensor
       %input = ... : tensor<6xf32>  // Input tensor with values: [1, 2, 3, 4, 5, 6]
-      %output = ttir.empty() : tensor<3xf32>  // Output tensor shape
-      %result = ttir.index(%input, %output) {
+      %result = ttir.index(%input) {
           dim = 0 : i32,    // Dimension to index
           begin = 1 : i32,  // Start index
           end = 6 : i32,    // End index (exclusive)
           step = 2 : i32    // Step size
-      } : tensor<6xf32>, tensor<3xf32> -> tensor<3xf32>
+      } : (tensor<6xf32>) -> tensor<3xf32>
       // Result: [2, 4, 6]
 
       // Extract columns 0 and 2 from a 2D tensor
@@ -4122,13 +4040,12 @@ def TTIR_IndexOp: TTIR_NamedOp<"index"> {
                                       // [[1, 2, 3, 4],
                                       //  [5, 6, 7, 8],
                                       //  [9, 10, 11, 12]]
-      %output = ttir.empty() : tensor<3x2xf32>  // Output tensor shape
-      %result = ttir.index(%input, %output) {
+      %result = ttir.index(%input) {
           dim = 1 : i32,    // Index along columns (dimension 1)
           begin = 0 : i32,  // Start from first column
           end = 3 : i32,    // End at third column (exclusive)
           step = 2 : i32    // Take every other column
-      } : tensor<3x4xf32>, tensor<3x2xf32> -> tensor<3x2xf32>
+      } : (tensor<3x4xf32>) -> tensor<3x2xf32>
       // Result:
       // [[1, 3],
       //  [5, 7],
@@ -4144,7 +4061,7 @@ def TTIR_IndexOp: TTIR_NamedOp<"index"> {
       - `end` (Integer): The ending index (exclusive).
       - `step` (Integer): The step size between indices.
 
-      Outputs:
+      Output:
       - `result` (Tensor): The indexed tensor.
 
       Note: The shape of the output tensor is the same as the input tensor except for the indexed dimension,
@@ -4153,7 +4070,6 @@ def TTIR_IndexOp: TTIR_NamedOp<"index"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output,
                          I32Attr:$dim,
                          I32Attr:$begin,
                          I32Attr:$end,
@@ -4177,18 +4093,16 @@ def TTIR_SqueezeOp : TTIR_NamedOp<"squeeze"> {
       ```mlir
       // Squeeze dimension 0 from a tensor of shape [1, 3, 4]
       %input = ... : tensor<1x3x4xf32>  // Input tensor with shape [1, 3, 4]
-      %output = ttir.empty() : tensor<3x4xf32>  // Output tensor shape
-      %result = ttir.squeeze(%input, %output) {
+      %result = ttir.squeeze(%input) {
           dim = 0 : i32  // Dimension to squeeze
-      } : tensor<1x3x4xf32>, tensor<3x4xf32> -> tensor<3x4xf32>
+      } : (tensor<1x3x4xf32>) -> tensor<3x4xf32>
       // Result: tensor with shape [3, 4]
 
       // Squeeze dimension 1 from a tensor of shape [2, 1, 3]
       %input = ... : tensor<2x1x3xf32>  // Input tensor with shape [2, 1, 3]
-      %output = ttir.empty() : tensor<2x3xf32>  // Output tensor shape
-      %result = ttir.squeeze(%input, %output) {
+      %result = ttir.squeeze(%input) {
           dim = 1 : i32  // Dimension to squeeze
-      } : tensor<2x1x3xf32>, tensor<2x3xf32> -> tensor<2x3xf32>
+      } : (tensor<2x1x3xf32>) -> tensor<2x3xf32>
       // Result: tensor with shape [2, 3]
       ```
 
@@ -4198,7 +4112,7 @@ def TTIR_SqueezeOp : TTIR_NamedOp<"squeeze"> {
       Attributes:
       - `dim` (Integer): The dimension to squeeze.
 
-      Outputs:
+      Output:
       - `result` (Tensor): The squeezed tensor.
 
       Note: The specified dimension must have size 1. The shape of the output tensor is the same as the
@@ -4207,7 +4121,6 @@ def TTIR_SqueezeOp : TTIR_NamedOp<"squeeze"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output,
                          SI32Attr:$dim);
 
     let results = (outs AnyRankedTensor:$result);
@@ -4227,18 +4140,16 @@ def TTIR_UnsqueezeOp : TTIR_NamedOp<"unsqueeze"> {
       ```mlir
       // Insert a dimension at position 0 of a tensor with shape [3, 4]
       %input = ... : tensor<3x4xf32>  // Input tensor with shape [3, 4]
-      %output = ttir.empty() : tensor<1x3x4xf32>  // Output tensor shape
-      %result = ttir.unsqueeze(%input, %output) {
+      %result = ttir.unsqueeze(%input) {
           dim = 0 : i32  // Position to insert the new dimension
-      } : tensor<3x4xf32>, tensor<1x3x4xf32> -> tensor<1x3x4xf32>
+      } : (tensor<3x4xf32>) -> tensor<1x3x4xf32>
       // Result: tensor with shape [1, 3, 4]
 
       // Insert a dimension at position 1 of a tensor with shape [2, 3]
       %input = ... : tensor<2x3xf32>  // Input tensor with shape [2, 3]
-      %output = ttir.empty() : tensor<2x1x3xf32>  // Output tensor shape
-      %result = ttir.unsqueeze(%input, %output) {
+      %result = ttir.unsqueeze(%input) {
           dim = 1 : i32  // Position to insert the new dimension
-      } : tensor<2x3xf32>, tensor<2x1x3xf32> -> tensor<2x1x3xf32>
+      } : (tensor<2x3xf32>) -> tensor<2x1x3xf32>
       // Result: tensor with shape [2, 1, 3]
       ```
 
@@ -4248,7 +4159,7 @@ def TTIR_UnsqueezeOp : TTIR_NamedOp<"unsqueeze"> {
       Attributes:
       - `dim` (Integer): The position to insert the new dimension.
 
-      Outputs:
+      Output:
       - `result` (Tensor): The unsqueezed tensor.
 
       Note: The shape of the output tensor is the same as the input tensor with a new dimension of size 1
@@ -4257,7 +4168,6 @@ def TTIR_UnsqueezeOp : TTIR_NamedOp<"unsqueeze"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output,
                          SI32Attr:$dim);
 
     let results = (outs AnyRankedTensor:$result);
@@ -4279,11 +4189,10 @@ def TTIR_ClampScalarOp : TTIR_NamedOp<"clamp_scalar", [TTIR_ElementwiseUnary]> {
       // Clamp values to the range [2.0, 5.0]
       %input = ... : tensor<1x8xf32>  // Input tensor with values:
                                       // [[0, 1, 2, 3, 4, 5, 6, 7]]
-      %output = ttir.empty() : tensor<1x8xf32>  // Output tensor shape
-      %result = ttir.clamp_scalar(%input, %output) {
+      %result = ttir.clamp_scalar(%input) {
           min = 2.0 : f32,  // Minimum value
           max = 5.0 : f32   // Maximum value
-      } : tensor<1x8xf32>, tensor<1x8xf32> -> tensor<1x8xf32>
+      } : (tensor<1x8xf32>) -> tensor<1x8xf32>
       // Result: [[2, 2, 2, 3, 4, 5, 5, 5]]
       // Values < 2.0 are clamped to 2.0, values > 5.0 are clamped to 5.0
       ```
@@ -4295,12 +4204,11 @@ def TTIR_ClampScalarOp : TTIR_NamedOp<"clamp_scalar", [TTIR_ElementwiseUnary]> {
       - `min` (Float): The minimum value for clamping.
       - `max` (Float): The maximum value for clamping.
 
-      Outputs:
+      Output:
       - `result` (Tensor): The clamped tensor.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output,
                          F32Attr:$min,
                          F32Attr:$max);
 
@@ -4329,9 +4237,8 @@ def TTIR_ClampTensorOp : TTIR_NamedOp<"clamp_tensor"> {
                                     // [[2, 2, 2, 3, 3, 3, 0, 0]]
     %max = ... : tensor<1x8xf32>    // Max tensor with values:
                                     // [[5, 5, 5, 9, 9, 9, 6, 6]]
-    %output = ttir.empty() : tensor<1x8xf32>  // Output tensor shape
-    %result = ttir.clamp_tensor(%input, %min, %max, %output) :
-        tensor<1x8xf32>, tensor<1x8xf32>, tensor<1x8xf32>, tensor<1x8xf32> -> tensor<1x8xf32>
+    %result = ttir.clamp_tensor(%input, %min, %max) :
+        (tensor<1x8xf32>, tensor<1x8xf32>, tensor<1x8xf32>) -> tensor<1x8xf32>
     // Result: [[2, 2, 2, 3, 4, 5, 6, 6]]
     // Each element is clamped between its corresponding min and max values
     ```
@@ -4341,14 +4248,13 @@ def TTIR_ClampTensorOp : TTIR_NamedOp<"clamp_tensor"> {
     - `min` (Tensor): The tensor containing minimum values for clamping.
     - `max` (Tensor): The tensor containing maximum values for clamping.
 
-    Outputs:
+    Output:
     - `result` (Tensor): The clamped tensor.
   }];
 
   let arguments = (ins AnyRankedTensor:$input,
                        AnyRankedTensor:$min,
-                       AnyRankedTensor:$max,
-                       AnyRankedTensor:$output);
+                       AnyRankedTensor:$max);
 
   let results = (outs AnyRankedTensor:$result);
 
@@ -4374,10 +4280,9 @@ def TTIR_ReverseOp : TTIR_NamedOp<"reverse", [AllShapesMatch<["input", "result"]
                                     // [[1, 2],
                                     //  [3, 4],
                                     //  [5, 6]]
-    %output = ttir.empty() : tensor<3x2xi32>  // Output tensor shape
-    %result = ttir.reverse(%input, %output) {
+    %result = ttir.reverse(%input) {
         dimensions = [1]  // Reverse along columns
-    } : tensor<3x2xi32>, tensor<3x2xi32> -> tensor<3x2xi32>
+    } : (tensor<3x2xi32>) -> tensor<3x2xi32>
     // Result:
     // [[2, 1],
     //  [4, 3],
@@ -4388,10 +4293,9 @@ def TTIR_ReverseOp : TTIR_NamedOp<"reverse", [AllShapesMatch<["input", "result"]
                                     // [[1, 2],
                                     //  [3, 4],
                                     //  [5, 6]]
-    %output = ttir.empty() : tensor<3x2xi64>  // Output tensor shape
-    %result = ttir.reverse(%input, %output) {
+    %result = ttir.reverse(%input) {
         dimensions = [0, 1]  // Reverse along both rows and columns
-    } : tensor<3x2xi64>, tensor<3x2xi64> -> tensor<3x2xi64>
+    } : (tensor<3x2xi64>) -> tensor<3x2xi64>
     // Result:
     // [[6, 5],
     //  [4, 3],
@@ -4404,12 +4308,11 @@ def TTIR_ReverseOp : TTIR_NamedOp<"reverse", [AllShapesMatch<["input", "result"]
     Attributes:
     - `dimensions` (Array of Integer): The dimensions along which to reverse the tensor.
 
-    Outputs:
+    Output:
     - `result` (Tensor): The reversed tensor.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output,
                          DenseI64ArrayAttr:$dimensions);
 
     let results = (outs AnyRankedTensor:$result);
@@ -4434,16 +4337,14 @@ def TTIR_LinearOp : TTIR_NamedOp<"linear"> {
       %a = ... : tensor<10x64x32xbf16>  // Input tensor: batch_size=10, sequence_length=64, input_dim=32
       %b = ... : tensor<32x128xbf16>    // Weight tensor: input_dim=32, output_dim=128
       %bias = ... : tensor<128xbf16>    // Bias tensor: output_dim=128
-      %output = ttir.empty() : tensor<10x64x128xbf16>  // Output tensor shape
-      %result = ttir.linear(%a, %b, %bias, %output) :
-          tensor<10x64x32xbf16>, tensor<32x128xbf16>, tensor<128xbf16>, tensor<10x64x128xbf16> -> tensor<10x64x128xbf16>
+      %result = ttir.linear(%a, %b, %bias) :
+          (tensor<10x64x32xbf16>, tensor<32x128xbf16>, tensor<128xbf16>) -> tensor<10x64x128xbf16>
 
       // Linear transformation without bias
       %a = ... : tensor<10x64x32xf32>  // Input tensor
       %b = ... : tensor<32x128xf32>    // Weight tensor
-      %output = ttir.empty() : tensor<10x64x128xf32>  // Output tensor shape
-      %result = ttir.linear(%a, %b, %output) :
-          tensor<10x64x32xf32>, tensor<32x128xf32>, tensor<10x64x128xf32> -> tensor<10x64x128xf32>
+      %result = ttir.linear(%a, %b) :
+          (tensor<10x64x32xf32>, tensor<32x128xf32>) -> tensor<10x64x128xf32>
       ```
 
       Inputs:
@@ -4455,7 +4356,7 @@ def TTIR_LinearOp : TTIR_NamedOp<"linear"> {
       - `transpose_a` (Boolean, default=false): Whether to transpose tensor `a` before multiplication.
       - `transpose_b` (Boolean, default=false): Whether to transpose tensor `b` before multiplication.
 
-      Outputs:
+      Output:
       - `result` (Tensor): The result of the linear transformation.
 
       The operation computes: result = matmul(a, b) + bias
@@ -4469,7 +4370,6 @@ def TTIR_LinearOp : TTIR_NamedOp<"linear"> {
     let arguments = (ins AnyRankedTensor:$a,
                          AnyRankedTensor:$b,
                          Optional<AnyRankedTensor>:$bias,
-                         AnyRankedTensor:$output,
                          DefaultValuedAttr<BoolAttr, "false">:$transpose_a,
                          DefaultValuedAttr<BoolAttr, "false">:$transpose_b);
 
@@ -4495,18 +4395,16 @@ def TTIR_MatmulOp : TTIR_NamedOp<"matmul"> {
       // Basic matrix multiplication of 2D tensors
       %a = ... : tensor<3x4xf32>  // Matrix A with shape [3,4]
       %b = ... : tensor<4x5xf32>  // Matrix B with shape [4,5]
-      %output = ttir.empty() : tensor<3x5xf32>  // Output matrix shape
-      %result = ttir.matmul(%a, %b, %output) :
-          tensor<3x4xf32>, tensor<4x5xf32>, tensor<3x5xf32> -> tensor<3x5xf32>
+      %result = ttir.matmul(%a, %b) :
+          (tensor<3x4xf32>, tensor<4x5xf32>) -> tensor<3x5xf32>
 
       // Batched matrix multiplication with transposition
       %a = ... : tensor<2x3x4xf32>  // Batch of 2 matrices with shape [3,4]
       %b = ... : tensor<2x5x4xf32>  // Batch of 2 matrices with shape [5,4]
-      %output = ttir.empty() : tensor<2x3x5xf32>  // Output shape
-      %result = ttir.matmul(%a, %b, %output) {
+      %result = ttir.matmul(%a, %b) {
           transpose_a = false,  // Don't transpose A
           transpose_b = true    // Transpose B before multiplication
-      } : tensor<2x3x4xf32>, tensor<2x5x4xf32>, tensor<2x3x5xf32> -> tensor<2x3x5xf32>
+      } : (tensor<2x3x4xf32>, tensor<2x5x4xf32>) -> tensor<2x3x5xf32>
       ```
 
       Inputs:
@@ -4517,7 +4415,7 @@ def TTIR_MatmulOp : TTIR_NamedOp<"matmul"> {
       - `transpose_a` (Boolean, default=false): Whether to transpose tensor `a` before multiplication.
       - `transpose_b` (Boolean, default=false): Whether to transpose tensor `b` before multiplication.
 
-      Outputs:
+      Output:
       - `result` (Tensor): The result of the matrix multiplication.
 
       Note: The inner dimensions of the input tensors must be compatible for matrix multiplication.
@@ -4528,7 +4426,6 @@ def TTIR_MatmulOp : TTIR_NamedOp<"matmul"> {
 
     let arguments = (ins AnyRankedTensor:$a,
                          AnyRankedTensor:$b,
-                         AnyRankedTensor:$output,
                          DefaultValuedAttr<BoolAttr, "false">:$transpose_a,
                          DefaultValuedAttr<BoolAttr, "false">:$transpose_b);
 
@@ -4553,18 +4450,16 @@ def TTIR_PermuteOp : TTIR_NamedOp<"permute", [TTIR_TensorManipulation]> {
       ```mlir
       // Transpose a 2D tensor (swap dimensions 0 and 1)
       %input = ... : tensor<3x4xf32>  // Input tensor with shape [3,4]
-      %output = ttir.empty() : tensor<4x3xf32>  // Output tensor shape
-      %result = ttir.permute(%input, %output) {
+      %result = ttir.permute(%input) {
           permutation = [1, 0]  // Swap dimensions 0 and 1
-      } : tensor<3x4xf32>, tensor<4x3xf32> -> tensor<4x3xf32>
+      } : (tensor<3x4xf32>) -> tensor<4x3xf32>
       // Result: tensor with shape [4,3], equivalent to transposing the input
 
       // Permute a 3D tensor
       %input = ... : tensor<2x3x4xf32>  // Input tensor with shape [2,3,4]
-      %output = ttir.empty() : tensor<3x4x2xf32>  // Output tensor shape
-      %result = ttir.permute(%input, %output) {
+      %result = ttir.permute(%input) {
           permutation = [1, 2, 0]  // Reorder dimensions to [1,2,0]
-      } : tensor<2x3x4xf32>, tensor<3x4x2xf32> -> tensor<3x4x2xf32>
+      } : (tensor<2x3x4xf32>) -> tensor<3x4x2xf32>
       // Result: tensor with shape [3,4,2]
       ```
 
@@ -4575,7 +4470,7 @@ def TTIR_PermuteOp : TTIR_NamedOp<"permute", [TTIR_TensorManipulation]> {
       - `permutation` (Array of Integer): The permutation of the input tensor dimensions.
         This must be a valid permutation of the indices [0, 1, ..., rank-1].
 
-      Outputs:
+      Output:
       - `result` (Tensor): The permuted tensor.
 
       Note: The permutation attribute must contain exactly one occurrence of each integer in the range
@@ -4586,7 +4481,6 @@ def TTIR_PermuteOp : TTIR_NamedOp<"permute", [TTIR_TensorManipulation]> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output,
                          DenseI64ArrayAttr:$permutation);
 
     let results = (outs AnyRankedTensor:$result);
@@ -4610,20 +4504,18 @@ def TTIR_Upsample2dOp : TTIR_NamedOp<"upsample2d"> {
       ```mlir
       // Upsample a tensor with different scale factors for height and width
       %input = ... : tensor<10x64x32x3xbf16>  // Input tensor: [batch=10, height=64, width=32, channels=3]
-      %output = ttir.empty() : tensor<10x128x128x3xbf16>  // Output tensor shape
-      %result = ttir.upsample2d(%input, %output) {
+      %result = ttir.upsample2d(%input) {
           scale_factor = [2, 4],  // Scale height by 2, width by 4
           mode = "bilinear"       // Use bilinear interpolation
-      } : tensor<10x64x32x3xbf16>, tensor<10x128x128x3xbf16> -> tensor<10x128x128x3xbf16>
+      } : (tensor<10x64x32x3xbf16>) -> tensor<10x128x128x3xbf16>
       // Result: tensor with shape [10,128,128,3]
 
       // Upsample with the same scale factor for both dimensions
       %input = ... : tensor<1x32x32x16xf32>  // Input tensor
-      %output = ttir.empty() : tensor<1x64x64x16xf32>  // Output tensor shape
-      %result = ttir.upsample2d(%input, %output) {
+      %result = ttir.upsample2d(%input) {
           scale_factor = 2,     // Scale both height and width by 2
           mode = "nearest"      // Use nearest neighbor interpolation
-      } : tensor<1x32x32x16xf32>, tensor<1x64x64x16xf32> -> tensor<1x64x64x16xf32>
+      } : (tensor<1x32x32x16xf32>) -> tensor<1x64x64x16xf32>
       // Result: tensor with shape [1,64,64,16]
       ```
 
@@ -4637,7 +4529,7 @@ def TTIR_Upsample2dOp : TTIR_NamedOp<"upsample2d"> {
       - `mode` (String, default="nearest"): The upsampling algorithm to use. Currently supported values are
         "nearest" for nearest neighbor interpolation and "bilinear" for bilinear interpolation.
 
-      Outputs:
+      Output:
       - `result` (Tensor): The upsampled tensor.
 
       Note: The output height is calculated as input_height * scale_factor[0] and the output width as
@@ -4645,7 +4537,6 @@ def TTIR_Upsample2dOp : TTIR_NamedOp<"upsample2d"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output,
                          AnyAttrOf<[SI32Attr, DenseI32ArrayAttr]>:$scale_factor,
                          DefaultValuedAttr<StrAttr, "\"nearest\"">:$mode);
 
@@ -4654,99 +4545,12 @@ def TTIR_Upsample2dOp : TTIR_NamedOp<"upsample2d"> {
     let hasVerifier = 1;
 }
 
-def TTIR_ScatterOp: TTIR_NamedOp<"scatter"> {
-  let summary = "Scatter operation";
-  let description = [{
-    The `scatter` operation updates slices of an input tensor at indices specified by scatter_indices
-    with values from the update tensor.
 
-    This operation is the inverse of the `gather` operation. It allows for updating specific slices of a
-    tensor at locations determined by indices. The operation is highly configurable through various
-    dimension attributes that control how the indices and updates are interpreted.
-
-    Example:
-    ```mlir
-    // Basic scatter example: update values at specific indices in a 1D tensor
-    %input = ... : tensor<8xf32>        // Input tensor with values: [0, 0, 0, 0, 0, 0, 0, 0]
-    %indices = ... : tensor<3xi32>      // Indices tensor with values: [1, 3, 5]
-    %update = ... : tensor<3xf32>       // Update tensor with values: [10, 30, 50]
-    %output = ttir.empty() : tensor<8xf32>  // Output tensor shape
-    %result = ttir.scatter(%input, %indices, %update, %output) {
-        update_window_dims = [],        // No window dimensions in update tensor
-        inserted_window_dims = [0],     // Insert window dimension 0
-        input_batching_dims = [],       // No batching dimensions in input
-        scatter_indices_batching_dims = [], // No batching dimensions in indices
-        scatter_dims_to_operand_dims = [0], // Map scatter dimension 0 to operand dimension 0
-        index_vector_dim = 0,           // Indices are in dimension 0
-        indices_are_sorted = true,      // Indices are sorted
-        unique_indices = true           // Indices are unique
-    } : tensor<8xf32>, tensor<3xi32>, tensor<3xf32>, tensor<8xf32> -> tensor<8xf32>
-    // Result: [0, 10, 0, 30, 0, 50, 0, 0]
-
-    // Scatter to update a 2D tensor
-    %input = ... : tensor<4x4xf32>      // Input tensor (4x4 matrix of zeros)
-    %indices = ... : tensor<2x2xi32>    // Indices tensor with values: [[0, 1], [2, 3]]
-    %update = ... : tensor<2xf32>       // Update tensor with values: [100, 200]
-    %output = ttir.empty() : tensor<4x4xf32>  // Output tensor shape
-    %result = ttir.scatter(%input, %indices, %update, %output) {
-        update_window_dims = [],
-        inserted_window_dims = [0, 1],
-        input_batching_dims = [],
-        scatter_indices_batching_dims = [0],
-        scatter_dims_to_operand_dims = [0, 1],
-        index_vector_dim = 1,
-        indices_are_sorted = false,
-        unique_indices = true
-    } : tensor<4x4xf32>, tensor<2x2xi32>, tensor<2xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
-    // Result: A 4x4 tensor with 100 at position [0,1] and 200 at position [2,3]
-    ```
-
-    Inputs:
-    - `input` (Tensor): The tensor to be updated.
-    - `scatter_indices` (Tensor): Tensor containing the starting indices for slices to update.
-    - `update` (Tensor): Tensor containing values to scatter into the input tensor.
-
-    Attributes:
-    - `update_window_dims` (Array of Integer): Dimensions in update that are window dimensions.
-    - `inserted_window_dims` (Array of Integer): Dimensions in the output that are not present in update.
-    - `input_batching_dims` (Array of Integer): Batch dimensions in the input tensor.
-    - `scatter_indices_batching_dims` (Array of Integer): Batch dimensions in the scatter indices tensor.
-    - `scatter_dims_to_operand_dims` (Array of Integer): Maps dimensions in scatter indices to dimensions in operand.
-    - `index_vector_dim` (Integer): The dimension in scatter indices that contains the index vector.
-    - `indices_are_sorted` (Boolean): Whether indices are sorted lexicographically.
-    - `unique_indices` (Boolean): Whether indices are guaranteed to be unique.
-
-    Outputs:
-    - `result` (Tensor): The updated tensor.
-
-    Note: The semantics of this operation are complex and based on the StableHLO scatter operation.
-    The configuration of the various dimension attributes determines exactly how the scatter indices
-    are interpreted and how the update values are applied to the input tensor.
-    }];
-
-  let arguments = (ins AnyRankedTensor:$input,
-                       AnyRankedTensor:$scatter_indices,
-                       AnyRankedTensor:$update,
-                       AnyRankedTensor:$output,
-                       DenseI32ArrayAttr:$update_window_dims,
-                       DenseI32ArrayAttr:$inserted_window_dims,
-                       DenseI32ArrayAttr:$input_batching_dims,
-                       DenseI32ArrayAttr:$scatter_indices_batching_dims,
-                       DenseI32ArrayAttr:$scatter_dims_to_operand_dims,
-                       I32Attr:$index_vector_dim,
-                       BoolAttr:$indices_are_sorted,
-                       BoolAttr:$unique_indices);
-
-  let results = (outs AnyRankedTensor:$result);
-
-  let hasVerifier = 1;
-}
-
-def TTIR_ScatterInDimOp : TTIR_NamedOp<"scatter_in_dim"> {
+def TTIR_ScatterOp : TTIR_NamedOp<"scatter"> {
   let summary = "Scatter operation with simplified dimension attributes";
   let description = [{
-    The `scatter_in_dim` operation introduces torch style scatter in TTIR so that
-    we can lower ttir scatter -> ttir scatter_in_dim -> ttnn scatter.
+    The `scatter` operation introduces torch style scatter in TTIR so that
+    we can lower ttir scatter -> ttnn scatter.
 
     Embeds the values of the source tensor into the input tensor at locations specified by the index tensor along the given dimension.
 
@@ -4766,17 +4570,15 @@ def TTIR_ScatterInDimOp : TTIR_NamedOp<"scatter_in_dim"> {
     %input = ... : tensor<8xf32>        // Input tensor
     %indices = ... : tensor<3xi32>      // Indices tensor
     %source = ... : tensor<3xf32>       // Source values to scatter
-    %output = ttir.empty() : tensor<8xf32>
-    %result = ttir.scatter_in_dim(%input, %indices, %source, %output) {
+    %result = ttir.scatter(%input, %indices, %source) <{
         dim = 0
-    } : tensor<8xf32>, tensor<3xi32>, tensor<3xf32>, tensor<8xf32> -> tensor<8xf32>
+    }> : (tensor<8xf32>, tensor<3xi32>, tensor<3xf32>) -> tensor<8xf32>
     ```
   }];
 
   let arguments = (ins AnyRankedTensor:$input,
                        AnyRankedTensor:$index,
                        AnyRankedTensor:$source,
-                       AnyRankedTensor:$output,
                        I32Attr:$dim);
 
   let results = (outs AnyRankedTensor:$result);
@@ -4854,7 +4656,7 @@ def TTIR_ArangeOp : TTIR_CreationOp<"arange"> {
     - `step` (Integer): The step size between values in the sequence.
     - `arange_dimension` (Integer): The dimension along which to generate the sequence.
 
-    Outputs:
+    Output:
     - `result` (Tensor): The generated tensor containing the sequence.
   }];
 
@@ -4911,7 +4713,7 @@ def TTIR_RandOp : TTIR_CreationOp<"rand", [TTCore_NonCacheableTrait]> {
       - `high` (Float): The upper bound of the range (exclusive) [Default: 1.0].
       - `seed` (Integer): Value to initialize the random number generator for reproducible results [Default: 0].
 
-    Outputs:
+    Output:
       - `result` (Tensor): The generated tensor containing the random values.
   }];
 
@@ -4940,7 +4742,7 @@ class TTIR_NamedFullOp<string mnemonic, list<Trait> traits = []> :
     Attributes:
     - `shape` (Array of Integer): The shape of the tensor to create.
 
-    Outputs:
+    Output:
     - `result` (Tensor): The created tensor with the specified shape.
 
     Note: The element type of the result tensor is determined by the return type specified
@@ -4981,7 +4783,7 @@ def TTIR_ZerosOp : TTIR_NamedFullOp<"zeros"> {
     Attributes:
     - `shape` (Array of Integer): The shape of the tensor to create.
 
-    Outputs:
+    Output:
     - `result` (Tensor): The tensor filled with zeros.
 
     Note: The element type of the result tensor is determined by the return type specified in the operation.
@@ -5018,7 +4820,7 @@ def TTIR_OnesOp : TTIR_NamedFullOp<"ones"> {
     Attributes:
     - `shape` (Array of Integer): The shape of the tensor to create.
 
-    Outputs:
+    Output:
     - `result` (Tensor): The tensor filled with ones.
 
     Note: The element type of the result tensor is determined by the return type specified in the operation.
@@ -5046,11 +4848,10 @@ def TTIR_EmptyOp : TTIR_CreationOp<"empty", [TTCore_NonCacheableTrait]> {
 
       // Use empty to create a tensor for storing computation results
       %input = ... : tensor<10x20xf32>
-      %output = ttir.empty() : tensor<10x20xf32>
-      %result = ttir.some_computation(%input, %output) : tensor<10x20xf32>, tensor<10x20xf32> -> tensor<10x20xf32>
+      %result = ttir.some_computation(%input) : (tensor<10x20xf32>) -> tensor<10x20xf32>
       ```
 
-      Outputs:
+      Output:
       - `result` (Tensor): The uninitialized tensor.
 
       Note: Since the tensor is uninitialized, reading from it before writing may yield undefined values.
@@ -5118,7 +4919,7 @@ def TTIR_ConstantOp : TTIR_CreationOp<"constant",
       Attributes:
       - `value` (DenseElementsAttr): The constant value of the tensor.
 
-      Outputs:
+      Output:
       - `result` (Tensor): The tensor with the specified constant values.
 
       Note: The shape and element type of the result tensor are determined by the `value` attribute.
@@ -5148,7 +4949,6 @@ def TTIR_AllGatherOp : TTIR_NamedOp<"all_gather"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output,
                          SI32Attr:$all_gather_dim,
                          UI32Attr:$cluster_axis);
 
@@ -5164,7 +4964,6 @@ def TTIR_AllReduceOp : TTIR_NamedOp<"all_reduce"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output,
                          TTCore_ReduceTypeAttr:$reduce_type,
                          UI32Attr:$cluster_axis);
 
@@ -5179,7 +4978,6 @@ def TTIR_ReduceScatterOp : TTIR_NamedOp<"reduce_scatter"> {
       Reduce scatter op.
     }];
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output,
                          TTCore_ReduceTypeAttr:$reduce_type,
                          SI32Attr:$scatter_dim,
                          UI32Attr:$cluster_axis);
@@ -5202,7 +5000,6 @@ def TTIR_CollectivePermuteOp : TTIR_NamedOp<"collective_permute"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output,
                          I64ElementsAttr:$source_target_pairs);
 
     let results = (outs AnyRankedTensor:$result);
@@ -5271,8 +5068,7 @@ def TTIR_QuantizeOp : TTIR_NamedOp<"quantize"> {
       Example:
       ```mlir
       %input = ttir.empty() : () -> tensor<64x128xf32>
-      %output = ttir.empty() : () -> tensor<64x128x!quant.uniform<i32:f32, 0.1>>
-      %quantized = "ttir.quantize"(%input, %output) : (tensor<64x128xf32>, tensor<64x128x!quant.uniform<i32:f32, 0.1>>) -> tensor<64x128x!quant.uniform<i32:f32, 0.1>>
+      %quantized = "ttir.quantize"(%input) : (tensor<64x128xf32>) -> tensor<64x128x!quant.uniform<i32:f32, 0.1>>
 
       // In this example:
       // - The input is a 64x128 tensor of 32-bit floating-point values
@@ -5293,8 +5089,7 @@ def TTIR_QuantizeOp : TTIR_NamedOp<"quantize"> {
       deployment on resource-constrained devices.
   }];
 
-  let arguments = (ins AnyRankedTensor:$input,
-                       AnyRankedTensor:$output);
+  let arguments = (ins AnyRankedTensor:$input);
 
   let results = (outs AnyRankedTensor:$result);
 
@@ -5313,8 +5108,7 @@ def TTIR_DequantizeOp : TTIR_NamedOp<"dequantize"> {
     Example:
     ```mlir
     %input = ttir.empty() : () -> tensor<64x128x!quant.uniform<i32:f32, 0.1>>
-    %output = ttir.empty() : () -> tensor<64x128xf32>
-    %dequantized = "ttir.dequantize"(%input, %output) : (tensor<64x128x!quant.uniform<i32:f32, 0.1>, tensor<64x128xf32>) -> tensor<64x128xf32>
+    %dequantized = "ttir.dequantize"(%input) : (tensor<64x128x!quant.uniform<i32:f32, 0.1>>) -> tensor<64x128xf32>
 
     // In this example:
     // - The input is a 64x128 tensor of 32-bit quantized values
@@ -5333,8 +5127,7 @@ def TTIR_DequantizeOp : TTIR_NamedOp<"dequantize"> {
     Dequantization is the reverse process of quantization, converting quantized values back to floating-point values.
   }];
 
-  let arguments = (ins AnyRankedTensor:$input,
-                       AnyRankedTensor:$output);
+  let arguments = (ins AnyRankedTensor:$input);
 
   let results = (outs AnyRankedTensor:$result);
 
@@ -5356,8 +5149,7 @@ def TTIR_QuantizeUnrolledOp : TTIR_NamedOp<"quantize_unrolled"> {
   let arguments = (ins AnyRankedTensor:$input,
                        AnyRankedTensor:$scale,
                        AnyRankedTensor:$zero_point,
-                       OptionalAttr<I32Attr>:$axis,
-                       AnyRankedTensor:$output);
+                       OptionalAttr<I32Attr>:$axis);
 
   let results = (outs AnyRankedTensor:$result);
 
@@ -5379,8 +5171,7 @@ def TTIR_DequantizeUnrolledOp : TTIR_NamedOp<"dequantize_unrolled"> {
   let arguments = (ins AnyRankedTensor:$input,
                        AnyRankedTensor:$scale,
                        AnyRankedTensor:$zero_point,
-                       OptionalAttr<I32Attr>:$axis,
-                       AnyRankedTensor:$output);
+                       OptionalAttr<I32Attr>:$axis);
 
   let results = (outs AnyRankedTensor:$result);
 
@@ -5400,13 +5191,11 @@ def TTIR_RequantizeOp : TTIR_NamedOp<"requantize"> {
     Example:
     ```mlir
     %input = ttir.empty() : () -> tensor<64x128x!quant.uniform<i32:f32, 0.1>>
-    %output = ttir.empty() : () -> tensor<64x128x!quant.uniform<i32:f32, 0.2>>
-    %requantized = "ttir.requantize"(%input, %output) : (tensor<64x128x!quant.uniform<i32:f32, 0.1>, tensor<64x128x!quant.uniform<i32:f32, 0.2>>) -> tensor<64x128x!quant.uniform<i32:f32, 0.2>>
+    %requantized = "ttir.requantize"(%input) : (tensor<64x128x!quant.uniform<i32:f32, 0.1>>) -> tensor<64x128x!quant.uniform<i32:f32, 0.2>>
     ```
   }];
 
-  let arguments = (ins AnyRankedTensor:$input,
-                       AnyRankedTensor:$output);
+  let arguments = (ins AnyRankedTensor:$input);
 
   let results = (outs AnyRankedTensor:$result);
 
@@ -5434,8 +5223,7 @@ def TTIR_RequantizeUnrolledOp : TTIR_NamedOp<"requantize_unrolled"> {
                        AnyRankedTensor:$in_zero_point,
                        AnyRankedTensor:$out_scale,
                        AnyRankedTensor:$out_zero_point,
-                       OptionalAttr<I32Attr>:$axis,
-                       AnyRankedTensor:$output);
+                       OptionalAttr<I32Attr>:$axis);
 
   let results = (outs AnyRankedTensor:$result);
 
@@ -5460,7 +5248,6 @@ def TTIR_AllToAllOp : TTIR_NamedOp<"all_to_all"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         AnyRankedTensor:$output,
                          SI32Attr:$split_dim,
                          SI32Attr:$concat_dim,
                          SI32Attr:$split_count,
@@ -5486,7 +5273,6 @@ def TTIR_CollectiveBroadcastOp : TTIR_NamedOp<"collective_broadcast"> {
     Inputs:
       - input: The tensor to broadcast. Only the value on the first device of each replica group
               (the source) is used; values on other devices are ignored.
-      - output: An allocated tensor that will be populated with the broadcasted value on all devices.
       - replica_groups: A list of replica groups. Each group is a list of device IDs, and the first
                         ID in each group is treated as the broadcast source for that group.
 
@@ -5496,7 +5282,6 @@ def TTIR_CollectiveBroadcastOp : TTIR_NamedOp<"collective_broadcast"> {
   }];
 
   let arguments = (ins AnyRankedTensor:$input,
-                        AnyRankedTensor:$output,
                         I64ElementsAttr:$replica_groups);
 
   let results = (outs AnyRankedTensor:$result);
@@ -5522,8 +5307,7 @@ def TTIR_ConcatenateHeadsOp: TTIR_NamedOp<"concatenate_heads"> {
     ```mlir
     // Concatenate heads from a multi-head attention output
     %input = ... : tensor<1x24x32x128xbf16> // batch_size: 1, num_heads: 24, sequence_size: 32, head_size: 128
-    %output = ttir.empty() : tensor<1x32x3072xbf16>  // Concatenated output of shape [batch_size, sequence_size, num_heads * head_size]
-    %result = ttir.concatenate_heads(%input, %output) : tensor<1x24x32x128xbf16>, tensor<1x32x3072xbf16> -> tensor<1x32x3072xbf16>
+    %result = ttir.concatenate_heads(%input) : (tensor<1x24x32x128xbf16>) -> tensor<1x32x3072xbf16>
     // Input tensor shape: [1, 24, 32, 128]
     // Output tensor shape: [1, 32, 3072]
     ```
@@ -5531,12 +5315,11 @@ def TTIR_ConcatenateHeadsOp: TTIR_NamedOp<"concatenate_heads"> {
     Inputs:
     - `input` (Tensor): The input tensor containing multiple heads.
 
-    Outputs:
+    Output:
     - `result` (Tensor): The concatenated output tensor.
   }];
 
-  let arguments = (ins AnyRankedTensor:$input,
-                       AnyRankedTensor:$output);
+  let arguments = (ins AnyRankedTensor:$input);
 
   let results = (outs AnyRankedTensor:$result);
 
@@ -5571,12 +5354,33 @@ def TTIR_ScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"scaled_dot_product_at
                          Optional<AnyRankedTensor>:$attention_mask,
                          AnyRankedTensor:$cur_pos_tensor,
                          Optional<AnyRankedTensor>:$attention_sink,
-                         AnyRankedTensor:$output,
                          OptionalAttr<F32Attr>:$scale);
 
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+}
+
+def TTIR_PagedScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"paged_scaled_dot_product_attention_decode", [AttrSizedOperandSegments]> {
+  let summary = "Paged scaled dot product attention decode operation.";
+  let description = [{
+    Paged scaled dot product attention decode operation.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$query,
+                       AnyRankedTensor:$key,
+                       AnyRankedTensor:$value,
+                       AnyRankedTensor:$page_table,
+                       AnyRankedTensor:$output,
+                       DefaultValuedAttr<BoolAttr, "true">:$is_causal,
+                       Optional<AnyRankedTensor>:$attention_mask,
+                       Optional<AnyRankedTensor>:$cur_pos_tensor,
+                       Optional<AnyRankedTensor>:$attention_sink,
+                       OptionalAttr<F32Attr>:$scale);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
 }
 
 
@@ -5604,7 +5408,6 @@ def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attentio
                        AnyRankedTensor:$key,
                        AnyRankedTensor:$value,
                        Optional<AnyRankedTensor>:$attention_mask,
-                       AnyRankedTensor:$output,
                        DefaultValuedAttr<BoolAttr, "true">:$is_causal,
                        OptionalAttr<F32Attr>:$scale,
                        OptionalAttr<UI32Attr>:$sliding_window_size);
@@ -5631,14 +5434,12 @@ def TTIR_GlobalAvgPool2dOp: TTIR_NamedOp<"global_avg_pool2d">{
     // Basic global average pooling reducing 32x32 spatial dimensions to 1x1
     %input = ... : tensor<1x32x32x64xbf16>  // Input tensor with values in NHWC format
                                             // N=1 (batch), H=32 (height), W=32 (width), C=64 (channels)
-    %output = ttir.empty() : tensor<1x1x1x64xbf16>
-    %result = "ttir.global_avg_pool2d"(%input, %output) : (tensor<1x32x32x64xbf16>, tensor<1x1x1x64xbf16>) -> tensor<1x1x1x64xbf16>
+    %result = "ttir.global_avg_pool2d"(%input) : (tensor<1x32x32x64xbf16>) -> tensor<1x1x1x64xbf16>
     // Result: tensor<1x1x1x64xbf16> where each channel contains the average of all 32*32=1024 spatial locations
 
     // Example with different input sizes
     %large_input = ... : tensor<1x128x128x32xbf16>  // Large spatial dimensions
-    %large_output = ttir.empty() : tensor<1x1x1x32xbf16>
-    %large_result = "ttir.global_avg_pool2d"(%large_input, %large_output) : (tensor<1x128x128x32xbf16>, tensor<1x1x1x32xbf16>) -> tensor<1x1x1x32xbf16>
+    %large_result = "ttir.global_avg_pool2d"(%large_input) : (tensor<1x128x128x32xbf16>) -> tensor<1x1x1x32xbf16>
     // Each output channel averages across 128*128=16384 spatial locations
     ```
 
@@ -5657,8 +5458,7 @@ def TTIR_GlobalAvgPool2dOp: TTIR_NamedOp<"global_avg_pool2d">{
     kernel_size=[H, W], stride=[1, 1], and no padding, but implemented more efficiently.
   }];
 
-  let arguments = (ins AnyRankedTensor:$input,
-                       AnyRankedTensor:$output);
+  let arguments = (ins AnyRankedTensor:$input);
 
   let results = (outs AnyRankedTensor:$result);
 
@@ -5675,9 +5475,6 @@ def TTIR_SplitQueryKeyValueAndSplitHeadsOp: TTIR_NamedOp<"split_query_key_value_
 
     let arguments = (ins AnyRankedTensor:$input_tensor,
                          Optional<AnyRankedTensor>:$kv_input_tensor,
-                         AnyRankedTensor:$query_output,
-                         AnyRankedTensor:$key_output,
-                         AnyRankedTensor:$value_output,
                          UI32Attr:$num_heads,
                          OptionalAttr<UI32Attr>:$num_kv_heads,
                          BoolAttr:$transpose_key);

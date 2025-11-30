@@ -56,6 +56,51 @@ def D2MGenericTileComputeLoops : Pass<"d2m-generic-tile-compute-loops", "::mlir:
   let dependentDialects = ["mlir::tt::d2m::D2MDialect"];
 }
 
+def D2MLinalgToAffine : Pass<"d2m-linalg-to-affine", "::mlir::ModuleOp"> {
+  let summary = "Convert linalg.generic operations to affine loops";
+  let description = [{
+    This pass converts all linalg.generic operations within d2m.generic
+    compute regions to affine loop nests. This is a prerequisite for
+    the DST register allocation passes which operates on affine IR.
+
+    The pass handles:
+    - Regular linalg.generic ops -> affine for loops
+    - Special tile matmul cases (when useTileMatmul=true)
+
+    Example transformation:
+    ```mlir
+    // Before:
+    linalg.generic {indexing_maps = [#map, #map],
+                    iterator_types = ["parallel", "parallel"]}
+        ins(%cb0 : memref<2x4x!ttcore.tile<32x32, f32>, #l1>)
+        outs(%cb0 : memref<2x4x!ttcore.tile<32x32, f32>, #l1>) {
+      ^bb0(%in: !ttcore.tile<32x32, f32>, %out: !ttcore.tile<32x32, f32>):
+        %0 = "d2m.tile_exp"(%in) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+        linalg.yield %0 : !ttcore.tile<32x32, f32>
+    }
+
+    // After:
+    affine.for %i = 0 to 2 {
+      affine.for %j = 0 to 4 {
+        %val = affine.load %cb0[%i, %j] : memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+        %result = "d2m.tile_exp"(%val) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+        affine.store %result, %cb0[%i, %j] : memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+      }
+    }
+    ```
+  }];
+  let dependentDialects = [
+    "::mlir::affine::AffineDialect",
+    "::mlir::linalg::LinalgDialect"
+  ];
+  let options = [
+    Option<"useTileMatmul", "use-tile-matmul", "bool", "false",
+           "Use tile_matmul instead of tile_matmul_block for matmul ops">,
+    Option<"markRootLoops", "mark-root-loops", "bool", "true",
+           "Mark root loops with d2m.linalg_root attribute for subsequent passes">
+  ];
+}
+
 def D2MInsertDstRegisterAccess : Pass<"d2m-insert-dst-register-access", "::mlir::ModuleOp"> {
   let summary = "Insert dst register access.";
   let description = [{
@@ -491,6 +536,14 @@ def D2MAllocate: Pass<"d2m-allocate", "::mlir::ModuleOp"> {
   }];
   let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect", "::mlir::memref::MemRefDialect"];
   let options = D2MStreamingOptions # [
+    Option<"streamInsertPolicy",
+          "stream-insert-policy",
+          "std::string", /*default=*/"\"infer\"",
+          "Policy for deciding when to insert operand streams ('always', 'infer').">,
+    ListOption<"availableL1AddrRange",
+          "available-l1-addr-range",
+          "std::int64_t",
+          "Assume given L1 addressable range [base, max).">,
     Option<"testAssumeL1Capacity",
           "test-assume-l1-capacity",
           "std::int64_t", /*default=*/"0",

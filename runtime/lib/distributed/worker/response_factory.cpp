@@ -48,6 +48,14 @@ void ResponseFactory::buildErrorResponse(::flatbuffers::FlatBufferBuilder &fbb,
   BUILD_RESPONSE_DIRECT(Error, fbb, commandId, errorMessage.c_str());
 }
 
+void ResponseFactory::buildSetMemoryLogLevelResponse(
+    ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId) {
+
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  BUILD_RESPONSE(SetMemoryLogLevel, fbb, commandId);
+}
+
 void ResponseFactory::buildConfigureRuntimeContextResponse(
     ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId) {
 

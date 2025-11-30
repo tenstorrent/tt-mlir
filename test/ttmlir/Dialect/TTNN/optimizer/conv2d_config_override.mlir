@@ -3,7 +3,6 @@
 // RUN: FileCheck %s --input-file=%t
 module {
   func.func @forward(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x32x32x64xbf16> {
-    %0 = ttir.empty() : tensor<1x32x32x64xbf16>
     // CHECK: "ttnn.conv2d"{{.*}} conv2d_config = #ttnn.conv2d_config<
     // CHECK-SAME: weights_dtype = bf16
     // CHECK-SAME: activation = <op_type = relu>
@@ -17,13 +16,13 @@ module {
     // CHECK-SAME: output_layout = row_major
     // CHECK-SAME: enable_act_double_buffer = false
     // CHECK-SAME: enable_weights_double_buffer = false
-    %1 = "ttir.conv2d"(%arg0, %arg1, %arg2, %0)
+    %1 = "ttir.conv2d"(%arg0, %arg1, %arg2)
             <{
               stride = array<i32: 1, 1>,
               padding = array<i32: 1, 1>,
               dilation = 1: i32,
               groups = 1: i32
-            }> : (tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>, tensor<1x32x32x64xbf16>) -> tensor<1x32x32x64xbf16> loc(#loc2)
+            }> : (tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>) -> tensor<1x32x32x64xbf16> loc(#loc2)
     return %1 : tensor<1x32x32x64xbf16>
   }
 }

@@ -23,11 +23,11 @@
 
 // Verify the sequence of operations that should be fused together
 // This represents: cosh(x) = 0.5 * (exp(x) + exp(-x)) * y
-// First exp(x)
-// CHECK: emitc.call_opaque "exp_tile"(%{{[0-9]+}}) : (!emitc.size_t) -> ()
-// Then neg(x)
+// First neg(x)
 // CHECK: emitc.call_opaque "negative_tile"(%{{[0-9]+}}) : (!emitc.size_t) -> ()
 // Then exp(-x)
+// CHECK: emitc.call_opaque "exp_tile"(%{{[0-9]+}}) : (!emitc.size_t) -> ()
+// Then exp(x)
 // CHECK: emitc.call_opaque "exp_tile"(%{{[0-9]+}}) : (!emitc.size_t) -> ()
 // Then add exp(x) + exp(-x)
 // CHECK: emitc.call_opaque "add_binary_tile"(%{{[0-9]+}}, %{{[0-9]+}}, %{{[0-9]+}}) : (!emitc.size_t, !emitc.size_t, !emitc.size_t) -> ()
@@ -36,16 +36,11 @@
 
 module {
   func.func @cosh(%arg0: tensor<128x128xbf16>, %arg1: tensor<128x128xbf16>) -> tensor<128x128xbf16> {
-    %0 = ttir.empty() : tensor<128x128xbf16>
-    %1 = "ttir.neg"(%arg0, %0) : (tensor<128x128xbf16>, tensor<128x128xbf16>) -> tensor<128x128xbf16>
-    %2 = ttir.empty() : tensor<128x128xbf16>
-    %3 = "ttir.exp"(%1, %2) : (tensor<128x128xbf16>, tensor<128x128xbf16>) -> tensor<128x128xbf16>
-    %4 = ttir.empty() : tensor<128x128xbf16>
-    %5 = "ttir.exp"(%arg0, %4) : (tensor<128x128xbf16>, tensor<128x128xbf16>) -> tensor<128x128xbf16>
-    %6 = ttir.empty() : tensor<128x128xbf16>
-    %7 = "ttir.add"(%5, %3, %6) : (tensor<128x128xbf16>, tensor<128x128xbf16>, tensor<128x128xbf16>) -> tensor<128x128xbf16>
-    %8 = ttir.empty() : tensor<128x128xbf16>
-    %9 = "ttir.multiply"(%7, %arg1, %8) : (tensor<128x128xbf16>, tensor<128x128xbf16>, tensor<128x128xbf16>) -> tensor<128x128xbf16>
+    %1 = "ttir.neg"(%arg0) : (tensor<128x128xbf16>) -> tensor<128x128xbf16>
+    %3 = "ttir.exp"(%1) : (tensor<128x128xbf16>) -> tensor<128x128xbf16>
+    %5 = "ttir.exp"(%arg0) : (tensor<128x128xbf16>) -> tensor<128x128xbf16>
+    %7 = "ttir.add"(%5, %3) : (tensor<128x128xbf16>, tensor<128x128xbf16>) -> tensor<128x128xbf16>
+    %9 = "ttir.multiply"(%7, %arg1) : (tensor<128x128xbf16>, tensor<128x128xbf16>) -> tensor<128x128xbf16>
     return %9 : tensor<128x128xbf16>
   }
 }

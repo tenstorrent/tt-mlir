@@ -6,7 +6,7 @@ from ttmlir.ir import *
 from ttmlir.dialects import ttnn, func, ttcore
 from typing import Dict, List, Any, Optional, Set, Union
 from dataclasses import dataclass
-from .utils import _get_collapsed_linear_affine_map
+from .tensor_translator import create_tensor_layout
 import ttnn_jit._src.supported_ops as supported_ops
 import json
 import re
@@ -463,6 +463,10 @@ class GraphToIRTranslator:
                 return F32Type.get(self.ctx)
             case 2:
                 return IntegerType.get_unsigned(32, self.ctx)
+            case 3:
+                return ttcore.ir.TileType.get(
+                    self.ctx, 32, 32, ttcore.DataType.BFP_BFloat8
+                )
             case 5:
                 return IntegerType.get_unsigned(8, self.ctx)
             case 6:
@@ -472,23 +476,15 @@ class GraphToIRTranslator:
             case _:
                 raise ValueError(f"Unsupported dtype: {dtype}")
 
-    def _ttcore_dtype_from_ttnn_dtype(self, dtype):
-        match str(dtype):
-            case "DataType.BFLOAT16":
-                return ttcore.DataType.BFloat16
-            case "DataType.FLOAT32":
-                return ttcore.DataType.Float32
-            case "DataType.INT32":
-                return ttcore.DataType.Int32
-            case _:
-                raise ValueError(f"Unsupported dtype: {dtype}")
-
     def _ttcore_dtype_from_mlir_dtype(self, dtype):
-        match str(dtype):
+        dtype_str = str(dtype)
+        match dtype_str:
             case "f32":
                 return ttcore.DataType.Float32
             case "bf16":
                 return ttcore.DataType.BFloat16
+            case s if "bfp_bf8" in s.lower():
+                return ttcore.DataType.BFP_BFloat8
             case _:
                 raise ValueError(f"Unsupported dtype: {dtype}")
 
@@ -500,55 +496,6 @@ class GraphToIRTranslator:
             return 1  # F32
         # Add more as needed
         return None
-
-    def _create_tensor_layout(self, tensor_arg):
-        """Create TTNN layout attribute from tensor."""
-        data_type = self._ttcore_dtype_from_ttnn_dtype(tensor_arg.dtype)
-        tile_type = ttcore.ir.TileType.get(self.ctx, 32, 32, data_type)
-
-        # Create affine map, should be based of tensor shape
-        affine_map = _get_collapsed_linear_affine_map(
-            self.ctx, tensor_arg.shape, self.max_grid
-        )
-        if tensor_arg.memory_config().is_sharded():
-            shard_spec = tensor_arg.memory_config().shard_spec
-            shard_shape = shard_spec.shape
-            grid_size_x = self.max_grid[0] + 1
-            grid_size_y = self.max_grid[1] + 1
-
-            # TTNN writes grids as (width, height) but compiler expects (height, width)
-            grid = ttcore.ir.GridAttr.get(self.ctx, [grid_size_y, grid_size_x])
-            shard_shape_tile_x = shard_shape[0] // 32
-            shard_shape_tile_y = shard_shape[1] // 32
-            buffer_type = ttnn.ir.BufferTypeAttr.get(self.ctx, ttnn.BufferType.L1)
-            memref = MemRefType.get(
-                [shard_shape_tile_x, shard_shape_tile_y], tile_type, None, buffer_type
-            )
-            ttnn_layout = ttnn.ir.TTNNLayoutAttr.get_with_linear(
-                self.ctx,
-                affine_map,
-                grid,
-                memref,
-                ttnn.TensorMemoryLayout.BlockSharded,
-                None,
-            )
-            return ttnn_layout
-        else:
-            assert (
-                self.max_grid[0] == 0 and self.max_grid[1] == 0
-            ), "The grid for DRAM interleaved tensors is always 1x1"
-            buffer_type = ttnn.ir.BufferTypeAttr.get(self.ctx, ttnn.BufferType.DRAM)
-            grid = ttcore.ir.GridAttr.get(self.ctx, [1, 1])
-            shape = [tensor_arg.shape[0] // 32, tensor_arg.shape[1] // 32]
-            memref = MemRefType.get(shape, tile_type, None, buffer_type)
-            return ttnn.ir.TTNNLayoutAttr.get_with_linear(
-                self.ctx,
-                affine_map,
-                grid,
-                memref,
-                ttnn.TensorMemoryLayout.Interleaved,
-                None,
-            )
 
     def _adjust_op_name(self, op_name):
         """Adjust operation name to match TTNN dialect names."""
@@ -603,7 +550,7 @@ class GraphToIRTranslator:
             input_types = []
             for arg_name, tensor_arg in self.tensor_args.items():
                 shape = list(tensor_arg.shape)
-                layout = self._create_tensor_layout(tensor_arg)
+                layout = create_tensor_layout(self.ctx, tensor_arg, self.max_grid)
                 dtype = self._mlir_dtype_from_ttnn_dtype(tensor_arg.dtype)
                 tensor_type = RankedTensorType.get(shape, dtype, layout)
                 input_types.append(tensor_type)

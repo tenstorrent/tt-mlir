@@ -45,11 +45,22 @@ ttcore::GridAttr getGridFromType(RankedTensorType type) {
 Value materializeView(OpBuilder &builder, Location loc, Value viewResult) {
   auto tensorType = mlir::cast<RankedTensorType>(viewResult.getType());
 
-  // Allocate output storage for the materialized view result.
+  // This pass runs pre-bufferization, so view ops have MetalLayoutAttr.
   auto layout =
-      mlir::dyn_cast_or_null<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+      mlir::dyn_cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+  TT_assertv(layout != nullptr, "Expected MetalLayoutAttr pre-bufferization");
+
+  // Allocate output storage for the materialized view result.
+  // We create a new layout without the index map - the source layout's index
+  // map describes how to access the underlying storage with a transformed
+  // layout, but the new allocation should be identity-mapped fresh storage.
+  auto newLayout = ttcore::MetalLayoutAttr::get(
+      builder.getContext(), layout.getLogicalShape(), layout.getDimAlignments(),
+      layout.getCollapsedIntervals(), layout.getOobVal(),
+      layout.getMemorySpace(), layout.getMemoryLayout(),
+      builder.getEmptyAffineMap());
   auto emptyOp = builder.create<d2m::EmptyOp>(
-      loc, tensorType.getShape(), tensorType.getElementType(), layout);
+      loc, tensorType.getShape(), tensorType.getElementType(), newLayout);
 
   // Extract the grid from the tensor's layout to determine core distribution.
   ttcore::GridAttr grid = getGridFromType(tensorType);
@@ -103,6 +114,8 @@ public:
         for (OpOperand &opOperand : returnOp->getOpOperands()) {
           Operation *definingOp = opOperand.get().getDefiningOp();
 
+          // Case 1: Direct view return (should not happen with proper
+          // pipelines).
           if (isViewOp(definingOp)) {
             // Insert a generic op to materialize the view before returning.
             // This ensures the tensor transformation represented by the view
@@ -110,6 +123,29 @@ public:
             Value materialized =
                 materializeView(builder, returnOp.getLoc(), opOperand.get());
             opOperand.set(materialized);
+            continue;
+          }
+
+          // Case 2: View consumed by device-to-host ToLayoutOp before return.
+          // Pattern: %view = view_layout ... -> %host = to_layout %view ->
+          // return %host. We need to materialize the view BEFORE the
+          // device-to-host transfer.
+          if (auto toLayoutOp =
+                  mlir::dyn_cast_if_present<d2m::ToLayoutOp>(definingOp)) {
+            if (toLayoutOp.isDeviceToHost()) {
+              Value toLayoutInput = toLayoutOp.getInput();
+              Operation *inputDefiningOp = toLayoutInput.getDefiningOp();
+
+              if (isViewOp(inputDefiningOp)) {
+                // Materialize the view before the device-to-host transfer.
+                builder.setInsertionPoint(toLayoutOp);
+                Value materialized = materializeView(
+                    builder, toLayoutOp.getLoc(), toLayoutInput);
+
+                // Update the ToLayoutOp to use the materialized value.
+                toLayoutOp.getInputMutable().assign(materialized);
+              }
+            }
           }
         }
       });

@@ -41,6 +41,10 @@ def D2M_ViewLayoutOp : D2M_Op<"view_layout", [
     $input attr-dict `:` type($input) `->` type($result)
   }];
 
+  let extraClassDeclaration = [{
+    bool isReblockOnly();
+  }];
+
   let hasVerifier = 1;
   let hasFolder = 1;
 }
@@ -108,6 +112,7 @@ def D2M_ToLayoutOp : D2M_Op<"to_layout", [
       bool isCompound() { return compoundComponents().isCompound(); }
       ttcore::MetalLayoutAttr getOrCreateInputLayout();
       ttcore::MetalLayoutAttr getOrCreateOutputLayout();
+      Value getInitOperand() { return getOperand(1); }
 
       bool isHostToDevice();
       bool isDeviceToHost();
@@ -177,7 +182,7 @@ def D2M_GenericOp : D2M_Op<"generic",
     let regions = (region VariadicRegion<AnyRegion>:$regions);
 
     let assemblyFormat = [{ attr-dict `\n`
-    ` ` ` ` ` ` ` ` `ins` `(` $inputs `:` type($inputs) `)` `\n`
+    ` ` ` ` ` ` ` ` `ins` `(` $inputs (`:` type($inputs)^)? `)` `\n`
     ` ` ` ` ` ` ` ` `outs` `(` $outputs  `:` type($outputs) `)` ` `  $regions (`:`  type($results)^ )?
     }];
 

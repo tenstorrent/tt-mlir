@@ -2,6 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/AffineMapUtils.h"
+#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Support/Logger.h"
@@ -22,30 +24,70 @@ namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MGENERICLOWERDMAS
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 
+static std::tuple<SmallVector<Value>, SmallVector<Value>, SmallVector<Value>>
+getLoopBounds(OpBuilder &builder, Location loc, ArrayRef<int64_t> shardShape) {
+  Value zero = builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
+                                                 builder.getIndexAttr(0));
+  Value one = builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
+                                                builder.getIndexAttr(1));
+  SmallVector<Value> lbs(shardShape.size(), zero);
+  SmallVector<Value> ubs(llvm::map_range(shardShape, [&](int64_t dim) {
+    return builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
+                                             builder.getIndexAttr(dim));
+  }));
+  SmallVector<Value> step(shardShape.size(), one);
+  return std::make_tuple(lbs, ubs, step);
+}
+
 namespace {
 class D2MGenericLowerAffineDMAsRewritePattern : public OpRewritePattern<DMAOp> {
 public:
   using OpRewritePattern<DMAOp>::OpRewritePattern;
 
   // Returns a tuple of the stream index and the index bounds. The stream index
-  // represents the position in the stream that the DMA will is currently on,
+  // represents the position in the stream that the DMA is currently accessing,
   // and is relative per core. The index bounds represent the index upper
   // bounds.
-  static std::tuple<SmallVector<Value>, SmallVector<int64_t>>
-  buildStreamIndex(OpBuilder &builder, Location loc,
-                   ArrayRef<int64_t> gridShape, ArrayRef<int64_t> blockFactors,
-                   ArrayRef<int64_t> shardShape, AffineMap dmaIndexingMap,
-                   AffineMap gridIndexingMap) {
-    assert(dmaIndexingMap.getNumDims() == gridIndexingMap.getNumDims());
-    assert(dmaIndexingMap.getNumResults() == gridIndexingMap.getNumResults());
+  static SmallVector<Value> buildStreamIndex(OpBuilder &builder, Location loc,
+                                             ArrayRef<int64_t> gridShape,
+                                             ArrayRef<int64_t> blockFactors,
+                                             ArrayRef<int64_t> shardShape,
+                                             AffineMap dmaIndexingMap,
+                                             AffineMap outputOperandIndexingMap,
+                                             AffineMap coreVirtualizationMap) {
+    assert(dmaIndexingMap.getNumDims() ==
+           outputOperandIndexingMap.getNumDims());
+    assert(dmaIndexingMap.getNumResults() ==
+           outputOperandIndexingMap.getNumResults());
     assert(dmaIndexingMap.getNumResults() == shardShape.size());
-    assert(gridIndexingMap.isProjectedPermutation(true) &&
+    assert(outputOperandIndexingMap.isProjectedPermutation(true) &&
            "Grid indexing map must be a permutation");
 
     SmallVector<Value> streamIndex;
-    SmallVector<int64_t> indexBounds;
     streamIndex.reserve(dmaIndexingMap.getNumResults());
-    indexBounds.reserve(dmaIndexingMap.getNumResults());
+
+    // Compute virtualized core indices from raw physical core indices using the
+    // core virtualization map. This ensures both grid and shard indices are
+    // in the virtual (viewed) coord space of the generic op's output operand.
+    SmallVector<Value> physicalCoreIndices(
+        outputOperandIndexingMap.getNumResults());
+    for (unsigned gridIndex = 0;
+         gridIndex < outputOperandIndexingMap.getNumResults(); gridIndex++) {
+      physicalCoreIndices[gridIndex] = builder.create<CoreIndexOp>(
+          loc, builder.getIndexType(), builder.getI64IntegerAttr(gridIndex));
+    }
+    SmallVector<Value> virtualGridIndices;
+    if (!coreVirtualizationMap.isEmpty()) {
+      virtualGridIndices = ttmlir::utils::fullyApplyAffineMap(
+          builder, loc, coreVirtualizationMap, physicalCoreIndices);
+    } else {
+      virtualGridIndices = physicalCoreIndices;
+    }
+    TT_assertv(virtualGridIndices.size() ==
+                   outputOperandIndexingMap.getNumResults(),
+               "Core virtualization map must have the same number of results "
+               "as the grid indexing map");
+
     for (unsigned result = 0; result < dmaIndexingMap.getNumResults();
          result++) {
 
@@ -66,9 +108,11 @@ public:
                                                   builder.getIndexAttr(0));
       } else {
         unsigned dim = mlir::cast<AffineDimExpr>(dimOrConstant).getPosition();
-
+        // Identify the corresponding grid dimension that participates in the
+        // dma access.
         std::optional<unsigned> gridResult =
-            gridIndexingMap.getResultPosition(dmaIndexingMap.getResult(result));
+            outputOperandIndexingMap.getResultPosition(
+                dmaIndexingMap.getResult(result));
 
         //
         // The following assert is pretty subtle. If this operand dimension
@@ -76,35 +120,40 @@ public:
         // grid result is the same as the operand result. This protects against
         // permutations of the grid, ie. transposes.  For example, let's
         // consider a matmul case:
-        //   dmaIndexingMap:  (m, n, k) -> (m, k)
-        //   dmaIndexingMap:  (m, n, k) -> (k, n)
-        //   gridIndexingMap: (m, n, k) -> (m, n)
+        //   dmaIndexingMap:           (m, n, k) -> (m, k)
+        //   dmaIndexingMap:           (m, n, k) -> (k, n)
+        //   outputOperandIndexingMap: (m, n, k) -> (m, n)
         //                                     ^
         // This assert ensures that the m's line up. A counter example would be:
-        //   dmaIndexingMap:  (m, n, k) -> (m, k)
-        //   gridIndexingMap: (m, n, k) -> (n, m)
+        //   dmaIndexingMap:           (m, n, k) -> (m, k)
+        //   outputOperandIndexingMap: (m, n, k) -> (n, m)
         //
         // Not currently supported.
         //
-        assert(!gridResult || *gridResult == result);
+        if (outputOperandIndexingMap.getNumResults() ==
+            dmaIndexingMap.getNumResults()) {
+          // Only enforce a 1-1 relationship between the participating dma and
+          // grid dimensions when the maps have the same dimensionality.
+          assert(!gridResult || *gridResult == result);
+        }
         bool isGridDim = gridResult.has_value();
         Value iterIndex = builder.create<IterIndexOp>(
             loc, builder.getIndexType(), builder.getI64IntegerAttr(dim));
 
         if (isGridDim) {
-          // The grid dimension is always 1-1 with the result position. Consider
-          // the case where interchange moves k to the outermost loop. We'd have
-          // output map: (k, m, n) -> (m, n)
-          // In this example we want (m, n) to map to grid dims (0, 1) (not
-          // their dim positions i.e. (1, 2)).
-          const unsigned gridDim = result;
+          // Consider the case where interchange moves k to the outermost loop.
+          // We'd have output map: (k, m, n) -> (m, n) In this example we want
+          // (m, n) to map to grid dims (0, 1) (not their dim positions i.e. (1,
+          // 2)).
+          const unsigned gridDim = gridResult.value();
 
-          // gridI * blockFactorI + iterI
+          // gridI * blockFactorI + iterI = index in virtual space
           Value blockFactor = builder.create<arith::ConstantOp>(
               loc, builder.getIndexType(),
               builder.getIndexAttr(blockFactors[dim]));
-          index = builder.create<CoreIndexOp>(
-              loc, builder.getIndexType(), builder.getI64IntegerAttr(gridDim));
+
+          index = virtualGridIndices[gridDim];
+
           index = builder.create<arith::MulIOp>(loc, builder.getIndexType(),
                                                 index, blockFactor);
           index = builder.create<arith::AddIOp>(loc, builder.getIndexType(),
@@ -114,9 +163,8 @@ public:
         }
       }
       streamIndex.push_back(index);
-      indexBounds.push_back(gridShape[result]);
     }
-    return std::make_tuple(streamIndex, indexBounds);
+    return streamIndex;
   }
 
   static size_t getElementSizeBytes(MemRefType memref) {
@@ -140,8 +188,7 @@ public:
   static size_t calculateCoalescingFactor(AffineMap memoryMap,
                                           ArrayRef<int64_t> gridShape,
                                           ArrayRef<int64_t> shardShape,
-                                          size_t elemSizeBytes,
-                                          ArrayRef<int64_t> indexBounds) {
+                                          size_t elemSizeBytes) {
     size_t coalescingFactor = ttmlir::utils::volume(shardShape);
     SmallVector<int64_t> memoryIndex;
     memoryIndex.resize(gridShape.size() + shardShape.size());
@@ -175,22 +222,6 @@ public:
       });
     });
     return coalescingFactor;
-  }
-
-  static std::tuple<SmallVector<Value>, SmallVector<Value>, SmallVector<Value>>
-  getLoopBounds(OpBuilder &builder, Location loc,
-                ArrayRef<int64_t> shardShape) {
-    Value zero = builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
-                                                   builder.getIndexAttr(0));
-    Value one = builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
-                                                  builder.getIndexAttr(1));
-    SmallVector<Value> lbs(shardShape.size(), zero);
-    SmallVector<Value> ubs(llvm::map_range(shardShape, [&](int64_t dim) {
-      return builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
-                                               builder.getIndexAttr(dim));
-    }));
-    SmallVector<Value> step(shardShape.size(), one);
-    return std::make_tuple(lbs, ubs, step);
   }
 
   // Uses coalescing factor to build an optimized gather loop with uniform
@@ -270,8 +301,8 @@ public:
     return loopNest;
   }
 
-  // Analyzes a DMA stream and returns a vector of stream indices, the
-  // underlying shard shape, and the max coalescing factor
+  // Analyzes a DMA stream and returns a vector of stream indices and the max
+  // coalescing factor.
   static std::pair<SmallVector<Value>, size_t>
   analyzeStream(PatternRewriter &rewriter, Location loc,
                 AffineMap dmaIndexingMap, MemRefType memref,
@@ -285,23 +316,30 @@ public:
     unsigned outputOperandsIndex =
         genericParent.getOutputs().getBeginOperandIndex();
     // The output and the grid indexing must always be aligned.
-    AffineMap gridIndexingMap =
+    AffineMap outputOperandIndexingMap =
         mlir::cast<AffineMapAttr>(
             genericParent.getIndexingMaps()[outputOperandsIndex])
             .getValue();
 
-    auto [streamIndices, indexBounds] = buildStreamIndex(
+    // extract core virtualization map with just grid yx results
+    AffineMap coreVirtualizationMap = genericParent.getGrid().getMapping();
+    if (!coreVirtualizationMap.isEmpty()) {
+      coreVirtualizationMap =
+          genericParent.getGrid().getMapping().dropResult(0);
+    }
+
+    SmallVector<Value> streamIndices = buildStreamIndex(
         rewriter, loc, memrefGridShape, genericParent.getBlockFactorsValue(),
-        memrefShardShape, dmaIndexingMap, gridIndexingMap);
+        memrefShardShape, dmaIndexingMap, outputOperandIndexingMap,
+        coreVirtualizationMap);
 
     ttcore::DeviceAttr device = genericParent.getDevice();
     std::pair<MemRefType, AffineMap> underlyingMemrefAndView =
         viewInterface.applyViews();
     AffineMap memoryMap = device.getMemoryMap(underlyingMemrefAndView,
                                               0 /* use default page size*/);
-    size_t coalescingFactor =
-        calculateCoalescingFactor(memoryMap, memrefGridShape, memrefShardShape,
-                                  elemSizeBytes, indexBounds);
+    size_t coalescingFactor = calculateCoalescingFactor(
+        memoryMap, memrefGridShape, memrefShardShape, elemSizeBytes);
 
     return {streamIndices, coalescingFactor};
   }
@@ -322,7 +360,10 @@ public:
                           : dma.getDst().getDefiningOp());
 
     // analyze remote stream (either src or dst) to extract a vec of stream
-    // indices and a max coalescing factor
+    // indices and a max coalescing factor.
+    // StreamIndices are the index values of the remote buffer.
+    // CoalescingFactor is the greatest common divisor of the number of elements
+    // that can be coalesced into a single DMA operation.
     auto [streamIndices, coalescingFactor] =
         analyzeStream(rewriter, dma.getLoc(), *affine_map, memref, defining_op,
                       dma->getParentOfType<d2m::GenericOp>());
@@ -341,9 +382,10 @@ public:
           dma.isDstRemote() ? streamIndices : SmallVector<Value>();
       newDma = rewriter.create<d2m::DMAOp>(
           dma.getLoc(), dma.getSrc(), srcIndices, dma.getDst(), dstIndices,
-          dma.getMcastStartIndex(), dma.getMcastShape());
+          dma.getMcastStartIndex(), dma.getMcastShape(), coalescingFactor);
     } else {
-
+      // The memory access has some stride/gaps so multiple DMA operations are
+      // needed.
       scf::LoopNest loopNest =
           buildCoalescedGatherLoop(rewriter, dma.getLoc(), dma, streamIndices,
                                    memrefShardShape, coalescingFactor);
@@ -357,7 +399,7 @@ public:
 } // namespace
 
 namespace {
-class D2MGenericLowerToFullyIndexedDMARewritePattern
+class D2MGenericLowerImplicitSizedDMARewritePattern
     : public OpRewritePattern<DMAOp> {
 public:
   using OpRewritePattern<DMAOp>::OpRewritePattern;
@@ -367,6 +409,70 @@ public:
     if (dma.isAffine()) {
       // Lower to affine first.
       // Or if it's already fully lowered, nothing to do.
+      return failure();
+    }
+
+    if (dma.hasExplicitSize()) {
+      // Altready has a size, nothing to do.
+      return failure();
+    }
+
+    size_t appliedIndexCount = dma.getSrcIndices().size();
+    ArrayRef<int64_t> fullShape =
+        cast<mlir::ShapedType>(dma.getSrc().getType()).getShape();
+    ArrayRef<int64_t> unappliedShape = fullShape.drop_front(appliedIndexCount);
+
+    if (unappliedShape.empty()) {
+      // Just tack on a size of 1, already fully indexed.
+      rewriter.replaceOpWithNewOp<d2m::DMAOp>(
+          dma, dma.getSrc(), dma.getSrcIndices(), dma.getDst(),
+          dma.getDstIndices(), dma.getMcastStartIndex(), dma.getMcastShape(),
+          /*numElems=*/1);
+      return success();
+    }
+
+    auto [lbs, ubs, steps] =
+        getLoopBounds(rewriter, dma->getLoc(), unappliedShape);
+
+    // Create a loop around the unapplied indices.
+    auto nullDmaTx = rewriter.create<d2m::NullTxOp>(dma.getLoc());
+    scf::LoopNest loopNest = scf::buildLoopNest(
+        rewriter, dma->getLoc(), lbs, ubs, steps, ValueRange(nullDmaTx),
+        [&](OpBuilder &builder, Location loc, ValueRange iters,
+            ValueRange /*args*/) {
+          auto srcIndices =
+              llvm::to_vector(llvm::concat<Value>(dma.getSrcIndices(), iters));
+          auto dstIndices =
+              llvm::to_vector(llvm::concat<Value>(dma.getDstIndices(), iters));
+          auto dmaOp = builder.create<d2m::DMAOp>(
+              dma.getLoc(), dma.getSrc(), srcIndices, dma.getDst(), dstIndices,
+              dma.getMcastStartIndex(), dma.getMcastShape(), /*numElems=*/1);
+          return SmallVector<Value>{dmaOp->getResult(0)};
+        });
+
+    rewriter.replaceOp(dma, loopNest.loops.front());
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class D2MGenericLowerFullyIndexedDMARewritePattern
+    : public OpRewritePattern<DMAOp> {
+public:
+  using OpRewritePattern<DMAOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(DMAOp dma,
+                                PatternRewriter &rewriter) const final {
+    if (dma.isAffine()) {
+      // Lower to affine first.
+      // Or if it's already fully lowered, nothing to do.
+      return failure();
+    }
+
+    if (!dma.hasExplicitSize()) {
+      // Lower explicit size first.
       return failure();
     }
 
@@ -486,7 +592,8 @@ public:
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
     patterns.add<D2MGenericLowerAffineDMAsRewritePattern,
-                 D2MGenericLowerToFullyIndexedDMARewritePattern>(&getContext());
+                 D2MGenericLowerImplicitSizedDMARewritePattern,
+                 D2MGenericLowerFullyIndexedDMARewritePattern>(&getContext());
     populateAffineToStdConversionPatterns(patterns);
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();

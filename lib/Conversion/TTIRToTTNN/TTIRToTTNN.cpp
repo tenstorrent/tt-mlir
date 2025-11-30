@@ -249,16 +249,10 @@ public:
   LogicalResult
   matchAndRewrite(TTIROpTy op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    SmallVector<Type> resultTypes;
-    if (failed(this->getTypeConverter()->convertTypes(op->getResultTypes(),
-                                                      resultTypes))) {
-      return failure();
-    }
+    auto resultType = this->getTypeConverter()->convertType(op.getType());
+    auto inputs = adaptor.getOperands();
 
-    static_assert(ttir::utils::has_dps_trait_v<TTIROpTy>);
-    auto inputs =
-        ttir::utils::getDpsInputsFromAdaptor(adaptor, op.getNumDpsInits());
-    rewriter.replaceOpWithNewOp<TTNNOpTy>(op, resultTypes, inputs);
+    rewriter.replaceOpWithNewOp<TTNNOpTy>(op, resultType, inputs);
     return success();
   }
 };
@@ -276,10 +270,8 @@ public:
   LogicalResult
   matchAndRewrite(TTIROpTy op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    static_assert(ttir::utils::has_dps_trait_v<TTIROpTy>);
-
     rewriter.replaceOpWithNewOp<TTNNOpTy>(
-        op, this->getTypeConverter()->convertType(op.getResult().getType()),
+        op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getLhs(), adaptor.getRhs());
     return success();
   }
@@ -640,6 +632,32 @@ public:
         op.getLoc(), adaptor.getCache(), adaptor.getInput(),
         adaptor.getUpdateIndex(), adaptor.getShareCache(),
         adaptor.getPageTable());
+
+    rewriter.replaceOp(op, adaptor.getCache());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class PagedFillCacheOpConversionPattern
+    : public OpConversionPattern<ttir::PagedFillCacheOp> {
+public:
+  using OpConversionPattern<ttir::PagedFillCacheOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::PagedFillCacheOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    std::vector<mlir::Operation *> users(op.getCache().getUsers().begin(),
+                                         op.getCache().getUsers().end());
+    if (users.size() != 1) {
+      return rewriter.notifyMatchFailure(
+          op, "PagedFillCacheOp cache argument must have exactly one user");
+    }
+
+    rewriter.create<ttnn::PagedFillCacheOp>(
+        op.getLoc(), adaptor.getCache(), adaptor.getInput(),
+        adaptor.getPageTable(), adaptor.getBatchIdxTensor());
 
     rewriter.replaceOp(op, adaptor.getCache());
     return success();
@@ -1553,12 +1571,14 @@ public:
   LogicalResult
   matchAndRewrite(ttir::AllReduceOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, srcOp);
-
     rewriter.replaceOpWithNewOp<ttnn::AllReduceOp>(
         srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
-        adaptor.getInput(), device, adaptor.getReduceType(),
-        adaptor.getClusterAxis());
+        adaptor.getInput(), adaptor.getReduceType(),
+        static_cast<uint32_t>(adaptor.getClusterAxis()),
+        /*sub_device_id=*/nullptr,
+        /*memory_config=*/nullptr,
+        /*num_links=*/nullptr,
+        /*topology=*/nullptr);
 
     return success();
   }
@@ -1574,12 +1594,15 @@ public:
   LogicalResult
   matchAndRewrite(ttir::ReduceScatterOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
 
     rewriter.replaceOpWithNewOp<ttnn::ReduceScatterOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), device, adaptor.getReduceType(),
-        adaptor.getScatterDim(), adaptor.getClusterAxis());
+        adaptor.getInput(), adaptor.getReduceType(), adaptor.getScatterDim(),
+        static_cast<uint32_t>(adaptor.getClusterAxis()),
+        /*sub_device_id=*/nullptr,
+        /*memory_config=*/nullptr,
+        /*num_links=*/nullptr,
+        /*topology=*/nullptr);
 
     return success();
   }
@@ -1618,12 +1641,14 @@ public:
   matchAndRewrite(ttir::AllGatherOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
-
     rewriter.replaceOpWithNewOp<ttnn::AllGatherOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), device, adaptor.getAllGatherDim(),
-        static_cast<uint32_t>(adaptor.getClusterAxis()));
+        adaptor.getInput(), adaptor.getAllGatherDim(),
+        static_cast<uint32_t>(adaptor.getClusterAxis()),
+        /*sub_device_id=*/nullptr,
+        /*memory_config=*/nullptr,
+        /*num_links=*/nullptr,
+        /*topology=*/nullptr);
 
     return success();
   }
@@ -1745,17 +1770,16 @@ public:
 } // namespace
 
 //===----------------------------------------------------------------------===//
-// ScatterInDimOp
+// ScatterOp
 //===----------------------------------------------------------------------===//
 
 namespace {
-class ScatterInDimOpConversionPattern
-    : public OpConversionPattern<ttir::ScatterInDimOp> {
-  using OpConversionPattern<ttir::ScatterInDimOp>::OpConversionPattern;
+class ScatterOpConversionPattern : public OpConversionPattern<ttir::ScatterOp> {
+  using OpConversionPattern<ttir::ScatterOp>::OpConversionPattern;
 
 public:
   LogicalResult
-  matchAndRewrite(ttir::ScatterInDimOp op, OpAdaptor adaptor,
+  matchAndRewrite(ttir::ScatterOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::ScatterOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
@@ -1828,7 +1852,19 @@ public:
     auto meshDevice = ttcore::lookupDevice(op);
     llvm::SmallVector<int64_t> meshShape{meshDevice.getMeshShape()};
 
-    Value finalValue;
+    ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
+        op.getResult().getType().getEncoding());
+    ttnn::BufferTypeAttr bufferTypeAttr =
+        ttnn::BufferTypeAttr::get(op.getContext(), layoutAttr.getBufferType());
+    ttnn::MemoryConfigAttr memoryConfigAttr =
+        ttnn::MemoryConfigAttr::get(op.getContext(), layoutAttr.getMemLayout(),
+                                    bufferTypeAttr, std::nullopt);
+    ttcore::DataTypeAttr dTypeAttr =
+        ttcore::DataTypeAttr::get(op.getContext(), layoutAttr.getDataType());
+
+    Value finalValue = rewriter.create<ttnn::AssignOp>(
+        op.getLoc(), inputType, adaptor.getInput(), memoryConfigAttr,
+        dTypeAttr);
     auto replicaGroups = ttmlir::utils::denseElementsAttrTo2D<int64_t>(
         adaptor.getReplicaGroups());
 
@@ -1837,11 +1873,13 @@ public:
     for (const auto &group : replicaGroups) {
       auto sourceCoord = rewriter.getDenseI64ArrayAttr(
           ttmlir::utils::linearIdToCoord(group[0], meshShape));
-      for (const auto &targetId : group) {
+      for (size_t idx = 1; idx < group.size(); idx++) {
+        // Skip the first device in the group because the buffer is already
+        // cloned
         finalValue = rewriter.create<ttnn::PointToPointOp>(
             op.getLoc(), inputType, adaptor.getInput(), sourceCoord,
             rewriter.getDenseI64ArrayAttr(
-                ttmlir::utils::linearIdToCoord(targetId, meshShape)),
+                ttmlir::utils::linearIdToCoord(group[idx], meshShape)),
             finalValue);
       }
     }
@@ -1975,6 +2013,28 @@ public:
 } // namespace
 
 namespace {
+class PagedScaledDotProductAttentionDecodeOpConversionPattern
+    : public OpConversionPattern<ttir::PagedScaledDotProductAttentionDecodeOp> {
+public:
+  using OpConversionPattern<
+      ttir::PagedScaledDotProductAttentionDecodeOp>::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(ttir::PagedScaledDotProductAttentionDecodeOp op,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::PagedScaledDotProductAttentionDecodeOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(),
+        adaptor.getPageTable(), adaptor.getIsCausal(),
+        adaptor.getAttentionMask(), adaptor.getCurPosTensor(),
+        adaptor.getAttentionSink(), adaptor.getScaleAttr(),
+        /*memory_config=*/nullptr);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class ScaledDotProductAttentionOpConversionPattern
     : public OpConversionPattern<ttir::ScaledDotProductAttentionOp> {
 public:
@@ -2050,11 +2110,26 @@ public:
     }
     // Step 2: Reorganize sliced data using PointToPoint communication.
     // For each group of devices, perform pairwise sends via PointToPoint ops.
-    // Each sender sends its slices to all devices in the group (including
-    // itself).
+    // Each sender sends its slices to all devices in the group.
 
-    // Buffers to hold the output for each device (initialized as empty).
+    // Buffers to hold the output for each device (initialized as cloned).
+
+    ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
+        op.getResult().getType().getEncoding());
+    ttnn::BufferTypeAttr bufferTypeAttr =
+        ttnn::BufferTypeAttr::get(op.getContext(), layoutAttr.getBufferType());
+    ttnn::MemoryConfigAttr memoryConfigAttr =
+        ttnn::MemoryConfigAttr::get(op.getContext(), layoutAttr.getMemLayout(),
+                                    bufferTypeAttr, std::nullopt);
+    ttcore::DataTypeAttr dTypeAttr =
+        ttcore::DataTypeAttr::get(op.getContext(), layoutAttr.getDataType());
+
     llvm::SmallVector<Value> reorgBuffers(splitCount);
+    for (int32_t i = 0; i < splitCount; i++) {
+      reorgBuffers[i] = rewriter.create<ttnn::AssignOp>(
+          loc, sliceOpResults[i].getType(), sliceOpResults[i], memoryConfigAttr,
+          dTypeAttr);
+    }
 
     auto meshShape = ttcore::lookupDevice(op).getMeshShape();
     // for each group of devices,
@@ -2066,6 +2141,10 @@ public:
             ttmlir::utils::linearIdToCoord(group[senderIdx], meshShape));
         for (size_t receiverIdx = 0; receiverIdx < group.size();
              receiverIdx++) {
+          if (senderIdx == receiverIdx) {
+            // No need to send to itself because the buffer is already cloned
+            continue;
+          }
           auto receiverCoord = rewriter.getDenseI64ArrayAttr(
               ttmlir::utils::linearIdToCoord(group[receiverIdx], meshShape));
           reorgBuffers[senderIdx] = rewriter.create<ttnn::PointToPointOp>(
@@ -2130,6 +2209,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseOpConversionPattern<ttir::IsFiniteOp, ttnn::IsFiniteOp>,
            ElementwiseOpConversionPattern<ttir::LogicalNotOp, ttnn::LogicalNotOp>,
            ElementwiseOpConversionPattern<ttir::BitwiseNotOp, ttnn::BitwiseNotOp>,
+           ElementwiseOpConversionPattern<ttir::MishOp, ttnn::MishOp>,
            ElementwiseOpConversionPattern<ttir::NegOp, ttnn::NegOp>,
            ElementwiseOpConversionPattern<ttir::ReluOp, ttnn::ReluOp>,
            ElementwiseOpConversionPattern<ttir::Relu6Op, ttnn::Relu6Op>,
@@ -2200,9 +2280,10 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ArangeOpConversionPattern,
            RandOpConversionPattern,
            UpdateCacheOpConversionPattern,
+           PagedFillCacheOpConversionPattern,
            PagedUpdateCacheOpConversionPattern,
            FillCacheOpConversionPattern,
-           ScatterInDimOpConversionPattern,
+           ScatterOpConversionPattern,
            PermuteOpConversionPattern,
            UpsampleOpConversionPattern,
            AllToAllOpConversionPattern,
@@ -2210,6 +2291,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ConcatenateHeadsOpConversionPattern,
            ScaledDotProductAttentionOpConversionPattern,
            ScaledDotProductAttentionDecodeOpConversionPattern,
+           PagedScaledDotProductAttentionDecodeOpConversionPattern,
            SplitQueryKeyValueAndSplitHeadsOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set

@@ -82,8 +82,7 @@ void generateAllCombinations(
 
 op_constraint_validation::ValidationResult
 testFallbackCombination(Operation *op, const OpConfig &originalConfig,
-                        const std::vector<TTNNLayoutAttr> &inputLayouts,
-                        float tensorL1UsageCap);
+                        const std::vector<TTNNLayoutAttr> &inputLayouts);
 
 void applyFallbackTransformations(
     Operation *operation, const std::vector<TTNNLayoutAttr> &originalLayouts,
@@ -106,7 +105,7 @@ ToLayoutOp createToLayoutOp(OpBuilder &builder, Location loc,
 // Try fallback configurations for a failed operation
 bool tryFallbacks(Operation *operation,
                   const std::vector<TTNNLayoutAttr> &originalInputLayouts,
-                  const OpConfig &config, float tensorL1UsageCap);
+                  const OpConfig &config);
 } // namespace fallbacks
 
 class TTNNOperationValidationAndFallback
@@ -172,8 +171,8 @@ public:
 
         // Test original configuration
         op_constraint_validation::ValidationResult originalResult =
-            op_constraint_validation::validateOperation(
-                operation, inputLayouts, config, tensorL1UsageCap);
+            op_constraint_validation::validateOperation(operation, inputLayouts,
+                                                        config);
         if (originalResult.isNotImplemented()) {
           TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
                        "Operation {} at {} not supported for validation: {}",
@@ -208,8 +207,7 @@ public:
           }
         } else {
           // Try fallback configurations
-          if (fallbacks::tryFallbacks(operation, inputLayouts, config,
-                                      tensorL1UsageCap)) {
+          if (fallbacks::tryFallbacks(operation, inputLayouts, config)) {
             operationsFixed++;
             TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
                          "Operation {} at {} fixed with fallback configuration",
@@ -265,7 +263,7 @@ namespace fallbacks {
 
 bool tryFallbacks(Operation *operation,
                   const std::vector<TTNNLayoutAttr> &originalInputLayouts,
-                  const OpConfig &config, float tensorL1UsageCap) {
+                  const OpConfig &config) {
 
   // Extract tensor shapes for all input operands
   std::vector<llvm::ArrayRef<int64_t>> tensorShapes;
@@ -316,8 +314,7 @@ bool tryFallbacks(Operation *operation,
 
   // Test combinations in order of increasing distance
   for (const auto &candidate : allCombinations) {
-    auto result = testFallbackCombination(operation, config, candidate.layouts,
-                                          tensorL1UsageCap);
+    auto result = testFallbackCombination(operation, config, candidate.layouts);
 
     if (!result.isSuccess()) {
       TTMLIR_TRACE(ttmlir::LogComponent::OpValidation,
@@ -511,8 +508,7 @@ void generateAllCombinations(
 // Test a specific combination of fallback layouts for an operation
 op_constraint_validation::ValidationResult
 testFallbackCombination(Operation *op, const OpConfig &originalConfig,
-                        const std::vector<TTNNLayoutAttr> &inputLayouts,
-                        float tensorL1UsageCap) {
+                        const std::vector<TTNNLayoutAttr> &inputLayouts) {
 
   // For all fallbacks, constrain output layout to be DRAM Interleaved.
   OpConfig testConfig = originalConfig;
@@ -524,8 +520,8 @@ testFallbackCombination(Operation *op, const OpConfig &originalConfig,
         TensorMemoryLayout::Interleaved);
   }
 
-  return op_constraint_validation::validateOperation(
-      op, inputLayouts, testConfig, tensorL1UsageCap);
+  return op_constraint_validation::validateOperation(op, inputLayouts,
+                                                     testConfig);
 }
 
 // Apply fallback transformations to the operation
