@@ -67,10 +67,17 @@ void populateTTNNModule(nb::module_ &m) {
       .def_static(
           "get",
           [](MlirContext ctx, MlirAttribute tensorMemoryLayoutAttr,
-             MlirAttribute bufferTypeAttr, MlirAttribute shardSpecAttr) {
+             MlirAttribute bufferTypeAttr,
+             std::optional<MlirAttribute> shardSpec = std::nullopt) {
+            MlirAttribute shardSpecAttr = {nullptr};
+            if (shardSpec.has_value()) {
+              shardSpecAttr = shardSpec.value();
+            }
             return ttmlirTTNNMemoryConfigAttrGet(ctx, tensorMemoryLayoutAttr,
                                                  bufferTypeAttr, shardSpecAttr);
-          })
+          },
+          nb::arg("ctx"), nb::arg("tensorMemoryLayoutAttr"),
+          nb::arg("bufferTypeAttr"), nb::arg("shardSpec") = nb::none())
       .def_prop_ro("buffer_type", &tt::ttnn::MemoryConfigAttr::getBufferType)
       .def_prop_ro("tensor_memory_layout",
                    &tt::ttnn::MemoryConfigAttr::getTensorMemoryLayout)
@@ -110,7 +117,8 @@ void populateTTNNModule(nb::module_ &m) {
           [](MlirContext ctx, MlirAffineMap linear, MlirAttribute grid,
              MlirType memref, std::optional<unsigned> memLayout = std::nullopt,
              std::optional<tt::ttcore::TensorMeshAttr> tensorMesh =
-                 std::nullopt) {
+                 std::nullopt,
+             std::optional<bool> exactGrid = std::nullopt) {
             tt::ttnn::TensorMemoryLayoutAttr memLayoutAttr;
             if (memLayout.has_value()) {
               memLayoutAttr = tt::ttnn::TensorMemoryLayoutAttr::get(
@@ -125,10 +133,12 @@ void populateTTNNModule(nb::module_ &m) {
                 unwrap(ctx), mlir::cast<AffineMap>(unwrap(linear)),
                 mlir::cast<tt::ttcore::GridAttr>(unwrap(grid)),
                 mlir::cast<MemRefType>(unwrap(memref)), memLayoutAttr,
-                tensorMeshAttr));
+                tensorMeshAttr, /*ignorePhysicalLayout=*/false,
+                exactGrid.value_or(false)));
           },
           nb::arg("ctx"), nb::arg("linear"), nb::arg("grid"), nb::arg("memref"),
-          nb::arg("memLayout") = nb::none(), nb::arg("tensorMesh") = nb::none())
+          nb::arg("memLayout") = nb::none(), nb::arg("tensorMesh") = nb::none(),
+          nb::arg("exactGrid") = nb::none())
       .def_static(
           "get",
           [](MlirContext ctx, std::vector<std::int64_t> shape, MlirType type,

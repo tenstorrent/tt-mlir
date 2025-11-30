@@ -2,12 +2,9 @@
 // RUN: ttmlir-opt --stablehlo-to-ttir-pipeline -o %t %s
 // RUN: FileCheck %s --input-file=%t
 func.func public @test_maxpool2d(%arg0: tensor<1x128x128x32xbf16>) -> tensor<1x32x32x32xbf16> {
-  // CHECK: %[[EMPTY1:[0-9]+]] = ttir.empty
-  // CHECK: %[[POOLING1:[0-9]+]] = "ttir.pooling"(%arg0, %[[EMPTY1]])
-  // CHECK: %[[EMPTY2:[0-9]+]] = ttir.empty
-  // CHECK: %[[POOLING2:[0-9]+]] = "ttir.pooling"(%[[POOLING1]], %[[EMPTY2]])
-  // CHECK: %[[EMPTY3:[0-9]+]] = ttir.empty
-  // CHECK: %[[POOLING3:[0-9]+]] = "ttir.pooling"(%[[POOLING2]], %[[EMPTY3]])
+  // CHECK: %[[POOLING1:[0-9]+]] = "ttir.pooling"(%arg0)
+  // CHECK: %[[POOLING2:[0-9]+]] = "ttir.pooling"(%[[POOLING1]])
+  // CHECK: %[[POOLING3:[0-9]+]] = "ttir.pooling"(%[[POOLING2]])
   // CHECK: return %[[POOLING3]]
   %0 = stablehlo.constant dense<0xFF80> : tensor<bf16>
   %2 = "stablehlo.reduce_window"(%arg0, %0) <{padding = dense<[[0, 0], [1, 1], [1, 1], [0, 0]]> : tensor<4x2xi64>, window_dimensions = array<i64: 1, 3, 3, 1>, window_strides = array<i64: 1, 2, 2, 1>}> ({

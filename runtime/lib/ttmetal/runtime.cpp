@@ -6,7 +6,7 @@
 #include <variant>
 
 #include "tracy/Tracy.hpp"
-#include "tt-metalium/fabric.hpp"
+#include "tt-metalium/experimental/fabric/fabric.hpp"
 #include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/dylib.h"
 #include "tt/runtime/detail/common/logger.h"
@@ -233,14 +233,6 @@ tt::target::Arch getArch() {
   return ::tt::runtime::common::toTargetArch(::tt::tt_metal::hal::get_arch());
 }
 
-void enablePersistentKernelCache() {
-  ::tt::tt_metal::detail::EnablePersistentKernelCache();
-}
-
-void disablePersistentKernelCache() {
-  ::tt::tt_metal::detail::DisablePersistentKernelCache();
-}
-
 size_t getNumAvailableDevices() { return tt_metal::GetNumAvailableDevices(); }
 
 Device openMeshDevice(const MeshDeviceOptions &options) {
@@ -379,6 +371,13 @@ bool isProgramCacheEnabled(Device meshDevice) {
       meshDevice.as<::tt::tt_metal::distributed::MeshDevice>(
           DeviceRuntime::TTMetal);
   return metalMeshDevice.get_program_cache().is_enabled();
+}
+
+void clearProgramCache(Device meshDevice) {
+  ::tt::tt_metal::distributed::MeshDevice &metalMeshDevice =
+      meshDevice.as<::tt::tt_metal::distributed::MeshDevice>(
+          DeviceRuntime::TTMetal);
+  return metalMeshDevice.clear_program_cache();
 }
 
 size_t getL1SmallSize(Device meshDevice) {

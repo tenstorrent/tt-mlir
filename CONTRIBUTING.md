@@ -1,4 +1,4 @@
-# Contributing guidelines for TT-Forge
+# Contributing guidelines for tt-mlir
 
 ## PR Guidelines
 

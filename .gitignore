@@ -52,5 +52,5 @@ test/lit.site.cfg.py
 # Wheel Artifacts
 **/dist/
 
-# Pykernel Artifacts
-generated/pykernels/*
+# Generated Artifacts
+generated/*

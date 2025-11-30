@@ -12,6 +12,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         GridSelection.cpp
         InsertDstRegisterAccess.cpp
         InsertStreams.cpp
+        LinalgToAffine.cpp
         LowerToLayout.cpp
         MaterializeViewReturns.cpp
         ElementwiseFusion.cpp

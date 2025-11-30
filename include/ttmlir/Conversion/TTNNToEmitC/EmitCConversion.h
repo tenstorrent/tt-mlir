@@ -38,6 +38,12 @@ struct SmallVector {
 };
 } // namespace ttsl
 
+namespace tt {
+namespace tt_fabric {
+enum class Topology;
+} // namespace tt_fabric
+} // namespace tt
+
 namespace ttnn {
 struct Shape;
 
@@ -296,6 +302,11 @@ struct TypeName<::ttnn::MemoryConfig> {
 template <>
 struct TypeName<::ttnn::BufferType> {
   inline static const std::string value = "::ttnn::BufferType";
+};
+
+template <>
+struct TypeName<::tt::tt_fabric::Topology> {
+  inline static const std::string value = "::tt::tt_fabric::Topology";
 };
 
 template <>
@@ -712,6 +723,44 @@ struct EmitCTypeConverter<::ttnn::BufferType> {
     }
 
     llvm_unreachable("Unknown ttnn::BufferType");
+  }
+};
+
+template <>
+struct EmitCTypeConverter<::mlir::tt::ttcore::Topology> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (auto topologyAttr =
+            mlir::dyn_cast_if_present<mlir::tt::ttcore::TopologyAttr>(attr)) {
+      return convert(topologyAttr);
+    }
+    return {};
+  }
+
+  static std::string convert(mlir::tt::ttcore::TopologyAttr attr) {
+    return convert(attr.getValue());
+  }
+
+  static std::string convert(mlir::tt::ttcore::Topology attr) {
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+
+    rso << TypeNameV<::tt::tt_fabric::Topology> << "::";
+    switch (attr) {
+    case mlir::tt::ttcore::Topology::Ring:
+      rso << "Ring";
+      return buf;
+    case mlir::tt::ttcore::Topology::Linear:
+      rso << "Linear";
+      return buf;
+    case mlir::tt::ttcore::Topology::Mesh:
+      rso << "Mesh";
+      return buf;
+    case mlir::tt::ttcore::Topology::Torus:
+      rso << "Torus";
+      return buf;
+    }
+
+    llvm_unreachable("Unknown mlir::tt::ttcore::Topology");
   }
 };
 
@@ -1584,6 +1633,16 @@ struct TTNNTarget<tt::ttnn::Conv2dSliceConfigAttr> {
   using type = ::ttnn::operations::conv::conv2d::Conv2dSliceConfig;
 };
 
+template <>
+struct TTNNTarget<tt::ttcore::Topology> {
+  using type = ::mlir::tt::ttcore::Topology;
+};
+
+template <>
+struct TTNNTarget<tt::ttcore::TopologyAttr> {
+  using type = ::mlir::tt::ttcore::Topology;
+};
+
 template <typename T>
 struct IsMLIRType {
   static constexpr bool value = std::is_convertible_v<T, mlir::Attribute> ||
@@ -1677,6 +1736,18 @@ public:
     rso << "})";
 
     return rewriter.getAttr<emitc::OpaqueAttr>(rso.str());
+  }
+
+  mlir::Attribute emitSubDeviceId(std::optional<uint32_t> subDeviceId) {
+    if (!subDeviceId) {
+      return emit(std::nullopt);
+    }
+
+    std::string code = "std::make_optional<::tt::tt_metal::SubDeviceId>(";
+    code += std::to_string(*subDeviceId);
+    code += ")";
+
+    return rewriter.getAttr<emitc::OpaqueAttr>(code);
   }
 
   template <typename TargetTy = void>

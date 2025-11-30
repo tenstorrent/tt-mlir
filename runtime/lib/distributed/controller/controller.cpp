@@ -10,6 +10,7 @@
 #include "tt/runtime/detail/distributed/flatbuffer/flatbuffer.h"
 #include "tt/runtime/detail/distributed/utils/utils.h"
 #include "tt/runtime/runtime.h"
+#include "tt/runtime/utils.h"
 namespace tt::runtime::distributed::controller {
 
 namespace fb = ::tt::runtime::distributed::flatbuffer;
@@ -226,6 +227,18 @@ void Controller::setReadTimeout(const std::chrono::seconds &timeout) {
 
 void Controller::setWorkerShutdownTimeout(const std::chrono::seconds &timeout) {
   workerShutdownTimeout_ = timeout;
+}
+
+void Controller::setMemoryLogLevel(const MemoryLogLevel &logLevel) {
+
+  auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+
+  uint64_t commandId =
+      CommandFactory::buildSetMemoryLogLevelCommand(*commandBuilder, logLevel);
+
+  pushToCommandAndResponseQueues(commandId,
+                                 fb::CommandType::SetMemoryLogLevelCommand,
+                                 std::move(commandBuilder));
 }
 
 SystemDesc Controller::getCurrentSystemDesc(
@@ -795,7 +808,8 @@ void Controller::configureRuntimeContext() {
   auto commandId = CommandFactory::buildConfigureRuntimeContextCommand(
       *commandBuilder, ::tt::runtime::RuntimeContext::instance().getMlirHome(),
       ::tt::runtime::RuntimeContext::instance().getMetalHome(),
-      ::tt::runtime::RuntimeContext::instance().getCurrentDeviceRuntime());
+      ::tt::runtime::RuntimeContext::instance().getCurrentDeviceRuntime(),
+      ::tt::runtime::RuntimeContext::instance().getMemoryLogLevel());
 
   auto awaitingPromise = std::make_unique<std::promise<void>>();
   std::future<void> awaitingFuture = awaitingPromise->get_future();
@@ -847,6 +861,18 @@ void Controller::handleConfigureRuntimeContextResponse(
   DEBUG_ASSERT(awaitingPromise, "Awaiting promise must be populated");
 
   awaitingPromise->set_value();
+}
+
+void Controller::handleSetMemoryLogLevelResponse(
+    const std::vector<SizedBuffer> &responseBuffers,
+    std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
+
+  debug::checkResponsesIdentical(responseBuffers);
+
+  debug::checkResponseTypes(responseBuffers,
+                            fb::ResponseType::SetMemoryLogLevelResponse);
+
+  debug::assertNoAwaitingState(*awaitingResponse, "SetMemoryLogLevel");
 }
 
 void Controller::handleGetSystemDescResponse(
@@ -1277,6 +1303,10 @@ void Controller::handleResponse(
   case fb::CommandType::ConfigureRuntimeContextCommand: {
     return handleConfigureRuntimeContextResponse(responseBuffers,
                                                  std::move(awaitingResponse));
+  }
+  case fb::CommandType::SetMemoryLogLevelCommand: {
+    return handleSetMemoryLogLevelResponse(responseBuffers,
+                                           std::move(awaitingResponse));
   }
   case fb::CommandType::GetSystemDescCommand: {
     return handleGetSystemDescResponse(responseBuffers,

@@ -6,6 +6,7 @@
 
 #include "operations/cache/load_cached.h"
 #include "operations/ccl/all_gather.h"
+#include "operations/ccl/all_reduce.h"
 #include "operations/ccl/collective_permute.h"
 #include "operations/ccl/mesh_shard.h"
 #include "operations/ccl/point_to_point.h"
@@ -44,6 +45,7 @@
 #include "operations/embedding/embedding_backward.h"
 #include "operations/generic/generic_op.h"
 #include "operations/kv_cache/fill_cache.h"
+#include "operations/kv_cache/paged_fill_cache.h"
 #include "operations/kv_cache/paged_update_cache.h"
 #include "operations/kv_cache/update_cache.h"
 #include "operations/layout/from_device.h"
@@ -74,6 +76,7 @@
 #include "operations/transformer/nlp_concat_heads.h"
 #include "operations/transformer/nlp_concat_heads_decode.h"
 #include "operations/transformer/nlp_create_qkv_heads_decode.h"
+#include "operations/transformer/paged_scaled_dot_product_attention_decode.h"
 #include "operations/transformer/rotary_embedding.h"
 #include "operations/transformer/rotary_embedding_llama.h"
 #include "operations/transformer/scaled_dot_product_attention.h"
@@ -162,6 +165,15 @@ std::vector<::tt::runtime::Tensor> ProgramExecutor::gatherOutputTensors() {
 }
 
 void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
+
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+  ::tt::runtime::utils::logMemoryStateIfNeeded(
+      ::tt::runtime::ttnn::utils::getMemoryView, getContext().getDeviceHandle(),
+      ::tt::runtime::MemoryLogLevel::Operation,
+      std::string("Device memory state before operation ") +
+          ::tt::target::ttnn::EnumNameOpType(op->type_type()));
+#endif
+
   switch (op->type_type()) {
   case ::tt::target::ttnn::OpType::GetDeviceOp: {
     return operations::context::run(op->type_as_GetDeviceOp(), getContext());
@@ -364,6 +376,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::AllGatherOp: {
     return operations::ccl::run(op->type_as_AllGatherOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::AllReduceOp: {
+    return operations::ccl::run(op->type_as_AllReduceOp(), getContext());
+  }
   case ::tt::target::ttnn::OpType::ReduceScatterOp: {
     return operations::ccl::run(op->type_as_ReduceScatterOp(), getContext());
   }
@@ -386,6 +401,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::FillCacheOp: {
     return operations::kv_cache::run(op->type_as_FillCacheOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::PagedFillCacheOp: {
+    return operations::kv_cache::run(op->type_as_PagedFillCacheOp(),
+                                     getContext());
   }
   case ::tt::target::ttnn::OpType::UpsampleOp: {
     return operations::pool::run(op->type_as_UpsampleOp(), getContext());
@@ -439,6 +458,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::ScaledDotProductAttentionDecodeOp: {
     return operations::transformer::run(
         op->type_as_ScaledDotProductAttentionDecodeOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::PagedScaledDotProductAttentionDecodeOp: {
+    return operations::transformer::run(
+        op->type_as_PagedScaledDotProductAttentionDecodeOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::ScaledDotProductAttentionOp: {
     return operations::transformer::run(

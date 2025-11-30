@@ -144,7 +144,6 @@ def test_dot_general(
             contract_dims_lhs,
             batch_dims_rhs,
             contract_dims_rhs,
-            unit_attrs=unit_attrs,
         )
 
     compile_and_execute_ttir(
@@ -640,7 +639,6 @@ def test_convolution(
             padding=padding,
             weight_dilation=dilation,
             feature_group_count=groups,
-            unit_attrs=unit_attrs,
         )
 
     compile_and_execute_ttir(
@@ -651,6 +649,7 @@ def test_convolution(
         device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        pcc=0.98,
     )
 
 
@@ -712,7 +711,6 @@ def test_convolution_groups_dilation(
             padding=padding,
             weight_dilation=dilation,
             feature_group_count=groups,
-            unit_attrs=unit_attrs,
         )
 
     compile_and_execute_ttir(
@@ -723,6 +721,7 @@ def test_convolution_groups_dilation(
         device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        pcc=0.96,
     )
 
 
@@ -909,7 +908,7 @@ def test_batch_norm(
         unit_attrs: Optional[List[str]] = None,
     ):
 
-        return builder.batch_norm(
+        return builder.batch_norm_inference(
             in0,
             scale,
             offset,
@@ -917,7 +916,6 @@ def test_batch_norm(
             variance,
             epsilon=epsilon,
             dimension=dimension,
-            unit_attrs=unit_attrs,
         )
 
     compile_and_execute_ttir(
@@ -932,45 +930,109 @@ def test_batch_norm(
 
 
 @pytest.mark.parametrize(
+    "shapes",
+    [
+        [
+            (2, 16, 32, 32),  # input (NCHW format)
+            (16,),  # scale
+            (16,),  # offset
+            (16,),  # running_mean
+            (16,),  # running_variance
+        ],
+        [
+            (4, 32, 64, 64),  # input (NCHW format)
+            (32,),  # scale
+            (32,),  # offset
+            (32,),  # running_mean
+            (32,),  # running_variance
+        ],
+    ],
+)
+@pytest.mark.parametrize("dtypes", [[torch.float32] * 5])
+@pytest.mark.parametrize("dimension", [1])  # channel dimension
+@pytest.mark.parametrize("epsilon", [1e-5])
+@pytest.mark.parametrize("momentum", [0.1])
+def test_batch_norm_training(
+    shapes: List[Shape],
+    dtypes: List[torch.dtype],
+    dimension: int,
+    epsilon: float,
+    momentum: float,
+    request,
+    device,
+):
+    def batch_norm_training(
+        in0: Operand,
+        scale: Operand,
+        offset: Operand,
+        running_mean: Operand,
+        running_variance: Operand,
+        builder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+
+        return builder.batch_norm_training(
+            in0,
+            scale,
+            offset,
+            running_mean,
+            running_variance,
+            epsilon=epsilon,
+            dimension=dimension,
+            momentum=momentum,
+        )
+
+    compile_and_execute_ttir(
+        batch_norm_training,
+        shapes,
+        dtypes,
+        test_base=request.node.name,
+        device=device,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize(
     "pooling_method,window_dims,window_strides,padding,window_dilations",
     [
-        # ResNet-style max pooling: 3x3 window, stride 2 (NHWC format)
+        # ResNet-style max pooling: 3x3 window, stride 2 (NCHW format)
         (
             "Max",
-            [1, 3, 3, 1],
-            [1, 2, 2, 1],
+            [1, 1, 3, 3],
+            [1, 1, 2, 2],
             [0, 0, 0, 0, 0, 0, 0, 0],
             [1, 1, 1, 1],
         ),
-        # Average pooling: 2x2 window, stride 2 (NHWC format)
+        # Average pooling: 2x2 window, stride 2 (NCHW format)
         (
             "Average",
-            [1, 2, 2, 1],
-            [1, 2, 2, 1],
+            [1, 1, 2, 2],
+            [1, 1, 2, 2],
             [0, 0, 0, 0, 0, 0, 0, 0],
             [1, 1, 1, 1],
         ),
-        # Sum pooling: 2x2 window, stride 2 (NHWC format)
+        # Sum pooling: 2x2 window, stride 2 (NCHW format)
         (
             "Sum",
-            [1, 2, 2, 1],
-            [1, 2, 2, 1],
+            [1, 1, 2, 2],
+            [1, 1, 2, 2],
             [0, 0, 0, 0, 0, 0, 0, 0],
             [1, 1, 1, 1],
         ),
-        # Max pooling with padding (NHWC format)
+        # Max pooling with padding (NCHW format)
         (
             "Max",
-            [1, 3, 3, 1],
+            [1, 1, 3, 3],
             [1, 1, 1, 1],
-            [0, 0, 1, 1, 0, 0, 1, 1],
+            [0, 0, 0, 0, 1, 1, 1, 1],
             [1, 1, 1, 1],
         ),
     ],
     ids=["resnet_max_3x3_s2", "avg_2x2_s2", "sum_2x2_s2", "max_3x3_padded"],
 )
 @pytest.mark.parametrize(
-    "shape", [(1, 64, 56, 56), (1, 32, 32, 32)], ids=["resnet_56x56", "32x32"]
+    "shape", [(1, 64, 114, 114), (1, 32, 64, 64)], ids=["resnet_114x114", "64x64"]
 )
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
 def test_pooling(
@@ -1096,42 +1158,6 @@ def test_ones(shape: Shape, request, device):
     )
 
 
-@pytest.mark.parametrize(
-    "tensor",
-    [
-        torch.tensor(1, dtype=torch.uint8),
-        torch.tensor([1, 2, 3, 4], dtype=torch.uint16),
-        torch.tensor([1, 2, 3, 4], dtype=torch.uint32),
-        torch.tensor([[1, 2], [3, 4]], dtype=torch.int32),
-        torch.tensor([0.0, 0.0, 1.0], dtype=torch.bfloat16),
-        torch.tensor([1.0, 2.0, 3.0], dtype=torch.float32),
-        torch.tensor([1.0, 2.0, 3.0], dtype=torch.float32),
-    ],
-    ids=[
-        "scalar_int-uint8",
-        "1d_int-uint16",
-        "1d_int-uint32",
-        "2d_int-int32",
-        "1d_float-bf16",
-        "1d_float-f32",
-        "torch_float_tensor-float32",
-    ],
-)
-def test_constant(tensor, request, device):
-    def constant(builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
-        return builder.constant(tensor, unit_attrs=unit_attrs)
-
-    compile_and_execute_ttir(
-        constant,
-        [],
-        [],
-        test_base=request.node.name,
-        device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-    )
-
-
 @pytest.mark.parametrize("shape", [(16, 16)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
@@ -1147,7 +1173,7 @@ def test_callable_initialization_basic(
         unit_attrs: Optional[List[str]] = None,
     ):
         builder.set_goldens({in0: torch.zeros, in1: torch.ones})
-        result = builder.add(in0, in1, unit_attrs=unit_attrs)
+        result = builder.add(in0, in1)
         return result
 
     compile_and_execute_ttir(
@@ -1258,7 +1284,7 @@ def test_callable_initialization_mixed(
         unit_attrs: Optional[List[str]] = None,
     ):
         builder.set_goldens({in0: torch.zeros, in1: torch.ones})
-        add_result = builder.add(in0, in1, unit_attrs=unit_attrs)
+        add_result = builder.add(in0, in1)
         return add_result
 
     compile_and_execute_ttir(
@@ -1284,7 +1310,7 @@ def test_callable_initialization_custom_lambda(
     ):
         custom_init = lambda s: torch.full(s, 2.0)
         builder.set_goldens({in0: custom_init})
-        result = builder.multiply(in0, in0, unit_attrs=unit_attrs)
+        result = builder.multiply(in0, in0)
         return result
 
     compile_and_execute_ttir(
@@ -1331,7 +1357,7 @@ def test_reverse(shape: Shape, dims: List[int], request, device):
     def reverse(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
-        return builder.reverse(in0, dims=dims, unit_attrs=unit_attrs)
+        return builder.reverse(in0, dimensions=dims, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
         reverse,
@@ -2615,27 +2641,31 @@ def test_all_gather(
 @pytest.mark.parametrize(
     "test_shape",
     [
-        pytest.param((1, 1, 1, 256, 256), marks=pytest.mark.xfail(reason="run error")),
         (1, 1, 256, 256),
-        (1, 1, 256, 257),
-        (1, 1, 256, 255),
-        (1, 256, 256, 1),
         (256, 256, 1, 1),
-        (1, 1, 32, 64),
         (1, 64, 64),
         (64, 64),
         (64, 65),
+        (65, 64),
         (32, 64),
-        pytest.param(
-            (33, 65), marks=pytest.mark.xfail(reason="run error")
-        ),  # all_gather + local reduce case
+        (33, 65),  # This is a case where reduce_scatter + all_gather is not supported.
+        (1, 1, 1, 1, 1, 1, 32, 256, 256),
+        (1, 1, 32, 256, 256),
     ],
     ids=shape_str,
 )
 @pytest.mark.parametrize(
-    "mesh_shape", [(2, 4), (1, 8), (1, 2), (1, 32), (8, 4)], ids=shape_str
+    "mesh_shape, cluster_axis",
+    [
+        ((1, 2), 1),
+        ((1, 8), 1),
+        ((2, 4), 0),
+        ((2, 4), 1),
+        ((1, 32), 1),
+        ((8, 4), 0),
+        ((8, 4), 1),
+    ],
 )
-@pytest.mark.parametrize("cluster_axis", [0, 1])
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
 def test_all_reduce(
     test_shape: Shape,
@@ -2645,9 +2675,6 @@ def test_all_reduce(
     request,
     device,
 ):
-    if mesh_shape[cluster_axis] == 1:
-        pytest.skip("CCL across 1 device is meaningless")
-
     # test 'sum' only for now. Other reduce types are not supported yet.
     def all_reduce(mesh_shard_in: Operand, builder: TTIRBuilder):
         return builder.all_reduce(

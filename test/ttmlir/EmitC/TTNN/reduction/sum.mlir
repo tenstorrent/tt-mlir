@@ -4,7 +4,6 @@
 // RUN: ttmlir-translate --mlir-to-cpp -o %basename_t.cpp %t2.mlir
 
 func.func @forward(%arg0: tensor<512x1024xbf16>) -> tensor<512x1xbf16> {
-  %0 = ttir.empty() : tensor<512x1xbf16>
-  %1 = "ttir.sum"(%arg0, %0) <{dim_arg = [1: i32], keep_dim = true}> : (tensor<512x1024xbf16>, tensor<512x1xbf16>) -> tensor<512x1xbf16>
-  return %1 : tensor<512x1xbf16>
+  %0 = "ttir.sum"(%arg0) <{dim_arg = [1: i32], keep_dim = true}> : (tensor<512x1024xbf16>) -> tensor<512x1xbf16>
+  return %0 : tensor<512x1xbf16>
 }

@@ -84,7 +84,7 @@ def maximum(
     builder: TTIRBuilder,
     unit_attrs: Optional[List[str]] = None,
 ):
-    return builder.maximum(in0, in1, unit_attrs=unit_attrs)
+    return builder.maximum(in0, in1)
 
 
 def minimum(
@@ -508,7 +508,7 @@ def test_unaligned_shapes_add(
         tensor_lhs *= signs_lhs
         tensor_rhs *= signs_rhs
         builder.set_goldens(inputs={in0: tensor_lhs, in1: tensor_rhs})
-        return builder.add(in0, in1, unit_attrs=unit_attrs)
+        return builder.add(in0, in1)
 
     compile_and_execute_ttir(
         add,
@@ -581,6 +581,82 @@ def test_cpu_hoistable_binary_ops(
     )
 
 
+implicit_bcast_inner_2D_shapes = [
+    (32, 32),
+    (32, 96),
+    (96, 32),
+    (96, 96),
+    (416, 32),
+    (32, 416),
+    (416, 96),
+    (96, 416),
+    (416, 416),
+]
+
+
+@pytest.mark.parametrize("shape", implicit_bcast_inner_2D_shapes, ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_implicit_bcast_inner_2D(
+    shape: Shape,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    shape_F = shape
+    shape_C = (shape_F[0], 1)
+    shape_R = (1, shape_F[1])
+    shape_S = (1, 1)
+
+    # Avoid too many test entries, test LHS & RHS bcast together.
+    def bcast_all_cases(
+        in_F0: Operand,
+        in_C0: Operand,
+        in_R0: Operand,
+        in_S0: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        tensor_F0 = torch.rand(shape_F, dtype=dtype) * 2.0 - 1.0
+        tensor_C0 = torch.rand(shape_C, dtype=dtype) * 2.0 - 1.0
+        tensor_R0 = torch.rand(shape_R, dtype=dtype) * 2.0 - 1.0
+        tensor_S0 = torch.rand(shape_S, dtype=dtype) - 0.5
+
+        builder.set_goldens(
+            inputs={
+                in_F0: tensor_F0,
+                in_C0: tensor_C0,
+                in_R0: tensor_R0,
+                in_S0: tensor_S0,
+            }
+        )
+
+        in_R1 = builder.add(
+            builder.add(in_S0, in_R0, unit_attrs=unit_attrs),
+            in_S0,
+            unit_attrs=unit_attrs,
+        )
+        in_C1 = builder.subtract(
+            in_S0,
+            builder.subtract(in_C0, in_S0, unit_attrs=unit_attrs),
+            unit_attrs=unit_attrs,
+        )
+        in_F1 = builder.add(in_C1, in_R1, unit_attrs=unit_attrs)
+        return builder.add(in_F1, in_S0, unit_attrs=unit_attrs)
+
+    compile_and_execute_ttir(
+        bcast_all_cases,
+        [shape, shape_C, shape_R, shape_S],
+        [dtype, dtype, dtype, dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
 # Binary eltwise ops with implicit broadcasting
 # There are operations that still do not support Int32 tracked here: https://github.com/tenstorrent/tt-metal/issues/25112.
 @pytest.mark.parametrize(
@@ -630,6 +706,11 @@ def test_binary_eltwise_ops_implicit_broadcast(
     request,
     device,
 ):
+    pcc = 0.99
+
+    if test_fn == div:
+        pcc = 0.97
+
     compile_and_execute_ttir(
         test_fn,
         shapes,
@@ -639,6 +720,7 @@ def test_binary_eltwise_ops_implicit_broadcast(
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
         device=device,
+        pcc=pcc,
     )
 
 

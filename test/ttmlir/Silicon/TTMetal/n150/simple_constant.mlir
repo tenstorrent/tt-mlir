@@ -12,8 +12,7 @@ module {
     // CHECK-NOT: #ttcore.host_layout
     // CHECK: "ttmetal.enqueue_read_buffer"
     %0 = "ttir.constant"() <{value = dense<5.0> : tensor<32x32xf32>}> : () -> tensor<32x32xf32>
-    %1 = ttir.empty() : tensor<32x32xf32>
-    %2 = "ttir.add"(%arg0, %0, %1) : (tensor<32x32xf32>, tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+    %2 = "ttir.add"(%arg0, %0) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
     return %2 : tensor<32x32xf32>
   }
 
@@ -35,8 +34,7 @@ module {
     // CHECK: "ttmetal.enqueue_read_buffer"
     // CHECK: memref.copy
     %0 = "ttir.constant"() <{value = dense<5.0> : tensor<9x43x7xf32>}> : () -> tensor<9x43x7xf32>
-    %1 = ttir.empty() : tensor<9x43x7xf32>
-    %2 = "ttir.add"(%arg0, %0, %1) : (tensor<9x43x7xf32>, tensor<9x43x7xf32>, tensor<9x43x7xf32>) -> tensor<9x43x7xf32>
+    %2 = "ttir.add"(%arg0, %0) : (tensor<9x43x7xf32>, tensor<9x43x7xf32>) -> tensor<9x43x7xf32>
     return %2 : tensor<9x43x7xf32>
   }
 }

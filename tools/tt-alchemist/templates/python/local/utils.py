@@ -3,16 +3,14 @@
 # SPDX-License-Identifier: Apache-2.0
 import ttnn
 import ttnn_supplemental
+import math
 
 
 # Monkey-patch ttnn with ttnn_supplemental objects
 ttnn.MeshShardDirection = ttnn_supplemental.MeshShardDirection
 ttnn.MeshShardType = ttnn_supplemental.MeshShardType
 ttnn.mesh_shard = ttnn_supplemental.mesh_shard
-ttnn.all_gather = ttnn_supplemental.all_gather
-ttnn.reduce_scatter = ttnn_supplemental.reduce_scatter
 ttnn.collective_permute = ttnn_supplemental.collective_permute
-ttnn.point_to_point = ttnn_supplemental.point_to_point
 
 
 class DeviceGetter:
@@ -22,6 +20,11 @@ class DeviceGetter:
 
     def __init__(self):
         raise RuntimeError("This is Singleton, invoke get_device() instead.")
+
+    def __del__(self):
+        if self._instance is not None:
+            ttnn.close_mesh_device(self._instance)
+            ttnn.set_fabric_config(ttnn.FabricConfig.DISABLED)
 
     @classmethod
     def get_device(cls, mesh_shape):
@@ -35,6 +38,9 @@ class DeviceGetter:
                     f"mesh_shape must be a non-empty list or tuple of positive integers, got {mesh_shape}"
                 )
             cls._mesh_shape = mesh_shape
+
+            if math.prod(mesh_shape) >= 2:
+                ttnn.set_fabric_config(ttnn.FabricConfig.FABRIC_1D)
             cls._instance = ttnn.open_mesh_device(
                 mesh_shape=ttnn.MeshShape(mesh_shape),
                 l1_small_size=cls.l1_small_size,

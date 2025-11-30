@@ -8,7 +8,6 @@
 #include "ttmlir/Dialect/D2M/Analysis/CBProducerConsumer.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
-#include "ttmlir/Dialect/D2M/IR/D2MTraits.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Utils.h"
@@ -348,6 +347,7 @@ struct OpMap {};
 // clang-format off
 using ComputeOpMap = OpMap<
   // FPU.
+  std::pair<d2m::TileBcastOp,       std::pair<ttkernel::UnaryBcastInitOp,          ttkernel::UnaryBcastTileOp>>,
   std::pair<d2m::TileMatmulOp,      std::pair<ttkernel::MatmulInitOp,              ttkernel::MatmulTilesOp>>,
   std::pair<d2m::TileMatmulBlockOp, std::pair<ttkernel::MatmulBlockInitOp,         ttkernel::ExperimentalMatmulBlockOp>>,
 
@@ -378,7 +378,7 @@ using ComputeOpMap = OpMap<
   std::pair<d2m::TileLezOp,         std::pair<ttkernel::LezTileInitOp,             ttkernel::LezTileOp>>,
   std::pair<d2m::TileTypecastOp,    std::pair<ttkernel::TypecastTileInitOp,        ttkernel::TypecastTileOp>>,
 
-  // Elementwise SFPU Binary.
+  // Elementwise SFPU Binary (can also handle scalar operands).
   std::pair<d2m::TileAddOp,         std::pair<ttkernel::AddBinaryTilesInitOp,      ttkernel::AddBinaryTilesOp>>,
   std::pair<d2m::TileDivOp,         std::pair<ttkernel::DivBinaryTilesInitOp,      ttkernel::DivBinaryTilesOp>>,
   std::pair<d2m::TileMaximumOp,     std::pair<ttkernel::MaxTilesInitOp,            ttkernel::MaxTilesOp>>,
@@ -560,6 +560,28 @@ public:
       rewriter.create<ttkernel::ReduceTileOp>(
           op->getLoc(), cbA, cbB, adaptor.getA(), adaptor.getB(),
           adaptor.getC(), reduce_type, kernel_reduce_dim);
+    } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileBcastOp>) {
+      ttkernel::BcastType bcastType = ttkernel::BcastType::None;
+      switch (op.getBcastType()) {
+      case d2m::TileBcastType::Col:
+        bcastType = ttkernel::BcastType::Col;
+        break;
+      case d2m::TileBcastType::Row:
+        bcastType = ttkernel::BcastType::Row;
+        break;
+      case d2m::TileBcastType::Scalar:
+        bcastType = ttkernel::BcastType::Scalar;
+        break;
+      case d2m::TileBcastType::None:
+        bcastType = ttkernel::BcastType::None;
+        break;
+      }
+      auto cb = getCB(rewriter, op.getInput());
+      auto dstIdx = getDstIdxFromResult(op.getResult());
+      rewriter.create<ttkernel::UnaryBcastInitOp>(op->getLoc(), cb, cb,
+                                                  bcastType);
+      rewriter.create<ttkernel::UnaryBcastTileOp>(
+          op->getLoc(), cb, adaptor.getInput(), dstIdx, bcastType);
     } else if constexpr (arity == 2) {
       auto dstIdx = getDstIdxFromResult(op.getResult());
       rewriter.create<InitOp>(op->getLoc(), getCB(rewriter, op.getLhs()),
@@ -608,7 +630,25 @@ public:
     rewriter.create<ttkernel::InitSFPUOp>(op->getLoc(), inCB, outCB);
     rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
 
-    rewriter.create<InitOp>(op->getLoc());
+    // For binary ops (arity == 2), check if rhs is a scalar to create the right
+    // init op
+    if constexpr (arity == 2 && !std::is_same_v<SFPUOp, ttkernel::MaxTilesOp>) {
+      auto rhsType = adaptor.getRhs().getType();
+      bool isScalarRhs = rhsType.isIntOrFloat();
+
+      if (isScalarRhs) {
+        // Use scalar-specific init ops
+        if constexpr (std::is_same_v<ConcreteOp, d2m::TilePowOp>) {
+          rewriter.create<ttkernel::PowerTileInitOp>(op->getLoc());
+        } else {
+          rewriter.create<ttkernel::BinopWithScalarTileInitOp>(op->getLoc());
+        }
+      } else {
+        rewriter.create<InitOp>(op->getLoc());
+      }
+    } else {
+      rewriter.create<InitOp>(op->getLoc());
+    }
     if constexpr (std::is_same_v<SFPUOp, ttkernel::CeilTileOp> ||
                   std::is_same_v<SFPUOp, ttkernel::FloorTileOp>) {
       const auto elemType =
@@ -701,13 +741,49 @@ public:
     } else if constexpr (std::is_same_v<SFPUOp, ttkernel::MaxTilesOp>) {
       rewriter.create<SFPUOp>(op->getLoc(), adaptor.getLhs(), adaptor.getRhs());
     } else {
-      OpBuilder::InsertionGuard guard(rewriter);
-      const auto dstIdx = getDstIdxFromResult(op.getResult());
-      setInsertionPointAfterOperands(
-          rewriter, {adaptor.getLhs(), adaptor.getRhs(), dstIdx},
-          /*allowHoisting*/ false);
-      rewriter.create<SFPUOp>(op->getLoc(), adaptor.getLhs(), adaptor.getRhs(),
-                              dstIdx);
+      // Check if rhs is a scalar (float or integer) at runtime
+      auto rhsType = adaptor.getRhs().getType();
+      bool isScalarRhs = rhsType.isIntOrFloat();
+
+      if (isScalarRhs) {
+        // Handle scalar operand - need to use unary scalar ops
+        const auto dstIdx = adaptor.getLhs();
+        auto loc = op->getLoc();
+
+        // Create the appropriate unary scalar op based on the D2M op type
+        if constexpr (std::is_same_v<ConcreteOp, d2m::TileAddOp>) {
+          // Bitcast the scalar value to i32 to pass as parameter
+          auto scalarParam = rewriter.create<arith::BitcastOp>(
+              loc, rewriter.getI32Type(), adaptor.getRhs());
+          rewriter.create<ttkernel::AddUnaryTileOp>(loc, dstIdx, scalarParam);
+        } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileSubOp>) {
+          auto scalarParam = rewriter.create<arith::BitcastOp>(
+              loc, rewriter.getI32Type(), adaptor.getRhs());
+          rewriter.create<ttkernel::SubUnaryTileOp>(loc, dstIdx, scalarParam);
+        } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileMulOp>) {
+          auto scalarParam = rewriter.create<arith::BitcastOp>(
+              loc, rewriter.getI32Type(), adaptor.getRhs());
+          rewriter.create<ttkernel::MulUnaryTileOp>(loc, dstIdx, scalarParam);
+        } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileDivOp>) {
+          auto scalarParam = rewriter.create<arith::BitcastOp>(
+              loc, rewriter.getI32Type(), adaptor.getRhs());
+          rewriter.create<ttkernel::DivUnaryTileOp>(loc, dstIdx, scalarParam);
+        } else if constexpr (std::is_same_v<ConcreteOp, d2m::TilePowOp>) {
+          // For power, convert float value to integer (not bitcast)
+          auto scalarParam = rewriter.create<arith::FPToSIOp>(
+              loc, rewriter.getI32Type(), adaptor.getRhs());
+          rewriter.create<ttkernel::PowUnaryTileOp>(loc, dstIdx, scalarParam);
+        }
+      } else {
+        // Binary tile operation
+        OpBuilder::InsertionGuard guard(rewriter);
+        const auto dstIdx = getDstIdxFromResult(op.getResult());
+        setInsertionPointAfterOperands(
+            rewriter, {adaptor.getLhs(), adaptor.getRhs(), dstIdx},
+            /*allowHoisting*/ false);
+        rewriter.create<SFPUOp>(op->getLoc(), adaptor.getLhs(),
+                                adaptor.getRhs(), dstIdx);
+      }
     }
 
     rewriter.eraseOp(op);
@@ -836,6 +912,30 @@ public:
   static_assert(std::is_same_v<D2MCBOp, d2m::WaitOp> ||
                 std::is_same_v<D2MCBOp, d2m::ReserveOp>);
 
+  // Check if there's an explicit push/pop for this CB in the same block
+  static bool hasExplicitRelease(D2MCBOp op) {
+    Block *block = op->getBlock();
+    Value cb = op.getCb();
+
+    // Check for explicit d2m.push (for reserve) or d2m.pop (for wait)
+    for (Operation &blockOp : *block) {
+      if constexpr (std::is_same_v<D2MCBOp, d2m::ReserveOp>) {
+        if (auto pushOp = dyn_cast<d2m::PushOp>(&blockOp)) {
+          if (pushOp.getCb() == cb) {
+            return true;
+          }
+        }
+      } else if constexpr (std::is_same_v<D2MCBOp, d2m::WaitOp>) {
+        if (auto popOp = dyn_cast<d2m::PopOp>(&blockOp)) {
+          if (popOp.getCb() == cb) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
   LogicalResult
   matchAndRewrite(D2MCBOp op, typename D2MCBOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
@@ -861,19 +961,48 @@ public:
 
     rewriter.create<TTKernelAcquireOp>(op.getLoc(), adaptor.getCb(), numPages);
 
-    Block *block = op->getBlock();
-    auto release = rewriter.create<TTKernelReleaseOp>(
-        op.getLoc(), adaptor.getCb(), numPages);
-    if (block->mightHaveTerminator()) {
-      rewriter.moveOpBefore(release, block->getTerminator());
-    } else {
-      rewriter.moveOpAfter(release, &block->back());
+    // Only insert automatic release if there's no explicit push/pop
+    if (!hasExplicitRelease(op)) {
+      Block *block = op->getBlock();
+      auto release = rewriter.create<TTKernelReleaseOp>(
+          op.getLoc(), adaptor.getCb(), numPages);
+      if (block->mightHaveTerminator()) {
+        rewriter.moveOpBefore(release, block->getTerminator());
+      } else {
+        rewriter.moveOpAfter(release, &block->back());
+      }
     }
 
     rewriter.replaceOp(op, adaptor.getCb());
 
     return success();
   };
+};
+} // namespace
+
+namespace {
+// Template rewriter for d2m.push/pop → ttkernel.cb_push_back/cb_pop_front
+template <typename D2MReleaseOp, typename TTKernelReleaseOp>
+class D2MCBReleaseOpRewriter : public OpConversionPattern<D2MReleaseOp> {
+public:
+  using OpConversionPattern<D2MReleaseOp>::OpConversionPattern;
+
+  static_assert(std::is_same_v<D2MReleaseOp, d2m::PushOp> ||
+                std::is_same_v<D2MReleaseOp, d2m::PopOp>);
+
+  LogicalResult
+  matchAndRewrite(D2MReleaseOp op, typename D2MReleaseOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto device = ttcore::lookupDevice(op);
+
+    auto cbNumPages = device.getMemrefCBNumPages(
+        op.getCb().getType().template getUnderlyingAs<MemRefType>());
+    auto numPages = i32(rewriter, op->getLoc(), cbNumPages);
+
+    rewriter.replaceOpWithNewOp<TTKernelReleaseOp>(op, adaptor.getCb(),
+                                                   numPages);
+    return success();
+  }
 };
 } // namespace
 
@@ -1451,6 +1580,7 @@ void populateD2MToTTKernelPatterns(
                ttkernel::MemRefSubviewRewriter,
 
                // FPU.
+               ttkernel::D2MFPUOpsRewriter<d2m::TileBcastOp>,
                ttkernel::D2MFPUOpsRewriter<d2m::TileMatmulOp>,
                ttkernel::D2MFPUOpsRewriter<d2m::TileMatmulBlockOp>,
 
@@ -1485,7 +1615,7 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MSFPUOpsRewriter<d2m::TileLezOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileTypecastOp>,
 
-               // Elementwise SFPU Binary.
+               // Elementwise SFPU Binary (also handles scalar operands).
                ttkernel::D2MSFPUOpsRewriter<d2m::TileAddOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileDivOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileMaximumOp>,
@@ -1502,6 +1632,8 @@ void populateD2MToTTKernelPatterns(
                ttkernel::MemrefStoreRewriter,
                ttkernel::D2MCBOpRewriter<d2m::WaitOp, ttkernel::CBWaitFrontOp, ttkernel::CBPopFrontOp>,
                ttkernel::D2MCBOpRewriter<d2m::ReserveOp, ttkernel::CBReserveBackOp, ttkernel::CBPushBackOp>,
+               ttkernel::D2MCBReleaseOpRewriter<d2m::PushOp, ttkernel::CBPushBackOp>,
+               ttkernel::D2MCBReleaseOpRewriter<d2m::PopOp, ttkernel::CBPopFrontOp>,
                ttkernel::D2MDMAWaitRewriter,
                ttkernel::D2MCoreIndexRewriter,
                ttkernel::D2MNullTxRewriter,

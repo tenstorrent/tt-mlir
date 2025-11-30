@@ -13,7 +13,6 @@
 #include "tt-metalium/host_api.hpp"
 #include "tt-metalium/memory_reporter.hpp"
 #include "tt-metalium/mesh_device.hpp"
-#include "tt-metalium/persistent_kernel_cache.hpp"
 #include "tt-metalium/program_cache.hpp"
 #include "tt-metalium/tt_metal.hpp"
 
@@ -83,9 +82,6 @@ void setTensorRetain(Tensor tensor, bool retain);
 
 tt::target::Arch getArch();
 
-void enablePersistentKernelCache();
-void disablePersistentKernelCache();
-
 size_t getNumAvailableDevices();
 
 Device openMeshDevice(const MeshDeviceOptions &options = {});
@@ -106,6 +102,7 @@ std::vector<uint32_t> getMeshShape(Device meshDevice);
 std::vector<int> getDeviceIds(Device meshDevice);
 size_t getNumHwCqs(Device meshDevice);
 bool isProgramCacheEnabled(Device meshDevice);
+void clearProgramCache(Device meshDevice);
 size_t getL1SmallSize(Device meshDevice);
 size_t getTraceRegionSize(Device meshDevice);
 size_t getNumDramChannels(Device meshDevice);
