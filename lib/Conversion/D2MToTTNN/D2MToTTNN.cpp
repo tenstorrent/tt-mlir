@@ -6,6 +6,7 @@
 
 #include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
+#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
@@ -15,11 +16,13 @@
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
@@ -46,6 +49,50 @@ public:
           arg.getOperandIndex());
     }
     }
+  }
+
+  static SmallVector<ttnn::KernelSemaphoreAttr>
+  extractSemaphoreDescriptors(Builder &builder, const ArrayAttr &threads,
+                              const ttnn::CoreRangeSetAttr &coreRangeSet,
+                              const SymbolTable &symbolTable) {
+    llvm::DenseSet<size_t> seenSemaphoreIndices;
+
+    for (Attribute threadAttr : threads) {
+      auto thread = mlir::cast<d2m::ThreadAttr>(threadAttr);
+      auto kernelFunc = symbolTable.lookup<func::FuncOp>(
+          thread.getKernelSymbol().getRootReference());
+      if (!kernelFunc) {
+        continue;
+      }
+
+      auto kernelSpec = kernelFunc->getAttrOfType<ttkernel::ArgSpecAttr>(
+          ttkernel::ArgSpecAttr::name);
+      if (!kernelSpec) {
+        continue;
+      }
+
+      for (auto ctArg : kernelSpec.getCtArgs()) {
+        if (ctArg.getArgType() == ttkernel::ArgType::Semaphore) {
+          seenSemaphoreIndices.insert(ctArg.getOperandIndex());
+        }
+      }
+    }
+    size_t numSemaphores = seenSemaphoreIndices.size();
+    if (numSemaphores > 0) {
+      // Semaphore indices are assigned sequentially in D2MToTTKernel, so they
+      // should be dense.
+      for (size_t i = 0; i < numSemaphores; ++i) {
+        TT_assertv(seenSemaphoreIndices.contains(i),
+                   "Semaphore indices must be dense (0, 1, 2, ..., n-1)");
+      }
+    }
+    SmallVector<ttnn::KernelSemaphoreAttr> semaphoreDescriptors(numSemaphores);
+    for (size_t i = 0; i < numSemaphores; ++i) {
+      semaphoreDescriptors[i] = builder.getAttr<ttnn::KernelSemaphoreAttr>(
+          ttnn::KernelCoreType::Worker, coreRangeSet, /*initial_value=*/0);
+    }
+
+    return semaphoreDescriptors;
   }
 
   static SmallVector<mlir::Attribute>
@@ -216,7 +263,10 @@ public:
         convertThreadsToKernelConfigs(rewriter, op.getThreads(), coreRangeSet,
                                       opSymTable);
 
-    llvm::SmallVector<ttnn::KernelSemaphoreAttr> semaphoreDescriptors;
+    // Extract semaphore descriptors from kernel functions.
+    llvm::SmallVector<ttnn::KernelSemaphoreAttr> semaphoreDescriptors =
+        extractSemaphoreDescriptors(rewriter, op.getThreads(), coreRangeSet,
+                                    opSymTable);
 
     ttnn::ProgramAttr program = ttnn::ProgramAttr::get(
         ctx, kernelDescriptors, cbDescriptors, semaphoreDescriptors);
