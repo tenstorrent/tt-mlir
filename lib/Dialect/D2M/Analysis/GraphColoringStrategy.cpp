@@ -199,12 +199,28 @@ mlir::tt::d2m::InterferenceGraphResult buildIndexGraphFromDstOperations(
   llvm::MapVector<mlir::Operation *, size_t> intermediateComputeOpIdx;
 
   // Helper to link compute operations to their DST accesses.
+  // Also propagate load indices through in-place intermediate ops to reach
+  // the final consumer.
   auto processLoad = [&](affine::AffineLoadOp loadOp, size_t loadIdx) {
-    for (auto &use : loadOp.getResult().getUses()) {
-      mlir::Operation *user = use.getOwner();
-      if (auto computeOp =
-              mlir::dyn_cast<OperandLoadStoreRegisterOpInterface>(user)) {
-        computeOpInputLoads[computeOp.getOperation()].push_back(loadIdx);
+    // Use a worklist to propagate through chains of in-place ops.
+    llvm::SmallVector<mlir::Value> worklist;
+    worklist.push_back(loadOp.getResult());
+
+    while (!worklist.empty()) {
+      mlir::Value currentVal = worklist.pop_back_val();
+      for (auto &use : currentVal.getUses()) {
+        mlir::Operation *user = use.getOwner();
+        if (auto computeOp =
+                mlir::dyn_cast<OperandLoadStoreRegisterOpInterface>(user)) {
+          // Register this load as an input to this compute op.
+          computeOpInputLoads[computeOp.getOperation()].push_back(loadIdx);
+
+          // If this compute op is in-place and produces a result that feeds
+          // another compute op, propagate the load index through.
+          if (computeOp.getDstRegInPlace() && computeOp->getNumResults() > 0) {
+            worklist.push_back(computeOp->getResult(0));
+          }
+        }
       }
     }
   };
@@ -223,6 +239,16 @@ mlir::tt::d2m::InterferenceGraphResult buildIndexGraphFromDstOperations(
   auto processIntermediateComputeOp = [&](mlir::Operation *computeOp,
                                           size_t idx) {
     intermediateComputeOpIdx[computeOp] = idx;
+
+    // Register this intermediate as an input to its consumers.
+    // This ensures sibling edge logic adds interference between intermediate
+    // ops that feed the same consumer.
+    for (mlir::Operation *user : computeOp->getUsers()) {
+      if (mlir::isa<OperandLoadStoreRegisterOpInterface>(user)) {
+        computeOpInputLoads[user].push_back(idx);
+      }
+    }
+
     // Also track the input loads for this intermediate compute op.
     for (mlir::Value operand : computeOp->getOperands()) {
       if (auto *defOp = operand.getDefiningOp()) {

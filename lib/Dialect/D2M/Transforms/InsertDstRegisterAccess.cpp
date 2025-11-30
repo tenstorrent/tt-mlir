@@ -26,6 +26,8 @@
 
 #include <optional>
 
+#define DEBUG_TYPE "d2m-insert-dst-register-access"
+
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MINSERTDSTREGISTERACCESS
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
@@ -489,22 +491,25 @@ public:
           assert(computeOp->getNumResults() == 1);
           assert(!dstIntermediates.contains(computeOp));
 
-          // Exception: the CB load of the load-bcast pair won't be captured by
-          // the CB->DST load handling loop above. For TileBcastOp, trace
-          // through to find the underlying AffineLoadOp which is what the
-          // analysis uses as the key for DST slot allocation.
+          // For TileBcastOp or in-place compute ops, trace through to find the
+          // underlying AffineLoadOp which is what the analysis uses as the key
+          // for DST slot allocation.
           d2m::TileBcastOp bcastOp = nullptr;
           affine::AffineLoadOp loadOp = nullptr;
           if (mlir::isa<d2m::TileBcastOp>(computeOp)) {
             bcastOp = mlir::cast<d2m::TileBcastOp>(computeOp);
             loadOp = utils::traceToAffineLoad(computeOp->getOperand(0));
             TT_assert(loadOp != nullptr);
+          } else if (computeOp.getDstRegInPlace()) {
+            // For in-place ops, trace to the input load to get the correct
+            // slot.
+            loadOp = utils::traceToAffineLoad(computeOp->getOperand(0));
           }
 
           // If op stores to dst in place or has scalar rhs, we don't need to
           // allocate a new dst register, just use the current dst index.
-          // For TileBcastOp, use the underlying loadOp as the key since that's
-          // what the analysis stores.
+          // For TileBcastOp or in-place ops, use the underlying loadOp as the
+          // key since that's what the analysis stores.
           strategy.setCurrentOperation(loadOp ? loadOp.getOperation()
                                               : computeOp);
           int dstSlice =
@@ -1073,11 +1078,6 @@ public:
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
 
-    // Debug: print allocation strategy
-    llvm::errs()
-        << "[DEBUG] D2MInsertDstRegisterAccess pass running with strategy: "
-        << allocationStrategy << "\n";
-
     // Validate allocation strategy option
     if (allocationStrategy != "basic" && allocationStrategy != "greedy" &&
         allocationStrategy != "chaitin-briggs") {
@@ -1086,6 +1086,9 @@ public:
           << "'. Valid options are: 'basic', 'greedy', 'chaitin-briggs'.";
       return signalPassFailure();
     }
+
+    LLVM_DEBUG(llvm::errs()
+               << "DST allocation strategy: " << allocationStrategy << "\n");
 
     // Pre-compute graph coloring analysis if needed
     DstAnalysisResult analysisResult;

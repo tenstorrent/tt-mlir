@@ -59,8 +59,9 @@ public:
             }
           }
 
-          // For compute ops whose results feed other compute ops (non in-place),
-          // record the producer itself so downstream strategies can look it up.
+          // For compute ops whose results feed other compute ops (non
+          // in-place), record the producer itself so downstream strategies can
+          // look it up.
           if (!computeOp.getDstRegInPlace()) {
             for (Operation *user : computeOp->getUsers()) {
               if (llvm::isa<OperandLoadStoreRegisterOpInterface>(user)) {
