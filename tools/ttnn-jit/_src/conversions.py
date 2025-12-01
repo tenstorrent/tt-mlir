@@ -14,6 +14,9 @@ This includes:
 - Buffer type conversions (string -> TTNN enum)
 - Memory layout conversions (string -> TTNN enum)
 """
+from ttmlir.ir import BF16Type, F32Type, IntegerType
+from ttmlir.dialects import ttcore
+from ttmlir.dialects import ttnn
 
 
 def mlir_dtype_from_ttnn_dtype(dtype, ctx):
@@ -27,7 +30,6 @@ def mlir_dtype_from_ttnn_dtype(dtype, ctx):
     Returns:
         MLIR dtype object
     """
-    from ttmlir.ir import BF16Type, F32Type, IntegerType
 
     match int(dtype):
         case 0:
@@ -36,6 +38,8 @@ def mlir_dtype_from_ttnn_dtype(dtype, ctx):
             return F32Type.get(ctx)
         case 2:
             return IntegerType.get_unsigned(32, ctx)
+        case 3:
+            return ttcore.ir.TileType.get(ctx, 32, 32, ttcore.DataType.BFP_BFloat8)
         case 5:
             return IntegerType.get_unsigned(8, ctx)
         case 6:
@@ -56,7 +60,6 @@ def ttcore_dtype_from_ttnn_dtype(dtype):
     Returns:
         TTCore DataType enum
     """
-    from ttmlir.dialects import ttcore
 
     match str(dtype):
         case "DataType.BFLOAT16":
@@ -65,6 +68,8 @@ def ttcore_dtype_from_ttnn_dtype(dtype):
             return ttcore.DataType.Float32
         case "DataType.INT32":
             return ttcore.DataType.Int32
+        case "DataType.BFP_BFloat8":
+            return ttcore.DataType.BFP_BFloat8
         case _:
             raise ValueError(f"Unsupported TTNN dtype string: {dtype}")
 
@@ -79,13 +84,14 @@ def ttcore_dtype_from_mlir_dtype(dtype):
     Returns:
         TTCore DataType enum
     """
-    from ttmlir.dialects import ttcore
-
-    match str(dtype):
+    dtype_str = str(dtype)
+    match dtype_str:
         case "f32":
             return ttcore.DataType.Float32
         case "bf16":
             return ttcore.DataType.BFloat16
+        case s if "bfp_bf8" in s.lower():
+            return ttcore.DataType.BFP_BFloat8
         case _:
             raise ValueError(f"Unsupported MLIR dtype: {dtype}")
 
@@ -100,7 +106,6 @@ def buffer_type_from_string(buffer_type_str: str):
     Returns:
         TTNN BufferType enum
     """
-    from ttmlir.dialects import ttnn
 
     if buffer_type_str == "L1":
         return ttnn.BufferType.L1
@@ -119,7 +124,6 @@ def memory_layout_from_string(memory_layout_str: str):
     Returns:
         TTNN TensorMemoryLayout enum
     """
-    from ttmlir.dialects import ttnn
 
     if memory_layout_str == "BLOCK_SHARDED":
         return ttnn.TensorMemoryLayout.BlockSharded
