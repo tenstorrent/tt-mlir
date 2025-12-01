@@ -1686,74 +1686,177 @@ private:
 };
 
 // Scaled sum to mean pattern matcher that transforms:
-//   multiply(sum<dim=[2,3]>(act), 1/(h*w))
+//   multiply(sum<dim=[...]>(act), 1/(dim1*dim2*...))
 // into:
-//   mean<dim=3>(reshape(act, [N,C,1,H*W]))
-//
-// The pattern reshapes input from [N, C, H, W] to [N, C, 1, H*W], then applies
-// mean on dimension 3 with keepdim=true, as it is more efficient than reducing
-// by two dimensions.
-// If the original sum had keepdim=false, then the result is
-// reshaped to remove the spatial dimensions too.
+//   mean<dim=[...]>(act)
 //
 // Matches decomposed global average pooling from torch-xla.
-
 class ScaledSumToMeanPattern : public mlir::OpRewritePattern<MultiplyOp> {
   using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
 
 private:
   static constexpr float FLOAT_TOLERANCE = 1e-4f;
-  static constexpr int64_t EXPECTED_INPUT_RANK = 4;
-  static constexpr int64_t SPATIAL_HEIGHT_DIM = 2;
-  static constexpr int64_t SPATIAL_WIDTH_DIM = 3;
 
 public:
   mlir::LogicalResult
   matchAndRewrite(MultiplyOp multiplyOp,
                   mlir::PatternRewriter &rewriter) const final {
     SumOp sumOp = multiplyOp.getLhs().getDefiningOp<SumOp>();
-    if (!isValidSum(sumOp)) {
+    if (!sumOp || !sumOp.getDimArg() || !sumOp->hasOneUse()) {
       return mlir::failure();
     }
+
+    auto reduceDims = *sumOp.getDimArg();
+    auto inputShape = sumOp.getInput().getType().getShape();
 
     FullOp fullOp = multiplyOp.getRhs().getDefiningOp<FullOp>();
-    auto inputShape = sumOp.getInput().getType().getShape();
-    if (!isValidScale(fullOp, inputShape)) {
+    if (!isValidScale(fullOp, inputShape, reduceDims)) {
       return mlir::failure();
     }
 
-    auto input = sumOp.getInput();
-    auto loc = sumOp.getLoc();
+    auto meanOp = createMeanOp(rewriter, sumOp, reduceDims);
 
-    auto reshapedInput = createInputReshape(rewriter, loc, input);
-    auto meanOp = createMean(rewriter, loc, reshapedInput);
+    rewriter.replaceOp(multiplyOp, meanOp.getResult());
 
-    auto result = meanOp.getResult();
-    if (!sumOp.getKeepDim()) {
-      result = createOutputReshape(rewriter, loc, result);
-    }
-
-    rewriter.replaceOp(multiplyOp, result);
     return mlir::success();
   }
 
 private:
-  static bool isValidSum(SumOp sumOp) {
-    if (!sumOp || !sumOp.getDimArg() || !sumOp->hasOneUse()) {
+  static bool isValidScale(FullOp fullOp, ArrayRef<int64_t> inputShape,
+                           ArrayAttr reduceDims) {
+    if (!fullOp) {
       return false;
     }
 
-    auto inputShape = sumOp.getInput().getType().getShape();
+    // Calculate expected value as 1 / (dim1 * dim2 * ...)
+    int64_t product = 1;
+    for (mlir::Attribute attr : reduceDims) {
+      auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr);
+      if (!intAttr) {
+        return false;
+      }
+      int64_t dim = (intAttr.getInt() + inputShape.size()) % inputShape.size();
+      if (inputShape[dim] <= 0) {
+        return false;
+      }
+      product *= inputShape[dim];
+    }
+
+    float expectedValue = 1.0f / product;
+    float tolerance =
+        std::max(FLOAT_TOLERANCE, std::abs(expectedValue) * FLOAT_TOLERANCE);
+    return isFullOpWithValue(fullOp, expectedValue, tolerance);
+  }
+
+  MeanOp createMeanOp(mlir::PatternRewriter &rewriter, SumOp sumOp,
+                      ArrayAttr reduceDims) const {
+    auto inputType = sumOp.getInput().getType();
+    auto outputType =
+        createMeanOutputType(inputType, sumOp.getKeepDim(), reduceDims);
+
+    auto loc = sumOp.getLoc();
+
+    auto meanOp = rewriter.create<MeanOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_mean"), outputType,
+        sumOp.getInput(),
+        /*keep_dim=*/rewriter.getBoolAttr(sumOp.getKeepDim()),
+        /*dim_arg=*/reduceDims);
+
+    return meanOp;
+  }
+
+  RankedTensorType createMeanOutputType(RankedTensorType inputType,
+                                        bool keepDim,
+                                        ArrayAttr reduceDims) const {
+    SmallVector<int64_t> outputShape;
+    ArrayRef<int64_t> inputShape = inputType.getShape();
+
+    SmallVector<int64_t> reduceDimIndices;
+    reduceDimIndices.reserve(reduceDims.size());
+    for (mlir::Attribute attr : reduceDims) {
+      auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr);
+      if (intAttr) {
+        reduceDimIndices.push_back(intAttr.getInt());
+      }
+    }
+
+    if (keepDim) {
+      outputShape.assign(inputShape.begin(), inputShape.end());
+      for (int64_t dim : reduceDimIndices) {
+        dim = (dim + inputShape.size()) % inputShape.size();
+        outputShape[dim] = 1;
+      }
+    } else {
+      outputShape.reserve(inputShape.size() - reduceDimIndices.size());
+      for (size_t i = 0; i < inputShape.size(); ++i) {
+        if (!llvm::is_contained(reduceDimIndices, i)) {
+          outputShape.push_back(inputShape[i]);
+        }
+      }
+    }
+    return RankedTensorType::get(outputShape, inputType.getElementType(),
+                                 inputType.getEncoding());
+  }
+};
+
+// Spatial mean optimization pattern that transforms:
+//   mean<dim=[1,2]>(act)
+// into:
+//   mean<dim=2>(reshape(act, [N,1,H*W,C]))
+//
+// The pattern reshapes input from [N, C, H, W] to [N, 1, H*W, C], then applies
+// mean on dimension 2 with keepdim=true, as it is more efficient than reducing
+// by two dimensions.
+// If the original mean had keepdim=false, then the result is
+// reshaped to remove the spatial dimensions too.
+class SpatialMeanOptimizationPattern : public mlir::OpRewritePattern<MeanOp> {
+  using mlir::OpRewritePattern<MeanOp>::OpRewritePattern;
+
+private:
+  static constexpr int64_t EXPECTED_INPUT_RANK = 4;
+  static constexpr int64_t SPATIAL_HEIGHT_DIM = 1;
+  static constexpr int64_t SPATIAL_WIDTH_DIM = 2;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(MeanOp meanOp, mlir::PatternRewriter &rewriter) const final {
+    if (!isValidMean(meanOp)) {
+      return mlir::failure();
+    }
+
+    auto input = meanOp.getInput();
+    auto loc = meanOp.getLoc();
+    bool keepDim = meanOp.getKeepDim();
+
+    auto reshapedInput = createInputReshape(rewriter, loc, input);
+    auto newMeanOp = createMean(rewriter, loc, reshapedInput);
+
+    auto result = newMeanOp.getResult();
+    if (!keepDim) {
+      result = createOutputReshape(rewriter, loc, result);
+    }
+
+    rewriter.replaceOp(meanOp, result);
+    return mlir::success();
+  }
+
+private:
+  static bool isValidMean(MeanOp meanOp) {
+    if (!meanOp || !meanOp.getDimArg() || !meanOp->hasOneUse()) {
+      return false;
+    }
+
+    auto inputShape = meanOp.getInput().getType().getShape();
     if (inputShape.size() != EXPECTED_INPUT_RANK) {
       return false;
     }
 
-    auto reduceDims = *sumOp.getDimArg();
+    auto reduceDims = *meanOp.getDimArg();
     if (reduceDims.size() != 2) {
       return false;
     }
 
-    llvm::SmallSet<int64_t, 2> dimSet;
+    llvm::SmallSet<int64_t, 4> dimSet;
     for (mlir::Attribute attr : reduceDims) {
       auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr);
       if (!intAttr) {
@@ -1763,18 +1866,6 @@ private:
     }
     return dimSet.contains(SPATIAL_HEIGHT_DIM) &&
            dimSet.contains(SPATIAL_WIDTH_DIM);
-  }
-
-  static bool isValidScale(FullOp fullOp, ArrayRef<int64_t> inputShape) {
-    if (!fullOp) {
-      return false;
-    }
-    int64_t h = inputShape[SPATIAL_HEIGHT_DIM];
-    int64_t w = inputShape[SPATIAL_WIDTH_DIM];
-    float expectedValue = 1.0f / static_cast<float>(h * w);
-    float tolerance =
-        std::max(FLOAT_TOLERANCE, std::abs(expectedValue) * FLOAT_TOLERANCE);
-    return isFullOpWithValue(fullOp, expectedValue, tolerance);
   }
 
   static ReshapeOp createInputReshape(mlir::PatternRewriter &rewriter,
@@ -2892,6 +2983,7 @@ public:
       patterns.add<AveragePoolingWithPoolingDenominatorFusionPattern>(
           &getContext());
       patterns.add<ScaledSumToMeanPattern>(&getContext());
+      patterns.add<SpatialMeanOptimizationPattern>(&getContext());
       patterns.add<MatmulWithBiasFusionPattern>(&getContext());
 
       patterns.add<GeluFusionPattern>(&getContext());
