@@ -266,6 +266,7 @@ def D2M_GenericOp : D2M_Op<"generic",
       bool hasMultiUseInputOperand();
       bool isAllParallel();
       bool hasComputeOpsInRegion(unsigned regionIndex = 0);
+      SmallVector<int64_t> computeDimConstraints(std::function<bool(ttcore::MetalLayoutAttr, bool)>);
     }];
 }
 
