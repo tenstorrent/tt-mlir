@@ -324,6 +324,12 @@ def _run_ttir_pipeline(
         system_desc_path = os.getenv("SYSTEM_DESC_PATH", "")
     pipeline_options.append(f"system-desc-path={system_desc_path}")
 
+    # Allow overriding DST allocation strategy via environment variable.
+    # Only applies to ttir-to-ttmetal-pipeline.
+    allocation_strategy = os.getenv("DST_ALLOCATION_STRATEGY", "")
+    if allocation_strategy and pipeline_fn == ttir_to_ttmetal_backend_pipeline:
+        pipeline_options.append(f"dst-strategy={allocation_strategy}")
+
     mesh_shape = tuple(mesh_dict.values())
     if len(mesh_shape) != 2:
         raise ValueError(f"Mesh shape must be a tuple of length 2, got: {mesh_shape}")
