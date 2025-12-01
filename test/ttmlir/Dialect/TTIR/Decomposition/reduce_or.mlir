@@ -5,32 +5,23 @@ module attributes {} {
     // CHECK-LABEL: func.func public @test_reduce_or_4to3dim
     // CHECK-NOT: "ttir.reduce_or"
 
-    // CHECK: %[[E0:.*]] = ttir.empty() : tensor<128x10x32xbf16>
-    // out buffer for sum
-    // CHECK: %[[OUT_SUM:.*]] = ttir.empty() : tensor<128x10x32xbf16>
-
     // Sum
-    // CHECK: %[[SUM:.*]] = "ttir.sum"(%{{.*}}, %[[OUT_SUM]]) <{dim_arg = [3 : i32], keep_dim = false}>
-    // CHECK-SAME: : (tensor<128x10x32x4xbf16>, tensor<128x10x32xbf16>) -> tensor<128x10x32xbf16>
+    // CHECK: %[[SUM:.*]] = "ttir.sum"(%{{.*}}) <{dim_arg = [3 : i32], keep_dim = false}>
+    // CHECK-SAME: : (tensor<128x10x32x4xbf16>) -> tensor<128x10x32xbf16>
 
     // Zero constant
     // CHECK: %[[C0:.*]] = "ttir.constant"() <{value = dense<0.000000e+00> : tensor<128x10x32xbf16>}>
-    // out buffer for ne
-    // CHECK: %[[OUT_NE:.*]] = ttir.empty() : tensor<128x10x32xbf16>
 
     // Ne
-    // CHECK: %[[NE:.*]] = "ttir.ne"(%[[SUM]], %[[C0]], %[[OUT_NE]])
-    // CHECK-SAME: : (tensor<128x10x32xbf16>, tensor<128x10x32xbf16>, tensor<128x10x32xbf16>) -> tensor<128x10x32xbf16>
-    // CHECK: %[[OUT_CAST:.*]] = ttir.empty() : tensor<128x10x32xbf16>
-
-    // Typecast
-    // CHECK: %[[CAST:.*]] = "ttir.typecast"(%[[NE]], %[[OUT_CAST]])
+    // CHECK: %[[NE:.*]] = "ttir.ne"(%[[SUM]], %[[C0]])
     // CHECK-SAME: : (tensor<128x10x32xbf16>, tensor<128x10x32xbf16>) -> tensor<128x10x32xbf16>
 
+    // Typecast
+    // CHECK: %[[CAST:.*]] = "ttir.typecast"(%[[NE]])
+
     // CHECK: return %[[CAST]] : tensor<128x10x32xbf16>
-    %0 = ttir.empty() : tensor<128x10x32xbf16>
-    %1 = "ttir.reduce_or"(%arg0, %0) <{dim_arg = [3 : i32], keep_dim = false}> : (tensor<128x10x32x4xbf16>, tensor<128x10x32xbf16>) -> tensor<128x10x32xbf16>
-    return %1 : tensor<128x10x32xbf16>
+    %0 = "ttir.reduce_or"(%arg0) <{dim_arg = [3 : i32], keep_dim = false}> : (tensor<128x10x32x4xbf16>) -> tensor<128x10x32xbf16>
+    return %0 : tensor<128x10x32xbf16>
   }
 
   func.func public @test_reduce_or_3to2dim(%arg0: tensor<128x10x4xbf16>, %arg1: tensor<1xbf16>) -> tensor<128x4xbf16> {
@@ -38,29 +29,23 @@ module attributes {} {
     // CHECK-NOT: "ttir.reduce_or"
 
     // Sum
-    // CHECK: %[[E0:.*]] = ttir.empty() : tensor<128x4xbf16>
-    // CHECK: %[[OUT_SUM:.*]] = ttir.empty() : tensor<128x4xbf16>
-    // CHECK: %[[SUM:.*]] = "ttir.sum"(%{{.*}}, %[[OUT_SUM]]) <{dim_arg = [1 : i32], keep_dim = false}>
-    // CHECK-SAME: : (tensor<128x10x4xbf16>, tensor<128x4xbf16>) -> tensor<128x4xbf16>
+    // CHECK: %[[SUM:.*]] = "ttir.sum"(%{{.*}}) <{dim_arg = [1 : i32], keep_dim = false}>
+    // CHECK-SAME: : (tensor<128x10x4xbf16>) -> tensor<128x4xbf16>
 
-    // Zero contant
+    // Zero constant
     // CHECK: %[[C0:.*]] = "ttir.constant"() <{value = dense<0.000000e+00> : tensor<128x4xbf16>}>
 
     // Ne
-    // CHECK: %[[OUT_NE:.*]] = ttir.empty() : tensor<128x4xbf16>
-    // CHECK: %[[NE:.*]] = "ttir.ne"(%[[SUM]], %[[C0]], %[[OUT_NE]])
-    // CHECK-SAME: : (tensor<128x4xbf16>, tensor<128x4xbf16>, tensor<128x4xbf16>) -> tensor<128x4xbf16>
+    // CHECK: %[[NE:.*]] = "ttir.ne"(%[[SUM]], %[[C0]])
+    // CHECK-SAME: : (tensor<128x4xbf16>, tensor<128x4xbf16>) -> tensor<128x4xbf16>
 
     // Typecast
-    // CHECK: %[[OUT_CAST:.*]] = ttir.empty() : tensor<128x4xbf16>
-    // CHECK: %[[CAST:.*]] = "ttir.typecast"(%[[NE]], %[[OUT_CAST]])
-    // CHECK-SAME: : (tensor<128x4xbf16>, tensor<128x4xbf16>) -> tensor<128x4xbf16>
+    // CHECK: %[[CAST:.*]] = "ttir.typecast"(%[[NE]])
 
     // CHECK: return %[[CAST]] : tensor<128x4xbf16>
 
-    %0 = ttir.empty() : tensor<128x4xbf16>
-    %1 = "ttir.reduce_or"(%arg0, %0) <{dim_arg = [1 : i32], keep_dim = false}> : (tensor<128x10x4xbf16>, tensor<128x4xbf16>) -> tensor<128x4xbf16>
-    return %1 : tensor<128x4xbf16>
+    %0 = "ttir.reduce_or"(%arg0) <{dim_arg = [1 : i32], keep_dim = false}> : (tensor<128x10x4xbf16>) -> tensor<128x4xbf16>
+    return %0 : tensor<128x4xbf16>
   }
 
   func.func public @test_reduce_or_2to1dim(%arg0: tensor<128x10xbf16>, %arg1: tensor<1xbf16>) -> tensor<10xbf16> {
@@ -68,28 +53,22 @@ module attributes {} {
     // CHECK-NOT: "ttir.reduce_or"
 
     // Sum
-    // CHECK: %[[E0:.*]] = ttir.empty() : tensor<10xbf16>
-    // CHECK: %[[OUT_SUM:.*]] = ttir.empty() : tensor<10xbf16>
-    // CHECK: %[[SUM:.*]] = "ttir.sum"(%{{.*}}, %[[OUT_SUM]]) <{dim_arg = [0 : i32], keep_dim = false}>
-    // CHECK-SAME: : (tensor<128x10xbf16>, tensor<10xbf16>) -> tensor<10xbf16>
+    // CHECK: %[[SUM:.*]] = "ttir.sum"(%{{.*}}) <{dim_arg = [0 : i32], keep_dim = false}>
+    // CHECK-SAME: : (tensor<128x10xbf16>) -> tensor<10xbf16>
 
     // Zero constant
     // CHECK: %[[C0:.*]] = "ttir.constant"() <{value = dense<0.000000e+00> : tensor<10xbf16>}>
 
     // Ne
-    // CHECK: %[[OUT_NE:.*]] = ttir.empty() : tensor<10xbf16>
-    // CHECK: %[[NE:.*]] = "ttir.ne"(%[[SUM]], %[[C0]], %[[OUT_NE]])
-    // CHECK-SAME: : (tensor<10xbf16>, tensor<10xbf16>, tensor<10xbf16>) -> tensor<10xbf16>
+    // CHECK: %[[NE:.*]] = "ttir.ne"(%[[SUM]], %[[C0]])
+    // CHECK-SAME: : (tensor<10xbf16>, tensor<10xbf16>) -> tensor<10xbf16>
 
     // Typecast
-    // CHECK: %[[OUT_CAST:.*]] = ttir.empty() : tensor<10xbf16>
-    // CHECK: %[[CAST:.*]] = "ttir.typecast"(%[[NE]], %[[OUT_CAST]])
-    // CHECK-SAME: : (tensor<10xbf16>, tensor<10xbf16>) -> tensor<10xbf16>
+    // CHECK: %[[CAST:.*]] = "ttir.typecast"(%[[NE]])
 
     // CHECK: return %[[CAST]] : tensor<10xbf16>
 
-    %0 = ttir.empty() : tensor<10xbf16>
-    %1 = "ttir.reduce_or"(%arg0, %0) <{dim_arg = [0 : i32], keep_dim = false}> : (tensor<128x10xbf16>, tensor<10xbf16>) -> tensor<10xbf16>
-    return %1 : tensor<10xbf16>
+    %0 = "ttir.reduce_or"(%arg0) <{dim_arg = [0 : i32], keep_dim = false}> : (tensor<128x10xbf16>) -> tensor<10xbf16>
+    return %0 : tensor<10xbf16>
   }
 }
