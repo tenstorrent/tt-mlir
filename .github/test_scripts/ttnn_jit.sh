@@ -20,9 +20,9 @@ pip install ttnn_jit*.whl --upgrade
 
 echo "Running ttnn-jit tests..."
 if [ "$1" == "nightly" ]; then
-    # Recursively run all tests in the ttnn-jit directory
-    pytest -v $WORK_DIR/test/ttnn-jit/ --junit-xml=$TEST_REPORT_PATH
+    # Run tests that are exclusive to the nightly workflow
+    pytest -v $WORK_DIR/test/ttnn-jit/nightly/ --junit-xml=$TEST_REPORT_PATH
 else
-    # Only run tests in the top level directory
+    # Only run tests in the top level directory. These are always run.
     pytest -v $WORK_DIR/test/ttnn-jit/*.py --junit-xml=$TEST_REPORT_PATH
 fi
