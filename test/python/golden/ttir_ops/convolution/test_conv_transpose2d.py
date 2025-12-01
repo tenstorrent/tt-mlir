@@ -8,8 +8,27 @@ from typing import List, Optional
 from builder.base.builder import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_utils import compile_and_execute_ttir
+import _ttmlir_runtime as tt_runtime
+import test.python.golden.conftest as conftest
 
 pytestmark = pytest.mark.frontend("ttir")
+
+
+@pytest.fixture(autouse=True)
+def reset_device_after_test(device):
+    """Reset device after each conv_transpose2d test to free L1 memory.
+
+    Conv operations allocate tensors in L1 small that are only deallocated
+    when the device is closed. This fixture ensures the device is reset
+    after each test to prevent OOM errors from accumulated allocations.
+    """
+    yield
+    if conftest._current_device is not None:
+        tt_runtime.runtime.close_mesh_device(conftest._current_device)
+        tt_runtime.runtime.set_fabric_config(tt_runtime.runtime.FabricConfig.DISABLED)
+        conftest._current_device = None
+        conftest._current_device_target = None
+        conftest._current_device_mesh_shape = None
 
 
 @pytest.mark.parametrize(
