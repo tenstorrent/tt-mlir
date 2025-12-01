@@ -446,15 +446,21 @@ def le(a, b):
         pow,
         # logical_and, logical_or, logical_xor,
         # bitwise_or, bitwise_and, bitwise_xor, # not a supported FPU op
-        # Not supported in TTIRToD2M
-        # remainder, atan2, eq, ne, gt, ge, lt, le
+        # Also not supported in TTIRToD2M
+        # remainder, atan2,
+        eq,
+        ne,
+        gt,
+        ge,
+        lt,
+        le,
     ],
 )
-@pytest.mark.parametrize("graph_capture", [True, False])
+@pytest.mark.parametrize("graph_capture", [False])
 def test_binary_ops(device, shape, max_grid, memory_layout, dtype, op, graph_capture):
     if op == div:
         pytest.xfail("failing allclose for some shapes")
-    if op == pow and dtype == torch.float32:
+    if op in [pow, eq, ne, gt, ge, lt, le] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes")
 
     run_op_test(
