@@ -134,6 +134,30 @@ public:
             continue;
           }
 
+          // Sanity check: if there are any conv2d ops that consume this result
+          // and deallocate it (via deallocate_activation=true), ensure they
+          // are the last user to prevent use-after-free.
+          for (Operation *user : result.getUsers()) {
+            if (user == lastOp) {
+              continue;
+            }
+
+            if (auto conv2dOp = mlir::dyn_cast<ttnn::Conv2dOp>(user)) {
+              if (conv2dOp.getInput() == result &&
+                  conv2dOp.getConv2dConfigAttr() &&
+                  conv2dOp.getConv2dConfigAttr().getDeallocateActivation() &&
+                  conv2dOp.getConv2dConfigAttr()
+                      .getDeallocateActivation()
+                      .getValue()) {
+                conv2dOp->emitError(
+                    "use-after-free detected: conv2d op deallocates "
+                    "its input but is not the last user");
+                signalPassFailure();
+                return;
+              }
+            }
+          }
+
           // Don't deallocate the activation after conv2d op if
           // 'deallocate_activation' in Conv2dConfig is set to true.
           if (auto conv2dOp = mlir::dyn_cast<ttnn::Conv2dOp>(lastOp)) {
