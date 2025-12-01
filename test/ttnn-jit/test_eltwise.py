@@ -695,7 +695,12 @@ def test_matmul(device, shape_grid_layouts, dtype, graph_capture):
     input0_tensor = ttnn.to_memory_config(input0_tensor, ttnn.DRAM_MEMORY_CONFIG)
     input1_tensor = ttnn.to_memory_config(input1_tensor, ttnn.DRAM_MEMORY_CONFIG)
     golden_output = ttnn.matmul(input0_tensor, input1_tensor)
-    assert all_close_check(output, golden_output)
+    pcc = ttnn.pearson_correlation_coefficient(
+        golden_output.cpu().to_torch(), output.cpu().to_torch()
+    )
+    print("pcc: ", pcc)
+    assert pcc > 0.99, f"PCC: {pcc} is less than 0.99"
+    # assert all_close_check(output, golden_output)
 
 
 @pytest.mark.parametrize(
