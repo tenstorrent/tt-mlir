@@ -294,7 +294,7 @@ public:
   // Match and rewrite the CallOp.
   LogicalResult matchAndRewrite(func::CallOp callOp,
                                 PatternRewriter &rewriter) const override {
-    if (!callOp->hasAttr(ttir::HoistedCallAttr::name)) {
+    if (!callOp->hasAttr(ttir::CPUHoistedCallAttr::name)) {
       return failure();
     }
 

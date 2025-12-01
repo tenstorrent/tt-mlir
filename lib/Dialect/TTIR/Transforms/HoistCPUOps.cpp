@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
@@ -21,8 +22,6 @@
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Casting.h"
-#include <mlir/Interfaces/DestinationStyleOpInterface.h>
-#include <string>
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
 #include "stablehlo/dialect/StablehloOps.h"
@@ -63,8 +62,8 @@ getSubgraphOperandTensorRanks(const ValuesVectorType &inputValues) {
 
 // Helper function which generates a unique name based on operation type +
 // argument tensors dims & types.
-std::string generateHoistedFuncName(const OpsVectorType &ops) {
-  llvm::SmallString<16> uniqueName("hoisted_");
+llvm::SmallString<64> generateHoistedFuncName(const OpsVectorType &ops) {
+  llvm::SmallString<64> uniqueName("hoisted_");
 
   for (auto *op : ops) {
     uniqueName.append(op->getName().getStringRef());
@@ -82,8 +81,7 @@ std::string generateHoistedFuncName(const OpsVectorType &ops) {
   uniqueName += "_func";
   std::replace(uniqueName.begin(), uniqueName.end(), '.', '_');
 
-  std::string result(uniqueName.begin(), uniqueName.end());
-  return result;
+  return uniqueName;
 }
 
 // Helper function to collect input arguments to a set of operations.
@@ -147,7 +145,7 @@ performInputArgumentsConversion(mlir::OpBuilder &opBuilder,
     auto tensorType =
         mlir::dyn_cast<mlir::RankedTensorType>(argument.getType());
 
-    assert(tensorType && "Input argument is not a RankedTensorType!");
+    TT_assertv(tensorType, "Input argument is not a RankedTensorType.");
 
     auto convertedType = convertTensorType(tensorType, opBuilder.getContext());
 
@@ -178,7 +176,7 @@ performResultConversions(const ValuesVectorType &outputValues) {
     auto tensorType =
         mlir::dyn_cast<mlir::RankedTensorType>(outputValue.getType());
 
-    assert(tensorType && "Output value is not a RankedTensorType!");
+    TT_assertv(tensorType, "Output value is not a RankedTensorType.");
 
     auto convertedType =
         convertTensorType(tensorType, outputValue.getContext());
@@ -196,16 +194,17 @@ collectOutputProducers(const OpsVectorType &operations,
   for (auto outputValue : outputValues) {
     auto *definingOp = outputValue.getDefiningOp();
 
-    assert(definingOp && "Output value does not have a defining operation!");
+    TT_assertv(definingOp, "Output value does not have a defining operation.");
 
-    assert(llvm::is_contained(operations, definingOp) &&
-           "Output value's defining operation is not in the hoisted ops set!");
+    TT_assertv(llvm::is_contained(operations, definingOp),
+               "Output value's defining operation is not in the hoisted ops "
+               "set.");
 
-    assert(!mlir::isa<DestinationStyleOpInterface>(definingOp) &&
-           "DPS ops as output producers are not supported!");
+    TT_assertv(!mlir::isa<DestinationStyleOpInterface>(definingOp),
+               "DPS ops as output producers are not supported.");
 
-    assert(definingOp->getNumResults() == 1 &&
-           "Output producer ops with multiple results are not supported!");
+    TT_assertv(definingOp->getNumResults() == 1L,
+               "Output producer ops with multiple results are not supported.");
 
     outputProducers.push_back(definingOp);
   }
@@ -249,10 +248,11 @@ struct CPUHoistedOpsDescriptor {
   // Values representing the outputs of the hoisted operations.
   ValuesVectorType outputValues;
   // Name of the generated hoisted function.
-  std::string funcName;
+  llvm::SmallString<64> funcName;
 
   CPUHoistedOpsDescriptor(const OpsVectorType &ops,
-                          const ValuesVectorType &outputs, std::string name)
+                          const ValuesVectorType &outputs,
+                          llvm::SmallString<64> name)
       : operations(ops), outputValues(outputs), funcName(std::move(name)) {}
 };
 
@@ -286,7 +286,8 @@ static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
   mlir::FunctionType funcType =
       mlir::FunctionType::get(context, argumentTypes, resultTypes);
 
-  const auto localFunctionName = descriptor.funcName + "_decl";
+  llvm::SmallString<64> localFunctionName(descriptor.funcName);
+  localFunctionName += "_decl";
   auto localFunc = llvm::dyn_cast_if_present<func::FuncOp>(
       sourceModule.lookupSymbol(localFunctionName));
 
@@ -374,18 +375,19 @@ static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
         builder.getI64ArrayAttr(getSubgraphOperandTensorRanks(inputArguments)));
 
     // Mark the hoisted function with the HoistedFuncAttr.
-    hoistedFunc->setAttr(HoistedFuncAttr::name, mlir::UnitAttr::get(context));
+    hoistedFunc->setAttr(CPUHoistedFuncAttr::name,
+                         mlir::UnitAttr::get(context));
   }
 
   // Mark the local function with the HoistedFuncAttr.
-  localFunc->setAttr(HoistedFuncAttr::name, mlir::UnitAttr::get(context));
+  localFunc->setAttr(CPUHoistedFuncAttr::name, mlir::UnitAttr::get(context));
 
   // Create the call using already converted inputs.
   auto callOp = opBuilder.create<mlir::func::CallOp>(
       sourceModule->getLoc(), localFunc, convertedArguments);
 
   // Add the hoisted_call attribute.
-  callOp->setAttr(HoistedCallAttr::name, UnitAttr::get(context));
+  callOp->setAttr(CPUHoistedCallAttr::name, UnitAttr::get(context));
 
   ValuesVectorType callOpResults = callOp.getResults();
 
@@ -400,9 +402,14 @@ static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
 } // namespace
 
 namespace {
-// Predicate type for determining sets of ops to hoist in the provided module.
+// Predicate type for determining sets of ops to hoist in the provided function.
+// Returns a vector of descriptors, one for each set of ops to hoist.
+//
+// TODO(dmilinkovic): Currently, the implementation limits the user to hoisting
+// ops inside a single function; we should consider allowing cross-function
+// CPU-hoisting in the future - issue #6097.
 using CPUHoistAnalyzerType =
-    std::function<llvm::SmallVector<CPUHoistedOpsDescriptor>(mlir::ModuleOp)>;
+    std::function<llvm::SmallVector<CPUHoistedOpsDescriptor>(func::FuncOp)>;
 
 // Predicate type for determining whether an op should be hoisted in an op-by-op
 // CPU hoisting analyzer.
@@ -410,10 +417,10 @@ using ShouldHoistOpType = std::function<bool(mlir::Operation *)>;
 
 // HoistAnalyzer which hoists single ops based on a provided predicate.
 CPUHoistAnalyzerType singleOpHoistAnalyzer(ShouldHoistOpType predicate) {
-  return [predicate](mlir::ModuleOp moduleOp) {
+  return [predicate](func::FuncOp funcOp) {
     llvm::SmallVector<CPUHoistedOpsDescriptor, 4> hoistedOpsDescriptors;
     // Hoisting individual ops based on the predicate.
-    moduleOp.walk([&](mlir::Operation *nestedOp) {
+    funcOp.walk([&](mlir::Operation *nestedOp) {
       if (predicate(nestedOp)) {
         OpsVectorType operations{nestedOp};
         ValuesVectorType outputValues{nestedOp->getResult(0)};
@@ -429,47 +436,44 @@ CPUHoistAnalyzerType singleOpHoistAnalyzer(ShouldHoistOpType predicate) {
 
 // HoistAnalyzer which hoists const-eval functions as a whole.
 CPUHoistAnalyzerType constEvalHoistAnalyzer() {
-  return [](mlir::ModuleOp moduleOp) {
+  return [](func::FuncOp funcOp) {
     llvm::SmallVector<CPUHoistedOpsDescriptor, 4> hoistedOpsDescriptors;
 
-    moduleOp.walk([&](func::FuncOp funcOp) {
-      if (!ttmlir::utils::isConstEvalFunc(funcOp)) {
+    if (!ttmlir::utils::isConstEvalFunc(funcOp)) {
+      return hoistedOpsDescriptors;
+    }
+
+    llvm::SmallString<64> hoistedFuncName("hoisted_");
+    hoistedFuncName += funcOp.getName();
+    CPUHoistedOpsDescriptor descriptor({}, {}, hoistedFuncName);
+
+    auto walkResult = funcOp.walk([&](mlir::Operation *nestedOp) {
+      // Skip the FuncOp itself.
+      if (llvm::isa<func::FuncOp>(nestedOp)) {
         return WalkResult::advance();
       }
 
-      const auto hoistedFuncName = "hoisted_" + funcOp.getName().str();
-      CPUHoistedOpsDescriptor descriptor({}, {}, hoistedFuncName);
-
-      auto walkResult = funcOp.walk([&](mlir::Operation *nestedOp) {
-        // Skip the FuncOp itself.
-        if (llvm::isa<func::FuncOp>(nestedOp)) {
-          return WalkResult::advance();
+      // Skip the ReturnOp, but collect its operands as outputs.
+      if (llvm::isa<mlir::func::ReturnOp>(nestedOp)) {
+        for (auto retVal : nestedOp->getOperands()) {
+          descriptor.outputValues.push_back(retVal);
         }
-
-        // Skip the ReturnOp, but collect its operands as outputs.
-        if (llvm::isa<mlir::func::ReturnOp>(nestedOp)) {
-          for (auto retVal : nestedOp->getOperands()) {
-            descriptor.outputValues.push_back(retVal);
-          }
-          return WalkResult::advance();
-        }
-
-        // If there is already a CPU-hoisted call inside the const-eval
-        // subgraph, skip CPU hoisting altogether to avoid nested hoisting.
-        if (nestedOp->hasAttr(ttir::HoistedCallAttr::name)) {
-          return WalkResult::interrupt();
-        }
-
-        descriptor.operations.push_back(nestedOp);
         return WalkResult::advance();
-      });
-
-      if (!walkResult.wasInterrupted() && !descriptor.operations.empty()) {
-        hoistedOpsDescriptors.push_back(descriptor);
       }
 
+      // If there is already a CPU-hoisted call inside the const-eval
+      // subgraph, skip CPU hoisting altogether to avoid nested hoisting.
+      if (nestedOp->hasAttr(ttir::CPUHoistedCallAttr::name)) {
+        return WalkResult::interrupt();
+      }
+
+      descriptor.operations.push_back(nestedOp);
       return WalkResult::advance();
     });
+
+    if (!walkResult.wasInterrupted() && !descriptor.operations.empty()) {
+      hoistedOpsDescriptors.push_back(std::move(descriptor));
+    }
 
     return hoistedOpsDescriptors;
   };
@@ -499,19 +503,26 @@ public:
         break;
       }
     }
-    assert(deviceModule &&
-           "must run tt::WrapDeviceModulePass on IR before hoisting!");
+    TT_assertv(deviceModule,
+               "Must run tt::WrapDeviceModulePass on IR before hoisting.");
 
     ModuleOp deviceInnerModule = dyn_cast_if_present<mlir::ModuleOp>(
         deviceModule.getBodyRegion().front().front());
-    assert(deviceInnerModule &&
-           "ttcore::DeviceModuleOp must have single ModuleOp child!");
+    TT_assertv(deviceInnerModule,
+               "ttcore::DeviceModuleOp must have single ModuleOp child.");
 
     IRRewriter rewriter(&getContext());
 
     auto loc = rootModule->getLoc();
 
-    auto hoistedOpsDescriptors = analyzer(rootModule);
+    // Collect hoisted ops descriptors by iterating over all functions.
+    llvm::SmallVector<CPUHoistedOpsDescriptor> hoistedOpsDescriptors;
+    deviceInnerModule.walk([&](func::FuncOp funcOp) {
+      auto descriptors = analyzer(funcOp);
+      for (auto &descriptor : descriptors) {
+        hoistedOpsDescriptors.push_back(std::move(descriptor));
+      }
+    });
 
     // We don't want to create a CPUModuleOp etc. if we aren't hoisting any ops.
     if (hoistedOpsDescriptors.empty()) {
@@ -526,7 +537,7 @@ public:
         cpuModule = module;
         cpuInnerModule = dyn_cast_if_present<mlir::ModuleOp>(
             cpuModule.getBodyRegion().front().front());
-        assert(cpuInnerModule && "CPUModuleOp must contain 1 ModuleOp!");
+        TT_assertv(cpuInnerModule, "CPUModuleOp must contain 1 ModuleOp.");
         break;
       }
     }

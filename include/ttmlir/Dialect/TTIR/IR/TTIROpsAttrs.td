@@ -71,17 +71,17 @@ def TTIR_FlattenedCompatInfoAttr : AttrDef<TTIR_Dialect, "FlattenedCompatInfo", 
   let constBuilderCall = "$0";
 }
 
-def TTIR_HoistedCallAttr : AttrDef<TTIR_Dialect, "HoistedCall", [], "::mlir::Attribute"> {
-  let mnemonic = "hoisted_call";
-  let summary = "Indicates that this call operation has been hoisted";
+def TTIR_CPUHoistedCallAttr : AttrDef<TTIR_Dialect, "CPUHoistedCall", [], "::mlir::Attribute"> {
+  let mnemonic = "cpu_hoisted_call";
+  let summary = "Indicates that this call operation has been CPU-hoisted";
   let description = [{
-    This attribute marks call operations that have been hoisted during optimization.
+    This attribute marks call operations that have been CPU-hoisted during optimization.
     It is used as a marker and doesn't carry any additional data.
   }];
 }
 
-def TTIR_HoistedFuncAttr : AttrDef<TTIR_Dialect, "HoistedFunc", [], "::mlir::Attribute"> {
-  let mnemonic = "hoisted_func";
+def TTIR_CPUHoistedFuncAttr : AttrDef<TTIR_Dialect, "CPUHoistedFunc", [], "::mlir::Attribute"> {
+  let mnemonic = "cpu_hoisted_func";
   let summary = "Indicates that this func operation represents a CPU-hoisted function";
   let description = [{
     This attribute marks functions that have been hoisted to the CPU module, as well

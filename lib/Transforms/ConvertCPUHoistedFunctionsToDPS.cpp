@@ -54,15 +54,15 @@ public:
 
 private:
   void enableDPSInCPUModule(mlir::ModuleOp cpuModule) {
-    // Gathering hoisted functions from CPU module
+    // Gathering hoisted functions from CPU module.
     llvm::SmallVector<func::FuncOp, 4> hoistedFuncs;
     cpuModule.walk([&](func::FuncOp funcOp) {
-      if (funcOp->hasAttr(ttir::HoistedFuncAttr::name)) {
+      if (funcOp->hasAttr(ttir::CPUHoistedFuncAttr::name)) {
         hoistedFuncs.push_back(funcOp);
       }
     });
 
-    // Adding DPS semantics by adding extra output arguments
+    // Adding DPS semantics by adding extra output arguments.
     for (auto funcOp : hoistedFuncs) {
       OpBuilder builder(funcOp);
 
@@ -84,7 +84,7 @@ private:
           }));
 
       // Create new function type with extra output arguments and void return
-      // type
+      // type.
       llvm::SmallVector<Type, 4> inputTypes(funcOp.getArgumentTypes().begin(),
                                             funcOp.getArgumentTypes().end());
       for (auto returnType : returnTypes) {
@@ -95,19 +95,19 @@ private:
           builder.getFunctionType(inputTypes, llvm::ArrayRef<Type>{});
       funcOp.setType(newFuncType);
 
-      // Adjust block arguments
+      // Adjust block arguments.
       for (auto returnType : returnTypes) {
         funcOp.getBody().front().addArgument(returnType, funcOp.getLoc());
       }
 
-      // Add bufferization access attribute to new output arguments
+      // Add bufferization access attribute to new output arguments.
       for (auto [i, _] : llvm::enumerate(returnTypes)) {
         funcOp.setArgAttr(funcOp.getNumArguments() - returnTypes.size() + i,
                           "bufferization.access",
                           builder.getStringAttr("write"));
       }
 
-      // Adjust arg_ranks attribute
+      // Adjust arg_ranks attribute.
       auto argRanksAttr = funcOp->getAttrOfType<ArrayAttr>("arg_ranks");
       assert(argRanksAttr &&
              "arg_ranks attribute not found on hoisted function");
@@ -124,67 +124,39 @@ private:
 
       builder.setInsertionPoint(returnOp);
 
+      // Insert linalg.copy ops to write return values to output arguments.
+      // TODO(dmilinkovic): Optimize copies away where possible by relying on
+      // the DPS nature of linalg ops - issue #6096.
       for (auto [index, returnValue] : llvm::enumerate(returnedValues)) {
-        // Find the defining op of the return value
-        auto *definingOp = returnValue.getDefiningOp();
-        assert(definingOp &&
-               "Return value does not have a defining operation!");
-
         auto outputArgument = funcOp.getArgument(funcOp.getNumArguments() -
                                                  returnTypes.size() + index);
-
-        // Check if the defining op implements DestinationStyleOpInterface.
-        // If it does, we can replace the output operand with the newly added
-        // output argument.
-        // We assume that most of the ops in this stage are linalg ops, so we
-        // prioritize checking for DestinationStyleOpInterface first to avoid
-        // unnecessary linalg.copy ops.
-        if (auto dpsDefiningOp =
-                llvm::dyn_cast<DestinationStyleOpInterface>(definingOp)) {
-          // Get the output operand index
-          auto outputOperandIndex = std::distance(
-              dpsDefiningOp->getResults().begin(),
-              llvm::find(dpsDefiningOp->getResults(), returnValue));
-
-          assert(outputOperandIndex >= 0 &&
-                 outputOperandIndex < dpsDefiningOp.getNumDpsInits() &&
-                 "Output operand index out of bounds!");
-
-          // Replace the output operand with the new output argument
-          dpsDefiningOp.setDpsInitOperand(outputOperandIndex, outputArgument);
-        }
-        // If the defining op does not implement DestinationStyleOpInterface,
-        // we insert a linalg.copy op to copy the return value to the output
-        // argument.
-        else {
-          builder.create<linalg::CopyOp>(returnOp.getLoc(), returnValue,
-                                         outputArgument);
-        }
+        builder.create<linalg::CopyOp>(returnOp.getLoc(), returnValue,
+                                       outputArgument);
       }
 
-      // Insert void return op
+      // Insert void return op.
       builder.create<func::ReturnOp>(returnOp.getLoc());
       returnOp.erase();
     }
   }
 
   void enableDPSInDeviceModule(mlir::ModuleOp deviceModule) {
-    // Gathering hoisted function prototypes in the device module
+    // Gathering hoisted function prototypes in the device module.
     llvm::SmallVector<func::FuncOp, 4> hoistedFuncStubs;
     deviceModule.walk([&](func::FuncOp funcOp) {
-      if (funcOp->hasAttr(ttir::HoistedFuncAttr::name)) {
+      if (funcOp->hasAttr(ttir::CPUHoistedFuncAttr::name)) {
         hoistedFuncStubs.push_back(funcOp);
       }
     });
 
     // Adding DPS semantics by adding extra output arguments and updating the
-    // call sites
+    // call sites.
     for (auto funcOp : hoistedFuncStubs) {
       OpBuilder builder(funcOp);
 
       auto returnTypes = funcOp.getFunctionType().getResults();
 
-      // Create new function type with extra output arguments
+      // Create new function type with extra output arguments.
       llvm::SmallVector<Type, 4> inputTypes(funcOp.getArgumentTypes().begin(),
                                             funcOp.getArgumentTypes().end());
       for (auto returnType : returnTypes) {
@@ -196,7 +168,7 @@ private:
 
       llvm::SmallVector<func::CallOp, 4> callsToErase;
 
-      // Update all call sites
+      // Update all call sites.
       deviceModule.walk([&](func::CallOp callOp) {
         if (callOp.getCallee() != funcOp.getName()) {
           return;
@@ -204,7 +176,7 @@ private:
 
         builder.setInsertionPoint(callOp);
 
-        // Create new call op with extra output arguments
+        // Create new call op with extra output arguments.
         llvm::SmallVector<Value, 4> callOperands(callOp.getOperands().begin(),
                                                  callOp.getOperands().end());
 
@@ -218,15 +190,15 @@ private:
         auto newCallOp =
             builder.create<func::CallOp>(callOp.getLoc(), funcOp, callOperands);
 
-        // Copy attributes from old call op to new call op
+        // Copy attributes from old call op to new call op.
         newCallOp->setAttrs(callOp->getAttrs());
 
-        // Replace uses of old call op results with new call op results
+        // Replace uses of old call op results with new call op results.
         for (auto [index, result] : llvm::enumerate(callOp.getResults())) {
           result.replaceAllUsesWith(newCallOp.getResult(index));
         }
 
-        // Schedule original call op for deletion
+        // Schedule original call op for deletion.
         callsToErase.push_back(callOp);
       });
 

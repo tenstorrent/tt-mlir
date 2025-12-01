@@ -583,9 +583,7 @@ private:
 
     auto *terminatorOp = calleeFunc.getBody().back().getTerminator();
     auto returnOp = mlir::dyn_cast<func::ReturnOp>(terminatorOp);
-    if (!returnOp) {
-      return {op, value};
-    }
+    assert(returnOp && "Expected function to have a return op");
 
     auto returnValue = returnOp.getOperand(valueIndex);
     auto *definingOp = returnValue.getDefiningOp();
