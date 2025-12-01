@@ -282,7 +282,7 @@ class CallbackRuntimeConfig:
         check_atol: bool = True,
         check_rtol: bool = True,
         goldens={},
-        bypass_ops=[],
+        bypass_ops=None,
     ):
         self.device = device
         self.pcc = pcc
@@ -291,7 +291,7 @@ class CallbackRuntimeConfig:
         self.check_atol = check_atol
         self.check_rtol = check_rtol
         self.goldens = goldens
-        self.bypass_ops = bypass_ops
+        self.bypass_ops = bypass_ops if bypass_ops else []
         self.golden_report = {}
 
 
@@ -446,11 +446,13 @@ def execute_fb(
     check_atol: bool = False,
     check_rtol: bool = False,
     enable_intermediate_verification: bool = False,
-    bypass_ops: List[str] = [],
+    bypass_ops: List[str] = None,
 ):
     fbb = tt_runtime.binary.load_binary_from_path(fb_path)
     program_indices = range(fbb.get_num_programs())
     golden_torch_tensors = convert_golden_to_torch_tensors(goldens)
+    if bypass_ops is None:
+        bypass_ops = []
 
     callback_runtime_config = CallbackRuntimeConfig(
         device=device,
