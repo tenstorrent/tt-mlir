@@ -37,5 +37,5 @@
   { "runs-on": ["n150","llmbox"],   "image": "tracy",  "script": "ttnn_jit.sh" },
   { "runs-on": "n150",   "image": "speedy",  "script": "alchemist.sh" },
   { "runs-on": "n150",   "image": "speedy",  "script": "emitc.sh"},
-  { "runs-on": "n300",   "image": "tracy",  "script": "pytest_dst.sh"}
+  { "runs-on": "n150",   "image": "speedy",  "script": "pytest_dst.sh"}
 ]
