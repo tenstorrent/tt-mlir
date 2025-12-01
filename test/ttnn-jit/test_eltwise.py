@@ -166,6 +166,14 @@ def gelu(input_tensor):
     return ttnn.gelu(input_tensor)
 
 
+def relu(input_tensor):
+    return ttnn.relu(input_tensor)
+
+
+def silu(input_tensor):
+    return ttnn.silu(input_tensor)
+
+
 def logical_not(input_tensor):
     return ttnn.logical_not(input_tensor)
 
