@@ -1,0 +1,6 @@
+module {
+  func.func @div(%arg0: tensor<128x128xf32>, %arg1: tensor<128x128xf32>) -> tensor<128x128xf32> {
+    %1 = "ttir.div"(%arg0, %arg1) : (tensor<128x128xf32>, tensor<128x128xf32>) -> tensor<128x128xf32>
+    return %1 : tensor<128x128xf32>
+  }
+}
