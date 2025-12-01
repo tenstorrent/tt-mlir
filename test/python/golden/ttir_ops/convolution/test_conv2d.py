@@ -3,27 +3,29 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import pytest
+import sys
 import torch
 from typing import List, Optional, Tuple, Union
 from builder.base.builder import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_utils import compile_and_execute_ttir
 import _ttmlir_runtime as tt_runtime
-import test.python.golden.conftest as conftest
 
 pytestmark = pytest.mark.frontend("ttir")
 
 
+# TODO(jserbedzija): Remove this fixture once we support config tensors in dram for conv2d
 @pytest.fixture(autouse=True)
 def reset_device_after_test(device):
     """Reset device after each conv2d test to free L1 memory.
 
-    Conv operations allocate tensors in L1 small that are only deallocated
+    Conv operations allocate config tensors in L1 small that are only deallocated
     when the device is closed. This fixture ensures the device is reset
     after each test to prevent OOM errors from accumulated allocations.
     """
     yield
-    if conftest._current_device is not None:
+    conftest = sys.modules.get("conftest")
+    if conftest and conftest._current_device is not None:
         tt_runtime.runtime.close_mesh_device(conftest._current_device)
         tt_runtime.runtime.set_fabric_config(tt_runtime.runtime.FabricConfig.DISABLED)
         conftest._current_device = None

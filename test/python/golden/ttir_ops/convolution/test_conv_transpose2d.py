@@ -3,17 +3,18 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import pytest
+import sys
 import torch
 from typing import List, Optional
 from builder.base.builder import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_utils import compile_and_execute_ttir
 import _ttmlir_runtime as tt_runtime
-import test.python.golden.conftest as conftest
 
 pytestmark = pytest.mark.frontend("ttir")
 
 
+# TODO(jserbedzija): Remove this fixture once we support config tensors in dram for conv_transpose2d
 @pytest.fixture(autouse=True)
 def reset_device_after_test(device):
     """Reset device after each conv_transpose2d test to free L1 memory.
@@ -23,7 +24,8 @@ def reset_device_after_test(device):
     after each test to prevent OOM errors from accumulated allocations.
     """
     yield
-    if conftest._current_device is not None:
+    conftest = sys.modules.get("conftest")
+    if conftest and conftest._current_device is not None:
         tt_runtime.runtime.close_mesh_device(conftest._current_device)
         tt_runtime.runtime.set_fabric_config(tt_runtime.runtime.FabricConfig.DISABLED)
         conftest._current_device = None
