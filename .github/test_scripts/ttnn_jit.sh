@@ -10,6 +10,13 @@ export PYTHONPATH="$INSTALL_DIR/tt-metal/ttnn:$INSTALL_DIR/tt-metal"
 # Download and install ttnn-jit wheel
 echo "Downloading ttnn-jit wheel..."
 cd $WORK_DIR
+
+# This script may be called multiple times in the same test job. 
+# Delete the downloaded wheel since gh run will not overwrite an existing file.
+if [ -f ttnn_jit*.whl ]; then
+    rm -f ttnn_jit*.whl
+fi
+
 gh run download $RUN_ID --repo tenstorrent/tt-mlir --name ttnn-jit-whl-$IMAGE_NAME
 
 echo "Installing ttnn-jit wheel..."
