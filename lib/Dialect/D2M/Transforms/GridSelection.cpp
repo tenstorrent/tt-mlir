@@ -775,7 +775,7 @@ computeTTNNGenericGridShapes(GenericOp genericOp,
   // Determine dim size constraints based on L1 operands. L1 operands are
   // assumed fixed and already legal; DRAM operand streams are aligned to match
   // L1 shapes.
-  auto constrainedDims = genericOp.computeDimConstraints(
+  auto constrainedDims = genericOp.computeGridDimConstraints(
       [&](ttcore::MetalLayoutAttr baseMetalLayout, bool isOutputOperand) {
         return baseMetalLayout.getMemorySpace() ==
                ttcore::MemorySpace::DeviceL1;

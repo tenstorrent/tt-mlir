@@ -1703,7 +1703,7 @@ d2m::GenericOp::getNonParticipatingLoopDims(int64_t operandIndex) {
   return llvm::SmallVector<int64_t>(nonParticipatingDims.set_bits());
 }
 
-SmallVector<int64_t> d2m::GenericOp::computeDimConstraints(
+SmallVector<int64_t> d2m::GenericOp::computeGridDimConstraints(
     std::function<bool(ttcore::MetalLayoutAttr, bool)> operandFilterPredicate) {
   auto indexingMaps = getIndexingMapsValue();
   auto shapes = getOperandGridShapes();
@@ -1718,9 +1718,6 @@ SmallVector<int64_t> d2m::GenericOp::computeDimConstraints(
         mlir::cast<ttcore::MetalLayoutAttr>(metalTensor.getEncoding());
     bool isOutputOperand = operandIdx >= getOutputs().getBeginOperandIndex();
 
-    llvm::errs() << "operandIdx: " << operandIdx << "\n";
-    llvm::errs() << "  isOutputOperand: " << isOutputOperand << "\n";
-    llvm::errs() << "  baseMetalLayout: " << baseMetalLayout << "\n";
     if (operandFilterPredicate(baseMetalLayout, isOutputOperand)) {
       filteredShapes.push_back(shapes[operandIdx]);
       filteredIndexingMaps.push_back(indexingMaps[operandIdx]);

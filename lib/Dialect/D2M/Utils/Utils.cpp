@@ -202,7 +202,7 @@ computeDimConstraints(mlir::ArrayRef<mlir::AffineMap> indexingMaps,
       if (dimConstraint != 0) {
         TT_assertv((constrainedDims[dimIdx] == 0 ||
                     constrainedDims[dimIdx] == dimConstraint),
-                   "Found unresolvable dim constraints.");
+                   "Found contradictory dim constraints.");
         constrainedDims[dimIdx] = dimConstraint;
       }
     }
