@@ -1187,8 +1187,8 @@ private:
 
     // Pad the 1x1 weight to 3x3 by adding zeros around it
     SmallVector<int32_t> paddingValues = {0, 0, 0, 0, 1, 1, 1, 1};
-    return utils::createDPSOp<PadOp>(
-        rewriter, ttmlir::utils::appendLocationSuffix(conv.getLoc(), "_pad"),
+    return rewriter.create<PadOp>(
+        ttmlir::utils::appendLocationSuffix(conv.getLoc(), "_pad"),
         weight3x3Type, weight1x1, rewriter.getDenseI32ArrayAttr(paddingValues),
         rewriter.getF32FloatAttr(0.0));
   }
@@ -1204,8 +1204,7 @@ private:
     // Move additional weight UD chain before conv to ensure it is before addOp.
     moveUDChainBefore(additionalWeight, conv);
 
-    auto combinedWeight = utils::createDPSOp<AddOp>(
-        rewriter,
+    auto combinedWeight = rewriter.create<AddOp>(
         ttmlir::utils::appendLocationSuffix(conv.getLoc(), "_weight_add"),
         existingWeight.getType(), additionalWeight, existingWeight);
     rewriter.modifyOpInPlace(
@@ -1225,10 +1224,9 @@ private:
       // Move bias2 UD chain before conv1 to ensure it is before addOp.
       moveUDChainBefore(bias2, conv1);
 
-      auto combinedBias = utils::createDPSOp<AddOp>(
-          rewriter,
-          ttmlir::utils::appendLocationSuffix(bias1.getLoc(), "_bias_add"),
-          bias1.getType(), bias2, bias1);
+      auto combinedBias = rewriter.create<AddOp>(
+          ttmlir::utils::appendLocationSuffix(conv1.getLoc(), "_bias_add"),
+          bias1.getType(), bias1, bias2);
       rewriter.modifyOpInPlace(
           conv1, [&]() { conv1.getBiasMutable().assign(combinedBias); });
     } else if (bias2) {
