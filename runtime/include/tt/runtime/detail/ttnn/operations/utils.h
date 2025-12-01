@@ -44,7 +44,7 @@ createConv2dSliceConfig(const ::tt::target::ttnn::Conv2dSliceConfig *config);
     const std::array<uint32_t, 3> &padding, const std::string &paddingMode,
     uint32_t groups, const std::optional<::ttnn::DataType> &outputDtype,
     ::ttnn::MeshDevice &targetDevice);
-    
+
 ::ttnn::operations::transformer::SDPAProgramConfig
 createSDPAProgramConfig(const ::tt::target::ttnn::SDPAConfig *config);
 
