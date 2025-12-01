@@ -123,7 +123,7 @@ def _get_grid(ctx, tensor_arg, memory_layout):
         ttnn.TensorMemoryLayout.WidthSharded,
     ):
 
-        grid_bb = tensor_arg.memory_config().shard_spec.grid.bounding_box
+        grid_bb = tensor_arg.memory_config().shard_spec.grid.bounding_box()
         print(f"[DEBUG] grid_bb: {grid_bb}")
         max_grid = (grid_bb.end.x, grid_bb.end.y)
         print(f"[DEBUG] max_grid: {max_grid}")
@@ -137,6 +137,11 @@ def _get_grid(ctx, tensor_arg, memory_layout):
 
 
 def _create_sharded_tensor_layout(ctx, tensor_arg):
+
+    grid_bb = tensor_arg.memory_config().shard_spec.grid.bounding_box()
+    max_grid = (grid_bb.end.x, grid_bb.end.y)
+    affine_map = _get_collapsed_linear_affine_map(ctx, tensor_arg.shape, max_grid)
+    buffer_type = ttnn.ir.BufferTypeAttr.get(ctx, ttnn.BufferType.L1)
     grid = _get_grid(
         ctx,
         tensor_arg,
@@ -144,9 +149,6 @@ def _create_sharded_tensor_layout(ctx, tensor_arg):
             tensor_arg.memory_config().memory_layout
         ),
     )
-    affine_map = _get_collapsed_linear_affine_map(ctx, tensor_arg.shape, grid)
-
-    buffer_type = ttnn.ir.BufferTypeAttr.get(ctx, ttnn.BufferType.L1)
 
     shard_spec = tensor_arg.memory_config().shard_spec
     shard_shape = shard_spec.shape
