@@ -144,7 +144,7 @@ jobs:
         mkdir -p ttrt_results
 
         echo "Running lit tests..."
-        llvm-lit --filter-out="optimizer" -v -a --xunit-xml-output ${{ steps.strings.outputs.work-dir }}/test_reports/report_${{matrix.build.runs-on}}_${{ matrix.build.image }}_${{strategy.job-index}}_${{steps.fetch-job-id.outputs.job_id}}.xml \
+        llvm-lit --filter-out="optimizer" -vv -a --xunit-xml-output ${{ steps.strings.outputs.work-dir }}/test_reports/report_${{matrix.build.runs-on}}_${{ matrix.build.image }}_${{strategy.job-index}}_${{steps.fetch-job-id.outputs.job_id}}.xml \
           ${{ steps.strings.outputs.build-output-dir }}/test
 
         echo
