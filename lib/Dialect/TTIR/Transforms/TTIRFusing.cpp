@@ -20,6 +20,32 @@ namespace mlir::tt::ttir {
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 namespace {
+// Moves the use-define chain of a value before a target operation.
+// Used when operations are moved or new operations are added to ensure that
+// operations are not placed before the definitions of their inputs, preserving
+// MLIR's topological ordering.
+static void moveUDChainBefore(Value value, Operation *targetOp) {
+  if (!value.getDefiningOp() ||
+      value.getDefiningOp()->isBeforeInBlock(targetOp)) {
+    return;
+  }
+
+  SetVector<Value> udChain = ttmlir::utils::getUseDefChain(value);
+  SetVector<Operation *> udChainOps =
+      ttmlir::utils::filterOperations(udChain.getArrayRef());
+  SetVector<Operation *> udChainSorted = topologicalSort(udChainOps);
+
+  // We are not moving ops in UD chain that are already before the target, as
+  // they could have descendants that are also before target but are not in
+  // the UD chain.
+  for (auto *op : udChainSorted) {
+    if (op->isBeforeInBlock(targetOp)) {
+      continue;
+    }
+    op->moveBefore(targetOp);
+  }
+}
+
 // Check if we can fuse conv followed by add into conv with bias.
 // This pattern supports both:
 // 1. Adding bias to conv without bias: conv(x, w) + b -> conv(x, w, b)
@@ -49,28 +75,12 @@ public:
           mlir::cast<RankedTensorType>(bias.getType()), convOp.getBias(), bias);
     }
 
-    if (bias.getDefiningOp() &&
-        !bias.getDefiningOp()->isBeforeInBlock(convOp)) {
-
-      // To move bias before conv, we need to ensure that all operations
-      // in the UD chain are also moved before convOp.
-
-      SetVector<Value> udChain = ttmlir::utils::getUseDefChain(bias);
-      SetVector<Operation *> udChainOps =
-          ttmlir::utils::filterOperations(udChain.getArrayRef());
-      SetVector<Operation *> udChainSorted = topologicalSort(udChainOps);
-
-      for (auto *op : udChainSorted) {
-        if (op->isBeforeInBlock(convOp)) {
-          continue;
-        }
-        op->moveBefore(convOp);
-      }
-    }
+    // Move bias UD chain before conv to keep the ordering of ops.
+    moveUDChainBefore(bias, convOp);
 
     rewriter.modifyOpInPlace(convOp,
                              [&]() { convOp.getBiasMutable().assign(bias); });
-    rewriter.replaceAllOpUsesWith(srcOp, convOp);
+    rewriter.replaceOp(srcOp, convOp);
     // The original conv op will be removed by DCE since it's no longer
     // used.
     return mlir::success();
@@ -655,23 +665,8 @@ public:
     // Reshape scale to match weight dimensions and pre-multiply weights.
     Value reshapedScale = createReshapedScale(rewriter, scaleValue, convOp);
 
-    // Get UD chain starting from the reshaped scale. This chain will be
-    // moved before the convOp to ensure that weight scale can be
-    // const-evaled.
-    SetVector<Value> udChain = ttmlir::utils::getUseDefChain(reshapedScale);
-    SetVector<Operation *> udChainOps =
-        ttmlir::utils::filterOperations(udChain.getArrayRef());
-    SetVector<Operation *> udChainSorted = topologicalSort(udChainOps);
-
-    // We are not moving ops in UD chain that are already before the conv, as
-    // they could have descendants that are also before conv but are not in
-    // the UD chain.
-    for (auto *op : udChainSorted) {
-      if (op->isBeforeInBlock(convOp)) {
-        continue;
-      }
-      op->moveBefore(convOp);
-    }
+    // Move scale UD chain before conv to keep the ordering of ops.
+    moveUDChainBefore(reshapedScale, convOp);
 
     rewriter.setInsertionPoint(convOp);
 
@@ -1071,6 +1066,173 @@ public:
     rewriter.replaceOp(batchNormOp, result);
 
     return mlir::success();
+  }
+};
+
+// Fuses the sum of two convolutions into a single convolution:
+//   conv2d(x, w1, b1) + conv2d(x, w2, b2)
+//   ->  conv2d(x, w1 + padded_w2, b1 + b2)
+//
+// Implements the RepVGG pattern where:
+//   - w1 is a 3x3 kernel with padding 1
+//   - w2 is a 1x1 kernel with padding 0
+//   - padded_w2 is w2 padded to 3x3 with 0s
+//   - Both convolutions share the same input, stride, dilation, and groups
+//
+// This pattern was is used in YOLOv9.
+class RepVGGConvSumFusionPattern : public mlir::OpRewritePattern<AddOp> {
+  using mlir::OpRewritePattern<AddOp>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(AddOp addOp, mlir::PatternRewriter &rewriter) const final {
+    auto components = getConvPair(addOp);
+    if (!components) {
+      return mlir::failure();
+    }
+
+    Conv2dOp conv3x3 = components->first;
+    Conv2dOp conv1x1 = components->second;
+
+    auto paddedWeight = createPaddedWeight(rewriter, conv1x1);
+
+    rewriter.setInsertionPoint(conv3x3);
+    addWeight(rewriter, conv3x3, paddedWeight);
+    addBias(rewriter, conv3x3, conv1x1);
+
+    rewriter.replaceOp(addOp, conv3x3);
+
+    return mlir::success();
+  }
+
+private:
+  static std::optional<std::pair<Conv2dOp, Conv2dOp>> getConvPair(AddOp addOp) {
+    auto lhs = addOp.getLhs();
+    auto rhs = addOp.getRhs();
+
+    auto lhsConv = lhs.getDefiningOp<Conv2dOp>();
+    auto rhsConv = rhs.getDefiningOp<Conv2dOp>();
+
+    if (!lhsConv || !rhsConv) {
+      return std::nullopt;
+    }
+
+    if (!lhsConv->hasOneUse() || !rhsConv->hasOneUse()) {
+      return std::nullopt;
+    }
+
+    if (lhsConv.getInput() != rhsConv.getInput()) {
+      return std::nullopt;
+    }
+
+    if (isRepVGGConvPair(lhsConv, rhsConv)) {
+      return std::make_pair(lhsConv, rhsConv);
+    }
+    if (isRepVGGConvPair(rhsConv, lhsConv)) {
+      return std::make_pair(rhsConv, lhsConv);
+    }
+    return std::nullopt;
+  }
+
+  // Checks if the two convolutions match the RepVGG conv sum pattern:
+  // - First has 3x3 kernel with padding 1
+  // - Second has 1x1 kernel with padding 0
+  // - They must have the same stride, dilation, and groups
+  static bool isRepVGGConvPair(Conv2dOp conv1, Conv2dOp conv2) {
+    if (!hasKernelShape(conv1, 3, 3) || !hasKernelShape(conv2, 1, 1)) {
+      return false;
+    }
+    if (!hasPaddingValues(conv1, 1) || !hasPaddingValues(conv2, 0)) {
+      return false;
+    }
+    if (conv1.getStride() != conv2.getStride() ||
+        conv1.getDilation() != conv2.getDilation() ||
+        conv1.getGroups() != conv2.getGroups()) {
+      return false;
+    }
+    return true;
+  }
+
+  static bool hasKernelShape(Conv2dOp conv, int64_t kH, int64_t kW) {
+    auto shape = conv.getWeight().getType().getShape();
+    return shape.size() == 4 && shape[2] == kH && shape[3] == kW;
+  }
+
+  static bool hasPaddingValues(Conv2dOp conv, int32_t padValue) {
+    auto padding = conv.getPadding();
+    if (auto denseAttr = llvm::dyn_cast<DenseI32ArrayAttr>(padding)) {
+      auto paddingValues = denseAttr.asArrayRef();
+      return llvm::all_of(paddingValues,
+                          [padValue](int32_t v) { return v == padValue; });
+    }
+    if (auto i32Attr = llvm::dyn_cast<IntegerAttr>(padding)) {
+      return i32Attr.getInt() == padValue;
+    }
+    return false;
+  }
+
+  // Creates a padded weight by padding the 1x1 weight to 3x3.
+  static Value createPaddedWeight(mlir::PatternRewriter &rewriter,
+                                  Conv2dOp conv) {
+    auto weight1x1 = conv.getWeight();
+    auto weight1x1Type = mlir::cast<RankedTensorType>(weight1x1.getType());
+    auto weight1x1Shape = weight1x1Type.getShape();
+
+    // Create new shape for 3x3 weight: (N, C, 3, 3)
+    SmallVector<int64_t> weight3x3Shape = {weight1x1Shape[0], weight1x1Shape[1],
+                                           3, 3};
+    auto weight3x3Type =
+        RankedTensorType::get(weight3x3Shape, weight1x1Type.getElementType(),
+                              weight1x1Type.getEncoding());
+
+    // Pad the 1x1 weight to 3x3 by adding zeros around it
+    SmallVector<int32_t> paddingValues = {0, 0, 0, 0, 1, 1, 1, 1};
+    return rewriter.create<PadOp>(
+        ttmlir::utils::appendLocationSuffix(conv.getLoc(), "_pad"),
+        weight3x3Type, weight1x1, rewriter.getDenseI32ArrayAttr(paddingValues),
+        rewriter.getF32FloatAttr(0.0));
+  }
+
+  // Modifies conv to use a combined weight created by adding the additional
+  // weight to the existing weight from conv.
+  static void addWeight(mlir::PatternRewriter &rewriter, Conv2dOp conv,
+                        Value additionalWeight) {
+    auto existingWeight = conv.getWeight();
+    assert(existingWeight.getType() == additionalWeight.getType() &&
+           "Expected same weight type");
+
+    // Move additional weight UD chain before conv to ensure it is before addOp.
+    moveUDChainBefore(additionalWeight, conv);
+
+    auto combinedWeight = rewriter.create<AddOp>(
+        ttmlir::utils::appendLocationSuffix(conv.getLoc(), "_weight_add"),
+        existingWeight.getType(), additionalWeight, existingWeight);
+    rewriter.modifyOpInPlace(
+        conv, [&]() { conv.getWeightMutable().assign(combinedWeight); });
+  }
+
+  // Modifies conv1 to use a combined bias created by adding bias2 to bias1. If
+  // only conv2 has bias, assigns it to conv1.
+  static void addBias(mlir::PatternRewriter &rewriter, Conv2dOp conv1,
+                      Conv2dOp conv2) {
+    auto bias1 = conv1.getBias();
+    auto bias2 = conv2.getBias();
+
+    if (bias1 && bias2) {
+      assert(bias1.getType() == bias2.getType() && "Expected same bias type");
+
+      // Move bias2 UD chain before conv1 to ensure it is before addOp.
+      moveUDChainBefore(bias2, conv1);
+
+      auto combinedBias = rewriter.create<AddOp>(
+          ttmlir::utils::appendLocationSuffix(conv1.getLoc(), "_bias_add"),
+          bias1.getType(), bias1, bias2);
+      rewriter.modifyOpInPlace(
+          conv1, [&]() { conv1.getBiasMutable().assign(combinedBias); });
+    } else if (bias2) {
+      rewriter.modifyOpInPlace(conv1,
+                               [&]() { conv1.getBiasMutable().assign(bias2); });
+    }
   }
 };
 
@@ -2719,6 +2881,7 @@ public:
         patterns.add<ConvWithMultiply<ConvolutionOp>>(&getContext());
         patterns.add<BatchNormDecomposition>(&getContext());
       }
+      patterns.add<RepVGGConvSumFusionPattern>(&getContext());
       patterns.add<ConcatenateHeadsUpdatePattern>(&getContext());
       patterns.add<SplitQueryKeyValueAndSplitHeadsUpdatePattern<MatmulOp>>(
           &getContext());
