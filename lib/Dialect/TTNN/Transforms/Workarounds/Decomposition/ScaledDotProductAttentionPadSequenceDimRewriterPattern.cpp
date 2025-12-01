@@ -3,17 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScaledDotProductAttentionPadSequenceDimRewriterPattern.h"
+
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
-// Workaround which adds padding to ScaledDotProductAttention query, key, and
-// value tensors to make:
-// - sequence dimensions (dim -2) multiples of TILE_HEIGHT - Metal issue
-// reference: https://github.com/tenstorrent/tt-metal/issues/32502
-// - head dimensions (dim -1) multiples of TILE_WIDTH - Metal issue reference:
-// https://github.com/tenstorrent/tt-metal/issues/33434 The attention mask is
-// also padded accordingly in both sequence dimensions. After the operation, the
-// result is sliced back to the original shape.
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
 namespace {
@@ -30,7 +23,7 @@ Value padDimension(Value tensor, int64_t targetLen, int64_t dim,
   int64_t rank = tensorType.getRank();
   int64_t padAmount = targetLen - shape[dim];
 
-  SmallVector<int64_t> paddedShape(shape.begin(), shape.end());
+  SmallVector<int64_t> paddedShape(shape);
   paddedShape[dim] = targetLen;
 
   SmallVector<int32_t> padding(rank * 2, 0);
@@ -40,10 +33,11 @@ Value padDimension(Value tensor, int64_t targetLen, int64_t dim,
       utils::RankedTensorTypeFactory::create(tensorType, paddedShape);
 
   return rewriter
-      .create<PadOp>(
-          loc, paddedType, tensor, rewriter.getDenseI32ArrayAttr(padding),
-          rewriter.getF32FloatAttr(padValue), rewriter.getBoolAttr(true),
-          /*memory_config=*/nullptr)
+      .create<PadOp>(loc, paddedType, tensor,
+                     rewriter.getDenseI32ArrayAttr(padding),
+                     rewriter.getF32FloatAttr(padValue),
+                     /*use_multicore=*/rewriter.getBoolAttr(true),
+                     /*memory_config=*/nullptr)
       .getResult();
 }
 

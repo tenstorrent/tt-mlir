@@ -47,10 +47,8 @@ ttnn::PermuteOp generatePermute(mlir::TypedValue<mlir::RankedTensorType> input,
                                 PatternRewriter &rewriter,
                                 mlir::Location newLoc) {
   RankedTensorType inputType = input.getType();
-  llvm::SmallVector<int64_t> outputShape;
-  for (int64_t dim : permutation) {
-    outputShape.push_back(inputType.getDimSize(dim));
-  }
+  llvm::SmallVector<int64_t> outputShape =
+      ttmlir::utils::applyPermutation(inputType.getShape(), permutation);
   RankedTensorType outputType =
       ttnn::utils::RankedTensorTypeFactory::create(inputType, outputShape);
 

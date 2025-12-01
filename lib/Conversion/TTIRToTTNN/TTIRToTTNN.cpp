@@ -2221,14 +2221,14 @@ public:
   }
 
 private:
-  // SDPA tensor dimension indices for [Batch, NumHeads, SeqLen, HeadDim] layout
+  // SDPA Query, Key, Value tensors have shape [B, H, S, D] (Batch, NumHeads,
+  // SeqLen, HeadDim).
   static constexpr int64_t kNumHeadsDim = 1;
   static constexpr int64_t kSeqLenDim = 2;
 
-  // Permutation to convert [B, H, S, D] -> [S, B, H, D] for decode op
+  // Permutation to convert query from [B, H, S, D] -> [S, B, H, D] for SDPA
+  // decode op.
   static constexpr std::array<int64_t, 4> kToDecodePermutation = {2, 0, 1, 3};
-  // Permutation to convert [S, B, H, D] -> [B, H, S, D] back from decode op
-  static constexpr std::array<int64_t, 4> kFromDecodePermutation = {1, 2, 0, 3};
 
   // Determine if the decode op should be used based on query sequence length.
   // SDPA decode is optimized for autoregressive decoding where seq_len == 1.
@@ -2247,8 +2247,7 @@ private:
     }
 
     auto maskType = mlir::cast<RankedTensorType>(mask.getType());
-    SmallVector<int64_t> broadcastShape(maskType.getShape().begin(),
-                                        maskType.getShape().end());
+    SmallVector<int64_t> broadcastShape(maskType.getShape());
     broadcastShape[kSeqLenDim] = numHeads;
 
     auto broadcastType =
@@ -2272,11 +2271,9 @@ private:
     // Permute query: [B, H, 1, D] -> [1, B, H, D]
     Value permutedQuery = ttir_to_ttnn::utils::generatePermute(
         mlir::cast<TypedValue<mlir::RankedTensorType>>(adaptor.getQuery()),
-        SmallVector<int64_t>(kToDecodePermutation.begin(),
-                             kToDecodePermutation.end()),
-        rewriter, op.getLoc());
+        llvm::to_vector(kToDecodePermutation), rewriter, op.getLoc());
 
-    // Broadcast mask head dimension if needed
+    // Broadcast mask head dimension if needed.
     Value attentionMask = broadcastMaskForDecode(
         adaptor.getAttentionMask(), numHeads, rewriter, op.getLoc());
 
@@ -2287,13 +2284,12 @@ private:
         adaptor.getScaleAttr(), /*memory_config=*/nullptr,
         /*program_config=*/nullptr);
 
-    // Permute result back: [1, B, H, D] -> [B, H, 1, D]
-    rewriter.replaceOp(op,
-                       ttir_to_ttnn::utils::generatePermute(
-                           decodeOp.getResult(),
-                           SmallVector<int64_t>(kFromDecodePermutation.begin(),
-                                                kFromDecodePermutation.end()),
-                           rewriter, op.getLoc()));
+    // Permute result back: [1, B, H, D] -> [B, H, 1, D].
+    rewriter.replaceOp(
+        op, ttir_to_ttnn::utils::generatePermute(
+                decodeOp.getResult(),
+                ttmlir::utils::inversePermutation(kToDecodePermutation),
+                rewriter, op.getLoc()));
 
     return success();
   }

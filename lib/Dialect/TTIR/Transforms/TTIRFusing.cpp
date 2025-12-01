@@ -14,6 +14,7 @@
 #include "mlir/IR/Operation.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/SmallSet.h"
+#include "llvm/ADT/TypeSwitch.h"
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRFUSING
@@ -3024,15 +3025,17 @@ private:
     // Look for optional mask addition
     Value cursor = softmax.getInput();
     if (auto maskAdd = skipLayoutOps<AddOp>(cursor)) {
-      if (!tryExtractMask(maskAdd, components.mask, cursor)) {
-        return false;
+      if (auto maskResult = tryExtractMask(maskAdd)) {
+        components.mask = maskResult->first;
+        cursor = maskResult->second;
       }
     }
 
     // Look for optional scale multiplication
     if (auto mulOp = skipLayoutOps<MultiplyOp>(cursor)) {
-      if (!tryExtractScale(mulOp, components.scale, cursor)) {
-        return false;
+      if (auto scaleResult = tryExtractScale(mulOp)) {
+        components.scale = scaleResult->first;
+        cursor = scaleResult->second;
       }
     }
 
@@ -3120,64 +3123,54 @@ private:
     return true;
   }
 
-  // Try to extract mask from an add operation
-  bool tryExtractMask(AddOp addOp, Value &outMask, Value &outScorePath) const {
+  // Try to extract mask from an add operation.
+  // Returns {mask, score_path} if found, nullopt otherwise.
+  std::optional<std::pair<Value, Value>> tryExtractMask(AddOp addOp) const {
     auto lhsMul = skipLayoutOps<MultiplyOp>(addOp.getLhs());
     auto rhsMul = skipLayoutOps<MultiplyOp>(addOp.getRhs());
-
     if (lhsMul && looksLikeMask(addOp.getRhs())) {
-      outMask = addOp.getRhs();
-      outScorePath = addOp.getLhs();
-      return true;
+      return std::make_pair(addOp.getRhs(), addOp.getLhs());
     }
+
     if (rhsMul && looksLikeMask(addOp.getLhs())) {
-      outMask = addOp.getLhs();
-      outScorePath = addOp.getRhs();
-      return true;
+      return std::make_pair(addOp.getLhs(), addOp.getRhs());
     }
 
-    return false;
+    return std::nullopt;
   }
 
-  // Try to extract scale from a multiply operation
-  bool tryExtractScale(MultiplyOp mulOp, float &outScale,
-                       Value &outContinuation) const {
-    auto scaleVal = extractConstantScale(mulOp.getRhs());
-    if (scaleVal) {
-      outScale = *scaleVal;
-      outContinuation = mulOp.getLhs();
-      return true;
+  // Try to extract scale from a multiply operation.
+  // Returns {scale, continuation_value} if found, nullopt otherwise.
+  std::optional<std::pair<float, Value>>
+  tryExtractScale(MultiplyOp mulOp) const {
+    if (auto scaleVal = extractConstantScale(mulOp.getRhs())) {
+      return std::make_pair(*scaleVal, mulOp.getLhs());
+    }
+    if (auto scaleVal = extractConstantScale(mulOp.getLhs())) {
+      return std::make_pair(*scaleVal, mulOp.getRhs());
     }
 
-    scaleVal = extractConstantScale(mulOp.getLhs());
-    if (scaleVal) {
-      outScale = *scaleVal;
-      outContinuation = mulOp.getRhs();
-      return true;
-    }
-
-    return false;
+    return std::nullopt;
   }
 
+  // Traces backward from a value through layout ops (typecast, reshape,
+  // permute, broadcast, repeat_interleave) to find an operation of type OpType.
+  // Returns nullptr if a non-layout op is encountered before finding the
+  // target.
   template <typename OpType>
   OpType skipLayoutOps(Value v) const {
-    while (v) {
-      Operation *defOp = v.getDefiningOp();
-      if (!defOp) {
-        return nullptr;
-      }
-
+    while (Operation *defOp = v.getDefiningOp()) {
       if (auto targetOp = dyn_cast<OpType>(defOp)) {
         return targetOp;
       }
 
-      if (isLayoutOp(defOp)) {
-        v = defOp->getOperand(0);
-        continue;
+      if (!isLayoutOp(defOp)) {
+        return nullptr;
       }
 
-      break;
+      v = defOp->getOperand(0);
     }
+
     return nullptr;
   }
 
@@ -3186,14 +3179,16 @@ private:
                RepeatInterleaveOp>(op);
   }
 
-  // Check that all operations in the chain from 'start' to 'end' have single
-  // uses. This ensures intermediate results (like attention weights after
-  // softmax) are not used elsewhere.
+  // Checks that all values from 'start' back to 'end' have single uses.
+  // This ensures intermediate results (like attention weights after softmax)
+  // are not used elsewhere, which is required for safe fusion.
+  // Assumes the caller has already validated that only appropriate ops
+  // exist in the chain (e.g., via skipLayoutOps).
   bool chainHasSingleUses(Value start, Operation *end) const {
-    Value v = start;
-    while (v) {
-      Operation *defOp = v.getDefiningOp();
-      if (!defOp) {
+    Value current = start;
+
+    while (Operation *defOp = current.getDefiningOp()) {
+      if (!current.hasOneUse()) {
         return false;
       }
 
@@ -3201,24 +3196,15 @@ private:
         return true;
       }
 
-      if (!v.hasOneUse()) {
-        return false;
-      }
-
-      if (isLayoutOp(defOp)) {
-        v = defOp->getOperand(0);
-        continue;
-      }
-
-      break;
+      current = defOp->getOperand(0);
     }
+
     return false;
   }
 
   Value traceToSourceTensor(Value v) const {
-    while (v) {
-      Operation *defOp = v.getDefiningOp();
-      if (!defOp || !isLayoutOp(defOp)) {
+    while (Operation *defOp = v.getDefiningOp()) {
+      if (!isLayoutOp(defOp)) {
         break;
       }
       v = defOp->getOperand(0);
@@ -3227,25 +3213,22 @@ private:
   }
 
   std::optional<float> extractConstantScale(Value scaleVal) const {
-    if (!scaleVal) {
+    auto fullOp = scaleVal.getDefiningOp<FullOp>();
+    if (!fullOp) {
       return std::nullopt;
     }
 
-    Operation *defOp = scaleVal.getDefiningOp();
-    if (!defOp) {
-      return std::nullopt;
-    }
-
-    if (auto fullOp = dyn_cast<FullOp>(defOp)) {
-      if (auto fillValueAttr = dyn_cast<FloatAttr>(fullOp.getFillValue())) {
-        return fillValueAttr.getValue().convertToFloat();
-      }
-      if (auto fillValueAttr = dyn_cast<IntegerAttr>(fullOp.getFillValue())) {
-        return static_cast<float>(fillValueAttr.getValue().getSExtValue());
-      }
-    }
-
-    return std::nullopt;
+    return llvm::TypeSwitch<mlir::Attribute, std::optional<float>>(
+               fullOp.getFillValue())
+        .Case([](FloatAttr attr) -> std::optional<float> {
+          return attr.getValue().convertToFloat();
+        })
+        .Case([](IntegerAttr attr) -> std::optional<float> {
+          return static_cast<float>(attr.getValue().getSExtValue());
+        })
+        .Default([](mlir::Attribute) -> std::optional<float> {
+          return std::nullopt;
+        });
   }
 
   bool looksLikeMask(Value v) const {

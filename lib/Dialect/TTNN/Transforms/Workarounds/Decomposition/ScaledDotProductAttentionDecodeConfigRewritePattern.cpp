@@ -3,12 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScaledDotProductAttentionDecodeConfigRewritePattern.h"
+
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
-// Workaround which adds a default SDPAProgramConfig to
-// ScaledDotProductAttentionDecodeOp when no config is present because
-// it will fail otherwise.
-// Metal issue reference: https://github.com/tenstorrent/tt-metal/issues/32641
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
 LogicalResult
@@ -20,10 +17,19 @@ ScaledDotProductAttentionDecodeConfigRewritePattern::matchAndRewrite(
 
   MLIRContext *context = srcOp.getContext();
 
-  // Create a default SDPA program config
-  auto computeGridSize = CoreCoordAttr::get(context, /*x=*/8, /*y=*/8);
-  uint64_t qChunkSize = 32; // Default chunk size
-  uint64_t kChunkSize = 32; // Default chunk size
+  // Get actual grid size from device
+  ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(srcOp);
+  if (!deviceAttr) {
+    return failure();
+  }
+
+  auto workerGrid = deviceAttr.getWorkerGrid();
+  auto gridShape = workerGrid.getShape();
+
+  auto computeGridSize =
+      CoreCoordAttr::get(context, /*x=*/gridShape[1], /*y=*/gridShape[0]);
+  uint64_t qChunkSize = 32;
+  uint64_t kChunkSize = 32;
 
   auto programConfig = SDPAProgramConfigAttr::get(
       context, computeGridSize,
