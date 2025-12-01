@@ -1,4 +1,4 @@
 [
 
-  { "runs-on": "n150",   "image": "speedy",  "script": "ttrt.sh", "args": ["run", "Silicon/TTNN/n150/mixed_precision"] }
+  { "runs-on": "n150",   "image": "tracy",  "script": "pytest.sh", "args": "tools/explorer/test/run_tests.py", "reqs": "--force-reinstall $BUILD_DIR/bin/wheels/tt_adapter*.whl $BUILD_DIR/bin/wheels/ai_edge_model_explorer*.whl" }
 ]

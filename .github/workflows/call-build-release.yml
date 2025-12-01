@@ -40,7 +40,7 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          { enable_op_model: "ON", enable_emitc: "ON", name: "speedy" },
+          { enable_op_model: "ON", enable_emitc: "ON", name: "speedy" }
         ]
 
     name: Build ${{ matrix.build.name }} Release
