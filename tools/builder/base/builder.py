@@ -78,6 +78,9 @@ class Builder:
         # Map from location string to the operand at that location.
         self._loc_to_operand: Dict[str, Operand] = {}
 
+        # List of op locations to bypass golden comparison.
+        self._bypass_ops: List[str] = []
+
         # Set torch seed for reproducibility.
         torch.manual_seed(0)
 
@@ -194,6 +197,16 @@ class Builder:
 
     def set_graph_level_check(self, check: bool):
         self._force_graph_level_check = check
+
+    def bypass(self, operand: Operand):
+        if isinstance(operand, OpView):
+            loc = str(operand.operation.location)
+            self._bypass_ops.append(loc)
+        elif isinstance(operand, Operation):
+            loc = str(operand.location)
+            self._bypass_ops.append(loc)
+        else:
+            raise TypeError(f"Invalid operand type {type(operand)} for bypass")
 
     # ----- Private methods -----
 
