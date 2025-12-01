@@ -248,7 +248,7 @@ public:
               // datamovement form. Explicit datamovement form should fall
               // through to regular linalg-to-affine conversion.
               if (!gOp.isExplicitDatamovementForm()) {
-                // Create strategy based on allocation type.
+                // Create fresh strategy for this nest.
                 std::unique_ptr<DstAllocationStrategy> strategy;
                 if (allocationStrategy == "basic") {
                   strategy = std::make_unique<DstSliceAllocationState>();
@@ -287,7 +287,7 @@ public:
         // Remove the marker attribute after identifying the loop.
         forOp->removeAttr("d2m.linalg_root");
 
-        // Create strategy based on allocation type.
+        // Instantiate a new strategy for each loop nest.
         std::unique_ptr<DstAllocationStrategy> strategy;
         if (allocationStrategy == "basic") {
           strategy = std::make_unique<DstSliceAllocationState>();
@@ -1108,30 +1108,30 @@ public:
     LLVM_DEBUG(llvm::errs()
                << "DST allocation strategy: " << allocationStrategy << "\n");
 
-    // Pre-compute DST slice assignments using the selected analysis strategy.
-    // Basic strategy uses inline allocation during transformation, so no
-    // analysis needed. Graph coloring strategies pre-compute assignments.
     DstAnalysisResult analysisResult;
+    std::unique_ptr<DstAnalysis> dstAnalysis;
 
-    if (allocationStrategy != "basic") {
-      // Graph coloring strategies need capacity limits from hardware.
+    if (allocationStrategy == "greedy" ||
+        allocationStrategy == "chaitin-briggs") {
+      // Compute DST capacity constraint from hardware and element types.
       DstCapacityAnalysis capacityAnalysis(moduleOp, fullSyncEn.getValue(),
                                            maxDstPhysicalSizeTiles.getValue());
       unsigned minDstCapacity = capacityAnalysis.getMinDstCapacity();
 
-      std::unique_ptr<DstAnalysis> dstAnalysis;
       if (allocationStrategy == "greedy") {
         dstAnalysis = createGreedyDstAnalysis(minDstCapacity);
       } else {
         dstAnalysis = createChaitinBriggsDstAnalysis(minDstCapacity);
       }
+    }
 
+    if (dstAnalysis) {
       // Run analysis on entire module
       analysisResult = dstAnalysis->analyze(moduleOp);
 
       if (!analysisResult.isValid) {
         moduleOp.emitError()
-            << "DST analysis failed: "
+            << "Graph coloring failed: "
             << analysisResult.failureReason.value_or("Unknown error");
         return signalPassFailure();
       }
