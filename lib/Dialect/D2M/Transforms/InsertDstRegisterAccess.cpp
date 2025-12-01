@@ -1098,10 +1098,10 @@ public:
 
     // Validate allocation strategy option
     if (allocationStrategy != "basic" && allocationStrategy != "greedy" &&
-        allocationStrategy != "chaitin-briggs") {
+        allocationStrategy != "chaitin") {
       moduleOp.emitError()
           << "Invalid allocation strategy '" << allocationStrategy
-          << "'. Valid options are: 'basic', 'greedy', 'chaitin-briggs'.";
+          << "'. Valid options are: 'basic', 'greedy', 'chaitin'.";
       return signalPassFailure();
     }
 
@@ -1111,8 +1111,7 @@ public:
     DstAnalysisResult analysisResult;
     std::unique_ptr<DstAnalysis> dstAnalysis;
 
-    if (allocationStrategy == "greedy" ||
-        allocationStrategy == "chaitin-briggs") {
+    if (allocationStrategy == "greedy" || allocationStrategy == "chaitin") {
       // Compute DST capacity constraint from hardware and element types.
       DstCapacityAnalysis capacityAnalysis(moduleOp, fullSyncEn.getValue(),
                                            maxDstPhysicalSizeTiles.getValue());

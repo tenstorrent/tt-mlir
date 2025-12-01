@@ -263,7 +263,7 @@ createGraphColoringDstAnalysis(std::unique_ptr<ColoringStrategy> strategy,
 std::unique_ptr<DstAnalysis>
 createChaitinBriggsDstAnalysis(unsigned maxSlices) {
   return std::make_unique<DstAnalysisGraphColoring>(
-      std::make_unique<ChaitinBriggsColoring>(), "chaitin-briggs", maxSlices);
+      std::make_unique<ChaitinBriggsColoring>(), "chaitin", maxSlices);
 }
 
 std::unique_ptr<DstAnalysis> createGreedyDstAnalysis(unsigned maxSlices) {

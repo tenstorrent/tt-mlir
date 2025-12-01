@@ -1,6 +1,6 @@
 // RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access='max-dst-physical-size-tiles=32 allocation-strategy=basic' --canonicalize %s | FileCheck %s
 // RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access='max-dst-physical-size-tiles=32 allocation-strategy=greedy' --canonicalize %s | FileCheck %s
-// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access='max-dst-physical-size-tiles=32 allocation-strategy=chaitin-briggs' --canonicalize %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access='max-dst-physical-size-tiles=32 allocation-strategy=chaitin' --canonicalize %s | FileCheck %s
 
 // Test that InsertDstRegisterAccess correctly inserts d2m.dst_reinterpret_cast operations
 // when handling typecast operations with mismatched input/output types.

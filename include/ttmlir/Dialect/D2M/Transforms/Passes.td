@@ -162,7 +162,7 @@ def D2MInsertDstRegisterAccess : Pass<"d2m-insert-dst-register-access", "::mlir:
     Allocation Strategies:
     - basic: Linear allocation without reuse (original behavior)
     - greedy: Graph coloring with greedy algorithm (fast, good quality)
-    - chaitin-briggs: Graph coloring with Chaitin-Briggs algorithm (slower, optimal for K-colorable graphs)
+    - chaitin: Graph coloring with Chaitin-Briggs algorithm (slower, optimal for K-colorable graphs)
 
     Notes:
        - Operand loads & stores that implicitly uses the DST are replaced with explicit affine loads & stores that go through the DST.
@@ -173,7 +173,7 @@ def D2MInsertDstRegisterAccess : Pass<"d2m-insert-dst-register-access", "::mlir:
   let options = [
     Option<"useTileMatmul", "use-tile-matmul", "bool", /*default=*/"false", "Use tile_matmul instead of tile_matmul_block">,
     Option<"maxDstPhysicalSizeTiles", "max-dst-physical-size-tiles", "unsigned", "0", "Override the max dst physical size tiles or 0 if unset.">,
-    Option<"allocationStrategy", "allocation-strategy", "std::string", /*default=*/"\"chaitin-briggs\"", "DST allocation strategy: 'basic', 'greedy', 'chaitin-briggs'">,
+    Option<"allocationStrategy", "allocation-strategy", "std::string", /*default=*/"\"chaitin\"", "DST allocation strategy: 'basic', 'greedy', 'chaitin'">,
     Option<"fullSyncEn", "full-sync-en", "bool", /*default=*/"true", "Enable full sync mode for DST capacity (true = max capacity, false = half capacity)">,
   ];
 }

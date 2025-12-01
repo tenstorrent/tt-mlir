@@ -169,7 +169,7 @@ struct TTIRToTTMetalPipelineOptions
       *this, "dst-strategy",
       llvm::cl::desc(
           "DST allocation strategy for the D2MInsertDstRegisterAccess pass: "
-          "basic, greedy, chaitin-briggs."),
+          "basic, greedy, chaitin."),
       llvm::cl::init("greedy")};
 };
 

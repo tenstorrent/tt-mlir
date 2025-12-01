@@ -1,6 +1,6 @@
 // RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access='allocation-strategy=basic' --canonicalize %s --split-input-file | FileCheck %s --check-prefixes=CHECK,BASIC
 // RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access='allocation-strategy=greedy' --canonicalize %s --split-input-file | FileCheck %s --check-prefixes=CHECK,GREEDY
-// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access='allocation-strategy=chaitin-briggs' --canonicalize %s --split-input-file | FileCheck %s --check-prefixes=CHECK,CHAITIN
+// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access='allocation-strategy=chaitin' --canonicalize %s --split-input-file | FileCheck %s --check-prefixes=CHECK,CHAITIN
 //
 // Test that InsertDstRegisterAccess correctly handles d2m.generic operations
 // in explicit datamovement form (empty block_factors, indexing_maps, and iterator_types).

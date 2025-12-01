@@ -1,6 +1,6 @@
 // RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access='allocation-strategy=basic max-dst-physical-size-tiles=32' --canonicalize %s | FileCheck %s --check-prefixes=CHECK,BASIC
 // RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access='allocation-strategy=greedy max-dst-physical-size-tiles=32' --canonicalize %s | FileCheck %s --check-prefixes=CHECK,GREEDY
-// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access='allocation-strategy=chaitin-briggs max-dst-physical-size-tiles=32' --canonicalize %s | FileCheck %s --check-prefixes=CHECK,CHAITIN
+// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access='allocation-strategy=chaitin max-dst-physical-size-tiles=32' --canonicalize %s | FileCheck %s --check-prefixes=CHECK,CHAITIN
 
 #l1_ = #ttcore.memory_space<l1>
 #dst_ = #ttcore.memory_space<dst>
