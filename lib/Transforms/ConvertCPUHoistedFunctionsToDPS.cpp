@@ -124,12 +124,42 @@ private:
 
       builder.setInsertionPoint(returnOp);
 
-      // Add linalg.copy from return value to output argument
       for (auto [index, returnValue] : llvm::enumerate(returnedValues)) {
-        builder.create<linalg::CopyOp>(
-            returnOp.getLoc(), returnValue,
-            funcOp.getArgument(funcOp.getNumArguments() - returnTypes.size() +
-                               index));
+        // Find the defining op of the return value
+        auto *definingOp = returnValue.getDefiningOp();
+        assert(definingOp &&
+               "Return value does not have a defining operation!");
+
+        auto outputArgument = funcOp.getArgument(funcOp.getNumArguments() -
+                                                 returnTypes.size() + index);
+
+        // Check if the defining op implements DestinationStyleOpInterface.
+        // If it does, we can replace the output operand with the newly added
+        // output argument.
+        // We assume that most of the ops in this stage are linalg ops, so we
+        // prioritize checking for DestinationStyleOpInterface first to avoid
+        // unnecessary linalg.copy ops.
+        if (auto dpsDefiningOp =
+                llvm::dyn_cast<DestinationStyleOpInterface>(definingOp)) {
+          // Get the output operand index
+          auto outputOperandIndex = std::distance(
+              dpsDefiningOp->getResults().begin(),
+              llvm::find(dpsDefiningOp->getResults(), returnValue));
+
+          assert(outputOperandIndex >= 0 &&
+                 outputOperandIndex < dpsDefiningOp.getNumDpsInits() &&
+                 "Output operand index out of bounds!");
+
+          // Replace the output operand with the new output argument
+          dpsDefiningOp.setDpsInitOperand(outputOperandIndex, outputArgument);
+        }
+        // If the defining op does not implement DestinationStyleOpInterface,
+        // we insert a linalg.copy op to copy the return value to the output
+        // argument.
+        else {
+          builder.create<linalg::CopyOp>(returnOp.getLoc(), returnValue,
+                                         outputArgument);
+        }
       }
 
       // Insert void return op
