@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScaledDotProductAttentionDecodeConfigRewritePattern.h"
 
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 namespace mlir::tt::ttnn::workarounds::decomposition {
@@ -18,7 +19,7 @@ ScaledDotProductAttentionDecodeConfigRewritePattern::matchAndRewrite(
   MLIRContext *context = srcOp.getContext();
 
   // Get actual grid size from device
-  ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(srcOp);
+  ttcore::DeviceAttr deviceAttr = mlir::tt::ttcore::lookupDevice(srcOp);
   if (!deviceAttr) {
     return failure();
   }
