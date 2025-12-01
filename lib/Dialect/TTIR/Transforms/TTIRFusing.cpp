@@ -1540,13 +1540,16 @@ private:
 
       if (isa<FullOp, ConstantOp>(defOp)) {
         return value;
-      } else if (auto broadcastOp = dyn_cast<BroadcastOp>(defOp)) {
-        value = broadcastOp.getInput();
-      } else if (auto reshapeOp = dyn_cast<ReshapeOp>(defOp)) {
-        value = reshapeOp.getInput();
-      } else {
-        return nullptr;
       }
+      if (auto broadcastOp = dyn_cast<BroadcastOp>(defOp)) {
+        value = broadcastOp.getInput();
+        continue;
+      }
+      if (auto reshapeOp = dyn_cast<ReshapeOp>(defOp)) {
+        value = reshapeOp.getInput();
+        continue;
+      }
+      return nullptr;
     }
 
     return nullptr;
