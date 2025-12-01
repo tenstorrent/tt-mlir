@@ -9,8 +9,7 @@ module attributes {} {
     // CHECK-SAME: keep_dim = false
     // CHECK-SAME: tensor<128x10x32x4xbf16,
     // CHECK-SAME: -> tensor<128x10x32xbf16,
-    %0 = ttir.empty() : tensor<128x10x32xbf16>
-    %1 = "ttir.reduce_or"(%arg0, %0) <{dim_arg = [3 : i32], keep_dim = false}> : (tensor<128x10x32x4xbf16>, tensor<128x10x32xbf16>) -> tensor<128x10x32xbf16>
+    %1 = "ttir.reduce_or"(%arg0) <{dim_arg = [3 : i32], keep_dim = false}> : (tensor<128x10x32x4xbf16>) -> tensor<128x10x32xbf16>
     return %1 : tensor<128x10x32xbf16>
   }
 
@@ -21,8 +20,7 @@ module attributes {} {
     // CHECK-SAME: keep_dim = false
     // CHECK-SAME: tensor<128x10x4xbf16,
     // CHECK-SAME: -> tensor<128x4xbf16,
-    %0 = ttir.empty() : tensor<128x4xbf16>
-    %1 = "ttir.reduce_or"(%arg0, %0) <{dim_arg = [1 : i32], keep_dim = false}> : (tensor<128x10x4xbf16>, tensor<128x4xbf16>) -> tensor<128x4xbf16>
+    %1 = "ttir.reduce_or"(%arg0) <{dim_arg = [1 : i32], keep_dim = false}> : (tensor<128x10x4xbf16>) -> tensor<128x4xbf16>
     return %1 : tensor<128x4xbf16>
   }
 
@@ -33,8 +31,7 @@ module attributes {} {
     // CHECK-SAME: keep_dim = false
     // CHECK-SAME: tensor<128x10xbf16,
     // CHECK-SAME: -> tensor<10xbf16,
-    %0 = ttir.empty() : tensor<10xbf16>
-    %1 = "ttir.reduce_or"(%arg0, %0) <{dim_arg = [0 : i32], keep_dim = false}> : (tensor<128x10xbf16>, tensor<10xbf16>) -> tensor<10xbf16>
+    %1 = "ttir.reduce_or"(%arg0) <{dim_arg = [0 : i32], keep_dim = false}> : (tensor<128x10xbf16>) -> tensor<10xbf16>
     return %1 : tensor<10xbf16>
   }
 }

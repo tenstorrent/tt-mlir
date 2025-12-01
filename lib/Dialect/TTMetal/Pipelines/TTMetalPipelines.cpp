@@ -101,6 +101,7 @@ void createTTIRToTTMetalFrontendPipeline(
     gridOptOptions.overrideDeviceShape =
         llvm::to_vector(options.overrideDeviceShape);
   }
+  pm.addPass(d2m::createD2MMaterializeViewReturns());
   pm.addPass(d2m::createD2MGridSelection(gridOptOptions));
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(d2m::createD2MLowerToLayout());
@@ -118,24 +119,18 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(createLinalgElementwiseOpFusionPass());
   pm.addPass(mlir::createCanonicalizerPass());
   createTTIRBufferizationPipeline(pm, options);
-  if (options.ttnnMode) {
-    d2m::D2MInsertStreamsOptions insertStreamsOptions;
-    {
-      insertStreamsOptions.numStreamBuffers = options.numStreamBuffers;
-      insertStreamsOptions.allowL1OutputSpilling =
-          options.allowL1OutputSpilling;
-    }
-    pm.addPass(d2m::createD2MInsertStreams(insertStreamsOptions));
-  } else {
-    d2m::D2MAllocateOptions allocateOptions;
-    {
-      allocateOptions.numStreamBuffers = options.numStreamBuffers;
-      allocateOptions.allowL1OutputSpilling = options.allowL1OutputSpilling;
-      allocateOptions.testAssumeL1Capacity = options.testAssumel1Capacity;
-      allocateOptions.testBufferSizePolicy = options.testBufferSizePolicy;
-    }
-    pm.addPass(d2m::createD2MAllocate(allocateOptions));
+  d2m::D2MAllocateOptions allocateOptions;
+  {
+    allocateOptions.numStreamBuffers = options.numStreamBuffers;
+    allocateOptions.allowL1OutputSpilling = options.allowL1OutputSpilling;
+    allocateOptions.streamInsertPolicy = options.streamInsertPolicy;
+    allocateOptions.availableL1AddrRange.assign(
+        options.availableL1AddrRange.begin(),
+        options.availableL1AddrRange.end());
+    allocateOptions.testAssumeL1Capacity = options.testAssumel1Capacity;
+    allocateOptions.testBufferSizePolicy = options.testBufferSizePolicy;
   }
+  pm.addPass(d2m::createD2MAllocate(allocateOptions));
 
   pm.addPass(createCanonicalizerPassWithOptions(options));
   d2m::D2MGenericApplyInterchangeOptions applyInterchangeOptions;
@@ -150,6 +145,12 @@ void createTTIRToTTMetalMiddleendPipeline(
         options.maxDstPhysicalSizeTiles;
   }
   pm.addPass(d2m::createD2MGenericTileComputeLoops(tileComputeLoopsOptions));
+  d2m::D2MLinalgToAffineOptions linalgToAffineOptions;
+  {
+    linalgToAffineOptions.useTileMatmul = options.useTileMatmul;
+    linalgToAffineOptions.markRootLoops = true;
+  }
+  pm.addPass(d2m::createD2MLinalgToAffine(linalgToAffineOptions));
   d2m::D2MInsertDstRegisterAccessOptions insertDstRegisterAccessOptions;
   {
     insertDstRegisterAccessOptions.useTileMatmul = options.useTileMatmul;

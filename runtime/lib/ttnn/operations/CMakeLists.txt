@@ -6,6 +6,7 @@ endif()
 set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/cache/load_cached.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_gather.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_reduce.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/collective_permute.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/mesh_shard.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/point_to_point.cpp
@@ -45,6 +46,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/generic/generic_op.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/kv_cache/fill_cache.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/kv_cache/update_cache.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/kv_cache/paged_fill_cache.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/kv_cache/paged_update_cache.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/layout/from_device.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/layout/to_device.cpp
@@ -81,6 +83,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/scaled_dot_product_attention.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/scaled_dot_product_attention_decode.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/transformer/split_query_key_value_and_split_heads.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/transformer/paged_scaled_dot_product_attention_decode.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/utils/utils.cpp
 )
 

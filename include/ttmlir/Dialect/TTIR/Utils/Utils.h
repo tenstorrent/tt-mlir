@@ -273,26 +273,60 @@ inline bool hasShouldHoistAttr(mlir::Operation *op) {
 // Determine if the stablehlo.convolution op represents a regular or
 // transposed convolution, based on Torch-MLIR lowering patterns:
 // https://github.com/llvm/torch-mlir/blob/main/lib/Conversion/TorchToStablehlo/Linear.cpp
-// and XLA patterns: convolution is transposed if the input dilation is
-// greater than 1.
+// Only transposed convolutions can have input dilation greater than 1.
+// Transposed convolutions always have a window stride of 1.
 inline bool isTransposedConv(ttir::ConvolutionOp convolutionOp) {
-  constexpr static uint32_t SPATIAL_DIM_HEIGHT = 0;
-  constexpr static uint32_t SPATIAL_DIM_WIDTH = 1;
-  ttir::ConvolutionLayoutAttr convLayoutAttr =
-      convolutionOp.getConvolutionLayoutAttr();
 
-  bool isTransposed =
-      convLayoutAttr.getKernelInputFeatureDimension() ==
-          convLayoutAttr.getInputSpatialDimensions()[SPATIAL_DIM_WIDTH] &&
-      convLayoutAttr.getKernelOutputFeatureDimension() ==
-          convLayoutAttr.getInputSpatialDimensions()[SPATIAL_DIM_HEIGHT] &&
-      convLayoutAttr.getInputSpatialDimensions() !=
-          convLayoutAttr.getKernelSpatialDimensions() &&
-      convLayoutAttr.getOutputSpatialDimensions() !=
-          convLayoutAttr.getKernelSpatialDimensions();
-  isTransposed |= llvm::any_of(convolutionOp.getInputDilation(),
-                               [](int64_t d) { return d > 1; });
+  bool isTransposed = llvm::any_of(convolutionOp.getInputDilation(),
+                                   [](int64_t d) { return d > 1; });
+
+  isTransposed &= llvm::all_of(convolutionOp.getWindowStrides(),
+                               [](int64_t s) { return s == 1; });
+
   return isTransposed;
+}
+
+// Helper function to create a reshape operation.
+inline ttir::ReshapeOp createReshapeOp(PatternRewriter &rewriter, Location loc,
+                                       Value input,
+                                       ::llvm::ArrayRef<int64_t> targetShape) {
+  auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
+  auto shapeAttr =
+      rewriter.getI32ArrayAttr(llvm::SmallVector<int32_t>(targetShape));
+
+  return rewriter.create<ttir::ReshapeOp>(
+      loc,
+      RankedTensorType::get(targetShape, inputType.getElementType(),
+                            inputType.getEncoding()),
+      input, shapeAttr);
+}
+
+// Helper function to flatten a tensor to 1D.
+// It flattens tensor on given location with optional suffix to the location
+// name.
+inline Value flattenTensor(PatternRewriter &rewriter, Location loc,
+                           Value tensor, const std::string &suffix = "") {
+  RankedTensorType tensorType = mlir::cast<RankedTensorType>(tensor.getType());
+  ArrayRef<int64_t> tensorShape = tensorType.getShape();
+
+  // Calculate total number of elements (product of all dimensions).
+  int64_t totalElements = 1;
+  for (int64_t dim : tensorShape) {
+    totalElements *= dim;
+  }
+
+  // Create new 1D shape.
+  llvm::SmallVector<int64_t> flattenedShape = {totalElements};
+
+  // Create location with optional suffix.
+  Location reshapeLocation =
+      suffix.empty() ? loc : ttmlir::utils::appendLocationSuffix(loc, suffix);
+
+  // Reshape tensor to 1D.
+  Value flattenedTensor =
+      createReshapeOp(rewriter, reshapeLocation, tensor, flattenedShape);
+
+  return flattenedTensor;
 }
 } // namespace mlir::tt::ttir::utils
 

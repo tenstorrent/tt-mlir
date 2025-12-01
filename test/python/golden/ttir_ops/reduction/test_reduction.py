@@ -100,9 +100,7 @@ def test_reduction_ops(
 
         reduction_func = reduction_op_builder_map.get(reduction_op_name)
 
-        return reduction_func(
-            in0, dim_arg=dim_arg, keep_dim=keep_dim, unit_attrs=unit_attrs
-        )
+        return reduction_func(in0, dim_arg=dim_arg, keep_dim=keep_dim)
 
     reduction_op_wrapper.__name__ = f"{reduction_op_name}"
 

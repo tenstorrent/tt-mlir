@@ -218,6 +218,13 @@ private:
     auto traceFuncOp = builder.create<func::FuncOp>(
         funcOp.getLoc(), traceFuncName, traceFuncType);
     traceFuncOp->setAttr(g_TTNNTraceAttrName, builder.getUnitAttr());
+
+    // Mark trace_0_main as the main model function for metrics collection
+    if (traceFuncIndex == 0) {
+      traceFuncOp->setAttr(ttmlir::utils::g_traceMainAttrName,
+                           builder.getUnitAttr());
+    }
+
     traceFuncOp.setAllArgAttrs(inputAttrs);
     traceFuncOp.setPrivate();
 

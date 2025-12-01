@@ -1,11 +1,11 @@
-// RUN: ttmlir-opt --split-input-file --ttcore-register-device --d2m-grid-selection %s | FileCheck %s
+// RUN: ttmlir-opt --split-input-file --ttcore-register-device --d2m-grid-selection --canonicalize %s | FileCheck %s
 
 // Verify that d2m-grid-selection pass skips d2m.generic operations in
 // explicit datamovement form. These operations have empty indexing_maps
 // and users manage grids manually, so the pass should not attempt to
 // assign or optimize grids.
 
-#layout = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1>
+#layout = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = map(0)>
 
 // CHECK-LABEL: func.func @skip_grid_selection_explicit_datamovement
 func.func @skip_grid_selection_explicit_datamovement(

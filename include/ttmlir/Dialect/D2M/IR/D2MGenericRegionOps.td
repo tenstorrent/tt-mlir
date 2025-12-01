@@ -74,6 +74,27 @@ class D2M_GenericRegionComputeBinaryDstOp<string mnemonic, list<Trait> traits = 
 
   let extraClassDeclaration = [{
     mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
+      // Both operands are tiles, load both from DST
+      return {0, 1};
+    }
+  }];
+}
+
+// Binary ops that support tile-tile OR tile-scalar operations
+class D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<string mnemonic, list<Trait> traits = []> :
+    D2M_GenericRegionComputeOp<mnemonic, traits> {
+
+  let extraClassDeclaration = [{
+    bool supportsTileOrScalarRhs() { return true; }
+
+    mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
+      assert(this->getNumOperands() == 2 && "Binary operation must have 2 operands");
+      auto rhsType = this->getOperand(1).getType();
+      // If RHS is a scalar (not a tile), only load LHS from DST
+      if (!mlir::isa<::mlir::tt::ttcore::TileType>(rhsType)) {
+        return {0};
+      }
+      // Both operands are tiles, load both from DST
       return {0, 1};
     }
   }];
@@ -95,47 +116,54 @@ defvar D2M_TileComputeOpTraitBundle = [
 // D2M Generic Region Math Ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//
 
-def D2M_TileAddOp : D2M_GenericRegionComputeBinaryDstOp<"tile_add", D2M_TileComputeOpTraitBundle> {
+// Type constraint that accepts either a Tile or a scalar value (float/int)
+def TileOrScalar : AnyTypeOf<[TTCore_Tile, AnyFloat, AnyInteger]>;
+
+def D2M_TileAddOp : D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<"tile_add", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Add Op";
     let description = [{
-        The `tile_add` operation adds two tiles element-wise on the SFPU.
+        The `tile_add` operation adds two tiles element-wise on the SFPU,
+        or adds a scalar value to each element in the input tile if rhs is a scalar.
     }];
 
     let arguments = (ins TTCore_Tile:$lhs,
-                         TTCore_Tile:$rhs);
+                         TileOrScalar:$rhs);
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileSubOp : D2M_GenericRegionComputeBinaryDstOp<"tile_sub", D2M_TileComputeOpTraitBundle> {
+def D2M_TileSubOp : D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<"tile_sub", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Sub Op";
     let description = [{
-        The `tile_sub` operation subtracts two tiles element-wise on the SFPU.
+        The `tile_sub` operation subtracts two tiles element-wise on the SFPU,
+        or subtracts a scalar value from each element in the input tile if rhs is a scalar.
     }];
 
     let arguments = (ins TTCore_Tile:$lhs,
-                         TTCore_Tile:$rhs);
+                         TileOrScalar:$rhs);
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileMulOp : D2M_GenericRegionComputeBinaryDstOp<"tile_mul", D2M_TileComputeOpTraitBundle> {
+def D2M_TileMulOp : D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<"tile_mul", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Mul Op";
     let description = [{
-        The `tile_mul` operation multiplies two tiles element-wise on the SFPU.
+        The `tile_mul` operation multiplies two tiles element-wise on the SFPU,
+        or multiplies each element in the input tile by a scalar value if rhs is a scalar.
     }];
 
     let arguments = (ins TTCore_Tile:$lhs,
-                         TTCore_Tile:$rhs);
+                         TileOrScalar:$rhs);
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileDivOp : D2M_GenericRegionComputeBinaryDstOp<"tile_div", D2M_TileComputeOpTraitBundle> {
+def D2M_TileDivOp : D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<"tile_div", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Div Op";
     let description = [{
-        The `tile_div` operation divides two tiles element-wise.
+        The `tile_div` operation divides two tiles element-wise,
+        or divides each element in the input tile by a scalar value if rhs is a scalar.
     }];
 
     let arguments = (ins TTCore_Tile:$lhs,
-                         TTCore_Tile:$rhs);
+                         TileOrScalar:$rhs);
     let results = (outs TTCore_Tile:$result);
 }
 
@@ -149,14 +177,15 @@ def D2M_TileRecipOp : D2M_GenericRegionComputeUnaryDstOp<"tile_recip", D2M_TileC
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TilePowOp : D2M_GenericRegionComputeBinaryDstOp<"tile_pow", D2M_TileComputeOpTraitBundle> {
+def D2M_TilePowOp : D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<"tile_pow", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Pow Op";
     let description = [{
-        The `tile_pow` operation raises two tiles element-wise.
+        The `tile_pow` operation raises two tiles element-wise,
+        or raises each element in the input tile to a scalar power if rhs is a scalar.
     }];
 
     let arguments = (ins TTCore_Tile:$lhs,
-                         TTCore_Tile:$rhs);
+                         TileOrScalar:$rhs);
     let results = (outs TTCore_Tile:$result);
 }
 
@@ -330,7 +359,7 @@ def D2M_TileLogicalNotOp : D2M_GenericRegionComputeUnaryDstOp<"tile_logical_not"
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileEqzOp : D2M_GenericRegionComputeUnaryDstOp<"tile_eqz"> {
+def D2M_TileEqzOp : D2M_GenericRegionComputeUnaryDstOp<"tile_eqz", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Eqz Op";
     let description = [{
         The `tile_eqz` operation checks if each element in the input tile == 0
@@ -400,7 +429,7 @@ def D2M_TileMaximumOp : D2M_GenericRegionComputeBinaryDstOp<"tile_maximum", D2M_
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileReduceSumOp : D2M_GenericRegionComputeOp<"tile_reduce_sum"> {
+def D2M_TileReduceSumOp : D2M_GenericRegionComputeOp<"tile_reduce_sum", D2M_TileComputeOpTraitBundle> {
   let summary = "D2M Tile Reduce Sum Op";
   let description = [{
         The `tile_reduce_sum` operation computes the sum of all elements in the input A element-wise multiplied by B and input C over the specified reduction dim(s): result <- sum<dims>(A * B, C)
@@ -422,7 +451,7 @@ def D2M_TileReduceSumOp : D2M_GenericRegionComputeOp<"tile_reduce_sum"> {
   }];
 }
 
-def D2M_TileReduceMaxOp : D2M_GenericRegionComputeOp<"tile_reduce_max"> {
+def D2M_TileReduceMaxOp : D2M_GenericRegionComputeOp<"tile_reduce_max", D2M_TileComputeOpTraitBundle> {
   let summary = "D2M Tile Reduce Max Op";
   let description = [{
         The `tile_reduce_max` operation computes the max of all elements in the input A element-wise multiplied by B and input C over the specified reduction dim(s): result <- max<dims>(A * B, C)
@@ -442,6 +471,18 @@ def D2M_TileReduceMaxOp : D2M_GenericRegionComputeOp<"tile_reduce_max"> {
       return true;
     }
   }];
+}
+
+// TODO(#5968): fusion w/ implicit bcast causes multiple failure scenarios.
+def D2M_TileBcastOp : D2M_GenericRegionComputeOp<"tile_bcast", [Pure, D2M_SkipOpEltwiseFusionTrait]> {
+  let summary = "D2M Tile Broadcast Op";
+  let description = [{
+    The `tile_bcast` operation broadcasts a row/col/scalar tile into a full tile.
+  }];
+
+  let arguments = (ins TTCore_Tile:$input,
+                       D2M_TileBcastTypeAttr:$bcast_type);
+  let results = (outs TTCore_Tile:$result);
 }
 
 def D2M_PackerMaskResetOp : D2M_GenericRegionComputeOp<"packer_mask_reset"> {
@@ -758,6 +799,7 @@ def D2M_DMAOp : D2M_GenericRegionDatamovementOp<"dma",
       bool isDstRemote() { return ttcore::hasDeviceLayout(getDst()); }
       bool isMcast() { return !getMcastShape().empty(); }
       bool isAffine() { return (getSrcAffineMap() || getDstAffineMap()) && getSrcIndices().empty() && getDstIndices().empty(); }
+      bool hasExplicitSize() { return getOptNumElems().has_value(); }
       ::mlir::tt::ttcore::MemorySpace getSrcMemorySpace() {
         return mlir::cast<::mlir::tt::ttcore::MemorySpaceAttr>(getSrcMemRefType().getMemorySpace()).getValue();
       }
@@ -1170,7 +1212,8 @@ def D2M_WaitOp : D2M_CBOp<"wait"> {
     better to DPS style is that both reserve and wait guarantee acquisition of the
     underlying memory after the op has executed.
 
-    The resource is implicitly released at the end of block scope.
+    The resource is implicitly released at the end of block scope, OR explicitly
+    released via d2m.pop.
 
     Example:
     ```mlir
@@ -1193,12 +1236,93 @@ def D2M_ReserveOp : D2M_CBOp<"reserve"> {
     better to DPS style is that both reserve and wait guarantee acquisition of the
     underlying memory after the op has executed.
 
-    The resource is implicitly released at the end of block scope.
+    The resource is implicitly released at the end of block scope, OR explicitly
+    released via d2m.push.
 
     Example:
     ```mlir
     %memref = d2m.reserve %cb : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
     ```
+  }];
+}
+
+def D2M_PushOp : D2M_GenericRegionOp<"push",
+  [ MemoryEffects<[MemRead, MemWrite]>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType"
+    ]>
+  ]> {
+  let summary = "Push to circular buffer (signal producer done).";
+  let description = [{
+    Push operation, releases the memref acquired via d2m.reserve.
+    Signals to consumer threads that data is ready.
+    Must be preceded by d2m.reserve in the same block.
+
+    This operation explicitly releases the circular buffer slot acquired by
+    d2m.reserve, making the data available to consumer threads. If d2m.push
+    is present, the automatic release at block end is skipped for the
+    corresponding d2m.reserve operation.
+
+    Example:
+    ```mlir
+    %memref = d2m.reserve %cb : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+    // ... write data to %memref ...
+    d2m.push %cb : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>
+    ```
+  }];
+  let arguments = (ins D2M_CB:$cb);
+  let assemblyFormat = [{ $cb attr-dict `:` type($cb) }];
+
+  let extraClassDeclaration = [{
+    CBType getCbType() {
+      return mlir::cast<CBType>(getCb().getType());
+    }
+
+    bool hasTensorSemantics() { return getCbType().hasTensorType(); }
+  }];
+}
+
+def D2M_PopOp : D2M_GenericRegionOp<"pop",
+  [ MemoryEffects<[MemRead, MemWrite]>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType"
+    ]>
+  ]> {
+  let summary = "Pop from circular buffer (signal consumer done).";
+  let description = [{
+    Pop operation, releases the memref acquired via d2m.wait.
+    Signals to producer threads that space is available.
+    Must be preceded by d2m.wait in the same block.
+
+    This operation explicitly releases the circular buffer slot acquired by
+    d2m.wait, making space available for producer threads. If d2m.pop is
+    present, the automatic release at block end is skipped for the
+    corresponding d2m.wait operation.
+
+    Example:
+    ```mlir
+    %memref = d2m.wait %cb : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+    // ... read data from %memref ...
+    d2m.pop %cb : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>
+    ```
+  }];
+  let arguments = (ins D2M_CB:$cb);
+  let assemblyFormat = [{ $cb attr-dict `:` type($cb) }];
+
+  let extraClassDeclaration = [{
+    CBType getCbType() {
+      return mlir::cast<CBType>(getCb().getType());
+    }
+
+    bool hasTensorSemantics() { return getCbType().hasTensorType(); }
   }];
 }
 

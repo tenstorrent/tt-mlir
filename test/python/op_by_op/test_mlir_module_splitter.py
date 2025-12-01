@@ -28,7 +28,7 @@ def test_ttir_module_split(ttir_module_str: str):
     sub_modules = splitter.split(ttir_module_str)
     sub_ops = splitter.sub_ops
 
-    assert len(sub_ops) == len(sub_modules) == 8
+    assert len(sub_ops) == len(sub_modules) == 4
 
 
 def test_ttnn_module_split(ttnn_module_str: str):

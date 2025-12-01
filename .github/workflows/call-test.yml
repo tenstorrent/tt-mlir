@@ -91,7 +91,7 @@ jobs:
       run: |
         source env/activate
         pip show ttrt && pip uninstall -y ttrt
-        pip install ttrt-${{ env.version }}*.whl --upgrade
+        pip install ttrt*.whl --upgrade
 
     - name: Download Build Artifacts
       uses: tenstorrent/tt-forge/.github/actions/download-artifact@main
@@ -121,6 +121,10 @@ jobs:
       run: |
         # Run Tests
         source env/activate
+
+        MACHINE_IP=$(hostname -I | awk '{print $1}')
+        export no_proxy="${no_proxy:+$no_proxy,}localhost,${MACHINE_IP}"
+        export NO_PROXY="${NO_PROXY:+$NO_PROXY,}localhost,${MACHINE_IP}"
         export WORK_DIR="$(pwd)"
         export BUILD_DIR="${{ steps.strings.outputs.build-output-dir }}"
         export INSTALL_DIR="${{ steps.strings.outputs.install-output-dir }}"
@@ -128,6 +132,7 @@ jobs:
         export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         export TT_METAL_RUNTIME_ROOT="${{ steps.strings.outputs.install-output-dir }}/tt-metal"
+        export TT_METAL_HOME="$WORK_DIR/third_party/tt-metal/src/tt-metal"
         export RUNS_ON="${{ matrix.build.runs-on }}"
         export IMAGE_NAME="${{ matrix.build.image }}"
         export RUN_ID="${{ github.run_id }}"
