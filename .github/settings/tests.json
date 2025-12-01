@@ -3,9 +3,5 @@
         "image": "speedy",
             "script": "ttrt.sh", "args": ["run", "Silicon"] },
 
-  { "runs-on": "n150",   "image": "tracy",  "script": "ttrt.sh", "args": ["run", "Silicon/TTNN/n150/mixed_precision/matmul.mlir"] },
-  { "runs-on": "n150",   "image": "tracy",  "script": "ttrt.sh", "args": ["run", "Silicon/TTNN/n150/mixed_precision/matmul_transpose_lhs.mlir"] },
-  { "runs-on": "n150",   "image": "tracy",  "script": "ttrt.sh", "args": ["run", "Silicon/TTNN/n150/mixed_precision/matmul_transpose_rhs.mlir"] },
-  { "runs-on": "n150",   "image": "tracy",  "script": "ttrt.sh", "args": ["run", "Silicon/TTNN/n150/mixed_precision/matmul_llama.mlir"] },
-  { "runs-on": "n150",   "image": "tracy",  "script": "ttrt.sh", "args": ["run", "Silicon/TTNN/n150/mixed_precision/matmul_no_parameter.mlir"] }
+  { "runs-on": "n150",   "image": "speedy",  "script": "ttrt.sh", "args": ["run", "Silicon/TTNN/n150/mixed_precision"] }
 ]
