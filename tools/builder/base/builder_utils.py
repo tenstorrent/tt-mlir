@@ -208,6 +208,8 @@ def _compile_and_execute(
             check_atol=check_atol,
             check_rtol=check_rtol,
             goldens=goldens,
+            bypass_ops=builder._bypass_ops,
+            enable_intermediate_verification=export_golden_report,
         )
 
     if golden_report and export_golden_report:
@@ -1676,7 +1678,7 @@ def compile_ttir_module_to_flatbuffer(
 
 def load_mlir_file(
     mlir_text: str,
-    golden_inputs: List[torch.tensor] = [],
+    golden_inputs: List[torch.tensor] = None,
     target: Literal["ttir", "ttnn", "d2m", "stablehlo"] = "ttir",
 ) -> (Module, Builder):
     ctx = Context()

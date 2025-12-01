@@ -258,13 +258,15 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         ttir_op = self.get_opview_from_method(TTIRBuilder.reverse)
 
         if output_type is None:
-            output_type = self.get_type(in0)
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         dimensions_attr = DenseI64ArrayAttr.get(dimensions)
         input0 = self._get_golden_tensor(in0)
         op_golden_function = get_golden_function(ttir_op)
-        golden_output = op_golden_function(input0, dimensions_attr)
-        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        golden_output = op_golden_function(input0, dimensions_attr, mlir_output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -296,14 +298,12 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         ttir_op = self.get_opview_from_parser(TTIRBuilder.reverse_parser)
 
         in0 = global_dict[old_op.input]
-        output = global_dict[old_op.output]
         result = old_op.result.type
         dimensions_attr = old_op.dimensions
 
         new_op = ttir_op(
             result,
             in0,
-            output,
             dimensions_attr,
             loc=old_op.location,
         )
@@ -311,7 +311,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         if not self._disable_golden_check:
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(input0, dimensions_attr)
+            golden_output = op_golden_function(
+                input0, dimensions_attr, result.element_type
+            )
             self._set_golden_tensor(new_op, golden_output)
 
         return new_op
@@ -354,7 +356,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
 
                         input0 = self._get_golden_tensor(queried_input0)
                         op_golden_function = get_golden_function(ttir_op)
-                        golden_output = op_golden_function(input0, dimensions_attr)
+                        golden_output = op_golden_function(
+                            input0, dimensions_attr, result.element_type
+                        )
                         reverse_builder._set_golden_tensor(new_op, golden_output)
                         reverse_builder._set_output_ordering([new_op])
                         reverse_builder._set_golden_tensor(queried_input0, input0)
@@ -379,15 +383,19 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         ttir_op = self.get_opview_from_method(TTIRBuilder.scatter)
 
         if output_type is None:
-            output_type = self.get_type(in0)
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         dim_attr = IntegerAttr.get(IntegerType.get_signless(32), dim)
         input0 = self._get_golden_tensor(in0)
         input_index = self._get_golden_tensor(index)
         input_source = self._get_golden_tensor(source)
         op_golden_function = get_golden_function(ttir_op)
-        golden_output = op_golden_function(input0, input_index, input_source, dim_attr)
-        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        golden_output = op_golden_function(
+            input0, input_index, input_source, dim_attr, mlir_output_type
+        )
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -423,7 +431,6 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         in0 = global_dict[old_op.input]
         index = global_dict[old_op.index]
         source = global_dict[old_op.source]
-        output = global_dict[old_op.output]
         result = old_op.result.type
         dim_attr = old_op.dim
 
@@ -432,7 +439,6 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             in0,
             index,
             source,
-            output,
             dim_attr,
             loc=old_op.location,
         )
@@ -443,7 +449,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             input_source = self._get_golden_tensor(source)
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(
-                input0, input_index, input_source, dim_attr
+                input0, input_index, input_source, dim_attr, result.element_type
             )
             self._set_golden_tensor(new_op, golden_output)
 
@@ -506,7 +512,11 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                         input_source = self._get_golden_tensor(queried_source0)
                         op_golden_function = get_golden_function(ttir_op)
                         golden_output = op_golden_function(
-                            input0, input_index, input_source, dim_attr
+                            input0,
+                            input_index,
+                            input_source,
+                            dim_attr,
+                            result.element_type,
                         )
                         scatter_builder._set_golden_tensor(new_op, golden_output)
                         scatter_builder._set_output_ordering([new_op])
@@ -541,7 +551,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         ttir_op = self.get_opview_from_method(TTIRBuilder.max_pool2d_with_indices)
 
         if output_type is None:
-            output_type = self.get_type(in0)
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         if isinstance(kernel, int):
             kernel_attr = IntegerAttr.get(IntegerType.get_signless(32), kernel)
@@ -573,11 +585,16 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             padding_attr,
             dilation_attr,
             ceil_mode_attr,
+            mlir_output_type,
         )
-        result = self._create_ranked_tensor_type(golden_outputs[0].shape, output_type)
+        result = self._create_ranked_tensor_type(
+            golden_outputs[0].shape, mlir_output_type
+        )
         result_indices = self._create_ranked_tensor_type(
             golden_outputs[1].shape, self._get_type_from_torch_dtype(torch.int64)
         )
+        output = self._get_empty_op(result)
+        output_indices = self._get_empty_op(result_indices)
 
         if loc is None:
             loc = self._get_location()
@@ -588,6 +605,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             result,
             result_indices,
             in0,
+            [output, output_indices],
             kernel_attr,
             stride_attr,
             dilation_attr,
@@ -650,6 +668,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                 padding_attr,
                 dilation_attr,
                 ceil_mode_attr,
+                result.element_type,
             )
             self._set_golden_tensor(new_op.result, golden_outputs[0])
             self._set_golden_tensor(new_op.result_indices, golden_outputs[1])
@@ -677,6 +696,10 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     in0 = inputs[0]
                     result = old_op.result.type
                     result_indices = old_op.result_indices.type
+                    output = max_pool2d_with_indices_builder._get_empty_op(result)
+                    output_indices = max_pool2d_with_indices_builder._get_empty_op(
+                        result_indices
+                    )
                     kernel_attr = old_op.kernel
                     stride_attr = old_op.stride
                     dilation_attr = old_op.dilation
@@ -687,6 +710,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                         result,
                         result_indices,
                         in0,
+                        [output, output_indices],
                         kernel_attr,
                         stride_attr,
                         dilation_attr,
@@ -711,9 +735,13 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                             padding_attr,
                             dilation_attr,
                             ceil_mode_attr,
+                            result.element_type,
                         )
                         max_pool2d_with_indices_builder._set_golden_tensor(
-                            new_op, golden_outputs
+                            new_op.result, golden_outputs[0]
+                        )
+                        max_pool2d_with_indices_builder._set_golden_tensor(
+                            new_op.result_indices, golden_outputs[1]
                         )
                         max_pool2d_with_indices_builder._set_output_ordering([new_op])
                         max_pool2d_with_indices_builder._set_golden_tensor(
@@ -740,12 +768,14 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         ttir_op = self.get_opview_from_method(TTIRBuilder.log1p)
 
         if output_type is None:
-            output_type = self.get_type(in0)
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         input0 = self._get_golden_tensor(in0)
         op_golden_function = get_golden_function(ttir_op)
-        golden_output = op_golden_function(input0)
-        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -775,20 +805,18 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Operation:
         ttir_op = self.get_opview_from_parser(TTIRBuilder.log1p_parser)
         in0 = global_dict[old_op.input]
-        output = global_dict[old_op.output]
         result = old_op.result.type
 
         new_op = ttir_op(
             result,
             in0,
-            output,
             loc=old_op.location,
         )
 
         if not self._disable_golden_check:
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(input0)
+            golden_output = op_golden_function(input0, result.element_type)
             self._set_golden_tensor(new_op, golden_output)
 
         return new_op
@@ -829,7 +857,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
 
                         input0 = self._get_golden_tensor(queried_input0)
                         op_golden_function = get_golden_function(ttir_op)
-                        golden_output = op_golden_function(input0)
+                        golden_output = op_golden_function(input0, result.element_type)
                         log1p_builder._set_golden_tensor(new_op, golden_output)
                         log1p_builder._set_output_ordering([new_op])
                         log1p_builder._set_golden_tensor(queried_input0, input0)
@@ -851,15 +879,17 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
         ttir_op = self.get_opview_from_method(TTIRBuilder.concat)
+        dim_attr = IntegerAttr.get(IntegerType.get_signed(32), dim)
 
         if output_type is None:
-            output_type = self.get_type(ins[0])
+            mlir_output_type = self.get_type(ins[0])
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
-        dim_attr = IntegerAttr.get(IntegerType.get_signed(32), dim)
         input_tensors = tuple([self._get_golden_tensor(i) for i in ins])
         op_golden_function = get_golden_function(ttir_op)
-        golden_output = op_golden_function(input_tensors, dim_attr)
-        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        golden_output = op_golden_function(input_tensors, dim_attr, mlir_output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -890,14 +920,12 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Operation:
         ttir_op = self.get_opview_from_parser(TTIRBuilder.concat_parser)
         inputs = [global_dict[inp] for inp in old_op.inputs]
-        output = global_dict[old_op.output]
         result = old_op.result.type
         dim_attr = old_op.dim
 
         new_op = ttir_op(
             result,
             inputs,
-            output,
             dim=dim_attr,
             loc=old_op.location,
         )
@@ -905,7 +933,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         if not self._disable_golden_check:
             input_tensors = tuple([self._get_golden_tensor(inp) for inp in inputs])
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(input_tensors, dim_attr)
+            golden_output = op_golden_function(
+                input_tensors, dim_attr, result.element_type
+            )
             self._set_golden_tensor(new_op, golden_output)
 
         return new_op
@@ -948,7 +978,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                         input_tensors = tuple(
                             [self._get_golden_tensor(inp) for inp in queried_inputs]
                         )
-                        golden_output = op_golden_function(input_tensors, dim_attr)
+                        golden_output = op_golden_function(
+                            input_tensors, dim_attr, result.element_type
+                        )
                         concat_builder._set_golden_tensor(new_op, golden_output)
                         concat_builder._set_output_ordering([new_op])
                         for input_operand, input_golden_tensor in zip(
@@ -975,6 +1007,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
         ttir_op = self.get_opview_from_method(TTIRBuilder.full)
+        mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         if isinstance(fill_value, int):
             fill_value_attr = IntegerAttr.get(IntegerType.get_signless(32), fill_value)
@@ -982,9 +1015,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             fill_value_attr = FloatAttr.get_f32(fill_value)
 
         output_shape_attr = DenseI32ArrayAttr.get(output_shape)
-        result = self._create_ranked_tensor_type(
-            output_shape, self._get_type_from_torch_dtype(output_type)
-        )
+        result = self._create_ranked_tensor_type(output_shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -1004,7 +1035,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
 
         if not self._disable_golden_check:
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(output_shape_attr, fill_value_attr)
+            golden_output = op_golden_function(
+                output_shape_attr, fill_value_attr, mlir_output_type
+            )
             self._set_golden_tensor(op, golden_output)
 
         return op
@@ -1030,7 +1063,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
 
         if not self._disable_golden_check:
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(output_shape_attr, fill_value_attr)
+            golden_output = op_golden_function(
+                output_shape_attr, fill_value_attr, result.element_type
+            )
             self._set_golden_tensor(new_op, golden_output)
 
         return new_op
@@ -1066,7 +1101,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
 
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(ttir_op)
-                        golden_output = op_golden_function(shape_attr, fill_value_attr)
+                        golden_output = op_golden_function(
+                            shape_attr, fill_value_attr, result.element_type
+                        )
                         full_builder._set_golden_tensor(new_op, golden_output)
                         full_builder._set_output_ordering([new_op])
 
@@ -1089,14 +1126,18 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         ttir_op = self.get_opview_from_method(TTIRBuilder.clamp_tensor)
 
         if output_type is None:
-            output_type = self.get_type(in0)
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         input0 = self._get_golden_tensor(in0)
         min_tensor_golden = self._get_golden_tensor(min_tensor)
         max_tensor_golden = self._get_golden_tensor(max_tensor)
         op_golden_function = get_golden_function(ttir_op)
-        golden_output = op_golden_function(input0, min_tensor_golden, max_tensor_golden)
-        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        golden_output = op_golden_function(
+            input0, min_tensor_golden, max_tensor_golden, mlir_output_type
+        )
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -1130,7 +1171,6 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         in0 = global_dict[old_op.input]
         min_tensor = global_dict[old_op.min]
         max_tensor = global_dict[old_op.max]
-        output = global_dict[old_op.output]
         result = old_op.result.type
 
         new_op = ttir_op(
@@ -1138,7 +1178,6 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             in0,
             min_tensor,
             max_tensor,
-            output,
             loc=old_op.location,
         )
 
@@ -1148,7 +1187,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             max_tensor_golden = self._get_golden_tensor(max_tensor)
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(
-                input0, min_tensor_golden, max_tensor_golden
+                input0, min_tensor_golden, max_tensor_golden, result.element_type
             )
             self._set_golden_tensor(new_op, golden_output)
 
@@ -1209,7 +1248,10 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                         max_tensor_golden = self._get_golden_tensor(queried_max)
                         op_golden_function = get_golden_function(ttir_op)
                         golden_output = op_golden_function(
-                            input0, min_tensor_golden, max_tensor_golden
+                            input0,
+                            min_tensor_golden,
+                            max_tensor_golden,
+                            result.element_type,
                         )
                         clamp_tensor_builder._set_golden_tensor(new_op, golden_output)
                         clamp_tensor_builder._set_output_ordering([new_op])
@@ -1250,12 +1292,16 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         keep_dim_attr = BoolAttr.get(keep_dim)
 
         if output_type is None:
-            output_type = self.get_type(in0)
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         input0 = self._get_golden_tensor(in0)
         op_golden_function = get_golden_function(ttir_op)
-        golden_output = op_golden_function(input0, dim_arg_attr, keep_dim_attr)
-        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        golden_output = op_golden_function(
+            input0, dim_arg_attr, keep_dim_attr, mlir_output_type
+        )
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -1287,7 +1333,6 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Operation:
         ttir_op = self.get_opview_from_parser(TTIRBuilder.reduce_or_parser)
         in0 = global_dict[old_op.input]
-        output = global_dict[old_op.output]
         result = old_op.result.type
         keep_dim_attr = old_op.keep_dim
         dim_arg_attr = old_op.dim_arg
@@ -1295,7 +1340,6 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         new_op = ttir_op(
             result,
             in0,
-            output,
             keep_dim_attr,
             dim_arg=dim_arg_attr,
             loc=old_op.location,
@@ -1304,7 +1348,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         if not self._disable_golden_check:
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(input0, dim_arg_attr, keep_dim_attr)
+            golden_output = op_golden_function(
+                input0, dim_arg_attr, keep_dim_attr, result.element_type
+            )
             self._set_golden_tensor(new_op, golden_output)
 
         return new_op
@@ -1348,7 +1394,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                         input0 = self._get_golden_tensor(queried_input0)
                         op_golden_function = get_golden_function(ttir_op)
                         golden_output = op_golden_function(
-                            input0, old_op.dim_arg, old_op.keep_dim
+                            input0, old_op.dim_arg, old_op.keep_dim, result.element_type
                         )
                         reduce_or_builder._set_golden_tensor(new_op, golden_output)
                         reduce_or_builder._set_output_ordering([new_op])
@@ -1381,12 +1427,16 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         keep_dim_attr = BoolAttr.get(keep_dim)
 
         if output_type is None:
-            output_type = self.get_type(in0)
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         input0 = self._get_golden_tensor(in0)
         op_golden_function = get_golden_function(ttir_op)
-        golden_output = op_golden_function(input0, dim_arg_attr, keep_dim_attr)
-        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        golden_output = op_golden_function(
+            input0, dim_arg_attr, keep_dim_attr, mlir_output_type
+        )
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -1418,7 +1468,6 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Operation:
         ttir_op = self.get_opview_from_parser(TTIRBuilder.max_parser)
         in0 = global_dict[old_op.input]
-        output = global_dict[old_op.output]
         result = old_op.result.type
         keep_dim_attr = old_op.keep_dim
         dim_arg_attr = old_op.dim_arg
@@ -1426,7 +1475,6 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         new_op = ttir_op(
             result,
             in0,
-            output,
             keep_dim_attr,
             dim_arg=dim_arg_attr,
             loc=old_op.location,
@@ -1435,7 +1483,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         if not self._disable_golden_check:
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(input0, dim_arg_attr, keep_dim_attr)
+            golden_output = op_golden_function(
+                input0, dim_arg_attr, keep_dim_attr, result.element_type
+            )
             self._set_golden_tensor(new_op, golden_output)
 
         return new_op
@@ -1479,7 +1529,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                         input0 = self._get_golden_tensor(queried_input0)
                         op_golden_function = get_golden_function(ttir_op)
                         golden_output = op_golden_function(
-                            input0, old_op.dim_arg, old_op.keep_dim
+                            input0, old_op.dim_arg, old_op.keep_dim, result.element_type
                         )
                         max_builder._set_golden_tensor(new_op, golden_output)
                         max_builder._set_output_ordering([new_op])
@@ -1503,12 +1553,14 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         ttir_op = self.get_opview_from_method(TTIRBuilder.logical_not)
 
         if output_type is None:
-            output_type = self.get_type(in0)
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         input0 = self._get_golden_tensor(in0)
         op_golden_function = get_golden_function(ttir_op)
-        golden_output = op_golden_function(input0)
-        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -1538,20 +1590,18 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Operation:
         ttir_op = self.get_opview_from_parser(TTIRBuilder.logical_not_parser)
         in0 = global_dict[old_op.input]
-        output = global_dict[old_op.output]
         result = old_op.result.type
 
         new_op = ttir_op(
             result,
             in0,
-            output,
             loc=old_op.location,
         )
 
         if not self._disable_golden_check:
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(input0)
+            golden_output = op_golden_function(input0, result.element_type)
             self._set_golden_tensor(new_op, golden_output)
 
         return new_op
@@ -1588,7 +1638,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
 
                         input0 = self._get_golden_tensor(queried_input0)
                         op_golden_function = get_golden_function(ttir_op)
-                        golden_output = op_golden_function(input0)
+                        golden_output = op_golden_function(input0, result.element_type)
                         logical_not_builder._set_golden_tensor(new_op, golden_output)
                         logical_not_builder._set_output_ordering([new_op])
                         logical_not_builder._set_golden_tensor(in0, input0)
@@ -1611,12 +1661,14 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         ttir_op = self.get_opview_from_method(TTIRBuilder.log)
 
         if output_type is None:
-            output_type = self.get_type(in0)
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         input0 = self._get_golden_tensor(in0)
         op_golden_function = get_golden_function(ttir_op)
-        golden_output = op_golden_function(input0)
-        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -1646,20 +1698,18 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Operation:
         ttir_op = self.get_opview_from_parser(TTIRBuilder.log_parser)
         in0 = global_dict[old_op.input]
-        output = global_dict[old_op.output]
         result = old_op.result.type
 
         new_op = ttir_op(
             result,
             in0,
-            output,
             loc=old_op.location,
         )
 
         if not self._disable_golden_check:
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(input0)
+            golden_output = op_golden_function(input0, result.element_type)
             self._set_golden_tensor(new_op, golden_output)
 
         return new_op
@@ -1696,7 +1746,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
 
                         input0 = self._get_golden_tensor(queried_input0)
                         op_golden_function = get_golden_function(ttir_op)
-                        golden_output = op_golden_function(input0)
+                        golden_output = op_golden_function(input0, result.element_type)
                         log_builder._set_golden_tensor(new_op, golden_output)
                         log_builder._set_output_ordering([new_op])
                         log_builder._set_golden_tensor(in0, input0)
@@ -1720,13 +1770,15 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         ttir_op = self.get_opview_from_method(TTIRBuilder.gt)
 
         if output_type is None:
-            output_type = self.get_type(in0)
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         input0 = self._get_golden_tensor(in0)
         input1 = self._get_golden_tensor(in1)
         op_golden_function = get_golden_function(ttir_op)
-        golden_output = op_golden_function(input0, input1)
-        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        golden_output = op_golden_function(input0, input1, mlir_output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -1758,14 +1810,12 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         ttir_op = self.get_opview_from_parser(TTIRBuilder.gt_parser)
         in0 = global_dict[old_op.lhs]
         in1 = global_dict[old_op.rhs]
-        output = global_dict[old_op.output]
         result = old_op.result.type
 
         new_op = ttir_op(
             result,
             in0,
             in1,
-            output,
             loc=old_op.location,
         )
 
@@ -1773,7 +1823,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             input0 = self._get_golden_tensor(in0)
             input1 = self._get_golden_tensor(in1)
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(input0, input1)
+            golden_output = op_golden_function(input0, input1, result.element_type)
             self._set_golden_tensor(new_op, golden_output)
 
         return new_op
@@ -1818,7 +1868,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                         input0 = self._get_golden_tensor(queried_input0)
                         input1 = self._get_golden_tensor(queried_input1)
                         op_golden_function = get_golden_function(ttir_op)
-                        golden_output = op_golden_function(input0, input1)
+                        golden_output = op_golden_function(
+                            input0, input1, result.element_type
+                        )
                         gt_builder._set_golden_tensor(new_op, golden_output)
                         gt_builder._set_output_ordering([new_op])
                         gt_builder._set_golden_tensor(in0, input0)
@@ -1858,7 +1910,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         base_dilations_attr = DenseI64ArrayAttr.get(base_dilations)
 
         if output_type is None:
-            output_type = self.get_type(in0)
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         input0 = self._get_golden_tensor(in0)
         op_golden_function = get_golden_function(ttir_op)
@@ -1870,8 +1924,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             base_dilations_attr,
             window_dilations_attr,
             padding_attr,
+            mlir_output_type,
         )
-        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -1942,6 +1997,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                 base_dilations_attr,
                 window_dilations_attr,
                 padding_attr,
+                result.element_type,
             )
             self._set_golden_tensor(new_op, golden_output)
 
@@ -1998,6 +2054,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                             old_op.base_dilations,
                             old_op.window_dilations,
                             old_op.padding,
+                            result.element_type,
                         )
                         pool_builder._set_golden_tensor(new_op, golden_output)
                         pool_builder._set_output_ordering([new_op])
@@ -2029,7 +2086,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         dimension_attr = IntegerAttr.get(IntegerType.get_signless(32), dimension)
 
         if output_type is None:
-            output_type = self.get_type(in0)
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         input0 = self._get_golden_tensor(in0)
         scale0 = self._get_golden_tensor(scale)
@@ -2045,8 +2104,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             variance0,
             epsilon_attr,
             dimension_attr,
+            mlir_output_type,
         )
-        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -2117,6 +2177,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                 variance0,
                 epsilon_attr,
                 dimension_attr,
+                result.element_type,
             )
             self._set_golden_tensor(new_op, golden_output)
 
@@ -2211,6 +2272,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                             variance0,
                             old_op.epsilon,
                             old_op.dimension,
+                            result.element_type,
                         )
                         batch_norm_inference_builder._set_golden_tensor(
                             new_op, golden_output
@@ -2254,7 +2316,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         momentum_attr = FloatAttr.get_f32(momentum)
 
         if output_type is None:
-            output_type = self.get_type(in0)
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         input0 = self._get_golden_tensor(in0)
         scale0 = self._get_golden_tensor(scale)
@@ -2271,14 +2335,19 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             epsilon_attr,
             dimension_attr,
             momentum_attr,
+            mlir_output_type,
+            mlir_output_type,
+            mlir_output_type,
         )
 
-        result_type = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        result_type = self._create_ranked_tensor_type(
+            golden_output.shape, mlir_output_type
+        )
         batch_mean_type = self._create_ranked_tensor_type(
-            golden_batch_mean.shape, output_type
+            golden_batch_mean.shape, mlir_output_type
         )
         batch_variance_type = self._create_ranked_tensor_type(
-            golden_batch_variance.shape, output_type
+            golden_batch_variance.shape, mlir_output_type
         )
 
         if loc is None:
@@ -2324,9 +2393,6 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         offset = global_dict[old_op.offset]
         running_mean = global_dict[old_op.running_mean]
         running_variance = global_dict[old_op.running_variance]
-        output = global_dict[old_op.outputs[0]]
-        batch_mean_output = global_dict[old_op.outputs[1]]
-        batch_variance_output = global_dict[old_op.outputs[2]]
         epsilon_attr = old_op.epsilon
         dimension_attr = old_op.dimension
         momentum_attr = old_op.momentum
@@ -2343,7 +2409,6 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             offset,
             running_mean,
             running_variance,
-            [output, batch_mean_output, batch_variance_output],
             epsilon_attr,
             dimension_attr,
             momentum_attr,
@@ -2370,6 +2435,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                 epsilon_attr,
                 dimension_attr,
                 momentum_attr,
+                result_type.element_type,
+                batch_mean_type.element_type,
+                batch_variance_type.element_type,
             )
             self._set_golden_tensor(new_op.result, golden_output)
             self._set_golden_tensor(new_op.batch_mean, golden_batch_mean)
@@ -2478,6 +2546,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                             old_op.epsilon,
                             old_op.dimension,
                             old_op.momentum,
+                            result_type.element_type,
+                            batch_mean_type.element_type,
+                            batch_variance_type.element_type,
                         )
                         batch_norm_training_builder._set_golden_tensor(
                             new_op.result, golden_output
@@ -2560,7 +2631,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             bias0 = self._get_golden_tensor(bias)
 
         if output_type is None:
-            output_type = self.get_type(in0)
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         op_golden_function = get_golden_function(ttir_op)
         golden_output = op_golden_function(
@@ -2575,8 +2648,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             convolution_layout_attr,
             feature_group_count_attr,
             batch_group_count_attr,
+            mlir_output_type,
         )
-        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -2658,6 +2732,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                 convolution_layout_attr,
                 feature_group_count_attr,
                 batch_group_count_attr,
+                result.element_type,
             )
             self._set_golden_tensor(new_op, golden_output)
 
@@ -2743,6 +2818,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                             convolution_layout_attr,
                             feature_group_count_attr,
                             batch_group_count_attr,
+                            result.element_type,
                         )
                         convolution_builder._set_golden_tensor(new_op, golden_output)
                         convolution_builder._set_output_ordering([new_op])
@@ -2873,9 +2949,11 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             )
 
         if output_type is None:
-            output_type = self.get_type(in0)
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
-        result = self._create_ranked_tensor_type(output_shape, output_type)
+        result = self._create_ranked_tensor_type(output_shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -2897,7 +2975,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         if not self._disable_golden_check:
             input = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(input, padding_attr, value_attr)
+            golden_output = op_golden_function(
+                input, padding_attr, value_attr, mlir_output_type
+            )
             self._set_golden_tensor(op, golden_output)
 
         return op
@@ -2925,7 +3005,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         if not self._disable_golden_check:
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(input0, padding_attr, value_attr)
+            golden_output = op_golden_function(
+                input0, padding_attr, value_attr, result.element_type
+            )
             self._set_golden_tensor(new_op, golden_output)
 
         return new_op
@@ -2971,7 +3053,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                         input0 = self._get_golden_tensor(queried_input)
                         op_golden_function = get_golden_function(ttir_op)
                         golden_output = op_golden_function(
-                            input0, padding_attr, value_attr
+                            input0, padding_attr, value_attr, result.element_type
                         )
                         pad_builder._set_golden_tensor(new_op, golden_output)
                         pad_builder._set_output_ordering([new_op])
@@ -3000,7 +3082,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         ttir_op = self.get_opview_from_method(TTIRBuilder.dot_general)
 
         if output_type is None:
-            output_type = self.get_type(in0)
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         batch_dims_lhs_attr = DenseI64ArrayAttr.get(batch_dims_lhs)
         contract_dims_lhs_attr = DenseI64ArrayAttr.get(contract_dims_lhs)
@@ -3017,8 +3101,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             contract_dims_lhs_attr,
             batch_dims_rhs_attr,
             contract_dims_rhs_attr,
+            mlir_output_type,
         )
-        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -3082,6 +3167,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                 contract_dims_lhs_attr,
                 batch_dims_rhs_attr,
                 contract_dims_rhs_attr,
+                result.element_type,
             )
             self._set_golden_tensor(new_op, golden_output)
 
@@ -3147,6 +3233,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                             contract_dims_lhs_attr,
                             batch_dims_rhs_attr,
                             contract_dims_rhs_attr,
+                            result.element_type,
                         )
                         dot_general_builder._set_golden_tensor(new_op, golden_output)
                         dot_general_builder._set_output_ordering([new_op])
@@ -3178,9 +3265,11 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             output_shape.append(in0_shape[i])
 
         if output_type is None:
-            output_type = self.get_type(in0)
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
-        result = self._create_ranked_tensor_type(output_shape, output_type)
+        result = self._create_ranked_tensor_type(output_shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -3201,7 +3290,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         if not self._disable_golden_check:
             input = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(input, permutation_attr)
+            golden_output = op_golden_function(
+                input, permutation_attr, mlir_output_type
+            )
             self._set_golden_tensor(op, golden_output)
 
         return op
@@ -3227,7 +3318,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         if not self._disable_golden_check:
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(input0, permutation_attr)
+            golden_output = op_golden_function(
+                input0, permutation_attr, result.element_type
+            )
             self._set_golden_tensor(new_op, golden_output)
 
         return new_op
@@ -3267,7 +3360,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
 
                         input0 = self._get_golden_tensor(queried_input)
                         op_golden_function = get_golden_function(ttir_op)
-                        golden_output = op_golden_function(input0, permutation_attr)
+                        golden_output = op_golden_function(
+                            input0, permutation_attr, result.element_type
+                        )
                         permute_builder._set_golden_tensor(new_op, golden_output)
                         permute_builder._set_output_ordering([new_op])
                         permute_builder._set_golden_tensor(in0, input0)
@@ -3300,9 +3395,11 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                 output_shape.append(in0_shape[i])
 
         if output_type is None:
-            output_type = self.get_type(in0)
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
-        result = self._create_ranked_tensor_type(output_shape, output_type)
+        result = self._create_ranked_tensor_type(output_shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -3323,7 +3420,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         if not self._disable_golden_check:
             input = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(input, broadcast_dimensions_attr)
+            golden_output = op_golden_function(
+                input, broadcast_dimensions_attr, mlir_output_type
+            )
             self._set_golden_tensor(op, golden_output)
 
         return op
@@ -3349,7 +3448,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         if not self._disable_golden_check:
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(input0, broadcast_dimensions_attr)
+            golden_output = op_golden_function(
+                input0, broadcast_dimensions_attr, result.element_type
+            )
             self._set_golden_tensor(new_op, golden_output)
 
         return new_op
@@ -3393,7 +3494,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                         input0 = self._get_golden_tensor(queried_input)
                         op_golden_function = get_golden_function(ttir_op)
                         golden_output = op_golden_function(
-                            input0, broadcast_dimensions_attr
+                            input0, broadcast_dimensions_attr, result.element_type
                         )
                         broadcast_builder._set_golden_tensor(new_op, golden_output)
                         broadcast_builder._set_output_ordering([new_op])
@@ -3421,9 +3522,11 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         )
 
         if output_type is None:
-            output_type = self.get_type(in0)
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
-        result = self._create_ranked_tensor_type(shape, output_type)
+        result = self._create_ranked_tensor_type(shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -3444,7 +3547,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         if not self._disable_golden_check:
             input = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(input, shape_attr)
+            golden_output = op_golden_function(input, shape_attr, mlir_output_type)
             self._set_golden_tensor(op, golden_output)
 
         return op
@@ -3470,7 +3573,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         if not self._disable_golden_check:
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(input0, shape_attr)
+            golden_output = op_golden_function(input0, shape_attr, result.element_type)
             self._set_golden_tensor(new_op, golden_output)
 
         return new_op
@@ -3508,7 +3611,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                             queried_input_in0 = input_owner_in0
 
                         input0 = self._get_golden_tensor(queried_input_in0)
-                        golden_output = op_golden_function(input0, shape_attr)
+                        golden_output = op_golden_function(
+                            input0, shape_attr, result.element_type
+                        )
                         reshape_builder._set_golden_tensor(new_op, golden_output)
                         reshape_builder._set_output_ordering([new_op])
                         reshape_builder._set_golden_tensor(in0, input0)
@@ -3532,13 +3637,15 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         ttir_op = self.get_opview_from_method(TTIRBuilder.maximum)
 
         if output_type is None:
-            output_type = self.get_type(in0)
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         input0 = self._get_golden_tensor(in0)
         input1 = self._get_golden_tensor(in1)
         op_golden_function = get_golden_function(ttir_op)
-        golden_output = op_golden_function(input0, input1)
-        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        golden_output = op_golden_function(input0, input1, mlir_output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -3583,7 +3690,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             input0 = self._get_golden_tensor(lhs)
             input1 = self._get_golden_tensor(rhs)
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(input0, input1)
+            golden_output = op_golden_function(input0, input1, result.element_type)
             self._set_golden_tensor(new_op, golden_output)
 
         return new_op
@@ -3629,7 +3736,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
 
                         input0 = self._get_golden_tensor(queried_input_lhs)
                         input1 = self._get_golden_tensor(queried_input_rhs)
-                        golden_output = op_golden_function(input0, input1)
+                        golden_output = op_golden_function(
+                            input0, input1, result.element_type
+                        )
                         maximum_builder._set_golden_tensor(new_op, golden_output)
                         maximum_builder._set_output_ordering([new_op])
                         maximum_builder._set_golden_tensor(lhs, input0)
@@ -3654,13 +3763,15 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         ttir_op = self.get_opview_from_method(TTIRBuilder.multiply)
 
         if output_type is None:
-            output_type = self.get_type(in0)
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         input0 = self._get_golden_tensor(in0)
         input1 = self._get_golden_tensor(in1)
         op_golden_function = get_golden_function(ttir_op)
-        golden_output = op_golden_function(input0, input1)
-        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        golden_output = op_golden_function(input0, input1, mlir_output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -3705,7 +3816,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             input0 = self._get_golden_tensor(lhs)
             input1 = self._get_golden_tensor(rhs)
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(input0, input1)
+            golden_output = op_golden_function(input0, input1, result.element_type)
             self._set_golden_tensor(new_op, golden_output)
 
         return new_op
@@ -3751,7 +3862,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
 
                         input0 = self._get_golden_tensor(queried_input_lhs)
                         input1 = self._get_golden_tensor(queried_input_rhs)
-                        golden_output = op_golden_function(input0, input1)
+                        golden_output = op_golden_function(
+                            input0, input1, result.element_type
+                        )
                         multiply_builder._set_golden_tensor(new_op, golden_output)
                         multiply_builder._set_output_ordering([new_op])
                         multiply_builder._set_golden_tensor(lhs, input0)
@@ -3778,13 +3891,15 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         ttir_op = self.get_opview_from_method(TTIRBuilder.eq)
 
         if output_type is None:
-            output_type = self.get_type(in0)
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         input0 = self._get_golden_tensor(in0)
         input1 = self._get_golden_tensor(in1)
         op_golden_function = get_golden_function(ttir_op)
-        golden_output = op_golden_function(input0, input1)
-        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        golden_output = op_golden_function(input0, input1, mlir_output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -3816,14 +3931,12 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         ttir_op = self.get_opview_from_parser(TTIRBuilder.eq_parser)
         lhs = global_dict[old_op.lhs]
         rhs = global_dict[old_op.rhs]
-        output = global_dict[old_op.output]
         result = old_op.result.type
 
         new_op = ttir_op(
             result,
             lhs,
             rhs,
-            output,
             loc=old_op.location,
         )
 
@@ -3831,7 +3944,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             input0 = self._get_golden_tensor(lhs)
             input1 = self._get_golden_tensor(rhs)
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(input0, input1)
+            golden_output = op_golden_function(input0, input1, result.element_type)
             self._set_golden_tensor(new_op, golden_output)
 
         return new_op
@@ -3881,7 +3994,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
 
                         input0 = self._get_golden_tensor(queried_input_lhs)
                         input1 = self._get_golden_tensor(queried_input_rhs)
-                        golden_output = op_golden_function(input0, input1)
+                        golden_output = op_golden_function(
+                            input0, input1, result.element_type
+                        )
                         eq_builder._set_golden_tensor(new_op, golden_output)
                         eq_builder._set_output_ordering([new_op])
                         eq_builder._set_golden_tensor(lhs, input0)
@@ -3914,12 +4029,16 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         keep_dim_attr = BoolAttr.get(keep_dim)
 
         if output_type is None:
-            output_type = self.get_type(in0)
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         input0 = self._get_golden_tensor(in0)
         op_golden_function = get_golden_function(ttir_op)
-        golden_output = op_golden_function(input0, dim_arg_attr, keep_dim_attr)
-        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        golden_output = op_golden_function(
+            input0, dim_arg_attr, keep_dim_attr, mlir_output_type
+        )
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -3970,6 +4089,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                 input0,
                 dim_arg_attr,
                 keep_dim_attr,
+                result.element_type,
             )
             self._set_golden_tensor(new_op, golden_output)
 
@@ -4020,6 +4140,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                             input0,
                             dim_arg_attr,
                             keep_dim_attr,
+                            result.element_type,
                         )
                         sum_builder._set_golden_tensor(new_op, golden_output)
                         sum_builder._set_output_ordering([new_op])
@@ -4044,13 +4165,15 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         ttir_op = self.get_opview_from_method(TTIRBuilder.add)
 
         if output_type is None:
-            output_type = self.get_type(in0)
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         input0 = self._get_golden_tensor(in0)
         input1 = self._get_golden_tensor(in1)
         op_golden_function = get_golden_function(ttir_op)
-        golden_output = op_golden_function(input0, input1)
-        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        golden_output = op_golden_function(input0, input1, mlir_output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -4095,7 +4218,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             input0 = self._get_golden_tensor(lhs)
             input1 = self._get_golden_tensor(rhs)
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(input0, input1)
+            golden_output = op_golden_function(input0, input1, result.element_type)
             self._set_golden_tensor(new_op, golden_output)
 
         return new_op
@@ -4144,7 +4267,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
 
                         input0 = self._get_golden_tensor(queried_input0)
                         input1 = self._get_golden_tensor(queried_input1)
-                        golden_output = op_golden_function(input0, input1)
+                        golden_output = op_golden_function(
+                            input0, input1, result.element_type
+                        )
                         add_builder._set_golden_tensor(new_op, golden_output)
                         add_builder._set_output_ordering([new_op])
                         add_builder._set_golden_tensor(lhs, input0)
@@ -4185,12 +4310,14 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         ttir_op = self.get_opview_from_method(TTIRBuilder.sigmoid)
 
         if output_type is None:
-            output_type = self.get_type(in0)
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         input0 = self._get_golden_tensor(in0)
         op_golden_function = get_golden_function(ttir_op)
-        golden_output = op_golden_function(input0)
-        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -4220,20 +4347,18 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Operation:
         ttir_op = self.get_opview_from_parser(TTIRBuilder.sigmoid_parser)
         in0 = global_dict[old_op.input]
-        output = global_dict[old_op.output]
         result = old_op.result.type
 
         new_op = ttir_op(
             result,
             in0,
-            output,
             loc=old_op.location,
         )
 
         if not self._disable_golden_check:
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(input0)
+            golden_output = op_golden_function(input0, result.element_type)
             self._set_golden_tensor(new_op, golden_output)
 
         return new_op
@@ -4271,7 +4396,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                             queried_input = input_owner
 
                         input0 = self._get_golden_tensor(queried_input)
-                        golden_output = op_golden_function(input0)
+                        golden_output = op_golden_function(input0, result.element_type)
                         sigmoid_builder._set_golden_tensor(new_op, golden_output)
                         sigmoid_builder._set_output_ordering([new_op])
                         sigmoid_builder._set_golden_tensor(in0, input0)
@@ -4295,13 +4420,15 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         ttir_op = self.get_opview_from_method(TTIRBuilder.subtract)
 
         if output_type is None:
-            output_type = self.get_type(in0)
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         input0 = self._get_golden_tensor(in0)
         input1 = self._get_golden_tensor(in1)
         op_golden_function = get_golden_function(ttir_op)
-        golden_output = op_golden_function(input0, input1)
-        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        golden_output = op_golden_function(input0, input1, mlir_output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -4333,14 +4460,12 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         ttir_op = self.get_opview_from_parser(TTIRBuilder.subtract_parser)
         lhs = global_dict[old_op.lhs]
         rhs = global_dict[old_op.rhs]
-        output = global_dict[old_op.output]
         result = old_op.result.type
 
         new_op = ttir_op(
             result,
             lhs,
             rhs,
-            output,
             loc=old_op.location,
         )
 
@@ -4348,7 +4473,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             input0 = self._get_golden_tensor(lhs)
             input1 = self._get_golden_tensor(rhs)
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(input0, input1)
+            golden_output = op_golden_function(input0, input1, result.element_type)
             self._set_golden_tensor(new_op, golden_output)
 
         return new_op
@@ -4397,7 +4522,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
 
                         input0 = self._get_golden_tensor(queried_input_lhs)
                         input1 = self._get_golden_tensor(queried_input_rhs)
-                        golden_output = op_golden_function(input0, input1)
+                        golden_output = op_golden_function(
+                            input0, input1, result.element_type
+                        )
                         subtract_builder._set_golden_tensor(new_op, golden_output)
                         subtract_builder._set_output_ordering([new_op])
                         subtract_builder._set_golden_tensor(lhs, input0)
@@ -4421,12 +4548,14 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         ttir_op = self.get_opview_from_method(TTIRBuilder.tanh)
 
         if output_type is None:
-            output_type = self.get_type(in0)
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         input0 = self._get_golden_tensor(in0)
         op_golden_function = get_golden_function(ttir_op)
-        golden_output = op_golden_function(input0)
-        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -4456,20 +4585,18 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Operation:
         ttir_op = self.get_opview_from_parser(TTIRBuilder.tanh_parser)
         in0 = global_dict[old_op.input]
-        output = global_dict[old_op.output]
         result = old_op.result.type
 
         new_op = ttir_op(
             result,
             in0,
-            output,
             loc=old_op.location,
         )
 
         if not self._disable_golden_check:
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(input0)
+            golden_output = op_golden_function(input0, result.element_type)
             self._set_golden_tensor(new_op, golden_output)
 
         return new_op
@@ -4508,7 +4635,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                             queried_input = input_owner
 
                         input0 = self._get_golden_tensor(queried_input)
-                        golden_output = op_golden_function(input0)
+                        golden_output = op_golden_function(input0, result.element_type)
                         tanh_builder._set_golden_tensor(new_op, golden_output)
                         tanh_builder._set_output_ordering([new_op])
                         tanh_builder._set_golden_tensor(in0, input0)
@@ -4531,12 +4658,14 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         ttir_op = self.get_opview_from_method(TTIRBuilder.rsqrt)
 
         if output_type is None:
-            output_type = self.get_type(in0)
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         input0 = self._get_golden_tensor(in0)
         op_golden_function = get_golden_function(ttir_op)
-        golden_output = op_golden_function(input0)
-        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -4566,20 +4695,18 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Operation:
         ttir_op = self.get_opview_from_parser(TTIRBuilder.rsqrt_parser)
         in0 = global_dict[old_op.input]
-        output = global_dict[old_op.output]
         result = old_op.result.type
 
         new_op = ttir_op(
             result,
             in0,
-            output,
             loc=old_op.location,
         )
 
         if not self._disable_golden_check:
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(input0)
+            golden_output = op_golden_function(input0, result.element_type)
             self._set_golden_tensor(new_op, golden_output)
 
         return new_op
@@ -4618,7 +4745,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                             queried_input = input_owner
 
                         input0 = self._get_golden_tensor(queried_input)
-                        golden_output = op_golden_function(input0)
+                        golden_output = op_golden_function(input0, result.element_type)
                         rsqrt_builder._set_golden_tensor(new_op, golden_output)
                         rsqrt_builder._set_output_ordering([new_op])
                         rsqrt_builder._set_golden_tensor(in0, input0)
@@ -4641,12 +4768,14 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         ttir_op = self.get_opview_from_method(TTIRBuilder.neg)
 
         if output_type is None:
-            output_type = self.get_type(in0)
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         input0 = self._get_golden_tensor(in0)
         op_golden_function = get_golden_function(ttir_op)
-        golden_output = op_golden_function(input0)
-        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -4676,20 +4805,18 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Operation:
         ttir_op = self.get_opview_from_parser(TTIRBuilder.neg_parser)
         in0 = global_dict[old_op.input]
-        output = global_dict[old_op.output]
         result = old_op.result.type
 
         new_op = ttir_op(
             result,
             in0,
-            output,
             loc=old_op.location,
         )
 
         if not self._disable_golden_check:
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(input0)
+            golden_output = op_golden_function(input0, result.element_type)
             self._set_golden_tensor(new_op, golden_output)
 
         return new_op
@@ -4728,7 +4855,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                             queried_input = input_owner
 
                         input0 = self._get_golden_tensor(queried_input)
-                        golden_output = op_golden_function(input0)
+                        golden_output = op_golden_function(input0, result.element_type)
                         neg_builder._set_golden_tensor(new_op, golden_output)
                         neg_builder._set_output_ordering([new_op])
                         neg_builder._set_golden_tensor(in0, input0)
@@ -4752,13 +4879,15 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         ttir_op = self.get_opview_from_method(TTIRBuilder.ne)
 
         if output_type is None:
-            output_type = self.get_type(in0)
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         input0 = self._get_golden_tensor(in0)
         input1 = self._get_golden_tensor(in1)
         op_golden_function = get_golden_function(ttir_op)
-        golden_output = op_golden_function(input0, input1)
-        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        golden_output = op_golden_function(input0, input1, mlir_output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -4790,14 +4919,12 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         ttir_op = self.get_opview_from_parser(TTIRBuilder.ne_parser)
         lhs = global_dict[old_op.lhs]
         rhs = global_dict[old_op.rhs]
-        output = global_dict[old_op.output]
         result = old_op.result.type
 
         new_op = ttir_op(
             result,
             lhs,
             rhs,
-            output,
             loc=old_op.location,
         )
 
@@ -4805,7 +4932,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             input0 = self._get_golden_tensor(lhs)
             input1 = self._get_golden_tensor(rhs)
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(input0, input1)
+            golden_output = op_golden_function(input0, input1, result.element_type)
             self._set_golden_tensor(new_op, golden_output)
 
         return new_op
@@ -4855,7 +4982,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
 
                         input0 = self._get_golden_tensor(queried_input_lhs)
                         input1 = self._get_golden_tensor(queried_input_rhs)
-                        golden_output = op_golden_function(input0, input1)
+                        golden_output = op_golden_function(
+                            input0, input1, result.element_type
+                        )
                         ne_builder._set_golden_tensor(new_op, golden_output)
                         ne_builder._set_output_ordering([new_op])
                         ne_builder._set_golden_tensor(lhs, input0)
@@ -4880,7 +5009,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         ttir_op = self.get_opview_from_method(TTIRBuilder.where)
 
         if output_type is None:
-            output_type = self.get_type(in1)
+            mlir_output_type = self.get_type(in1)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         # Handle golden condition tensor
         in0_tensor = self._get_golden_tensor(in0)
@@ -4894,8 +5025,8 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         input1 = self._get_golden_tensor(in1)
         input2 = self._get_golden_tensor(in2)
         op_golden_function = get_golden_function(ttir_op)
-        golden_output = op_golden_function(condition, input1, input2)
-        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        golden_output = op_golden_function(condition, input1, input2, mlir_output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -4929,7 +5060,6 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         first = global_dict[old_op.first]
         second = global_dict[old_op.second]
         third = global_dict[old_op.third]
-        output = global_dict[old_op.output]
         result = old_op.result.type
 
         new_op = ttir_op(
@@ -4937,7 +5067,6 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             first,
             second,
             third,
-            output,
             loc=old_op.location,
         )
 
@@ -4954,7 +5083,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             input1 = self._get_golden_tensor(second)
             input2 = self._get_golden_tensor(third)
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(condition, input1, input2)
+            golden_output = op_golden_function(
+                condition, input1, input2, result.element_type
+            )
             self._set_golden_tensor(new_op, golden_output)
 
         return new_op
@@ -5022,7 +5153,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                         input1 = self._get_golden_tensor(queried_second)
                         input2 = self._get_golden_tensor(queried_third)
                         op_golden_function = get_golden_function(ttir_op)
-                        golden_output = op_golden_function(condition, input1, input2)
+                        golden_output = op_golden_function(
+                            condition, input1, input2, result.element_type
+                        )
                         where_builder._set_golden_tensor(new_op, golden_output)
                         where_builder._set_output_ordering([new_op])
                         where_builder._set_golden_tensor(first, first_tensor)
@@ -5049,12 +5182,14 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         ttir_op = self.get_opview_from_method(TTIRBuilder.abs)
 
         if output_type is None:
-            output_type = self.get_type(in0)
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         input0 = self._get_golden_tensor(in0)
         op_golden_function = get_golden_function(ttir_op)
-        golden_output = op_golden_function(input0)
-        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -5084,20 +5219,18 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Operation:
         ttir_op = self.get_opview_from_parser(TTIRBuilder.abs_parser)
         in0 = global_dict[old_op.input]
-        output = global_dict[old_op.output]
         result = old_op.result.type
 
         new_op = ttir_op(
             result,
             in0,
-            output,
             loc=old_op.location,
         )
 
         if not self._disable_golden_check:
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(input0)
+            golden_output = op_golden_function(input0, result.element_type)
             self._set_golden_tensor(new_op, golden_output)
 
         return new_op
@@ -5136,7 +5269,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                             queried_input = input_owner
 
                         input0 = self._get_golden_tensor(queried_input)
-                        golden_output = op_golden_function(input0)
+                        golden_output = op_golden_function(input0, result.element_type)
                         abs_builder._set_golden_tensor(new_op, golden_output)
                         abs_builder._set_output_ordering([new_op])
                         abs_builder._set_golden_tensor(in0, input0)
@@ -5159,12 +5292,14 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         ttir_op = self.get_opview_from_method(TTIRBuilder.erf)
 
         if output_type is None:
-            output_type = self.get_type(in0)
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         input0 = self._get_golden_tensor(in0)
         op_golden_function = get_golden_function(ttir_op)
-        golden_output = op_golden_function(input0)
-        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -5194,20 +5329,18 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Operation:
         ttir_op = self.get_opview_from_parser(TTIRBuilder.erf_parser)
         in0 = global_dict[old_op.input]
-        output = global_dict[old_op.output]
         result = old_op.result.type
 
         new_op = ttir_op(
             result,
             in0,
-            output,
             loc=old_op.location,
         )
 
         if not self._disable_golden_check:
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(input0)
+            golden_output = op_golden_function(input0, result.element_type)
             self._set_golden_tensor(new_op, golden_output)
 
         return new_op
@@ -5246,7 +5379,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                             queried_input = input_owner
 
                         input0 = self._get_golden_tensor(queried_input)
-                        golden_output = op_golden_function(input0)
+                        golden_output = op_golden_function(input0, result.element_type)
                         erf_builder._set_golden_tensor(new_op, golden_output)
                         erf_builder._set_output_ordering([new_op])
                         erf_builder._set_golden_tensor(in0, input0)
@@ -5269,12 +5402,14 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         ttir_op = self.get_opview_from_method(TTIRBuilder.floor)
 
         if output_type is None:
-            output_type = self.get_type(in0)
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         input0 = self._get_golden_tensor(in0)
         op_golden_function = get_golden_function(ttir_op)
-        golden_output = op_golden_function(input0)
-        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -5304,20 +5439,18 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> Operation:
         ttir_op = self.get_opview_from_parser(TTIRBuilder.floor_parser)
         in0 = global_dict[old_op.input]
-        output = global_dict[old_op.output]
         result = old_op.result.type
 
         new_op = ttir_op(
             result,
             in0,
-            output,
             loc=old_op.location,
         )
 
         if not self._disable_golden_check:
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(input0)
+            golden_output = op_golden_function(input0, result.element_type)
             self._set_golden_tensor(new_op, golden_output)
 
         return new_op
@@ -5356,7 +5489,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                             queried_input = input_owner
 
                         input0 = self._get_golden_tensor(queried_input)
-                        golden_output = op_golden_function(input0)
+                        golden_output = op_golden_function(input0, result.element_type)
                         floor_builder._set_golden_tensor(new_op, golden_output)
                         floor_builder._set_output_ordering([new_op])
                         floor_builder._set_golden_tensor(in0, input0)
@@ -5377,13 +5510,12 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         unit_attrs: Optional[List[str]] = None,
     ) -> OpView:
         ttir_op = self.get_opview_from_method(TTIRBuilder.typecast)
+        output_mlir_type = self._get_type_from_torch_dtype(output_type)
 
         input0 = self._get_golden_tensor(in0)
         op_golden_function = get_golden_function(ttir_op)
-        golden_output = op_golden_function(input0, dtype=output_type)
-        result = self._create_ranked_tensor_type(
-            golden_output.shape, self._get_type_from_torch_dtype(output_type)
-        )
+        golden_output = op_golden_function(input0, output_mlir_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, output_mlir_type)
 
         if loc is None:
             loc = self._get_location()
@@ -5413,22 +5545,18 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> global_dict:
         ttir_op = self.get_opview_from_parser(TTIRBuilder.typecast_parser)
         in0 = global_dict[old_op.input]
-        output = global_dict[old_op.output]
         result = old_op.result.type
 
         new_op = ttir_op(
             result,
             in0,
-            output,
             loc=old_op.location,
         )
 
         if not self._disable_golden_check:
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
-            # Extract output dtype from result type
-            output_dtype = self._get_torch_dtype_from_type(result.element_type)
-            golden_output = op_golden_function(input0, dtype=output_dtype)
+            golden_output = op_golden_function(input0, result.element_type)
             self._set_golden_tensor(new_op, golden_output)
 
         return new_op
@@ -5471,7 +5599,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                         output_dtype = self._get_torch_dtype_from_type(
                             result.element_type
                         )
-                        golden_output = op_golden_function(input0, dtype=output_dtype)
+                        golden_output = op_golden_function(input0, result.element_type)
                         typecast_builder._set_golden_tensor(new_op, golden_output)
                         typecast_builder._set_output_ordering([new_op])
                         typecast_builder._set_golden_tensor(in0, input0)
@@ -5480,132 +5608,6 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     return new_op
 
         return typecast_module, typecast_builder
-
-    ################ ttir.ConcatOp ###############
-
-    @tag(ttir.ConcatOp)
-    def concat(
-        self,
-        ins: List[Operand],
-        dim: int = 0,
-        output_type: Optional[torch.dtype] = None,
-        loc: Optional[str] = None,
-        unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
-        ttir_op = self.get_opview_from_method(TTIRBuilder.concat)
-
-        if output_type is None:
-            output_type = self.get_type(ins[0])
-
-        # torch.concat takes a tuple of tensors
-        input_tensors = tuple([self._get_golden_tensor(i) for i in ins])
-        op_golden_function = get_golden_function(ttir_op)
-        golden_output = op_golden_function(input_tensors, dim=dim)
-        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
-
-        if loc is None:
-            loc = self._get_location()
-        else:
-            loc = Location.name(loc)
-
-        op = ttir_op(
-            result,
-            ins,
-            dim=dim,
-            loc=loc,
-        )
-
-        if unit_attrs is not None:
-            for attr_name in unit_attrs:
-                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
-
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
-
-        return op
-
-    @parse(ttir.ConcatOp)
-    def concat_parser(
-        self,
-        old_op: ttir.ConcatOp,
-        global_dict: Dict[Operand, Operand],
-    ) -> global_dict:
-        ttir_op = self.get_opview_from_parser(TTIRBuilder.concat_parser)
-        inputs = [global_dict[inp] for inp in old_op.inputs]
-        output = global_dict[old_op.output]
-        result = old_op.result.type
-        dim = old_op.dim
-
-        new_op = ttir_op(
-            result,
-            inputs,
-            output,
-            dim=dim,
-            loc=old_op.location,
-        )
-
-        if not self._disable_golden_check:
-            input_tensors = tuple([self._get_golden_tensor(inp) for inp in inputs])
-            op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(input_tensors, dim=dim)
-            self._set_golden_tensor(new_op, golden_output)
-
-        return new_op
-
-    @split(ttir.ConcatOp)
-    def concat_split(
-        self,
-        old_op: ttir.ConcatOp,
-    ) -> Tuple[Module, TTIRBuilder]:
-        ttir_op = self.get_opview_from_split(TTIRBuilder.concat_split)
-
-        old_ctx = old_op.context
-        old_loc = Location.unknown(old_ctx)
-        with old_ctx, old_loc:
-            concat_module = Module.create()
-            concat_builder = TTIRBuilder(old_ctx, old_loc)
-            op_input_types = [inp.type for inp in old_op.inputs]
-
-            with InsertionPoint(concat_module.body):
-
-                @func.func(*op_input_types, name="concat_module")
-                def decorated_func(*inputs):
-                    result = old_op.result.type
-                    dim_attr = old_op.dim
-
-                    new_op = ttir.ConcatOp(
-                        result, inputs, dim=dim_attr, loc=old_op.location
-                    )
-
-                    if not self._disable_golden_check:
-                        op_golden_function = get_golden_function(ttir_op)
-
-                        # Query all inputs
-                        queried_inputs = []
-                        for old_input in old_op.inputs:
-                            input_owner = old_input.owner
-                            if isinstance(input_owner, Block):
-                                queried_inputs.append(old_input)
-                            else:
-                                queried_inputs.append(input_owner)
-
-                        input_tensors = tuple(
-                            [self._get_golden_tensor(inp) for inp in queried_inputs]
-                        )
-                        golden_output = op_golden_function(input_tensors, dim=dim_attr)
-                        concat_builder._set_golden_tensor(new_op, golden_output)
-                        concat_builder._set_output_ordering([new_op])
-                        for input_operand, input_golden_tensor in zip(
-                            input_tensors, queried_inputs
-                        ):
-                            concat_builder._set_golden_tensor(
-                                input_operand, input_golden_tensor
-                            )
-                        concat_builder._set_input_ordering(queried_inputs)
-
-                    return new_op
-
-        return concat_module, concat_builder
 
     ################ ttir.ExpOp ###############
 
@@ -5620,12 +5622,14 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         ttir_op = self.get_opview_from_method(TTIRBuilder.exp)
 
         if output_type is None:
-            output_type = self.get_type(in0)
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         input0 = self._get_golden_tensor(in0)
         op_golden_function = get_golden_function(ttir_op)
-        golden_output = op_golden_function(input0)
-        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -5655,20 +5659,18 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> global_dict:
         ttir_op = self.get_opview_from_parser(TTIRBuilder.exp_parser)
         in0 = global_dict[old_op.input]
-        output = global_dict[old_op.output]
         result = old_op.result.type
 
         new_op = ttir_op(
             result,
             in0,
-            output,
             loc=old_op.location,
         )
 
         if not self._disable_golden_check:
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(input0)
+            golden_output = op_golden_function(input0, result.element_type)
             self._set_golden_tensor(new_op, golden_output)
 
         return new_op
@@ -5707,7 +5709,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                             queried_input = input_owner
 
                         input0 = self._get_golden_tensor(queried_input)
-                        golden_output = op_golden_function(input0)
+                        golden_output = op_golden_function(input0, result.element_type)
                         exp_builder._set_golden_tensor(new_op, golden_output)
                         exp_builder._set_output_ordering([new_op])
                         exp_builder._set_golden_tensor(in0, input0)
@@ -5731,13 +5733,15 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         ttir_op = self.get_opview_from_method(TTIRBuilder.div)
 
         if output_type is None:
-            output_type = self.get_type(in0)
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         input0 = self._get_golden_tensor(in0)
         input1 = self._get_golden_tensor(in1)
         op_golden_function = get_golden_function(ttir_op)
-        golden_output = op_golden_function(input0, input1)
-        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        golden_output = op_golden_function(input0, input1, mlir_output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -5769,14 +5773,12 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         ttir_op = self.get_opview_from_parser(TTIRBuilder.div_parser)
         lhs = global_dict[old_op.lhs]
         rhs = global_dict[old_op.rhs]
-        output = global_dict[old_op.output]
         result = old_op.result.type
 
         new_op = ttir_op(
             result,
             lhs,
             rhs,
-            output,
             loc=old_op.location,
         )
 
@@ -5784,7 +5786,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             input0 = self._get_golden_tensor(lhs)
             input1 = self._get_golden_tensor(rhs)
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(input0, input1)
+            golden_output = op_golden_function(input0, input1, result.element_type)
             self._set_golden_tensor(new_op, golden_output)
 
         return new_op
@@ -5834,7 +5836,9 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
 
                         input0 = self._get_golden_tensor(queried_input_lhs)
                         input1 = self._get_golden_tensor(queried_input_rhs)
-                        golden_output = op_golden_function(input0, input1)
+                        golden_output = op_golden_function(
+                            input0, input1, result.element_type
+                        )
                         div_builder._set_golden_tensor(new_op, golden_output)
                         div_builder._set_output_ordering([new_op])
                         div_builder._set_golden_tensor(lhs, input0)
@@ -5928,14 +5932,20 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         step_attr = ArrayAttr.get(step_int_attrs, self._ctx)
 
         if output_type is None:
-            output_type = self.get_type(in0)
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         input0 = self._get_golden_tensor(in0)
         op_golden_function = get_golden_function(ttir_op)
         golden_output = op_golden_function(
-            input0, begins=begins_attr, ends=ends_attr, step=step_attr
+            input0,
+            begins=begins_attr,
+            ends=ends_attr,
+            step=step_attr,
+            output_type_mlir=mlir_output_type,
         )
-        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -5968,7 +5978,6 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
     ) -> global_dict:
         ttir_op = self.get_opview_from_parser(TTIRBuilder.slice_parser)
         in0 = global_dict[old_op.input]
-        output = global_dict[old_op.output]
         result = old_op.result.type
         begins_attr = old_op.begins
         ends_attr = old_op.ends
@@ -5977,7 +5986,6 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         new_op = ttir_op(
             result,
             in0,
-            output,
             begins_attr,
             ends_attr,
             step_attr,
@@ -5988,7 +5996,11 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(
-                input0, begins=begins_attr, ends=ends_attr, step=step_attr
+                input0,
+                begins=begins_attr,
+                ends=ends_attr,
+                step=step_attr,
+                output_type_mlir=result.element_type,
             )
             self._set_golden_tensor(new_op, golden_output)
 
@@ -6038,7 +6050,11 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
 
                         input0 = self._get_golden_tensor(queried_input)
                         golden_output = op_golden_function(
-                            input0, begins=begins_attr, ends=ends_attr, step=step_attr
+                            input0,
+                            begins=begins_attr,
+                            ends=ends_attr,
+                            step=step_attr,
+                            output_type_mlir=result.element_type,
                         )
                         slice_builder._set_golden_tensor(new_op, golden_output)
                         slice_builder._set_output_ordering([new_op])
@@ -6654,42 +6670,6 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             Tensor with square root values
         """
         return self._op_proxy(ttir.SqrtOp, [in0], unit_attrs)
-
-    def log1p(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
-        """Elementwise natural logarithm of one plus input operation.
-
-        The `log1p` operation computes the natural logarithm of one plus each element in the
-        input tensor. For each element x, it returns ln(1 + x). This operation is more
-        accurate than computing log(1 + x) directly for x values close to zero, and it is
-        defined for x > -1. For values less than or equal to -1, the behavior depends on
-        the implementation (may return NaN or negative infinity).
-
-        .. code-block:: mlir
-
-            // Compute log1p of all elements
-            %result = ttir.log1p(%input, %output) : tensor<4xf32>, tensor<4xf32> -> tensor<4xf32>
-            // Input tensor:
-            // [0.0, -0.999, 7.0, 6.38905621, 15.0]
-            // Output tensor:
-            // [0.0, -6.90776825, 2.07944155, 2.0, 2.77258873]
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            A tensor containing the log1p values of the input tensor
-        """
-        return self._op_proxy(
-            ttir.Log1pOp,
-            [in0],
-            unit_attrs,
-        )
 
     def expm1(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
@@ -9660,8 +9640,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         new_op = parsed_function(self, parsed_op, global_dict)
         return new_op
 
-    @staticmethod
-    def get_input_types(ttir_builder: TTIRBuilder, parsed_module: Module):
+    def get_input_types(self, parsed_module: Module):
         inputs_types = []
         inputs_shapes = []
         for entry in parsed_module.body.operations:
@@ -9674,7 +9653,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                         raise ValueError("Only ranked tensor types are supported")
 
         return [
-            ttir_builder._create_ranked_tensor_type(
+            self._create_ranked_tensor_type(
                 shape,
                 dtype,
             )
@@ -9683,7 +9662,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
 
     @staticmethod
     def from_module(
-        ctx: Context, mlir_text: str, golden_inputs: List[torch.tensor] = []
+        ctx: Context, mlir_text: str, golden_inputs: List[torch.tensor] = None
     ) -> Tuple(Module, TTIRBuilder):
         def _convert_to_mlir_value(obj):
             if hasattr(obj, "operation") and hasattr(obj.operation, "results"):
@@ -9712,12 +9691,15 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             else:
                 return _convert_to_mlir_value(result)
 
+        if golden_inputs is None:
+            golden_inputs = []
+
         parsed_module = Module.parse(mlir_text, ctx)
         loc = Location.unknown(ctx)
         with ctx, loc:
             ttir_builder = TTIRBuilder(ctx, loc, (1, 1))
             new_module = Module.create()
-            fn_input_types = TTIRBuilder.get_input_types(ttir_builder, parsed_module)
+            fn_input_types = ttir_builder.get_input_types(parsed_module)
 
             if len(golden_inputs) == 0:
                 for ttype in fn_input_types:
