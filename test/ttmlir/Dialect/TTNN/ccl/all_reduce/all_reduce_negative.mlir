@@ -1,4 +1,5 @@
 // RUN: not ttmlir-opt --split-input-file --ttcore-register-device="system-desc-path=%system_desc_path%" %s 2>&1 | FileCheck %s
+// RUN: not ttmlir-opt --split-input-file --ttcore-register-device="system-desc-path=%system_desc_path%" %s 2>&1 | FileCheck %s
 // Unit tests for ttnn all_reduce op
 
 #dram = #ttnn.buffer_type<dram>
