@@ -793,6 +793,17 @@ toFlatbuffer(FlatbufferObjectCache &cache,
       sliceConfigAttr.getNumSlices());
 }
 
+inline ::flatbuffers::Offset<::tt::target::ttnn::Conv3dConfig>
+toFlatbuffer(FlatbufferObjectCache &cache, ttnn::Conv3dConfigAttr config) {
+  return ::tt::target::ttnn::CreateConv3dConfig(
+      *cache.fbb, toFlatbuffer(cache, config.getWeightsDtype()),
+      toFlatbuffer(cache, config.getTOutBlock()),
+      toFlatbuffer(cache, config.getWOutBlock()),
+      toFlatbuffer(cache, config.getHOutBlock()),
+      toFlatbuffer(cache, config.getCOutBlock()),
+      toFlatbuffer(cache, config.getCInBlock()));
+}
+
 inline ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>
 toFlatbuffer(FlatbufferObjectCache &cache,
              ttnn::DeviceComputeKernelConfigAttr computeConfigAttr) {

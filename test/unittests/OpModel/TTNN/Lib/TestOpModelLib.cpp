@@ -2793,6 +2793,127 @@ INSTANTIATE_TEST_SUITE_P(
         llvm::SmallVector<int32_t>{0, 0}, llvm::SmallVector<int32_t>{1, 1}, 1,
         detail::ExpectedResult{true})));
 
+class OpModelConv3dParam
+    : public OpModelTest,
+      public testing::WithParamInterface<
+          std::tuple<detail::TestTensor,         // input
+                     detail::TestTensor,         // weight
+                     detail::TestTensor,         // output
+                     uint32_t,                   // in_channels
+                     uint32_t,                   // out_channels
+                     uint32_t,                   // batch_size
+                     uint32_t,                   // input_depth
+                     uint32_t,                   // input_height
+                     uint32_t,                   // input_width
+                     llvm::SmallVector<int32_t>, // kernel_size
+                     llvm::SmallVector<int32_t>, // stride
+                     llvm::SmallVector<int32_t>, // padding
+                     uint32_t,                   // groups
+                     llvm::StringRef,            // padding_mode
+                     detail::ExpectedResult>> {};
+
+TEST_P(OpModelConv3dParam, Conv3d) {
+  auto params = GetParam();
+  const auto [inputShape, inputTensorLayout, inputBufferType,
+              inputVirtualGrid] = std::get<0>(params);
+  const auto [weightShape, weightTensorLayout, weightBufferType,
+              weightVirtualGrid] = std::get<1>(params);
+  const auto [outputShape, outputTensorLayout, outputBufferType,
+              outputVirtualGrid] = std::get<2>(params);
+  const auto in_channels = std::get<3>(params);
+  const auto out_channels = std::get<4>(params);
+  const auto batch_size = std::get<5>(params);
+  const auto input_depth = std::get<6>(params);
+  const auto input_height = std::get<7>(params);
+  const auto input_width = std::get<8>(params);
+  const auto kernel_size = std::get<9>(params);
+  const auto stride = std::get<10>(params);
+  const auto padding = std::get<11>(params);
+  const auto groups = std::get<12>(params);
+  const auto padding_mode = std::get<13>(params);
+  const auto expectedLegal = std::get<14>(params).expectedLegal;
+
+  // Conv3d requires BF16 data type and specific layouts
+  const TTNNLayoutAttr inputLayout = CreateRowMajorLayout(
+      inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid,
+      GetPhysicalGridSize(), builder.getBF16Type());
+  const TTNNLayoutAttr weightLayout = CreateTiledLayout(
+      weightShape, weightBufferType, weightTensorLayout, weightVirtualGrid,
+      GetPhysicalGridSize(), builder.getBF16Type());
+  const TTNNLayoutAttr outputLayout = CreateTiledLayout(
+      outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+  DeviceComputeKernelConfigAttr deviceConfig =
+      DeviceComputeKernelConfigAttr::get(
+          &context, /*mathFidelity=*/MathFidelity::LoFi,
+          /*mathApproxMode=*/::mlir::BoolAttr::get(&context, true),
+          /*fp32DestAccEn=*/::mlir::BoolAttr::get(&context, true),
+          /*packerL1Acc=*/::mlir::BoolAttr::get(&context, true),
+          /*dstFullSyncEn=*/::mlir::BoolAttr::get(&context, true));
+
+  auto constraintsExp = OpModel<Conv3dOp>::getOpConstraints(
+      CreateWorkerGrid(), inputShape, inputLayout, weightShape, weightLayout,
+      std::nullopt, std::nullopt, in_channels, out_channels, batch_size,
+      input_depth, input_height, input_width, kernel_size, stride, padding,
+      groups, padding_mode, std::nullopt, std::nullopt, deviceConfig,
+      outputLayout);
+  EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+  if (constraintsExp) {
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+                outputLayoutReadBack] = constraintsExp.get();
+    // Conv3d (experimental) ignores the requested L1 output memory config and
+    // forces output to DRAM (copies input's memory config). Therefore:
+    // - outputSize (l1_output_buffer_per_core) = 0 (output is in DRAM, not L1)
+    // - l1PeakSize (l1_buffers_peak_per_core) = 0 (no intermediate L1 tensors)
+    // - cbSize (cb_peak_size_per_core) > 0 (circular buffers ARE allocated in
+    // L1) Circular buffers are staging queues in L1 SRAM that bridge DRAM and
+    // compute engines. They're mandatory for all compute operations and must be
+    // in L1 because the unpacker/packer hardware can only access L1, not DRAM
+    // directly. See: ttnn/api/ttnn/graph/graph_query_op_constraints.hpp:124
+    //      (query returns 0 for l1_output_buffer_per_core when
+    //      output.buffer()->is_dram())
+    EXPECT_GT(cbSize, 0);
+  } else {
+    llvm::consumeError(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = OpModel<Conv3dOp>::getOpRuntime(
+      inputShape, inputLayout, weightShape, weightLayout, std::nullopt,
+      std::nullopt, in_channels, out_channels, batch_size, input_depth,
+      input_height, input_width, kernel_size, stride, padding, groups,
+      padding_mode, std::nullopt, std::nullopt, deviceConfig, outputLayout);
+  EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+  if (runtimeExp) {
+    const auto runtime = runtimeExp.get();
+    EXPECT_GT(runtime, 0);
+  } else {
+    llvm::consumeError(runtimeExp.takeError());
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    Conv3dTests, OpModelConv3dParam,
+    ::testing::Values(std::make_tuple(
+        // tt-metal Conv3d expects input in [N, D, H, W, C] format (channels
+        // LAST)
+        detail::TestTensor{{1, 5, 10, 10, 3}, // [N, D, H, W, C]
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::DRAM},
+        // Weight must be 2D: [kD*kH*kW*C_in, C_out] where C_in is input
+        // channels patch_size = 3*3*3*3 = 81, out_channels = 64 (multiple of
+        // 32)
+        detail::TestTensor{
+            {81, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        // Output dims: D_out=(5-3)/1+1=3, H_out=(10-3)/1+1=8,
+        // W_out=(10-3)/1+1=8
+        detail::TestTensor{{1, 3, 8, 8, 64}, // [N, D_out, H_out, W_out, C_out]
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::DRAM},
+        3, 64, 1, 5, 10, 10, llvm::SmallVector<int32_t>{3, 3, 3},
+        llvm::SmallVector<int32_t>{1, 1, 1},
+        llvm::SmallVector<int32_t>{0, 0, 0}, 1, "zeros",
+        detail::ExpectedResult{true})));
+
 template <typename OpTy>
 class OpModelPool2DParam
     : public OpModelTest,
