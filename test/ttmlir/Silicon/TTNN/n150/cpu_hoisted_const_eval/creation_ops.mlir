@@ -19,7 +19,7 @@ module {
 
     // CHECK-NOT: ttnn.add
     %0 = "ttir.zeros"() <{shape = array<i32:32, 32>}> : () -> tensor<32x32xbf16>
-    
+
     // CHECK-NOT: ttnn.add
     %1 = "ttir.add"(%arg1, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
 

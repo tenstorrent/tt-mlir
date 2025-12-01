@@ -34,7 +34,7 @@ module {
     // CHECK: ttnn.subtract
     %3 = "ttir.subtract"(%0, %1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
 
-    // CHECK: ttnn.multiply 
+    // CHECK: ttnn.multiply
     %4 = "ttir.multiply"(%3, %2) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
 
     return %4 : tensor<32x32xbf16>
