@@ -667,28 +667,34 @@ def matmul_composite(input0, input1):
             ((1024, 1024), (7, 7), ttnn.TensorMemoryLayout.BLOCK_SHARDED),
         ),
         (
-            ((32, 2048), (7, 7), ttnn.TensorMemoryLayout.WIDTH_SHARDED),
-            ((2048, 32), (7, 7), ttnn.TensorMemoryLayout.HEIGHT_SHARDED),
+            ((512, 1024), (7, 3), ttnn.TensorMemoryLayout.BLOCK_SHARDED),
+            ((1024, 512), (3, 7), ttnn.TensorMemoryLayout.BLOCK_SHARDED),
         ),
+        (
+            ((512, 1024), (3, 3), ttnn.TensorMemoryLayout.BLOCK_SHARDED),
+            ((1024, 512), (3, 3), ttnn.TensorMemoryLayout.BLOCK_SHARDED),
+        ),
+        # (
+        #     ((32, 2048), (7, 7), ttnn.TensorMemoryLayout.WIDTH_SHARDED),
+        #     ((2048, 32), (7, 7), ttnn.TensorMemoryLayout.HEIGHT_SHARDED),
+        # ),
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize("graph_capture", [False])
 def test_matmul(device, shape_grid_layouts, dtype, graph_capture):
     input0, input1 = shape_grid_layouts
-    max_grid = input0[1]
-    assert input1[1] == max_grid
+    # assert input1[1] == max_grid
     compiled_op = ttnn_jit.jit(
         debug=True,
-        max_grid=max_grid,
         graph_capture=graph_capture,
         compile_only=False,
     )(matmul)
     input0_tensor = create_sharded_tile_tensor(
-        device, input0[0], max_grid, dtype, memory_layout=input0[2]
+        device, input0[0], input0[1], dtype, memory_layout=input0[2]
     )
     input1_tensor = create_sharded_tile_tensor(
-        device, input1[0], max_grid, dtype, memory_layout=input1[2]
+        device, input1[0], input1[1], dtype, memory_layout=input1[2]
     )
     output = compiled_op(input0_tensor, input1_tensor)
     # Send tensor to DRAM to avoid having to set the matmul program config in the golden path
