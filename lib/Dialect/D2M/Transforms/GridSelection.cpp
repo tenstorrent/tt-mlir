@@ -764,14 +764,6 @@ static bool hasTTNNOperands(d2m::GenericOp genericOp) {
   return false;
 }
 
-SmallVector<int64_t> computeDimsConstrainedByL1(GenericOp genericOp) {
-  return genericOp.computeDimConstraints(
-      [&](ttcore::MetalLayoutAttr baseMetalLayout, bool isOutputOperand) {
-        return baseMetalLayout.getMemorySpace() ==
-               ttcore::MemorySpace::DeviceL1;
-      });
-}
-
 // Computes the expected TTNN generic output grid shape for the given tensor.
 static llvm::SmallVector<llvm::SmallVector<int64_t>>
 computeTTNNGenericGridShapes(GenericOp genericOp,
@@ -783,7 +775,11 @@ computeTTNNGenericGridShapes(GenericOp genericOp,
   // Determine dim size constraints based on L1 operands. L1 operands are
   // assumed fixed and already legal; DRAM operand streams are aligned to match
   // L1 shapes.
-  auto constrainedDims = computeDimsConstrainedByL1(genericOp);
+  auto constrainedDims = genericOp.computeDimConstraints(
+      [&](ttcore::MetalLayoutAttr baseMetalLayout, bool isOutputOperand) {
+        return baseMetalLayout.getMemorySpace() ==
+               ttcore::MemorySpace::DeviceL1;
+      });
   auto indexingMaps = genericOp.getIndexingMapsValue();
   auto getConstrainedDims = [&](int64_t operandIdx) {
     auto dimProjectionMap =
