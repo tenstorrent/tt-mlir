@@ -10,9 +10,11 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 
+#include <climits>
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <utility>
 
 namespace mlir::tt::d2m {
 
@@ -28,20 +30,13 @@ struct DstAnalysisResult {
   /// If false, check failureReason for diagnostic information.
   bool isValid = true;
 
-  /// Optional breakdown of slice requirements per sub-operation.
-  /// Maps each operation to its assigned color/slice number.
-  /// Useful for detailed diagnostics and debugging.
-  /// Uses MapVector for deterministic iteration order.
+  /// Maps each DST access operation to its assigned slice index.
   llvm::MapVector<Operation *, unsigned> operationSlices;
 
-  /// Identified DST accesses that need allocation.
-  /// Each pair contains the operation and its index within the access
-  /// sequence. This allows transformation passes to reuse the analysis
-  /// results without re-identifying accesses.
+  /// DST access operations paired with their indices for transformation reuse.
   llvm::SmallVector<std::pair<Operation *, int64_t>> dstAccesses;
 
-  /// Human-readable explanation if analysis failed or requirements exceed
-  /// capacity.
+  /// Diagnostic message when analysis fails or capacity is exceeded.
   std::optional<std::string> failureReason;
 };
 

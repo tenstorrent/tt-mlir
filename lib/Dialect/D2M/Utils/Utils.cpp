@@ -118,8 +118,10 @@ Type getRegionLargestDstElemType(Region &region) {
     return WalkResult::advance();
   });
 
-  assert(largestType);
-  TT_assert(getTypeNumberOfBits(largestType) <= 32u);
+  // May return nullptr if region has no DST operations.
+  if (largestType) {
+    TT_assert(getTypeNumberOfBits(largestType) <= 32u);
+  }
   return largestType;
 }
 

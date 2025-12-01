@@ -9,16 +9,22 @@
 #include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/EquivalenceClasses.h"
 
+#include <cstddef>
+#include <utility>
+#include <vector>
+
 namespace mlir::tt::d2m {
 
 /// Result of building an interference graph with coalescing constraints.
 struct InterferenceGraphResult {
   /// Adjacency list representation of the interference graph.
   std::vector<std::vector<size_t>> adjacencyList;
+
   /// Coalescing constraints: pairs of (storeIdx, loadIdx) that must use the
   /// same color. These represent in-place operations where the result store
   /// must use the same DST index as the input load.
   std::vector<std::pair<size_t, size_t>> coalescingPairs;
+
   /// Equivalence classes for coalesced nodes. All nodes in an equivalence
   /// class must receive the same color.
   llvm::EquivalenceClasses<size_t> coalescedClasses;

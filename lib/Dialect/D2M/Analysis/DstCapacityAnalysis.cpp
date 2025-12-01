@@ -42,6 +42,10 @@ mlir::tt::d2m::DstCapacityAnalysis::DstCapacityAnalysis(
       largestDstType =
           mlir::tt::d2m::utils::getRegionLargestDstElemType(*region);
 
+      if (!largestDstType) {
+        continue;
+      }
+
       // Query the hardware configuration to get DST capacity for largest
       // element size.
       uint32_t currentCapacity =

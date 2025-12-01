@@ -7,6 +7,8 @@
 
 #include "ttmlir/Dialect/D2M/Analysis/DstAnalysis.h"
 
+#include <memory>
+
 namespace mlir::tt::d2m {
 
 /// Create a basic DST analysis strategy.

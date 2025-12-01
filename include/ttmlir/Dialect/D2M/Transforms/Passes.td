@@ -174,6 +174,7 @@ def D2MInsertDstRegisterAccess : Pass<"d2m-insert-dst-register-access", "::mlir:
     Option<"useTileMatmul", "use-tile-matmul", "bool", /*default=*/"false", "Use tile_matmul instead of tile_matmul_block">,
     Option<"maxDstPhysicalSizeTiles", "max-dst-physical-size-tiles", "unsigned", "0", "Override the max dst physical size tiles or 0 if unset.">,
     Option<"allocationStrategy", "allocation-strategy", "std::string", /*default=*/"\"chaitin-briggs\"", "DST allocation strategy: 'basic', 'greedy', 'chaitin-briggs'">,
+    Option<"fullSyncEn", "full-sync-en", "bool", /*default=*/"true", "Enable full sync mode for DST capacity (true = max capacity, false = half capacity)">,
   ];
 }
 

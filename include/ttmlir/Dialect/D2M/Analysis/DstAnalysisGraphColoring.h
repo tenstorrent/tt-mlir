@@ -7,6 +7,9 @@
 
 #include "ttmlir/Dialect/D2M/Analysis/DstAnalysis.h"
 
+#include <climits>
+#include <memory>
+
 namespace mlir::tt::d2m {
 
 // Forward declaration
@@ -22,10 +25,14 @@ createGraphColoringDstAnalysis(std::unique_ptr<ColoringStrategy> strategy,
                                unsigned maxSlices = UINT_MAX);
 
 /// Create Chaitin-Briggs graph coloring DST analysis.
-std::unique_ptr<DstAnalysis> createChaitinBriggsDstAnalysis();
+/// \param maxSlices Maximum allowed DST slices. Defaults to UINT_MAX.
+std::unique_ptr<DstAnalysis>
+createChaitinBriggsDstAnalysis(unsigned maxSlices = UINT_MAX);
 
 /// Create greedy graph coloring DST analysis.
-std::unique_ptr<DstAnalysis> createGreedyDstAnalysis();
+/// \param maxSlices Maximum allowed DST slices. Defaults to UINT_MAX.
+std::unique_ptr<DstAnalysis>
+createGreedyDstAnalysis(unsigned maxSlices = UINT_MAX);
 
 } // namespace mlir::tt::d2m
 

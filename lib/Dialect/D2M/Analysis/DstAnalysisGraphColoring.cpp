@@ -36,10 +36,9 @@ static void normalizeColorOrder(std::vector<unsigned> &coloring) {
 static llvm::SmallVector<std::pair<mlir::Operation *, int64_t>>
 identifyDstAccesses(mlir::Operation *op, mlir::Region &region) {
   llvm::SmallVector<std::pair<mlir::Operation *, int64_t>> dstAccesses;
-  llvm::DenseSet<mlir::Operation *> seenOps; // Avoid duplicates
+  llvm::DenseSet<mlir::Operation *> seenOps;
   int64_t index = 0;
 
-  // Walk the region looking for D2M compute operations
   region.walk([&](mlir::Operation *operation) {
     // Check if this is a D2M compute operation with DST interface
     auto computeOp =
@@ -48,16 +47,14 @@ identifyDstAccesses(mlir::Operation *op, mlir::Region &region) {
       return;
     }
 
-    // Get operand indices that must be loaded from DST register
     auto operandsLoadFromDst = computeOp.getOperandsLoadFromDstRegister();
 
     // For each operand that loads from DST, find the corresponding load
-    // operation. This traces through intermediate compute ops like tile_bcast.
+    // operation. This traces through intermediate compute ops such as
+    // tile_bcast.
     for (int64_t operandIdx : operandsLoadFromDst) {
       mlir::Value operand = operation->getOperand(operandIdx);
 
-      // Trace back through the SSA chain to find the affine.load,
-      // going through any intermediate compute ops.
       if (auto loadOp = utils::traceToAffineLoad(operand)) {
         if (seenOps.insert(loadOp.getOperation()).second) {
           dstAccesses.push_back({loadOp.getOperation(), index++});
@@ -66,8 +63,7 @@ identifyDstAccesses(mlir::Operation *op, mlir::Region &region) {
     }
 
     // If this compute op produces a DST value that will be consumed by another
-    // compute op (non in-place), record the producer itself so the allocation
-    // strategy can look it up later.
+    // compute op (not in-place), record producer.
     if (!computeOp.getDstRegInPlace() && !operation->getUsers().empty()) {
       for (Operation *user : operation->getUsers()) {
         if (llvm::isa<OperandLoadStoreRegisterOpInterface>(user)) {
@@ -79,10 +75,9 @@ identifyDstAccesses(mlir::Operation *op, mlir::Region &region) {
       }
     }
 
-    // Check if the result store needs a separate DST slice
-    // If getDstRegInPlace() == false, the store needs its own slice
+    // Check if the result store needs a separate DST slice.
     if (!computeOp.getDstRegInPlace()) {
-      // Find the store operation that stores this operation's result
+      // Find the store operation that stores this operation's result.
       for (mlir::Operation *user : operation->getUsers()) {
         if (auto storeOp = llvm::dyn_cast<mlir::affine::AffineStoreOp>(user)) {
           if (seenOps.insert(storeOp.getOperation()).second) {
@@ -109,7 +104,6 @@ public:
     DstAnalysisResult result;
     unsigned maxSlicesNeeded = 0;
 
-    // Walk all regions looking for d2m.generic operations
     mlir::WalkResult walkResult = op->walk([&](GenericOp genericOp)
                                                -> mlir::WalkResult {
       for (auto &region : genericOp.getRegions()) {
@@ -131,14 +125,12 @@ public:
             region, dstAccesses);
 
         // Contract the graph: merge equivalence classes into single nodes.
-        // This reduces the graph size and ensures coalesced nodes get the
-        // same color.
         llvm::DenseMap<size_t, size_t> nodeToLeader;
         llvm::DenseMap<size_t, size_t> leaderToContracted;
         std::vector<size_t> contractedToLeader;
 
         // First pass: find the node with maximum degree in each equiv class
-        // to use as the representative (leader) for that class.
+        // to use as the representative (leader) for that class (optimization).
         llvm::DenseMap<size_t, size_t> classToMaxDegreeNode;
         llvm::DenseMap<size_t, size_t> classMaxDegree;
         for (size_t i = 0; i < dstAccesses.size(); ++i) {
@@ -268,14 +260,15 @@ createGraphColoringDstAnalysis(std::unique_ptr<ColoringStrategy> strategy,
       std::move(strategy), "graph-coloring", maxSlices);
 }
 
-std::unique_ptr<DstAnalysis> createChaitinBriggsDstAnalysis() {
+std::unique_ptr<DstAnalysis>
+createChaitinBriggsDstAnalysis(unsigned maxSlices) {
   return std::make_unique<DstAnalysisGraphColoring>(
-      std::make_unique<ChaitinBriggsColoring>(), "graph-coloring");
+      std::make_unique<ChaitinBriggsColoring>(), "chaitin-briggs", maxSlices);
 }
 
-std::unique_ptr<DstAnalysis> createGreedyDstAnalysis() {
+std::unique_ptr<DstAnalysis> createGreedyDstAnalysis(unsigned maxSlices) {
   return std::make_unique<DstAnalysisGraphColoring>(
-      std::make_unique<GreedyColoring>(), "greedy");
+      std::make_unique<GreedyColoring>(), "greedy", maxSlices);
 }
 
 } // namespace mlir::tt::d2m

@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/D2M/Analysis/DstAnalysis.h"
 #include "ttmlir/Dialect/D2M/Analysis/DstAnalysisBasic.h"
 #include "ttmlir/Dialect/D2M/Analysis/DstAnalysisGraphColoring.h"
+#include "ttmlir/Dialect/D2M/Analysis/DstCapacityAnalysis.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/GraphColoringStrategy.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
@@ -116,21 +117,37 @@ public:
     DstIntermediatesMap dstIntermediates;
   };
 
-  // Abstract interface for DST slice allocation strategies.
-  // This allows swapping between basic linear allocation and graph coloring.
+  /// Strategy interface for assigning DST slice indices during transformation.
+  ///
+  /// During the pass, affine loads/stores are rewritten to use explicit DST
+  /// slice indices. This interface abstracts how those indices are chosen:
+  /// - Basic strategy: sequential allocation (0, 1, 2, ...)
+  /// - Graph coloring strategy: uses pre-computed assignments from DstAnalysis
+  ///
+  /// The pass calls setCurrentOperation() before each allocation to provide
+  /// context for strategies that need operation-specific assignments.
   class DstAllocationStrategy {
   public:
     virtual ~DstAllocationStrategy() = default;
+
+    /// Allocate and return the DST slice index for the current operation.
     virtual int allocate() = 0;
-    virtual void setCurrentOperation(Operation *op) {
-    } // Optional for strategies
+
+    /// Set the operation context for the next allocation.
+    virtual void setCurrentOperation(Operation *op) {}
+
+    /// Mark that a store to DST has occurred (for tracking purposes).
     virtual void setStoreToDst() = 0;
+
+    /// Check if any store to DST has occurred.
     virtual bool didStoreToDst() = 0;
+
+    /// Get the current slice index without advancing allocation.
     virtual int getCurrSliceIndex() = 0;
   };
 
-  // Basic linear allocation strategy (original behavior).
-  // Allocates DST slices sequentially without reuse.
+  /// Basic linear allocation: assigns slices sequentially (0, 1, 2, ...).
+  /// No reuse of slices; each allocation gets the next available index.
   class DstSliceAllocationState : public DstAllocationStrategy {
   public:
     int allocate() override { return nextSliceIndex++; }
@@ -149,8 +166,8 @@ public:
     bool storedToDst = false;
   };
 
-  // Graph coloring allocation strategy using pre-computed slice assignments.
-  // Stores operation-to-slice mapping from DstAnalysis and performs lookups.
+  /// Graph coloring allocation: looks up pre-computed assignments from
+  /// DstAnalysis. Falls back to linear allocation for ops not in the map.
   class GraphColoringDstAllocationStrategy : public DstAllocationStrategy {
   public:
     explicit GraphColoringDstAllocationStrategy(
@@ -407,15 +424,18 @@ public:
     return rewriter.create<AcquireDstOp>(loc, dstType);
   }
 
-  // Walk all compute ops in the region and collect:
-  // 1. CB->DST->ComputeOp loads.
-  // 2. CB->DST->ComputeOp load-bcasts.
-  // 3. ComputeOp->DST->CB stores.
-  // 4. ComputeOp->DST->ComputeOp intermediates.
-  // Loads & stores are organized under their common loop nests.
-  // Implements a simple linear DST slice allocator such that multiple operands
-  // get unique DST slices. Currently this routine only does allocation for
-  // loads and assumes that stores get exclusive access.
+  /// Collect DST accesses from compute ops in the region:
+  /// 1. CB->DST loads for compute op operands
+  /// 2. CB->DST load-bcasts (load followed by broadcast)
+  /// 3. DST->CB stores for compute op results
+  /// 4. DST intermediates (compute op results consumed by other compute ops)
+  ///
+  /// Loads and stores are grouped by their enclosing loop nest.
+  /// Slice allocation depends on the operation type:
+  /// - Loads: always allocate a new slice
+  /// - Stores for in-place ops: reuse the current slice
+  /// - Stores for non-in-place ops: allocate a new slice
+  /// - Intermediates: allocate or reuse based on in-place/scalar status
   static DstAccessCollection
   collectDstAccesses(GenericOp gOp, Region &region,
                      Operation *outermostInnerComputeLoop,
@@ -469,9 +489,8 @@ public:
                 (isUnaryOp || isTileMatmul || isReduction || rhsIsScalar) &&
                 "Only unary ops, tile matmul, reductions, and tile+scalar ops "
                 "supported for destination register in place, multi-operand "
-                "ops "
-                "would reference wrong tile, but those ops should be setting "
-                "output tile.");
+                "ops would reference wrong tile, but those ops should be "
+                "setting output tile.");
             dstSlice = strategy.getCurrSliceIndex();
           } else {
             strategy.setCurrentOperation(potentialStore);
@@ -1094,10 +1113,18 @@ public:
     DstAnalysisResult analysisResult;
     std::unique_ptr<DstAnalysis> dstAnalysis;
 
-    if (allocationStrategy == "greedy") {
-      dstAnalysis = createGreedyDstAnalysis();
-    } else if (allocationStrategy == "chaitin-briggs") {
-      dstAnalysis = createChaitinBriggsDstAnalysis();
+    if (allocationStrategy == "greedy" ||
+        allocationStrategy == "chaitin-briggs") {
+      // Compute DST capacity constraint from hardware and element types.
+      DstCapacityAnalysis capacityAnalysis(moduleOp, fullSyncEn.getValue(),
+                                           maxDstPhysicalSizeTiles.getValue());
+      unsigned minDstCapacity = capacityAnalysis.getMinDstCapacity();
+
+      if (allocationStrategy == "greedy") {
+        dstAnalysis = createGreedyDstAnalysis(minDstCapacity);
+      } else {
+        dstAnalysis = createChaitinBriggsDstAnalysis(minDstCapacity);
+      }
     }
 
     if (dstAnalysis) {

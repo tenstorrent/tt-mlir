@@ -86,7 +86,7 @@ public:
 
         // Record per-operation breakdown
         for (auto &[accessOp, idx] : dstAccesses) {
-          result.operationSlices[accessOp] = 1;
+          result.operationSlices[accessOp] = idx;
         }
       }
     });
