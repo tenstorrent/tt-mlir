@@ -1685,6 +1685,8 @@ def load_mlir_file(
 
     if target == "ttir":
         builder, module = TTIRBuilder.from_module(ctx, mlir_text, golden_inputs)
+    elif target == "stablehlo":
+        builder, module = StableHLOBuilder.from_module(ctx, mlir_text, golden_inputs)
     else:
         raise NotImplementedError(
             "Loading MLIR files is only supported for ttir currently."
@@ -1700,6 +1702,8 @@ def split_mlir_file(
 ) -> List[Tuple[Module, Builder]]:
     if target == "ttir":
         modules_and_builders = TTIRBuilder.split_module(module, builder)
+    elif target == "stablehlo":
+        modules_and_builders = StableHLOBuilder.split_module(module, builder)
     else:
         raise NotImplementedError(
             "Splitting MLIR files is only supported for ttir currently."
