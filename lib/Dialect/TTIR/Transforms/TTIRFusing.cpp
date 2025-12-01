@@ -1548,7 +1548,7 @@ private:
         return nullptr;
       }
     }
-    
+
     return nullptr;
   }
 };
