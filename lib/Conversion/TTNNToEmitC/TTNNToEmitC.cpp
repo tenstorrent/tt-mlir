@@ -1409,6 +1409,11 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::Conv3dOp> emitter(
         srcOp, adaptor, rewriter);
 
+    // Get output dtype, default to BFLOAT16 if not specified
+    auto dtypeAttr = srcOp.getDtypeAttr();
+    auto outputDtype =
+        dtypeAttr ? dtypeAttr.getValue() : ttcore::DataType::BFloat16;
+
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getWeight()),
@@ -1416,7 +1421,7 @@ public:
         emitter.emitConv3dConfig(srcOp.getOutChannels(), srcOp.getKernelSize(),
                                  srcOp.getStride(), srcOp.getPadding(),
                                  srcOp.getPaddingMode(), srcOp.getGroups(),
-                                 srcOp.getConv3dConfig()),
+                                 outputDtype, srcOp.getConv3dConfig()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
         emitter.emit(std::nullopt), // compute_config - not yet supported
     };

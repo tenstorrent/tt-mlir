@@ -2831,8 +2831,7 @@ TEST_P(OpModelConv3dParam, Conv3d) {
   const auto padding = std::get<11>(params);
   const auto groups = std::get<12>(params);
   const auto padding_mode = std::get<13>(params);
-  const auto [expectedLegal, expectedCbSize, expectedL1PeakSize,
-              expectedTotalPeakSize, expectedOutputSize] = std::get<14>(params);
+  const auto expectedLegal = std::get<14>(params).expectedLegal;
 
   // Conv3d requires BF16 data type and specific layouts
   const TTNNLayoutAttr inputLayout = CreateRowMajorLayout(
@@ -2913,7 +2912,7 @@ INSTANTIATE_TEST_SUITE_P(
         3, 64, 1, 5, 10, 10, llvm::SmallVector<int32_t>{3, 3, 3},
         llvm::SmallVector<int32_t>{1, 1, 1},
         llvm::SmallVector<int32_t>{0, 0, 0}, 1, "zeros",
-        detail::ExpectedResult{true, 0, 0, 0})));
+        detail::ExpectedResult{true})));
 
 template <typename OpTy>
 class OpModelPool2DParam

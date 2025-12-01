@@ -1754,6 +1754,7 @@ public:
       uint32_t outChannels, llvm::ArrayRef<int32_t> kernelSize,
       llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
       llvm::StringRef paddingMode, uint32_t groups,
+      ttcore::DataType outputDtype,
       std::optional<mlir::tt::ttnn::Conv3dConfigAttr> conv3dConfig =
           std::nullopt) {
     std::string buf;
@@ -1780,6 +1781,11 @@ public:
 
     rso << "config.padding_mode = \"" << paddingMode << "\"; ";
     rso << "config.groups = " << groups << "; ";
+
+    // Set output dtype
+    rso << "config.dtype = ";
+    rso << EmitCTypeConverter<::ttnn::DataType>::convert(outputDtype);
+    rso << "; ";
 
     // Apply Conv3dConfigAttr overrides if provided
     if (conv3dConfig.has_value()) {
