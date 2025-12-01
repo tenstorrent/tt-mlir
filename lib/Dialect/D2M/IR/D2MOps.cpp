@@ -1619,25 +1619,8 @@ d2m::GenericOp::getOperandGridShapes() {
     } else {
       auto tensorType = mlir::cast<RankedTensorType>(operand.getType());
       ttcore::MetalLayoutAttr layout =
-          mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
-              tensorType.getEncoding());
+          mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
 
-      // If operand has ViewLayoutAttr (from StreamLayoutOp), get layout from
-      // storage.
-      if (!layout) {
-        if (mlir::isa_and_nonnull<ttcore::ViewLayoutAttr>(
-                tensorType.getEncoding())) {
-          if (auto streamOp = operand.getDefiningOp<d2m::StreamLayoutOp>()) {
-            auto storageType =
-                mlir::cast<RankedTensorType>(streamOp.getStorage().getType());
-            layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
-                storageType.getEncoding());
-          }
-        }
-      }
-
-      assert(layout &&
-             "Expected MetalLayoutAttr or ViewLayoutAttr with StreamLayoutOp");
       gridShapes.emplace_back(layout.getGridShape(tensorType));
     }
   }
@@ -1660,25 +1643,10 @@ d2m::GenericOp::getOperandShardShapes(bool convertTileToScalar) {
       elementType = memrefType.getElementType();
     } else {
       auto tensorType = mlir::cast<RankedTensorType>(shapedType);
-      layout = mlir::dyn_cast<mlir::tt::ttcore::DeviceLayoutInterface>(
+      layout = mlir::cast<mlir::tt::ttcore::DeviceLayoutInterface>(
           tensorType.getEncoding());
 
-      // If operand has ViewLayoutAttr (from StreamLayoutOp), get layout from
-      // the underlying storage.
-      if (!layout) {
-        if (mlir::isa_and_nonnull<ttcore::ViewLayoutAttr>(
-                tensorType.getEncoding())) {
-          if (auto streamOp = operand.getDefiningOp<d2m::StreamLayoutOp>()) {
-            auto storageType =
-                mlir::cast<RankedTensorType>(streamOp.getStorage().getType());
-            layout = mlir::dyn_cast<mlir::tt::ttcore::DeviceLayoutInterface>(
-                storageType.getEncoding());
-          }
-        }
-      }
-
-      assert(layout && "Expected DeviceLayoutInterface or ViewLayoutAttr with "
-                       "StreamLayoutOp");
+      assert(layout && "Expected DeviceLayoutInterface.");
       elementType = tensorType.getElementType();
     }
 
