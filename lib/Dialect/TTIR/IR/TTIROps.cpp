@@ -3777,49 +3777,48 @@ mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
 
 void mlir::tt::ttir::UpdateCacheOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
-  patterns.add(+[](mlir::tt::ttir::UpdateCacheOp op,
-                   mlir::PatternRewriter &rewriter) {
-    auto cacheShape = op.getCache().getType().getShape();
-    auto inputShape = op.getInput().getType().getShape();
-    auto updateIndexShape = op.getUpdateIndex().getType().getShape();
+  patterns.add(
+      +[](mlir::tt::ttir::UpdateCacheOp op, mlir::PatternRewriter &rewriter) {
+        auto cacheShape = op.getCache().getType().getShape();
+        auto inputShape = op.getInput().getType().getShape();
+        auto updateIndexShape = op.getUpdateIndex().getType().getShape();
 
-    auto numUsers = cacheShape[0];
-    auto numHeads = cacheShape[1];
-    auto headDim = cacheShape[3];
+        auto numUsers = cacheShape[0];
+        auto numHeads = cacheShape[1];
+        auto headDim = cacheShape[3];
 
-    TypedValue<RankedTensorType> newInput = op.getInput();
+        TypedValue<RankedTensorType> newInput = op.getInput();
 
-    // Permute input if in the format [1, num_heads, num_users, head_dim]
-    if (inputShape[2] == numUsers && inputShape[1] == numHeads) {
-      llvm::SmallVector<int64_t> newInputShape = {1, numUsers, numHeads,
-                                                  headDim};
-      auto newInputType = RankedTensorType::get(
-          newInputShape, newInput.getType().getElementType(),
-          newInput.getType().getEncoding());
-      newInput = utils::createDPSOp<PermuteOp>(
-          rewriter, op.getLoc(), newInputType, newInput,
-          rewriter.getDenseI64ArrayAttr({0, 2, 1, 3}));
-    }
+        // Permute input if in the format [1, num_heads, num_users, head_dim]
+        if (inputShape[2] == numUsers && inputShape[1] == numHeads) {
+          llvm::SmallVector<int64_t> newInputShape = {1, numUsers, numHeads,
+                                                      headDim};
+          auto newInputType = RankedTensorType::get(
+              newInputShape, newInput.getType().getElementType(),
+              newInput.getType().getEncoding());
+          newInput = rewriter.create<PermuteOp>(
+              op.getLoc(), newInputType, newInput,
+              rewriter.getDenseI64ArrayAttr({0, 2, 1, 3}));
+        }
 
-    // If the update index shape is [1] then repeat to num users
-    TypedValue<RankedTensorType> newUpdateIndex = op.getUpdateIndex();
-    if (updateIndexShape[0] == 1) {
-      auto newUpdateIndexShape = {numUsers};
-      auto newUpdateIndexType = RankedTensorType::get(
-          newUpdateIndexShape, newUpdateIndex.getType().getElementType(),
-          newUpdateIndex.getType().getEncoding());
-      auto repeatDims = rewriter.getDenseI64ArrayAttr({numUsers});
-      newUpdateIndex = utils::createDPSOp<RepeatOp>(rewriter, op.getLoc(),
-                                                    newUpdateIndexType,
-                                                    newUpdateIndex, repeatDims);
-    }
+        // If the update index shape is [1] then repeat to num users
+        TypedValue<RankedTensorType> newUpdateIndex = op.getUpdateIndex();
+        if (updateIndexShape[0] == 1) {
+          auto newUpdateIndexShape = {numUsers};
+          auto newUpdateIndexType = RankedTensorType::get(
+              newUpdateIndexShape, newUpdateIndex.getType().getElementType(),
+              newUpdateIndex.getType().getEncoding());
+          auto repeatDims = rewriter.getDenseI64ArrayAttr({numUsers});
+          newUpdateIndex = rewriter.create<RepeatOp>(
+              op.getLoc(), newUpdateIndexType, newUpdateIndex, repeatDims);
+        }
 
-    rewriter.replaceOpWithNewOp<ttir::PagedUpdateCacheOp>(
-        op, op.getType(), op.getCache(), newInput, newUpdateIndex, false,
-        nullptr);
+        rewriter.replaceOpWithNewOp<ttir::PagedUpdateCacheOp>(
+            op, op.getType(), op.getCache(), newInput, newUpdateIndex, false,
+            nullptr);
 
-    return mlir::success();
-  });
+        return mlir::success();
+      });
 }
 
 //===----------------------------------------------------------------------===//
