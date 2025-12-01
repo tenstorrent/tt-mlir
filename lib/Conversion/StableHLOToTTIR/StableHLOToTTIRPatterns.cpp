@@ -2529,8 +2529,8 @@ private:
   // bit width). This assumes boolean operands are modeled as 1bit wide ints.
   static StableHLOOpType getStableHLOOpType(const SrcOp &srcOp) {
     // Checks if all operands are boolean (have bit width equal to 1).
-    bool allOperandsAreBoolean = std::all_of(
-        srcOp->operand_begin(), srcOp->operand_end(), [](auto operand) {
+    bool allOperandsAreBoolean =
+        llvm::all_of(srcOp->getOperands(), [](auto operand) {
           return mlir::cast<RankedTensorType>(operand.getType())
                      .getElementTypeBitWidth() == 1;
         });
@@ -2544,9 +2544,9 @@ private:
   // stablehlo::ConvertOp from a boolean tensor.
   // return true if all operands of a given StableHLO operation are effectively
   // boolean.
-  bool areOperandsBoolean(const SrcOp &sourceOp) const {
-    bool allOperandsBoolean = std::all_of(
-        sourceOp->operand_begin(), sourceOp->operand_end(), [](auto operand) {
+  bool areOperandsBoolean(const SrcOp &srcOp) const {
+    bool allOperandsBoolean =
+        llvm::all_of(srcOp->getOperands(), [](auto operand) {
           // Check if operand is a ranked tensor of bit width 1.
           if (mlir::cast<RankedTensorType>(operand.getType())
                   .getElementTypeBitWidth() == 1) {
