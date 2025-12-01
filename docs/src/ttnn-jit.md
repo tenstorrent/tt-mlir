@@ -12,6 +12,7 @@
   - [Level 2: D2M Compilation Pipeline](#level-2-d2m-compilation-pipeline)
   - [Level 3: Runtime Execution](#level-3-runtime-execution)
   - [JIT Caching](#jit-caching)
+  - [Op Fusion](#op-fusion)
 - [Limitations & Constraints](#limitations--constraints)
 - [Debugging FAQ](#debugging-faq)
   - [AssertionError: Function ___ not supported](#assertionerror-function-___-not-supported)
@@ -152,6 +153,139 @@ Each `JitFunction` maintains its own `JitCache`, so different JIT [configuration
 Constructing a `ProgramDescriptor` from a flatbuffer at runtime is expensive. To mitigate this, `ProgramDescriptor` instances are cached in a `ProgramDescCache` owned by the flatbuffer `Binary` object. The same cache key is also stored in the `ProgramDescriptor` as a `custom_program_hash` and passed to the TTNN runtime, allowing the `ttnn.generic` to reuse for its `ProgramCache`.
 
 See [test_program_cache.py](../../test/ttnn-jit/test_program_cache.py) for a detailed example demonstrating cache hit/miss behavior.
+
+### Op Fusion
+
+Fusion is a key optimization in the D2M compilation pipeline that combines multiple D2M generic operations into a single fused kernels, reducing overhead and improving performance. This feature is currently always enabled and runs under-the-hood with no additional input/guidance required from the user.
+
+#### At a Glance
+
+- **Fuses viable pairs of `d2m.generic` ops** together to eliminate/reduce redundant ops/instructions
+- **Saves dispatch time** by reducing total number of kernels
+- **Reduces kernel execution time** by reducing redundant `*_init` op calls
+- **Reorders op call sequence** to minimize required DST memory and data movement
+
+#### Limitations
+
+- **Only supports elementwise ops** (no reductions/matmuls yet)
+- **Fused `d2m.generic` can't have more than 32 input/output tensors** (CB limit)
+- **Ops with 2+ inputs** are currently lowered to loops that operate on 1xDST-tile at a time
+  - Can fuse aggressively and save on dispatch but less savings on redundant ops
+  - **Major revisions incoming** in later releases
+- **Can only fuse over op trees** (i.e., can't fuse over tensors with multiple users)
+  - **EXCEPTION**: if the tensor is a func argument, it will go through separate "tilize" `d2m.generic`s; as far as the downstream `d2m.generic`s are concerned → the output of each "tilize" is a unique tensor
+
+#### Current Supported Patterns
+
+Unary Op Chains
+- **Fully fusable** → Fewer kernels = fewer kernel dispatches
+- Op loops iterate over 8xDST-Tile blocks
+- Can use init hoisting to reduce `*_init` op calls by 8x
+- DST is double buffered (benefits degrade dramatically as chain gets longer)
+
+```Python
+@ttnn_jit.jit(backend="ttnn", max_grid=(7, 7), debug=False)
+def unary_chain(input_tensor):
+    res_0 = ttnn.abs(input_tensor)
+    res_1 = ttnn.sin(res_0)
+    res_2 = ttnn.neg(res_1)
+    output_tensor = ttnn.exp(res_2)
+
+    return output_tensor
+```
+
+Lowers to the singular d2m compute generic below:
+
+```
+d2m.generic { // . . . omitted . . .
+^compute0(%cb0: !d2m.cb<memref<4x4x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>>, %cb1: !d2m.cb<memref<4x4x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>>):
+  // . . . omitted . . .
+  scf.for %arg1 = %c0 to %c4 step %c2 {
+    scf.for %arg2 = %c0 to %c4 step %c4 {
+      // . . . omitted . . .
+      affine.for %arg3 = 0 to 2 {
+        affine.for %arg4 = 0 to 4 {
+          %2 = affine.load %subview[%arg3, %arg4] : memref<2x4x!ttcore.tile<32x32, bf16>, strided<[4, 1], offset: ?>, #ttcore.memory_space<l1>>
+          affine.store %2, %dst[0, %arg3, %arg4] : memref<1x2x4x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<dst>>
+        }
+      }
+      affine.for %arg3 = 0 to 2 {
+        affine.for %arg4 = 0 to 4 {
+          %2 = affine.load %dst[0, %arg3, %arg4] : memref<1x2x4x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<dst>>
+          %3 = "d2m.tile_abs"(%2) : (!ttcore.tile<32x32, bf16>) -> !ttcore.tile<32x32, bf16>
+          affine.store %3, %dst[%c0, %arg3, %arg4] : memref<1x2x4x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<dst>>
+        }
+      }
+      // Shortened IR for 2 intermediate ops
+      // affine.for{affine.for{load --> "d2m.tile_sin" --> store}}
+      // affine.for{affine.for{load --> "d2m.tile_neg" --> store}}
+
+      affine.for %arg3 = 0 to 2 {
+        affine.for %arg4 = 0 to 4 {
+          %2 = affine.load %dst[%c0, %arg3, %arg4] : memref<1x2x4x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<dst>>
+          %3 = "d2m.tile_exp"(%2) : (!ttcore.tile<32x32, bf16>) -> !ttcore.tile<32x32, bf16>
+          affine.store %3, %dst[0, %arg3, %arg4] : memref<1x2x4x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<dst>>
+        }
+      }
+      affine.for %arg3 = 0 to 2 {
+        affine.for %arg4 = 0 to 4 {
+          %2 = affine.load %dst[0, %arg3, %arg4] : memref<1x2x4x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<dst>>
+          affine.store %2, %subview_4[%arg3, %arg4] : memref<2x4x!ttcore.tile<32x32, bf16>, strided<[4, 1], offset: ?>, #ttcore.memory_space<l1>>
+        }
+      }
+    }
+  }
+}
+```
+
+Arbitrary Binary + Unary Op Trees
+- **Fully fusable** → Fewer kernels = fewer kernel dispatches
+- Op loops iterate over 1xDST-Tile blocks
+- No init hoisting benefits
+- Op tree is evaluated and op execution order is rescheduled to minimize number of required DST registers (minimize the max number of tensors that can be live at any point during execution)
+- "loads" of input data tiles are moved to immediately before their users
+
+```Python
+@ttnn_jit.jit(backend="ttnn", max_grid=(7, 7), debug=False)
+def add_tree_8_to_1(
+        in0, in1, in2, in3,
+        in4, in5, in6, in7
+):
+        add_0_0 = builder.add(in0, in1)
+        add_0_1 = builder.add(in2, in3)
+        add_0_2 = builder.add(in4, in5)
+        # At this point we're storing 3 intermediate results in DST tiles
+        # Need 2 more DST tiles for inputs below
+        # +1 more DST tile for the result
+        # Peak usage of 6 DST tiles
+        add_0_3 = builder.add(in6, in7)
+
+        add_1_0 = builder.add(add_0_0, add_0_1)
+        add_1_1 = builder.add(add_0_2, add_0_3)
+
+        add_2_0 = builder.add(add_1_0, add_1_1)
+```
+
+Is rescheduled under-the-hood to:
+
+```Python
+        # resolve one half of the op-tree
+        add_0_0 = builder.add(in0, in1)
+        add_0_1 = builder.add(in2, in3)
+        add_1_0 = builder.add(add_0_0, add_0_1)
+        # store add_1_0 as the result of this half of the tree
+
+        # THEN resolve other half
+        add_0_2 = builder.add(in4, in5)
+        # Storing add_1_0 and add_0_2 in intermediate in DST tiles
+        # Need 3 more DST tiles for add_0_3
+        # Peak usage of 5 DST-Tiles
+        add_0_3 = builder.add(in6, in7)
+        add_1_1 = builder.add(add_0_2, add_0_3)
+
+        # combine 2 results
+        add_2_0 = builder.add(add_1_0, add_1_1)
+```
 
 ## Debugging FAQ
 For debugging purposes, always build with `-DCMAKE_BUILD_TYPE=Debug` and decorate with `debug=True` to see IR outputs after each step.
