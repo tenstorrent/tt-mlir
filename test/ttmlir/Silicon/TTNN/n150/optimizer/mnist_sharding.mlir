@@ -3,15 +3,11 @@
 // RUN: FileCheck %s --input-file=mnist_sharding_ttnn.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn mnist_sharding_ttnn.mlir
 
-// CHECK: %[[MATMUL1:.*]] = "ttnn.matmul"
+// CHECK: %[[LINEAR1:.*]] = "ttnn.linear"
 // CHECK-SAME: -> tensor<1x256xf32, #ttnn.ttnn_layout<{{.*}}<width_sharded>>>
-// CHECK: %[[ADD1:.*]] = "ttnn.add"(%[[MATMUL1]]
+// CHECK: %[[RELU:.*]] = "ttnn.relu"(%[[LINEAR1]]
 // CHECK-SAME: -> tensor<1x256xf32, #ttnn.ttnn_layout<{{.*}}<width_sharded>>>
-// CHECK: %[[RELU:.*]] = "ttnn.relu"(%[[ADD1]]
-// CHECK-SAME: -> tensor<1x256xf32, #ttnn.ttnn_layout<{{.*}}<width_sharded>>>
-// CHECK: %[[MATMUL2:.*]] = "ttnn.matmul"(%[[RELU]]
-// CHECK-SAME: -> tensor<1x10xf32, #ttnn.ttnn_layout<{{.*}}<width_sharded>>>
-// CHECK: %[[ADD2:.*]] = "ttnn.add"(%[[MATMUL2]]
+// CHECK: %[[LINEAR2:.*]] = "ttnn.linear"(%[[RELU]]
 // CHECK-SAME: -> tensor<1x10xf32, #ttnn.ttnn_layout<{{.*}}<width_sharded>>>
 
 #loc = loc("MNISTLinear":4294967295:0)

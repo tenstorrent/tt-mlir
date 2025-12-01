@@ -4545,96 +4545,12 @@ def TTIR_Upsample2dOp : TTIR_NamedOp<"upsample2d"> {
     let hasVerifier = 1;
 }
 
-def TTIR_ScatterOp: TTIR_NamedOp<"scatter"> {
-  let summary = "Scatter operation";
-  let description = [{
-    The `scatter` operation updates slices of an input tensor at indices specified by scatter_indices
-    with values from the update tensor.
 
-    This operation is the inverse of the `gather` operation. It allows for updating specific slices of a
-    tensor at locations determined by indices. The operation is highly configurable through various
-    dimension attributes that control how the indices and updates are interpreted.
-
-    Example:
-    ```mlir
-    // Basic scatter example: update values at specific indices in a 1D tensor
-    %input = ... : tensor<8xf32>        // Input tensor with values: [0, 0, 0, 0, 0, 0, 0, 0]
-    %indices = ... : tensor<3xi32>      // Indices tensor with values: [1, 3, 5]
-    %update = ... : tensor<3xf32>       // Update tensor with values: [10, 30, 50]
-    %result = ttir.scatter(%input, %indices, %update) {
-        update_window_dims = [],        // No window dimensions in update tensor
-        inserted_window_dims = [0],     // Insert window dimension 0
-        input_batching_dims = [],       // No batching dimensions in input
-        scatter_indices_batching_dims = [], // No batching dimensions in indices
-        scatter_dims_to_operand_dims = [0], // Map scatter dimension 0 to operand dimension 0
-        index_vector_dim = 0,           // Indices are in dimension 0
-        indices_are_sorted = true,      // Indices are sorted
-        unique_indices = true           // Indices are unique
-    } : (tensor<8xf32>, tensor<3xi32>, tensor<3xf32>) -> tensor<8xf32>
-    // Result: [0, 10, 0, 30, 0, 50, 0, 0]
-
-    // Scatter to update a 2D tensor
-    %input = ... : tensor<4x4xf32>      // Input tensor (4x4 matrix of zeros)
-    %indices = ... : tensor<2x2xi32>    // Indices tensor with values: [[0, 1], [2, 3]]
-    %update = ... : tensor<2xf32>       // Update tensor with values: [100, 200]
-    %result = ttir.scatter(%input, %indices, %update) {
-        update_window_dims = [],
-        inserted_window_dims = [0, 1],
-        input_batching_dims = [],
-        scatter_indices_batching_dims = [0],
-        scatter_dims_to_operand_dims = [0, 1],
-        index_vector_dim = 1,
-        indices_are_sorted = false,
-        unique_indices = true
-    } : (tensor<4x4xf32>, tensor<2x2xi32>, tensor<2xf32>) -> tensor<4x4xf32>
-    // Result: A 4x4 tensor with 100 at position [0,1] and 200 at position [2,3]
-    ```
-
-    Inputs:
-    - `input` (Tensor): The tensor to be updated.
-    - `scatter_indices` (Tensor): Tensor containing the starting indices for slices to update.
-    - `update` (Tensor): Tensor containing values to scatter into the input tensor.
-
-    Attributes:
-    - `update_window_dims` (Array of Integer): Dimensions in update that are window dimensions.
-    - `inserted_window_dims` (Array of Integer): Dimensions in the output that are not present in update.
-    - `input_batching_dims` (Array of Integer): Batch dimensions in the input tensor.
-    - `scatter_indices_batching_dims` (Array of Integer): Batch dimensions in the scatter indices tensor.
-    - `scatter_dims_to_operand_dims` (Array of Integer): Maps dimensions in scatter indices to dimensions in operand.
-    - `index_vector_dim` (Integer): The dimension in scatter indices that contains the index vector.
-    - `indices_are_sorted` (Boolean): Whether indices are sorted lexicographically.
-    - `unique_indices` (Boolean): Whether indices are guaranteed to be unique.
-
-    Output:
-    - `result` (Tensor): The updated tensor.
-
-    Note: The semantics of this operation are complex and based on the StableHLO scatter operation.
-    The configuration of the various dimension attributes determines exactly how the scatter indices
-    are interpreted and how the update values are applied to the input tensor.
-    }];
-
-  let arguments = (ins AnyRankedTensor:$input,
-                       AnyRankedTensor:$scatter_indices,
-                       AnyRankedTensor:$update,
-                       DenseI32ArrayAttr:$update_window_dims,
-                       DenseI32ArrayAttr:$inserted_window_dims,
-                       DenseI32ArrayAttr:$input_batching_dims,
-                       DenseI32ArrayAttr:$scatter_indices_batching_dims,
-                       DenseI32ArrayAttr:$scatter_dims_to_operand_dims,
-                       I32Attr:$index_vector_dim,
-                       BoolAttr:$indices_are_sorted,
-                       BoolAttr:$unique_indices);
-
-  let results = (outs AnyRankedTensor:$result);
-
-  let hasVerifier = 1;
-}
-
-def TTIR_ScatterInDimOp : TTIR_NamedOp<"scatter_in_dim"> {
+def TTIR_ScatterOp : TTIR_NamedOp<"scatter"> {
   let summary = "Scatter operation with simplified dimension attributes";
   let description = [{
-    The `scatter_in_dim` operation introduces torch style scatter in TTIR so that
-    we can lower ttir scatter -> ttir scatter_in_dim -> ttnn scatter.
+    The `scatter` operation introduces torch style scatter in TTIR so that
+    we can lower ttir scatter -> ttnn scatter.
 
     Embeds the values of the source tensor into the input tensor at locations specified by the index tensor along the given dimension.
 
@@ -4654,7 +4570,7 @@ def TTIR_ScatterInDimOp : TTIR_NamedOp<"scatter_in_dim"> {
     %input = ... : tensor<8xf32>        // Input tensor
     %indices = ... : tensor<3xi32>      // Indices tensor
     %source = ... : tensor<3xf32>       // Source values to scatter
-    %result = ttir.scatter_in_dim(%input, %indices, %source) <{
+    %result = ttir.scatter(%input, %indices, %source) <{
         dim = 0
     }> : (tensor<8xf32>, tensor<3xi32>, tensor<3xf32>) -> tensor<8xf32>
     ```
