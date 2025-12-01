@@ -113,37 +113,26 @@ def _ttcore_dtype_from_ttnn_dtype(dtype):
             raise ValueError(f"Unsupported dtype: {dtype}")
 
 
-def _get_grid_from_bounding_box(tensor_arg):
-
-    core_range_set = tensor_arg.memory_config().shard_spec.grid
-    number_of_core_ranges = len(core_range_set.ranges())
-    if number_of_core_ranges != 1:
-        raise ValueError(
-            "Tensor grids with more than one CoreRange are not supported. Tensor grids must be rectangular."
-        )
-
-    core_coord = core_range_set.bounding_box().grid_size()
-    max_grid = (core_coord.x, core_coord.y)
-
-    return max_grid
-
-
 def _get_grid(ctx, tensor_arg, memory_layout):
     # IMPORTANT: TTNN writes grids as (width, height) but compiler expects (height, width)
 
     if memory_layout == ttnn.TensorMemoryLayout.Interleaved:
-        return ttcore.ir.GridAttr.get(ctx, DRAM_GRID_SIZE)
+        return ttcore.ir.GridAttr.get(ctx, [1, 1])
 
+    elif memory_layout in (
     elif memory_layout in (
         ttnn.TensorMemoryLayout.BlockSharded,
         ttnn.TensorMemoryLayout.HeightSharded,
         ttnn.TensorMemoryLayout.WidthSharded,
     ):
 
-        max_grid = _get_grid_from_bounding_box(tensor_arg)
+        grid_bb = tensor_arg.memory_config().shard_spec.grid.bounding_box
+        print(f"[DEBUG] grid_bb: {grid_bb}")
+        max_grid = (grid_bb.end.x, grid_bb.end.y)
+        print(f"[DEBUG] max_grid: {max_grid}")
 
-        grid_size_x = max_grid[0]
-        grid_size_y = max_grid[1]
+        grid_size_x = max_grid[0] + 1
+        grid_size_y = max_grid[1] + 1
 
         return ttcore.ir.GridAttr.get(ctx, [grid_size_y, grid_size_x])
     else:
@@ -151,17 +140,17 @@ def _get_grid(ctx, tensor_arg, memory_layout):
 
 
 def _create_sharded_tensor_layout(ctx, tensor_arg):
-
-    max_grid = _get_grid_from_bounding_box(tensor_arg)
-    affine_map = _get_collapsed_linear_affine_map(ctx, tensor_arg.shape, max_grid)
-    buffer_type = ttnn.ir.BufferTypeAttr.get(ctx, ttnn.BufferType.L1)
     grid = _get_grid(
         ctx,
+        tensor_arg,
         tensor_arg,
         _mlir_memory_layout_from_ttnn_memory_layout(
             tensor_arg.memory_config().memory_layout
         ),
     )
+    affine_map = _get_collapsed_linear_affine_map(ctx, tensor_arg.shape, grid)
+
+    buffer_type = ttnn.ir.BufferTypeAttr.get(ctx, ttnn.BufferType.L1)
 
     shard_spec = tensor_arg.memory_config().shard_spec
     shard_shape = shard_spec.shape
@@ -189,8 +178,9 @@ def _create_sharded_tensor_layout(ctx, tensor_arg):
 
 
 def _create_dram_tensor_layout(ctx, tensor_arg):
-    affine_map = _get_collapsed_linear_affine_map(ctx, tensor_arg.shape, DRAM_GRID_SIZE)
+    affine_map = _get_collapsed_linear_affine_map(ctx, tensor_arg.shape, (1, 1))
     buffer_type = ttnn.ir.BufferTypeAttr.get(ctx, ttnn.BufferType.DRAM)
+    grid = _get_grid(ctx, tensor_arg, ttnn.TensorMemoryLayout.Interleaved)
     grid = _get_grid(ctx, tensor_arg, ttnn.TensorMemoryLayout.Interleaved)
 
     data_type = _ttcore_dtype_from_ttnn_dtype(tensor_arg.dtype)
@@ -212,6 +202,7 @@ def _create_dram_tensor_layout(ctx, tensor_arg):
 
 
 def _check_layout_supported(tensor_arg):
+    # todo: get max grid from tensor arg
     print(f"Checking layout supported for tensor: {tensor_arg}")
     if tensor_arg.memory_config().is_sharded():
         if tensor_arg.memory_config().shard_spec is None:
@@ -239,7 +230,10 @@ def _check_layout_supported(tensor_arg):
 
 
 def create_tensor_layout(ctx, tensor_arg):
+def create_tensor_layout(ctx, tensor_arg):
     """Create TTNN layout attribute from tensor."""
+    print(f"[create_tensor_layout] Received tensor_arg: {tensor_arg}")
+    print(f"[create_tensor_layout] Tensor memory config: {tensor_arg.memory_config()}")
 
     if (
         tensor_arg.memory_config() is not None
@@ -247,4 +241,5 @@ def create_tensor_layout(ctx, tensor_arg):
     ):
         return _create_sharded_tensor_layout(ctx, tensor_arg)
     else:
+        return _create_dram_tensor_layout(ctx, tensor_arg)
         return _create_dram_tensor_layout(ctx, tensor_arg)
