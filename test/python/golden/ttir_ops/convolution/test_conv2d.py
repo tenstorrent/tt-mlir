@@ -15,6 +15,7 @@ pytestmark = pytest.mark.frontend("ttir")
 
 
 # TODO(jserbedzija): Remove this fixture once we support config tensors in dram for conv2d
+# https://github.com/tenstorrent/tt-mlir/issues/6105
 @pytest.fixture(autouse=True)
 def reset_device_after_test(device):
     """Reset device after each conv2d test to free L1 memory.

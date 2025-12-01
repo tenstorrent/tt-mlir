@@ -15,6 +15,7 @@ pytestmark = pytest.mark.frontend("ttir")
 
 
 # TODO(jserbedzija): Remove this fixture once we support config tensors in dram for conv_transpose2d
+# https://github.com/tenstorrent/tt-mlir/issues/6105
 @pytest.fixture(autouse=True)
 def reset_device_after_test(device):
     """Reset device after each conv_transpose2d test to free L1 memory.
@@ -118,7 +119,14 @@ def test_conv_transpose2d(
     request,
     device,
 ):
-    # pytest.skip("Skip until we support config tensors in dram for conv_transpose2d")
+    test_id = request.node.callspec.id
+    if test_id in [
+        "ttnn-f32-superres_4x_large_kernel",
+        "ttnn-f32-batch16_segmentation_training",
+    ]:
+        pytest.xfail(
+            "Metal issue: https://github.com/tenstorrent/tt-metal/issues/33449"
+        )
 
     if bias_shape:
 
