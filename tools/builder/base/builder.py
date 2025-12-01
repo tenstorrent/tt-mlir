@@ -413,11 +413,14 @@ class Builder:
     def _create_ranked_tensor_type(
         self,
         shape: Shape,
-        data_type: Optional[Type] = None,
+        data_type: Optional[Union[Type, torch.dtype]] = None,
         encoding: Optional[Attribute] = None,
     ) -> RankedTensorType:
         with self._ctx, self._loc:
-            dtype = data_type if data_type is not None else F32Type.get(self._ctx)
+            if isinstance(data_type, torch.dtype):
+                dtype = self._get_type_from_torch_dtype(data_type)
+            else:
+                dtype = data_type if data_type is not None else F32Type.get(self._ctx)
             return RankedTensorType.get(shape, dtype, encoding)
 
     def _organize_eltwise_golden(self, inputs: List[Operand]) -> List[GoldenMapTensor]:
