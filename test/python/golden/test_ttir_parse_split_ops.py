@@ -32,9 +32,27 @@ for filename in os.listdir(mlir_snippets_dir_path):
             mlir_ir_string = f.read()
             ttir_mlir_snippets[filename] = mlir_ir_string
 
+stablehlo_mlir_snippets = {}
+mlir_snippets_dir_path = os.path.join(
+    os.path.dirname(__file__), "mlir_snippets/stablehlo"
+)
+for filename in os.listdir(mlir_snippets_dir_path):
+    if filename.endswith(".mlir"):
+        file_path = os.path.join(mlir_snippets_dir_path, filename)
+        with open(file_path, "r") as f:
+            mlir_ir_string = f.read()
+            stablehlo_mlir_snippets[filename] = mlir_ir_string
+
 
 @pytest.mark.parametrize("mlir_snippet", ttir_mlir_snippets.keys())
 def test_ttir_parsing_splitting_ops(mlir_snippet, request, device):
     mlir_ir_string = ttir_mlir_snippets[mlir_snippet]
     mlir_module, builder = load_mlir_file(mlir_ir_string, target="ttir")
+    split_modules = split_mlir_file(mlir_module, builder)
+
+
+@pytest.mark.parametrize("mlir_snippet", stablehlo_mlir_snippets.keys())
+def test_stablehlo_parsing_splitting_ops(mlir_snippet, request, device):
+    mlir_ir_string = stablehlo_mlir_snippets[mlir_snippet]
+    mlir_module, builder = load_mlir_file(mlir_ir_string, target="stablehlo")
     split_modules = split_mlir_file(mlir_module, builder)
