@@ -1532,22 +1532,23 @@ private:
   // Helper function to trace a value through broadcast/reshape ops and return
   // the underlying FullOp or ConstantOp value.
   static Value traceToFullOrConstantOp(Value value) {
-    Operation *defOp = value.getDefiningOp();
-    if (!defOp) {
-      return nullptr;
-    }
+    while (value) {
+      Operation *defOp = value.getDefiningOp();
+      if (!defOp) {
+        return nullptr;
+      }
 
-    if (isa<FullOp, ConstantOp>(defOp)) {
-      return value;
+      if (isa<FullOp, ConstantOp>(defOp)) {
+        return value;
+      } else if (auto broadcastOp = dyn_cast<BroadcastOp>(defOp)) {
+        value = broadcastOp.getInput();
+      } else if (auto reshapeOp = dyn_cast<ReshapeOp>(defOp)) {
+        value = reshapeOp.getInput();
+      } else {
+        return nullptr;
+      }
     }
-
-    if (auto broadcastOp = dyn_cast<BroadcastOp>(defOp)) {
-      return traceToFullOrConstantOp(broadcastOp.getInput());
-    }
-    if (auto reshapeOp = dyn_cast<ReshapeOp>(defOp)) {
-      return traceToFullOrConstantOp(reshapeOp.getInput());
-    }
-
+    
     return nullptr;
   }
 };
