@@ -147,6 +147,8 @@ public:
 
     llvm::SmallVector<Value> ios(size);
     llvm::SmallVector<Value> cbs(size);
+    llvm::SmallVector<bool> useAliasedL1Buffer(size, false);
+    llvm::SmallVector<ttcore::MemorySpace> cbMemorySpaces(size);
     llvm::SmallVector<int64_t> cbPorts(size);
     int64_t cbPort = 0;
     for (auto [i, operand] : llvm::enumerate(op->getOperands())) {
@@ -158,6 +160,13 @@ public:
                     streamLayoutOp.getInput().getDefiningOp());
             castOp) {
           ios[i] = castOp.getOperand();
+          // Determine memory space from cast op's result (stream input).
+          auto castResultMemref =
+              dyn_cast<MemRefType>(castOp.getResult().getType());
+          cbMemorySpaces[i] = ttcore::getMemorySpace(castResultMemref);
+          if (cbMemorySpaces[i] == ttcore::MemorySpace::DeviceL1) {
+            useAliasedL1Buffer[i] = true;
+          }
         } else {
           llvm_unreachable(
               "Expected TTNNMetalLayoutCastOp producing stream input.");
@@ -169,6 +178,14 @@ public:
                  castOp) {
         ios[i] = castOp.getOperand();
         cbs[i] = operand;
+        // Determine memory space from cast op's result.
+        auto castResultMemref =
+            dyn_cast<MemRefType>(castOp.getResult().getType());
+        cbMemorySpaces[i] = ttcore::getMemorySpace(castResultMemref);
+        // Only use aliased L1 buffer if operand is in L1 memory space.
+        if (cbMemorySpaces[i] == ttcore::MemorySpace::DeviceL1) {
+          useAliasedL1Buffer[i] = true;
+        }
       } else {
         llvm_unreachable("Expected stream_layout or cast op as operand.");
       }
@@ -183,6 +200,8 @@ public:
     // Create CBDescriptor.
     ttnn::KernelCBAttr cbDescriptor;
     for (auto [i, cb] : llvm::enumerate(cbs)) {
+      llvm::errs() << "useAliasedL1Buffer[" << i
+                   << "]: " << useAliasedL1Buffer[i] << "\n";
       auto cb_memref = dyn_cast<MemRefType>(cb.getType());
       TT_assertv(mlir::isa<ttcore::TileType>(cb_memref.getElementType()),
                  "Only TileType supported.");
@@ -194,19 +213,37 @@ public:
       ttnn::KernelCBFormatAttr cbFormat =
           ttnn::KernelCBFormatAttr::get(ctx, i, dtype, pageSize);
 
-      ttnn::KernelCBGlobalBufferAddressOfTensorAttr globalCBIndexOfTensor;
-      if (auto castOp = mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
-              cb.getDefiningOp())) {
-        // Input is not streamed, thus buffer must be aliased.
-        TT_assertv(ttcore::getMemorySpace(cb_memref) ==
-                       ttcore::MemorySpace::DeviceL1,
+      auto memSpace = cbMemorySpaces[i];
+      if (useAliasedL1Buffer[i]) {
+        TT_assertv(memSpace == ttcore::MemorySpace::DeviceL1,
                    "Can only alias L1 buffers.");
-        globalCBIndexOfTensor =
+        auto globalCBIndexOfTensor =
             ttnn::KernelCBGlobalBufferAddressOfTensorAttr::get(ctx, i);
+        cbDescriptor =
+            ttnn::KernelCBAttr::get(ctx, numPages * pageSize, coreRangeSet,
+                                    {cbFormat}, globalCBIndexOfTensor);
+      } else if (memSpace == ttcore::MemorySpace::DeviceL1) {
+        // Get address from alloc operation for L1 buffers.
+        memref::AllocOp memrefOp;
+        if (auto allocOp = cb.getDefiningOp<memref::AllocOp>()) {
+          memrefOp = allocOp;
+        } else if (auto streamLayoutOp =
+                       cb.getDefiningOp<d2m::StreamLayoutOp>()) {
+          memrefOp = mlir::cast<memref::AllocOp>(
+              streamLayoutOp.getStorage().getDefiningOp());
+        } else {
+          llvm_unreachable("Expected memref::AllocOp or d2m::StreamLayoutOp "
+                           "as defining op.");
+        }
+        auto cbAddress = ttnn::KernelCBAddressAttr::get(
+            ctx, memrefOp->getAttrOfType<IntegerAttr>("address").getInt());
+        cbDescriptor = ttnn::KernelCBAttr::get(
+            ctx, numPages * pageSize, coreRangeSet, {cbFormat}, cbAddress);
+      } else {
+        // DRAM buffers: no address or tensor index.
+        cbDescriptor = ttnn::KernelCBAttr::get(
+            ctx, numPages * pageSize, coreRangeSet, {cbFormat}, Attribute());
       }
-      cbDescriptor =
-          ttnn::KernelCBAttr::get(ctx, numPages * pageSize, coreRangeSet,
-                                  {cbFormat}, globalCBIndexOfTensor);
       cbDescriptors[i] = cbDescriptor;
     }
 

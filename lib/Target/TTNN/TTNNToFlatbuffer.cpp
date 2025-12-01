@@ -2450,18 +2450,33 @@ createOp(FlatbufferObjectCache &cache, GenericOp op) {
           toFlatbuffer(cache, formatAttr.getDtype()),
           formatAttr.getPageSize()));
     }
-    ::flatbuffers::Offset<::tt::target::ttnn::KernelGlobalCBIndexOfTensor>
-        buffer;
-    if (kernelCbAttr.getBuffer()) {
-      buffer = ::tt::target::ttnn::CreateKernelGlobalCBIndexOfTensor(
-          *cache.fbb, kernelCbAttr.getBuffer().getTensorOperandIndex());
+    ::tt::target::ttnn::KernelGlobalCBOrAddress bufferType =
+        ::tt::target::ttnn::KernelGlobalCBOrAddress::NONE;
+    ::flatbuffers::Offset<void> buffer;
+    if (auto bufferAttrBase = kernelCbAttr.getBuffer()) {
+      if (auto bufferAttr =
+              llvm::dyn_cast<KernelCBGlobalBufferAddressOfTensorAttr>(
+                  bufferAttrBase)) {
+        bufferType = ::tt::target::ttnn::KernelGlobalCBOrAddress::
+            KernelGlobalCBIndexOfTensor;
+        buffer = ::tt::target::ttnn::CreateKernelGlobalCBIndexOfTensor(
+                     *cache.fbb, bufferAttr.getTensorOperandIndex())
+                     .Union();
+      } else if (auto bufferAttr =
+                     llvm::dyn_cast<KernelCBAddressAttr>(bufferAttrBase)) {
+        bufferType =
+            ::tt::target::ttnn::KernelGlobalCBOrAddress::KernelCBAddress;
+        buffer = ::tt::target::ttnn::CreateKernelCBAddress(
+                     *cache.fbb, bufferAttr.getCbAddress())
+                     .Union();
+      }
     }
 
     cbs.push_back(::tt::target::ttnn::CreateKernelCBDescriptorDirect(
         *cache.fbb, kernelCbAttr.getTotalSize(),
         toFlatbuffer(cache, llvm::cast<ttnn::CoreRangeSetAttr>(
                                 kernelCbAttr.getCoreRanges())),
-        &formats, buffer));
+        &formats, bufferType, buffer));
   }
 
   auto program = ::tt::target::ttnn::CreateProgramDescriptorDirect(

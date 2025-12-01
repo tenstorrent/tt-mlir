@@ -762,6 +762,15 @@ def TTNN_KernelCBGlobalBufferAddressOfTensorAttr : TTNN_Attr<"KernelCBGlobalBuff
   let assemblyFormat = "`<` $tensor_operand_index `>`";
 }
 
+def TTNN_KernelCBAddressAttr : TTNN_Attr<"KernelCBAddress", "kernel_cb_address"> {
+  let summary = "Statically allocatedCB address";
+  let description = [{
+    TTNN Generic CB Descriptor argument for statically allocated CB address.
+  }];
+  let parameters = (ins "int64_t":$cb_address);
+  let assemblyFormat = "`<` $cb_address `>`";
+}
+
 def TTNN_KernelCBAttr: TTNN_Attr<"KernelCB", "kernel_cb"> {
   let summary = "Kernel CB descriptor";
   let description = [{
@@ -771,11 +780,26 @@ def TTNN_KernelCBAttr: TTNN_Attr<"KernelCB", "kernel_cb"> {
   let parameters = (ins "uint32_t":$total_size,
                         TTNN_CoreRangeSetAttr:$core_ranges,
                         ArrayRefParameter<"KernelCBFormatAttr">:$formats,
-                        OptionalParameter<"KernelCBGlobalBufferAddressOfTensorAttr">:$buffer);
+                        OptionalParameter<"mlir::Attribute">:$buffer);
 
   let assemblyFormat = "`<` struct($total_size, $core_ranges) `,` `formats` `=` `[` $formats `]` (`,` `buffer` `=` qualified($buffer)^)? `>`";
 
   let genVerifyDecl = 1;
+
+  let builders = [
+    AttrBuilder<(ins "uint32_t":$total_size,
+                    "CoreRangeSetAttr":$core_ranges,
+                    "ArrayRef<KernelCBFormatAttr>":$formats,
+                    "KernelCBGlobalBufferAddressOfTensorAttr":$buffer), [{
+      return Base::get($_ctxt, total_size, core_ranges, formats, buffer);
+    }]>,
+    AttrBuilder<(ins "uint32_t":$total_size,
+                    "CoreRangeSetAttr":$core_ranges,
+                    "ArrayRef<KernelCBFormatAttr>":$formats,
+                    "KernelCBAddressAttr":$buffer), [{
+      return Base::get($_ctxt, total_size, core_ranges, formats, buffer);
+    }]>
+  ];
 }
 
 def TTNN_KernelArgCBBufferIndexAttr : TTNN_Attr<"KernelArgCBBufferIndex", "kernel_arg_cb_buffer_index"> {
