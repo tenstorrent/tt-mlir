@@ -2793,6 +2793,82 @@ TEST_F(OpModelBase, conv2dInterfaceComputeKernelConfig) {
   EXPECT_GT(runtimeExp.get(), 0);
 }
 
+TEST_F(OpModelBase, Conv3dInterface) {
+  llvm::SmallVector<int64_t> inputShape = {1, 5, 10, 10, 3}; // [N, D, H, W, C]
+  // Weight must be 2D: [kD*kH*kW*C_in/groups, C_out]
+  // patch_size = 3*3*3*3 = 81, out_channels = 64 (multiple of 32)
+  llvm::SmallVector<int64_t> weightShape = {81, 64};
+  // Output dims: D_out=(5-3)/1+1=3, H_out=(10-3)/1+1=8, W_out=(10-3)/1+1=8
+  llvm::SmallVector<int64_t> outputShape = {
+      1, 3, 8, 8, 64}; // [N, D_out, H_out, W_out, C_out]
+
+  // Conv3d requires ROW_MAJOR layout for input and TILE layout for weight
+  auto inputLayout = CreateRowMajorLayout(inputShape, BufferType::DRAM,
+                                          TensorMemoryLayout::Interleaved);
+  auto input =
+      createEmptyTensor(inputShape, builder.getBF16Type(), inputLayout);
+
+  auto weightLayout = CreateTiledLayout(weightShape, BufferType::DRAM,
+                                        TensorMemoryLayout::Interleaved);
+  auto weight =
+      createEmptyTensor(weightShape, builder.getBF16Type(), weightLayout);
+  auto outputType = createRankedTensorType(outputShape);
+
+  GetDeviceOp deviceOp = builder.create<GetDeviceOp>(
+      builder.getUnknownLoc(), builder.getType<DeviceType>(),
+      MeshShapeAttr::get(builder.getContext(), 1, 1),
+      MeshOffsetAttr::get(builder.getContext(), 0, 0));
+
+  Conv3dOp conv3d = builder.create<Conv3dOp>(
+      builder.getUnknownLoc(), // Location
+      outputType,              // Output type
+      input,                   // Input tensor
+      weight,                  // Weight tensor
+      nullptr,                 // Bias tensor (optional)
+      deviceOp,                // Device operation
+      3,                       // Input channels
+      64,                      // Output channels (must be multiple of 32)
+      1,                       // Batch size
+      5,                       // Input depth
+      10,                      // Input height
+      10,                      // Input width
+      llvm::ArrayRef<int32_t>({3, 3, 3}), // Kernel size [D, H, W]
+      llvm::ArrayRef<int32_t>({1, 1, 1}), // Stride [D, H, W]
+      llvm::ArrayRef<int32_t>({0, 0, 0}), // Padding [D, H, W] (must be zero)
+      "zeros",                            // Padding mode
+      1,                                  // Groups
+      nullptr,                            // OutputDtype (optional)
+      nullptr,                            // Conv3dConfig (optional)
+      nullptr                             // ComputeKernelConfig (optional)
+  );
+
+  // test Conv3dOp interface
+  auto constraintsExp = getOpConstraints(conv3d.getOperation());
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayout] =
+      constraintsExp.get();
+  // Conv3d (experimental) ignores the requested L1 output memory config and
+  // forces output to DRAM (copies input's memory config). Therefore:
+  // - outputSize (l1_output_buffer_per_core) = 0 (output is in DRAM, not L1)
+  // - l1PeakSize (l1_buffers_peak_per_core) = 0 (no intermediate L1 tensors)
+  // - cbSize (cb_peak_size_per_core) > 0 (circular buffers ARE allocated in L1)
+  // Circular buffers are staging queues in L1 SRAM that bridge DRAM and compute
+  // engines. They're mandatory for all compute operations and must be in L1
+  // because the unpacker/packer hardware can only access L1, not DRAM directly.
+  // See: ttnn/api/ttnn/graph/graph_query_op_constraints.hpp:124
+  //      (query returns 0 for l1_output_buffer_per_core when
+  //      output.buffer()->is_dram())
+  EXPECT_GT(cbSize, 0);
+
+  auto runtimeExp = getOpRuntime(conv3d.getOperation());
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
   // create ConvTranspose2dOp
   llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};

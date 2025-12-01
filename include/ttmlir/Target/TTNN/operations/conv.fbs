@@ -35,6 +35,15 @@ table Conv2dSliceConfig {
   num_slices: uint32 = 0;
 }
 
+table Conv3dConfig {
+  weights_dtype: DataType = null;
+  t_out_block: uint32 = null;
+  w_out_block: uint32 = null;
+  h_out_block: uint32 = null;
+  c_out_block: uint32 = null;
+  c_in_block: uint32 = null;
+}
+
 table PrepareConv2dWeightsOp {
   weight_tensor: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;
@@ -124,6 +133,29 @@ table ConvTranspose2dOp {
   groups: uint32;
   output_dtype: tt.target.DataType = null;
   conv2d_config: tt.target.ttnn.Conv2dConfig;
+  compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
+  memory_config: tt.target.ttnn.MemoryConfig;
+}
+
+table Conv3dOp {
+  input: tt.target.ttnn.TensorRef;
+  weight: tt.target.ttnn.TensorRef;
+  bias: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  device: tt.target.DeviceRef;
+  in_channels: uint32;
+  out_channels: uint32;
+  batch_size: uint32;
+  input_depth: uint32;
+  input_height: uint32;
+  input_width: uint32;
+  kernel_size: [int32];
+  stride: [int32];
+  padding: [int32];
+  padding_mode: string;
+  groups: uint32;
+  output_dtype: tt.target.DataType = null;
+  conv3d_config: tt.target.ttnn.Conv3dConfig;
   compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
   memory_config: tt.target.ttnn.MemoryConfig;
 }

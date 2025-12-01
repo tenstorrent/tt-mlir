@@ -611,6 +611,25 @@ def TTNN_Conv2dSliceConfigAttr : TTNN_Attr<"Conv2dSliceConfig", "conv2d_slice_co
   let assemblyFormat = "`<` $slice_type `,` $num_slices `>`";
 }
 
+def TTNN_Conv3dConfigAttr : TTNN_Attr<"Conv3dConfig", "conv3d_config"> {
+  let summary = "TTNN Conv3dConfig attribute";
+  let description = [{
+    Configuration parameters for TTNN conv3d operations.
+    Controls performance tuning parameters like block sizes and data formats.
+  }];
+
+  let parameters = (ins
+    OptionalParameter<"std::optional<ttcore::DataType>">:$weights_dtype,
+    OptionalParameter<"std::optional<uint32_t>">:$t_out_block,
+    OptionalParameter<"std::optional<uint32_t>">:$w_out_block,
+    OptionalParameter<"std::optional<uint32_t>">:$h_out_block,
+    OptionalParameter<"std::optional<uint32_t>">:$c_out_block,
+    OptionalParameter<"std::optional<uint32_t>">:$c_in_block
+  );
+
+  let assemblyFormat = "`<` struct(params) `>`";
+}
+
 def TTNN_MeshShapeAttr : TTNN_Mesh2DCoordAttr<"MeshShape", "mesh_shape"> {
   let summary = "TTNN Mesh Shape";
   let description = [{
