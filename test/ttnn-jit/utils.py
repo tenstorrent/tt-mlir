@@ -121,7 +121,6 @@ def create_sharded_tile_tensor(
         shard_spec=shard_spec,
     )
 
-    print("Armin: creating tensor with memory config", memory_config)
     return ttnn.from_torch(
         torch_tensor,
         dtype=ttnn_dtype,

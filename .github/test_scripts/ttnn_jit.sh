@@ -19,4 +19,10 @@ fi
 pip install ttnn_jit*.whl --upgrade
 
 echo "Running ttnn-jit tests..."
-pytest -v $WORK_DIR/test/ttnn-jit/ --junit-xml=$TEST_REPORT_PATH
+if [ "$1" == "nightly" ]; then
+    # Recursively run all tests in the ttnn-jit directory
+    pytest -v $WORK_DIR/test/ttnn-jit/ --junit-xml=$TEST_REPORT_PATH
+else
+    # Only run tests in the top level directory
+    pytest -v $WORK_DIR/test/ttnn-jit/*.py --junit-xml=$TEST_REPORT_PATH
+fi
