@@ -39,8 +39,8 @@ def test_jit_cache(device):
     shape2 = (320, 320)
 
     # Create operations with different JIT parameters
-    op_single_core = jit(max_grid=(0, 0), enable_cache=True)(abs)
-    op_full_grid = jit(max_grid=(7, 7), enable_cache=True)(abs)
+    op_single_core = jit(enable_cache=True)(abs)
+    op_full_grid = jit(enable_cache=True)(abs)
 
     assert op_single_core.num_entries == 0, "No entries should be in the cache"
     assert op_full_grid.num_entries == 0, "No entries should be in the cache"
