@@ -115,9 +115,9 @@ jobs:
       shell: bash
       env:
         GH_TOKEN: ${{ secrets.GH_TOKEN || github.token}}
-        TTRT_LOGGER_LEVEL: "WARNING"
-        LOGURU_LEVEL: "ERROR"
-        TT_METAL_LOGGER_LEVEL: "FATAL"
+        TTRT_LOGGER_LEVEL: "DEBUG"
+        LOGURU_LEVEL: "DEBUG"
+        TT_METAL_LOGGER_LEVEL: "DEBUG"
       run: |
         # Run Tests
         source env/activate
