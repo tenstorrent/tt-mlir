@@ -429,6 +429,7 @@ private:
     return outputShape == expectedShape;
   }
 };
+#endif // TTMLIR_ENABLE_OPMODEL
 
 // Fusion patter to optimize reduce_or decomposition Patter.
 // ttnn.typecast(ttnn.ne(ttnn.sum(x), zero)) -> ttnn.sum(x)
@@ -495,7 +496,7 @@ public:
     // Type preservation: result(sum) must match result(typecast).
     auto sumType =
         mlir::dyn_cast<mlir::RankedTensorType>(sumOp.getResult().getType());
-    auto castTy =
+    auto castType =
         mlir::dyn_cast<mlir::RankedTensorType>(castOp.getResult().getType());
     if (!sumType || !castType || sumType != castType) {
       return mlir::failure();
@@ -505,8 +506,6 @@ public:
     return mlir::success();
   }
 };
-
-#endif // TTMLIR_ENABLE_OPMODEL
 
 class TTNNFusingPass : public impl::TTNNFusingBase<TTNNFusingPass> {
 public:
