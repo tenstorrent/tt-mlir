@@ -2214,56 +2214,100 @@ public:
   LogicalResult
   matchAndRewrite(ttir::ScaledDotProductAttentionOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto queryType = mlir::cast<RankedTensorType>(op.getQuery().getType());
-
-    // If sequence length of query is 1, we should use the decode op
-    if (queryType.getDimSize(2) == 1) {
-      // Permute query: [B, H, 1, D] -> [1, B, H, D]
-      Value permutedQuery = ttir_to_ttnn::utils::generatePermute(
-          mlir::cast<TypedValue<mlir::RankedTensorType>>(adaptor.getQuery()),
-          {2, 0, 1, 3}, rewriter, op.getLoc());
-
-      // Broadcast mask head dimension if needed for decode op
-      Value attentionMask = adaptor.getAttentionMask();
-      if (attentionMask) {
-        auto maskType = mlir::cast<RankedTensorType>(attentionMask.getType());
-        int64_t numHeads = queryType.getDimSize(1);
-
-        if (numHeads > 1) {
-          SmallVector<int64_t> broadcastShape(maskType.getShape().begin(),
-                                              maskType.getShape().end());
-          broadcastShape[2] = numHeads;
-
-          auto broadcastType = ttnn::utils::RankedTensorTypeFactory::create(
-              maskType, broadcastShape);
-          auto broadcastDims = ttmlir::utils::getBroadcastDimensions<int64_t>(
-              maskType.getShape(), broadcastShape);
-          auto shapeAttr =
-              ttnn::ShapeAttr::get(rewriter.getContext(), broadcastDims);
-          attentionMask = rewriter.create<ttnn::RepeatOp>(
-              op.getLoc(), broadcastType, attentionMask, shapeAttr);
-        }
-      }
-
-      auto decodeOp = rewriter.create<ttnn::ScaledDotProductAttentionDecodeOp>(
-          op.getLoc(), permutedQuery.getType(), permutedQuery, adaptor.getKey(),
-          adaptor.getValue(), op.getIsCausal(), attentionMask,
-          /*cur_pos_tensor=*/Value(), /*attention_sink=*/Value(),
-          adaptor.getScaleAttr(), /*memory_config=*/nullptr,
-          /*program_config=*/nullptr);
-
-      // Permute result back: [1, B, H, D] -> [B, H, 1, D]
-      rewriter.replaceOp(
-          op, ttir_to_ttnn::utils::generatePermute(
-                  decodeOp.getResult(), {1, 2, 0, 3}, rewriter, op.getLoc()));
-    } else {
-      rewriter.replaceOpWithNewOp<ttnn::ScaledDotProductAttentionOp>(
-          op, this->getTypeConverter()->convertType(op.getType()),
-          adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(),
-          adaptor.getAttentionMask(), op.getIsCausal(), adaptor.getScaleAttr(),
-          adaptor.getSlidingWindowSizeAttr(),
-          /*memory_config=*/nullptr);
+    if (shouldUseDecode(op)) {
+      return lowerToDecodeOp(op, adaptor, rewriter);
     }
+    return lowerToSDPAOp(op, adaptor, rewriter);
+  }
+
+private:
+  // SDPA tensor dimension indices for [Batch, NumHeads, SeqLen, HeadDim] layout
+  static constexpr int64_t kNumHeadsDim = 1;
+  static constexpr int64_t kSeqLenDim = 2;
+
+  // Permutation to convert [B, H, S, D] -> [S, B, H, D] for decode op
+  static constexpr std::array<int64_t, 4> kToDecodePermutation = {2, 0, 1, 3};
+  // Permutation to convert [S, B, H, D] -> [B, H, S, D] back from decode op
+  static constexpr std::array<int64_t, 4> kFromDecodePermutation = {1, 2, 0, 3};
+
+  // Determine if the decode op should be used based on query sequence length.
+  // SDPA decode is optimized for autoregressive decoding where seq_len == 1.
+  bool shouldUseDecode(ttir::ScaledDotProductAttentionOp op) const {
+    auto queryType = mlir::cast<RankedTensorType>(op.getQuery().getType());
+    return queryType.getDimSize(kSeqLenDim) == 1;
+  }
+
+  // Broadcast attention mask's head dimension to match the number of heads.
+  // The decode op requires the mask to have explicit head dimension.
+  Value broadcastMaskForDecode(Value mask, int64_t numHeads,
+                               ConversionPatternRewriter &rewriter,
+                               Location loc) const {
+    if (!mask || numHeads <= 1) {
+      return mask;
+    }
+
+    auto maskType = mlir::cast<RankedTensorType>(mask.getType());
+    SmallVector<int64_t> broadcastShape(maskType.getShape().begin(),
+                                        maskType.getShape().end());
+    broadcastShape[kSeqLenDim] = numHeads;
+
+    auto broadcastType =
+        ttnn::utils::RankedTensorTypeFactory::create(maskType, broadcastShape);
+    auto broadcastDims = ttmlir::utils::getBroadcastDimensions<int64_t>(
+        maskType.getShape(), broadcastShape);
+    auto shapeAttr = ttnn::ShapeAttr::get(rewriter.getContext(), broadcastDims);
+
+    return rewriter.create<ttnn::RepeatOp>(loc, broadcastType, mask, shapeAttr);
+  }
+
+  // Lower to SDPA decode op with necessary permutations.
+  // Decode op expects [S, B, H, D] query shape, so we permute from [B, H, S,
+  // D].
+  LogicalResult lowerToDecodeOp(ttir::ScaledDotProductAttentionOp op,
+                                OpAdaptor adaptor,
+                                ConversionPatternRewriter &rewriter) const {
+    auto queryType = mlir::cast<RankedTensorType>(op.getQuery().getType());
+    int64_t numHeads = queryType.getDimSize(kNumHeadsDim);
+
+    // Permute query: [B, H, 1, D] -> [1, B, H, D]
+    Value permutedQuery = ttir_to_ttnn::utils::generatePermute(
+        mlir::cast<TypedValue<mlir::RankedTensorType>>(adaptor.getQuery()),
+        SmallVector<int64_t>(kToDecodePermutation.begin(),
+                             kToDecodePermutation.end()),
+        rewriter, op.getLoc());
+
+    // Broadcast mask head dimension if needed
+    Value attentionMask = broadcastMaskForDecode(
+        adaptor.getAttentionMask(), numHeads, rewriter, op.getLoc());
+
+    auto decodeOp = rewriter.create<ttnn::ScaledDotProductAttentionDecodeOp>(
+        op.getLoc(), permutedQuery.getType(), permutedQuery, adaptor.getKey(),
+        adaptor.getValue(), op.getIsCausal(), attentionMask,
+        /*cur_pos_tensor=*/Value(), /*attention_sink=*/Value(),
+        adaptor.getScaleAttr(), /*memory_config=*/nullptr,
+        /*program_config=*/nullptr);
+
+    // Permute result back: [1, B, H, D] -> [B, H, 1, D]
+    rewriter.replaceOp(op,
+                       ttir_to_ttnn::utils::generatePermute(
+                           decodeOp.getResult(),
+                           SmallVector<int64_t>(kFromDecodePermutation.begin(),
+                                                kFromDecodePermutation.end()),
+                           rewriter, op.getLoc()));
+
+    return success();
+  }
+
+  // Lower to standard SDPA op (simple 1:1 mapping).
+  LogicalResult lowerToSDPAOp(ttir::ScaledDotProductAttentionOp op,
+                              OpAdaptor adaptor,
+                              ConversionPatternRewriter &rewriter) const {
+    rewriter.replaceOpWithNewOp<ttnn::ScaledDotProductAttentionOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(),
+        adaptor.getAttentionMask(), op.getIsCausal(), adaptor.getScaleAttr(),
+        adaptor.getSlidingWindowSizeAttr(),
+        /*memory_config=*/nullptr);
 
     return success();
   }
