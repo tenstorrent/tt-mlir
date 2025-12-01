@@ -444,7 +444,7 @@ class GraphToIRTranslator:
     Takes a captured graph, simplifies it, and generates MLIR IR.
     """
 
-    def __init__(self, captured_graph, function_name, tensor_args, max_grid):
+    def __init__(self, captured_graph, function_name, tensor_args):
         self.ctx = Context()
         self.cursor = Location.unknown(self.ctx)
         self.module = Module.create(self.cursor)
@@ -452,7 +452,6 @@ class GraphToIRTranslator:
         self.captured_graph = captured_graph
         self.function_name = function_name
         self.tensor_args = tensor_args
-        self.max_grid = max_grid
         self.simplified_graph = None  # Will be set during compilation
 
     def _mlir_dtype_from_ttnn_dtype(self, dtype):
@@ -552,7 +551,7 @@ class GraphToIRTranslator:
             input_types = []
             for arg_name, tensor_arg in self.tensor_args.items():
                 shape = list(tensor_arg.shape)
-                layout = create_tensor_layout(self.ctx, tensor_arg, self.max_grid)
+                layout = create_tensor_layout(self.ctx, tensor_arg)
                 dtype = self._mlir_dtype_from_ttnn_dtype(tensor_arg.dtype)
                 tensor_type = RankedTensorType.get(shape, dtype, layout)
                 input_types.append(tensor_type)
