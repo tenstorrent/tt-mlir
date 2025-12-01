@@ -54,10 +54,6 @@ class TTIRCompiler(ast.NodeVisitor):
         self._fn_map = discover_dialect_ops("ttnn")
         self.supported_nodes = self.common_nodes
 
-                raise ValueError(f"Unsupported dtype: {dtype}")
-
-=======
->>>>>>> a82b1344a (ttnn-jit support for levelized_graph, reductionOps, compositeOps)
     def _var_exists(self, var_name):
         for sym_table in reversed(self.symbol_tables):
             if var_name in sym_table:

@@ -72,15 +72,12 @@ class GraphToIRTranslator:
         self.max_grid = max_grid
         self.levelized_graph_ir: Optional[LevelizedGraph] = None
 
-                raise ValueError(f"Unsupported dtype: {dtype}")
-=======
     def _find_optimal_depth(self, max_depth: int = 10) -> Tuple[int, LevelizedGraph]:
         """
         Find the minimum depth k where all level 1 operations are visitable.
 
         Args:
             max_depth: Maximum depth to try before giving up
->>>>>>> a82b1344a (ttnn-jit support for levelized_graph, reductionOps, compositeOps)
 
         Returns:
             Tuple of (optimal_k, levelized_graph_ir)
