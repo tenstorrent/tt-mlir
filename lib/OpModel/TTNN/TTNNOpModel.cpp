@@ -70,6 +70,8 @@ executeConstraintQuery(Callable &callable) {
   ::ttnn::graph::ConstraintQueryResponse query;
   try {
     auto *device = SingletonDeviceContext::getInstance().getDevice();
+    ::ttnn::graph::detail::LogLevelGuard log_guard(
+        spdlog::level::level_enum::off);
     ProgramCacheState pcState(device);
     device->disable_and_clear_program_cache();
     query = callable();
