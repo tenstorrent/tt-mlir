@@ -37,5 +37,7 @@
   { "runs-on": ["n150","llmbox"],   "image": "tracy",  "script": "ttnn_jit.sh" },
   { "runs-on": "n150",   "image": "speedy",  "script": "alchemist.sh" },
   { "runs-on": "n150",   "image": "speedy",  "script": "emitc.sh"},
-  { "runs-on": "n300",   "image": "speedy",  "script": "d2m_tests.sh", "args": "test/python/golden"}
+  { "runs-on": "n300",
+	"image": "speedy",
+	    "script": "d2m_tests.sh", "args": [ "--dst-allocation-strategy=basic,chaitin,greedy", "test/python/golden" ] }
 ]

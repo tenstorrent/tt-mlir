@@ -15,11 +15,12 @@ import math
 
 ALL_BACKENDS = set(["ttnn", "ttmetal", "emitc", "emitpy"])
 ALL_SYSTEMS = set(["n150", "n300", "llmbox", "tg", "p150", "p300"])
-
+DST_ALLOCATION_STRATEGIES = ["basic", "greedy", "chaitin"]
 
 _current_device = None
 _current_device_target: Optional[str] = None
 _current_device_mesh_shape: Optional[Tuple[int, int]] = None
+_current_dst_strategy: Optional[str] = None
 
 
 def json_string_as_dict(json_string):
@@ -192,6 +193,73 @@ def pytest_addoption(parser):
         action="store_true",
         help="disable putting dispatch on ethernet cores - place it on worker cores instead; necessary on blackhole",
     )
+    parser.addoption(
+        "--dst-allocation-strategy",
+        action="store",
+        default=None,
+        help="DST allocation strategies to test for ttmetal tests (comma-separated: basic,greedy,chaitin). If not specified, uses pipeline default.",
+    )
+
+
+def pytest_generate_tests(metafunc):
+    """
+    Pytest hook: Automatically add dst_strategy parameterization to ttmetal tests.
+    Pytest automatically discovers and calls this hook during test collection.
+
+    Detects tests with 'target' parameter that will run with target="ttmetal" and
+    automatically adds 'dst_strategy' parameter based on the --dst-allocation-strategy
+    CLI option.
+
+    Examples:
+        pytest test.py  # ttmetal tests run once with the default DST allocation strategy
+        pytest test.py --dst-allocation-strategy=greedy  # ttmetal tests run once with dst_strategy="greedy"
+        pytest test.py --dst-allocation-strategy=basic,greedy  # ttmetal tests run twice (basic + greedy)
+    """
+    if "target" not in metafunc.fixturenames or "request" not in metafunc.fixturenames:
+        return
+
+    cli_strategies = metafunc.config.getoption("--dst-allocation-strategy")
+
+    # Check if this test will run with ttmetal target
+    has_ttmetal = False
+    for marker in metafunc.definition.iter_markers("parametrize"):
+        if marker.args[0] == "target":
+            # marker.args[1] is the values for target parameter
+            target_values = marker.args[1]
+            if "ttmetal" in target_values:
+                has_ttmetal = True
+                break
+
+    if not has_ttmetal:
+        return
+
+    # Add a dst_strategy parameter if the CLI --dst-allocation-strategy option is specified
+    if cli_strategies:
+        strategies = [s.strip() for s in cli_strategies.split(",")]
+        strategies = [s for s in strategies if s in DST_ALLOCATION_STRATEGIES]
+        if strategies:
+            metafunc.parametrize("dst_strategy", strategies, indirect=True)
+
+
+@pytest.fixture(autouse=True)
+def dst_strategy(request):
+    """
+    Auto-use fixture that manages dst_strategy for all tests.
+
+    This fixture is parameterized by pytest_generate_tests when
+    --dst-allocation-strategy CLI option is used with ttmetal tests.
+    It stores the value in a module-level variable for builder_utils.py to access.
+
+    Using autouse=True means tests don't need to explicitly request this fixture.
+    """
+    global _current_dst_strategy
+
+    # Store the strategy value globally (will be None for non-parameterized tests)
+    _current_dst_strategy = request.param if hasattr(request, "param") else None
+    yield _current_dst_strategy
+
+    # Cleanup after test
+    _current_dst_strategy = None
 
 
 def get_board_id(system_desc) -> str:
@@ -493,6 +561,9 @@ def pytest_collection_modifyitems(config, items):
     require_opmodel = config.getoption("--require-opmodel")
 
     for item in items:
+        # Reorder test ID to put dst_strategy at the end
+        _reorder_test_id_for_dst_strategy(item)
+
         # Skip optimizer tests if opmodel flag is missing
         if not require_opmodel and "optimizer" in str(item.fspath):
             item.add_marker(skip_opmodel)
@@ -579,6 +650,30 @@ def pytest_collection_modifyitems(config, items):
     # Report deselected items to pytest
     if deselected:
         config.hook.pytest_deselected(items=deselected)
+
+
+def _reorder_test_id_for_dst_strategy(item) -> None:
+    """
+    Reorder test ID to put dst_strategy at the end with dst: prefix.
+
+    Transforms: test_name[basic-ttmetal-f32-128x128]
+    Into:       test_name[ttmetal-f32-128x128-dst:basic]
+
+    Parameters
+    ----------
+    item : pytest.Item
+        The test item to modify
+    """
+    if not hasattr(item, "callspec"):
+        return
+
+    dst_strat = item.callspec.params.get("dst_strategy")
+    if not dst_strat:
+        return
+
+    item._nodeid = re.sub(
+        rf"\[({dst_strat})-(.+)\]$", rf"[\2-dst:{dst_strat}]", item.nodeid
+    )
 
 
 def pytest_sessionfinish(session):
