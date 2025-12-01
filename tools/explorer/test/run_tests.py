@@ -150,6 +150,16 @@ def execute_command_and_wait(model_path, settings, timeout):
     assert len(adapter_response["graphs"]) == 1
     response = adapter_response["graphs"][0]
     assert response["isDone"]
+    # DEBUG: Print full response to see error details
+    if response["error"] is not None:
+        print(f"\n=== DEBUG: Full response ===")
+        print(f"Error: {response['error']}")
+        if 'errorDetails' in response:
+            print(f"Error Details: {response['errorDetails']}")
+        if 'stackTrace' in response:
+            print(f"Stack Trace: {response['stackTrace']}")
+        print(f"Full response: {response}")
+        print(f"=== END DEBUG ===\n")
     assert response["error"] is None
 
 
