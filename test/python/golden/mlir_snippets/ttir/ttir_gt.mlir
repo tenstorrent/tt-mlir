@@ -1,0 +1,6 @@
+module {
+  func.func @greater_than(%arg0: tensor<128x128xf32>, %arg1: tensor<128x128xf32>) -> tensor<128x128xi1> {
+    %1 = "ttir.gt"(%arg0, %arg1) : (tensor<128x128xf32>, tensor<128x128xf32>) -> tensor<128x128xi1>
+    return %1 : tensor<128x128xi1>
+  }
+}
