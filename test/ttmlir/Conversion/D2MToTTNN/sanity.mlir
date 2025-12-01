@@ -55,10 +55,10 @@ module {
 
     // CHECK: "ttnn.generic"(%[[T1]], %[[T2]])
     // CHECK-SAME: #ttnn.read_kernel<symbol_ref = @read_kernel
-    // CHECK-SAME: ct_args = [#ttnn.kernel_arg_cb_buffer_index<0>]
+    // CHECK-SAME: ct_args = [#ttnn.kernel_arg_cb_buffer_index<0>, #ttnn.kernel_arg_semaphore_at<0>, #ttnn.kernel_arg_semaphore_at<1>]
     // CHECK-SAME: common_rt_args = [#ttnn.kernel_arg_address_of_tensor<0>]
     // CHECK-SAME: #ttnn.write_kernel<symbol_ref = @write_kernel
-    // CHECK-SAME: ct_args = [#ttnn.kernel_arg_cb_buffer_index<1>]
+    // CHECK-SAME: ct_args = [#ttnn.kernel_arg_cb_buffer_index<1>, #ttnn.kernel_arg_semaphore_at<2>, #ttnn.kernel_arg_semaphore_at<3>]
     // CHECK-SAME: common_rt_args = [#ttnn.kernel_arg_address_of_tensor<1>]
     // CHECK-SAME: #ttnn.compute_kernel<symbol_ref = @compute_kernel0
     // CHECK-SAME: ct_args = [#ttnn.kernel_arg_cb_buffer_index<0>, #ttnn.kernel_arg_cb_buffer_index<1>]
@@ -81,63 +81,41 @@ module {
     %output_dram = "ttnn.to_memory_config"(%output_l1) <{memory_config = #dram_memory_config}> : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #dram_layout>
     return %output_dram : tensor<32x32xf32, #dram_layout>
   }
-  func.func private @read_kernel() attributes {ttkernel.arg_spec = #ttkernel.arg_spec< rt_args = [<arg_type = buffer_address, operand_index = 0>] ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<noc>} {
-    %c1_i32 = arith.constant 1 : i32
-    %c4096_i32 = arith.constant 4096 : i32
-
-    %c0_i32 = arith.constant 0 : i32
-    %0 = ttkernel.get_common_arg_val(%c0_i32) : (i32) -> i32
-    %1 = ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb<1024, f32>
-    %2 = ttkernel.my_x() : () -> index
-    %3 = ttkernel.my_y() : () -> index
-
-    // Move single tile from address in L1 to CB
-    ttkernel.cb_reserve_back(%1, %c1_i32) : (!ttkernel.cb<1024, f32>, i32) -> ()
-    %4 = ttkernel.get_write_ptr(%1) : (!ttkernel.cb<1024, f32>) -> i32
-    %5 = ttkernel.get_noc_addr(%2, %3, %0) : (index, index, i32) -> !ttkernel.noc_addr
-    ttkernel.noc_async_read(%5, %4, %c4096_i32) : (!ttkernel.noc_addr, i32, i32) -> ()
-    ttkernel.noc_async_read_barrier() : () -> ()
-    ttkernel.cb_push_back(%1, %c1_i32) : (!ttkernel.cb<1024, f32>, i32) -> ()
+  func.func private @read_kernel() attributes {
+    ttkernel.arg_spec = #ttkernel.arg_spec<
+      rt_args = [<arg_type = buffer_address, operand_index = 0>]
+      ct_args = [
+        <arg_type = cb_port, operand_index = 0>,
+        <arg_type = semaphore, operand_index = 0>,
+        <arg_type = semaphore, operand_index = 1>
+      ]
+    >,
+    ttkernel.thread = #ttkernel.thread<noc>
+  } {
     return
   }
-  func.func private @compute_kernel0() attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
-    %c1_i32 = arith.constant 1 : i32
-    %c0 = arith.constant 0 : index
-    %0 = ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb<1, !ttcore.tile<32x32, f32>>
-    %1 = ttkernel.get_compile_time_arg_val(1) : () -> !ttkernel.cb<1, !ttcore.tile<32x32, f32>>
-    ttkernel.cb_reserve_back(%1, %c1_i32) : (!ttkernel.cb<1, !ttcore.tile<32x32, f32>>, i32) -> ()
-    ttkernel.cb_wait_front(%0, %c1_i32) : (!ttkernel.cb<1, !ttcore.tile<32x32, f32>>, i32) -> ()
-    ttkernel.init_sfpu(%0, %1) : (!ttkernel.cb<1, !ttcore.tile<32x32, f32>>, !ttkernel.cb<1, !ttcore.tile<32x32, f32>>) -> ()
-    ttkernel.tile_regs_acquire() : () -> ()
-    ttkernel.copy_tile_init(%0) : (!ttkernel.cb<1, !ttcore.tile<32x32, f32>>) -> ()
-    ttkernel.copy_tile(%0, %c0, %c0) : (!ttkernel.cb<1, !ttcore.tile<32x32, f32>>, index, index) -> ()
-    ttkernel.abs_tile_init() : () -> ()
-    ttkernel.abs_tile(%c0) : (index) -> ()
-    ttkernel.tile_regs_commit() : () -> ()
-    ttkernel.tile_regs_wait() : () -> ()
-    ttkernel.pack_tile(%c0, %1, %c0, true) : (index, !ttkernel.cb<1, !ttcore.tile<32x32, f32>>, index) -> ()
-    ttkernel.tile_regs_release() : () -> ()
-    ttkernel.cb_push_back(%1, %c1_i32) : (!ttkernel.cb<1, !ttcore.tile<32x32, f32>>, i32) -> ()
-    ttkernel.cb_pop_front(%0, %c1_i32) : (!ttkernel.cb<1, !ttcore.tile<32x32, f32>>, i32) -> ()
+  func.func private @compute_kernel0() attributes {
+    ttkernel.arg_spec = #ttkernel.arg_spec<
+      ct_args = [
+        <arg_type = cb_port, operand_index = 0>,
+        <arg_type = cb_port, operand_index = 1>
+      ]
+    >,
+    ttkernel.thread = #ttkernel.thread<compute>
+  } {
     return
   }
-  func.func private @write_kernel() attributes {ttkernel.arg_spec = #ttkernel.arg_spec< rt_args = [<arg_type = buffer_address, operand_index = 1>] ct_args = [<arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<noc>} {
-    %c1_i32 = arith.constant 1 : i32
-    %c4096_i32 = arith.constant 4096 : i32
-
-    %c0_i32 = arith.constant 0 : i32
-    %0 = ttkernel.get_common_arg_val(%c0_i32) : (i32) -> i32
-    %1 = ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb<1024, f32>
-    %2 = ttkernel.my_x() : () -> index
-    %3 = ttkernel.my_y() : () -> index
-
-    // Move single tile from CB to address in L1
-    ttkernel.cb_wait_front(%1, %c1_i32) : (!ttkernel.cb<1024, f32>, i32) -> ()
-    %4 = ttkernel.get_read_ptr(%1) : (!ttkernel.cb<1024, f32>) -> i32
-    %5 = ttkernel.get_noc_addr(%2, %3, %0) : (index, index, i32) -> !ttkernel.noc_addr
-    ttkernel.noc_async_write(%4, %5, %c4096_i32) : (i32, !ttkernel.noc_addr, i32) -> ()
-    ttkernel.noc_async_write_barrier() : () -> ()
-    ttkernel.cb_pop_front(%1, %c1_i32) : (!ttkernel.cb<1024, f32>, i32) -> ()
+  func.func private @write_kernel() attributes {
+    ttkernel.arg_spec = #ttkernel.arg_spec<
+      rt_args = [<arg_type = buffer_address, operand_index = 1>]
+      ct_args = [
+        <arg_type = cb_port, operand_index = 1>,
+        <arg_type = semaphore, operand_index = 2>,
+        <arg_type = semaphore, operand_index = 3>
+      ]
+    >,
+    ttkernel.thread = #ttkernel.thread<noc>
+  } {
     return
   }
 }
