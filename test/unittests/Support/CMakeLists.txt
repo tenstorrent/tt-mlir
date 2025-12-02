@@ -1,5 +1,6 @@
 add_mlir_unittest(TTMLIRSupportTests
   LoggerTest.cpp
+  TTPrintIRInstrumentationTest.cpp
   TestAsserts.cpp
   TestAssertsElision.cpp
   DeathTestAsserts.cpp
@@ -12,6 +13,9 @@ target_include_directories(TTMLIRSupportTests
 
 target_link_libraries(TTMLIRSupportTests
   PRIVATE
-    MLIRSupport
+    MLIRArithDialect
     MLIRIR
+    MLIRFuncDialect
+    MLIRTransforms
+    TTMLIRSupport
 )
