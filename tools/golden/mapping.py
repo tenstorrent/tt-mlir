@@ -2407,27 +2407,6 @@ def ones_golden(**kwargs) -> GoldenMapTensor:
     return GoldenMapTensor({0: torch.ones(size)}, (1, 1))
 
 
-def arange_golden(single_dim_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
-    """
-    Golden function for arange operation using TTIR kwargs.
-
-    Expected kwargs from builder (ttir_kwargs):
-    - start: int
-    - end: int
-    - step: int
-    - arange_dimension: int (ignored here; layout handled by builder output shape)
-    """
-    start = kwargs.get("start", 0)
-    end = kwargs.get("end", 0)
-    step = kwargs.get("step", 1)
-    output_shards = {}
-    for device_id, shard in single_dim_tensor.shard_map.items():
-        output_shards[device_id] = torch.arange(
-            start=start, end=end, step=step, dtype=torch.float32
-        )
-    return GoldenMapTensor(output_shards, single_dim_tensor.mesh_shape)
-
-
 def cumsum_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for cumsum operation with TTIR parameter names.
@@ -2906,6 +2885,37 @@ def stablehlo_not_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTe
 
 
 ################ TTIR Op Golden Functions ###############
+
+
+def ttir_arange_golden(**kwargs) -> GoldenMapTensor:
+    """
+    Golden function for arange operation using TTIR kwargs.
+
+    Expected kwargs from builder (ttir_kwargs):
+    - shape: Shape
+    - start: int
+    - end: int
+    - step: int
+    - arange_dimension: int (ignored here; layout handled by builder output shape)
+    """
+    shape = kwargs.get("shape", [1])
+    start = kwargs.get("start", 0)
+    end = kwargs.get("end", 0)
+    step = kwargs.get("step", 1)
+    arange_dimension = kwargs.get("arange_dimension", 0)
+    start = unpack_mlir_attr(start)
+    end = unpack_mlir_attr(end)
+    step = unpack_mlir_attr(step)
+    arange_dimension = unpack_mlir_attr(arange_dimension)
+    result = torch.arange(start=start, end=end, step=step, dtype=torch.float32)
+    if len(shape) == 2 and arange_dimension == 1:
+        unsqueezed = torch.unsqueeze(result, dim=0)
+        result = torch.cat([unsqueezed] * shape[0], dim=0)
+    elif len(shape) == 2 and arange_dimension == 0:
+        unsqueezed = torch.unsqueeze(result, dim=1)
+        result = unsqueezed.expand(shape)
+
+    return GoldenMapTensor({0: result}, (1, 1))
 
 
 def ttir_slice_golden(
@@ -3943,7 +3953,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.OnesOp: ones_golden,
     ttir.ConstantOp: ttir_constant_golden,
     ttir.FullOp: ttir_full_golden,
-    ttir.ArangeOp: arange_golden,
+    ttir.ArangeOp: ttir_arange_golden,
     # Quantization operations
     ttir.QuantizeOp: quantize_golden,
     ttir.DequantizeOp: torch.dequantize,

@@ -1397,18 +1397,23 @@ def test_upsample2d(shapes: List[Shape], scale_factor: List[int], request, devic
     )
 
 
-@pytest.mark.parametrize("shape,start,end,step,dim", [((5,), 0, 5, 1, 0)])
+@pytest.mark.parametrize(
+    "shape,start,end,step,dim",
+    [
+        ((5,), 0, 5, 1, 0),
+        ((5, 3), 0, 5, 1, 0),
+        ((5, 3), 0, 3, 1, 1),
+    ],
+)
 def test_arange(
     shape: Shape, start: int, end: int, step: int, dim: int, request, device
 ):
-    def arange(
-        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        return builder.arange(in0, start, end, step, dim, unit_attrs=unit_attrs)
+    def arange(builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
+        return builder.arange(shape, start, end, step, dim, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
         arange,
-        [shape],
+        [],
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),

@@ -152,6 +152,153 @@ class TTIRBuilder(Builder):
 
     # ----- Public Op Generators ----
 
+    ################ ttir.ArangeOp ###############
+
+    @tag(ttir.ArangeOp)
+    def arange(
+        self,
+        shape: Shape,
+        start: int,
+        end: int,
+        step: int,
+        arange_dimension: int,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.arange)
+        output_type = output_type if output_type is not None else torch.float32
+        result = self._create_ranked_tensor_type(shape, output_type)
+        random_tensor = self._generate_random_tensor(shape, output_type)
+        result_tensor = GoldenMapTensor({0: random_tensor}, mesh_shape=self._mesh_shape)
+
+        repeat_dims = []
+        for i in range(len(shape)):
+            if i == arange_dimension:
+                repeat_dims.append(int(shape[i] / ((end - start) / step)))
+            else:
+                repeat_dims.append(shape[i])
+
+        # Apply repeat shard-wise
+        single_dim_tensor = GoldenMapTensor(
+            {
+                k: shard.repeat(*repeat_dims)
+                for k, shard in result_tensor.shard_map.items()
+            },
+            result_tensor.mesh_shape,
+        )
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+        op = ttir.ArangeOp(
+            result,
+            loc=loc,
+            start=start,
+            end=end,
+            step=step,
+            arange_dimension=arange_dimension,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(
+                shape=shape,
+                start=start,
+                end=end,
+                step=step,
+                arange_dimension=arange_dimension,
+            )
+            self._set_golden_tensor(op, golden_output)
+
+        return op
+
+    @parse(ttir.ArangeOp)
+    def arange_parser(
+        self,
+        old_op: ttir.ArangeOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Operation:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.arange_parser)
+        result = old_op.result.type
+        start_attr = old_op.start
+        end_attr = old_op.end
+        step_attr = old_op.step
+        arange_dimension_attr = old_op.arange_dimension
+
+        new_op = ttir_op(
+            result,
+            loc=old_op.location,
+            start=start_attr,
+            end=end_attr,
+            step=step_attr,
+            arange_dimension=arange_dimension_attr,
+        )
+
+        if not self._disable_golden_check:
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(
+                loc=old_op.location,
+                shape=old_op.result.type.shape,
+                start=start_attr,
+                end=end_attr,
+                step=step_attr,
+                arange_dimension=arange_dimension_attr,
+            )
+            self._set_golden_tensor(new_op, golden_output)
+
+        return new_op
+
+    @split(ttir.ArangeOp)
+    def arange_split(
+        self,
+        old_op: ttir.ArangeOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.arange_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            arange_module = Module.create()
+            arange_builder = TTIRBuilder(old_ctx, old_loc)
+            op_input_types: List[Type] = []
+
+            with InsertionPoint(arange_module.body):
+
+                @func.func(*op_input_types, name="arange_module")
+                def decorated_func():
+                    result = old_op.result.type
+                    new_op = ttir.ArangeOp(
+                        result,
+                        loc=old_op.location,
+                        start=old_op.start,
+                        end=old_op.end,
+                        step=old_op.step,
+                        arange_dimension=old_op.arange_dimension,
+                    )
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_output = op_golden_function(
+                            loc=old_op.location,
+                            shape=old_op.result.type.shape,
+                            start=old_op.start,
+                            end=old_op.end,
+                            step=old_op.step,
+                            arange_dimension=old_op.arange_dimension,
+                        )
+                        arange_builder._set_golden_tensor(new_op, golden_output)
+                        arange_builder._set_output_ordering([new_op])
+
+                    return new_op
+
+        return arange_module, arange_builder
+
     ################ ttir.ReverseOp ###############
 
     @tag(ttir.ReverseOp)
@@ -8536,87 +8683,6 @@ class TTIRBuilder(Builder):
             ttir_kwargs=kwargs,
             organize_ttir_args=lambda i, _: (self._get_type(i[1]), i[0]),
             output_shape=output_shape,
-            unit_attrs=unit_attrs,
-        )
-
-    def arange(
-        self,
-        result: Operand,
-        start: int,
-        end: int,
-        step: int,
-        arange_dimension: int,
-        unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
-        """
-        Creates ``ttir.arange``.
-
-        *Creates a 1-D tensor of sequential values.*
-
-        Returns a 1-D tensor of size (end - start) / step with values from start to end taken with common difference step.
-
-        Parameters
-        ----------
-        start : int
-            Starting value
-        end : int
-            Ending value (exclusive)
-        step : int, optional
-            Step size between values (default: 1)
-        unit_attrs : *Optional[List[str]]*
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            1-D tensor with sequential values
-        """
-        result_tensor = self._get_golden_tensor(result)
-
-        # Build single-dim tensor
-        single_dim_tensor = torch.arange(
-            start=start, end=end, step=step, dtype=result_tensor.dtype
-        )
-
-        # Compute repeat dimensions
-        shape = self.get_shape(result)
-        repeat_dims = []
-        for i in range(len(shape)):
-            if i == arange_dimension:
-                repeat_dims.append(int(shape[i] / ((end - start) / step)))
-            else:
-                repeat_dims.append(shape[i])
-
-        # Apply repeat shard-wise
-        single_dim_tensor_bt = GoldenMapTensor(
-            {
-                k: shard.repeat(*repeat_dims)
-                for k, shard in result_tensor.shard_map.items()
-            },
-            result_tensor.mesh_shape,
-        )
-
-        return self._op_proxy(
-            ttir.ArangeOp,
-            [result, single_dim_tensor_bt],
-            golden_kwargs={
-                "start": start,
-                "end": end,
-                "step": step,
-                "arange_dimension": arange_dimension,
-            },
-            ttir_kwargs={
-                "start": start,
-                "end": end,
-                "step": step,
-                "arange_dimension": arange_dimension,
-            },
-            organize_ttir_args=lambda i, o: (o,),
-            organize_golden_args=lambda i: [i[1]],
-            output_shape=shape,
-            output_type=self._get_type_from_torch_dtype(
-                self._get_golden_tensor(result).dtype
-            ),
             unit_attrs=unit_attrs,
         )
 
