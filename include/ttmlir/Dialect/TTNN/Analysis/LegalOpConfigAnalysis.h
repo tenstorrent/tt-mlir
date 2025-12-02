@@ -46,11 +46,12 @@ struct Conv2dConfigSearchSpaceFactory {
     // TODO(rpavlovicTT): Enable search space for conv2d configs when priority
     // is set.
 
-    // 0 is default and will use most memory. Must be multiple of 32. 32 is
-    // recommended for memory savings.
-    // searchSpace.actBlockHOverride = {0, 32, 64};
+    // 0 is best (allows max ntiles based on input). Must be multiple of 32.
+    // Between non-zero values, prefer larger (less restrictive).
+    // Ordered by preference: 0 (best), 64, 32.
+    searchSpace.actBlockHOverride = {0, 64, 32};
 
-    // searchSpace.deallocateActivation = {false, true};
+    searchSpace.deallocateActivation = {true};
 
     // searchSpace.reshardIfNotOptimal = {false, true};
 
