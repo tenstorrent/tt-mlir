@@ -3006,6 +3006,7 @@ def TTIR_UpdateCacheOp : TTIR_NamedOp<"update_cache"> {
       MutableOperandRange getDpsInitsMutable() { return getCacheMutable(); }
   }];
 
+  let hasCanonicalizer = 1;
   let hasVerifier = 1;
 }
 
@@ -3027,7 +3028,7 @@ def TTIR_PagedUpdateCacheOp : TTIR_NamedOp<"paged_update_cache"> {
                        AnyRankedTensor:$input,
                        AnyRankedTensor:$update_index,
                        DefaultValuedAttr<BoolAttr, "false">:$share_cache,
-                       AnyRankedTensor:$page_table);
+                       Optional<AnyRankedTensor>:$page_table);
 
   let results = (outs AnyRankedTensor:$result);
 
