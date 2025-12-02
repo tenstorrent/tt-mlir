@@ -18,14 +18,7 @@ from builder.base.builder import *
 from golden import *
 
 
-class TTIRBuilderMeta(BuilderMeta, type):
-    def __new__(mcls, name, bases, namespace):
-        cls = super().__new__(mcls, name, bases, namespace)
-        cls.build_opname_to_opview_map()
-        return cls
-
-
-class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
+class TTIRBuilder(Builder):
 
     # ----- Methods -----
 
@@ -40,17 +33,6 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
         disable_golden_check: bool = False,
     ):
         super().__init__(ctx, location, mesh_name, mesh_dict, disable_golden_check)
-
-    # ----- Class helper methods -----
-
-    @classmethod
-    def build_opname_to_opview_map(cls):
-        for name, obj in inspect.getmembers(ttir, inspect.isclass):
-            if issubclass(obj, OpView) and obj is not OpView:
-                op_name = getattr(obj, "OPERATION_NAME", None)
-
-                if op_name is not None:
-                    cls.opname_to_opview_map[op_name] = obj
 
     # ----- Private methods ----
 
@@ -9557,34 +9539,7 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
             unit_attrs=unit_attrs,
         )
 
-    def _build_op_from_parsed_op(
-        self,
-        parsed_op: Operation,
-        global_dict: Dict[Operand, Operand],
-    ) -> Operation:
-        parsed_function = self.get_parser_from_opview(type(parsed_op))
-        new_op = parsed_function(self, parsed_op, global_dict)
-        return new_op
-
-    def get_input_types(self, parsed_module: Module):
-        inputs_types = []
-        inputs_shapes = []
-        for entry in parsed_module.body.operations:
-            if isinstance(entry, func.FuncOp):
-                for arg in entry.type.inputs:
-                    if isinstance(arg, RankedTensorType):
-                        inputs_types.append(arg.element_type)
-                        inputs_shapes.append(arg.shape)
-                    else:
-                        raise ValueError("Only ranked tensor types are supported")
-
-        return [
-            self._create_ranked_tensor_type(
-                shape,
-                dtype,
-            )
-            for (shape, dtype) in zip(inputs_shapes, inputs_types)
-        ]
+    # ----- Parse ttir module ----
 
     @staticmethod
     def from_module(
@@ -9710,6 +9665,8 @@ class TTIRBuilder(Builder, metaclass=TTIRBuilderMeta):
                     return _process_multi_return_result(global_result)
 
         return new_module, ttir_builder
+
+    # ----- Split ttir module ----
 
     def split_op(
         self,

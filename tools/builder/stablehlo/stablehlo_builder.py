@@ -21,14 +21,7 @@ from builder.base.builder import *
 from golden import *
 
 
-class StableHLOBuilderMeta(BuilderMeta, type):
-    def __new__(mcls, name, bases, namespace):
-        cls = super().__new__(mcls, name, bases, namespace)
-        cls.build_opname_to_opview_map()
-        return cls
-
-
-class StableHLOBuilder(Builder, metaclass=StableHLOBuilderMeta):
+class StableHLOBuilder(Builder):
 
     # ----- Methods -----
 
@@ -1996,35 +1989,6 @@ class StableHLOBuilder(Builder, metaclass=StableHLOBuilderMeta):
 
     # ----- Parse stablehlo module ----
 
-    def _build_op_from_parsed_op(
-        self,
-        parsed_op: Operation,
-        global_dict: Dict[Operand, Operand],
-    ) -> Operation:
-        parsed_function = self.get_parser_from_opview(type(parsed_op))
-        new_op = parsed_function(self, parsed_op, global_dict)
-        return new_op
-
-    def get_input_types(self, parsed_module: Module):
-        inputs_types = []
-        inputs_shapes = []
-        for entry in parsed_module.body.operations:
-            if isinstance(entry, func.FuncOp):
-                for arg in entry.type.inputs:
-                    if isinstance(arg, RankedTensorType):
-                        inputs_types.append(arg.element_type)
-                        inputs_shapes.append(arg.shape)
-                    else:
-                        raise ValueError("Only ranked tensor types are supported")
-
-        return [
-            self._create_ranked_tensor_type(
-                shape,
-                dtype,
-            )
-            for (shape, dtype) in zip(inputs_shapes, inputs_types)
-        ]
-
     @staticmethod
     def from_module(
         ctx: Context, mlir_text: str, golden_inputs: List[torch.tensor] = None
@@ -2137,15 +2101,15 @@ class StableHLOBuilder(Builder, metaclass=StableHLOBuilderMeta):
     def split_op(
         self,
         parsed_op: Operation,
-    ) -> Tuple[Module, TTIRBuilder]:
+    ) -> Tuple[Module, StableHLOBuilder]:
         split_function = self.get_split_from_opview(type(parsed_op))
         return split_function(self, parsed_op)
 
     @staticmethod
     def split_module(
         module: Module,
-        builder: TTIRBuilder,
-    ) -> List[Tuple[Module, TTIRBuilder]]:
+        builder: StableHLOBuilder,
+    ) -> List[Tuple[Module, StableHLOBuilder]]:
         sub_modules_and_builders = []
         old_ctx = module.context
         old_loc = Location.unknown(old_ctx)
@@ -2154,9 +2118,7 @@ class StableHLOBuilder(Builder, metaclass=StableHLOBuilderMeta):
             for entry in module.body.operations:
                 for block in entry.body:
                     for op in block.operations:
-                        if isinstance(op, func.ReturnOp) or isinstance(
-                            op, ttir.EmptyOp
-                        ):
+                        if isinstance(op, func.ReturnOp):
                             continue
                         else:
                             sub_op_module_builder = builder.split_op(op)
