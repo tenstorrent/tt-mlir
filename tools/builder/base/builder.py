@@ -26,7 +26,7 @@ from ttmlir.ir import (
     F64Type,
     IntegerType,
 )
-from ttmlir.dialects import tensor, quant
+from ttmlir.dialects import tensor, quant, func, ttir, ttcore, stablehlo, ttnn
 from ttmlir.passes import GoldenTensor, DataType
 from golden import GoldenMapTensor, get_golden_function
 
@@ -78,7 +78,6 @@ class BuilderMeta(type):
 
 
 class Builder(metaclass=BuilderMeta):
-    opname_to_opview_map: Dict[str, OpView] = {}
     opview_to_builder_map: Dict[OpView, Callable] = {}
     opview_to_parser_map: Dict[OpView, Callable] = {}
     opview_to_split_map: Dict[OpView, Callable] = {}
@@ -696,3 +695,35 @@ class Builder(metaclass=BuilderMeta):
             index_map,
             memory_layout,
         )
+
+    # ----- Parse module ----
+
+    def _build_op_from_parsed_op(
+        self,
+        parsed_op: Operation,
+        global_dict: Dict[Operand, Operand],
+    ) -> Operation:
+        parsed_function = self.get_parser_from_opview(type(parsed_op))
+        new_op = parsed_function(self, parsed_op, global_dict)
+        return new_op
+
+    def get_input_types(self, parsed_module: Module):
+        inputs_types = []
+        inputs_shapes = []
+        input_encodings = []
+        for entry in parsed_module.body.operations:
+            if isinstance(entry, func.FuncOp):
+                for arg in entry.type.inputs:
+                    if isinstance(arg, RankedTensorType):
+                        inputs_types.append(arg.element_type)
+                        inputs_shapes.append(arg.shape)
+                        input_encodings.append(arg.encoding)
+                    else:
+                        raise ValueError("Only ranked tensor types are supported")
+
+        return [
+            self._create_ranked_tensor_type(shape, dtype, encoding)
+            for (shape, dtype, encoding) in zip(
+                inputs_shapes, inputs_types, input_encodings
+            )
+        ]
