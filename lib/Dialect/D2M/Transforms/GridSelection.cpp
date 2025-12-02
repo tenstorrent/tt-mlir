@@ -22,6 +22,8 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Debug.h"
 
+#include <dbg.h>
+
 namespace mlir::tt::d2m {
 
 // Compute dimension alignments for a MetalLayoutAttr that align to the worker
@@ -367,6 +369,11 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
                                  ArrayRef<int64_t> targetSquareGridShape,
                                  ArrayRef<int64_t> optimalGrid,
                                  bool isVirtualGrid, OpBuilder &builder) {
+  fprintf(stderr, "-- optimizeToLayoutGrid: toLayoutOp "); toLayoutOp.dump();
+  fprintf(stderr, "-- optimizeToLayoutGrid: optimalGrid "); dbg(optimalGrid);
+  if (isVirtualGrid) {
+    fprintf(stderr, "!! optimizeToLayoutGrid: isVirtualGrid\n");
+  }
   auto emptyOp = toLayoutOp.getOutput().getDefiningOp<d2m::EmptyOp>();
   if (!emptyOp) {
     return;
@@ -379,6 +386,7 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
   }
 
   auto outputType = mlir::cast<mlir::RankedTensorType>(toLayoutOp.getType(0));
+  fprintf(stderr, "-- optimizeToLayoutGrid: outputType "); outputType.dump();
   auto oldLayout =
       mlir::dyn_cast<ttcore::MetalLayoutAttr>(outputType.getEncoding());
   if (!oldLayout) {
@@ -402,6 +410,7 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
                                  targetSquareGridShape,
                                  optimalGrid,
                                  isVirtualGrid, builder) ;
+  fprintf(stderr, "-- optimizeToLayoutGrid: newTensorType "); newTensorType.dump();
   builder.setInsertionPoint(emptyOp);
   auto newEmptyOp = builder.create<d2m::EmptyOp>(emptyOp.getLoc(), newTensorType);
 
@@ -414,7 +423,9 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
                                   newTensorType.getShape(),
                                   outputType.getShape(),
                                   newTensorType.getContext());
+  fprintf(stderr, "-- optimizeToLayoutGrid: reblockMap "); reblockMap.dump();
   auto viewOutputType = composeTensorWithIndexMap(outputType, reblockMap);
+  fprintf(stderr, "-- optimizeToLayoutGrid: viewOutputType "); viewOutputType.dump();
   auto newView = builder.create<d2m::ViewLayoutOp>(
       toLayoutOp.getLoc(), viewOutputType, newToLayoutOp.getResult(0));
 
@@ -552,6 +563,8 @@ updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
     if (!storageEmpty) {
       continue;
     }
+    fprintf(stderr, "-- updateStreamLayoutOps: streamLayout "); streamLayout.dump();
+    fprintf(stderr, "-- updateStreamLayoutOps: w/ optimalGrid "); dbg(optimalGrid);
 
     auto storageType =
         mlir::cast<mlir::RankedTensorType>(storageEmpty.getType());
@@ -593,6 +606,7 @@ updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
                                     outputStreamType.getShape(),
                                     newStorageShape,
                                     builder.getContext());
+    fprintf(stderr, "-- updateStreamLayoutOps: reblockMap "); reblockMap.dump();
     auto newOutputIndexMap = outputLayout.getIndexAffineMap().compose(reblockMap);
     auto newOutputLayout = ttcore::MetalLayoutAttr::get(
         builder.getContext(), outputLayout.getLogicalShape(),

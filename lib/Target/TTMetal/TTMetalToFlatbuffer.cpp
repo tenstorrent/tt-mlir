@@ -42,6 +42,7 @@
 #include <cstdint>
 #include <memory>
 #include <vector>
+#include <dbg.h>
 
 namespace mlir::tt::ttmetal {
 
@@ -271,6 +272,8 @@ createShardedBufferConfigForL1Memref(FlatbufferObjectCache &cache,
                                      MemRefType memref,
                                      ttcore::DeviceAttr device,
                                      target::Dim2d elementShape) {
+  fprintf(stderr, "-- createShardedBufferConfigForL1Memref: "); memref.dump();
+  fprintf(stderr, "-- createShardedBufferConfigForL1Memref: elementShape H %d W %d\n", elementShape.y(), elementShape.x());
   auto deviceLayout = mlir::dyn_cast_if_present<ttcore::DeviceLayoutInterface>(
       memref.getLayout());
   if (!deviceLayout) {
@@ -290,8 +293,10 @@ createShardedBufferConfigForL1Memref(FlatbufferObjectCache &cache,
     memrefGridShape = getPhysicalGridShapeForVirtualGrid(shardLayout, device,
                                                          memrefGridShape);
   }
+  fprintf(stderr, "-- createShardedBufferConfigForL1Memref: memrefGridShape "); dbg(memrefGridShape);
 
   auto memrefShardShape = shardLayout.getShardShape(memref);
+  fprintf(stderr, "-- createShardedBufferConfigForL1Memref: memrefShardShape "); dbg(memrefShardShape);
   auto extendedMapping = extendMappingForHigherDimGrid(
       device.getWorkerGrid().getMapping(), memrefGridShape.size());
 
@@ -299,6 +304,7 @@ createShardedBufferConfigForL1Memref(FlatbufferObjectCache &cache,
       toFlatbuffer(cache, memrefGridShape, extendedMapping);
   std::array<int32_t, 2> gridShapeExtents =
       calculateCoreRangeSetShapeExtents(coreRangeSet);
+  fprintf(stderr, "-- createShardedBufferConfigForL1Memref: gridShapeExtents H %d W %d\n", gridShapeExtents[0], gridShapeExtents[1]);
 
   // Calculate ShardSpec.
   assert(stride[stride.size() - 1] % elementSize == 0);
@@ -306,22 +312,28 @@ createShardedBufferConfigForL1Memref(FlatbufferObjectCache &cache,
   assert((memrefShardShape[0] * stride[0] / elementSize) % shardXElements == 0);
   int32_t collapsedShardYElements =
       (memrefShardShape[0] * stride[0] / elementSize) / shardXElements;
+  fprintf(stderr, "-- createShardedBufferConfigForL1Memref: shardXElements %d collapsedShardYElements %d nBuffers %u\n", shardXElements, collapsedShardYElements, shardLayout.getBuffers());
   // Shard shape is the fully collapsed shard down to 2D, so:
   //   [d0 * ... * dN-2, dN-1].
   target::Dim2d shardShape(collapsedShardYElements * elementShape.y() *
                                shardLayout.getBuffers(),
                            shardXElements * elementShape.x());
+  fprintf(stderr, "-- createShardedBufferConfigForL1Memref: shardShape H %d W %d\n", shardShape.y(), shardShape.x());
   auto shardSpec = target::metal::CreateShardSpecDirect(
       *cache.fbb, &coreRangeSet, &shardShape);
 
   // Calculate ShardSpecBuffer.
+  // WTF???
   target::Dim2d pageShape(elementShape.y(), shardShape.x());
+  fprintf(stderr, "-- createShardedBufferConfigForL1Memref: pageShape H %d W %d\n", pageShape.y(), pageShape.x());
   std::array<int32_t, 2> tensorShape = {gridShapeExtents[0] * shardShape.y(),
                                         gridShapeExtents[1] * shardShape.x()};
+  fprintf(stderr, "-- createShardedBufferConfigForL1Memref: tensorShape H %d W %d\n", tensorShape[0], tensorShape[1]);
   assert(tensorShape[0] % pageShape.y() == 0);
   assert(tensorShape[1] % pageShape.x() == 0);
   target::Dim2d tensorShapeInPages(tensorShape[0] / pageShape.y(),
                                    tensorShape[1] / pageShape.x());
+  fprintf(stderr, "-- createShardedBufferConfigForL1Memref: tensorShapeInPages H %d W %d\n", tensorShapeInPages.y(), tensorShapeInPages.x());
   auto shardSpecBuffer = target::metal::CreateShardSpecBuffer(
       *cache.fbb, shardSpec, &pageShape, &tensorShapeInPages);
 
@@ -335,6 +347,7 @@ createShardedBufferConfigForL1Memref(FlatbufferObjectCache &cache,
   uint64_t shardSize =
       device.getMemrefSizeBytes(memref, pageSize, /*includeBuffers=*/true);
   uint64_t size = gridShapeExtents[0] * gridShapeExtents[1] * shardSize;
+  fprintf(stderr, "-- createShardedBufferConfigForL1Memref: pageSize %lu shardSize %lu size %lu\n", pageSize, shardSize, size);
   return target::metal::CreateShardedBufferConfig(*cache.fbb, size, pageSize,
                                                   shardSpecBuffer);
 }

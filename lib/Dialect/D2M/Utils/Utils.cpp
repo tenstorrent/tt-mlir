@@ -13,12 +13,16 @@
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Utils.h"
 
+#include "dbg.h"
+
 namespace mlir::tt::d2m::utils {
 
 // Calculate a reblocking affine map from inputShape to outputShape.
 mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
                                     mlir::ArrayRef<int64_t> outputShape,
                                     mlir::MLIRContext *ctx) {
+  fprintf(stderr, "---- calculateReblockMap: inputShape "); dbg(inputShape);
+  fprintf(stderr, "---- calculateReblockMap: outputShape "); dbg(outputShape);
   assert(inputShape.size() == outputShape.size() && "Rank must be preserved");
 
   size_t rank = inputShape.size();
@@ -30,6 +34,7 @@ mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
 
   size_t halfRank = rank / 2;
 
+  // Input grid is discarded! Why?
   mlir::ArrayRef<int64_t> inputShardShape = inputShape.drop_front(halfRank);
   mlir::ArrayRef<int64_t> outputGridShape = outputShape.take_front(halfRank);
   mlir::ArrayRef<int64_t> outputShardShape = outputShape.drop_front(halfRank);
@@ -38,14 +43,17 @@ mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
 
   for (size_t i = 0; i < halfRank; i++) {
     auto dG = getAffineDimExpr(i, ctx);
-    mapExprs[i] = dG.floorDiv(outputGridShape[i]);
+    mapExprs[i] = dG.floorDiv(outputGridShape[i]); // Keeping it so composition works, otherwise could be 0.
 
     size_t j = i + halfRank;
     auto dS = getAffineDimExpr(j, ctx);
     mapExprs[j] = dG * outputShardShape[i] + dS;
   }
   auto outputToCanonical = mlir::AffineMap::get(rank, 0, mapExprs, ctx);
+  fprintf(stderr, "---- calculateReblockMap: outputToCanonical "); outputToCanonical.dump();
 
+  // We only create dimExpr for j, so only halfRank worth of degrees of freedom.
+  // Canonical means unit grid + physical tensor shape.
   for (size_t i = 0; i < halfRank; i++) {
     size_t j = i + halfRank;
     auto dS = getAffineDimExpr(j, ctx);
@@ -53,6 +61,7 @@ mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
     mapExprs[j] = dS % inputShardShape[i];
   }
   auto canonicalToInput = mlir::AffineMap::get(rank, 0, mapExprs, ctx);
+  fprintf(stderr, "---- calculateReblockMap: canonicalToInput "); canonicalToInput.dump();
 
   return canonicalToInput.compose(outputToCanonical);
 }
