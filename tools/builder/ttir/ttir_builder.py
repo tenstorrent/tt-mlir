@@ -776,6 +776,210 @@ class TTIRBuilder(Builder):
 
         return cos_module, cos_builder
 
+    ################ ttir.SinOp ###############
+
+    @tag(ttir.SinOp)
+    def sin(
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.sin)
+        input0 = self._get_golden_tensor(in0)
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(result, in0, loc=loc)
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op, golden_output)
+
+        return op
+
+    @parse(ttir.SinOp)
+    def sin_parser(
+        self,
+        old_op: ttir.SinOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Operation:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.sin_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            in0,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(input0, result.element_type)
+            self._set_golden_tensor(new_op, golden_output)
+
+        return new_op
+
+    @split(ttir.SinOp)
+    def sin_split(
+        self,
+        old_op: ttir.SinOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.sin_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            sin_module = Module.create()
+            sin_builder = TTIRBuilder(old_ctx, old_loc)
+            op_input_types = [old_op.input.type]
+
+            with InsertionPoint(sin_module.body):
+
+                @func.func(*op_input_types, name="sin_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttir.SinOp(result, in0, loc=old_op.location)
+
+                    if not self._disable_golden_check:
+                        input_owner0 = old_op.input.owner
+                        if isinstance(input_owner0, Block):
+                            queried_input0 = old_op.input
+                        else:
+                            queried_input0 = input_owner0
+
+                        input0 = self._get_golden_tensor(queried_input0)
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_output = op_golden_function(input0, result.element_type)
+                        sin_builder._set_golden_tensor(new_op, golden_output)
+                        sin_builder._set_output_ordering([new_op])
+                        sin_builder._set_golden_tensor(in0, input0)
+                        sin_builder._set_input_ordering([in0])
+
+                    return new_op
+
+        return sin_module, sin_builder
+
+    ################ ttir.SqrtOp ###############
+
+    @tag(ttir.SqrtOp)
+    def sqrt(
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.sqrt)
+        input0 = self._get_golden_tensor(in0)
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(result, in0, loc=loc)
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op, golden_output)
+
+        return op
+
+    @parse(ttir.SqrtOp)
+    def sqrt_parser(
+        self,
+        old_op: ttir.SqrtOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Operation:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.sqrt_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            in0,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(input0, result.element_type)
+            self._set_golden_tensor(new_op, golden_output)
+
+        return new_op
+
+    @split(ttir.SqrtOp)
+    def sqrt_split(
+        self,
+        old_op: ttir.SqrtOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.sqrt_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            sqrt_module = Module.create()
+            sqrt_builder = TTIRBuilder(old_ctx, old_loc)
+            op_input_types = [old_op.input.type]
+
+            with InsertionPoint(sqrt_module.body):
+
+                @func.func(*op_input_types, name="sqrt_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttir.SqrtOp(result, in0, loc=old_op.location)
+
+                    if not self._disable_golden_check:
+                        input_owner0 = old_op.input.owner
+                        if isinstance(input_owner0, Block):
+                            queried_input0 = old_op.input
+                        else:
+                            queried_input0 = input_owner0
+
+                        input0 = self._get_golden_tensor(queried_input0)
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_output = op_golden_function(input0, result.element_type)
+                        sqrt_builder._set_golden_tensor(new_op, golden_output)
+                        sqrt_builder._set_output_ordering([new_op])
+                        sqrt_builder._set_golden_tensor(in0, input0)
+                        sqrt_builder._set_input_ordering([in0])
+
+                    return new_op
+
+        return sqrt_module, sqrt_builder
+
     ################ ttir.GreaterEqualOp ###############
 
     @tag(ttir.GreaterEqualOp)
@@ -7718,50 +7922,6 @@ class TTIRBuilder(Builder):
             A tensor containing the SiLU activation values of each element in the input tensor
         """
         return self._op_proxy(ttir.SiluOp, [in0], unit_attrs)
-
-    def sin(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
-        """
-        Creates ``ttir.sin``.
-
-        *Elementwise sine operation.*
-
-        Computes the sine of each element in the input tensor.
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            Tensor with sine values
-        """
-        return self._op_proxy(ttir.SinOp, [in0], unit_attrs)
-
-    def sqrt(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
-        """
-        Creates ``ttir.sqrt``.
-
-        *Elementwise square root operation.*
-
-        Computes the square root of each element in the input tensor.
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            Tensor with square root values
-        """
-        return self._op_proxy(ttir.SqrtOp, [in0], unit_attrs)
 
     def expm1(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
