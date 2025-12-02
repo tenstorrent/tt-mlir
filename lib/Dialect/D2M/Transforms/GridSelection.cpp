@@ -369,7 +369,7 @@ computeOptimalBlockShardedGrid(ArrayRef<int64_t> physicalShape,
 bool shouldImplementAsVirtualGrid(ArrayRef<int64_t> physicalShape,
                                   ArrayRef<int64_t> targetSquareGridShape,
                                   bool isInterleaved, bool isTiled) {
-  if (isInterleaved || !isTiled) {
+  if (isInterleaved) {
     return false;
   }
   if (physicalShape.size() != 2) {
