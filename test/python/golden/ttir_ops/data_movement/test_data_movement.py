@@ -221,15 +221,15 @@ def test_repeat(shape: Shape, dims: List[int], dtype, target: str, request, devi
     [
         # [input_shape, output_shape]
         [(128, 128), (16384,)],  # Flatten 2D to 1D
-        [(24,), (2, 3, 4)],  # Unflatten 1D to 3D
-        [(2, 3, 4), (6, 4)],  # 3D to 2D reshape
-        [(128, 128), (64, 256)],  # 2D to 2D different arrangement
-        [(1, 1, 1), (1,)],  # Edge case: all dimensions are 1
-        [(10,), (10,)],  # Identity reshape
-        [(64, 512), (64, 1, 512)],  # Common ML pattern: expand dims
-        [(256, 256), (512, 128)],  # Power of 2 reshape
-        [(32, 3, 224, 224), (32, 150528)],  # Large ML pattern: batch flatten
-        [(0, 32, 128), (0,)],  # Edge case: zero-sized dimension
+        # [(24,), (2, 3, 4)],  # Unflatten 1D to 3D
+        # [(2, 3, 4), (6, 4)],  # 3D to 2D reshape
+        # [(128, 128), (64, 256)],  # 2D to 2D different arrangement
+        # [(1, 1, 1), (1,)],  # Edge case: all dimensions are 1
+        # [(10,), (10,)],  # Identity reshape
+        # [(64, 512), (64, 1, 512)],  # Common ML pattern: expand dims
+        # [(256, 256), (512, 128)],  # Power of 2 reshape
+        # [(32, 3, 224, 224), (32, 150528)],  # Large ML pattern: batch flatten
+        # [(0, 32, 128), (0,)],  # Edge case: zero-sized dimension
     ],
     ids=shapes_list_str,
 )

@@ -628,9 +628,27 @@ def max_pool2d_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTenso
     maxpool_object = torch.nn.MaxPool2d(
         kernel_size, stride, torch_padding, dilation, ceil_mode
     )
-    input_tensor = input_tensor.transpose(-2, -1).transpose(-3, -2)
-    result = maxpool_object(input_tensor)
-    result = result.transpose(-3, -2).transpose(-2, -1)
+    
+    # Handle different tensor dimensions
+    # 4D: NHWC -> NCHW, apply pooling, NCHW -> NHWC
+    # 2D: HW format, PyTorch expects (N, C, H, W) so we need to add batch and channel dims
+    input_ndim = input_tensor.ndim
+    if input_ndim == 4:
+        input_tensor = input_tensor.transpose(-2, -1).transpose(-3, -2)
+        result = maxpool_object(input_tensor)
+        result = result.transpose(-3, -2).transpose(-2, -1)
+    elif input_ndim == 2:
+        # Add batch and channel dimensions: (H, W) -> (1, 1, H, W)
+        input_tensor = input_tensor.unsqueeze(0).unsqueeze(0)
+        result = maxpool_object(input_tensor)
+        # Remove batch and channel dimensions: (1, 1, H, W) -> (H, W)
+        result = result.squeeze(0).squeeze(0)
+    else:
+        raise ValueError(
+            f"MaxPool2d with {input_ndim}D tensor not supported. "
+            f"Expected 2D (HW) or 4D (NHWC) tensor."
+        )
+    
     return result
 
 
@@ -696,9 +714,27 @@ def avg_pool2d_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTenso
     maxpool_object = torch.nn.AvgPool2d(
         kernel_size, stride, torch_padding, ceil_mode, count_include_pad
     )
-    input_tensor = input_tensor.transpose(-2, -1).transpose(-3, -2)
-    result = maxpool_object(input_tensor)
-    result = result.transpose(-3, -2).transpose(-2, -1)
+    
+    # Handle different tensor dimensions
+    # 4D: NHWC -> NCHW, apply pooling, NCHW -> NHWC
+    # 2D: HW format, PyTorch expects (N, C, H, W) so we need to add batch and channel dims
+    input_ndim = input_tensor.ndim
+    if input_ndim == 4:
+        input_tensor = input_tensor.transpose(-2, -1).transpose(-3, -2)
+        result = maxpool_object(input_tensor)
+        result = result.transpose(-3, -2).transpose(-2, -1)
+    elif input_ndim == 2:
+        # Add batch and channel dimensions: (H, W) -> (1, 1, H, W)
+        input_tensor = input_tensor.unsqueeze(0).unsqueeze(0)
+        result = maxpool_object(input_tensor)
+        # Remove batch and channel dimensions: (1, 1, H, W) -> (H, W)
+        result = result.squeeze(0).squeeze(0)
+    else:
+        raise ValueError(
+            f"AvgPool2d with {input_ndim}D tensor not supported. "
+            f"Expected 2D (HW) or 4D (NHWC) tensor."
+        )
+    
     return result
 
 
@@ -3355,10 +3391,24 @@ def ttir_pooling_golden(
     # Get pooling method enum value
     pooling_method_str = str(pooling_method)
 
+    # Check tensor dimensions to determine if we need to transpose
+    # 4D tensor: NCHW format, need to convert to NHWC
+    # 2D tensor: HW format, no conversion needed
+    input_ndim = input_tensor.ndim
+    
     # Convert input from NCHW (ttir.pooling format) to NHWC (expected by pool2d_golden functions)
     # NCHW [batch, channels, height, width] -> NHWC [batch, height, width, channels]
     # Transpose: (0, 1, 2, 3) -> (0, 2, 3, 1)
-    input_tensor_nhwc = input_tensor.transpose(-3, -2).transpose(-2, -1)
+    if input_ndim == 4:
+        input_tensor_nhwc = input_tensor.transpose(-3, -2).transpose(-2, -1)
+    elif input_ndim == 2:
+        # 2D tensor: no batch or channel dimensions, use as-is
+        input_tensor_nhwc = input_tensor
+    else:
+        raise ValueError(
+            f"Pooling with {input_ndim}D tensor not supported. "
+            f"Expected 2D (HW) or 4D (NCHW) tensor."
+        )
 
     # Call the appropriate golden function based on pooling method
     if "Max" in pooling_method_str:
@@ -3396,10 +3446,13 @@ def ttir_pooling_golden(
     else:
         raise ValueError(f"Unknown pooling method: {pooling_method_str}")
 
-    # Convert result back from NHWC to NCHW
+    # Convert result back from NHWC to NCHW (only for 4D tensors)
     # NHWC [batch, height, width, channels] -> NCHW [batch, channels, height, width]
     # Transpose: (0, 1, 2, 3) -> (0, 3, 1, 2)
-    result = result.transpose(-2, -1).transpose(-3, -2)
+    if input_ndim == 4:
+        result = result.transpose(-2, -1).transpose(-3, -2)
+    # For 2D tensors, result is already in the correct format (HW)
+    
     return result.to(output_dtype)
 
 

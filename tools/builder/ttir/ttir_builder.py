@@ -9585,7 +9585,7 @@ class TTIRBuilder(Builder):
             if len(golden_inputs) == 0:
                 for ttype in fn_input_types:
                     shape = ttype.shape
-                    dtype = ttir_builder._get_datatype_from_torch_dtype(
+                    dtype = ttir_builder._get_torch_dtype_from_type(
                         ttype.element_type
                     )
                     # Handle scalar tensors (empty shape)

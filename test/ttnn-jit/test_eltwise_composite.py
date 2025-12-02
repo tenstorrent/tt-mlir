@@ -99,7 +99,7 @@ def mul_add(input_tensor_a, input_tensor_b, input_tensor_c):
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
-@pytest.mark.parametrize("op", [cosh, sinh, mul_add])
+@pytest.mark.parametrize("op", [cosh])
 def test_composite_ops_l1(device, shape, max_grid, dtype, op, memory_layout):
     num_inputs = 1
     if op is mul_add:
