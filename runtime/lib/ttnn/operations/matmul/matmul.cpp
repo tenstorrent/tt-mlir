@@ -38,15 +38,30 @@ void run(const ::tt::target::ttnn::MatmulOp *op, ProgramContext &context) {
                        : std::nullopt;
 
   auto config = ::ttnn::WormholeComputeKernelConfig();
-  config.fp32_dest_acc_en = true;
-  config.math_fidelity = MathFidelity::HiFi4;
+  bool any_compute_flag_set = false;
 
-  ::ttnn::Tensor output = ::ttnn::matmul(
-      lhs, rhs, op->transpose_a(), op->transpose_b(), outputMemoryConfig,
-      outputDataType, matmulProgramConfig,
-      /*activation=*/activation, /*compute_kernel_config=*/config,
-      /*core_grid=*/std::nullopt, /*output_tile=*/std::nullopt,
-      /* optional_output_tensor=*/std::nullopt);
+  if (const char *env = std::getenv("TT_FP32_DEST_ACC_EN"); env && *env) {
+    config.fp32_dest_acc_en = true;
+    any_compute_flag_set = true;
+    LOG_INFO("KCM Matmul Setting fp32_dest_acc_en=true");
+  }
+  if (const char *env = std::getenv("TT_MATH_FIDELITY_HIFI4"); env && *env) {
+    config.math_fidelity = MathFidelity::HiFi4;
+    any_compute_flag_set = true;
+    LOG_INFO("KCM Matmul Setting math_fidelity=Hifi4");
+  }
+
+  std::optional<::ttnn::WormholeComputeKernelConfig>
+      maybe_compute_kernel_config =
+          any_compute_flag_set ? std::make_optional(config) : std::nullopt;
+
+  ::ttnn::Tensor output =
+      ::ttnn::matmul(lhs, rhs, op->transpose_a(), op->transpose_b(),
+                     outputMemoryConfig, outputDataType, matmulProgramConfig,
+                     /*activation=*/activation,
+                     /*compute_kernel_config=*/maybe_compute_kernel_config,
+                     /*core_grid=*/std::nullopt, /*output_tile=*/std::nullopt,
+                     /* optional_output_tensor=*/std::nullopt);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
@@ -75,13 +90,28 @@ void run(const ::tt::target::ttnn::LinearOp *op, ProgramContext &context) {
                        : std::nullopt;
 
   auto config = ::ttnn::WormholeComputeKernelConfig();
-  config.fp32_dest_acc_en = true;
-  config.math_fidelity = MathFidelity::HiFi4;
+  bool any_compute_flag_set = false;
+
+  if (const char *env = std::getenv("TT_FP32_DEST_ACC_EN"); env && *env) {
+    config.fp32_dest_acc_en = true;
+    any_compute_flag_set = true;
+    LOG_INFO("KCM Linear Setting fp32_dest_acc_en=true");
+  }
+  if (const char *env = std::getenv("TT_MATH_FIDELITY_HIFI4"); env && *env) {
+    config.math_fidelity = MathFidelity::HiFi4;
+    any_compute_flag_set = true;
+    LOG_INFO("KCM LinearSetting math_fidelity=Hifi4");
+  }
+
+  std::optional<::ttnn::WormholeComputeKernelConfig>
+      maybe_compute_kernel_config =
+          any_compute_flag_set ? std::make_optional(config) : std::nullopt;
 
   ::ttnn::Tensor output = ::ttnn::linear(
       lhs, rhs, bias, op->transpose_a(), op->transpose_b(), outputMemoryConfig,
       outputDataType, /*program_config=*/std::nullopt,
-      /*activation=*/activation, /*compute_kernel_config=*/config,
+      /*activation=*/activation,
+      /*compute_kernel_config=*/maybe_compute_kernel_config,
       /*core_grid=*/std::nullopt, /*output_tile=*/std::nullopt,
       /* optional_output_tensor=*/std::nullopt);
 
