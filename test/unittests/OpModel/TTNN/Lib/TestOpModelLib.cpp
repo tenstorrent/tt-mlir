@@ -5155,7 +5155,7 @@ struct ScaledDotProductAttentionDecodeOpParam {
   detail::TestTensor query;
   detail::TestTensor key;
   detail::TestTensor value;
-  detail::TestTensor curPosTensor; // Int32
+  std::optional<detail::TestTensor> curPosTensor;
   std::optional<detail::TestTensor> attentionMask;
   std::optional<detail::TestTensor> attentionSink;
   bool isCausal;
@@ -5177,9 +5177,11 @@ protected:
         GetParam().key;
     const auto [valueShape, valueTensorLayout, valueBufferType,
                 valueVirtualGrid] = GetParam().value;
-    const auto [curPosTensorShape, curPosTensorTensorLayout,
-                curPosTensorBufferType, curPosTensorVirtualGrid] =
-        GetParam().curPosTensor;
+
+    std::optional<SmallVector<int64_t>> curPosTensorShape = std::nullopt;
+    std::optional<TensorMemoryLayout> curPosTensorTensorLayout = std::nullopt;
+    std::optional<BufferType> curPosTensorBufferType = std::nullopt;
+    std::optional<SmallVector<int64_t>> curPosTensorVirtualGrid = std::nullopt;
 
     std::optional<SmallVector<int64_t>> attentionMaskShape = std::nullopt;
     std::optional<TensorMemoryLayout> attentionMaskTensorLayout = std::nullopt;
@@ -5190,6 +5192,13 @@ protected:
     std::optional<TensorMemoryLayout> attentionSinkTensorLayout = std::nullopt;
     std::optional<BufferType> attentionSinkBufferType = std::nullopt;
     std::optional<SmallVector<int64_t>> attentionSinkVirtualGrid = std::nullopt;
+
+    if (auto curPosTensorDetail = GetParam().curPosTensor) {
+      curPosTensorShape = curPosTensorDetail->shape;
+      curPosTensorTensorLayout = curPosTensorDetail->layout;
+      curPosTensorBufferType = curPosTensorDetail->bufferType;
+      curPosTensorVirtualGrid = curPosTensorDetail->virtualGrid;
+    }
 
     if (auto attentionMaskDetail = GetParam().attentionMask) {
       attentionMaskShape = attentionMaskDetail->shape;
@@ -5218,13 +5227,16 @@ protected:
         keyShape, keyBufferType, keyTensorLayout, keyVirtualGrid);
     const TTNNLayoutAttr valueLayout = CreateTiledLayout(
         valueShape, valueBufferType, valueTensorLayout, valueVirtualGrid);
-    const TTNNLayoutAttr curPosTensorLayout =
-        CreateTiledLayout(curPosTensorShape, curPosTensorBufferType,
-                          curPosTensorTensorLayout, curPosTensorVirtualGrid);
 
+    std::optional<TTNNLayoutAttr> curPosTensorLayout = std::nullopt;
     std::optional<TTNNLayoutAttr> attentionMaskLayout = std::nullopt;
     std::optional<TTNNLayoutAttr> attentionSinkLayout = std::nullopt;
 
+    if (curPosTensorShape) {
+      curPosTensorLayout =
+          CreateTiledLayout(*curPosTensorShape, *curPosTensorBufferType,
+                            *curPosTensorTensorLayout, curPosTensorVirtualGrid);
+    }
     if (attentionMaskShape) {
       attentionMaskLayout = CreateTiledLayout(
           *attentionMaskShape, *attentionMaskBufferType,
@@ -5250,7 +5262,8 @@ protected:
             CreateWorkerGrid(), queryShape, queryLayout, keyShape, keyLayout,
             valueShape, valueLayout, isCausal, attentionMaskShape,
             attentionMaskLayout, curPosTensorShape, curPosTensorLayout,
-            attentionSinkShape, attentionSinkLayout, scale, outputLayout);
+            attentionSinkShape, attentionSinkLayout, scale,
+            /*programConfig=*/std::nullopt, outputLayout);
 
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {
@@ -5422,6 +5435,26 @@ const auto scaledDotProductAttentionDecodeOpTestValues = testing::Values(
         std::make_optional(detail::TestTensor{
             {12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM}),
         false, true,
+        detail::TestTensor{
+            {1, 1, 12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::ExpectedResult{true}},
+
+    ScaledDotProductAttentionDecodeOpParam{
+        detail::TestTensor{
+            {1, 1, 12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{{1, 12, 128, 32},
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::DRAM},
+        detail::TestTensor{{1, 12, 128, 32},
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::DRAM},
+        std::nullopt, // curPosTensor is null
+        std::make_optional(detail::TestTensor{{1, 1, 12, 128},
+                                              TensorMemoryLayout::Interleaved,
+                                              BufferType::DRAM}),
+        std::nullopt, // attentionSink
+        false,        // is_causal
+        false,        // withScale
         detail::TestTensor{
             {1, 1, 12, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
         detail::ExpectedResult{true}});

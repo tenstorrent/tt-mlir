@@ -2905,6 +2905,9 @@ def stablehlo_not_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTe
         return torch.bitwise_not(input_tensor)
 
 
+################ TTIR Op Golden Functions ###############
+
+
 def ttir_slice_golden(
     input_tensor: GoldenMapTensor,
     begins: ArrayAttr,
@@ -3816,6 +3819,26 @@ def ttir_exp_golden(
     return torch.exp(input_tensor).to(output_dtype)
 
 
+################ StableHLO Op Golden Functions ###############
+
+
+def stablehlo_add_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.add(input_tensor, other_tensor).to(output_dtype)
+
+
+################ TTNN Op Golden Functions ###############
+
+
+def ttnn_add_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.add(input_tensor, other_tensor).to(output_dtype)
+
+
 GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # ----- TTIR OPS -----
     # Elementwise unary operations
@@ -3959,7 +3982,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     d2m.ViewLayoutOp: (lambda x, **kwargs: x),
     # ----- STABLEHLO OPS -----
     # StableHLO elementwise operations
-    stablehlo.AddOp: torch.add,
+    stablehlo.AddOp: stablehlo_add_golden,
     stablehlo.AbsOp: torch.abs,
     stablehlo.CeilOp: torch.ceil,
     stablehlo.ClampOp: torch.clamp,
@@ -4017,7 +4040,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.MultiplyOp: torch.multiply,
     ttnn.MishOp: torch.nn.functional.mish,
     # Elementwise binary operations
-    ttnn.AddOp: torch.add,
+    ttnn.AddOp: ttnn_add_golden,
     ttnn.Atan2Op: torch.atan2,
     ttnn.MultiplyOp: torch.multiply,
     ttnn.SubtractOp: torch.subtract,

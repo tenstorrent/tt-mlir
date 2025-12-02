@@ -2,7 +2,8 @@ include(ExternalProject)
 
 set(TT_METAL_VERSION "934f879c0fd794272a2848b79768b15444fb0a62")
 
-set(CMAKE_INSTALL_MESSAGE LAZY)  # suppress "Up-to-date:..." messages in incremental builds
+# Suppress install logs to avoid cluttering the build output
+set(CMAKE_INSTALL_MESSAGE NEVER)
 
 
 if (DEFINED ENV{CPM_SOURCE_CACHE})
@@ -101,7 +102,7 @@ ExternalProject_Add(
   # This patch command creates the build dir that otherwise doesn't get created
   PATCH_COMMAND ${CMAKE_COMMAND} -E make_directory ${METAL_BUILD_DIR}
   CMAKE_ARGS
-    -DCMAKE_INSTALL_MESSAGE=LAZY
+    -DCMAKE_INSTALL_MESSAGE=NEVER
   CMAKE_GENERATOR Ninja
   CMAKE_ARGS
     -DCMAKE_BUILD_TYPE=${TTMETAL_BUILD_TYPE}
