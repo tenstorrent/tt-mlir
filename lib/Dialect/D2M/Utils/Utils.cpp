@@ -42,8 +42,6 @@ AffineMap deinterleaveMapDimsAndResults(AffineMap map) {
   // permute the dimension ordering to match the interleaved grid and shard dim
   // of the map
   auto dimPerm = createInterleavePermutationMask(map.getNumDims());
-  llvm::dbgs() << "[deinterleaveMapDimsAndResults] permutation: "
-               << ttmlir::utils::formatIterable(dimPerm, "x") << "\n";
   auto dimSwapMap =
       mlir::AffineMap::getPermutationMap(dimPerm, map.getContext());
   auto dimSwappedMap = map.compose(dimSwapMap);
