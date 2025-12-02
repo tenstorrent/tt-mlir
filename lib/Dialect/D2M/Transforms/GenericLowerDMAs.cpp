@@ -508,7 +508,8 @@ public:
           dma, dma.getResult().getType(), dma.getSrc(), srcIndices,
           dma.getDst(), dstIndices,
           rewriter.getI64IntegerAttr(dma.getNumElems()),
-          dma.getMcastStartIndex(), dma.getMcastShape());
+          dma.getMcastStartIndex(), dma.getMcastShape(),
+          dma.getIsLoopbackAttr());
     } else {
       // should never have multicast fields defined for reads
       assert(dma.getMcastStartIndex().empty() && dma.getMcastShape().empty());
