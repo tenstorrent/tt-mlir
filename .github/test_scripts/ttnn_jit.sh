@@ -11,7 +11,7 @@ export PYTHONPATH="$INSTALL_DIR/tt-metal/ttnn:$INSTALL_DIR/tt-metal"
 echo "Downloading ttnn-jit wheel..."
 cd $WORK_DIR
 
-# This script may be called multiple times in the same test job. 
+# This script may be called multiple times in the same test job.
 # Delete the downloaded wheel since gh run will not overwrite an existing file.
 if [ -f ttnn_jit*.whl ]; then
     rm -f ttnn_jit*.whl
