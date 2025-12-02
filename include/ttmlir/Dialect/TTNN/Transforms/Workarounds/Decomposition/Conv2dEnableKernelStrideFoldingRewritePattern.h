@@ -35,7 +35,7 @@ public:
 
     if (!conv2dConfig || !*conv2dConfig) {
       conv2dConfig =
-          mlir::tt::ttnn::Conv2dConfigAttr::getDefault(rewriter.getContext());
+          mlir::tt::ttnn::Conv2dConfigAttr::get(rewriter.getContext());
     }
 
     conv2dConfig = conv2dConfig->withEnableKernelStrideFolding(false);
