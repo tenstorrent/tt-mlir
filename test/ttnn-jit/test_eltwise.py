@@ -190,6 +190,10 @@ def sigmoid(input_tensor):
     return ttnn.sigmoid(input_tensor)
 
 
+def hardsigmoid(input_tensor):
+    return ttnn.hardsigmoid(input_tensor)
+
+
 @pytest.mark.parametrize(
     "dtype, ttnn_dtype",
     [
@@ -211,6 +215,7 @@ def sigmoid(input_tensor):
         logical_not,
         tanh,
         sigmoid,
+        hardsigmoid,
     ],
 )
 @pytest.mark.parametrize(
@@ -265,8 +270,12 @@ def test_unary_op_dram(device, shape, dtype, ttnn_dtype, op, graph_capture):
         ceil,
         floor,
         logical_not,
+<<<<<<< HEAD
         tanh,
         sigmoid,
+=======
+        hardsigmoid,
+>>>>>>> 1b2b740e2 (hardsigmoid d2m + jit + builder support)
         # Not supported in TTIRToD2M:
         # gelu, reciprocal cbrt, sign, erf, erfc
         # Always fails allclose

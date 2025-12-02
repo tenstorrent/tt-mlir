@@ -782,6 +782,22 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @hardsigmoid_tile_init
+    func.func @hardsigmoid_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "hardsigmoid_tile_init"()
+      "ttkernel.hardsigmoid_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @hardsigmoid_tile
+    func.func @hardsigmoid_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "hardsigmoid_tile"(%[[DST_INDEX]])
+      "ttkernel.hardsigmoid_tile"(%dst_index) : (i32) -> ()
+      return
+    }
+
     // CHECK-LABEL: func @gelu_tile_init
     func.func @gelu_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: emitc.call_opaque "gelu_tile_init"()

@@ -206,6 +206,9 @@ module {
     // CHECK: d2m.tile_sigmoid
     %36 = "ttir.sigmoid"(%35) : (!ttype) -> !ttype
     return %36: !ttype
+    // CHECK: d2m.tile_hardsigmoid
+    %37 = "ttir.hardsigmoid"(%36) : (!ttype) -> !ttype
+    return %37: !ttype
   }
 
   // CHECK-LABEL: func @named_reductions_R
