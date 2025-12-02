@@ -215,7 +215,7 @@ void createTTIRToTTMetalBackendPipeline(
   }
   pm.addPass(createConvertTTKernelToEmitC());
   pm.addPass(createCanonicalizerPassWithOptions(options));
-  pm.addPass(mlir::emitc::createFormExpressionsPass());
+  // pm.addPass(mlir::emitc::createFormExpressionsPass());
 }
 
 void createTTIRToTTMetalPipeline(OpPassManager &pm,
