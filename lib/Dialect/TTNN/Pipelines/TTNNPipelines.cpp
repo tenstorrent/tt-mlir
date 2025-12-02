@@ -94,20 +94,20 @@ void createTTNNPipelineAnalysisPasses(
     wrapperOptions.devicePtr = options.devicePtr;
     wrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
 
-    // ttnn::TTNNOperationValidationAndFallbackOptions validationOptions{
-    //     options.tensorL1UsageCap};
+    ttnn::TTNNOperationValidationAndFallbackOptions validationOptions{
+        options.tensorL1UsageCap};
 
     pm.addPass(createDevicePassesWrapper(
-        [optimizerOptions](OpPassManager &innerPm) {
+        [optimizerOptions, validationOptions](OpPassManager &innerPm) {
           // All Optimizer passes will be run inside the wrapper.
           innerPm.addPass(
               mlir::tt::ttnn::createTTNNRowMajorLayoutPropagation());
           innerPm.addPass(
               mlir::tt::ttnn::createTTNNOptimizer(optimizerOptions));
           innerPm.addPass(mlir::createCanonicalizerPass());
-          // innerPm.addPass(
-              // mlir::tt::ttnn::createTTNNOperationValidationAndFallback(
-                  // validationOptions));
+          innerPm.addPass(
+              mlir::tt::ttnn::createTTNNOperationValidationAndFallback(
+                  validationOptions));
           innerPm.addPass(
               mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());
         },
