@@ -2428,27 +2428,6 @@ def arange_golden(single_dim_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTens
     return GoldenMapTensor(output_shards, single_dim_tensor.mesh_shape)
 
 
-def cumsum_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
-    """
-    Golden function for cumsum operation with TTIR parameter names.
-
-    Parameters
-    ----------
-    input_tensor : GoldenMapTensor
-        Input tensor
-    **kwargs : dict
-        Keyword arguments containing:
-        - dim: int - Dimension along which to compute cumulative sum
-
-    Returns
-    -------
-    GoldenMapTensor
-        Cumulative sum of input tensor along specified dimension
-    """
-    dim = kwargs.get("dim", 0)  # Use the dim parameter from ttir_kwargs
-    return torch.cumsum(input_tensor, dim=dim)
-
-
 def repeat_interleave_golden(
     input_tensor: GoldenMapTensor, **kwargs
 ) -> GoldenMapTensor:
@@ -2906,6 +2885,27 @@ def stablehlo_not_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTe
 
 
 ################ TTIR Op Golden Functions ###############
+
+
+def ttir_cumsum_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
+    """
+    Golden function for cumsum operation with TTIR parameter names.
+
+    Parameters
+    ----------
+    input_tensor : GoldenMapTensor
+        Input tensor
+    **kwargs : dict
+        Keyword arguments containing:
+        - dim: int - Dimension along which to compute cumulative sum
+
+    Returns
+    -------
+    GoldenMapTensor
+        Cumulative sum of input tensor along specified dimension
+    """
+    dim = unpack_mlir_attr(kwargs.get("dim", 0))
+    return torch.cumsum(input_tensor, dim=dim)
 
 
 def ttir_slice_golden(
@@ -3921,7 +3921,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.PermuteOp: ttir_permute_golden,
     ttir.ClampScalarOp: clamp_scalar_golden,
     ttir.ClampTensorOp: ttir_clamp_tensor_golden,
-    ttir.CumSumOp: cumsum_golden,
+    ttir.CumSumOp: ttir_cumsum_golden,
     ttir.BroadcastOp: ttir_broadcast_golden,
     ttir.PadOp: ttir_pad_golden,
     ttir.IndexSelectOp: select_golden,

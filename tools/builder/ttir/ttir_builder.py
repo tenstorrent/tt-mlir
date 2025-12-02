@@ -152,6 +152,110 @@ class TTIRBuilder(Builder):
 
     # ----- Public Op Generators ----
 
+    ################ ttir.CumSumOp ###############
+
+    @tag(ttir.CumSumOp)
+    def cumsum(
+        self,
+        in0: Operand,
+        dim: int,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.cumsum)
+        input0 = self._get_golden_tensor(in0)
+        if output_type is None:
+            output_type = input0.dtype
+
+        result = self._create_ranked_tensor_type(golden_output.shape, output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(result, in0, loc=loc, dim=dim)
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(input0, dim=dim)
+            self._set_golden_tensor(op, golden_output)
+
+        return op
+
+    @parse(ttir.CumSumOp)
+    def cumsum_parser(
+        self,
+        old_op: ttir.CumSumOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Operation:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.cumsum_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+        dim_attr = old_op.dim
+
+        new_op = ttir_op(
+            result,
+            in0,
+            dim_attr,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(input0, dim=dim_attr)
+            self._set_golden_tensor(new_op, golden_output)
+
+        return new_op
+
+    @split(ttir.CumSumOp)
+    def cumsum_split(
+        self,
+        old_op: ttir.CumSumOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.cumsum_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            cumsum_module = Module.create()
+            cumsum_builder = TTIRBuilder(old_ctx, old_loc)
+            op_input_types = [old_op.input.type]
+
+            with InsertionPoint(cumsum_module.body):
+
+                @func.func(*op_input_types, name="cumsum_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttir.CumSumOp(result, in0, old_op.dim, loc=old_op.location)
+
+                    if not self._disable_golden_check:
+                        input_owner0 = old_op.input.owner
+                        if isinstance(input_owner0, Block):
+                            queried_input0 = old_op.input
+                        else:
+                            queried_input0 = input_owner0
+
+                        input0 = self._get_golden_tensor(queried_input0)
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_output = op_golden_function(input0, dim=old_op.dim)
+                        cumsum_builder._set_golden_tensor(new_op, golden_output)
+                        cumsum_builder._set_output_ordering([new_op])
+                        cumsum_builder._set_golden_tensor(in0, input0)
+                        cumsum_builder._set_input_ordering([in0])
+
+                    return new_op
+
+        return cumsum_module, cumsum_builder
+
     ################ ttir.ReverseOp ###############
 
     @tag(ttir.ReverseOp)
