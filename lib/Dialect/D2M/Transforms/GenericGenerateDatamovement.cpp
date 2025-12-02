@@ -124,7 +124,6 @@ public:
 
   struct McastArguments {
     SmallVector<Value> senderCoreIndex;
-    SmallVector<Value> mcastCoreIndex;
     SmallVector<Value> mcastShape;
     unsigned mcastVolume = 1;
     SmallVector<Value> conditions;
@@ -132,7 +131,7 @@ public:
 
   static McastArguments
   calculateGatherMcastArguments(PatternRewriter &rewriter, Location loc,
-                                ttcore::GridAttr grid,
+                                Value outputOperand, ttcore::GridAttr grid,
                                 ArrayRef<ttcore::IteratorType> mcastIterators) {
     Value zero = rewriter.create<arith::ConstantOp>(
         loc, rewriter.getIndexType(), rewriter.getIndexAttr(0));
@@ -141,30 +140,45 @@ public:
 
     McastArguments args;
     args.senderCoreIndex.reserve(grid.getShape().size());
-    args.mcastCoreIndex.reserve(grid.getShape().size());
     args.mcastShape.reserve(grid.getShape().size());
 
     for (auto [dim, iteratorType] : llvm::enumerate(mcastIterators)) {
       Value core = rewriter.create<CoreIndexOp>(
           loc, rewriter.getIndexType(), rewriter.getI64IntegerAttr(dim));
-      if (iteratorType == ttcore::IteratorType::Parallel) {
-        args.senderCoreIndex.push_back(Value(core));
-        args.mcastCoreIndex.push_back(Value(core));
-        args.mcastShape.push_back(Value(one));
-      } else {
-        int64_t numDests = grid.getShape()[dim] - 1;
-        Value gridDimMinusOne = rewriter.create<arith::ConstantOp>(
-            loc, rewriter.getIndexType(), rewriter.getIndexAttr(numDests));
-        assert(iteratorType == ttcore::IteratorType::Reduction);
-        args.senderCoreIndex.push_back(zero);
-        args.mcastCoreIndex.push_back(one);
-        args.mcastShape.push_back(gridDimMinusOne);
-        args.mcastVolume *= numDests;
+      auto outputShardLayout = mlir::cast<ttcore::ShardLayoutAttr>(
+          ttcore::getDeviceLayout(outputOperand));
+      if (outputShardLayout.getCoreVirtualizationMap().isIdentity()) {
+        if (iteratorType == ttcore::IteratorType::Parallel) {
+          args.senderCoreIndex.push_back(Value(core));
+          args.mcastShape.push_back(Value(one));
+        } else {
+          int64_t numDests = grid.getShape()[dim];
+          Value gridDim = rewriter.create<arith::ConstantOp>(
+              loc, rewriter.getIndexType(), rewriter.getIndexAttr(numDests));
+          assert(iteratorType == ttcore::IteratorType::Reduction);
+          args.senderCoreIndex.push_back(zero);
+          args.mcastShape.push_back(gridDim);
+          args.mcastVolume *= numDests;
 
-        Value condition = rewriter.create<arith::CmpIOp>(
+          Value condition = rewriter.create<arith::CmpIOp>(
+              loc, rewriter.getI1Type(), mlir::arith::CmpIPredicate::eq, core,
+              zero);
+          args.conditions.push_back(condition);
+        }
+      } else {
+        // TT_assert(outputOperand.getGridShape()[0] == 1 ||
+        // outputOperand.getGridShape()[1] == 1);
+        args.senderCoreIndex.push_back(Value(zero));
+        auto outputPhysicalGridShape = outputShardLayout.getPhysicalGridShape(
+            mlir::cast<ShapedType>(outputOperand.getType()));
+        args.mcastShape.push_back(rewriter.create<arith::ConstantOp>(
+            loc, rewriter.getIndexType(),
+            rewriter.getIndexAttr(outputPhysicalGridShape[dim])));
+        args.mcastVolume *= outputPhysicalGridShape[dim];
+
+        args.conditions.push_back(rewriter.create<arith::CmpIOp>(
             loc, rewriter.getI1Type(), mlir::arith::CmpIPredicate::eq, core,
-            zero);
-        args.conditions.push_back(condition);
+            zero));
       }
     }
 
@@ -176,40 +190,52 @@ public:
   // data to all other cores (the receivers) via mcast along the same dimension.
   static void
   createGatherMcastDMA(PatternRewriter &builder, Location loc, Value src,
-                       Value dst, AffineMap operandIndexingMap,
-                       ttcore::GridAttr grid,
+                       Value dst, Value outputOperand,
+                       AffineMap operandIndexingMap, ttcore::GridAttr grid,
                        ArrayRef<ttcore::IteratorType> mcastIterators,
                        MutableArrayRef<Region> regions) {
-    McastArguments mcastArgs =
-        calculateGatherMcastArguments(builder, loc, grid, mcastIterators);
+    McastArguments mcastArgs = calculateGatherMcastArguments(
+        builder, loc, outputOperand, grid, mcastIterators);
     Value zero = builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
                                                    builder.getIndexAttr(0));
     Value one = builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
                                                   builder.getIndexAttr(1));
     assert(mcastArgs.mcastVolume > 0);
-    Value mcastVolumeVal = builder.create<arith::ConstantOp>(
+    Value numReceivers = builder.create<arith::ConstantOp>(
         loc, builder.getIndexType(),
-        builder.getIndexAttr(mcastArgs.mcastVolume));
+        builder.getIndexAttr(
+            mcastArgs.mcastVolume -
+            1)); // -1 because we always include the sender in mcast volume, but
+                 // sender will not wait for itself
     Value receiversReadySemaphore = createSemaphore(builder, loc, regions);
     Value senderFinishedSemaphore = createSemaphore(builder, loc, regions);
-    assert(mcastArgs.mcastCoreIndex.size() == mcastArgs.mcastShape.size());
-    assert(mcastArgs.conditions.size() == 1 &&
-           "Exactly one condition supported");
+    assert(mcastArgs.senderCoreIndex.size() == mcastArgs.mcastShape.size());
+    assert(mcastArgs.conditions.size() == 1 ||
+           mcastArgs.conditions.size() == 2 &&
+               "Exactly one or two conditions supported");
+    // build compound condition using all conditions generically !!
+    Value compoundCondition;
+    if (mcastArgs.conditions.size() == 1) {
+      compoundCondition = mcastArgs.conditions[0];
+    } else {
+      compoundCondition = builder.create<arith::AndIOp>(
+          loc, mcastArgs.conditions[0], mcastArgs.conditions[1]);
+    }
     builder.create<scf::IfOp>(
-        loc, mcastArgs.conditions[0],
+        loc, compoundCondition,
         [&](OpBuilder &builder, Location loc) {
           bool isOutput = false;
           Value gatherMemTx =
               createDMA(builder, loc, src, dst, operandIndexingMap, isOutput);
           builder.create<d2m::DMAWaitOp>(loc, gatherMemTx);
           builder.create<d2m::SemaphoreWaitOp>(loc, receiversReadySemaphore,
-                                               mcastVolumeVal, zero);
+                                               numReceivers, zero);
           Value mcastMemTx =
               createDMA(builder, loc, dst, dst, std::nullopt, isOutput,
-                        mcastArgs.mcastCoreIndex, mcastArgs.mcastShape);
+                        mcastArgs.senderCoreIndex, mcastArgs.mcastShape);
           builder.create<d2m::DMAWaitOp>(loc, mcastMemTx);
           builder.create<d2m::SemaphoreSetOp>(loc, senderFinishedSemaphore, one,
-                                              mcastArgs.mcastCoreIndex,
+                                              mcastArgs.senderCoreIndex,
                                               mcastArgs.mcastShape);
           builder.create<scf::YieldOp>(loc);
         },
@@ -222,12 +248,11 @@ public:
         });
   }
 
-  static LogicalResult
-  buildDatamovementBlock(PatternRewriter &builder, Location loc,
-                         Value genericOperand, Value blockOperand,
-                         ttcore::GridAttr grid, ttcore::DeviceAttr device,
-                         AffineMap operandIndexingMap, ArrayAttr iteratorTypes,
-                         bool isOutput, MutableArrayRef<Region> regions) {
+  static LogicalResult buildDatamovementBlock(
+      PatternRewriter &builder, Location loc, Value genericOperand,
+      Value blockOperand, Value outputOperand, ttcore::GridAttr grid,
+      ttcore::DeviceAttr device, AffineMap operandIndexingMap,
+      ArrayAttr iteratorTypes, bool isOutput, MutableArrayRef<Region> regions) {
     Value cb =
         isOutput
             ? builder.create<d2m::WaitOp>(loc, blockOperand).getResult()
@@ -241,8 +266,8 @@ public:
                                   iteratorTypes);
       bool isMcast = !mcastIterators.empty();
       if (isMcast) {
-        createGatherMcastDMA(builder, loc, src, dst, operandIndexingMap, grid,
-                             mcastIterators, regions);
+        createGatherMcastDMA(builder, loc, src, dst, outputOperand,
+                             operandIndexingMap, grid, mcastIterators, regions);
       } else {
         Value memTx =
             createDMA(builder, loc, src, dst, operandIndexingMap, isOutput);
@@ -302,8 +327,9 @@ public:
           rewriter, generic->getLoc(),
           generic->getOperand(operand.getOperandNumber()),
           datamovementBlock->getArgument(operand.getOperandNumber()),
-          generic.getGrid(), device, operandIndexingMap,
-          generic.getIteratorTypes(), isOutput, newGeneric.getRegions());
+          generic->getOperand(outputOperandsIndex), generic.getGrid(), device,
+          operandIndexingMap, generic.getIteratorTypes(), isOutput,
+          newGeneric.getRegions());
       if (failed(result)) {
         return result;
       }
