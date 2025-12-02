@@ -74,6 +74,7 @@ set(ttmlir_export_targets
   EmitPyTargetPython
 
   # Utilities and support
+  TTMLIRSupport
   coverage_config
   TTNNOpModelLib
   MLIRScheduler
