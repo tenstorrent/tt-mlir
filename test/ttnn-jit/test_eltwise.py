@@ -4,6 +4,7 @@
 import ttnn_jit
 import ttnn
 import torch
+import itertools
 
 import pytest
 
@@ -659,31 +660,29 @@ def matmul_composite(input0, input1):
     return d
 
 
+# Generate matmul shapes and grids. All layouts are block sharded
+MATMUL_SHAPE_GRIDS = [((m * 32 * (grid_m + 1), k * 32 * (grid_k + 1), n * 32 * (grid_n + 1)), (grid_m, grid_k, grid_n)) for m, k, n, grid_m, grid_k, grid_n in itertools.product(range(4, 5), range(4, 5), range(4, 5), range(0, 8), range(0, 8), range(0, 8))]
+print("Armin: ", len(MATMUL_SHAPE_GRIDS))
 @pytest.mark.parametrize(
-    "shape_grid_layouts",
-    [
-        (
-            ((1024, 1024), (7, 7), ttnn.TensorMemoryLayout.BLOCK_SHARDED),
-            ((1024, 1024), (7, 7), ttnn.TensorMemoryLayout.BLOCK_SHARDED),
-        ),
-        (
-            ((512, 1024), (7, 3), ttnn.TensorMemoryLayout.BLOCK_SHARDED),
-            ((1024, 512), (3, 7), ttnn.TensorMemoryLayout.BLOCK_SHARDED),
-        ),
-        (
-            ((512, 1024), (3, 3), ttnn.TensorMemoryLayout.BLOCK_SHARDED),
-            ((1024, 512), (3, 3), ttnn.TensorMemoryLayout.BLOCK_SHARDED),
-        ),
-        # (
-        #     ((32, 2048), (7, 7), ttnn.TensorMemoryLayout.WIDTH_SHARDED),
-        #     ((2048, 32), (7, 7), ttnn.TensorMemoryLayout.HEIGHT_SHARDED),
-        # ),
-    ],
+    "shape_grids", MATMUL_SHAPE_GRIDS,
+    ids=[f"{shape}-{grid}" for shape, grid in MATMUL_SHAPE_GRIDS],
 )
-@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("dtype, ttnn_dtype",
+    [
+        (torch.float32, None),
+        (torch.bfloat16, None),
+        (torch.bfloat16, ttnn.DataType.BFLOAT8_B),
+    ],
+    ids=["f32", "bf16", "bfp8"])
 @pytest.mark.parametrize("graph_capture", [False])
-def test_matmul(device, shape_grid_layouts, dtype, graph_capture):
-    input0, input1 = shape_grid_layouts
+def test_matmul(device, shape_grids, dtype, ttnn_dtype, graph_capture):
+    shapes, grids = shape_grids
+    shape0 = [shapes[0], shapes[1]]
+    shape1 = [shapes[1], shapes[2]]
+    grid0 = [grids[1], grids[0]]
+    grid1 = [grids[2], grids[1]]
+    print("shape0: ", shape0, "grid0: ", grid0)
+    print("shape1: ", shape1, "grid1: ", grid1)
     # assert input1[1] == max_grid
     compiled_op = ttnn_jit.jit(
         debug=True,
@@ -691,10 +690,10 @@ def test_matmul(device, shape_grid_layouts, dtype, graph_capture):
         compile_only=False,
     )(matmul)
     input0_tensor = create_sharded_tile_tensor(
-        device, input0[0], input0[1], dtype, memory_layout=input0[2]
+        device, shape0, grid0, dtype, memory_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED, ttnn_dtype=ttnn_dtype
     )
     input1_tensor = create_sharded_tile_tensor(
-        device, input1[0], input1[1], dtype, memory_layout=input1[2]
+        device, shape1, grid1, dtype, memory_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED, ttnn_dtype=ttnn_dtype
     )
     output = compiled_op(input0_tensor, input1_tensor)
     # Send tensor to DRAM to avoid having to set the matmul program config in the golden path
