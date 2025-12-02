@@ -2873,7 +2873,10 @@ class TTNNBuilder(Builder):
 
     @staticmethod
     def from_module(
-        ctx: Context, mlir_text: str, golden_inputs: List[torch.tensor] = None
+        ctx: Context,
+        mlir_text: str,
+        golden_inputs: List[torch.tensor] = None,
+        positive_only: bool = False,
     ) -> Tuple(Module, TTNNBuilder):
         def _convert_to_mlir_value(obj):
             if hasattr(obj, "operation") and hasattr(obj.operation, "results"):
@@ -2923,6 +2926,9 @@ class TTNNBuilder(Builder):
                         golden_input = torch.randn(1, dtype=dtype).squeeze()
                     else:
                         golden_input = torch.randn(*shape, dtype=dtype)
+                    # Apply abs() if positive_only is requested
+                    if positive_only:
+                        golden_input = torch.abs(golden_input)
                     golden_inputs.append(golden_input)
 
             with InsertionPoint(new_module.body):

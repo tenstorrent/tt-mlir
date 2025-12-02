@@ -1680,15 +1680,22 @@ def load_mlir_file(
     mlir_text: str,
     golden_inputs: List[torch.tensor] = None,
     target: Literal["ttir", "ttnn", "d2m", "stablehlo"] = "ttir",
+    positive_only: bool = False,
 ) -> (Module, Builder):
     ctx = Context()
 
     if target == "ttir":
-        builder, module = TTIRBuilder.from_module(ctx, mlir_text, golden_inputs)
+        builder, module = TTIRBuilder.from_module(
+            ctx, mlir_text, golden_inputs, positive_only=positive_only
+        )
     elif target == "stablehlo":
-        builder, module = StableHLOBuilder.from_module(ctx, mlir_text, golden_inputs)
+        builder, module = StableHLOBuilder.from_module(
+            ctx, mlir_text, golden_inputs, positive_only=positive_only
+        )
     elif target == "ttnn":
-        builder, module = TTNNBuilder.from_module(ctx, mlir_text, golden_inputs)
+        builder, module = TTNNBuilder.from_module(
+            ctx, mlir_text, golden_inputs, positive_only=positive_only
+        )
     else:
         raise NotImplementedError(
             "Loading MLIR files is only supported for ttir, stablehlo and ttnn currently."
