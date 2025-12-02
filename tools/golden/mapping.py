@@ -2908,6 +2908,30 @@ def stablehlo_not_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTe
 ################ TTIR Op Golden Functions ###############
 
 
+def ttir_rand_golden(**kwargs) -> GoldenMapTensor:
+    """
+    Golden function for ttir.rand.
+
+    Expected kwargs:
+    - size: shape list/attr
+    - dtype: MLIR element Type (or TypeAttr)
+    - low: float or FloatAttr
+    - high: float or FloatAttr
+    - seed: int or IntegerAttr
+    """
+    size = kwargs.get("size", [1])
+    dtype = kwargs.get("dtype")
+    low = unpack_mlir_attr(kwargs.get("low", 0.0))
+    high = unpack_mlir_attr(kwargs.get("high", 1.0))
+    seed = unpack_mlir_attr(kwargs.get("seed", 0))
+
+    gen = torch.Generator()
+    gen.manual_seed(seed)
+    base = torch.rand(size, generator=gen, dtype=torch.bfloat16)
+    rand_tensor = (base * (high - low) + low).to(dtype)
+    return GoldenMapTensor({0: rand_tensor}, (1, 1))
+
+
 def ttir_slice_golden(
     input_tensor: GoldenMapTensor,
     begins: ArrayAttr,
@@ -3944,6 +3968,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.ConstantOp: ttir_constant_golden,
     ttir.FullOp: ttir_full_golden,
     ttir.ArangeOp: arange_golden,
+    ttir.RandOp: ttir_rand_golden,
     # Quantization operations
     ttir.QuantizeOp: quantize_golden,
     ttir.DequantizeOp: torch.dequantize,

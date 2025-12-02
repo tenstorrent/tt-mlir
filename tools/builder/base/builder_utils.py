@@ -190,6 +190,9 @@ def _compile_and_execute(
         **compile_kwargs,
     )
 
+    if builder._disable_golden_check:
+        disable_golden = True
+
     if skip_exec:
         raise TTBuilderRuntimeException("Manually skipped execution")
 
