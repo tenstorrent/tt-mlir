@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/D2M/Utils/AffineMapUtils.h"
@@ -306,8 +307,14 @@ public:
           grid =
               ttcore::GridAttr::get(rewriter.getContext(), gridShape, invMap);
         } else {
-          // Grid fits within physical bounds, no coordinate translation needed.
-          grid = ttcore::GridAttr::get(rewriter.getContext(), gridShape);
+          // If the operand has index_map but doesn't exceed physical grid
+          // (e.g., reblocking, transpose), derive the grid inverse map from
+          // the output's index_map to ensure roundtrip consistency.
+          auto indexMap = outputLayout.getIndexAffineMap();
+          auto invMap = ttmlir::utils::createGridInverseMapFromIndexMap(
+              indexMap, gridShape.size(), rewriter.getContext());
+          grid =
+              ttcore::GridAttr::get(rewriter.getContext(), gridShape, invMap);
         }
       } else {
         grid = ttcore::GridAttr::get(rewriter.getContext(), gridShape);

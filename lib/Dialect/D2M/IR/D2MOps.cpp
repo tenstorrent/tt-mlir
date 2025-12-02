@@ -871,17 +871,23 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
       auto shapedType = mlir::cast<ShapedType>(outputs[0].getType());
       auto physicalGridShape = metalLayout.getPhysicalGridShape(shapedType);
 
-      // Only create virtual grid mapping if the grid actually exceeds the
-      // physical grid (needs virtualization). Non-virtual index_maps (like
-      // reblocking) don't need a grid inverse mapping.
+      // Check if the grid actually exceeds the physical grid (needs
+      // virtualization)
       bool needsVirtualization = !llvm::equal(gridShape, physicalGridShape);
 
       if (needsVirtualization) {
+        // True virtualization: map virtual grid to physical hardware
         auto [_, invMap] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
             builder.getContext(), gridShape, physicalGridShape);
         grid = builder.getAttr<ttcore::GridAttr>(gridShape, invMap);
       } else {
-        grid = builder.getAttr<ttcore::GridAttr>(gridShape);
+        // If the operand has index_map but doesn't exceed physical grid (e.g.,
+        // reblocking, transpose), derive the grid inverse map from the
+        // output's index_map to ensure roundtrip consistency.
+        auto indexMap = metalLayout.getIndexAffineMap();
+        auto invMap = ttmlir::utils::createGridInverseMapFromIndexMap(
+            indexMap, gridShape.size(), builder.getContext());
+        grid = builder.getAttr<ttcore::GridAttr>(gridShape, invMap);
       }
     } else {
       grid = builder.getAttr<ttcore::GridAttr>(gridShape);

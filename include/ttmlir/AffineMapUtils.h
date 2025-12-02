@@ -133,6 +133,63 @@ applyMapToGrid(mlir::ArrayRef<int64_t> gridShape, mlir::AffineMap map) {
   return resultGridShape;
 }
 
+// Utility function to create an identity inverse map for grid virtualization
+// Returns a map: (d0, d1) -> (0, d0, d1) where the first result is deviceIndex
+inline mlir::AffineMap
+createIdentityGridInverseMap(mlir::MLIRContext *context) {
+  mlir::AffineExpr d0 = mlir::getAffineDimExpr(0, context);
+  mlir::AffineExpr d1 = mlir::getAffineDimExpr(1, context);
+  mlir::AffineExpr zero = mlir::getAffineConstantExpr(0, context);
+  return mlir::AffineMap::get(2, 0, {zero, d0, d1}, context);
+}
+
+// Utility function to derive grid inverse map from a layout's index_map.
+// Takes an index_map like (d0, d1, d2, d3) -> (d1, d0, d2, d3) and creates
+// the grid inverse map (d0, d1) -> (0, d1, d0) that properly composes with
+// the forward map for roundtrip consistency.
+//
+// The index_map encodes virtual-to-physical coordinate mapping. The grid
+// portion (first gridRank results) may permute the grid dimensions. This
+// function extracts that permutation and computes its inverse for use in
+// the grid attribute.
+inline mlir::AffineMap
+createGridInverseMapFromIndexMap(mlir::AffineMap indexMap, unsigned gridRank,
+                                 mlir::MLIRContext *context) {
+  // If no index_map or it's empty/identity, return identity grid inverse map
+  if (!indexMap || indexMap.isEmpty() || indexMap.isIdentity()) {
+    return createIdentityGridInverseMap(context);
+  }
+
+  // Extract grid portion of the index_map (first gridRank results).
+  // The index_map is (d0, d1, d2, d3) -> (results...) where the first
+  // gridRank results correspond to grid coordinates.
+  llvm::SmallVector<mlir::AffineExpr> gridResults;
+  for (unsigned i = 0; i < gridRank; ++i) {
+    gridResults.push_back(indexMap.getResult(i));
+  }
+
+  // Create a map with just the grid dimensions
+  auto gridMap = mlir::AffineMap::get(gridRank, 0, gridResults, context);
+
+  // Get the inverse permutation
+  auto invGridMap = mlir::inversePermutation(gridMap);
+
+  // If inverse is null (not a valid permutation), fall back to identity
+  if (!invGridMap) {
+    return createIdentityGridInverseMap(context);
+  }
+
+  // Build grid inverse map with device ID prefix: (d0, d1) -> (0, inv_y, inv_x)
+  mlir::AffineExpr zero = mlir::getAffineConstantExpr(0, context);
+  llvm::SmallVector<mlir::AffineExpr> invResults;
+  invResults.push_back(zero);
+  for (auto result : invGridMap.getResults()) {
+    invResults.push_back(result);
+  }
+
+  return mlir::AffineMap::get(gridRank, 0, invResults, context);
+}
+
 } // namespace ttmlir::utils
 
 #endif // TTMLIR_AFFINEMAPUTILS_H
