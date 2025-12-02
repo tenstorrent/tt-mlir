@@ -129,7 +129,7 @@ def _create_sharded_tensor_layout(ctx, tensor_arg):
     affine_map = _get_collapsed_linear_affine_map(ctx, tensor_arg.shape, grid_shape)
     buffer_type = ttnn.ir.BufferTypeAttr.get(ctx, ttnn.BufferType.L1)
     # TTNN writes grids as (width, height) but compiler expects (height, width).
-    grid = ttcore.ir.GridAttr.get(ctx, reversed(grid_shape))
+    grid = ttcore.ir.GridAttr.get(ctx, list(reversed(grid_shape)))
 
     shard_spec = tensor_arg.memory_config().shard_spec
     shard_shape = shard_spec.shape
