@@ -447,7 +447,7 @@ TTNNOperandsWorkaroundsFactory::createUpdateCacheOpOperandsWorkarounds(
 
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createPagedUpdateCacheOpOperandsWorkarounds(
-    MLIRContext *context) {
+    Operation *op) {
   TTNNOperandWorkarounds nullWorkarounds;
   TTNNOperandWorkarounds
       inputWorkarounds; // Input sharding requires specific virtual grid. This
@@ -459,11 +459,17 @@ TTNNOperandsWorkaroundsFactory::createPagedUpdateCacheOpOperandsWorkarounds(
 
   pageTableWorkarounds.tensorLayoutWorkaround = Layout::RowMajor;
 
+  if (cast<ttnn::PagedUpdateCacheOp>(op).getPageTable()) {
+    return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+        .addInputOperandWorkaround(nullWorkarounds)
+        .addInputOperandWorkaround(inputWorkarounds)
+        .addInputOperandWorkaround(updateIndexWorkarounds)
+        .addInputOperandWorkaround(pageTableWorkarounds);
+  }
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(nullWorkarounds)
       .addInputOperandWorkaround(inputWorkarounds)
-      .addInputOperandWorkaround(updateIndexWorkarounds)
-      .addInputOperandWorkaround(pageTableWorkarounds);
+      .addInputOperandWorkaround(updateIndexWorkarounds);
 }
 
 TTNNOperandsWorkarounds
