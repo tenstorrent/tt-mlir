@@ -210,6 +210,7 @@ def sigmoid(input_tensor):
         floor,
         logical_not,
         tanh,
+        sigmoid,
     ],
 )
 @pytest.mark.parametrize(
@@ -265,6 +266,7 @@ def test_unary_op_dram(device, shape, dtype, ttnn_dtype, op, graph_capture):
         floor,
         logical_not,
         tanh,
+        sigmoid,
         # Not supported in TTIRToD2M:
         # gelu, reciprocal cbrt, sign, erf, erfc
         # Always fails allclose
