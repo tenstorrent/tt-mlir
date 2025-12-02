@@ -12,10 +12,13 @@
 namespace mlir::tt::ttnn::op_model {
 
 SingletonDeviceContext::~SingletonDeviceContext() {
+  llvm::errs() << "[SingletonDeviceContext] Destructor called, m_device=" 
+               << (m_device == nullptr ? "nullptr" : "non-null") << "\n";
   assert(
       m_device == nullptr &&
       "Device should be null when SingletonDeviceContext is destructed. Call "
       "closeInstance() once you are done with the device.");
+  llvm::errs() << "[SingletonDeviceContext] Destructor completed\n";
 }
 
 SingletonDeviceContext &SingletonDeviceContext::getInstance() {
@@ -25,27 +28,36 @@ SingletonDeviceContext &SingletonDeviceContext::getInstance() {
 }
 
 void SingletonDeviceContext::resetInstance() {
+  llvm::errs() << "[SingletonDeviceContext] resetInstance() called\n";
   SingletonDeviceContext &instance = getInstance();
   assert(!instance.m_isExternalDevice &&
          "Cannot reset instance when using an external device.");
   instance.closeInstance();
   instance.openDevice(opModelDefaultTraceRegionSize);
+  llvm::errs() << "[SingletonDeviceContext] resetInstance() completed\n";
 }
 
 void SingletonDeviceContext::closeInstance() {
+  llvm::errs() << "[SingletonDeviceContext] closeInstance() called\n";
   SingletonDeviceContext &instance = getInstance();
+  llvm::errs() << "[SingletonDeviceContext] Device state before close: "
+               << (instance.m_device != nullptr ? "initialized" : "nullptr")
+               << ", isExternalDevice=" << (instance.m_isExternalDevice ? "true" : "false") << "\n";
   assert(instance.m_device != nullptr && "No device to close");
   instance.m_device.reset();
+  llvm::errs() << "[SingletonDeviceContext] Device reset, closeInstance() completed\n";
 }
 
 void SingletonDeviceContext::setExternalDevice(
     std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> device) {
+  llvm::errs() << "[SingletonDeviceContext] setExternalDevice() called\n";
   SingletonDeviceContext &instance = getInstance();
   assert(device != nullptr && "External device pointer cannot be null");
   assert(instance.m_device == nullptr &&
          "Device is already initialized. Cannot set external device.");
   instance.m_device = std::move(device);
   instance.m_isExternalDevice = true;
+  llvm::errs() << "[SingletonDeviceContext] External device set, setExternalDevice() completed\n";
 }
 
 void SingletonDeviceContext::openDevice(const size_t traceRegionSize) {
