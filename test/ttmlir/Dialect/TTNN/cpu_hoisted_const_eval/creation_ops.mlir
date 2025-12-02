@@ -12,7 +12,7 @@ module {
   // CHECK: ttcore.device_module {
   // CHECK: builtin.module
 
-  // Const-eval function with zeros
+  // Const-eval function with zeros op.
   // CHECK-LABEL: func.func private @forward_with_zeros_const_eval_0{{.*}} -> (tensor<32x32xbf16{{.*}}>, tensor<32x32xbf16{{.*}}>)
   // CHECK: call @hoisted_forward_with_zeros_const_eval_0_decl
 
@@ -33,7 +33,7 @@ module {
     return %3 : tensor<32x32xbf16>
   }
 
-  // Const-eval function with full
+  // Const-eval function with full op.
   // CHECK-LABEL: func.func private @forward_with_full_const_eval_0{{.*}} -> tensor<32x32xbf16
   // CHECK: call @hoisted_forward_with_full_const_eval_0_decl
 

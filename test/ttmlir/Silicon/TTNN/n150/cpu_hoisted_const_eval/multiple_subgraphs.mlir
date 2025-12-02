@@ -18,7 +18,7 @@ module {
                            %arg2: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>},
                            %arg3: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>},
                            %arg4: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> tensor<32x32xbf16> {
-    // Two independent const-eval subgraphs should be created
+    // Two independent const-eval subgraphs should be created.
     // CHECK: ttcore.load_cached
     // CHECK: ttcore.load_cached
 

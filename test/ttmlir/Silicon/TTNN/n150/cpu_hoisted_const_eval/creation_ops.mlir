@@ -37,7 +37,8 @@ module {
     // CHECK: ttcore.load_cached
 
     %0 = "ttir.full"() <{fill_value = 3.000000e+00 : f32, shape = array<i32: 32, 32>}> : () -> tensor<32x32xbf16>
-    // Parameter * full should be hoisted
+
+    // Parameter * full should be hoisted.
     %1 = "ttir.multiply"(%arg1, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
 
     // CHECK: "ttnn.add"

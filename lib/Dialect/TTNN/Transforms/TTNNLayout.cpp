@@ -330,7 +330,7 @@ public:
 };
 } // namespace
 
-// Rewrite LoadCachedOp result types to match the callee function signature
+// Rewrite LoadCachedOp result types to match the callee function signature.
 namespace {
 class TTNNLayoutLoadCachedOpTypeRewriter
     : public OpRewritePattern<ttcore::LoadCachedOp> {
@@ -340,7 +340,7 @@ public:
 
   LogicalResult matchAndRewrite(ttcore::LoadCachedOp loadCachedOp,
                                 PatternRewriter &rewriter) const override {
-    // Look up the callee function
+    // Look up the callee function.
     func::FuncOp funcOp =
         dyn_cast<func::FuncOp>(SymbolTable::lookupNearestSymbolFrom(
             loadCachedOp, loadCachedOp.getCalleeAttr()));
@@ -350,7 +350,7 @@ public:
 
     bool modified = false;
 
-    // Rewrite result types to match function signature
+    // Rewrite result types to match function signature.
     for (auto [idx, callResultType] :
          llvm::enumerate(loadCachedOp->getResultTypes())) {
       if (idx >= funcOp.getResultTypes().size()) {

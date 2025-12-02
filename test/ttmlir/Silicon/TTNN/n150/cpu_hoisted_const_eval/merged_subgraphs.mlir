@@ -17,7 +17,7 @@ module {
                            %arg1: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>},
                            %arg2: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>},
                            %arg3: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> tensor<32x32xbf16> {
-    // Only ONE load_cached since all const-eval ops are merged
+    // Only ONE load_cached since all const-eval ops are merged.
     // CHECK: ttcore.load_cached
     // CHECK-NOT: ttcore.load_cached
 

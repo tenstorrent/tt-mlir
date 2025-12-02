@@ -12,11 +12,11 @@ module {
   // CHECK: ttcore.device_module {
   // CHECK: builtin.module
 
-  // First const-eval function
+  // First const-eval function.
   // CHECK-LABEL: func.func private @forward_split_const_eval_0{{.*}} -> tensor<32x32xbf16
   // CHECK: call @hoisted_forward_split_const_eval_0_decl
 
-  // Second const-eval function
+  // Second const-eval function.
   // CHECK-LABEL: func.func private @forward_split_const_eval_1{{.*}} -> tensor<32x32xbf16
   // CHECK: call @hoisted_forward_split_const_eval_1_decl
 
@@ -47,7 +47,7 @@ module {
     return %4 : tensor<32x32xbf16>
   }
 
-  // Should have declarations for multiple hoisted functions
+  // Should have declarations for multiple hoisted functions.
   // CHECK-LABEL: func.func private @hoisted_forward_split_const_eval_0_decl{{.*}} -> tensor<32x32xf32
   // CHECK-LABEL: func.func private @hoisted_forward_split_const_eval_1_decl{{.*}} -> tensor<32x32xf32
 
