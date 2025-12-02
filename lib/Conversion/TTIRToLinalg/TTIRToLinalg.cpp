@@ -13,6 +13,7 @@
 #include "mlir/Dialect/Tosa/IR/TosaOps.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/DialectResourceBlobManager.h"
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
@@ -2013,8 +2014,26 @@ public:
         this->getTypeConverter()->convertType(op.getResult().getType()));
     assert(resultType && "Result type must be a ranked tensor type.");
 
+    // Convert the value attribute to match the converted result type.
+    // This handles signed/unsigned integer types (si32, ui32) being converted
+    // to signless integers (i32).
+    ElementsAttr convertedValue;
+    if (auto denseAttr = dyn_cast<DenseElementsAttr>(value)) {
+      // Use getFromRawBuffer to reinterpret the raw data with the new type.
+      // This works for si32/ui32 -> i32 conversion since they have the same
+      // bit width.
+      convertedValue = DenseElementsAttr::getFromRawBuffer(
+          resultType, denseAttr.getRawData());
+    } else if (auto resourceAttr = dyn_cast<DenseResourceElementsAttr>(value)) {
+      convertedValue = DenseResourceElementsAttr::get(
+          resultType, resourceAttr.getRawHandle());
+    } else {
+      return rewriter.notifyMatchFailure(
+          op, "Expected DenseElementsAttr or DenseResourceElementsAttr");
+    }
+
     auto newConstant =
-        rewriter.create<arith::ConstantOp>(op.getLoc(), resultType, value);
+        rewriter.create<arith::ConstantOp>(op.getLoc(), resultType, convertedValue);
 
     rewriter.replaceOp(op, newConstant.getResult());
     return success();
