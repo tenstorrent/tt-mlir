@@ -8,11 +8,6 @@
 
 #include <iostream>
 
-// Path set by CMake
-#ifndef TEST_DIR_PATH
-#define TEST_DIR_PATH "."
-#endif
-
 int main() {
   std::cout << "[C++] Starting simple PythonModelRunner test..." << std::endl;
 

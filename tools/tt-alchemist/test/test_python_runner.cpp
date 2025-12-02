@@ -14,20 +14,6 @@
 #include "ttnn/operations/creation.hpp"
 #pragma clang diagnostic pop
 
-// These paths are set by CMake
-#ifndef TT_METAL_HOME_PATH
-#define TT_METAL_HOME_PATH ""
-#endif
-#ifndef TTNN_PYTHON_PATH
-#define TTNN_PYTHON_PATH ""
-#endif
-#ifndef TTMETAL_BUILD_LIB_PATH
-#define TTMETAL_BUILD_LIB_PATH ""
-#endif
-#ifndef TEST_DIR_PATH
-#define TEST_DIR_PATH ""
-#endif
-
 int main() {
   std::cout << "[C++] Starting PythonModelRunner test..." << std::endl;
 

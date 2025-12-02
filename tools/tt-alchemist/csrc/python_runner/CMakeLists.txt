@@ -4,10 +4,12 @@
 
 ################################################################################
 # Python Model Runner Library
-# This is built separately with RTTI enabled (required by pybind11)
 ################################################################################
 
 set(PYTHON_RUNNER_LIBRARY_NAME tt-alchemist-python-runner)
+
+# Find pybind11 for Python embedding support (used by python runner)
+find_package(pybind11 CONFIG REQUIRED)
 
 add_library(${PYTHON_RUNNER_LIBRARY_NAME}
   SHARED
@@ -18,17 +20,12 @@ add_library(${PYTHON_RUNNER_LIBRARY_NAME}
 # Set C++20 standard (required by tt-metal headers)
 set_property(TARGET ${PYTHON_RUNNER_LIBRARY_NAME} PROPERTY CXX_STANDARD 20)
 
-# Python runner requires RTTI (for pybind11), so we don't use -fno-rtti here
-# Suppress warnings from tt-metal headers that would otherwise be errors
+# Suppress warnings from tt-metal headers that leak through macro expansion
+# and template instantiation (SYSTEM includes don't fully prevent these)
 target_compile_options(${PYTHON_RUNNER_LIBRARY_NAME}
   PRIVATE
     -Wno-deprecated-declarations
     -Wno-gnu-zero-variadic-macro-arguments
-)
-
-target_compile_definitions(${PYTHON_RUNNER_LIBRARY_NAME}
-  PRIVATE
-    TT_ALCHEMIST_EXPORT=__attribute__\(\(visibility\(\"default\"\)\)\)
 )
 
 target_include_directories(${PYTHON_RUNNER_LIBRARY_NAME}

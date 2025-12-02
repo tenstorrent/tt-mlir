@@ -39,9 +39,6 @@ target_include_directories(${TT_ALCHEMIST_LIBRARY_NAME}
     ${TT_MLIR_HOME}/include
 )
 
-# Find pybind11 for Python embedding support (used by python runner)
-find_package(pybind11 CONFIG REQUIRED)
-
 target_link_directories(${TT_ALCHEMIST_LIBRARY_NAME}
   PUBLIC
     ${PROJECT_BINARY_DIR}/lib
