@@ -124,9 +124,7 @@ def _get_grid(ctx, tensor_arg, memory_layout):
     ):
 
         grid_bb = tensor_arg.memory_config().shard_spec.grid.bounding_box()
-        print(f"[DEBUG] grid_bb: {grid_bb}")
         max_grid = (grid_bb.end.x, grid_bb.end.y)
-        print(f"[DEBUG] max_grid: {max_grid}")
 
         grid_size_x = max_grid[0] + 1
         grid_size_y = max_grid[1] + 1
@@ -228,8 +226,6 @@ def _check_layout_supported(tensor_arg):
 
 def create_tensor_layout(ctx, tensor_arg):
     """Create TTNN layout attribute from tensor."""
-    print(f"[create_tensor_layout] Received tensor_arg: {tensor_arg}")
-    print(f"[create_tensor_layout] Tensor memory config: {tensor_arg.memory_config()}")
 
     if (
         tensor_arg.memory_config() is not None
