@@ -1152,10 +1152,6 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_AllGatherOp()->out();
     break;
   }
-  case ::tt::target::ttnn::OpType::AllReduceOp: {
-    tensorRef = opContext.type_as_AllReduceOp()->out();
-    break;
-  }
   case ::tt::target::ttnn::OpType::ReduceScatterOp: {
     tensorRef = opContext.type_as_ReduceScatterOp()->out();
     break;
@@ -1509,10 +1505,6 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::AllGatherOp: {
     tensorRefs = {opContext.type_as_AllGatherOp()->in()};
-    break;
-  }
-  case ::tt::target::ttnn::OpType::AllReduceOp: {
-    tensorRefs = {opContext.type_as_AllReduceOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::ReduceScatterOp: {
