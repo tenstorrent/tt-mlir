@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
+#include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
@@ -81,7 +82,8 @@ mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
   auto stride = mlir::getAffineConstantExpr(1, ctx);
   for (int64_t i = outputRank - 1; i >= 0; --i) {
     auto dim = mlir::getAffineDimExpr(i, ctx);
-    expr = (dim * stride) + expr;
+    auto dimMod = dim % interleavedOutputShape[i];
+    expr = (dimMod * stride) + expr;
     stride = stride * interleavedOutputShape[i];
   }
   auto outputToLogical = mlir::AffineMap::get(outputRank, 0, {expr}, ctx);
@@ -99,6 +101,8 @@ mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
 
   auto composeMap = logicalToInput.compose(outputToLogical);
   auto finalMap = detail::deinterleaveMapDimsAndResults(composeMap);
+  finalMap = ttmlir::utils::simplifyZeroFloorDiv(finalMap);
+  finalMap = ttmlir::utils::simplifyRedundantMod(finalMap, outputShape);
   return finalMap;
 }
 
