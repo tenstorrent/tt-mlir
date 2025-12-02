@@ -686,6 +686,67 @@ def TTKernel_DivBinaryTilesOp : TTKernel_SFPUOp<"div_binary_tile", [TTKernel_Bin
     }];
 }
 
+def TTKernel_BinaryBitwiseTileInitOp : TTKernel_InitOp<"binary_bitwise_tile_init"> {
+    let summary = "Init function for binary bitwise operations (AND, OR, XOR). Refer to documentation for any init function.";
+    let description = [{
+      Must be run before bitwise_and_binary_tile, bitwise_or_binary_tile, or bitwise_xor_binary_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_BitwiseAndBinaryTilesOp : TTKernel_SFPUOp<"bitwise_and_binary_tile", [TTKernel_BinaryOpTrait]> {
+    let summary = "Bitwise AND operation between two tiles";
+    let description = [{
+      Performs element-wise computation of bitwise AND operation
+      DST[odst_index] <- DST[dst0_index] & DST[dst1_index]
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index, IndexLike:$odst_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $dst1_index `,` $odst_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_BitwiseOrBinaryTilesOp : TTKernel_SFPUOp<"bitwise_or_binary_tile", [TTKernel_BinaryOpTrait]> {
+    let summary = "Bitwise OR operation between two tiles";
+    let description = [{
+      Performs element-wise computation of bitwise OR operation
+      DST[odst_index] <- DST[dst0_index] | DST[dst1_index]
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index, IndexLike:$odst_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $dst1_index `,` $odst_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_BitwiseXorBinaryTilesOp : TTKernel_SFPUOp<"bitwise_xor_binary_tile", [TTKernel_BinaryOpTrait]> {
+    let summary = "Bitwise XOR operation between two tiles";
+    let description = [{
+      Performs element-wise computation of bitwise XOR operation
+      DST[odst_index] <- DST[dst0_index] ^ DST[dst1_index]
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index, IndexLike:$odst_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $dst1_index `,` $odst_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_BinopWithScalarTileInitOp : TTKernel_InitOp<"binop_with_scalar_tile_init"> {
     let summary = "Init function for binary operations with scalar tile operations.";
     let description = [{

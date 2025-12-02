@@ -444,17 +444,21 @@ def le(a, b):
         mul,
         div,
         pow,
-        # logical_and, logical_or, logical_xor,
-        # bitwise_or, bitwise_and, bitwise_xor, # not a supported FPU op
-        # Not supported in TTIRToD2M
-        # remainder, atan2, eq, ne, gt, ge, lt, le
+        eq,
+        ne,
+        gt,
+        ge,
+        lt,
+        le,
+        # logical_and, logical_or, logical_xor
+        # remainder, atan2,
     ],
 )
 @pytest.mark.parametrize("graph_capture", [True, False])
 def test_binary_ops(device, shape, max_grid, memory_layout, dtype, op, graph_capture):
     if op == div:
         pytest.xfail("failing allclose for some shapes")
-    if op == pow and dtype == torch.float32:
+    if op in [pow, eq, ne, gt, ge, lt, le] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes")
 
     run_op_test(
@@ -484,19 +488,84 @@ def test_binary_ops(device, shape, max_grid, memory_layout, dtype, op, graph_cap
         mul,
         div,
         pow,
+        eq,
+        ne,
+        gt,
+        ge,
+        lt,
+        le,
         # logical_and, logical_or, logical_xor,
-        # bitwise_or, bitwise_and, bitwise_xor, # not a supported FPU op
-        # Not supported in TTIRToD2M
-        # remainder, atan2, eq, ne, gt, ge, lt, le
+        # remainder, atan2,
     ],
 )
 def test_binary_ops_dram(device, shape, dtype, op):
     max_grid = (0, 0)
     if op == div:
         pytest.xfail("failing allclose for some shapes")
-    if op == pow and dtype == torch.float32:
+    if op in [pow, eq, ne, gt, ge, lt, le] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes")
 
+    run_op_test(
+        device,
+        shape,
+        max_grid,
+        dtype,
+        op,
+        num_inputs=2,
+        buffer_type=ttnn.BufferType.DRAM,
+    )
+
+
+@pytest.mark.parametrize(
+    "shape, max_grid, memory_layout",
+    SHARDED_SHAPE_GRID_LAYOUTS,
+    ids=[
+        f"shape_{shape}_grid_{grid}_{layout}"
+        for shape, grid, layout in SHARDED_SHAPE_GRID_LAYOUTS
+    ],
+)
+@pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
+@pytest.mark.parametrize(
+    "op",
+    [
+        bitwise_and,
+        bitwise_or,
+        bitwise_xor,
+    ],
+)
+@pytest.mark.parametrize("graph_capture", [True, False])
+def test_bitwise_binary_ops_l1(
+    device, shape, max_grid, memory_layout, dtype, op, graph_capture
+):
+    run_op_test(
+        device,
+        shape,
+        max_grid,
+        dtype,
+        op,
+        num_inputs=2,
+        buffer_type=ttnn.BufferType.L1,
+        graph_capture=graph_capture,
+        memory_layout=memory_layout,
+    )
+
+
+@pytest.mark.parametrize(
+    "shape",
+    DRAM_INTERLEAVED_SHAPES,
+    ids=[f"{shape}" for shape in DRAM_INTERLEAVED_SHAPES],
+)
+@pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
+@pytest.mark.parametrize(
+    "op",
+    [
+        bitwise_and,
+        bitwise_or,
+        bitwise_xor,
+    ],
+)
+def test_bitwise_binary_ops_dram(device, shape, dtype, op):
+    max_grid = (0, 0)
     run_op_test(
         device,
         shape,
