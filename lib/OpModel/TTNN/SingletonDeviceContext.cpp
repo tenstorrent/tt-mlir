@@ -7,6 +7,7 @@
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #include "Constants.h"
 #include "ttmlir/OpModel/TTNN/MetalHeaders.h"
+#include "llvm/Support/raw_ostream.h"
 
 namespace mlir::tt::ttnn::op_model {
 
@@ -48,6 +49,9 @@ void SingletonDeviceContext::setExternalDevice(
 }
 
 void SingletonDeviceContext::openDevice(const size_t traceRegionSize) {
+  llvm::errs() << "[SingletonDeviceContext] openDevice() called with traceRegionSize=" 
+               << traceRegionSize << "\n";
+  
   assert(m_device == nullptr &&
          "Device is already initialized. Cannot open device again.");
   // todo: this replicates logic in
@@ -58,14 +62,25 @@ void SingletonDeviceContext::openDevice(const size_t traceRegionSize) {
       numDevices == numPCIeDevices ? ::tt::tt_metal::DispatchCoreType::WORKER
                                    : ::tt::tt_metal::DispatchCoreType::ETH;
 
+  llvm::errs() << "[SingletonDeviceContext] Device config: numDevices=" << numDevices
+               << ", numPCIeDevices=" << numPCIeDevices
+               << ", dispatchCoreType=" << (dispatchCoreType == ::tt::tt_metal::DispatchCoreType::WORKER ? "WORKER" : "ETH")
+               << "\n";
+
   ::tt::tt_metal::distributed::MeshShape shape{1, 1};
+  llvm::errs() << "[SingletonDeviceContext] Creating MeshDevice with shape={1,1}, "
+               << "l1_small_size=" << ::tt::constants::L1_SMALL_SIZE
+               << ", trace_region_size=" << traceRegionSize << "\n";
+  
   m_device = ::tt::tt_metal::distributed::MeshDevice::create(
       ::tt::tt_metal::distributed::MeshDeviceConfig{shape},
       /* l1_small_size = */ ::tt::constants::L1_SMALL_SIZE,
       /* trace_region_size = */ traceRegionSize,
       /* num_hw_cqs = */ 1, dispatchCoreType);
 
+  llvm::errs() << "[SingletonDeviceContext] Device created successfully, disabling program cache\n";
   m_device->disable_and_clear_program_cache();
+  llvm::errs() << "[SingletonDeviceContext] openDevice() completed\n";
 }
 
 } // namespace mlir::tt::ttnn::op_model
