@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 
@@ -42,6 +43,20 @@ public:
     }
 
     Value operand = generic.getOperand(*index);
+
+    // If there's a type mismatch (e.g., L1 vs DRAM memory space),
+    // check if the operand is a ViewOp and use its input instead.
+    // This handles TTNN interop where stream_layout wraps a DRAM tensor
+    // with L1 storage, but the DMA needs the original DRAM source.
+    if (operand.getType() != op.getType()) {
+      if (auto viewOp = operand.getDefiningOp<ViewOpInterface>()) {
+        Value viewInput = viewOp.getInput();
+        if (viewInput.getType() == op.getType()) {
+          operand = viewInput;
+        }
+      }
+    }
+
     rewriter.replaceAllUsesWith(op, operand);
     return success();
   }
