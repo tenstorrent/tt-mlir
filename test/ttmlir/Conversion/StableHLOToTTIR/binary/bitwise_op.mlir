@@ -30,4 +30,16 @@ module @jit_eltwise_bitwise attributes {} {
     return %0 : tensor<32x32xi32>
     // CHECK: return %[[NOT]] : tensor<32x32xi32>
   }
+
+  func.func public @bitwise_or_boolean(%arg0: tensor<1x8xi1>, %arg1: tensor<1x8xi1>) -> tensor<1x8xi1> {
+    // CHECK-NOT: ttir.bitwise_or
+    %c = stablehlo.constant dense<0> : tensor<1x8xui8>
+    %0 = stablehlo.convert %arg0 : (tensor<1x8xi1>) -> tensor<1x8xui8>
+    %1 = stablehlo.convert %arg1 : (tensor<1x8xi1>) -> tensor<1x8xui8>
+    // CHECK: %[[OR:[0-9]+]] = "ttir.logical_or"(%arg0, %arg1){{.*}} -> tensor<1x8xi1>
+    %2 = stablehlo.or %0, %1 : tensor<1x8xui8>
+    %3 = stablehlo.compare  NE, %2, %c : (tensor<1x8xui8>, tensor<1x8xui8>) -> tensor<1x8xi1>
+    // CHECK: return %[[OR]] : tensor<1x8xi1>
+    return %3 : tensor<1x8xi1>
+  }
 }

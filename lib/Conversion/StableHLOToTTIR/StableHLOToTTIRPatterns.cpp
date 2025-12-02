@@ -2470,6 +2470,47 @@ public:
     auto outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
+    // Bitwise ops for boolean operands:
+    // XLA lowering converts boolean to int8 and then bitwise ops is applied.
+    // Here we detect such cases and convert them to logical ops.
+    // This solution is required as TTNN doesn't support boolean types natively
+    // and tt-mlir converts boolean to bfloat16 and then to uint8 generating
+    // incorrect results.
+    // XLA lowering adds a NotEqual comparison op following the bitwise op to
+    // restore the original boolean semantics; which is removed here after
+    // replacing the bitwise op.
+    if (areOperandsBoolean(srcOp)) {
+      auto logicalOpType =
+          RankedTensorType::get(outputType.getShape(), rewriter.getI1Type(),
+                                outputType.getEncoding());
+      auto logicalOp = rewriter.create<LogicalDestOp>(
+          srcOp.getLoc(), logicalOpType,
+          ValueRange{
+              adaptor.getOperands()[0].getDefiningOp()->getOperands()[0],
+              adaptor.getOperands()[1].getDefiningOp()->getOperands()[0]});
+
+      auto numUsers = llvm::range_size(srcOp.getResult().getUsers());
+      if (numUsers == 1) {
+        // Erase NotEqual comparison op following the bitwise op and update its
+        // uses to use the logical op result directly.
+        auto userOp = mlir::dyn_cast<mlir::stablehlo::CompareOp>(
+            *srcOp.getResult().getUsers().begin());
+
+        if (userOp && userOp.getComparisonDirection() ==
+                          mlir::stablehlo::ComparisonDirection::NE) {
+          userOp.getResult().replaceAllUsesWith(logicalOp.getResult());
+          rewriter.eraseOp(userOp);
+          return success();
+        }
+      }
+
+      // Add a typecast to convert i1 result to original output type (if
+      // required).
+      rewriter.replaceOpWithNewOp<mlir::tt::ttir::TypecastOp>(
+          srcOp, outputType, logicalOp.getResult());
+      return success();
+    }
+
     if (getStableHLOOpType(srcOp) == StableHLOOpType::kLogical) {
       rewriter.replaceOpWithNewOp<LogicalDestOp>(srcOp, outputType,
                                                  adaptor.getOperands());
@@ -2488,14 +2529,43 @@ private:
   // bit width). This assumes boolean operands are modeled as 1bit wide ints.
   static StableHLOOpType getStableHLOOpType(const SrcOp &srcOp) {
     // Checks if all operands are boolean (have bit width equal to 1).
-    bool allOperandsAreBoolean = std::all_of(
-        srcOp->operand_begin(), srcOp->operand_end(), [](auto operand) {
+    bool allOperandsAreBoolean =
+        llvm::all_of(srcOp->getOperands(), [](auto operand) {
           return mlir::cast<RankedTensorType>(operand.getType())
                      .getElementTypeBitWidth() == 1;
         });
 
     return allOperandsAreBoolean ? StableHLOOpType::kLogical
                                  : StableHLOOpType::kBitwise;
+  }
+
+  // This function iterates over each operand of the provided source operation
+  // and determines if each operand represents a boolean value through a
+  // stablehlo::ConvertOp from a boolean tensor.
+  // return true if all operands of a given StableHLO operation are effectively
+  // boolean.
+  bool areOperandsBoolean(const SrcOp &srcOp) const {
+    bool allOperandsBoolean =
+        llvm::all_of(srcOp->getOperands(), [](auto operand) {
+          // Check if operand is a ranked tensor of bit width 1.
+          if (mlir::cast<RankedTensorType>(operand.getType())
+                  .getElementTypeBitWidth() == 1) {
+            return false; // Already boolean, so not counted as converted.
+          }
+
+          // Check if the defining op is a stablehlo::ConvertOp.
+          auto definingOp = operand.getDefiningOp();
+          if (!isa_and_nonnull<mlir::stablehlo::ConvertOp>(definingOp)) {
+            return false; // Not a conversion from boolean
+          }
+
+          // Check if the input to the conversion is boolean.
+          return mlir::cast<RankedTensorType>(
+                     definingOp->getOperand(0).getType())
+                     .getElementTypeBitWidth() == 1;
+        });
+
+    return allOperandsBoolean;
   }
 };
 } // namespace
