@@ -650,7 +650,7 @@ private:
     builder.setInsertionPoint(originalFunc);
     auto newFuncOp = builder.create<func::FuncOp>(originalFunc.getLoc(),
                                                   newFuncName, funcType);
-    // Mark the new function as const-eval and private
+    // Mark the new function as const-eval and private.
     newFuncOp->setAttr(ttmlir::utils::g_constEvalAttrName,
                        builder.getUnitAttr());
     newFuncOp.setPrivate();
@@ -670,7 +670,7 @@ private:
 
       auto originalArgIdx = maybeFunctionArgument->getArgNumber();
 
-      // Check for existence of ttmlir::utils::g_conv2dWeightAttrName
+      // Check for existence of ttmlir::utils::g_conv2dWeightAttrName.
       if (auto attr = originalFunc.getArgAttrOfType<mlir::Attribute>(
               originalArgIdx, ttmlir::utils::g_conv2dWeightAttrName)) {
         newFuncOp.setArgAttr(newArgIdx, ttmlir::utils::g_conv2dWeightAttrName,

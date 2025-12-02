@@ -100,7 +100,7 @@ collectInputArguments(const OpsVectorType &operations,
       }
 
       // Insert the argument if not already present.
-      if (llvm::is_contained(inputArguments, operand) == false) {
+      if (!llvm::is_contained(inputArguments, operand)) {
         inputArguments.push_back(operand);
       }
     }
@@ -264,12 +264,13 @@ static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
                                       mlir::ModuleOp targetModule) {
   mlir::MLIRContext *context = sourceModule.getContext();
 
-  const auto outputProducers =
+  const OpsVectorType outputProducers =
       collectOutputProducers(descriptor.operations, descriptor.outputValues);
 
-  const auto resultTypes = performResultConversions(descriptor.outputValues);
+  const TypesVectorType resultTypes =
+      performResultConversions(descriptor.outputValues);
 
-  const auto inputArguments =
+  const ValuesVectorType inputArguments =
       collectInputArguments(descriptor.operations, outputProducers);
 
   // Convert argument and gather types for function signature.

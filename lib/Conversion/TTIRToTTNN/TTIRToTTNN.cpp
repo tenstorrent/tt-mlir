@@ -546,10 +546,11 @@ private:
 
   // Helper function to skip TTNN and TTIR reshape and typecast ops.
   static std::pair<mlir::Operation *, mlir::Value>
-  skipReshapeTypecastOps(mlir::Operation *op, mlir::Value value) {
+  skipReshapeTypecastLayoutOps(mlir::Operation *op, mlir::Value value) {
     while (mlir::isa_and_present<
            mlir::tt::ttnn::ReshapeOp, mlir::tt::ttnn::TypecastOp,
-           mlir::tt::ttnn::ToLayoutOp, mlir::tt::ttnn::TypecastOp>(op)) {
+           mlir::tt::ttnn::ToLayoutOp, mlir::tt::ttir::TypecastOp,
+           mlir::tt::ttir::ReshapeOp, mlir::tt::ttir::ToLayoutOp>(op)) {
       value = op->getOperand(0);
       op = value.getDefiningOp();
     }
@@ -590,7 +591,7 @@ private:
 
     // Skip layout ops that may be present between the ReturnOp and the FullOp.
     std::tie(definingOp, returnValue) =
-        skipReshapeTypecastOps(definingOp, returnValue);
+        skipReshapeTypecastLayoutOps(definingOp, returnValue);
 
     return {definingOp, returnValue};
   }
@@ -599,7 +600,7 @@ private:
   static mlir::Attribute getConstantAttr(mlir::Value value) {
     mlir::Operation *op = value.getDefiningOp();
     // Skip layout ops that may be present between the PowOp and the FullOp.
-    std::tie(op, value) = skipReshapeTypecastOps(op, value);
+    std::tie(op, value) = skipReshapeTypecastLayoutOps(op, value);
 
     // If the value is received through const-eval, we need to trace it back.
     std::tie(op, value) = getDefiningOpThroughConstEval(op, value);

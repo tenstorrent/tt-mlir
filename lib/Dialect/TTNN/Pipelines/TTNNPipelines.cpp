@@ -227,7 +227,7 @@ void createTTIRToTTNNBackendPipeline(
     quantOptions.targetBitWidth = options.quantBitWidth;
     devicePm.addPass(ttir::createTTIRQuantDataTypeConversionPass(quantOptions));
 
-    // Const-eval hoisting passes
+    // Const-eval hoisting pass.
     if (options.enableConstEval) {
       // Hoist const-eval subgraphs into separate functions in Device module.
       devicePm.addPass(transforms::createConstEvalHoistTransform());
@@ -266,7 +266,7 @@ void createTTIRToTTNNBackendPipeline(
     if (options.enableTrace) {
       devicePm.addPass(tt::ttnn::createTTNNTraceHoistTransform());
     }
-    // Fold ttcore.optimization_barrier ops before deallocation
+    // Fold ttcore.optimization_barrier ops before deallocation.
     devicePm.addPass(ttcore::createTTCoreOptimizationBarrierFold());
 
     createTTNNPipelineDeallocPass(devicePm, options);
