@@ -28,9 +28,12 @@ getScatterShardingRule(mlir::stablehlo::ScatterOp scatterOp) {
     return mlir::sdy::OpShardingRuleAttr();
   }
 
-  auto inputType = llvm::dyn_cast<RankedTensorType>(inputs.front().getType());
-  auto updateType = llvm::dyn_cast<RankedTensorType>(updates.front().getType());
-  auto indicesType = llvm::dyn_cast<RankedTensorType>(indices.getType());
+  RankedTensorType inputType =
+      llvm::dyn_cast<RankedTensorType>(inputs.front().getType());
+  RankedTensorType updateType =
+      llvm::dyn_cast<RankedTensorType>(updates.front().getType());
+  RankedTensorType indicesType =
+      llvm::dyn_cast<RankedTensorType>(indices.getType());
 
   if (!inputType || !updateType || !indicesType) {
     scatterOp->emitError(
@@ -38,41 +41,60 @@ getScatterShardingRule(mlir::stablehlo::ScatterOp scatterOp) {
     return mlir::sdy::OpShardingRuleAttr();
   }
 
-  auto builder = mlir::sdy::OpShardingRuleBuilder(scatterOp);
+  const int64_t inputRank = inputType.getRank();
+  const int64_t indicesRank = indicesType.getRank();
+  const int64_t updateRank = updateType.getRank();
 
-  // Operand order: [input, indices, updates]
-  // Result: same shape as input
+  // Get scatter dimension attributes
+  auto dimNums = scatterOp.getScatterDimensionNumbers();
+  ArrayRef<int64_t> scatterDimsToOperandDims =
+      dimNums.getScatterDimsToOperandDims();
 
-  // For each dimension of input, add a replication factor
-  // operandDims format: [inputDim, indicesDim, updateDim]
-  // resultDims format: [resultDim]
-  for (auto [dim, dimSize] : llvm::enumerate(inputType.getShape())) {
-    builder.addFactor(
-        /*operandDims=*/{static_cast<int64_t>(dim), mlir::sdy::kNullDim,
-                         mlir::sdy::kNullDim},
-        /*resultDims=*/{static_cast<int64_t>(dim)},
-        /*factorSize=*/dimSize,
-        /*factorType=*/mlir::sdy::FactorType::kNeedReplication);
+  sdy::OpShardingRuleBuilder builder(scatterOp);
+
+  // Process each input dimension
+  for (int64_t inputDim = 0; inputDim < inputRank; inputDim++) {
+    bool isScatterTargetDim =
+        llvm::is_contained(scatterDimsToOperandDims, inputDim);
+
+    if (isScatterTargetDim) {
+      // Dimension is a scatter target - MUST REPLICATE.
+      // Only exists in input and result, not in indices or updates.
+      builder.addFactor(
+          {inputDim, sdy::kNullDim,
+           sdy::kNullDim}, // [input_dim, indices_dim, updates_dim]
+          {inputDim},      // result_dim
+          inputType.getDimSize(inputDim),
+          mlir::sdy::FactorType::kNeedReplication);
+    } else {
+      // Dimension is NOT a scatter target - CAN SHARD.
+      // Only exists in input and result, not in indices or updates.
+      builder.addFactor(
+          {inputDim, sdy::kNullDim,
+           sdy::kNullDim}, // [input_dim, indices_dim, updates_dim]
+          {inputDim},      // result_dim
+          inputType.getDimSize(inputDim),
+          sdy::FactorType::kPassThrough // Can be sharded
+      );
+    }
   }
 
-  // For each dimension of indices, add a replication factor
-  for (auto [dim, dimSize] : llvm::enumerate(indicesType.getShape())) {
-    builder.addFactor(
-        /*operandDims=*/{mlir::sdy::kNullDim, static_cast<int64_t>(dim),
-                         mlir::sdy::kNullDim},
-        /*resultDims=*/{mlir::sdy::kNullDim},
-        /*factorSize=*/dimSize,
-        /*factorType=*/mlir::sdy::FactorType::kNeedReplication);
+  // Replicate all scatter_indices dimensions
+  for (int64_t indicesDim = 0; indicesDim < indicesRank; indicesDim++) {
+    builder.addFactor({sdy::kNullDim, indicesDim,
+                       sdy::kNullDim}, // [input_dim, indices_dim, updates_dim]
+                      {sdy::kNullDim}, // doesn't appear in result
+                      indicesType.getDimSize(indicesDim),
+                      sdy::FactorType::kNeedReplication);
   }
 
-  // For each dimension of updates, add a replication factor
-  for (auto [dim, dimSize] : llvm::enumerate(updateType.getShape())) {
-    builder.addFactor(
-        /*operandDims=*/{mlir::sdy::kNullDim, mlir::sdy::kNullDim,
-                         static_cast<int64_t>(dim)},
-        /*resultDims=*/{mlir::sdy::kNullDim},
-        /*factorSize=*/dimSize,
-        /*factorType=*/mlir::sdy::FactorType::kNeedReplication);
+  // Replicate all updates dimensions
+  for (int64_t updateDim = 0; updateDim < updateRank; updateDim++) {
+    builder.addFactor({sdy::kNullDim, sdy::kNullDim,
+                       updateDim},     // [input_dim, indices_dim, updates_dim]
+                      {sdy::kNullDim}, // doesn't appear in result
+                      updateType.getDimSize(updateDim),
+                      sdy::FactorType::kNeedReplication);
   }
 
   return builder.build();
