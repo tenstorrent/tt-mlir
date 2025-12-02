@@ -4773,10 +4773,6 @@ mlir::tt::ttir::ScaledDotProductAttentionDecodeOp::verify() {
       return emitOpError("Attention mask sequence length must match key/value "
                          "sequence length");
     }
-  } else {
-    if (!getIsCausal()) {
-      return emitOpError("Attention mask is required when is_causal is false");
-    }
   }
 
   return success();
@@ -4915,13 +4911,6 @@ mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp::verify() {
   int64_t seqLen = queryType.getShape()[2];
   int64_t maxSeqLen = keyType.getShape()[2];
 
-  // NOTE: The q_chunk_size is 32 by default in ttnn. This is configurable via
-  // the program config. However, this is not modeled in the ttnn dialect.
-  if (seqLen % 32 != 0) {
-    return emitOpError(
-        "Sequence length must be divisible by q_chunk_size (32)");
-  }
-
   if (keyType.getShape()[0] != batchSize) {
     return emitOpError("Key/Value batch size must match query batch size");
   }
@@ -4958,10 +4947,6 @@ mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp::verify() {
     if (attentionMaskType.getShape()[3] != maxSeqLen) {
       return emitOpError("Attention mask at dim 3 must match key/value "
                          "sequence length (max sequence length)");
-    }
-  } else {
-    if (!getIsCausal()) {
-      return emitOpError("Attention mask is required when is_causal is false");
     }
   }
 

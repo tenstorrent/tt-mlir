@@ -159,11 +159,7 @@ def test_permute(
 # RepeatInterleave tests
 @pytest.mark.parametrize(
     "shapes",
-    [
-        [
-            (1, 8, 1, 12, 64),
-        ]
-    ],
+    [[(1, 8, 1, 12, 64)]],
     ids=shapes_list_str,
 )
 @pytest.mark.parametrize("dim", [0])
