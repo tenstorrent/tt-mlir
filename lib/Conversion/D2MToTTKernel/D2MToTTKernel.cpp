@@ -1012,7 +1012,8 @@ static Value buildNocAddress(OpBuilder &rewriter, Location loc, Value cb,
     if (ttnnMode) {
       // For TTNN mode, the runtime pushes NOC coordinates after the buffer address
       // Extract the arg index from the defining GetCommonArgValOp
-      auto definingOp = cb.getDefiningOp<ttkernel::GetCommonArgValOp>();
+      // Note: baseAddr (not cb) holds the buffer address from GetCommonArgValOp
+      auto definingOp = baseAddr.getDefiningOp<ttkernel::GetCommonArgValOp>();
       if (definingOp) {
         // Get the arg index and compute noc_x, noc_y indices
         auto argIndexOp = definingOp.getArgIndex().getDefiningOp<arith::ConstantOp>();
