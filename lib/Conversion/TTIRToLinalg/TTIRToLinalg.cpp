@@ -2099,6 +2099,87 @@ public:
 } // namespace
 
 namespace {
+// Conversion pattern for ttir.arange operation.
+// Generates a tensor with evenly spaced values within a given interval.
+class ArangeOpConversionPattern : public OpConversionPattern<ttir::ArangeOp> {
+public:
+  using OpConversionPattern<ttir::ArangeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ArangeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto loc = op.getLoc();
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    int64_t start = adaptor.getStart();
+    int64_t step = adaptor.getStep();
+    int64_t arangeDim = adaptor.getArangeDimension();
+    int64_t rank = resultType.getRank();
+
+    // Create initial tensor for result
+    Value initTensor = rewriter.create<tensor::EmptyOp>(
+        loc, resultType.getShape(), resultType.getElementType());
+
+    // Create identity map for output
+    SmallVector<AffineExpr> outputExprs;
+    for (int64_t i = 0; i < rank; ++i) {
+      outputExprs.push_back(rewriter.getAffineDimExpr(i));
+    }
+    AffineMap outputMap =
+        AffineMap::get(rank, 0, outputExprs, rewriter.getContext());
+    SmallVector<AffineMap> indexingMaps = {outputMap};
+
+    // All dimensions are parallel
+    SmallVector<utils::IteratorType> iteratorTypes(
+        rank, utils::IteratorType::parallel);
+
+    Type elementType = resultType.getElementType();
+
+    // Create the linalg.generic operation
+    auto genericOp = rewriter.create<linalg::GenericOp>(
+        loc, resultType, ValueRange{}, ValueRange{initTensor}, indexingMaps,
+        iteratorTypes, [&](OpBuilder &b, Location loc, ValueRange args) {
+          // Get the index along the arange dimension
+          Value idx = b.create<linalg::IndexOp>(loc, arangeDim);
+
+          // Convert index to the element type
+          // Compute: start + idx * step
+          Value result;
+          if (isa<FloatType>(elementType)) {
+            // For float types: cast index to float, then compute
+            Value idxFloat =
+                b.create<arith::IndexCastOp>(loc, b.getI64Type(), idx);
+            Value idxFP = b.create<arith::SIToFPOp>(loc, elementType, idxFloat);
+            Value startVal = b.create<arith::ConstantOp>(
+                loc, b.getFloatAttr(elementType, static_cast<double>(start)));
+            Value stepVal = b.create<arith::ConstantOp>(
+                loc, b.getFloatAttr(elementType, static_cast<double>(step)));
+            Value scaled = b.create<arith::MulFOp>(loc, idxFP, stepVal);
+            result = b.create<arith::AddFOp>(loc, startVal, scaled);
+          } else {
+            // For integer types
+            Value idxInt =
+                b.create<arith::IndexCastOp>(loc, elementType, idx);
+            Value startVal = b.create<arith::ConstantOp>(
+                loc, b.getIntegerAttr(elementType, start));
+            Value stepVal = b.create<arith::ConstantOp>(
+                loc, b.getIntegerAttr(elementType, step));
+            Value scaled = b.create<arith::MulIOp>(loc, idxInt, stepVal);
+            result = b.create<arith::AddIOp>(loc, startVal, scaled);
+          }
+
+          b.create<linalg::YieldOp>(loc, result);
+        });
+
+    rewriter.replaceOp(op, genericOp.getResult(0));
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class MeanOpConversionPattern : public OpConversionPattern<ttir::MeanOp> {
 public:
   using OpConversionPattern<ttir::MeanOp>::OpConversionPattern;
@@ -2221,8 +2302,8 @@ void populateTTIRToLinalgPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
       PermuteOpConversionPattern, SliceStaticOpConversionPattern,
       ConstantOpConversionPattern, EmbeddingOpConversionPattern,
       ReluOpConversionPattern, NamedFillOpConversionPattern<ttir::ZerosOp, 0>,
-      NamedFillOpConversionPattern<ttir::OnesOp, 1>, FullOpConversionPattern>(
-      typeConverter, ctx);
+      NamedFillOpConversionPattern<ttir::OnesOp, 1>, FullOpConversionPattern,
+      ArangeOpConversionPattern>(typeConverter, ctx);
 }
 
 void populateTTIRToTosaPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
