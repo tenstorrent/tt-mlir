@@ -355,8 +355,8 @@ def D2M_TileBitwiseAndOp : D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<"
         The `tile_bitwise_and` operation computes bitwise AND between two tiles.
     }];
 
-    let arguments = (ins TTCore_Tile:$lhs,
-                         TTCore_Tile:$rhs);
+    let arguments = (ins TileOrScalar:$lhs,
+                         TileOrScalar:$rhs);
     let results = (outs TTCore_Tile:$result);
 }
 
@@ -366,8 +366,8 @@ def D2M_TileBitwiseOrOp : D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<"t
         The `tile_bitwise_or` operation computes bitwise OR between two tiles.
     }];
 
-    let arguments = (ins TTCore_Tile:$lhs,
-                         TTCore_Tile:$rhs);
+    let arguments = (ins TileOrScalar:$lhs,
+                         TileOrScalar:$rhs);
     let results = (outs TTCore_Tile:$result);
 }
 
@@ -377,8 +377,8 @@ def D2M_TileBitwiseXorOp : D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<"
         The `tile_bitwise_xor` operation computes bitwise XOR between two tiles.
     }];
 
-    let arguments = (ins TTCore_Tile:$lhs,
-                         TTCore_Tile:$rhs);
+    let arguments = (ins TileOrScalar:$lhs,
+                         TileOrScalar:$rhs);
     let results = (outs TTCore_Tile:$result);
 }
 
