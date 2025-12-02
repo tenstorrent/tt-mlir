@@ -5,6 +5,8 @@
 from ttmlir.ir import *
 from ttmlir.dialects import ttnn, ttcore
 
+DRAM_GRID_SIZE = [1, 1]
+
 
 def _get_collapsed_linear_affine_map(
     context, shape, grid_shape, collapse_intervals=[(0, -1)]
@@ -117,7 +119,7 @@ def _get_grid_from_bounding_box(tensor_arg):
     number_of_core_ranges = len(core_range_set.ranges())
     if number_of_core_ranges != 1:
         raise ValueError(
-            f"CoreRangeSet should have only 1 CoreRange, but got {number_of_core_ranges}"
+            "Tensor grids with more than one CoreRange are not supported. Tensor grids must be rectangular."
         )
 
     core_coord = core_range_set.bounding_box().grid_size()
@@ -130,7 +132,7 @@ def _get_grid(ctx, tensor_arg, memory_layout):
     # IMPORTANT: TTNN writes grids as (width, height) but compiler expects (height, width)
 
     if memory_layout == ttnn.TensorMemoryLayout.Interleaved:
-        return ttcore.ir.GridAttr.get(ctx, [1, 1])
+        return ttcore.ir.GridAttr.get(ctx, DRAM_GRID_SIZE)
 
     elif memory_layout in (
         ttnn.TensorMemoryLayout.BlockSharded,
@@ -187,7 +189,7 @@ def _create_sharded_tensor_layout(ctx, tensor_arg):
 
 
 def _create_dram_tensor_layout(ctx, tensor_arg):
-    affine_map = _get_collapsed_linear_affine_map(ctx, tensor_arg.shape, (1, 1))
+    affine_map = _get_collapsed_linear_affine_map(ctx, tensor_arg.shape, DRAM_GRID_SIZE)
     buffer_type = ttnn.ir.BufferTypeAttr.get(ctx, ttnn.BufferType.DRAM)
     grid = _get_grid(ctx, tensor_arg, ttnn.TensorMemoryLayout.Interleaved)
 
@@ -210,7 +212,6 @@ def _create_dram_tensor_layout(ctx, tensor_arg):
 
 
 def _check_layout_supported(tensor_arg):
-    # todo: get max grid from tensor arg
     print(f"Checking layout supported for tensor: {tensor_arg}")
     if tensor_arg.memory_config().is_sharded():
         if tensor_arg.memory_config().shard_spec is None:
