@@ -139,6 +139,8 @@ def TTCore_DeviceOp : TTCore_Op<"device", [Symbol]> {
   let assemblyFormat = "$sym_name `=` $device_attr attr-dict";
 }
 
+// TODO(dmilinkovic): the decision to make this op Pure should be revisited
+// - issue #6116.
 def TTCore_LoadCachedOp : TTCore_Op<"load_cached", [Pure]> {
   let summary = "Load cached results from a previously computed function";
   let description = [{
