@@ -4,7 +4,8 @@
 # SPDX-License-Identifier: Apache-2.0
 set -e -o pipefail
 
-cmake --build $BUILD_DIR -- tt-alchemist
+# Build the tt-alchemist wheel for distribution (default target is editable wheel)
+cmake --build $BUILD_DIR -- tt-alchemist-build-wheel-distribution
 
 # upload artifact
 echo "{\"name\":\"tt-alchemist-whl-$BUILD_NAME\",\"path\":\"$BUILD_DIR/tools/tt-alchemist/csrc/dist/tt_alchemist*.whl\"}," >> $UPLOAD_LIST

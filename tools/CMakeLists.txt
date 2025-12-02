@@ -26,6 +26,7 @@ endif()
 add_subdirectory(ttmlir-translate)
 add_subdirectory(ttnn-standalone)
 
-if (TTMLIR_ENABLE_ALCHEMIST)
+# TTMLIR_ENABLE_RUNTIME is needed because tt-metal doesn't build without it => can't install TT-NN dependencies
+if (TTMLIR_ENABLE_ALCHEMIST AND TTMLIR_ENABLE_RUNTIME)
   add_subdirectory(tt-alchemist)
 endif()
