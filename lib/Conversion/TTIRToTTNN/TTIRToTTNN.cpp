@@ -1334,6 +1334,176 @@ private:
 } // namespace
 
 namespace {
+class Conv3dOpConversionPattern : public OpConversionPattern<ttir::Conv3dOp> {
+public:
+  using OpConversionPattern<ttir::Conv3dOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::Conv3dOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+
+    auto inputTy = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    auto weightTy = mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
+
+    // Extract dimensions from input tensor: (N, D, H, W, C)
+    auto batchSizeAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(0));
+    auto inputDepthAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(1));
+    auto inputHeightAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(2));
+    auto inputWidthAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(3));
+    auto inChannelsAttr = rewriter.getI32IntegerAttr(inputTy.getDimSize(4));
+
+    auto outChannelsAttr =
+        rewriter.getI32IntegerAttr(op.getResult().getType().getDimSize(4));
+
+    // Extract kernel size from weight tensor: (O, C/G, K_D, K_H, K_W)
+    auto kernelSizeAttr = rewriter.getDenseI32ArrayAttr(
+        {static_cast<int32_t>(weightTy.getDimSize(2)),
+         static_cast<int32_t>(weightTy.getDimSize(3)),
+         static_cast<int32_t>(weightTy.getDimSize(4))});
+
+    auto strideAttr =
+        attrToTripleI32ArrayAttr(adaptor.getStride(), rewriter, "stride");
+    if (auto error = strideAttr.takeError()) {
+      return rewriter.notifyMatchFailure(op, llvm::toString(std::move(error)));
+    }
+
+    auto paddingAttr =
+        attrToTripleI32ArrayAttr(adaptor.getPadding(), rewriter, "padding");
+    if (auto error = paddingAttr.takeError()) {
+      return rewriter.notifyMatchFailure(op, llvm::toString(std::move(error)));
+    }
+
+    auto groupsAttr = rewriter.getI32IntegerAttr(adaptor.getGroups());
+
+    auto paddingModeAttr = adaptor.getPaddingModeAttr();
+
+    auto outputLayoutAttr =
+        mlir::cast<ttnn::TTNNLayoutAttr>(op.getType().getEncoding());
+    auto outputDtypeAttr =
+        rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
+
+    // Reshape weight tensor: (O, C/G, K_D, K_H, K_W) → (1, 1, K_D*K_H*K_W*C/G,
+    // O)
+    Value reshapedWeight = reshapeWeightForConv3d(adaptor.getWeight(), weightTy,
+                                                  rewriter, op.getLoc());
+
+    // Reshape bias tensor: (1, 1, 1, 1, O) → (1, O)
+    Value reshapedBias = adaptor.getBias();
+    if (reshapedBias) {
+      reshapedBias = reshapeBiasForConv3d(
+          reshapedBias, mlir::cast<RankedTensorType>(reshapedBias.getType()),
+          rewriter, op.getLoc());
+    }
+
+    // Convert input to ROW_MAJOR layout (required by TTNN Conv3d API)
+    auto inputLayoutAttr =
+        mlir::cast<ttnn::TTNNLayoutAttr>(inputTy.getEncoding());
+    auto rowMajorLayoutAttr =
+        ttnn::LayoutAttr::get(op.getContext(), ttnn::Layout::RowMajor);
+    RankedTensorType rowMajorInputType =
+        ttnn::utils::RankedTensorTypeFactory::create(inputTy,
+                                                     ttnn::Layout::RowMajor);
+
+    ttnn::BufferTypeAttr inputBufferTypeAttr = ttnn::BufferTypeAttr::get(
+        op.getContext(), inputLayoutAttr.getBufferType());
+    ttnn::MemoryConfigAttr inputMemoryConfigAttr = ttnn::MemoryConfigAttr::get(
+        op.getContext(), inputLayoutAttr.getMemLayout(), inputBufferTypeAttr,
+        std::nullopt);
+    auto inputDtype =
+        rewriter.getAttr<ttcore::DataTypeAttr>(inputLayoutAttr.getDataType());
+
+    Value rowMajorInput = rewriter.create<ttnn::ToLayoutOp>(
+        op.getLoc(), rowMajorInputType, adaptor.getInput(), rowMajorLayoutAttr,
+        inputDtype, inputMemoryConfigAttr);
+
+    // Create TTNN Conv3dOp with ROW_MAJOR input and TILE weight/bias
+    rewriter.replaceOpWithNewOp<ttnn::Conv3dOp>(
+        op, getTypeConverter()->convertType(op.getResult().getType()),
+        rowMajorInput, reshapedWeight, reshapedBias, device, inChannelsAttr,
+        outChannelsAttr, batchSizeAttr, inputDepthAttr, inputHeightAttr,
+        inputWidthAttr, kernelSizeAttr, *strideAttr, *paddingAttr,
+        paddingModeAttr, groupsAttr, outputDtypeAttr,
+        /*conv3d_config=*/nullptr, /*compute_config=*/nullptr);
+
+    return success();
+  }
+
+private:
+  llvm::Expected<DenseI32ArrayAttr>
+  attrToTripleI32ArrayAttr(mlir::Attribute attr,
+                           ConversionPatternRewriter &rewriter,
+                           StringRef attrName) const {
+    if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
+      auto triple = ttmlir::utils::getTripleOfInteger<int32_t>(attr);
+      if (auto error = triple.takeError()) {
+        return std::move(error);
+      }
+      return rewriter.getDenseI32ArrayAttr(
+          {std::get<0>(*triple), std::get<1>(*triple), std::get<2>(*triple)});
+    }
+
+    if (auto denseAttr = dyn_cast<DenseI32ArrayAttr>(attr)) {
+      if (denseAttr.size() == 3) {
+        return denseAttr;
+      }
+      return llvm::createStringError(
+          "Expected 3 elements for '%s', but got %zu", attrName.data(),
+          denseAttr.size());
+    }
+
+    return llvm::createStringError("Unexpected attribute type for '%s'",
+                                   attrName.data());
+  }
+
+  // Transforms: (O, C/G, K_D, K_H, K_W) → (K_D*K_H*K_W*C/G, O)
+  Value reshapeWeightForConv3d(Value weight, RankedTensorType weightTy,
+                               PatternRewriter &rewriter, Location loc) const {
+    llvm::ArrayRef<int64_t> weightShape = weightTy.getShape();
+    int64_t outChannels = weightShape[0];
+    int64_t inChannPerGroup = weightShape[1];
+    int64_t kernelDepth = weightShape[2];
+    int64_t kernelHeight = weightShape[3];
+    int64_t kernelWidth = weightShape[4];
+
+    // Calculate flattened dimension: K_D * K_H * K_W * C/G (patch_size)
+    int64_t flattenedDim =
+        kernelDepth * kernelHeight * kernelWidth * inChannPerGroup;
+
+    // New shape: (K_D*K_H*K_W*C/G, O) - 2D tensor as required by Conv3d
+    llvm::SmallVector<int64_t> newShape = {flattenedDim, outChannels};
+    llvm::SmallVector<int32_t> newShapeI32(newShape.begin(), newShape.end());
+
+    RankedTensorType outputType =
+        ttnn::utils::RankedTensorTypeFactory::create(weightTy, newShape);
+
+    // Create reshape operation
+    return rewriter.create<ttnn::ReshapeOp>(
+        loc, outputType, weight, rewriter.getI32ArrayAttr(newShapeI32),
+        /*memory_config=*/nullptr);
+  }
+
+  // Transforms bias tensor to 2D: (1, 1, 1, 1, O) → (1, O)
+  Value reshapeBiasForConv3d(Value bias, RankedTensorType biasTy,
+                             PatternRewriter &rewriter, Location loc) const {
+    llvm::ArrayRef<int64_t> biasShape = biasTy.getShape();
+    int64_t outChannels = biasShape[4];
+
+    llvm::SmallVector<int64_t> newShape = {1, outChannels};
+    llvm::SmallVector<int32_t> newShapeI32(newShape.begin(), newShape.end());
+
+    RankedTensorType outputType =
+        ttnn::utils::RankedTensorTypeFactory::create(biasTy, newShape);
+
+    return rewriter.create<ttnn::ReshapeOp>(
+        loc, outputType, bias, rewriter.getI32ArrayAttr(newShapeI32),
+        /*memory_config=*/nullptr);
+  }
+};
+} // namespace
+
+namespace {
 class ConvTranspose2dOpConversionPattern
     : public OpConversionPattern<ttir::ConvTranspose2dOp> {
 public:
@@ -1832,17 +2002,16 @@ public:
 } // namespace
 
 //===----------------------------------------------------------------------===//
-// ScatterInDimOp
+// ScatterOp
 //===----------------------------------------------------------------------===//
 
 namespace {
-class ScatterInDimOpConversionPattern
-    : public OpConversionPattern<ttir::ScatterInDimOp> {
-  using OpConversionPattern<ttir::ScatterInDimOp>::OpConversionPattern;
+class ScatterOpConversionPattern : public OpConversionPattern<ttir::ScatterOp> {
+  using OpConversionPattern<ttir::ScatterOp>::OpConversionPattern;
 
 public:
   LogicalResult
-  matchAndRewrite(ttir::ScatterInDimOp op, OpAdaptor adaptor,
+  matchAndRewrite(ttir::ScatterOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::ScatterOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
@@ -2334,6 +2503,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            RMSNormOpConversionPattern,
            MatmulOpConversionPattern,
            Conv2dOpConversionPattern,
+           Conv3dOpConversionPattern,
            ConvTranspose2dOpConversionPattern,
            MeshShardOpConversionPattern,
            AllReduceOpConversionPattern,
@@ -2346,7 +2516,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            PagedFillCacheOpConversionPattern,
            PagedUpdateCacheOpConversionPattern,
            FillCacheOpConversionPattern,
-           ScatterInDimOpConversionPattern,
+           ScatterOpConversionPattern,
            PermuteOpConversionPattern,
            UpsampleOpConversionPattern,
            AllToAllOpConversionPattern,

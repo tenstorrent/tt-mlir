@@ -3188,6 +3188,65 @@ Conv2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// Conv3dOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+Conv3dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                           const OpConfig &opConfig) {
+  assert(inputs.size() == (2 + (getBias() == nullptr ? 0 : 1)));
+
+  const auto inputShape = getInput().getType().getShape();
+  const auto weightShape = getWeight().getType().getShape();
+  std::optional<llvm::ArrayRef<int64_t>> biasShape;
+  std::optional<TTNNLayoutAttr> biasLayout;
+
+  if (inputs.size() == 3) {
+    biasShape = getBias().getType().getShape();
+    biasLayout = inputs[2];
+  }
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<Conv3dOp>::getOpConstraints, *this, deviceGrid,
+      inputShape, inputs[0], weightShape, inputs[1], biasShape, biasLayout,
+      getInChannels(), getOutChannels(), getBatchSize(), getInputDepth(),
+      getInputHeight(), getInputWidth(), getKernelSize(), getStride(),
+      getPadding(), getGroups(), getPaddingMode(), getDtypeAttr(),
+      getConv3dConfig(), getComputeConfig(), opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+Conv3dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                       const OpConfig &opConfig) {
+  assert(inputs.size() == (2 + (getBias() == nullptr ? 0 : 1)));
+
+  const auto inputShape = getInput().getType().getShape();
+  const auto weightShape = getWeight().getType().getShape();
+  std::optional<llvm::ArrayRef<int64_t>> biasShape;
+  std::optional<TTNNLayoutAttr> biasLayout;
+
+  if (inputs.size() == 3) {
+    biasShape = getBias().getType().getShape();
+    biasLayout = inputs[2];
+  }
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<Conv3dOp>::getOpRuntime, *this, inputShape, inputs[0],
+      weightShape, inputs[1], biasShape, biasLayout, getInChannels(),
+      getOutChannels(), getBatchSize(), getInputDepth(), getInputHeight(),
+      getInputWidth(), getKernelSize(), getStride(), getPadding(), getGroups(),
+      getPaddingMode(), getDtypeAttr(), getConv3dConfig(), getComputeConfig(),
+      opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // ConvTranspose2dOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 

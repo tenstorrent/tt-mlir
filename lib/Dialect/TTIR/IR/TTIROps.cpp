@@ -594,26 +594,27 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
   }
 
   auto [inputDims, weightDims, biasDims] =
-      verification_utils::getConv2dInputDims(this);
+      verification_utils::conv2d::getConv2dInputDims(this);
   verification_utils::OutputTensorDims outputDims =
-      verification_utils::getConv2dOutputDims(this);
-  auto expectedParams = verification_utils::getConv2dParams(this);
+      verification_utils::conv2d::getConv2dOutputDims(this);
+  auto expectedParams = verification_utils::conv2d::getConv2dParams(this);
   if (auto error = expectedParams.takeError()) {
     return emitOpError() << llvm::toString(std::move(error));
   }
-  verification_utils::Conv2dParams params = *expectedParams;
+  verification_utils::conv2d::Conv2dParams params = *expectedParams;
 
-  if (verifyConv2dParams(this, params).failed()) {
+  if (verification_utils::conv2d::verifyConv2dParams(this, params).failed()) {
     return mlir::failure();
   }
 
-  if (verifyConv2dInputDims(this, inputDims, weightDims, biasDims, params)
+  if (verification_utils::conv2d::verifyConv2dInputDims(
+          this, inputDims, weightDims, biasDims, params)
           .failed()) {
     return mlir::failure();
   }
 
-  if (verifyOutputDimensions(this, inputDims, weightDims, biasDims, outputDims,
-                             params)
+  if (verification_utils::conv2d::verifyOutputDimensions(
+          this, inputDims, weightDims, biasDims, outputDims, params)
           .failed()) {
     return mlir::failure();
   }
@@ -631,6 +632,63 @@ int64_t mlir::tt::ttir::Conv2dOp::getOutputChannelSize() {
 bool mlir::tt::ttir::Conv2dOp::isBiasCompatible(llvm::ArrayRef<int64_t> bias) {
   return bias[0] == 1 && bias[1] == 1 && bias[2] == 1 &&
          bias[3] == getOutputChannelSize();
+}
+
+//===----------------------------------------------------------------------===//
+// Conv3dOp
+//===----------------------------------------------------------------------===//
+
+// Conv3dOp verification
+::mlir::LogicalResult mlir::tt::ttir::Conv3dOp::verify() {
+  // Verify tensor ranks
+  if (this->getInput().getType().getRank() != 5) {
+    return this->emitOpError("input must be a 5D tensor");
+  }
+
+  if (this->getWeight().getType().getRank() != 5) {
+    return this->emitOpError("weight must be a 5D tensor");
+  }
+
+  // Bias is optional
+  if (this->getBias() && this->getBias().getType().getRank() != 5) {
+    return this->emitOpError(
+        "bias must be a 5D tensor with shape (1,1,1,1,C_out)");
+  }
+
+  if (this->getResult().getType().getRank() != 5) {
+    return this->emitOpError("output must be a 5D tensor");
+  }
+
+  auto [inputDims, weightDims, biasDims] =
+      verification_utils::conv3d::getConv3dInputDims(this);
+
+  verification_utils::conv3d::OutputTensorDims3d outputDims =
+      verification_utils::conv3d::getConv3dOutputDims(this);
+
+  auto expectedParams = verification_utils::conv3d::getConv3dParams(this);
+
+  if (auto error = expectedParams.takeError()) {
+    return emitOpError() << llvm::toString(std::move(error));
+  }
+
+  verification_utils::conv3d::Conv3dParams params = *expectedParams;
+  if (verification_utils::conv3d::verifyConv3dParams(this, params).failed()) {
+    return mlir::failure();
+  }
+
+  if (verification_utils::conv3d::verifyConv3dInputDims(
+          this, inputDims, weightDims, biasDims, params)
+          .failed()) {
+    return mlir::failure();
+  }
+
+  if (verification_utils::conv3d::verifyOutputDimensions(
+          this, inputDims, weightDims, biasDims, outputDims, params)
+          .failed()) {
+    return mlir::failure();
+  }
+
+  return mlir::success();
 }
 
 //===----------------------------------------------------------------------===//
@@ -1362,34 +1420,35 @@ static mlir::LogicalResult verifyPooling2dOp(PoolingOp *op) {
   }
 
   // Verify flattened compatibility info if present.
-  if (mlir::failed(verification_utils::verifyFlattenedCompatInfo(op))) {
+  if (mlir::failed(verification_utils::pool2d::verifyFlattenedCompatInfo(op))) {
     return mlir::failure();
   }
 
   // Get input and output dimensions with flattened support.
   verification_utils::InputTensorDims inputDims =
-      verification_utils::getPool2dInputDims(op);
+      verification_utils::pool2d::getPool2dInputDims(op);
   verification_utils::OutputTensorDims outputDims =
-      verification_utils::getPool2dOutputDims(op);
-  auto expectedParams = verification_utils::getPool2dParams(op);
+      verification_utils::pool2d::getPool2dOutputDims(op);
+  auto expectedParams = verification_utils::pool2d::getPool2dParams(op);
   if (auto error = expectedParams.takeError()) {
     return op->emitOpError() << llvm::toString(std::move(error));
   }
-  verification_utils::Pool2dParams params = *expectedParams;
+  verification_utils::pool2d::Pool2dParams params = *expectedParams;
 
   // Verify pooling parameters.
-  if (mlir::failed(verification_utils::verifyPool2dParams(op, params))) {
+  if (mlir::failed(
+          verification_utils::pool2d::verifyPool2dParams(op, params))) {
     return mlir::failure();
   }
 
   // Verify input dimensions constraints.
-  if (mlir::failed(
-          verification_utils::verifyPool2dInputDims(op, inputDims, params))) {
+  if (mlir::failed(verification_utils::pool2d::verifyPool2dInputDims(
+          op, inputDims, params))) {
     return mlir::failure();
   }
 
   // Verify output dimensions match expected calculations.
-  if (mlir::failed(verification_utils::verifyPool2dOutputDims(
+  if (mlir::failed(verification_utils::pool2d::verifyPool2dOutputDims(
           op, inputDims, outputDims, params))) {
     return mlir::failure();
   }
@@ -3634,23 +3693,6 @@ mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
 //===----------------------------------------------------------------------===//
 
 ::mlir::LogicalResult mlir::tt::ttir::ScatterOp::verify() {
-
-  ArrayRef<int64_t> inputShape =
-      mlir::cast<RankedTensorType>(getInput().getType()).getShape();
-
-  if (getUpdateWindowDims().size() + getInsertedWindowDims().size() !=
-      inputShape.size()) {
-    return emitOpError("Batching currently not supported");
-  }
-
-  return success();
-}
-
-//===----------------------------------------------------------------------===//
-// ScatterInDimOp
-//===----------------------------------------------------------------------===//
-
-::mlir::LogicalResult mlir::tt::ttir::ScatterInDimOp::verify() {
   const ::mlir::RankedTensorType inputType = getInput().getType();
   const ::mlir::RankedTensorType indexType = getIndex().getType();
   const ::mlir::RankedTensorType sourceType = getSource().getType();

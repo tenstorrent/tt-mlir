@@ -3242,6 +3242,82 @@ def TTIR_Conv2dOp : TTIR_NamedOp<"conv2d"> {
     let hasVerifier = 1;
 }
 
+def TTIR_Conv3dOp : TTIR_NamedOp<"conv3d"> {
+    let summary = "Conv3d operation.";
+    let description = [{
+      Applies a 3D convolution over an input volume composed of several input planes.
+
+      This operation performs a 3D convolution on the input tensor using the provided weight tensor
+      and optional bias. It supports configurable stride, padding, padding_mode and grouping parameters
+      to control the convolution behavior. This is commonly used for video or volumetric data processing.
+
+      Example:
+      ```mlir
+      // Basic 3D convolution with 3x3x3 kernel
+      %input = ... : tensor<1x8x28x28x4xf32>     // Batch=1, Depth=8, H=28, W=28, Channels=4
+      %weight = ... : tensor<16x4x3x3x3xf32>     // 16 output channels, 4 input channels, 3x3x3 kernel
+      %bias = ... : tensor<1x1x1x1x16xf32>       // Bias for 16 output channels
+      %result = ttir.conv3d(%input, %weight, %bias) {
+          stride = [1, 1, 1],
+          padding = [0, 0, 0],
+          groups = 1,
+          padding_mode = "zeros"
+      } : (tensor<1x8x28x28x4xf32>, tensor<16x4x3x3x3xf32>, tensor<1x1x1x1x16xf32>) -> tensor<1x6x26x26x16xf32>
+
+      // Convolution with stride 2 and padding
+      %input = ... : tensor<1x8x28x28x4xf32>     // Batch size 1, Depth=8, H=28, W=28, Channels=4
+      %weight = ... : tensor<16x4x3x3x3xf32>     // 16 output channels, 4 input channels, 3x3x3 kernel
+      %bias = ... : tensor<1x1x1x1x16xf32>       // Bias for 16 output channels
+      %result = ttir.conv3d(%input, %weight, %bias) {
+          stride = [2, 2, 2],
+          padding = [1, 1, 1],
+          groups = 1,
+          padding_mode = "zeros"
+      } : (tensor<1x8x28x28x4xf32>, tensor<16x4x3x3x3xf32>, tensor<1x1x1x1x16xf32>) -> tensor<1x4x14x14x16xf32>
+      ```
+
+      Inputs:
+      - `input` (AnyRankedTensor): expected in the following format (N, D, H, W, C) where:
+        - N is the batch size
+        - D is the depth of the input volume
+        - H is the height of the input planes
+        - W is the width of the input planes
+        - C is the number of input channels
+      - `weight` (AnyRankedTensor): expected in the following format (C_out, C_in, K_D, K_H, K_W) where:
+        - C_out is the number of output channels
+        - C_in is the number of input channels
+        - K_D is the depth of the kernel
+        - K_H is the height of the kernel
+        - K_W is the width of the kernel
+      - `bias` Optional<AnyRankedTensor>: expected in the following format (1, 1, 1, 1, C_out).
+
+      Attributes:
+      - `stride` (i32 | array<3xi32>): [sD, sH, sW] where sD is stride for depth, sH for height, sW for width.
+      - `padding` (i32 |array<3xi32>): [pD, pH, pW] where pD is padding for depth, pH for height, pW for width.
+        Padding is symmetric (same on both sides of each dimension).
+      - `padding_mode` (StrAttr): "zeros" or "replicate" - padding fill strategy.
+      - `groups` (i32): Number of blocked connections from input channels to output channels.
+
+      Output:
+      - `result` AnyRankedTensor: 5D tensor in format (N, D_out, H_out, W_out, C_out) where:
+        - `D_out = (D_in + 2*pD - K_D) / sD + 1`
+        - `H_out = (H_in + 2*pH - K_H) / sH + 1`
+        - `W_out = (W_in + 2*pW - K_W) / sW + 1`
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$weight,
+                         Optional<AnyRankedTensor>:$bias,
+                         AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$stride,
+                         AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$padding,
+                         I32Attr:$groups,
+                         DefaultValuedAttr<StrAttr, "\"zeros\"">:$padding_mode);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTIR_ConvTranspose2dOp : TTIR_NamedOp<"conv_transpose2d"> {
     let summary = "ConvTranspose2d operation.";
     let description = [{
@@ -4545,96 +4621,12 @@ def TTIR_Upsample2dOp : TTIR_NamedOp<"upsample2d"> {
     let hasVerifier = 1;
 }
 
-def TTIR_ScatterOp: TTIR_NamedOp<"scatter"> {
-  let summary = "Scatter operation";
-  let description = [{
-    The `scatter` operation updates slices of an input tensor at indices specified by scatter_indices
-    with values from the update tensor.
 
-    This operation is the inverse of the `gather` operation. It allows for updating specific slices of a
-    tensor at locations determined by indices. The operation is highly configurable through various
-    dimension attributes that control how the indices and updates are interpreted.
-
-    Example:
-    ```mlir
-    // Basic scatter example: update values at specific indices in a 1D tensor
-    %input = ... : tensor<8xf32>        // Input tensor with values: [0, 0, 0, 0, 0, 0, 0, 0]
-    %indices = ... : tensor<3xi32>      // Indices tensor with values: [1, 3, 5]
-    %update = ... : tensor<3xf32>       // Update tensor with values: [10, 30, 50]
-    %result = ttir.scatter(%input, %indices, %update) {
-        update_window_dims = [],        // No window dimensions in update tensor
-        inserted_window_dims = [0],     // Insert window dimension 0
-        input_batching_dims = [],       // No batching dimensions in input
-        scatter_indices_batching_dims = [], // No batching dimensions in indices
-        scatter_dims_to_operand_dims = [0], // Map scatter dimension 0 to operand dimension 0
-        index_vector_dim = 0,           // Indices are in dimension 0
-        indices_are_sorted = true,      // Indices are sorted
-        unique_indices = true           // Indices are unique
-    } : (tensor<8xf32>, tensor<3xi32>, tensor<3xf32>) -> tensor<8xf32>
-    // Result: [0, 10, 0, 30, 0, 50, 0, 0]
-
-    // Scatter to update a 2D tensor
-    %input = ... : tensor<4x4xf32>      // Input tensor (4x4 matrix of zeros)
-    %indices = ... : tensor<2x2xi32>    // Indices tensor with values: [[0, 1], [2, 3]]
-    %update = ... : tensor<2xf32>       // Update tensor with values: [100, 200]
-    %result = ttir.scatter(%input, %indices, %update) {
-        update_window_dims = [],
-        inserted_window_dims = [0, 1],
-        input_batching_dims = [],
-        scatter_indices_batching_dims = [0],
-        scatter_dims_to_operand_dims = [0, 1],
-        index_vector_dim = 1,
-        indices_are_sorted = false,
-        unique_indices = true
-    } : (tensor<4x4xf32>, tensor<2x2xi32>, tensor<2xf32>) -> tensor<4x4xf32>
-    // Result: A 4x4 tensor with 100 at position [0,1] and 200 at position [2,3]
-    ```
-
-    Inputs:
-    - `input` (Tensor): The tensor to be updated.
-    - `scatter_indices` (Tensor): Tensor containing the starting indices for slices to update.
-    - `update` (Tensor): Tensor containing values to scatter into the input tensor.
-
-    Attributes:
-    - `update_window_dims` (Array of Integer): Dimensions in update that are window dimensions.
-    - `inserted_window_dims` (Array of Integer): Dimensions in the output that are not present in update.
-    - `input_batching_dims` (Array of Integer): Batch dimensions in the input tensor.
-    - `scatter_indices_batching_dims` (Array of Integer): Batch dimensions in the scatter indices tensor.
-    - `scatter_dims_to_operand_dims` (Array of Integer): Maps dimensions in scatter indices to dimensions in operand.
-    - `index_vector_dim` (Integer): The dimension in scatter indices that contains the index vector.
-    - `indices_are_sorted` (Boolean): Whether indices are sorted lexicographically.
-    - `unique_indices` (Boolean): Whether indices are guaranteed to be unique.
-
-    Output:
-    - `result` (Tensor): The updated tensor.
-
-    Note: The semantics of this operation are complex and based on the StableHLO scatter operation.
-    The configuration of the various dimension attributes determines exactly how the scatter indices
-    are interpreted and how the update values are applied to the input tensor.
-    }];
-
-  let arguments = (ins AnyRankedTensor:$input,
-                       AnyRankedTensor:$scatter_indices,
-                       AnyRankedTensor:$update,
-                       DenseI32ArrayAttr:$update_window_dims,
-                       DenseI32ArrayAttr:$inserted_window_dims,
-                       DenseI32ArrayAttr:$input_batching_dims,
-                       DenseI32ArrayAttr:$scatter_indices_batching_dims,
-                       DenseI32ArrayAttr:$scatter_dims_to_operand_dims,
-                       I32Attr:$index_vector_dim,
-                       BoolAttr:$indices_are_sorted,
-                       BoolAttr:$unique_indices);
-
-  let results = (outs AnyRankedTensor:$result);
-
-  let hasVerifier = 1;
-}
-
-def TTIR_ScatterInDimOp : TTIR_NamedOp<"scatter_in_dim"> {
+def TTIR_ScatterOp : TTIR_NamedOp<"scatter"> {
   let summary = "Scatter operation with simplified dimension attributes";
   let description = [{
-    The `scatter_in_dim` operation introduces torch style scatter in TTIR so that
-    we can lower ttir scatter -> ttir scatter_in_dim -> ttnn scatter.
+    The `scatter` operation introduces torch style scatter in TTIR so that
+    we can lower ttir scatter -> ttnn scatter.
 
     Embeds the values of the source tensor into the input tensor at locations specified by the index tensor along the given dimension.
 
@@ -4654,7 +4646,7 @@ def TTIR_ScatterInDimOp : TTIR_NamedOp<"scatter_in_dim"> {
     %input = ... : tensor<8xf32>        // Input tensor
     %indices = ... : tensor<3xi32>      // Indices tensor
     %source = ... : tensor<3xf32>       // Source values to scatter
-    %result = ttir.scatter_in_dim(%input, %indices, %source) <{
+    %result = ttir.scatter(%input, %indices, %source) <{
         dim = 0
     }> : (tensor<8xf32>, tensor<3xi32>, tensor<3xf32>) -> tensor<8xf32>
     ```

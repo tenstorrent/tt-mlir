@@ -1,6 +1,5 @@
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline -o %t %s
 // RUN: FileCheck %s --input-file=%t
-// UNSUPPORTED: true
 module {
   func.func @linear_1d_1d_bias(%arg0: tensor<128xbf16>, %arg1: tensor<128xbf16>, %bias: tensor<1xbf16>) -> tensor<1xbf16> {
     // CHECK: "ttnn.linear"
@@ -23,9 +22,11 @@ module {
   }
 
   func.func @linear_2d_2d_bias(%arg0: tensor<64x128xbf16>, %arg1: tensor<128x64xbf16>, %bias: tensor<64x64xbf16>) -> tensor<64x64xbf16> {
-    // CHECK: "ttnn.linear"
+    // Bias is expected to be a 2d tensor so it is broken into matmul + add.
+    // CHECK: "ttnn.matmul"
     // CHECK-SAME: tensor<64x128xbf16
     // CHECK-SAME: tensor<128x64xbf16
+    // CHECK: "ttnn.add"
     // CHECK-SAME: tensor<64x64xbf16
     // CHECK-SAME: tensor<64x64xbf16
     %1 = "ttir.linear"(%arg0, %arg1, %bias) : (tensor<64x128xbf16>, tensor<128x64xbf16>, tensor<64x64xbf16>) -> tensor<64x64xbf16>
@@ -51,58 +52,56 @@ module {
   }
 
   // Linear with transposed inputs tests.
-  func.func @linear_2d_tranpose_2d_bias(%arg0: tensor<64x128xbf16>, %arg1: tensor<64x128xbf16>, %bias: tensor<128x128xbf16>) -> tensor<128x128xbf16> {
-    %0 = ttir.empty() : tensor<128x128xbf16>
+  func.func @linear_2d_tranpose_1d_bias(%arg0: tensor<64x128xbf16>, %arg1: tensor<64x128xbf16>, %bias: tensor<128xbf16>) -> tensor<128x128xbf16> {
     // CHECK: "ttnn.linear"
     // CHECK-SAME: transpose_a = true
     // CHECK-SAME: transpose_b = false
     // CHECK-SAME: tensor<64x128xbf16
     // CHECK-SAME: tensor<64x128xbf16
+    // CHECK-SAME: tensor<128xbf16
     // CHECK-SAME: tensor<128x128xbf16
-    %1 = "ttir.linear"(%arg0, %arg1, %bias, %0) <{transpose_a = true}> : (tensor<64x128xbf16>, tensor<64x128xbf16>, tensor<128x128xbf16>, tensor<128x128xbf16>) -> tensor<128x128xbf16>
-    return %1 : tensor<128x128xbf16>
+    %0 = "ttir.linear"(%arg0, %arg1, %bias) <{transpose_a = true}> : (tensor<64x128xbf16>, tensor<64x128xbf16>, tensor<128xbf16>) -> tensor<128x128xbf16>
+    return %0 : tensor<128x128xbf16>
   }
 
-  func.func @linear_2d_2d_transpose_bias(%arg0: tensor<64x128xbf16>, %arg1: tensor<64x128xbf16>, %bias: tensor<64x64xbf16>) -> tensor<64x64xbf16> {
-    %0 = ttir.empty() : tensor<64x64xbf16>
+  func.func @linear_2d_1d_transpose_bias(%arg0: tensor<64x128xbf16>, %arg1: tensor<64x128xbf16>, %bias: tensor<64xbf16>) -> tensor<64x64xbf16> {
     // CHECK: "ttnn.linear"
     // CHECK-SAME: transpose_a = false
     // CHECK-SAME: transpose_b = true
     // CHECK-SAME: tensor<64x128xbf16
     // CHECK-SAME: tensor<64x128xbf16
-    // CHECK-SAME: tensor<64x64xbf16
-    %1 = "ttir.linear"(%arg0, %arg1, %bias, %0) <{transpose_b = true}> : (tensor<64x128xbf16>, tensor<64x128xbf16>, tensor<64x64xbf16>, tensor<64x64xbf16>) -> tensor<64x64xbf16>
-    return %1 : tensor<64x64xbf16>
+    // CHECK-SAME: tensor<64xbf16
+    %0 = "ttir.linear"(%arg0, %arg1, %bias) <{transpose_b = true}> : (tensor<64x128xbf16>, tensor<64x128xbf16>, tensor<64xbf16>) -> tensor<64x64xbf16>
+    return %0 : tensor<64x64xbf16>
   }
 
-  func.func @linear_2d_tranpose_2d_transpose(%arg0: tensor<64x128xbf16>, %arg1: tensor<128x64xbf16>, %bias: tensor<128x128xbf16>) -> tensor<128x128xbf16> {
+  func.func @linear_2d_tranpose_2d_transpose(%arg0: tensor<64x128xbf16>, %arg1: tensor<128x64xbf16>, %bias: tensor<128xbf16>) -> tensor<128x128xbf16> {
     // CHECK: "ttnn.linear"
     // CHECK-SAME: transpose_a = true
     // CHECK-SAME: transpose_b = true
     // CHECK-SAME: tensor<64x128xbf16
     // CHECK-SAME: tensor<128x64xbf16
+    // CHECK-SAME: tensor<128xbf16
     // CHECK-SAME: tensor<128x128xbf16
-    %1 = "ttir.linear"(%arg0, %arg1, %bias, %0) <{transpose_a = true, transpose_b = true}> : (tensor<64x128xbf16>, tensor<128x64xbf16>, tensor<128x128xbf16>, tensor<128x128xbf16>) -> tensor<128x128xbf16>
-    return %1 : tensor<128x128xbf16>
+    %0 = "ttir.linear"(%arg0, %arg1, %bias) <{transpose_a = true, transpose_b = true}> : (tensor<64x128xbf16>, tensor<128x64xbf16>, tensor<128xbf16>) -> tensor<128x128xbf16>
+    return %0 : tensor<128x128xbf16>
   }
 
-  func.func @main_batch_linear_with_bias_right_transpose(%arg_a : tensor<12x24x64xf32>, %arg_b : tensor<12x24x64xf32>, %arg_bias : tensor<12x24x24xf32>) -> tensor<12x24x24xf32>{
-    %0 = ttir.empty() : tensor<12x24x24xf32>
+  func.func @main_batch_linear_with_bias_right_transpose(%arg_a : tensor<12x24x64xf32>, %arg_b : tensor<12x24x64xf32>, %bias : tensor<12x24x24xf32>) -> tensor<12x24x24xf32>{
     // CHECK: "ttnn.matmul"
     // CHECK-SAME: transpose_a = false
     // CHECK-SAME: transpose_b = true
     // CHECK: "ttnn.add"
-    %1 = "ttir.linear"(%arg_a, %arg_b, %arg_bias, %0) <{transpose_a = false, transpose_b = true}> : (tensor<12x24x64xf32>, tensor<12x24x64xf32>, tensor<12x24x24xf32>, tensor<12x24x24xf32>) -> tensor<12x24x24xf32>
-    return %1 : tensor<12x24x24xf32>
+    %0 = "ttir.linear"(%arg_a, %arg_b, %bias) <{transpose_a = false, transpose_b = true}> : (tensor<12x24x64xf32>, tensor<12x24x64xf32>, tensor<12x24x24xf32>) -> tensor<12x24x24xf32>
+    return %0 : tensor<12x24x24xf32>
   }
 
-  func.func @main_batch_linear_with_bias_left_transpose(%arg_a : tensor<12x24x64xf32>, %arg_b : tensor<12x24x64xf32>, %arg_bias : tensor<12x64x64xf32>) -> tensor<12x64x64xf32>{
-    %0 = ttir.empty() : tensor<12x64x64xf32>
+  func.func @main_batch_linear_with_bias_left_transpose(%arg_a : tensor<12x24x64xf32>, %arg_b : tensor<12x24x64xf32>, %bias : tensor<12x64x64xf32>) -> tensor<12x64x64xf32>{
     // CHECK: "ttnn.matmul"
     // CHECK-SAME: transpose_a = true
     // CHECK-SAME: transpose_b = false
     // CHECK: "ttnn.add"
-    %1 = "ttir.linear"(%arg_a, %arg_b, %arg_bias, %0) <{transpose_a = true, transpose_b = false}> : (tensor<12x24x64xf32>, tensor<12x24x64xf32>, tensor<12x64x64xf32>, tensor<12x64x64xf32>) -> tensor<12x64x64xf32>
-    return %1 : tensor<12x64x64xf32>
+    %0 = "ttir.linear"(%arg_a, %arg_b, %bias) <{transpose_a = true, transpose_b = false}> : (tensor<12x24x64xf32>, tensor<12x24x64xf32>, tensor<12x64x64xf32>) -> tensor<12x64x64xf32>
+    return %0 : tensor<12x64x64xf32>
   }
 }
