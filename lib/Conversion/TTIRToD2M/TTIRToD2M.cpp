@@ -1248,7 +1248,7 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MNamedElementwiseRewriter<ttir::SqrtOp,       d2m::TileSqrtOp>,
     D2MNamedElementwiseRewriter<ttir::SubtractOp,   d2m::TileSubOp>,
     D2MNamedElementwiseRewriter<ttir::TanOp,        d2m::TileTanOp>,
-
+    D2MNamedElementwiseRewriter<ttir::TanhOp,       d2m::TileTanhOp>,
     // Comparison.
     D2MNamedElementwiseRewriter<ttir::EqualOp,        d2m::TileEqzOp>,
     D2MNamedElementwiseRewriter<ttir::NotEqualOp,     d2m::TileNezOp>,

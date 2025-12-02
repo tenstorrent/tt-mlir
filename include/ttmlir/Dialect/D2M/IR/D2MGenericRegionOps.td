@@ -239,6 +239,16 @@ def D2M_TileTanOp : D2M_GenericRegionComputeUnaryDstOp<"tile_tan", D2M_TileCompu
     let results = (outs TTCore_Tile:$result);
 }
 
+def D2M_TileTanhOp : D2M_GenericRegionComputeUnaryDstOp<"tile_tanh", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Tanh Op";
+    let description = [{
+        The `tile_tanh` operation computes the hyperbolic tangent function of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
 def D2M_TileSqrtOp : D2M_GenericRegionComputeUnaryDstOp<"tile_sqrt", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Sqrt Op";
     let description = [{

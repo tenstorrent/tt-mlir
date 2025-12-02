@@ -1057,6 +1057,35 @@ def TTKernel_TanTileOp : TTKernel_SFPUOp<"tan_tile", [TTKernel_UnaryOpTrait]> {
     }];
 }
 
+def TTKernel_TanhTileInitOp : TTKernel_InitOp<"tanh_tile_init"> {
+    let summary = "Short init function which configures compute unit for execution of tanh_tile.";
+    let description = [{
+      Must be run before tanh_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_TanhTileOp : TTKernel_SFPUOp<"tanh_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Tanh operation";
+    let description = [{
+      Performs element-wise computation of the hyperbolic tangent operation on each element of a tile
+      in DST register at index tile_index. The DST register buffer must be in
+      acquired state via *acquire_dst* call. This call is blocking and is only
+      available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_SqrtTileInitOp : TTKernel_InitOp<"sqrt_tile_init"> {
     let summary = "Short init function which configures compute unit for execution of sqrt_tile.";
     let description = [{
