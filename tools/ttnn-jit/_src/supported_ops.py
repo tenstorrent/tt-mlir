@@ -34,6 +34,15 @@ binary_ops = [
     "subtract",
     "divide",
     "pow_tensor",
+    "eq",
+    "ne",
+    "gt",
+    "ge",
+    "lt",
+    "le",
+    "bitwise_and",
+    "bitwise_or",
+    "bitwise_xor",
 ]
 
 # All supported operations
