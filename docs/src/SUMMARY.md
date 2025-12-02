@@ -18,7 +18,6 @@
      - [Adding a TTIR op](./builder/adding-a-ttir-op.md)
      - [StableHLO Builder](./builder/stablehlo-builder.md)
      - [Testing](./builder/testing.md)
-  - [`stablehlo-builder`](./builder/stablehlo-builder.md)
   - [`tt-explorer`](./tt-explorer/tt-explorer.md)
     - [UI & changes to Model Explorer](./tt-explorer/ui.md)
     - [CLI](./tt-explorer/cli.md)
