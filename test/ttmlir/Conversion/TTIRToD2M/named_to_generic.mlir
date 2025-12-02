@@ -179,23 +179,23 @@ module {
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
     // CHECK: d2m.tile_relu
-    %28= "ttir.relu"(%27) : (!ttype) -> !ttype
+    %31= "ttir.relu"(%30) : (!ttype) -> !ttype
     // named elementwise op, bitwise_and:
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
     // CHECK: d2m.tile_bitwise_and
-    %29 = "ttir.bitwise_and"(%26, %27) : (!ttype, !ttype) -> !ttype
+    %32 = "ttir.bitwise_and"(%26, %27) : (!ttype, !ttype) -> !ttype
     // named elementwise op, bitwise_or:
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
     // CHECK: d2m.tile_bitwise_or
-    %30 = "ttir.bitwise_or"(%26, %27) : (!ttype, !ttype) -> !ttype
+    %33 = "ttir.bitwise_or"(%26, %27) : (!ttype, !ttype) -> !ttype
     // named elementwise op, bitwise_xor:
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
     // CHECK: d2m.tile_bitwise_xor
-    %31 = "ttir.bitwise_xor"(%26, %27) : (!ttype, !ttype) -> !ttype
-    return %31: !ttype
+    %34 = "ttir.bitwise_xor"(%26, %27) : (!ttype, !ttype) -> !ttype
+    return %34: !ttype
   }
 
   // CHECK-LABEL: func @named_reductions_R
