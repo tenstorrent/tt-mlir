@@ -553,10 +553,13 @@ tensorValueToFlatbuffer(FlatbufferObjectCache &cache, Value value) {
   auto memref = mlir::cast<MemRefType>(value.getType());
 
   Type elementType = memref.getElementType();
-  assert(!mlir::isa<ttcore::TileType>(elementType));
+  // TileType is supported - elementTypeToDataType handles it
   ttcore::DataType dtype = ttcore::elementTypeToDataType(elementType);
 
-  assert(!mlir::isa<ttcore::DeviceLayoutInterface>(memref.getLayout()));
+  // DeviceLayoutInterface is allowed for tiled memrefs (TTNN interop)
+  if (!mlir::isa<ttcore::TileType>(elementType)) {
+    assert(!mlir::isa<ttcore::DeviceLayoutInterface>(memref.getLayout()));
+  }
   std::vector<int32_t> shape =
       ttmlir::utils::castContainer<std::vector<int32_t>>(memref.getShape());
   std::vector<int32_t> meshShape;
