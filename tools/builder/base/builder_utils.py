@@ -103,6 +103,8 @@ def get_metal_tensor_layout(
         )
 
     shard_shape = []
+    print("logical_shape is : ", logical_shape)
+    print("grid_shape is : ", grid_shape)
     for l, g in zip(logical_shape, grid_shape):
         assert l % g == 0, f"Logical shape {l} must be divisible by grid shape {g}"
         shard_shape.append(l // g)
@@ -114,6 +116,7 @@ def get_metal_tensor_layout(
     device_shape = typed_layout.getDeviceShape(
         grid_shape, [32, 32] if tiled else [1, 1]
     )
+    print("device_shape is : ", device_shape)
 
     elemType = F32Type.get(ctx)
 

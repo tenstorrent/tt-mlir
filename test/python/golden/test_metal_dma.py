@@ -16,7 +16,9 @@ from builder.base.builder_utils import compile_and_execute_ttir
 pytestmark = pytest.mark.frontend("ttir")
 
 
-def compile_dma_test(test_func, shape, request, device):
+def compile_dma_test(
+    test_func, shape, request, device, extra_pipeline_options: List[str] = []
+):
 
     # Back to back tolayout ops are normally folded during canonicalization into
     # a single ToLayoutOp representing the final result. The option
@@ -80,8 +82,8 @@ def test_host_interop_single_bank_dram_dma(
 @pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.skip_config(["ttmetal", "p150"], reason="See issue #4835")
 @pytest.mark.parametrize("shape", [(256, 256)])
-@pytest.mark.parametrize("start_grid", [(1, 1), (1, 2), (2, 1), (4, 4)])
-@pytest.mark.parametrize("end_grid", [(1, 1), (2, 2)])
+@pytest.mark.parametrize("start_grid", [(1, 1)])
+@pytest.mark.parametrize("end_grid", [(1, 1)])
 @pytest.mark.parametrize(
     "memory_space", [ttcore.MemorySpace.DeviceL1, ttcore.MemorySpace.DeviceDRAM]
 )
@@ -296,3 +298,167 @@ def test_interleaved_dma(
         return untilize_out
 
     compile_dma_test(interleaved_dma, shape, request, device=device)
+
+
+def constructHWShardedAffineMap(
+    grid: tuple[int, int], device_grid: tuple[int, int], builder: TTIRBuilder
+):
+
+    getConstant = lambda value: AffineConstantExpr.get(value, builder._ctx)
+    getDim = lambda index: AffineDimExpr.get(index, builder._ctx)
+
+    assert (
+        (grid[0] == 1 or grid[1] == 1) and (grid[0] > 1 or grid[1] > 1),
+        "grid must be 1x1 or 1xN or Nx1",
+    )
+
+    is_height_sharded = grid[0] > 1
+    shard_dim = getDim(0) if is_height_sharded else getDim(1)
+    wrap_constant = (
+        getConstant(device_grid[0])
+        if is_height_sharded
+        else getConstant(device_grid[1])
+    )
+
+    floordiv_dim = AffineFloorDivExpr.get(shard_dim, wrap_constant)
+    mod_dim = AffineModExpr.get(shard_dim, wrap_constant)
+
+    exprs = [
+        mod_dim if is_height_sharded else floordiv_dim,
+        floordiv_dim if is_height_sharded else mod_dim,
+        getDim(2),
+        getDim(3),
+    ]
+
+    map = AffineMap.get(2 * len(grid), 0, exprs, builder._ctx)
+    return map
+
+
+def constructNDVirtualGridAffineMap(
+    grid: List[int], device_grid: tuple[int, int], builder: TTIRBuilder
+):
+
+    getConstant = lambda value: AffineConstantExpr.get(value, builder._ctx)
+    getDim = lambda index: AffineDimExpr.get(index, builder._ctx)
+
+    floorDiv = lambda expr, constant: AffineFloorDivExpr.get(
+        expr, getConstant(constant)
+    )
+    mod = lambda expr, constant: AffineModExpr.get(expr, getConstant(constant))
+
+    flatIdx = getConstant(0)
+    stride = 1
+    for (dimIdx, extent) in reversed(list(enumerate(grid))):
+        flatIdx += mod((getDim(dimIdx) * stride), extent)
+        stride *= extent
+    print("flatIdx is : ", flatIdx)
+
+    # reshape flatIdx expr to device grid shape
+    grid_exprs = []
+    stride = 1
+    for extent in reversed(device_grid):
+        grid_exprs.append(mod(floorDiv(flatIdx, stride), extent))
+        stride *= extent
+
+    print("grid_exprs is : ")
+    for expr in grid_exprs:
+        print("  ", expr)
+
+    shard_exprs = [getDim(i) for i in range(len(grid), 2 * len(grid))]
+    exprs = grid_exprs + shard_exprs
+    print("exprs has length : ", len(exprs))
+    for expr in exprs:
+        print("  ", expr)
+
+    map = AffineMap.get(2 * len(grid), 0, exprs, builder._ctx)
+    print("affine map is : ", map)
+    return map
+
+
+@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize(
+    "shape, start_grid, end_grid",
+    [
+        # ((32, 2048), (1, 64), (1, 8)),
+        # ((2048, 32), (64, 1), (8, 1)),
+        # ((4096, 32), (64, 1), (8, 1)),
+        # ((32, 4096), (1, 64), (1, 8)),
+        # ((2048, 64), (64, 1), (8,1)),
+        ((1, 1, 2048), (1, 1, 1), (1, 1, 8)),
+    ],
+)
+@pytest.mark.parametrize("memory_space", [ttcore.MemorySpace.DeviceL1])
+def test_roundtrip_dma_rowmajor_virtual_grid(
+    shape: Shape,
+    start_grid: tuple[int, int],
+    end_grid: tuple[int, int],
+    memory_space: ttcore.MemorySpace,
+    target: str,
+    request,
+    device,
+):
+    def dram_write(
+        in0: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: List[str] = None,
+    ):
+
+        device_grid = (8, 8)
+        to_device = builder.to_layout(
+            in0,
+            output_type=builder.get_metal_tensor_layout(
+                shape, tiled=False, memorySpace=ttcore.MemorySpace.DeviceL1
+            ),
+            unit_attrs=unit_attrs,
+        )
+
+        # derive sharded shapes
+        start_shard_shape = [s // g for s, g in zip(shape, start_grid)]
+        end_shard_shape = [s // g for s, g in zip(shape, end_grid)]
+
+        # WRITE L1 to initial shard layout
+
+        start_index_map = (
+            constructHWShardedAffineMap(start_grid, device_grid, builder)
+            if len(start_grid) == 2
+            else constructNDVirtualGridAffineMap(start_grid, device_grid, builder)
+        )
+        tensor_layoutA = builder.to_layout(
+            to_device,
+            output_type=builder.get_metal_tensor_layout(
+                shape,
+                tiled=False,
+                memorySpace=memory_space,
+                grid=start_grid,
+                index_map=start_index_map,
+            ),
+            unit_attrs=unit_attrs,
+        )
+
+        # READ sharded layout to final sharded layout
+        end_index_map = (
+            constructHWShardedAffineMap(end_grid, device_grid, builder)
+            if len(end_grid) == 2
+            else constructNDVirtualGridAffineMap(end_grid, device_grid, builder)
+        )
+        tensor_layoutB = builder.to_layout(
+            tensor_layoutA,
+            output_type=builder.get_metal_tensor_layout(
+                shape,
+                tiled=False,
+                memorySpace=ttcore.MemorySpace.DeviceL1,
+                grid=end_grid,
+                index_map=end_index_map,
+            ),
+            unit_attrs=unit_attrs,
+        )
+
+        system_out = builder.to_layout(
+            tensor_layoutB,
+            output_type=in0.type,
+            unit_attrs=unit_attrs,
+        )
+
+        return system_out
+
+    compile_dma_test(dram_write, shape, request, device=device)

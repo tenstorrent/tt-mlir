@@ -957,6 +957,8 @@ MetalLayoutAttr::getDeviceShape(ArrayRef<int64_t> gridShape,
                dim, gridDim);
     deviceShape.push_back(dim / gridDim);
   }
+  llvm::dbgs() << "(C++) deviceShape is : "
+               << ttmlir::utils::formatIterable(deviceShape) << "\n";
   return deviceShape;
 }
 
