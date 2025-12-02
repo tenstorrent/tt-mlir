@@ -116,7 +116,11 @@ def _ttcore_dtype_from_ttnn_dtype(dtype):
 def _get_grid_from_bounding_box(tensor_arg):
 
     core_range_set = tensor_arg.memory_config().shard_spec.grid
-    assert len(core_range_set.ranges()) == 1
+    number_of_core_ranges = len(core_range_set.ranges())
+    if number_of_core_ranges != 1:
+        raise ValueError(
+            f"CoreRangeSet should have only 1 CoreRange, but got {number_of_core_ranges}"
+        )
 
     core_coord = core_range_set.bounding_box().grid_size()
     max_grid = (core_coord.x, core_coord.y)
