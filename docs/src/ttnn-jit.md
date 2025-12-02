@@ -156,7 +156,7 @@ See [test_program_cache.py](../../test/ttnn-jit/test_program_cache.py) for a det
 
 ### Op Fusion
 
-Fusion is a key optimization in the D2M compilation pipeline that combines multiple D2M generic operations into a single fused kernels, reducing overhead and improving performance. This feature is currently always enabled and runs under-the-hood with no additional input/guidance required from the user.
+Fusion is a key optimization in the D2M compilation pipeline that combines multiple D2M generic operations into a single fused kernel, reducing overhead and improving performance. This feature is currently always enabled and runs under-the-hood with no additional input/guidance required from the user.
 
 #### At a Glance
 
@@ -242,8 +242,62 @@ Arbitrary Binary + Unary Op Trees
 - **Fully fusable** → Fewer kernels = fewer kernel dispatches
 - Op loops iterate over 1xDST-Tile blocks
 - No init hoisting benefits
-- Op tree is evaluated and op execution order is rescheduled to minimize number of required DST registers (minimize the max number of tensors that can be live at any point during execution)
+- Op tree is evaluated and op execution order is rescheduled to minimize number of required DST registers (minimize the max number of tiles that can be live at any point during execution)
+  - only the execution order of the ops is changed --> does not change the execution in a way that affects floating point rounding error accumulation
 - "loads" of input data tiles are moved to immediately before their users
+
+
+```Python
+@ttnn_jit.jit(backend="ttnn", max_grid=(7, 7), debug=False)
+def cosh(input_tensor):
+  e_pos_x = ttnn.exp(input_tensor)
+  e_neg_x = ttnn.exp(ttnn.neg(input_tensor))
+  nr_term = ttnn.add(e_pos_x, e_neg_x)
+  return ttnn.multiply(nr_term, 0.5)
+```
+
+After going through the D2M pipeline, we end up with one main compute kernel that contains all of the cosh ops:
+
+```
+func.func private @compute_kernel2() attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>, <arg_type = cb_port, operand_index = 2>, <arg_type = cb_port, operand_index = 3>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+        // . . . omitted . . .
+        emitc.call_opaque "cb_wait_front"(%5, %3) : (!emitc.opaque<"::tt::CB">, i32) -> ()
+        emitc.call_opaque "cb_reserve_back"(%7, %3) : (!emitc.opaque<"::tt::CB">, i32) -> ()
+        emitc.call_opaque "cb_wait_front"(%4, %3) : (!emitc.opaque<"::tt::CB">, i32) -> ()
+        emitc.call_opaque "cb_wait_front"(%6, %3) : (!emitc.opaque<"::tt::CB">, i32) -> ()
+        emitc.call_opaque "tile_regs_acquire"() : () -> ()
+        emitc.call_opaque "copy_tile_init"(%4) : (!emitc.opaque<"::tt::CB">) -> ()
+        emitc.call_opaque "copy_tile"(%4, %0, %0) : (!emitc.opaque<"::tt::CB">, !emitc.size_t, !emitc.size_t) -> ()
+        emitc.call_opaque "exp_tile_init"() : () -> ()
+        emitc.call_opaque "exp_tile"(%0): (!emitc.size_t) -> ()
+        emitc.call_opaque "copy_tile_init"(%5) : (!emitc.opaque<"::tt::CB">) -> ()
+        emitc.call_opaque "copy_tile"(%5, %0, %1) : (!emitc.opaque<"::tt::CB">, !emitc.size_t, !emitc.size_t) -> ()
+        emitc.call_opaque "negative_tile_init"() : () -> ()
+        emitc.call_opaque "negative_tile"(%1) : (!emitc.size_t) -> ()
+        emitc.call_opaque "exp_tile_init"() : () -> ()
+        emitc.call_opaque "exp_tile"(%1) : (!emitc.size_t) -> ()
+        emitc.call_opaque "add_binary_tile_init"() : () -> ()
+        emitc.call_opaque "add_binary_tile"(%0, %1, %2) : (!emitc.size_t, !emitc.size_t, !emitc.size_t) -> ()
+        emitc.call_opaque "copy_tile_init"(%6) : (!emitc.opaque<"::tt::CB">) -> ()
+        emitc.call_opaque "copy_tile"(%6, %0, %0) : (!emitc.opaque<"::tt::CB">, !emitc.size_t, !emitc.size_t) -> ()
+        emitc.call_opaque "mul_binary_tile_init"() : () -> ()
+        emitc.call_opaque "mul_binary_tile"(%2, %0, %1) : (!emitc.size_t, !emitc.size_t, !emitc.size_t) -> ()
+        emitc.call_opaque "tile_regs_commit"() : () -> ()
+        emitc.call_opaque "tile_regs_wait"() : () -> ()
+        emitc.call_opaque "pack_tile"(%1, %7, %0) {template_args = [true]} : (!emitc.size_t, !emitc.opaque<"::tt::CB">, !emitc.size_t) -> ()
+        emitc.call_opaque "tile_regs_release"() : () -> ()
+        emitc.call_opaque "cb_pop_front"(%5, %3) : (!emitc.opaque<"::tt::CB">, i32) -> ()
+        emitc.call_opaque "cb_push_back"(%7, %3) : (!emitc.opaque<"::tt::CB">, i32) -> ()
+        emitc.call_opaque "cb_pop_front"(%4, %3) : (!emitc.opaque<"::tt::CB">, i32) -> ()
+        emitc.call_opaque "cb_pop_front"(%6, %3) : (!emitc.opaque<"::tt::CB">, i32) -> ()
+        emitc.call_opaque "cb_wait_front"(%7, %3) : (!emitc.opaque<"::tt::CB">, i32) -> ()
+        emitc.call_opaque "cb_pop_front"(%7, %3) : (!emitc.opaque<"::tt::CB">, i32) -> ()
+        return
+      }
+    }
+```
+
+Op Reordering/Rescheduling Example:
 
 ```Python
 @ttnn_jit.jit(backend="ttnn", max_grid=(7, 7), debug=False)
@@ -251,40 +305,40 @@ def add_tree_8_to_1(
         in0, in1, in2, in3,
         in4, in5, in6, in7
 ):
-        add_0_0 = builder.add(in0, in1)
-        add_0_1 = builder.add(in2, in3)
-        add_0_2 = builder.add(in4, in5)
+        add_0_0 = ttnn.add(in0, in1)
+        add_0_1 = ttnn.add(in2, in3)
+        add_0_2 = ttnn.add(in4, in5)
         # At this point we're storing 3 intermediate results in DST tiles
         # Need 2 more DST tiles for inputs below
         # +1 more DST tile for the result
         # Peak usage of 6 DST tiles
-        add_0_3 = builder.add(in6, in7)
+        add_0_3 = ttnn.add(in6, in7)
 
-        add_1_0 = builder.add(add_0_0, add_0_1)
-        add_1_1 = builder.add(add_0_2, add_0_3)
+        add_1_0 = ttnn.add(add_0_0, add_0_1)
+        add_1_1 = ttnn.add(add_0_2, add_0_3)
 
-        add_2_0 = builder.add(add_1_0, add_1_1)
+        add_2_0 = ttnn.add(add_1_0, add_1_1)
 ```
 
 Is rescheduled under-the-hood to:
 
 ```Python
         # resolve one half of the op-tree
-        add_0_0 = builder.add(in0, in1)
-        add_0_1 = builder.add(in2, in3)
-        add_1_0 = builder.add(add_0_0, add_0_1)
+        add_0_0 = ttnn.add(in0, in1)
+        add_0_1 = ttnn.add(in2, in3)
+        add_1_0 = ttnn.add(add_0_0, add_0_1)
         # store add_1_0 as the result of this half of the tree
 
         # THEN resolve other half
-        add_0_2 = builder.add(in4, in5)
+        add_0_2 = ttnn.add(in4, in5)
         # Storing add_1_0 and add_0_2 in intermediate in DST tiles
         # Need 3 more DST tiles for add_0_3
         # Peak usage of 5 DST-Tiles
-        add_0_3 = builder.add(in6, in7)
-        add_1_1 = builder.add(add_0_2, add_0_3)
+        add_0_3 = ttnn.add(in6, in7)
+        add_1_1 = ttnn.add(add_0_2, add_0_3)
 
         # combine 2 results
-        add_2_0 = builder.add(add_1_0, add_1_1)
+        add_2_0 = ttnn.add(add_1_0, add_1_1)
 ```
 
 ## Debugging FAQ
