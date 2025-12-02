@@ -2935,8 +2935,9 @@ private:
 };
 } // namespace
 
+namespace {
 // ============================================================================
-// SDPA Fusing - Semantic Pattern Matching
+// SDPA Fusing
 // ============================================================================
 //
 // This pattern identifies Scaled Dot Product Attention (SDPA) by its
@@ -2953,8 +2954,6 @@ private:
 // After the matched pattern is replaced with ttir.scaled_dot_product_attention
 // op, the mask is broadcasted to shape [batch_size, 1, query_seq_len,
 // key_seq_len]
-
-namespace {
 
 class SDPAFusing : public mlir::OpRewritePattern<MatmulOp> {
   using SDPAFusing::OpRewritePattern<MatmulOp>::OpRewritePattern;
@@ -3015,7 +3014,7 @@ private:
     components.attentionMatmul = matmul;
 
     // Check if this matmul has softmax feeding into it (attention scores @ V)
-    SoftmaxOp softmax = skipLayoutOps<SoftmaxOp>(matmul.getA());
+    SoftmaxOp softmax = findOpThroughLayoutOps<SoftmaxOp>(matmul.getA());
     if (!softmax) {
       return false;
     }
@@ -3024,7 +3023,7 @@ private:
 
     // Look for optional mask addition
     Value cursor = softmax.getInput();
-    if (auto maskAdd = skipLayoutOps<AddOp>(cursor)) {
+    if (auto maskAdd = findOpThroughLayoutOps<AddOp>(cursor)) {
       if (auto maskResult = tryExtractMask(maskAdd)) {
         components.mask = maskResult->first;
         cursor = maskResult->second;
@@ -3032,7 +3031,7 @@ private:
     }
 
     // Look for optional scale multiplication
-    if (auto mulOp = skipLayoutOps<MultiplyOp>(cursor)) {
+    if (auto mulOp = findOpThroughLayoutOps<MultiplyOp>(cursor)) {
       if (auto scaleResult = tryExtractScale(mulOp)) {
         components.scale = scaleResult->first;
         cursor = scaleResult->second;
@@ -3040,7 +3039,7 @@ private:
     }
 
     // Look for Q@K matmul (required)
-    auto qkMatmul = skipLayoutOps<MatmulOp>(cursor);
+    auto qkMatmul = findOpThroughLayoutOps<MatmulOp>(cursor);
     if (!qkMatmul) {
       return false;
     }
@@ -3126,8 +3125,8 @@ private:
   // Try to extract mask from an add operation.
   // Returns {mask, score_path} if found, nullopt otherwise.
   std::optional<std::pair<Value, Value>> tryExtractMask(AddOp addOp) const {
-    auto lhsMul = skipLayoutOps<MultiplyOp>(addOp.getLhs());
-    auto rhsMul = skipLayoutOps<MultiplyOp>(addOp.getRhs());
+    auto lhsMul = findOpThroughLayoutOps<MultiplyOp>(addOp.getLhs());
+    auto rhsMul = findOpThroughLayoutOps<MultiplyOp>(addOp.getRhs());
     if (lhsMul && looksLikeMask(addOp.getRhs())) {
       return std::make_pair(addOp.getRhs(), addOp.getLhs());
     }
@@ -3158,7 +3157,7 @@ private:
   // Returns nullptr if a non-layout op is encountered before finding the
   // target.
   template <typename OpType>
-  OpType skipLayoutOps(Value v) const {
+  OpType findOpThroughLayoutOps(Value v) const {
     while (Operation *defOp = v.getDefiningOp()) {
       if (auto targetOp = dyn_cast<OpType>(defOp)) {
         return targetOp;
@@ -3241,9 +3240,6 @@ private:
     return type.getShape()[1] == 1;
   }
 };
-
-} // namespace
-
 } // namespace
 
 class TTIRFusingPass : public impl::TTIRFusingBase<TTIRFusingPass> {
@@ -3310,5 +3306,5 @@ public:
     }
   }
 };
-
+} // namespace
 } // namespace mlir::tt::ttir
