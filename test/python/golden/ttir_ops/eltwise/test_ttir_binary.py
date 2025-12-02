@@ -295,7 +295,9 @@ def logical_right_shift(
     )
 
     golden_fn = get_golden_function(ttir.LogicalRightShiftOp)
-    output_golden = golden_fn(builder._get_golden_tensor(in0), constrained_shift_tensor)
+    output_golden = golden_fn(
+        builder._get_golden_tensor(in0), constrained_shift_tensor, builder.get_type(in0)
+    )
     builder.set_goldens_from_builder_tensor(
         {in1: constrained_shift_tensor}, {logical_right_shift_0: output_golden}
     )

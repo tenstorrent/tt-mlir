@@ -2911,10 +2911,10 @@ def ttir_sqrt_golden(
 
 
 def ttir_pow_golden(
-    input_tensor: GoldenMapTensor, output_type_mlir: Type
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
-    return torch.pow(input_tensor).to(output_dtype)
+    return torch.pow(input_tensor, other_tensor).to(output_dtype)
 
 
 def ttir_ge_golden(
