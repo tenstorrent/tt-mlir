@@ -111,9 +111,6 @@ public:
           loc, "compute_kernel_api/eltwise_unary/gelu.h",
           /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(
-          loc, "compute_kernel_api/eltwise_unary/cbrt.h",
-          /*isStandard=*/false);
-      builder->create<emitc::IncludeOp>(
           loc, "compute_kernel_api/eltwise_unary/erf_erfc.h",
           /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(

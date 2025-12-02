@@ -309,16 +309,6 @@ def D2M_TileGeluOp : D2M_GenericRegionComputeUnaryDstOp<"tile_gelu", D2M_TileCom
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileCbrtOp : D2M_GenericRegionComputeUnaryDstOp<"tile_cbrt", D2M_TileComputeOpTraitBundle> {
-    let summary = "D2M Tile Cbrt Op";
-    let description = [{
-        The `tile_cbrt` operation computes the cube root of each element in the input tile.
-    }];
-
-    let arguments = (ins TTCore_Tile:$input);
-    let results = (outs TTCore_Tile:$result);
-}
-
 def D2M_TileErfOp : D2M_GenericRegionComputeUnaryDstOp<"tile_erf", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Erf Op";
     let description = [{

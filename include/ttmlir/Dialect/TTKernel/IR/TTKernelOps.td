@@ -1802,35 +1802,6 @@ def TTKernel_GeluTileOp : TTKernel_SFPUOp<"gelu_tile", [TTKernel_UnaryOpTrait]> 
     }];
 }
 
-def TTKernel_CbrtTileInitOp : TTKernel_InitOp<"cbrt_tile_init"> {
-    let summary = "Short init function which configures compute unit for execution of cbrt_tile.";
-    let description = [{
-      Must be run before cbrt_tile.
-    }];
-
-    let arguments = (ins);
-
-    let assemblyFormat = [{
-      `(` `)` attr-dict `:` functional-type(operands, results)
-    }];
-}
-
-def TTKernel_CbrtTileOp : TTKernel_SFPUOp<"cbrt_tile", [TTKernel_UnaryOpTrait]> {
-    let summary = "Cbrt operation";
-    let description = [{
-      Performs element-wise computation of cube root on each element of a tile
-      in DST register at index tile_index. The DST register buffer must be in
-      acquired state via *acquire_dst* call. This call is blocking and is only
-      available on the compute engine.
-    }];
-
-    let arguments = (ins IndexLike:$tile_index);
-
-    let assemblyFormat = [{
-      `(` $tile_index `)` attr-dict `:` functional-type(operands, results)
-    }];
-}
-
 def TTKernel_ErfTileInitOp : TTKernel_InitOp<"erf_tile_init"> {
     let summary = "Short init function which configures compute unit for execution of erf_tile.";
     let description = [{

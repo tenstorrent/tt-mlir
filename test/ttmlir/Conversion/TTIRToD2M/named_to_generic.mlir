@@ -153,33 +153,28 @@ module {
     // named elementwise op, unary:
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
-    // CHECK: d2m.tile_cbrt
-    %26 = "ttir.cbrt"(%25) : (!ttype) -> !ttype
-    // named elementwise op, unary:
-    // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
-    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
     // CHECK: d2m.tile_erf
-    %27 = "ttir.erf"(%26) : (!ttype) -> !ttype
+    %26 = "ttir.erf"(%25) : (!ttype) -> !ttype
     // named elementwise op, unary:
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
     // CHECK: d2m.tile_erfc
-    %28 = "ttir.erfc"(%27) : (!ttype) -> !ttype
+    %27 = "ttir.erfc"(%26) : (!ttype) -> !ttype
     // named elementwise op, unary:
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
     // CHECK: d2m.tile_sign
-    %29 = "ttir.sign"(%28) : (!ttype) -> !ttype
+    %28 = "ttir.sign"(%27) : (!ttype) -> !ttype
     // named elementwise op, unary:
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
     // CHECK: d2m.tile_bitwise_not
-    %30 = "ttir.bitwise_not"(%29) : (!ttype) -> !ttype
+    %29 = "ttir.bitwise_not"(%28) : (!ttype) -> !ttype
     // named elementwise op, unary:
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
     // CHECK: d2m.tile_silu
-    %31 = "ttir.silu"(%30) : (!ttype) -> !ttype
+    %30 = "ttir.silu"(%29) : (!ttype) -> !ttype
     // named elementwise op, unary:
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]

@@ -354,7 +354,6 @@ using ComputeOpMap = OpMap<
   // Elementwise SFPU Unary.
   std::pair<d2m::TileAbsOp,         std::pair<ttkernel::AbsTileInitOp,             ttkernel::AbsTileOp>>,
   std::pair<d2m::TileBitwiseNotOp,  std::pair<ttkernel::BitwiseNotTileInitOp,      ttkernel::BitwiseNotTileOp>>,
-  std::pair<d2m::TileCbrtOp,        std::pair<ttkernel::CbrtTileInitOp,             ttkernel::CbrtTileOp>>,
   std::pair<d2m::TileCeilOp,        std::pair<ttkernel::RoundingTileInitOp,        ttkernel::CeilTileOp>>,
   std::pair<d2m::TileCosOp,         std::pair<ttkernel::CosTileInitOp,             ttkernel::CosTileOp>>,
   std::pair<d2m::TileErfOp,         std::pair<ttkernel::ErfTileInitOp,             ttkernel::ErfTileOp>>,
@@ -1598,7 +1597,6 @@ void populateD2MToTTKernelPatterns(
                // Elementwise SFPU Unary.
                ttkernel::D2MSFPUOpsRewriter<d2m::TileAbsOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileBitwiseNotOp>,
-               ttkernel::D2MSFPUOpsRewriter<d2m::TileCbrtOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileCeilOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileCosOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileErfOp>,

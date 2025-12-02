@@ -783,22 +783,6 @@ module {
       return
     }
 
-    // CHECK-LABEL: func @cbrt_tile_init
-    func.func @cbrt_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
-      // CHECK: emitc.call_opaque "cbrt_tile_init"()
-      "ttkernel.cbrt_tile_init"() : () -> ()
-      return
-    }
-
-    // CHECK-LABEL: func @cbrt_tile
-    func.func @cbrt_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
-      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
-      %dst_index = arith.constant 3 : i32
-      // CHECK: emitc.call_opaque "cbrt_tile"(%[[DST_INDEX]])
-      "ttkernel.cbrt_tile"(%dst_index) : (i32) -> ()
-      return
-    }
-
     // CHECK-LABEL: func @erf_tile_init
     func.func @erf_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: emitc.call_opaque "erf_tile_init"()

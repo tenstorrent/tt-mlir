@@ -15,7 +15,6 @@ unary_ops = [
     "rsqrt",
     "log",
     "cos",
-    "cbrt",
     "erf",
     "erfc",
     "sign",
