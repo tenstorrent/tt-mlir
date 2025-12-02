@@ -803,6 +803,8 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::BitwiseNotTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BitwiseOrBinaryTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BitwiseXorBinaryTilesOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::SignTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::SignTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::CeilTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::CeilTileF32Op>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::CopyDestValuesInitOp>,

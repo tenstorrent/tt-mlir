@@ -899,6 +899,22 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @sign_tile_init
+    func.func @sign_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "sign_tile_init"()
+      "ttkernel.sign_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @sign_tile
+    func.func @sign_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "sign_tile"(%[[DST_INDEX]])
+      "ttkernel.sign_tile"(%dst_index) : (i32) -> ()
+      return
+    }
+
     // CHECK-LABEL: func @logical_not_unary_tile_init
     func.func @logical_not_unary_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: emitc.call_opaque "logical_not_unary_tile_init"()

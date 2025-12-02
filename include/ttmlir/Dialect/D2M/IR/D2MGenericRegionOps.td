@@ -339,6 +339,17 @@ def D2M_TileErfcOp : D2M_GenericRegionComputeUnaryDstOp<"tile_erfc", D2M_TileCom
     let results = (outs TTCore_Tile:$result);
 }
 
+def D2M_TileSignOp : D2M_GenericRegionComputeUnaryDstOp<"tile_sign", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Sign Op";
+    let description = [{
+        The `tile_sign` operation computes the sign of each element in the input tile.
+        Returns 1 for positive values, -1 for negative values, and 0 for zero.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
 def D2M_TileCeilOp : D2M_GenericRegionComputeUnaryDstOp<"tile_ceil", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Ceil Op";
     let description = [{

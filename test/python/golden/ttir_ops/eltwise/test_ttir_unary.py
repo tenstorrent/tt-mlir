@@ -231,7 +231,7 @@ unary_ops = [
     relu6 | Marks(pytest.mark.skip_config(["ttmetal"])),
     rsqrt,
     sigmoid,
-    sign | Marks(pytest.mark.skip_config(["ttmetal"])),
+    sign,
     silu,
     sin,
     sqrt,

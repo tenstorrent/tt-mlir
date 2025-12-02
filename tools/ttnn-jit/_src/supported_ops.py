@@ -18,6 +18,7 @@ unary_ops = [
     "cbrt",
     "erf",
     "erfc",
+    "sign",
     "sin",
     "ceil",
     "floor",

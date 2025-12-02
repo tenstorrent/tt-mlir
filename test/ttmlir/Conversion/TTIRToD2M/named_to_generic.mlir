@@ -149,32 +149,37 @@ module {
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
     // CHECK: d2m.tile_gelu
-    %25= "ttir.gelu"(%24) : (!ttype) -> !ttype
+    %25 = "ttir.gelu"(%24) : (!ttype) -> !ttype
     // named elementwise op, unary:
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
     // CHECK: d2m.tile_cbrt
-    %25a = "ttir.cbrt"(%25) : (!ttype) -> !ttype
+    %26 = "ttir.cbrt"(%25) : (!ttype) -> !ttype
     // named elementwise op, unary:
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
     // CHECK: d2m.tile_erf
-    %25b = "ttir.erf"(%25a) : (!ttype) -> !ttype
+    %27 = "ttir.erf"(%26) : (!ttype) -> !ttype
     // named elementwise op, unary:
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
     // CHECK: d2m.tile_erfc
-    %25c = "ttir.erfc"(%25b) : (!ttype) -> !ttype
+    %28 = "ttir.erfc"(%27) : (!ttype) -> !ttype
+    // named elementwise op, unary:
+    // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: d2m.tile_sign
+    %29 = "ttir.sign"(%28) : (!ttype) -> !ttype
     // named elementwise op, unary:
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
     // CHECK: d2m.tile_bitwise_not
-    %26 = "ttir.bitwise_not"(%25c) : (!ttype) -> !ttype
+    %30 = "ttir.bitwise_not"(%29) : (!ttype) -> !ttype
     // named elementwise op, unary:
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
     // CHECK: d2m.tile_silu
-    %27= "ttir.silu"(%26) : (!ttype) -> !ttype
+    %31 = "ttir.silu"(%30) : (!ttype) -> !ttype
     // named elementwise op, unary:
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
