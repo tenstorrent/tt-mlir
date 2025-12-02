@@ -22,6 +22,11 @@ set(LIB_SOURCES
   lib/utils.cpp
 )
 
+# Python runner sources (separate due to RTTI requirements)
+set(PYTHON_RUNNER_SOURCES
+  lib/python_runner.cpp
+)
+
 # Add library
 #
 add_library(${TT_ALCHEMIST_LIBRARY_NAME}
@@ -38,6 +43,9 @@ target_include_directories(${TT_ALCHEMIST_LIBRARY_NAME}
     ${TT_ALCHEMIST_ROOT_SOURCE_DIR}/csrc/include  # Internal headers
     ${TT_MLIR_HOME}/include
 )
+
+# Find pybind11 for Python embedding support (used by python runner)
+find_package(pybind11 CONFIG REQUIRED)
 
 target_link_directories(${TT_ALCHEMIST_LIBRARY_NAME}
   PUBLIC
@@ -86,6 +94,73 @@ target_link_options(${TT_ALCHEMIST_LIBRARY_NAME}
     -Wl,-rpath-link,${PROJECT_BINARY_DIR}/lib
     -Wl,-rpath-link,${TTNN_INSTALL_DIR}/lib
 )
+
+################################################################################
+# Python Model Runner Library
+# This is built separately with RTTI enabled (required by pybind11)
+################################################################################
+
+set(PYTHON_RUNNER_LIBRARY_NAME tt-alchemist-python-runner)
+
+add_library(${PYTHON_RUNNER_LIBRARY_NAME}
+  SHARED
+  EXCLUDE_FROM_ALL
+  ${PYTHON_RUNNER_SOURCES}
+)
+
+# Set C++20 standard (required by tt-metal headers)
+set_property(TARGET ${PYTHON_RUNNER_LIBRARY_NAME} PROPERTY CXX_STANDARD 20)
+
+# Python runner requires RTTI (for pybind11), so we don't use -fno-rtti here
+# Suppress warnings from tt-metal headers that would otherwise be errors
+# Note: We don't use -fvisibility=hidden here so symbols are exported
+target_compile_options(${PYTHON_RUNNER_LIBRARY_NAME}
+  PRIVATE
+    -Wno-deprecated-declarations
+    -Wno-gnu-zero-variadic-macro-arguments
+)
+
+target_compile_definitions(${PYTHON_RUNNER_LIBRARY_NAME}
+  PRIVATE
+    TT_ALCHEMIST_EXPORT=__attribute__\(\(visibility\(\"default\"\)\)\)
+)
+
+target_include_directories(${PYTHON_RUNNER_LIBRARY_NAME}
+  PUBLIC
+    ${TT_ALCHEMIST_ROOT_SOURCE_DIR}/include
+  PRIVATE
+    ${TT_ALCHEMIST_ROOT_SOURCE_DIR}/csrc/include
+  SYSTEM PRIVATE
+    ${pybind11_INCLUDE_DIRS}
+    ${TTMETAL_INCLUDE_DIRS}
+)
+
+# Find Python for linking
+find_package(Python3 COMPONENTS Development REQUIRED)
+
+target_link_libraries(${PYTHON_RUNNER_LIBRARY_NAME}
+  PRIVATE
+    pybind11::embed
+    Python3::Python
+    ${TTMETAL_LIBRARY_DIR}/libtt_metal.so
+    ${TTMETAL_LIBRARY_DIR}/_ttnncpp.so
+    ${TTMETAL_LIBRARY_DIR}/libtt_stl.so
+    ${TTMETAL_LIBRARY_DIR}/libfmtd.so
+)
+
+set_target_properties(${PYTHON_RUNNER_LIBRARY_NAME} PROPERTIES
+  BUILD_WITH_INSTALL_RPATH TRUE
+  INSTALL_RPATH "$ORIGIN"
+)
+
+install(FILES $<TARGET_FILE:${PYTHON_RUNNER_LIBRARY_NAME}>
+  DESTINATION lib
+  OPTIONAL
+)
+
+################################################################################
+# Install headers and templates
+################################################################################
 
 # Install headers
 add_custom_target(tt-alchemist-install-public-headers
@@ -238,3 +313,9 @@ if(TTMLIR_ENABLE_ALCHEMIST_WHEEL)
   # Override default target to add editable wheel install
   add_dependencies(tt-alchemist tt-alchemist-install-wheel-editable)
 endif()
+
+################################################################################
+# Tests
+################################################################################
+
+add_subdirectory(${TT_ALCHEMIST_ROOT_SOURCE_DIR}/test ${CMAKE_CURRENT_BINARY_DIR}/test)
