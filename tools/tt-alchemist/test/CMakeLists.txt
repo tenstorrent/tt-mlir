@@ -4,6 +4,9 @@
 
 # Tests for PythonModelRunner API
 
+# Find Python for linking (needed for pybind11)
+find_package(Python3 COMPONENTS Development REQUIRED)
+
 # Simple test (no device/tensor required)
 add_executable(test_python_runner_simple
   EXCLUDE_FROM_ALL
@@ -20,7 +23,7 @@ target_compile_options(test_python_runner_simple
 
 target_include_directories(test_python_runner_simple
   PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/../csrc/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../csrc/python_runner
   SYSTEM PRIVATE
     ${TTMETAL_INCLUDE_DIRS}
     ${pybind11_INCLUDE_DIRS}
@@ -46,7 +49,7 @@ target_compile_definitions(test_python_runner_simple
 # Set RPATH to find all required libraries at runtime
 set_target_properties(test_python_runner_simple PROPERTIES
   BUILD_WITH_INSTALL_RPATH FALSE
-  BUILD_RPATH "${CMAKE_BINARY_DIR}/tools/tt-alchemist/csrc:${TTMETAL_LIBRARY_DIR}"
+  BUILD_RPATH "${CMAKE_BINARY_DIR}/tools/tt-alchemist/csrc/python_runner:${TTMETAL_LIBRARY_DIR}"
   INSTALL_RPATH "$ORIGIN:${TTMETAL_LIBRARY_DIR}"
 )
 
@@ -70,7 +73,7 @@ target_compile_options(test_python_runner
 
 target_include_directories(test_python_runner
   PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/../csrc/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../csrc/python_runner
   SYSTEM PRIVATE
     ${TTMETAL_INCLUDE_DIRS}
     ${pybind11_INCLUDE_DIRS}
@@ -102,6 +105,6 @@ target_compile_definitions(test_python_runner
 # Set RPATH to find all required libraries at runtime
 set_target_properties(test_python_runner PROPERTIES
   BUILD_WITH_INSTALL_RPATH FALSE
-  BUILD_RPATH "${CMAKE_BINARY_DIR}/tools/tt-alchemist/csrc:${TTMETAL_LIBRARY_DIR}"
+  BUILD_RPATH "${CMAKE_BINARY_DIR}/tools/tt-alchemist/csrc/python_runner:${TTMETAL_LIBRARY_DIR}"
   INSTALL_RPATH "$ORIGIN:${TTMETAL_LIBRARY_DIR}"
 )

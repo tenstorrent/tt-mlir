@@ -22,11 +22,6 @@ set(LIB_SOURCES
   lib/utils.cpp
 )
 
-# Python runner sources (separate due to RTTI requirements)
-set(PYTHON_RUNNER_SOURCES
-  lib/python_runner.cpp
-)
-
 # Add library
 #
 add_library(${TT_ALCHEMIST_LIBRARY_NAME}
@@ -96,67 +91,10 @@ target_link_options(${TT_ALCHEMIST_LIBRARY_NAME}
 )
 
 ################################################################################
-# Python Model Runner Library
-# This is built separately with RTTI enabled (required by pybind11)
+# Python Model Runner Library (separate subdirectory due to RTTI requirements)
 ################################################################################
 
-set(PYTHON_RUNNER_LIBRARY_NAME tt-alchemist-python-runner)
-
-add_library(${PYTHON_RUNNER_LIBRARY_NAME}
-  SHARED
-  EXCLUDE_FROM_ALL
-  ${PYTHON_RUNNER_SOURCES}
-)
-
-# Set C++20 standard (required by tt-metal headers)
-set_property(TARGET ${PYTHON_RUNNER_LIBRARY_NAME} PROPERTY CXX_STANDARD 20)
-
-# Python runner requires RTTI (for pybind11), so we don't use -fno-rtti here
-# Suppress warnings from tt-metal headers that would otherwise be errors
-# Note: We don't use -fvisibility=hidden here so symbols are exported
-target_compile_options(${PYTHON_RUNNER_LIBRARY_NAME}
-  PRIVATE
-    -Wno-deprecated-declarations
-    -Wno-gnu-zero-variadic-macro-arguments
-)
-
-target_compile_definitions(${PYTHON_RUNNER_LIBRARY_NAME}
-  PRIVATE
-    TT_ALCHEMIST_EXPORT=__attribute__\(\(visibility\(\"default\"\)\)\)
-)
-
-target_include_directories(${PYTHON_RUNNER_LIBRARY_NAME}
-  PUBLIC
-    ${TT_ALCHEMIST_ROOT_SOURCE_DIR}/include
-  PRIVATE
-    ${TT_ALCHEMIST_ROOT_SOURCE_DIR}/csrc/include
-  SYSTEM PRIVATE
-    ${pybind11_INCLUDE_DIRS}
-    ${TTMETAL_INCLUDE_DIRS}
-)
-
-# Find Python for linking
-find_package(Python3 COMPONENTS Development REQUIRED)
-
-target_link_libraries(${PYTHON_RUNNER_LIBRARY_NAME}
-  PRIVATE
-    pybind11::embed
-    Python3::Python
-    ${TTMETAL_LIBRARY_DIR}/libtt_metal.so
-    ${TTMETAL_LIBRARY_DIR}/_ttnncpp.so
-    ${TTMETAL_LIBRARY_DIR}/libtt_stl.so
-    ${TTMETAL_LIBRARY_DIR}/libfmtd.so
-)
-
-set_target_properties(${PYTHON_RUNNER_LIBRARY_NAME} PROPERTIES
-  BUILD_WITH_INSTALL_RPATH TRUE
-  INSTALL_RPATH "$ORIGIN"
-)
-
-install(FILES $<TARGET_FILE:${PYTHON_RUNNER_LIBRARY_NAME}>
-  DESTINATION lib
-  OPTIONAL
-)
+add_subdirectory(python_runner)
 
 ################################################################################
 # Install headers and templates
