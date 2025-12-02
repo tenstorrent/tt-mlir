@@ -114,8 +114,13 @@ def _ttcore_dtype_from_ttnn_dtype(dtype):
 
 
 def _get_grid_from_bounding_box(tensor_arg):
-    grid_bounding_box = tensor_arg.memory_config().shard_spec.grid.bounding_box()
-    max_grid = (grid_bounding_box.end.x, grid_bounding_box.end.y)
+
+    core_range_set = tensor_arg.memory_config().shard_spec.grid
+    assert len(core_range_set.ranges()) == 1
+
+    core_coord = core_range_set.bounding_box().grid_size()
+    max_grid = (core_coord.x, core_coord.y)
+
     return max_grid
 
 
@@ -134,8 +139,8 @@ def _get_grid(ctx, tensor_arg, memory_layout):
 
         max_grid = _get_grid_from_bounding_box(tensor_arg)
 
-        grid_size_x = max_grid[0] + 1
-        grid_size_y = max_grid[1] + 1
+        grid_size_x = max_grid[0]
+        grid_size_y = max_grid[1]
 
         return ttcore.ir.GridAttr.get(ctx, [grid_size_y, grid_size_x])
     else:
