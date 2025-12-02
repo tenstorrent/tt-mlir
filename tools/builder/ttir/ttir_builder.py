@@ -200,7 +200,7 @@ class TTIRBuilder(Builder):
         if not self._disable_golden_check:
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(
-                size=size, dtype=dtype, low=low_attr, high=high_attr, seed=seed_attr
+                size=size, dtype=datatype, low=low_attr, high=high_attr, seed=seed_attr
             )
             self._set_golden_tensor(op, golden_output)
 
@@ -224,11 +224,11 @@ class TTIRBuilder(Builder):
 
         new_op = ttir_op(
             result,
-            size_attr,
-            dtype_attr,
-            low_attr,
-            high_attr,
-            seed_attr,
+            size=size_attr,
+            dtype=dtype_attr,
+            low=low_attr,
+            high=high_attr,
+            seed=seed_attr,
             loc=old_op.location,
         )
 
@@ -273,11 +273,11 @@ class TTIRBuilder(Builder):
 
                     new_op = ttir_op(
                         result,
-                        size_attr,
-                        dtype_attr,
-                        low_attr,
-                        high_attr,
-                        seed_attr,
+                        size=size_attr,
+                        dtype=dtype_attr,
+                        low=low_attr,
+                        high=high_attr,
+                        seed=seed_attr,
                         loc=old_op.location,
                     )
 
@@ -293,6 +293,7 @@ class TTIRBuilder(Builder):
                         rand_builder._set_golden_tensor(new_op, golden_output)
                         rand_builder._set_output_ordering([new_op])
 
+                    rand_builder._disable_golden_check = True
                     return new_op
 
         return rand_module, rand_builder

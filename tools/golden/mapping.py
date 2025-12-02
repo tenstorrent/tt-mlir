@@ -2919,8 +2919,8 @@ def ttir_rand_golden(**kwargs) -> GoldenMapTensor:
     - high: float or FloatAttr
     - seed: int or IntegerAttr
     """
-    size = kwargs.get("size", [1])
-    dtype = kwargs.get("dtype")
+    size = unpack_mlir_attr(kwargs.get("size", [1]))
+    dtype = mlir_type_to_torch_dtype(kwargs.get("dtype"))
     low = unpack_mlir_attr(kwargs.get("low", 0.0))
     high = unpack_mlir_attr(kwargs.get("high", 1.0))
     seed = unpack_mlir_attr(kwargs.get("seed", 0))
