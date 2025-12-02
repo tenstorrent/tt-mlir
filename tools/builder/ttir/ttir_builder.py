@@ -256,6 +256,330 @@ class TTIRBuilder(Builder):
 
         return cumsum_module, cumsum_builder
 
+    ################ ttir.GatherOp ###############
+
+    @tag(ttir.GatherOp)
+    def gather(
+        self,
+        input: Operand,
+        start_indices: Operand,
+        offset_dims: List[int],
+        collapsed_slice_dims: List[int],
+        operand_batching_dims: List[int],
+        start_indices_batching_dims: List[int],
+        start_index_map: List[int],
+        index_vector_dim: int,
+        slice_sizes: List[int],
+        indices_are_sorted: bool = False,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.gather)
+        offset_dims_attr = DenseI64ArrayAttr.get(offset_dims, self._ctx)
+        collapsed_slice_dims_attr = DenseI64ArrayAttr.get(
+            collapsed_slice_dims, self._ctx
+        )
+        operand_batching_dims_attr = DenseI64ArrayAttr.get(
+            operand_batching_dims, self._ctx
+        )
+        start_indices_batching_dims_attr = DenseI64ArrayAttr.get(
+            start_indices_batching_dims, self._ctx
+        )
+        start_index_map_attr = DenseI64ArrayAttr.get(start_index_map, self._ctx)
+        slice_sizes_attr = DenseI64ArrayAttr.get(slice_sizes, self._ctx)
+        indices_are_sorted_attr = BoolAttr.get(indices_are_sorted, self._ctx)
+        index_vector_dim_attr = IntegerAttr.get(
+            IntegerType.get_signed(64), index_vector_dim
+        )
+        input_shape = self.get_shape(input)
+        indices_shape = self.get_shape(start_indices)
+
+        # Batch dimensions: all dims from start_indices except index_vector_dim
+        batch_dims = [
+            indices_shape[i] for i in range(len(indices_shape)) if i != index_vector_dim
+        ]
+        offset_sizes = [
+            slice_sizes[i]
+            for i in range(len(slice_sizes))
+            if i not in collapsed_slice_dims
+        ]
+        result_rank = len(batch_dims) + len(offset_sizes)
+        assert len(offset_dims) == len(
+            offset_sizes
+        ), "offset_dims length must match offset_sizes length"
+        output_shape = [-1] * result_rank
+        for j, pos in enumerate(offset_dims):
+            output_shape[pos] = offset_sizes[j]
+        b = 0
+        for p in range(result_rank):
+            if output_shape[p] == -1:
+                output_shape[p] = batch_dims[b]
+                b += 1
+
+        ttir_kwargs = {
+            "offset_dims": offset_dims_attr,
+            "collapsed_slice_dims": collapsed_slice_dims_attr,
+            "operand_batching_dims": operand_batching_dims_attr,
+            "start_indices_batching_dims": start_indices_batching_dims_attr,
+            "start_index_map": start_index_map_attr,
+            "index_vector_dim": index_vector_dim_attr,
+            "slice_sizes": slice_sizes_attr,
+            "indices_are_sorted": indices_are_sorted_attr,
+        }
+
+        if output_type is None:
+            output_type = self.get_type(input)
+        result_type = self._create_ranked_tensor_type(output_shape, output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir.GatherOp(
+            result_type,
+            input,
+            start_indices,
+            loc=loc,
+            **ttir_kwargs,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            input_golden = self._get_golden_tensor(input)
+            indices_golden = self._get_golden_tensor(start_indices)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(
+                input_golden, indices_golden, **ttir_kwargs
+            )
+            self._set_golden_tensor(op, golden_output)
+
+        return op
+
+    @parse(ttir.GatherOp)
+    def gather_parser(
+        self,
+        old_op: ttir.GatherOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Operation:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.gather_parser)
+        in0 = global_dict[old_op.input]
+        in1 = global_dict[old_op.start_indices]
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            in0,
+            in1,
+            old_op.offset_dims,
+            old_op.collapsed_slice_dims,
+            old_op.operand_batching_dims,
+            old_op.start_indices_batching_dims,
+            old_op.start_index_map,
+            old_op.index_vector_dim,
+            old_op.slice_sizes,
+            old_op.indices_are_sorted,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            input1 = self._get_golden_tensor(in1)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(
+                input0,
+                input1,
+                offset_dims=old_op.offset_dims,
+                collapsed_slice_dims=old_op.collapsed_slice_dims,
+                operand_batching_dims=old_op.operand_batching_dims,
+                start_indices_batching_dims=old_op.start_indices_batching_dims,
+                start_index_map=old_op.start_index_map,
+                index_vector_dim=old_op.index_vector_dim,
+                slice_sizes=old_op.slice_sizes,
+                indices_are_sorted=old_op.indices_are_sorted,
+            )
+            self._set_golden_tensor(new_op, golden_output)
+
+        return new_op
+
+    @split(ttir.GatherOp)
+    def gather_split(
+        self,
+        old_op: ttir.GatherOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.gather_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            gather_module = Module.create()
+            gather_builder = TTIRBuilder(old_ctx, old_loc)
+            op_input_types = [old_op.input.type, old_op.start_indices.type]
+
+            with InsertionPoint(gather_module.body):
+
+                @func.func(*op_input_types, name="gather_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    in1 = inputs[1]
+                    result = old_op.result.type
+
+                    new_op = ttir.GatherOp(
+                        result,
+                        in0,
+                        in1,
+                        old_op.offset_dims,
+                        old_op.collapsed_slice_dims,
+                        old_op.operand_batching_dims,
+                        old_op.start_indices_batching_dims,
+                        old_op.start_index_map,
+                        old_op.index_vector_dim,
+                        old_op.slice_sizes,
+                        old_op.indices_are_sorted,
+                        loc=old_op.location,
+                    )
+
+                    if not self._disable_golden_check:
+                        input_owner0 = old_op.input.owner
+                        if isinstance(input_owner0, Block):
+                            queried_input0 = old_op.input
+                        else:
+                            queried_input0 = input_owner0
+
+                        input_owner1 = old_op.start_indices.owner
+                        if isinstance(input_owner1, Block):
+                            queried_input1 = old_op.start_indices
+                        else:
+                            queried_input1 = input_owner1
+
+                        input0 = self._get_golden_tensor(queried_input0)
+                        input1 = self._get_golden_tensor(queried_input1)
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_output = op_golden_function(
+                            input0,
+                            input1,
+                            offset_dims=old_op.offset_dims,
+                            collapsed_slice_dims=old_op.collapsed_slice_dims,
+                            operand_batching_dims=old_op.operand_batching_dims,
+                            start_indices_batching_dims=old_op.start_indices_batching_dims,
+                            start_index_map=old_op.start_index_map,
+                            index_vector_dim=old_op.index_vector_dim,
+                            slice_sizes=old_op.slice_sizes,
+                            indices_are_sorted=old_op.indices_are_sorted,
+                        )
+                        gather_builder._set_golden_tensor(new_op, golden_output)
+                        gather_builder._set_output_ordering([new_op])
+                        gather_builder._set_golden_tensor(in0, input0)
+                        gather_builder._set_golden_tensor(in1, input1)
+                        gather_builder._set_input_ordering([in0, in1])
+
+                    return new_op
+
+        return gather_module, gather_builder
+
+    ################ ttir.ZerosOp ###############
+
+    @tag(ttir.ZerosOp)
+    def zeros(
+        self,
+        shape: Shape,
+        data_type: Optional[Type] = None,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.zeros)
+        effective_dtype: torch.dtype
+        if output_type is not None:
+            effective_dtype = output_type
+        elif data_type is not None:
+            effective_dtype = data_type  # kept for backward-compat
+        else:
+            effective_dtype = torch.float32
+        result_type = self._create_ranked_tensor_type(shape, effective_dtype)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result_type,
+            loc=loc,
+            shape=shape,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(shape=shape)
+            self._set_golden_tensor(op, golden_output)
+
+        return op
+
+    @parse(ttir.ZerosOp)
+    def zeros_parser(
+        self,
+        old_op: ttir.ZerosOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Operation:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.zeros_parser)
+        result = old_op.result.type
+        shape_attr = old_op.shape
+
+        new_op = ttir_op(
+            result,
+            loc=old_op.location,
+            shape=shape_attr,
+        )
+
+        if not self._disable_golden_check:
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(shape=shape_attr)
+            self._set_golden_tensor(new_op, golden_output)
+
+        return new_op
+
+    @split(ttir.ZerosOp)
+    def zeros_split(
+        self,
+        old_op: ttir.ZerosOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.zeros_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            zeros_module = Module.create()
+            zeros_builder = TTIRBuilder(old_ctx, old_loc)
+            op_input_types: List[Type] = []
+
+            with InsertionPoint(zeros_module.body):
+
+                @func.func(*op_input_types, name="zeros_module")
+                def decorated_func():
+                    result = old_op.result.type
+                    new_op = ttir.ZerosOp(
+                        result, loc=old_op.location, shape=old_op.shape
+                    )
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_output = op_golden_function(shape=old_op.shape)
+                        zeros_builder._set_golden_tensor(new_op, golden_output)
+                        zeros_builder._set_output_ordering([new_op])
+
+                    return new_op
+
+        return zeros_module, zeros_builder
+
     ################ ttir.ReverseOp ###############
 
     @tag(ttir.ReverseOp)
@@ -7589,53 +7913,6 @@ class TTIRBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
-    def cumsum(
-        self,
-        in0: Operand,
-        dim: int,
-        unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
-        """
-        Creates ``ttir.cumsum``.
-
-        *Cumulative sum operation.*
-
-        Computes the cumulative sum of elements along a specified dimension.
-        For each element at index i in the dimension, computes the sum of all elements
-        with indices ≤ i in that dimension.
-
-        .. code-block:: mlir
-
-            // Compute cumulative sum along dimension 1
-            %result = ttir.cumsum(%input, %output, dim = 1) : tensor<2x3xf32>, tensor<2x3xf32> -> tensor<2x3xf32>
-            // Input tensor:
-            // [[1.0, 2.0, 3.0],
-            //  [4.0, 5.0, 6.0]]
-            // Output tensor:
-            // [[1.0, 3.0, 6.0],
-            //  [4.0, 9.0, 15.0]]
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        dim : int
-            Dimension along which to compute cumulative sum
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            A tensor containing the cumulative sums along the specified dimension
-        """
-        return self._op_proxy(
-            ttir.CumSumOp,
-            [in0],
-            ttir_kwargs={"dim": dim},
-            unit_attrs=unit_attrs,
-        )
-
     def softmax(
         self,
         in0: Operand,
@@ -8479,44 +8756,6 @@ class TTIRBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
-    def zeros(
-        self,
-        shape: Shape,
-        data_type: Optional[Type] = None,
-        unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
-        """
-        Creates ``ttir.zeros``.
-
-        *Creates a tensor filled with zeros.*
-
-        Returns a tensor of given shape filled with zeros.
-
-        Parameters
-        ----------
-        shape : Shape
-            Shape of the output tensor
-        data_type : *Optional[Type]*, optional
-            Optional data type of the output tensor
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            Tensor of zeros with specified shape
-        """
-        dtype = self._get_type_from_torch_dtype(data_type)
-        output = self._create_ranked_tensor_type(shape, dtype)
-        return self._op_proxy(
-            ttir.ZerosOp,
-            [],
-            ttir_kwargs={"result": output, "shape": shape},
-            organize_ttir_args=lambda i, o: 0,
-            output_type=dtype,
-            unit_attrs=unit_attrs,
-        )
-
     def ones(self, shape: Shape, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
         Creates ``ttir.ones``.
@@ -9093,150 +9332,6 @@ class TTIRBuilder(Builder):
             ),
             unit_attrs=unit_attrs,
             golden_kwargs={"tilize": False},
-        )
-
-    def gather(
-        self,
-        input: Operand,
-        start_indices: Operand,
-        offset_dims: List[int],
-        collapsed_slice_dims: List[int],
-        operand_batching_dims: List[int],
-        start_indices_batching_dims: List[int],
-        start_index_map: List[int],
-        index_vector_dim: int,
-        slice_sizes: List[int],
-        indices_are_sorted: bool = False,
-        unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
-        """
-        Creates ``ttir.gather``.
-
-        *Gather operation.*
-
-        Collects slices from an input tensor at positions specified by start indices.
-        This operation is based on the StableHLO Gather operation and allows for flexible
-        slicing and indexing of tensors. It can be used to implement operations like array
-        indexing, slicing, dynamic indexing, and more complex gathering patterns.
-
-        .. code-block:: mlir
-
-            // Basic gather example: gather elements from a 2D tensor using indices
-            %input = ... : tensor<5x3xf32>         // Input tensor with shape [5,3]
-            %indices = ... : tensor<2xi64>         // Indices tensor with values [2, 1]
-            %output = ttir.empty() : tensor<3xf32> // Output tensor
-            %result = ttir.gather(%input, %indices, %output) {
-                offset_dims = [0],                 // Output dimensions that are gathered from input
-                collapsed_slice_dims = [0],        // Input dimensions that are collapsed
-                operand_batching_dims = [],        // Batch dimensions of the input
-                start_indices_batching_dims = [],  // Batch dimensions of the indices
-                start_index_map = [0],             // Maps indices to input dimensions
-                index_vector_dim = 0,              // Which dimension of indices contains the index vector
-                slice_sizes = [1, 3],              // Size of the slice to extract from each position
-                indices_are_sorted = false         // Whether indices are sorted
-            } : tensor<5x3xf32>, tensor<2xi64>, tensor<3xf32> -> tensor<3xf32>
-
-        Parameters
-        ----------
-        input : Operand
-            The tensor from which to gather values
-        start_indices : Operand
-            Tensor containing the starting indices for slices
-        offset_dims : *List[int]*
-            Output dimensions that correspond to dimensions of the gathered slice
-        collapsed_slice_dims : *List[int]*
-            Input dimensions that are collapsed when gathering
-        operand_batching_dims : *List[int]*
-            Batch dimensions of the input tensor
-        start_indices_batching_dims : *List[int]*
-            Batch dimensions of the indices tensor
-        start_index_map : *List[int]*
-            Maps index values to input dimensions
-        index_vector_dim : int
-            Which dimension of indices contains the index vector
-        slice_sizes : *List[int]*
-            Size of the slice to extract from each position
-        indices_are_sorted : bool, optional
-            Whether indices are sorted (for optimization)
-        unit_attrs : *Optional[List[str]]*
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            The gathered tensor
-        """
-        # Create the attributes
-        from ttmlir.ir import ArrayAttr, IntegerAttr, IntegerType, BoolAttr
-
-        # Create DenseI64ArrayAttr attributes directly from lists
-        offset_dims_attr = DenseI64ArrayAttr.get(offset_dims, self._ctx)
-        collapsed_slice_dims_attr = DenseI64ArrayAttr.get(
-            collapsed_slice_dims, self._ctx
-        )
-        operand_batching_dims_attr = DenseI64ArrayAttr.get(
-            operand_batching_dims, self._ctx
-        )
-        start_indices_batching_dims_attr = DenseI64ArrayAttr.get(
-            start_indices_batching_dims, self._ctx
-        )
-        start_index_map_attr = DenseI64ArrayAttr.get(start_index_map, self._ctx)
-        slice_sizes_attr = DenseI64ArrayAttr.get(slice_sizes, self._ctx)
-
-        # Create boolean attribute
-        indices_are_sorted_attr = BoolAttr.get(indices_are_sorted, self._ctx)
-
-        # Create integer attribute for index_vector_dim
-        index_vector_dim_attr = IntegerAttr.get(
-            IntegerType.get_signed(64), index_vector_dim
-        )
-
-        # Calculate output shape based on gather semantics
-        input_shape = self.get_shape(input)
-        indices_shape = self.get_shape(start_indices)
-
-        # Batch dimensions: all dims from start_indices except index_vector_dim
-        batch_dims = [
-            indices_shape[i] for i in range(len(indices_shape)) if i != index_vector_dim
-        ]
-        offset_sizes = [
-            slice_sizes[i]
-            for i in range(len(slice_sizes))
-            if i not in collapsed_slice_dims
-        ]
-        result_rank = len(batch_dims) + len(offset_sizes)
-        assert len(offset_dims) == len(
-            offset_sizes
-        ), "offset_dims length must match offset_sizes length"
-        output_shape = [-1] * result_rank
-        for j, pos in enumerate(offset_dims):
-            output_shape[pos] = offset_sizes[j]
-        b = 0
-        for p in range(result_rank):
-            if output_shape[p] == -1:
-                output_shape[p] = batch_dims[b]
-                b += 1
-
-        # Define kwargs for the TTIR operation
-        ttir_kwargs = {
-            "offset_dims": offset_dims_attr,
-            "collapsed_slice_dims": collapsed_slice_dims_attr,
-            "operand_batching_dims": operand_batching_dims_attr,
-            "start_indices_batching_dims": start_indices_batching_dims_attr,
-            "start_index_map": start_index_map_attr,
-            "index_vector_dim": index_vector_dim_attr,
-            "slice_sizes": slice_sizes_attr,
-            "indices_are_sorted": indices_are_sorted_attr,
-        }
-
-        # Use op_proxy to create the operation
-        return self._op_proxy(
-            ttir.GatherOp,
-            [input, start_indices],
-            organize_ttir_args=lambda i, o: (o, i[0], i[1]),
-            output_shape=output_shape,
-            unit_attrs=unit_attrs,
-            ttir_kwargs=ttir_kwargs,
         )
 
     # CCL ops
