@@ -98,10 +98,14 @@ void registerRuntimeUtilsBindings(nb::module_ &m) {
         uint32_t pageSize = buffer->page_size();
 
         // Get NOC coordinates from original TTNN buffer for debug comparison
-        auto origNocCoords = buffer->noc_coordinates();
+        // Use allocator to get logical core for bank 0, then convert to virtual NOC coords
+        auto* bufDevice = buffer->device();
+        auto* allocator = buffer->allocator();
+        auto logicalCore = allocator->get_logical_core_from_bank_id(0);
+        auto nocCore = bufDevice->virtual_noc0_coordinate(0, logicalCore);
         std::cout << "[create_ttmetal_tensor_from_ttnn] Original TTNN buffer: "
                   << "address=" << address
-                  << ", NOC coords=(" << origNocCoords.x << ", " << origNocCoords.y << ")"
+                  << ", NOC coords=(" << nocCore.x << ", " << nocCore.y << ")"
                   << std::endl;
 
         // Determine buffer type from memory config
@@ -154,12 +158,17 @@ void registerRuntimeUtilsBindings(nb::module_ &m) {
 
         // Get buffer address and NOC coordinates
         uint64_t address = buffer->address();
-        auto nocCoords = buffer->noc_coordinates();
+
+        // Get NOC coordinates for bank 0 via allocator
+        auto* bufDevice = buffer->device();
+        auto* allocator = buffer->allocator();
+        auto logicalCore = allocator->get_logical_core_from_bank_id(0);
+        auto nocCore = bufDevice->virtual_noc0_coordinate(0, logicalCore);
 
         // Return tuple of (noc_x, noc_y, address)
         return nb::make_tuple(
-            static_cast<uint32_t>(nocCoords.x),
-            static_cast<uint32_t>(nocCoords.y),
+            static_cast<uint32_t>(nocCore.x),
+            static_cast<uint32_t>(nocCore.y),
             address);
       },
       "Get NOC info (x, y, address) for a TTNN tensor's buffer",

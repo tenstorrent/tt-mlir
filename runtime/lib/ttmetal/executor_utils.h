@@ -430,9 +430,18 @@ std::vector<std::uint32_t> processKernelArgs(
         auto meshBuffer = meshBuffers.at(buffer->global_id());
         auto deviceBuffer = meshBuffer->get_device_buffer(coord);
         address = deviceBuffer->address();
-        auto nocCoords = deviceBuffer->noc_coordinates();
-        nocX = static_cast<uint32_t>(nocCoords.x);
-        nocY = static_cast<uint32_t>(nocCoords.y);
+
+        // Get NOC coordinates for bank 0 (where the first page resides for interleaved DRAM)
+        // 1. Get device and allocator from the buffer
+        auto* device = deviceBuffer->device();
+        auto* allocator = deviceBuffer->allocator();
+        // 2. Get logical core for bank 0
+        auto logicalCore = allocator->get_logical_core_from_bank_id(0);
+        // 3. Convert to virtual NOC coordinates
+        auto nocCore = device->virtual_noc0_coordinate(0, logicalCore);
+        nocX = static_cast<uint32_t>(nocCore.x);
+        nocY = static_cast<uint32_t>(nocCore.y);
+
         std::cout << "[TTNN interop] Using MeshBuffer address: " << address
                   << ", NOC coords: (" << nocX << ", " << nocY << ")"
                   << " for buffer global_id: " << buffer->global_id()
