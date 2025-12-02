@@ -13,6 +13,7 @@
 
 #include <filesystem>
 #include <functional>
+#include <iostream>
 #include <variant>
 
 namespace tt::runtime::ttmetal {
@@ -417,8 +418,21 @@ std::vector<std::uint32_t> processKernelArgs(
                  target::metal::BufferDetail::MetalBuffer);
       const target::metal::MetalBuffer *metalBuffer =
           bufferDesc->buffer_detail_as_MetalBuffer();
-      argsVec.push_back(deviceAddressValidator(buffer->address(),
-                                               metalBuffer->buffer_type()));
+
+      // Get address from flatbuffer, or from actual MeshBuffer if flatbuffer
+      // address is 0 (TTNN interop - tensor already on device)
+      uint64_t address = buffer->address();
+      if (address == 0) {
+        // Get address from the actual MeshBuffer (runtime-provided tensor)
+        const tt_metal::distributed::MeshCoordinate coord = {0, 0};
+        auto meshBuffer = meshBuffers.at(buffer->global_id());
+        address = meshBuffer->get_device_buffer(coord)->address();
+        std::cout << "[TTNN interop] Using MeshBuffer address: " << address
+                  << " for buffer global_id: " << buffer->global_id()
+                  << std::endl;
+      }
+      argsVec.push_back(
+          deviceAddressValidator(address, metalBuffer->buffer_type()));
       break;
     }
     case target::metal::KernelArgType::KernelArgSemaphore: {
