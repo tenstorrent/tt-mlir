@@ -352,36 +352,33 @@ def D2M_TileBitwiseNotOp : D2M_GenericRegionComputeUnaryDstOp<"tile_bitwise_not"
 def D2M_TileBitwiseAndOp : D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<"tile_bitwise_and", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Bitwise And Op";
     let description = [{
-        The `tile_bitwise_and` operation performs element-wise bitwise AND between two tiles,
-        or between a tile and a scalar value if rhs is a scalar.
+        The `tile_bitwise_and` operation computes bitwise AND between two tiles.
     }];
 
     let arguments = (ins TTCore_Tile:$lhs,
-                         TileOrScalar:$rhs);
+                         TTCore_Tile:$rhs);
     let results = (outs TTCore_Tile:$result);
 }
 
 def D2M_TileBitwiseOrOp : D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<"tile_bitwise_or", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Bitwise Or Op";
     let description = [{
-        The `tile_bitwise_or` operation performs element-wise bitwise OR between two tiles,
-        or between a tile and a scalar value if rhs is a scalar.
+        The `tile_bitwise_or` operation computes bitwise OR between two tiles.
     }];
 
     let arguments = (ins TTCore_Tile:$lhs,
-                         TileOrScalar:$rhs);
+                         TTCore_Tile:$rhs);
     let results = (outs TTCore_Tile:$result);
 }
 
 def D2M_TileBitwiseXorOp : D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<"tile_bitwise_xor", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Bitwise Xor Op";
     let description = [{
-        The `tile_bitwise_xor` operation performs element-wise bitwise XOR between two tiles,
-        or between a tile and a scalar value if rhs is a scalar.
+        The `tile_bitwise_xor` operation computes bitwise XOR between two tiles.
     }];
 
     let arguments = (ins TTCore_Tile:$lhs,
-                         TileOrScalar:$rhs);
+                         TTCore_Tile:$rhs);
     let results = (outs TTCore_Tile:$result);
 }
 

@@ -690,7 +690,6 @@ def TTKernel_BinaryBitwiseTileInitOp : TTKernel_InitOp<"binary_bitwise_tile_init
     let summary = "Init function for binary bitwise operations (AND, OR, XOR). Refer to documentation for any init function.";
     let description = [{
       Must be run before bitwise_and_binary_tile, bitwise_or_binary_tile, or bitwise_xor_binary_tile.
-      This unified init function works for all three binary bitwise operations.
     }];
 
     let arguments = (ins);
