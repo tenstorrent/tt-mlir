@@ -1914,8 +1914,8 @@ struct ScaledDotProductAttentionDecodeArgs {
   llvm::SmallVector<int64_t> valueShape;
   TTNNLayoutAttr valueLayout;
   bool isCausal;
-  llvm::SmallVector<int64_t> curPosTensorShape;
-  TTNNLayoutAttr curPosTensorLayout;
+  std::optional<llvm::SmallVector<int64_t>> curPosTensorShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> curPosTensorLayout = std::nullopt;
   std::optional<llvm::SmallVector<int64_t>> attentionMaskShape = std::nullopt;
   std::optional<TTNNLayoutAttr> attentionMaskLayout = std::nullopt;
   std::optional<llvm::SmallVector<int64_t>> attentionSinkShape = std::nullopt;
@@ -1944,35 +1944,33 @@ unpackScaledDotProductAttentionDecodeArgs(
   }
 
   TypedValue<RankedTensorType> attentionMask = op.getAttentionMask();
+  TypedValue<RankedTensorType> curPosTensor = op.getCurPosTensor();
   TypedValue<RankedTensorType> attentionSink = op.getAttentionSink();
 
-  if (attentionMask && attentionSink) {
+  size_t idx = 3;
+  if (attentionMask) {
     ret.attentionMaskShape =
         llvm::SmallVector<int64_t>(attentionMask.getType().getShape());
-    ret.attentionMaskLayout = inputs[3];
+    assert(idx < inputs.size() &&
+           "Op has attention mask but no attention mask layout was provided.");
+    ret.attentionMaskLayout = inputs[idx];
+    idx++;
+  }
+  if (curPosTensor) {
     ret.curPosTensorShape =
-        llvm::SmallVector<int64_t>(op.getCurPosTensor().getType().getShape());
-    ret.curPosTensorLayout = inputs[4];
+        llvm::SmallVector<int64_t>(curPosTensor.getType().getShape());
+    assert(idx < inputs.size() &&
+           "Op has cur pos tensor but no cur pos tensor layout was provided.");
+    ret.curPosTensorLayout = inputs[idx];
+    idx++;
+  }
+  if (attentionSink) {
     ret.attentionSinkShape =
         llvm::SmallVector<int64_t>(attentionSink.getType().getShape());
-    ret.attentionSinkLayout = inputs[5];
-  } else if (attentionMask) {
-    ret.attentionMaskShape =
-        llvm::SmallVector<int64_t>(attentionMask.getType().getShape());
-    ret.attentionMaskLayout = inputs[3];
-    ret.curPosTensorShape =
-        llvm::SmallVector<int64_t>(op.getCurPosTensor().getType().getShape());
-    ret.curPosTensorLayout = inputs[4];
-  } else if (attentionSink) {
-    ret.curPosTensorShape =
-        llvm::SmallVector<int64_t>(op.getCurPosTensor().getType().getShape());
-    ret.curPosTensorLayout = inputs[3];
-    ret.attentionSinkShape =
-        llvm::SmallVector<int64_t>(attentionSink.getType().getShape());
-    ret.attentionSinkLayout = inputs[4];
-  } else {
-    llvm_unreachable("All combinations of attention mask and attention sink "
-                     "should have been handled");
+    assert(idx < inputs.size() &&
+           "Op has attention sink but no attention sink layout was provided.");
+    ret.attentionSinkLayout = inputs[idx];
+    idx++;
   }
 
   return ret;
@@ -1990,10 +1988,9 @@ ScaledDotProductAttentionDecodeOp::getOpConstraints(
   // https://godbolt.org/z/sa9ojqqov
   //
   // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
-  assert(inputs.size() >= 4 && inputs.size() <= 6 &&
-         "ttnn::transformer::scaled_dot_product_attention_decode can have 4, "
-         "5, or 6 "
-         "input tensors");
+  assert(inputs.size() >= 3 && inputs.size() <= 6 &&
+         "ttnn::transformer::scaled_dot_product_attention_decode can have 3, "
+         "4, 5, or 6 input tensors");
 
   llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
   if (!check) {
@@ -2023,10 +2020,9 @@ llvm::Expected<size_t> ScaledDotProductAttentionDecodeOp::getOpRuntime(
   // See the comment in caledDotProductAttentionDecodeOp::getOpConstraints for
   // an explanation of this lint suppression.
   // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
-  assert(inputs.size() >= 4 && inputs.size() <= 6 &&
-         "ttnn::transformer::scaled_dot_product_attention_decode can have 4, "
-         "5, or 6 "
-         "input tensors");
+  assert(inputs.size() >= 3 && inputs.size() <= 6 &&
+         "ttnn::transformer::scaled_dot_product_attention_decode can have 3, "
+         "4, 5, or 6 input tensors");
 
   llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
   if (!check) {

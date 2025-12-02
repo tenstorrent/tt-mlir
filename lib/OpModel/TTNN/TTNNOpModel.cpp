@@ -2470,8 +2470,8 @@ OpModel<ScaledDotProductAttentionDecodeOp>::getOpConstraints(
     TTNNLayoutAttr valueLayout, bool isCausal,
     std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
     std::optional<TTNNLayoutAttr> attentionMaskLayout,
-    llvm::ArrayRef<int64_t> curPosTensorShape,
-    TTNNLayoutAttr curPosTensorLayout,
+    std::optional<llvm::ArrayRef<int64_t>> curPosTensorShape,
+    std::optional<TTNNLayoutAttr> curPosTensorLayout,
     std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
     std::optional<TTNNLayoutAttr> attentionSinkLayout,
     std::optional<llvm::APFloat> scale,
@@ -2496,20 +2496,17 @@ OpModel<ScaledDotProductAttentionDecodeOp>::getOpConstraints(
   if (!valueSpecExp) {
     return valueSpecExp.takeError();
   }
-  auto curPosTensorSpecExp = detail::convertToTensorSpec(
-      device, curPosTensorShape, curPosTensorLayout);
-  if (!curPosTensorSpecExp) {
-    return curPosTensorSpecExp.takeError();
-  }
 
   ::ttnn::TensorSpec querySpec = querySpecExp.get();
   ::ttnn::TensorSpec keySpec = keySpecExp.get();
   ::ttnn::TensorSpec valueSpec = valueSpecExp.get();
-  ::ttnn::TensorSpec curPosTensorSpec = curPosTensorSpecExp.get();
 
   std::optional<::ttnn::TensorSpec> attentionMaskSpec =
       detail::convertToOptionalTensorSpec(device, attentionMaskShape,
                                           attentionMaskLayout);
+  std::optional<::ttnn::TensorSpec> curPosTensorSpec =
+      detail::convertToOptionalTensorSpec(device, curPosTensorShape,
+                                          curPosTensorLayout);
   std::optional<::ttnn::TensorSpec> attentionSinkSpec =
       detail::convertToOptionalTensorSpec(device, attentionSinkShape,
                                           attentionSinkLayout);
@@ -2549,8 +2546,8 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionDecodeOp>::getOpRuntime(
     llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
     bool isCausal, std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
     std::optional<TTNNLayoutAttr> attentionMaskLayout,
-    llvm::ArrayRef<int64_t> curPosTensorShape,
-    TTNNLayoutAttr curPosTensorLayout,
+    std::optional<llvm::ArrayRef<int64_t>> curPosTensorShape,
+    std::optional<TTNNLayoutAttr> curPosTensorLayout,
     std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
     std::optional<TTNNLayoutAttr> attentionSinkLayout,
     std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout) {
@@ -2573,21 +2570,17 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionDecodeOp>::getOpRuntime(
   if (!valueSpecExp) {
     return valueSpecExp.takeError();
   }
-  auto curPosTensorSpecExp = detail::convertToTensorSpec(
-      device, curPosTensorShape, curPosTensorLayout);
-  if (!curPosTensorSpecExp) {
-    return curPosTensorSpecExp.takeError();
-  }
 
   ::ttnn::TensorSpec querySpec = querySpecExp.get();
   ::ttnn::TensorSpec keySpec = keySpecExp.get();
   ::ttnn::TensorSpec valueSpec = valueSpecExp.get();
-  ::ttnn::TensorSpec curPosTensorSpec = curPosTensorSpecExp.get();
 
   std::optional<::ttnn::TensorSpec> attentionMaskSpec =
       detail::convertToOptionalTensorSpec(device, attentionMaskShape,
                                           attentionMaskLayout);
-
+  std::optional<::ttnn::TensorSpec> curPosTensorSpec =
+      detail::convertToOptionalTensorSpec(device, curPosTensorShape,
+                                          curPosTensorLayout);
   std::optional<::ttnn::TensorSpec> attentionSinkSpec =
       detail::convertToOptionalTensorSpec(device, attentionSinkShape,
                                           attentionSinkLayout);
