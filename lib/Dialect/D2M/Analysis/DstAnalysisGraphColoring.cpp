@@ -40,7 +40,7 @@ identifyDstAccesses(mlir::Operation *op, mlir::Region &region) {
   int64_t index = 0;
 
   region.walk([&](mlir::Operation *operation) {
-    // Check if this is a D2M compute operation with DST interface
+    // Check if this is a D2M compute operation with DST interface.
     auto computeOp =
         llvm::dyn_cast<OperandLoadStoreRegisterOpInterface>(operation);
     if (!computeOp) {
@@ -50,8 +50,7 @@ identifyDstAccesses(mlir::Operation *op, mlir::Region &region) {
     auto operandsLoadFromDst = computeOp.getOperandsLoadFromDstRegister();
 
     // For each operand that loads from DST, find the corresponding load
-    // operation. This traces through intermediate compute ops such as
-    // tile_bcast.
+    // operation. This traces through intermediate ops such as tile_bcast.
     for (int64_t operandIdx : operandsLoadFromDst) {
       mlir::Value operand = operation->getOperand(operandIdx);
 
@@ -75,9 +74,9 @@ identifyDstAccesses(mlir::Operation *op, mlir::Region &region) {
       }
     }
 
-    // Check if the result store needs a separate DST slice.
+    // Check if this operation's result store operationneeds a separate DST
+    // slice.
     if (!computeOp.getDstRegInPlace()) {
-      // Find the store operation that stores this operation's result.
       for (mlir::Operation *user : operation->getUsers()) {
         if (auto storeOp = llvm::dyn_cast<mlir::affine::AffineStoreOp>(user)) {
           if (seenOps.insert(storeOp.getOperation()).second) {
@@ -117,7 +116,7 @@ public:
           continue;
         }
 
-        // Store identified accesses for reuse by transformation passes
+        // Store identified accesses for reuse by transformation passes.
         result.dstAccesses.append(dstAccesses.begin(), dstAccesses.end());
 
         // Build interference graph and coalescing constraints.
@@ -210,20 +209,16 @@ public:
 
         // Propagate colors from contracted graph back to original nodes.
         std::vector<unsigned> coloring(dstAccesses.size());
+        unsigned colorUsed = 0; // at least one color is used.
         for (size_t i = 0; i < dstAccesses.size(); ++i) {
           size_t leader = nodeToLeader[i];
           size_t contractedIdx = leaderToContracted[leader];
           coloring[i] = contractedColoring[contractedIdx];
+          colorUsed = std::max(colorUsed, coloring[i] + 1);
         }
         normalizeColorOrder(coloring);
 
-        // Find actual number of colors used.
-        unsigned colorsUsed = 0;
-        for (unsigned color : coloring) {
-          colorsUsed = std::max(colorsUsed, color + 1);
-        }
-
-        maxSlicesNeeded = std::max(maxSlicesNeeded, colorsUsed);
+        maxSlicesNeeded = std::max(maxSlicesNeeded, colorUsed);
 
         // Record per-operation breakdown.
         for (size_t i = 0; i < dstAccesses.size(); ++i) {

@@ -26,8 +26,10 @@ mlir::LogicalResult ChaitinBriggsColoring::colorGraph(
   std::vector<size_t> simplifyStack;
   std::vector<bool> removed(numNodes, false);
 
-  while (true) {
-    bool found = false;
+  // Repeatedly find and remove nodes with degree < numColors until none remain.
+  bool foundNode = true;
+  while (foundNode) {
+    foundNode = false;
     for (size_t node = 0; node < numNodes; ++node) {
       if (removed[node]) {
         continue;
@@ -44,15 +46,11 @@ mlir::LogicalResult ChaitinBriggsColoring::colorGraph(
       if (degree < numColors) {
         simplifyStack.push_back(node);
         removed[node] = true;
-        found = true;
+        foundNode = true;
         break;
       }
-    }
-
-    if (!found) {
-      break;
-    }
-  }
+    } // End of inner loop.
+  } // End of outer loop.
 
   // Selection phase: assign colors by popping from stack.
   while (!simplifyStack.empty()) {
