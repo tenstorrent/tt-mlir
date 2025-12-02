@@ -267,7 +267,8 @@ static mlir::LogicalResult updateManualAxes(MLIRContext *context,
   return mlir::failure(result.wasInterrupted());
 }
 
-// Update all shapes in the module based on their sdy tensor sharding attribute.
+// Update all shapes in the module based on their sdy tensor sharding attribute,
+// and out_sharding attribute (for sdy CCL ops).
 static mlir::LogicalResult updateShapes(MLIRContext *context,
                                         mlir::OpBuilder &builder,
                                         mlir::sdy::MeshOp &globalMeshOp,
@@ -283,6 +284,8 @@ static mlir::LogicalResult updateShapes(MLIRContext *context,
       llvm::SmallVector<mlir::sdy::TensorShardingAttr> tensorShardings;
 
       if (namedAttr.getName() == outShardingAttrName) {
+        // For sdy CCL ops, we need to update the output shapes based on the
+        // out_sharding
         mlir::sdy::TensorShardingAttr tensorShardingAttr =
             mlir::cast<mlir::sdy::TensorShardingAttr>(namedAttr.getValue());
         tensorShardings.assign({tensorShardingAttr});
