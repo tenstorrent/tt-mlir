@@ -2209,8 +2209,10 @@ createOp(FlatbufferObjectCache &cache, ScaledDotProductAttentionDecodeOp op) {
       getOperandThroughDPSOps(op.getKey()));
   auto value = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getValue()));
-  auto curPosTensor = cache.at<::tt::target::ttnn::TensorRef>(
-      getOperandThroughDPSOps(op.getCurPosTensor()));
+  auto curPosTensor = op.getCurPosTensor()
+                          ? cache.at<::tt::target::ttnn::TensorRef>(
+                                getOperandThroughDPSOps(op.getCurPosTensor()))
+                          : 0;
   auto attentionMask = op.getAttentionMask()
                            ? cache.at<::tt::target::ttnn::TensorRef>(
                                  getOperandThroughDPSOps(op.getAttentionMask()))
@@ -2231,9 +2233,12 @@ createOp(FlatbufferObjectCache &cache, ScaledDotProductAttentionDecodeOp op) {
                  : std::nullopt);
   // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 
+  std::optional<::flatbuffers::Offset<::tt::target::ttnn::SDPAConfig>>
+      programConfig = toFlatbuffer(cache, op.getProgramConfig());
+
   return ::tt::target::ttnn::CreateScaledDotProductAttentionDecodeOp(
       *cache.fbb, query, key, value, isCausal, attentionMask, curPosTensor,
-      attentionSink, scale, out, memoryConfig);
+      attentionSink, scale, out, memoryConfig, programConfig.value_or(0));
 }
 
 ::flatbuffers::Offset<

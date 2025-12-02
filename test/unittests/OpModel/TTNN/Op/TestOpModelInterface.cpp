@@ -1937,7 +1937,8 @@ TEST_F(OpModelBase, ScaledDotProductAttentionDecodeOpInterface) {
       /*cur_pos_tensor=*/curPos,
       /*attention_sink=*/nullptr,
       /*scale=*/nullptr,
-      /*memory_config=*/nullptr);
+      /*memory_config=*/nullptr,
+      /*program_config=*/nullptr);
 
   OpModel backend = dyn_cast<OpModel>(sdpAttentionDecode.getOperation());
   auto constraintsExp = backend.getOpConstraints(

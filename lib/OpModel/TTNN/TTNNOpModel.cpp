@@ -2474,7 +2474,9 @@ OpModel<ScaledDotProductAttentionDecodeOp>::getOpConstraints(
     TTNNLayoutAttr curPosTensorLayout,
     std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
     std::optional<TTNNLayoutAttr> attentionSinkLayout,
-    std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout) {
+    std::optional<llvm::APFloat> scale,
+    std::optional<SDPAProgramConfigAttr> programConfig,
+    TTNNLayoutAttr outputLayout) {
 
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -2520,13 +2522,17 @@ OpModel<ScaledDotProductAttentionDecodeOp>::getOpConstraints(
   // passed as a tensor or as a uint vector. The uint vector is not wrapped in a
   // std::optional so we must pass an empty vector.
   const std::vector<uint32_t> curPosEmpty = {};
+
+  auto sdpaProgramConfigConverted =
+      conversion::getSDPAProgramConfig(programConfig);
+
   auto scaledDotProductAttentionDecodeOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::transformer::scaled_dot_product_attention_decode, device,
         querySpec, keySpec, valueSpec, isCausal, attentionMaskSpec, curPosEmpty,
         curPosTensorSpec, attentionSinkSpec, scaleFloat, slidingWindowSize,
         detail::getNullableMemoryConfig(outputLayout),
-        /*program_config=*/std::nullopt,
+        sdpaProgramConfigConverted,
         /*compute_kernel_config=*/std::nullopt);
   };
 
