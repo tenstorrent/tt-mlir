@@ -43,7 +43,7 @@ public:
                                     ttnn::MeshDevice *device);
 
 private:
-  pybind11::object module;
+  pybind11::object moduleObject;
   pybind11::object forwardFunc;
 };
 

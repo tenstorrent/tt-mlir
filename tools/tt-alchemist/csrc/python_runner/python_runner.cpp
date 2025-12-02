@@ -28,8 +28,8 @@ void PythonModelRunner::addToPath(const std::string &path) {
 void PythonModelRunner::loadModule(const std::string &moduleName,
                                    const std::string &functionName) {
   py::gil_scoped_acquire acquire;
-  module = py::module_::import(moduleName.c_str());
-  forwardFunc = module.attr(functionName.c_str());
+  moduleObject = py::module_::import(moduleName.c_str());
+  forwardFunc = moduleObject.attr(functionName.c_str());
 }
 
 std::vector<ttnn::Tensor>
