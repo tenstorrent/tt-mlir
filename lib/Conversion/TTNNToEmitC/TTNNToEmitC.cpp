@@ -2377,10 +2377,13 @@ public:
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getAllGatherDim()),
         emitter.emit(srcOp.getClusterAxis()),
-        emitter.emitSubDeviceId(srcOp.getSubDeviceId()),
-        emitter.emit(srcOp.getMemoryConfig()),
-        emitter.emit(srcOp.getNumLinks()),
-        emitter.emit(srcOp.getTopology()),
+        emitter.emit(srcOp.getDevice()),
+        /*numLinks=*/emitter.emit(1),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+        /*numWorkers=*/emitter.emit(std::nullopt),
+        /*numBuffersPerChannel=*/emitter.emit(std::nullopt),
+        /*ttnn::ccl::Topology=*/
+        rewriter.getType<emitc::OpaqueAttr>("::ttnn::ccl::Topology::Linear"),
     };
 
     emitter.replaceOp(*this, args);
@@ -2409,10 +2412,14 @@ public:
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getScatterDim()),
         emitter.emit(srcOp.getClusterAxis()),
-        emitter.emitSubDeviceId(srcOp.getSubDeviceId()),
-        emitter.emit(srcOp.getMemoryConfig()),
-        emitter.emit(srcOp.getNumLinks()),
-        emitter.emit(srcOp.getTopology()),
+        emitter.emit(srcOp.getDevice()),
+        emitter.emit(srcOp.getReduceType()),
+        /*numLinks=*/emitter.emit(1),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+        /*ttnn::ccl::Topology=*/
+        rewriter.getType<emitc::OpaqueAttr>("::ttnn::ccl::Topology::Linear"),
+        /*userDefinedNumWorkers=*/emitter.emit(std::nullopt),
+        /*userDefinedNumBuffersPerChannel=*/emitter.emit(std::nullopt),
     };
 
     emitter.replaceOp(*this, args);

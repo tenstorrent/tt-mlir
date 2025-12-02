@@ -2631,10 +2631,12 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
            << scatterDim;
   }
 
-  // Currently TTNN only supports the 'Sum' reduce type. Compiler is able
-  // to model the full ReduceType list but only the 'Sum' reduce type can be
-  // lowered into TTNN.
-  if (reduceType != ::mlir::tt::ttcore::ReduceType::Sum) {
+  // Currently TTNN only supports the following reduce types. Compiler is able
+  // to model the full ReduceType list but only the following can be lowered
+  // into TTNN.
+  if (reduceType != ::mlir::tt::ttcore::ReduceType::Sum &&
+      reduceType != ::mlir::tt::ttcore::ReduceType::Max &&
+      reduceType != ::mlir::tt::ttcore::ReduceType::Min) {
     return emitOpError("Invalid reduction op for reduce scatter op.");
   }
 

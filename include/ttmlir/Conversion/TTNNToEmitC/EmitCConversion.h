@@ -1738,18 +1738,6 @@ public:
     return rewriter.getAttr<emitc::OpaqueAttr>(rso.str());
   }
 
-  mlir::Attribute emitSubDeviceId(std::optional<uint32_t> subDeviceId) {
-    if (!subDeviceId) {
-      return emit(std::nullopt);
-    }
-
-    std::string code = "std::make_optional<::tt::tt_metal::SubDeviceId>(";
-    code += std::to_string(*subDeviceId);
-    code += ")";
-
-    return rewriter.getAttr<emitc::OpaqueAttr>(code);
-  }
-
   mlir::Attribute emitConv3dConfig(
       uint32_t outChannels, llvm::ArrayRef<int32_t> kernelSize,
       llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,

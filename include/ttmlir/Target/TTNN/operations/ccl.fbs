@@ -6,12 +6,10 @@ namespace tt.target.ttnn;
 table AllGatherOp {
   in: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;
+  device: tt.target.DeviceRef;
   all_gather_dim: int32;
   cluster_axis: uint32;
-  sub_device_id: uint8 = null;
-  memory_config: tt.target.ttnn.MemoryConfig;
-  num_links: uint32 = null;
-  topology: tt.target.Topology = null;
+  num_links: uint32;
 }
 
 table CollectivePermuteOp {
@@ -34,13 +32,11 @@ table MeshShardOp {
 table ReduceScatterOp {
   in: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;
+  device: tt.target.DeviceRef;
   scatter_dim: int32;
   reduce_type: uint32;
   cluster_axis: uint32;
-  sub_device_id: uint8 = null;
-  memory_config: tt.target.ttnn.MemoryConfig;
-  num_links: uint32 = null;
-  topology: tt.target.Topology = null;
+  num_links: uint32;
 }
 
 table PointToPointOp {

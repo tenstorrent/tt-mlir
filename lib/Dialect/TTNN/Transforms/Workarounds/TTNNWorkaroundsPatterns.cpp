@@ -375,6 +375,7 @@ public:
     llvm::SmallVector<int64_t> inputTypeShape(inputType.getShape());
     Location loc = op.getLoc();
     uint32_t clusterAxis = op.getClusterAxis();
+    Value deviceValue = op.getDevice();
     auto deviceDesc = ttcore::lookupDevice(op);
     ::llvm::ArrayRef<int64_t> meshShape = deviceDesc.getMeshShape();
 
@@ -420,14 +421,13 @@ public:
     ttnn::ReduceScatterOp reduceScatterOp =
         rewriter.create<ttnn::ReduceScatterOp>(
             ttmlir::utils::appendLocationSuffix(loc, "_reduceScatter"),
-            scatteredInputType, op.getInput(), op.getReduceType(), dimension,
-            clusterAxis, nullptr, nullptr, nullptr, nullptr);
+            scatteredInputType, op.getInput(), deviceValue, op.getReduceType(),
+            dimension, clusterAxis);
 
     // Replace all_reduce op with all_gather op.
     rewriter.replaceOpWithNewOp<ttnn::AllGatherOp>(
-        op, op.getType(), reduceScatterOp.getResult(), dimension, clusterAxis,
-        nullptr /*sub_device_id*/, nullptr /*memory_config*/,
-        nullptr /*num_links*/, nullptr /*topology*/);
+        op, op.getType(), reduceScatterOp.getResult(), deviceValue, dimension,
+        clusterAxis);
     return success();
   }
 
@@ -439,6 +439,7 @@ private:
     RankedTensorType inputType = op.getInput().getType();
     Location loc = op.getLoc();
     uint32_t clusterAxis = op.getClusterAxis();
+    Value deviceValue = op.getDevice();
 
     // Use allGather + Reduce breakdown.
     // Increase the rank of the current input shape by 1.
@@ -464,9 +465,8 @@ private:
                                                      expandedInputShape);
     ttnn::AllGatherOp allGatherOp = rewriter.create<ttnn::AllGatherOp>(
         ttmlir::utils::appendLocationSuffix(loc, "_allGather"),
-        allGatherOutputType, leadingReshapeOp.getResult(), 0, clusterAxis,
-        nullptr /*sub_device_id*/, nullptr /*memory_config*/,
-        nullptr /*num_links*/, nullptr /*topology*/);
+        allGatherOutputType, leadingReshapeOp.getResult(), deviceValue, 0,
+        clusterAxis);
     // Create a new reduce op.
     ArrayAttr reduceDimAttr =
         rewriter.getI32ArrayAttr(llvm::ArrayRef<int32_t>{0});

@@ -2267,19 +2267,17 @@ def TTNN_ScatterOp : TTNN_Op<"scatter">{
     }];
 }
 
-def TTNN_AllGatherOp: TTNN_Op<"all_gather", [TTNN_MemoryConfigOpInterface]> {
+def TTNN_AllGatherOp: TTNN_Op<"all_gather"> {
     let summary = "All gather op.";
     let description = [{
         Tensor All Gather operation
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
+                         TTNN_Device:$device,
                          SI32Attr:$all_gather_dim,
                          UI32Attr:$cluster_axis,
-                         OptionalAttr<UI32Attr>:$sub_device_id,
-                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
-                         OptionalAttr<UI32Attr>:$num_links,
-                         OptionalAttr<TTCore_TopologyAttr>:$topology);
+                         DefaultValuedAttr<UI32Attr, "1">:$num_links);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -2288,20 +2286,18 @@ def TTNN_AllGatherOp: TTNN_Op<"all_gather", [TTNN_MemoryConfigOpInterface]> {
     let hasFolder = 1;
 }
 
-def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter", [TTNN_MemoryConfigOpInterface]> {
+def TTNN_ReduceScatterOp: TTNN_Op<"reduce_scatter"> {
     let summary = "Reduce scatter op.";
     let description = [{
         Tensor Reduce Scatter operation
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
+                         TTNN_Device:$device,
                          TTCore_ReduceTypeAttr:$reduce_type,
                          SI32Attr:$scatter_dim,
                          UI32Attr:$cluster_axis,
-                         OptionalAttr<UI32Attr>:$sub_device_id,
-                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
-                         OptionalAttr<UI32Attr>:$num_links,
-                         OptionalAttr<TTCore_TopologyAttr>:$topology);
+                         DefaultValuedAttr<UI32Attr, "1">:$num_links);
 
     let results = (outs AnyRankedTensor:$result);
 

@@ -1762,15 +1762,12 @@ public:
   LogicalResult
   matchAndRewrite(ttir::ReduceScatterOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
 
     rewriter.replaceOpWithNewOp<ttnn::ReduceScatterOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getReduceType(), adaptor.getScatterDim(),
-        static_cast<uint32_t>(adaptor.getClusterAxis()),
-        /*sub_device_id=*/nullptr,
-        /*memory_config=*/nullptr,
-        /*num_links=*/nullptr,
-        /*topology=*/nullptr);
+        adaptor.getInput(), device, adaptor.getReduceType(),
+        adaptor.getScatterDim(), adaptor.getClusterAxis());
 
     return success();
   }
@@ -1809,14 +1806,12 @@ public:
   matchAndRewrite(ttir::AllGatherOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
+    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+
     rewriter.replaceOpWithNewOp<ttnn::AllGatherOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getAllGatherDim(),
-        static_cast<uint32_t>(adaptor.getClusterAxis()),
-        /*sub_device_id=*/nullptr,
-        /*memory_config=*/nullptr,
-        /*num_links=*/nullptr,
-        /*topology=*/nullptr);
+        adaptor.getInput(), device, adaptor.getAllGatherDim(),
+        static_cast<uint32_t>(adaptor.getClusterAxis()));
 
     return success();
   }
