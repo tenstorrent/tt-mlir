@@ -128,9 +128,9 @@ class TTNNBuilder(Builder):
                         golden_output = op_golden_function(
                             *(organize_golden_args(inputs)), **golden_kwargs
                         )
-                    self._set_golden_tensor(op, golden_output)
+                    self._set_golden_tensor(op.result, golden_output)
 
-            return op
+            return op.result
 
     def _get_data_type_attribute(self, operand: Operand) -> ttcore.ir.DataTypeAttr:
         with self._ctx, self._loc:
@@ -214,7 +214,7 @@ class TTNNBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttnn_op = self.get_opview_from_method(TTNNBuilder.add)
         dtype = self._get_data_type_attribute(in0)
 
@@ -242,16 +242,16 @@ class TTNNBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttnn.AddOp)
     def add_parser(
         self,
         old_op: ttnn.AddOp,
         global_dict: Dict[Operand, Operand],
-    ) -> Operation:
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
         ttnn_op = self.get_opview_from_parser(TTNNBuilder.add_parser)
         lhs = global_dict[old_op.lhs]
         rhs = global_dict[old_op.rhs]
@@ -264,9 +264,11 @@ class TTNNBuilder(Builder):
             input1 = self._get_golden_tensor(rhs)
             op_golden_function = get_golden_function(ttnn_op)
             golden_output = op_golden_function(input0, input1, result.element_type)
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
-        return new_op
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op.result
+        return new_op, op_map_dictionary
 
     @split(ttnn.AddOp)
     def add_split(
@@ -299,21 +301,8 @@ class TTNNBuilder(Builder):
 
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(ttnn_op)
-
-                        input_owner0 = old_op.lhs.owner
-                        if isinstance(input_owner0, Block):
-                            queried_input0 = old_op.lhs
-                        else:
-                            queried_input0 = input_owner0
-
-                        input_owner1 = old_op.rhs.owner
-                        if isinstance(input_owner1, Block):
-                            queried_input1 = old_op.rhs
-                        else:
-                            queried_input1 = input_owner1
-
-                        input0 = self._get_golden_tensor(queried_input0)
-                        input1 = self._get_golden_tensor(queried_input1)
+                        input0 = self._get_golden_tensor(old_op.lhs)
+                        input1 = self._get_golden_tensor(old_op.rhs)
                         golden_output = op_golden_function(
                             input0, input1, result.element_type
                         )
@@ -2956,10 +2945,13 @@ class TTNNBuilder(Builder):
                                         global_dict[operand] for operand in op.operands
                                     )
                                 else:
-                                    parsed_op = ttnn_builder._build_op_from_parsed_op(
+                                    (
+                                        parsed_op,
+                                        op_golden_dictionary,
+                                    ) = ttnn_builder._build_op_from_parsed_op(
                                         op, global_dict
                                     )
-                                    global_dict[op.result] = parsed_op
+                                    global_dict.update(op_golden_dictionary)
 
                     outputs = (
                         global_result

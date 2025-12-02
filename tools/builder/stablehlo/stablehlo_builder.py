@@ -255,9 +255,9 @@ class StableHLOBuilder(Builder):
                     golden_output = op_golden_function(
                         *(organize_golden_args(inputs)), **golden_kwargs
                     )
-                    self._set_golden_tensor(op, golden_output)
+                    self._set_golden_tensor(op.result, golden_output)
 
-            return op
+            return op.result
 
     def _eltwise_proxy(
         self,
@@ -280,7 +280,7 @@ class StableHLOBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
         sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
-    ) -> OpView:
+    ) -> OpResult:
         stablehlo_op = self.get_opview_from_method(StableHLOBuilder.add)
 
         op = stablehlo_op(
@@ -303,16 +303,16 @@ class StableHLOBuilder(Builder):
             golden_output = op_golden_function(
                 input0, input1, op.result.type.element_type
             )
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(stablehlo.AddOp)
     def add_parser(
         self,
         old_op: stablehlo.AddOp,
         global_dict: Dict[Operand, Operand],
-    ) -> Operation:
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
         stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.add_parser)
         lhs = global_dict[old_op.lhs]
         rhs = global_dict[old_op.rhs]
@@ -330,9 +330,11 @@ class StableHLOBuilder(Builder):
             golden_output = op_golden_function(
                 input0, input1, new_op.result.type.element_type
             )
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
-        return new_op
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op.result
+        return new_op, op_map_dictionary
 
     @split(stablehlo.AddOp)
     def add_split(
@@ -362,21 +364,8 @@ class StableHLOBuilder(Builder):
 
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(stablehlo_op)
-
-                        input_owner0 = old_op.lhs.owner
-                        if isinstance(input_owner0, Block):
-                            queried_input0 = old_op.lhs
-                        else:
-                            queried_input0 = input_owner0
-
-                        input_owner1 = old_op.rhs.owner
-                        if isinstance(input_owner1, Block):
-                            queried_input1 = old_op.rhs
-                        else:
-                            queried_input1 = input_owner1
-
-                        input0 = self._get_golden_tensor(queried_input0)
-                        input1 = self._get_golden_tensor(queried_input1)
+                        input0 = self._get_golden_tensor(old_op.lhs)
+                        input1 = self._get_golden_tensor(old_op.rhs)
                         golden_output = op_golden_function(
                             input0, input1, new_op.result.type.element_type
                         )
@@ -2074,12 +2063,13 @@ class StableHLOBuilder(Builder):
                                         global_dict[operand] for operand in op.operands
                                     )
                                 else:
-                                    parsed_op = (
-                                        stablehlo_builder._build_op_from_parsed_op(
-                                            op, global_dict
-                                        )
+                                    (
+                                        parsed_op,
+                                        op_golden_dictionary,
+                                    ) = stablehlo_builder._build_op_from_parsed_op(
+                                        op, global_dict
                                     )
-                                    global_dict[op.result] = parsed_op
+                                    global_dict.update(op_golden_dictionary)
 
                     outputs = (
                         global_result
