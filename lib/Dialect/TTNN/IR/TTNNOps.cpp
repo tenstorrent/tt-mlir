@@ -401,17 +401,6 @@ static bool isDefinedByOp(mlir::Value value) {
     return mlir::failure();
   }
 
-  if (getConv2dConfig() && getConv2dConfig()->getDeallocateActivation() &&
-      getConv2dConfig()->getDeallocateActivation().getValue()) {
-    for (auto *user : getInput().getUsers()) {
-      if (this->getOperation()->isBeforeInBlock(user)) {
-        return emitOpError()
-               << "Conv2dOp with `deallocate_activation` set to true "
-                  "must be the last user of the input tensor. ";
-      }
-    }
-  }
-
   auto expectedParams = getAndVerifyConv2dParams(this);
   if (auto error = expectedParams.takeError()) {
     return emitOpError() << llvm::toString(std::move(error));
