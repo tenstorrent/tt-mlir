@@ -14,3 +14,16 @@ module {
     return %0 : tensor<71x32xbf16>
   }
 }
+
+module {
+  sdy.mesh @mesh = <["model"=1, "batch"=8]>
+  func.func @scatter_test(%arg0: tensor<4x8xbf16> {sdy.sharding = #sdy.sharding<@mesh, [{}, {}]>},
+                          %arg1: tensor<4x1xi64> {sdy.sharding = #sdy.sharding<@mesh, [{}, {}]>},
+                          %arg2: tensor<32x64xbf16> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"batch"}]>}) -> tensor<32x64xbf16> {
+    %0 = "stablehlo.scatter"(%arg2, %arg1, %arg0) <{scatter_dimension_numbers = #stablehlo.scatter<update_window_dims = [1], inserted_window_dims = [0], scatter_dims_to_operand_dims = [0], index_vector_dim = 1>}> ({
+    ^bb0(%arg3: tensor<bf16>, %arg4: tensor<bf16>):
+      stablehlo.return %arg4 : tensor<bf16>
+    }) : (tensor<32x64xbf16>, tensor<4x1xi64>, tensor<4x8xbf16>) -> tensor<32x64xbf16>
+    return %0 : tensor<32x64xbf16>
+  }
+}
