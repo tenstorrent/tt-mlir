@@ -5250,7 +5250,8 @@ protected:
             CreateWorkerGrid(), queryShape, queryLayout, keyShape, keyLayout,
             valueShape, valueLayout, isCausal, attentionMaskShape,
             attentionMaskLayout, curPosTensorShape, curPosTensorLayout,
-            attentionSinkShape, attentionSinkLayout, scale, outputLayout);
+            attentionSinkShape, attentionSinkLayout, scale,
+            /*programConfig=*/std::nullopt, outputLayout);
 
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {

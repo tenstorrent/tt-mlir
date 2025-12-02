@@ -1921,6 +1921,7 @@ struct ScaledDotProductAttentionDecodeArgs {
   std::optional<llvm::SmallVector<int64_t>> attentionSinkShape = std::nullopt;
   std::optional<TTNNLayoutAttr> attentionSinkLayout = std::nullopt;
   std::optional<llvm::APFloat> scale = std::nullopt;
+  std::optional<SDPAProgramConfigAttr> programConfig = std::nullopt;
 };
 
 static ScaledDotProductAttentionDecodeArgs
@@ -1938,6 +1939,9 @@ unpackScaledDotProductAttentionDecodeArgs(
   ret.valueLayout = inputs[2];
   ret.isCausal = op.getIsCausal();
   ret.scale = op.getScale();
+  if (op.getProgramConfigAttr()) {
+    ret.programConfig = op.getProgramConfigAttr();
+  }
 
   TypedValue<RankedTensorType> attentionMask = op.getAttentionMask();
   TypedValue<RankedTensorType> attentionSink = op.getAttentionSink();
@@ -2009,7 +2013,8 @@ ScaledDotProductAttentionDecodeOp::getOpConstraints(
       sdpaArgs.valueLayout, sdpaArgs.isCausal, sdpaArgs.attentionMaskShape,
       sdpaArgs.attentionMaskLayout, sdpaArgs.curPosTensorShape,
       sdpaArgs.curPosTensorLayout, sdpaArgs.attentionSinkShape,
-      sdpaArgs.attentionSinkLayout, sdpaArgs.scale, opConfig.outputLayout);
+      sdpaArgs.attentionSinkLayout, sdpaArgs.scale, sdpaArgs.programConfig,
+      opConfig.outputLayout);
   // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 }
 

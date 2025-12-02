@@ -677,6 +677,39 @@ TTNNLayoutAttr getLayoutAttrFromTensorSpec(MLIRContext *context,
                              memoryLayoutAttr);
 }
 
+std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
+getSDPAProgramConfig(
+    const std::optional<SDPAProgramConfigAttr> &sdpaProgramConfig) {
+  if (!sdpaProgramConfig.has_value()) {
+    return std::nullopt;
+  }
+
+  const SDPAProgramConfigAttr &config = sdpaProgramConfig.value();
+  ::ttnn::operations::transformer::SDPAProgramConfig sdpaConfig;
+
+  CoreCoordAttr gridSize = config.getComputeWithStorageGridSize();
+  sdpaConfig.compute_with_storage_grid_size =
+      ::tt::tt_metal::CoreCoord{gridSize.getX(), gridSize.getY()};
+
+  if (config.getSubCoreGrids()) {
+    sdpaConfig.sub_core_grids = getCoreRangeSet(config.getSubCoreGrids());
+  }
+
+  sdpaConfig.q_chunk_size = config.getQChunkSize();
+  sdpaConfig.k_chunk_size = config.getKChunkSize();
+
+  if (config.getExpApproxMode()) {
+    sdpaConfig.exp_approx_mode = config.getExpApproxMode().getValue();
+  }
+
+  if (config.getMaxCoresPerHeadBatch().has_value()) {
+    sdpaConfig.max_cores_per_head_batch =
+        config.getMaxCoresPerHeadBatch().value();
+  }
+
+  return sdpaConfig;
+}
+
 } // namespace conversion
 } // namespace mlir::tt::ttnn::op_model
 #endif // TTMLIR_ENABLE_OPMODEL
