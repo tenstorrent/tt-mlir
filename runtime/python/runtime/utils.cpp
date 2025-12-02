@@ -97,6 +97,13 @@ void registerRuntimeUtilsBindings(nb::module_ &m) {
         uint64_t size = buffer->size();
         uint32_t pageSize = buffer->page_size();
 
+        // Get NOC coordinates from original TTNN buffer for debug comparison
+        auto origNocCoords = buffer->noc_coordinates();
+        std::cout << "[create_ttmetal_tensor_from_ttnn] Original TTNN buffer: "
+                  << "address=" << address
+                  << ", NOC coords=(" << origNocCoords.x << ", " << origNocCoords.y << ")"
+                  << std::endl;
+
         // Determine buffer type from memory config
         ::tt::tt_metal::BufferType bufferType = buffer->buffer_type();
 
@@ -132,5 +139,30 @@ void registerRuntimeUtilsBindings(nb::module_ &m) {
       },
       "Create a TTMetal-compatible runtime tensor from a TTNN device tensor",
       nb::arg("tensor"), nb::arg("retain") = false);
+
+  m.def(
+      "get_ttnn_tensor_noc_info",
+      [](nb::object tensor_obj) -> nb::tuple {
+        py::handle tensor_pybind_obj(tensor_obj.ptr());
+        const ::ttnn::Tensor &tensor =
+            py::cast<const ::ttnn::Tensor &>(tensor_pybind_obj);
+
+        // Get the underlying buffer
+        ::tt::tt_metal::Buffer *buffer = tensor.buffer();
+        LOG_ASSERT(buffer != nullptr,
+                   "TTNN tensor must have a device buffer");
+
+        // Get buffer address and NOC coordinates
+        uint64_t address = buffer->address();
+        auto nocCoords = buffer->noc_coordinates();
+
+        // Return tuple of (noc_x, noc_y, address)
+        return nb::make_tuple(
+            static_cast<uint32_t>(nocCoords.x),
+            static_cast<uint32_t>(nocCoords.y),
+            address);
+      },
+      "Get NOC info (x, y, address) for a TTNN tensor's buffer",
+      nb::arg("tensor"));
 }
 } // namespace tt::runtime::python

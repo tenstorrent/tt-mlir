@@ -985,7 +985,7 @@ static Value castCBTypeAsAddress(OpBuilder &rewriter, Location loc, Value cb) {
 
 static Value buildNocAddress(OpBuilder &rewriter, Location loc, Value cb,
                              ValueRange index, ttcore::ChipDescAttr chipDesc,
-                             ttcore::MemorySpace memspace) {
+                             ttcore::MemorySpace memspace, bool ttnnMode = false) {
   assert(memspace == ttcore::MemorySpace::DeviceL1 ||
          memspace == ttcore::MemorySpace::DeviceDRAM);
   auto baseAddr = castCBTypeAsAddress(rewriter, loc, cb);
@@ -1004,14 +1004,42 @@ static Value buildNocAddress(OpBuilder &rewriter, Location loc, Value cb,
     noc_addr_op =
         rewriter.create<ttkernel::GetNocAddrOp>(loc, virtX, virtY, addr);
   } else {
-    auto bankID = index[1];
-    auto bankIDInt =
-        rewriter.create<arith::IndexCastOp>(loc, rewriter.getI32Type(), bankID);
     auto offset = index[2];
     auto offsetInt =
         rewriter.create<arith::IndexCastOp>(loc, rewriter.getI32Type(), offset);
     auto addr = rewriter.create<arith::AddIOp>(loc, baseAddr, offsetInt);
 
+    if (ttnnMode) {
+      // For TTNN mode, the runtime pushes NOC coordinates after the buffer address
+      // Extract the arg index from the defining GetCommonArgValOp
+      auto definingOp = cb.getDefiningOp<ttkernel::GetCommonArgValOp>();
+      if (definingOp) {
+        // Get the arg index and compute noc_x, noc_y indices
+        auto argIndexOp = definingOp.getArgIndex().getDefiningOp<arith::ConstantOp>();
+        if (argIndexOp) {
+          auto argIndexAttr = mlir::dyn_cast<IntegerAttr>(argIndexOp.getValue());
+          size_t argIndex = argIndexAttr.getInt();
+          // NOC X is at argIndex+1, NOC Y is at argIndex+2
+          Value nocX = rewriter.create<ttkernel::GetCommonArgValOp>(
+              loc, rewriter.getI32Type(),
+              rewriter.create<arith::ConstantOp>(
+                  loc, rewriter.getIndexType(),
+                  rewriter.getIndexAttr(argIndex + 1)));
+          Value nocY = rewriter.create<ttkernel::GetCommonArgValOp>(
+              loc, rewriter.getI32Type(),
+              rewriter.create<arith::ConstantOp>(
+                  loc, rewriter.getIndexType(),
+                  rewriter.getIndexAttr(argIndex + 2)));
+          return rewriter.create<ttkernel::GetNocAddrOp>(loc, nocX, nocY, addr);
+        }
+      }
+      // Fallback to bank_id approach if we can't extract arg index
+    }
+
+    // Non-TTNN mode: use bank_id based addressing
+    auto bankID = index[1];
+    auto bankIDInt =
+        rewriter.create<arith::IndexCastOp>(loc, rewriter.getI32Type(), bankID);
     return rewriter.create<ttkernel::GetNocAddrFromBankIDOp>(loc, bankIDInt,
                                                              addr);
   }
@@ -1032,10 +1060,12 @@ class D2MDMAReadRewriter : public OpConversionPattern<d2m::DMAReadOp> {
 public:
   D2MDMAReadRewriter(TypeConverter &typeConverter, MLIRContext *context,
                      const d2m::AssociatedDMAWaits *associatedDMAWaits,
-                     const d2m::CBProducerConsumer *cbProducerConsumer)
+                     const d2m::CBProducerConsumer *cbProducerConsumer,
+                     bool ttnnMode = false)
       : OpConversionPattern<d2m::DMAReadOp>(typeConverter, context),
         associatedDMAWaits(associatedDMAWaits),
-        cbProducerConsumer(cbProducerConsumer) {}
+        cbProducerConsumer(cbProducerConsumer),
+        ttnnMode(ttnnMode) {}
 
   LogicalResult
   matchAndRewrite(d2m::DMAReadOp op, d2m::DMAReadOpAdaptor adaptor,
@@ -1048,7 +1078,8 @@ public:
     // write barriers.
     auto srcNocAddr =
         buildNocAddress(rewriter, op.getLoc(), adaptor.getSrc(),
-                        op.getSrcIndices(), chipDesc, op.getSrcMemorySpace());
+                        op.getSrcIndices(), chipDesc, op.getSrcMemorySpace(),
+                        ttnnMode);
     auto dstCBMapping = cbProducerConsumer->get(op.getDst());
     TT_assertv((dstCBMapping == d2m::ThreadCBOrientation::Producer ||
                 dstCBMapping == d2m::ThreadCBOrientation::Default),
@@ -1080,16 +1111,19 @@ public:
 private:
   const d2m::AssociatedDMAWaits *associatedDMAWaits;
   const d2m::CBProducerConsumer *cbProducerConsumer;
+  bool ttnnMode;
 };
 
 class D2MDMAWriteRewriter : public OpConversionPattern<d2m::DMAWriteOp> {
 public:
   D2MDMAWriteRewriter(TypeConverter &typeConverter, MLIRContext *context,
                       const d2m::AssociatedDMAWaits *associatedDMAWaits,
-                      const d2m::CBProducerConsumer *cbProducerConsumer)
+                      const d2m::CBProducerConsumer *cbProducerConsumer,
+                      bool ttnnMode = false)
       : OpConversionPattern<d2m::DMAWriteOp>(typeConverter, context),
         associatedDMAWaits(associatedDMAWaits),
-        cbProducerConsumer(cbProducerConsumer) {}
+        cbProducerConsumer(cbProducerConsumer),
+        ttnnMode(ttnnMode) {}
 
   LogicalResult
   matchAndRewrite(d2m::DMAWriteOp op, d2m::DMAWriteOpAdaptor adaptor,
@@ -1172,7 +1206,8 @@ public:
           rewriter, op.getLoc(), adaptor.getSrc(), op.getSrcIndices());
       auto dstNocAddr =
           buildNocAddress(rewriter, op.getLoc(), adaptor.getDst(),
-                          op.getDstIndices(), chipDesc, op.getDstMemorySpace());
+                          op.getDstIndices(), chipDesc, op.getDstMemorySpace(),
+                          ttnnMode);
       auto size = i32(rewriter, op->getLoc(), op.getSizeBytes());
       rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Addr,
                                                  dstNocAddr, size);
@@ -1196,6 +1231,7 @@ public:
 private:
   const d2m::AssociatedDMAWaits *associatedDMAWaits;
   const d2m::CBProducerConsumer *cbProducerConsumer;
+  bool ttnnMode;
 };
 } // namespace
 
@@ -1608,8 +1644,8 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MSemaphoreWaitRewriter>(typeConverter, ctx);
 
   patterns.add<ttkernel::D2MGetGlobalOperandRewriter>(typeConverter, ctx, ttnnMode);
-  patterns.add<ttkernel::D2MDMAReadRewriter>(typeConverter, ctx, &associatedDMAWaits, &cbProducerConsumer);
-  patterns.add<ttkernel::D2MDMAWriteRewriter>(typeConverter, ctx, &associatedDMAWaits, &cbProducerConsumer);
+  patterns.add<ttkernel::D2MDMAReadRewriter>(typeConverter, ctx, &associatedDMAWaits, &cbProducerConsumer, ttnnMode);
+  patterns.add<ttkernel::D2MDMAWriteRewriter>(typeConverter, ctx, &associatedDMAWaits, &cbProducerConsumer, ttnnMode);
   // clang-format on
 }
 

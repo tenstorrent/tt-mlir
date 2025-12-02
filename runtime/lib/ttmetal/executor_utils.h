@@ -422,17 +422,29 @@ std::vector<std::uint32_t> processKernelArgs(
       // Get address from flatbuffer, or from actual MeshBuffer if flatbuffer
       // address is 0 (TTNN interop - tensor already on device)
       uint64_t address = buffer->address();
-      if (address == 0) {
-        // Get address from the actual MeshBuffer (runtime-provided tensor)
+      bool isTtnnInterop = (address == 0);
+      uint32_t nocX = 0, nocY = 0;
+      if (isTtnnInterop) {
+        // Get address and NOC coords from the actual MeshBuffer (runtime-provided tensor)
         const tt_metal::distributed::MeshCoordinate coord = {0, 0};
         auto meshBuffer = meshBuffers.at(buffer->global_id());
-        address = meshBuffer->get_device_buffer(coord)->address();
+        auto deviceBuffer = meshBuffer->get_device_buffer(coord);
+        address = deviceBuffer->address();
+        auto nocCoords = deviceBuffer->noc_coordinates();
+        nocX = static_cast<uint32_t>(nocCoords.x);
+        nocY = static_cast<uint32_t>(nocCoords.y);
         std::cout << "[TTNN interop] Using MeshBuffer address: " << address
+                  << ", NOC coords: (" << nocX << ", " << nocY << ")"
                   << " for buffer global_id: " << buffer->global_id()
                   << std::endl;
       }
       argsVec.push_back(
           deviceAddressValidator(address, metalBuffer->buffer_type()));
+      // For TTNN interop, also push NOC coordinates as additional runtime args
+      if (isTtnnInterop) {
+        argsVec.push_back(nocX);
+        argsVec.push_back(nocY);
+      }
       break;
     }
     case target::metal::KernelArgType::KernelArgSemaphore: {
