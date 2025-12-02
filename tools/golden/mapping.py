@@ -2197,24 +2197,6 @@ def slice_golden_stablehlo(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMap
     return GoldenMapTensor(shard_map, input_tensor.mesh_shape)
 
 
-def ones_golden(**kwargs) -> GoldenMapTensor:
-    """
-    Golden function for ones operation with TTIR parameter names.
-
-    Parameters
-    ----------
-    **kwargs : dict
-        Keyword arguments including 'size'
-
-    Returns
-    -------
-    GoldenMapTensor
-        Ones tensor
-    """
-    size = kwargs.get("shape", [1])
-    return GoldenMapTensor({0: torch.ones(size)}, (1, 1))
-
-
 def arange_golden(single_dim_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for arange operation using TTIR kwargs.
@@ -2890,22 +2872,81 @@ def ttir_gather_golden(
     return gathered.to(device=device)
 
 
+def ttir_to_layout_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return input_tensor.to(output_dtype)
+
+
+def ttir_ones_golden(**kwargs) -> GoldenMapTensor:
+    size = unpack_mlir_attr(kwargs.get("shape", [1]))
+    return GoldenMapTensor({0: torch.ones(size)}, (1, 1))
+
+
 def ttir_zeros_golden(**kwargs) -> GoldenMapTensor:
-    """
-    Golden function for zeros operation with TTIR parameter names.
-
-    Parameters
-    ----------
-    **kwargs : dict
-        Keyword arguments including 'size'
-
-    Returns
-    -------
-    GoldenMapTensor
-        Zero tensor
-    """
     size = unpack_mlir_attr(kwargs.get("shape", [1]))
     return GoldenMapTensor({0: torch.zeros(size)}, (1, 1))
+
+
+def ttir_cos_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.cos(input_tensor).to(output_dtype)
+
+
+def ttir_sin_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.sin(input_tensor).to(output_dtype)
+
+
+def ttir_sqrt_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.sqrt(input_tensor).to(output_dtype)
+
+
+def ttir_pow_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.pow(input_tensor).to(output_dtype)
+
+
+def ttir_ge_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.ge(input_tensor, other_tensor).to(output_dtype)
+
+
+def ttir_lt_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.lt(input_tensor, other_tensor).to(output_dtype)
+
+
+def ttir_minimum_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.minimum(input_tensor, other_tensor).to(output_dtype)
+
+
+def ttir_logical_right_shift_golden(
+    input_tensor: GoldenMapTensor, shift_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    input_int64 = input_tensor.to(torch.int64)
+    shift_int64 = shift_tensor.to(torch.int64)
+    input_unsigned = torch.bitwise_and(input_int64, 0xFFFFFFFF)
+    result = torch.bitwise_right_shift(input_unsigned, shift_int64)
+    return torch.bitwise_and(result, 0xFFFFFFFF).to(output_dtype)
 
 
 def ttir_slice_golden(
@@ -3845,7 +3886,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.GetDimensionSizeOp: get_dimension_size_golden,
     ttir.AbsOp: ttir_abs_golden,
     ttir.CeilOp: torch.ceil,
-    ttir.CosOp: torch.cos,
+    ttir.CosOp: ttir_cos_golden,
     ttir.ErfOp: ttir_erf_golden,
     ttir.ErfcOp: torch.erfc,
     ttir.FloorOp: ttir_floor_golden,
@@ -3863,7 +3904,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.SigmoidOp: ttir_sigmoid_golden,
     ttir.SignOp: torch.sign,
     ttir.SiluOp: silu_golden,
-    ttir.SinOp: torch.sin,
+    ttir.SinOp: ttir_sin_golden,
     ttir.SqrtOp: torch.sqrt,
     ttir.LogOp: ttir_log_golden,
     ttir.Log1pOp: ttir_log1p_golden,
@@ -3876,21 +3917,21 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.SubtractOp: ttir_subtract_golden,
     ttir.DivOp: ttir_div_golden,
     ttir.MaximumOp: ttir_maximum_golden,
-    ttir.MinimumOp: torch.minimum,
+    ttir.MinimumOp: ttir_minimum_golden,
     ttir.RemainderOp: torch.remainder,
-    ttir.PowOp: torch.pow,
+    ttir.PowOp: ttir_pow_golden,
     # Comparison operations
     ttir.EqualOp: ttir_equal_golden,
     ttir.NotEqualOp: ttir_ne_golden,
-    ttir.GreaterEqualOp: greater_equal_golden,
+    ttir.GreaterEqualOp: ttir_ge_golden,
     ttir.GreaterThanOp: ttir_greater_than_golden,
     ttir.LessEqualOp: less_equal_golden,
-    ttir.LessThanOp: less_than_golden,
+    ttir.LessThanOp: ttir_lt_golden,
     # Logical operations
     ttir.LogicalAndOp: logical_and_golden,
     ttir.LogicalLeftShiftOp: logical_left_shift_golden,
     ttir.LogicalOrOp: logical_or_golden,
-    ttir.LogicalRightShiftOp: logical_right_shift_golden,
+    ttir.LogicalRightShiftOp: ttir_logical_right_shift_golden,
     ttir.LogicalXorOp: logical_xor_golden,
     ttir.LogicalNotOp: ttir_logical_not_golden,
     # Selection operations
@@ -3940,7 +3981,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.TypecastOp: ttir_typecast_golden,
     # Tensor creation
     ttir.ZerosOp: ttir_zeros_golden,
-    ttir.OnesOp: ones_golden,
+    ttir.OnesOp: ttir_ones_golden,
     ttir.ConstantOp: ttir_constant_golden,
     ttir.FullOp: ttir_full_golden,
     ttir.ArangeOp: arange_golden,
@@ -3962,7 +4003,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.DotGeneralOp: ttir_dot_general_golden,
     ttir.ScatterOp: ttir_scatter_golden,
     # Layout operations (identity functions) — accept and ignore extra kwargs like reinterpretLayout
-    ttir.ToLayoutOp: (lambda x, **kwargs: x),
+    ttir.ToLayoutOp: ttir_to_layout_golden,
     # Cache operations
     ttir.FillCacheOp: fill_cache_golden,
     ttir.UpdateCacheOp: update_cache_golden,
