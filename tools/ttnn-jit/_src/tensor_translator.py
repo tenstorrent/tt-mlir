@@ -111,6 +111,12 @@ def _ttcore_dtype_from_ttnn_dtype(dtype):
             raise ValueError(f"Unsupported dtype: {dtype}")
 
 
+def _get_grid_from_bounding_box(tensor_arg):
+    grid_bounding_box = tensor_arg.memory_config().shard_spec.grid.bounding_box()
+    max_grid = (grid_bounding_box.end.x, grid_bounding_box.end.y)
+    return max_grid
+
+
 def _get_grid(ctx, tensor_arg, memory_layout):
     # IMPORTANT: TTNN writes grids as (width, height) but compiler expects (height, width)
 
@@ -123,8 +129,7 @@ def _get_grid(ctx, tensor_arg, memory_layout):
         ttnn.TensorMemoryLayout.WidthSharded,
     ):
 
-        grid_bb = tensor_arg.memory_config().shard_spec.grid.bounding_box()
-        max_grid = (grid_bb.end.x, grid_bb.end.y)
+        max_grid = _get_grid_from_bounding_box(tensor_arg)
 
         grid_size_x = max_grid[0] + 1
         grid_size_y = max_grid[1] + 1
@@ -136,8 +141,7 @@ def _get_grid(ctx, tensor_arg, memory_layout):
 
 def _create_sharded_tensor_layout(ctx, tensor_arg):
 
-    grid_bb = tensor_arg.memory_config().shard_spec.grid.bounding_box()
-    max_grid = (grid_bb.end.x, grid_bb.end.y)
+    max_grid = _get_grid_from_bounding_box(tensor_arg)
     affine_map = _get_collapsed_linear_affine_map(ctx, tensor_arg.shape, max_grid)
     buffer_type = ttnn.ir.BufferTypeAttr.get(ctx, ttnn.BufferType.L1)
     grid = _get_grid(
