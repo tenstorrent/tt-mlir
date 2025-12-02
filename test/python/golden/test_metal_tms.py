@@ -19,10 +19,18 @@ pytestmark = pytest.mark.frontend("ttir")
 
 
 @pytest.mark.parametrize(
-    "shapes",
-    [[(1, 32, 31, 32)], [(1, 32, 1, 32)], [(5, 7, 2, 32)]],  # , [(1, 64, 64, 64)]]
+    "shapes, permutation",
+    [
+        # 4d outer permutes
+        [(1, 32, 31, 32), [0, 2, 1, 3]],
+        [(1, 32, 1, 32), [0, 2, 1, 3]],
+        [(5, 7, 2, 32), [0, 2, 1, 3]],
+        # 5d outer permutes
+        [(1, 3, 3, 3, 3), [0, 2, 1, 3, 4]],
+        [(1, 3, 3, 3, 3), [0, 2, 1, 3, 4]],
+        [(5, 7, 2, 3, 3), [0, 2, 1, 3, 4]],
+    ],
 )
-@pytest.mark.parametrize("permutation", [[0, 2, 1, 3]])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_permute_abs(
     shapes: List[Shape], permutation: List[int], target: str, request, device
@@ -41,7 +49,7 @@ def test_permute_abs(
 
     compile_and_execute_ttir(
         permute_with_abs,
-        shapes,
+        [shapes],
         system_desc_path=request.config.getoption("--sys-desc"),
         test_base=request.node.name,
         device=device,
