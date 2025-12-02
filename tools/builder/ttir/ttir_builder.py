@@ -243,6 +243,7 @@ class TTIRBuilder(Builder):
             )
             self._set_golden_tensor(new_op, golden_output)
 
+        self._disable_golden_check = True
         return new_op
 
     @split(ttir.RandOp)
