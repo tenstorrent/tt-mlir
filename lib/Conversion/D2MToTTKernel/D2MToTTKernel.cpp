@@ -380,6 +380,9 @@ using ComputeOpMap = OpMap<
 
   // Elementwise SFPU Binary (can also handle scalar operands).
   std::pair<d2m::TileAddOp,         std::pair<ttkernel::AddBinaryTilesInitOp,      ttkernel::AddBinaryTilesOp>>,
+  std::pair<d2m::TileBitwiseAndOp,  std::pair<ttkernel::BinaryBitwiseTileInitOp, ttkernel::BitwiseAndBinaryTilesOp>>,
+  std::pair<d2m::TileBitwiseOrOp,   std::pair<ttkernel::BinaryBitwiseTileInitOp, ttkernel::BitwiseOrBinaryTilesOp>>,
+  std::pair<d2m::TileBitwiseXorOp,  std::pair<ttkernel::BinaryBitwiseTileInitOp, ttkernel::BitwiseXorBinaryTilesOp>>,
   std::pair<d2m::TileDivOp,         std::pair<ttkernel::DivBinaryTilesInitOp,      ttkernel::DivBinaryTilesOp>>,
   std::pair<d2m::TileMaximumOp,     std::pair<ttkernel::MaxTilesInitOp,            ttkernel::MaxTilesOp>>,
   std::pair<d2m::TileMulOp,         std::pair<ttkernel::MulBinaryTilesInitOp,      ttkernel::MulBinaryTilesOp>>,
@@ -1617,6 +1620,9 @@ void populateD2MToTTKernelPatterns(
 
                // Elementwise SFPU Binary (also handles scalar operands).
                ttkernel::D2MSFPUOpsRewriter<d2m::TileAddOp>,
+               ttkernel::D2MSFPUOpsRewriter<d2m::TileBitwiseAndOp>,
+               ttkernel::D2MSFPUOpsRewriter<d2m::TileBitwiseOrOp>,
+               ttkernel::D2MSFPUOpsRewriter<d2m::TileBitwiseXorOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileDivOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileMaximumOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileMulOp>,
