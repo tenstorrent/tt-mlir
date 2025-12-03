@@ -119,14 +119,14 @@ void createTTNNPipelineAnalysisPasses(
   }
 }
 
-void createTTNNPipelineLoweringPasses(
-    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
+void createTTNNPipelineLoweringPasses(OpPassManager &pm,
+                                      bool removeDeadValuesEnabled) {
   // Add pass to add layout information.
   pm.addPass(createTTNNLayout());
   // Add pass to convert TTIR to TTNN.
   pm.addPass(createConvertTTIRToTTNNPass());
   // Add pass to remove unused values.
-  if (options.removeDeadValuesEnabled) {
+  if (removeDeadValuesEnabled) {
     pm.addPass(mlir::createRemoveDeadValuesPass());
   }
 }
@@ -246,11 +246,14 @@ void createTTIRToTTNNBackendPipeline(
   {
     auto &devicePm = pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
 
-    // Enable DPS semantics for hoisted functions in Device module.
-    devicePm.addPass(transforms::createConvertCPUHoistedFunctionsToDPS());
+    // Enable DPS semantics for hoisted functions in Device module
+    // only if CPU module lowering is enabled.
+    if (options.enableCPUModuleLowering) {
+      devicePm.addPass(transforms::createConvertCPUHoistedFunctionsToDPS());
+    }
 
     // Run TTNN lowering passes on Device module.
-    createTTNNPipelineLoweringPasses(devicePm, options);
+    createTTNNPipelineLoweringPasses(devicePm, options.removeDeadValuesEnabled);
     createTTNNFusingPass(devicePm, options);
 
     createTTNNPipelineWorkaroundPass(devicePm, options);
@@ -276,7 +279,7 @@ void createTTIRToTTNNBackendPipeline(
   }
 
   // Run lowering to LLVM pass on hoisted funcs.
-  {
+  if (options.enableCPUModuleLowering) {
     auto &cpuPm = pm.nest<ttcore::CPUModuleOp>().nest<mlir::ModuleOp>();
 
     ttir::LinalgToLLVMPipelineOptions linalgToLLVMOptions;
@@ -333,22 +336,40 @@ void createTTNNBackendToEmitCPipeline(
 void createTTNNBackendToEmitPyPipeline(
     OpPassManager &pm, const TTNNBackendToEmitPyPipelineOptions &options) {
 
-  pm.addPass(createTTNNAdjustDeallocs());
+  // Device module passes
+  {
+    auto &devicePm = pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
 
-  pm.addPass(ttcore::createTTCoreUnwrapDeviceModulePass());
+    devicePm.addPass(createTTNNAdjustDeallocs());
 
-  // Apply EmitPy-specific workarounds before conversion
-  pm.addPass(createTTNNEmitPyWorkarounds());
+    // Apply EmitPy-specific workarounds before conversion
+    devicePm.addPass(createTTNNEmitPyWorkarounds());
+  }
 
-  pm.addPass(createTTNNTuplifyTensors());
+  // CPU module passes
+  {
+    auto &cpuPm = pm.nest<ttcore::CPUModuleOp>().nest<mlir::ModuleOp>();
 
-  if (options.loadInputTensorsFromDisk) {
-    TTNNLoadInputTensorsOptions loadOptions;
-    loadOptions.tensorLoadDirectory = options.tensorLoadDirectory;
-    loadOptions.tensorLoadFilePrefix = options.tensorLoadFilePrefix;
-    pm.addPass(createTTNNLoadInputTensors(loadOptions));
-  } else {
-    pm.addPass(createTTNNCreateInputGenerators());
+    cpuPm.addPass(ttir::createTTIRFlattenSlidingWindow());
+    createTTNNPipelineLoweringPasses(cpuPm, true);
+  }
+
+  // Merge CPU and Device modules back into a single ModuleOp by
+  // replacing CPU-hosited function stubs with their definitions.
+  //
+  pm.addPass(ttcore::createTTCoreMergeCPUAndDeviceModulesPass());
+
+  {
+    pm.addPass(createTTNNTuplifyTensors());
+
+    if (options.loadInputTensorsFromDisk) {
+      TTNNLoadInputTensorsOptions loadOptions;
+      loadOptions.tensorLoadDirectory = options.tensorLoadDirectory;
+      loadOptions.tensorLoadFilePrefix = options.tensorLoadFilePrefix;
+      pm.addPass(createTTNNLoadInputTensors(loadOptions));
+    } else {
+      pm.addPass(createTTNNCreateInputGenerators());
+    }
   }
 
   pm.addPass(createConvertTTNNToEmitPyPass());

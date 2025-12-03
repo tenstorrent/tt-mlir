@@ -1762,11 +1762,6 @@ public:
           return opConversionPattern.getTypeConverter()->convertType(type);
         }));
 
-    auto opName = op.getOperationName();
-    if (opName == "ttnn.get_device") {
-      opName = "utils.DeviceGetter.get_device";
-    }
-
     auto callOpaqueOp = rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
         op, resultTypes, opConversionPattern.convertOpName(op), operands,
         rewriter.getArrayAttr(args), rewriter.getArrayAttr(keywordArgs));
