@@ -89,6 +89,18 @@ table DeallocateTensorResponse {
 table ShutdownResponse {
 }
 
+table TensorDescFlat {
+  shape: [uint32];
+  data_type: tt.target.DataType;
+  itemsize: uint32;
+  stride: [uint32];
+  physical_volume: uint64;
+}
+
+table GetTensorDescResponse{
+  tensor_desc: TensorDescFlat;
+}
+
 union ResponseType {
   ErrorResponse,
   ConfigureRuntimeContextResponse,
@@ -114,6 +126,7 @@ union ResponseType {
   MemcpyResponse,
   DeallocateTensorResponse,
   ShutdownResponse,
+  GetTensorDescResponse,
 }
 
 table Response {

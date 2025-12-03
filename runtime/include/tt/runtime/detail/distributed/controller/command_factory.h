@@ -128,6 +128,10 @@ public:
   buildDeallocateTensorCommand(::flatbuffers::FlatBufferBuilder &fbb,
                                const ::tt::runtime::Tensor &tensor, bool force);
 
+  static uint64_t
+  buildGetTensorDescCommand(::flatbuffers::FlatBufferBuilder &fbb,
+                            const ::tt::runtime::Tensor &tensor);
+
   static uint64_t buildShutdownCommand(::flatbuffers::FlatBufferBuilder &fbb);
 };
 

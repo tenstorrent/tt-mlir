@@ -159,6 +159,11 @@ private:
       uint64_t commandId,
       const ::tt::runtime::distributed::flatbuffer::ShutdownCommand *command);
 
+  void
+  execute(uint64_t commandId,
+          const ::tt::runtime::distributed::flatbuffer::GetTensorDescCommand
+              *command);
+
   void executeCommand(
       const ::tt::runtime::distributed::flatbuffer::Command *command);
 };

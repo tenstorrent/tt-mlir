@@ -157,7 +157,8 @@ public:
   void deallocateTensor(::tt::runtime::Tensor &tensorHandle,
                         bool force = false);
 
-  ::tt::runtime::TensorDesc getTensorDesc(::tt::runtime::Tensor t);
+  ::tt::runtime::TensorDesc
+  getTensorDesc(const ::tt::runtime::Tensor &tensorHandle);
 
   ShutdownResult shutdown();
 
@@ -288,6 +289,10 @@ private:
       std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
 
   void handleShutdownResponse(
+      const std::vector<SizedBuffer> &responseBuffers,
+      std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+
+  void handleGetTensorDescResponse(
       const std::vector<SizedBuffer> &responseBuffers,
       std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
 
