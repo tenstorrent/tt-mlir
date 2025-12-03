@@ -760,6 +760,11 @@ static bool hasTTNNOperands(d2m::GenericOp genericOp) {
     if (operand.getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
       return true;
     }
+    // Check if view operand's input is the result of a TTNNMetalLayoutCastOp.
+    if (auto view = operand.getDefiningOp<d2m::ViewLayoutOp>();
+        view && view.getInput().getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
+      return true;
+    }
   }
   return false;
 }
@@ -822,6 +827,20 @@ computeTTNNGenericGridShapes(GenericOp genericOp,
   return optimalOperandGrids;
 }
 
+// Finds and erases all unit reblocking views inserted by TTIRToD2M,
+// passing each view's input as the new operands.
+static void eraseUnitGridReblockingViews(d2m::GenericOp genericOp) {
+  // Use vector here to avoid invalidating iterator with erasures.
+  auto operands = llvm::to_vector(genericOp.getOperands());
+  for (Value operand : operands) {
+    if (auto viewOp = operand.getDefiningOp<d2m::ViewLayoutOp>()) {
+      auto originalOperand = viewOp.getInput();
+      viewOp.getResult().replaceAllUsesWith(originalOperand);
+      viewOp.erase();
+    }
+  }
+}
+
 // TTNN DRAM interleaved tensors are represented as having a 1x1 grid. This
 // leads to the genericOp having a worker grid of 1x1 since it must match the
 // output tensor grid. This is obviously not optimal. We match genericOps that
@@ -850,6 +869,8 @@ computeTTNNGenericGridShapes(GenericOp genericOp,
 static llvm::SmallVector<llvm::SmallVector<int64_t>>
 insertTTNNDRAMStreams(d2m::GenericOp genericOp,
                       ArrayRef<int64_t> targetSquareGridShape) {
+
+  eraseUnitGridReblockingViews(genericOp);
 
   auto optimalOperandGrids =
       computeTTNNGenericGridShapes(genericOp, targetSquareGridShape);

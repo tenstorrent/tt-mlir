@@ -122,6 +122,24 @@ protected:
     return mlir::RankedTensorType::get(shardedShape, elementType, metalLayout);
   }
 
+  static RankedTensorType reblockTensor(RankedTensorType oldTensor,
+                                        ArrayRef<int64_t> newGridShape) {
+    auto oldLayout =
+        mlir::cast<ttcore::MetalLayoutAttr>(oldTensor.getEncoding());
+    if (oldLayout.getGridShape(oldTensor) == newGridShape) {
+      return oldTensor;
+    }
+
+    auto [newShape, reblockMap] =
+        mlir::tt::d2m::utils::calculateReblockMapForGrid(
+            oldTensor.getShape(), newGridShape, oldTensor.getContext());
+
+    ttcore::MetalLayoutAttr newLayout =
+        oldLayout.withIndexAffineMap(reblockMap);
+    return RankedTensorType::get(newShape, oldTensor.getElementType(),
+                                 newLayout);
+  }
+
   // Create a ToLayout operation for a value using the provided layout
   // information with a simple 1x1 grid; actual grid optimization and proper
   // dimension alignments are computed later in the D2MGridSelection pass.
@@ -130,8 +148,24 @@ protected:
                               mlir::ConversionPatternRewriter &rewriter) const {
     if (isTTNNTensor(value.getType())) {
       assert(ttnnMode && "Unexpected TTNN tensor as op operand");
-      return rewriter.create<ttir::TTNNMetalLayoutCastOp>(
-          value.getLoc(), getMetalTensorFromTTNNTensor(rewriter, value), value);
+      auto metalTensorType = getMetalTensorFromTTNNTensor(rewriter, value);
+      auto metalCastOp = rewriter.create<ttir::TTNNMetalLayoutCastOp>(
+          value.getLoc(), metalTensorType, value);
+
+      ttcore::MemorySpace metalTensorMemSpace =
+          mlir::cast<ttcore::MetalLayoutAttr>(metalTensorType.getEncoding())
+              .getMemorySpace();
+      if (metalTensorMemSpace == ttcore::MemorySpace::DeviceL1) {
+        // Reblock L1 operand to unit grid to align with other operands while
+        // preserving original TTNN tensor shape. These views will be removed in
+        // GridSelection by insertTTNNDRAMStreams().
+        auto unitReblockingView = rewriter.create<d2m::ViewLayoutOp>(
+            value.getLoc(), reblockTensor(metalTensorType, {1, 1}),
+            metalCastOp->getResult(0));
+        return unitReblockingView.getResult();
+      }
+      // For DRAM operands, we can return the metal cast result directly.
+      return metalCastOp->getResult(0);
     }
 
     auto tensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
