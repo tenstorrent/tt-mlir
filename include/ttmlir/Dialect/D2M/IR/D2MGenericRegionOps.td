@@ -289,6 +289,16 @@ def D2M_TileSigmoidOp : D2M_GenericRegionComputeUnaryDstOp<"tile_sigmoid", D2M_T
     let results = (outs TTCore_Tile:$result);
 }
 
+def D2M_TileHardsigmoidOp : D2M_GenericRegionComputeUnaryDstOp<"tile_hardsigmoid", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Sigmoid Op";
+    let description = [{
+        The `tile_hardsigmoid` operation computes the hardsigmoid of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
 def D2M_TileSiluOp : D2M_GenericRegionComputeUnaryDstOp<"tile_silu", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Sliu Op";
     let description = [{

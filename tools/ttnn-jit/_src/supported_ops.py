@@ -23,6 +23,7 @@ unary_ops = [
     "floor",
     "tanh",
     "sigmoid",
+    "hardsigmoid",
     "relu",
     "gelu",
     "silu",
