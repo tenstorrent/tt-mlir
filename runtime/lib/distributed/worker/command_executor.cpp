@@ -640,6 +640,19 @@ void CommandExecutor::execute(uint64_t commandId,
   LOG_INFO("Command executor shutdown complete");
 }
 
+void CommandExecutor::execute(uint64_t commandId,
+                              const fb::GetTensorDescCommand *command) {
+  uint64_t tensorGlobalId = command->tensor_global_id();
+  ::tt::runtime::Tensor tensor = tensorPool_.at(tensorGlobalId);
+  TensorDesc tensorDesc = ::tt::runtime::getTensorDesc(tensor);
+
+  std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
+      buildResponse(ResponseFactory::buildGetTensorDescResponse, commandId,
+                    tensorDesc);
+
+  responseQueue_.push(std::move(responseBuilder));
+}
+
 void CommandExecutor::executeCommand(const fb::Command *command) {
   switch (command->type_type()) {
   case fb::CommandType::ConfigureRuntimeContextCommand: {
@@ -733,11 +746,15 @@ void CommandExecutor::executeCommand(const fb::Command *command) {
   case fb::CommandType::ShutdownCommand: {
     return execute(command->command_id(), command->type_as_ShutdownCommand());
   }
+  case fb::CommandType::GetTensorDescCommand: {
+    return execute(command->command_id(),
+                   command->type_as_GetTensorDescCommand());
+  }
   case fb::CommandType::NONE: {
     LOG_FATAL("Unhandled command type: ",
               fb::EnumNameCommandType(command->type_type()));
   }
-  }
+  } // end switch
 
   LOG_FATAL("Unreachable code path, all commands should be handled in switch "
             "statement");
