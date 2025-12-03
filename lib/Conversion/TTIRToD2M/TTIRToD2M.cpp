@@ -634,7 +634,8 @@ private:
     newInputs.emplace_back(createScaler(
         rewriter, loc,
         mlir::cast<mlir::RankedTensorType>(origInputs.front().getType())
-            .getElementType()));
+            .getElementType(),
+        memorySpaces[0]));
     auto [inputs, outputs] =
         toLayoutOperandsAndResults(rewriter, {newInputs, origOutputs},
                                    /*tiled*/ true);
@@ -767,12 +768,30 @@ private:
     return iterators;
   }
 
-  // Create a reduction scaler value for a given type of tensor operand
-  // (at the current 'builder' insertion point).
+  // Create a reduction scaler value (a single tile filled with 1s) as a
+  // device-local tensor. The scaler is used as a weight tensor for weighted
+  // reduction operations (result = reduce(input * scaler)).
   static mlir::Value createScaler(mlir::OpBuilder &builder, mlir::Location loc,
-                                  mlir::Type elementType) {
-    mlir::RankedTensorType scalerType =
-        RankedTensorType::get(ttcore::TileType::getDefaultShape(), elementType);
+                                  mlir::Type elementType,
+                                  ttcore::MemorySpace memSpace) {
+    constexpr std::array<int64_t, 2> tileShape =
+        ttcore::TileType::getDefaultShape();
+    llvm::SmallVector<int64_t> logicalShape(tileShape.begin(), tileShape.end());
+
+    // Create device layout for a single tile (1x1 grid of 32x32 tiles).
+    auto layout = ttcore::MetalLayoutAttr::get(
+        builder.getContext(), logicalShape, ttcore::OOBVal::Undef, memSpace,
+        ttcore::TensorMemoryLayout::Sharded);
+
+    // Physical shape for a single tile with 1x1 grid.
+    llvm::SmallVector<int64_t> gridShape = {1, 1};
+    llvm::SmallVector<int64_t> deviceShape =
+        layout.getDeviceShape(gridShape, tileShape);
+
+    // Create tiled element type and tensor type with device encoding.
+    auto tiledElementType = ttcore::TileType::get(elementType, tileShape);
+    auto scalerType =
+        RankedTensorType::get(deviceShape, tiledElementType, layout);
 
     mlir::Attribute one;
     if (mlir::isa<mlir::FloatType>(elementType)) {
@@ -784,8 +803,7 @@ private:
     }
 
     return builder.create<d2m::FullOp>(
-        loc, scalerType, llvm::to_vector_of<int32_t>(scalerType.getShape()),
-        one);
+        loc, scalerType, llvm::to_vector_of<int32_t>(deviceShape), one);
   }
 
   static d2m::ReduceDim dimArgAsReduceDim(ConcreteOp op, std::size_t rank) {

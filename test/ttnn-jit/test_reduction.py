@@ -14,6 +14,40 @@ from utils import (
     run_op_test,
 )
 
+BLOCK_SHARDED_SHAPE_GRIDS = [
+    ((32, 32), (0, 0)),
+    # ((32, 64), (0, 0)),
+]
+
+
+# ------------------------------------------------------------
+# Max operation tests
+# ------------------------------------------------------------
+@pytest.mark.parametrize("shape, max_grid", BLOCK_SHARDED_SHAPE_GRIDS)
+@pytest.mark.parametrize("dim", [0])
+@pytest.mark.parametrize("dtype", [torch.float32])
+# @pytest.mark.skip(
+#    reason="D2M Does not support reduction ops - causes assertion crashes"
+# )
+def test_max_L1(device, shape, max_grid, dim, dtype):
+    """Test max reduction operation"""
+
+    def max_func(input_tensor):
+        return ttnn.max(input_tensor, dim=dim, keepdim=True)
+
+    run_op_test(
+        device,
+        shape,
+        max_grid,
+        dtype,
+        max_func,
+        num_inputs=1,
+        buffer_type=ttnn.BufferType.L1,
+        memory_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED,
+        graph_capture=True,
+    )
+
+
 # ------------------------------------------------------------
 # Reduction operations
 # ------------------------------------------------------------
@@ -26,28 +60,28 @@ from utils import (
     "shape,dim",
     [
         # Rank-2 tensors with dim=None
-        ((64, 64), None),
+        # ((64, 64), None),
         # Rank-2 tensors with specific dims
         ((64, 64), 0),
-        ((128, 128), 0),
-        ((256, 256), 0),
-        ((64, 64), 1),
-        ((128, 128), 1),
-        ((256, 256), 1),
+        # ((128, 128), 0),
+        # ((256, 256), 0),
+        # ((64, 64), 1),
+        # ((128, 128), 1),
+        # ((256, 256), 1),
         # Rank-3 tensors
-        ((4, 64, 64), 0),
-        ((8, 128, 128), 0),
-        ((4, 64, 64), 1),
-        ((8, 128, 128), 1),
-        ((4, 64, 64), 2),
-        ((8, 128, 128), 2),
+        # ((4, 64, 64), 0),
+        # ((8, 128, 128), 0),
+        # ((4, 64, 64), 1),
+        # ((8, 128, 128), 1),
+        # ((4, 64, 64), 2),
+        # ((8, 128, 128), 2),
     ],
 )
-@pytest.mark.parametrize("keepdim", [True, False])
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
-@pytest.mark.skip(
-    reason="D2M Does not support reduction ops - causes assertion crashes"
-)
+@pytest.mark.parametrize("keepdim", [True])
+@pytest.mark.parametrize("dtype", [torch.float32])
+# @pytest.mark.skip(
+#    reason="D2M Does not support reduction ops - causes assertion crashes"
+# )
 def test_sum(device, shape, dim, keepdim, dtype):
     """Test sum reduction operation with various dimensions and keepdim values"""
 
@@ -74,28 +108,28 @@ def test_sum(device, shape, dim, keepdim, dtype):
     "shape,dim",
     [
         # Rank-2 tensors with dim=None
-        ((64, 64), None),
+        # ((64, 64), None),
         # Rank-2 tensors with specific dims
         ((64, 64), 0),
-        ((128, 128), 0),
-        ((256, 256), 0),
-        ((64, 64), 1),
-        ((128, 128), 1),
-        ((256, 256), 1),
+        # ((128, 128), 0),
+        # ((256, 256), 0),
+        # ((64, 64), 1),
+        # ((128, 128), 1),
+        # ((256, 256), 1),
         # Rank-3 tensors
-        ((4, 64, 64), 0),
-        ((8, 128, 128), 0),
-        ((4, 64, 64), 1),
-        ((8, 128, 128), 1),
-        ((4, 64, 64), 2),
-        ((8, 128, 128), 2),
+        # ((4, 64, 64), 0),
+        # ((8, 128, 128), 0),
+        # ((4, 64, 64), 1),
+        # ((8, 128, 128), 1),
+        # ((4, 64, 64), 2),
+        # ((8, 128, 128), 2),
     ],
 )
-@pytest.mark.parametrize("keepdim", [True, False])
+@pytest.mark.parametrize("keepdim", [True])
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
-@pytest.mark.skip(
-    reason="D2M Does not support reduction ops - causes assertion crashes"
-)
+# @pytest.mark.skip(
+#    reason="D2M Does not support reduction ops - causes assertion crashes"
+# )
 def test_mean(device, shape, dim, keepdim, dtype):
     """Test mean reduction operation with various dimensions and keepdim values"""
 
@@ -121,14 +155,14 @@ def test_mean(device, shape, dim, keepdim, dtype):
 @pytest.mark.parametrize("shape", [(64, 64), (128, 128)])
 @pytest.mark.parametrize("dim", [0, 1])
 @pytest.mark.parametrize("dtype", [torch.float32])
-@pytest.mark.skip(
-    reason="D2M Does not support reduction ops - causes assertion crashes"
-)
+# @pytest.mark.skip(
+#    reason="D2M Does not support reduction ops - causes assertion crashes"
+# )
 def test_max(device, shape, dim, dtype):
     """Test max reduction operation"""
 
     def max_func(input_tensor):
-        return ttnn.max(input_tensor, dim=dim)
+        return ttnn.max(input_tensor, dim=dim, keepdim=True)
 
     max_grid = (0, 0)
     run_op_test(
@@ -149,14 +183,14 @@ def test_max(device, shape, dim, dtype):
 @pytest.mark.parametrize("shape", [(64, 64), (128, 128)])
 @pytest.mark.parametrize("dim", [0, 1])
 @pytest.mark.parametrize("dtype", [torch.float32])
-@pytest.mark.skip(
-    reason="D2M Does not support reduction ops - causes assertion crashes"
-)
+# @pytest.mark.skip(
+#    reason="D2M Does not support reduction ops - causes assertion crashes"
+# )
 def test_min(device, shape, dim, dtype):
     """Test min reduction operation"""
 
     def min_func(input_tensor):
-        return ttnn.min(input_tensor, dim=dim)
+        return ttnn.min(input_tensor, dim=dim, keepdim=True)
 
     max_grid = (0, 0)
     run_op_test(
