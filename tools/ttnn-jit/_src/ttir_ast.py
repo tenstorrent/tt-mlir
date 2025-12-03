@@ -103,7 +103,6 @@ class TTIRCompiler(ast.NodeVisitor):
 
     def visit_Return(self, node):
         # TODO: handle more than one return, i.e. tuples, expressions etc.
-
         if node.value:
             # Visit the return value and return it
             return_value = self.visit(node.value)

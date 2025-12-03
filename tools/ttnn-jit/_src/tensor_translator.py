@@ -287,4 +287,3 @@ def create_tensor_layout(ctx, tensor_arg):
         return _create_sharded_tensor_layout(ctx, tensor_arg)
     else:
         return _create_dram_tensor_layout(ctx, tensor_arg)
-        return _create_dram_tensor_layout(ctx, tensor_arg)
