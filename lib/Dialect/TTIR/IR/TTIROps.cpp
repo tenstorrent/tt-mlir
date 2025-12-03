@@ -3520,8 +3520,10 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
 ::mlir::LogicalResult mlir::tt::ttir::AllReduceOp::verify() {
   ::mlir::tt::ttcore::ReduceType reduceType = getReduceType();
 
-  // Currently TTIR only supports the sum reduce types.
-  if (reduceType != ::mlir::tt::ttcore::ReduceType::Sum) {
+  // Currently TTIR only supports the following reduce types.
+  if (reduceType != ::mlir::tt::ttcore::ReduceType::Sum &&
+      reduceType != ::mlir::tt::ttcore::ReduceType::Max &&
+      reduceType != ::mlir::tt::ttcore::ReduceType::Min) {
     return emitOpError("Invalid reduction op for all reduce op.");
   }
 

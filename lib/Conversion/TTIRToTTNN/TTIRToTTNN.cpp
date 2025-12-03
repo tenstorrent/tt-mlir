@@ -1579,14 +1579,12 @@ public:
   LogicalResult
   matchAndRewrite(ttir::AllReduceOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, srcOp);
+
     rewriter.replaceOpWithNewOp<ttnn::AllReduceOp>(
         srcOp, this->getTypeConverter()->convertType(srcOp.getType()),
-        adaptor.getInput(), adaptor.getReduceType(),
-        static_cast<uint32_t>(adaptor.getClusterAxis()),
-        /*sub_device_id=*/nullptr,
-        /*memory_config=*/nullptr,
-        /*num_links=*/nullptr,
-        /*topology=*/nullptr);
+        adaptor.getInput(), device, adaptor.getReduceType(),
+        adaptor.getClusterAxis());
 
     return success();
   }
