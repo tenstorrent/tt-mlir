@@ -280,7 +280,7 @@ public:
   createUpdateCacheOpOperandsWorkarounds(RankedTensorType updateIndex);
 
   static TTNNOperandsWorkarounds
-  createPagedUpdateCacheOpOperandsWorkarounds(MLIRContext *context);
+  createPagedUpdateCacheOpOperandsWorkarounds(Operation *op);
 
   static TTNNOperandsWorkarounds
   createPagedFillCacheOpOperandsWorkarounds(Operation *op);

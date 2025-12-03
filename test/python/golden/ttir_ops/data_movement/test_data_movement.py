@@ -398,20 +398,11 @@ def test_sort(
     def sort_wrapper(
         in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
     ):
-        sort_0 = builder.sort(
+        sort_0_values, sort_0_indices = builder.sort(
             in0, dim=dim, descending=descending, stable=stable, unit_attrs=unit_attrs
         )
-        # Calculate golden for values and indices
-        in0_golden = builder._get_golden_tensor(in0)
 
-        values, indicies = torch.sort(
-            in0_golden, dim=dim, descending=descending, stable=stable
-        )
-        builder.set_goldens_from_builder_tensor(
-            {in0: in0_golden}, {sort_0.values: values}
-        )
-
-        return sort_0.values  # Return only sorted values for testing
+        return sort_0_values  # Return only sorted values for testing
 
     sort_wrapper.__name__ = "sort"
 

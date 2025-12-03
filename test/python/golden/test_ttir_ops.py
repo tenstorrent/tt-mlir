@@ -637,8 +637,19 @@ def test_convolution(
             bias,
             window_strides=stride,
             padding=padding,
+            input_dilation=[1, 1],
             weight_dilation=dilation,
+            input_batch=0,
+            input_feature=1,
+            input_spatial_dimensions=[2, 3],
+            kernel_output_feature=0,
+            kernel_input_feature=1,
+            kernel_spatial_dimensions=[2, 3],
+            output_batch=0,
+            output_feature=1,
+            output_spatial_dimensions=[2, 3],
             feature_group_count=groups,
+            batch_group_count=1,
         )
 
     compile_and_execute_ttir(
@@ -709,8 +720,19 @@ def test_convolution_groups_dilation(
             bias,
             window_strides=stride,
             padding=padding,
+            input_dilation=[1, 1],
             weight_dilation=dilation,
+            input_batch=0,
+            input_feature=1,
+            input_spatial_dimensions=[2, 3],
+            kernel_output_feature=0,
+            kernel_input_feature=1,
+            kernel_spatial_dimensions=[2, 3],
+            output_batch=0,
+            output_feature=1,
+            output_spatial_dimensions=[2, 3],
             feature_group_count=groups,
+            batch_group_count=1,
         )
 
     compile_and_execute_ttir(

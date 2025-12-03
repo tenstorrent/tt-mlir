@@ -96,24 +96,6 @@ def D2M_ToLayoutOp : D2M_Op<"to_layout", [
     ];
 
     let extraClassDeclaration = [{
-      struct CompoundComponents {
-        bool isLayoutChange = false;
-        bool isGridChange = false;
-        bool isFormatChange = false;
-        bool isMemorySpaceChange = false;
-
-        bool isCompound() {
-          return isLayoutChange + isFormatChange + (isGridChange || isMemorySpaceChange) > 1;
-        }
-      };
-
-      // Returns booleans indicating if the op changes layout, grid, format, memory space or memory layout.
-      CompoundComponents compoundComponents();
-      bool isCompound() { return compoundComponents().isCompound(); }
-      ttcore::MetalLayoutAttr getOrCreateInputLayout();
-      ttcore::MetalLayoutAttr getOrCreateOutputLayout();
-      Value getInitOperand() { return getOperand(1); }
-
       bool isHostToDevice();
       bool isDeviceToHost();
     }];
@@ -257,6 +239,7 @@ def D2M_GenericOp : D2M_Op<"generic",
       SmallVector<int64_t> getParticipatingLoopDims(int64_t operandIndex);
       SmallVector<int64_t> getNonParticipatingLoopDims(int64_t operandIndex);
       SmallVector<SmallVector<int64_t>> getOperandShardShapes(bool convertTileToScalar = false);
+      std::optional<SmallVector<int64_t>> computeGridDimConstraints(std::function<bool(ttcore::MetalLayoutAttr, bool)> operandFilterPredicate);
       unsigned getNumLoops();
       unsigned getNumDims();
       AffineMap getIndexingMap(int64_t operandIndex);
@@ -304,7 +287,7 @@ def D2M_EmptyOp : D2M_Op<"empty", [
 }
 
 def D2M_FullOp : D2M_Op<"full", [
-    MemoryEffects<[MemAlloc]>,
+    Pure,
     DeclareOpInterfaceMethods<BufferizableOpInterface, [
       "bufferizesToMemoryRead",
       "bufferizesToMemoryWrite",

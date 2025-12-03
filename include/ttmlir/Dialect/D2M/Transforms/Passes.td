@@ -730,4 +730,53 @@ def D2MMaterializeViewReturns : Pass<"d2m-materialize-view-returns", "::mlir::Mo
   }];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect", "::mlir::tt::ttcore::TTCoreDialect"];
 }
+
+def D2MScalarizeConstTensors : Pass<"d2m-scalarize-const-tensors", "::mlir::ModuleOp"> {
+  let summary = "Scalarize constant tensor inputs in d2m.generic operations";
+  let description = [{
+    This pass looks at d2m.generic operations and identifies constant tensor inputs
+    (created by d2m.full operations). When a constant tensor is used by operations
+    that support scalar operands (operations with supportsTileOrScalarRhs()), the
+    pass replaces the tensor block arguments in linalg.generic operations with
+    scalar constants.
+
+    This transformation can improve performance by:
+    1. Reducing memory usage (no need to store the constant tensor)
+    2. Enabling more efficient scalar operations in the compute kernel
+
+    Example transformation:
+    ```mlir
+    // Before:
+    %const = d2m.full {fill_value = 2.5 : f32, shape = array<i32: 128, 128>} : tensor<128x128xf32>
+    %const_layout = d2m.to_layout %const, ...
+    d2m.generic ins(%input, %const_layout : ...) {
+    ^compute0(%cb0: !d2m.cb<tensor<4x4x!ttcore.tile<...>>>, %cb1: !d2m.cb<tensor<4x4x!ttcore.tile<...>>>, ...):
+      %t0 = d2m.wait %cb0 : ...
+      %t1 = d2m.wait %cb1 : ...
+      %t2 = d2m.reserve %cb2 : ...
+      %result = linalg.generic ins(%t0, %t1 : ...) outs(%t2 : ...) {
+      ^bb0(%in: !ttcore.tile<...>, %in_const: !ttcore.tile<...>, %out: !ttcore.tile<...>):
+        %add = d2m.tile_add(%in, %in_const) : (!ttcore.tile<...>, !ttcore.tile<...>) -> !ttcore.tile<...>
+        linalg.yield %add : !ttcore.tile<...>
+      } -> ...
+    }
+
+    // After:
+    d2m.generic ins(%input : ...) {
+    ^compute0(%cb0: !d2m.cb<tensor<4x4x!ttcore.tile<...>>>, ...):
+      %t0 = d2m.wait %cb0 : ...
+      %t1 = d2m.reserve %cb1 : ...
+      %result = linalg.generic ins(%t0 : ...) outs(%t1 : ...) {
+      ^bb0(%in: !ttcore.tile<...>, %out: !ttcore.tile<...>):
+        %scalar = arith.constant 2.5 : f32
+        %add = d2m.tile_add(%in, %scalar) : (!ttcore.tile<...>, f32) -> !ttcore.tile<...>
+        linalg.yield %add : !ttcore.tile<...>
+      } -> ...
+    }
+    ```
+
+    This pass should run early in the D2M pipeline, before memory allocation.
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect", "::mlir::arith::ArithDialect"];
+}
 #endif

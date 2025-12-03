@@ -85,7 +85,6 @@ def test_height_width_mixed_legacy_sharding_types(
 
     op_jit = ttnn_jit.jit(
         debug=True,
-        max_grid=max_grid,
         graph_capture=graph_capture,
     )(op)
     output_tensor = op_jit(input_tensor_a, input_tensor_b)
@@ -129,7 +128,6 @@ def test_height_block_mixed_legacy_sharding_types(
 
     op_jit = ttnn_jit.jit(
         debug=True,
-        max_grid=max_grid,
         graph_capture=graph_capture,
     )(op)
     output_tensor = op_jit(input_tensor_a, input_tensor_b)
@@ -173,7 +171,6 @@ def test_width_block_mixed_legacy_sharding_types(
 
     op_jit = ttnn_jit.jit(
         debug=True,
-        max_grid=max_grid,
         graph_capture=graph_capture,
     )(op)
     output_tensor = op_jit(input_tensor_a, input_tensor_b)

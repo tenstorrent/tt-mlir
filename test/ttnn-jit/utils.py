@@ -121,7 +121,6 @@ def create_sharded_tile_tensor(
         shard_spec=shard_spec,
     )
 
-    print("Armin: creating tensor with memory config", memory_config)
     return ttnn.from_torch(
         torch_tensor,
         dtype=ttnn_dtype,
@@ -204,7 +203,6 @@ def run_op_test(
 
     op_jit = ttnn_jit.jit(
         debug=True,
-        max_grid=max_grid,
         enable_cache=enable_cache,
         graph_capture=graph_capture,
     )(op)

@@ -2889,12 +2889,12 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
   auto cacheType = getCache().getType();
   auto inputType = getInput().getType();
   auto updateIndexType = getUpdateIndex().getType();
-  auto pageTableType = getPageTable().getType();
 
   auto cacheShape = cacheType.getShape();
   auto inputShape = inputType.getShape();
   auto updateIndexShape = updateIndexType.getShape();
-  auto pageTableShape = pageTableType.getShape();
+
+  bool usingStaticCache = getPageTable() == nullptr;
 
   if (cacheShape.size() != 4) {
     return emitOpError("Cache tensor must be a 4D tensor");
@@ -2908,15 +2908,11 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
     return emitOpError("Update index tensor must be a 1D tensor");
   }
 
-  if (pageTableShape.size() != 2) {
-    return emitOpError("Page table tensor must be a 2D tensor");
-  }
-
   int64_t blockSize = cacheShape[2];
   int64_t headDim = cacheShape[3];
   int64_t numUsers = updateIndexShape[0];
 
-  if (blockSize % 32 != 0) {
+  if (!usingStaticCache && blockSize % 32 != 0) {
     return emitOpError("Block size must be divisible by 32, got " +
                        std::to_string(blockSize));
   }
@@ -2940,23 +2936,32 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
                        std::to_string(inputShape[3]));
   }
 
-  if (pageTableShape[0] != numUsers) {
-    return emitOpError("Page table tensor must have dim 0 be equal to the "
-                       "number of users (determined by update index shape): " +
-                       std::to_string(numUsers) + ", got " +
-                       std::to_string(pageTableShape[0]));
-  }
-
   if (!inputType.getElementType().isFloat()) {
     return emitOpError("Input tensor must be a floating point type");
   }
 
-  if (!pageTableType.getElementType().isInteger()) {
-    return emitOpError("Page table tensor must be an integer type");
-  }
-
   if (!updateIndexType.getElementType().isInteger()) {
     return emitOpError("Update index tensor must be an integer type");
+  }
+
+  // Verify page table
+  if (!usingStaticCache) {
+    auto pageTableType = getPageTable().getType();
+    if (!pageTableType.getElementType().isInteger()) {
+      return emitOpError("Page table tensor must be an integer type");
+    }
+    auto pageTableShape = pageTableType.getShape();
+    if (pageTableShape.size() != 2) {
+      return emitOpError("Page table tensor must be a 2D tensor");
+    }
+
+    if (pageTableShape[0] != numUsers) {
+      return emitOpError(
+          "Page table tensor must have dim 0 be equal to the "
+          "number of users (determined by update index shape): " +
+          std::to_string(numUsers) + ", got " +
+          std::to_string(pageTableShape[0]));
+    }
   }
 
   return success();
@@ -3194,6 +3199,62 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
       legalModes.end()) {
     return emitOpError("Expected modes are (")
            << llvm::join(legalModes, ", ") << "), got \"" << getMode() << "\"";
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// GeluBackwardOp
+//===----------------------------------------------------------------------===//
+
+// GeluBackwardOp verification
+::mlir::LogicalResult mlir::tt::ttnn::GeluBackwardOp::verify() {
+  llvm::StringRef approximate = getApproximate();
+
+  if (approximate != "none" && approximate != "tanh") {
+    return emitOpError("approximate attribute must be either 'none' or 'tanh', "
+                       "but got '")
+           << approximate << "'";
+  }
+
+  RankedTensorType lhsType = getLhs().getType();
+  RankedTensorType rhsType = getRhs().getType();
+  RankedTensorType resultType = getResult().getType();
+
+  int64_t lhsRank = lhsType.getRank();
+  int64_t rhsRank = rhsType.getRank();
+  int64_t resultRank = resultType.getRank();
+
+  if (lhsRank < 2 || lhsRank > 4) {
+    return emitOpError(
+               "gradient tensor (lhs) must have rank 2, 3, or 4, but got rank ")
+           << lhsRank;
+  }
+
+  if (rhsRank < 2 || rhsRank > 4) {
+    return emitOpError(
+               "input tensor (rhs) must have rank 2, 3, or 4, but got rank ")
+           << rhsRank;
+  }
+
+  if (resultRank < 2 || resultRank > 4) {
+    return emitOpError("result tensor must have rank 2, 3, or 4, but got rank ")
+           << resultRank;
+  }
+
+  if (lhsRank != rhsRank) {
+    return emitOpError("gradient tensor (lhs) and input tensor (rhs) must have "
+                       "the same rank, "
+                       "but got lhs rank ")
+           << lhsRank << " and rhs rank " << rhsRank;
+  }
+
+  if (lhsRank != resultRank) {
+    return emitOpError(
+               "input tensors and result tensor must have the same rank, "
+               "but got input rank ")
+           << lhsRank << " and result rank " << resultRank;
   }
 
   return success();

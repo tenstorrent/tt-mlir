@@ -1823,6 +1823,112 @@ protected:
   }
 };
 
+struct GeluBackwardParam {
+  detail::TestTensor input;
+  detail::TestTensor grad;
+  std::string approximate;
+  detail::TestTensor output;
+  detail::ExpectedResult expectedResult;
+};
+
+class OpModelGeluBackwardParam
+    : public OpModelTest,
+      public testing::WithParamInterface<GeluBackwardParam> {
+protected:
+  void RunTest() {
+    const auto [inputShape, inputTensorLayout, inputBufferType,
+                inputVirtualGrid] = GetParam().input;
+    const auto [gradShape, gradTensorLayout, gradBufferType, gradVirtualGrid] =
+        GetParam().grad;
+    const auto [outputShape, outputTensorLayout, outputBufferType,
+                outputVirtualGrid] = GetParam().output;
+    const auto approximate = GetParam().approximate;
+    const auto expectedLegal = GetParam().expectedResult.expectedLegal;
+    const TTNNLayoutAttr inputLayout = CreateTiledLayout(
+        inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
+    const TTNNLayoutAttr gradLayout = CreateTiledLayout(
+        gradShape, gradBufferType, gradTensorLayout, gradVirtualGrid);
+    const TTNNLayoutAttr outputLayout = CreateTiledLayout(
+        outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+    auto constraintsExp = OpModel<GeluBackwardOp>::getOpConstraints(
+        CreateWorkerGrid(), gradShape, gradLayout, inputShape, inputLayout,
+        approximate, outputLayout);
+
+    EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+    if (expectedLegal) {
+      const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+                  outputLayoutReadBack] = constraintsExp.get();
+      EXPECT_GE(cbSize, 0);
+      EXPECT_GE(l1PeakSize, 0);
+      EXPECT_GE(totalPeakSize, 0);
+      EXPECT_GE(outputSize, 0);
+      ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
+    } else {
+      llvm::consumeError(constraintsExp.takeError());
+    }
+
+    auto runtimeExp = OpModel<GeluBackwardOp>::getOpRuntime(
+        gradShape, gradLayout, inputShape, inputLayout, approximate,
+        outputLayout);
+    EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+    if (expectedLegal) {
+      EXPECT_TRUE(runtimeExp.get() > 0);
+    } else {
+      llvm::consumeError(runtimeExp.takeError());
+    }
+  }
+};
+
+TEST_P(OpModelGeluBackwardParam, GeluBackwardOp) { RunTest(); }
+
+const auto geluBackwardOpTestValues = testing::Values(
+    // === Mixed memory, "none" approximation ===
+    GeluBackwardParam{
+        detail::TestTensor{
+            {1, 1, 32, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1, 1, 32, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        "none",
+        detail::TestTensor{
+            {1, 1, 32, 32}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::ExpectedResult{true}},
+
+    // === Mixed memory, "tanh" approximation ===
+    GeluBackwardParam{
+        detail::TestTensor{
+            {1, 1, 32, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1, 1, 32, 32}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        "tanh",
+        detail::TestTensor{
+            {1, 1, 32, 32}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::ExpectedResult{true}},
+
+    // === All L1, "none" approximation ===
+    GeluBackwardParam{
+        detail::TestTensor{
+            {1, 1, 64, 64}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {1, 1, 64, 64}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        "none",
+        detail::TestTensor{
+            {1, 1, 64, 64}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::ExpectedResult{true}},
+
+    // === All L1, "tanh" approximation ===
+    GeluBackwardParam{
+        detail::TestTensor{
+            {1, 1, 64, 64}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::TestTensor{
+            {1, 1, 64, 64}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        "tanh",
+        detail::TestTensor{
+            {1, 1, 64, 64}, TensorMemoryLayout::Interleaved, BufferType::L1},
+        detail::ExpectedResult{true}});
+INSTANTIATE_TEST_SUITE_P(GeluBackwardTests, OpModelGeluBackwardParam,
+                         geluBackwardOpTestValues);
+
 // Type aliases for binary operations
 using OpModelAddParam = OpModelBinaryEltwiseParam<AddOp>;
 using OpModelMultiplyParam = OpModelBinaryEltwiseParam<MultiplyOp>;
@@ -4641,6 +4747,46 @@ TEST_F(OpModelTest, PagedUpdateCacheOp) {
     EXPECT_GE(opCstr.tensorL1PeakSize, 0);
     EXPECT_EQ(opCstr.outputL1BufferSize, 0);
     EXPECT_GE(opCstr.peakL1MemorySize, 0);
+  }
+}
+
+TEST_F(OpModelTest, PagedUpdateCacheOpWithoutPageTable) {
+  // Test PagedUpdateCacheOp without optional page_table tensor
+  // Cache shape: [batch, num_heads, block_size, head_dim]
+  // Input shape: [1, batch, num_heads (padded to 32), head_dim]
+  // The batch dimension must match: input[1] == cache[0]
+  const llvm::SmallVector<int64_t> cacheShape = {8, 4, 32, 256};
+  const llvm::SmallVector<int64_t> inputShape = {1, 8, 12, 256};
+  const llvm::SmallVector<int64_t> updateIndexShape = {8};
+  const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
+
+  const TTNNLayoutAttr cacheLayout = CreateTiledLayout(
+      cacheShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr inputLayout = CreateTiledLayout(
+      inputShape, BufferType::L1, TensorMemoryLayout::HeightSharded);
+  const TTNNLayoutAttr updateIndexLayout = CreateRowMajorLayoutInt32(
+      updateIndexShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  auto constraintsExp = OpModel<PagedUpdateCacheOp>::getOpConstraints(
+      workerGrid, cacheShape, cacheLayout, inputShape, inputLayout,
+      updateIndexShape, updateIndexLayout, std::nullopt, std::nullopt, false,
+      cacheLayout);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+
+  if (constraintsExp) {
+    OpConstraints &opCstr = constraintsExp.get();
+    EXPECT_GT(opCstr.cbL1PeakSize, 0);
+    EXPECT_GE(opCstr.tensorL1PeakSize, 0);
+    EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+    EXPECT_GE(opCstr.peakL1MemorySize, 0);
+  }
+
+  auto runtimeExp = OpModel<PagedUpdateCacheOp>::getOpRuntime(
+      cacheShape, cacheLayout, inputShape, inputLayout, updateIndexShape,
+      updateIndexLayout, std::nullopt, std::nullopt, false, cacheLayout);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
   }
 }
 

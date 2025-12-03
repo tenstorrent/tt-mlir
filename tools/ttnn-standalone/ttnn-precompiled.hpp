@@ -28,6 +28,7 @@
 #include "operations/embedding_backward/embedding_backward.hpp"
 #include "operations/experimental/conv3d/conv3d.hpp"
 #include "operations/experimental/transformer/nlp_concat_heads/nlp_concat_heads.hpp"
+#include "operations/experimental/unary_backward/gelu_backward/gelu_backward.hpp"
 #include "operations/kv_cache/kv_cache.hpp"
 #include "operations/matmul/matmul.hpp"
 #include "operations/moreh/moreh_cumsum/moreh_cumsum.hpp"

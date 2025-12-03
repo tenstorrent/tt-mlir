@@ -11,21 +11,7 @@ from enum import Enum, auto
 import re
 from collections import OrderedDict
 
-from ttmlir.ir import (
-    Context,
-    Location,
-    Value,
-    OpView,
-    Operation,
-    RankedTensorType,
-    Type,
-    Attribute,
-    BF16Type,
-    F16Type,
-    F32Type,
-    F64Type,
-    IntegerType,
-)
+from ttmlir.ir import *
 from ttmlir.dialects import tensor, quant, func, ttir, ttcore, stablehlo, ttnn
 from ttmlir.passes import GoldenTensor, DataType
 from golden import GoldenMapTensor, get_golden_function
@@ -57,7 +43,7 @@ def split(name):
 
 # ----- Public APIs -----
 
-Operand = Union[Value, OpView, Operation]
+Operand = Union[BlockArgument, OpResult]
 Shape = Union[List[int], Tuple[int, ...]]
 
 
@@ -230,7 +216,7 @@ class Builder(metaclass=BuilderMeta):
             if operand not in self._goldens_to_store:
                 continue
 
-            if not (isinstance(operand, OpView) or isinstance(operand, Operation)):
+            if not isinstance(operand, OpResult):
                 continue
 
             loc = self._operand_to_loc.get(operand, None)
@@ -285,14 +271,11 @@ class Builder(metaclass=BuilderMeta):
         self._force_graph_level_check = check
 
     def bypass(self, operand: Operand):
-        if isinstance(operand, OpView):
-            loc = str(operand.operation.location)
-            self._bypass_ops.append(loc)
-        elif isinstance(operand, Operation):
-            loc = str(operand.location)
-            self._bypass_ops.append(loc)
-        else:
-            raise TypeError(f"Invalid operand type {type(operand)} for bypass")
+        if isinstance(operand, BlockArgument):
+            raise TypeError("Cannot bypass BlockArgument")
+
+        loc = operand.owner.location
+        self._bypass_ops.append(loc)
 
     # ----- Private methods -----
 
@@ -337,16 +320,7 @@ class Builder(metaclass=BuilderMeta):
                 return DataType.Float32
 
     def _get_type(self, input: Operand) -> RankedTensorType:
-        if isinstance(input, Value):
-            typ = input.type
-        elif isinstance(input, OpView):
-            typ = input.operation.result.type
-        elif isinstance(input, Operation):
-            typ = input.result.type
-        else:
-            raise TypeError(f"Invalid input {type(input)}")
-
-        return typ
+        return input.type
 
     def _get_type_from_torch_dtype(
         self,
@@ -604,16 +578,10 @@ class Builder(metaclass=BuilderMeta):
     def _set_golden_tensor(
         self,
         operand: Operand,
-        golden: GoldenMapTensor,
+        goldens: List[GoldenMapTensor],
     ):
-        self._goldens[operand] = golden
-
-        if isinstance(operand, OpView):
-            loc = str(operand.operation.location)
-            self._operand_to_loc[operand] = loc
-        elif isinstance(operand, Operation):
-            loc = str(operand.location)
-            self._operand_to_loc[operand] = loc
+        self._goldens[operand] = goldens
+        self._operand_to_loc[operand] = str(operand.location)
 
     def _set_goldens(
         self,
@@ -702,10 +670,9 @@ class Builder(metaclass=BuilderMeta):
         self,
         parsed_op: Operation,
         global_dict: Dict[Operand, Operand],
-    ) -> Operation:
+    ) -> Tuple[Operation, Dict[Operand, GoldenMapTensor]]:
         parsed_function = self.get_parser_from_opview(type(parsed_op))
-        new_op = parsed_function(self, parsed_op, global_dict)
-        return new_op
+        return parsed_function(self, parsed_op, global_dict)
 
     def get_input_types(self, parsed_module: Module):
         inputs_types = []
