@@ -16,6 +16,7 @@ from utils import (
 def matmul(input0, input1):
     return ttnn.matmul(input0, input1)
 
+
 # Generate matmul shapes and grids. All layouts are block sharded
 MATMUL_SHAPE_GRIDS = [
     (

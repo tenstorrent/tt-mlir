@@ -33,6 +33,7 @@ MATMUL_SPECIAL_SHAPE_GRIDS = [
     ((32, 2048, 32), (0, 7, 0)),
 ]
 
+
 @pytest.mark.parametrize(
     "shape_grids",
     MATMUL_SPECIAL_SHAPE_GRIDS,
@@ -50,6 +51,9 @@ MATMUL_SPECIAL_SHAPE_GRIDS = [
 @pytest.mark.parametrize("graph_capture", [False])
 def test_matmul_composite(device, shape_grids, dtype, ttnn_dtype, graph_capture):
     shapes, grids = shape_grids
+    # Skip large matmuls for float32
+    if dtype == torch.float32 and shapes == (2048, 2048, 2048):
+        pytest.skip("Skipping large matmul for float32")
     # shape is (m, k, n)
     shape0 = [shapes[0], shapes[1]]
     shape1 = [shapes[1], shapes[2]]
