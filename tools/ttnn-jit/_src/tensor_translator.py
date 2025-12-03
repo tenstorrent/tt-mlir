@@ -180,7 +180,6 @@ def _create_dram_tensor_layout(ctx, tensor_arg):
 
 
 def _check_layout_supported(tensor_arg):
-    print(f"Checking layout supported for tensor: {tensor_arg}")
     if tensor_arg.memory_config().is_sharded():
         if tensor_arg.memory_config().shard_spec is None:
             raise ValueError(
@@ -263,12 +262,8 @@ def _create_tensor_layout_with_shape(ctx, layout, new_shape, new_grid_shape):
     )
 
 
-def create_output_tensor(ctx, op_name, input_types, debug=True):
+def create_output_tensor(ctx, op_name, input_types):
     if op_name not in OUTPUT_TENSOR_DERIVATION_REQUIRED:
-        if debug:
-            print(
-                f'Deriving the output tensor type is not required for op "{op_name}". Returning input type: {input_types[0]}'
-            )
         return input_types[0]
 
     input_layouts = [
@@ -278,8 +273,7 @@ def create_output_tensor(ctx, op_name, input_types, debug=True):
     grid_shape = _get_output_grid_shape(op_name, input_layouts)
     layout = _create_tensor_layout_with_shape(ctx, input_layouts[0], shape, grid_shape)
     output_type = RankedTensorType.get(shape, input_types[0].element_type, layout)
-    if debug:
-        print(f'Output tensor type for op "{op_name}": {output_type}')
+
     return output_type
 
 
