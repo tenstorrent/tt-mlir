@@ -8,6 +8,7 @@
 
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
 #include "ttmlir/Conversion/Passes.h"
+#include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTKernel/Transforms/Passes.h"
 #include "ttmlir/RegisterAll.h"
 #include "ttmlir/Target/Python/PythonEmitter.h"
@@ -19,6 +20,7 @@
 #include <cstdint>
 #include <nanobind/stl/bind_map.h>
 #include <nanobind/stl/bind_vector.h>
+#include <nanobind/stl/optional.h>
 #include <nanobind/stl/shared_ptr.h>
 
 // Make Opaque so Casts & Copies don't occur
@@ -404,6 +406,26 @@ void populatePassesModule(nb::module_ &m) {
         return kernels;
       },
       nb::arg("module"));
+
+  m.def(
+      "get_ttkernel_arg_spec",
+      [](MlirModule module, std::string kernelName) -> std::optional<MlirAttribute> {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        auto mod = mlir::cast<ModuleOp>(moduleOp);
+
+        std::optional<MlirAttribute> result;
+        mod.walk([&](func::FuncOp funcOp) {
+          if (funcOp.getName() == kernelName) {
+            if (auto argSpecAttr = funcOp->getAttrOfType<
+                    mlir::tt::ttkernel::ArgSpecAttr>(
+                    mlir::tt::ttkernel::ArgSpecAttr::name)) {
+              result = wrap(argSpecAttr);
+            }
+          }
+        });
+        return result;
+      },
+      nb::arg("module"), nb::arg("kernel_name"));
 
   m.def(
       "pykernel_compile_pipeline",
