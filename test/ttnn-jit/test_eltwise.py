@@ -270,12 +270,9 @@ def test_unary_op_dram(device, shape, dtype, ttnn_dtype, op, graph_capture):
         ceil,
         floor,
         logical_not,
-<<<<<<< HEAD
         tanh,
         sigmoid,
-=======
         hardsigmoid,
->>>>>>> 1b2b740e2 (hardsigmoid d2m + jit + builder support)
         # Not supported in TTIRToD2M:
         # gelu, reciprocal cbrt, sign, erf, erfc
         # Always fails allclose

@@ -205,7 +205,9 @@ module {
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
     // CHECK: d2m.tile_sigmoid
     %36 = "ttir.sigmoid"(%35) : (!ttype) -> !ttype
-    return %36: !ttype
+    // named elementwise op, unary:
+    // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
     // CHECK: d2m.tile_hardsigmoid
     %37 = "ttir.hardsigmoid"(%36) : (!ttype) -> !ttype
     return %37: !ttype

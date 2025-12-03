@@ -4201,7 +4201,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.hardsigmoid)
 
         if output_type is None:
@@ -4230,16 +4230,16 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.HardsigmoidOp)
     def hardsigmoid_parser(
         self,
         old_op: ttir.HardsigmoidOp,
         global_dict: Dict[Operand, Operand],
-    ) -> Operation:
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
         ttir_op = self.get_opview_from_parser(TTIRBuilder.hardsigmoid_parser)
         in0 = global_dict[old_op.input]
         result = old_op.result.type
@@ -4254,9 +4254,11 @@ class TTIRBuilder(Builder):
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
-        return new_op
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op.result
+        return new_op, op_map_dictionary
 
     @split(ttir.HardsigmoidOp)
     def hardsigmoid_split(
@@ -4283,17 +4285,12 @@ class TTIRBuilder(Builder):
 
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(ttir_op)
-
-                        input_owner = old_op.input.owner
-                        if isinstance(input_owner, Block):
-                            queried_input = old_op.input
-                        else:
-                            queried_input = input_owner
-
-                        input0 = self._get_golden_tensor(queried_input)
+                        input0 = self._get_golden_tensor(old_op.input)
                         golden_output = op_golden_function(input0, result.element_type)
-                        hardsigmoid_builder._set_golden_tensor(new_op, golden_output)
-                        hardsigmoid_builder._set_output_ordering([new_op])
+                        hardsigmoid_builder._set_golden_tensor(
+                            new_op.result, golden_output
+                        )
+                        hardsigmoid_builder._set_output_ordering([new_op.result])
                         hardsigmoid_builder._set_golden_tensor(in0, input0)
                         hardsigmoid_builder._set_input_ordering([in0])
 
