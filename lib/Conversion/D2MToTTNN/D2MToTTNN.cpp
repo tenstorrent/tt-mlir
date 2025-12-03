@@ -351,12 +351,46 @@ public:
 };
 } // namespace
 
+namespace {
+class D2MFullRewriter : public OpConversionPattern<d2m::FullOp> {
+public:
+  using OpConversionPattern<d2m::FullOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::FullOp op, d2m::FullOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    MLIRContext *ctx = rewriter.getContext();
+    auto tensorType = cast<RankedTensorType>(op.getResult().getType());
+    auto layoutAttr = cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
+
+    // Convert DenseI32ArrayAttr shape to ttnn::ShapeAttr
+    auto shapeI32 = adaptor.getShape();
+    SmallVector<int64_t> shapeI64(shapeI32.begin(), shapeI32.end());
+    auto shape = ttnn::ShapeAttr::get(ctx, shapeI64);
+
+    auto dtype = ttcore::DataTypeAttr::get(ctx, layoutAttr.getDataType());
+    auto layout = ttnn::LayoutAttr::get(ctx, layoutAttr.getLayout());
+
+    // Reuses the existing ttnn.get_device op if present, else create one.
+    auto device = ttnn::utils::getOrInsertDevice(rewriter, op);
+    auto deviceAttr = ttcore::lookupDevice(op);
+    auto memcfg =
+        ttnn::MemoryConfigAttr::get(layoutAttr, deviceAttr.getWorkerGrid());
+
+    rewriter.replaceOpWithNewOp<ttnn::FullOp>(op, tensorType, device, shape,
+                                              adaptor.getFillValue(), dtype,
+                                              layout, memcfg);
+    return success();
+  };
+};
+} // namespace
+
 } // namespace mlir::tt
 namespace mlir::tt {
 void populateD2MToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                TypeConverter &typeConverter) {
   patterns.add<D2MGenericRewriter, TTNNMetalLayoutCastRewriter,
-               D2MEmptyRewriter, StreamLayoutRewriter>(ctx);
+               D2MEmptyRewriter, D2MFullRewriter, StreamLayoutRewriter>(ctx);
 }
 
 } // namespace mlir::tt

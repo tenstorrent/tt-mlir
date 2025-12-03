@@ -15,6 +15,7 @@
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "llvm/ADT/STLExtras.h"
 
 namespace {
 
@@ -181,6 +182,28 @@ public:
 };
 } // namespace
 
+class TTNNFullOpToTTIRFullOpConversionPattern
+    : public mlir::OpConversionPattern<mlir::tt::ttnn::FullOp> {
+public:
+  using mlir::OpConversionPattern<mlir::tt::ttnn::FullOp>::OpConversionPattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::FullOp srcOp,
+                  mlir::tt::ttnn::FullOp::Adaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const override {
+    auto outputType = mlir::cast<mlir::RankedTensorType>(
+        this->getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    // Convert ttnn::ShapeAttr to ArrayRef<int32_t> for ttir::FullOp
+    auto shapeI32 = llvm::to_vector_of<int32_t>(srcOp.getShape().getShape());
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::FullOp>(
+        srcOp, outputType, shapeI32, adaptor.getFillValue());
+
+    return mlir::success();
+  }
+};
+
 static void
 addElementwiseUnaryOpsConversionPatterns(mlir::MLIRContext *ctx,
                                          mlir::RewritePatternSet &patterns,
@@ -323,6 +346,7 @@ void populateTTNNToTTIRPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   addElementwiseBinaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addReductionOpsConversionPatterns(ctx, patterns, typeConverter);
   patterns.add<TTNNMatmulToTTIRMatmulConversionPattern>(typeConverter, ctx);
+  patterns.add<TTNNFullOpToTTIRFullOpConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt

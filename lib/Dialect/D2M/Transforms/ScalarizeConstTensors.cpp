@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -27,6 +28,16 @@ struct ConstantUseChain {
   unsigned genericInputIdx;
 };
 
+static Value getLayoutOrCastResult(Operation *op) {
+  if (auto toLayoutOp = dyn_cast<ToLayoutOp>(op)) {
+    return toLayoutOp.getResult(0);
+  }
+  if (auto castOp = dyn_cast<ttir::TTNNMetalLayoutCastOp>(op)) {
+    return castOp.getResult();
+  }
+  return nullptr;
+}
+
 static void
 traceConstantToGenericOps(Operation *constOp,
                           SmallVectorImpl<ConstantUseChain> &chains) {
@@ -34,12 +45,12 @@ traceConstantToGenericOps(Operation *constOp,
     Value currentValue = constOp->getResult(0);
     Operation *currentOp = user;
 
-    while (auto toLayoutOp = dyn_cast<ToLayoutOp>(currentOp)) {
-      currentValue = toLayoutOp.getResult(0);
+    while (Value result = getLayoutOrCastResult(currentOp)) {
+      currentValue = result;
       if (currentValue.getUsers().empty()) {
         break;
       }
-      // NOTE: This only follows the first user. If a to_layout result has
+      // NOTE: This only follows the first user. If a result has
       // multiple users, only one path will be traced. This is acceptable for
       // the current use case but may miss optimization opportunities.
       currentOp = *currentValue.getUsers().begin();
