@@ -545,8 +545,8 @@ private:
   }
 
   // Helper function to skip TTNN and TTIR reshape and typecast ops.
-  static std::pair<mlir::Operation *, mlir::Value>
-  skipReshapeTypecastLayoutOps(mlir::Operation *op, mlir::Value value) {
+  static mlir::Value skipReshapeTypecastLayoutOps(mlir::Value value) {
+    mlir::Operation *op = value.getDefiningOp();
     while (mlir::isa_and_present<
            mlir::tt::ttnn::ReshapeOp, mlir::tt::ttnn::TypecastOp,
            mlir::tt::ttnn::ToLayoutOp, mlir::tt::ttir::TypecastOp,
@@ -555,16 +555,16 @@ private:
       op = value.getDefiningOp();
     }
 
-    return {op, value};
+    return value;
   }
 
   // Helper function to trace back through const-eval function.
-  static std::pair<mlir::Operation *, mlir::Value>
-  getDefiningOpThroughConstEval(mlir::Operation *op, mlir::Value value) {
-    auto loadCachedOp = mlir::dyn_cast_if_present<ttcore::LoadCachedOp>(op);
+  static mlir::Value getDefiningOpThroughConstEval(mlir::Value value) {
+    auto loadCachedOp =
+        mlir::dyn_cast_if_present<ttcore::LoadCachedOp>(value.getDefiningOp());
 
     if (!loadCachedOp) {
-      return {op, value};
+      return value;
     }
 
     size_t valueIndex =
@@ -572,14 +572,14 @@ private:
                       llvm::find(loadCachedOp.getResults(), value));
 
     if (valueIndex >= loadCachedOp.getNumResults()) {
-      return {op, value};
+      return value;
     }
 
     auto callee = loadCachedOp.getCallee();
     auto calleeFunc = mlir::dyn_cast<func::FuncOp>(
         loadCachedOp->getParentOfType<mlir::ModuleOp>().lookupSymbol(callee));
     if (!calleeFunc) {
-      return {op, value};
+      return value;
     }
 
     auto *terminatorOp = calleeFunc.getBody().back().getTerminator();
@@ -587,24 +587,22 @@ private:
     assert(returnOp && "Expected function to have a return op");
 
     auto returnValue = returnOp.getOperand(valueIndex);
-    auto *definingOp = returnValue.getDefiningOp();
 
     // Skip layout ops that may be present between the ReturnOp and the FullOp.
-    std::tie(definingOp, returnValue) =
-        skipReshapeTypecastLayoutOps(definingOp, returnValue);
+    returnValue = skipReshapeTypecastLayoutOps(returnValue);
 
-    return {definingOp, returnValue};
+    return returnValue;
   }
 
   // Helper function to extract constant value.
   static mlir::Attribute getConstantAttr(mlir::Value value) {
-    mlir::Operation *op = value.getDefiningOp();
     // Skip layout ops that may be present between the PowOp and the FullOp.
-    std::tie(op, value) = skipReshapeTypecastLayoutOps(op, value);
+    value = skipReshapeTypecastLayoutOps(value);
 
     // If the value is received through const-eval, we need to trace it back.
-    std::tie(op, value) = getDefiningOpThroughConstEval(op, value);
+    value = getDefiningOpThroughConstEval(value);
 
+    mlir::Operation *op = value.getDefiningOp();
     if (auto attr = getConstantAttrFromFullOp<mlir::tt::ttir::FullOp>(op)) {
       return attr;
     }
