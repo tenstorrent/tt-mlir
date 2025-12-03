@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "shardy/dialect/sdy/ir/utils.h"
 #include "shardy/dialect/sdy/transforms/propagation/op_sharding_rule_builder.h"
 #include "stablehlo/dialect/StablehloOps.h"
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h"
@@ -57,32 +58,64 @@ getScatterShardingRule(mlir::stablehlo::ScatterOp scatterOp) {
   auto dimNums = scatterOp.getScatterDimensionNumbers();
   ArrayRef<int64_t> scatterDimsToOperandDims =
       dimNums.getScatterDimsToOperandDims();
+  ArrayRef<int64_t> insertedWindowDims = dimNums.getInsertedWindowDims();
+
+  // Return null if input is not sharded along scatter_dims_to_operand_dims.
+  // This would fallback to default sharding rule in
+  // op_sharding_rule_registry.cc.
+  bool isShardedAlongScatterDims = false;
+  if (sdy::TensorShardingAttr inputSharding =
+          mlir::sdy::getSharding(inputs.front())) {
+    ArrayRef<mlir::sdy::DimensionShardingAttr> dimShardings =
+        inputSharding.getDimShardings();
+    for (int64_t scatterDim : scatterDimsToOperandDims) {
+      if (scatterDim < static_cast<int64_t>(dimShardings.size()) &&
+          !dimShardings[scatterDim].getAxes().empty()) {
+        isShardedAlongScatterDims = true;
+        break;
+      }
+    }
+  }
+
+  if (!isShardedAlongScatterDims) {
+    // Return null to fallback to default sharding rule.
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  // Check input and update have the same rank.
+  if (inputRank != updateRank) {
+    scatterOp->emitError(
+        "Custom sharding rule not implemented for scatter "
+        "operations where input and update tensors have different ranks.");
+    return mlir::sdy::OpShardingRuleAttr();
+  }
 
   sdy::OpShardingRuleBuilder builder(scatterOp);
 
-  // Shard input and result if shard dimension is NOT in
-  // scatterDimsToOperandDims. Otherwise, replicate.
+  // Input, updates, and result need to be sharded together.
+  // Replicate if dimension is in scatter_dims_to_operand_dims.
+  // Replicate if dimension is in inserted_window_dims.
+  // Shard otherwise.
   for (int64_t inputDim = 0; inputDim < inputRank; inputDim++) {
     bool isScatterTargetDim =
         llvm::is_contained(scatterDimsToOperandDims, inputDim);
+    bool isInsertedWindowDim = llvm::is_contained(insertedWindowDims, inputDim);
 
-    if (isScatterTargetDim) {
-      // Dimension is a scatter target - MUST REPLICATE.
-      builder.addFactor(
-          {inputDim, sdy::kNullDim,
-           sdy::kNullDim}, // [input_dim, indices_dim, updates_dim]
-          {inputDim},      // result_dim
-          inputType.getDimSize(inputDim),
-          mlir::sdy::FactorType::kNeedReplication);
+    if (isScatterTargetDim || isInsertedWindowDim) {
+      // Dimension is a scatter target or inserted window dim - MUST REPLICATE.
+      builder.addFactor({inputDim, sdy::kNullDim,
+                         inputDim}, // [input_dim, indices_dim, updates_dim]
+                        {inputDim}, // result_dim
+                        inputType.getDimSize(inputDim),
+                        mlir::sdy::FactorType::kNeedReplication);
     } else {
       // Dimension is NOT a scatter target - CAN SHARD.
-      // Only exists in input and result, not in indices or updates.
-      builder.addFactor(
-          {inputDim, sdy::kNullDim,
-           sdy::kNullDim}, // [input_dim, indices_dim, updates_dim]
-          {inputDim},      // result_dim
-          inputType.getDimSize(inputDim),
-          sdy::FactorType::kPassThrough // Can be sharded.
+      // Shard input, updates, and result together.
+      builder.addFactor({inputDim, sdy::kNullDim,
+                         inputDim}, // [input_dim, indices_dim, updates_dim]
+                        {inputDim}, // result_dim
+                        inputType.getDimSize(inputDim),
+                        sdy::FactorType::kPassThrough // Can be sharded.
       );
     }
   }
@@ -93,15 +126,6 @@ getScatterShardingRule(mlir::stablehlo::ScatterOp scatterOp) {
                        sdy::kNullDim}, // [input_dim, indices_dim, updates_dim]
                       {sdy::kNullDim}, // Doesn't appear in result.
                       indicesType.getDimSize(indicesDim),
-                      sdy::FactorType::kNeedReplication);
-  }
-
-  // Replicate all updates dimensions.
-  for (int64_t updateDim = 0; updateDim < updateRank; updateDim++) {
-    builder.addFactor({sdy::kNullDim, sdy::kNullDim,
-                       updateDim},     // [input_dim, indices_dim, updates_dim]
-                      {sdy::kNullDim}, // Doesn't appear in result.
-                      updateType.getDimSize(updateDim),
                       sdy::FactorType::kNeedReplication);
   }
 
