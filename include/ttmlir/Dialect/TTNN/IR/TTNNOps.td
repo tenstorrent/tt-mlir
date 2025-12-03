@@ -825,6 +825,26 @@ def TTNN_Atan2Op :  TTNN_ElementwiseBinaryCompositeOp<"atan2"> {
     }];
 }
 
+def TTNN_GeluBackwardOp : TTNN_ElementwiseBinaryOp<"gelu_bw"> {
+  let summary = "Backward pass operation for the GELU activation function.";
+  let description = [{
+    Computes the gradient of the GELU (Gaussian Error Linear Unit) activation
+    function with respect to its input during backpropagation.
+
+    This operation corresponds to ttnn.experimental.gelu_bw.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$lhs,
+                       AnyRankedTensor:$rhs,
+                       OptionalAttr<TTCore_DataTypeAttr>:$dtype,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                       DefaultValuedAttr<StrAttr, "\"none\"">:$approximate);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 class TTNN_ReductionOp<string mnemonic, list<Trait> traits = []> : TTNN_Op<mnemonic, traits> {
   let summary = "Reduction op.";
   let description = [{

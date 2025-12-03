@@ -148,10 +148,30 @@ def subtract(
     return builder.subtract(in0, in1, unit_attrs=unit_attrs)
 
 
+def gelu_backward(
+    in0: Operand,
+    in1: Operand,
+    builder: TTIRBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    return builder.gelu_backward(in0, in1, approximate="none", unit_attrs=unit_attrs)
+
+
+def gelu_backward_tanh(
+    in0: Operand,
+    in1: Operand,
+    builder: TTIRBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    return builder.gelu_backward(in0, in1, approximate="tanh", unit_attrs=unit_attrs)
+
+
 binary_ops = [
     add,
     atan2 | Marks(pytest.mark.skip_config(["ttmetal"])),
     div,
+    gelu_backward | Marks(pytest.mark.skip_config(["ttmetal"])),
+    gelu_backward_tanh | Marks(pytest.mark.skip_config(["ttmetal"])),
     logical_and | Marks(pytest.mark.skip_config(["ttmetal"])),
     logical_or | Marks(pytest.mark.skip_config(["ttmetal"])),
     logical_xor | Marks(pytest.mark.skip_config(["ttmetal"])),

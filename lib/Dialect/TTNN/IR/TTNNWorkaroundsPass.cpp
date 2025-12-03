@@ -519,6 +519,15 @@ binaryOpDTypeWorkaround(mlir::Operation *op, mlir::Type elementType) {
     return {};
   }
 
+  // GeluBackwardOp requires bfloat16 data type.
+  // ttnn.experimental.gelu_bw only supports BFLOAT16.
+  if (isa<ttnn::GeluBackwardOp>(op)) {
+    if (dType == mlir::tt::ttcore::DataType::BFloat16) {
+      return {};
+    }
+    return mlir::tt::ttcore::DataType::BFloat16;
+  }
+
   // All remaining binary ops.
   // Tracked in :
   // https://github.com/issues/created?issue=tenstorrent%7Ctt-metal%7C25112
