@@ -716,6 +716,59 @@ createOp(FlatbufferObjectCache &cache, ConvTranspose2dOp op) {
       computeConfig.value_or(0), memoryConfig);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::Conv3dOp>
+createOp(FlatbufferObjectCache &cache, Conv3dOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto weight = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getWeight()));
+  auto bias = op.getBias()
+                  ? cache.at<::tt::target::ttnn::TensorRef>(
+                        getOperandThroughDPSOps(op.getBias()))
+                  : flatbuffers::Offset<::tt::target::ttnn::TensorRef>();
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+
+  auto device = getOperandThroughDPSOps(op.getDevice());
+
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> kernelSize =
+      toFlatbuffer(cache, op.getKernelSize());
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> stride =
+      toFlatbuffer(cache, op.getStride());
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> padding =
+      toFlatbuffer(cache, op.getPadding());
+
+  auto paddingMode = cache.fbb->CreateString(op.getPaddingMode().str());
+
+  ::flatbuffers::Optional<::tt::target::DataType> outputDtype;
+  if (auto dtype = op.getDtype()) {
+    outputDtype = toFlatbuffer(cache, *dtype);
+  }
+
+  std::optional<::flatbuffers::Offset<::tt::target::ttnn::Conv3dConfig>>
+      conv3dConfig;
+  if (auto config = op.getConv3dConfig()) {
+    conv3dConfig = toFlatbuffer(cache, *config);
+  }
+
+  std::optional<
+      ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
+      computeConfig;
+  if (auto config = op.getComputeConfig()) {
+    computeConfig = toFlatbuffer(cache, *config);
+  }
+
+  auto memoryConfig =
+      getMemoryConfigFromTensorTypeIfNeeded(cache, op.getResult());
+
+  return ::tt::target::ttnn::CreateConv3dOp(
+      *cache.fbb, input, weight, bias, output,
+      cache.at<::tt::target::DeviceRef>(device), op.getInChannels(),
+      op.getOutChannels(), op.getBatchSize(), op.getInputDepth(),
+      op.getInputHeight(), op.getInputWidth(), kernelSize, stride, padding,
+      paddingMode, op.getGroups(), outputDtype, conv3dConfig.value_or(0),
+      computeConfig.value_or(0), memoryConfig);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::AllGatherOp>
 createOp(FlatbufferObjectCache &cache, AllGatherOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
@@ -1248,6 +1301,31 @@ createEltwiseBinaryCompositeScalarOp(FlatbufferObjectCache &cache,
 
   return ::tt::target::ttnn::CreateEltwiseBinaryCompositeScalarOp(
       *cache.fbb, type, lhs, rhsType, rhsValue, memoryConfig, out);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::ExperimentalEltwiseBinaryBackwardOp>
+createExperimentalEltwiseBinaryBackwardOp(FlatbufferObjectCache &cache,
+                                          GeluBackwardOp op) {
+  ::tt::target::ttnn::ExperimentalEltwiseBinaryBackwardOpType type =
+      ::tt::target::ttnn::ExperimentalEltwiseBinaryBackwardOpType::GeluBW;
+
+  auto grad = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getLhs()));
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getRhs()));
+
+  auto approximate = toFlatbuffer(cache, op.getApproximate());
+
+  ::flatbuffers::Optional<::tt::target::DataType> outputDtype =
+      toFlatbuffer(cache, op.getDtype());
+
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+
+  return ::tt::target::ttnn::CreateExperimentalEltwiseBinaryBackwardOp(
+      *cache.fbb, type, grad, input, approximate, outputDtype, memoryConfig,
+      out);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::EltwiseTernaryWhereOp>
@@ -2156,8 +2234,10 @@ createOp(FlatbufferObjectCache &cache, ScaledDotProductAttentionDecodeOp op) {
       getOperandThroughDPSOps(op.getKey()));
   auto value = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getValue()));
-  auto curPosTensor = cache.at<::tt::target::ttnn::TensorRef>(
-      getOperandThroughDPSOps(op.getCurPosTensor()));
+  auto curPosTensor = op.getCurPosTensor()
+                          ? cache.at<::tt::target::ttnn::TensorRef>(
+                                getOperandThroughDPSOps(op.getCurPosTensor()))
+                          : 0;
   auto attentionMask = op.getAttentionMask()
                            ? cache.at<::tt::target::ttnn::TensorRef>(
                                  getOperandThroughDPSOps(op.getAttentionMask()))
@@ -2178,9 +2258,12 @@ createOp(FlatbufferObjectCache &cache, ScaledDotProductAttentionDecodeOp op) {
                  : std::nullopt);
   // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 
+  std::optional<::flatbuffers::Offset<::tt::target::ttnn::SDPAConfig>>
+      programConfig = toFlatbuffer(cache, op.getProgramConfig());
+
   return ::tt::target::ttnn::CreateScaledDotProductAttentionDecodeOp(
       *cache.fbb, query, key, value, isCausal, attentionMask, curPosTensor,
-      attentionSink, scale, out, memoryConfig);
+      attentionSink, scale, out, memoryConfig, programConfig.value_or(0));
 }
 
 ::flatbuffers::Offset<
@@ -2813,6 +2896,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createEltwiseUnaryOp(cache, geluOp),
                            debugString, locInfo);
   }
+  if (auto geluBackwardOp = dyn_cast<GeluBackwardOp>(op); geluBackwardOp) {
+    return createOperation(
+        cache, createExperimentalEltwiseBinaryBackwardOp(cache, geluBackwardOp),
+        debugString, locInfo);
+  }
   if (auto tanOp = dyn_cast<TanOp>(op); tanOp) {
     return createOperation(cache, createEltwiseUnaryOp(cache, tanOp),
                            debugString, locInfo);
@@ -2921,6 +3009,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
       conv_transpose2dOp) {
     return createOperation(cache, createOp(cache, conv_transpose2dOp),
                            debugString, locInfo);
+  }
+  if (auto conv3dOp = dyn_cast<Conv3dOp>(op); conv3dOp) {
+    return createOperation(cache, createOp(cache, conv3dOp), debugString,
+                           locInfo);
   }
   if (auto allGatherOp = dyn_cast<AllGatherOp>(op); allGatherOp) {
     return createOperation(cache, createOp(cache, allGatherOp), debugString,

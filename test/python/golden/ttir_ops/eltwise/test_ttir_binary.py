@@ -148,10 +148,30 @@ def subtract(
     return builder.subtract(in0, in1, unit_attrs=unit_attrs)
 
 
+def gelu_backward(
+    in0: Operand,
+    in1: Operand,
+    builder: TTIRBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    return builder.gelu_backward(in0, in1, approximate="none", unit_attrs=unit_attrs)
+
+
+def gelu_backward_tanh(
+    in0: Operand,
+    in1: Operand,
+    builder: TTIRBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    return builder.gelu_backward(in0, in1, approximate="tanh", unit_attrs=unit_attrs)
+
+
 binary_ops = [
     add,
     atan2 | Marks(pytest.mark.skip_config(["ttmetal"])),
     div,
+    gelu_backward | Marks(pytest.mark.skip_config(["ttmetal"])),
+    gelu_backward_tanh | Marks(pytest.mark.skip_config(["ttmetal"])),
     logical_and | Marks(pytest.mark.skip_config(["ttmetal"])),
     logical_or | Marks(pytest.mark.skip_config(["ttmetal"])),
     logical_xor | Marks(pytest.mark.skip_config(["ttmetal"])),
@@ -236,13 +256,17 @@ binary_bitwise_dtypes = [
 @pytest.mark.parametrize(
     "dtype", binary_bitwise_dtypes, ids=["i32", "u32", "u16", "u8"]
 )
-@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 @pytest.mark.parametrize("test_fn", binary_bitwise_ops)
 def test_bitwise_binary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
     if target == "emitpy" and (dtype == torch.uint16 or dtype == torch.uint32):
         pytest.xfail("uint16 and uint32 aren't supported in ttnn pybinds")
+    elif target == "ttmetal":
+        pytest.xfail(
+            "ttmetal does not support bitwise ops for integers due to tilize/untilize."
+        )
     compile_and_execute_ttir(
         test_fn,
         inputs_shapes=[shape, shape],

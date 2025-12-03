@@ -331,6 +331,57 @@ createConv2dSliceConfig(const ::tt::target::ttnn::Conv2dSliceConfig *config) {
   return sliceConfig;
 }
 
+::ttnn::operations::experimental::conv3d::Conv3dConfig createConv3dConfig(
+    const ::tt::target::ttnn::Conv3dConfig *config, uint32_t outChannels,
+    const std::array<uint32_t, 3> &kernelSize,
+    const std::array<uint32_t, 3> &stride,
+    const std::array<uint32_t, 3> &padding, const std::string &paddingMode,
+    uint32_t groups, const std::optional<::ttnn::DataType> &outputDtype,
+    ::ttnn::MeshDevice &targetDevice) {
+
+  ::ttnn::operations::experimental::conv3d::Conv3dConfig conv3dConfig;
+
+  // Set basic parameters
+  conv3dConfig.output_channels = outChannels;
+  conv3dConfig.kernel_size = kernelSize;
+  conv3dConfig.stride = stride;
+  conv3dConfig.padding = padding;
+  conv3dConfig.padding_mode = paddingMode;
+  conv3dConfig.groups = groups;
+  conv3dConfig.dtype = outputDtype.value_or(::ttnn::DataType::BFLOAT16);
+  conv3dConfig.compute_with_storage_grid_size =
+      targetDevice.compute_with_storage_grid_size();
+  conv3dConfig.weights_dtype = ::ttnn::DataType::BFLOAT16;
+
+  // Apply config overrides from flatbuffer if provided
+  if (config) {
+    if (config->weights_dtype()) {
+      conv3dConfig.weights_dtype =
+          ::tt::runtime::ttnn::utils::toTTNNDataType(*config->weights_dtype());
+    }
+    if (config->t_out_block()) {
+      conv3dConfig.T_out_block = *config->t_out_block();
+    }
+    if (config->w_out_block()) {
+      conv3dConfig.W_out_block = *config->w_out_block();
+    }
+    if (config->h_out_block()) {
+      conv3dConfig.H_out_block = *config->h_out_block();
+    }
+    if (config->c_out_block()) {
+      conv3dConfig.C_out_block = *config->c_out_block();
+    }
+    if (config->c_in_block()) {
+      conv3dConfig.C_in_block = *config->c_in_block();
+    }
+  }
+
+  // Default output layout (ROW_MAJOR required by conv3d device op)
+  conv3dConfig.output_layout = ::ttnn::Layout::ROW_MAJOR;
+
+  return conv3dConfig;
+}
+
 ::ttnn::DeviceComputeKernelConfig createDeviceComputeKernelConfig(
     const ::tt::target::ttnn::DeviceComputeKernelConfig *config) {
   ::ttnn::WormholeComputeKernelConfig computeKernelConfig;
@@ -352,6 +403,33 @@ createConv2dSliceConfig(const ::tt::target::ttnn::Conv2dSliceConfig *config) {
   return computeKernelConfig;
 }
 
+::ttnn::operations::transformer::SDPAProgramConfig
+createSDPAProgramConfig(const ::tt::target::ttnn::SDPAConfig *config) {
+  ::ttnn::operations::transformer::SDPAProgramConfig sdpaConfig;
+
+  sdpaConfig.compute_with_storage_grid_size =
+      ::tt::runtime::ttnn::utils::toTTNNCoreCoord(
+          *config->compute_with_storage_grid_size());
+
+  if (config->sub_core_grids()) {
+    sdpaConfig.sub_core_grids = ::tt::runtime::ttnn::utils::toTTNNCoreRangeSet(
+        *config->sub_core_grids());
+  }
+
+  sdpaConfig.q_chunk_size = config->q_chunk_size();
+  sdpaConfig.k_chunk_size = config->k_chunk_size();
+
+  if (config->exp_approx_mode()) {
+    sdpaConfig.exp_approx_mode = *config->exp_approx_mode();
+  }
+
+  if (config->max_cores_per_head_batch()) {
+    sdpaConfig.max_cores_per_head_batch = *config->max_cores_per_head_batch();
+  }
+
+  return sdpaConfig;
+}
+
 template <typename T>
 static ::ttnn::Tensor toTTNNTensorImpl(
     const ::flatbuffers::Vector<uint8_t> *input, const ::ttnn::Shape &shape,
@@ -363,8 +441,9 @@ static ::ttnn::Tensor toTTNNTensorImpl(
   std::vector<T> dataVec(numElements);
   for (size_t i = 0; i < numElements; i++) {
     if constexpr (std::is_same_v<T, bfloat16>) {
-      dataVec[i] = bfloat16(
-          ::flatbuffers::IndirectHelper<uint16_t>::Read(input->data(), i));
+      uint16_t raw =
+          ::flatbuffers::IndirectHelper<uint16_t>::Read(input->data(), i);
+      dataVec[i] = std::bit_cast<bfloat16>(raw);
     } else {
       dataVec[i] = ::flatbuffers::IndirectHelper<T>::Read(input->data(), i);
     }

@@ -57,6 +57,10 @@ class TTIRCompiler(ast.NodeVisitor):
                 return F32Type.get(self.ctx)
             case 2:
                 return IntegerType.get_unsigned(32, self.ctx)
+            case 3:
+                return ttcore.ir.TileType.get(
+                    self.ctx, 32, 32, ttcore.DataType.BFP_BFloat8
+                )
             case 5:
                 return IntegerType.get_unsigned(8, self.ctx)
             case 6:
@@ -67,11 +71,16 @@ class TTIRCompiler(ast.NodeVisitor):
                 raise ValueError(f"Unsupported dtype: {dtype}")
 
     def _ttcore_dtype_from_mlir_dtype(self, dtype):
-        match str(dtype):
+        dtype_str = str(dtype)
+        match dtype_str:
             case "f32":
                 return ttcore.DataType.Float32
             case "bf16":
                 return ttcore.DataType.BFloat16
+            case s if "bfp_bf8" in s.lower():
+                return ttcore.DataType.BFP_BFloat8
+            case "i32":
+                return ttcore.DataType.Int32
             case _:
                 raise ValueError(f"Unsupported dtype: {dtype}")
 

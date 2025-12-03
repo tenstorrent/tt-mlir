@@ -149,23 +149,63 @@ module {
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
     // CHECK: d2m.tile_gelu
-    %25= "ttir.gelu"(%24) : (!ttype) -> !ttype
+    %25 = "ttir.gelu"(%24) : (!ttype) -> !ttype
+    // named elementwise op, unary:
+    // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: d2m.tile_erf
+    %26 = "ttir.erf"(%25) : (!ttype) -> !ttype
+    // named elementwise op, unary:
+    // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: d2m.tile_erfc
+    %27 = "ttir.erfc"(%26) : (!ttype) -> !ttype
+    // named elementwise op, unary:
+    // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: d2m.tile_sign
+    %28 = "ttir.sign"(%27) : (!ttype) -> !ttype
     // named elementwise op, unary:
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
     // CHECK: d2m.tile_bitwise_not
-    %26 = "ttir.bitwise_not"(%25) : (!ttype) -> !ttype
+    %29 = "ttir.bitwise_not"(%28) : (!ttype) -> !ttype
     // named elementwise op, unary:
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
     // CHECK: d2m.tile_silu
-    %27= "ttir.silu"(%26) : (!ttype) -> !ttype
+    %30 = "ttir.silu"(%29) : (!ttype) -> !ttype
     // named elementwise op, unary:
     // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
     // CHECK: d2m.tile_relu
-    %28= "ttir.relu"(%27) : (!ttype) -> !ttype
-    return %26: !ttype
+    %31= "ttir.relu"(%30) : (!ttype) -> !ttype
+    // named elementwise op, bitwise_and:
+    // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: d2m.tile_bitwise_and
+    %32 = "ttir.bitwise_and"(%26, %27) : (!ttype, !ttype) -> !ttype
+    // named elementwise op, bitwise_or:
+    // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: d2m.tile_bitwise_or
+    %33 = "ttir.bitwise_or"(%26, %27) : (!ttype, !ttype) -> !ttype
+    // named elementwise op, bitwise_xor:
+    // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: d2m.tile_bitwise_xor
+    %34 = "ttir.bitwise_xor"(%26, %27) : (!ttype, !ttype) -> !ttype
+    // named elementwise op, unary:
+    // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: d2m.tile_tanh
+    %35 = "ttir.tanh"(%34) : (!ttype) -> !ttype
+    // named elementwise op, unary:
+    // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: d2m.tile_sigmoid
+    %36 = "ttir.sigmoid"(%35) : (!ttype) -> !ttype
+    return %36: !ttype
   }
 
   // CHECK-LABEL: func @named_reductions_R

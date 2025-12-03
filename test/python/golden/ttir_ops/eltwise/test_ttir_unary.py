@@ -214,8 +214,8 @@ unary_ops = [
     cbrt | Marks(pytest.mark.skip_config(["ttmetal"])),
     ceil | Marks(pytest.mark.skip_config(["ttmetal"])),
     cos,
-    erf | Marks(pytest.mark.skip_config(["ttmetal"])),
-    erfc | Marks(pytest.mark.skip_config(["ttmetal"])),
+    erf,
+    erfc,
     exp,
     expm1 | Marks(pytest.mark.skip_config(["ttmetal"])),
     floor,
@@ -231,12 +231,12 @@ unary_ops = [
     relu6 | Marks(pytest.mark.skip_config(["ttmetal"])),
     rsqrt,
     sigmoid,
-    sign | Marks(pytest.mark.skip_config(["ttmetal"])),
+    sign,
     silu,
     sin,
     sqrt,
     tan,
-    tanh | Marks(pytest.mark.skip_config(["ttmetal"])),
+    tanh,
 ]
 
 

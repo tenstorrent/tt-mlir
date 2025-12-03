@@ -42,6 +42,21 @@ generateNHWFlatten(mlir::TypedValue<mlir::RankedTensorType> input,
   return generateReshape(input, newShape, rewriter, newLoc);
 }
 
+ttnn::PermuteOp generatePermute(mlir::TypedValue<mlir::RankedTensorType> input,
+                                ArrayRef<int64_t> permutation,
+                                PatternRewriter &rewriter,
+                                mlir::Location newLoc) {
+  RankedTensorType inputType = input.getType();
+  llvm::SmallVector<int64_t> outputShape =
+      ttmlir::utils::applyPermutation(inputType.getShape(), permutation);
+  RankedTensorType outputType =
+      ttnn::utils::RankedTensorTypeFactory::create(inputType, outputShape);
+
+  return rewriter.create<ttnn::PermuteOp>(
+      newLoc, outputType, input, rewriter.getDenseI64ArrayAttr(permutation),
+      /* memory_config */ nullptr, /* pad_value */ mlir::FloatAttr());
+}
+
 } // namespace ttir_to_ttnn::utils
 } // namespace tt
 } // namespace mlir

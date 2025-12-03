@@ -14,12 +14,39 @@
 #include "mlir/IR/Operation.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/SmallSet.h"
+#include "llvm/ADT/TypeSwitch.h"
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRFUSING
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 namespace {
+// Moves the use-define chain of a value before a target operation.
+// Used when operations are moved or new operations are added to ensure that
+// operations are not placed before the definitions of their inputs, preserving
+// MLIR's topological ordering.
+static void moveUDChainBefore(Value value, Operation *targetOp) {
+  if (!value.getDefiningOp() ||
+      value.getDefiningOp()->isBeforeInBlock(targetOp)) {
+    return;
+  }
+
+  SetVector<Value> udChain = ttmlir::utils::getUseDefChain(value);
+  SetVector<Operation *> udChainOps =
+      ttmlir::utils::filterOperations(udChain.getArrayRef());
+  SetVector<Operation *> udChainSorted = topologicalSort(udChainOps);
+
+  // We are not moving ops in UD chain that are already before the target, as
+  // they could have descendants that are also before target but are not in
+  // the UD chain.
+  for (auto *op : udChainSorted) {
+    if (op->isBeforeInBlock(targetOp)) {
+      continue;
+    }
+    op->moveBefore(targetOp);
+  }
+}
+
 // Check if we can fuse conv followed by add into conv with bias.
 // This pattern supports both:
 // 1. Adding bias to conv without bias: conv(x, w) + b -> conv(x, w, b)
@@ -49,28 +76,12 @@ public:
           mlir::cast<RankedTensorType>(bias.getType()), convOp.getBias(), bias);
     }
 
-    if (bias.getDefiningOp() &&
-        !bias.getDefiningOp()->isBeforeInBlock(convOp)) {
-
-      // To move bias before conv, we need to ensure that all operations
-      // in the UD chain are also moved before convOp.
-
-      SetVector<Value> udChain = ttmlir::utils::getUseDefChain(bias);
-      SetVector<Operation *> udChainOps =
-          ttmlir::utils::filterOperations(udChain.getArrayRef());
-      SetVector<Operation *> udChainSorted = topologicalSort(udChainOps);
-
-      for (auto *op : udChainSorted) {
-        if (op->isBeforeInBlock(convOp)) {
-          continue;
-        }
-        op->moveBefore(convOp);
-      }
-    }
+    // Move bias UD chain before conv to keep the ordering of ops.
+    moveUDChainBefore(bias, convOp);
 
     rewriter.modifyOpInPlace(convOp,
                              [&]() { convOp.getBiasMutable().assign(bias); });
-    rewriter.replaceAllOpUsesWith(srcOp, convOp);
+    rewriter.replaceOp(srcOp, convOp);
     // The original conv op will be removed by DCE since it's no longer
     // used.
     return mlir::success();
@@ -655,23 +666,8 @@ public:
     // Reshape scale to match weight dimensions and pre-multiply weights.
     Value reshapedScale = createReshapedScale(rewriter, scaleValue, convOp);
 
-    // Get UD chain starting from the reshaped scale. This chain will be
-    // moved before the convOp to ensure that weight scale can be
-    // const-evaled.
-    SetVector<Value> udChain = ttmlir::utils::getUseDefChain(reshapedScale);
-    SetVector<Operation *> udChainOps =
-        ttmlir::utils::filterOperations(udChain.getArrayRef());
-    SetVector<Operation *> udChainSorted = topologicalSort(udChainOps);
-
-    // We are not moving ops in UD chain that are already before the conv, as
-    // they could have descendants that are also before conv but are not in
-    // the UD chain.
-    for (auto *op : udChainSorted) {
-      if (op->isBeforeInBlock(convOp)) {
-        continue;
-      }
-      op->moveBefore(convOp);
-    }
+    // Move scale UD chain before conv to keep the ordering of ops.
+    moveUDChainBefore(reshapedScale, convOp);
 
     rewriter.setInsertionPoint(convOp);
 
@@ -1074,223 +1070,170 @@ public:
   }
 };
 
-class CacheFillUpdatePattern : public mlir::OpRewritePattern<ScatterOp> {
-  using mlir::OpRewritePattern<ScatterOp>::OpRewritePattern;
+// Fuses the sum of two convolutions into a single convolution:
+//   conv2d(x, w1, b1) + conv2d(x, w2, b2)
+//   ->  conv2d(x, w1 + padded_w2, b1 + b2)
+//
+// Implements the RepVGG pattern where:
+//   - w1 is a 3x3 kernel with padding 1
+//   - w2 is a 1x1 kernel with padding 0
+//   - padded_w2 is w2 padded to 3x3 with 0s
+//   - Both convolutions share the same input, stride, dilation, and groups
+//
+// This pattern was is used in YOLOv9.
+class RepVGGConvSumFusionPattern : public mlir::OpRewritePattern<AddOp> {
+  using mlir::OpRewritePattern<AddOp>::OpRewritePattern;
 
 public:
-  /// Pattern: scatter(input, indices, updates)
-  ///
-  /// This pattern detects when a ScatterOp is used as a fill/update for a
-  /// cache. We check for its input, indices, and update tensors to ensure they
-  /// match the expected cache fill/update pattern.
-  ///
-  /// Input pattern:
-  ///   %result = scatter(%cache, %indices, %updates)
-  ///   - Given a cache with shape (B, N, M, H) and a updates tensor with shape
-  ///   (B, N, S, H), the indices tensor represents the index where each element
-  ///   in %updates should placed in the %cache.
-  ///   - %indices can be tracked back to the function's cachePositions input
-  ///   that represents the indices of the cache to fill/update.
-  /// Output pattern:
-  ///   %result = fillCacheOp(%cache, %updates)
-  ///   or (if S == 1)
-  ///   %result = updateCacheOp(%cache, %updates, %update_index)
   mlir::LogicalResult
-  matchAndRewrite(ScatterOp scatterOp,
-                  mlir::PatternRewriter &rewriter) const final {
-    auto CachePositions = getCacheUpdatePositions(scatterOp);
-    if (!CachePositions) {
+  matchAndRewrite(AddOp addOp, mlir::PatternRewriter &rewriter) const final {
+    auto components = getConvPair(addOp);
+    if (!components) {
       return mlir::failure();
     }
 
-    auto cacheUpdateInputType =
-        mlir::cast<RankedTensorType>((*CachePositions).getType());
-    auto cacheUpdateInputShape = cacheUpdateInputType.getShape();
-    if (cacheUpdateInputShape.size() != 1) {
-      return mlir::failure();
-    }
+    Conv2dOp conv3x3 = components->first;
+    Conv2dOp conv1x1 = components->second;
 
-    auto cache = scatterOp.getInput();
-    auto updates = scatterOp.getUpdate();
+    auto paddedWeight = createPaddedWeight(rewriter, conv1x1);
 
-    int32_t batchSize = cache.getType().getShape()[0];
+    rewriter.setInsertionPoint(conv3x3);
+    addWeight(rewriter, conv3x3, paddedWeight);
+    addBias(rewriter, conv3x3, conv1x1);
 
-    // If the cachePositions tensor has more than one element we assume it
-    // represents a set of aranged indices (0, cachePositions.size), so we
-    // replace it with FillCacheOp. If the tensor has only one element, we
-    // assume it represents the update index for UpateCacheOp.
-    RankedTensorType updatesType = updates.getType();
-    if (cacheUpdateInputShape[0] != 1) {
-      // Fill cache requires that each batch is filled separately. So, we will
-      // insert a FillCacheOp for each batch. This requires slicing out each
-      // batch.
-
-      if (batchSize > 1) {
-
-        for (int32_t batchOffset = 0; batchOffset < batchSize; batchOffset++) {
-          auto batchOffsetAttr = rewriter.getI32IntegerAttr(batchOffset);
-
-          // Slice starts at the batch offset for the batch dim, and starts at 0
-          // for all other dims.
-          SmallVector<int32_t> sliceStarts = {batchOffset, 0, 0, 0};
-
-          // Slice ends at the dim size for every dim, except the batch dim
-          // where the slice ends at batch offset + 1.
-          SmallVector<int32_t> sliceEnds = SmallVector<int32_t>(
-              updatesType.getShape().begin(), updatesType.getShape().end());
-          sliceEnds[0] = batchOffset + 1;
-
-          // Slice steps is 1 for every dim as we do not wish to skip any
-          SmallVector<int32_t> sliceSteps = {1, 1, 1, 1};
-
-          // Slice output shape is the same as the fill value shape, except the
-          // batch dim is 1 since we sliced out a single batch.
-          SmallVector<int64_t> sliceOutputShape(updatesType.getShape());
-          sliceOutputShape[0] = 1;
-
-          // Encoding should not be set when this pass is run. Guard against it.
-          assert(!updatesType.getEncoding());
-
-          RankedTensorType slicedUpdatesType = RankedTensorType::get(
-              sliceOutputShape, updatesType.getElementType(), nullptr);
-
-          // Create slice op.
-          auto slicedUpdates = rewriter.create<SliceStaticOp>(
-              scatterOp.getLoc(), slicedUpdatesType, updates,
-              rewriter.getI32ArrayAttr(sliceStarts),
-              rewriter.getI32ArrayAttr(sliceEnds),
-              rewriter.getI32ArrayAttr(sliceSteps));
-          // create fill cache op for this batch.
-          cache = rewriter.create<FillCacheOp>(
-              scatterOp.getLoc(),
-              scatterOp.getResult().getType(), // Result type
-              cache,                           // Cache tensor
-              slicedUpdates,                   // Updates tensor
-              batchOffsetAttr                  // Batch offset
-          );
-        }
-      } else {
-        cache = rewriter.create<FillCacheOp>(
-            scatterOp.getLoc(), scatterOp.getResult().getType(), // Result type
-            cache,                                               // Cache tensor
-            updates, // Updates tensor
-            0        // Batch offset
-        );
-      }
-    } else {
-      // Unlike ttnn.fill_cache, we can perform ttnn.update_cache on the entire
-      // batch at once. However this requires that the fill value is in the form
-      // [1, num_heads, B, head_size]. So, we must permute the updates tensor to
-      // this shape.
-      if (batchSize > 1) {
-        SmallVector<int64_t> permutedShape = ttmlir::utils::applyPermutation(
-            updatesType.getShape(), {2, 1, 0, 3});
-
-        // Encoding should not be set when this pass is run. Guard against it.
-        assert(!updatesType.getEncoding());
-        RankedTensorType permutedUpdatesType = RankedTensorType::get(
-            permutedShape, updatesType.getElementType(), nullptr);
-        updates = rewriter.create<PermuteOp>(
-            scatterOp.getLoc(), permutedUpdatesType, updates,
-            rewriter.getDenseI64ArrayAttr({2, 1, 0, 3}));
-      }
-      cache = rewriter.create<UpdateCacheOp>(
-          scatterOp.getLoc(),
-          scatterOp.getResult().getType(), // Result type
-          cache,                           // Cache tensor
-          updates,                         // Updates tensor
-          *CachePositions,                 // Cache Idx
-          0                                // Batch offset
-      );
-    }
-
-    rewriter.replaceOp(scatterOp, cache);
+    rewriter.replaceOp(addOp, conv3x3);
 
     return mlir::success();
   }
 
 private:
-  // Check if the scatter op is a cache fill/update, and track the
-  // cachePositions input tensor if it is.
-  //
-  // We are looking for:
-  // %result = "ttir.scatter"(%cache, %indices, %updates)
-  // Where:
-  //    1. %cache and %updates are 4D tensors who's shape match except on the
-  //    3rd dimension,
-  //       (B, N, M, H) and (B, N, S, H) respectively, M being the max cache
-  //       length and S being the sequence length of the update.
-  //    2. %indices comes from a block argument representing the cachePositions
-  //    tensor.
-  static std::optional<mlir::Value>
-  getCacheUpdatePositions(ttir::ScatterOp scatterOp) {
-    // Check that the scatter op inputs represent a cache fill/update:
-    //    1. The input is a 4D (B, N, M, H)
-    //    2. The update tensor is a 4D tensor (B, N, S, H)
-    //    3. The scatter indices is either a 1D equivalent tensor or 5D index
-    //       grid tensor (B, N, S, H, 4). Both can be tracked to a block
-    //       argument representing the cachePositions input.
-    auto scatterIndices = scatterOp.getScatterIndices();
-    ArrayRef<int64_t> inputShape =
-        mlir::cast<RankedTensorType>(scatterOp.getInput().getType()).getShape();
-    ArrayRef<int64_t> scatterIdxShape =
-        mlir::cast<RankedTensorType>(scatterIndices.getType()).getShape();
-    ArrayRef<int64_t> updateShape =
-        mlir::cast<RankedTensorType>(scatterOp.getUpdate().getType())
-            .getShape();
-    if (inputShape.size() != 4 || updateShape.size() != 4) {
+  static std::optional<std::pair<Conv2dOp, Conv2dOp>> getConvPair(AddOp addOp) {
+    auto lhs = addOp.getLhs();
+    auto rhs = addOp.getRhs();
+
+    auto lhsConv = lhs.getDefiningOp<Conv2dOp>();
+    auto rhsConv = rhs.getDefiningOp<Conv2dOp>();
+
+    if (!lhsConv || !rhsConv) {
       return std::nullopt;
     }
 
-    if (!(inputShape[0] == updateShape[0] && inputShape[1] == updateShape[1] &&
-          inputShape[3] == updateShape[3])) {
+    if (!lhsConv->hasOneUse() || !rhsConv->hasOneUse()) {
       return std::nullopt;
     }
 
-    int cacheUpdateSize = updateShape[2];
-
-    bool effectively1D = isEffectively1D(scatterIdxShape);
-    if (effectively1D &&
-        ttmlir::utils::volume(scatterIdxShape) != cacheUpdateSize) {
+    if (lhsConv.getInput() != rhsConv.getInput()) {
       return std::nullopt;
     }
 
-    bool isIndexGrid =
-        (scatterIdxShape.size() == 5 && scatterIdxShape[0] == inputShape[0] &&
-         scatterIdxShape[1] == inputShape[1] &&
-         scatterIdxShape[2] == cacheUpdateSize &&
-         scatterIdxShape[3] == inputShape[3] && scatterIdxShape[4] == 4);
-
-    // Check that scatter indices is either a 1D cache positions tensor or a 5D
-    // index grid.
-    if (!effectively1D && !isIndexGrid) {
-      return std::nullopt;
+    if (isRepVGGConvPair(lhsConv, rhsConv)) {
+      return std::make_pair(lhsConv, rhsConv);
     }
-
-    // The cachePositions tensor is expected to be a 1D blockargument tensor
-    // with the same size as the cache update size.
-    auto useDefChain = ttmlir::utils::getUseDefChain(scatterIndices);
-    auto blockArgs =
-        ttmlir::utils::filterBlockArguments(useDefChain.getArrayRef());
-    for (auto blockArg : blockArgs) {
-      // Check if the block argument is a cachePositions input.
-      auto argTensorShape =
-          mlir::cast<RankedTensorType>(blockArg.getType()).getShape();
-      effectively1D = isEffectively1D(argTensorShape);
-      if (!effectively1D) {
-        continue;
-      }
-      if (ttmlir::utils::volume(argTensorShape) == cacheUpdateSize) {
-        // We found the cachePositions input tensor.
-        return blockArg;
-      }
+    if (isRepVGGConvPair(rhsConv, lhsConv)) {
+      return std::make_pair(rhsConv, lhsConv);
     }
-
     return std::nullopt;
   }
 
-  static bool isEffectively1D(ArrayRef<int64_t> shape) {
-    return llvm::count_if(shape, [](int64_t dim) { return dim != 1; }) <= 1;
+  // Checks if the two convolutions match the RepVGG conv sum pattern:
+  // - First has 3x3 kernel with padding 1
+  // - Second has 1x1 kernel with padding 0
+  // - They must have the same stride, dilation, and groups
+  static bool isRepVGGConvPair(Conv2dOp conv1, Conv2dOp conv2) {
+    if (!hasKernelShape(conv1, 3, 3) || !hasKernelShape(conv2, 1, 1)) {
+      return false;
+    }
+    if (!hasPaddingValues(conv1, 1) || !hasPaddingValues(conv2, 0)) {
+      return false;
+    }
+    if (conv1.getStride() != conv2.getStride() ||
+        conv1.getDilation() != conv2.getDilation() ||
+        conv1.getGroups() != conv2.getGroups()) {
+      return false;
+    }
+    return true;
+  }
+
+  static bool hasKernelShape(Conv2dOp conv, int64_t kH, int64_t kW) {
+    auto shape = conv.getWeight().getType().getShape();
+    return shape.size() == 4 && shape[2] == kH && shape[3] == kW;
+  }
+
+  static bool hasPaddingValues(Conv2dOp conv, int32_t padValue) {
+    auto padding = conv.getPadding();
+    if (auto denseAttr = llvm::dyn_cast<DenseI32ArrayAttr>(padding)) {
+      auto paddingValues = denseAttr.asArrayRef();
+      return llvm::all_of(paddingValues,
+                          [padValue](int32_t v) { return v == padValue; });
+    }
+    if (auto i32Attr = llvm::dyn_cast<IntegerAttr>(padding)) {
+      return i32Attr.getInt() == padValue;
+    }
+    return false;
+  }
+
+  // Creates a padded weight by padding the 1x1 weight to 3x3.
+  static Value createPaddedWeight(mlir::PatternRewriter &rewriter,
+                                  Conv2dOp conv) {
+    auto weight1x1 = conv.getWeight();
+    auto weight1x1Type = mlir::cast<RankedTensorType>(weight1x1.getType());
+    auto weight1x1Shape = weight1x1Type.getShape();
+
+    // Create new shape for 3x3 weight: (N, C, 3, 3)
+    SmallVector<int64_t> weight3x3Shape = {weight1x1Shape[0], weight1x1Shape[1],
+                                           3, 3};
+    auto weight3x3Type =
+        RankedTensorType::get(weight3x3Shape, weight1x1Type.getElementType(),
+                              weight1x1Type.getEncoding());
+
+    // Pad the 1x1 weight to 3x3 by adding zeros around it
+    SmallVector<int32_t> paddingValues = {0, 0, 0, 0, 1, 1, 1, 1};
+    return rewriter.create<PadOp>(
+        ttmlir::utils::appendLocationSuffix(conv.getLoc(), "_pad"),
+        weight3x3Type, weight1x1, rewriter.getDenseI32ArrayAttr(paddingValues),
+        rewriter.getF32FloatAttr(0.0));
+  }
+
+  // Modifies conv to use a combined weight created by adding the additional
+  // weight to the existing weight from conv.
+  static void addWeight(mlir::PatternRewriter &rewriter, Conv2dOp conv,
+                        Value additionalWeight) {
+    auto existingWeight = conv.getWeight();
+    assert(existingWeight.getType() == additionalWeight.getType() &&
+           "Expected same weight type");
+
+    // Move additional weight UD chain before conv to ensure it is before addOp.
+    moveUDChainBefore(additionalWeight, conv);
+
+    auto combinedWeight = rewriter.create<AddOp>(
+        ttmlir::utils::appendLocationSuffix(conv.getLoc(), "_weight_add"),
+        existingWeight.getType(), additionalWeight, existingWeight);
+    rewriter.modifyOpInPlace(
+        conv, [&]() { conv.getWeightMutable().assign(combinedWeight); });
+  }
+
+  // Modifies conv1 to use a combined bias created by adding bias2 to bias1. If
+  // only conv2 has bias, assigns it to conv1.
+  static void addBias(mlir::PatternRewriter &rewriter, Conv2dOp conv1,
+                      Conv2dOp conv2) {
+    auto bias1 = conv1.getBias();
+    auto bias2 = conv2.getBias();
+
+    if (bias1 && bias2) {
+      assert(bias1.getType() == bias2.getType() && "Expected same bias type");
+
+      // Move bias2 UD chain before conv1 to ensure it is before addOp.
+      moveUDChainBefore(bias2, conv1);
+
+      auto combinedBias = rewriter.create<AddOp>(
+          ttmlir::utils::appendLocationSuffix(conv1.getLoc(), "_bias_add"),
+          bias1.getType(), bias1, bias2);
+      rewriter.modifyOpInPlace(
+          conv1, [&]() { conv1.getBiasMutable().assign(combinedBias); });
+    } else if (bias2) {
+      rewriter.modifyOpInPlace(conv1,
+                               [&]() { conv1.getBiasMutable().assign(bias2); });
+    }
   }
 };
 
@@ -1548,11 +1491,11 @@ public:
     }
 
     // Denominator pooling op must have all inputs be either a FullOp or a
-    // ConstantOp.
-    if (!llvm::all_of(denominator.getInputs(), [](Value v) {
-          return llvm::isa_and_present<FullOp, ConstantOp>(v.getDefiningOp());
-        })) {
-      return mlir::failure();
+    // ConstantOp, or trace back to one through broadcast/reshape ops.
+    for (Value input : denominator.getInputs()) {
+      if (traceToFullOrConstantOp(input) == nullptr) {
+        return mlir::failure();
+      }
     }
 
     // Besides the padding attribute, all attributes of the denominator must
@@ -1588,11 +1531,18 @@ public:
       }
     }
 
-    // For each denominator input, if it is a FullOp, its fill value must be 1
-    // If it is a constant op, its value must be a tensor filled with ones, and
-    // padded with zeroes according to the padding attribute of the numerator.
+    // For each denominator input, trace through broadcast/reshape to find the
+    // underlying FullOp or ConstantOp. If it is a FullOp, its fill value must
+    // be 1. If it is a constant op, its value must be a tensor filled with
+    // ones, and padded with zeroes according to the padding attribute of the
+    // numerator.
     for (Value input : denominator.getInputs()) {
-      if (FullOp inputOp = input.getDefiningOp<FullOp>()) {
+      Value tracedInput = traceToFullOrConstantOp(input);
+      if (!tracedInput) {
+        return mlir::failure();
+      }
+
+      if (FullOp inputOp = tracedInput.getDefiningOp<FullOp>()) {
         // If the denominator is a pool of a full op, then
         // the numerator must have a padding attribute of all zeros.
         if (numerator.getPadding().empty()) {
@@ -1620,7 +1570,7 @@ public:
         } else {
           return mlir::failure();
         }
-      } else if (ConstantOp inputOp = input.getDefiningOp<ConstantOp>()) {
+      } else if (ConstantOp inputOp = tracedInput.getDefiningOp<ConstantOp>()) {
         Type constantElementType = inputOp.getValue().getElementType();
         if (isa<IntegerType>(constantElementType)) {
           auto values = inputOp.getValue().getValues<APInt>();
@@ -1741,77 +1691,206 @@ private:
     }
     return true;
   }
+
+  // Helper function to trace a value through broadcast/reshape ops and return
+  // the underlying FullOp or ConstantOp value.
+  static Value traceToFullOrConstantOp(Value value) {
+    while (value) {
+      Operation *defOp = value.getDefiningOp();
+      if (!defOp) {
+        return nullptr;
+      }
+
+      if (isa<FullOp, ConstantOp>(defOp)) {
+        return value;
+      }
+      if (auto broadcastOp = dyn_cast<BroadcastOp>(defOp)) {
+        value = broadcastOp.getInput();
+        continue;
+      }
+      if (auto reshapeOp = dyn_cast<ReshapeOp>(defOp)) {
+        value = reshapeOp.getInput();
+        continue;
+      }
+      return nullptr;
+    }
+
+    return nullptr;
+  }
 };
 
 // Scaled sum to mean pattern matcher that transforms:
-//   multiply(sum<dim=[2,3]>(act), 1/(h*w))
+//   multiply(sum<dim=[...]>(act), 1/(dim1*dim2*...))
 // into:
-//   mean<dim=3>(reshape(act, [N,C,1,H*W]))
-//
-// The pattern reshapes input from [N, C, H, W] to [N, C, 1, H*W], then applies
-// mean on dimension 3 with keepdim=true, as it is more efficient than reducing
-// by two dimensions.
-// If the original sum had keepdim=false, then the result is
-// reshaped to remove the spatial dimensions too.
+//   mean<dim=[...]>(act)
 //
 // Matches decomposed global average pooling from torch-xla.
-
 class ScaledSumToMeanPattern : public mlir::OpRewritePattern<MultiplyOp> {
   using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
 
 private:
   static constexpr float FLOAT_TOLERANCE = 1e-4f;
-  static constexpr int64_t EXPECTED_INPUT_RANK = 4;
-  static constexpr int64_t SPATIAL_HEIGHT_DIM = 2;
-  static constexpr int64_t SPATIAL_WIDTH_DIM = 3;
 
 public:
   mlir::LogicalResult
   matchAndRewrite(MultiplyOp multiplyOp,
                   mlir::PatternRewriter &rewriter) const final {
     SumOp sumOp = multiplyOp.getLhs().getDefiningOp<SumOp>();
-    if (!isValidSum(sumOp)) {
+    if (!sumOp || !sumOp.getDimArg() || !sumOp->hasOneUse()) {
       return mlir::failure();
     }
+
+    auto reduceDims = *sumOp.getDimArg();
+    auto inputShape = sumOp.getInput().getType().getShape();
 
     FullOp fullOp = multiplyOp.getRhs().getDefiningOp<FullOp>();
-    auto inputShape = sumOp.getInput().getType().getShape();
-    if (!isValidScale(fullOp, inputShape)) {
+    if (!isValidScale(fullOp, inputShape, reduceDims)) {
       return mlir::failure();
     }
 
-    auto input = sumOp.getInput();
-    auto loc = sumOp.getLoc();
+    auto meanOp = createMeanOp(rewriter, sumOp, reduceDims);
 
-    auto reshapedInput = createInputReshape(rewriter, loc, input);
-    auto meanOp = createMean(rewriter, loc, reshapedInput);
+    rewriter.replaceOp(multiplyOp, meanOp.getResult());
 
-    auto result = meanOp.getResult();
-    if (!sumOp.getKeepDim()) {
-      result = createOutputReshape(rewriter, loc, result);
-    }
-
-    rewriter.replaceOp(multiplyOp, result);
     return mlir::success();
   }
 
 private:
-  static bool isValidSum(SumOp sumOp) {
-    if (!sumOp || !sumOp.getDimArg() || !sumOp->hasOneUse()) {
+  static bool isValidScale(FullOp fullOp, ArrayRef<int64_t> inputShape,
+                           ArrayAttr reduceDims) {
+    if (!fullOp) {
       return false;
     }
 
-    auto inputShape = sumOp.getInput().getType().getShape();
+    // Calculate expected value as 1 / (dim1 * dim2 * ...)
+    int64_t product = 1;
+    for (mlir::Attribute attr : reduceDims) {
+      auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr);
+      if (!intAttr) {
+        return false;
+      }
+      int64_t dim = (intAttr.getInt() + inputShape.size()) % inputShape.size();
+      if (inputShape[dim] <= 0) {
+        return false;
+      }
+      product *= inputShape[dim];
+    }
+
+    float expectedValue = 1.0f / product;
+    float tolerance =
+        std::max(FLOAT_TOLERANCE, std::abs(expectedValue) * FLOAT_TOLERANCE);
+    return isFullOpWithValue(fullOp, expectedValue, tolerance);
+  }
+
+  MeanOp createMeanOp(mlir::PatternRewriter &rewriter, SumOp sumOp,
+                      ArrayAttr reduceDims) const {
+    auto inputType = sumOp.getInput().getType();
+    auto outputType =
+        createMeanOutputType(inputType, sumOp.getKeepDim(), reduceDims);
+
+    auto loc = sumOp.getLoc();
+
+    auto meanOp = rewriter.create<MeanOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_mean"), outputType,
+        sumOp.getInput(),
+        /*keep_dim=*/rewriter.getBoolAttr(sumOp.getKeepDim()),
+        /*dim_arg=*/reduceDims);
+
+    return meanOp;
+  }
+
+  RankedTensorType createMeanOutputType(RankedTensorType inputType,
+                                        bool keepDim,
+                                        ArrayAttr reduceDims) const {
+    SmallVector<int64_t> outputShape;
+    ArrayRef<int64_t> inputShape = inputType.getShape();
+
+    SmallVector<int64_t> reduceDimIndices;
+    reduceDimIndices.reserve(reduceDims.size());
+    for (mlir::Attribute attr : reduceDims) {
+      auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr);
+      if (intAttr) {
+        reduceDimIndices.push_back(intAttr.getInt());
+      }
+    }
+
+    if (keepDim) {
+      outputShape.assign(inputShape.begin(), inputShape.end());
+      for (int64_t dim : reduceDimIndices) {
+        dim = (dim + inputShape.size()) % inputShape.size();
+        outputShape[dim] = 1;
+      }
+    } else {
+      outputShape.reserve(inputShape.size() - reduceDimIndices.size());
+      for (size_t i = 0; i < inputShape.size(); ++i) {
+        if (!llvm::is_contained(reduceDimIndices, i)) {
+          outputShape.push_back(inputShape[i]);
+        }
+      }
+    }
+    return RankedTensorType::get(outputShape, inputType.getElementType(),
+                                 inputType.getEncoding());
+  }
+};
+
+// Spatial mean optimization pattern that transforms:
+//   mean<dim=[1,2]>(act)
+// into:
+//   mean<dim=2>(reshape(act, [N,1,H*W,C]))
+//
+// The pattern reshapes input from [N, C, H, W] to [N, 1, H*W, C], then applies
+// mean on dimension 2 with keepdim=true, as it is more efficient than reducing
+// by two dimensions.
+// If the original mean had keepdim=false, then the result is
+// reshaped to remove the spatial dimensions too.
+class SpatialMeanOptimizationPattern : public mlir::OpRewritePattern<MeanOp> {
+  using mlir::OpRewritePattern<MeanOp>::OpRewritePattern;
+
+private:
+  static constexpr int64_t EXPECTED_INPUT_RANK = 4;
+  static constexpr int64_t SPATIAL_HEIGHT_DIM = 1;
+  static constexpr int64_t SPATIAL_WIDTH_DIM = 2;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(MeanOp meanOp, mlir::PatternRewriter &rewriter) const final {
+    if (!isValidMean(meanOp)) {
+      return mlir::failure();
+    }
+
+    auto input = meanOp.getInput();
+    auto loc = meanOp.getLoc();
+    bool keepDim = meanOp.getKeepDim();
+
+    auto reshapedInput = createInputReshape(rewriter, loc, input);
+    auto newMeanOp = createMean(rewriter, loc, reshapedInput);
+
+    auto result = newMeanOp.getResult();
+    if (!keepDim) {
+      result = createOutputReshape(rewriter, loc, result);
+    }
+
+    rewriter.replaceOp(meanOp, result);
+    return mlir::success();
+  }
+
+private:
+  static bool isValidMean(MeanOp meanOp) {
+    if (!meanOp || !meanOp.getDimArg() || !meanOp->hasOneUse()) {
+      return false;
+    }
+
+    auto inputShape = meanOp.getInput().getType().getShape();
     if (inputShape.size() != EXPECTED_INPUT_RANK) {
       return false;
     }
 
-    auto reduceDims = *sumOp.getDimArg();
+    auto reduceDims = *meanOp.getDimArg();
     if (reduceDims.size() != 2) {
       return false;
     }
 
-    llvm::SmallSet<int64_t, 2> dimSet;
+    llvm::SmallSet<int64_t, 4> dimSet;
     for (mlir::Attribute attr : reduceDims) {
       auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr);
       if (!intAttr) {
@@ -1821,18 +1900,6 @@ private:
     }
     return dimSet.contains(SPATIAL_HEIGHT_DIM) &&
            dimSet.contains(SPATIAL_WIDTH_DIM);
-  }
-
-  static bool isValidScale(FullOp fullOp, ArrayRef<int64_t> inputShape) {
-    if (!fullOp) {
-      return false;
-    }
-    int64_t h = inputShape[SPATIAL_HEIGHT_DIM];
-    int64_t w = inputShape[SPATIAL_WIDTH_DIM];
-    float expectedValue = 1.0f / static_cast<float>(h * w);
-    float tolerance =
-        std::max(FLOAT_TOLERANCE, std::abs(expectedValue) * FLOAT_TOLERANCE);
-    return isFullOpWithValue(fullOp, expectedValue, tolerance);
   }
 
   static ReshapeOp createInputReshape(mlir::PatternRewriter &rewriter,
@@ -2901,6 +2968,313 @@ private:
 };
 } // namespace
 
+namespace {
+// ============================================================================
+// SDPA Fusing
+// ============================================================================
+//
+// This pattern identifies Scaled Dot Product Attention (SDPA) by its
+// mathematical semantics rather than exact IR structure:
+//
+// Attention(Q, K, V) = softmax((Q @ K^T) * scale + mask) @ V
+//
+// The matcher uses data-flow analysis to identify:
+// - Two matmuls (Q@K^T for scores, scores@V for output)
+// - Softmax normalization between them
+// - Scale operation (multiply/divide with constant)
+// - Optional mask addition
+//
+// After the matched pattern is replaced with ttir.scaled_dot_product_attention
+// op, the mask is broadcasted to shape [batch_size, 1, query_seq_len,
+// key_seq_len]
+
+class SDPAFusing : public mlir::OpRewritePattern<MatmulOp> {
+  using SDPAFusing::OpRewritePattern<MatmulOp>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(MatmulOp srcOp,
+                  mlir::PatternRewriter &rewriter) const override {
+    AttentionComponents components;
+    if (!matchAttentionPattern(srcOp.getOperation(), components)) {
+      return failure();
+    }
+
+    if (!validateAttentionSemantics(components)) {
+      return failure();
+    }
+
+    if (components.mask) {
+      // Broadcast mask to shape [batch_size, 1, query_seq_len, key_seq_len]
+      broadcastMask(rewriter, components);
+    }
+
+    FloatAttr scaleAttr;
+    if (components.scale != 1.0f) {
+      scaleAttr = rewriter.getF32FloatAttr(components.scale);
+    }
+
+    auto resultType = mlir::cast<RankedTensorType>(components.query.getType());
+    auto sdpaOp = rewriter.create<ScaledDotProductAttentionOp>(
+        components.attentionMatmul.getLoc(), resultType, components.query,
+        components.key, components.value, components.mask,
+        /*is_causal=*/rewriter.getBoolAttr(false), scaleAttr,
+        /*sliding_window_size=*/IntegerAttr());
+
+    rewriter.replaceOp(components.attentionMatmul, sdpaOp.getResult());
+    return mlir::success();
+  }
+
+private:
+  struct AttentionComponents {
+    Value query;
+    Value key;
+    Value value;
+    Value mask; // Can be null for maskless attention
+    float scale = 1.0f;
+    MatmulOp qkMatmul;
+    MatmulOp attentionMatmul;
+    SoftmaxOp softmax;
+  };
+
+  bool matchAttentionPattern(Operation *anchor,
+                             AttentionComponents &components) const {
+    // Start from a matmul and see if it's the attention@V matmul
+    auto matmul = dyn_cast<MatmulOp>(anchor);
+    if (!matmul) {
+      return false;
+    }
+    components.attentionMatmul = matmul;
+
+    // Check if this matmul has softmax feeding into it (attention scores @ V)
+    SoftmaxOp softmax = findOpThroughLayoutOps<SoftmaxOp>(matmul.getA());
+    if (!softmax) {
+      return false;
+    }
+    components.softmax = softmax;
+    components.value = traceToSourceTensor(matmul.getB());
+
+    // Look for optional mask addition
+    Value cursor = softmax.getInput();
+    if (auto maskAdd = findOpThroughLayoutOps<AddOp>(cursor)) {
+      if (auto maskResult = tryExtractMask(maskAdd)) {
+        components.mask = maskResult->first;
+        cursor = maskResult->second;
+      }
+    }
+
+    // Look for optional scale multiplication
+    if (auto mulOp = findOpThroughLayoutOps<MultiplyOp>(cursor)) {
+      if (auto scaleResult = tryExtractScale(mulOp)) {
+        components.scale = scaleResult->first;
+        cursor = scaleResult->second;
+      }
+    }
+
+    // Look for Q@K matmul (required)
+    auto qkMatmul = findOpThroughLayoutOps<MatmulOp>(cursor);
+    if (!qkMatmul) {
+      return false;
+    }
+    components.qkMatmul = qkMatmul;
+    components.query = traceToSourceTensor(components.qkMatmul.getA());
+    components.key = traceToSourceTensor(components.qkMatmul.getB());
+
+    return true;
+  }
+
+  void broadcastMask(mlir::PatternRewriter &rewriter,
+                     AttentionComponents &components) const {
+    auto qType = mlir::cast<RankedTensorType>(components.query.getType());
+    auto kType = mlir::cast<RankedTensorType>(components.key.getType());
+    auto maskType = mlir::cast<RankedTensorType>(components.mask.getType());
+
+    llvm::SmallVector<int64_t> targetMaskShape = {
+        qType.getShape()[0], 1, qType.getShape()[2], kType.getShape()[2]};
+
+    if (!llvm::equal(maskType.getShape(), targetMaskShape)) {
+      auto targetMaskType = RankedTensorType::get(
+          targetMaskShape, maskType.getElementType(), maskType.getEncoding());
+      auto broadcastDims = ttmlir::utils::getBroadcastDimensions<int64_t>(
+          maskType.getShape(), targetMaskShape);
+      auto broadcastOp =
+          rewriter.create<BroadcastOp>(components.mask.getLoc(), targetMaskType,
+                                       components.mask, broadcastDims);
+      components.mask = broadcastOp.getResult();
+    }
+  }
+
+  // Validate that the extracted components form valid attention
+  bool validateAttentionSemantics(AttentionComponents &components) const {
+    if (!components.query || !components.key || !components.value ||
+        !components.qkMatmul || !components.attentionMatmul ||
+        !components.softmax) {
+      return false;
+    }
+
+    // Verify that intermediate operations have single uses.
+    // If any intermediate result (like attention weights) is used elsewhere
+    // (e.g., returned as output), we cannot safely fuse without duplicating
+    // computation.
+    if (!components.qkMatmul.getResult().hasOneUse()) {
+      return false;
+    }
+
+    // Check that the entire chain from attentionMatmul input back to softmax
+    // has single uses. This catches cases where intermediate layout ops
+    // (typecast, reshape) between softmax and the matmul are used elsewhere.
+    if (!chainHasSingleUses(components.attentionMatmul.getA(),
+                            components.softmax)) {
+      return false;
+    }
+
+    auto qType = mlir::dyn_cast<RankedTensorType>(components.query.getType());
+    auto kType = mlir::dyn_cast<RankedTensorType>(components.key.getType());
+    auto vType = mlir::dyn_cast<RankedTensorType>(components.value.getType());
+
+    if (!qType || !kType || !vType) {
+      return false;
+    }
+
+    if (qType.getRank() != 4 || kType.getRank() != 4 || vType.getRank() != 4) {
+      return false;
+    }
+
+    // Head dimension should match between Q and K (last dim of Q, last dim of
+    // K)
+    int64_t qHeadDim = qType.getShape()[qType.getRank() - 1];
+    int64_t kHeadDim = kType.getShape()[kType.getRank() - 1];
+    if (qHeadDim != kHeadDim) {
+      return false;
+    }
+
+    if (components.scale <= 0.0f || components.scale > 1.0f) {
+      return false;
+    }
+
+    return true;
+  }
+
+  // Try to extract mask from an add operation.
+  // Returns {mask, score_path} if found, nullopt otherwise.
+  std::optional<std::pair<Value, Value>> tryExtractMask(AddOp addOp) const {
+    auto lhsMul = findOpThroughLayoutOps<MultiplyOp>(addOp.getLhs());
+    auto rhsMul = findOpThroughLayoutOps<MultiplyOp>(addOp.getRhs());
+    if (lhsMul && looksLikeMask(addOp.getRhs())) {
+      return std::make_pair(addOp.getRhs(), addOp.getLhs());
+    }
+
+    if (rhsMul && looksLikeMask(addOp.getLhs())) {
+      return std::make_pair(addOp.getLhs(), addOp.getRhs());
+    }
+
+    return std::nullopt;
+  }
+
+  // Try to extract scale from a multiply operation.
+  // Returns {scale, continuation_value} if found, nullopt otherwise.
+  std::optional<std::pair<float, Value>>
+  tryExtractScale(MultiplyOp mulOp) const {
+    if (auto scaleVal = extractConstantScale(mulOp.getRhs())) {
+      return std::make_pair(*scaleVal, mulOp.getLhs());
+    }
+    if (auto scaleVal = extractConstantScale(mulOp.getLhs())) {
+      return std::make_pair(*scaleVal, mulOp.getRhs());
+    }
+
+    return std::nullopt;
+  }
+
+  // Traces backward from a value through layout ops (typecast, reshape,
+  // permute, broadcast, repeat_interleave) to find an operation of type OpType.
+  // Returns nullptr if a non-layout op is encountered before finding the
+  // target.
+  template <typename OpType>
+  OpType findOpThroughLayoutOps(Value v) const {
+    while (Operation *defOp = v.getDefiningOp()) {
+      if (auto targetOp = dyn_cast<OpType>(defOp)) {
+        return targetOp;
+      }
+
+      if (!isLayoutOp(defOp)) {
+        return nullptr;
+      }
+
+      v = defOp->getOperand(0);
+    }
+
+    return nullptr;
+  }
+
+  bool isLayoutOp(Operation *op) const {
+    return isa<TypecastOp, ReshapeOp, PermuteOp, BroadcastOp,
+               RepeatInterleaveOp>(op);
+  }
+
+  // Checks that all values from 'start' back to 'end' have single uses.
+  // This ensures intermediate results (like attention weights after softmax)
+  // are not used elsewhere, which is required for safe fusion.
+  // Assumes the caller has already validated that only appropriate ops
+  // exist in the chain (e.g., via skipLayoutOps).
+  bool chainHasSingleUses(Value start, Operation *end) const {
+    Value current = start;
+
+    while (Operation *defOp = current.getDefiningOp()) {
+      if (!current.hasOneUse()) {
+        return false;
+      }
+
+      if (defOp == end) {
+        return true;
+      }
+
+      current = defOp->getOperand(0);
+    }
+
+    return false;
+  }
+
+  Value traceToSourceTensor(Value v) const {
+    while (Operation *defOp = v.getDefiningOp()) {
+      if (!isLayoutOp(defOp)) {
+        break;
+      }
+      v = defOp->getOperand(0);
+    }
+    return v;
+  }
+
+  std::optional<float> extractConstantScale(Value scaleVal) const {
+    auto fullOp = scaleVal.getDefiningOp<FullOp>();
+    if (!fullOp) {
+      return std::nullopt;
+    }
+
+    return llvm::TypeSwitch<mlir::Attribute, std::optional<float>>(
+               fullOp.getFillValue())
+        .Case([](FloatAttr attr) -> std::optional<float> {
+          return attr.getValue().convertToFloat();
+        })
+        .Case([](IntegerAttr attr) -> std::optional<float> {
+          return static_cast<float>(attr.getValue().getSExtValue());
+        })
+        .Default([](mlir::Attribute) -> std::optional<float> {
+          return std::nullopt;
+        });
+  }
+
+  bool looksLikeMask(Value v) const {
+    auto type = mlir::dyn_cast<RankedTensorType>(v.getType());
+    if (!type || type.getRank() != 4) {
+      return false;
+    }
+
+    // Attention masks typically broadcast over heads: [batch, 1, seq, seq]
+    return type.getShape()[1] == 1;
+  }
+};
+} // namespace
+
 class TTIRFusingPass : public impl::TTIRFusingBase<TTIRFusingPass> {
 public:
   using impl::TTIRFusingBase<TTIRFusingPass>::TTIRFusingBase;
@@ -2939,7 +3313,7 @@ public:
         patterns.add<ConvWithMultiply<ConvolutionOp>>(&getContext());
         patterns.add<BatchNormDecomposition>(&getContext());
       }
-      patterns.add<CacheFillUpdatePattern>(&getContext());
+      patterns.add<RepVGGConvSumFusionPattern>(&getContext());
       patterns.add<ConcatenateHeadsUpdatePattern>(&getContext());
       patterns.add<SplitQueryKeyValueAndSplitHeadsUpdatePattern<MatmulOp>>(
           &getContext());
@@ -2950,7 +3324,9 @@ public:
       patterns.add<AveragePoolingWithPoolingDenominatorFusionPattern>(
           &getContext());
       patterns.add<ScaledSumToMeanPattern>(&getContext());
+      patterns.add<SpatialMeanOptimizationPattern>(&getContext());
       patterns.add<MatmulWithBiasFusionPattern>(&getContext());
+      patterns.add<SDPAFusing>(&getContext());
 
       patterns.add<GeluFusionPattern>(&getContext());
       patterns.add<Relu6FusionPattern>(&getContext());

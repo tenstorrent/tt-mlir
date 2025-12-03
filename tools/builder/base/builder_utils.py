@@ -208,6 +208,8 @@ def _compile_and_execute(
             check_atol=check_atol,
             check_rtol=check_rtol,
             goldens=goldens,
+            bypass_ops=builder._bypass_ops,
+            enable_intermediate_verification=export_golden_report,
         )
 
     if golden_report and export_golden_report:
@@ -1676,16 +1678,20 @@ def compile_ttir_module_to_flatbuffer(
 
 def load_mlir_file(
     mlir_text: str,
-    golden_inputs: List[torch.tensor] = [],
+    golden_inputs: List[torch.tensor] = None,
     target: Literal["ttir", "ttnn", "d2m", "stablehlo"] = "ttir",
 ) -> (Module, Builder):
     ctx = Context()
 
     if target == "ttir":
         builder, module = TTIRBuilder.from_module(ctx, mlir_text, golden_inputs)
+    elif target == "stablehlo":
+        builder, module = StableHLOBuilder.from_module(ctx, mlir_text, golden_inputs)
+    elif target == "ttnn":
+        builder, module = TTNNBuilder.from_module(ctx, mlir_text, golden_inputs)
     else:
         raise NotImplementedError(
-            "Loading MLIR files is only supported for ttir currently."
+            "Loading MLIR files is only supported for ttir, stablehlo and ttnn currently."
         )
 
     return builder, module
@@ -1698,9 +1704,13 @@ def split_mlir_file(
 ) -> List[Tuple[Module, Builder]]:
     if target == "ttir":
         modules_and_builders = TTIRBuilder.split_module(module, builder)
+    elif target == "stablehlo":
+        modules_and_builders = StableHLOBuilder.split_module(module, builder)
+    elif target == "ttnn":
+        modules_and_builders = TTNNBuilder.split_module(module, builder)
     else:
         raise NotImplementedError(
-            "Splitting MLIR files is only supported for ttir currently."
+            "Splitting MLIR files is only supported for ttir, stablehlo and ttnn currently."
         )
 
     return modules_and_builders
