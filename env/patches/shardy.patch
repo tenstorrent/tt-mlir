@@ -844,3 +844,16 @@ index 47ce53e..63b2424 100644
          // TODO(b/327191011): output unregistered op stats instead.
          static llvm::once_flag onceFlag;
          emitOpWarningOnce(
+@@ -1130,6 +1167,11 @@ OpShardingRuleAttr createOpShardingRule(Operation* op,
+             return builder.build();
+           })
+       .Case<stablehlo::ScatterOp>([](stablehlo::ScatterOp scatter) {
++        // Check if the scatter op implements the ShardingRuleOpInterface.
++        if (auto shardingRuleOp =
++                  llvm::dyn_cast<ShardingRuleOpInterface>(scatter.getOperation())) {
++          return shardingRuleOp.getShardingRule();
++        }
++
+         OpShardingRuleBuilder builder(scatter);
+
+         // Since all inputs and results have compatible shapes, we can look at
