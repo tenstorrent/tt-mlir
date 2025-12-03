@@ -1,5 +1,6 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine="use-tile-matmul=true" --d2m-insert-dst-register-access="use-tile-matmul=true" --canonicalize -o %t %s
-// RUN: FileCheck %s --input-file=%t
+// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine='use-tile-matmul=true' --d2m-insert-dst-register-access='use-tile-matmul=true allocation-strategy=basic' --canonicalize %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine='use-tile-matmul=true' --d2m-insert-dst-register-access='use-tile-matmul=true allocation-strategy=greedy' --canonicalize %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine='use-tile-matmul=true' --d2m-insert-dst-register-access='use-tile-matmul=true allocation-strategy=chaitin' --canonicalize %s | FileCheck %s
 
 #l1_ = #ttcore.memory_space<l1>
 module {

@@ -3,7 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Asserts.h"
+#include "ttmlir/Dialect/D2M/Analysis/DstAnalysis.h"
+#include "ttmlir/Dialect/D2M/Analysis/DstAnalysisBasic.h"
+#include "ttmlir/Dialect/D2M/Analysis/DstAnalysisGraphColoring.h"
+#include "ttmlir/Dialect/D2M/Analysis/DstCapacityAnalysis.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
+#include "ttmlir/Dialect/D2M/Transforms/GraphColoringStrategy.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
@@ -19,6 +24,10 @@
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+
+#include <optional>
+
+#define DEBUG_TYPE "d2m-insert-dst-register-access"
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MINSERTDSTREGISTERACCESS
@@ -45,9 +54,13 @@ struct D2MInsertDstRegisterAccessRewriter final
     : public OpRewritePattern<GenericOp> {
 public:
   D2MInsertDstRegisterAccessRewriter(mlir::MLIRContext *ctx, bool useTileMatmul,
-                                     unsigned maxDstPhysicalSizeTiles)
+                                     unsigned maxDstPhysicalSizeTiles,
+                                     llvm::StringRef allocationStrategy,
+                                     const DstAnalysisResult &analysisResult)
       : OpRewritePattern<GenericOp>(ctx), useTileMatmul(useTileMatmul),
-        maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles) {};
+        maxDstPhysicalSizeTiles(maxDstPhysicalSizeTiles),
+        allocationStrategy(allocationStrategy),
+        analysisResult(analysisResult) {};
 
   // Records a CB<->DST affine.load/store op, which DST slice it accesses, and
   // some special considerations for looping over the tensor shard while doing
@@ -104,16 +117,101 @@ public:
     DstIntermediatesMap dstIntermediates;
   };
 
-  class DstSliceAllocationState {
+  /// Strategy interface for assigning DST slice indices during transformation.
+  ///
+  /// During the pass, affine loads/stores are rewritten to use explicit DST
+  /// slice indices. This interface abstracts how those indices are chosen:
+  /// - Basic strategy: sequential allocation (0, 1, 2, ...)
+  /// - Graph coloring strategy: uses pre-computed assignments from DstAnalysis
+  ///
+  /// The pass calls setCurrentOperation() before each allocation to provide
+  /// context for strategies that need operation-specific assignments.
+  class DstAllocationStrategy {
   public:
-    int allocate() { return nextSliceIndex++; }
+    virtual ~DstAllocationStrategy() = default;
 
-    void setStoreToDst() { storedToDst = true; }
-    bool didStoreToDst() { return storedToDst; }
-    int getCurrSliceIndex() { return nextSliceIndex - 1; }
+    /// Allocate and return the DST slice index for the current operation.
+    virtual int allocate() = 0;
+
+    /// Set the operation context for the next allocation.
+    virtual void setCurrentOperation(Operation *op) {}
+
+    /// Mark that a store to DST has occurred (for tracking purposes).
+    virtual void setStoreToDst() = 0;
+
+    /// Check if any store to DST has occurred.
+    virtual bool didStoreToDst() = 0;
+
+    /// Get the current slice index without advancing allocation.
+    virtual int getCurrSliceIndex() = 0;
+  };
+
+  /// Basic linear allocation: assigns slices sequentially (0, 1, 2, ...).
+  /// No reuse of slices; each allocation gets the next available index.
+  class DstSliceAllocationState : public DstAllocationStrategy {
+  public:
+    int allocate() override { return nextSliceIndex++; }
+
+    void setStoreToDst() override { storedToDst = true; }
+    bool didStoreToDst() override { return storedToDst; }
+    int getCurrSliceIndex() override {
+      if (nextSliceIndex == 0) {
+        return allocate();
+      }
+      return nextSliceIndex - 1;
+    }
 
   private:
     int nextSliceIndex = 0;
+    bool storedToDst = false;
+  };
+
+  /// Graph coloring allocation: looks up pre-computed assignments from
+  /// DstAnalysis. Falls back to linear allocation for ops not in the map.
+  class GraphColoringDstAllocationStrategy : public DstAllocationStrategy {
+  public:
+    explicit GraphColoringDstAllocationStrategy(
+        const llvm::MapVector<Operation *, unsigned> &operationSlices)
+        : operationSlices(operationSlices) {}
+
+    int allocate() override {
+      if (auto slice = lookupCurrentSlice()) {
+        return *slice;
+      }
+      return fallbackAllocator.allocate();
+    }
+
+    void setCurrentOperation(Operation *op) override { currentOp = op; }
+
+    void setStoreToDst() override { storedToDst = true; }
+    bool didStoreToDst() override { return storedToDst; }
+    int getCurrSliceIndex() override {
+      if (auto slice = lookupCurrentSlice()) {
+        return *slice;
+      }
+      return fallbackAllocator.getCurrSliceIndex();
+    }
+
+  private:
+    std::optional<int> lookupCurrentSlice() const {
+      if (!currentOp) {
+        return std::nullopt;
+      }
+      const auto *it = operationSlices.find(currentOp);
+      if (it == operationSlices.end()) {
+        return std::nullopt;
+      }
+      return static_cast<int>(it->second);
+    }
+
+    // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
+    const llvm::MapVector<Operation *, unsigned> &operationSlices;
+    Operation *currentOp = nullptr;
+
+    // TODO (bnorris): replace this linear fallback once DstAnalysis covers
+    // tile_bcasts and other single-use intermediates so every op has a
+    // pre-assigned slice.
+    DstSliceAllocationState fallbackAllocator;
     bool storedToDst = false;
   };
 
@@ -150,9 +248,18 @@ public:
               // datamovement form. Explicit datamovement form should fall
               // through to regular linalg-to-affine conversion.
               if (!gOp.isExplicitDatamovementForm()) {
+                // Create fresh strategy for this nest.
+                std::unique_ptr<DstAllocationStrategy> strategy;
+                if (allocationStrategy == "basic") {
+                  strategy = std::make_unique<DstSliceAllocationState>();
+                } else {
+                  strategy =
+                      std::make_unique<GraphColoringDstAllocationStrategy>(
+                          analysisResult.operationSlices);
+                }
                 if (rewriteTileMatmulAsTileMatmulBlock(
                         rewriter, gOp, *genericRegion, linalgGenericOp,
-                        dstCapacity, modified)) {
+                        dstCapacity, *strategy, modified)) {
                   return WalkResult::interrupt();
                 }
                 return WalkResult::advance();
@@ -180,10 +287,20 @@ public:
         // Remove the marker attribute after identifying the loop.
         forOp->removeAttr("d2m.linalg_root");
 
+        // Instantiate a new strategy for each loop nest.
+        std::unique_ptr<DstAllocationStrategy> strategy;
+        if (allocationStrategy == "basic") {
+          strategy = std::make_unique<DstSliceAllocationState>();
+        } else {
+          strategy = std::make_unique<GraphColoringDstAllocationStrategy>(
+              analysisResult.operationSlices);
+        }
+
         // Insert DST register access for this loop nest.
         Region &dstRegisterAccessRegion = forOp.getRegion();
-        modified |= insertDstRegisterAccess(
-            rewriter, gOp, dstRegisterAccessRegion, dstCapacity, forOp);
+        modified |=
+            insertDstRegisterAccess(rewriter, gOp, dstRegisterAccessRegion,
+                                    dstCapacity, *strategy, forOp);
       });
     }
     return success(modified);
@@ -192,6 +309,7 @@ public:
   static bool
   insertDstRegisterAccess(PatternRewriter &rewriter, GenericOp gOp,
                           Region &region, unsigned dstCapacity,
+                          DstAllocationStrategy &strategy,
                           Operation *outermostInnerComputeLoop = nullptr) {
     assert(region.getBlocks().size() == 1);
     if (hasAcquireDstOp(region)) {
@@ -202,7 +320,7 @@ public:
 
     // 1. Collect relevant DST accesses, grouped under their common loop nests.
     auto [copyInfos, dstIntermediates] =
-        collectDstAccesses(gOp, region, outermostInnerComputeLoop);
+        collectDstAccesses(gOp, region, outermostInnerComputeLoop, strategy);
     if (copyInfos.empty()) {
       return false;
     }
@@ -305,20 +423,23 @@ public:
     return rewriter.create<AcquireDstOp>(loc, dstType);
   }
 
-  // Walk all compute ops in the region and collect:
-  // 1. CB->DST->ComputeOp loads.
-  // 2. CB->DST->ComputeOp load-bcasts.
-  // 3. ComputeOp->DST->CB stores.
-  // 4. ComputeOp->DST->ComputeOp intermediates.
-  // Loads & stores are organized under their common loop nests.
-  // Implements a simple linear DST slice allocator such that multiple operands
-  // get unique DST slices. Currently this routine only does allocation for
-  // loads and assumes that stores get exclusive access.
+  /// Collect DST accesses from compute ops in the region:
+  /// 1. CB->DST loads for compute op operands
+  /// 2. CB->DST load-bcasts (load followed by broadcast)
+  /// 3. DST->CB stores for compute op results
+  /// 4. DST intermediates (compute op results consumed by other compute ops)
+  ///
+  /// Loads and stores are grouped by their enclosing loop nest.
+  /// Slice allocation depends on the operation type:
+  /// - Loads: always allocate a new slice
+  /// - Stores for in-place ops: reuse the current slice
+  /// - Stores for non-in-place ops: allocate a new slice
+  /// - Intermediates: allocate or reuse based on in-place/scalar status
   static DstAccessCollection
   collectDstAccesses(GenericOp gOp, Region &region,
-                     Operation *outermostInnerComputeLoop) {
+                     Operation *outermostInnerComputeLoop,
+                     DstAllocationStrategy &strategy) {
     CopyInfoMap copyInfos;
-    DstSliceAllocationState dstSliceAllocationState;
     DstIntermediatesMap dstIntermediates;
     region.walk([&](OperandLoadStoreRegisterOpInterface computeOp) {
       // Filter out non CB<->DST loads & stores.
@@ -337,8 +458,9 @@ public:
         auto potentialLoad = computeOp->getOperand(operandIdx)
                                  .getDefiningOp<affine::AffineLoadOp>();
         if (potentialLoad && notDstMemspace(potentialLoad)) {
+          strategy.setCurrentOperation(potentialLoad);
           collectDstLoadOrStore<affine::AffineLoadOp>(
-              gOp, potentialLoad, copyInfos, dstSliceAllocationState.allocate(),
+              gOp, potentialLoad, copyInfos, strategy.allocate(),
               outermostInnerComputeLoop);
         }
       }
@@ -349,7 +471,7 @@ public:
         if (auto potentialStore = mlir::dyn_cast<affine::AffineStoreOp>(user);
             notDstMemspace(potentialStore)) {
           // Collect DST->CB stores for this op's operands.
-          assert(!dstSliceAllocationState.didStoreToDst() &&
+          assert(!strategy.didStoreToDst() &&
                  "Multiple stores from last op to dst not supported");
 
           // For ops that support tile+scalar, check if rhs is a scalar.
@@ -366,13 +488,13 @@ public:
                 (isUnaryOp || isTileMatmul || isReduction || rhsIsScalar) &&
                 "Only unary ops, tile matmul, reductions, and tile+scalar ops "
                 "supported for destination register in place, multi-operand "
-                "ops "
-                "would reference wrong tile, but those ops should be setting "
-                "output tile.");
-            dstSlice = dstSliceAllocationState.getCurrSliceIndex();
+                "ops would reference wrong tile, but those ops should be "
+                "setting output tile.");
+            dstSlice = strategy.getCurrSliceIndex();
           } else {
-            dstSlice = dstSliceAllocationState.allocate();
-            dstSliceAllocationState.setStoreToDst();
+            strategy.setCurrentOperation(potentialStore);
+            dstSlice = strategy.allocate();
+            strategy.setStoreToDst();
           }
           collectDstLoadOrStore<affine::AffineStoreOp>(
               gOp, potentialStore, copyInfos, dstSlice,
@@ -387,22 +509,35 @@ public:
           assert(computeOp->getNumResults() == 1);
           assert(!dstIntermediates.contains(computeOp));
 
+          // For TileBcastOp or in-place compute ops, trace through to find the
+          // underlying AffineLoadOp which is what the analysis uses as the key
+          // for DST slot allocation.
+          d2m::TileBcastOp bcastOp = nullptr;
+          affine::AffineLoadOp loadOp = nullptr;
+          if (mlir::isa<d2m::TileBcastOp>(computeOp)) {
+            bcastOp = mlir::cast<d2m::TileBcastOp>(computeOp);
+            loadOp = utils::traceToAffineLoad(computeOp->getOperand(0));
+            TT_assert(loadOp != nullptr);
+          } else if (computeOp.getDstRegInPlace()) {
+            // For in-place ops, trace to the input load to get the correct
+            // slot.
+            loadOp = utils::traceToAffineLoad(computeOp->getOperand(0));
+          }
+
           // If op stores to dst in place or has scalar rhs, we don't need to
           // allocate a new dst register, just use the current dst index.
+          // For TileBcastOp or in-place ops, use the underlying loadOp as the
+          // key since that's what the analysis stores.
+          strategy.setCurrentOperation(loadOp ? loadOp.getOperation()
+                                              : computeOp);
           int dstSlice =
               (computeOp.getDstRegInPlace() || computeOp.isScalarOperand(1))
-                  ? dstSliceAllocationState.getCurrSliceIndex()
-                  : dstSliceAllocationState.allocate();
+                  ? strategy.getCurrSliceIndex()
+                  : strategy.allocate();
 
-          // Exception: the CB load of the load-bcast pair won't be captured by
-          // the CB->DST load handling loop above.
-          if (mlir::isa<d2m::TileBcastOp>(computeOp)) {
-            auto loadOp =
-                computeOp->getOperand(0).getDefiningOp<affine::AffineLoadOp>();
-            TT_assert(loadOp != nullptr);
-            auto bcastOp = mlir::cast<d2m::TileBcastOp>(computeOp);
-            collectDstLoadThenBcast(gOp, loadOp, bcastOp, copyInfos, dstSlice,
-                                    outermostInnerComputeLoop);
+          if (bcastOp) {
+            collectDstLoadOrStore(gOp, loadOp, copyInfos, dstSlice,
+                                  outermostInnerComputeLoop, bcastOp);
           } else {
             dstIntermediates[computeOp] = {dstSlice, outermostInnerComputeLoop};
           }
@@ -425,10 +560,15 @@ public:
   }
 
   // Collect a single load or store and determine its loop guard.
+  // For loads, an optional TileBcastOp can be provided if the load goes through
+  // a broadcast operation. This affects the iterator type assertion:
+  // - Without bcast: non-participating dims must be Reduction
+  // - With bcast: non-participating dims must be Parallel (broadcast semantics)
   template <typename LoadOrStoreTy>
   static void collectDstLoadOrStore(GenericOp gOp, LoadOrStoreTy loadOrStore,
                                     CopyInfoMap &copyInfos, int dstSlice,
-                                    Operation *outermostInnerComputeLoop) {
+                                    Operation *outermostInnerComputeLoop,
+                                    d2m::TileBcastOp bcastOp = nullptr) {
     if (!outermostInnerComputeLoop) {
       // If there is no outermostInnerComputeLoop, the common ancestor is the
       // operation itself.
@@ -444,43 +584,25 @@ public:
           gOp.getNonParticipatingLoopDims(blockArg.getArgNumber());
       auto iteratorTypes = gOp.getIteratorTypesValue();
 
+      // With bcast: non-participating dims are Parallel (broadcast semantics)
+      // Without bcast: non-participating dims are Reduction
+      auto expectedIterType = bcastOp ? ttcore::IteratorType::Parallel
+                                      : ttcore::IteratorType::Reduction;
       for (int64_t dim : nonParticipatingLoopDims) {
-        TT_assert(iteratorTypes[dim] == ttcore::IteratorType::Reduction);
+        TT_assert(iteratorTypes[dim] == expectedIterType);
         guardDims.insert(dim);
       }
     }
 
-    iter->second.record(loadOrStore, dstSlice, guardDims);
-  }
-
-  // Collect a load-bcast pair.
-  static void collectDstLoadThenBcast(GenericOp gOp,
-                                      affine::AffineLoadOp loadOp,
-                                      d2m::TileBcastOp bcastOp,
-                                      CopyInfoMap &copyInfos, int dstSlice,
-                                      Operation *outermostInnerComputeLoop) {
-    if (!outermostInnerComputeLoop) {
-      // If there is no outermostInnerComputeLoop, the common ancestor is the
-      // operation itself.
-      outermostInnerComputeLoop = loadOp;
-    }
-
-    auto [iter, _] = copyInfos.try_emplace(outermostInnerComputeLoop);
-    BlockArgument blockArg = lookThroughSubView(loadOp.getMemRef());
-
-    std::set<int64_t> guardDims = {};
-    if (blockArg && !gOp.isExplicitDatamovementForm()) {
-      auto nonParticipatingLoopDims =
-          gOp.getNonParticipatingLoopDims(blockArg.getArgNumber());
-      auto iteratorTypes = gOp.getIteratorTypesValue();
-
-      for (int64_t dim : nonParticipatingLoopDims) {
-        TT_assert(iteratorTypes[dim] == ttcore::IteratorType::Parallel);
-        guardDims.insert(dim);
+    if constexpr (std::is_same_v<LoadOrStoreTy, affine::AffineLoadOp>) {
+      if (bcastOp) {
+        iter->second.record(loadOrStore, bcastOp, dstSlice, guardDims);
+      } else {
+        iter->second.record(loadOrStore, dstSlice, guardDims);
       }
+    } else {
+      iter->second.record(loadOrStore, dstSlice, guardDims);
     }
-
-    iter->second.record(loadOp, bcastOp, dstSlice, guardDims);
   }
 
   /*
@@ -493,7 +615,8 @@ public:
   */
   static bool rewriteTileMatmulAsTileMatmulBlock(
       PatternRewriter &rewriter, GenericOp gOp, Region &region,
-      linalg::GenericOp linalgGenericOp, unsigned dstCapacity, bool &modified) {
+      linalg::GenericOp linalgGenericOp, unsigned dstCapacity,
+      DstAllocationStrategy &strategy, bool &modified) {
     assert(linalgGenericOp.getInputs().size() == 2 &&
            "Expected exactly 2 input for tile matmul");
     assert(linalgGenericOp.getOutputs().size() == 1 &&
@@ -511,7 +634,7 @@ public:
     }
     rewriter.eraseOp(linalgGenericOp);
     modified |= insertDstRegisterAccess(
-        rewriter, gOp, region, dstCapacity,
+        rewriter, gOp, region, dstCapacity, strategy,
         !linalgLoops.value().empty() ? linalgLoops.value().front() : nullptr);
 
     Operation *outerLoop = linalgLoops.value()[0];
@@ -889,6 +1012,8 @@ public:
 
   bool useTileMatmul = false;
   unsigned maxDstPhysicalSizeTiles = 0;
+  llvm::StringRef allocationStrategy = "basic";
+  DstAnalysisResult analysisResult; // Pre-computed graph coloring results
 };
 } // namespace
 
@@ -971,6 +1096,46 @@ public:
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
 
+    // Validate allocation strategy option
+    if (allocationStrategy != "basic" && allocationStrategy != "greedy" &&
+        allocationStrategy != "chaitin") {
+      moduleOp.emitError()
+          << "Invalid allocation strategy '" << allocationStrategy
+          << "'. Valid options are: 'basic', 'greedy', 'chaitin'.";
+      return signalPassFailure();
+    }
+
+    LLVM_DEBUG(llvm::errs()
+               << "DST allocation strategy: " << allocationStrategy << "\n");
+
+    DstAnalysisResult analysisResult;
+    std::unique_ptr<DstAnalysis> dstAnalysis;
+
+    if (allocationStrategy == "greedy" || allocationStrategy == "chaitin") {
+      // Compute DST capacity constraint from hardware and element types.
+      DstCapacityAnalysis capacityAnalysis(moduleOp, fullSyncEn.getValue(),
+                                           maxDstPhysicalSizeTiles.getValue());
+      unsigned minDstCapacity = capacityAnalysis.getMinDstCapacity();
+
+      if (allocationStrategy == "greedy") {
+        dstAnalysis = createGreedyDstAnalysis(minDstCapacity);
+      } else {
+        dstAnalysis = createChaitinBriggsDstAnalysis(minDstCapacity);
+      }
+    }
+
+    if (dstAnalysis) {
+      // Run analysis on entire module
+      analysisResult = dstAnalysis->analyze(moduleOp);
+
+      if (!analysisResult.isValid) {
+        moduleOp.emitError()
+            << "Graph coloring failed: "
+            << analysisResult.failureReason.value_or("Unknown error");
+        return signalPassFailure();
+      }
+    }
+
     // Check precondition: linalg.generic ops should be converted to affine,
     // EXCEPT those with tile_matmul when useTileMatmul=false (they'll be
     // handled by the tile_matmul_block rewrite in the pattern).
@@ -995,7 +1160,8 @@ public:
     RewritePatternSet patterns(ctx);
 
     patterns.add<D2MInsertDstRegisterAccessRewriter>(
-        ctx, useTileMatmul, maxDstPhysicalSizeTiles.getValue());
+        ctx, useTileMatmul, maxDstPhysicalSizeTiles.getValue(),
+        allocationStrategy, analysisResult);
 
     patterns.add<D2MPackerMaskResetRewriter<TileReduceSumOp>,
                  D2MPackerMaskResetRewriter<TileReduceMaxOp>>(ctx);

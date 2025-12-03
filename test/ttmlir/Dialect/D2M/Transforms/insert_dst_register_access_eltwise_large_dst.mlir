@@ -1,5 +1,6 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access="max-dst-physical-size-tiles=32" --canonicalize -o %t %s
-// RUN: FileCheck %s --input-file=%t
+// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access='allocation-strategy=basic max-dst-physical-size-tiles=32' --canonicalize %s | FileCheck %s --check-prefixes=CHECK,BASIC
+// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access='allocation-strategy=greedy max-dst-physical-size-tiles=32' --canonicalize %s | FileCheck %s --check-prefixes=CHECK,GREEDY
+// RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access='allocation-strategy=chaitin max-dst-physical-size-tiles=32' --canonicalize %s | FileCheck %s --check-prefixes=CHECK,CHAITIN
 
 #l1_ = #ttcore.memory_space<l1>
 #dst_ = #ttcore.memory_space<dst>
@@ -66,12 +67,20 @@ module {
           ^bb0(%in: !ttcore.tile<32x32, f32>, %in_17: !ttcore.tile<32x32, f32>, %out: !ttcore.tile<32x32, f32>):
             %0 = "d2m.tile_div"(%in, %in_17) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
             // CHECK: %[[DIV_RESULT:.*]] = "d2m.tile_div"(%[[DST0_VAL:.*]], %[[DST1_VAL:.*]]) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-            // CHECK: affine.store %[[DIV_RESULT]], %[[DST:.*]][2, %[[ARG_I:.*]], %[[ARG_J:.*]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
-            // CHECK: %[[DST_DIV:.*]] = affine.load %[[DST]][2, %[[ARG_I]], %[[ARG_J]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
+            // BASIC: affine.store %[[DIV_RESULT]], %[[DST:.*]][2, %[[I:.*]], %[[J:.*]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
+            // BASIC: %[[DST_DIV:.*]] = affine.load %[[DST]][2, %[[I]], %[[J]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
+            // GREEDY: affine.store %[[DIV_RESULT]], %[[DST:.*]][2, %[[I:.*]], %[[J:.*]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
+            // GREEDY: %[[DST_DIV:.*]] = affine.load %[[DST]][2, %[[I]], %[[J]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
+            // CHAITIN: affine.store %[[DIV_RESULT]], %[[DST:.*]][2, %[[I:.*]], %[[J:.*]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
+            // CHAITIN: %[[DST_DIV:.*]] = affine.load %[[DST]][2, %[[I]], %[[J]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
             %1 = "d2m.tile_recip"(%0) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
             // CHECK: %[[RECIP_RESULT:.*]] = "d2m.tile_recip"(%[[DST_DIV]]) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-            // CHECK: affine.store %[[RECIP_RESULT]], %[[DST]][2, %[[ARG_I]], %[[ARG_J]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
-            // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]][2, %[[ARG_I]], %[[ARG_J]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
+            // BASIC: affine.store %[[RECIP_RESULT]], %[[DST]][2, %[[I]], %[[J]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
+            // BASIC: %[[FINAL_VAL:.*]] = affine.load %[[DST]][2, %[[I]], %[[J]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
+            // GREEDY: affine.store %[[RECIP_RESULT]], %[[DST]][2, %[[I]], %[[J]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
+            // GREEDY: %[[FINAL_VAL:.*]] = affine.load %[[DST]][2, %[[I]], %[[J]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
+            // CHAITIN: affine.store %[[RECIP_RESULT]], %[[DST]][2, %[[I]], %[[J]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
+            // CHAITIN: %[[FINAL_VAL:.*]] = affine.load %[[DST]][2, %[[I]], %[[J]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
             // CHECK: affine.store %[[FINAL_VAL]], {{.*}} : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
             linalg.yield %1 : !ttcore.tile<32x32, f32>
           }
@@ -103,16 +112,28 @@ module {
           ^bb0(%in: !ttcore.tile<32x32, f32>, %in_17: !ttcore.tile<32x32, f32>, %out: !ttcore.tile<32x32, f32>):
             %0 = "d2m.tile_sub"(%in, %in_17) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
             // CHECK: %[[SUB_RESULT:.*]] = "d2m.tile_sub"(%[[DST0_VAL:.*]], %[[DST1_VAL:.*]]) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-            // CHECK: affine.store %[[SUB_RESULT]], %[[DST:.*]][2, %[[ARG_I:.*]], %[[ARG_J:.*]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
-            // CHECK: %[[DST_SUB:.*]] = affine.load %[[DST]][2, %[[ARG_I]], %[[ARG_J]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
+            // BASIC: affine.store %[[SUB_RESULT]], %[[DST:.*]][2, %[[I:.*]], %[[J:.*]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
+            // BASIC: %[[DST_SUB:.*]] = affine.load %[[DST]][2, %[[I]], %[[J]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
+            // GREEDY: affine.store %[[SUB_RESULT]], %[[DST:.*]][2, %[[I:.*]], %[[J:.*]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
+            // GREEDY: %[[DST_SUB:.*]] = affine.load %[[DST]][2, %[[I]], %[[J]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
+            // CHAITIN: affine.store %[[SUB_RESULT]], %[[DST:.*]][2, %[[I:.*]], %[[J:.*]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
+            // CHAITIN: %[[DST_SUB:.*]] = affine.load %[[DST]][2, %[[I]], %[[J]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
             %1 = "d2m.tile_eqz"(%0) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
             // CHECK: %[[EQZ1_RESULT:.*]] = "d2m.tile_eqz"(%[[DST_SUB]]) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-            // CHECK: affine.store %[[EQZ1_RESULT]], %[[DST]][2, %[[ARG_I]], %[[ARG_J]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
-            // CHECK: %[[DST_EQZ1:.*]] = affine.load %[[DST]][2, %[[ARG_I]], %[[ARG_J]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
+            // BASIC: affine.store %[[EQZ1_RESULT]], %[[DST]][2, %[[I]], %[[J]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
+            // BASIC: %[[DST_EQZ1:.*]] = affine.load %[[DST]][2, %[[I]], %[[J]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
+            // GREEDY: affine.store %[[EQZ1_RESULT]], %[[DST]][0, %[[I]], %[[J]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
+            // GREEDY: %[[DST_EQZ1:.*]] = affine.load %[[DST]][0, %[[I]], %[[J]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
+            // CHAITIN: affine.store %[[EQZ1_RESULT]], %[[DST]][0, %[[I]], %[[J]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
+            // CHAITIN: %[[DST_EQZ1:.*]] = affine.load %[[DST]][0, %[[I]], %[[J]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
             %2 = "d2m.tile_eqz"(%1) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
             // CHECK: %[[EQZ2_RESULT:.*]] = "d2m.tile_eqz"(%[[DST_EQZ1]]) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-            // CHECK: affine.store %[[EQZ2_RESULT]], %[[DST]][2, %[[ARG_I]], %[[ARG_J]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
-            // CHECK: %[[FINAL_VAL:.*]] = affine.load %[[DST]][2, %[[ARG_I]], %[[ARG_J]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
+            // BASIC: affine.store %[[EQZ2_RESULT]], %[[DST]][2, %[[I]], %[[J]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
+            // BASIC: %[[FINAL_VAL:.*]] = affine.load %[[DST]][2, %[[I]], %[[J]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
+            // GREEDY: affine.store %[[EQZ2_RESULT]], %[[DST]][0, %[[I]], %[[J]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
+            // GREEDY: %[[FINAL_VAL:.*]] = affine.load %[[DST]][0, %[[I]], %[[J]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
+            // CHAITIN: affine.store %[[EQZ2_RESULT]], %[[DST]][0, %[[I]], %[[J]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
+            // CHAITIN: %[[FINAL_VAL:.*]] = affine.load %[[DST]][0, %[[I]], %[[J]]] : memref<8x1x1x!ttcore.tile<32x32, f32>, #dst>
             // CHECK: affine.store %[[FINAL_VAL]], {{.*}} : memref<1x1x!ttcore.tile<32x32, f32>, #l1>
             linalg.yield %2 : !ttcore.tile<32x32, f32>
           }
@@ -150,32 +171,32 @@ module {
               %0 = affine.load %dst[0, %arg3, %arg4] : memref<1x2x4x!ttcore.tile<32x32, f32>, #dst_>
               %1 = "d2m.tile_abs"(%0) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
               // CHECK: %[[ABS_RESULT:.*]] = "d2m.tile_abs"(%[[DST0_VAL:.*]]) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-              // CHECK: affine.store %[[ABS_RESULT]], %dst[0, %[[ARG_I:.*]], %[[ARG_J:.*]]] : memref<1x2x4x!ttcore.tile<32x32, f32>, #dst>
+              // CHECK: affine.store %[[ABS_RESULT]], %dst[0, %[[I:.*]], %[[J:.*]]] : memref<1x2x4x!ttcore.tile<32x32, f32>, #dst>
               affine.store %1, %dst[%c0, %arg3, %arg4] : memref<1x2x4x!ttcore.tile<32x32, f32>, #dst_>
               %2 = affine.load %dst[%c0, %arg3, %arg4] : memref<1x2x4x!ttcore.tile<32x32, f32>, #dst_>
-              // CHECK: %[[DST_ABS:.*]] = affine.load %dst[0, %[[ARG_I]], %[[ARG_J]]] : memref<1x2x4x!ttcore.tile<32x32, f32>, #dst>
+              // CHECK: %[[DST_ABS:.*]] = affine.load %dst[0, %[[I]], %[[J]]] : memref<1x2x4x!ttcore.tile<32x32, f32>, #dst>
               %3 = "d2m.tile_sin"(%2) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
               // CHECK: %[[SIN_RESULT:.*]] = "d2m.tile_sin"(%[[DST_ABS]]) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-              // CHECK: affine.store %[[SIN_RESULT]], %dst[0, %[[ARG_I]], %[[ARG_J]]] : memref<1x2x4x!ttcore.tile<32x32, f32>, #dst>
+              // CHECK: affine.store %[[SIN_RESULT]], %dst[0, %[[I]], %[[J]]] : memref<1x2x4x!ttcore.tile<32x32, f32>, #dst>
               affine.store %3, %dst[%c0, %arg3, %arg4] : memref<1x2x4x!ttcore.tile<32x32, f32>, #dst_>
               %4 = affine.load %dst[%c0, %arg3, %arg4] : memref<1x2x4x!ttcore.tile<32x32, f32>, #dst_>
-              // CHECK: %[[DST_SIN:.*]] = affine.load %dst[0, %[[ARG_I]], %[[ARG_J]]] : memref<1x2x4x!ttcore.tile<32x32, f32>, #dst>
+              // CHECK: %[[DST_SIN:.*]] = affine.load %dst[0, %[[I]], %[[J]]] : memref<1x2x4x!ttcore.tile<32x32, f32>, #dst>
               %5 = "d2m.tile_negative"(%4) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
               // CHECK: %[[NEG_RESULT:.*]] = "d2m.tile_negative"(%[[DST_SIN]]) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-              // CHECK: affine.store %[[NEG_RESULT]], %dst[0, %[[ARG_I]], %[[ARG_J]]] : memref<1x2x4x!ttcore.tile<32x32, f32>, #dst>
+              // CHECK: affine.store %[[NEG_RESULT]], %dst[0, %[[I]], %[[J]]] : memref<1x2x4x!ttcore.tile<32x32, f32>, #dst>
               affine.store %5, %dst[%c0, %arg3, %arg4] : memref<1x2x4x!ttcore.tile<32x32, f32>, #dst_>
               %6 = affine.load %dst[%c0, %arg3, %arg4] : memref<1x2x4x!ttcore.tile<32x32, f32>, #dst_>
-              // CHECK: %[[DST_NEG:.*]] = affine.load %dst[0, %[[ARG_I]], %[[ARG_J]]] : memref<1x2x4x!ttcore.tile<32x32, f32>, #dst>
+              // CHECK: %[[DST_NEG:.*]] = affine.load %dst[0, %[[I]], %[[J]]] : memref<1x2x4x!ttcore.tile<32x32, f32>, #dst>
               %7 = "d2m.tile_exp"(%6) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
               // CHECK: %[[EXP_RESULT:.*]] = "d2m.tile_exp"(%[[DST_NEG]]) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
-              // CHECK: affine.store %[[EXP_RESULT]], %dst[0, %[[ARG_I]], %[[ARG_J]]] : memref<1x2x4x!ttcore.tile<32x32, f32>, #dst>
+              // CHECK: affine.store %[[EXP_RESULT]], %dst[0, %[[I]], %[[J]]] : memref<1x2x4x!ttcore.tile<32x32, f32>, #dst>
               affine.store %7, %dst[0, %arg3, %arg4] : memref<1x2x4x!ttcore.tile<32x32, f32>, #dst_>
             }
           }
           affine.for %arg3 = 0 to 2 {
             affine.for %arg4 = 0 to 4 {
               %0 = affine.load %dst[0, %arg3, %arg4] : memref<1x2x4x!ttcore.tile<32x32, f32>, #dst_>
-              // CHECK: %[[FINAL_VAL:.*]] = affine.load %dst[0, %[[ARG_I:.*]], %[[ARG_J:.*]]] : memref<1x2x4x!ttcore.tile<32x32, f32>, #dst>
+              // CHECK: %[[FINAL_VAL:.*]] = affine.load %dst[0, %[[I:.*]], %[[J:.*]]] : memref<1x2x4x!ttcore.tile<32x32, f32>, #dst>
               // CHECK: affine.store %[[FINAL_VAL]], {{.*}} : memref<2x4x!ttcore.tile<32x32, f32>, strided<[4, 1], offset: ?>, #l1>
               affine.store %0, %subview_4[%arg3, %arg4] : memref<2x4x!ttcore.tile<32x32, f32>, strided<[4, 1], offset: ?>, #l1_>
             }

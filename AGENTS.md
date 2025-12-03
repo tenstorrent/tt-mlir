@@ -9,6 +9,7 @@
 - **Single MLIR test**: `llvm-lit test/ttmlir/path/to/test.mlir`
 - **Python tests**: `pytest test/python` (requires `ttrt query --save-artifacts` and `SYSTEM_DESC_PATH`)
 - **Performance tests**: `cmake --build build --target check-perf` (requires `-DTTMLIR_ENABLE_OPMODEL=ON`)
+- **Clang-tidy**: `clang-tidy --warnings-as-errors='*' -p build <file.cpp>` (checks for issues in source file only, ignores generated headers)
 
 ## Code Style Guidelines
 - **C++ Style**: LLVM style (see .clang-format, .clang-tidy)

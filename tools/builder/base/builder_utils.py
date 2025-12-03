@@ -4,10 +4,8 @@
 
 import os
 import inspect
-import time
 import torch
 from functools import reduce
-import operator
 from typing import Callable, List, Optional, Tuple, Union, Literal, Dict
 from collections import OrderedDict
 import json
@@ -313,6 +311,7 @@ def _run_ttir_pipeline(
     system_desc_path: Optional[str] = None,
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     argument_types_string: Optional[str] = None,
+    dst_strategy: Optional[str] = None,
 ):
     if pipeline_options is None:
         pipeline_options = []
@@ -325,6 +324,16 @@ def _run_ttir_pipeline(
     if system_desc_path is None:
         system_desc_path = os.getenv("SYSTEM_DESC_PATH", "")
     pipeline_options.append(f"system-desc-path={system_desc_path}")
+
+    # DST allocation strategy parameter; only applies to ttir-to-ttmetal-backend-pipeline.
+    if dst_strategy and pipeline_fn == ttir_to_ttmetal_backend_pipeline:
+        from test.python.golden.conftest import DST_ALLOCATION_STRATEGIES
+
+        if dst_strategy not in DST_ALLOCATION_STRATEGIES:
+            raise ValueError(
+                f"Invalid dst_strategy: '{dst_strategy}'. Must be one of {DST_ALLOCATION_STRATEGIES}"
+            )
+        pipeline_options.append(f"dst-strategy={dst_strategy}")
 
     mesh_shape = tuple(mesh_dict.values())
     if len(mesh_shape) != 2:
@@ -918,6 +927,9 @@ def compile_and_execute_ttir(
     check_rtol : bool
         Whether to check relative tolerance during golden comparison
     """
+
+    dst_strategy, test_base = _get_dst_strategy_for_target(target, test_base)
+
     return _compile_and_execute(
         compile_fn=compile_ttir_to_flatbuffer,
         fn=fn,
@@ -943,6 +955,7 @@ def compile_and_execute_ttir(
         check_atol=check_atol,
         check_rtol=check_rtol,
         export_golden_report=export_golden_report,
+        dst_strategy=dst_strategy,
     )
 
 
@@ -961,6 +974,7 @@ def compile_ttir_to_flatbuffer(
     custom_pipeline: Optional[Union[Callable, str]] = None,
     pipeline_options: Optional[List[str]] = None,
     print_ir: Union[bool, str] = False,
+    dst_strategy: Optional[str] = None,
 ) -> str:
     """
     Compiles a TTIRBuilder function `fn` to TTIR MLIR -> TT{Metal,NN} MLIR -> Flatbuffer.
@@ -1507,6 +1521,7 @@ def compile_ttir_module_to_flatbuffer(
     pipeline_options: List[str] = None,
     print_ir: Union[bool, str] = False,
     goldens: Dict[Operand, GoldenMapTensor] = None,
+    dst_strategy: Optional[str] = None,
 ):
     """
     Compiles a TTIR MLIR module to flatbuffer format.
@@ -1648,6 +1663,10 @@ def compile_ttir_module_to_flatbuffer(
     for loc, golden in goldens.items():
         golden_tensors[loc] = builder._generate_golden_device_tensor(loc, golden)
 
+    # Get dst_strategy if not provided and target is ttmetal
+    if dst_strategy is None and target == "ttmetal":
+        dst_strategy = _get_current_dst_strategy()
+
     # Compile TTIR MLIR -> TT{Metal,NN} MLIR
     try:
         module = _run_ttir_pipeline(
@@ -1659,6 +1678,7 @@ def compile_ttir_module_to_flatbuffer(
             system_desc_path=system_desc_path,
             mesh_dict=mesh_dict,
             argument_types_string=argument_types_string,
+            dst_strategy=dst_strategy,
         )
     except Exception as e:
         raise TTBuilderCompileException(e)
@@ -1817,3 +1837,61 @@ def experimental_build_stablehlo_module(
                 print(module)
 
         return module, stablehlo_builder
+
+
+def _get_current_dst_strategy() -> Optional[str]:
+    """
+    Get the current DST allocation strategy from conftest's module-level variable.
+
+    Returns
+    -------
+    Optional[str]
+        The DST strategy for the current test, or None if not set
+
+    Notes
+    -----
+    This is set by the autouse dst_strategy fixture in conftest.py when
+    --dst-allocation-strategy CLI option is used.
+    """
+    try:
+        from test.python.golden.conftest import _current_dst_strategy
+
+        return _current_dst_strategy
+    except ImportError:
+        return None
+
+
+def _get_dst_strategy_for_target(
+    target: str, test_base: str
+) -> tuple[Optional[str], str]:
+    """
+    Get DST strategy for the given target and update test_base accordingly.
+
+    For ttmetal targets, retrieves the DST strategy from the pytest fixture
+    and appends it to the test_base for separate output directories.
+    For other targets, returns None.
+
+    Parameters
+    ----------
+    target : str
+        The compilation target (ttnn, ttmetal, etc.)
+    test_base : str
+        Base name for test artifacts
+
+    Returns
+    -------
+    tuple[Optional[str], str]
+        (dst_strategy, updated_test_base)
+        - dst_strategy: The strategy to use, or None
+        - updated_test_base: test_base with strategy suffix if applicable
+
+    Notes
+    -----
+    DST allocation strategy only applies to ttmetal targets.
+    """
+    if target == "ttmetal":
+        dst_strategy = _get_current_dst_strategy()
+        if dst_strategy:
+            test_base = f"{test_base}_dst_{dst_strategy}"
+        return dst_strategy, test_base
+    return None, test_base

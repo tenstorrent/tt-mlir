@@ -4,11 +4,8 @@
 
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Asserts.h"
+#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
-#include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
-#include "ttmlir/Utils.h"
-
-#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Utils.h"
@@ -58,8 +55,10 @@ Type getRegionLargestDstElemType(Region &region) {
     return WalkResult::advance();
   });
 
-  assert(largestType);
-  TT_assert(getTypeNumberOfBits(largestType) <= 32u);
+  // May return nullptr if region has no DST operations.
+  if (largestType) {
+    TT_assert(getTypeNumberOfBits(largestType) <= 32u);
+  }
   return largestType;
 }
 
@@ -90,6 +89,35 @@ computeDimConstraints(mlir::ArrayRef<mlir::AffineMap> indexingMaps,
     }
   }
   return constrainedDims;
+}
+
+mlir::affine::AffineLoadOp traceToAffineLoad(mlir::Value operand,
+                                             TileBcastOp *outBcastOp) {
+  if (outBcastOp) {
+    *outBcastOp = nullptr;
+  }
+
+  while (auto *definingOp = operand.getDefiningOp()) {
+    // If we found an affine.load, return it.
+    if (auto loadOp = llvm::dyn_cast<mlir::affine::AffineLoadOp>(definingOp)) {
+      return loadOp;
+    }
+    // If this is an intermediate compute op (like tile_bcast), trace through
+    // its first operand to find the underlying load.
+    if (llvm::isa<OperandLoadStoreRegisterOpInterface>(definingOp)) {
+      // Record TileBcastOp if we encounter one.
+      if (outBcastOp && llvm::isa<TileBcastOp>(definingOp)) {
+        *outBcastOp = llvm::cast<TileBcastOp>(definingOp);
+      }
+      if (definingOp->getNumOperands() > 0) {
+        operand = definingOp->getOperand(0);
+        continue;
+      }
+    }
+    // Not a load and not an intermediate compute op - stop tracing.
+    break;
+  }
+  return nullptr;
 }
 
 } // namespace mlir::tt::d2m::utils

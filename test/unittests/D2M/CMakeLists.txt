@@ -1,0 +1,22 @@
+add_mlir_unittest(D2MTests
+  TestGraphColoringStrategy.cpp
+  TestDstCapacityAnalysis.cpp
+)
+
+target_link_libraries(D2MTests
+  PRIVATE
+  MLIRIR
+  MLIRParser
+  MLIRSupport
+  MLIRTTCoreDialect
+  MLIRD2MDialect
+  MLIRD2MAnalysis
+  MLIRD2MTransforms
+  MLIRAffineDialect
+  MLIRArithDialect
+  MLIRFuncDialect
+  MLIRLinalgDialect
+  MLIRTensorDialect
+  MLIRBufferizationDialect
+  MLIRTTNNDialect
+)
