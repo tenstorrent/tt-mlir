@@ -152,6 +152,152 @@ class TTIRBuilder(Builder):
 
     # ----- Public Op Generators ----
 
+    ################ ttir.RandOp ###############
+
+    @tag(ttir.RandOp)
+    def rand(
+        self,
+        size: Shape,
+        dtype: torch.dtype,
+        low: float = 0.0,
+        high: float = 1.0,
+        seed: int = 0,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``ttir.rand``.
+
+        Returns a tensor filled with random numbers drawn from a uniform distribution
+        over the interval [low, high).
+        """
+        ttir_op = self.get_opview_from_method(TTIRBuilder.rand)
+        datatype = self._get_type_from_torch_dtype(dtype)
+        result = self._create_ranked_tensor_type(size, datatype)
+        low_attr = FloatAttr.get_f32(low)
+        high_attr = FloatAttr.get_f32(high)
+        seed_attr = IntegerAttr.get(IntegerType.get_unsigned(32), seed)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            size,
+            datatype,
+            low=low_attr,
+            high=high_attr,
+            seed=seed_attr,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(
+                size=size, dtype=datatype, low=low_attr, high=high_attr, seed=seed_attr
+            )
+            self._set_golden_tensor(op, golden_output)
+
+        self._disable_golden_check = True
+        return op
+
+    @parse(ttir.RandOp)
+    def rand_parser(
+        self,
+        old_op: ttir.RandOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Operation:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.rand_parser)
+
+        result = old_op.result.type
+        size_attr = old_op.size
+        dtype_attr = old_op.dtype
+        low_attr = old_op.low
+        high_attr = old_op.high
+        seed_attr = old_op.seed
+
+        new_op = ttir_op(
+            result,
+            size=size_attr,
+            dtype=dtype_attr,
+            low=low_attr,
+            high=high_attr,
+            seed=seed_attr,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(
+                size=size_attr,
+                dtype=dtype_attr,
+                low=low_attr,
+                high=high_attr,
+                seed=seed_attr,
+            )
+            self._set_golden_tensor(new_op, golden_output)
+
+        self._disable_golden_check = True
+        return new_op
+
+    @split(ttir.RandOp)
+    def rand_split(
+        self,
+        old_op: ttir.RandOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.rand_split)
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+
+        with old_ctx, old_loc:
+            rand_module = Module.create()
+            rand_builder = TTIRBuilder(old_ctx, old_loc)
+            op_input_types: List[Type] = []
+
+            with InsertionPoint(rand_module.body):
+
+                @func.func(*op_input_types, name="rand_module")
+                def decorated_func():
+                    result = old_op.result.type
+                    size_attr = old_op.size
+                    dtype_attr = old_op.dtype
+                    low_attr = old_op.low
+                    high_attr = old_op.high
+                    seed_attr = old_op.seed
+
+                    new_op = ttir_op(
+                        result,
+                        size=size_attr,
+                        dtype=dtype_attr,
+                        low=low_attr,
+                        high=high_attr,
+                        seed=seed_attr,
+                        loc=old_op.location,
+                    )
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_output = op_golden_function(
+                            size=size_attr,
+                            dtype=dtype_attr,
+                            low=low_attr,
+                            high=high_attr,
+                            seed=seed_attr,
+                        )
+                        rand_builder._set_golden_tensor(new_op, golden_output)
+                        rand_builder._set_output_ordering([new_op])
+
+                    rand_builder._disable_golden_check = True
+                    return new_op
+
+        return rand_module, rand_builder
+
     ################ ttir.ReverseOp ###############
 
     @tag(ttir.ReverseOp)
