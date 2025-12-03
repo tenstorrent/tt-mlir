@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 
+#include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
@@ -167,8 +168,8 @@ computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
   // for now, can only support if largest dim is divisible by grid volume
   int64_t gridVolume = getTargetGridVolume(targetSquareGridShape);
   TT_assertv((physicalShape[shardedDimIndex] % gridVolume == 0),
-             "Sharded dimension in virtual gridPhysical shape dimension is "
-             "not divisible by grid volume {1}",
+             "Sharded dimension {} in virtual gridPhysical shape dimension is "
+             "not divisible by grid volume {}",
              shardedDimIndex, gridVolume);
 
   llvm::SmallVector<int64_t> grid;
@@ -347,9 +348,8 @@ static RankedTensorType reblockTensor(RankedTensorType oldTensor,
     return oldTensor;
   }
 
-  auto [newShape, reblockMap] =
-      mlir::tt::d2m::utils::calculateReblockMapForGrid(
-          oldTensor.getShape(), newGridShape, oldTensor.getContext());
+  auto [newShape, reblockMap] = ttmlir::utils::calculateReblockMapForGrid(
+      oldTensor.getShape(), newGridShape, oldTensor.getContext());
 
   ttcore::MetalLayoutAttr newLayout = oldLayout.withIndexAffineMap(reblockMap);
   return RankedTensorType::get(newShape, oldTensor.getElementType(), newLayout);
@@ -592,7 +592,7 @@ updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
         mlir::cast<RankedTensorType>(streamLayout.getResult().getType());
     auto outputLayout =
         mlir::cast<ttcore::MetalLayoutAttr>(outputStreamType.getEncoding());
-    mlir::AffineMap reblockMap = mlir::tt::d2m::utils::calculateReblockMap(
+    mlir::AffineMap reblockMap = ttmlir::utils::calculateReblockMap(
         outputStreamType.getShape(), newStorageShape, builder.getContext());
     auto newOutputIndexMap =
         outputLayout.getIndexAffineMap().compose(reblockMap);
@@ -898,7 +898,7 @@ insertTTNNDRAMStreams(d2m::GenericOp genericOp,
         baseMetalLayout.getCollapsedIntervals(), baseMetalLayout.getOobVal(),
         ttcore::MemorySpace::DeviceDRAM,
         ttcore::TensorMemoryLayout::Interleaved,
-        mlir::tt::d2m::utils::calculateReblockMap(
+        ttmlir::utils::calculateReblockMap(
             unShardedShapeWithGrid, fakeShardedShape, builder.getContext()));
 
     auto streamOutputTensor = mlir::RankedTensorType::get(
