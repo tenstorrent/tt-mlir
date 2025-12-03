@@ -97,20 +97,22 @@ getScatterShardingRule(mlir::stablehlo::ScatterOp scatterOp) {
   // Replicate if dimension is in inserted_window_dims.
   // Shard otherwise.
   for (int64_t inputDim = 0; inputDim < inputRank; inputDim++) {
-    bool isScatterTargetDim =
+    bool isScatterDimsToOperandDim =
         llvm::is_contained(scatterDimsToOperandDims, inputDim);
     bool isInsertedWindowDim = llvm::is_contained(insertedWindowDims, inputDim);
 
-    if (isScatterTargetDim || isInsertedWindowDim) {
-      // Dimension is a scatter target or inserted window dim - MUST REPLICATE.
+    if (isScatterDimsToOperandDim || isInsertedWindowDim) {
+      // Dimension is in scatter_dims_to_operand_dims or inserted_window_dims -
+      // MUST REPLICATE.
       builder.addFactor({inputDim, sdy::kNullDim,
                          inputDim}, // [input_dim, indices_dim, updates_dim]
                         {inputDim}, // result_dim
                         inputType.getDimSize(inputDim),
                         mlir::sdy::FactorType::kNeedReplication);
     } else {
-      // Dimension is NOT a scatter target - CAN SHARD.
-      // Shard input, updates, and result together.
+      // Dimension is NOT in scatter_dims_to_operand_dims or
+      // inserted_window_dims - CAN SHARD. Shard input, updates, and result
+      // together.
       builder.addFactor({inputDim, sdy::kNullDim,
                          inputDim}, // [input_dim, indices_dim, updates_dim]
                         {inputDim}, // result_dim
@@ -334,7 +336,7 @@ struct StablehloShardingModel
           StablehloShardingModel<OpTy>, OpTy> {
 
   mlir::sdy::OpShardingRuleAttr getShardingRule(mlir::Operation *op) const {
-    if (auto scatterOp = llvm::cast<mlir::stablehlo::ScatterOp>(op)) {
+    if (auto scatterOp = dyn_cast::cast<mlir::stablehlo::ScatterOp>(op)) {
       return getScatterShardingRule(scatterOp);
     }
     return mlir::sdy::OpShardingRuleBuilder::buildPointwise(op);
