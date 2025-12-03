@@ -1691,6 +1691,183 @@ class StableHLOBuilder(Builder):
 
         return result
 
+    def pool_2d(
+        self,
+        in0: Operand,
+        kernel_size: Sequence[int],
+        stride: Optional[Sequence[int]] = None,
+        padding: Optional[Sequence[int]] = None,
+        pool_type: str = "max",
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.reduce_window`` with configurable pooling operation.
+
+        *Pooling operation.*
+
+        Performs pooling on the input tensor. Accepts both 2D and 4D inputs.
+        For 2D inputs (H, W), they will be automatically reshaped to 4D (1, 1, H, W)
+        during conversion to TTIR, pooling will be applied, and then reshaped back to 2D.
+
+        .. code-block:: mlir
+
+            // Rank-2: Max pool with 3x3 kernel, stride 2x2, padding 1x1
+            %init = stablehlo.constant dense<0xFF80> : tensor<bf16>
+            %result = "stablehlo.reduce_window"(%input, %init) <{
+                padding = dense<[[1, 1], [1, 1]]> : tensor<2x2xi64>,
+                window_dimensions = array<i64: 3, 3>,
+                window_strides = array<i64: 2, 2>
+            }> ({...}) : (tensor<32x32xbf16>, tensor<bf16>) -> tensor<16x16xbf16>
+
+            // Rank-4: Max pool with batch=1, channel=1, 3x3 spatial kernel
+            %result = "stablehlo.reduce_window"(%input, %init) <{
+                padding = dense<[[0, 0], [0, 0], [1, 1], [1, 1]]> : tensor<4x2xi64>,
+                window_dimensions = array<i64: 1, 1, 3, 3>,
+                window_strides = array<i64: 1, 1, 2, 2>
+            }> ({...}) : (tensor<1x32x64x64xbf16>, tensor<bf16>) -> tensor<1x32x32x32xbf16>
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to pool. Can be 2D (H, W) or 4D (N, C, H, W).
+        kernel_size : Sequence[int]
+            Size of the pooling window. Must match input rank.
+            - Rank-2: [kernel_h, kernel_w]
+            - Rank-4: [kernel_n, kernel_c, kernel_h, kernel_w]
+        stride : Optional[Sequence[int]]
+            Stride of the pooling window. Must match input rank.
+            If None, defaults to all 1s.
+            - Rank-2: [stride_h, stride_w]
+            - Rank-4: [stride_n, stride_c, stride_h, stride_w]
+        padding : Optional[Sequence[int]]
+            Padding to apply as [left, right] pairs for each dimension.
+            Length must be 2*rank. If None, defaults to all 0s.
+            - Rank-2: [pad_h_left, pad_h_right, pad_w_left, pad_w_right]
+            - Rank-4: [pad_n_l, pad_n_r, pad_c_l, pad_c_r, pad_h_l, pad_h_r, pad_w_l, pad_w_r]
+        pool_type : str
+            Type of pooling operation. Options: "max" or "avg".
+            Default is "max".
+        unit_attrs : Optional[List[str]]
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            Pooled tensor
+        """
+        with self._ctx, self._loc:
+            id = self._get_next_global_id()
+            loc = self._get_loc_of_extra_file_callee(id=id)
+
+            input_type = RankedTensorType(in0.type)
+            element_type = input_type.element_type
+            input_shape = list(input_type.shape)
+            rank = len(input_shape)
+
+            window_dimensions = list(kernel_size)
+            window_strides = list(stride) if stride is not None else [1] * rank
+            padding_flat = list(padding) if padding is not None else [0] * (2 * rank)
+
+            output_shape = []
+            for i in range(rank):
+                pad_low = padding_flat[2 * i]
+                pad_high = padding_flat[2 * i + 1]
+                output_dim = (
+                    input_shape[i] + pad_low + pad_high - kernel_size[i]
+                ) // window_strides[i] + 1
+                output_shape.append(output_dim)
+
+            output_type = RankedTensorType.get(output_shape, element_type)
+
+            if pool_type == "max":
+                init_attr = self._get_neg_inf_attr(element_type)
+            elif pool_type == "avg":
+                init_attr = self._get_zero_attr(element_type)
+
+            init_value = stablehlo.ConstantOp(init_attr, loc=loc).result
+
+            # Convert padding from flat list to nested list [[low, high], [low, high], ...].
+            # This is required for the padding attribute of the reduce_window op.
+            padding_2d = [
+                [padding_flat[2 * i], padding_flat[2 * i + 1]] for i in range(rank)
+            ]
+
+            reduce_window_op = stablehlo.ReduceWindowOp(
+                [output_type],
+                inputs=[in0],
+                init_values=[init_value],
+                window_dimensions=window_dimensions,
+                window_strides=window_strides,
+                base_dilations=None,
+                window_dilations=None,
+                padding=padding_2d,
+                loc=loc,
+            )
+
+            reduction_type = RankedTensorType.get([], element_type)
+            block = Block.create_at_start(
+                reduce_window_op.regions[0], [reduction_type, reduction_type]
+            )
+
+            with InsertionPoint(block):
+                if pool_type == "max":
+                    reduction_result = stablehlo.MaxOp(
+                        block.arguments[0], block.arguments[1], loc=loc
+                    ).result
+                elif pool_type == "avg":
+                    reduction_result = stablehlo.AddOp(
+                        block.arguments[0], block.arguments[1], loc=loc
+                    ).result
+                stablehlo.ReturnOp([reduction_result], loc=loc)
+
+            result = reduce_window_op.result
+            if pool_type == "avg":
+                window_size = 1
+                for dim_size in kernel_size:
+                    window_size *= dim_size
+                divisor_attr = DenseElementsAttr.get_splat(
+                    output_type, FloatAttr.get(element_type, float(window_size))
+                )
+                divisor = stablehlo.ConstantOp(divisor_attr, loc=loc).result
+                result = stablehlo.DivOp(result, divisor, loc=loc).result
+
+            if not self._disable_golden_check:
+                input_golden = self._get_golden_tensor(in0)
+
+                if rank == 2:
+                    input_golden_4d = input_golden.unsqueeze(0).unsqueeze(0)
+                    torch_kernel = (kernel_size[0], kernel_size[1])
+                    torch_stride = (window_strides[0], window_strides[1])
+                    torch_padding = (padding_flat[0], padding_flat[2])
+                elif rank == 4:
+                    input_golden_4d = input_golden
+                    torch_kernel = (kernel_size[2], kernel_size[3])
+                    torch_stride = (window_strides[2], window_strides[3])
+                    torch_padding = (padding_flat[4], padding_flat[6])
+
+                if pool_type == "max":
+                    output_golden = torch.nn.functional.max_pool2d(
+                        input_golden_4d,
+                        kernel_size=torch_kernel,
+                        stride=torch_stride,
+                        padding=torch_padding,
+                    )
+                elif pool_type == "avg":
+                    output_golden = torch.nn.functional.avg_pool2d(
+                        input_golden_4d,
+                        kernel_size=torch_kernel,
+                        stride=torch_stride,
+                        padding=torch_padding,
+                        count_include_pad=True,
+                    )
+
+                if rank == 2:
+                    output_golden = output_golden.squeeze(0).squeeze(0)
+
+                self._set_golden_tensor(result, output_golden)
+
+            return result
+
     def _get_zero_attr(self, element_type: Type) -> Attribute:
         """Create a zero constant attribute for the given element type."""
         if IntegerType.isinstance(element_type):
