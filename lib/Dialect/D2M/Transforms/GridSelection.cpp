@@ -775,11 +775,16 @@ computeTTNNGenericGridShapes(GenericOp genericOp,
   // Determine dim size constraints based on L1 operands. L1 operands are
   // assumed fixed and already legal; DRAM operand streams are aligned to match
   // L1 shapes.
-  auto constrainedDims = genericOp.computeGridDimConstraints(
+  auto maybeConstrainedDims = genericOp.computeGridDimConstraints(
       [&](ttcore::MetalLayoutAttr baseMetalLayout, bool isOutputOperand) {
         return baseMetalLayout.getMemorySpace() ==
                ttcore::MemorySpace::DeviceL1;
       });
+  // this should be guaranteed if GenericOp verification is working.
+  TT_assertv(maybeConstrainedDims.has_value(),
+             "GenericOp dim constraints are cannot be satisfied.");
+  auto constrainedDims = maybeConstrainedDims.value();
+
   auto indexingMaps = genericOp.getIndexingMapsValue();
   auto getConstrainedDims = [&](int64_t operandIdx) {
     auto dimProjectionMap =
@@ -800,10 +805,7 @@ computeTTNNGenericGridShapes(GenericOp genericOp,
       optimalOperandGrids[operandIdx] = llvm::SmallVector<int64_t>(
           constrainedDims.begin(), constrainedDims.end());
     } else {
-      TT_assertv(
-          llvm::all_of(constrainedDims, [](int64_t dim) { return dim == 0; }),
-          "Cannot support partially constrained dims.");
-      // if no dims are constrained, shard to an optimal grid.
+      // if not all dims are constrained, shard to an optimal grid.
       auto metalTensor = mlir::cast<mlir::RankedTensorType>(operand.getType());
       auto baseMetalLayout =
           mlir::cast<ttcore::MetalLayoutAttr>(metalTensor.getEncoding());

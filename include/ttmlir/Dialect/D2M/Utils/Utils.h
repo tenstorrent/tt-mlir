@@ -55,10 +55,11 @@ AffineMap concatInversePermutationMap(mlir::ArrayRef<AffineMap> affineMaps,
 // Traces IR to find underlying physical (non-view) tensor/memref.
 Value getPhysicalTensorOrMemref(mlir::Value tensorOrMemref);
 
-// Computes dim constraints implied by the indexing maps and shapes. Returns a
-// vector of dim constraints for each dimension; a '0' indicates that the
-// dimension is not constrained.
-SmallVector<int64_t>
+// Computes dim constraints implied by the indexing maps and shapes. If
+// successful, returns a vector of dim constraints for each dimension; a '0'
+// indicates that the dimension is not constrained. If the shapes imply
+// incompatible constraints, returns std::nullopt.
+std::optional<SmallVector<int64_t>>
 computeDimConstraints(mlir::ArrayRef<mlir::AffineMap> indexingMaps,
                       mlir::ArrayRef<mlir::SmallVector<int64_t>> shapes);
 

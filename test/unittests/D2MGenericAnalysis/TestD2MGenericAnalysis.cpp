@@ -28,16 +28,15 @@ protected:
   void checkDimConstraints(
       std::vector<std::pair<mlir::AffineMap, mlir::SmallVector<int64_t>>>
           operands,
-      mlir::ArrayRef<int64_t> expected) {
+      std::optional<mlir::SmallVector<int64_t>> expected) {
     mlir::SmallVector<mlir::AffineMap> maps;
     mlir::SmallVector<mlir::SmallVector<int64_t>> shapes;
     for (const auto &op : operands) {
       maps.push_back(op.first);
       shapes.push_back(op.second);
     }
-    mlir::SmallVector<int64_t> result =
-        d2m::utils::computeDimConstraints(maps, shapes);
-    EXPECT_EQ(result, mlir::SmallVector<int64_t>(expected));
+    auto result = d2m::utils::computeDimConstraints(maps, shapes);
+    EXPECT_EQ(result, expected);
   }
 };
 
@@ -45,19 +44,19 @@ TEST_F(GenericOpAnalysisTest, CanAnalyzeDimConstraintsEltwise) {
   // 2D shape
   checkDimConstraints({{makeAffineMap(2, {d0, d1}), {1, 2}},
                        {makeAffineMap(2, {d0, d1}), {1, 2}}},
-                      {1, 2});
+                      std::make_optional(mlir::SmallVector<int64_t>{1, 2}));
 
   // 3D shape
   checkDimConstraints({{makeAffineMap(3, {d0, d1, d2}), {1, 2, 4}},
                        {makeAffineMap(3, {d0, d1, d2}), {1, 2, 4}}},
-                      {1, 2, 4});
+                      std::make_optional(mlir::SmallVector<int64_t>{1, 2, 4}));
 }
 
 TEST_F(GenericOpAnalysisTest, CanAnalyzeDimConstraintsForPermute) {
   // 2D transpose
   checkDimConstraints({{makeAffineMap(2, {d0, d1}), {1, 2}},
                        {makeAffineMap(2, {d1, d0}), {2, 1}}},
-                      {1, 2});
+                      std::make_optional(mlir::SmallVector<int64_t>{1, 2}));
 
   // 3D permute
   checkDimConstraints(
@@ -65,7 +64,7 @@ TEST_F(GenericOpAnalysisTest, CanAnalyzeDimConstraintsForPermute) {
           {makeAffineMap(3, {d2, d1, d0}), {3, 2, 1}},
           {makeAffineMap(3, {d0, d1, d2}), {1, 2, 3}},
       },
-      {1, 2, 3});
+      std::make_optional(mlir::SmallVector<int64_t>{1, 2, 3}));
 
   // 4D permute with multiple dim swaps
   checkDimConstraints(
@@ -73,7 +72,7 @@ TEST_F(GenericOpAnalysisTest, CanAnalyzeDimConstraintsForPermute) {
           {makeAffineMap(4, {d0, d1, d2, d3}), {4, 3, 2, 5}},
           {makeAffineMap(4, {d2, d3, d0, d1}), {2, 5, 4, 3}},
       },
-      {4, 3, 2, 5});
+      std::make_optional(mlir::SmallVector<int64_t>{4, 3, 2, 5}));
 }
 
 TEST_F(GenericOpAnalysisTest, CanAnalyzeDimConstraintsForMatmul) {
@@ -81,7 +80,19 @@ TEST_F(GenericOpAnalysisTest, CanAnalyzeDimConstraintsForMatmul) {
   checkDimConstraints({{makeAffineMap(3, {d0, d2}), {3, 5}},
                        {makeAffineMap(3, {d2, d1}), {5, 2}},
                        {makeAffineMap(3, {d0, d1}), {3, 2}}},
-                      {3, 2, 5});
+                      std::make_optional(mlir::SmallVector<int64_t>{3, 2, 5}));
+}
+
+TEST_F(GenericOpAnalysisTest, CanAnalyzePartialDimConstraintsForMatmul) {
+  // only output shape is provided; d2 is a 'free dim' and not constrained.
+  checkDimConstraints({{makeAffineMap(3, {d0, d1}), {3, 2}}},
+                      std::make_optional(mlir::SmallVector<int64_t>{3, 2, 0}));
+}
+
+TEST_F(GenericOpAnalysisTest, CanAnalyzeDimConstraintsForIncompatibleShapes) {
+  checkDimConstraints({{makeAffineMap(2, {d0, d1}), {1, 2}},
+                       {makeAffineMap(2, {d0, d1}), {1, 3}}},
+                      std::nullopt);
 }
 
 } // namespace mlir::tt::d2m

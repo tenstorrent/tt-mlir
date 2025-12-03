@@ -185,7 +185,7 @@ ArrayRef<int64_t> getGridShape(Value tensorOrMemref) {
       .getGridShape(mlir::cast<ShapedType>(tensorOrMemref.getType()));
 }
 
-SmallVector<int64_t>
+std::optional<SmallVector<int64_t>>
 computeDimConstraints(mlir::ArrayRef<mlir::AffineMap> indexingMaps,
                       mlir::ArrayRef<mlir::SmallVector<int64_t>> shapes) {
   TT_assert(!indexingMaps.empty());
@@ -199,12 +199,16 @@ computeDimConstraints(mlir::ArrayRef<mlir::AffineMap> indexingMaps,
 
     for (auto [dimIdx, dimConstraint] :
          llvm::enumerate(impliedDimConstraints)) {
-      if (dimConstraint != 0) {
-        TT_assertv((constrainedDims[dimIdx] == 0 ||
-                    constrainedDims[dimIdx] == dimConstraint),
-                   "Found contradictory dim constraints.");
-        constrainedDims[dimIdx] = dimConstraint;
+      if (dimConstraint == 0) {
+        continue;
       }
+
+      // Early exit if shapes are incompatible.
+      if (constrainedDims[dimIdx] != 0 &&
+          constrainedDims[dimIdx] != dimConstraint) {
+        return std::nullopt;
+      }
+      constrainedDims[dimIdx] = dimConstraint;
     }
   }
   return constrainedDims;

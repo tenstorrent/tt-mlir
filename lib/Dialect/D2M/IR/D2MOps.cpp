@@ -1703,7 +1703,7 @@ d2m::GenericOp::getNonParticipatingLoopDims(int64_t operandIndex) {
   return llvm::SmallVector<int64_t>(nonParticipatingDims.set_bits());
 }
 
-SmallVector<int64_t> d2m::GenericOp::computeGridDimConstraints(
+std::optional<SmallVector<int64_t>> d2m::GenericOp::computeGridDimConstraints(
     std::function<bool(ttcore::MetalLayoutAttr, bool)> operandFilterPredicate) {
   auto indexingMaps = getIndexingMapsValue();
   auto shapes = getOperandGridShapes();
@@ -1724,10 +1724,12 @@ SmallVector<int64_t> d2m::GenericOp::computeGridDimConstraints(
     }
   }
 
-  return (filteredIndexingMaps.empty())
-             ? SmallVector<int64_t>(indexingMaps.front().getNumDims(), 0)
-             : d2m::utils::computeDimConstraints(filteredIndexingMaps,
-                                                 filteredShapes);
+  if (filteredIndexingMaps.empty()) {
+    return SmallVector<int64_t>(indexingMaps.front().getNumDims(), 0);
+  }
+
+  return d2m::utils::computeDimConstraints(filteredIndexingMaps,
+                                           filteredShapes);
 }
 
 void d2m::GenericOp::getAsmBlockArgumentNames(
