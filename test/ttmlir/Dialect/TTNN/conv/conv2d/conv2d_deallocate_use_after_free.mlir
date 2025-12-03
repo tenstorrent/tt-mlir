@@ -13,7 +13,7 @@ module {
 
     // This conv2d has deallocate_activation=true, which means it will deallocate %input
     // However, it's not the last user because the add operation also uses %input
-    // CHECK: error: use-after-free detected: conv2d op deallocates its input but is not the last user
+    // CHECK: error: use-after-free detected: op deallocates its input but is not the last user
     %conv_out = "ttnn.conv2d"(%input, %weight, %bias, %device) <{
       in_channels = 64: i32,
       out_channels = 64: i32,
