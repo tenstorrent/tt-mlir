@@ -236,7 +236,7 @@ unary_ops = [
     sin,
     sqrt,
     tan,
-    tanh | Marks(pytest.mark.skip_config(["ttmetal"])),
+    tanh,
 ]
 
 

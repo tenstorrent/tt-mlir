@@ -134,6 +134,10 @@ def tan(input_tensor):
     return ttnn.tan(input_tensor)
 
 
+def tanh(input_tensor):
+    return ttnn.tanh(input_tensor)
+
+
 def cbrt(input_tensor):
     return ttnn.cbrt(input_tensor)
 
@@ -182,6 +186,10 @@ def rsqrt(input_tensor):
     return ttnn.rsqrt(input_tensor)
 
 
+def sigmoid(input_tensor):
+    return ttnn.sigmoid(input_tensor)
+
+
 @pytest.mark.parametrize(
     "dtype, ttnn_dtype",
     [
@@ -201,6 +209,8 @@ def rsqrt(input_tensor):
         ceil,
         floor,
         logical_not,
+        tanh,
+        sigmoid,
     ],
 )
 @pytest.mark.parametrize(
@@ -255,6 +265,8 @@ def test_unary_op_dram(device, shape, dtype, ttnn_dtype, op, graph_capture):
         ceil,
         floor,
         logical_not,
+        tanh,
+        sigmoid,
         # Not supported in TTIRToD2M:
         # gelu, reciprocal cbrt, sign, erf, erfc
         # Always fails allclose
