@@ -72,6 +72,23 @@ SHARDED_SHAPE_GRID_LAYOUTS = (
         for shape, grid in WIDTH_SHARDED_SHAPE_GRIDS
     ]
 )
+_MINIMAL_SHARDED_SHAPE_GRID_LAYOUTS = [
+    (
+        BLOCK_SHARDED_SHAPE_GRIDS[-1][0],
+        BLOCK_SHARDED_SHAPE_GRIDS[-1][1],
+        ttnn.TensorMemoryLayout.BLOCK_SHARDED,
+    ),
+    (
+        HEIGHT_SHARDED_SHAPE_GRIDS[-1][0],
+        HEIGHT_SHARDED_SHAPE_GRIDS[-1][1],
+        ttnn.TensorMemoryLayout.HEIGHT_SHARDED,
+    ),
+    (
+        WIDTH_SHARDED_SHAPE_GRIDS[-1][0],
+        WIDTH_SHARDED_SHAPE_GRIDS[-1][1],
+        ttnn.TensorMemoryLayout.WIDTH_SHARDED,
+    ),
+]
 
 DRAM_INTERLEAVED_SHAPES = [
     ((32, 32)),
@@ -251,6 +268,47 @@ def test_unary_op_l1(
     if op in [log, ceil, floor, rsqrt, logical_not] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes for float32")
 
+    run_op_test(
+        device,
+        shape,
+        max_grid,
+        dtype,
+        op,
+        num_inputs=1,
+        buffer_type=ttnn.BufferType.L1,
+        graph_capture=graph_capture,
+        memory_layout=memory_layout,
+        ttnn_dtype=ttnn_dtype,
+    )
+
+
+@pytest.mark.parametrize(
+    "shape, max_grid, memory_layout",
+    _MINIMAL_SHARDED_SHAPE_GRID_LAYOUTS,
+    ids=[
+        f"shape_{shape}_grid_{grid}_{layout.name}"
+        for shape, grid, layout in _MINIMAL_SHARDED_SHAPE_GRID_LAYOUTS
+    ],
+)
+@pytest.mark.parametrize(
+    "dtype, ttnn_dtype",
+    [
+        (torch.bfloat16, None),
+    ],
+    ids=["bf16"],
+)
+@pytest.mark.parametrize(
+    "op",
+    [
+        erf,
+        erfc,
+        sign,
+    ],
+)
+@pytest.mark.parametrize("graph_capture", [True, False])
+def test_unary_op_l1_minimal(
+    device, shape, max_grid, memory_layout, dtype, ttnn_dtype, op, graph_capture
+):
     run_op_test(
         device,
         shape,

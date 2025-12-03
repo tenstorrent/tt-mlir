@@ -1296,6 +1296,32 @@ def TTKernel_BitwiseNotTileOp : TTKernel_SFPUOp<"bitwise_not_tile", [TTKernel_Un
     }];
 }
 
+def TTKernel_SignTileInitOp : TTKernel_InitOp<"sign_tile_init"> {
+    let summary = "Init function for sign_tile operation. Refer to documentation for any init function.";
+    let description = [{
+      Must be run before sign_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_SignTileOp : TTKernel_SFPUOp<"sign_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Sign operation";
+    let description = [{
+      Performs element-wise computation of sign on each element of a tile
+      in DST register at index tile_index. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call. This call is blocking and is only
+      available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$tile_index);
+    let assemblyFormat = [{ `(` $tile_index `)` attr-dict `:` functional-type(operands, results) }];
+}
+
 def TTKernel_LogicalNotUnaryTileInitOp : TTKernel_InitOp<"logical_not_unary_tile_init"> {
     let summary = "Init function for logical_not_unary_tile(_int32) operation. Refer to documentation for any init function.";
     let description = [{
@@ -1766,6 +1792,64 @@ def TTKernel_GeluTileOp : TTKernel_SFPUOp<"gelu_tile", [TTKernel_UnaryOpTrait]> 
       Performs element-wise computation of GELU on each element of a tile
       in DST register at index tile_index. The DST register buffer must be in
       acquired state via *tile_regs_acquire* call. This call is blocking and is only
+      available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$tile_index);
+
+    let assemblyFormat = [{
+      `(` $tile_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_ErfTileInitOp : TTKernel_InitOp<"erf_tile_init"> {
+    let summary = "Short init function which configures compute unit for execution of erf_tile.";
+    let description = [{
+      Must be run before erf_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_ErfTileOp : TTKernel_SFPUOp<"erf_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Erf operation";
+    let description = [{
+      Performs element-wise computation of error function (erf) on each element of a tile
+      in DST register at index tile_index. The DST register buffer must be in
+      acquired state via *acquire_dst* call. This call is blocking and is only
+      available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$tile_index);
+
+    let assemblyFormat = [{
+      `(` $tile_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_ErfcTileInitOp : TTKernel_InitOp<"erfc_tile_init"> {
+    let summary = "Short init function which configures compute unit for execution of erfc_tile.";
+    let description = [{
+      Must be run before erfc_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_ErfcTileOp : TTKernel_SFPUOp<"erfc_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Erfc operation";
+    let description = [{
+      Performs element-wise computation of complementary error function (erfc) on each element of a tile
+      in DST register at index tile_index. The DST register buffer must be in
+      acquired state via *acquire_dst* call. This call is blocking and is only
       available on the compute engine.
     }];
 
