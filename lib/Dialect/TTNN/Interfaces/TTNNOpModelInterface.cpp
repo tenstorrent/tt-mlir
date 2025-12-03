@@ -1069,10 +1069,16 @@ ScatterOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   ttcore::GridAttr deviceGrid =
       ttcore::lookupDevice(getOperation()).getWorkerGrid();
 
+  std::optional<ttcore::ReduceTypeAttr> reduceType = std::nullopt;
+  if (getScatterReduceType() != ttcore::ReduceType::Invalid) {
+    reduceType =
+        ttcore::ReduceTypeAttr::get(getContext(), getScatterReduceType());
+  }
+
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<ScatterOp>::getOpConstraints, *this, deviceGrid,
       inputShape, inputs[0], indexShape, inputs[1], sourceShape, inputs[2],
-      getDim(), opConfig.outputLayout);
+      getDim(), opConfig.outputLayout, reduceType);
 }
 
 llvm::Expected<size_t>
@@ -1089,10 +1095,16 @@ ScatterOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
     return check.takeError();
   }
 
+  std::optional<ttcore::ReduceTypeAttr> reduceType = std::nullopt;
+  if (getScatterReduceType() != ttcore::ReduceType::Invalid) {
+    reduceType =
+        ttcore::ReduceTypeAttr::get(getContext(), getScatterReduceType());
+  }
+
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<ScatterOp>::getOpRuntime, *this, inputShape, inputs[0],
       indexShape, inputs[1], sourceShape, inputs[2], getDim(),
-      opConfig.outputLayout);
+      opConfig.outputLayout, reduceType);
 }
 
 //===----------------------------------------------------------------------===//
