@@ -703,6 +703,21 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @tanh_tile_init
+    func.func @tanh_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "tanh_tile_init"()
+      "ttkernel.tanh_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @tanh_tile
+    func.func @tanh_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "tanh_tile"(%[[DST_INDEX]])
+      "ttkernel.tanh_tile"(%dst_index) : (i32) -> ()
+      return
+    }
     // CHECK-LABEL: func @sqrt_tile_init
     func.func @sqrt_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: emitc.call_opaque "sqrt_tile_init"()
