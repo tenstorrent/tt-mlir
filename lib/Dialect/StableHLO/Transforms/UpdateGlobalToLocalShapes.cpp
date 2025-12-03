@@ -192,12 +192,6 @@ static FailureOr<mlir::OperationState> createNewOperationState(
 
             return mlir::success();
           })
-          .Case<mlir::stablehlo::ScatterOp>([&](auto scatterOp) {
-            // TODO: (@ddilbazTT) Implement updating attribute dictionary
-            // for stablehlo.scatter op when needed.
-            // Do we even need it?
-            return mlir::success();
-          })
           .Default([](mlir::Operation *op) { return mlir::success(); });
 
   if (failed(updatedAttributeResult)) {
