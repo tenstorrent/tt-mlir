@@ -4203,6 +4203,14 @@ class TTIRBuilder(Builder):
             result,
             loc=old_op.location,
         )
+
+        if not self._disable_golden_check:
+            # Create a zero-initialized golden tensor for empty ops.
+            shape = list(result.shape)
+            dtype = self._get_torch_dtype_from_type(result.element_type)
+            golden_output = torch.zeros(shape, dtype=dtype)
+            self._set_golden_tensor(new_op, golden_output)
+
         return new_op
 
     ############### ttir.SigmoidOp ###############
@@ -9543,7 +9551,10 @@ class TTIRBuilder(Builder):
 
     @staticmethod
     def from_module(
-        ctx: Context, mlir_text: str, golden_inputs: List[torch.tensor] = None
+        ctx: Context,
+        mlir_text: str,
+        golden_inputs: List[torch.tensor] = None,
+        positive_only: bool = False,
     ) -> Tuple(Module, TTIRBuilder):
         def _convert_to_mlir_value(obj):
             if hasattr(obj, "operation") and hasattr(obj.operation, "results"):
@@ -9593,6 +9604,9 @@ class TTIRBuilder(Builder):
                         golden_input = torch.randn(1, dtype=dtype).squeeze()
                     else:
                         golden_input = torch.randn(*shape, dtype=dtype)
+                    # Apply abs() if positive_only is requested
+                    if positive_only:
+                        golden_input = torch.abs(golden_input)
                     golden_inputs.append(golden_input)
 
             with InsertionPoint(new_module.body):

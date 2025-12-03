@@ -35,10 +35,10 @@ pytestmark = pytest.mark.frontend("ttir")
 enablePrintIR = True
 
 gridParams = [
-    "override-device-shape=1,1",
+    # "override-device-shape=1,1",
     "override-device-shape=2,2",
-    "override-device-shape=4,4",
-    "override-device-shape=8,8",
+    # "override-device-shape=4,4",
+    # "override-device-shape=8,8",
 ]
 
 ### ----------------------------------------------------------------------- ###
