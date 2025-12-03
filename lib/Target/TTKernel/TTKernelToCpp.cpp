@@ -78,6 +78,9 @@ public:
                                         "compute_kernel_api/tile_move_copy.h",
                                         /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(
+          loc, "compute_kernel_api/eltwise_unary/activations.h",
+          /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(
           loc, "compute_kernel_api/eltwise_unary/eltwise_unary.h",
           /*isStandard=*/false);
       // TODO (kmitrovic) exp.h is an ExpOp-specific include. Every op has one,
