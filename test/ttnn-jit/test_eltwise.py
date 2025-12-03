@@ -679,7 +679,7 @@ def test_interop_jit_to_ttnn_unary_l1(
     )
 
     # jit path
-    compiled_op = ttnn_jit.jit(debug=True, max_grid=max_grid)(jit_op)
+    compiled_op = ttnn_jit.jit(debug=True)(jit_op)
     jit_output = compiled_op(input_tensor)
     interop_result = ttnn_unary_op(jit_output)
 
@@ -726,8 +726,8 @@ def test_interop_two_jit_to_ttnn_binary_l1(
     )
 
     # interop path
-    compiled_op1 = ttnn_jit.jit(debug=True, max_grid=max_grid)(jit_op1)
-    compiled_op2 = ttnn_jit.jit(debug=True, max_grid=max_grid)(jit_op2)
+    compiled_op1 = ttnn_jit.jit(debug=True)(jit_op1)
+    compiled_op2 = ttnn_jit.jit(debug=True)(jit_op2)
     jit_output1 = compiled_op1(input1)
     jit_output2 = compiled_op2(input2)
     interop_result = ttnn_binary_op(jit_output1, jit_output2)
@@ -774,7 +774,7 @@ def test_interop_jit_and_ttnn_to_binary_l1(
     )
 
     # interop path
-    compiled_op = ttnn_jit.jit(debug=True, max_grid=max_grid)(jit_op)
+    compiled_op = ttnn_jit.jit(debug=True)(jit_op)
     jit_output = compiled_op(input_tensor)
     interop_result = ttnn_binary_op(jit_output, ttnn_tensor)
 
@@ -810,7 +810,7 @@ def test_interop_jit_to_ttnn_unary_dram(device, shape, dtype, jit_op, ttnn_unary
     input_tensor = create_dram_tensor(device, shape, dtype)
 
     # Interop path
-    compiled_op = ttnn_jit.jit(debug=True, max_grid=max_grid)(jit_op)
+    compiled_op = ttnn_jit.jit(debug=True)(jit_op)
     jit_output = compiled_op(input_tensor)
     interop_result = ttnn_unary_op(jit_output)
 
@@ -851,8 +851,8 @@ def test_interop_two_jit_to_ttnn_binary_dram(
     input2 = create_dram_tensor(device, shape, dtype)
 
     # Interop path
-    compiled_op1 = ttnn_jit.jit(debug=True, max_grid=max_grid)(jit_op1)
-    compiled_op2 = ttnn_jit.jit(debug=True, max_grid=max_grid)(jit_op2)
+    compiled_op1 = ttnn_jit.jit(debug=True)(jit_op1)
+    compiled_op2 = ttnn_jit.jit(debug=True)(jit_op2)
     jit_output1 = compiled_op1(input1)
     jit_output2 = compiled_op2(input2)
     interop_result = ttnn_binary_op(jit_output1, jit_output2)
@@ -893,7 +893,7 @@ def test_interop_jit_and_ttnn_to_binary_dram(
     ttnn_tensor = create_dram_tensor(device, shape, dtype)
 
     # Interop path
-    compiled_op = ttnn_jit.jit(debug=True, max_grid=max_grid)(jit_op)
+    compiled_op = ttnn_jit.jit(debug=True)(jit_op)
     jit_output = compiled_op(input_tensor)
     interop_result = ttnn_binary_op(jit_output, ttnn_tensor)
 

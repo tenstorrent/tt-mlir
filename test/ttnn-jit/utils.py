@@ -203,7 +203,6 @@ def run_op_test(
 
     op_jit = ttnn_jit.jit(
         debug=True,
-        max_grid=max_grid,
         enable_cache=enable_cache,
         graph_capture=graph_capture,
     )(op)

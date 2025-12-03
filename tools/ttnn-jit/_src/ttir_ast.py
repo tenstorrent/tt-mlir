@@ -45,7 +45,6 @@ class TTIRCompiler(ast.NodeVisitor):
         self.func_entry = None
         self.symbol_tables = []
         self.tensor_args = kwargs.get("_tensor_args", {})
-        self.max_grid = kwargs.get("_max_grid")
         self._fn_map = discover_dialect_ops("ttnn")
         self.supported_nodes = self.common_nodes
 
@@ -122,7 +121,7 @@ class TTIRCompiler(ast.NodeVisitor):
             if name in self.tensor_args:
                 tensor_arg = self.tensor_args[name]
                 shape = list(tensor_arg.shape)
-                layout = create_tensor_layout(self.ctx, tensor_arg, self.max_grid)
+                layout = create_tensor_layout(self.ctx, tensor_arg)
                 dtype = self._mlir_dtype_from_ttnn_dtype(tensor_arg.dtype)
                 tensor_type = RankedTensorType.get(shape, dtype, layout)
                 input_types.append(tensor_type)
