@@ -790,7 +790,7 @@ index 0000000..30a5cf9
 +
 +#endif
 diff --git a/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc b/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc
-index ab93067..5aadb83 100644
+index ab93067..283d6ad 100644
 --- a/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc
 +++ b/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc
 @@ -303,6 +303,37 @@ OpShardingRuleAttr createOpShardingRule(Operation* op,
@@ -844,14 +844,18 @@ index ab93067..5aadb83 100644
          // TODO(b/327191011): output unregistered op stats instead.
          static llvm::once_flag onceFlag;
          emitOpWarningOnce(
-@@ -1093,6 +1130,12 @@ OpShardingRuleAttr createOpShardingRule(Operation* op,
+@@ -1093,6 +1130,16 @@ OpShardingRuleAttr createOpShardingRule(Operation* op,
              return builder.build();
            })
        .Case<stablehlo::ScatterOp>([](stablehlo::ScatterOp scatter) {
 +        // Check if the scatter op implements the ShardingRuleOpInterface.
 +        if (auto shardingRuleOp =
-+            llvm::dyn_cast<ShardingRuleOpInterface>(scatter.getOperation())) {
-+          return shardingRuleOp.getShardingRule();
++              llvm::dyn_cast<ShardingRuleOpInterface>(scatter.getOperation())) {
++          // Try to get custom rule - if it returns non-null, use it.
++          if (auto customRule = shardingRuleOp.getShardingRule()) {
++            return customRule;
++          }
++          // If custom rule returns null, fall through to default.
 +        }
 +
          OpShardingRuleBuilder builder(scatter);
