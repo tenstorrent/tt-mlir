@@ -706,6 +706,31 @@ getSDPAProgramConfig(
   return sdpaConfig;
 }
 
+//TODO(abogdanovic): Add getScatterReductionType to Conversion.cpp    
+::ttnn::operations::data_movement::scatter::ScatterReductionType
+getScatterReductionType(const ttcore::ReduceTypeAttr &reduceTypeAttr) {
+  using ::ttnn::operations::data_movement::scatter::ScatterReductionType;
+
+  switch (reduceTypeAttr.getValue()) {
+  case ttcore::ReduceType::Sum:
+    return ScatterReductionType::ADD;
+  case ttcore::ReduceType::Max:
+    return ScatterReductionType::AMAX;
+  case ttcore::ReduceType::Min:
+    return ScatterReductionType::AMIN;
+  case ttcore::ReduceType::Prod:
+    return ScatterReductionType::MULTIPLY;
+  case ttcore::ReduceType::Invalid:
+    return ScatterReductionType::INVALID;
+  case ttcore::ReduceType::Mean:
+  case ttcore::ReduceType::Std:
+  case ttcore::ReduceType::Var:
+    // These reduction types are not supported by scatter operation
+    throw std::runtime_error("Unsupported ReduceType for scatter operation");
+  }
+  throw std::runtime_error("Invalid ReduceType");
+}
+
 } // namespace conversion
 } // namespace mlir::tt::ttnn::op_model
 #endif // TTMLIR_ENABLE_OPMODEL
