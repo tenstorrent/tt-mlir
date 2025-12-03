@@ -687,8 +687,8 @@ TEST_F(OpModelTest, Scatter) {
   // DRAM layouts
   auto constraintsExp = OpModel<ScatterOp>::getOpConstraints(
       CreateWorkerGrid(), inputShape, inputLayoutDRAM, indexSourceShape,
-      indexLayoutDRAM, indexSourceShape, sourceLayoutDRAM, dim,
-      inputLayoutDRAM);
+      indexLayoutDRAM, indexSourceShape, sourceLayoutDRAM, dim, inputLayoutDRAM,
+      ttcore::ReduceTypeAttr::get(&context, ttcore::ReduceType::Invalid));
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
@@ -698,14 +698,16 @@ TEST_F(OpModelTest, Scatter) {
 
   auto runtimeExp = OpModel<ScatterOp>::getOpRuntime(
       inputShape, inputLayoutDRAM, indexSourceShape, indexLayoutDRAM,
-      indexSourceShape, sourceLayoutDRAM, dim, inputLayoutDRAM);
+      indexSourceShape, sourceLayoutDRAM, dim, inputLayoutDRAM,
+      ttcore::ReduceTypeAttr::get(&context, ttcore::ReduceType::Invalid));
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 
   // L1 layouts
   constraintsExp = OpModel<ScatterOp>::getOpConstraints(
       CreateWorkerGrid(), inputShape, inputLayoutL1, indexSourceShape,
-      indexLayoutL1, indexSourceShape, sourceLayoutL1, dim, inputLayoutL1);
+      indexLayoutL1, indexSourceShape, sourceLayoutL1, dim, inputLayoutL1,
+      ttcore::ReduceTypeAttr::get(&context, ttcore::ReduceType::Invalid));
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
@@ -715,7 +717,8 @@ TEST_F(OpModelTest, Scatter) {
 
   runtimeExp = OpModel<ScatterOp>::getOpRuntime(
       inputShape, inputLayoutL1, indexSourceShape, indexLayoutL1,
-      indexSourceShape, sourceLayoutL1, dim, inputLayoutL1);
+      indexSourceShape, sourceLayoutL1, dim, inputLayoutL1,
+      ttcore::ReduceTypeAttr::get(&context, ttcore::ReduceType::Invalid));
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 }

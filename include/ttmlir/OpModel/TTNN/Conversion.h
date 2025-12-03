@@ -139,6 +139,10 @@ getConv2dSliceConfig(
 std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
 getSDPAProgramConfig(
     const std::optional<SDPAProgramConfigAttr> &sdpaProgramConfig);
+    
+//TODO(abogdanovic): Add getScatterReductionType to Conversion.cpp    
+::ttnn::operations::data_movement::scatter::ScatterReductionType
+getScatterReductionType(const ttcore::ReduceTypeAttr &reduceTypeAttr);
 
 } // namespace conversion
 } // namespace mlir::tt::ttnn::op_model
