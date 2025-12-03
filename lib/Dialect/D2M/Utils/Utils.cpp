@@ -63,6 +63,22 @@ Type getRegionLargestDstElemType(Region &region) {
   return largestType;
 }
 
+RankedTensorType reblockTensor(RankedTensorType oldTensor,
+                               ArrayRef<int64_t> newGridShape) {
+  auto oldLayout = mlir::cast<ttcore::MetalLayoutAttr>(oldTensor.getEncoding());
+  if (oldLayout.getGridShape(oldTensor) == newGridShape) {
+    return oldTensor;
+  }
+
+  auto [newShape, reblockMap] =
+      mlir::tt::d2m::utils::calculateReblockMapForGrid(
+          oldTensor.getShape(), newGridShape, oldTensor.getContext());
+
+  ttcore::MetalLayoutAttr newLayout = oldLayout.withIndexAffineMap(reblockMap);
+  return RankedTensorType::get(newShape, oldTensor.getElementType(), newLayout);
+}
+
+
 std::optional<SmallVector<int64_t>>
 computeDimConstraints(mlir::ArrayRef<mlir::AffineMap> indexingMaps,
                       mlir::ArrayRef<mlir::SmallVector<int64_t>> shapes) {

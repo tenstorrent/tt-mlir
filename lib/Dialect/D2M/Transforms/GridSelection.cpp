@@ -341,20 +341,6 @@ static RankedTensorType tensorWithOptimalGrid(
   return RankedTensorType::get(deviceShape, newElementType, newLayout);
 }
 
-static RankedTensorType reblockTensor(RankedTensorType oldTensor,
-                                      ArrayRef<int64_t> newGridShape) {
-  auto oldLayout = mlir::cast<ttcore::MetalLayoutAttr>(oldTensor.getEncoding());
-  if (oldLayout.getGridShape(oldTensor) == newGridShape) {
-    return oldTensor;
-  }
-
-  auto [newShape, reblockMap] = ttmlir::utils::calculateReblockMapForGrid(
-      oldTensor.getShape(), newGridShape, oldTensor.getContext());
-
-  ttcore::MetalLayoutAttr newLayout = oldLayout.withIndexAffineMap(reblockMap);
-  return RankedTensorType::get(newShape, oldTensor.getElementType(), newLayout);
-}
-
 // Update a ToLayoutOp and its associated EmptyOp to use a specified grid by
 // recreating the MetalLayoutAttr with the given grid and proper dimension
 // alignments.
@@ -406,7 +392,7 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
 
   // Reblock it back to original shape to preserve IR correctness.
   auto viewOutputType =
-      reblockTensor(newTensorType, oldLayout.getGridShape(outputType));
+      utils::reblockTensor(newTensorType, oldLayout.getGridShape(outputType));
   auto view = builder.create<d2m::ViewLayoutOp>(
       toLayoutOp.getLoc(), viewOutputType, newToLayoutOp.getResult(0));
 
@@ -692,7 +678,7 @@ recreateGenericOp(d2m::GenericOp genericOp,
 
     auto tensorType =
         mlir::cast<mlir::RankedTensorType>(operand.get().getType());
-    auto viewTensorType = reblockTensor(tensorType, optimalGrid);
+    auto viewTensorType = utils::reblockTensor(tensorType, optimalGrid);
     auto view = builder.create<d2m::ViewLayoutOp>(
         genericOp.getLoc(), viewTensorType, operand.get());
     newOperands.push_back(view.getResult());

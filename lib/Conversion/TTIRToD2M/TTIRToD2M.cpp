@@ -122,24 +122,6 @@ protected:
     return mlir::RankedTensorType::get(shardedShape, elementType, metalLayout);
   }
 
-  static RankedTensorType reblockTensor(RankedTensorType oldTensor,
-                                        ArrayRef<int64_t> newGridShape) {
-    auto oldLayout =
-        mlir::cast<ttcore::MetalLayoutAttr>(oldTensor.getEncoding());
-    if (oldLayout.getGridShape(oldTensor) == newGridShape) {
-      return oldTensor;
-    }
-
-    auto [newShape, reblockMap] =
-        mlir::tt::d2m::utils::calculateReblockMapForGrid(
-            oldTensor.getShape(), newGridShape, oldTensor.getContext());
-
-    ttcore::MetalLayoutAttr newLayout =
-        oldLayout.withIndexAffineMap(reblockMap);
-    return RankedTensorType::get(newShape, oldTensor.getElementType(),
-                                 newLayout);
-  }
-
   // Create a ToLayout operation for a value using the provided layout
   // information with a simple 1x1 grid; actual grid optimization and proper
   // dimension alignments are computed later in the D2MGridSelection pass.
@@ -160,7 +142,7 @@ protected:
         // preserving original TTNN tensor shape. These views will be removed in
         // GridSelection by insertTTNNDRAMStreams().
         auto unitReblockingView = rewriter.create<d2m::ViewLayoutOp>(
-            value.getLoc(), reblockTensor(metalTensorType, {1, 1}),
+            value.getLoc(), d2m::utils::reblockTensor(metalTensorType, {1, 1}),
             metalCastOp->getResult(0));
         return unitReblockingView.getResult();
       }
