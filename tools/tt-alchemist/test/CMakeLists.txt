@@ -24,20 +24,11 @@ target_compile_options(test_python_runner_simple
 target_include_directories(test_python_runner_simple
   PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../csrc/python_runner
-  SYSTEM PRIVATE
-    ${TTMETAL_INCLUDE_DIRS}
-    ${pybind11_INCLUDE_DIRS}
 )
 
 target_link_libraries(test_python_runner_simple
   PRIVATE
     tt-alchemist-python-runner
-    pybind11::embed
-    Python3::Python
-    ${TTMETAL_LIBRARY_DIR}/libfmtd.so
-    ${TTMETAL_LIBRARY_DIR}/libtt_stl.so
-    ${TTMETAL_LIBRARY_DIR}/libtt_metal.so
-    ${TTMETAL_LIBRARY_DIR}/_ttnncpp.so
 )
 
 # Pass test directory path to the executable
@@ -50,7 +41,12 @@ target_compile_definitions(test_python_runner_simple
 set_target_properties(test_python_runner_simple PROPERTIES
   BUILD_WITH_INSTALL_RPATH FALSE
   BUILD_RPATH "${CMAKE_BINARY_DIR}/tools/tt-alchemist/csrc/python_runner:${TTMETAL_LIBRARY_DIR}"
-  INSTALL_RPATH "$ORIGIN:${TTMETAL_LIBRARY_DIR}"
+  INSTALL_RPATH "$ORIGIN:$ORIGIN/../lib:${TTMETAL_LIBRARY_DIR}"
+)
+
+install(TARGETS test_python_runner_simple
+  RUNTIME DESTINATION tools/tt-alchemist/test
+  OPTIONAL
 )
 
 # Full test with tensors (requires device)
@@ -74,20 +70,11 @@ target_compile_options(test_python_runner
 target_include_directories(test_python_runner
   PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../csrc/python_runner
-  SYSTEM PRIVATE
-    ${TTMETAL_INCLUDE_DIRS}
-    ${pybind11_INCLUDE_DIRS}
 )
 
 target_link_libraries(test_python_runner
   PRIVATE
     tt-alchemist-python-runner
-    pybind11::embed
-    Python3::Python
-    ${TTMETAL_LIBRARY_DIR}/libtt_metal.so
-    ${TTMETAL_LIBRARY_DIR}/_ttnncpp.so
-    ${TTMETAL_LIBRARY_DIR}/libtt_stl.so
-    ${TTMETAL_LIBRARY_DIR}/libfmtd.so
 )
 
 # Path to tt-metal source directory
@@ -106,5 +93,18 @@ target_compile_definitions(test_python_runner
 set_target_properties(test_python_runner PROPERTIES
   BUILD_WITH_INSTALL_RPATH FALSE
   BUILD_RPATH "${CMAKE_BINARY_DIR}/tools/tt-alchemist/csrc/python_runner:${TTMETAL_LIBRARY_DIR}"
-  INSTALL_RPATH "$ORIGIN:${TTMETAL_LIBRARY_DIR}"
+  INSTALL_RPATH "$ORIGIN:$ORIGIN/../lib:${TTMETAL_LIBRARY_DIR}"
+)
+
+install(TARGETS test_python_runner
+  RUNTIME DESTINATION tools/tt-alchemist/test
+  OPTIONAL
+)
+
+# Install Python test modules needed by the C++ tests
+install(FILES
+  ${CMAKE_CURRENT_SOURCE_DIR}/simple_test_model.py
+  ${CMAKE_CURRENT_SOURCE_DIR}/test_model.py
+  DESTINATION tools/tt-alchemist/test
+  OPTIONAL
 )

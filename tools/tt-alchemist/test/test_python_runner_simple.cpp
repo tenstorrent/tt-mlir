@@ -14,7 +14,7 @@ int main() {
   tt::alchemist::PythonModelRunner runner;
   std::cout << "[C++] Created PythonModelRunner" << std::endl;
 
-  runner.addToPath(TEST_DIR_PATH);
+  runner.addToSysPath(TEST_DIR_PATH);
   std::cout << "[C++] Added " << TEST_DIR_PATH << " to Python path"
             << std::endl;
 

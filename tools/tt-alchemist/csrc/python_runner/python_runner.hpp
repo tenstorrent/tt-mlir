@@ -32,7 +32,7 @@ public:
   ~PythonModelRunner() = default;
 
   /// Add a directory to Python's sys.path for module imports.
-  void addToPath(const std::string &path);
+  void addToSysPath(const std::string &path);
 
   /// Load a Python module containing the model.
   void loadModule(const std::string &moduleName,

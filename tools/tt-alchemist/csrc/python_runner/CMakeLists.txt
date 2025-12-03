@@ -31,7 +31,7 @@ target_compile_options(${PYTHON_RUNNER_LIBRARY_NAME}
 target_include_directories(${PYTHON_RUNNER_LIBRARY_NAME}
   PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}  # For python_runner.hpp
-  SYSTEM PRIVATE
+  SYSTEM PUBLIC
     ${pybind11_INCLUDE_DIRS}
     ${TTMETAL_INCLUDE_DIRS}
 )
@@ -40,18 +40,19 @@ target_include_directories(${PYTHON_RUNNER_LIBRARY_NAME}
 find_package(Python3 COMPONENTS Development REQUIRED)
 
 target_link_libraries(${PYTHON_RUNNER_LIBRARY_NAME}
-  PRIVATE
+  PUBLIC
     pybind11::embed
     Python3::Python
     ${TTMETAL_LIBRARY_DIR}/libtt_metal.so
     ${TTMETAL_LIBRARY_DIR}/_ttnncpp.so
     ${TTMETAL_LIBRARY_DIR}/libtt_stl.so
-    ${TTMETAL_LIBRARY_DIR}/libfmtd.so
+    ${TTMETAL_LIBRARY_DIR}/libfmt$<IF:$<CONFIG:Debug>,d,>.so
 )
 
 set_target_properties(${PYTHON_RUNNER_LIBRARY_NAME} PROPERTIES
-  BUILD_WITH_INSTALL_RPATH TRUE
+  BUILD_RPATH "$ORIGIN"
   INSTALL_RPATH "$ORIGIN"
+  BUILD_WITH_INSTALL_RPATH FALSE
 )
 
 install(FILES $<TARGET_FILE:${PYTHON_RUNNER_LIBRARY_NAME}>

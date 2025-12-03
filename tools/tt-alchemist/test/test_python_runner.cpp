@@ -26,9 +26,9 @@ int main() {
   std::cout << "[C++] Created PythonModelRunner" << std::endl;
 
   // Add paths to Python sys.path for ttnn and test modules
-  runner.addToPath(TEST_DIR_PATH);
-  runner.addToPath(TTNN_PYTHON_PATH);
-  runner.addToPath(TTMETAL_BUILD_LIB_PATH);
+  runner.addToSysPath(TEST_DIR_PATH);
+  runner.addToSysPath(TTNN_PYTHON_PATH);
+  runner.addToSysPath(TTMETAL_BUILD_LIB_PATH);
 
   runner.loadModule("test_model", "forward");
   std::cout << "[C++] Loaded test_model module" << std::endl;

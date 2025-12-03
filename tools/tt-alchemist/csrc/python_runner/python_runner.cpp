@@ -20,7 +20,7 @@ PythonModelRunner::PythonModelRunner() {
   }
 }
 
-void PythonModelRunner::addToPath(const std::string &path) {
+void PythonModelRunner::addToSysPath(const std::string &path) {
   py::gil_scoped_acquire acquire;
   py::module_::import("sys").attr("path").cast<py::list>().append(path);
 }
