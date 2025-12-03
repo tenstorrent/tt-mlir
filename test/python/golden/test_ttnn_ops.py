@@ -58,9 +58,6 @@ def test_clamp_tensor(shapes: List[Shape], request, device):
     )
 
 
-@pytest.mark.skip(
-    reason="Segfault, see https://github.com/tenstorrent/tt-mlir/issues/5789"
-)
 @pytest.mark.parametrize(
     "shapes", [[(10, 64, 32), (32, 128), (1,)]], ids=shapes_list_str
 )
@@ -221,9 +218,6 @@ def test_matmul(
     )
 
 
-@pytest.mark.skip(
-    reason="Segfault, see https://github.com/tenstorrent/tt-mlir/issues/5789"
-)
 @pytest.mark.parametrize(
     "shapes",
     [

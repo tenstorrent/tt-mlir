@@ -13,7 +13,7 @@ module {
   func.func @linear_with_implicit_broadcast(%arg0: tensor<2x34x1024xf32>, %arg1: tensor<1024x1024xf32> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %bias: tensor<1024xf32>) -> tensor<2x34x1024xf32> {
     // CHECK-LABEL: func.func @linear_with_implicit_broadcast
     // CHECK: %[[BFP8_WEIGHT:.*]] = ttcore.load_cached({{.*}}, [%arg1]) : {{.*}} -> tensor<{{.*}}bfp_bf8{{.*}}>
-    // CHECK: "ttnn.matmul"(%arg0, %[[BFP8_WEIGHT]])
+    // CHECK: "ttnn.linear"(%arg0, %[[BFP8_WEIGHT]], %arg2)
     %1 = "ttir.linear"(%arg0, %arg1, %bias) : (tensor<2x34x1024xf32>, tensor<1024x1024xf32>, tensor<1024xf32>) -> tensor<2x34x1024xf32>
     return %1 : tensor<2x34x1024xf32>
   }

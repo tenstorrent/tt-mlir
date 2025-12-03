@@ -12,6 +12,7 @@ add_subdirectory(Conversion)
 add_subdirectory(Dialect)
 add_subdirectory(Target)
 add_subdirectory(Scheduler)
+add_subdirectory(Support)
 add_subdirectory(Transforms)
 
 get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
@@ -24,6 +25,7 @@ set(TTMLIR_LIBS
   ${conversion_libs}
   ${extension_libs}
   ${translation_libs}
+  TTMLIRSupport
   MLIRPass
   MLIRSupport
   MLIRRegisterAllPasses
@@ -90,9 +92,11 @@ target_include_directories(TTMLIRCompilerStatic
 #
 add_library(TTMLIRCompiler SHARED RegisterAll.cpp)
 
-
-set_target_properties(TTMLIRCompiler PROPERTIES INSTALL_RPATH "$ORIGIN")
-set_target_properties(TTMLIRCompiler PROPERTIES BUILD_WITH_INSTALL_RPATH TRUE)
+set_target_properties(TTMLIRCompiler PROPERTIES
+  BUILD_RPATH "$ORIGIN:$ORIGIN/../../third_party/tt-metal/src/tt-metal/build/lib"
+  INSTALL_RPATH "$ORIGIN"
+  BUILD_WITH_INSTALL_RPATH FALSE
+)
 
 # Forces the inclusion of all symbols in the shared object
 # This is necessary because the JIT will not be able to find the symbols otherwise

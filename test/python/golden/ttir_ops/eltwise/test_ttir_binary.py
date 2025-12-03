@@ -256,13 +256,17 @@ binary_bitwise_dtypes = [
 @pytest.mark.parametrize(
     "dtype", binary_bitwise_dtypes, ids=["i32", "u32", "u16", "u8"]
 )
-@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 @pytest.mark.parametrize("test_fn", binary_bitwise_ops)
 def test_bitwise_binary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
     if target == "emitpy" and (dtype == torch.uint16 or dtype == torch.uint32):
         pytest.xfail("uint16 and uint32 aren't supported in ttnn pybinds")
+    elif target == "ttmetal":
+        pytest.xfail(
+            "ttmetal does not support bitwise ops for integers due to tilize/untilize."
+        )
     compile_and_execute_ttir(
         test_fn,
         inputs_shapes=[shape, shape],

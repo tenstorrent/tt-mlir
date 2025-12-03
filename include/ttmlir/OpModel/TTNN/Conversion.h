@@ -136,6 +136,10 @@ std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>
 getConv2dSliceConfig(
     const std::optional<Conv2dSliceConfigAttr> &conv2dSliceConfig);
 
+std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
+getSDPAProgramConfig(
+    const std::optional<SDPAProgramConfigAttr> &sdpaProgramConfig);
+
 } // namespace conversion
 } // namespace mlir::tt::ttnn::op_model
 

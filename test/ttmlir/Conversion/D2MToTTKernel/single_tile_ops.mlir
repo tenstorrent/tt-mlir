@@ -473,6 +473,30 @@ module {
     return
   }
 
+  func.func @test_tanh_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                               %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>) {
+    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
+        ins(%in0 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
+    ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>):
+      %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
+      %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
+      linalg.generic {indexing_maps = [#map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0 : memref<1x1x!ttype_f32, #l1_>) outs(%cb1 : memref<1x1x!ttype_f32, #l1_>) {
+      ^bb0(%arg0: !ttype_f32, %arg1: !ttype_f32):
+        // CHECK-NOT: d2m.tile_tanh
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.copy_tile_init(%[[CB0:.+]]) :
+        // CHECK-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
+        // CHECK: ttkernel.tanh_tile_init
+        // CHECK: ttkernel.tanh_tile
+        %0 = "d2m.tile_tanh"(%arg0) : (!ttype_f32) -> !ttype_f32
+        // CHECK: ttkernel.pack_tile
+        linalg.yield %0 : !ttype_f32
+      }
+    }
+    return
+  }
+
   func.func @test_negative_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
                                     %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
@@ -610,6 +634,78 @@ module {
         // CHECK: ttkernel.gelu_tile_init
         // CHECK: ttkernel.gelu_tile
         %0 = "d2m.tile_gelu"(%arg0) : (!ttype_f32) -> !ttype_f32
+        // CHECK: ttkernel.pack_tile
+        linalg.yield %0 : !ttype_f32
+      }
+    }
+    return
+  }
+
+  func.func @test_erf_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>) {
+    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
+        ins(%in0 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
+    ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>):
+      %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
+      %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
+      linalg.generic {indexing_maps = [#map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0 : memref<1x1x!ttype_f32, #l1_>) outs(%cb1 : memref<1x1x!ttype_f32, #l1_>) {
+      ^bb0(%arg0: !ttype_f32, %arg1: !ttype_f32):
+        // CHECK-NOT: d2m.tile_erf
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.copy_tile_init(%[[CB0:.+]]) :
+        // CHECK-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
+        // CHECK: ttkernel.erf_tile_init
+        // CHECK: ttkernel.erf_tile
+        %0 = "d2m.tile_erf"(%arg0) : (!ttype_f32) -> !ttype_f32
+        // CHECK: ttkernel.pack_tile
+        linalg.yield %0 : !ttype_f32
+      }
+    }
+    return
+  }
+
+  func.func @test_erfc_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                 %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>) {
+    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
+        ins(%in0 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
+    ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>):
+      %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
+      %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
+      linalg.generic {indexing_maps = [#map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0 : memref<1x1x!ttype_f32, #l1_>) outs(%cb1 : memref<1x1x!ttype_f32, #l1_>) {
+      ^bb0(%arg0: !ttype_f32, %arg1: !ttype_f32):
+        // CHECK-NOT: d2m.tile_erfc
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.copy_tile_init(%[[CB0:.+]]) :
+        // CHECK-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
+        // CHECK: ttkernel.erfc_tile_init
+        // CHECK: ttkernel.erfc_tile
+        %0 = "d2m.tile_erfc"(%arg0) : (!ttype_f32) -> !ttype_f32
+        // CHECK: ttkernel.pack_tile
+        linalg.yield %0 : !ttype_f32
+      }
+    }
+    return
+  }
+
+  func.func @test_sign_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                 %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>) {
+    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
+        ins(%in0 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
+    ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>):
+      %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
+      %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
+      linalg.generic {indexing_maps = [#map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0 : memref<1x1x!ttype_f32, #l1_>) outs(%cb1 : memref<1x1x!ttype_f32, #l1_>) {
+      ^bb0(%arg0: !ttype_f32, %arg1: !ttype_f32):
+        // CHECK-NOT: d2m.tile_sign
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.copy_tile_init(%[[CB0:.+]]) :
+        // CHECK-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
+        // CHECK: ttkernel.sign_tile_init
+        // CHECK: ttkernel.sign_tile
+        %0 = "d2m.tile_sign"(%arg0) : (!ttype_f32) -> !ttype_f32
         // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
@@ -1242,6 +1338,84 @@ module {
         // CHECK: ttkernel.relu_tile_init
         // CHECK: ttkernel.relu_tile_int32
         %0 = "d2m.tile_relu"(%arg0) : (!ttype_si32) -> !ttype_si32
+        // CHECK: ttkernel.pack_tile
+        linalg.yield %0 : !ttype_si32
+      }
+    }
+    return
+  }
+
+  func.func @test_bitwise_and_lowering(%in0: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                       %in1: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                       %out: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>) {
+    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
+        ins(%in0, %in1 : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>, memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
+    ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_si32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_si32, #l1_>>, %arg2_cb: !d2m.cb<memref<1x1x!ttype_si32, #l1_>>):
+      %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_si32, #l1_>> -> memref<1x1x!ttype_si32, #l1_>
+      %cb1 = d2m.wait %arg1_cb : !d2m.cb<memref<1x1x!ttype_si32, #l1_>> -> memref<1x1x!ttype_si32, #l1_>
+      %cb2 = d2m.reserve %arg2_cb : !d2m.cb<memref<1x1x!ttype_si32, #l1_>> -> memref<1x1x!ttype_si32, #l1_>
+      linalg.generic {indexing_maps = [#map_, #map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0, %cb1 : memref<1x1x!ttype_si32, #l1_>, memref<1x1x!ttype_si32, #l1_>) outs(%cb2 : memref<1x1x!ttype_si32, #l1_>) {
+      ^bb0(%arg0: !ttype_si32, %arg1: !ttype_si32, %arg2: !ttype_si32):
+        // CHECK-NOT: d2m.tile_bitwise_and
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.copy_tile_init(%[[CB0:.+]]) :
+        // CHECK-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
+        // CHECK: ttkernel.binary_bitwise_tile_init
+        // CHECK: ttkernel.bitwise_and_binary_tile
+        %0 = "d2m.tile_bitwise_and"(%arg0, %arg1) : (!ttype_si32, !ttype_si32) -> !ttype_si32
+        // CHECK: ttkernel.pack_tile
+        linalg.yield %0 : !ttype_si32
+      }
+    }
+    return
+  }
+
+  func.func @test_bitwise_or_lowering(%in0: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                       %in1: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                       %out: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>) {
+    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
+        ins(%in0, %in1 : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>, memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
+    ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_si32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_si32, #l1_>>, %arg2_cb: !d2m.cb<memref<1x1x!ttype_si32, #l1_>>):
+      %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_si32, #l1_>> -> memref<1x1x!ttype_si32, #l1_>
+      %cb1 = d2m.wait %arg1_cb : !d2m.cb<memref<1x1x!ttype_si32, #l1_>> -> memref<1x1x!ttype_si32, #l1_>
+      %cb2 = d2m.reserve %arg2_cb : !d2m.cb<memref<1x1x!ttype_si32, #l1_>> -> memref<1x1x!ttype_si32, #l1_>
+      linalg.generic {indexing_maps = [#map_, #map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0, %cb1 : memref<1x1x!ttype_si32, #l1_>, memref<1x1x!ttype_si32, #l1_>) outs(%cb2 : memref<1x1x!ttype_si32, #l1_>) {
+      ^bb0(%arg0: !ttype_si32, %arg1: !ttype_si32, %arg2: !ttype_si32):
+        // CHECK-NOT: d2m.tile_bitwise_or
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.copy_tile_init(%[[CB0:.+]]) :
+        // CHECK-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
+        // CHECK: ttkernel.binary_bitwise_tile_init
+        // CHECK: ttkernel.bitwise_or_binary_tile
+        %0 = "d2m.tile_bitwise_or"(%arg0, %arg1) : (!ttype_si32, !ttype_si32) -> !ttype_si32
+        // CHECK: ttkernel.pack_tile
+        linalg.yield %0 : !ttype_si32
+      }
+    }
+    return
+  }
+
+  func.func @test_bitwise_xor_lowering(%in0: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                       %in1: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                       %out: memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>) {
+    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
+        ins(%in0, %in1 : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>, memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_si32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
+    ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_si32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_si32, #l1_>>, %arg2_cb: !d2m.cb<memref<1x1x!ttype_si32, #l1_>>):
+      %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_si32, #l1_>> -> memref<1x1x!ttype_si32, #l1_>
+      %cb1 = d2m.wait %arg1_cb : !d2m.cb<memref<1x1x!ttype_si32, #l1_>> -> memref<1x1x!ttype_si32, #l1_>
+      %cb2 = d2m.reserve %arg2_cb : !d2m.cb<memref<1x1x!ttype_si32, #l1_>> -> memref<1x1x!ttype_si32, #l1_>
+      linalg.generic {indexing_maps = [#map_, #map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0, %cb1 : memref<1x1x!ttype_si32, #l1_>, memref<1x1x!ttype_si32, #l1_>) outs(%cb2 : memref<1x1x!ttype_si32, #l1_>) {
+      ^bb0(%arg0: !ttype_si32, %arg1: !ttype_si32, %arg2: !ttype_si32):
+        // CHECK-NOT: d2m.tile_bitwise_xor
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.copy_tile_init(%[[CB0:.+]]) :
+        // CHECK-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
+        // CHECK: ttkernel.binary_bitwise_tile_init
+        // CHECK: ttkernel.bitwise_xor_binary_tile
+        %0 = "d2m.tile_bitwise_xor"(%arg0, %arg1) : (!ttype_si32, !ttype_si32) -> !ttype_si32
         // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_si32
       }

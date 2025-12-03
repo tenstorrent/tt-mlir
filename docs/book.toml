@@ -1,6 +1,5 @@
 [book]
 authors = ["Nicholas Smith"]
 language = "en"
-multilingual = false
 src = "src"
 title = "tt-mlir documentation"

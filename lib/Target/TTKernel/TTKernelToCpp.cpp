@@ -111,6 +111,9 @@ public:
           loc, "compute_kernel_api/eltwise_unary/gelu.h",
           /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(
+          loc, "compute_kernel_api/eltwise_unary/erf_erfc.h",
+          /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(
           loc, "compute_kernel_api/eltwise_unary/logical_not_noti.h",
           /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(
@@ -121,6 +124,9 @@ public:
           /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(
           loc, "compute_kernel_api/eltwise_unary/typecast.h",
+          /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(
+          loc, "compute_kernel_api/binary_bitwise_sfpu.h",
           /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(
           loc, "compute_kernel_api/eltwise_unary/bitwise_not.h",
