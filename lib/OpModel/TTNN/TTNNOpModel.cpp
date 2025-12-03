@@ -4398,8 +4398,9 @@ llvm::Expected<OpConstraints> OpModel<PagedUpdateCacheOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> cacheShape,
     TTNNLayoutAttr cacheLayout, llvm::ArrayRef<int64_t> inputShape,
     TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> updateIndexShape,
-    TTNNLayoutAttr updateIndexLayout, llvm::ArrayRef<int64_t> pageTableShape,
-    TTNNLayoutAttr pageTableLayout, bool shareCache,
+    TTNNLayoutAttr updateIndexLayout,
+    std::optional<llvm::ArrayRef<int64_t>> pageTableShape,
+    std::optional<TTNNLayoutAttr> pageTableLayout, bool shareCache,
     TTNNLayoutAttr outputLayout) {
 
 #ifdef TTMLIR_ENABLE_OPMODEL
@@ -4426,12 +4427,15 @@ llvm::Expected<OpConstraints> OpModel<PagedUpdateCacheOp>::getOpConstraints(
   }
   ::ttnn::TensorSpec updateIndexSpec = updateIndexSpecExp.get();
 
-  auto pageTableSpecExp =
-      detail::convertToTensorSpec(device, pageTableShape, pageTableLayout);
-  if (!pageTableSpecExp) {
-    return pageTableSpecExp.takeError();
+  std::optional<::ttnn::TensorSpec> pageTableSpec;
+  if (pageTableShape && pageTableLayout) {
+    auto pageTableSpecExp =
+        detail::convertToTensorSpec(device, *pageTableShape, *pageTableLayout);
+    if (!pageTableSpecExp) {
+      return pageTableSpecExp.takeError();
+    }
+    pageTableSpec = pageTableSpecExp.get();
   }
-  ::ttnn::TensorSpec pageTableSpec = pageTableSpecExp.get();
 
   std::vector<uint32_t> emptyUpdateIndex = {};
   auto pagedUpdateCacheOpQuery = [=]() {
@@ -4453,8 +4457,9 @@ llvm::Expected<size_t> OpModel<PagedUpdateCacheOp>::getOpRuntime(
     llvm::ArrayRef<int64_t> cacheShape, TTNNLayoutAttr cacheLayout,
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> updateIndexShape, TTNNLayoutAttr updateIndexLayout,
-    llvm::ArrayRef<int64_t> pageTableShape, TTNNLayoutAttr pageTableLayout,
-    bool shareCache, TTNNLayoutAttr outputLayout) {
+    std::optional<llvm::ArrayRef<int64_t>> pageTableShape,
+    std::optional<TTNNLayoutAttr> pageTableLayout, bool shareCache,
+    TTNNLayoutAttr outputLayout) {
 
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -4480,12 +4485,15 @@ llvm::Expected<size_t> OpModel<PagedUpdateCacheOp>::getOpRuntime(
   }
   ::ttnn::TensorSpec updateIndexSpec = updateIndexSpecExp.get();
 
-  auto pageTableSpecExp =
-      detail::convertToTensorSpec(device, pageTableShape, pageTableLayout);
-  if (!pageTableSpecExp) {
-    return pageTableSpecExp.takeError();
+  std::optional<::ttnn::TensorSpec> pageTableSpec;
+  if (pageTableShape && pageTableLayout) {
+    auto pageTableSpecExp =
+        detail::convertToTensorSpec(device, *pageTableShape, *pageTableLayout);
+    if (!pageTableSpecExp) {
+      return pageTableSpecExp.takeError();
+    }
+    pageTableSpec = pageTableSpecExp.get();
   }
-  ::ttnn::TensorSpec pageTableSpec = pageTableSpecExp.get();
 
   std::vector<uint32_t> emptyUpdateIndex = {};
   auto pagedUpdateCacheOpQuery = [=]() {

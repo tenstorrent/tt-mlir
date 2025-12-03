@@ -4644,6 +4644,46 @@ TEST_F(OpModelTest, PagedUpdateCacheOp) {
   }
 }
 
+TEST_F(OpModelTest, PagedUpdateCacheOpWithoutPageTable) {
+  // Test PagedUpdateCacheOp without optional page_table tensor
+  // Cache shape: [batch, num_heads, block_size, head_dim]
+  // Input shape: [1, batch, num_heads (padded to 32), head_dim]
+  // The batch dimension must match: input[1] == cache[0]
+  const llvm::SmallVector<int64_t> cacheShape = {8, 4, 32, 256};
+  const llvm::SmallVector<int64_t> inputShape = {1, 8, 12, 256};
+  const llvm::SmallVector<int64_t> updateIndexShape = {8};
+  const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
+
+  const TTNNLayoutAttr cacheLayout = CreateTiledLayout(
+      cacheShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr inputLayout = CreateTiledLayout(
+      inputShape, BufferType::L1, TensorMemoryLayout::HeightSharded);
+  const TTNNLayoutAttr updateIndexLayout = CreateRowMajorLayoutInt32(
+      updateIndexShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  auto constraintsExp = OpModel<PagedUpdateCacheOp>::getOpConstraints(
+      workerGrid, cacheShape, cacheLayout, inputShape, inputLayout,
+      updateIndexShape, updateIndexLayout, std::nullopt, std::nullopt, false,
+      cacheLayout);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+
+  if (constraintsExp) {
+    OpConstraints &opCstr = constraintsExp.get();
+    EXPECT_GT(opCstr.cbL1PeakSize, 0);
+    EXPECT_GE(opCstr.tensorL1PeakSize, 0);
+    EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+    EXPECT_GE(opCstr.peakL1MemorySize, 0);
+  }
+
+  auto runtimeExp = OpModel<PagedUpdateCacheOp>::getOpRuntime(
+      cacheShape, cacheLayout, inputShape, inputLayout, updateIndexShape,
+      updateIndexLayout, std::nullopt, std::nullopt, false, cacheLayout);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  }
+}
+
 TEST_F(OpModelTest, PagedFillCacheOp) {
   // Test basic PagedUpdateCacheOp with DRAM cache, input, update_index, and
   // page_table tensors

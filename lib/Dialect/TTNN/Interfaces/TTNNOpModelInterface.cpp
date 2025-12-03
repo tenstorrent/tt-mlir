@@ -3005,7 +3005,8 @@ UpdateCacheOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<op_model::OpConstraints>
 PagedUpdateCacheOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                      const OpConfig &opConfig) {
-  assert(inputs.size() == 4);
+  assert(inputs.size() >= 3 && inputs.size() <= 4 &&
+         "PagedUpdateCacheOp must have 3 or 4 inputs");
   llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
   if (!check) {
     return check.takeError();
@@ -3016,27 +3017,39 @@ PagedUpdateCacheOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   auto cacheShape = getCache().getType().getShape();
   auto inputShape = getInput().getType().getShape();
   auto updateIndexShape = getUpdateIndex().getType().getShape();
-  auto pageTableShape = getPageTable().getType().getShape();
+  std::optional<llvm::ArrayRef<int64_t>> pageTableShape;
+  std::optional<TTNNLayoutAttr> pageTableLayout;
+  if (getPageTable()) {
+    pageTableShape = getPageTable().getType().getShape();
+    pageTableLayout = inputs[3];
+  }
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<PagedUpdateCacheOp>::getOpConstraints, *this,
       deviceGrid, cacheShape, inputs[0], inputShape, inputs[1],
-      updateIndexShape, inputs[2], pageTableShape, inputs[3], getShareCache(),
-      opConfig.outputLayout);
+      updateIndexShape, inputs[2], pageTableShape, pageTableLayout,
+      getShareCache(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
 PagedUpdateCacheOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                                  const OpConfig &opConfig) {
+  assert(inputs.size() >= 3 && inputs.size() <= 4 &&
+         "PagedUpdateCacheOp must have 3 or 4 inputs");
   auto cacheShape = getCache().getType().getShape();
   auto inputShape = getInput().getType().getShape();
   auto updateIndexShape = getUpdateIndex().getType().getShape();
-  auto pageTableShape = getPageTable().getType().getShape();
+  std::optional<llvm::ArrayRef<int64_t>> pageTableShape;
+  std::optional<TTNNLayoutAttr> pageTableLayout;
+  if (getPageTable()) {
+    pageTableShape = getPageTable().getType().getShape();
+    pageTableLayout = inputs[3];
+  }
 
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<PagedUpdateCacheOp>::getOpRuntime, *this, cacheShape,
       inputs[0], inputShape, inputs[1], updateIndexShape, inputs[2],
-      pageTableShape, inputs[3], getShareCache(), opConfig.outputLayout);
+      pageTableShape, pageTableLayout, getShareCache(), opConfig.outputLayout);
 }
 
 llvm::Expected<op_model::OpConstraints>
