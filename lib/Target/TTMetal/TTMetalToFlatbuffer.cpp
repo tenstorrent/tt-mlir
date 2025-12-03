@@ -439,7 +439,7 @@ memrefTypeToCircularBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
       device.getWorkerGrid().getMapping(), memrefGridShape.size());
 
   std::vector<target::Dim2dRange> coreRangeSet =
-      toFlatbuffer(cache, SmallVector<int64_t>({8, 8}), extendedMapping);
+      toFlatbuffer(cache, device.getWorkerGrid().getShape(), extendedMapping);
 
   uint64_t pageSize = device.getMemrefCBPageSizeBytes(memref);
   uint64_t shardSize =
