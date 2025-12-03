@@ -22,6 +22,7 @@
 #include "llvm/ADT/SmallVector.h"
 
 #include <cstdint>
+#include <llvm/ADT/APFloat.h>
 
 namespace mlir::tt {
 //===----------------------------------------------------------------------===//
@@ -287,12 +288,14 @@ static Value createReductionOpChain(Value input, RankedTensorType resultType,
 // Helper function to create DenseElementsAttr with a specific value based on
 // element type.
 static Attribute createDenseElementsAttr(RankedTensorType resultType,
-                                         int64_t value) {
+                                         double value) {
   auto elementType = resultType.getElementType();
-  if (isa<FloatType>(elementType)) {
-    return DenseElementsAttr::get(
-        resultType,
-        APFloat(cast<FloatType>(elementType).getFloatSemantics(), value));
+  if (auto floatType = dyn_cast<FloatType>(elementType)) {
+    APFloat apFloat(value);
+    bool lostInfo;
+    apFloat.convert(floatType.getFloatSemantics(), APFloat::rmNearestTiesToEven,
+                    &lostInfo);
+    return DenseElementsAttr::get(resultType, apFloat);
   }
   if (isa<IntegerType>(elementType)) {
     return DenseElementsAttr::get(
@@ -2036,7 +2039,8 @@ public:
         this->getTypeConverter()->convertType(op.getResult().getType()));
     assert(resultType && "Result type must be a ranked tensor type.");
 
-    Attribute fillAttr = createDenseElementsAttr(resultType, FillValue);
+    Attribute fillAttr =
+        createDenseElementsAttr(resultType, static_cast<double>(FillValue));
     if (!fillAttr) {
       return rewriter.notifyMatchFailure(
           op, "Unsupported element type for constant fill");
@@ -2064,10 +2068,8 @@ public:
         this->getTypeConverter()->convertType(op.getResult().getType()));
     assert(resultType && "Result type must be a ranked tensor type.");
 
-    Attribute fillValue = adaptor.getFillValue();
-    Type elementType = resultType.getElementType();
-
     // Extract numeric value as double.
+    Attribute fillValue = adaptor.getFillValue();
     double value;
     if (auto floatAttr = dyn_cast<FloatAttr>(fillValue)) {
       value = floatAttr.getValue().convertToDouble();
@@ -2078,21 +2080,14 @@ public:
     }
 
     // Create DenseElementsAttr with appropriate element type.
-    DenseElementsAttr fillAttr;
-    if (auto floatType = dyn_cast<FloatType>(elementType)) {
-      APFloat apFloat(value);
-      bool lostInfo;
-      apFloat.convert(floatType.getFloatSemantics(),
-                      APFloat::rmNearestTiesToEven, &lostInfo);
-      fillAttr = DenseElementsAttr::get(resultType, apFloat);
-    } else if (auto intType = dyn_cast<IntegerType>(elementType)) {
-      fillAttr = DenseElementsAttr::get(
-          resultType, APInt(intType.getWidth(), static_cast<int64_t>(value)));
-    } else {
-      return rewriter.notifyMatchFailure(op, "Unsupported element type");
+    Attribute fillAttr = createDenseElementsAttr(resultType, value);
+    if (!fillAttr) {
+      return rewriter.notifyMatchFailure(
+          op, "Unsupported element type for full fill");
     }
 
-    rewriter.replaceOpWithNewOp<arith::ConstantOp>(op, resultType, fillAttr);
+    rewriter.replaceOpWithNewOp<arith::ConstantOp>(
+        op, resultType, cast<DenseElementsAttr>(fillAttr));
     return success();
   }
 };
@@ -2134,7 +2129,8 @@ public:
       numElements *= inputType.getShape()[dim];
     }
 
-    Attribute divisorAttr = createDenseElementsAttr(resultType, numElements);
+    Attribute divisorAttr =
+        createDenseElementsAttr(resultType, static_cast<double>(numElements));
     if (!divisorAttr) {
       return rewriter.notifyMatchFailure(op,
                                          "Unsupported element type for mean");
