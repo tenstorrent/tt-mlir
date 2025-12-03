@@ -989,8 +989,8 @@ public:
   permuteInnerDims(ttir::PermuteOp op, typename ConcreteOp::Adaptor adaptor,
                    mlir::ConversionPatternRewriter &rewriter) const {
     auto permutation = op.getPermutation();
-    assert(permutation.size() == 2 && permutation[0] == 1 &&
-           permutation[1] == 0 && "Only 2D transpose supported");
+    // assert(permutation.size() == 2 && permutation[0] == 1 &&
+    //        permutation[1] == 0 && "Only 2D transpose supported");
 
     mlir::MLIRContext *ctx = rewriter.getContext();
     mlir::Location loc = op->getLoc();
