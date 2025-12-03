@@ -25,7 +25,9 @@
 #include "mlir/IR/ValueRange.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Casting.h"
+
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNCREATEINPUTGENERATORS
 #define GEN_PASS_DEF_TTNNLOADINPUTTENSORS
@@ -67,24 +69,35 @@ public:
     return endOp;
   }
 
-  // Check if a value has a conv2d user with deallocate_activation=true that is
-  // not the last user, which would cause a use-after-free.
+  // Check if a value has a conv2d/conv_transpose2d user with
+  // deallocate_activation=true that is not the last user, which would cause a
+  // use-after-free.
   LogicalResult checkConv2dUseAfterFree(Value value, Operation *lastOp) {
     for (Operation *user : value.getUsers()) {
       if (user == lastOp) {
         continue;
       }
 
-      if (auto conv2dOp = mlir::dyn_cast<ttnn::Conv2dOp>(user)) {
-        if (conv2dOp.getInput() == value && conv2dOp.getConv2dConfigAttr() &&
-            conv2dOp.getConv2dConfigAttr().getDeallocateActivation() &&
-            conv2dOp.getConv2dConfigAttr()
-                .getDeallocateActivation()
-                .getValue()) {
-          conv2dOp->emitError("use-after-free detected: conv2d op deallocates "
-                              "its input but is not the last user");
-          return failure();
-        }
+      auto result =
+          llvm::TypeSwitch<Operation *, LogicalResult>(user)
+              .Case<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp>([&](auto convOp) {
+                if (convOp.getInput() == value &&
+                    convOp.getConv2dConfigAttr() &&
+                    convOp.getConv2dConfigAttr().getDeallocateActivation() &&
+                    convOp.getConv2dConfigAttr()
+                        .getDeallocateActivation()
+                        .getValue()) {
+                  convOp->emitError(
+                      "use-after-free detected: op deallocates its input but "
+                      "is not the last user");
+                  return failure();
+                }
+                return success();
+              })
+              .Default([](Operation *) { return success(); });
+
+      if (failed(result)) {
+        return failure();
       }
     }
     return success();
@@ -116,16 +129,22 @@ public:
         return failure();
       }
 
-      // Don't deallocate the activation after conv2d op if
+      // Don't deallocate the activation after conv2d/conv_transpose2d op if
       // 'deallocate_activation' in Conv2dConfig is set to true.
-      if (auto conv2dOp = mlir::dyn_cast<ttnn::Conv2dOp>(lastOp)) {
-        if (conv2dOp.getInput() == value && conv2dOp.getConv2dConfigAttr() &&
-            conv2dOp.getConv2dConfigAttr().getDeallocateActivation() &&
-            conv2dOp.getConv2dConfigAttr()
-                .getDeallocateActivation()
-                .getValue()) {
-          return success();
-        }
+      bool skipDeallocation =
+          llvm::TypeSwitch<Operation *, bool>(lastOp)
+              .Case<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp>([&](auto convOp) {
+                return convOp.getInput() == value &&
+                       convOp.getConv2dConfigAttr() &&
+                       convOp.getConv2dConfigAttr().getDeallocateActivation() &&
+                       convOp.getConv2dConfigAttr()
+                           .getDeallocateActivation()
+                           .getValue();
+              })
+              .Default([](Operation *) { return false; });
+
+      if (skipDeallocation) {
+        return success();
       }
     }
 
