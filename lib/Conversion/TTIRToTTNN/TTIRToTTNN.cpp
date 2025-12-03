@@ -1327,39 +1327,31 @@ public:
     Value reshapedWeight = reshapeWeightForConv3d(adaptor.getWeight(), weightTy,
                                                   rewriter, op.getLoc());
 
+    // Convert weight to TILE layout (required by Conv3d)
+    Value tiledWeight = convertToLayout(reshapedWeight, ttnn::Layout::Tile,
+                                        rewriter, op.getLoc());
+
     // Reshape bias tensor: (1, 1, 1, 1, O) → (1, O)
     Value reshapedBias = adaptor.getBias();
+    Value tiledBias = nullptr;
     if (reshapedBias) {
       reshapedBias = reshapeBiasForConv3d(
           reshapedBias, mlir::cast<RankedTensorType>(reshapedBias.getType()),
           rewriter, op.getLoc());
+
+      // Convert bias to TILE layout (required by Conv3d)
+      tiledBias = convertToLayout(reshapedBias, ttnn::Layout::Tile,
+                                   rewriter, op.getLoc());
     }
 
-    // Convert input to ROW_MAJOR layout (required by TTNN Conv3d API)
-    auto inputLayoutAttr =
-        mlir::cast<ttnn::TTNNLayoutAttr>(inputTy.getEncoding());
-    auto rowMajorLayoutAttr =
-        ttnn::LayoutAttr::get(op.getContext(), ttnn::Layout::RowMajor);
-    RankedTensorType rowMajorInputType =
-        ttnn::utils::RankedTensorTypeFactory::create(inputTy,
-                                                     ttnn::Layout::RowMajor);
+    // Convert input to ROW_MAJOR layout (required by Conv3d)
+    Value rowMajorInput = convertToLayout(adaptor.getInput(),
+                                         ttnn::Layout::RowMajor,
+                                         rewriter, op.getLoc());
 
-    ttnn::BufferTypeAttr inputBufferTypeAttr = ttnn::BufferTypeAttr::get(
-        op.getContext(), inputLayoutAttr.getBufferType());
-    ttnn::MemoryConfigAttr inputMemoryConfigAttr = ttnn::MemoryConfigAttr::get(
-        op.getContext(), inputLayoutAttr.getMemLayout(), inputBufferTypeAttr,
-        std::nullopt);
-    auto inputDtype =
-        rewriter.getAttr<ttcore::DataTypeAttr>(inputLayoutAttr.getDataType());
-
-    Value rowMajorInput = rewriter.create<ttnn::ToLayoutOp>(
-        op.getLoc(), rowMajorInputType, adaptor.getInput(), rowMajorLayoutAttr,
-        inputDtype, inputMemoryConfigAttr);
-
-    // Create TTNN Conv3dOp with ROW_MAJOR input and TILE weight/bias
     rewriter.replaceOpWithNewOp<ttnn::Conv3dOp>(
         op, getTypeConverter()->convertType(op.getResult().getType()),
-        rowMajorInput, reshapedWeight, reshapedBias, device, inChannelsAttr,
+        rowMajorInput, tiledWeight, tiledBias, device, inChannelsAttr,
         outChannelsAttr, batchSizeAttr, inputDepthAttr, inputHeightAttr,
         inputWidthAttr, kernelSizeAttr, *strideAttr, *paddingAttr,
         paddingModeAttr, groupsAttr, outputDtypeAttr,
@@ -1437,6 +1429,35 @@ private:
     return rewriter.create<ttnn::ReshapeOp>(
         loc, outputType, bias, rewriter.getI32ArrayAttr(newShapeI32),
         /*memory_config=*/nullptr);
+  }
+
+  // Converts a tensor to the specified layout (e.g., TILE or ROW_MAJOR)
+  Value convertToLayout(Value input, ttnn::Layout targetLayout,
+                        PatternRewriter &rewriter, Location loc) const {
+    auto inputType = mlir::cast<RankedTensorType>(input.getType());
+    auto inputLayoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding());
+
+    // Early return if already in target layout
+    if (inputLayoutAttr.getLayout() == targetLayout) {
+      return input;
+    }
+
+    // Cache context to avoid repeated calls
+    auto *context = rewriter.getContext();
+
+    RankedTensorType targetType =
+        ttnn::utils::RankedTensorTypeFactory::create(inputType, targetLayout);
+
+    ttnn::MemoryConfigAttr memConfigAttr = ttnn::MemoryConfigAttr::get(
+        context, inputLayoutAttr.getMemLayout(),
+        ttnn::BufferTypeAttr::get(context, inputLayoutAttr.getBufferType()),
+        std::nullopt);
+
+    return rewriter.create<ttnn::ToLayoutOp>(
+        loc, targetType, input,
+        ttnn::LayoutAttr::get(context, targetLayout),
+        rewriter.getAttr<ttcore::DataTypeAttr>(inputLayoutAttr.getDataType()),
+        memConfigAttr);
   }
 };
 } // namespace
