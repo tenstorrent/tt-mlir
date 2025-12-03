@@ -4,9 +4,11 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/UniformTypeRewriter.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -14,6 +16,7 @@
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/Support/Casting.h"
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNLAYOUT
@@ -108,22 +111,23 @@ static bool shouldMeshShardOpForceSystemMemory(mlir::Operation *srcOp) {
 // To layout pass
 //===----------------------------------------------------------------------===//
 
-// Converts tensor types to have a ttnn layout attribute with default values
+// Converts tensor types to have a ttnn layout attribute with provided encoding
+// parameters.
 //
-// Example: tensor<15x10x32xf32> -> tensor<15x10x32xf32, ttnn_layout<...>>
-// where ttnn_layout<...> is constructed with default values
-// Dram, MemoryLayout::Interleaved, Grid<1x1>
 namespace {
 class TTNNLayoutTensorTypeConverter : public TypeConverter {
 public:
-  TTNNLayoutTensorTypeConverter(MLIRContext *ctx, ttcore::GridAttr deviceGrid) {
+  TTNNLayoutTensorTypeConverter(MLIRContext *ctx, ttcore::GridAttr deviceGrid,
+                                BufferType defaultBufferType, bool isTiled) {
     addConversion([](Type type) { return type; });
-    addConversion([ctx, deviceGrid](RankedTensorType type) -> Type {
+    addConversion([ctx, deviceGrid, defaultBufferType,
+                   isTiled](RankedTensorType type) -> Type {
       if (isa_and_nonnull<TTNNLayoutAttr>(type.getEncoding())) {
         return type;
       }
 
-      TTNNLayoutAttr newLayout = createLayoutAttr(ctx, deviceGrid, type);
+      TTNNLayoutAttr newLayout =
+          createLayoutAttr(ctx, deviceGrid, type, defaultBufferType, isTiled);
       return RankedTensorType::get(type.getShape(), type.getElementType(),
                                    newLayout);
     });
@@ -631,15 +635,25 @@ public:
   using impl::TTNNLayoutBase<TTNNLayout>::TTNNLayoutBase;
 
   void runOnOperation() final {
+    // If we're in a CPU module, we simply want all tensors to be in the system
+    // memory.
+    auto *const parentOp = getOperation()->getParentOp();
+    if (llvm::isa_and_present<ttcore::CPUModuleOp>(parentOp)) {
+      performCPUModuleTransformations();
+      return;
+    }
+
     // First add default attribute to all tensors. Example:
     // Given tensor type: tensor<15x10x32xf32>
     // we construct a ttnn layout attribute with default values:
-    // ttnn_layout<affine_map, grid<1x1>, memref<<15x64>xf32, #system_memory>
+    // ttnn_layout<affine_map, grid<1x1>,
+    // memref<1x1x!ttcore.tile<32x32>,#dram>, <interleaved>>
     {
       ttcore::DeviceAttr device = ttcore::lookupDevice(getOperation());
       assert(device && "Device not found");
       TTNNLayoutTensorTypeConverter typeDefaultConverter(
-          &getContext(), device.getWorkerGrid());
+          &getContext(), device.getWorkerGrid(), g_defaultMemorySpaceDevice,
+          /* isTiled */ true);
       RewritePatternSet patterns(&getContext());
       // Set the tensor layouts to have proper values
       patterns.add<ttir::UniformTypeRewriter>(typeDefaultConverter,
@@ -684,6 +698,21 @@ public:
     registry.insert<mlir::tt::ttnn::TTNNDialect>();
     registry.insert<mlir::tt::ttcore::TTCoreDialect>();
     registry.insert<mlir::func::FuncDialect>();
+  }
+
+private:
+  void performCPUModuleTransformations() {
+    TTNNLayoutTensorTypeConverter typeConverter(
+        &getContext(), ttcore::GridAttr::get(&getContext()),
+        BufferType::SystemMemory, /* isTiled */ false);
+
+    RewritePatternSet patterns(&getContext());
+    patterns.add<ttir::UniformTypeRewriter>(typeConverter, &getContext());
+
+    FrozenRewritePatternSet patternSet(std::move(patterns));
+    if (failed(applyPatternsGreedily(getOperation(), patternSet))) {
+      signalPassFailure();
+    }
   }
 };
 } // namespace

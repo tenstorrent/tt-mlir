@@ -6,6 +6,7 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
@@ -181,7 +182,8 @@ protected:
         rewriter.modifyOpInPlace(funcOp, [&]() { funcOp.setSymName("_main"); });
       }
 
-      if (funcOp.isPrivate() || ttmlir::utils::isConstEvalFunc(funcOp)) {
+      if (funcOp.isPrivate() || ttmlir::utils::isConstEvalFunc(funcOp) ||
+          funcOp->hasAttr(ttir::CPUHoistedFuncAttr::name)) {
         return mlir::WalkResult::skip();
       }
 
@@ -485,9 +487,9 @@ public:
     SmallVector<func::FuncOp, 1> targetFuncOpsInput;
     SmallVector<func::FuncOp, 1> targetFuncOpsResult;
     block->walk([&](func::FuncOp funcOp) {
-      // Skip function declarations (CPU-hoisted functions).
+      // Skip CPU-hoisted functions.
       //
-      if (funcOp.isDeclaration()) {
+      if (funcOp->hasAttr(ttir::CPUHoistedFuncAttr::name)) {
         return mlir::WalkResult::skip();
       }
 

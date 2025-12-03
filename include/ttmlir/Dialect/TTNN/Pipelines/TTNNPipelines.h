@@ -353,6 +353,14 @@ struct TTIRToTTNNBackendPipelineOptions
           "Enable verbose output with per-operation details in metrics."),
       llvm::cl::init(true)};
 
+  // Option to configure whether the ops in the CPUModule should be lowered
+  // to LLVM dialect, or left as is (TTIR (+ StableHLO)).
+  //
+  Option<bool> enableCPUModuleLowering{
+      *this, "enable-cpu-module-lowering",
+      llvm::cl::desc("Enable lowering the CPUModule ops to the LLVM dialect."),
+      llvm::cl::init(true)};
+
   // Option to provide a pointer to an already opened device. When provided,
   // the optimizer will use this device instead of opening a new one.
   // This allows frontends to pass in an active device without closing it.
@@ -449,6 +457,8 @@ struct TTIRToEmitCPipelineOptions : public TTIRToTTNNBackendPipelineOptions,
 //
 struct TTIRToEmitPyPipelineOptions : public TTIRToTTNNBackendPipelineOptions,
                                      public TTNNBackendToEmitPyPipelineOptions {
+
+  TTIRToEmitPyPipelineOptions() { enableCPUModuleLowering = false; }
 };
 
 //===----------------------------------------------------------------------===//
