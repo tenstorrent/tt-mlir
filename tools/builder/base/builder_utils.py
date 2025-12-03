@@ -36,6 +36,12 @@ from builder.ttnn.ttnn_builder import TTNNBuilder
 from builder.d2m.d2m_builder import D2MBuilder
 from builder.base.builder_runtime import *
 
+from ttrt.common.util import (
+    Logger,
+    FileManager,
+    EmitPyDylib,
+)
+
 
 # ----- Shared Helper Functions -----
 
@@ -211,6 +217,14 @@ def _compile_and_execute(
             bypass_ops=builder._bypass_ops,
             enable_intermediate_verification=export_golden_report,
         )
+
+    if target == "emitpy":
+        py_path = mlir_path + ".py"
+        # TODO: make this an actual logfile
+        logger = Logger("/dev/null")
+        fm = FileManager(logger)
+        dylib = EmitPyDylib(logger, fm, file_path=py_path)
+        golden_report = execute_emitted_py(dylib, goldens)
 
     if golden_report and export_golden_report:
         _save_golden_report(builder, golden_report, mlir_path + ".golden_report.json")
