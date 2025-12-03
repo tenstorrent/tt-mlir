@@ -1991,31 +1991,6 @@ def transpose_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor
     return torch.transpose(input_tensor, dim0, dim1)
 
 
-def sort_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
-    """
-    Golden function for sort operation with TTIR parameter names.
-
-    Parameters
-    ----------
-    input_tensor : GoldenMapTensor
-        Input tensor
-    **kwargs : dict
-        Keyword arguments including 'dim', 'descending', and 'stable'
-
-    Returns
-    -------
-    GoldenMapTensor
-        Sorted tensor (values only, indices are discarded)
-    """
-    dim = kwargs.get("dim", -1)
-    descending = kwargs.get("descending", False)
-    stable = kwargs.get("stable", False)
-    values, indices = torch.sort(
-        input_tensor, dim=dim, descending=descending, stable=stable
-    )
-    return values
-
-
 def concat_golden(input_tensors: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for concat operation.
@@ -3819,6 +3794,24 @@ def ttir_exp_golden(
     return torch.exp(input_tensor).to(output_dtype)
 
 
+def ttir_sort_golden(
+    input_tensor: GoldenMapTensor,
+    dim_attr: IntegerAttr,
+    descending_attr: BoolAttr,
+    stable_attr: BoolAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    dim = unpack_mlir_attr(dim_attr)
+    descending = unpack_mlir_attr(descending_attr)
+    stable = unpack_mlir_attr(stable_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    values, indices = torch.sort(
+        input_tensor, dim=dim, descending=descending, stable=stable
+    )
+    return values.to(output_dtype), indices.to(torch.int64)
+
+
 ################ StableHLO Op Golden Functions ###############
 
 
@@ -3909,7 +3902,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.ReduceAndOp: reduce_and_golden,
     ttir.ReduceOrOp: ttir_reduce_or_golden,
     # Tensor manipulation
-    ttir.SortOp: sort_golden,
+    ttir.SortOp: ttir_sort_golden,
     ttir.TransposeOp: transpose_golden,
     ttir.ConcatOp: ttir_concat_golden,
     ttir.RepeatOp: repeat_golden,
