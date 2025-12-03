@@ -108,6 +108,7 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
   SOURCES
     TTMLIRModule.cpp
     TTModule.cpp
+    TTIRModule.cpp
     D2MModule.cpp
     TTKernelModule.cpp
     TTNNModule.cpp
