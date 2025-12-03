@@ -36,11 +36,18 @@ from builder.ttnn.ttnn_builder import TTNNBuilder
 from builder.d2m.d2m_builder import D2MBuilder
 from builder.base.builder_runtime import *
 
-from ttrt.common.util import (
-    Logger,
-    FileManager,
-    EmitPyDylib,
-)
+
+class EmitPyDylib:
+    def __init__(self, file_path):
+        self.file_path = file_path if file_path != None else "<dylib-from-capsule>"
+        self.name = file_path
+
+        # temporary state value to check if test failed
+        self.test_result = "pass"
+
+    @staticmethod
+    def get_py_file_extension():
+        return ".py"
 
 
 # ----- Shared Helper Functions -----
@@ -218,13 +225,21 @@ def _compile_and_execute(
             enable_intermediate_verification=export_golden_report,
         )
 
-    if target == "emitpy":
+    elif target == "emitpy":
         py_path = mlir_path + ".py"
-        # TODO: make this an actual logfile
-        logger = Logger("/dev/null")
-        fm = FileManager(logger)
-        dylib = EmitPyDylib(logger, fm, file_path=py_path)
-        golden_report = execute_emitted_py(dylib, goldens)
+        dylib = EmitPyDylib(file_path=py_path)
+        golden_report = execute_emitted_py(
+            dylib=dylib,
+            goldens=goldens,
+            program_index="all",
+            pcc=pcc,
+            atol=atol,
+            rtol=rtol,
+            disable_golden=disable_golden,
+            device=device,
+            check_atol=check_atol,
+            check_rtol=check_rtol,
+        )
 
     if golden_report and export_golden_report:
         _save_golden_report(builder, golden_report, mlir_path + ".golden_report.json")
