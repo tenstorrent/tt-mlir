@@ -304,7 +304,7 @@ def D2M_EmptyOp : D2M_Op<"empty", [
 }
 
 def D2M_FullOp : D2M_Op<"full", [
-    MemoryEffects<[MemAlloc]>,
+    Pure,
     DeclareOpInterfaceMethods<BufferizableOpInterface, [
       "bufferizesToMemoryRead",
       "bufferizesToMemoryWrite",
