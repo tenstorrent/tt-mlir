@@ -45,6 +45,7 @@ def test_l1_interleaved_not_supported(device, use_graph_capture):
         output_tensor = op_jit(ttnn_tensor)
 
 
+@pytest.mark.parametrize("use_graph_capture", [True, False])
 def test_nd_sharded_not_supported(device):
 
     with pytest.raises(
@@ -72,6 +73,7 @@ def test_nd_sharded_not_supported(device):
         output_tensor = op_jit(batch_seq_sharded)
 
 
+@pytest.mark.parametrize("use_graph_capture", [True, False])
 def test_row_major_layout_not_supported(device):
 
     with pytest.raises(
