@@ -1745,6 +1745,65 @@ class TTIRBuilder(Builder):
 
         return lrs_module, lrs_builder
 
+    ############### ttir.SortOp ###############
+
+    @tag(ttir.SortOp)
+    def sort(
+        self,
+        in0: Operand,
+        dim: int = -1,
+        descending: bool = False,
+        stable: bool = False,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> Tuple[OpResult, OpResult]:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.sort)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        dim_attr = IntegerAttr.get(IntegerType.get_signed(32), dim)
+        descending_attr = BoolAttr.get(descending)
+        stable_attr = BoolAttr.get(stable)
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_values, golden_indices = op_golden_function(
+            input0, dim_attr, descending_attr, stable_attr, mlir_output_type
+        )
+        values = self._create_ranked_tensor_type(golden_values.shape, mlir_output_type)
+        indices = self._create_ranked_tensor_type(
+            golden_indices.shape, self._get_type_from_torch_dtype(torch.int64)
+        )
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            values,
+            indices,
+            in0,
+            dim=dim_attr,
+            descending=descending_attr,
+            stable=stable_attr,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op.values, golden_values)
+            self._set_golden_tensor(op.indices, golden_indices)
+
+        return op.values, op.indices
+
     ################ ttir.ReverseOp ###############
 
     @tag(ttir.ReverseOp)
