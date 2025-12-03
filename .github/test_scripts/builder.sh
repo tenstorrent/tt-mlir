@@ -26,34 +26,6 @@ pytest "$1" -m "$2" $PYTEST_ARGS -v --junit-xml=${TEST_REPORT_PATH%_*}_builder_$
 
 # Messy file management temporary until issue #5309 is resolved
 if [[ "$runttrt" == "1" ]]; then
-    if [ -d ttir-builder-artifacts/emitpy ]; then
-        touch concat_emitpy_results.json
-        # Create renamed copies of ttnn files so emitpy can find them for comparison
-        for file in ttir-builder-artifacts/emitpy/*; do
-            if [ -f "$file" ] && [[ "$file" == *.py ]]; then
-                # Get the basename of the .py file
-                basename_file=$(basename "$file")
-
-                # Create the corresponding TTNN filename by replacing "emitpy" with "ttnn" and ".py" with ".ttnn"
-                ttnn_basename=$(echo "$basename_file" | sed 's/emitpy/ttnn/' | sed 's/\.py$/.ttnn/')
-                ttnn_file="ttir-builder-artifacts/ttnn/$ttnn_basename"
-
-                # Check if the corresponding TTNN file exists
-                if [ -f "$ttnn_file" ]; then
-                    echo "Found matching TTNN file: $ttnn_file"
-                    FLATBUFFER=" --flatbuffer $ttnn_file "
-                else
-                    echo "No matching TTNN file found for $basename_file, running without flatbuffer comparison"
-                    FLATBUFFER=""
-                fi
-                ttrt emitpy $TTRT_ARGS $FLATBUFFER $file
-                jq -s add emitpy_results.json concat_emitpy_results.json > temp.json
-                mv temp.json concat_emitpy_results.json
-            fi
-        done
-        cp concat_emitpy_results.json ${TTRT_REPORT_PATH%_*}_ttir_${TTRT_REPORT_PATH##*_} || true
-        cp ttrt_report.xml ${TEST_REPORT_PATH%_*}_ttir_emitpy_${TEST_REPORT_PATH##*_} || true
-    fi
     if [ -d ttir-builder-artifacts/emitc ]; then
         touch concat_emitc_results.json
         export TT_METAL_LIB="${INSTALL_DIR}/lib"
