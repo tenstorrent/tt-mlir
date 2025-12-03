@@ -257,6 +257,7 @@ def D2M_GenericOp : D2M_Op<"generic",
       SmallVector<int64_t> getParticipatingLoopDims(int64_t operandIndex);
       SmallVector<int64_t> getNonParticipatingLoopDims(int64_t operandIndex);
       SmallVector<SmallVector<int64_t>> getOperandShardShapes(bool convertTileToScalar = false);
+      std::optional<SmallVector<int64_t>> computeGridDimConstraints(std::function<bool(ttcore::MetalLayoutAttr, bool)> operandFilterPredicate);
       unsigned getNumLoops();
       unsigned getNumDims();
       AffineMap getIndexingMap(int64_t operandIndex);
@@ -303,7 +304,7 @@ def D2M_EmptyOp : D2M_Op<"empty", [
 }
 
 def D2M_FullOp : D2M_Op<"full", [
-    MemoryEffects<[MemAlloc]>,
+    Pure,
     DeclareOpInterfaceMethods<BufferizableOpInterface, [
       "bufferizesToMemoryRead",
       "bufferizesToMemoryWrite",

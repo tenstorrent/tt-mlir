@@ -345,7 +345,7 @@ def unpack_mlir_attr(attr):
         return attr.value
     if isinstance(attr, BoolAttr):
         return attr.value
-    if isinstance(attr, (DenseI64ArrayAttr, DenseI32ArrayAttr)):
+    if isinstance(attr, (DenseI64ArrayAttr, DenseI32ArrayAttr, DenseBoolArrayAttr)):
         return list(attr)
     if isinstance(attr, ArrayAttr):
         return [unpack_mlir_attr(item) for item in attr]
@@ -1817,31 +1817,6 @@ def transpose_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor
     return torch.transpose(input_tensor, dim0, dim1)
 
 
-def sort_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
-    """
-    Golden function for sort operation with TTIR parameter names.
-
-    Parameters
-    ----------
-    input_tensor : GoldenMapTensor
-        Input tensor
-    **kwargs : dict
-        Keyword arguments including 'dim', 'descending', and 'stable'
-
-    Returns
-    -------
-    GoldenMapTensor
-        Sorted tensor (values only, indices are discarded)
-    """
-    dim = kwargs.get("dim", -1)
-    descending = kwargs.get("descending", False)
-    stable = kwargs.get("stable", False)
-    values, indices = torch.sort(
-        input_tensor, dim=dim, descending=descending, stable=stable
-    )
-    return values
-
-
 def concat_golden(input_tensors: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for concat operation.
@@ -3158,135 +3133,77 @@ def ttir_constant_golden(value: DenseElementsAttr) -> GoldenMapTensor:
 
 
 def ttir_convolution_golden(
-    input_tensor: GoldenMapTensor,
-    weight: GoldenMapTensor,
+    lhs: GoldenMapTensor,
+    rhs: GoldenMapTensor,
     bias: Optional[GoldenMapTensor],
     window_strides_attr: DenseI64ArrayAttr,
     padding_attr: DenseI64ArrayAttr,
     input_dilation_attr: DenseI64ArrayAttr,
     weight_dilation_attr: DenseI64ArrayAttr,
     window_reversal_attr: DenseBoolArrayAttr,
-    convolution_layout_attr: Attribute,
+    convolution_layout_attr: ConvolutionLayoutAttr,
     feature_group_count_attr: IntegerAttr,
     batch_group_count_attr: IntegerAttr,
     output_type_mlir: Type,
 ) -> GoldenMapTensor:
-    # Extract convolution-specific parameters
+    input_tensor = lhs.clone()
+    weight = rhs.clone()
     window_strides = unpack_mlir_attr(window_strides_attr)
     padding = unpack_mlir_attr(padding_attr)
     input_dilation = unpack_mlir_attr(input_dilation_attr)
     weight_dilation = unpack_mlir_attr(weight_dilation_attr)
+    window_reversal = unpack_mlir_attr(window_reversal_attr)
     feature_group_count = unpack_mlir_attr(feature_group_count_attr)
     batch_group_count = unpack_mlir_attr(batch_group_count_attr)
-    convolution_layout = None
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    convolution_layout = ttir.ir.ConvolutionLayoutAttr.maybe_downcast(
+        convolution_layout_attr
+    )
+    input_batch = convolution_layout.input_batch
+    input_feature = convolution_layout.input_feature
+    input_spatial_dimensions = convolution_layout.input_spatial_dimensions
+    output_batch = convolution_layout.output_batch
+    output_feature = convolution_layout.output_feature
+    output_spatial_dimensions = convolution_layout.output_spatial_dimensions
+    kernel_output_feature = convolution_layout.kernel_output_feature
+    kernel_input_feature = convolution_layout.kernel_input_feature
+    kernel_spatial_dimensions = convolution_layout.kernel_spatial_dimensions
 
-    # Note: For simplicity, we assume batch_group_count == 1 (not handling batch groups in golden)
-    if batch_group_count != 1:
-        raise ValueError(
-            f"Golden function does not support batch_group_count > 1, got {batch_group_count}"
-        )
+    # Current layout is defined by the positions
+    # We need to permute to NCHW: [batch, feature, spatial_0, spatial_1, ...]
+    current_layout = [None] * input_tensor.ndim
+    current_layout[input_batch] = 0  # batch goes to position 0
+    current_layout[input_feature] = 1  # feature goes to position 1
+    for i, spatial_dim in enumerate(input_spatial_dimensions):
+        current_layout[spatial_dim] = 2 + i  # spatial dims go to positions 2, 3, ...
 
-    # Handle layout transformation
-    # Parse convolution_layout to determine current tensor layout
-    # PyTorch expects input in NCHW format and weights in [O, I, H, W] format
-    # Helper function to parse ConvolutionLayoutAttr from string representation
-    # Since Python bindings for ConvolutionLayoutAttr don't exist, we parse the string
-    def parse_convolution_layout(layout_str):
-        """Parse ConvolutionLayoutAttr string into a dict of values.
+    # Check if we need to permute (i.e., if current_layout != [0, 1, 2, 3, ...])
+    if current_layout != list(range(input_tensor.ndim)):
+        # Create inverse permutation to go from current layout to NCHW
+        permutation = [current_layout.index(i) for i in range(input_tensor.ndim)]
+        input_tensor = input_tensor.permute(permutation)
 
-        Example input:
-        #ttir<convolution_layout input_batch = 0, input_feature = 1,
-               input_spatial_dimensions = 2x3, kernel_output_feature = 0, ...>
-        """
-        import re
+    # Similarly for output, we need to know how to permute back
+    # Output permutation: from NCHW back to output layout
+    output_permutation = [None] * (len(output_spatial_dimensions) + 2)
+    output_permutation[output_batch] = 0
+    output_permutation[output_feature] = 1
+    for i, spatial_dim in enumerate(output_spatial_dimensions):
+        output_permutation[spatial_dim] = 2 + i
 
-        layout_dict = {}
+    # Handle weight/kernel layout transformation
+    # PyTorch expects weights in [output_channels, input_channels, H, W] format
+    # Create layout for weight tensor: [output_feat, input_feat, spatial_0, spatial_1, ...]
+    weight_layout = [None] * weight.ndim
+    weight_layout[kernel_output_feature] = 0  # output feature goes to position 0
+    weight_layout[kernel_input_feature] = 1  # input feature goes to position 1
+    for i, spatial_dim in enumerate(kernel_spatial_dimensions):
+        weight_layout[spatial_dim] = 2 + i  # spatial dims go to positions 2, 3, ...
 
-        # Extract single integer values
-        # Use word boundary \b to match exact field names and avoid substring matches
-        for field in [
-            "input_batch",
-            "input_feature",
-            "kernel_output_feature",
-            "kernel_input_feature",
-            "output_batch",
-            "output_feature",
-        ]:
-            match = re.search(rf"\b{field}\s*=\s*(\d+)", layout_str)
-            if match:
-                layout_dict[field] = int(match.group(1))
-
-        # Extract dimension lists (e.g., "2x3" -> [2, 3])
-        for field in [
-            "input_spatial_dimensions",
-            "kernel_spatial_dimensions",
-            "output_spatial_dimensions",
-        ]:
-            match = re.search(rf"\b{field}\s*=\s*([\dx]+)", layout_str)
-            if match:
-                dims_str = match.group(1)
-                layout_dict[field] = [int(d) for d in dims_str.split("x")]
-
-        return layout_dict
-
-    if convolution_layout is not None:
-        # Parse the layout from its string representation
-        layout_str = str(convolution_layout)
-        layout_info = parse_convolution_layout(layout_str)
-
-        # Get the layout dimensions
-        input_batch_dim = layout_info["input_batch"]
-        input_feature_dim = layout_info["input_feature"]
-        input_spatial_dims = layout_info["input_spatial_dimensions"]
-
-        # Current layout is defined by the positions
-        # We need to permute to NCHW: [batch, feature, spatial_0, spatial_1, ...]
-        current_layout = [None] * input_tensor.ndim
-        current_layout[input_batch_dim] = 0  # batch goes to position 0
-        current_layout[input_feature_dim] = 1  # feature goes to position 1
-        for i, spatial_dim in enumerate(input_spatial_dims):
-            current_layout[spatial_dim] = (
-                2 + i
-            )  # spatial dims go to positions 2, 3, ...
-
-        # Check if we need to permute (i.e., if current_layout != [0, 1, 2, 3, ...])
-        if current_layout != list(range(input_tensor.ndim)):
-            # Create inverse permutation to go from current layout to NCHW
-            permutation = [current_layout.index(i) for i in range(input_tensor.ndim)]
-            input_tensor = input_tensor.permute(permutation)
-
-        # Similarly for output, we need to know how to permute back
-        output_batch_dim = layout_info["output_batch"]
-        output_feature_dim = layout_info["output_feature"]
-        output_spatial_dims = layout_info["output_spatial_dimensions"]
-
-        # Output permutation: from NCHW back to output layout
-        output_permutation = [None] * (len(output_spatial_dims) + 2)
-        output_permutation[output_batch_dim] = 0
-        output_permutation[output_feature_dim] = 1
-        for i, spatial_dim in enumerate(output_spatial_dims):
-            output_permutation[spatial_dim] = 2 + i
-
-        # Handle weight/kernel layout transformation
-        # PyTorch expects weights in [output_channels, input_channels, H, W] format
-        kernel_output_feature_dim = layout_info["kernel_output_feature"]
-        kernel_input_feature_dim = layout_info["kernel_input_feature"]
-        kernel_spatial_dims = layout_info["kernel_spatial_dimensions"]
-
-        # Create layout for weight tensor: [output_feat, input_feat, spatial_0, spatial_1, ...]
-        weight_layout = [None] * weight.ndim
-        weight_layout[
-            kernel_output_feature_dim
-        ] = 0  # output feature goes to position 0
-        weight_layout[kernel_input_feature_dim] = 1  # input feature goes to position 1
-        for i, spatial_dim in enumerate(kernel_spatial_dims):
-            weight_layout[spatial_dim] = 2 + i  # spatial dims go to positions 2, 3, ...
-
-        # Check if we need to permute weight
-        if weight_layout != list(range(weight.ndim)):
-            weight_permutation = [weight_layout.index(i) for i in range(weight.ndim)]
-            weight = weight.permute(weight_permutation)
+    # Check if we need to permute weight
+    if weight_layout != list(range(weight.ndim)):
+        weight_permutation = [weight_layout.index(i) for i in range(weight.ndim)]
+        weight = weight.permute(weight_permutation)
 
     # Extract only spatial dimensions from strides and dilations
     # TTIR uses 4D strides/dilations [batch, channel, height, width]
@@ -3344,13 +3261,8 @@ def ttir_convolution_golden(
     )
 
     # Permute output back to the expected output layout if needed
-    if convolution_layout is not None:
-        if output_permutation != list(range(result.ndim)):
-            # Create permutation from NCHW to output layout
-            inverse_output_perm = [
-                output_permutation.index(i) for i in range(result.ndim)
-            ]
-            result = result.permute(inverse_output_perm)
+    if output_permutation != list(range(result.ndim)):
+        result = result.permute(output_permutation)
 
     return result.to(output_dtype)
 
@@ -3869,6 +3781,24 @@ def ttir_exp_golden(
     return torch.exp(input_tensor).to(output_dtype)
 
 
+def ttir_sort_golden(
+    input_tensor: GoldenMapTensor,
+    dim_attr: IntegerAttr,
+    descending_attr: BoolAttr,
+    stable_attr: BoolAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    dim = unpack_mlir_attr(dim_attr)
+    descending = unpack_mlir_attr(descending_attr)
+    stable = unpack_mlir_attr(stable_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    values, indices = torch.sort(
+        input_tensor, dim=dim, descending=descending, stable=stable
+    )
+    return values.to(output_dtype), indices.to(torch.int64)
+
+
 ################ StableHLO Op Golden Functions ###############
 
 
@@ -3900,6 +3830,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.ErfcOp: torch.erfc,
     ttir.FloorOp: ttir_floor_golden,
     ttir.GeluOp: torch.nn.functional.gelu,
+    ttir.GeluBackwardOp: torch.ops.aten.gelu_backward,
     ttir.IsFiniteOp: torch.isfinite,
     ttir.MishOp: torch.nn.functional.mish,
     ttir.NegOp: ttir_neg_golden,
@@ -3959,7 +3890,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.ReduceAndOp: reduce_and_golden,
     ttir.ReduceOrOp: ttir_reduce_or_golden,
     # Tensor manipulation
-    ttir.SortOp: sort_golden,
+    ttir.SortOp: ttir_sort_golden,
     ttir.TransposeOp: transpose_golden,
     ttir.ConcatOp: ttir_concat_golden,
     ttir.RepeatOp: repeat_golden,
