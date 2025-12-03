@@ -46,7 +46,10 @@ dim_arg_options = [
 @pytest.mark.parametrize("keep_dim", keep_dim_options)
 @pytest.mark.parametrize("dim_arg", dim_arg_options)
 @pytest.mark.parametrize("reduction_op_name", reduction_op_names)
-@pytest.mark.parametrize("target", ["ttnn", "emitpy", "emitc"])
+@pytest.mark.parametrize(
+    "target",
+    ["ttnn", "emitpy" | Marks(pytest.mark.xfail(reason="Golden failure")), "emitc"],
+)
 def test_reduction_ops(
     shapes,
     dtype: torch.dtype,

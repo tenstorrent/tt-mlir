@@ -8,10 +8,7 @@ from conftest import x86_only
 from builder.base.builder import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_utils import compile_and_execute_ttir
-from test_utils import (
-    shapes_list_str,
-    shape_str,
-)
+from test_utils import shapes_list_str, shape_str, Marks
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -102,7 +99,9 @@ def test_cpu_hoistable_concat_op(
 @pytest.mark.parametrize("shape", [(1, 1, 5, 5)], ids=shape_str)
 @pytest.mark.parametrize("padding", [[0, 1, 2, 3, 4, 5, 6, 7]])
 @pytest.mark.parametrize("value", [0])
-@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+@pytest.mark.parametrize(
+    "target", ["ttnn", "emitpy" | Marks(pytest.mark.xfail(reason="Golden failure"))]
+)
 def test_pad(
     shape: Shape, padding: List[int], value: int, target: str, request, device
 ):

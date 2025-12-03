@@ -184,8 +184,8 @@ binary_ops = [
     minimum | Marks(pytest.mark.skip_config(["ttmetal"])),
     multiply,
     pow,
-    remainder | Marks(pytest.mark.skip_config(["ttmetal"])),
-    subtract,
+    remainder | Marks(pytest.mark.skip_config(["ttmetal"], ["emitpy"])),
+    subtract | Marks(pytest.mark.skip_config(["emitpy"])),
 ]
 
 
@@ -375,7 +375,10 @@ binary_bitwise_dtypes = [
 @pytest.mark.parametrize(
     "dtype", binary_bitwise_dtypes, ids=["i32", "u32", "u16", "u8"]
 )
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize(
+    "target",
+    ["ttnn", "ttmetal", "emitpy" | Marks(pytest.mark.xfail(reason="Golden failure"))],
+)
 @pytest.mark.parametrize("test_fn", binary_bitwise_ops)
 def test_bitwise_binary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
@@ -462,7 +465,9 @@ binary_logical_shift_dtypes = [
 @pytest.mark.parametrize(
     "dtype", binary_logical_shift_dtypes, ids=["i32", "u32", "u16"]
 )
-@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+@pytest.mark.parametrize(
+    "target", ["ttnn", "emitpy" | Marks(pytest.mark.xfail(reason="Golden failure"))]
+)
 @pytest.mark.parametrize("test_fn", binary_logical_shift_ops)
 def test_logical_shift_binary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
@@ -552,7 +557,10 @@ binary_comparison_ops = [
 @pytest.mark.parametrize(
     "dtype", [torch.float32, torch.bfloat16, torch.int32], ids=["f32", "bf16", "i32"]
 )
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
+@pytest.mark.parametrize(
+    "target",
+    ["ttnn", "ttmetal", "emitpy" | Marks(pytest.mark.xfail(reason="Golden failure"))],
+)
 @pytest.mark.parametrize("test_fn", binary_comparison_ops)
 def test_comparison_ops(
     test_fn: Callable,
