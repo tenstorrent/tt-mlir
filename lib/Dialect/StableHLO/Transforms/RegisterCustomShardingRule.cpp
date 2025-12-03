@@ -336,7 +336,7 @@ struct StablehloShardingModel
           StablehloShardingModel<OpTy>, OpTy> {
 
   mlir::sdy::OpShardingRuleAttr getShardingRule(mlir::Operation *op) const {
-    if (auto scatterOp = dyn_cast::cast<mlir::stablehlo::ScatterOp>(op)) {
+    if (auto scatterOp = llvm::dyn_cast<mlir::stablehlo::ScatterOp>(op)) {
       return getScatterShardingRule(scatterOp);
     }
     return mlir::sdy::OpShardingRuleBuilder::buildPointwise(op);
