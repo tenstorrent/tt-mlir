@@ -783,6 +783,38 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @erf_tile_init
+    func.func @erf_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "erf_tile_init"()
+      "ttkernel.erf_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @erf_tile
+    func.func @erf_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "erf_tile"(%[[DST_INDEX]])
+      "ttkernel.erf_tile"(%dst_index) : (i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @erfc_tile_init
+    func.func @erfc_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "erfc_tile_init"()
+      "ttkernel.erfc_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @erfc_tile
+    func.func @erfc_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "erfc_tile"(%[[DST_INDEX]])
+      "ttkernel.erfc_tile"(%dst_index) : (i32) -> ()
+      return
+    }
+
     // CHECK-LABEL: func @rounding_op_tile_init
     func.func @rounding_op_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: emitc.call_opaque "rounding_op_tile_init"()
@@ -848,6 +880,22 @@ module {
       %dst0_index = arith.constant 1 : i32
       // CHECK: emitc.call_opaque "abs_tile_int32"(%[[DST0_INDEX]])
       "ttkernel.abs_tile_int32"(%dst0_index) : (i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @sign_tile_init
+    func.func @sign_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "sign_tile_init"()
+      "ttkernel.sign_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @sign_tile
+    func.func @sign_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "sign_tile"(%[[DST_INDEX]])
+      "ttkernel.sign_tile"(%dst_index) : (i32) -> ()
       return
     }
 
