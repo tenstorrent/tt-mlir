@@ -310,11 +310,10 @@ struct StablehloShardingModel
           StablehloShardingModel<OpTy>, OpTy> {
 
   mlir::sdy::OpShardingRuleAttr getShardingRule(mlir::Operation *op) const {
-    auto scatterOp = llvm::cast<mlir::stablehlo::ScatterOp>(op);
-    if (scatterOp) {
+    if (auto scatterOp = llvm::cast<mlir::stablehlo::ScatterOp>(op)) {
       return getScatterShardingRule(scatterOp);
     }
-    return mlir::sdy::OpShardingRuleBuilder::buildPointwise(scatterOp);
+    return mlir::sdy::OpShardingRuleBuilder::buildPointwise(op);
   }
 
   bool shouldKeepOutputShardingsDivisible(mlir::Operation *) const {
