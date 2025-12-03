@@ -63,4 +63,33 @@ Type getRegionLargestDstElemType(Region &region) {
   return largestType;
 }
 
+std::optional<SmallVector<int64_t>>
+computeDimConstraints(mlir::ArrayRef<mlir::AffineMap> indexingMaps,
+                      mlir::ArrayRef<mlir::SmallVector<int64_t>> shapes) {
+  TT_assert(!indexingMaps.empty());
+  TT_assert(indexingMaps.size() == shapes.size());
+  auto numDims = indexingMaps.front().getNumDims();
+  SmallVector<int64_t> constrainedDims(numDims, 0);
+  for (auto [shapeIdx, shape] : llvm::enumerate(shapes)) {
+    auto dimProjectionMap =
+        mlir::inverseAndBroadcastProjectedPermutation(indexingMaps[shapeIdx]);
+    auto impliedDimConstraints = dimProjectionMap.compose(shape);
+
+    for (auto [dimIdx, dimConstraint] :
+         llvm::enumerate(impliedDimConstraints)) {
+      if (dimConstraint == 0) {
+        continue;
+      }
+
+      // Early exit if shapes are incompatible.
+      if (constrainedDims[dimIdx] != 0 &&
+          constrainedDims[dimIdx] != dimConstraint) {
+        return std::nullopt;
+      }
+      constrainedDims[dimIdx] = dimConstraint;
+    }
+  }
+  return constrainedDims;
+}
+
 } // namespace mlir::tt::d2m::utils
