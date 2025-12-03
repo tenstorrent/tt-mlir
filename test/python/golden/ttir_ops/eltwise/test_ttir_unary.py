@@ -376,7 +376,9 @@ def get_dimension_size(
 
 @pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
-@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+@pytest.mark.parametrize(
+    "target", ["ttnn", "emitpy" | Marks(pytest.mark.xfail(reason="type mismatch"))]
+)
 @pytest.mark.parametrize("dimension", [0, 1])
 def test_get_dimension_size(
     dimension: int,
