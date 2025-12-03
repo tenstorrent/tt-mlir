@@ -93,12 +93,21 @@ private:
     return false;
   }
 
+  // Returns true if the tensor has an integer element type.
+  bool hasIntegerElementType(Value value) {
+    auto tensorType = mlir::dyn_cast<RankedTensorType>(value.getType());
+    if (!tensorType) {
+      return false;
+    }
+    return tensorType.getElementType().isIntOrIndex();
+  }
+
   // Identifies function input arguments that are candidates for RowMajor layout
-  // propagation.
+  // propagation. Currently restricted to integer tensor types only.
   llvm::SmallVector<Value> identifyInputArguments(func::FuncOp func) {
     llvm::SmallVector<Value> rowMajorCandidates;
     for (BlockArgument arg : func.getArguments()) {
-      if (isInputArgument(arg, func)) {
+      if (isInputArgument(arg, func) && hasIntegerElementType(arg)) {
         rowMajorCandidates.push_back(arg);
       }
     }
