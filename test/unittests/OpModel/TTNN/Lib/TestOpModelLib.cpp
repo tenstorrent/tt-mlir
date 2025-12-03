@@ -1843,9 +1843,7 @@ protected:
     const auto [outputShape, outputTensorLayout, outputBufferType,
                 outputVirtualGrid] = GetParam().output;
     const auto approximate = GetParam().approximate;
-    const auto [expectedLegal, expectedCbSize, expectedPeakSize,
-                expectedTotalPeakSize, expectedOutputSize] =
-        GetParam().expectedResult;
+    const auto expectedLegal = GetParam().expectedResult.expectedLegal;
     const TTNNLayoutAttr inputLayout = CreateTiledLayout(
         inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
     const TTNNLayoutAttr gradLayout = CreateTiledLayout(
@@ -1861,11 +1859,10 @@ protected:
     if (expectedLegal) {
       const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
                   outputLayoutReadBack] = constraintsExp.get();
-      EXPECT_EQ_OR_GE(cbSize, expectedCbSize, expectedCbSize == 0);
-      EXPECT_EQ_OR_GE(l1PeakSize, expectedPeakSize, expectedPeakSize == 0);
-      EXPECT_EQ_OR_GE(totalPeakSize, expectedTotalPeakSize,
-                      expectedTotalPeakSize == 0);
-      EXPECT_EQ_OR_GE(outputSize, expectedOutputSize, expectedOutputSize == 0);
+      EXPECT_GE(cbSize, 0);
+      EXPECT_GE(l1PeakSize, 0);
+      EXPECT_GE(totalPeakSize, 0);
+      EXPECT_GE(outputSize, 0);
       ExpectLayoutsEQ(outputLayout, outputLayoutReadBack);
     } else {
       llvm::consumeError(constraintsExp.takeError());
@@ -1895,7 +1892,7 @@ const auto geluBackwardOpTestValues = testing::Values(
         "none",
         detail::TestTensor{
             {1, 1, 32, 32}, TensorMemoryLayout::Interleaved, BufferType::L1},
-        detail::ExpectedResult{true, 0, 0, 0, 0}},
+        detail::ExpectedResult{true}},
 
     // === Mixed memory, "tanh" approximation ===
     GeluBackwardParam{
@@ -1906,7 +1903,7 @@ const auto geluBackwardOpTestValues = testing::Values(
         "tanh",
         detail::TestTensor{
             {1, 1, 32, 32}, TensorMemoryLayout::Interleaved, BufferType::L1},
-        detail::ExpectedResult{true, 0, 0, 0, 0}},
+        detail::ExpectedResult{true}},
 
     // === All L1, "none" approximation ===
     GeluBackwardParam{
@@ -1917,7 +1914,7 @@ const auto geluBackwardOpTestValues = testing::Values(
         "none",
         detail::TestTensor{
             {1, 1, 64, 64}, TensorMemoryLayout::Interleaved, BufferType::L1},
-        detail::ExpectedResult{true, 0, 0, 0, 0}},
+        detail::ExpectedResult{true}},
 
     // === All L1, "tanh" approximation ===
     GeluBackwardParam{
@@ -1928,7 +1925,7 @@ const auto geluBackwardOpTestValues = testing::Values(
         "tanh",
         detail::TestTensor{
             {1, 1, 64, 64}, TensorMemoryLayout::Interleaved, BufferType::L1},
-        detail::ExpectedResult{true, 0, 0, 0, 0}});
+        detail::ExpectedResult{true}});
 INSTANTIATE_TEST_SUITE_P(GeluBackwardTests, OpModelGeluBackwardParam,
                          geluBackwardOpTestValues);
 
