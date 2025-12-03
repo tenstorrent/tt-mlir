@@ -19,6 +19,9 @@ set(LIB_SOURCES
   lib/generate_cpp.cpp
   lib/generate_python.cpp
   lib/utils.cpp
+  lib/mlir_module_splitter.cpp
+  lib/test_parametrizer.cpp
+  lib/unit_test_generator.cpp
 )
 
 # Add library
