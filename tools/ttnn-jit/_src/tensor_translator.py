@@ -160,11 +160,6 @@ def _create_dram_tensor_layout(ctx, tensor_arg):
     affine_map = _get_collapsed_linear_affine_map(ctx, tensor_arg.shape, DRAM_GRID_SIZE)
     grid = ttcore.ir.GridAttr.get(ctx, DRAM_GRID_SIZE)
     buffer_type = ttnn.ir.BufferTypeAttr.get(ctx, ttnn.BufferType.DRAM)
-<<<<<<< HEAD
-    grid = _get_grid(ctx, tensor_arg, ttnn.TensorMemoryLayout.Interleaved)
-    grid = _get_grid(ctx, tensor_arg, ttnn.TensorMemoryLayout.Interleaved)
-=======
->>>>>>> 573b409de (cleanup)
 
     data_type = _ttcore_dtype_from_ttnn_dtype(tensor_arg.dtype)
     tile_type = ttcore.ir.TileType.get(ctx, 32, 32, data_type)
@@ -288,7 +283,6 @@ def create_output_tensor(ctx, op_name, input_types, debug=True):
     return output_type
 
 
-def create_tensor_layout(ctx, tensor_arg):
 def create_tensor_layout(ctx, tensor_arg):
     """Create TTNN layout attribute from tensor."""
 
