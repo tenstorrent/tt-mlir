@@ -4,10 +4,10 @@
 
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 
+#include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
-#include "ttmlir/Dialect/D2M/Utils/AffineMapUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
@@ -348,9 +348,8 @@ static RankedTensorType reblockTensor(RankedTensorType oldTensor,
     return oldTensor;
   }
 
-  auto [newShape, reblockMap] =
-      mlir::tt::d2m::utils::calculateReblockMapForGrid(
-          oldTensor.getShape(), newGridShape, oldTensor.getContext());
+  auto [newShape, reblockMap] = ttmlir::utils::calculateReblockMapForGrid(
+      oldTensor.getShape(), newGridShape, oldTensor.getContext());
 
   ttcore::MetalLayoutAttr newLayout = oldLayout.withIndexAffineMap(reblockMap);
   return RankedTensorType::get(newShape, oldTensor.getElementType(), newLayout);
@@ -593,7 +592,7 @@ updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
         mlir::cast<RankedTensorType>(streamLayout.getResult().getType());
     auto outputLayout =
         mlir::cast<ttcore::MetalLayoutAttr>(outputStreamType.getEncoding());
-    mlir::AffineMap reblockMap = mlir::tt::d2m::utils::calculateReblockMap(
+    mlir::AffineMap reblockMap = ttmlir::utils::calculateReblockMap(
         outputStreamType.getShape(), newStorageShape, builder.getContext());
     auto newOutputIndexMap =
         outputLayout.getIndexAffineMap().compose(reblockMap);
@@ -899,7 +898,7 @@ insertTTNNDRAMStreams(d2m::GenericOp genericOp,
         baseMetalLayout.getCollapsedIntervals(), baseMetalLayout.getOobVal(),
         ttcore::MemorySpace::DeviceDRAM,
         ttcore::TensorMemoryLayout::Interleaved,
-        mlir::tt::d2m::utils::calculateReblockMap(
+        ttmlir::utils::calculateReblockMap(
             unShardedShapeWithGrid, fakeShardedShape, builder.getContext()));
 
     auto streamOutputTensor = mlir::RankedTensorType::get(

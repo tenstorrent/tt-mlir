@@ -2,9 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
-#include "ttmlir/Dialect/D2M/Utils/AffineMapUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
@@ -71,7 +71,7 @@ static SmallVector<int64_t> calculateOptimalSubblockSizes(
   SmallVector<int64_t> outputSubblockFactors =
       calculateOutputSubblockFactors(outputBlockShape, dstCapacity);
 
-  AffineMap inverse = utils::concatInversePermutationMap(
+  AffineMap inverse = ttmlir::utils::concatInversePermutationMap(
       llvm::to_vector(indexingMaps), /*reverse=*/true);
 
   // Since we reversed above to give the output block factors priority in the

@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Conversion/TTKernelToEmitC/TTKernelToEmitC.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
@@ -266,21 +267,12 @@ getPhysicalGridShapeForVirtualGrid(ttcore::ShardLayoutAttr shardLayout,
     return llvm::to_vector(shardLayout.getGridShape(memref));
   }
 
-  // Sample all points in the full memref shape and find bounds of physical grid
-  auto memrefShape = memref.getShape();
-  std::pair<int64_t, int64_t> ybounds = {0, 0};
-  std::pair<int64_t, int64_t> xbounds = {0, 0};
-  ttmlir::utils::sample(memrefShape, [&](SmallVector<int64_t, 8> point) {
-    auto physicalPoint = virtMap.compose(point);
-    ybounds = {std::min(ybounds.first, physicalPoint[0]),
-               std::max(ybounds.second, physicalPoint[0])};
-    xbounds = {std::min(xbounds.first, physicalPoint[1]),
-               std::max(xbounds.second, physicalPoint[1])};
-  });
-
-  TT_assertv((ybounds.first == 0 && xbounds.first == 0),
-             "Physical grid shape must start at y=0,x=0.");
-  return {ybounds.second + 1, xbounds.second + 1};
+  // Use applyMapToGrid to compute physical shape by sampling all memref points.
+  // The virtMap may return more than 2 dimensions (grid + shard coords), but
+  // we only need the first 2 (physical grid dimensions).
+  auto fullPhysicalShape =
+      ttmlir::utils::applyMapToGrid(memref.getShape(), virtMap);
+  return {fullPhysicalShape[0], fullPhysicalShape[1]};
 }
 
 static flatbuffers::Offset<target::metal::ShardedBufferConfig>

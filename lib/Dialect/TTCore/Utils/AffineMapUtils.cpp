@@ -2,100 +2,14 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/D2M/Utils/AffineMapUtils.h"
+#include "ttmlir/Dialect/TTCore/Utils/AffineMapUtils.h"
 
+#include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Utils.h"
 
-namespace mlir::tt::d2m::utils {
-
-// Calculate a reblocking affine map from inputShape to outputShape.
-mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
-                                    mlir::ArrayRef<int64_t> outputShape,
-                                    mlir::MLIRContext *ctx) {
-  assert(inputShape.size() == outputShape.size() && "Rank must be preserved");
-
-  size_t rank = inputShape.size();
-  assert(rank % 2 == 0);
-
-  if (inputShape == outputShape) {
-    return AffineMap::getMultiDimIdentityMap(rank, ctx);
-  }
-
-  size_t halfRank = rank / 2;
-
-  mlir::ArrayRef<int64_t> inputShardShape = inputShape.drop_front(halfRank);
-  mlir::ArrayRef<int64_t> outputGridShape = outputShape.take_front(halfRank);
-  mlir::ArrayRef<int64_t> outputShardShape = outputShape.drop_front(halfRank);
-
-  mlir::SmallVector<mlir::AffineExpr> mapExprs(rank);
-
-  for (size_t i = 0; i < halfRank; i++) {
-    auto dG = getAffineDimExpr(i, ctx);
-    mapExprs[i] = dG.floorDiv(outputGridShape[i]);
-
-    size_t j = i + halfRank;
-    auto dS = getAffineDimExpr(j, ctx);
-    mapExprs[j] = dG * outputShardShape[i] + dS;
-  }
-  auto outputToCanonical = mlir::AffineMap::get(rank, 0, mapExprs, ctx);
-
-  for (size_t i = 0; i < halfRank; i++) {
-    size_t j = i + halfRank;
-    auto dS = getAffineDimExpr(j, ctx);
-    mapExprs[i] = dS.floorDiv(inputShardShape[i]);
-    mapExprs[j] = dS % inputShardShape[i];
-  }
-  auto canonicalToInput = mlir::AffineMap::get(rank, 0, mapExprs, ctx);
-
-  return canonicalToInput.compose(outputToCanonical);
-}
-
-// Calculate a reblock affine map given a shape and new grid shape.
-std::pair<mlir::SmallVector<int64_t>, mlir::AffineMap>
-calculateReblockMapForGrid(mlir::ArrayRef<int64_t> tensorShape,
-                           mlir::ArrayRef<int64_t> newGridShape,
-                           mlir::MLIRContext *context) {
-  assert(tensorShape.size() % 2 == 0 &&
-         "Expected even rank for grid + shard dimensions");
-  assert(newGridShape.size() == tensorShape.size() / 2 &&
-         "New grid shape must match grid rank of tensor shape");
-  mlir::SmallVector<int64_t> newTensorShape(tensorShape);
-  for (size_t i = 0; i < newGridShape.size(); i++) {
-    size_t j = i + newGridShape.size();
-    assert((tensorShape[i] * tensorShape[j]) % newGridShape[i] == 0 &&
-           "New grid shape must evenly divide tensor shape");
-    newTensorShape[j] = tensorShape[i] * tensorShape[j] / newGridShape[i];
-    newTensorShape[i] = newGridShape[i];
-  }
-  return {newTensorShape,
-          calculateReblockMap(tensorShape, newTensorShape, context)};
-}
-
-AffineMap concatInversePermutationMap(SmallVector<AffineMap> affineMaps,
-                                      bool reverse) {
-  assert(!affineMaps.empty());
-
-  // Reverse the maps to give output dimensions priority in the inverse
-  // permutation.
-  if (reverse) {
-    affineMaps = llvm::to_vector(llvm::reverse(affineMaps));
-  }
-
-  // Concatenate all indexing maps together.
-  // Matmul example:
-  //   (d0, d1, d2) -> (d0, d2)
-  //   (d0, d1, d2) -> (d2, d1)
-  //   (d0, d1, d2) -> (d0, d1)
-  // Becomes: (d0, d1, d2) -> (d0, d2, d2, d1, d0, d1)
-  AffineMap concat =
-      mlir::concatAffineMaps(affineMaps, affineMaps.front().getContext());
-
-  // Invert the permutation to derive loop bounds from operand shapes.
-  // Above example becomes: (d0, d1, d2, d3, d4, d5) -> (d0, d3, d1)
-  return mlir::inversePermutation(concat);
-}
+namespace mlir::tt::ttcore::utils {
 
 // Compute aligned strides for a collapsed interval.
 // Returns strides from innermost to outermost.
@@ -138,9 +52,8 @@ mlir::AffineMap buildLogicalToPhysicalMap(
     mlir::MLIRContext *context) {
 
   // Normalize intervals to handle negative indices, empty intervals, etc.
-  auto normalizedIntervals =
-      ttcore::MetalLayoutAttr::normalizeAndFlattenIntervals(
-          collapsedIntervals, logicalShape.size());
+  auto normalizedIntervals = MetalLayoutAttr::normalizeAndFlattenIntervals(
+      collapsedIntervals, logicalShape.size());
 
   assert(normalizedIntervals.size() % 2 == 0 && "Intervals must come in pairs");
   int64_t numIntervals = normalizedIntervals.size() / 2;
@@ -188,9 +101,8 @@ mlir::AffineMap buildPhysicalToLogicalMap(
     ArrayRef<int64_t> logicalShape, ArrayRef<int64_t> physicalShape,
     ArrayRef<int64_t> alignments, mlir::DenseIntElementsAttr collapsedIntervals,
     mlir::MLIRContext *context) {
-  auto normalizedIntervals =
-      ttcore::MetalLayoutAttr::normalizeAndFlattenIntervals(
-          collapsedIntervals, logicalShape.size());
+  auto normalizedIntervals = MetalLayoutAttr::normalizeAndFlattenIntervals(
+      collapsedIntervals, logicalShape.size());
 
   assert(normalizedIntervals.size() % 2 == 0);
   int64_t numIntervals = normalizedIntervals.size() / 2;
@@ -236,90 +148,18 @@ mlir::AffineMap buildPhysicalToLogicalMap(
   return mlir::AffineMap::get(physicalShape.size(), 0, logicalExprs, context);
 }
 
-// Build affine map from device indices to physical indices.
-// This reconstructs physical coordinates from grid + shard coordinates.
-//
-// Example:
-//   physical shape: [128, 256]
-//   grid shape: [4, 8]
-//   shard sizes: [32, 32]
-//
-//   Result: (d0, d1, d2, d3) -> (d0 * 32 + d2, d1 * 32 + d3)
-//   where first 2 dims are grid coords, last 2 are shard coords.
-mlir::AffineMap buildDeviceToPhysicalMap(ArrayRef<int64_t> physicalShape,
-                                         ArrayRef<int64_t> gridShape,
-                                         mlir::MLIRContext *context) {
-  assert(physicalShape.size() == gridShape.size() &&
-         "Physical and grid must have same rank");
-
-  size_t rank = physicalShape.size();
-  SmallVector<mlir::AffineExpr> physicalExprs;
-  physicalExprs.reserve(rank);
-
-  // Reconstruct physical coordinates from grid and shard coordinates.
-  // Device coordinates have the form [grid[0], ..., grid[n], shard[0], ...,
-  // shard[n]], and the physical index is: physical[i] = grid[i] * shardSize +
-  // shard[i].
-  for (size_t i = 0; i < rank; ++i) {
-    mlir::AffineExpr gridDim = getAffineDimExpr(i, context);
-    mlir::AffineExpr shardDim = getAffineDimExpr(rank + i, context);
-    int64_t shardSize = physicalShape[i] / gridShape[i];
-
-    physicalExprs.push_back(gridDim * shardSize + shardDim);
-  }
-
-  return mlir::AffineMap::get(rank * 2, 0, physicalExprs, context);
-}
-
-// Build semi-affine map from physical indices to device indices.
-// This distributes the physical shape across a grid.
-//
-// Example:
-//   physical shape: [128, 256]
-//   grid shape: [4, 8]
-//
-//   Result: (d0, d1) -> (d0 floordiv 32, d1 floordiv 32, d0 mod 32, d1 mod 32)
-//   where shard sizes are [128/4=32, 256/8=32].
-mlir::AffineMap buildPhysicalToDeviceMap(ArrayRef<int64_t> physicalShape,
-                                         ArrayRef<int64_t> gridShape,
-                                         mlir::MLIRContext *context) {
-  assert(physicalShape.size() == gridShape.size() &&
-         "Physical and grid must have same rank");
-
-  size_t rank = physicalShape.size();
-  SmallVector<mlir::AffineExpr> deviceExprs;
-  deviceExprs.reserve(rank * 2);
-
-  // First rank results are grid coordinates.
-  for (size_t i = 0; i < rank; ++i) {
-    mlir::AffineExpr dim = getAffineDimExpr(i, context);
-    int64_t shardSize = physicalShape[i] / gridShape[i];
-    deviceExprs.push_back(dim.floorDiv(shardSize));
-  }
-
-  // Next rank results are shard-local coordinates.
-  for (size_t i = 0; i < rank; ++i) {
-    mlir::AffineExpr dim = getAffineDimExpr(i, context);
-    int64_t shardSize = physicalShape[i] / gridShape[i];
-    deviceExprs.push_back(dim % shardSize);
-  }
-
-  return mlir::AffineMap::get(rank, 0, deviceExprs, context);
-}
-
 // Build pseudo-inverse map from device indices to logical indices.
 // This composes the inverses of: device->physical->logical
 //
 // Note: This is only valid within the logical bounds. Padding regions
 // will produce incorrect logical coordinates, but that's acceptable since
 // they're never accessed.
-mlir::AffineMap
-buildDeviceToLogicalMap(mlir::tt::ttcore::MetalLayoutAttr layout,
-                        mlir::RankedTensorType tensorType,
-                        mlir::MLIRContext *context) {
+mlir::AffineMap buildDeviceToLogicalMap(MetalLayoutAttr layout,
+                                        mlir::RankedTensorType tensorType,
+                                        mlir::MLIRContext *context) {
 
   ArrayRef<int64_t> logicalShape = layout.getLogicalShape();
-  ArrayRef<int64_t> tileShape = ttcore::getTensorTileShapeOrEmpty(tensorType);
+  ArrayRef<int64_t> tileShape = getTensorTileShapeOrEmpty(tensorType);
   auto physicalShapeVec = layout.getPhysicalShape(tileShape);
   ArrayRef<int64_t> physicalShape = physicalShapeVec;
   ArrayRef<int64_t> gridShape = layout.getGridShape(tensorType);
@@ -430,11 +270,10 @@ buildDeviceToLogicalMap(mlir::tt::ttcore::MetalLayoutAttr layout,
 // Build complete layout transformation from one layout to another.
 // Strategy: Use buildDeviceToLogicalMap for both layouts, which already handles
 // existing index maps correctly.
-mlir::AffineMap
-buildLayoutTransformMap(mlir::tt::ttcore::MetalLayoutAttr fromLayout,
-                        mlir::RankedTensorType fromType,
-                        mlir::tt::ttcore::MetalLayoutAttr toLayout,
-                        mlir::RankedTensorType toType) {
+mlir::AffineMap buildLayoutTransformMap(MetalLayoutAttr fromLayout,
+                                        mlir::RankedTensorType fromType,
+                                        MetalLayoutAttr toLayout,
+                                        mlir::RankedTensorType toType) {
   MLIRContext *context = fromLayout.getContext();
 
   // Precondition: Both layouts must have the same logical shape.
@@ -442,8 +281,8 @@ buildLayoutTransformMap(mlir::tt::ttcore::MetalLayoutAttr fromLayout,
          "ToLayoutOp requires same logical shape");
 
   ArrayRef<int64_t> logicalShape = fromLayout.getLogicalShape();
-  ArrayRef<int64_t> fromTileShape = ttcore::getTensorTileShapeOrEmpty(fromType);
-  ArrayRef<int64_t> toTileShape = ttcore::getTensorTileShapeOrEmpty(toType);
+  ArrayRef<int64_t> fromTileShape = getTensorTileShapeOrEmpty(fromType);
+  ArrayRef<int64_t> toTileShape = getTensorTileShapeOrEmpty(toType);
 
   // Both input and output must have the same tile shape (or both untiled) for
   // the mapping through logical space to work correctly. Tilize/untilize
@@ -475,8 +314,8 @@ buildLayoutTransformMap(mlir::tt::ttcore::MetalLayoutAttr fromLayout,
 
   // Build OUTPUT device → logical map.
   // OUTPUT device → OUTPUT physical.
-  auto toDeviceToToPhysical =
-      buildDeviceToPhysicalMap(toPhysicalShape, toGridShape, context);
+  auto toDeviceToToPhysical = ttmlir::utils::buildDeviceToPhysicalMap(
+      toPhysicalShape, toGridShape, context);
 
   // OUTPUT physical → logical (inverse of collapse).
   auto toAlignments = toLayout.getDimAlignments();
@@ -501,8 +340,8 @@ buildLayoutTransformMap(mlir::tt::ttcore::MetalLayoutAttr fromLayout,
       fromLayout.getCollapsedIntervals(), context);
 
   // INPUT physical → INPUT device.
-  auto fromPhysicalToFromDevice =
-      buildPhysicalToDeviceMap(fromPhysicalShape, fromGridShape, context);
+  auto fromPhysicalToFromDevice = ttmlir::utils::buildPhysicalToDeviceMap(
+      fromPhysicalShape, fromGridShape, context);
 
   // Compose: logical → INPUT physical → INPUT device.
   auto logicalToFromDevice =
@@ -524,4 +363,4 @@ buildLayoutTransformMap(mlir::tt::ttcore::MetalLayoutAttr fromLayout,
   return mlir::simplifyAffineMap(result);
 }
 
-} // namespace mlir::tt::d2m::utils
+} // namespace mlir::tt::ttcore::utils

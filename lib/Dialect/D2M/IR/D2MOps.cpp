@@ -7,7 +7,6 @@
 #include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
-#include "ttmlir/Dialect/D2M/Utils/AffineMapUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
@@ -766,7 +765,7 @@ d2m::ViewLayoutOp::getBufferType(
 }
 
 bool d2m::ViewLayoutOp::isReblockOnly() {
-  mlir::AffineMap reblockMap = mlir::tt::d2m::utils::calculateReblockMap(
+  mlir::AffineMap reblockMap = ttmlir::utils::calculateReblockMap(
       mlir::cast<mlir::ShapedType>(getInput().getType()).getShape(),
       mlir::cast<mlir::ShapedType>(getResult().getType()).getShape(),
       getContext());
@@ -820,7 +819,7 @@ mlir::OpFoldResult d2m::ViewLayoutOp::fold(FoldAdaptor adaptor) {
   setOperand(consecutiveView.getInput());
 
   // Recompute the reblock map from the original input to the final result.
-  mlir::AffineMap reblockMap = mlir::tt::d2m::utils::calculateReblockMap(
+  mlir::AffineMap reblockMap = ttmlir::utils::calculateReblockMap(
       mlir::cast<mlir::ShapedType>(consecutiveView.getInput().getType())
           .getShape(),
       mlir::cast<mlir::ShapedType>(getType()).getShape(), getContext());
@@ -901,7 +900,7 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
           return cast<AffineMapAttr>(attr).getValue();
         }));
     auto flatInverseMap =
-        utils::concatInversePermutationMap(maps, /*reverse=*/true);
+        ttmlir::utils::concatInversePermutationMap(maps, /*reverse=*/true);
 
     SmallVector<int64_t> flattenedOperandGridShapes;
     for (Value v :
@@ -1586,7 +1585,7 @@ mlir::SmallVector<int64_t> d2m::GenericOp::getFullBlockFactors() {
   auto maps = getIndexingMapsValue();
   // Priority doesn't matter here, so reverse can be false.
   auto flatInverseMap =
-      utils::concatInversePermutationMap(maps, /*reverse=*/false);
+      ttmlir::utils::concatInversePermutationMap(maps, /*reverse=*/false);
 
   SmallVector<int64_t> flattenedOperandShardShapes;
   for (Value v : getOperands()) {

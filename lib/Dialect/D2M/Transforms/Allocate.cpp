@@ -4,10 +4,10 @@
 
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 
+#include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/Analysis/Allocation/Planner.h"
 #include "ttmlir/Dialect/D2M/Analysis/Allocation/Utils.h"
-#include "ttmlir/Dialect/D2M/Utils/AffineMapUtils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Utils.h"
@@ -1204,7 +1204,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     insertDealloc(rewriter, bufferAllocOp, req.last, sequencing);
 
     const auto oldOperandType = mlir::cast<MemRefType>(operand.get().getType());
-    const AffineMap reblockingMap = utils::calculateReblockMap(
+    const AffineMap reblockingMap = ttmlir::utils::calculateReblockMap(
         oldOperandType.getShape(), bufferType.getShape(),
         rewriter.getContext());
 
@@ -1368,7 +1368,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   static std::tuple</* grid */ SmallVector<int64_t>,
                     /* shard */ SmallVector<int64_t>>
   getGridAndShardExtents(d2m::GenericOp genericOp) {
-    auto flatInverseMap = utils::concatInversePermutationMap(
+    auto flatInverseMap = ttmlir::utils::concatInversePermutationMap(
         genericOp.getIndexingMapsValue(), /*reverse=*/false);
 
     return {flatInverseMap.compose(
