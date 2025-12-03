@@ -36,7 +36,7 @@ class TTIRBuilder(Builder):
 
     # ----- Private methods ----
 
-    def _get_empty_op(self, tensor_type: RankedTensorType) -> OpView:
+    def _get_empty_op(self, tensor_type: RankedTensorType) -> OpResult:
         """Get TTIR-specific empty operation."""
         return ttir.EmptyOp(tensor_type)
 
@@ -139,9 +139,9 @@ class TTIRBuilder(Builder):
                         golden_output = op_golden_function(
                             *(organize_golden_args(inputs)), **golden_kwargs
                         )
-                    self._set_golden_tensor(op, golden_output)
+                    self._set_golden_tensor(op.result, golden_output)
 
-            return op
+            return op.result
 
     def _get_location(self) -> Location:
         stack = inspect.stack()
@@ -151,6 +151,155 @@ class TTIRBuilder(Builder):
         return Location.name(f"{filename}:{lineno}")
 
     # ----- Public Op Generators ----
+
+    ################ ttir.ArangeOp ###############
+
+    @tag(ttir.ArangeOp)
+    def arange(
+        self,
+        shape: Shape,
+        start: int,
+        end: int,
+        step: int,
+        arange_dimension: int,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.arange)
+        output_type = output_type if output_type is not None else torch.float32
+        result = self._create_ranked_tensor_type(shape, output_type)
+        random_tensor = self._generate_random_tensor(shape, output_type)
+        result_tensor = GoldenMapTensor({0: random_tensor}, mesh_shape=self._mesh_shape)
+
+        repeat_dims = []
+        for i in range(len(shape)):
+            if i == arange_dimension:
+                repeat_dims.append(int(shape[i] / ((end - start) / step)))
+            else:
+                repeat_dims.append(shape[i])
+
+        # Apply repeat shard-wise
+        single_dim_tensor = GoldenMapTensor(
+            {
+                k: shard.repeat(*repeat_dims)
+                for k, shard in result_tensor.shard_map.items()
+            },
+            result_tensor.mesh_shape,
+        )
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+        op = ttir.ArangeOp(
+            result,
+            loc=loc,
+            start=start,
+            end=end,
+            step=step,
+            arange_dimension=arange_dimension,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(
+                shape=shape,
+                start=start,
+                end=end,
+                step=step,
+                arange_dimension=arange_dimension,
+            )
+            self._set_golden_tensor(op.result, golden_output)
+
+        return op.result
+
+    @parse(ttir.ArangeOp)
+    def arange_parser(
+        self,
+        old_op: ttir.ArangeOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.arange_parser)
+        result = old_op.result.type
+        start_attr = old_op.start
+        end_attr = old_op.end
+        step_attr = old_op.step
+        arange_dimension_attr = old_op.arange_dimension
+
+        new_op = ttir_op(
+            result,
+            loc=old_op.location,
+            start=start_attr,
+            end=end_attr,
+            step=step_attr,
+            arange_dimension=arange_dimension_attr,
+        )
+
+        if not self._disable_golden_check:
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(
+                loc=old_op.location,
+                shape=old_op.result.type.shape,
+                start=start_attr,
+                end=end_attr,
+                step=step_attr,
+                arange_dimension=arange_dimension_attr,
+            )
+            self._set_golden_tensor(new_op.result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op.result
+        return new_op, op_map_dictionary
+
+    @split(ttir.ArangeOp)
+    def arange_split(
+        self,
+        old_op: ttir.ArangeOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.arange_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            arange_module = Module.create()
+            arange_builder = TTIRBuilder(old_ctx, old_loc)
+            op_input_types: List[Type] = []
+
+            with InsertionPoint(arange_module.body):
+
+                @func.func(*op_input_types, name="arange_module")
+                def decorated_func():
+                    result = old_op.result.type
+                    new_op = ttir.ArangeOp(
+                        result,
+                        loc=old_op.location,
+                        start=old_op.start,
+                        end=old_op.end,
+                        step=old_op.step,
+                        arange_dimension=old_op.arange_dimension,
+                    )
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_output = op_golden_function(
+                            loc=old_op.location,
+                            shape=old_op.result.type.shape,
+                            start=old_op.start,
+                            end=old_op.end,
+                            step=old_op.step,
+                            arange_dimension=old_op.arange_dimension,
+                        )
+                        arange_builder._set_golden_tensor(new_op, golden_output)
+                        arange_builder._set_output_ordering([new_op])
+
+                    return new_op
+
+        return arange_module, arange_builder
 
     ################ ttir.CumSumOp ###############
 
@@ -162,7 +311,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.cumsum)
         input0 = self._get_golden_tensor(in0)
         if output_type is None:
@@ -184,16 +333,16 @@ class TTIRBuilder(Builder):
         if not self._disable_golden_check:
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(input0, dim=dim)
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.CumSumOp)
     def cumsum_parser(
         self,
         old_op: ttir.CumSumOp,
         global_dict: Dict[Operand, Operand],
-    ) -> Operation:
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
         ttir_op = self.get_opview_from_parser(TTIRBuilder.cumsum_parser)
         in0 = global_dict[old_op.input]
         result = old_op.result.type
@@ -210,9 +359,11 @@ class TTIRBuilder(Builder):
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(input0, dim=dim_attr)
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
-        return new_op
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op.result
+        return new_op, op_map_dictionary
 
     @split(ttir.CumSumOp)
     def cumsum_split(
@@ -274,7 +425,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.gather)
         offset_dims_attr = DenseI64ArrayAttr.get(offset_dims, self._ctx)
         collapsed_slice_dims_attr = DenseI64ArrayAttr.get(
@@ -356,16 +507,16 @@ class TTIRBuilder(Builder):
             golden_output = op_golden_function(
                 input_golden, indices_golden, **ttir_kwargs
             )
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.GatherOp)
     def gather_parser(
         self,
         old_op: ttir.GatherOp,
         global_dict: Dict[Operand, Operand],
-    ) -> Operation:
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
         ttir_op = self.get_opview_from_parser(TTIRBuilder.gather_parser)
         in0 = global_dict[old_op.input]
         in1 = global_dict[old_op.start_indices]
@@ -402,9 +553,11 @@ class TTIRBuilder(Builder):
                 slice_sizes=old_op.slice_sizes,
                 indices_are_sorted=old_op.indices_are_sorted,
             )
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
-        return new_op
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op.result
+        return new_op, op_map_dictionary
 
     @split(ttir.GatherOp)
     def gather_split(
@@ -490,7 +643,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.ones)
         effective_dtype: torch.dtype = (
             output_type if output_type is not None else torch.float32
@@ -515,16 +668,16 @@ class TTIRBuilder(Builder):
         if not self._disable_golden_check:
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(shape=shape)
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.OnesOp)
     def ones_parser(
         self,
         old_op: ttir.OnesOp,
         global_dict: Dict[Operand, Operand],
-    ) -> Operation:
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
         ttir_op = self.get_opview_from_parser(TTIRBuilder.ones_parser)
         result = old_op.result.type
         shape_attr = old_op.shape
@@ -538,9 +691,11 @@ class TTIRBuilder(Builder):
         if not self._disable_golden_check:
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(shape=shape_attr)
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
-        return new_op
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op.result
+        return new_op, op_map_dictionary
 
     @split(ttir.OnesOp)
     def ones_split(
@@ -585,7 +740,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.zeros)
         effective_dtype: torch.dtype
         if output_type is not None:
@@ -614,16 +769,16 @@ class TTIRBuilder(Builder):
         if not self._disable_golden_check:
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(shape=shape)
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.ZerosOp)
     def zeros_parser(
         self,
         old_op: ttir.ZerosOp,
         global_dict: Dict[Operand, Operand],
-    ) -> Operation:
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
         ttir_op = self.get_opview_from_parser(TTIRBuilder.zeros_parser)
         result = old_op.result.type
         shape_attr = old_op.shape
@@ -637,9 +792,11 @@ class TTIRBuilder(Builder):
         if not self._disable_golden_check:
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(shape=shape_attr)
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
-        return new_op
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op.result
+        return new_op, op_map_dictionary
 
     @split(ttir.ZerosOp)
     def zeros_split(
@@ -683,7 +840,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.cos)
         input0 = self._get_golden_tensor(in0)
         if output_type is None:
@@ -706,16 +863,16 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.CosOp)
     def cos_parser(
         self,
         old_op: ttir.CosOp,
         global_dict: Dict[Operand, Operand],
-    ) -> Operation:
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
         ttir_op = self.get_opview_from_parser(TTIRBuilder.cos_parser)
         in0 = global_dict[old_op.input]
         result = old_op.result.type
@@ -730,9 +887,11 @@ class TTIRBuilder(Builder):
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
-        return new_op
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op.result
+        return new_op, op_map_dictionary
 
     @split(ttir.CosOp)
     def cos_split(
@@ -785,7 +944,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.sin)
         input0 = self._get_golden_tensor(in0)
         if output_type is None:
@@ -808,16 +967,16 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.SinOp)
     def sin_parser(
         self,
         old_op: ttir.SinOp,
         global_dict: Dict[Operand, Operand],
-    ) -> Operation:
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
         ttir_op = self.get_opview_from_parser(TTIRBuilder.sin_parser)
         in0 = global_dict[old_op.input]
         result = old_op.result.type
@@ -832,9 +991,11 @@ class TTIRBuilder(Builder):
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
-        return new_op
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op.result
+        return new_op, op_map_dictionary
 
     @split(ttir.SinOp)
     def sin_split(
@@ -887,7 +1048,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.sqrt)
         input0 = self._get_golden_tensor(in0)
         if output_type is None:
@@ -910,16 +1071,16 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.SqrtOp)
     def sqrt_parser(
         self,
         old_op: ttir.SqrtOp,
         global_dict: Dict[Operand, Operand],
-    ) -> Operation:
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
         ttir_op = self.get_opview_from_parser(TTIRBuilder.sqrt_parser)
         in0 = global_dict[old_op.input]
         result = old_op.result.type
@@ -934,9 +1095,11 @@ class TTIRBuilder(Builder):
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
-        return new_op
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op.result
+        return new_op, op_map_dictionary
 
     @split(ttir.SqrtOp)
     def sqrt_split(
@@ -990,7 +1153,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.ge)
         lhs = self._get_golden_tensor(in0)
         rhs = self._get_golden_tensor(in1)
@@ -1014,16 +1177,16 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.GreaterEqualOp)
     def ge_parser(
         self,
         old_op: ttir.GreaterEqualOp,
         global_dict: Dict[Operand, Operand],
-    ) -> Operation:
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
         ttir_op = self.get_opview_from_parser(TTIRBuilder.ge_parser)
         in0 = global_dict[old_op.lhs]
         in1 = global_dict[old_op.rhs]
@@ -1041,9 +1204,11 @@ class TTIRBuilder(Builder):
             input1 = self._get_golden_tensor(in1)
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(input0, input1, result.element_type)
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
-        return new_op
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op.result
+        return new_op, op_map_dictionary
 
     @split(ttir.GreaterEqualOp)
     def ge_split(
@@ -1108,7 +1273,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.lt)
         lhs = self._get_golden_tensor(in0)
         rhs = self._get_golden_tensor(in1)
@@ -1132,16 +1297,16 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.LessThanOp)
     def lt_parser(
         self,
         old_op: ttir.LessThanOp,
         global_dict: Dict[Operand, Operand],
-    ) -> Operation:
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
         ttir_op = self.get_opview_from_parser(TTIRBuilder.lt_parser)
         in0 = global_dict[old_op.lhs]
         in1 = global_dict[old_op.rhs]
@@ -1159,9 +1324,11 @@ class TTIRBuilder(Builder):
             input1 = self._get_golden_tensor(in1)
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(input0, input1, result.element_type)
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
-        return new_op
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op.result
+        return new_op, op_map_dictionary
 
     @split(ttir.LessThanOp)
     def lt_split(
@@ -1226,7 +1393,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.pow)
         lhs = self._get_golden_tensor(in0)
         rhs = self._get_golden_tensor(in1)
@@ -1250,16 +1417,16 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.PowOp)
     def pow_parser(
         self,
         old_op: ttir.PowOp,
         global_dict: Dict[Operand, Operand],
-    ) -> Operation:
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
         ttir_op = self.get_opview_from_parser(TTIRBuilder.pow_parser)
         in0 = global_dict[old_op.lhs]
         in1 = global_dict[old_op.rhs]
@@ -1277,9 +1444,11 @@ class TTIRBuilder(Builder):
             input1 = self._get_golden_tensor(in1)
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(input0, input1, result.element_type)
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
-        return new_op
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op.result
+        return new_op, op_map_dictionary
 
     @split(ttir.PowOp)
     def pow_split(
@@ -1344,7 +1513,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.minimum)
         lhs = self._get_golden_tensor(in0)
         rhs = self._get_golden_tensor(in1)
@@ -1368,16 +1537,16 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.MinimumOp)
     def minimum_parser(
         self,
         old_op: ttir.MinimumOp,
         global_dict: Dict[Operand, Operand],
-    ) -> Operation:
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
         ttir_op = self.get_opview_from_parser(TTIRBuilder.minimum_parser)
         in0 = global_dict[old_op.lhs]
         in1 = global_dict[old_op.rhs]
@@ -1395,9 +1564,11 @@ class TTIRBuilder(Builder):
             input1 = self._get_golden_tensor(in1)
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(input0, input1, result.element_type)
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
-        return new_op
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op.result
+        return new_op, op_map_dictionary
 
     @split(ttir.MinimumOp)
     def minimum_split(
@@ -1462,7 +1633,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.logical_right_shift)
         lhs = self._get_golden_tensor(in0)
         rhs = self._get_golden_tensor(in1)
@@ -1486,16 +1657,16 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.LogicalRightShiftOp)
     def logical_right_shift_parser(
         self,
         old_op: ttir.LogicalRightShiftOp,
         global_dict: Dict[Operand, Operand],
-    ) -> Operation:
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
         ttir_op = self.get_opview_from_parser(TTIRBuilder.logical_right_shift_parser)
         in0 = global_dict[old_op.lhs]
         in1 = global_dict[old_op.rhs]
@@ -1513,9 +1684,11 @@ class TTIRBuilder(Builder):
             input1 = self._get_golden_tensor(in1)
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(input0, input1, result.element_type)
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
-        return new_op
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op.result
+        return new_op, op_map_dictionary
 
     @split(ttir.LogicalRightShiftOp)
     def logical_right_shift_split(
@@ -1582,7 +1755,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.reverse)
 
         if output_type is None:
@@ -1613,16 +1786,16 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.ReverseOp)
     def reverse_parser(
         self,
         old_op: ttir.ReverseOp,
         global_dict: Dict[Operand, Operand],
-    ) -> Operation:
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
         ttir_op = self.get_opview_from_parser(TTIRBuilder.reverse_parser)
 
         in0 = global_dict[old_op.input]
@@ -1642,7 +1815,7 @@ class TTIRBuilder(Builder):
             golden_output = op_golden_function(
                 input0, dimensions_attr, result.element_type
             )
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
         return new_op
 
@@ -1707,7 +1880,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.scatter)
 
         if output_type is None:
@@ -1744,9 +1917,9 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.ScatterOp)
     def scatter_parser(
@@ -1779,7 +1952,7 @@ class TTIRBuilder(Builder):
             golden_output = op_golden_function(
                 input0, input_index, input_source, dim_attr, result.element_type
             )
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
         return new_op
 
@@ -1875,7 +2048,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.max_pool2d_with_indices)
 
         if output_type is None:
@@ -1950,7 +2123,7 @@ class TTIRBuilder(Builder):
             self._set_golden_tensor(op.result, golden_outputs[0])
             self._set_golden_tensor(op.result_indices, golden_outputs[1])
 
-        return op
+        return op.result
 
     @parse(ttir.MaxPool2dWithIndicesOp)
     def max_pool2d_with_indices_parser(
@@ -2092,7 +2265,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.log1p)
 
         if output_type is None:
@@ -2121,9 +2294,9 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.Log1pOp)
     def log1p_parser(
@@ -2145,7 +2318,7 @@ class TTIRBuilder(Builder):
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
         return new_op
 
@@ -2205,7 +2378,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.concat)
         dim_attr = IntegerAttr.get(IntegerType.get_signed(32), dim)
 
@@ -2236,9 +2409,9 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.ConcatOp)
     def concat_parser(
@@ -2264,7 +2437,7 @@ class TTIRBuilder(Builder):
             golden_output = op_golden_function(
                 input_tensors, dim_attr, result.element_type
             )
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
         return new_op
 
@@ -2333,7 +2506,7 @@ class TTIRBuilder(Builder):
         fill_value: Union[int, float],
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.full)
         mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
@@ -2366,9 +2539,9 @@ class TTIRBuilder(Builder):
             golden_output = op_golden_function(
                 output_shape_attr, fill_value_attr, mlir_output_type
             )
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.FullOp)
     def full_parser(
@@ -2394,7 +2567,7 @@ class TTIRBuilder(Builder):
             golden_output = op_golden_function(
                 output_shape_attr, fill_value_attr, result.element_type
             )
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
         return new_op
 
@@ -2450,7 +2623,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.clamp_tensor)
 
         if output_type is None:
@@ -2485,9 +2658,9 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.ClampTensorOp)
     def clamp_tensor_parser(
@@ -2517,7 +2690,7 @@ class TTIRBuilder(Builder):
             golden_output = op_golden_function(
                 input0, min_tensor_golden, max_tensor_golden, result.element_type
             )
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
         return new_op
 
@@ -2609,7 +2782,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.reduce_or)
 
         if dim_arg is None:
@@ -2649,9 +2822,9 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.ReduceOrOp)
     def reduce_or_parser(
@@ -2679,7 +2852,7 @@ class TTIRBuilder(Builder):
             golden_output = op_golden_function(
                 input0, dim_arg_attr, keep_dim_attr, result.element_type
             )
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
         return new_op
 
@@ -2744,7 +2917,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.max)
 
         if dim_arg is None:
@@ -2784,9 +2957,9 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.MaxOp)
     def max_parser(
@@ -2814,7 +2987,7 @@ class TTIRBuilder(Builder):
             golden_output = op_golden_function(
                 input0, dim_arg_attr, keep_dim_attr, result.element_type
             )
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
         return new_op
 
@@ -2877,7 +3050,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.logical_not)
 
         if output_type is None:
@@ -2906,9 +3079,9 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.LogicalNotOp)
     def logical_not_parser(
@@ -2930,7 +3103,7 @@ class TTIRBuilder(Builder):
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
         return new_op
 
@@ -2985,7 +3158,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.log)
 
         if output_type is None:
@@ -3014,9 +3187,9 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.LogOp)
     def log_parser(
@@ -3038,7 +3211,7 @@ class TTIRBuilder(Builder):
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
         return new_op
 
@@ -3094,7 +3267,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.gt)
 
         if output_type is None:
@@ -3125,9 +3298,9 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.GreaterThanOp)
     def gt_parser(
@@ -3152,7 +3325,7 @@ class TTIRBuilder(Builder):
             input1 = self._get_golden_tensor(in1)
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(input0, input1, result.element_type)
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
         return new_op
 
@@ -3224,7 +3397,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.pooling)
 
         if base_dilations is None:
@@ -3278,9 +3451,9 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.PoolingOp)
     def pooling_parser(
@@ -3327,7 +3500,7 @@ class TTIRBuilder(Builder):
                 padding_attr,
                 result.element_type,
             )
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
         return new_op
 
@@ -3408,7 +3581,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.batch_norm_inference)
         epsilon_attr = FloatAttr.get_f32(epsilon)
         dimension_attr = IntegerAttr.get(IntegerType.get_signless(32), dimension)
@@ -3458,9 +3631,9 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.BatchNormInferenceOp)
     def batch_norm_inference_parser(
@@ -3507,7 +3680,7 @@ class TTIRBuilder(Builder):
                 dimension_attr,
                 result.element_type,
             )
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
         return new_op
 
@@ -3637,7 +3810,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> Tuple[OpView, OpView, OpView]:
+    ) -> Tuple[OpResult, OpResult, OpResult]:
         ttir_op = self.get_opview_from_method(TTIRBuilder.batch_norm_training)
         epsilon_attr = FloatAttr.get_f32(epsilon)
         dimension_attr = IntegerAttr.get(IntegerType.get_signless(32), dimension)
@@ -3707,7 +3880,7 @@ class TTIRBuilder(Builder):
             self._set_golden_tensor(op.batch_mean, golden_batch_mean)
             self._set_golden_tensor(op.batch_variance, golden_batch_variance)
 
-        return op.result, op.batch_mean, op.batch_variance
+        return op.result.result, op.batch_mean, op.batch_variance
 
     @parse(ttir.BatchNormTrainingOp)
     def batch_norm_training_parser(
@@ -3924,7 +4097,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.convolution)
 
         if isinstance(window_strides, int):
@@ -4006,9 +4179,9 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.ConvolutionOp)
     def convolution_parser(
@@ -4062,7 +4235,7 @@ class TTIRBuilder(Builder):
                 batch_group_count_attr,
                 result.element_type,
             )
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
         return new_op
 
@@ -4166,7 +4339,7 @@ class TTIRBuilder(Builder):
         tensor: torch.Tensor,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.constant)
         value_attr = DenseElementsAttr.get(tensor.numpy())
         result = self._create_ranked_tensor_type(
@@ -4191,9 +4364,9 @@ class TTIRBuilder(Builder):
         if not self._disable_golden_check:
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(value_attr)
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.ConstantOp)
     def constant_parser(
@@ -4216,7 +4389,7 @@ class TTIRBuilder(Builder):
             if not self._disable_golden_check:
                 op_golden_function = get_golden_function(ttir_op)
                 golden_output = op_golden_function(value_attr)
-                self._set_golden_tensor(new_op, golden_output)
+                self._set_golden_tensor(new_op.result, golden_output)
 
         return new_op
 
@@ -4265,7 +4438,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.pad)
         padding_attr = DenseI32ArrayAttr.get(padding)
         value_attr = FloatAttr.get(F32Type.get(), value)
@@ -4306,9 +4479,9 @@ class TTIRBuilder(Builder):
             golden_output = op_golden_function(
                 input, padding_attr, value_attr, mlir_output_type
             )
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.PadOp)
     def pad_parser(
@@ -4336,7 +4509,7 @@ class TTIRBuilder(Builder):
             golden_output = op_golden_function(
                 input0, padding_attr, value_attr, result.element_type
             )
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
         return new_op
 
@@ -4406,7 +4579,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.dot_general)
 
         if output_type is None:
@@ -4454,9 +4627,9 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.DotGeneralOp)
     def dot_general_parser(
@@ -4497,7 +4670,7 @@ class TTIRBuilder(Builder):
                 contract_dims_rhs_attr,
                 result.element_type,
             )
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
         return new_op
 
@@ -4583,7 +4756,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.permute)
         permutation_attr = DenseI64ArrayAttr.get(permutation)
 
@@ -4621,9 +4794,9 @@ class TTIRBuilder(Builder):
             golden_output = op_golden_function(
                 input, permutation_attr, mlir_output_type
             )
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.PermuteOp)
     def permute_parser(
@@ -4649,7 +4822,7 @@ class TTIRBuilder(Builder):
             golden_output = op_golden_function(
                 input0, permutation_attr, result.element_type
             )
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
         return new_op
 
@@ -4710,7 +4883,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.broadcast)
         broadcast_dimensions_attr = DenseI64ArrayAttr.get(broadcast_dimensions)
 
@@ -4751,9 +4924,9 @@ class TTIRBuilder(Builder):
             golden_output = op_golden_function(
                 input, broadcast_dimensions_attr, mlir_output_type
             )
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.BroadcastOp)
     def broadcast_parser(
@@ -4779,7 +4952,7 @@ class TTIRBuilder(Builder):
             golden_output = op_golden_function(
                 input0, broadcast_dimensions_attr, result.element_type
             )
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
         return new_op
 
@@ -4843,7 +5016,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.reshape)
         shape_attr = ArrayAttr.get(
             [IntegerAttr.get(IntegerType.get_signless(32), s) for s in shape]
@@ -4876,9 +5049,9 @@ class TTIRBuilder(Builder):
             input = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(input, shape_attr, mlir_output_type)
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.ReshapeOp)
     def reshape_parser(
@@ -4902,7 +5075,7 @@ class TTIRBuilder(Builder):
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(input0, shape_attr, result.element_type)
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
         return new_op
 
@@ -4961,7 +5134,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.maximum)
 
         if output_type is None:
@@ -4992,9 +5165,9 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.MaximumOp)
     def maximum_parser(
@@ -5019,7 +5192,7 @@ class TTIRBuilder(Builder):
             input1 = self._get_golden_tensor(rhs)
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(input0, input1, result.element_type)
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
         return new_op
 
@@ -5087,7 +5260,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.multiply)
 
         if output_type is None:
@@ -5118,9 +5291,9 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.MultiplyOp)
     def multiply_parser(
@@ -5145,7 +5318,7 @@ class TTIRBuilder(Builder):
             input1 = self._get_golden_tensor(rhs)
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(input0, input1, result.element_type)
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
         return new_op
 
@@ -5215,7 +5388,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.eq)
 
         if output_type is None:
@@ -5246,9 +5419,9 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.EqualOp)
     def eq_parser(
@@ -5273,7 +5446,7 @@ class TTIRBuilder(Builder):
             input1 = self._get_golden_tensor(rhs)
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(input0, input1, result.element_type)
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
         return new_op
 
@@ -5346,7 +5519,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.sum)
 
         if dim_arg is None:
@@ -5386,9 +5559,9 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.SumOp)
     def sum_parser(
@@ -5419,7 +5592,7 @@ class TTIRBuilder(Builder):
                 keep_dim_attr,
                 result.element_type,
             )
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
         return new_op
 
@@ -5489,7 +5662,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.add)
 
         if output_type is None:
@@ -5520,9 +5693,9 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.AddOp)
     def add_parser(
@@ -5547,7 +5720,7 @@ class TTIRBuilder(Builder):
             input1 = self._get_golden_tensor(rhs)
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(input0, input1, result.element_type)
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
         return new_op
 
@@ -5634,7 +5807,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.sigmoid)
 
         if output_type is None:
@@ -5663,9 +5836,9 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.SigmoidOp)
     def sigmoid_parser(
@@ -5687,7 +5860,7 @@ class TTIRBuilder(Builder):
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
         return new_op
 
@@ -5744,7 +5917,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.subtract)
 
         if output_type is None:
@@ -5775,9 +5948,9 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.SubtractOp)
     def subtract_parser(
@@ -5802,7 +5975,7 @@ class TTIRBuilder(Builder):
             input1 = self._get_golden_tensor(rhs)
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(input0, input1, result.element_type)
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
         return new_op
 
@@ -5872,7 +6045,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.tanh)
 
         if output_type is None:
@@ -5901,9 +6074,9 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.TanhOp)
     def tanh_parser(
@@ -5925,7 +6098,7 @@ class TTIRBuilder(Builder):
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
         return new_op
 
@@ -5982,7 +6155,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.rsqrt)
 
         if output_type is None:
@@ -6011,9 +6184,9 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.RsqrtOp)
     def rsqrt_parser(
@@ -6035,7 +6208,7 @@ class TTIRBuilder(Builder):
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
         return new_op
 
@@ -6092,7 +6265,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.neg)
 
         if output_type is None:
@@ -6121,9 +6294,9 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.NegOp)
     def neg_parser(
@@ -6145,7 +6318,7 @@ class TTIRBuilder(Builder):
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
         return new_op
 
@@ -6203,7 +6376,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.ne)
 
         if output_type is None:
@@ -6234,9 +6407,9 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.NotEqualOp)
     def ne_parser(
@@ -6261,7 +6434,7 @@ class TTIRBuilder(Builder):
             input1 = self._get_golden_tensor(rhs)
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(input0, input1, result.element_type)
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
         return new_op
 
@@ -6333,7 +6506,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.where)
 
         if output_type is None:
@@ -6374,9 +6547,9 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.WhereOp)
     def where_parser(
@@ -6414,7 +6587,7 @@ class TTIRBuilder(Builder):
             golden_output = op_golden_function(
                 condition, input1, input2, result.element_type
             )
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
         return new_op
 
@@ -6506,7 +6679,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.abs)
 
         if output_type is None:
@@ -6535,9 +6708,9 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.AbsOp)
     def abs_parser(
@@ -6559,7 +6732,7 @@ class TTIRBuilder(Builder):
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
         return new_op
 
@@ -6616,7 +6789,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.erf)
 
         if output_type is None:
@@ -6645,9 +6818,9 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.ErfOp)
     def erf_parser(
@@ -6669,7 +6842,7 @@ class TTIRBuilder(Builder):
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
         return new_op
 
@@ -6726,7 +6899,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.floor)
 
         if output_type is None:
@@ -6755,9 +6928,9 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.FloorOp)
     def floor_parser(
@@ -6779,7 +6952,7 @@ class TTIRBuilder(Builder):
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
         return new_op
 
@@ -6836,7 +7009,7 @@ class TTIRBuilder(Builder):
         output_type: torch.dtype,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.typecast)
         output_mlir_type = self._get_type_from_torch_dtype(output_type)
 
@@ -6861,9 +7034,9 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.TypecastOp)
     def typecast_parser(
@@ -6885,7 +7058,7 @@ class TTIRBuilder(Builder):
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
         return new_op
 
@@ -6946,7 +7119,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.exp)
 
         if output_type is None:
@@ -6975,9 +7148,9 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.ExpOp)
     def exp_parser(
@@ -6999,7 +7172,7 @@ class TTIRBuilder(Builder):
             input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(input0, result.element_type)
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
         return new_op
 
@@ -7057,7 +7230,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.div)
 
         if output_type is None:
@@ -7088,9 +7261,9 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.DivOp)
     def div_parser(
@@ -7115,7 +7288,7 @@ class TTIRBuilder(Builder):
             input1 = self._get_golden_tensor(rhs)
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(input0, input1, result.element_type)
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
         return new_op
 
@@ -7189,7 +7362,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: List[str] = None,
-    ) -> OpView:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.slice)
 
         # If step is not provided, use 1 for each dimension
@@ -7294,9 +7467,9 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op, golden_output)
+            self._set_golden_tensor(op.result, golden_output)
 
-        return op
+        return op.result
 
     @parse(ttir.SliceStaticOp)
     def slice_parser(
@@ -7330,7 +7503,7 @@ class TTIRBuilder(Builder):
                 step=step_attr,
                 output_type_mlir=result.element_type,
             )
-            self._set_golden_tensor(new_op, golden_output)
+            self._set_golden_tensor(new_op.result, golden_output)
 
         return new_op
 
@@ -7395,7 +7568,7 @@ class TTIRBuilder(Builder):
 
     def get_dimension_size(
         self, in0: Operand, dimension: int = 0, unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.get_dimension_size``.
 
@@ -7419,7 +7592,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
         """
         return self._op_proxy(
             ttir.GetDimensionSizeOp,
@@ -7430,7 +7603,7 @@ class TTIRBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
-    def cbrt(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def cbrt(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpResult:
         """
         Creates ``ttir.cbrt``.
 
@@ -7458,12 +7631,12 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             A tensor containing the cubic root of each element in the input tensor
         """
         return self._op_proxy(ttir.CbrtOp, [in0], unit_attrs)
 
-    def ceil(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def ceil(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpResult:
         """
         Creates ``ttir.ceil``.
 
@@ -7481,12 +7654,12 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             Tensor with ceiling values
         """
         return self._op_proxy(ttir.CeilOp, [in0], unit_attrs)
 
-    def erfc(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def erfc(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpResult:
         """
         Creates ``ttir.erfc``.
 
@@ -7509,7 +7682,7 @@ class TTIRBuilder(Builder):
         """
         return self._op_proxy(ttir.ErfcOp, [in0], unit_attrs)
 
-    def gelu(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def gelu(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpResult:
         """
         Creates ``ttir.gelu``.
 
@@ -7539,12 +7712,14 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             A tensor containing the GELU values of each element in the input tensor
         """
         return self._op_proxy(ttir.GeluOp, [in0], unit_attrs)
 
-    def is_finite(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def is_finite(
+        self, in0: Operand, unit_attrs: Optional[List[str]] = None
+    ) -> OpResult:
         """
         Creates ``ttir.is_finite``.
 
@@ -7573,7 +7748,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
         """
         return self._op_proxy(
             ttir.IsFiniteOp,
@@ -7584,7 +7759,7 @@ class TTIRBuilder(Builder):
 
     def bitwise_not(
         self, in0: Operand, unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.bitwise_not``.
 
@@ -7621,7 +7796,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
         """
         return self._op_proxy(
             ttir.BitwiseNotOp,
@@ -7629,7 +7804,7 @@ class TTIRBuilder(Builder):
             unit_attrs,
         )
 
-    def tan(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def tan(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpResult:
         """
         Creates ``ttir.tan``.
 
@@ -7646,12 +7821,12 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             Tensor with tangent values
         """
         return self._op_proxy(ttir.TanOp, [in0], unit_attrs)
 
-    def atan(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def atan(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpResult:
         """
         Creates ``ttir.atan``.
 
@@ -7668,14 +7843,14 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             Tensor with arctangent values
         """
         return self._op_proxy(ttir.AtanOp, [in0], unit_attrs)
 
     def reciprocal(
         self, in0: Operand, unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.reciprocal``.
 
@@ -7693,7 +7868,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             Tensor with reciprocal values
         """
         return self._op_proxy(
@@ -7702,7 +7877,7 @@ class TTIRBuilder(Builder):
             unit_attrs,
         )
 
-    def relu(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def relu(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpResult:
         """
         Creates ``ttir.relu``.
 
@@ -7720,12 +7895,12 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             Tensor with ReLU activation values
         """
         return self._op_proxy(ttir.ReluOp, [in0], unit_attrs)
 
-    def relu6(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def relu6(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpResult:
         """
         Creates ``ttir.relu6``.
 
@@ -7754,12 +7929,12 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             Tensor with ReLU6 activation values
         """
         return self._op_proxy(ttir.Relu6Op, [in0], unit_attrs)
 
-    def silu(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def silu(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpResult:
         """
         Creates ``ttir.silu``.
 
@@ -7789,12 +7964,12 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             A tensor containing the SiLU activation values of each element in the input tensor
         """
         return self._op_proxy(ttir.SiluOp, [in0], unit_attrs)
 
-    def mish(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def mish(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpResult:
         """
         Creates ``ttir.mish``.
 
@@ -7826,12 +8001,12 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             A tensor containing the Mish activation values of each element in the input tensor
         """
         return self._op_proxy(ttir.MishOp, [in0], unit_attrs)
 
-    def relu6(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def relu6(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpResult:
         """
         Creates ``ttir.relu6``.
 
@@ -7860,12 +8035,12 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             Tensor with ReLU6 activation values
         """
         return self._op_proxy(ttir.Relu6Op, [in0], unit_attrs)
 
-    def sign(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def sign(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpResult:
         """
         Creates ``ttir.sign``.
 
@@ -7883,12 +8058,12 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             Tensor with sign values
         """
         return self._op_proxy(ttir.SignOp, [in0], unit_attrs)
 
-    def silu(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def silu(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpResult:
         """
         Creates ``ttir.silu``.
 
@@ -7918,12 +8093,12 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             A tensor containing the SiLU activation values of each element in the input tensor
         """
         return self._op_proxy(ttir.SiluOp, [in0], unit_attrs)
 
-    def expm1(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+    def expm1(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpResult:
         """
         Creates ``ttir.expm1``.
 
@@ -7951,7 +8126,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             A tensor containing exp(x) - 1 for each element x in the input tensor
         """
         return self._op_proxy(
@@ -7967,7 +8142,7 @@ class TTIRBuilder(Builder):
         in0: Operand,
         parameter: float = 0.01,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.leaky_relu``.
 
@@ -8001,7 +8176,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             A tensor containing the leaky ReLU activation values
         """
         ttir_kwargs = {"parameter": parameter}
@@ -8014,7 +8189,7 @@ class TTIRBuilder(Builder):
 
     def le(
         self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.le``.
 
@@ -8048,7 +8223,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
         """
         return self._op_proxy(
             ttir.LessEqualOp,
@@ -8058,7 +8233,7 @@ class TTIRBuilder(Builder):
 
     def logical_and(
         self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.logical_and``.
 
@@ -8092,7 +8267,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
         """
         return self._op_proxy(
             ttir.LogicalAndOp,
@@ -8102,7 +8277,7 @@ class TTIRBuilder(Builder):
 
     def logical_left_shift(
         self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.logical_shift_left``.
 
@@ -8133,7 +8308,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
         """
         return self._op_proxy(
             ttir.LogicalLeftShiftOp,
@@ -8143,7 +8318,7 @@ class TTIRBuilder(Builder):
 
     def logical_or(
         self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.logical_or``.
 
@@ -8179,7 +8354,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
         """
         return self._op_proxy(
             ttir.LogicalOrOp,
@@ -8189,7 +8364,7 @@ class TTIRBuilder(Builder):
 
     def logical_xor(
         self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.logical_xor``.
 
@@ -8223,7 +8398,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
         """
         return self._op_proxy(
             ttir.LogicalXorOp,
@@ -8233,7 +8408,7 @@ class TTIRBuilder(Builder):
 
     def bitwise_and(
         self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.bitwise_and``.
 
@@ -8269,7 +8444,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
         """
         return self._op_proxy(
             ttir.BitwiseAndOp,
@@ -8279,7 +8454,7 @@ class TTIRBuilder(Builder):
 
     def bitwise_or(
         self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.bitwise_or``.
 
@@ -8315,7 +8490,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
         """
         return self._op_proxy(
             ttir.BitwiseOrOp,
@@ -8325,7 +8500,7 @@ class TTIRBuilder(Builder):
 
     def bitwise_xor(
         self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.bitwise_xor``.
 
@@ -8359,7 +8534,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             A tensor containing the bitwise XOR of corresponding elements
         """
         return self._op_proxy(
@@ -8370,7 +8545,7 @@ class TTIRBuilder(Builder):
 
     def remainder(
         self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.remainder``.
 
@@ -8389,7 +8564,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             Tensor with remainder values
         """
         return self._op_proxy(
@@ -8406,7 +8581,7 @@ class TTIRBuilder(Builder):
         dim_arg: List[int] = None,
         keep_dim: bool = False,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.argmax``.
 
@@ -8427,7 +8602,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             Tensor containing the indices of maximum values
         """
         kwargs = {"dim_arg": dim_arg, "keep_dim": keep_dim}
@@ -8445,7 +8620,7 @@ class TTIRBuilder(Builder):
         dim_arg: List[int] = None,
         keep_dim: bool = True,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.mean``.
 
@@ -8467,7 +8642,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             Tensor with mean values
         """
         return self._op_proxy(
@@ -8483,7 +8658,7 @@ class TTIRBuilder(Builder):
         dim_arg: List[int] = None,
         keep_dim: bool = True,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.min``.
 
@@ -8504,7 +8679,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             Tensor with minimum values
         """
         kwargs = {"dim_arg": dim_arg, "keep_dim": keep_dim}
@@ -8522,7 +8697,7 @@ class TTIRBuilder(Builder):
         dim_arg: List[int] = None,
         keep_dim: bool = True,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.reduce_and``.
 
@@ -8543,7 +8718,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             Tensor with logical AND values
         """
         return self._op_proxy(
@@ -8559,7 +8734,7 @@ class TTIRBuilder(Builder):
         dim_arg: List[int] = None,
         keep_dim: bool = False,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.prod``.
 
@@ -8580,7 +8755,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             Tensor with product values
         """
         return self._op_proxy(
@@ -8592,7 +8767,7 @@ class TTIRBuilder(Builder):
 
     def embedding(
         self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.embedding``.
 
@@ -8627,7 +8802,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             A tensor containing the embeddings for the input indices
         """
         return self._op_proxy(
@@ -8646,7 +8821,7 @@ class TTIRBuilder(Builder):
         dimension: int = 1,
         numeric_stable: bool = False,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.softmax``.
 
@@ -8668,7 +8843,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             Output tensor after softmax
         """
         # kwargs handled thru organize_ttir_args
@@ -8694,7 +8869,7 @@ class TTIRBuilder(Builder):
         descending: bool = False,
         stable: bool = False,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.sort``.
 
@@ -8717,7 +8892,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             Sorted tensor
         """
         ttir_kwargs = {"dim": dim, "descending": descending, "stable": stable}
@@ -8749,7 +8924,7 @@ class TTIRBuilder(Builder):
         dim0: int = 0,
         dim1: int = 1,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.transpose``.
 
@@ -8770,7 +8945,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             Tensor with swapped dimensions
         """
         kwargs = {"dim0": dim0, "dim1": dim1}
@@ -8783,7 +8958,7 @@ class TTIRBuilder(Builder):
 
     def repeat(
         self, in0: Operand, dims: List[int], unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.repeat``.
 
@@ -8802,7 +8977,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             Tensor with repeated elements
         """
         return self._op_proxy(
@@ -8818,7 +8993,7 @@ class TTIRBuilder(Builder):
         repeats: int,
         dim: int,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.repeat_interleave``.
 
@@ -8839,7 +9014,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             Tensor with interleaved repeated elements
         """
         return self._op_proxy(
@@ -8860,7 +9035,7 @@ class TTIRBuilder(Builder):
         in1: Operand,
         batch_offset: int = 0,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.fill_cache``.
 
@@ -8901,7 +9076,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             The updated cache tensor
         """
         return self._op_proxy(
@@ -8923,7 +9098,7 @@ class TTIRBuilder(Builder):
         in2: Operand,
         batch_offset: int = 0,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.update_cache``.
 
@@ -8969,7 +9144,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             The updated cache tensor
         """
         return self._op_proxy(
@@ -8995,7 +9170,7 @@ class TTIRBuilder(Builder):
         dilation: Union[int, List[int]],
         groups: int,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.conv2d``.
 
@@ -9040,7 +9215,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             Output tensor after convolution
         """
         if not bias:
@@ -9081,7 +9256,7 @@ class TTIRBuilder(Builder):
         dilation: Union[int, List[int]],
         groups: int,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.conv_transpose2d``.
 
@@ -9126,7 +9301,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             The output tensor after transposed convolution
         """
         if not bias:
@@ -9174,7 +9349,7 @@ class TTIRBuilder(Builder):
         padding: Union[int, List[int]],
         ceil_mode: bool,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.max_pool2d``.
 
@@ -9201,7 +9376,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             Output tensor after max pooling
         """
 
@@ -9244,7 +9419,7 @@ class TTIRBuilder(Builder):
         ceil_mode: bool,
         count_include_pad: bool = True,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.max_pool2d``.
 
@@ -9273,7 +9448,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             Output tensor after max pooling
         """
         return self._op_proxy(
@@ -9314,7 +9489,7 @@ class TTIRBuilder(Builder):
         length: int = 2,
         stride: int = 2,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.select``.
 
@@ -9339,7 +9514,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             The selected slice of the tensor
         """
         return self._op_proxy(
@@ -9362,7 +9537,7 @@ class TTIRBuilder(Builder):
         end: int,
         step: int,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.index``.
 
@@ -9387,7 +9562,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             The indexed tensor
         """
         return self._op_proxy(
@@ -9402,7 +9577,7 @@ class TTIRBuilder(Builder):
         in0: Operand,
         dim: Optional[int] = 0,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.squeeze``.
 
@@ -9422,7 +9597,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             Tensor with specified dimensions of size 1 removed
         """
         kwargs = {"dim": dim}
@@ -9438,7 +9613,7 @@ class TTIRBuilder(Builder):
         in0: Operand,
         dim: Optional[int] = 0,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.unsqueeze``.
 
@@ -9457,7 +9632,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             Tensor with a new dimension of size 1 inserted
         """
         kwargs = {"dim": dim}
@@ -9474,7 +9649,7 @@ class TTIRBuilder(Builder):
         min_arg: Optional[float] = None,
         max_arg: Optional[float] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         kwargs = {"min": min_arg, "max": max_arg}
         return self._op_proxy(
             ttir.ClampScalarOp,
@@ -9491,7 +9666,7 @@ class TTIRBuilder(Builder):
         transpose_a: bool = False,
         transpose_b: bool = False,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.linear``.
 
@@ -9512,7 +9687,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             Output tensor after linear transformation
         """
         inputs = [in0, in1]
@@ -9544,7 +9719,7 @@ class TTIRBuilder(Builder):
         in1: Operand,
         bias: Optional[Operand] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         inputs = [in0, in1]
         if bias:
             inputs.append(bias)
@@ -9561,7 +9736,7 @@ class TTIRBuilder(Builder):
         scale_factor: Union[int, List[int]],
         mode: str = "nearest",
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         output_shape = self._get_golden_tensor(in1).shape
         kwargs = {
             "scale_factor": (
@@ -9580,92 +9755,11 @@ class TTIRBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
-    def arange(
-        self,
-        result: Operand,
-        start: int,
-        end: int,
-        step: int,
-        arange_dimension: int,
-        unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
-        """
-        Creates ``ttir.arange``.
-
-        *Creates a 1-D tensor of sequential values.*
-
-        Returns a 1-D tensor of size (end - start) / step with values from start to end taken with common difference step.
-
-        Parameters
-        ----------
-        start : int
-            Starting value
-        end : int
-            Ending value (exclusive)
-        step : int, optional
-            Step size between values (default: 1)
-        unit_attrs : *Optional[List[str]]*
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            1-D tensor with sequential values
-        """
-        result_tensor = self._get_golden_tensor(result)
-
-        # Build single-dim tensor
-        single_dim_tensor = torch.arange(
-            start=start, end=end, step=step, dtype=result_tensor.dtype
-        )
-
-        # Compute repeat dimensions
-        shape = self.get_shape(result)
-        repeat_dims = []
-        for i in range(len(shape)):
-            if i == arange_dimension:
-                repeat_dims.append(int(shape[i] / ((end - start) / step)))
-            else:
-                repeat_dims.append(shape[i])
-
-        # Apply repeat shard-wise
-        single_dim_tensor_bt = GoldenMapTensor(
-            {
-                k: shard.repeat(*repeat_dims)
-                for k, shard in result_tensor.shard_map.items()
-            },
-            result_tensor.mesh_shape,
-        )
-
-        return self._op_proxy(
-            ttir.ArangeOp,
-            [result, single_dim_tensor_bt],
-            golden_kwargs={
-                "start": start,
-                "end": end,
-                "step": step,
-                "arange_dimension": arange_dimension,
-            },
-            ttir_kwargs={
-                "start": start,
-                "end": end,
-                "step": step,
-                "arange_dimension": arange_dimension,
-            },
-            organize_ttir_args=lambda i, o: (o,),
-            organize_golden_args=lambda i: [i[1]],
-            output_shape=shape,
-            output_type=self._get_type_from_torch_dtype(
-                self._get_golden_tensor(result).dtype
-            ),
-            unit_attrs=unit_attrs,
-        )
-
     # class TTIR_GenericElementwiseBinaryOp
 
     def atan2(
         self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.atan2``.
 
@@ -9695,7 +9789,7 @@ class TTIRBuilder(Builder):
             Optional list of unit attributes
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             A tensor containing the elementwise arctangent of the inputs
         """
         return self._op_proxy(
@@ -9711,7 +9805,7 @@ class TTIRBuilder(Builder):
         zero_point: int,
         dtype: torch.dtype,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.quantize``.
 
@@ -9747,7 +9841,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             The quantized integer tensor
         """
 
@@ -9769,7 +9863,7 @@ class TTIRBuilder(Builder):
         zero_point: int,
         dtype: torch.dtype,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.dequantize``.
 
@@ -9805,7 +9899,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             The dequantized floating-point tensor
         """
         return self._op_proxy(
@@ -9822,7 +9916,7 @@ class TTIRBuilder(Builder):
         zero_point: int,
         dtype: torch.dtype,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.requantize``.
 
@@ -9858,7 +9952,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             The requantized integer tensor with new scale and zero-point
         """
         # kwargs passed thru output type
@@ -9878,7 +9972,7 @@ class TTIRBuilder(Builder):
         output_type: RankedTensorType,
         unit_attrs: Optional[List[str]] = None,
         **kwargs,
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.to_layout``.
 
@@ -9910,7 +10004,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             The tensor with transformed layout
         """
         return self._op_proxy(
@@ -9932,7 +10026,7 @@ class TTIRBuilder(Builder):
         in0: Operand,
         output_type: RankedTensorType,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.tilize``.
 
@@ -9963,7 +10057,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             The tensor with tiled layout
         """
         return self._op_proxy(
@@ -9985,7 +10079,7 @@ class TTIRBuilder(Builder):
         in0: Operand,
         output_type: RankedTensorType,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.untilize``.
 
@@ -10015,7 +10109,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
             The tensor with standard layout
         """
         return self._op_proxy(
@@ -10041,7 +10135,7 @@ class TTIRBuilder(Builder):
         shard_direction: str,
         shard_shape: Tuple[int, ...],
         shard_dims: Tuple[int, ...],
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.mesh_shard``.
 
@@ -10084,7 +10178,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
         """
         ttir_kwargs = {
             "shard_type": Attribute.parse(shard_type),
@@ -10106,7 +10200,7 @@ class TTIRBuilder(Builder):
         input: Operand,
         all_gather_dim: int = None,
         cluster_axis: int = None,
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.all_gather``.
 
@@ -10147,7 +10241,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
         """
         kwargs = {"all_gather_dim": all_gather_dim, "cluster_axis": cluster_axis}
         return self._op_proxy(
@@ -10162,7 +10256,7 @@ class TTIRBuilder(Builder):
         input: Operand,
         reduce_type: str,
         cluster_axis: int,
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.all_reduce``.
 
@@ -10181,7 +10275,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
         """
         kwargs = {
             "reduce_type": Attribute.parse(reduce_type),
@@ -10200,7 +10294,7 @@ class TTIRBuilder(Builder):
         reduce_type: str,
         scatter_dim: int,
         cluster_axis: int,
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.reduce_scatter``.
 
@@ -10221,7 +10315,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
         """
         kwargs = {
             "reduce_type": Attribute.parse(reduce_type),
@@ -10239,7 +10333,7 @@ class TTIRBuilder(Builder):
         self,
         input: Operand,
         source_target_pairs: List[Tuple[int, int]],
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.collective_permute``.
 
@@ -10263,7 +10357,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
         """
         kwargs = {
             "source_target_pairs": source_target_pairs,
@@ -10282,7 +10376,7 @@ class TTIRBuilder(Builder):
         concat_dim: int,
         split_count: int,
         replica_groups: List[List[int]],
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.all_to_all``.
 
@@ -10314,7 +10408,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
         """
         kwargs = {
             "split_dim": split_dim,
@@ -10333,7 +10427,7 @@ class TTIRBuilder(Builder):
         self,
         input: Operand,
         replica_groups: List[Tuple[int, int]],
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.collective_broadcast``.
         *Collective broadcast operation.*
@@ -10352,7 +10446,7 @@ class TTIRBuilder(Builder):
                         ID in each group is treated as the broadcast source for that group.
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
         """
         kwargs = {
             "replica_groups": replica_groups,
@@ -10372,7 +10466,7 @@ class TTIRBuilder(Builder):
         bias: Optional[Operand] = None,
         epsilon: float = 1e-5,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
+    ) -> OpResult:
         """
         Creates ``ttir.rms_norm``.
 
@@ -10403,7 +10497,7 @@ class TTIRBuilder(Builder):
 
         Returns
         -------
-        (*OpView*)
+        (*OpResult*)
         """
         # Prepare TTIR kwargs:
         ttir_kwargs = {
