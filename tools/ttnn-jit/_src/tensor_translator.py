@@ -181,6 +181,14 @@ def _create_dram_tensor_layout(ctx, tensor_arg):
 
 def _check_layout_supported(tensor_arg):
     print(f"[DEBUG] Checking layout supported for tensor_arg")
+
+    print(f"[DEBUG] Tensor layout: {tensor_arg.layout}")
+    if str(tensor_arg.layout) != "Layout.TILE":
+        print(f"[DEBUG] Unsupported tensor layout detected: {tensor_arg.layout}")
+        raise ValueError(
+            f"Only Layout.TILE tensors are supported. Found layout: {tensor_arg.layout}"
+        )
+
     mem_config = tensor_arg.memory_config()
     print(f"[DEBUG] Memory config: {mem_config}")
     if mem_config.is_sharded():
@@ -194,22 +202,6 @@ def _check_layout_supported(tensor_arg):
     if str(mem_config.buffer_type) == "BufferType.L1" and not mem_config.is_sharded():
         print("[DEBUG] Interleaved L1 tensor detected (not supported).")
         raise ValueError("Interleaved L1 tensors are not supported.")
-
-    if str(mem_config.buffer_type) == "BufferType.DRAM":
-        max_grid = (0, 0)
-        try:
-            max_grid = _get_grid_from_bounding_box(tensor_arg)
-            print(f"[DEBUG] DRAM tensor grid: {max_grid}")
-        except Exception as e:
-            print(f"[DEBUG] Exception getting grid from bounding box: {e}")
-        if max_grid != (0, 0):
-            print("[DEBUG] DRAM tensor grid is not 1x1 (not supported).")
-            raise ValueError("DRAM tensors must be 1x1 grid.")
-
-    # print(f"[DEBUG] check if statement below: {mem_config.buffer_type == ttnn.BufferType.DRAM} and {mem_config.is_sharded()}")
-    # print(f"[DEBUG] type of mem_config.buffer_type: {type(mem_config.buffer_type)}")
-    # print(f"[DEBUG] str(mem_config.buffer_type): {str(mem_config.buffer_type)}")
-    # print(f"[DEBUG] type of ttnn.BufferType.DRAM: {type(ttnn.BufferType.DRAM)}")
 
     if str(mem_config.buffer_type) == "BufferType.DRAM" and mem_config.is_sharded():
         print("[DEBUG] DRAM tensor is sharded (not supported).")
