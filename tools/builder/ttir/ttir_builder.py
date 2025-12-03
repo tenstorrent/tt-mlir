@@ -316,7 +316,8 @@ class TTIRBuilder(Builder):
         input0 = self._get_golden_tensor(in0)
         if output_type is None:
             output_type = input0.dtype
-
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(input0, dim=dim)
         result = self._create_ranked_tensor_type(golden_output.shape, output_type)
 
         if loc is None:
@@ -331,8 +332,6 @@ class TTIRBuilder(Builder):
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(input0, dim=dim)
             self._set_golden_tensor(op.result, golden_output)
 
         return op.result
@@ -3839,7 +3838,7 @@ class TTIRBuilder(Builder):
             self._set_golden_tensor(op.batch_mean, golden_batch_mean)
             self._set_golden_tensor(op.batch_variance, golden_batch_variance)
 
-        return op.result.result, op.batch_mean, op.batch_variance
+        return op.result, op.batch_mean, op.batch_variance
 
     @parse(ttir.BatchNormTrainingOp)
     def batch_norm_training_parser(
