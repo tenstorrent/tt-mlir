@@ -180,32 +180,20 @@ def _create_dram_tensor_layout(ctx, tensor_arg):
 
 
 def _check_layout_supported(tensor_arg):
-    print(f"[DEBUG] Checking layout supported for tensor_arg")
-
-    print(f"[DEBUG] Tensor layout: {tensor_arg.layout}")
     if str(tensor_arg.layout) != "Layout.TILE":
-        print(f"[DEBUG] Unsupported tensor layout detected: {tensor_arg.layout}")
         raise ValueError(
             f"Only Layout.TILE tensors are supported. Found layout: {tensor_arg.layout}"
         )
 
     mem_config = tensor_arg.memory_config()
-    print(f"[DEBUG] Memory config: {mem_config}")
     if mem_config.is_sharded():
-        print(f"[DEBUG] Tensor is sharded. Shard spec: {mem_config.shard_spec}")
         if mem_config.shard_spec is None:
-            print("[DEBUG] No shard spec present for sharded tensor.")
             raise ValueError(
                 "Tensor is sharded but no legacy shard spec is present. ND Sharded tensors are not supported yet."
             )
 
     if str(mem_config.buffer_type) == "BufferType.L1" and not mem_config.is_sharded():
-        print("[DEBUG] Interleaved L1 tensor detected (not supported).")
         raise ValueError("Interleaved L1 tensors are not supported.")
-
-    if str(mem_config.buffer_type) == "BufferType.DRAM" and mem_config.is_sharded():
-        print("[DEBUG] DRAM tensor is sharded (not supported).")
-        raise ValueError("DRAM tensors must be interleaved.")
 
 
 def _get_output_shape(op_name, input_shapes):
@@ -288,15 +276,11 @@ def create_output_tensor(ctx, op_name, input_types):
 
 def create_tensor_layout(ctx, tensor_arg):
     """Create TTNN layout attribute from tensor."""
-    print(f"[DEBUG] Creating tensor layout for tensor")
     _check_layout_supported(tensor_arg)
 
     mem_config = tensor_arg.memory_config()
-    print(f"[DEBUG] Memory config in create_tensor_layout: {mem_config}")
 
     if mem_config is not None and mem_config.is_sharded():
-        print("[DEBUG] Creating sharded tensor layout.")
         return _create_sharded_tensor_layout(ctx, tensor_arg)
     else:
-        print("[DEBUG] Creating DRAM tensor layout.")
         return _create_dram_tensor_layout(ctx, tensor_arg)
