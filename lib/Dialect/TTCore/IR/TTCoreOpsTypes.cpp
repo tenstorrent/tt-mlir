@@ -1564,8 +1564,6 @@ mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
     if (auto coreVirtMap = shardLayout.getCoreVirtualizationMap();
         !coreVirtMap.isEmpty()) {
 
-      // TODO: generalize to drop any results not present in the core
-      // virtualization map results
       if (affineMap.getNumDims() > coreVirtMap.getNumResults()) {
         auto dimsToRemove =
             affineMap.getNumDims() - coreVirtMap.getNumResults();
