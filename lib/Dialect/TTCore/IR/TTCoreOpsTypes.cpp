@@ -825,8 +825,6 @@ GridAttr::getPhysicalGridShape(ArrayRef<int64_t> deviceGridShape) {
   }
 
   TT_assertv(deviceGridShape.size() == 2ul, "Device grid shape must be 2D.");
-  TT_assertv(deviceGridShape[0] == deviceGridShape[1],
-             "Device grid shape must be square.");
 
   // Checks that a physical grid shape injectively maps onto the virtual grid
   // using the provided mapping function.
