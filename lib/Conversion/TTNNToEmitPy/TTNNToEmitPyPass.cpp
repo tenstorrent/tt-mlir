@@ -41,6 +41,7 @@ public:
 
 struct ConvertTTNNToEmitPyPass
     : public tt::ttnn::impl::ConvertTTNNToEmitPyBase<ConvertTTNNToEmitPyPass> {
+
   void runOnOperation() override {
     mlir::ModuleOp module = getOperation();
     // Only run conversion on top-level moduleOp.
@@ -74,17 +75,6 @@ struct ConvertTTNNToEmitPyPass
                                      nullptr, nullptr);
     builder.create<emitpy::ImportOp>(module->getLoc(), "utils", nullptr,
                                      nullptr, nullptr, nullptr);
-
-    // Unwrap device_module into top-level ModuleOp (if present)
-    {
-      OpPassManager pm(ModuleOp::getOperationName());
-      pm.addPass(tt::ttcore::createTTCoreUnwrapDeviceModulePass());
-
-      if (failed(runPipeline(pm, module))) {
-        signalPassFailure();
-        return;
-      }
-    }
 
     // TTNN -> EmitPy
     //

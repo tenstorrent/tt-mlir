@@ -207,6 +207,23 @@ def EmitPyNameVars : Pass<"emitpy-name-vars", "::mlir::ModuleOp"> {
   let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect"];
 }
 
+def EmitPyWrapFuncArgsForGolden : Pass<"emitpy-wrap-func-args-for-golden", "::mlir::ModuleOp"> {
+  let summary = "Wrap function arguments and returns with to_torch/from_torch for golden mode.";
+  let description = [{
+    This pass wraps function arguments with `ttnn.to_torch` calls and function
+    return values with `ttnn.from_torch` calls. This is used for golden function
+    execution mode where CPU-hoisted operations use PyTorch tensors.
+
+    For each function in the module:
+    - Tensor arguments are converted to torch tensors using `ttnn.to_torch`
+    - Return values are converted back to TTNN tensors using `ttnn.from_torch`
+
+    This pass should run after TTNNToEmitPy conversion on the CPU module.
+  }];
+  let constructor = "createEmitPyWrapFuncArgsForGoldenPass()";
+  let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect"];
+}
+
 def ConvertTTKernelToEmitC : Pass<"convert-ttkernel-to-emitc", "::mlir::ModuleOp"> {
   let summary = "Convert TTKernel dialect to EmitC dialect.";
   let dependentDialects = ["mlir::emitc::EmitCDialect", "mlir::func::FuncDialect",

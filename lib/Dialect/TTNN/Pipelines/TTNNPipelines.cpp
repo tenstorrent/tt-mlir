@@ -343,6 +343,7 @@ void createTTNNBackendToEmitPyPipeline(
     devicePm.addPass(createTTNNAdjustDeallocs());
 
     // Apply EmitPy-specific workarounds before conversion
+    //
     devicePm.addPass(createTTNNEmitPyWorkarounds());
   }
 
@@ -350,6 +351,8 @@ void createTTNNBackendToEmitPyPipeline(
   {
     auto &cpuPm = pm.nest<ttcore::CPUModuleOp>().nest<mlir::ModuleOp>();
 
+    // Lower CPU module to TTNN.
+    //
     cpuPm.addPass(ttir::createTTIRFlattenSlidingWindow());
     createTTNNPipelineLoweringPasses(cpuPm, true);
   }
@@ -359,20 +362,24 @@ void createTTNNBackendToEmitPyPipeline(
   //
   pm.addPass(ttcore::createTTCoreMergeCPUAndDeviceModulesPass());
 
-  {
-    pm.addPass(createTTNNTuplifyTensors());
+  pm.addPass(createTTNNTuplifyTensors());
 
-    if (options.loadInputTensorsFromDisk) {
-      TTNNLoadInputTensorsOptions loadOptions;
-      loadOptions.tensorLoadDirectory = options.tensorLoadDirectory;
-      loadOptions.tensorLoadFilePrefix = options.tensorLoadFilePrefix;
-      pm.addPass(createTTNNLoadInputTensors(loadOptions));
-    } else {
-      pm.addPass(createTTNNCreateInputGenerators());
-    }
+  if (options.loadInputTensorsFromDisk) {
+    TTNNLoadInputTensorsOptions loadOptions;
+    loadOptions.tensorLoadDirectory = options.tensorLoadDirectory;
+    loadOptions.tensorLoadFilePrefix = options.tensorLoadFilePrefix;
+    pm.addPass(createTTNNLoadInputTensors(loadOptions));
+  } else {
+    pm.addPass(createTTNNCreateInputGenerators());
   }
 
+  // Finally, perform TTNN -> EmitPy conversion.
+  //
   pm.addPass(createConvertTTNNToEmitPyPass());
+
+  // Wrap function args and return values for CPU-hoisted functions.
+  //
+  pm.addPass(createEmitPyWrapFuncArgsForGoldenPass());
 
   pm.addPass(createEmitPyNameVarsPass());
 }

@@ -17,6 +17,9 @@ std::unique_ptr<OperationPass<ModuleOp>> createConvertTTNNToEmitPyPass();
 
 std::unique_ptr<OperationPass<ModuleOp>> createEmitPyNameVarsPass();
 
+std::unique_ptr<OperationPass<ModuleOp>>
+createEmitPyWrapFuncArgsForGoldenPass();
+
 } // namespace mlir::tt
 
 #endif // TTMLIR_CONVERSION_TTNNTOEMITPY_TTNNTOEMITPY_H

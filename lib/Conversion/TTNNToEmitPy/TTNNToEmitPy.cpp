@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -33,9 +34,19 @@ private:
   virtual std::string getPrefixSearchPattern() const { return "ttnn."; }
   virtual std::string getPrefixSwapPattern() const { return "ttnn."; }
 
+  // Checks if the given operation is inside a CPU-hoisted function.
+  // TODO(dmilinkovic): this is hacky. Consider using pass options instead.
+  //
+  static bool isInsideCPUModule(Operation *op) {
+    auto parent = mlir::cast<func::FuncOp>(op->getParentOp());
+    return parent->hasAttr(ttir::CPUHoistedFuncAttr::name);
+  }
+
 public:
   // Converts op name by removing the prefixSearchPattern with
   // prefixSwapPattern, e.g. "ttnn." with "tt_metal."
+  // When the op is inside a CPUModuleOp, appends ".golden_function" to the op
+  // name.
   //
   std::string convertOpName(SourceOp op) const {
     auto name = op.getOperationName();
@@ -43,14 +54,23 @@ public:
            "TTNNToEmitPyBaseOpConversionPattern only supports ops from the "
            "TTNN dialect");
 
+    std::string result;
     if (getPrefixSearchPattern() == getPrefixSwapPattern()) {
-      return name.str();
+      result = name.str();
+    } else {
+      // Exchange search with swap pattern.
+      //
+      result = name.str().replace(0, getPrefixSearchPattern().size(),
+                                  getPrefixSwapPattern());
     }
 
-    // Exchange search with swap pattern.
+    // Append .golden_function suffix if the op is inside a CPUModuleOp.
     //
-    return name.str().replace(0, getPrefixSearchPattern().size(),
-                              getPrefixSwapPattern());
+    if (isInsideCPUModule(op)) {
+      result += ".golden_function";
+    }
+
+    return result;
   }
 };
 } // namespace

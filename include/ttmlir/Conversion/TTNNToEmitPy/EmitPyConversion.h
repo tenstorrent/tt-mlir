@@ -1737,8 +1737,14 @@ public:
   // the value of the MemoryConfigAttr is nullptr. This should be removed once
   // https://github.com/tenstorrent/tt-mlir/issues/2415 lands.
   ttnn::MemoryConfigAttr getMemoryConfig(mlir::Value val) {
-    auto layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
+    auto layoutAttr = mlir::dyn_cast_or_null<ttnn::TTNNLayoutAttr>(
         mlir::cast<mlir::RankedTensorType>(val.getType()).getEncoding());
+
+    // Return nullptr if the tensor doesn't have a TTNN layout encoding
+    // (e.g., for CPU module tensors).
+    if (!layoutAttr) {
+      return nullptr;
+    }
 
     ttnn::BufferTypeAttr bufferTypeAttr = ttnn::BufferTypeAttr::get(
         layoutAttr.getContext(), layoutAttr.getBufferType());
