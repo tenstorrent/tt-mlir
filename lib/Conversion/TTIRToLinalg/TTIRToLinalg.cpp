@@ -19,10 +19,10 @@
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <cstdint>
-#include <llvm/ADT/APFloat.h>
 
 namespace mlir::tt {
 //===----------------------------------------------------------------------===//
