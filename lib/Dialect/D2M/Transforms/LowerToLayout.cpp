@@ -576,23 +576,13 @@ public:
           .getResult();
     };
 
-    llvm::dbgs() << "  ---layout split start "
-                    "------------------------------------------------------\n";
-    llvm::dbgs() << "  currentInfo.layout: " << currentInfo.layout << "\n";
-    llvm::dbgs() << "  targetInfo.layout: " << targetInfo.layout << "\n";
-
     auto hasVirtualGrid =
         [](std::optional<ttcore::MetalLayoutAttr> maybeLayout) -> bool {
       if (!maybeLayout) {
         return false;
       }
-      auto layout = *maybeLayout;
-      auto indexMap = layout.getIndexAffineMap();
-      if (!indexMap.isEmpty() && !indexMap.isIdentity()) {
-        llvm::dbgs() << "  found virtual grid map : " << indexMap << "\n";
-        return true;
-      }
-      return false;
+      auto indexMap = maybeLayout->getIndexAffineMap();
+      return !indexMap.isEmpty() && !indexMap.isIdentity();
     };
 
     // 0. Split virtual grid shapes earlier into a conventional block sharded
