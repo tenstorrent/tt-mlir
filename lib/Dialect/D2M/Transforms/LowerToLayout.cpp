@@ -117,27 +117,21 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
                                       ArrayRef<int64_t> targetGridShape) {
       SmallVector<int64_t> tensorGridShape =
           llvm::to_vector(referenceLayout.getGridShape(referenceType));
-      ttcore::MetalLayoutAttr layout;
-      if (auto metalLayout = mlir::dyn_cast_or_null<ttcore::MetalLayoutAttr>(
-              referenceType.getEncoding());
-          metalLayout && !metalLayout.getIndexAffineMap().isEmpty()) {
-        tensorGridShape =
-            computeVirtualGridBounceShape(tensorGridShape, targetGridShape);
-        // Recompute default collapsed intervals and dim alignments if target
-        // is a reblocked intermediate bounce for a virtual grid tensor.
-        layout = ttcore::MetalLayoutAttr::get(
-            ctx, referenceLayout.getLogicalShape(), referenceLayout.getOobVal(),
-            memSpace, referenceLayout.getMemoryLayout(), AffineMap::get(ctx));
-      } else {
+      auto referenceIndexMap = referenceLayout.getIndexAffineMap();
+      // If the reference layout has a virtual grid, the bounce shape should not
+      // copy its index map.
+      bool hasVirtualGrid =
+          !referenceIndexMap.isEmpty() && !referenceIndexMap.isIdentity();
+      auto newIndexMap =
+          (hasVirtualGrid) ? AffineMap::get(ctx) : referenceIndexMap;
 
-        // Preserve all layout decisions from the referenceType tensor.
-        layout = ttcore::MetalLayoutAttr::get(
-            ctx, referenceLayout.getLogicalShape(),
-            referenceLayout.getDimAlignments(),
-            referenceLayout.getCollapsedIntervals(),
-            referenceLayout.getOobVal(), memSpace,
-            referenceLayout.getMemoryLayout(), AffineMap::get(ctx));
-      }
+      // Preserve the reference layout's index_map so GenericOps can properly
+      // map virtual grids to physical cores.
+      auto layout = ttcore::MetalLayoutAttr::get(
+          ctx, referenceLayout.getLogicalShape(),
+          referenceLayout.getDimAlignments(),
+          referenceLayout.getCollapsedIntervals(), referenceLayout.getOobVal(),
+          memSpace, referenceLayout.getMemoryLayout(), newIndexMap);
 
       ArrayRef<int64_t> tileShape;
       if (ttcore::isTiled(systemType)) {
@@ -164,7 +158,10 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
       auto memSpace = newMemSpace.value_or(baseLayout.getMemorySpace());
       auto elementType = newElementType.value_or(baseType.getElementType());
 
-      bool hasVirtualGrid = !baseLayout.getIndexAffineMap().isEmpty();
+      // Do not consider a tensor with a identity index map as having a virtual
+      // grid.
+      bool hasVirtualGrid = !baseLayout.getIndexAffineMap().isEmpty() &&
+                            !baseLayout.getIndexAffineMap().isIdentity();
       SmallVector<int64_t> tensorGrid;
       if (newTensorGrid.has_value()) {
         tensorGrid.assign(newTensorGrid->begin(), newTensorGrid->end());
@@ -173,10 +170,10 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
         tensorGrid = currentGrid;
       }
 
-      AffineMap indexMap = AffineMap::get(ctx);
+      AffineMap newIndexMap = AffineMap::get(ctx);
       if (memSpace == ttcore::MemorySpace::DeviceL1 &&
           baseLayout.getMemorySpace() == ttcore::MemorySpace::DeviceL1) {
-        indexMap = baseLayout.getIndexAffineMap();
+        newIndexMap = baseLayout.getIndexAffineMap();
       }
 
       ttcore::MetalLayoutAttr layout;
@@ -191,7 +188,7 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
         layout = ttcore::MetalLayoutAttr::get(
             ctx, baseLayout.getLogicalShape(), baseLayout.getDimAlignments(),
             baseLayout.getCollapsedIntervals(), baseLayout.getOobVal(),
-            memSpace, baseLayout.getMemoryLayout(), indexMap);
+            memSpace, baseLayout.getMemoryLayout(), newIndexMap);
       }
 
       ArrayRef<int64_t> tileShape;
