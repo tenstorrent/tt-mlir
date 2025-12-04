@@ -142,8 +142,10 @@ private:
     // tt-metal untilize supports: bfloat16, float32, uint32, int32
     // (requires use_pack_untilize for uint32/int32)
     // See: ttnn/operations/data_movement/untilize/device/untilize_op.cpp
+    // NOTE: F32 untilize on-device introduces precision loss that can break
+    // CPU-hoisted comparison operations (values that are close but not equal
+    // may become identical after untilize). Keep F32 untilize on host.
     return dataType == ttcore::DataType::BFloat16 ||
-           dataType == ttcore::DataType::Float32 ||
            dataType == ttcore::DataType::UInt32 ||
            dataType == ttcore::DataType::Int32;
   }

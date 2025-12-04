@@ -560,8 +560,16 @@ private:
   }
 
   RankedTensorType toRowMajorType(MLIRContext *ctx, RankedTensorType ty) const {
-    TTNNLayoutAttr rmLayout = createLayoutAttr(
-        ctx, deviceGrid, ty, BufferType::DRAM, /*isTiled=*/false);
+    BufferType bufferType = g_defaultMemorySpaceDevice;
+
+    // Preserve existing buffer type if encoding exists
+    if (auto currentLayout =
+            mlir::dyn_cast_if_present<TTNNLayoutAttr>(ty.getEncoding())) {
+      bufferType = currentLayout.getBufferType();
+    }
+
+    TTNNLayoutAttr rmLayout =
+        createLayoutAttr(ctx, deviceGrid, ty, bufferType, /*isTiled=*/false);
     return RankedTensorType::get(ty.getShape(), ty.getElementType(), rmLayout);
   }
 };
