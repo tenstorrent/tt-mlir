@@ -2828,13 +2828,6 @@ def ttir_gather_golden(
     return gathered.to(output_dtype).to(device=device)
 
 
-def ttir_to_layout_golden(
-    input_tensor: GoldenMapTensor, output_type_mlir: Type
-) -> GoldenMapTensor:
-    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
-    return input_tensor.to(output_dtype)
-
-
 def ttir_ones_golden(shape: ArrayAttr, output_type_mlir: Type) -> GoldenMapTensor:
     size = unpack_mlir_attr(shape)
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
@@ -3917,7 +3910,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.DotGeneralOp: ttir_dot_general_golden,
     ttir.ScatterOp: ttir_scatter_golden,
     # Layout operations (identity functions) — accept and ignore extra kwargs like reinterpretLayout
-    ttir.ToLayoutOp: ttir_to_layout_golden,
+    ttir.ToLayoutOp: (lambda x, **kwargs: x),
     # Cache operations
     ttir.FillCacheOp: fill_cache_golden,
     ttir.UpdateCacheOp: update_cache_golden,

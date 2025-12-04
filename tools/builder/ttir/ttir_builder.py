@@ -391,13 +391,7 @@ class TTIRBuilder(Builder):
                     new_op = ttir_op(result, in0, old_op.dim, loc=old_op.location)
 
                     if not self._disable_golden_check:
-                        input_owner0 = old_op.input.owner
-                        if isinstance(input_owner0, Block):
-                            queried_input0 = old_op.input
-                        else:
-                            queried_input0 = input_owner0
-
-                        input0 = self._get_golden_tensor(queried_input0)
+                        input0 = self._get_golden_tensor(old_op.input)
                         op_golden_function = get_golden_function(ttir_op)
                         golden_output = op_golden_function(
                             input0, old_op.dim, result.element_type
@@ -592,20 +586,8 @@ class TTIRBuilder(Builder):
                     )
 
                     if not self._disable_golden_check:
-                        input_owner0 = old_op.input.owner
-                        if isinstance(input_owner0, Block):
-                            queried_input0 = old_op.input
-                        else:
-                            queried_input0 = input_owner0
-
-                        input_owner1 = old_op.start_indices.owner
-                        if isinstance(input_owner1, Block):
-                            queried_input1 = old_op.start_indices
-                        else:
-                            queried_input1 = input_owner1
-
-                        input0 = self._get_golden_tensor(queried_input0)
-                        input1 = self._get_golden_tensor(queried_input1)
+                        input0 = self._get_golden_tensor(old_op.input)
+                        input1 = self._get_golden_tensor(old_op.start_indices)
                         op_golden_function = get_golden_function(ttir_op)
                         golden_output = op_golden_function(
                             input0,
@@ -910,13 +892,7 @@ class TTIRBuilder(Builder):
                     new_op = ttir_op(result, in0, loc=old_op.location)
 
                     if not self._disable_golden_check:
-                        input_owner0 = old_op.input.owner
-                        if isinstance(input_owner0, Block):
-                            queried_input0 = old_op.input
-                        else:
-                            queried_input0 = input_owner0
-
-                        input0 = self._get_golden_tensor(queried_input0)
+                        input0 = self._get_golden_tensor(old_op.input)
                         op_golden_function = get_golden_function(ttir_op)
                         golden_output = op_golden_function(input0, result.element_type)
                         cos_builder._set_golden_tensor(new_op, golden_output)
@@ -1014,13 +990,7 @@ class TTIRBuilder(Builder):
                     new_op = ttir_op(result, in0, loc=old_op.location)
 
                     if not self._disable_golden_check:
-                        input_owner0 = old_op.input.owner
-                        if isinstance(input_owner0, Block):
-                            queried_input0 = old_op.input
-                        else:
-                            queried_input0 = input_owner0
-
-                        input0 = self._get_golden_tensor(queried_input0)
+                        input0 = self._get_golden_tensor(old_op.input)
                         op_golden_function = get_golden_function(ttir_op)
                         golden_output = op_golden_function(input0, result.element_type)
                         sin_builder._set_golden_tensor(new_op, golden_output)
@@ -1118,13 +1088,7 @@ class TTIRBuilder(Builder):
                     new_op = ttir_op(result, in0, loc=old_op.location)
 
                     if not self._disable_golden_check:
-                        input_owner0 = old_op.input.owner
-                        if isinstance(input_owner0, Block):
-                            queried_input0 = old_op.input
-                        else:
-                            queried_input0 = input_owner0
-
-                        input0 = self._get_golden_tensor(queried_input0)
+                        input0 = self._get_golden_tensor(old_op.input)
                         op_golden_function = get_golden_function(ttir_op)
                         golden_output = op_golden_function(input0, result.element_type)
                         sqrt_builder._set_golden_tensor(new_op, golden_output)
@@ -1228,20 +1192,8 @@ class TTIRBuilder(Builder):
                     new_op = ttir_op(result, in0, in1, loc=old_op.location)
 
                     if not self._disable_golden_check:
-                        input_owner0 = old_op.lhs.owner
-                        if isinstance(input_owner0, Block):
-                            queried_input0 = old_op.lhs
-                        else:
-                            queried_input0 = input_owner0
-
-                        input_owner1 = old_op.rhs.owner
-                        if isinstance(input_owner1, Block):
-                            queried_input1 = old_op.rhs
-                        else:
-                            queried_input1 = input_owner1
-
-                        input0 = self._get_golden_tensor(queried_input0)
-                        input1 = self._get_golden_tensor(queried_input1)
+                        input0 = self._get_golden_tensor(old_op.lhs)
+                        input1 = self._get_golden_tensor(old_op.rhs)
                         op_golden_function = get_golden_function(ttir_op)
                         golden_output = op_golden_function(
                             input0, input1, result.element_type
@@ -1348,20 +1300,8 @@ class TTIRBuilder(Builder):
                     new_op = ttir_op(result, in0, in1, loc=old_op.location)
 
                     if not self._disable_golden_check:
-                        input_owner0 = old_op.lhs.owner
-                        if isinstance(input_owner0, Block):
-                            queried_input0 = old_op.lhs
-                        else:
-                            queried_input0 = input_owner0
-
-                        input_owner1 = old_op.rhs.owner
-                        if isinstance(input_owner1, Block):
-                            queried_input1 = old_op.rhs
-                        else:
-                            queried_input1 = input_owner1
-
-                        input0 = self._get_golden_tensor(queried_input0)
-                        input1 = self._get_golden_tensor(queried_input1)
+                        input0 = self._get_golden_tensor(old_op.lhs)
+                        input1 = self._get_golden_tensor(old_op.rhs)
                         op_golden_function = get_golden_function(ttir_op)
                         golden_output = op_golden_function(
                             input0, input1, result.element_type
@@ -1468,20 +1408,8 @@ class TTIRBuilder(Builder):
                     new_op = ttir_op(result, in0, in1, loc=old_op.location)
 
                     if not self._disable_golden_check:
-                        input_owner0 = old_op.lhs.owner
-                        if isinstance(input_owner0, Block):
-                            queried_input0 = old_op.lhs
-                        else:
-                            queried_input0 = input_owner0
-
-                        input_owner1 = old_op.rhs.owner
-                        if isinstance(input_owner1, Block):
-                            queried_input1 = old_op.rhs
-                        else:
-                            queried_input1 = input_owner1
-
-                        input0 = self._get_golden_tensor(queried_input0)
-                        input1 = self._get_golden_tensor(queried_input1)
+                        input0 = self._get_golden_tensor(old_op.lhs)
+                        input1 = self._get_golden_tensor(old_op.rhs)
                         op_golden_function = get_golden_function(ttir_op)
                         golden_output = op_golden_function(
                             input0, input1, result.element_type
@@ -1588,20 +1516,8 @@ class TTIRBuilder(Builder):
                     new_op = ttir_op(result, in0, in1, loc=old_op.location)
 
                     if not self._disable_golden_check:
-                        input_owner0 = old_op.lhs.owner
-                        if isinstance(input_owner0, Block):
-                            queried_input0 = old_op.lhs
-                        else:
-                            queried_input0 = input_owner0
-
-                        input_owner1 = old_op.rhs.owner
-                        if isinstance(input_owner1, Block):
-                            queried_input1 = old_op.rhs
-                        else:
-                            queried_input1 = input_owner1
-
-                        input0 = self._get_golden_tensor(queried_input0)
-                        input1 = self._get_golden_tensor(queried_input1)
+                        input0 = self._get_golden_tensor(old_op.lhs)
+                        input1 = self._get_golden_tensor(old_op.rhs)
                         op_golden_function = get_golden_function(ttir_op)
                         golden_output = op_golden_function(
                             input0, input1, result.element_type
@@ -1708,20 +1624,8 @@ class TTIRBuilder(Builder):
                     new_op = ttir_op(result, in0, in1, loc=old_op.location)
 
                     if not self._disable_golden_check:
-                        input_owner0 = old_op.lhs.owner
-                        if isinstance(input_owner0, Block):
-                            queried_input0 = old_op.lhs
-                        else:
-                            queried_input0 = input_owner0
-
-                        input_owner1 = old_op.rhs.owner
-                        if isinstance(input_owner1, Block):
-                            queried_input1 = old_op.rhs
-                        else:
-                            queried_input1 = input_owner1
-
-                        input0 = self._get_golden_tensor(queried_input0)
-                        input1 = self._get_golden_tensor(queried_input1)
+                        input0 = self._get_golden_tensor(old_op.lhs)
+                        input1 = self._get_golden_tensor(old_op.rhs)
                         op_golden_function = get_golden_function(ttir_op)
                         golden_output = op_golden_function(
                             input0, input1, result.element_type
