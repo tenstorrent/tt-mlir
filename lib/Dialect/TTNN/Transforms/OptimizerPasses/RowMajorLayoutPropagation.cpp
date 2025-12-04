@@ -25,6 +25,7 @@
 #include "mlir/Support/LLVM.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Error.h"
 
 #include <queue>
@@ -248,6 +249,18 @@ private:
           llvm::inconvertibleErrorCode());
     }
 
+    // Stop propagation at in-place operations (e.g., paged_update_cache).
+    // In-place ops have no results and modify tensors in place, so there's
+    // no output to propagate layout to.
+    if (op->getNumResults() == 0) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::RMPropagation,
+                   "Stopping RM propagation at in-place op {} with no results",
+                   ttmlir::opToString(op));
+      return llvm::make_error<llvm::StringError>(
+          "Stopping RM propagation at in-place op",
+          llvm::inconvertibleErrorCode());
+    }
+
     OpOperand &operand = op->getOpOperand(operandIdx);
     RankedTensorType tensorType =
         mlir::dyn_cast<RankedTensorType>(operand.get().getType());
@@ -292,16 +305,16 @@ private:
     return result.actualOutputLayout;
   }
 
-  // Extract OpConfig from operation's IR.
+  // Extract OpConfig from operation's IR
   OpConfig extractOpConfigFromIR(Operation *operation) {
+    // Precondition: operation must have at least one result.
+    // In-place operations (with no results) are filtered out earlier.
     assert(operation->getNumResults() > 0 &&
-           "Operation must have at least one result to extract OpConfig");
+           "extractOpConfigFromIR expects operation with results");
 
     OpConfig config;
-    assert(operation->getNumResults() == 1 &&
-           "Expected operation with one result");
 
-    // Extract output layout from result type.
+    // Extract output layout from result type
     if (auto tensorType =
             mlir::dyn_cast<RankedTensorType>(operation->getResultTypes()[0])) {
       if (auto layoutAttr = mlir::dyn_cast_or_null<TTNNLayoutAttr>(
@@ -310,16 +323,12 @@ private:
       }
     }
 
-    // For Conv2d operations, extract op-specific attributes.
-    if (auto conv2dOp = mlir::dyn_cast<ttnn::Conv2dOp>(operation)) {
-      config.opSpecificAttrs = Conv2dAttrs{conv2dOp.getConv2dConfigAttr(),
-                                           conv2dOp.getComputeConfigAttr()};
-    } else if (auto convTranspose2dOp =
-                   mlir::dyn_cast<ttnn::ConvTranspose2dOp>(operation)) {
-      config.opSpecificAttrs =
-          Conv2dAttrs{convTranspose2dOp.getConv2dConfigAttr(),
-                      /*deviceComputeConfigAttr*/ std::nullopt};
-    }
+    // For Conv2d operations, extract op-specific attributes
+    llvm::TypeSwitch<Operation *, void>(operation)
+        .Case<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp>([&config](auto convOp) {
+          config.opSpecificAttrs = Conv2dAttrs{convOp.getConv2dConfigAttr(),
+                                               convOp.getComputeConfigAttr()};
+        });
 
     return config;
   }
