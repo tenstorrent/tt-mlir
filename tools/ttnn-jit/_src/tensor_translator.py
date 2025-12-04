@@ -180,9 +180,10 @@ def _create_dram_tensor_layout(ctx, tensor_arg):
 
 
 def _check_layout_supported(tensor_arg):
-    if str(tensor_arg.layout) != "Layout.TILE":
+
+    if tensor_arg.layout.value != ttnn.Layout.Tile:
         raise ValueError(
-            f"Only Layout.TILE tensors are supported. Found layout: {tensor_arg.layout}"
+            f"Only Layout.Tile tensors are supported. Found layout: {tensor_arg.layout}"
         )
 
     mem_config = tensor_arg.memory_config()
@@ -191,9 +192,12 @@ def _check_layout_supported(tensor_arg):
             raise ValueError(
                 "Tensor is sharded but no legacy shard spec is present. ND Sharded tensors are not supported yet."
             )
+        if mem_config.buffer_type.value == ttnn.BufferType.DRAM:
+            raise ValueError("Sharded DRAM tensors are not supported.")
 
-    if str(mem_config.buffer_type) == "BufferType.L1" and not mem_config.is_sharded():
-        raise ValueError("Interleaved L1 tensors are not supported.")
+    if mem_config.buffer_type.value == ttnn.BufferType.L1:
+        if mem_config.memory_layout != ttnn.TensorMemoryLayout.Interleaved:
+            raise ValueError("Interleaved L1 tensors are not supported.")
 
 
 def _get_output_shape(op_name, input_shapes):
