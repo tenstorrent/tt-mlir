@@ -60,7 +60,7 @@ FILTERED_TESTS = [
 
 
 def get_test_files(paths):
-    files = []
+    files: list[str] = []
     for path in paths:
         files.extend(glob.glob(path, recursive=True))
 
@@ -77,7 +77,6 @@ def GET_TTNN_TEST():
             return test
     return None
 
-# TODO: manually invoke server and add disabled execution fixture
 @pytest.fixture(scope="function")
 def start_server(request):
     """Start the model explorer server before running tests and stop it after."""
@@ -88,8 +87,7 @@ def start_server(request):
             "host": HOST,
             "port": PORT,
             "no_open_in_browser": True,
-            # TODO: enable when model-explorer change is in
-            # "silent": True
+            "silent": True,
         },
     )
     server_thread.start()
@@ -99,7 +97,43 @@ def start_server(request):
         try:
             response = requests.get(f"http://{HOST}:{PORT}/check_health", timeout=1)
             if response.status_code == 200:
-                print("Explorer server started")
+                break
+        except requests.ConnectionError:
+            pass
+        finally:
+            time.sleep(0.1)
+    else:
+        raise RuntimeError("Server did not start within the expected time")
+
+    # Terminate the server and wait for it to finish.
+    def server_shutdown():
+        server_thread.terminate()
+        server_thread.join()
+
+    request.addfinalizer(server_shutdown)
+
+
+@pytest.fixture(scope="function")
+def start_server_no_execution(request):
+    """Start the model explorer server, with execution disabled, before running tests and stop it after."""
+    server_thread = multiprocessing.Process(
+        target=model_explorer.visualize_from_config,
+        kwargs={
+            "extensions": ["tt_adapter"],
+            "host": HOST,
+            "port": PORT,
+            "no_open_in_browser": True,
+            "silent": True,
+            "enable_execution": False,
+        },
+    )
+    server_thread.start()
+
+    # Wait for the server to start
+    for _ in range(200):  # Try for up to 20 seconds
+        try:
+            response = requests.get(f"http://{HOST}:{PORT}/check_health", timeout=1)
+            if response.status_code == 200:
                 break
         except requests.ConnectionError:
             pass
@@ -161,7 +195,7 @@ def execute_command_and_wait(model_path, settings, timeout):
     assert response["error"] is None
 
 
-def convert_command_and_assert(model_path):
+def convert_command_and_assert_no_errors(model_path):
     result = send_command("convert", model_path)
     assert result.ok
     if "error" in result.json():
@@ -170,7 +204,7 @@ def convert_command_and_assert(model_path):
     return result.json()
 
 
-def preload_command_and_assert():
+def preload_command_and_assert_no_errors():
     result = send_command("preload", "")
     assert result.ok
     if "error" in result.json():
@@ -180,24 +214,24 @@ def preload_command_and_assert():
 
 
 @pytest.mark.parametrize("model_path", get_test_files(TEST_LOAD_MODEL_PATHS))
-def test_load_model(model_path):
-    convert_command_and_assert(model_path)
+def test_load_model(start_server, model_path):
+    convert_command_and_assert_no_errors(model_path)
 
 
-def test_load_collection():
-    result = convert_command_and_assert(TEST_LOAD_SINGLE_COLLECTION)
+def test_load_collection(start_server):
+    result = convert_command_and_assert_no_errors(TEST_LOAD_SINGLE_COLLECTION)
     assert "graphCollections" in result
 
 
 @pytest.mark.parametrize("model_path", get_test_files(TEST_EXECUTE_MODEL_PATHS))
-def test_execute_model(model_path):
+def test_execute_model(start_server, model_path):
     execute_command_and_wait(
         model_path, {"optimizationPolicy": "Optimizer Disabled"}, timeout=300
     )
-    convert_command_and_assert(model_path)
+    convert_command_and_assert_no_errors(model_path)
 
 
-def test_execute_mnist_df_sharding():
+def test_execute_mnist_df_sharding(start_server):
     # Optimizer disabled because these tests are run with tracy build in CI, and tracy
     # build doesn't have op_model (optimizer) support.
     execute_command_and_wait(
@@ -205,23 +239,23 @@ def test_execute_mnist_df_sharding():
         {"optimizationPolicy": "Optimizer Disabled"},
         timeout=300,
     )
-    convert_command_and_assert(MNIST_SHARDING_PATH)
+    convert_command_and_assert_no_errors(MNIST_SHARDING_PATH)
 
 
-def test_load_stablehlo_model():
-    convert_command_and_assert(MNIST_STABLEHLO_PATH)
+def test_load_stablehlo_model(start_server):
+    convert_command_and_assert_no_errors(MNIST_STABLEHLO_PATH)
 
 
-def test_execute_mnist_stablehlo():
+def test_execute_mnist_stablehlo(start_server):
     execute_command_and_wait(
         MNIST_STABLEHLO_PATH,
         {"optimizationPolicy": "Optimizer Disabled"},
         timeout=300,
     )
-    convert_command_and_assert(MNIST_STABLEHLO_PATH)
+    convert_command_and_assert_no_errors(MNIST_STABLEHLO_PATH)
 
 
-def test_execute_mnist_with_overrides():
+def test_execute_mnist_with_overrides(start_server):
     overrides = {
         'loc("relu_3"("MNISTLinear":4294967295:6))': {
             "named_location": "relu_3",
@@ -238,20 +272,20 @@ def test_execute_mnist_with_overrides():
         {"optimizationPolicy": "Optimizer Disabled", "overrides": overrides},
         timeout=300,
     )
-    convert_command_and_assert(MNIST_SHARDING_PATH)
+    convert_command_and_assert_no_errors(MNIST_SHARDING_PATH)
 
 
-def test_execute_and_check_perf_data_exists():
+def test_execute_and_check_perf_data_exists(start_server):
     execute_command_and_wait(
         MNIST_SHARDING_PATH,
         {"optimizationPolicy": "Optimizer Disabled"},
         timeout=300,
     )
-    result = convert_command_and_assert(MNIST_SHARDING_PATH)
+    result = convert_command_and_assert_no_errors(MNIST_SHARDING_PATH)
     assert "perf_data" in result["graphs"][0]["overlays"]
 
 
-def test_execute_model_invalid_policy():
+def test_execute_model_invalid_policy(start_server):
     with pytest.raises(AssertionError):
         execute_command_and_wait(
             TEST_EXECUTE_MODEL_PATHS[0],
@@ -260,17 +294,17 @@ def test_execute_model_invalid_policy():
         )
 
 
-def test_execute_and_check_memory_data_exists():
+def test_execute_and_check_memory_data_exists(start_server):
     execute_command_and_wait(
         MNIST_SHARDING_PATH,
         {"optimizationPolicy": "Optimizer Disabled"},
         timeout=300,
     )
-    result = convert_command_and_assert(MNIST_SHARDING_PATH)
+    result = convert_command_and_assert_no_errors(MNIST_SHARDING_PATH)
     assert "display_type" in str(result)
 
 
-def test_get_emitc_cpp_code():
+def test_get_emitc_cpp_code(start_server):
     execute_command_and_wait(
         MNIST_SHARDING_PATH,
         {
@@ -279,25 +313,25 @@ def test_get_emitc_cpp_code():
         },
         timeout=300,
     )
-    result = convert_command_and_assert(MNIST_SHARDING_PATH)
+    result = convert_command_and_assert_no_errors(MNIST_SHARDING_PATH)
     assert "cppCode" in result["graphs"][0]
 
 
-# TODO (ctr-mcampos): Figure out how to disable and then reenable execution.
-@pytest.mark.skip("There is no easy way to disable execution for testing.")
-def test_disable_execution():
+@pytest.mark.skip("TODO")
+def test_disable_execution(start_server_no_execution):
+    # TODO(ctr-mcampos): load model, execute it and check for failure
     pass
 
 
-def test_preload_ir_dump_directory():
-    result = preload_command_and_assert()
+def test_preload_ir_dump_directory(start_server):
+    result = preload_command_and_assert_no_errors()
     assert "graphPaths" in result["graphs"][0]
 
 
 # TODO(ctr-mcampos): Once the IR dump dir is configurable, enable this test.
 @pytest.mark.skip("Implementation missing for loading ir dumps from a custom location.")
-def test_preload_ir_dump_contents():
-    result = preload_command_and_assert()
+def test_preload_ir_dump_contents(start_server):
+    result = preload_command_and_assert_no_errors()
     assert "graphPaths" in result["graphs"][0]
 
     graph_paths = result["graphs"][0]["graphPaths"]
@@ -308,7 +342,7 @@ def test_preload_ir_dump_contents():
 @pytest.mark.skip(
     "This is now handled by tests under `test/python/golden/test_ttir_models.py`"
 )
-def test_execute_and_check_accuracy_data_exists():
+def test_execute_and_check_accuracy_data_exists(start_server):
     # Get the test_mnist path
     test_mnist_path = GET_TTNN_TEST()
 
@@ -318,5 +352,5 @@ def test_execute_and_check_accuracy_data_exists():
     execute_command_and_wait(
         test_mnist_path, {"optimizationPolicy": "Optimizer Disabled"}, timeout=300
     )
-    result = convert_command_and_assert(test_mnist_path)
+    result = convert_command_and_assert_no_errors(test_mnist_path)
     assert "accuracy_data" in result["graphs"][0]["overlays"]
