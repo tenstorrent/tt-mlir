@@ -887,9 +887,10 @@ GridAttr::getPhysicalGridShape(ArrayRef<int64_t> deviceGridShape) {
       };
       if (auto result = checkValid(y, x)) {
         return result.value();
-      } else if (auto result = checkValid(x, y)) {
-        // check swapped dims
-        return result.value();
+      }
+      auto swapped_result = checkValid(x, y);
+      if (swapped_result) {
+        return swapped_result.value();
       }
     }
   }
