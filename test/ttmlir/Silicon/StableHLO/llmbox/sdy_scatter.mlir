@@ -1,6 +1,9 @@
 // REQUIRES: stablehlo
 // RUN: ttmlir-opt --stablehlo-pipeline="mesh-shape=1,8 automatic-arg-analysis" --stablehlo-to-ttir-pipeline --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% mesh-shape=1,8" -o %t.mlir %s
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
+// UNSUPPORTED: true
+// Reason: ttrt does not work with sharded inputs.
+// https://github.com/tenstorrent/tt-mlir/issues/4921
 
 module {
   // Test scatter with sharding along scatter_dims_to_operand_dims.
