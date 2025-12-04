@@ -73,9 +73,9 @@ echo "Run C++ python_runner tests"
 export TT_METAL_HOME="$WORK_DIR/third_party/tt-metal/src/tt-metal"
 export TT_METAL_RUNTIME_ROOT="$INSTALL_DIR/tt-metal"
 export TT_METAL_LIB="$INSTALL_DIR/lib"
-export LD_LIBRARY_PATH="$INSTALL_DIR/tools/tt-alchemist/test:$INSTALL_DIR/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
-# Add install test directory to PYTHONPATH so tests can find Python modules
-export PYTHONPATH="$INSTALL_DIR/tools/tt-alchemist/test:${PYTHONPATH:-}"
+export LD_LIBRARY_PATH="$INSTALL_DIR/tools/tt-alchemist/test:$INSTALL_DIR/lib:$INSTALL_DIR/tt-metal/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
+# Add paths to PYTHONPATH: test directory for test_model.py, ttnn and tt-metal for the ttnn module
+export PYTHONPATH="$INSTALL_DIR/tools/tt-alchemist/test:$INSTALL_DIR/tt-metal/ttnn:$INSTALL_DIR/tt-metal:${PYTHONPATH:-}"
 cd "$INSTALL_DIR/tools/tt-alchemist/test"
 
 echo "Run test_python_runner_simple"
