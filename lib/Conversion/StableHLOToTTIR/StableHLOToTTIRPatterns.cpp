@@ -642,336 +642,6 @@ private:
 };
 } // namespace
 
-// Decompose SelectAndScatter into MaxPool2dWithIndices + Scatter:
-// 1. MaxPool2dWithIndices finds the maximum values and their flattened indices
-// within each pooling window.
-// 2. Scatter scatters the corresponding source values back into those
-// positions.
-//
-// This decomposition currently supports only SelectAndScatter operations where
-// the select function uses MAX, which corresponds to the case appearing in
-// MaxPool2d backward. Other types in Select block are not used in our
-// workloads.
-//
-// If multiple windows overlap (e.g., stride < window size), several source
-// values may map to the same index. In that case, Scatter reduces them
-// using the reduction function specified in the scatter operation (e.g., add,
-// multiply, etc.).
-//
-// Example:
-// --------
-// Input tensor (4x4):
-//   [[ 1,  5,  2,  4],
-//    [ 7,  3,  8,  6],
-//    [ 0,  9, 11, 10],
-//    [12, 13, 14, 15]]
-//
-// Window size: 2x2, stride: 2
-//
-// Source tensor (same shape as pooled output):
-//   [[10, 20],
-//    [30, 40]]
-//
-// Step 1: MaxPool2dWithIndices
-//   - For each 2x2 window, find the maximum value and record its **flattened
-//   index** within the input:
-//       Window (0,0): max = 7  → index = 4
-//       Window (0,1): max = 8  → index = 6
-//       Window (1,0): max = 13 → index = 13
-//       Window (1,1): max = 15 → index = 15
-//
-//   - Max values: [[ 7,  8],
-//                  [13, 15]]
-//   - Indices:    [[ 4,  6],
-//                  [13, 15]]
-//
-// Step 2: Scatter
-//   - Scatter the source values [[10,20],[30,40]] into the flattened positions
-//   above.
-//   - Result (reshaped back to 4x4):
-//       [[ 0,  0,  0,  0],
-//        [10,  0, 20,  0],
-//        [ 0,  0,  0,  0],
-//        [ 0, 30,  0, 40]]
-namespace {
-class StableHLOToTTIRSelectAndScatterOpConversionPattern
-    : public OpConversionPattern<mlir::stablehlo::SelectAndScatterOp> {
-  using OpConversionPattern<
-      mlir::stablehlo::SelectAndScatterOp>::OpConversionPattern;
-
-public:
-  LogicalResult
-  matchAndRewrite(mlir::stablehlo::SelectAndScatterOp srcOp,
-                  mlir::stablehlo::SelectAndScatterOp::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-
-    // Verify that the select block contains only a compare op
-    if (failed(verifySelectBlock(srcOp, rewriter))) {
-      return failure();
-    }
-
-    Location loc = srcOp.getLoc();
-    auto operand = srcOp.getOperand();
-    auto source = srcOp.getSource();
-    auto initValue_ = srcOp.getInitValue();
-
-    // Get window attributes
-    auto windowDims = srcOp.getWindowDimensionsAttr();
-    auto windowStrides_ = srcOp.getWindowStridesAttr();
-    auto padding_ = srcOp.getPaddingAttr();
-
-    // Initial value in tensor which we scatter into
-    // If not present, defaults to zero
-    auto operandType = mlir::cast<RankedTensorType>(operand.getType());
-    float fillValue = 0.0f;
-
-    if (initValue_) {
-      if (auto constOp =
-              initValue_.getDefiningOp<mlir::stablehlo::ConstantOp>()) {
-        auto valAttr = mlir::cast<DenseFPElementsAttr>(constOp.getValue());
-        fillValue = valAttr.getValues<APFloat>()[0].convertToFloat();
-      } else {
-        llvm::report_fatal_error("initValue_ must be a stablehlo.constant");
-      }
-    }
-
-    auto fullTensorOp = rewriter.create<ttir::FullOp>(
-        loc, operandType, rewriter.getF32FloatAttr(fillValue));
-
-    // Tensor which we scatter into
-    auto fullTensor = fullTensorOp.getResult();
-
-    // Generate defaults if they dont exist
-    // Default window strides is all ones
-    auto windowStrides = windowStrides_
-                             ? windowStrides_
-                             : rewriter.getDenseI64ArrayAttr(
-                                   SmallVector<int64_t>(windowDims.size(), 1));
-
-    // Default padding is all zeros
-    auto padding =
-        padding_ ? rewriter.getDenseI64ArrayAttr(
-                       SmallVector<int64_t>(padding_.getValues<int64_t>()))
-                 : rewriter.getDenseI64ArrayAttr(
-                       SmallVector<int64_t>(windowDims.size() * 2, 0));
-
-    // Adjust tensor layouts and args for MaxPool2dWithIndices
-    // Get indices of elements larger than one which correspond to spatial dims
-    // (H, W)
-    auto spatialDims = getIndicesofElementsLargerThanOne(windowDims);
-    if (spatialDims.empty()) {
-      return rewriter.notifyMatchFailure(srcOp, "No elements larger than one");
-    }
-
-    // Generate desired and current layouts (desired = N,H,W,C)
-    // Generate permutation for current->desired layout
-
-    const int64_t SPATIAL_H = -3;
-    const int64_t SPATIAL_W = -2;
-    const int64_t NON_SPATIAL = -1;
-
-    // Desired layout (N,H,W,C)
-    std::vector<int64_t> desiredLayout(operand.getType().getRank(),
-                                       NON_SPATIAL);
-    desiredLayout[operand.getType().getRank() - 3] = SPATIAL_H;
-    desiredLayout[operand.getType().getRank() - 2] = SPATIAL_W;
-
-    int64_t nonSpatialCount = 0;
-    for (int64_t i = 0; i < static_cast<int64_t>(desiredLayout.size()); ++i) {
-      if (desiredLayout[i] == NON_SPATIAL) {
-        desiredLayout[i] = nonSpatialCount++;
-      }
-    }
-
-    // Current layout
-    std::vector<int64_t> currentLayout(operand.getType().getRank(),
-                                       NON_SPATIAL);
-    currentLayout[spatialDims[0]] = SPATIAL_H;
-    currentLayout[spatialDims[1]] = SPATIAL_W;
-
-    nonSpatialCount = 0;
-    for (int64_t i = 0; i < static_cast<int64_t>(currentLayout.size()); ++i) {
-      if (currentLayout[i] == NON_SPATIAL) {
-        currentLayout[i] = nonSpatialCount++;
-      }
-    }
-
-    // Permutation for current->desired layout and it's inverse
-    auto permutation = ttmlir::utils::generatePermutation(
-        llvm::ArrayRef(currentLayout), llvm::ArrayRef(desiredLayout));
-    auto inverseOfPermutation = ttmlir::utils::inversePermutation(permutation);
-
-    // Adjust args to match definition in MaxPool2dWithIndices
-    auto kernel = rewriter.getDenseI32ArrayAttr(
-        {static_cast<int32_t>(windowDims[spatialDims[0]]),
-         static_cast<int32_t>(windowDims[spatialDims[1]])});
-
-    auto stride = rewriter.getDenseI32ArrayAttr(
-        {static_cast<int32_t>(windowStrides[spatialDims[0]]),
-         static_cast<int32_t>(windowStrides[spatialDims[1]])});
-
-    auto dilations = rewriter.getDenseI32ArrayAttr({1, 1});
-
-    auto paddingAttr = rewriter.getDenseI32ArrayAttr({
-        static_cast<int32_t>(padding[2 * spatialDims[0]]),     // top
-        static_cast<int32_t>(padding[2 * spatialDims[1]]),     // left
-        static_cast<int32_t>(padding[2 * spatialDims[0] + 1]), // bottom
-        static_cast<int32_t>(padding[2 * spatialDims[1] + 1]), // right
-    });
-
-    auto ceilMode = rewriter.getBoolAttr(false);
-
-    // Apply input permutation to operand, source and tensor which we scatter
-    // into (to N,H,W,C)
-    auto operandPermShape = ::ttmlir::utils::applyPermutation(
-        operand.getType().getShape(), permutation);
-    auto sourcePermShape = ::ttmlir::utils::applyPermutation(
-        source.getType().getShape(), permutation);
-    auto fullTensorPermShape = ::ttmlir::utils::applyPermutation(
-        fullTensor.getType().getShape(), permutation);
-
-    operand = applyPermutationToValue(rewriter, loc, operand, operandPermShape,
-                                      operand.getType(), permutation,
-                                      "_permuteInput");
-    source = applyPermutationToValue(rewriter, loc, source, sourcePermShape,
-                                     source.getType(), permutation,
-                                     "_permuteSource");
-    fullTensor = applyPermutationToValue(
-        rewriter, loc, fullTensor, fullTensorPermShape, fullTensor.getType(),
-        permutation, "_permuteFullTensor");
-
-    // Calling MaxPool2dWithIndices op on operand
-    // and obtaining indices which will be used for Scatter
-    auto pooledType = RankedTensorType::get(sourcePermShape,
-                                            source.getType().getElementType());
-    auto indicesType =
-        RankedTensorType::get(sourcePermShape,
-                              rewriter.getIntegerType(32)); // i32 for indices
-
-    Value pooledEmpty = rewriter.create<ttir::EmptyOp>(loc, pooledType);
-    Value indicesEmpty = rewriter.create<ttir::EmptyOp>(loc, indicesType);
-
-    auto maxPoolOp = rewriter.create<ttir::MaxPool2dWithIndicesOp>(
-        loc, TypeRange{pooledType, indicesType}, operand,
-        ValueRange{pooledEmpty, indicesEmpty}, kernel, stride, dilations,
-        paddingAttr, ceilMode);
-
-    auto indices = maxPoolOp.getResultIndices();
-
-    // Reshape for Scatter (N,H*W,1,C)
-    auto reshapedIndicesType =
-        getNHWFlattenedType(mlir::cast<RankedTensorType>(indices.getType()));
-    auto reshapedIndices = generateReshape(indices, reshapedIndicesType,
-                                           rewriter, "_reshapeIndices");
-
-    auto reshapedSourceType =
-        getNHWFlattenedType(mlir::cast<RankedTensorType>(source.getType()));
-    auto reshapedSource =
-        generateReshape(source, reshapedSourceType, rewriter, "_reshapeSource");
-
-    auto reshapedFullTensorType =
-        getNHWFlattenedType(mlir::cast<RankedTensorType>(fullTensor.getType()));
-    auto reshapedFullTensor = generateReshape(
-        fullTensor, reshapedFullTensorType, rewriter, "_reshapeFullTensor");
-
-    // Calling Scatter to scatter source values back to positions
-    // in the full tensor as indicated by previously obtained indices
-    auto scatterOutputType =
-        mlir::cast<RankedTensorType>(reshapedFullTensorType);
-
-    // TODO(umales): Right now, if there are multiple source values mapping to
-    // the same index, they are overwritten. Once
-    // https://github.com/tenstorrent/tt-mlir/issues/5091 is resolved, we can
-    // add reduction type in call to Scatter. Reduction type will be
-    // derived from the scatter block in SelectAndScatter.
-
-    auto scatterResult = rewriter.create<ttir::ScatterOp>(
-        loc, scatterOutputType,
-        reshapedFullTensor,           // input tensor
-        reshapedIndices,              // index tensor
-        reshapedSource,               // source tensor
-        rewriter.getI32IntegerAttr(1) // dim = 1 (the H*W flattened dimension)
-    );
-
-    // Reshape back to N,H,W,C
-    auto finalOutputType = RankedTensorType::get(
-        fullTensorPermShape, scatterOutputType.getElementType());
-    auto finalResult = generateReshape(scatterResult, finalOutputType, rewriter,
-                                       "_reshapeToNHWC");
-
-    // Apply inverse permutation to get back to original layout
-    auto originalShape = ::ttmlir::utils::applyPermutation(
-        finalResult.getType().getShape(), inverseOfPermutation);
-    auto finalPermutedResult = applyPermutationToValue(
-        rewriter, loc, finalResult, originalShape, finalResult.getType(),
-        inverseOfPermutation, "_permuteBackToOriginal");
-
-    rewriter.replaceOp(srcOp, finalPermutedResult);
-    return success();
-  }
-
-private:
-  llvm::SmallVector<int64_t>
-  getIndicesofElementsLargerThanOne(llvm::ArrayRef<int64_t> array) const {
-    llvm::SmallVector<int64_t> indices;
-    for (int32_t i = 0; i < static_cast<int64_t>(array.size()); ++i) {
-      if (array[i] > 1) {
-        indices.push_back(i);
-      }
-    }
-    return indices;
-  }
-
-  RankedTensorType getNHWFlattenedType(RankedTensorType unflattenedType) const {
-    llvm::ArrayRef<int64_t> shape = unflattenedType.getShape();
-    assert(shape.size() == 4 && "Expected 4D NHWC tensor");
-    llvm::SmallVector<int64_t, 4> flattenedShape = {
-        shape[0], shape[1] * shape[2], 1, shape[3]};
-    return RankedTensorType::get(flattenedShape,
-                                 unflattenedType.getElementType());
-  }
-
-  ttir::ReshapeOp
-  generateReshape(mlir::TypedValue<mlir::RankedTensorType> input,
-                  RankedTensorType outputType, PatternRewriter &rewriter,
-                  StringRef suffix) const {
-    return rewriter.create<ttir::ReshapeOp>(
-        ttmlir::utils::appendLocationSuffix(input.getLoc(), suffix), outputType,
-        input,
-        rewriter.getI32ArrayAttr(SmallVector<int32_t>(
-            outputType.getShape().begin(), outputType.getShape().end())));
-  }
-
-  mlir::TypedValue<mlir::RankedTensorType> applyPermutationToValue(
-      OpBuilder &rewriter, Location loc, mlir::Value input,
-      ArrayRef<int64_t> permutedShape, RankedTensorType inputType,
-      ArrayRef<int64_t> permutation, StringRef suffix) const {
-    RankedTensorType permuteType = RankedTensorType::get(
-        permutedShape, inputType.getElementType(), inputType.getEncoding());
-    return rewriter.create<ttir::PermuteOp>(
-        ttmlir::utils::appendLocationSuffix(loc, suffix), permuteType, input,
-        permutation);
-  }
-
-  LogicalResult verifySelectBlock(mlir::stablehlo::SelectAndScatterOp srcOp,
-                                  PatternRewriter &rewriter) const {
-    auto &selectBlock = srcOp.getSelect().front();
-    for (Operation &op : selectBlock) {
-      // Skip the return operation
-      if (mlir::isa<mlir::stablehlo::ReturnOp>(op)) {
-        continue;
-      }
-      if (!mlir::isa<mlir::stablehlo::CompareOp>(op)) {
-        return rewriter.notifyMatchFailure(
-            srcOp,
-            "SelectAndScatter select block must contain only a compare op.");
-      }
-    }
-    return success();
-  }
-};
-} // namespace
-
 namespace {
 class StableHLOToTTIRDotGeneralOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::DotGeneralOp> {
@@ -2987,7 +2657,7 @@ public:
 
     auto indices = maxPoolOp.getResultIndices();
 
-    // Reshape for ScatterInDim (N,H*W,1,C)
+    // Reshape for Scatter (N,H*W,1,C)
     auto reshapedIndicesType =
         getNHWFlattenedType(mlir::cast<RankedTensorType>(indices.getType()));
     auto reshapedIndices = generateReshape(indices, reshapedIndicesType,
@@ -3003,30 +2673,31 @@ public:
     auto reshapedFullTensor = generateReshape(
         fullTensor, reshapedFullTensorType, rewriter, "_reshapeFullTensor");
 
-    // Calling ScatterInDim to scatter source values back to positions
+    // Calling Scatter to scatter source values back to positions
     // in the full tensor as indicated by previously obtained indices
     auto scatterOutputType =
         mlir::cast<RankedTensorType>(reshapedFullTensorType);
 
+    auto dimAttr = rewriter.getI32IntegerAttr(1);
+
     // Convert reduceType stablehlo attribute into ttir attribute
-    // We are not using getReduceType here because we want to get the reduce
-    // type from the scatter region. SelectAndScatterOp has a select region and
-    // a scatter region.
+    // We are using getReduceTypeFromRegion instead of getReduceType here 
+    // because SelectAndScatterOp has a select region and a scatter region.
     llvm::ErrorOr<ttcore::ReduceType> scatterReduceType =
         getReduceTypeFromRegion(srcOp.getScatter());
     if (!scatterReduceType) {
       return rewriter.notifyMatchFailure(
           srcOp, "SelectAndScatterOp cannot specify reduce type.");
     }
-
-    auto scatterResult = ttir::utils::createDPSOp<ttir::ScatterInDimOp>(
-        rewriter, loc, scatterOutputType,
-        reshapedFullTensor,       // input tensor
-        reshapedIndices,          // index tensor
-        reshapedSource,           // source tensor
-        static_cast<uint32_t>(1), // dim = 1 (the H*W flattened dimension)
-        *scatterReduceType        // reduction type
-    );
+    auto reduceTypeAttr =
+        ttcore::ReduceTypeAttr::get(rewriter.getContext(), *scatterReduceType);
+    auto scatterResult = rewriter.create<ttir::ScatterOp>(
+        loc, scatterOutputType,
+        reshapedFullTensor, // input tensor
+        reshapedIndices,    // index tensor
+        reshapedSource,     // source tensor
+        dimAttr,            // dim = 1 (the H*W flattened dimension)
+        reduceTypeAttr);    // reduction type
 
     // Reshape back to N,H,W,C
     auto finalOutputType = RankedTensorType::get(
@@ -3070,9 +2741,9 @@ private:
   generateReshape(mlir::TypedValue<mlir::RankedTensorType> input,
                   RankedTensorType outputType, PatternRewriter &rewriter,
                   StringRef suffix) const {
-    return ttir::utils::createDPSOp<ttir::ReshapeOp>(
-        rewriter, ttmlir::utils::appendLocationSuffix(input.getLoc(), suffix),
-        outputType, input,
+    return rewriter.create<ttir::ReshapeOp>(
+        ttmlir::utils::appendLocationSuffix(input.getLoc(), suffix), outputType,
+        input,
         rewriter.getI32ArrayAttr(SmallVector<int32_t>(
             outputType.getShape().begin(), outputType.getShape().end())));
   }
@@ -3081,10 +2752,11 @@ private:
       OpBuilder &rewriter, Location loc, mlir::Value input,
       ArrayRef<int64_t> permutedShape, RankedTensorType inputType,
       ArrayRef<int64_t> permutation, StringRef suffix) const {
-    return ttir::utils::createDPSOp<ttir::PermuteOp>(
-        rewriter, ttmlir::utils::appendLocationSuffix(loc, suffix),
-        permutedShape, inputType.getElementType(), inputType.getEncoding(),
-        input, permutation);
+    RankedTensorType permuteType = RankedTensorType::get(
+        permutedShape, inputType.getElementType(), inputType.getEncoding());
+    return rewriter.create<ttir::PermuteOp>(
+        ttmlir::utils::appendLocationSuffix(loc, suffix), permuteType, input,
+        permutation);
   }
 
   LogicalResult verifySelectBlock(mlir::stablehlo::SelectAndScatterOp srcOp,
@@ -3878,17 +3550,6 @@ public:
           srcOp, "ScatterOp cannot specify reduce type.");
     }
 
-    Value operand = srcOp.getInputs()[0];
-    Value scatterIndices = adaptor.getScatterIndices();
-    Value update = srcOp.getUpdates()[0];
-    auto updateWindowsDims =
-        adaptor.getScatterDimensionNumbers().getUpdateWindowDims();
-    auto insertedWindowDims =
-        adaptor.getScatterDimensionNumbers().getInsertedWindowDims();
-    auto inputBatchingDims =
-        adaptor.getScatterDimensionNumbers().getInputBatchingDims();
-    auto scatterIndicesBatchingDims =
-        adaptor.getScatterDimensionNumbers().getScatterIndicesBatchingDims();
     auto scatterDimsToOperandDims =
         adaptor.getScatterDimensionNumbers().getScatterDimsToOperandDims();
 
@@ -3913,11 +3574,13 @@ public:
           extractElementWiseScatterIndices(srcOp, rewriter);
 
       auto dimAttr = rewriter.getI32IntegerAttr(dim);
+      auto reduceTypeAttr = ttcore::ReduceTypeAttr::get(rewriter.getContext(),
+                                                        *scatterReduceType);
 
       // Create ScatterOp.
       rewriter.replaceOpWithNewOp<ttir::ScatterOp>(
           srcOp, outputType, inputTensor, finalIndexTensor, updateTensor,
-          dimAttr,*scatterReduceType);
+          dimAttr, reduceTypeAttr);
       return success();
     }
 
@@ -3938,16 +3601,18 @@ public:
       Value flattenedUpdate = ttir::utils::flattenTensor(
           rewriter, srcOp.getLoc(), updateTensor, "_update_flatten");
 
-      // Perform scatter operation on flattened tensors.
       auto dimAttr = rewriter.getI32IntegerAttr(dim);
+      auto reduceTypeAttr = ttcore::ReduceTypeAttr::get(rewriter.getContext(),
+                                                        *scatterReduceType);
 
       // Get flattened result type.
       RankedTensorType flattenedInputType =
           mlir::cast<RankedTensorType>(flattenedInput.getType());
 
+      // Perform scatter operation on flattened tensors.
       Value scatterResult = rewriter.create<ttir::ScatterOp>(
           srcOp.getLoc(), flattenedInputType, flattenedInput, finalIndexTensor,
-          flattenedUpdate, dimAttr);
+          flattenedUpdate, dimAttr, reduceTypeAttr);
 
       // Reshape result back to original input shape.
       Value reshapedResult =
@@ -4627,13 +4292,14 @@ public:
 
       RankedTensorType flattenedInputType =
           mlir::cast<RankedTensorType>(flattenedInput.getType());
-      
-      ttcore::ReduceType scatterReduceType = ttcore::ReduceType::Invalid;
 
       auto dimAttr = rewriter.getI32IntegerAttr(0);
+      auto reduceTypeAttr = ttcore::ReduceTypeAttr::get(
+          rewriter.getContext(), ttcore::ReduceType::Invalid);
+
       Value scatterResult = rewriter.create<ttir::ScatterOp>(
           srcOp.getLoc(), flattenedInputType, flattenedInput, flatIndicesTensor,
-          flattenedUpdate, dimAttr,*scatterReduceType);
+          flattenedUpdate, dimAttr, reduceTypeAttr);
 
       // Reshape result back to original output shape.
       rewriter.replaceOpWithNewOp<ttir::ReshapeOp>(
