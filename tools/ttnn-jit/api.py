@@ -9,6 +9,7 @@ from ttnn_jit._src.jit import JitFunction
 
 
 def jit(
+    max_grid: tuple[int, int] = (7, 7),
     compile_only: bool = False,
     debug: bool = False,
     enable_cache: bool = False,
@@ -18,6 +19,7 @@ def jit(
     Sets up the decorated function to be JIT compiled through D2M.
 
     Args:
+        max_grid: The maximum grid size for the JIT-compiled function.
         compile_only: If True, only compile the function to a flatbuffer.
         debug: If True, print debug information during compilation and execution.
         graph_capture: If True, use graph trace compiler to generate the IR. Otherwise, uses AST compiler (TTIR).
@@ -29,6 +31,7 @@ def jit(
     def _decorator(f):
         jit_func = JitFunction(
             f,
+            max_grid,
             compile_only,
             debug,
             enable_cache,

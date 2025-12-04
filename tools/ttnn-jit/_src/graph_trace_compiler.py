@@ -597,9 +597,6 @@ class GraphToIRTranslator:
                 dtype=dtype_attr,
                 layout=layout_attr,
             )
-            full_tensor.attributes["ttnn.hoist_generic_via_d2m"] = UnitAttr.get(
-                self.ctx
-            )
 
             return full_tensor
 

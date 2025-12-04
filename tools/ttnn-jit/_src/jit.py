@@ -28,6 +28,7 @@ class JitFunction:
     def __init__(
         self,
         func,
+        max_grid: tuple[int, int],
         compile_only: bool,
         debug: bool,
         enable_cache: bool,
@@ -35,6 +36,7 @@ class JitFunction:
     ):
         self.func = func
         self.source_code = cleanup_source_code(func)
+        self.max_grid = max_grid
         self.compile_only = compile_only
         self.debug = debug
         self.graph_capture = graph_capture
@@ -102,6 +104,7 @@ class JitFunction:
         for i, arg in enumerate(args):
             tensor_args[param_names[i]] = arg
         kwargs["_tensor_args"] = tensor_args
+        kwargs["_max_grid"] = self.max_grid
 
         # Cache hit, no need to compile.
         if self.cache and self.cache.contains(*args):

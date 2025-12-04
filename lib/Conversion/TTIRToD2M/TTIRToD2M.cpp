@@ -73,12 +73,10 @@ protected:
             ? ttcore::MemorySpace::DeviceDRAM
             : ttcore::MemorySpace::DeviceL1;
 
-    // Use empty collapsed intervals to preserve the tensor's logical rank.
-    // This ensures the physical shape rank matches the TTNN grid rank.
     auto i64Ty = IntegerType::get(rewriter.getContext(), 64);
-    auto emptyIntervalType = RankedTensorType::get({0, 2}, i64Ty);
+    auto intervalTy = RankedTensorType::get({1, 2}, i64Ty);
     DenseIntElementsAttr collapsedIntervals =
-        DenseIntElementsAttr::get(emptyIntervalType, ArrayRef<int64_t>{});
+        DenseIntElementsAttr::get(intervalTy, llvm::ArrayRef<int64_t>({0, -1}));
 
     ttcore::TensorMemoryLayout memLayout =
         (ttnnLayout.getMemLayout().getValue() ==
@@ -132,40 +130,12 @@ protected:
                               mlir::ConversionPatternRewriter &rewriter) const {
     if (isTTNNTensor(value.getType())) {
       assert(ttnnMode && "Unexpected TTNN tensor as op operand");
-      auto metalTensorType = getMetalTensorFromTTNNTensor(rewriter, value);
-      auto metalCastOp = rewriter.create<ttir::TTNNMetalLayoutCastOp>(
-          value.getLoc(), metalTensorType, value);
-
-      ttcore::MemorySpace metalTensorMemSpace =
-          mlir::cast<ttcore::MetalLayoutAttr>(metalTensorType.getEncoding())
-              .getMemorySpace();
-      if (metalTensorMemSpace == ttcore::MemorySpace::DeviceL1) {
-        // Reblock L1 operand to unit grid to align with other operands while
-        // preserving original TTNN tensor shape. These views will be removed in
-        // GridSelection by insertTTNNDRAMStreams().
-        auto unitReblockingView = rewriter.create<d2m::ViewLayoutOp>(
-            value.getLoc(), d2m::utils::reblockTensor(metalTensorType, {1, 1}),
-            metalCastOp->getResult(0));
-        return unitReblockingView.getResult();
-      }
-      // For DRAM operands, we can return the metal cast result directly.
-      return metalCastOp->getResult(0);
+      return rewriter.create<ttir::TTNNMetalLayoutCastOp>(
+          value.getLoc(), getMetalTensorFromTTNNTensor(rewriter, value), value);
     }
 
     auto tensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
-
-    // Get the logical shape and collapsed intervals from existing
-    // MetalLayoutAttr if present. This ensures device tensors (like scalers)
-    // maintain their layout structure through the ToLayoutOp.
-    ArrayRef<int64_t> logicalShape;
-    ttcore::MetalLayoutAttr existingLayout =
-        mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
-            tensorType.getEncoding());
-    if (existingLayout) {
-      logicalShape = existingLayout.getLogicalShape();
-    } else {
-      logicalShape = tensorType.getShape();
-    }
+    ArrayRef<int64_t> logicalShape = tensorType.getShape();
 
     Type elementType = tensorType.getElementType();
     llvm::SmallVector<int64_t> tileShape;
@@ -177,15 +147,7 @@ protected:
     }
 
     ttcore::MetalLayoutAttr layout;
-    // If input already has MetalLayoutAttr, preserve its collapsed intervals
-    // and dim alignments for consistent physical shapes across all operands.
-    if (existingLayout) {
-      layout = ttcore::MetalLayoutAttr::get(
-          rewriter.getContext(), logicalShape, ttcore::OOBVal::Undef, memSpace,
-          ttcore::TensorMemoryLayout::Sharded,
-          existingLayout.getCollapsedIntervals(),
-          existingLayout.getDimAlignments());
-    } else if (!collapseTensors || noCollapse) {
+    if (!collapseTensors || noCollapse) {
       auto emptyIntervalType = RankedTensorType::get(
           {0, 2}, IntegerType::get(rewriter.getContext(), 64));
 
@@ -655,8 +617,7 @@ private:
     SmallVector<mlir::Value> newInputs(origInputs.begin(), origInputs.end());
     newInputs.emplace_back(createScaler(
         rewriter, loc,
-        mlir::cast<mlir::RankedTensorType>(origInputs.front().getType())
-            .getElementType()));
+        mlir::cast<mlir::RankedTensorType>(origInputs.front().getType())));
     auto [inputs, outputs] =
         toLayoutOperandsAndResults(rewriter, {newInputs, origOutputs},
                                    /*tiled*/ true);
@@ -672,17 +633,6 @@ private:
         getAffineMapsArray(rewriter, op, numOperands, physicalRank);
     SmallVector<mlir::Attribute> iteratorTypes =
         getIteratorTypesArray(rewriter, op, physicalRank);
-
-    // Debug: print operand types for reduction GenericOp
-    llvm::outs() << "=== Creating reduction GenericOp ===\n";
-    for (size_t i = 0; i < inputs.size(); ++i) {
-      llvm::outs() << "  input[" << i << "] type: " << inputs[i].getType()
-                   << "\n";
-    }
-    for (size_t i = 0; i < outputs.size(); ++i) {
-      llvm::outs() << "  output[" << i << "] type: " << outputs[i].getType()
-                   << "\n";
-    }
 
     // Create 'd2m.generic' accepting extended operands.
     auto generic = rewriter.create<d2m::GenericOp>(
@@ -800,38 +750,47 @@ private:
     return iterators;
   }
 
-  // Create a reduction scaler value (a single tile filled with 1s) as a
-  // device-local tensor. The scaler is used as a weight tensor for weighted
-  // reduction operations (result = reduce(input * scaler)).
-  //
-  // The scaler tensor must have proper device shape format [grid..., shard...]
-  // with even rank, so that LowerToLayout's getGridShape() (which takes the
-  // first half of the rank) produces the correct 2D grid shape.
-  mlir::Value createScaler(mlir::OpBuilder &builder, mlir::Location loc,
-                           mlir::Type elementType) const {
-    constexpr std::array<int64_t, 2> tileShape =
+  // Create a reduction scaler value for a given type of tensor operand
+  // (at the current 'builder' insertion point).
+  // If inputType has TTNNLayoutAttr, the scaler will also have a matching
+  // TTNNLayoutAttr so it goes through the same TTNN conversion path.
+  static mlir::Value createScaler(mlir::OpBuilder &builder, mlir::Location loc,
+                                  mlir::RankedTensorType inputType) {
+    Type elementType = inputType.getElementType();
+    // For TTNN tensors, element type is TileType - extract scalar type.
+    if (auto tileType = mlir::dyn_cast<ttcore::TileType>(elementType)) {
+      elementType = tileType.getElementType();
+    }
+
+    // Default: plain tensor with no encoding (builder path).
+    constexpr std::array<int64_t, 2> defaultTileShape =
         ttcore::TileType::getDefaultShape();
-    llvm::SmallVector<int64_t> logicalShape(tileShape.begin(), tileShape.end());
+    llvm::SmallVector<int64_t> scalerShape(defaultTileShape.begin(),
+                                           defaultTileShape.end());
+    Attribute encoding = nullptr;
 
-    // Use empty collapsed intervals to preserve the 2D physical shape rank.
-    auto emptyIntervalType = RankedTensorType::get(
-        {0, 2}, IntegerType::get(builder.getContext(), 64));
-    DenseIntElementsAttr emptyCollapseIntervals =
-        DenseIntElementsAttr::get(emptyIntervalType, ArrayRef<int64_t>{});
+    // If input has TTNNLayoutAttr, create scaler with matching layout.
+    // This ensures the scaler goes through TTNNMetalLayoutCastOp path.
+    if (auto ttnnLayout = mlir::dyn_cast_if_present<ttnn::TTNNLayoutAttr>(
+            inputType.getEncoding())) {
+      // Create a 1x1 grid TTNNLayoutAttr for the scaler (single tile).
+      auto grid = ttcore::GridAttr::get(builder.getContext(), {1, 1});
+      auto tileType = ttcore::TileType::get(
+          elementType, ttcore::TileType::getDefaultShape());
+      auto memref =
+          MemRefType::get({1, 1}, tileType, MemRefLayoutAttrInterface{},
+                          ttnnLayout.getMemref().getMemorySpace());
+      encoding = ttnn::TTNNLayoutAttr::get(
+          builder.getContext(),
+          AffineMap::getMultiDimIdentityMap(2, builder.getContext()), grid,
+          memref, ttnnLayout.getMemLayout(),
+          /*tensorMesh=*/nullptr, /*ignorePhysicalLayout=*/false,
+          /*exactGrid=*/true);
+      llvm::outs() << "=== createScaler: using TTNNLayoutAttr for scaler ===\n";
+    }
 
-    auto layout = ttcore::MetalLayoutAttr::get(
-        builder.getContext(), logicalShape, ttcore::OOBVal::Undef,
-        memorySpaces[0], ttcore::TensorMemoryLayout::Sharded,
-        emptyCollapseIntervals);
-
-    // Compute device shape: [grid_dims..., shard_dims...]
-    // For a single tile scaler with 1x1 grid, this is [1, 1, 1, 1].
-    llvm::SmallVector<int64_t> simpleGrid = {1, 1};
-    llvm::SmallVector<int64_t> deviceShape =
-        layout.getDeviceShape(simpleGrid, tileShape);
-
-    // Create tensor type with device shape format so getGridShape() works.
-    auto scalerType = RankedTensorType::get(deviceShape, elementType, layout);
+    mlir::RankedTensorType scalerType =
+        RankedTensorType::get(scalerShape, elementType, encoding);
 
     mlir::Attribute one;
     if (mlir::isa<mlir::FloatType>(elementType)) {
@@ -843,7 +802,8 @@ private:
     }
 
     return builder.create<d2m::FullOp>(
-        loc, scalerType, llvm::to_vector_of<int32_t>(deviceShape), one);
+        loc, scalerType, llvm::to_vector_of<int32_t>(scalerType.getShape()),
+        one);
   }
 
   static d2m::ReduceDim dimArgAsReduceDim(ConcreteOp op, std::size_t rank) {

@@ -108,12 +108,34 @@ mlir::LogicalResult
 d2m::FullOp::bufferize(mlir::RewriterBase &rewriter,
                        const mlir::bufferization::BufferizationOptions &options,
                        mlir::bufferization::BufferizationState &state) {
-  ::llvm::SmallVector<mlir::Value> invocationStack;
-  // Same as d2m::empty, don't bufferize if tensor has a ttnn_layout.
-  if (options.allowUnknownOps &&
-      mlir::isa<ttnn::TTNNLayoutAttr>(getResult().getType().getEncoding())) {
+  // DEBUG: Always print what we're seeing
+  llvm::outs() << "=== FullOp::bufferize called ===\n";
+  llvm::outs() << "  result type: " << getResult().getType() << "\n";
+  llvm::outs() << "  num uses: "
+               << std::distance(getOperation()->getUses().begin(),
+                                getOperation()->getUses().end())
+               << "\n";
+  auto encoding = getResult().getType().getEncoding();
+  llvm::outs() << "  encoding: " << (encoding ? "present" : "null") << "\n";
+  llvm::outs() << "  allowUnknownOps: " << options.allowUnknownOps << "\n";
+
+  // If unused, just erase (same as EmptyOp).
+  if (getOperation()->getUses().empty()) {
+    llvm::outs() << "  -> ERASING (unused)\n";
+    rewriter.eraseOp(*this);
     return mlir::success();
   }
+
+  // In ttnnMode (allowUnknownOps), don't bufferize if tensor has TTNN layout.
+  // The TTNN lowering handles these tensors differently.
+  if (options.allowUnknownOps &&
+      mlir::isa<ttnn::TTNNLayoutAttr>(getResult().getType().getEncoding())) {
+    llvm::outs() << "  -> SKIPPING (TTNN layout)\n";
+    return mlir::success();
+  }
+
+  llvm::outs() << "  -> PROCEEDING with bufferize\n";
+  ::llvm::SmallVector<mlir::Value> invocationStack;
   auto memrefType = mlir::cast<mlir::MemRefType>(
       getBufferType(getResult(), options, state, invocationStack).value());
 
@@ -1327,6 +1349,7 @@ static mlir::LogicalResult verifyAffineBlocking(
 
     SmallVector<SmallVector<int64_t>> scalarShardShapes =
         getOperandShardShapes(/*convertTileToScalar=*/true);
+
     LogicalResult shardResult = verifyAffineShapesPermutation(
         "shard", indexingMaps, scalarShardShapes, emitDiag);
     if (failed(shardResult)) {

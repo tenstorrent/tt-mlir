@@ -60,6 +60,32 @@ def create_dram_tensor(
     )
 
 
+def create_l1_interleaved_tensor(
+    device, shape, dtype, int_max=0, mesh_mapper=None, ttnn_dtype=None
+):
+    """Create an L1 interleaved tensor (not sharded)."""
+    if not (dtype.is_floating_point or dtype.is_complex):
+        high_val = int_max if int_max else torch.iinfo(dtype).max // 2
+        torch_tensor = torch.randint(high_val, shape, dtype=dtype)
+    else:
+        if int_max:
+            print("Warning: int_max provided for floating point tensor, ignoring.")
+        torch_tensor = torch.randn(shape, dtype=dtype)
+
+    memory_config = ttnn.MemoryConfig(
+        memory_layout=ttnn.TensorMemoryLayout.INTERLEAVED,
+        buffer_type=ttnn.BufferType.L1,
+    )
+    return ttnn.from_torch(
+        torch_tensor,
+        dtype=ttnn_dtype,
+        layout=ttnn.TILE_LAYOUT,
+        device=device,
+        memory_config=memory_config,
+        mesh_mapper=mesh_mapper,
+    )
+
+
 def get_shard_shape(collapsed_shape, max_grid, memory_layout):
     h, w = collapsed_shape
     # IMPORTANT: TTNN grids are (Width, Height), while tensor shapes are (Height, Width).
@@ -202,6 +228,7 @@ def run_op_test(
     golden_op = _get_ttnn_op(op)
 
     op_jit = ttnn_jit.jit(
+        max_grid=max_grid,
         debug=True,
         enable_cache=enable_cache,
         graph_capture=graph_capture,

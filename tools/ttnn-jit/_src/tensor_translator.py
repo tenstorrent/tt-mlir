@@ -81,6 +81,8 @@ def _get_collapsed_linear_affine_map(
 
 
 def _mlir_memory_layout_from_ttnn_memory_layout(memory_layout):
+    """Convert TTNN memory layout to MLIR memory layout enum."""
+    print(f"Memory layout: {memory_layout}")
     match str(memory_layout):
         case "TensorMemoryLayout.INTERLEAVED":
             return ttnn.TensorMemoryLayout.Interleaved
@@ -95,6 +97,7 @@ def _mlir_memory_layout_from_ttnn_memory_layout(memory_layout):
 
 
 def _ttcore_dtype_from_ttnn_dtype(dtype):
+    """Convert TTNN dtype to TTCore dtype enum."""
     match str(dtype):
         case "DataType.BFLOAT16":
             return ttcore.DataType.BFloat16
@@ -200,6 +203,12 @@ def _check_layout_supported(tensor_arg, max_grid):
         and not tensor_arg.memory_config().is_sharded()
     ):
         raise ValueError("Interleaved L1 tensors are not supported.")
+
+    if tensor_arg.memory_config().buffer_type == ttnn.BufferType.DRAM and max_grid != (
+        0,
+        0,
+    ):
+        raise ValueError("DRAM tensors must be 1x1 grid.")
 
     if (
         tensor_arg.memory_config().buffer_type == ttnn.BufferType.DRAM

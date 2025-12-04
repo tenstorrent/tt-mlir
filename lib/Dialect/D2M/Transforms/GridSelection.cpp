@@ -858,6 +858,15 @@ insertTTNNDRAMStreams(d2m::GenericOp genericOp,
   auto optimalOperandGrids =
       computeTTNNGenericGridShapes(genericOp, targetSquareGridShape);
 
+  // Check if this generic has reduction iterators - if so, we cannot stream
+  // because partial results need to be accumulated in L1 before writing the
+  // final result to DRAM (Issue #5446). Skip ALL streaming for reductions to
+  // keep input and output grids aligned.
+  bool hasReduction = genericOp.hasReduction();
+  if (hasReduction) {
+    return optimalOperandGrids;
+  }
+
   OpBuilder builder(genericOp->getContext());
   for (auto [operandIdx, operand] : llvm::enumerate(genericOp.getOperands())) {
     auto metalTensor = mlir::cast<mlir::RankedTensorType>(operand.getType());

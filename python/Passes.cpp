@@ -131,9 +131,22 @@ void populatePassesModule(nb::module_ &m) {
       "ttnn_to_ttmetal_pipeline",
       [](MlirModule module, std::string options = "") {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
-        mlir::PassManager pm(moduleOp->getName());
 
-        pm.addPass(tt::createConvertTTNNToTTIRPass());
+        // First run TTNNToTTIR
+        {
+          mlir::PassManager pm1(moduleOp->getName());
+          pm1.addPass(tt::createConvertTTNNToTTIRPass());
+          if (mlir::failed(pm1.run(moduleOp))) {
+            throw std::runtime_error("Failed TTNNToTTIR pass");
+          }
+          // Debug: print IR after TTNNToTTIR
+          llvm::outs() << "---- IR Dump after TTNNToTTIR ----\n";
+          moduleOp->print(llvm::outs());
+          llvm::outs() << "\n";
+        }
+
+        // Then run the rest of the pipeline
+        mlir::PassManager pm(moduleOp->getName());
 
         const auto *pipeline =
             mlir::PassPipelineInfo::lookup("ttir-to-ttmetal-pipeline");
