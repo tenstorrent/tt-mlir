@@ -183,7 +183,8 @@ inline T identity(T x) {
 // Used by ascendingStrideIter to implement ascending stride range wrapper.
 template <typename Container>
 class AscendingStrideAdaptor {
-  Container container;
+  using ContainerType = std::remove_reference_t<Container>;
+  ContainerType *container;
   llvm::SmallVector<int64_t> indices;
 
   // Generates a set of indices that index a device shape (grid x shard) from
@@ -200,15 +201,15 @@ class AscendingStrideAdaptor {
 
 public:
   AscendingStrideAdaptor(Container &&container)
-      : container(std::forward<Container>(container)),
-        indices(strideIterationOrder(this->container.size())) {}
+      : container(&container),
+        indices(strideIterationOrder(this->container->size())) {}
 
   class iterator {
     const int64_t *indexPtr;
-    Container &container;
+    ContainerType *container;
 
   public:
-    iterator(const int64_t *indexPtr, Container &container)
+    iterator(const int64_t *indexPtr, ContainerType *container)
         : indexPtr(indexPtr), container(container) {}
 
     bool operator!=(const iterator &other) const {
@@ -221,7 +222,7 @@ public:
     }
 
     auto operator*() const {
-      return std::make_pair(*indexPtr, container[*indexPtr]);
+      return std::make_pair(*indexPtr, (*container)[*indexPtr]);
     }
   };
 

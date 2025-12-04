@@ -115,44 +115,40 @@ createCoreVirtMaps(mlir::MLIRContext *context,
                       getAffineConstantExpr(0, context));
 
     return {forwardMap, inverseMap};
-  } else {
-
-    bool is2DWidthSharded = (virtualGridRank == 2) && virtualGrid[0] == 1;
-    bool is2DHeightSharded = (virtualGridRank == 2) && virtualGrid[1] == 1;
-
-    TT_assertv(
-        (is2DWidthSharded || is2DHeightSharded),
-        "Only supporting 2D width or height sharding (actual grid shape = "
-        "{1})",
-        ttmlir::utils::formatIterable(virtualGrid, "x"));
-
-    SmallVector<AffineExpr> forwardMapExprs;
-    SmallVector<AffineExpr> inverseMapExprs;
-
-    AffineExpr d0 = getAffineDimExpr(0, context);
-    AffineExpr d1 = getAffineDimExpr(1, context);
-    AffineExpr d2 = getAffineDimExpr(2, context);
-    AffineExpr d3 = getAffineDimExpr(3, context);
-    AffineExpr zero = getAffineConstantExpr(0, context);
-    AffineExpr gridRowStride = getAffineConstantExpr(targetGrid[0], context);
-    AffineExpr gridColStride = getAffineConstantExpr(targetGrid[1], context);
-
-    if (is2DWidthSharded) {
-      forwardMapExprs = {d1.floorDiv(gridColStride), d1 % gridColStride, d2,
-                         d3};
-      inverseMapExprs = {zero, d0 * gridColStride + d1};
-    } else if (is2DHeightSharded) {
-      forwardMapExprs = {d0 % gridRowStride, d0.floorDiv(gridRowStride), d2,
-                         d3};
-      inverseMapExprs = {d1 * gridRowStride + d0, zero};
-    }
-    auto forward =
-        mlir::AffineMap::get(2 * virtualGridRank, 0, forwardMapExprs, context);
-    auto inverse =
-        mlir::AffineMap::get(virtualGridRank, 0, inverseMapExprs, context);
-    inverse = prependResult(inverse, getAffineConstantExpr(0, context));
-    return {forward, inverse};
   }
+
+  bool is2DWidthSharded = (virtualGridRank == 2) && virtualGrid[0] == 1;
+  bool is2DHeightSharded = (virtualGridRank == 2) && virtualGrid[1] == 1;
+
+  TT_assertv((is2DWidthSharded || is2DHeightSharded),
+             "Only supporting 2D width or height sharding (actual grid shape = "
+             "{1})",
+             ttmlir::utils::formatIterable(virtualGrid, "x"));
+
+  SmallVector<AffineExpr> forwardMapExprs;
+  SmallVector<AffineExpr> inverseMapExprs;
+
+  AffineExpr d0 = getAffineDimExpr(0, context);
+  AffineExpr d1 = getAffineDimExpr(1, context);
+  AffineExpr d2 = getAffineDimExpr(2, context);
+  AffineExpr d3 = getAffineDimExpr(3, context);
+  AffineExpr zero = getAffineConstantExpr(0, context);
+  AffineExpr gridRowStride = getAffineConstantExpr(targetGrid[0], context);
+  AffineExpr gridColStride = getAffineConstantExpr(targetGrid[1], context);
+
+  if (is2DWidthSharded) {
+    forwardMapExprs = {d1.floorDiv(gridColStride), d1 % gridColStride, d2, d3};
+    inverseMapExprs = {zero, d0 * gridColStride + d1};
+  } else if (is2DHeightSharded) {
+    forwardMapExprs = {d0 % gridRowStride, d0.floorDiv(gridRowStride), d2, d3};
+    inverseMapExprs = {d1 * gridRowStride + d0, zero};
+  }
+  auto forward =
+      mlir::AffineMap::get(2 * virtualGridRank, 0, forwardMapExprs, context);
+  auto inverse =
+      mlir::AffineMap::get(virtualGridRank, 0, inverseMapExprs, context);
+  inverse = prependResult(inverse, getAffineConstantExpr(0, context));
+  return {forward, inverse};
 }
 } // namespace ttmlir::d2m::utils::grids
 
