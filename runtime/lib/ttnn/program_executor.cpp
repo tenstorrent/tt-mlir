@@ -28,6 +28,7 @@
 #include "operations/creation/full_with.h"
 #include "operations/data_movement/assign.h"
 #include "operations/data_movement/concat.h"
+#include "operations/data_movement/convert_to_hwc.h"
 #include "operations/data_movement/pad.h"
 #include "operations/data_movement/permute.h"
 #include "operations/data_movement/repeat.h"
@@ -341,6 +342,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::ReshapeOp: {
     return operations::data_movement::run(op->type_as_ReshapeOp(),
+                                          getContext());
+  }
+  case ::tt::target::ttnn::OpType::ConvertToHWCOp: {
+    return operations::data_movement::run(op->type_as_ConvertToHWCOp(),
                                           getContext());
   }
   case ::tt::target::ttnn::OpType::SliceOp: {

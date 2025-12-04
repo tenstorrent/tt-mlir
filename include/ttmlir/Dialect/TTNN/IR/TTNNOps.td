@@ -1375,6 +1375,22 @@ def TTNN_ReshapeOp : TTNN_Op<"reshape", [TTNN_MemoryConfigOpInterface]> {
     }];
 }
 
+
+def TTNN_ConvertToHWCOp: TTNN_Op<"convert_to_hwc", [TTNN_MemoryConfigOpInterface]> {
+  let summary = "Conversion to HWC.";
+  let description = [{
+    Conversion of shape from [1,B,C,H*W] to [1,1,B*H*W,C]
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<TTCore_DataTypeAttr>:$dtype);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 def TTNN_RepeatOp : TTNN_Op<"repeat", [TTNN_MemoryConfigOpInterface]> {
     let summary = "Repeat op.";
     let description = [{

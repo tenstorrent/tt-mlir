@@ -2004,6 +2004,23 @@ mlir::tt::ttir::RearrangeOp::getInvPatternMap() {
 }
 
 //===----------------------------------------------------------------------===//
+// ConvertToHWCOp
+//===----------------------------------------------------------------------===//
+
+// ConvertToHWCOp verification
+::mlir::LogicalResult mlir::tt::ttir::ConvertToHWCOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  int64_t inputRank = inputType.getRank();
+  if (inputRank != 4) {
+    return emitOpError("Input tensor must be a 4D tensor");
+  }
+  if (inputType.getDimSize(0) != 1) {
+    return emitOpError("Input tensor must have shape [1,B,C,H*W]");
+  }
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // BroadcastOp
 //===----------------------------------------------------------------------===//
 

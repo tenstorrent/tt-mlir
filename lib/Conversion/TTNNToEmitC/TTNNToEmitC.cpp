@@ -1702,6 +1702,38 @@ public:
 };
 } // namespace
 
+// ReshapeOp conversion pattern
+//
+namespace {
+class ConvertToHWCOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::ConvertToHWCOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::ConvertToHWCOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::ConvertToHWCOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::ConvertToHWCOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getMemoryConfig()) |
+            emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(srcOp.getDtype()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // TransposeOp conversion pattern
 //
 namespace {
@@ -4542,8 +4574,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // Tensor manipulation ops
   //
   patterns.add<TransposeOpConversionPattern, ConcatOpConversionPattern,
-               ReshapeOpConversionPattern, RepeatOpConversionPattern,
-               RepeatInterleaveOpConversionPattern,
+               ReshapeOpConversionPattern, ConvertToHWCOpConversionPattern,
+               RepeatOpConversionPattern, RepeatInterleaveOpConversionPattern,
                SliceStaticOpConversionPattern, SliceDynamicOpConversionPattern,
                SortOpConversionPattern, PermuteOpConversionPattern,
                DefaultOpConversionPattern<mlir::tt::ttnn::PadOp>>(typeConverter,

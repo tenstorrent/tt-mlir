@@ -61,6 +61,7 @@ extract_output_tensor(const std::tuple<Tensor, Tensor, Tensor> &result) {
 #include "ttnn/operations/eltwise/unary/unary_composite.hpp"
 #include "ttnn/operations/embedding/embedding.hpp"
 #include "ttnn/operations/embedding_backward/embedding_backward.hpp"
+#include "ttnn/operations/experimental/cnn/convert_to_hwc/convert_to_hwc.hpp"
 #include "ttnn/operations/experimental/conv3d/conv3d.hpp"
 #include "ttnn/operations/experimental/dropout/dropout.hpp"
 #include "ttnn/operations/experimental/paged_cache/paged_cache.hpp"

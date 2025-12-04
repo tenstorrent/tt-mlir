@@ -2209,6 +2209,22 @@ createReshapeOp(FlatbufferObjectCache &cache, ReshapeOp op) {
       memoryConfig ? toFlatbuffer(cache, memoryConfig.value()) : 0);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::ConvertToHWCOp>
+createConvertToHWCOp(FlatbufferObjectCache &cache, ConvertToHWCOp op) {
+  auto in = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+
+  std::optional<mlir::tt::ttnn::MemoryConfigAttr> memoryConfig =
+      op.getMemoryConfig();
+  ::flatbuffers::Optional<::tt::target::DataType> dtype =
+      toFlatbuffer(cache, op.getDtype());
+
+  return ::tt::target::ttnn::CreateConvertToHWCOp(
+      *cache.fbb, in, out,
+      memoryConfig ? toFlatbuffer(cache, memoryConfig.value()) : 0, dtype);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::RandOp>
 createRandOp(FlatbufferObjectCache &cache, RandOp op) {
   auto size = cache.fbb->CreateVector<int64_t>(op.getSize().getShape());
@@ -3712,6 +3728,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto reshapeOp = dyn_cast<ReshapeOp>(op); reshapeOp) {
     return createOperation(cache, createReshapeOp(cache, reshapeOp),
+                           debugString, locInfo);
+  }
+  if (auto convertToHWCOp = dyn_cast<ConvertToHWCOp>(op); convertToHWCOp) {
+    return createOperation(cache, createConvertToHWCOp(cache, convertToHWCOp),
                            debugString, locInfo);
   }
   if (auto repeatOp = dyn_cast<RepeatOp>(op); repeatOp) {

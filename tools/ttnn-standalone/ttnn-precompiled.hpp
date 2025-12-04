@@ -26,6 +26,7 @@
 #include "operations/eltwise/unary/unary_composite.hpp"
 #include "operations/embedding/embedding.hpp"
 #include "operations/embedding_backward/embedding_backward.hpp"
+#include "operations/experimental/cnn/convert_to_hwc/convert_to_hwc.hpp"
 #include "operations/experimental/conv3d/conv3d.hpp"
 #include "operations/experimental/dropout/dropout.hpp"
 #include "operations/experimental/transformer/nlp_concat_heads/nlp_concat_heads.hpp"

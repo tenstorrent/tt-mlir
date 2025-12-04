@@ -4004,6 +4004,30 @@ def TTIR_RearrangeOp : TTIR_NamedOp<"rearrange", [TTIR_TensorManipulation]> {
     }];
 }
 
+def TTIR_ConvertToHWCOp: TTIR_NamedOp<"convert_to_hwc"> {
+  let summary = "Conversion of shape from [1,B,C,H*W] to [1,1,B*H*W,C].";
+  let description = [{
+    Permutation and reshape of input tensor from shape [1,B,C,H*W] to [1,1,B*H*W,C].
+    This shape is required for convolutions.
+
+    Example:
+    ```mlir
+    %result = ttir.convert_to_hwc(%input) : (tensor<1x2x3x4xf32>) -> tensor<1x1x8x3xf32>
+    ```
+    Inputs:
+    - `input` (Tensor): The input tensor to reshape.
+
+    Output:
+    - `result` (Tensor): The reshaped tensor.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 def TTIR_PadOp: TTIR_NamedOp<"pad"> {
     let summary = "Tensor padding operation.";
     let description = [{
