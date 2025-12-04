@@ -368,9 +368,10 @@ computeOptimalBlockShardedGrid(ArrayRef<int64_t> physicalShape,
 // The following is a simple heuristic that determines (A) if a tensor _can_
 // be implemented as a virtual grid and (B) if it makes sense to do so based
 // on low grid utilization with regular block sharding.
-bool shouldImplementAsVirtualGrid(ArrayRef<int64_t> physicalShape,
-                                  ArrayRef<int64_t> targetSquareGridShape,
-                                  bool isInterleaved, bool isTiled) {
+static bool
+shouldImplementAsVirtualGrid(ArrayRef<int64_t> physicalShape,
+                             ArrayRef<int64_t> targetSquareGridShape,
+                             bool isInterleaved) {
   if (isInterleaved) {
     return false;
   }
@@ -391,10 +392,10 @@ bool shouldImplementAsVirtualGrid(ArrayRef<int64_t> physicalShape,
 
 static std::pair<llvm::SmallVector<int64_t>, bool>
 computeOptimalGrid(ArrayRef<int64_t> physicalShape,
-                   ArrayRef<int64_t> targetSquareGridShape, bool isInterleaved,
-                   bool isTiled) {
+                   ArrayRef<int64_t> targetSquareGridShape,
+                   bool isInterleaved) {
   if (shouldImplementAsVirtualGrid(physicalShape, targetSquareGridShape,
-                                   isInterleaved, isTiled)) {
+                                   isInterleaved)) {
     return {computeOptimalVirtualGrid(physicalShape, targetSquareGridShape),
             true};
   }
@@ -573,8 +574,7 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
     bool isInterleaved = operandLayout.getMemoryLayout() ==
                          ttcore::TensorMemoryLayout::Interleaved;
     auto [optimalGrid, isVirtualGrid] =
-        computeOptimalGrid(physShape, targetSquareGridShape, isInterleaved,
-                           ttcore::isTiled(operandType));
+        computeOptimalGrid(physShape, targetSquareGridShape, isInterleaved);
 
     optimalOperandGrids.push_back(optimalGrid);
 
@@ -599,9 +599,8 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
               inputLayout, inputType, targetSquareGridShape, builder);
           bool isInterleaved = inputLayout.getMemoryLayout() ==
                                ttcore::TensorMemoryLayout::Interleaved;
-          auto [inputOptimalGrid, isVirtualGrid] =
-              computeOptimalGrid(inputPhysShape, targetSquareGridShape,
-                                 isInterleaved, ttcore::isTiled(inputType));
+          auto [inputOptimalGrid, isVirtualGrid] = computeOptimalGrid(
+              inputPhysShape, targetSquareGridShape, isInterleaved);
 
           toLayoutsToUpdate.push_back(
               {toLayoutOp, inputOptimalGrid, isVirtualGrid});
