@@ -117,7 +117,7 @@ getPagedAttentionShardingRule(mlir::stablehlo::CustomCallOp op) {
     llvm::SmallVector<RankedTensorType> qkvTypes = {queryType, keyType,
                                                     valueType};
     if (llvm::any_of(qkvTypes, [&](RankedTensorType type) {
-          return type.getRank() == 4;
+          return type.getRank() != 4;
         })) {
       op.getOperation()->emitWarning()
           << "Paged SDPA decode: unexpected Q/K/V layouts, q rank: "
