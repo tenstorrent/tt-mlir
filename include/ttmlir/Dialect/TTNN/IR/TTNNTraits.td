@@ -30,4 +30,17 @@ def CanExecuteOnHostTrait : NativeOpTrait<"CanExecuteOnHostTrait">
   let cppNamespace = "::mlir::tt::ttnn";
 }
 
+// Marker trait for ops that do NOT have golden_function implementation.
+// By default, all TTNN ops are assumed to have golden functions.
+def NoGoldenFunctionTrait : NativeOpTrait<"NoGoldenFunctionTrait">
+{
+  let cppNamespace = "::mlir::tt::ttnn";
+}
+
+// Verifies use_golden attribute: tensor operands must come from to_torch or use_golden ops.
+def VerifyUseGoldenTrait : NativeOpTrait<"VerifyUseGoldenTrait">
+{
+  let cppNamespace = "::mlir::tt::ttnn";
+}
+
 #endif // TTMLIR_TTMLIR_DIALECT_TTNN_TTNN_TRAITS_TD

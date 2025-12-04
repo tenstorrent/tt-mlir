@@ -47,19 +47,19 @@ def TTNN_Dialect : Dialect {
 //===----------------------------------------------------------------------===//
 
 class TTNN_Op<string mnemonic, list<Trait> traits = []> :
-        Op<TTNN_Dialect, mnemonic, [Pure, CheckBFloat8BTrait, TTNN_WorkaroundInterface,
+        Op<TTNN_Dialect, mnemonic, [Pure, CheckBFloat8BTrait, VerifyUseGoldenTrait, TTNN_WorkaroundInterface,
         DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] # traits>;
 
 class TTNN_InplaceOp<string mnemonic, list<Trait> traits = []> :
-        Op<TTNN_Dialect, mnemonic, [MemoryEffects<[MemWrite]>, TTNN_WorkaroundInterface,
+        Op<TTNN_Dialect, mnemonic, [MemoryEffects<[MemWrite]>, VerifyUseGoldenTrait, TTNN_WorkaroundInterface,
         DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] # traits>;
 
 class TTNN_MemFreeOp<string mnemonic, list<Trait> traits = []> :
-        Op<TTNN_Dialect, mnemonic, [MemoryEffects<[MemFree]>, TTNN_WorkaroundInterface,
+        Op<TTNN_Dialect, mnemonic, [MemoryEffects<[MemFree]>, VerifyUseGoldenTrait, TTNN_WorkaroundInterface,
         DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] # traits>;
 
 class TTNN_MemoryEffectOp<string mnemonic, list<Trait> traits = []> :
-        Op<TTNN_Dialect, mnemonic, [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>, TTNN_WorkaroundInterface,
+        Op<TTNN_Dialect, mnemonic, [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>, VerifyUseGoldenTrait, TTNN_WorkaroundInterface,
         DeclareOpInterfaceMethods<TTNN_OpModelInterface, ["getOpConstraints", "getOpRuntime"]>] # traits>;
 
 #endif

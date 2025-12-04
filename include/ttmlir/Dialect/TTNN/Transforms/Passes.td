@@ -335,6 +335,44 @@ def TTNNWeightBFP8Conversion: Pass<"ttnn-weight-bfp8-conversion", "::mlir::Modul
   }];
 }
 
+def TTNNConvertToGolden: Pass<"ttnn-convert-to-golden", "::mlir::ModuleOp"> {
+  let summary = "Convert TTNN ops to use golden function mode.";
+  let description = [{
+    This pass converts TTNN operations to use their golden function implementations
+    by adding the use_golden attribute to operations.
+
+    The transformation:
+    1. At function entry, inserts ttnn.to_torch ops to convert inputs
+    2. Adds use_golden attribute to all ops that support golden functions
+       (ops without NoGoldenFunctionTrait) whose operands come from to_torch
+       or other use_golden ops
+    3. At function return, inserts ttnn.from_torch ops to convert outputs back
+
+    A tensor is considered a "torch tensor" if it comes from a to_torch op or
+    any TTNN op marked with use_golden attribute. This is determined by tracing
+    the defining op chain at verification time.
+
+    Example:
+    ```mlir
+    func.func @add(%arg0: tensor<32x32xbf16, #ttnn_layout>, %arg1: tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout> {
+      %0 = "ttnn.add"(%arg0, %arg1) : (...) -> tensor<32x32xbf16, #ttnn_layout>
+      return %0 : tensor<32x32xbf16, #ttnn_layout>
+    }
+    ```
+
+    Becomes:
+    ```mlir
+    func.func @add(%arg0: tensor<32x32xbf16, #ttnn_layout>, %arg1: tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout> {
+      %0 = "ttnn.to_torch"(%arg0) : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
+      %1 = "ttnn.to_torch"(%arg1) : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
+      %2 = "ttnn.add"(%0, %1) {use_golden} : (...) -> tensor<32x32xbf16, #ttnn_layout>
+      %3 = "ttnn.from_torch"(%2) : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
+      return %3 : tensor<32x32xbf16, #ttnn_layout>
+    }
+    ```
+  }];
+}
+
 def TTNNCollectPerfMetrics: Pass<"ttnn-collect-perf-metrics", "::mlir::ModuleOp"> {
   let summary = "Collect and export TTNN operation metrics.";
   let description = [{

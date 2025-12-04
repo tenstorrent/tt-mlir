@@ -69,6 +69,64 @@ foldConsecutiveDataCastOps(T op, ::mlir::PatternRewriter &rewriter) {
 }
 
 //===----------------------------------------------------------------------===//
+// FromTorchOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::FromTorchOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType resultType = getResult().getType();
+
+  // Verify input has TTNNLayout encoding
+  auto inputLayoutAttr =
+      mlir::dyn_cast_or_null<TTNNLayoutAttr>(inputType.getEncoding());
+  if (!inputLayoutAttr) {
+    return emitOpError() << "input tensor must have TTNNLayout encoding, got "
+                         << (inputType.getEncoding() ? inputType.getEncoding()
+                                                     : mlir::Attribute());
+  }
+
+  // Verify result has TTNNLayout encoding
+  auto resultLayoutAttr =
+      mlir::dyn_cast_or_null<TTNNLayoutAttr>(resultType.getEncoding());
+  if (!resultLayoutAttr) {
+    return emitOpError() << "result tensor must have TTNNLayout encoding, got "
+                         << (resultType.getEncoding() ? resultType.getEncoding()
+                                                      : mlir::Attribute());
+  }
+
+  return mlir::success();
+}
+
+//===----------------------------------------------------------------------===//
+// ToTorchOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::ToTorchOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType resultType = getResult().getType();
+
+  // Verify input has TTNNLayout encoding
+  auto inputLayoutAttr =
+      mlir::dyn_cast_or_null<TTNNLayoutAttr>(inputType.getEncoding());
+  if (!inputLayoutAttr) {
+    return emitOpError() << "input tensor must have TTNNLayout encoding, got "
+                         << (inputType.getEncoding() ? inputType.getEncoding()
+                                                     : mlir::Attribute());
+  }
+
+  // Verify result has TTNNLayout encoding
+  auto resultLayoutAttr =
+      mlir::dyn_cast_or_null<TTNNLayoutAttr>(resultType.getEncoding());
+  if (!resultLayoutAttr) {
+    return emitOpError() << "result tensor must have TTNNLayout encoding, got "
+                         << (resultType.getEncoding() ? resultType.getEncoding()
+                                                      : mlir::Attribute());
+  }
+
+  return mlir::success();
+}
+
+//===----------------------------------------------------------------------===//
 // RandOp
 //===----------------------------------------------------------------------===//
 

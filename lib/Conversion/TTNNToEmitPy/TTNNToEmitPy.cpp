@@ -43,14 +43,21 @@ public:
            "TTNNToEmitPyBaseOpConversionPattern only supports ops from the "
            "TTNN dialect");
 
+    std::string str;
     if (getPrefixSearchPattern() == getPrefixSwapPattern()) {
-      return name.str();
+      str = name.str();
     }
 
     // Exchange search with swap pattern.
     //
-    return name.str().replace(0, getPrefixSearchPattern().size(),
-                              getPrefixSwapPattern());
+    str = name.str().replace(0, getPrefixSearchPattern().size(),
+                             getPrefixSwapPattern());
+
+    if (op->hasAttr("use_golden")) {
+      str += ".golden_function";
+    }
+
+    return str;
   }
 };
 } // namespace
@@ -513,6 +520,26 @@ public:
       args.push_back(emitter.emit(constantOp.getMemoryConfig()));
     }
 
+    // ttnn.Tensor doesn't have golden_function attached to it.
+    // If golden execution of ConstantOp is desired, we should:
+    // 1) clear the "use_golden" attribute from the ConstantOp
+    // 2) replace the usages of the constant tensor with
+    //    ttnn.to_torch(constant_tensor)
+    if (constantOp->hasAttr("use_golden")) {
+      constantOp->removeAttr("use_golden");
+
+      rewriter.setInsertionPointAfter(constantOp);
+
+      auto toTorchOp = rewriter.create<mlir::tt::ttnn::ToTorchOp>(
+          constantOp.getLoc(), constantOp.getResult().getType(),
+          constantOp.getResult());
+
+      constantOp.getResult().replaceAllUsesExcept(toTorchOp.getResult(),
+                                                  /*except=*/toTorchOp);
+
+      rewriter.setInsertionPoint(constantOp);
+    }
+
     emitter.replaceOp(*this, args);
 
     return success();
@@ -966,6 +993,68 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::FromDeviceOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// FromTorchOp conversion pattern
+//
+namespace {
+class FromTorchOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::FromTorchOp> {
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::FromTorchOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::FromTorchOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::FromTorchOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getDtype(), "dtype"),
+        emitter.emit(srcOp.getLayout(), "layout"),
+        emitter.emit(srcOp.getDevice(), "device"),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// ToTorchOp conversion pattern
+//
+namespace {
+class ToTorchOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::ToTorchOp> {
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::ToTorchOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::ToTorchOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::ToTorchOp> emitter(
         srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
@@ -3479,10 +3568,12 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   // clang-format off
   patterns.add<DeallocateOpConversionPattern,
                FromDeviceOpConversionPattern,
+               FromTorchOpConversionPattern,
                ToDeviceOpConversionPattern,
                ToDTypeOpConversionPattern,
                ToLayoutOpConversionPattern,
                ToMemoryConfigOpConversionPattern,
+               ToTorchOpConversionPattern,
                TypecastOpConversionPattern
               >(typeConverter, ctx);
   // clang-format on

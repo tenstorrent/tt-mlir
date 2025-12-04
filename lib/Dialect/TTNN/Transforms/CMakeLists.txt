@@ -11,6 +11,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         OptimizerPasses/TTNNPrepareConv2dWeightsAndBias.cpp
         TTNNAdjustDeallocs.cpp
         TTNNCollectPerfMetrics.cpp
+        TTNNConvertToGolden.cpp
         TTNNDecomposeLayouts.cpp
         TTNNEmitPyWorkarounds.cpp
         TTNNFusing.cpp

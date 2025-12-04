@@ -15,6 +15,10 @@ namespace mlir::tt::ttnn::wa {
 
 // Verifier function for TTNN Workaround Interface.
 mlir::LogicalResult verifyTTNNWorkaroundInterface(mlir::Operation *op) {
+  // Skip verification if use_golden attribute is present.
+  if (op->hasAttr("use_golden")) {
+    return mlir::success();
+  }
 
   // Verify that the number of input and output operand workarounds is the same
   // as the number of tensor operands and tensor results.

@@ -351,7 +351,12 @@ void createTTNNBackendToEmitPyPipeline(
     auto &cpuPm = pm.nest<ttcore::CPUModuleOp>().nest<mlir::ModuleOp>();
 
     cpuPm.addPass(ttir::createTTIRFlattenSlidingWindow());
+
+    // Lower CPU module to TTNN.
     createTTNNPipelineLoweringPasses(cpuPm, true);
+
+    // Convert CPU module to golden mode.
+    cpuPm.addPass(ttnn::createTTNNConvertToGolden());
   }
 
   // Merge CPU and Device modules back into a single ModuleOp by

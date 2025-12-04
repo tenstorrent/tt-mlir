@@ -4,9 +4,11 @@
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkaroundsPass.h"
 
+#include "mlir/Support/LLVM.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNTraits.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
@@ -555,6 +557,7 @@ TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createBinaryOpOperandsWorkarounds(
     mlir::Operation *op) {
   assert(op->getNumOperands() == 2 && "expected binary op");
+
   auto lhsType =
       mlir::cast<mlir::RankedTensorType>(op->getOperand(0).getType());
   auto rhsType =

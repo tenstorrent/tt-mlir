@@ -131,6 +131,37 @@ def TTNN_FromDeviceOp : TTNN_Op<"from_device"> {
     let results = (outs AnyRankedTensor:$result);
 }
 
+def TTNN_FromTorchOp : TTNN_Op<"from_torch", [NoGoldenFunctionTrait]> {
+    let summary = "FromTorch op.";
+    let description = [{
+      Converts a tensor from Torch format to TTNN format.
+      Input is expected to come from a to_torch op or an op with use_golden attribute.
+      When device is provided, the resulting tensor will be placed on that device.
+      The layout, dtype, and memory_config attributes specify the desired output format.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         Optional<TTNN_Device>:$device,
+                         OptionalAttr<TTNN_LayoutAttr>:$layout,
+                         OptionalAttr<TTCore_DataTypeAttr>:$dtype,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+    let results = (outs AnyRankedTensor:$result);
+    let hasVerifier = 1;
+}
+
+def TTNN_ToTorchOp : TTNN_Op<"to_torch", [NoGoldenFunctionTrait]> {
+    let summary = "ToTorch op.";
+    let description = [{
+      Converts a tensor from TTNN format to Torch format.
+      The output of this op is considered a "torch tensor" and can be consumed
+      by ops with use_golden attribute or from_torch ops.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input);
+    let results = (outs AnyRankedTensor:$result);
+    let hasVerifier = 1;
+}
+
 class TTNN_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
     TTNN_Op<mnemonic, [TTNN_MemoryConfigOpInterface] # traits> {
     let summary = "Eltwise unary op.";

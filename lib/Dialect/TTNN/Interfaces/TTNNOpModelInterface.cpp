@@ -1780,6 +1780,43 @@ ToDeviceOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   return issueErrorForGetOpRuntime(
       getOperation(), detail::ReasonForLackOfSupport::NeedsMemoryIO);
 }
+
+//===----------------------------------------------------------------------===//
+// FromTorchOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+FromTorchOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                              const OpConfig &opConfig) {
+  return issueErrorForGetOpConstraints(
+      getOperation(), detail::ReasonForLackOfSupport::NeedsMemoryIO);
+}
+
+llvm::Expected<size_t>
+FromTorchOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                          const OpConfig &opConfig) {
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::NeedsMemoryIO);
+}
+
+//===----------------------------------------------------------------------===//
+// ToTorchOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+ToTorchOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                            const OpConfig &opConfig) {
+  return issueErrorForGetOpConstraints(
+      getOperation(), detail::ReasonForLackOfSupport::NeedsMemoryIO);
+}
+
+llvm::Expected<size_t>
+ToTorchOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                        const OpConfig &opConfig) {
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::NeedsMemoryIO);
+}
+
 //===----------------------------------------------------------------------===//
 // ToDTypeOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
