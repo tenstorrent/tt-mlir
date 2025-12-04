@@ -266,7 +266,7 @@ module {
   // TTIR SFPU operations
   //===----------------------------------------------------------------------===//
 
-  func.func @test_max_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+  func.func @test_maximum_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
                                %in1: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
                                %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
@@ -285,9 +285,38 @@ module {
         // CHECK: ttkernel.copy_tile_init(%[[CB1:.+]]) :
         // CHECK-NOT: ttkernel.copy_tile(%{{.+}}, %{{.+}}, %[[DST_IDX0]]) :
         // CHECK-NEXT: ttkernel.copy_tile(%[[CB1]], %{{.+}}, %{{.+}}) :
-        // CHECK: ttkernel.max_tile_init
-        // CHECK: ttkernel.max_tile(%{{.+}}, %{{.+}})
+        // CHECK: ttkernel.binary_max_tile_init
+        // CHECK: ttkernel.binary_max_tile(%{{.+}}, %{{.+}}, %{{.+}})
         %0 = "d2m.tile_maximum"(%arg0, %arg1) : (!ttype_f32, !ttype_f32) -> !ttype_f32
+        // CHECK: ttkernel.pack_tile
+        linalg.yield %0 : !ttype_f32
+      }
+    }
+    return
+  }
+
+  func.func @test_minimum_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                               %in1: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                               %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>) {
+    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
+        ins(%in0, %in1 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>, memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
+    ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg2_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>):
+      %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
+      %cb1 = d2m.wait %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
+      %cb2 = d2m.reserve %arg2_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
+      linalg.generic {indexing_maps = [#map_, #map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0, %cb1 : memref<1x1x!ttype_f32, #l1_>, memref<1x1x!ttype_f32, #l1_>) outs(%cb2 : memref<1x1x!ttype_f32, #l1_>) {
+      ^bb0(%arg0: !ttype_f32, %arg1: !ttype_f32, %arg2: !ttype_f32):
+        // CHECK-NOT: d2m.tile_max
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.copy_tile_init(%[[CB0:.+]]) :
+        // CHECK-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %[[DST_IDX0:.+]]) :
+        // CHECK: ttkernel.copy_tile_init(%[[CB1:.+]]) :
+        // CHECK-NOT: ttkernel.copy_tile(%{{.+}}, %{{.+}}, %[[DST_IDX0]]) :
+        // CHECK-NEXT: ttkernel.copy_tile(%[[CB1]], %{{.+}}, %{{.+}}) :
+        // CHECK: ttkernel.binary_min_tile_init
+        // CHECK: ttkernel.binary_min_tile(%{{.+}}, %{{.+}}, %{{.+}})
+        %0 = "d2m.tile_minimum"(%arg0, %arg1) : (!ttype_f32, !ttype_f32) -> !ttype_f32
         // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
       }
