@@ -82,21 +82,10 @@ static mlir::sdy::OpShardingRuleAttr buildHeadShardedCustomCallRule(
 
   mlir::sdy::OpShardingRuleBuilder builder(op);
 
-  SmallVector<int64_t> resolvedOperandDims(op.getNumOperands(),
-                                           mlir::sdy::kNullDim);
-  SmallVector<int64_t> resolvedResultDims(op.getNumResults(),
-                                          mlir::sdy::kNullDim);
-
-  for (int64_t i = 0; i < static_cast<int64_t>(operandHeadDims.size()); ++i) {
-    if (operandHeadDims[i] != mlir::sdy::kNullDim) {
-      resolvedOperandDims[i] = operandHeadDims[i];
-    }
-  }
-  for (int64_t i = 0; i < static_cast<int64_t>(resultHeadDims.size()); ++i) {
-    if (resultHeadDims[i] != mlir::sdy::kNullDim) {
-      resolvedResultDims[i] = resultHeadDims[i];
-    }
-  }
+  SmallVector<int64_t> resolvedOperandDims(operandHeadDims.begin(),
+                                           operandHeadDims.end());
+  SmallVector<int64_t> resolvedResultDims(resultHeadDims.begin(),
+                                          resultHeadDims.end());
 
   builder.addFactor(resolvedOperandDims, resolvedResultDims, headSize,
                     mlir::sdy::FactorType::kPassThrough);
@@ -125,16 +114,16 @@ getPagedAttentionShardingRule(mlir::stablehlo::CustomCallOp op) {
       return mlir::sdy::OpShardingRuleAttr();
     }
 
-    auto checkQKVLayout = [](RankedTensorType type) -> bool {
-      return type.getRank() == 4;
-    };
-    if (!checkQKVLayout(queryType) || !checkQKVLayout(keyType) ||
-        !checkQKVLayout(valueType)) {
+    llvm::SmallVector<RankedTensorType> qkvTypes = {queryType, keyType,
+                                                    valueType};
+    if (llvm::any_of(qkvTypes, [&](RankedTensorType type) {
+          return type.getRank() == 4;
+        })) {
       op.getOperation()->emitWarning()
           << "Paged SDPA decode: unexpected Q/K/V layouts, q rank: "
           << queryType.getRank() << ", key rank: " << keyType.getRank()
           << ", value rank: " << valueType.getRank();
-      return mlir::sdy::OpShardingRuleBuilder::buildPointwise(op);
+      return mlir::sdy::OpShardingRuleAttr();
     }
 
     const int64_t queryHeadDim = 2; // [1, U, H, D]
@@ -226,6 +215,8 @@ getPagedAttentionShardingRule(mlir::stablehlo::CustomCallOp op) {
   op.getOperation()->emitWarning()
       << "Paged attention sharding rule called for unexpected target: "
       << target;
+  llvm_unreachable("Unexpected target for paged attention sharding rule");
+
   return mlir::sdy::OpShardingRuleAttr();
 }
 
