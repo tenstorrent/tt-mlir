@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
+#include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
@@ -67,6 +68,20 @@ Type getRegionLargestDstElemType(Region &region) {
   assert(largestType);
   TT_assert(getTypeNumberOfBits(largestType) <= 32u);
   return largestType;
+}
+
+RankedTensorType reblockTensor(RankedTensorType oldTensor,
+                               ArrayRef<int64_t> newGridShape) {
+  auto oldLayout = mlir::cast<ttcore::MetalLayoutAttr>(oldTensor.getEncoding());
+  if (oldLayout.getGridShape(oldTensor) == newGridShape) {
+    return oldTensor;
+  }
+
+  auto [newShape, reblockMap] = ttmlir::utils::calculateReblockMapForGrid(
+      oldTensor.getShape(), newGridShape, oldTensor.getContext());
+
+  ttcore::MetalLayoutAttr newLayout = oldLayout.withIndexAffineMap(reblockMap);
+  return RankedTensorType::get(newShape, oldTensor.getElementType(), newLayout);
 }
 
 std::optional<SmallVector<int64_t>>
