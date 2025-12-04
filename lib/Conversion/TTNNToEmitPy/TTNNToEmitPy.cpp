@@ -1749,6 +1749,39 @@ public:
 };
 } // namespace
 
+// ConvertToHWCOp conversion pattern
+//
+namespace {
+class ConvertToHWCOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::ConvertToHWCOp> {
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::ConvertToHWCOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::ConvertToHWCOp convertToHWCOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::ConvertToHWCOp> emitter(
+        convertToHWCOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(convertToHWCOp.getInput()),
+        emitter.emit(std::nullopt) |
+            emitter.getMemoryConfig(convertToHWCOp.getResult()),
+        emitter.emit(std::nullopt, "dtype"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // RepeatOp conversion pattern
 //
 namespace {

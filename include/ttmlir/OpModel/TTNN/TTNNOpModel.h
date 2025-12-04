@@ -12,6 +12,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/Support/Error.h"
+#include <cstdint>
 
 namespace mlir::tt::ttnn::op_model {
 
@@ -501,6 +502,23 @@ struct OpModel<ScatterOp> {
 
 template <>
 struct OpModel<ReshapeOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+      TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> outputShape,
+      TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               llvm::ArrayRef<int64_t> outputShape,
+               TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+// ConvertToHWCOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<ConvertToHWCOp> {
   static llvm::Expected<OpConstraints> getOpConstraints(
       ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
       TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> outputShape,

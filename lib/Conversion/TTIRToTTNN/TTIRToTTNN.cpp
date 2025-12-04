@@ -761,6 +761,23 @@ public:
 } // namespace
 
 namespace {
+class ConvertToHWCOpConversionPattern
+    : public OpConversionPattern<ttir::ConvertToHWCOp> {
+public:
+  using OpConversionPattern<ttir::ConvertToHWCOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ConvertToHWCOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::ConvertToHWCOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), /*memory_config=*/nullptr, /*dtype=*/nullptr);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 template <typename TTIROpTy, typename TTNNOpTy>
 class SliceOpConversionPattern : public OpConversionPattern<TTIROpTy> {
 public:
@@ -2573,7 +2590,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ScaledDotProductAttentionDecodeOpConversionPattern,
            PagedScaledDotProductAttentionDecodeOpConversionPattern,
            SplitQueryKeyValueAndSplitHeadsOpConversionPattern,
-           GeluBackwardOpConversionPattern
+           GeluBackwardOpConversionPattern,
+           ConvertToHWCOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on
