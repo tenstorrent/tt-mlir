@@ -247,7 +247,7 @@ class TTIRCompiler(ast.NodeVisitor):
             layout = ttnn.ir.TTNNLayoutAttr.maybe_downcast(tensor.type.encoding)
             layout_attr = ttnn.ir.LayoutAttr.get(self.ctx, layout.memory_layout_as_int)
 
-        return ttnn.FullOp(
+        op = ttnn.FullOp(
             tensor.type,
             shape,
             type_attr,
@@ -255,6 +255,8 @@ class TTIRCompiler(ast.NodeVisitor):
             dtype=dtype,
             layout=layout_attr,
         )
+        op.attributes["ttnn.hoist_generic_via_d2m"] = UnitAttr.get(self.ctx)
+        return op
 
     def visit(self, node: ast.AST, **kwargs):
         if any(
