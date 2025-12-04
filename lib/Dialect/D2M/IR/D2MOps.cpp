@@ -109,6 +109,11 @@ d2m::FullOp::bufferize(mlir::RewriterBase &rewriter,
                        const mlir::bufferization::BufferizationOptions &options,
                        mlir::bufferization::BufferizationState &state) {
   ::llvm::SmallVector<mlir::Value> invocationStack;
+  // Same as d2m::empty, don't bufferize if tensor has a ttnn_layout.
+  if (options.allowUnknownOps &&
+      mlir::isa<ttnn::TTNNLayoutAttr>(getResult().getType().getEncoding())) {
+    return mlir::success();
+  }
   auto memrefType = mlir::cast<mlir::MemRefType>(
       getBufferType(getResult(), options, state, invocationStack).value());
 

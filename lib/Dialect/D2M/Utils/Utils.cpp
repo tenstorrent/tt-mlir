@@ -31,7 +31,13 @@ Type getRegionLargestDstElemType(Region &region) {
 
   Type largestType = nullptr;
   region.walk([&](OperandLoadStoreRegisterOpInterface op) {
-    for (Value v : op.getOperation()->getOperands()) {
+    for (auto [operandIdx, v] :
+         llvm::enumerate(op.getOperation()->getOperands())) {
+      // Skip scalar operands.
+      if (op.isScalarOperand(operandIdx)) {
+        continue;
+      }
+
       Type t = ttcore::getOperandInnerElementType(v);
 
       if (!largestType ||
