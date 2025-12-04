@@ -65,20 +65,18 @@ def test_nd_sharded_not_supported(device, use_graph_capture):
             {ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(1, 3))}
         )
 
-        nd_spec_batch_seq = ttnn.TensorSpec(
+        tensor_spec = ttnn.TensorSpec(
             shape=shape,
             dtype=ttnn.float32,
             layout=ttnn.TILE_LAYOUT,
             buffer_type=ttnn.BufferType.L1,
         ).sharded_across_dims([0, 1], core_ranges)
 
-        torch_tensor = torch.randn(tuple(nd_spec_batch_seq.shape))
-        batch_seq_sharded = ttnn.from_torch(
-            torch_tensor, spec=nd_spec_batch_seq, device=device
-        )
+        torch_tensor = torch.randn(shape)
+        ttnn_tensor = ttnn.from_torch(torch_tensor, spec=tensor_spec, device=device)
 
         op_jit = ttnn_jit.jit(debug=True, graph_capture=use_graph_capture)(exp)
-        output_tensor = op_jit(batch_seq_sharded)
+        output_tensor = op_jit(ttnn_tensor)
 
 
 @pytest.mark.parametrize(
