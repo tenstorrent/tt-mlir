@@ -544,7 +544,7 @@ def TTKernel_CopyDestValuesOp : TTKernel_SFPUOp<"copy_dest_values", [TTKernel_Bi
 def TTKernel_BinaryMaxTileInitOp : TTKernel_InitOp<"binary_max_tile_init"> {
     let summary = "Short init function";
     let description = [{
-      Must be run before max_tile.
+      Must be run before binary_max_tile.
     }];
 
     let arguments = (ins);
@@ -560,7 +560,7 @@ def TTKernel_BinaryMaxTileOp : TTKernel_SFPUOp<"binary_max_tile", [TTKernel_Bina
       Performs element-wise computation of maximum operation
       DST[odst_index] <- max(DST[dst0_index], DST[dst1_index])
       on DST register operands. The DST register buffer must be in
-      acquired state via *tile_regs_acquire* call.
+      acquired state via *acquire_dst* call.
     }];
 
     let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index, IndexLike:$odst_index);
@@ -573,7 +573,7 @@ def TTKernel_BinaryMaxTileOp : TTKernel_SFPUOp<"binary_max_tile", [TTKernel_Bina
 def TTKernel_BinaryMinTileInitOp : TTKernel_InitOp<"binary_min_tile_init"> {
     let summary = "Short init function";
     let description = [{
-      Must be run before minimum_tile.
+      Must be run before binary_min_tile.
     }];
 
     let arguments = (ins);
@@ -589,7 +589,7 @@ def TTKernel_BinaryMinTileOp : TTKernel_SFPUOp<"binary_min_tile", [TTKernel_Bina
       Performs element-wise computation of minimum operation
       DST[odst_index] <- min(DST[dst0_index], DST[dst1_index])
       on DST register operands. The DST register buffer must be in
-      acquired state via *tile_regs_acquire* call.
+      acquired state via *acquire_dst* call.
     }];
 
     let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index, IndexLike:$odst_index);
