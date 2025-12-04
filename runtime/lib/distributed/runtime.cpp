@@ -194,7 +194,7 @@ void deallocateTensor(::tt::runtime::Tensor &tensorHandle, bool force) {
   ControllerSingleton::get().deallocateTensor(tensorHandle, force);
 }
 
-::tt::runtime::TensorDesc getTensorDesc(::tt::runtime::Tensor t){
+::tt::runtime::TensorDesc getTensorDesc(::tt::runtime::Tensor t) {
   assertControllerLaunched();
   return ControllerSingleton::get().getTensorDesc(t);
 }

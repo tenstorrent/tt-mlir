@@ -378,10 +378,37 @@ def test_flatbuffer_execution_dp(request, num_loops):
     shutdown_distributed_runtime()
 
 
-def test_getTensorDesc():
+@pytest.mark.parametrize(
+    "shape,dtype",
+    [
+        ((177, 211), torch.float32),
+        ((32, 64), torch.bfloat16),
+        ((100, 50), torch.bfloat16),
+        ((10, 20), torch.int32),
+        ((2, 3, 4), torch.bfloat16),
+        ((1, 3, 224, 224), torch.bfloat16),
+    ],
+)
+def test_getTensorDesc(shape, dtype):
     launch_distributed_runtime()
+    if dtype in [torch.int8, torch.uint8, torch.int32]:
+        reference_torch_tensor = torch.randint(-10, 10, shape, dtype=dtype)
+    else:
+        reference_torch_tensor = torch.randn(shape, dtype=dtype)
 
-    tensor = get_runtime_tensor_from_torch(torch.randn(177, 211), storage=Storage.Owned)
-    tensor.get_tensor_desc()
+    tensor = get_runtime_tensor_from_torch(
+        reference_torch_tensor, storage=Storage.Owned
+    )
+
+    tensor_desc = tensor.get_tensor_desc()
+
+    # Assert tensor descriptor properties match the reference tensor
+    assert tensor_desc.shape == list(reference_torch_tensor.shape)
+    expected_runtime_dtype = Binary.Program.to_data_type(reference_torch_tensor.dtype)
+    assert tensor_desc.dtype == expected_runtime_dtype
+    assert tensor_desc.item_size == reference_torch_tensor.element_size()
+
+    # Physical volume is typically 0 for host tensors (not on device)
+    assert tensor_desc.physical_volume == 0
 
     shutdown_distributed_runtime()

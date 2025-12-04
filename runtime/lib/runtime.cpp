@@ -484,7 +484,9 @@ TensorDesc getTensorDesc(Tensor t) {
       RetType,
       [&]() -> RetType { return ::tt::runtime::ttnn::getTensorDesc(t); },
       [&]() -> RetType { return ::tt::runtime::ttmetal::getTensorDesc(t); },
-      [&]() -> RetType { return ::tt::runtime::distributed::getTensorDesc(t); });
+      [&]() -> RetType {
+        return ::tt::runtime::distributed::getTensorDesc(t);
+      });
 }
 
 bool getTensorRetain(Tensor tensor) {
