@@ -110,6 +110,7 @@ MATMUL_SHAPE_GRIDS = [
     ],
     ids=["bf16"],
 )
+@pytest.mark.parametrize("graph_capture", [False])
 def test_matmul_with_grids(device, shape_grids, dtype, ttnn_dtype, graph_capture):
     shapes, grids = shape_grids
     # shape is (m, k, n)
