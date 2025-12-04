@@ -3310,7 +3310,9 @@ public:
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getNumHeads()),
         emitter.emit(srcOp.getNumKvHeads()),
-        /*optional_output_tensors=*/emitter.emit(std::nullopt),
+        /*optional_output_tensors=*/
+        emitter.emit<std::optional<std::array<::ttnn::Tensor, 3>>>(
+            std::nullopt),
         emitter.emit(srcOp.getOverlapQkCoregrid()),
         emitter.emit(srcOp.getBatchOffset()),
         emitter.emit(srcOp.getSliceSize()),
