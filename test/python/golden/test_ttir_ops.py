@@ -1157,7 +1157,6 @@ def test_zeros(shape: Shape, dtype: torch.dtype, request, device):
     compile_and_execute_ttir(
         zeros,
         inputs_shapes=[],
-        inputs_types=[],
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
@@ -1166,9 +1165,12 @@ def test_zeros(shape: Shape, dtype: torch.dtype, request, device):
 
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=["128x128"])
-def test_ones(shape: Shape, request, device):
+@pytest.mark.parametrize(
+    "dtype", [torch.bfloat16, torch.float32, torch.int32], ids=["bf16", "f32", "i32"]
+)
+def test_ones(shape: Shape, dtype: torch.dtype, request, device):
     def ones(builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
-        return builder.ones(shape, unit_attrs=unit_attrs)
+        return builder.ones(shape, dtype, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
         ones,
@@ -1420,18 +1422,27 @@ def test_upsample2d(shapes: List[Shape], scale_factor: List[int], request, devic
 
 
 @pytest.mark.parametrize(
-    "shape,start,end,step,dim",
+    "shape,dtype,start,end,step,dim",
     [
-        ((5,), 0, 5, 1, 0),
-        ((5, 3), 0, 5, 1, 0),
-        ((5, 3), 0, 3, 1, 1),
+        ((5,), torch.float32, 0, 5, 1, 0),
+        ((5, 3), torch.int64, 0, 5, 1, 0),
+        ((5, 3), torch.int64, 0, 3, 1, 1),
     ],
 )
 def test_arange(
-    shape: Shape, start: int, end: int, step: int, dim: int, request, device
+    shape: Shape,
+    dtype: torch.dtype,
+    start: int,
+    end: int,
+    step: int,
+    dim: int,
+    request,
+    device,
 ):
     def arange(builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
-        return builder.arange(shape, start, end, step, dim, unit_attrs=unit_attrs)
+        return builder.arange(
+            shape, dtype, start, end, step, dim, unit_attrs=unit_attrs
+        )
 
     compile_and_execute_ttir(
         arange,

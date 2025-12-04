@@ -2631,25 +2631,20 @@ def stablehlo_not_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTe
 ################ TTIR Op Golden Functions ###############
 
 
-def ttir_arange_golden(**kwargs) -> GoldenMapTensor:
-    """
-    Golden function for arange operation using TTIR kwargs.
-    Expected kwargs from builder (ttir_kwargs):
-    - shape: Shape
-    - start: int
-    - end: int
-    - step: int
-    - arange_dimension: int (ignored here; layout handled by builder output shape)
-    """
-    shape = kwargs.get("shape", [1])
-    start = kwargs.get("start", 0)
-    end = kwargs.get("end", 0)
-    step = kwargs.get("step", 1)
-    arange_dimension = kwargs.get("arange_dimension", 0)
+def ttir_arange_golden(
+    shape: ArrayAttr,
+    start: IntegerAttr,
+    end: IntegerAttr,
+    step: IntegerAttr,
+    arange_dimension: IntegerAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    shape = unpack_mlir_attr(shape)
     start = unpack_mlir_attr(start)
     end = unpack_mlir_attr(end)
     step = unpack_mlir_attr(step)
     arange_dimension = unpack_mlir_attr(arange_dimension)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     result = torch.arange(start=start, end=end, step=step, dtype=torch.float32)
     if len(shape) == 2 and arange_dimension == 1:
         unsqueezed = torch.unsqueeze(result, dim=0)
@@ -2661,49 +2656,27 @@ def ttir_arange_golden(**kwargs) -> GoldenMapTensor:
     return GoldenMapTensor({0: result}, (1, 1))
 
 
-def ttir_cumsum_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
-    """
-    Golden function for cumsum operation with TTIR parameter names.
-
-    Parameters
-    ----------
-    input_tensor : GoldenMapTensor
-        Input tensor
-    **kwargs : dict
-        Keyword arguments containing:
-        - dim: int - Dimension along which to compute cumulative sum
-
-    Returns
-    -------
-    GoldenMapTensor
-        Cumulative sum of input tensor along specified dimension
-    """
-    dim = unpack_mlir_attr(kwargs.get("dim", 0))
-    return torch.cumsum(input_tensor, dim=dim)
+def ttir_cumsum_golden(
+    input_tensor: GoldenMapTensor, dim: IntegerAttr, output_type_mlir: Type
+) -> GoldenMapTensor:
+    dim = unpack_mlir_attr(dim)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.cumsum(input_tensor, dim=dim).to(output_dtype)
 
 
 def ttir_gather_golden(
     input_tensor: GoldenMapTensor,
     start_indices_tensor: GoldenMapTensor,
-    **kwargs,
+    offset_dims: DenseI64ArrayAttr,
+    collapsed_slice_dims: DenseI64ArrayAttr,
+    operand_batching_dims: DenseI64ArrayAttr,
+    start_indices_batching_dims: DenseI64ArrayAttr,
+    start_index_map: DenseI64ArrayAttr,
+    index_vector_dim: IntegerAttr,
+    slice_sizes: DenseI64ArrayAttr,
+    indices_are_sorted: BoolAttr,
+    output_type_mlir: Type,
 ) -> GoldenMapTensor:
-    """
-    Golden function for gather operation with TTIR parameter names.
-
-    Parameters
-    ----------
-    input_tensor : GoldenMapTensor
-        Input tensor to gather from
-    start_indices_tensor : GoldenMapTensor
-        Tensor containing starting indices
-    **kwargs : dict
-        Keyword arguments including gather attributes as MLIR attributes
-
-    Returns
-    -------
-    GoldenMapTensor
-        Gathered tensor
-    """
 
     # helpers
     def _isGoldenMapTensor(x):
@@ -2719,16 +2692,14 @@ def ttir_gather_golden(
                 raise ValueError("gather golden expects replicated tensors")
 
     # ----- unpack attrs -----
-    offset_dims = unpack_mlir_attr(kwargs.get("offset_dims", []))
-    collapsed_slice_dims = unpack_mlir_attr(kwargs.get("collapsed_slice_dims", []))
-    operand_batching_dims = unpack_mlir_attr(kwargs.get("operand_batching_dims", []))
-    start_indices_batching_dims = unpack_mlir_attr(
-        kwargs.get("start_indices_batching_dims", [])
-    )
-    start_index_map = unpack_mlir_attr(kwargs.get("start_index_map", []))
-    index_vector_dim = unpack_mlir_attr(kwargs.get("index_vector_dim", 0))
-    slice_sizes = unpack_mlir_attr(kwargs.get("slice_sizes", []))
-    indices_are_sorted = unpack_mlir_attr(kwargs.get("indices_are_sorted", False))
+    offset_dims = unpack_mlir_attr(offset_dims)
+    collapsed_slice_dims = unpack_mlir_attr(collapsed_slice_dims)
+    operand_batching_dims = unpack_mlir_attr(operand_batching_dims)
+    start_indices_batching_dims = unpack_mlir_attr(start_indices_batching_dims)
+    start_index_map = unpack_mlir_attr(start_index_map)
+    index_vector_dim = unpack_mlir_attr(index_vector_dim)
+    slice_sizes = unpack_mlir_attr(slice_sizes)
+    indices_are_sorted = unpack_mlir_attr(indices_are_sorted)
 
     x = input_tensor
     idx = start_indices_tensor
@@ -2853,7 +2824,8 @@ def ttir_gather_golden(
     if desired_index_for_current != list(range(result_rank)):
         gathered = gathered.permute(*desired_index_for_current)
 
-    return gathered.to(device=device)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return gathered.to(output_dtype).to(device=device)
 
 
 def ttir_to_layout_golden(
@@ -2863,14 +2835,16 @@ def ttir_to_layout_golden(
     return input_tensor.to(output_dtype)
 
 
-def ttir_ones_golden(**kwargs) -> GoldenMapTensor:
-    size = unpack_mlir_attr(kwargs.get("shape", [1]))
-    return GoldenMapTensor({0: torch.ones(size)}, (1, 1))
+def ttir_ones_golden(shape: ArrayAttr, output_type_mlir: Type) -> GoldenMapTensor:
+    size = unpack_mlir_attr(shape)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return GoldenMapTensor({0: torch.ones(size, dtype=output_dtype)}, (1, 1))
 
 
-def ttir_zeros_golden(**kwargs) -> GoldenMapTensor:
-    size = unpack_mlir_attr(kwargs.get("shape", [1]))
-    return GoldenMapTensor({0: torch.zeros(size)}, (1, 1))
+def ttir_zeros_golden(shape: ArrayAttr, output_type_mlir: Type) -> GoldenMapTensor:
+    size = unpack_mlir_attr(shape)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return GoldenMapTensor({0: torch.zeros(size, dtype=output_dtype)}, (1, 1))
 
 
 def ttir_cos_golden(
@@ -4062,35 +4036,3 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.ClampScalarOp: clamp_scalar_golden,
     ttnn.ClampTensorOp: clamp_tensor_golden,
 }
-
-
-def get_golden_function(ttir_op_class: type, **kwargs) -> Optional[Callable]:
-    """
-    Get the golden function for a given TTIR operation class.
-
-    Parameters
-    ----------
-    ttir_op_class : type
-        The TTIR operation class (e.g., ttir.AbsOp)
-    **kwargs
-        Additional keyword arguments for specialized operation selection
-
-    Returns
-    -------
-    Optional[Callable]
-        The corresponding golden function, or None if not found
-    """
-
-    # Handle special cases with parameters
-    if (
-        ttir_op_class == ttir.ToLayoutOp or ttir_op_class == d2m.ToLayoutOp
-    ) and "tilize" in kwargs:
-        if kwargs["tilize"]:
-            return tilize_golden
-        else:
-            return untilize_golden
-
-    if ttir_op_class in GOLDEN_MAPPINGS:
-        return GOLDEN_MAPPINGS[ttir_op_class]
-
-    assert False, f"No golden function found for TTIR operation: {ttir_op_class}"
