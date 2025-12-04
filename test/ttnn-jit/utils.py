@@ -198,7 +198,6 @@ def run_op_test(
             create_dram_tensor(device, shape, dtype, ttnn_dtype=ttnn_dtype)
             for _ in range(num_inputs)
         ]
-    print("created inputs:", inputs)
     golden_op = _get_ttnn_op(op)
 
     op_jit = ttnn_jit.jit(
@@ -209,6 +208,7 @@ def run_op_test(
     output_tensor = op_jit(*inputs)
     golden_tensor = (golden_op or op)(*inputs)
 
+    print("created inputs:\n", inputs)
     assert memory_configs_equal(
         output_tensor.memory_config(), golden_tensor.memory_config()
     )

@@ -54,9 +54,6 @@ BLOCK_SHARDED_SHAPE_GRIDS.extend(
     ]
 )
 
-# TODO (5415): These grids fail for all shapes.
-GRIDS_FAILING_ALL_SHAPES = [(1, 1), (1, 2), (1, 3), (3, 2), (3, 3), (5, 3)]
-
 DRAM_INTERLEAVED_SHAPE_GRIDS = []
 
 # 2D shapes
@@ -104,10 +101,6 @@ def abs(input_tensor):
 )
 @pytest.mark.parametrize("op", [abs])
 def test_l1_block_sharded_shapes(device, shape, max_grid, op):
-
-    if max_grid in GRIDS_FAILING_ALL_SHAPES:
-        pytest.xfail("Grid fails for all shapes. Issue: #5415")
-
     run_op_test(
         device,
         shape,
@@ -159,10 +152,6 @@ HEIGHT_SHARDED_SHAPE_GRIDS.extend(
 )
 @pytest.mark.parametrize("op", [abs])
 def test_l1_height_sharded_shapes(device, shape, max_grid, op):
-
-    if max_grid in GRIDS_FAILING_ALL_SHAPES:
-        pytest.xfail("Grid fails for all shapes. Issue: #5415")
-
     run_op_test(
         device,
         shape,
@@ -215,10 +204,6 @@ WIDTH_SHARDED_SHAPE_GRIDS.extend(
 )
 @pytest.mark.parametrize("op", [abs])
 def test_l1_width_sharded_shapes(device, shape, max_grid, op):
-
-    if max_grid in GRIDS_FAILING_ALL_SHAPES:
-        pytest.xfail("Grid fails for all shapes. Issue: #5415")
-
     run_op_test(
         device,
         shape,
