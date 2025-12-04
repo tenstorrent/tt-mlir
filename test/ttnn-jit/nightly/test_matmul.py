@@ -10,6 +10,7 @@ import pytest
 
 from utils import (
     create_sharded_tile_tensor,
+    create_dram_tensor,
 )
 
 
@@ -145,6 +146,71 @@ def test_matmul_with_grids(device, shape_grids, dtype, ttnn_dtype, graph_capture
     # Send tensor to DRAM to avoid having to set the matmul program config in the golden path
     input0_tensor = ttnn.to_memory_config(input0_tensor, ttnn.DRAM_MEMORY_CONFIG)
     input1_tensor = ttnn.to_memory_config(input1_tensor, ttnn.DRAM_MEMORY_CONFIG)
+    golden_output = ttnn.matmul(input0_tensor, input1_tensor)
+    assert (
+        golden_output.shape == output.shape
+    ), f"Golden output shape {golden_output.shape} does not match output shape {output.shape}"
+    assert output.memory_config().is_sharded()
+    pcc = ttnn.pearson_correlation_coefficient(
+        golden_output.cpu().to_torch(), output.cpu().to_torch()
+    )
+    print("pcc: ", pcc)
+    assert pcc > 0.99, f"PCC: {pcc} is less than 0.99"
+
+
+MATMUL_L1_DRAM_SHAPE_GRIDS = [
+    (
+        (m * 32 * (grid_m + 1), k * 32 * (grid_k + 1), n * 32),
+        (grid_m, grid_k),
+    )
+    for m, k, n, grid_m, grid_k in itertools.product(
+        [1], [1], [1, 4, 8, 16], range(0, 8), range(0, 8)
+    )
+]
+
+
+@pytest.mark.parametrize(
+    "shape_grids",
+    MATMUL_L1_DRAM_SHAPE_GRIDS,
+    ids=[f"{shape}-{grid}" for shape, grid in MATMUL_L1_DRAM_SHAPE_GRIDS],
+)
+@pytest.mark.parametrize(
+    "dtype, ttnn_dtype",
+    [
+        (torch.bfloat16, None),
+    ],
+    ids=["bf16"],
+)
+@pytest.mark.parametrize("graph_capture", [False])
+def test_matmul_l1_dram(device, shape_grids, dtype, ttnn_dtype, graph_capture):
+    shapes, grids = shape_grids
+    # shape is (m, k, n)
+    shape0 = [shapes[0], shapes[1]]
+    shape1 = [shapes[1], shapes[2]]
+    # grid is (grid_m, grid_k, grid_n)
+    grid0 = [grids[1], grids[0]]
+
+    compiled_op = ttnn_jit.jit(
+        debug=True,
+        graph_capture=graph_capture,
+        compile_only=False,
+    )(matmul)
+    input0_tensor = create_sharded_tile_tensor(
+        device,
+        shape0,
+        grid0,
+        dtype,
+        memory_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED,
+        ttnn_dtype=ttnn_dtype,
+    )
+    input1_tensor = create_dram_tensor(
+        device,
+        shape1,
+        dtype,
+    )
+    output = compiled_op(input0_tensor, input1_tensor)
+    # Send tensor to DRAM to avoid having to set the matmul program config in the golden path
+    input0_tensor = ttnn.to_memory_config(input0_tensor, ttnn.DRAM_MEMORY_CONFIG)
     golden_output = ttnn.matmul(input0_tensor, input1_tensor)
     pcc = ttnn.pearson_correlation_coefficient(
         golden_output.cpu().to_torch(), output.cpu().to_torch()
