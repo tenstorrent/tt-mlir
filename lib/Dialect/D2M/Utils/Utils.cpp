@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
+#include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
@@ -70,14 +71,12 @@ RankedTensorType reblockTensor(RankedTensorType oldTensor,
     return oldTensor;
   }
 
-  auto [newShape, reblockMap] =
-      mlir::tt::d2m::utils::calculateReblockMapForGrid(
-          oldTensor.getShape(), newGridShape, oldTensor.getContext());
+  auto [newShape, reblockMap] = ttmlir::utils::calculateReblockMapForGrid(
+      oldTensor.getShape(), newGridShape, oldTensor.getContext());
 
   ttcore::MetalLayoutAttr newLayout = oldLayout.withIndexAffineMap(reblockMap);
   return RankedTensorType::get(newShape, oldTensor.getElementType(), newLayout);
 }
-
 
 std::optional<SmallVector<int64_t>>
 computeDimConstraints(mlir::ArrayRef<mlir::AffineMap> indexingMaps,
