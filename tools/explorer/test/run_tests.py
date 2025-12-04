@@ -77,8 +77,8 @@ def GET_TTNN_TEST():
             return test
     return None
 
-
-@pytest.fixture(scope="function", autouse=True)
+# TODO: manually invoke server and add disabled execution fixture
+@pytest.fixture(scope="function")
 def start_server(request):
     """Start the model explorer server before running tests and stop it after."""
     server_thread = multiprocessing.Process(
@@ -88,6 +88,8 @@ def start_server(request):
             "host": HOST,
             "port": PORT,
             "no_open_in_browser": True,
+            # TODO: enable when model-explorer change is in
+            # "silent": True
         },
     )
     server_thread.start()
