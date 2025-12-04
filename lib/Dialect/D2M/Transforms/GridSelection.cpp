@@ -778,9 +778,7 @@ computeTTNNGenericGridShapes(GenericOp genericOp,
 
   auto indexingMaps = genericOp.getIndexingMapsValue();
   auto getConstrainedDims = [&](int64_t operandIdx) {
-    auto dimProjectionMap =
-        mlir::inverseAndBroadcastProjectedPermutation(indexingMaps[operandIdx]);
-    return dimProjectionMap.compose(constrainedDims);
+    return indexingMaps[operandIdx].compose(constrainedDims);
   };
   auto allDimsConstrained = [&](int64_t operandIdx) {
     return llvm::all_of(getConstrainedDims(operandIdx),
@@ -793,8 +791,7 @@ computeTTNNGenericGridShapes(GenericOp genericOp,
     auto constrainedDims = getConstrainedDims(operandIdx);
     // if all dims are constrained, use the constrained dims.
     if (allDimsConstrained(operandIdx)) {
-      optimalOperandGrids[operandIdx] = llvm::SmallVector<int64_t>(
-          constrainedDims.begin(), constrainedDims.end());
+      optimalOperandGrids[operandIdx] = getConstrainedDims(operandIdx);
     } else {
       // if not all dims are constrained, shard to an optimal grid.
       auto metalTensor = mlir::cast<mlir::RankedTensorType>(operand.getType());
