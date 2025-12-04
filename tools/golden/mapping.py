@@ -4036,3 +4036,35 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.ClampScalarOp: clamp_scalar_golden,
     ttnn.ClampTensorOp: clamp_tensor_golden,
 }
+
+
+def get_golden_function(ttir_op_class: type, **kwargs) -> Optional[Callable]:
+    """
+    Get the golden function for a given TTIR operation class.
+
+    Parameters
+    ----------
+    ttir_op_class : type
+        The TTIR operation class (e.g., ttir.AbsOp)
+    **kwargs
+        Additional keyword arguments for specialized operation selection
+
+    Returns
+    -------
+    Optional[Callable]
+        The corresponding golden function, or None if not found
+    """
+
+    # Handle special cases with parameters
+    if (
+        ttir_op_class == ttir.ToLayoutOp or ttir_op_class == d2m.ToLayoutOp
+    ) and "tilize" in kwargs:
+        if kwargs["tilize"]:
+            return tilize_golden
+        else:
+            return untilize_golden
+
+    if ttir_op_class in GOLDEN_MAPPINGS:
+        return GOLDEN_MAPPINGS[ttir_op_class]
+
+    assert False, f"No golden function found for TTIR operation: {ttir_op_class}"
