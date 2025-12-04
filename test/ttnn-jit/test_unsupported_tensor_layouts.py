@@ -26,7 +26,7 @@ def exp(input_tensor_a):
 )
 def test_l1_interleaved_not_supported(device, use_graph_capture):
     if use_graph_capture:
-        pytest.skip("Graph capture does not support this test case yet.")
+        pytest.skip("Using graph capture results in error from ttnn, not JIT frontend.")
 
     with pytest.raises(ValueError, match="Interleaved L1 tensors are not supported."):
         shape = (32, 32)
@@ -54,7 +54,7 @@ def test_l1_interleaved_not_supported(device, use_graph_capture):
 )
 def test_nd_sharded_not_supported(device, use_graph_capture):
     if use_graph_capture:
-        pytest.skip("Graph capture does not support this test case yet.")
+        pytest.skip("Using graph capture results in error from ttnn, not JIT frontend.")
 
     with pytest.raises(
         ValueError,
