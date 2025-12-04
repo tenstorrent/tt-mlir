@@ -862,6 +862,10 @@ createOp(FlatbufferObjectCache &cache, CollectivePermuteOp op) {
       cache.fbb->CreateVector<int64_t>(sourceTargetPairsVec));
 }
 
+// NOTE: This legacy mesh_shard path only handles the "identity" variant.
+// All non-identity behavior has been split out to distribute_tensor /
+// aggregate_tensor. It remains because current TTIR lowering still generates
+// identity mesh_shard for shape tracking.
 ::flatbuffers::Offset<::tt::target::ttnn::MeshShardOp>
 createOp(FlatbufferObjectCache &cache, MeshShardOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
@@ -884,16 +888,10 @@ createOp(FlatbufferObjectCache &cache, MeshShardOp op) {
     llvm_unreachable("unhandled mesh_shard direction");
   }
 
-  ::tt::target::MeshShardType meshShardType;
-  if (shardType == mlir::tt::ttcore::MeshShardType::Replicate) {
-    meshShardType = ::tt::target::MeshShardType::Replicate;
-  } else if (shardType == mlir::tt::ttcore::MeshShardType::Devices) {
-    meshShardType = ::tt::target::MeshShardType::Devices;
-  } else if (shardType == mlir::tt::ttcore::MeshShardType::Identity) {
-    meshShardType = ::tt::target::MeshShardType::Identity;
-  } else {
-    llvm_unreachable("unhandled mesh_shard type");
-  }
+  assert(shardType == mlir::tt::ttcore::MeshShardType::Identity &&
+         "mesh_shard type must be Identity");
+  ::tt::target::MeshShardType meshShardType =
+      ::tt::target::MeshShardType::Identity;
 
   return ::tt::target::ttnn::CreateMeshShardOp(
       *cache.fbb, input, output, cache.at<::tt::target::DeviceRef>(device),
