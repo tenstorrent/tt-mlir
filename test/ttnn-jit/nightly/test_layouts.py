@@ -152,10 +152,6 @@ HEIGHT_SHARDED_SHAPE_GRIDS.extend(
 )
 @pytest.mark.parametrize("op", [abs])
 def test_l1_height_sharded_shapes(device, shape, max_grid, op):
-
-    if max_grid in GRIDS_FAILING_ALL_SHAPES:
-        pytest.xfail("Grid fails for all shapes. Issue: #5415")
-
     run_op_test(
         device,
         shape,
@@ -208,10 +204,6 @@ WIDTH_SHARDED_SHAPE_GRIDS.extend(
 )
 @pytest.mark.parametrize("op", [abs])
 def test_l1_width_sharded_shapes(device, shape, max_grid, op):
-
-    if max_grid in GRIDS_FAILING_ALL_SHAPES:
-        pytest.xfail("Grid fails for all shapes. Issue: #5415")
-
     run_op_test(
         device,
         shape,
