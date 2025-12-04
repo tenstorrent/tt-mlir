@@ -279,6 +279,11 @@ private:
       return mlir::isa<ttcore::TileType>(inputLayout.getElementType());
     }
 
+    // Conv3d produces ROW_MAJOR output at runtime (experimental op)
+    if (mlir::isa<ttir::Conv3dOp>(op)) {
+      return false;
+    }
+
     return true;
   }
 };

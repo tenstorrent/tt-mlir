@@ -1396,34 +1396,12 @@ public:
           rewriter, op.getLoc());
     }
 
-    // Convert input to ROW_MAJOR layout (required by TTNN Conv3d API)
-    auto inputLayoutAttr =
-        mlir::cast<ttnn::TTNNLayoutAttr>(inputTy.getEncoding());
-    auto rowMajorLayoutAttr =
-        ttnn::LayoutAttr::get(op.getContext(), ttnn::Layout::RowMajor);
-    RankedTensorType rowMajorInputType =
-        ttnn::utils::RankedTensorTypeFactory::create(inputTy,
-                                                     ttnn::Layout::RowMajor);
-
-    ttnn::BufferTypeAttr inputBufferTypeAttr = ttnn::BufferTypeAttr::get(
-        op.getContext(), inputLayoutAttr.getBufferType());
-    ttnn::MemoryConfigAttr inputMemoryConfigAttr = ttnn::MemoryConfigAttr::get(
-        op.getContext(), inputLayoutAttr.getMemLayout(), inputBufferTypeAttr,
-        std::nullopt);
-    auto inputDtype =
-        rewriter.getAttr<ttcore::DataTypeAttr>(inputLayoutAttr.getDataType());
-
-    Value rowMajorInput = rewriter.create<ttnn::ToLayoutOp>(
-        op.getLoc(), rowMajorInputType, adaptor.getInput(), rowMajorLayoutAttr,
-        inputDtype, inputMemoryConfigAttr);
-
-    // Create TTNN Conv3dOp with ROW_MAJOR input and TILE weight/bias
     rewriter.replaceOpWithNewOp<ttnn::Conv3dOp>(
         op, getTypeConverter()->convertType(op.getResult().getType()),
-        rowMajorInput, reshapedWeight, reshapedBias, device, inChannelsAttr,
-        outChannelsAttr, batchSizeAttr, inputDepthAttr, inputHeightAttr,
-        inputWidthAttr, kernelSizeAttr, *strideAttr, *paddingAttr,
-        paddingModeAttr, groupsAttr, outputDtypeAttr,
+        adaptor.getInput(), reshapedWeight, reshapedBias, device,
+        inChannelsAttr, outChannelsAttr, batchSizeAttr, inputDepthAttr,
+        inputHeightAttr, inputWidthAttr, kernelSizeAttr, *strideAttr,
+        *paddingAttr, paddingModeAttr, groupsAttr, outputDtypeAttr,
         /*conv3d_config=*/nullptr, /*compute_config=*/nullptr);
 
     return success();
