@@ -201,47 +201,44 @@ createGridInverseMapFromIndexMap(mlir::AffineMap indexMap, unsigned gridRank,
   return mlir::AffineMap::get(gridRank, 0, invResults, context);
 }
 
-/// Calculate a reblocking affine map from inputShape to outputShape.
-/// Both shapes must have even rank (grid dims + shard dims).
+// Calculate a reblocking affine map from inputShape to outputShape.
 inline mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
                                            mlir::ArrayRef<int64_t> outputShape,
                                            mlir::MLIRContext *ctx) {
-  assert(inputShape.size() == outputShape.size() && "Rank must be preserved");
 
-  size_t rank = inputShape.size();
-  assert(rank % 2 == 0);
+  int64_t inputRank = static_cast<int64_t>(inputShape.size());
+  int64_t outputRank = static_cast<int64_t>(outputShape.size());
+  TT_assertv(inputRank % 2 == 0, "Input rank must be even");
+  TT_assertv(outputRank % 2 == 0, "Output rank must be even");
 
   if (inputShape == outputShape) {
-    return mlir::AffineMap::getMultiDimIdentityMap(rank, ctx);
+    return mlir::AffineMap::getMultiDimIdentityMap(inputRank, ctx);
   }
 
-  size_t halfRank = rank / 2;
-
-  mlir::ArrayRef<int64_t> inputShardShape = inputShape.drop_front(halfRank);
-  mlir::ArrayRef<int64_t> outputGridShape = outputShape.take_front(halfRank);
-  mlir::ArrayRef<int64_t> outputShardShape = outputShape.drop_front(halfRank);
-
-  mlir::SmallVector<mlir::AffineExpr> mapExprs(rank);
-
-  for (size_t i = 0; i < halfRank; i++) {
-    auto dG = mlir::getAffineDimExpr(i, ctx);
-    mapExprs[i] = dG.floorDiv(outputGridShape[i]);
-
-    size_t j = i + halfRank;
-    auto dS = mlir::getAffineDimExpr(j, ctx);
-    mapExprs[j] = dG * outputShardShape[i] + dS;
+  // Construct a map that transforms output (grid x shard) indices to logical
+  // indices.
+  mlir::AffineExpr expr = mlir::getAffineConstantExpr(0, ctx);
+  auto overallStride = mlir::getAffineConstantExpr(1, ctx);
+  for (auto [i, dimStride] :
+       utils::iterateInAscendingStrideOrder(outputShape)) {
+    auto dim = mlir::getAffineDimExpr(i, ctx);
+    expr = (dim * overallStride) + expr;
+    overallStride = overallStride * dimStride;
   }
-  auto outputToCanonical = mlir::AffineMap::get(rank, 0, mapExprs, ctx);
+  auto outputToLogical = mlir::AffineMap::get(outputRank, 0, {expr}, ctx);
 
-  for (size_t i = 0; i < halfRank; i++) {
-    size_t j = i + halfRank;
-    auto dS = mlir::getAffineDimExpr(j, ctx);
-    mapExprs[i] = dS.floorDiv(inputShardShape[i]);
-    mapExprs[j] = dS % inputShardShape[i];
+  // Construct a map that transforms logical indices to input (grid x shard)
+  // indices.
+  llvm::SmallVector<mlir::AffineExpr> toInputExprs(inputRank);
+  overallStride = mlir::getAffineConstantExpr(1, ctx);
+  auto dim = mlir::getAffineDimExpr(0, ctx);
+  for (auto [i, dimStride] : utils::iterateInAscendingStrideOrder(inputShape)) {
+    toInputExprs[i] = (dim.floorDiv(overallStride)) % dimStride;
+    overallStride = overallStride * dimStride;
   }
-  auto canonicalToInput = mlir::AffineMap::get(rank, 0, mapExprs, ctx);
+  auto logicalToInput = mlir::AffineMap::get(1, 0, toInputExprs, ctx);
 
-  return canonicalToInput.compose(outputToCanonical);
+  return logicalToInput.compose(outputToLogical);
 }
 
 /// Calculate a reblock affine map given a shape and new grid shape.
