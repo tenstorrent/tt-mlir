@@ -12,8 +12,8 @@ cmake --build $BUILD_DIR -- test_python_runner test_python_runner_simple
 
 # Copy test executables and required files to install directory
 mkdir -p $INSTALL_DIR/tools/tt-alchemist/test
-cp $BUILD_DIR/tools/tt-alchemist/test/test_python_runner $INSTALL_DIR/tools/tt-alchemist/test/
-cp $BUILD_DIR/tools/tt-alchemist/test/test_python_runner_simple $INSTALL_DIR/tools/tt-alchemist/test/
+cp $BUILD_DIR/tools/tt-alchemist/csrc/test/test_python_runner $INSTALL_DIR/tools/tt-alchemist/test/
+cp $BUILD_DIR/tools/tt-alchemist/csrc/test/test_python_runner_simple $INSTALL_DIR/tools/tt-alchemist/test/
 cp $BUILD_DIR/tools/tt-alchemist/csrc/python_runner/libtt-alchemist-python-runner.so $INSTALL_DIR/tools/tt-alchemist/test/
 cp $WORK_DIR/tools/tt-alchemist/test/simple_test_model.py $INSTALL_DIR/tools/tt-alchemist/test/
 cp $WORK_DIR/tools/tt-alchemist/test/test_model.py $INSTALL_DIR/tools/tt-alchemist/test/
