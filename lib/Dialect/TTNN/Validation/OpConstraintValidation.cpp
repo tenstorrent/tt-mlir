@@ -105,9 +105,10 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
             .concat(op->getName().getStringRef()));
   }
 
-  // WORKAROUND: Skip getOpConstraints for matmul with block sharded first
-  // operand if height or width is less than tile size (until tt-metal issue is
-  // fixed)
+  // Skip getOpConstraints for matmul with block sharded first operand if height
+  // or width is less than tile size
+  // TODO (mvasiljevic): remove once the fix in metal is merged and uplifted:
+  // https://github.com/tenstorrent/tt-metal/pull/33777
   if (mlir::isa<ttnn::MatmulOp>(op) && !inputLayouts.empty() &&
       inputLayouts[0].getMemLayout() &&
       inputLayouts[0].getMemLayout().getValue() ==
