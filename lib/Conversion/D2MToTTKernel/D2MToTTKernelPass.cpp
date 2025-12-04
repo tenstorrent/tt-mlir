@@ -76,10 +76,10 @@ struct ConvertD2MToTTKernel
     target.addLegalOp<d2m::EmptyOp>();
     target.addLegalOp<d2m::MeshShardOp>();
 
-    target.addLegalOp<ttir::TTNNMetalLayoutCastOp>();
-
     if (ttnnMode) {
+      target.addLegalOp<ttir::TTNNMetalLayoutCastOp>();
       target.addLegalDialect<ttnn::TTNNDialect>();
+      target.addLegalOp<d2m::FullOp>();
     }
 
     // Allow loads and stores to integer element types.

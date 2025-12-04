@@ -133,6 +133,229 @@ applyMapToGrid(mlir::ArrayRef<int64_t> gridShape, mlir::AffineMap map) {
   return resultGridShape;
 }
 
+// Utility function to create an identity inverse map for grid virtualization
+// Returns a map: (d0, d1) -> (0, d0, d1) where the first result is deviceIndex
+inline mlir::AffineMap
+createIdentityGridInverseMap(mlir::MLIRContext *context) {
+  mlir::AffineExpr d0 = mlir::getAffineDimExpr(0, context);
+  mlir::AffineExpr d1 = mlir::getAffineDimExpr(1, context);
+  mlir::AffineExpr zero = mlir::getAffineConstantExpr(0, context);
+  return mlir::AffineMap::get(2, 0, {zero, d0, d1}, context);
+}
+
+// Utility function to derive grid inverse map from a layout's index_map.
+// Takes an index_map like (d0, d1, d2, d3) -> (d1, d0, d2, d3) and creates
+// the grid inverse map (d0, d1) -> (0, d1, d0) that properly composes with
+// the forward map for roundtrip consistency.
+//
+// The index_map encodes virtual-to-physical coordinate mapping. The grid
+// portion (first gridRank results) may permute the grid dimensions. This
+// function extracts that permutation and computes its inverse for use in
+// the grid attribute.
+inline mlir::AffineMap
+createGridInverseMapFromIndexMap(mlir::AffineMap indexMap, unsigned gridRank,
+                                 mlir::MLIRContext *context) {
+  // If no index_map or it's empty/identity, return identity grid inverse map
+  if (!indexMap || indexMap.isEmpty() || indexMap.isIdentity()) {
+    return createIdentityGridInverseMap(context);
+  }
+
+  // Extract grid portion of the index_map (first gridRank results).
+  // The index_map is (d0, d1, d2, d3) -> (results...) where the first
+  // gridRank results correspond to grid coordinates.
+  llvm::SmallVector<mlir::AffineExpr> gridResults;
+  for (unsigned i = 0; i < gridRank; ++i) {
+    gridResults.push_back(indexMap.getResult(i));
+  }
+
+  // Create a map with just the grid dimensions
+  auto gridMap = mlir::AffineMap::get(gridRank, 0, gridResults, context);
+
+  // Get the inverse permutation
+  auto invGridMap = mlir::inversePermutation(gridMap);
+
+  // If inverse is null (not a valid permutation), fall back to identity
+  if (!invGridMap) {
+    return createIdentityGridInverseMap(context);
+  }
+
+  // Build grid inverse map with device ID prefix: (d0, d1) -> (0, inv_y, inv_x)
+  mlir::AffineExpr zero = mlir::getAffineConstantExpr(0, context);
+  llvm::SmallVector<mlir::AffineExpr> invResults;
+  invResults.push_back(zero);
+  for (auto result : invGridMap.getResults()) {
+    invResults.push_back(result);
+  }
+
+  return mlir::AffineMap::get(gridRank, 0, invResults, context);
+}
+
+/// Calculate a reblocking affine map from inputShape to outputShape.
+/// Both shapes must have even rank (grid dims + shard dims).
+inline mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
+                                           mlir::ArrayRef<int64_t> outputShape,
+                                           mlir::MLIRContext *ctx) {
+  assert(inputShape.size() == outputShape.size() && "Rank must be preserved");
+
+  size_t rank = inputShape.size();
+  assert(rank % 2 == 0);
+
+  if (inputShape == outputShape) {
+    return mlir::AffineMap::getMultiDimIdentityMap(rank, ctx);
+  }
+
+  size_t halfRank = rank / 2;
+
+  mlir::ArrayRef<int64_t> inputShardShape = inputShape.drop_front(halfRank);
+  mlir::ArrayRef<int64_t> outputGridShape = outputShape.take_front(halfRank);
+  mlir::ArrayRef<int64_t> outputShardShape = outputShape.drop_front(halfRank);
+
+  mlir::SmallVector<mlir::AffineExpr> mapExprs(rank);
+
+  for (size_t i = 0; i < halfRank; i++) {
+    auto dG = mlir::getAffineDimExpr(i, ctx);
+    mapExprs[i] = dG.floorDiv(outputGridShape[i]);
+
+    size_t j = i + halfRank;
+    auto dS = mlir::getAffineDimExpr(j, ctx);
+    mapExprs[j] = dG * outputShardShape[i] + dS;
+  }
+  auto outputToCanonical = mlir::AffineMap::get(rank, 0, mapExprs, ctx);
+
+  for (size_t i = 0; i < halfRank; i++) {
+    size_t j = i + halfRank;
+    auto dS = mlir::getAffineDimExpr(j, ctx);
+    mapExprs[i] = dS.floorDiv(inputShardShape[i]);
+    mapExprs[j] = dS % inputShardShape[i];
+  }
+  auto canonicalToInput = mlir::AffineMap::get(rank, 0, mapExprs, ctx);
+
+  return canonicalToInput.compose(outputToCanonical);
+}
+
+/// Calculate a reblock affine map given a shape and new grid shape.
+/// Returns the new tensor shape and the reblock affine map.
+inline std::pair<mlir::SmallVector<int64_t>, mlir::AffineMap>
+calculateReblockMapForGrid(mlir::ArrayRef<int64_t> tensorShape,
+                           mlir::ArrayRef<int64_t> newGridShape,
+                           mlir::MLIRContext *context) {
+  assert(tensorShape.size() % 2 == 0 &&
+         "Expected even rank for grid + shard dimensions");
+  assert(newGridShape.size() == tensorShape.size() / 2 &&
+         "New grid shape must match grid rank of tensor shape");
+  mlir::SmallVector<int64_t> newTensorShape(tensorShape);
+  for (size_t i = 0; i < newGridShape.size(); i++) {
+    size_t j = i + newGridShape.size();
+    assert((tensorShape[i] * tensorShape[j]) % newGridShape[i] == 0 &&
+           "New grid shape must evenly divide tensor shape");
+    newTensorShape[j] = tensorShape[i] * tensorShape[j] / newGridShape[i];
+    newTensorShape[i] = newGridShape[i];
+  }
+  return {newTensorShape,
+          calculateReblockMap(tensorShape, newTensorShape, context)};
+}
+
+/// Concatenates the provided affine maps together and then inverts the map.
+/// This is a convenient routine for deriving concrete iterator values.
+///
+/// Using matmul maps for example:
+///   (d0, d1, d2) -> (d0, d2)
+///   (d0, d1, d2) -> (d2, d1)
+///   (d0, d1, d2) -> (d0, d1)
+///
+///   1. If reverse is set, it will reverse the provided affine maps first.
+///   2. Concat all of the indexing maps together:
+///        (d0, d1, d2) -> (d0, d1, d2, d1, d0, d2)
+///   3. Invert the permutation, remapping the results to input iterators:
+///        (d0, d1, d2, d3, d4, d5) -> (d0, d1, d2)
+inline mlir::AffineMap
+concatInversePermutationMap(llvm::SmallVector<mlir::AffineMap> affineMaps,
+                            bool reverse) {
+  assert(!affineMaps.empty());
+
+  // Reverse the maps to give output dimensions priority in the inverse
+  // permutation.
+  if (reverse) {
+    affineMaps = llvm::to_vector(llvm::reverse(affineMaps));
+  }
+
+  // Concatenate all indexing maps together.
+  mlir::AffineMap concat =
+      mlir::concatAffineMaps(affineMaps, affineMaps.front().getContext());
+
+  // Invert the permutation to derive loop bounds from operand shapes.
+  return mlir::inversePermutation(concat);
+}
+
+/// Build affine map from device indices to physical indices.
+/// Reconstructs physical coordinates from grid + shard coordinates.
+///
+/// Example:
+///   physical shape: [128, 256]
+///   grid shape: [4, 8]
+///   shard sizes: [32, 32]
+///
+///   Result: (d0, d1, d2, d3) -> (d0 * 32 + d2, d1 * 32 + d3)
+///   where first 2 dims are grid coords, last 2 are shard coords.
+inline mlir::AffineMap
+buildDeviceToPhysicalMap(mlir::ArrayRef<int64_t> physicalShape,
+                         mlir::ArrayRef<int64_t> gridShape,
+                         mlir::MLIRContext *context) {
+  assert(physicalShape.size() == gridShape.size() &&
+         "Physical and grid must have same rank");
+
+  size_t rank = physicalShape.size();
+  mlir::SmallVector<mlir::AffineExpr> physicalExprs;
+  physicalExprs.reserve(rank);
+
+  for (size_t i = 0; i < rank; ++i) {
+    mlir::AffineExpr gridDim = mlir::getAffineDimExpr(i, context);
+    mlir::AffineExpr shardDim = mlir::getAffineDimExpr(rank + i, context);
+    int64_t shardSize = physicalShape[i] / gridShape[i];
+
+    physicalExprs.push_back(gridDim * shardSize + shardDim);
+  }
+
+  return mlir::AffineMap::get(rank * 2, 0, physicalExprs, context);
+}
+
+/// Build semi-affine map from physical indices to device indices.
+/// Distributes the physical shape across a grid.
+///
+/// Example:
+///   physical shape: [128, 256]
+///   grid shape: [4, 8]
+///
+///   Result: (d0, d1) -> (d0 floordiv 32, d1 floordiv 32, d0 mod 32, d1 mod 32)
+///   where shard sizes are [128/4=32, 256/8=32].
+inline mlir::AffineMap
+buildPhysicalToDeviceMap(mlir::ArrayRef<int64_t> physicalShape,
+                         mlir::ArrayRef<int64_t> gridShape,
+                         mlir::MLIRContext *context) {
+  assert(physicalShape.size() == gridShape.size() &&
+         "Physical and grid must have same rank");
+
+  size_t rank = physicalShape.size();
+  mlir::SmallVector<mlir::AffineExpr> deviceExprs;
+  deviceExprs.reserve(rank * 2);
+
+  // First rank results are grid coordinates.
+  for (size_t i = 0; i < rank; ++i) {
+    mlir::AffineExpr dim = mlir::getAffineDimExpr(i, context);
+    int64_t shardSize = physicalShape[i] / gridShape[i];
+    deviceExprs.push_back(dim.floorDiv(shardSize));
+  }
+
+  // Next rank results are shard-local coordinates.
+  for (size_t i = 0; i < rank; ++i) {
+    mlir::AffineExpr dim = mlir::getAffineDimExpr(i, context);
+    int64_t shardSize = physicalShape[i] / gridShape[i];
+    deviceExprs.push_back(dim % shardSize);
+  }
+
+  return mlir::AffineMap::get(rank, 0, deviceExprs, context);
+}
+
 } // namespace ttmlir::utils
 
 #endif // TTMLIR_AFFINEMAPUTILS_H

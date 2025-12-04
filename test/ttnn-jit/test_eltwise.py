@@ -166,6 +166,14 @@ def gelu(input_tensor):
     return ttnn.gelu(input_tensor)
 
 
+def relu(input_tensor):
+    return ttnn.relu(input_tensor)
+
+
+def silu(input_tensor):
+    return ttnn.silu(input_tensor)
+
+
 def logical_not(input_tensor):
     return ttnn.logical_not(input_tensor)
 
@@ -190,6 +198,10 @@ def sigmoid(input_tensor):
     return ttnn.sigmoid(input_tensor)
 
 
+def hardsigmoid(input_tensor):
+    return ttnn.hardsigmoid(input_tensor)
+
+
 @pytest.mark.parametrize(
     "dtype, ttnn_dtype",
     [
@@ -211,6 +223,7 @@ def sigmoid(input_tensor):
         logical_not,
         tanh,
         sigmoid,
+        hardsigmoid,
     ],
 )
 @pytest.mark.parametrize(
@@ -267,6 +280,7 @@ def test_unary_op_dram(device, shape, dtype, ttnn_dtype, op, graph_capture):
         logical_not,
         tanh,
         sigmoid,
+        hardsigmoid,
         # Not supported in TTIRToD2M:
         # gelu, reciprocal cbrt, sign, erf, erfc
         # Always fails allclose
@@ -315,6 +329,10 @@ def test_unary_op_l1(
         erf,
         erfc,
         sign,
+        relu,
+        silu,
+        gelu,
+        tan,
     ],
 )
 @pytest.mark.parametrize("graph_capture", [True, False])

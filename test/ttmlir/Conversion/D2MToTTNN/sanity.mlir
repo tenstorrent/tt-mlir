@@ -24,7 +24,7 @@
   >
 
 module {
-  func.func @abs(%arg0: tensor<32x32xf32, #dram_layout>) -> tensor<32x32xf32, #dram_layout> {
+  func.func @test_generic(%arg0: tensor<32x32xf32, #dram_layout>) -> tensor<32x32xf32, #dram_layout> {
     %device = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
 
     // CHECK: %[[T1:.*]] = "ttnn.to_memory_config"
@@ -80,6 +80,18 @@ module {
 
     %output_dram = "ttnn.to_memory_config"(%output_l1) <{memory_config = #dram_memory_config}> : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #dram_layout>
     return %output_dram : tensor<32x32xf32, #dram_layout>
+  }
+  func.func @test_full() -> tensor<32x32xbf16, #l1_layout> {
+    %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
+    // CHECK: ttnn.full
+    %1 = d2m.full {fill_value = 5.000000e-01 : f32, shape = array<i32: 32, 32>} : tensor<32x32xbf16, #l1_layout>
+    return %1 : tensor<32x32xbf16, #l1_layout>
+  }
+  func.func @test_empty() -> tensor<32x32xbf16, #l1_layout> {
+    %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
+    // CHECK: ttnn.empty
+    %1 = d2m.empty() : tensor<32x32xbf16, #l1_layout>
+    return %1 : tensor<32x32xbf16, #l1_layout>
   }
   func.func private @read_kernel() attributes {
     ttkernel.arg_spec = #ttkernel.arg_spec<

@@ -15,6 +15,7 @@
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "llvm/ADT/STLExtras.h"
 
 namespace {
 
@@ -181,6 +182,28 @@ public:
 };
 } // namespace
 
+class TTNNFullOpToTTIRFullOpConversionPattern
+    : public mlir::OpConversionPattern<mlir::tt::ttnn::FullOp> {
+public:
+  using mlir::OpConversionPattern<mlir::tt::ttnn::FullOp>::OpConversionPattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::FullOp srcOp,
+                  mlir::tt::ttnn::FullOp::Adaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const override {
+    auto outputType = mlir::cast<mlir::RankedTensorType>(
+        this->getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    // Convert ttnn::ShapeAttr to ArrayRef<int32_t> for ttir::FullOp
+    auto shapeI32 = llvm::to_vector_of<int32_t>(srcOp.getShape().getShape());
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::FullOp>(
+        srcOp, outputType, shapeI32, adaptor.getFillValue());
+
+    return mlir::success();
+  }
+};
+
 static void
 addElementwiseUnaryOpsConversionPatterns(mlir::MLIRContext *ctx,
                                          mlir::RewritePatternSet &patterns,
@@ -207,6 +230,14 @@ addElementwiseUnaryOpsConversionPatterns(mlir::MLIRContext *ctx,
                                                   mlir::tt::ttir::ErfcOp>,
            TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::FloorOp,
                                                   mlir::tt::ttir::FloorOp>,
+           TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::GeluOp,
+                                                  mlir::tt::ttir::GeluOp>,
+           TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::ReciprocalOp,
+                                                  mlir::tt::ttir::ReciprocalOp>,
+           TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::ReluOp,
+                                                  mlir::tt::ttir::ReluOp>,
+           TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::SiluOp,
+                                                  mlir::tt::ttir::SiluOp>,
            TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::IsFiniteOp,
                                                   mlir::tt::ttir::IsFiniteOp>,
            TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::MishOp,
@@ -229,6 +260,8 @@ addElementwiseUnaryOpsConversionPatterns(mlir::MLIRContext *ctx,
                                                   mlir::tt::ttir::SignOp>,
            TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::SigmoidOp,
                                                   mlir::tt::ttir::SigmoidOp>,
+           TTNNToTTIRElementwiseConversionPattern<
+               mlir::tt::ttnn::HardsigmoidOp, mlir::tt::ttir::HardsigmoidOp>,
            TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::TanOp,
                                                   mlir::tt::ttir::TanOp>,
            TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::TanhOp,
@@ -323,6 +356,7 @@ void populateTTNNToTTIRPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   addElementwiseBinaryOpsConversionPatterns(ctx, patterns, typeConverter);
   addReductionOpsConversionPatterns(ctx, patterns, typeConverter);
   patterns.add<TTNNMatmulToTTIRMatmulConversionPattern>(typeConverter, ctx);
+  patterns.add<TTNNFullOpToTTIRFullOpConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt

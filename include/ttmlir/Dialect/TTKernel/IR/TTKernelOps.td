@@ -1728,6 +1728,35 @@ def TTKernel_SigmoidTileOp : TTKernel_SFPUOp<"sigmoid_tile", [TTKernel_UnaryOpTr
     }];
 }
 
+def TTKernel_HardsigmoidTileInitOp : TTKernel_InitOp<"hardsigmoid_tile_init"> {
+    let summary = "Short init function which configures compute unit for execution of hardsigmoid_tile.";
+    let description = [{
+      Must be run before hardsigmoid_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_HardsigmoidTileOp : TTKernel_SFPUOp<"hardsigmoid_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Hardsigmoid operation";
+    let description = [{
+      Performs element-wise computation of hardsigmoid on each element of a tile
+      in DST register at index tile_index. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call. This call is blocking and is only
+      available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$tile_index);
+
+    let assemblyFormat = [{
+      `(` $tile_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_SiluTileInitOp : TTKernel_InitOp<"silu_tile_init"> {
     let summary = "Short init function which configures compute unit for execution of silu_tile.";
     let description = [{

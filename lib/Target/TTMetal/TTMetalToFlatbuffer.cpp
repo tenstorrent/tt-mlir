@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Conversion/TTKernelToEmitC/TTKernelToEmitC.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
@@ -254,16 +255,24 @@ createShardedBufferConfigForDRAMMemref(FlatbufferObjectCache &cache,
 }
 
 // Returns a physical grid corresponding to the physical extent of the virtual
-// grid. Used to create fake grid shapes that will allow allocation of virtual
-// grid memrefs. For now, this always allocates the full squared-off worker
-// grid.
+// grid by sampling all points in the memref and finding the bounds of where
+// the virtualization map places them.
 static SmallVector<int64_t>
 getPhysicalGridShapeForVirtualGrid(ttcore::ShardLayoutAttr shardLayout,
                                    ttcore::DeviceAttr device,
-                                   ArrayRef<int64_t> memrefGridShape) {
-  auto squareTargetGrid =
-      d2m::utils::getSquareTargetGrid(device.getWorkerGrid().getShape());
-  return squareTargetGrid;
+                                   MemRefType memref) {
+  auto virtMap = shardLayout.getCoreVirtualizationMap();
+  if (virtMap.isEmpty()) {
+    // No virtualization, just return the original grid shape
+    return llvm::to_vector(shardLayout.getGridShape(memref));
+  }
+
+  // Use applyMapToGrid to compute physical shape by sampling all memref points.
+  // The virtMap may return more than 2 dimensions (grid + shard coords), but
+  // we only need the first 2 (physical grid dimensions).
+  auto fullPhysicalShape =
+      ttmlir::utils::applyMapToGrid(memref.getShape(), virtMap);
+  return {fullPhysicalShape[0], fullPhysicalShape[1]};
 }
 
 static flatbuffers::Offset<target::metal::ShardedBufferConfig>
@@ -287,8 +296,8 @@ createShardedBufferConfigForL1Memref(FlatbufferObjectCache &cache,
       llvm::to_vector(shardLayout.getGridShape(memref));
 
   if (!shardLayout.getCoreVirtualizationMap().isEmpty()) {
-    memrefGridShape = getPhysicalGridShapeForVirtualGrid(shardLayout, device,
-                                                         memrefGridShape);
+    memrefGridShape =
+        getPhysicalGridShapeForVirtualGrid(shardLayout, device, memref);
   }
 
   auto memrefShardShape = shardLayout.getShardShape(memref);
@@ -422,8 +431,8 @@ memrefTypeToCircularBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
       llvm::to_vector(shardLayout.getGridShape(memref));
 
   if (!shardLayout.getCoreVirtualizationMap().isEmpty()) {
-    memrefGridShape = getPhysicalGridShapeForVirtualGrid(shardLayout, device,
-                                                         memrefGridShape);
+    memrefGridShape =
+        getPhysicalGridShapeForVirtualGrid(shardLayout, device, memref);
   }
 
   auto extendedMapping = extendMappingForHigherDimGrid(
