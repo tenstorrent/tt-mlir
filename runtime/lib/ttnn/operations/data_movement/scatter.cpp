@@ -25,35 +25,31 @@ void run(const ::tt::target::ttnn::ScatterOp *op, ProgramContext &context) {
           op->memory_config());
   // TT Metal currently only supports the following scatter reduction types:
   // SUM, MULTIPLY, AMIN, AMAX - applied reduction to source tensor
-  // INVALID - copy source to output tensor
-  ::ttnn::operations::data_movement::scatter::ScatterReductionType
-      scatterReduceType;
+  // INVALID - copy source to output tensor and apply no reduction(pass
+  // std::nullopt)
+  std::optional<std::string> scatterReduceTypeString;
   switch (op->scatter_reduce_type()) {
-  case ::tt::target::ttnn::ScatterReduceType::Sum: // Sum -> ADD
-    scatterReduceType =
-        ::ttnn::operations::data_movement::scatter::ScatterReductionType::ADD;
+  case ::tt::target::ttnn::ScatterReduceType::Sum: // Sum -> add
+    scatterReduceTypeString = "add";
     break;
-  case ::tt::target::ttnn::ScatterReduceType::Prod: // Prod -> MULTIPLY
-    scatterReduceType = ::ttnn::operations::data_movement::scatter::
-        ScatterReductionType::MULTIPLY;
+  case ::tt::target::ttnn::ScatterReduceType::Prod: // Prod -> multiply
+    scatterReduceTypeString = "multiply";
     break;
-  case ::tt::target::ttnn::ScatterReduceType::Min: // Min -> AMIN
-    scatterReduceType =
-        ::ttnn::operations::data_movement::scatter::ScatterReductionType::AMIN;
+  case ::tt::target::ttnn::ScatterReduceType::Min: // Min -> amin
+    scatterReduceTypeString = "amin";
     break;
-  case ::tt::target::ttnn::ScatterReduceType::Max: // Max -> AMAX
-    scatterReduceType =
-        ::ttnn::operations::data_movement::scatter::ScatterReductionType::AMAX;
+  case ::tt::target::ttnn::ScatterReduceType::Max: // Max -> amax
+    scatterReduceTypeString = "amax";
     break;
-  case ::tt::target::ttnn::ScatterReduceType::Invalid: // Invalid -> INVALID
-    scatterReduceType = ::ttnn::operations::data_movement::scatter::
-        ScatterReductionType::INVALID;
+  case ::tt::target::ttnn::ScatterReduceType::Invalid: // Invalid -> no
+                                                       // reduction
+    scatterReduceTypeString = std::nullopt;
     break;
   }
-  // TODO(abogdanovic): Add scatterReduceType - std::string instead of enum
+
   ::ttnn::Tensor out =
       ::ttnn::scatter(input, dim, index, source, outputMemoryConfig,
-                      std::nullopt, std::nullopt);
+                      scatterReduceTypeString, std::nullopt);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

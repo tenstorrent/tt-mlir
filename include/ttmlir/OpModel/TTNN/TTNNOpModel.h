@@ -479,15 +479,16 @@ struct OpModel<ScatterOp> {
       ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
       TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> indexShape,
       TTNNLayoutAttr indexLayout, llvm::ArrayRef<int64_t> sourceShape,
-      TTNNLayoutAttr sourceLayout, int32_t dim, TTNNLayoutAttr outputLayout,
-      std::optional<ttcore::ReduceTypeAttr> optReduction);
+      TTNNLayoutAttr sourceLayout, int32_t dim,
+      std::optional<ttcore::ReduceTypeAttr> optReduction,
+      TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
                llvm::ArrayRef<int64_t> indexShape, TTNNLayoutAttr indexLayout,
                llvm::ArrayRef<int64_t> sourceShape, TTNNLayoutAttr sourceLayout,
-               int32_t dim, TTNNLayoutAttr outputLayout,
-               std::optional<ttcore::ReduceTypeAttr> optReduction);
+               int32_t dim, std::optional<ttcore::ReduceTypeAttr> optReduction,
+               TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//

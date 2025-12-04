@@ -1725,8 +1725,9 @@ llvm::Expected<OpConstraints> OpModel<ScatterOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> indexShape,
     TTNNLayoutAttr indexLayout, llvm::ArrayRef<int64_t> sourceShape,
-    TTNNLayoutAttr sourceLayout, int32_t dim, TTNNLayoutAttr outputLayout,
-    std::optional<ttcore::ReduceTypeAttr> optReduction) {
+    TTNNLayoutAttr sourceLayout, int32_t dim,
+    std::optional<ttcore::ReduceTypeAttr> optReduction,
+    TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -1753,21 +1754,13 @@ llvm::Expected<OpConstraints> OpModel<ScatterOp>::getOpConstraints(
   ::ttnn::TensorSpec sourceSpec = sourceSpecExp.get();
 
   // Convert optReduction to ScatterReductionType enum
-  std::optional<
-      ::ttnn::operations::data_movement::scatter::ScatterReductionType>
-      optReductionType = ::ttnn::operations::data_movement::scatter::
-          ScatterReductionType::INVALID;
-  if (optReduction.has_value()) {
-    optReductionType =
-        conversion::getScatterReductionType(optReduction.value());
-  }
-  //TODO(abogdanovic): Add optReductionType to query_op_constraints
-  // Create query closure
+  auto optReductionType = conversion::getScatterReductionType(optReduction);
+
+  //  Create query closure
   auto scatterOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::scatter, device, inputSpec, dim, indexSpec, sourceSpec,
-        detail::getNullableMemoryConfig(outputLayout),
-        /* opt_reduction_string */ std::nullopt,
+        detail::getNullableMemoryConfig(outputLayout), optReductionType,
         /* sub_core_grid */ std::nullopt);
   };
 
@@ -1782,8 +1775,8 @@ llvm::Expected<size_t> OpModel<ScatterOp>::getOpRuntime(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> indexShape, TTNNLayoutAttr indexLayout,
     llvm::ArrayRef<int64_t> sourceShape, TTNNLayoutAttr sourceLayout,
-    int32_t dim, TTNNLayoutAttr outputLayout,
-    std::optional<ttcore::ReduceTypeAttr> optReduction) {
+    int32_t dim, std::optional<ttcore::ReduceTypeAttr> optReduction,
+    TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -1809,23 +1802,13 @@ llvm::Expected<size_t> OpModel<ScatterOp>::getOpRuntime(
   }
   ::ttnn::TensorSpec sourceSpec = sourceSpecExp.get();
 
-  // Convert optReduction to ScatterReductionType enum
-  std::optional<
-      ::ttnn::operations::data_movement::scatter::ScatterReductionType>
-      optReductionType = ::ttnn::operations::data_movement::scatter::
-          ScatterReductionType::INVALID;
-  if (optReduction.has_value()) {
-    optReductionType =
-        conversion::getScatterReductionType(optReduction.value());
-  }
+  auto optReductionType = conversion::getScatterReductionType(optReduction);
 
-  //TODO(abogdanovic): Add optReductionType to query_op_runtime
-  // Create query closure
+  //  Create query closure
   auto scatterOpRuntimeQuery = [=]() {
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::scatter, device, inputSpec, dim, indexSpec, sourceSpec,
-        detail::getNullableMemoryConfig(outputLayout),
-        /* opt_reduction_string */ std::nullopt,
+        detail::getNullableMemoryConfig(outputLayout), optReductionType,
         /* sub_core_grid */ std::nullopt);
   };
 
