@@ -165,31 +165,21 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
 
       bool hasVirtualGrid = !baseLayout.getIndexAffineMap().isEmpty();
       SmallVector<int64_t> tensorGrid;
-      bool didReblockVirtualGrid = false;
       if (newTensorGrid.has_value()) {
         tensorGrid.assign(newTensorGrid->begin(), newTensorGrid->end());
       } else {
         auto currentGrid = llvm::to_vector(baseLayout.getGridShape(baseType));
         tensorGrid = currentGrid;
+      }
 
-        if (hasVirtualGrid && reblockVirtualGridShapes) {
-          tensorGrid =
-              computeVirtualGridBounceShape(currentGrid, targetGridShape);
-        }
+      AffineMap indexMap = AffineMap::get(ctx);
+      if (memSpace == ttcore::MemorySpace::DeviceL1 &&
+          baseLayout.getMemorySpace() == ttcore::MemorySpace::DeviceL1) {
+        indexMap = baseLayout.getIndexAffineMap();
       }
 
       ttcore::MetalLayoutAttr layout;
-      if (hasVirtualGrid && !reblockVirtualGridShapes) {
-        // if virtual grid is preserved (not reblocked), use empty collapsed
-        // intervals.
-        auto emptyIntervalType =
-            RankedTensorType::get({0, 2}, IntegerType::get(ctx, 64));
-        auto collapsedIntervals =
-            DenseIntElementsAttr::get(emptyIntervalType, ArrayRef<int64_t>{});
-        layout = ttcore::MetalLayoutAttr::get(
-            ctx, baseLayout.getLogicalShape(), baseLayout.getOobVal(), memSpace,
-            baseLayout.getMemoryLayout(), collapsedIntervals);
-      } else if (hasVirtualGrid && reblockVirtualGridShapes) {
+      if (hasVirtualGrid) {
         // Recompute default collapsed intervals and dim alignments if virtual
         // grid shape is being reblocked.
         layout = ttcore::MetalLayoutAttr::get(ctx, baseLayout.getLogicalShape(),
@@ -200,7 +190,7 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
         layout = ttcore::MetalLayoutAttr::get(
             ctx, baseLayout.getLogicalShape(), baseLayout.getDimAlignments(),
             baseLayout.getCollapsedIntervals(), baseLayout.getOobVal(),
-            memSpace, baseLayout.getMemoryLayout(), AffineMap::get(ctx));
+            memSpace, baseLayout.getMemoryLayout(), indexMap);
       }
 
       ArrayRef<int64_t> tileShape;
@@ -210,8 +200,7 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
       }
       auto deviceShape = layout.getDeviceShape(tensorGrid, tileShape);
 
-      auto type = RankedTensorType::get(deviceShape, elementType, layout);
-      return type;
+      return RankedTensorType::get(deviceShape, elementType, layout);
     }
 
   private:
@@ -585,6 +574,71 @@ public:
                                 type.getElementType(), layout)
           .getResult();
     };
+
+    llvm::dbgs() << "  ---layout split start "
+                    "------------------------------------------------------\n";
+    llvm::dbgs() << "  currentInfo.layout: " << currentInfo.layout << "\n";
+    llvm::dbgs() << "  targetInfo.layout: " << targetInfo.layout << "\n";
+
+    auto hasVirtualGrid =
+        [](std::optional<ttcore::MetalLayoutAttr> maybeLayout) -> bool {
+      if (!maybeLayout) {
+        return false;
+      }
+      auto layout = *maybeLayout;
+      auto indexMap = layout.getIndexAffineMap();
+      if (!indexMap.isEmpty() && !indexMap.isIdentity()) {
+        llvm::dbgs() << "  found virtual grid map : " << indexMap << "\n";
+        return true;
+      }
+      return false;
+    };
+
+    // 0. Split virtual grid shapes earlier into a conventional block sharded
+    // bounce shape. The rest of the splitting pipeline can be oblivious to
+    // virtual grid shapes.
+    TT_assertv((!hasVirtualGrid(currentInfo.layout) ||
+                !hasVirtualGrid(targetInfo.layout)),
+               "current and target cannot both have virtual grids");
+
+    if (hasVirtualGrid(currentInfo.layout) && targetInfo.isSystem()) {
+      // Create block sharded bounce tensor that host system can read from.
+      auto bounceShape = typeBuilder.computeVirtualGridBounceShape(
+          currentInfo.getGridShape(), targetGridShape);
+      auto l1Type = typeBuilder.modifyDeviceType(
+          currentInfo.type, *currentInfo.layout, targetGridShape,
+          ttcore::MemorySpace::DeviceL1, bounceShape);
+      auto l1Empty = createEmpty(l1Type);
+
+      currentValue = lowerDatamovementGeneric(rewriter, currentValue, l1Empty,
+                                              op.getLoc());
+      currentInfo = TensorInfo::from(currentValue);
+
+    } else if (currentInfo.isSystem() && hasVirtualGrid(targetInfo.layout)) {
+      // Create block sharded bounce tensor that host system can read from.
+      auto bounceShape = typeBuilder.computeVirtualGridBounceShape(
+          targetInfo.getGridShape(), targetGridShape);
+      auto l1Type = typeBuilder.modifyDeviceType(
+          targetInfo.type, *targetInfo.layout, targetGridShape,
+          ttcore::MemorySpace::DeviceL1, bounceShape);
+      auto l1Empty = createEmpty(l1Type);
+
+      // Create a ToLayoutOp from system to block sharded bounce tensor.
+      auto sysToBounceToLayout =
+          lowerSystemLayoutChange(rewriter, currentValue, l1Empty, op.getLoc());
+
+      // replace ToLayout producing virtual grid target with blockToVirtual
+      auto blockToVirtual = lowerDatamovementGeneric(
+          rewriter, sysToBounceToLayout, op.getOutput(), op.getLoc());
+
+      // final output is from blockToVirtual
+      rewriter.replaceOp(op, blockToVirtual);
+
+      // remaining pipeline splits the sys -> BS tolayout
+      op = sysToBounceToLayout.getDefiningOp<ToLayoutOp>();
+      rewriter.setInsertionPoint(op);
+      targetInfo = TensorInfo::from(sysToBounceToLayout);
+    }
 
     // 1. SYSTEM→DEVICE: Transfer to L1 with same element type as input
     if (!currentInfo.hasLayout() && targetInfo.hasLayout()) {
