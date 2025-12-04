@@ -6451,8 +6451,15 @@ getEmbeddingOpArgs(::tt::tt_metal::distributed::MeshDevice *device,
 
   std::optional<::ttnn::TensorSpec> outputSpec = std::nullopt;
   if (outputLayout) {
+    // Compute the correct output shape for embedding operation:
+    // outputShape = inputShape + [embeddingDim]
+    // where embeddingDim = weightShape[-1]
+    llvm::SmallVector<int64_t> outputShape;
+    outputShape.append(inputShape.begin(), inputShape.end());
+    outputShape.push_back(weightShape.back());
+
     auto outputSpecExp =
-        detail::convertToTensorSpec(device, weightShape, outputLayout);
+        detail::convertToTensorSpec(device, outputShape, outputLayout);
     if (!outputSpecExp) {
       return outputSpecExp.takeError();
     }
