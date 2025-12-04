@@ -9,6 +9,11 @@
 
 namespace mlir::tt::d2m::utils {
 
+// Return a new RankedTensorType by reblocking its device shape to match a new
+// grid shape.
+RankedTensorType reblockTensor(RankedTensorType oldTensor,
+                               ArrayRef<int64_t> newGridShape);
+
 // Get square target grid shape.
 llvm::SmallVector<int64_t>
 getSquareTargetGrid(mlir::ArrayRef<int64_t> targetGridShape);
