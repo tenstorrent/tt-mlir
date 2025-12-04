@@ -2681,7 +2681,7 @@ public:
     auto dimAttr = rewriter.getI32IntegerAttr(1);
 
     // Convert reduceType stablehlo attribute into ttir attribute
-    // We are using getReduceTypeFromRegion instead of getReduceType here 
+    // We are using getReduceTypeFromRegion instead of getReduceType here
     // because SelectAndScatterOp has a select region and a scatter region.
     llvm::ErrorOr<ttcore::ReduceType> scatterReduceType =
         getReduceTypeFromRegion(srcOp.getScatter());
