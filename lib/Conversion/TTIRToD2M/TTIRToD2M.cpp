@@ -73,10 +73,12 @@ protected:
             ? ttcore::MemorySpace::DeviceDRAM
             : ttcore::MemorySpace::DeviceL1;
 
+    // Use empty collapsed intervals to preserve the tensor's logical rank.
+    // This ensures the physical shape rank matches the TTNN grid rank.
     auto i64Ty = IntegerType::get(rewriter.getContext(), 64);
-    auto intervalTy = RankedTensorType::get({1, 2}, i64Ty);
+    auto emptyIntervalType = RankedTensorType::get({0, 2}, i64Ty);
     DenseIntElementsAttr collapsedIntervals =
-        DenseIntElementsAttr::get(intervalTy, llvm::ArrayRef<int64_t>({0, -1}));
+        DenseIntElementsAttr::get(emptyIntervalType, ArrayRef<int64_t>{});
 
     ttcore::TensorMemoryLayout memLayout =
         (ttnnLayout.getMemLayout().getValue() ==
@@ -151,7 +153,19 @@ protected:
     }
 
     auto tensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
-    ArrayRef<int64_t> logicalShape = tensorType.getShape();
+
+    // Get the logical shape and collapsed intervals from existing
+    // MetalLayoutAttr if present. This ensures device tensors (like scalers)
+    // maintain their layout structure through the ToLayoutOp.
+    ArrayRef<int64_t> logicalShape;
+    ttcore::MetalLayoutAttr existingLayout =
+        mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+            tensorType.getEncoding());
+    if (existingLayout) {
+      logicalShape = existingLayout.getLogicalShape();
+    } else {
+      logicalShape = tensorType.getShape();
+    }
 
     Type elementType = tensorType.getElementType();
     llvm::SmallVector<int64_t> tileShape;
@@ -163,7 +177,15 @@ protected:
     }
 
     ttcore::MetalLayoutAttr layout;
-    if (!collapseTensors || noCollapse) {
+    // If input already has MetalLayoutAttr, preserve its collapsed intervals
+    // and dim alignments for consistent physical shapes across all operands.
+    if (existingLayout) {
+      layout = ttcore::MetalLayoutAttr::get(
+          rewriter.getContext(), logicalShape, ttcore::OOBVal::Undef, memSpace,
+          ttcore::TensorMemoryLayout::Sharded,
+          existingLayout.getCollapsedIntervals(),
+          existingLayout.getDimAlignments());
+    } else if (!collapseTensors || noCollapse) {
       auto emptyIntervalType = RankedTensorType::get(
           {0, 2}, IntegerType::get(rewriter.getContext(), 64));
 
@@ -634,8 +656,7 @@ private:
     newInputs.emplace_back(createScaler(
         rewriter, loc,
         mlir::cast<mlir::RankedTensorType>(origInputs.front().getType())
-            .getElementType(),
-        memorySpaces[0]));
+            .getElementType()));
     auto [inputs, outputs] =
         toLayoutOperandsAndResults(rewriter, {newInputs, origOutputs},
                                    /*tiled*/ true);
@@ -651,6 +672,17 @@ private:
         getAffineMapsArray(rewriter, op, numOperands, physicalRank);
     SmallVector<mlir::Attribute> iteratorTypes =
         getIteratorTypesArray(rewriter, op, physicalRank);
+
+    // Debug: print operand types for reduction GenericOp
+    llvm::outs() << "=== Creating reduction GenericOp ===\n";
+    for (size_t i = 0; i < inputs.size(); ++i) {
+      llvm::outs() << "  input[" << i << "] type: " << inputs[i].getType()
+                   << "\n";
+    }
+    for (size_t i = 0; i < outputs.size(); ++i) {
+      llvm::outs() << "  output[" << i << "] type: " << outputs[i].getType()
+                   << "\n";
+    }
 
     // Create 'd2m.generic' accepting extended operands.
     auto generic = rewriter.create<d2m::GenericOp>(
@@ -771,27 +803,35 @@ private:
   // Create a reduction scaler value (a single tile filled with 1s) as a
   // device-local tensor. The scaler is used as a weight tensor for weighted
   // reduction operations (result = reduce(input * scaler)).
-  static mlir::Value createScaler(mlir::OpBuilder &builder, mlir::Location loc,
-                                  mlir::Type elementType,
-                                  ttcore::MemorySpace memSpace) {
+  //
+  // The scaler tensor must have proper device shape format [grid..., shard...]
+  // with even rank, so that LowerToLayout's getGridShape() (which takes the
+  // first half of the rank) produces the correct 2D grid shape.
+  mlir::Value createScaler(mlir::OpBuilder &builder, mlir::Location loc,
+                           mlir::Type elementType) const {
     constexpr std::array<int64_t, 2> tileShape =
         ttcore::TileType::getDefaultShape();
     llvm::SmallVector<int64_t> logicalShape(tileShape.begin(), tileShape.end());
 
-    // Create device layout for a single tile (1x1 grid of 32x32 tiles).
+    // Use empty collapsed intervals to preserve the 2D physical shape rank.
+    auto emptyIntervalType = RankedTensorType::get(
+        {0, 2}, IntegerType::get(builder.getContext(), 64));
+    DenseIntElementsAttr emptyCollapseIntervals =
+        DenseIntElementsAttr::get(emptyIntervalType, ArrayRef<int64_t>{});
+
     auto layout = ttcore::MetalLayoutAttr::get(
-        builder.getContext(), logicalShape, ttcore::OOBVal::Undef, memSpace,
-        ttcore::TensorMemoryLayout::Sharded);
+        builder.getContext(), logicalShape, ttcore::OOBVal::Undef,
+        memorySpaces[0], ttcore::TensorMemoryLayout::Sharded,
+        emptyCollapseIntervals);
 
-    // Physical shape for a single tile with 1x1 grid.
-    llvm::SmallVector<int64_t> gridShape = {1, 1};
+    // Compute device shape: [grid_dims..., shard_dims...]
+    // For a single tile scaler with 1x1 grid, this is [1, 1, 1, 1].
+    llvm::SmallVector<int64_t> simpleGrid = {1, 1};
     llvm::SmallVector<int64_t> deviceShape =
-        layout.getDeviceShape(gridShape, tileShape);
+        layout.getDeviceShape(simpleGrid, tileShape);
 
-    // Create tiled element type and tensor type with device encoding.
-    auto tiledElementType = ttcore::TileType::get(elementType, tileShape);
-    auto scalerType =
-        RankedTensorType::get(deviceShape, tiledElementType, layout);
+    // Create tensor type with device shape format so getGridShape() works.
+    auto scalerType = RankedTensorType::get(deviceShape, elementType, layout);
 
     mlir::Attribute one;
     if (mlir::isa<mlir::FloatType>(elementType)) {

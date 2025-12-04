@@ -16,6 +16,7 @@ from utils import (
 
 BLOCK_SHARDED_SHAPE_GRIDS = [
     ((32, 32), (0, 0)),
+    # ((64, 64), 1),
     # ((32, 64), (0, 0)),
 ]
 

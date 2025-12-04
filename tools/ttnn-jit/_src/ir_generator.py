@@ -51,8 +51,11 @@ def generate_ir_from_graph(f, debug, *args, **kwargs):
 
     # Extract tensor args for the compiler
     tensor_args = kwargs.get("_tensor_args", {})
+    max_grid = kwargs.get("_max_grid", (0, 0))
 
-    graph_compiler = GraphToIRTranslator(captured_graph, f.__name__, tensor_args)
+    graph_compiler = GraphToIRTranslator(
+        captured_graph, f.__name__, tensor_args, max_grid
+    )
     ir = graph_compiler.compile()
 
     print_and_verify_ir(ir, "GraphToIRTranslator (Graph-based)", debug)
