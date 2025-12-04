@@ -329,6 +329,10 @@ def test_unary_op_l1(
         erf,
         erfc,
         sign,
+        relu,
+        silu,
+        gelu,
+        tan,
     ],
 )
 @pytest.mark.parametrize("graph_capture", [True, False])
