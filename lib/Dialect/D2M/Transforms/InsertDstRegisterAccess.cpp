@@ -212,7 +212,7 @@ public:
     unsigned getCurrSliceIndex() { return currSliceIndex; }
 
   private:
-    unsigned dstSliceCapacity = -1;
+    unsigned dstSliceCapacity = 0;
 
     unsigned currSliceIndex = 0;
 
@@ -1150,12 +1150,17 @@ public:
                          ttcore::MemorySpace::RegisterDst;
       };
 
+      // number of operands that the op loads
+      int numLoads = 0;
+
       // Collect CB->DST loads for this op's operands.
       for (int64_t operandIdx : computeOp.getOperandsLoadFromDstRegister()) {
         // Skip scalar operands - they don't need to be loaded from dst
         if (computeOp.isScalarOperand(operandIdx)) {
           continue;
         }
+
+        ++numLoads;
 
         auto potentialLoad = computeOp->getOperand(operandIdx)
                                  .getDefiningOp<affine::AffineLoadOp>();
@@ -1215,21 +1220,23 @@ public:
           assert(computeOp->getNumResults() == 1);
           assert(!dstIntermediates.contains(computeOp));
 
+          bool overwriteInput =
+              computeOp.getDstRegInPlace() || computeOp.isScalarOperand(1);
+
           // If op stores to dst in place or has scalar rhs, we don't need to
           // allocate a new dst register, just use the current dst index.
-          int32_t allocatedIndex =
-              (computeOp.getDstRegInPlace() || computeOp.isScalarOperand(1))
-                  ? dstStackAllocator.getCurrSliceIndex()
-                  : dstStackAllocator.allocate(true);
+          int32_t allocatedIndex = (overwriteInput)
+                                       ? dstStackAllocator.getCurrSliceIndex()
+                                       : dstStackAllocator.allocate(true);
 
           dstIntermediates[computeOp] = {allocatedIndex,
                                          outermostInnerComputeLoop};
 
-          if (!computeOp.getDstRegInPlace()) {
-            // binary ops must ALWAYS relinquish the 2 input slices,
-            // regardless of who allocated them
-            dstStackAllocator.deallocate();
-            dstStackAllocator.deallocate();
+          if (!overwriteInput) {
+            // binary ops must deallocate all non-scalar inputs
+            for (int i = 0; i < numLoads; ++i) {
+              dstStackAllocator.deallocate();
+            }
           }
         }
       }

@@ -24,6 +24,7 @@ namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MELEMENTWISEFUSION
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 
+// Check that we're not exceeding physical limit of 32 CBs per d2m.generic
 static bool fitsInL1PostFusion(GenericOp producer, GenericOp consumer) {
 
   int cbLimit = 32;
@@ -39,6 +40,52 @@ static bool fitsInL1PostFusion(GenericOp producer, GenericOp consumer) {
   cbRemaining -= numConsOperands + numProdOperands - 2;
 
   if (cbRemaining < 0) {
+    return false;
+  }
+
+  return true;
+}
+
+// A fused op with 31 inputs and 1 output (all 16b) can be fully dst fused over
+// sub-blocks of size 1xTile. Hence, if a 16b fused op meets the CB limit, it
+// will automatically meet the dst limit as well (at least for now, when we're
+// forcing sub-blocks of size 1xTile). In the case where one or more operands
+// are >16b, we must be conservative for now and set a limit of 7 inputs (8
+// total operands, including output), as that is the largest number of inputs
+// that we can reduce down with a maximum of 4 DST tiles available. A lot of
+// ways to increase this limit or use the resources more intelligently but we'll
+// save that for later revisions.
+static bool fitsInDstPostFusion(GenericOp producer, GenericOp consumer) {
+  bool has32bit = false;
+
+  Type largestDstType =
+      utils::getRegionLargestDstElemType(producer.getRegion(0));
+  if (largestDstType.getIntOrFloatBitWidth() > 16) {
+    has32bit = true;
+  }
+
+  largestDstType = utils::getRegionLargestDstElemType(consumer.getRegion(0));
+  if (largestDstType.getIntOrFloatBitWidth() > 16) {
+    has32bit = true;
+  }
+
+  if (!has32bit) {
+    return true;
+  }
+
+  int operandLimit32b = 8;
+
+  int operandsRemaining = operandLimit32b;
+
+  // Account for number of CBs needed to store input/output operands after
+  // fusion. -2 accounts for removal of producer init (output) operand and
+  // consumer input operand since we're fusing over them.
+  int numConsOperands = static_cast<int>(consumer.getNumOperands());
+  int numProdOperands = static_cast<int>(producer.getNumOperands());
+
+  operandsRemaining -= numConsOperands + numProdOperands - 2;
+
+  if (operandsRemaining < 0) {
     return false;
   }
 
@@ -97,6 +144,10 @@ static bool isElementwiseFusable(OpOperand *fusionTargetOperand,
   }
 
   if (!fitsInL1PostFusion(producer, consumer)) {
+    return false;
+  }
+
+  if (!fitsInDstPostFusion(producer, consumer)) {
     return false;
   }
 
