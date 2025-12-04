@@ -549,8 +549,8 @@ private:
     mlir::Operation *op = value.getDefiningOp();
     while (mlir::isa_and_present<
            mlir::tt::ttnn::ReshapeOp, mlir::tt::ttnn::TypecastOp,
-           mlir::tt::ttnn::ToLayoutOp, mlir::tt::ttir::TypecastOp,
-           mlir::tt::ttir::ReshapeOp, mlir::tt::ttir::ToLayoutOp>(op)) {
+           mlir::tt::ttnn::ToLayoutOp, mlir::tt::ttir::ReshapeOp,
+           mlir::tt::ttir::TypecastOp, mlir::tt::ttir::ToLayoutOp>(op)) {
       value = op->getOperand(0);
       op = value.getDefiningOp();
     }
