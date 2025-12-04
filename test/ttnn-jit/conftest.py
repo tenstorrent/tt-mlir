@@ -18,6 +18,7 @@ def device():
     d = ttnn.open_device(
         device_id=0, dispatch_core_config=ttnn.DispatchCoreConfig(dispatch_core_type)
     )
+    d.disable_and_clear_program_cache()
     yield d
     ttnn.close_device(d)
 
