@@ -180,6 +180,64 @@ inline T identity(T x) {
   return x;
 }
 
+// Used by ascendingStrideIter to implement ascending stride range wrapper.
+template <typename Container>
+class AscendingStrideAdaptor {
+  Container container;
+  llvm::SmallVector<int64_t> indices;
+
+  // Generates a set of indices that index a device shape (grid x shard) from
+  // the dim with smallest stride to the largest.
+  static llvm::SmallVector<int64_t> strideIterationOrder(int64_t rank) {
+    assert(rank % 2 == 0 && "Rank must be even");
+    int64_t halfRank = rank / 2;
+    llvm::SmallVector<int64_t> permutation;
+    for (int64_t i = rank - 1; i >= 0; --i) {
+      permutation.push_back((i % 2 * halfRank) + i / 2);
+    }
+    return permutation;
+  }
+
+public:
+  AscendingStrideAdaptor(Container &&container)
+      : container(std::forward<Container>(container)),
+        indices(strideIterationOrder(this->container.size())) {}
+
+  class iterator {
+    const int64_t *indexPtr;
+    Container &container;
+
+  public:
+    iterator(const int64_t *indexPtr, Container &container)
+        : indexPtr(indexPtr), container(container) {}
+
+    bool operator!=(const iterator &other) const {
+      return indexPtr != other.indexPtr;
+    }
+
+    iterator &operator++() {
+      ++indexPtr;
+      return *this;
+    }
+
+    auto operator*() const {
+      return std::make_pair(*indexPtr, container[*indexPtr]);
+    }
+  };
+
+  iterator begin() { return iterator(indices.begin(), container); }
+  iterator end() { return iterator(indices.end(), container); }
+};
+
+// Returns a range wrapper that allows iterating over a random access container
+// defining a grid x shard shape in order of ascending stride.
+// Usage: for (auto [idx, elem] : ascendingStrideIter(shape)) { ... }
+template <typename Container>
+inline AscendingStrideAdaptor<Container>
+iterateInAscendingStrideOrder(Container &&container) {
+  return AscendingStrideAdaptor<Container>(std::forward<Container>(container));
+}
+
 // Returns a vector of indices `permutation` such that input[permutation[i]] ==
 // output[i], for all i. Assumes that input and output have the same elements.
 // Example:  input = [1, 2, 3], output = [3, 1, 2] -> [2, 0, 1]
