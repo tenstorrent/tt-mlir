@@ -455,10 +455,6 @@ def bitwise_xor(a, b):
     return ttnn.bitwise_xor(a, b)
 
 
-def remainder(a, b):
-    return ttnn.remainder(a, b)
-
-
 def pow(a, b):
     # Test pow operation.
     #
@@ -487,10 +483,6 @@ def pow(a, b):
     return ttnn.pow(a, b)
 
 
-def atan2(a, b):
-    return ttnn.atan2(a, b)
-
-
 def eq(a, b):
     return ttnn.eq(a, b)
 
@@ -513,6 +505,14 @@ def lt(a, b):
 
 def le(a, b):
     return ttnn.le(a, b)
+
+
+def maximum(a, b):
+    return ttnn.maximum(a, b)
+
+
+def minimum(a, b):
+    return ttnn.minimum(a, b)
 
 
 @pytest.mark.parametrize(
@@ -538,8 +538,9 @@ def le(a, b):
         ge,
         lt,
         le,
+        maximum,
+        minimum,
         # logical_and, logical_or, logical_xor
-        # remainder, atan2,
     ],
 )
 @pytest.mark.parametrize("graph_capture", [True, False])
@@ -582,6 +583,8 @@ def test_binary_ops(device, shape, max_grid, memory_layout, dtype, op, graph_cap
         ge,
         lt,
         le,
+        maximum,
+        minimum,
         # logical_and, logical_or, logical_xor,
         # remainder, atan2,
     ],

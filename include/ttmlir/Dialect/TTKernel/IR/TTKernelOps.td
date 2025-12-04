@@ -541,7 +541,7 @@ def TTKernel_CopyDestValuesOp : TTKernel_SFPUOp<"copy_dest_values", [TTKernel_Bi
     }];
 }
 
-def TTKernel_MaxTilesInitOp : TTKernel_InitOp<"max_tile_init"> {
+def TTKernel_BinaryMaxTileInitOp : TTKernel_InitOp<"binary_max_tile_init"> {
     let summary = "Short init function";
     let description = [{
       Must be run before max_tile.
@@ -554,19 +554,48 @@ def TTKernel_MaxTilesInitOp : TTKernel_InitOp<"max_tile_init"> {
     }];
 }
 
-def TTKernel_MaxTilesOp : TTKernel_SFPUOp<"max_tile", [TTKernel_BinaryOpTrait]> {
-    let summary = "Max operation";
+def TTKernel_BinaryMaxTileOp : TTKernel_SFPUOp<"binary_max_tile", [TTKernel_BinaryOpTrait]> {
+    let summary = "Elementwise maximum operation";
     let description = [{
       Performs element-wise computation of maximum operation
-      DST[dst0_index] <- max(DST[dst0_index], DST[dst1_index])
+      DST[odst_index] <- max(DST[dst0_index], DST[dst1_index])
       on DST register operands. The DST register buffer must be in
       acquired state via *tile_regs_acquire* call.
     }];
 
-    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index);
+    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index, IndexLike:$odst_index);
 
     let assemblyFormat = [{
-      `(` $dst0_index `,` $dst1_index `)` attr-dict `:` functional-type(operands, results)
+      `(` $dst0_index `,` $dst1_index `,` $odst_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_BinaryMinTileInitOp : TTKernel_InitOp<"binary_min_tile_init"> {
+    let summary = "Short init function";
+    let description = [{
+      Must be run before minimum_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_BinaryMinTileOp : TTKernel_SFPUOp<"binary_min_tile", [TTKernel_BinaryOpTrait]> {
+    let summary = "Elementwise minimum operation";
+    let description = [{
+      Performs element-wise computation of minimum operation
+      DST[odst_index] <- min(DST[dst0_index], DST[dst1_index])
+      on DST register operands. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst0_index, IndexLike:$dst1_index, IndexLike:$odst_index);
+
+    let assemblyFormat = [{
+      `(` $dst0_index `,` $dst1_index `,` $odst_index `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 

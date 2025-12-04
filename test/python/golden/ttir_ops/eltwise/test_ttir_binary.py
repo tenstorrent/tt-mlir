@@ -175,13 +175,8 @@ binary_ops = [
     logical_and | Marks(pytest.mark.skip_config(["ttmetal"])),
     logical_or | Marks(pytest.mark.skip_config(["ttmetal"])),
     logical_xor | Marks(pytest.mark.skip_config(["ttmetal"])),
-    maximum
-    | Marks(
-        pytest.mark.skip_config(
-            ["ttmetal"], reason="https://github.com/tenstorrent/tt-mlir/issues/5016"
-        )
-    ),
-    minimum | Marks(pytest.mark.skip_config(["ttmetal"])),
+    maximum,
+    minimum,
     multiply,
     pow,
     remainder | Marks(pytest.mark.skip_config(["ttmetal"])),
