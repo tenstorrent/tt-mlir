@@ -26,6 +26,13 @@ enum ScatterReduceType : uint8 {
   Invalid = 7
 }
 
+table ConvertToHWCOp {
+  input: tt.target.ttnn.TensorRef;
+  output: tt.target.ttnn.TensorRef;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  dtype: tt.target.DataType = null;
+}
+
 table ScatterOp {
   input: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;

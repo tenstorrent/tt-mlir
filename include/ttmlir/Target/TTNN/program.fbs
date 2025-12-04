@@ -50,6 +50,7 @@ union OpType {
   Conv2dOp,
   ConvTranspose2dOp,
   Conv3dOp,
+  ConvertToHWCOp,
   CpuOp,
   DeallocateOp,
   DistributeTensorOp,

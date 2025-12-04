@@ -31,6 +31,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/full_with.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/assign.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/concat.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/convert_to_hwc.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/pad.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/permute.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/repeat.cpp
