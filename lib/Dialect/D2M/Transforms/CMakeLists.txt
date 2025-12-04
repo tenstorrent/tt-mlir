@@ -31,4 +31,5 @@ add_mlir_dialect_library(MLIRD2MTransforms
         LINK_LIBS PUBLIC
         MLIRD2MAnalysis
         MLIRD2MUtils
+        MLIRTTUtils
         )
