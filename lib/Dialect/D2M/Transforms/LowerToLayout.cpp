@@ -90,7 +90,8 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
       // Collapse all leading dimensions into the first dimension of a 2D shape
       llvm::SmallVector<int64_t> collapsedVirtualGridShape(2);
       collapsedVirtualGridShape[0] = virtualGridShape[0];
-      for (int64_t i = 1; i < int64_t(virtualGridShape.size()) - 1; ++i) {
+      for (int64_t i = 1; i < static_cast<int64_t>(virtualGridShape.size()) - 1;
+           ++i) {
         collapsedVirtualGridShape[0] *= virtualGridShape[i];
       }
       collapsedVirtualGridShape[1] = virtualGridShape.back();
