@@ -41,19 +41,25 @@ def test_consteval_add_mul_subtract(helper: Helper, request, num_loops):
     debug_stats = ttrt.runtime.DebugStats.get()
 
     with DeviceContext(mesh_shape=[1, 1]) as device:
-        inputs_runtime_with_layout, golden = test_runner.get_inputs_and_golden(device)
+        inputs_runtime_with_layout, golden, _ = test_runner.get_inputs_and_golden(
+            device
+        )
         for i in range(num_loops):
             # First execute should be a consteval cache miss
             # Subsequent executes should be consteval cache hit
             test_runner.run_program_and_compare_golden(
                 device, inputs_runtime_with_layout, golden
             )
-            assert debug_stats.get_stat("ConstEvalCacheMiss") == 1
-            assert debug_stats.get_stat("ConstEvalCacheHit") == i
+            # One const-eval subgraph for (add, subtract, multiply) ops,
+            # and one for the to_layout op on %arg1.
+            assert debug_stats.get_stat("ConstEvalCacheMiss") == 1 + 1
+            assert debug_stats.get_stat("ConstEvalCacheHit") == 2 * i
 
         ttrt.runtime.DebugStats.get().clear()
 
-        inputs_runtime_with_layout, golden = test_runner.get_inputs_and_golden(device)
+        inputs_runtime_with_layout, golden, _ = test_runner.get_inputs_and_golden(
+            device
+        )
 
         for i in range(num_loops):
             # First execute should be a consteval cache miss because we've updated the inputs
@@ -63,8 +69,10 @@ def test_consteval_add_mul_subtract(helper: Helper, request, num_loops):
                 inputs_runtime_with_layout,
                 golden,
             )
-            assert debug_stats.get_stat("ConstEvalCacheMiss") == 1
-            assert debug_stats.get_stat("ConstEvalCacheHit") == i
+            # One const-eval subgraph for (add, subtract, multiply) ops,
+            # and one for the to_layout op on %arg1.
+            assert debug_stats.get_stat("ConstEvalCacheMiss") == 1 + 1
+            assert debug_stats.get_stat("ConstEvalCacheHit") == 2 * i
 
     ttrt.runtime.DebugStats.get().clear()
     helper.teardown()
