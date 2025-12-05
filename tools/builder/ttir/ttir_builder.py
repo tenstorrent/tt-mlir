@@ -143,13 +143,6 @@ class TTIRBuilder(Builder):
 
             return op.result
 
-    def _get_location(self) -> Location:
-        stack = inspect.stack()
-        caller_frame = stack[2]
-        filename = caller_frame.filename
-        lineno = caller_frame.lineno
-        return Location.name(f"{filename}:{lineno}")
-
     # ----- Public Op Generators ----
 
     ############### ttir.SortOp ###############

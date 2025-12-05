@@ -279,6 +279,13 @@ class Builder(metaclass=BuilderMeta):
 
     # ----- Private methods -----
 
+    def _get_location(self) -> Location:
+        stack = inspect.stack()
+        caller_frame = stack[2]
+        filename = caller_frame.filename
+        lineno = caller_frame.lineno
+        return Location.name(f"{filename}:{lineno}")
+
     def _get_output_shape_and_type(
         self,
         organize_golden_args: Callable,
