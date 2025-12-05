@@ -1016,6 +1016,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_EltwiseBinaryCompositeScalarOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::ExperimentalEltwiseBinaryBackwardOp: {
+    tensorRef = opContext.type_as_ExperimentalEltwiseBinaryBackwardOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::EltwiseTernaryWhereOp: {
     tensorRef = opContext.type_as_EltwiseTernaryWhereOp()->out();
     break;
@@ -1114,6 +1118,10 @@ getOpOutputRef(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::Conv2dOp: {
     tensorRef = opContext.type_as_Conv2dOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::Conv3dOp: {
+    tensorRef = opContext.type_as_Conv3dOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::ConvTranspose2dOp: {
@@ -1344,6 +1352,12 @@ getOpInputRefs(OpContext opContextHandle,
     tensorRefs = {opContext.type_as_EltwiseBinaryCompositeScalarOp()->lhs()};
     break;
   }
+  case ::tt::target::ttnn::OpType::ExperimentalEltwiseBinaryBackwardOp: {
+    tensorRefs = {
+        opContext.type_as_ExperimentalEltwiseBinaryBackwardOp()->grad(),
+        opContext.type_as_ExperimentalEltwiseBinaryBackwardOp()->input()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::EltwiseTernaryWhereOp: {
     tensorRefs = {opContext.type_as_EltwiseTernaryWhereOp()->first(),
                   opContext.type_as_EltwiseTernaryWhereOp()->second(),
@@ -1447,6 +1461,10 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::Conv2dOp: {
     tensorRefs = {opContext.type_as_Conv2dOp()->input()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::Conv3dOp: {
+    tensorRefs = {opContext.type_as_Conv3dOp()->input()};
     break;
   }
   case ::tt::target::ttnn::OpType::ConvTranspose2dOp: {

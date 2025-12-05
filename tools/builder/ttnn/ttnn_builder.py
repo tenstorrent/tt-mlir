@@ -9,7 +9,7 @@ import torch
 
 from ttmlir.ir import *
 from ttmlir import util
-from ttmlir.dialects import ttnn, ttcore
+from ttmlir.dialects import ttnn, ttcore, func
 
 from builder.base.builder import *
 from golden import *
@@ -128,9 +128,9 @@ class TTNNBuilder(Builder):
                         golden_output = op_golden_function(
                             *(organize_golden_args(inputs)), **golden_kwargs
                         )
-                    self._set_golden_tensor(op, golden_output)
+                    self._set_golden_tensor(op.result, golden_output)
 
-            return op
+            return op.result
 
     def _get_data_type_attribute(self, operand: Operand) -> ttcore.ir.DataTypeAttr:
         with self._ctx, self._loc:
@@ -203,6 +203,118 @@ class TTNNBuilder(Builder):
             return RankedTensorType.get(shape, element_type, ttnn_layout_attr)
 
     # ----- Public TTNN Op Generators ----
+
+    ################ ttnn.AddOp ###############
+
+    @tag(ttnn.AddOp)
+    def add(
+        self,
+        in0: Operand,
+        in1: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.add)
+        dtype = self._get_data_type_attribute(in0)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(in0)
+        input1 = self._get_golden_tensor(in1)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, input1, mlir_output_type)
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+
+        op = ttnn_op(
+            result,
+            in0,
+            in1,
+            loc=loc,
+            dtype=dtype,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op.result, golden_output)
+
+        return op.result
+
+    @parse(ttnn.AddOp)
+    def add_parser(
+        self,
+        old_op: ttnn.AddOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.add_parser)
+        lhs = global_dict[old_op.lhs]
+        rhs = global_dict[old_op.rhs]
+        result = old_op.result.type
+
+        new_op = ttnn_op(result, lhs, rhs, loc=old_op.location, dtype=old_op.dtype)
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(lhs)
+            input1 = self._get_golden_tensor(rhs)
+            op_golden_function = get_golden_function(ttnn_op)
+            golden_output = op_golden_function(input0, input1, result.element_type)
+            self._set_golden_tensor(new_op.result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op.result
+        return new_op, op_map_dictionary
+
+    @split(ttnn.AddOp)
+    def add_split(
+        self,
+        old_op: ttnn.AddOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.add_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            add_module = Module.create()
+            add_builder = TTNNBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.lhs.type,
+                old_op.rhs.type,
+            ]
+
+            with InsertionPoint(add_module.body):
+
+                @func.func(*op_input_types, name="add_module")
+                def decorated_func(*inputs):
+                    lhs = inputs[0]
+                    rhs = inputs[1]
+                    result = old_op.result.type
+
+                    new_op = ttnn_op(
+                        result, lhs, rhs, loc=old_op.location, dtype=old_op.dtype
+                    )
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttnn_op)
+                        input0 = self._get_golden_tensor(old_op.lhs)
+                        input1 = self._get_golden_tensor(old_op.rhs)
+                        golden_output = op_golden_function(
+                            input0, input1, result.element_type
+                        )
+                        add_builder._set_golden_tensor(new_op, golden_output)
+                        add_builder._set_output_ordering([new_op])
+                        add_builder._set_golden_tensor(lhs, input0)
+                        add_builder._set_golden_tensor(rhs, input1)
+                        add_builder._set_input_ordering([lhs, rhs])
+
+                    return new_op
+
+        return add_module, add_builder
 
     def mish(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
@@ -2151,54 +2263,6 @@ class TTNNBuilder(Builder):
 
     # class TTNN_GenericElementwiseBinaryOp
 
-    def add(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
-        """
-        Creates ``ttnn.add``.
-
-        *Elementwise addition operation.*
-
-        Performs elementwise addition between two tensors.
-        For each pair of corresponding elements, adds the element in the second
-        tensor to the element in the first tensor.
-
-        Mathematical definition: add(x, y) = x + y
-
-        .. code-block:: mlir
-
-            // Add corresponding elements
-            %result = ttnn.add(%lhs, %rhs, %output) : tensor<3xf32>, tensor<3xf32>, tensor<3xf32> -> tensor<3xf32>
-            // Input tensors:
-            // lhs: [3.5, 0.0, -1.2]
-            // rhs: [1.5, 2.0, -3.2]
-            // Output tensor:
-            // [5.0, 2.0, -4.4]
-
-        Parameters
-        ----------
-        in0 : Operand
-            First input tensor
-        in1 : Operand
-            Second input tensor
-        unit_attrs : *Optional[List[str]]*
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            A tensor containing the elementwise sum of the inputs
-        """
-        ttnn_kwargs = {
-            "dtype": self._get_data_type_attribute(in0),
-        }
-        return self._op_proxy(
-            ttnn.AddOp,
-            [in0, in1],
-            ttnn_kwargs=ttnn_kwargs,
-            unit_attrs=unit_attrs,
-        )
-
     def atan2(
         self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
     ) -> OpView:
@@ -2793,3 +2857,143 @@ class TTNNBuilder(Builder):
                 unit_attrs=unit_attrs,
                 golden_kwargs=golden_kwargs,
             )
+
+    # ----- Parse ttnn module ----
+
+    @staticmethod
+    def from_module(
+        ctx: Context, mlir_text: str, golden_inputs: List[torch.tensor] = None
+    ) -> Tuple(Module, TTNNBuilder):
+        def _convert_to_mlir_value(obj):
+            if hasattr(obj, "operation") and hasattr(obj.operation, "results"):
+                results = obj.operation.results
+                if len(results) == 1:
+                    return results[0]
+                else:
+                    return results
+            elif hasattr(obj, "type"):
+                return obj
+            else:
+                return obj
+
+        def _process_multi_return_result(result):
+            if hasattr(result, "__iter__") and not isinstance(result, str):
+                converted_results = []
+                for item in result:
+                    converted = _convert_to_mlir_value(item)
+                    if hasattr(converted, "__iter__") and not hasattr(
+                        converted, "type"
+                    ):
+                        converted_results.extend(converted)
+                    else:
+                        converted_results.append(converted)
+                return tuple(converted_results)
+            else:
+                return _convert_to_mlir_value(result)
+
+        if golden_inputs is None:
+            golden_inputs = []
+
+        parsed_module = Module.parse(mlir_text, ctx)
+        loc = Location.unknown(ctx)
+        with ctx, loc:
+            ttnn_builder = TTNNBuilder(ctx, loc)
+            new_module = Module.create()
+            fn_input_types = ttnn_builder.get_input_types(parsed_module)
+
+            if len(golden_inputs) == 0:
+                for ttype in fn_input_types:
+                    shape = ttype.shape
+                    dtype = ttnn_builder._get_datatype_from_torch_dtype(
+                        ttype.element_type
+                    )
+                    # Handle scalar tensors (empty shape)
+                    if len(shape) == 0:
+                        golden_input = torch.randn(1, dtype=dtype).squeeze()
+                    else:
+                        golden_input = torch.randn(*shape, dtype=dtype)
+                    golden_inputs.append(golden_input)
+
+            with InsertionPoint(new_module.body):
+
+                @func.func(*fn_input_types, name="parsed_module")
+                def decorated_func(*inputs):
+                    golden_dict = {}
+                    for operand, torch_golden in zip(inputs, golden_inputs):
+                        golden_dict[operand] = torch_golden
+
+                    input_goldens: Dict[
+                        Operand, GoldenMapTensor
+                    ] = ttnn_builder._create_builder_golden_from_torch_tensor(
+                        golden_dict
+                    )
+                    ttnn_builder._set_goldens(input_goldens)
+                    ttnn_builder._set_input_ordering(inputs)
+
+                    global_dict = {}
+                    for entry in parsed_module.body.operations:
+                        if isinstance(entry, func.FuncOp):
+                            for i, arg in enumerate(entry.arguments):
+                                global_dict[arg] = inputs[i]
+
+                    global_result = None
+                    for entry in parsed_module.body.operations:
+                        for block in entry.body:
+                            for op in block.operations:
+                                if isinstance(op, func.ReturnOp):
+                                    global_result = tuple(
+                                        global_dict[operand] for operand in op.operands
+                                    )
+                                else:
+                                    (
+                                        parsed_op,
+                                        op_golden_dictionary,
+                                    ) = ttnn_builder._build_op_from_parsed_op(
+                                        op, global_dict
+                                    )
+                                    global_dict.update(op_golden_dictionary)
+
+                    outputs = (
+                        global_result
+                        if hasattr(global_result, "__iter__")
+                        else (global_result,)
+                    )
+                    output_goldens: Dict[Operand, GoldenMapTensor] = {}
+                    for op in outputs:
+                        output_goldens[op] = ttnn_builder._get_golden_tensor(op)
+                    ttnn_builder._set_goldens(output_goldens)
+                    ttnn_builder._set_output_ordering(list(outputs))
+
+                    return _process_multi_return_result(global_result)
+
+        return new_module, ttnn_builder
+
+    # ----- Split ttnn module ----
+
+    def split_op(
+        self,
+        parsed_op: Operation,
+    ) -> Tuple[Module, TTNNBuilder]:
+        split_function = self.get_split_from_opview(type(parsed_op))
+        return split_function(self, parsed_op)
+
+    @staticmethod
+    def split_module(
+        module: Module,
+        builder: TTNNBuilder,
+    ) -> List[Tuple[Module, TTNNBuilder]]:
+        sub_modules_and_builders = []
+        old_ctx = module.context
+        old_loc = Location.unknown(old_ctx)
+
+        with old_ctx, old_loc:
+            for entry in module.body.operations:
+                for block in entry.body:
+                    for op in block.operations:
+                        if isinstance(op, func.ReturnOp):
+                            continue
+                        else:
+                            sub_op_module_builder = builder.split_op(op)
+                            sub_modules_and_builders.append(sub_op_module_builder)
+
+        return sub_modules_and_builders
