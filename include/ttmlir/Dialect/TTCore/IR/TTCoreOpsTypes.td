@@ -451,6 +451,12 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
                                      OOBVal oobVal, MemorySpace memorySpace,
                                      TensorMemoryLayout memoryLayout,
                                      DenseIntElementsAttr collapseIntervals,
+                                     mlir::AffineMap indexAffineMap);
+    static MetalLayoutAttr get(::mlir::MLIRContext *context,
+                                     ArrayRef<int64_t> logicalShape,
+                                     OOBVal oobVal, MemorySpace memorySpace,
+                                     TensorMemoryLayout memoryLayout,
+                                     DenseIntElementsAttr collapseIntervals,
                                      ArrayRef<int64_t> dimAlignments
                                      );
 
@@ -503,6 +509,9 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
     std::optional<mlir::AffineMap> getVirtualizationMapIfExists() {
       return getIndexAffineMap();
     }
+
+    // Returns true if this layout has leading dimensions that are collapsed together
+    bool hasCollapsedLeadingDims(ArrayRef<int64_t> deviceShape);
 
     bool isView() { return false; }
   }];
