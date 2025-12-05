@@ -31,7 +31,7 @@ module {
 
 // -----
 
-// Test scatter with sharding along scatter_dims_to_operand_dims.
+// Test scatter with sharding along scatter_dims_to_operand_dims. The sharded input must be replicated.
 module {
   sdy.mesh @mesh = <["model"=1, "batch"=8]>
     func.func @scatter_test_replicate_input(%arg0: tensor<71x4xbf16> {sdy.sharding = #sdy.sharding<@mesh, [{}, {}]>},
@@ -44,3 +44,29 @@ module {
       return %0 : tensor<71x32xbf16>
   }
 }
+
+// CHECK: sdy.manual_computation(%arg0, %arg1, %arg2) in_shardings=[<@mesh, [{}, {}]>, <@mesh, [{}, {}, {}]>, <@mesh, [{}, {"batch"}]>] out_shardings=[<@mesh, [{}, {"batch"}]>]
+// CHECK: "stablehlo.all_gather"({{.*}}) <{all_gather_dim = 1 : i64, channel_handle = #stablehlo.channel_handle<handle = 1, type = 1>, replica_groups = dense<{{\[}}[0, 1, 2, 3, 4, 5, 6, 7]{{\]}}> : tensor<1x8xi64>}> : (tensor<71x4xbf16>) -> tensor<71x32xbf16>
+// CHECK: "stablehlo.scatter"(%{{.*}}, %{{.*}}, %{{.*}}) <{scatter_dimension_numbers = #stablehlo.scatter<inserted_window_dims = [0, 1], scatter_dims_to_operand_dims = [0, 1], index_vector_dim = 2>}>
+// CHECK: (tensor<71x32xbf16>, tensor<71x4x2xi64>, tensor<71x4xbf16>) -> tensor<71x32xbf16>
+// CHECK: "stablehlo.all_to_all"(%{{.*}}) <{channel_handle = #stablehlo.channel_handle<handle = 1, type = 1>, concat_dimension = 1 : i64, replica_groups = dense<{{\[\[}}0, 1, 2, 3, 4, 5, 6, 7{{\]\]}}> : tensor<1x8xi64>, split_count = 8 : i64, split_dimension = 1 : i64}> : (tensor<71x8x4xbf16>) -> tensor<71x8x4xbf16>
+
+// -----
+
+// Test scatter with sharding NOT along scatter_dims_to_operand_dims. The input (%arg2) and updates (%arg0) must be sharded.
+module {
+  sdy.mesh @mesh = <["model"=1, "batch"=8]>
+  func.func @scatter_test_shard_input(%arg0: tensor<4x8xbf16> {sdy.sharding = #sdy.sharding<@mesh, [{}, {}]>},
+                          %arg1: tensor<4x1xi64> {sdy.sharding = #sdy.sharding<@mesh, [{}, {}]>},
+                          %arg2: tensor<32x64xbf16> {sdy.sharding = #sdy.sharding<@mesh, [{}, {"batch"}]>}) -> tensor<32x64xbf16> {
+    %0 = "stablehlo.scatter"(%arg2, %arg1, %arg0) <{scatter_dimension_numbers = #stablehlo.scatter<update_window_dims = [1], inserted_window_dims = [0], scatter_dims_to_operand_dims = [0], index_vector_dim = 1>}> ({
+    ^bb0(%arg3: tensor<bf16>, %arg4: tensor<bf16>):
+      stablehlo.return %arg4 : tensor<bf16>
+    }) : (tensor<32x64xbf16>, tensor<4x1xi64>, tensor<4x8xbf16>) -> tensor<32x64xbf16>
+    return %0 : tensor<32x64xbf16>
+  }
+}
+
+// CHECK: sdy.manual_computation(%arg0, %arg1, %arg2) in_shardings=[<@mesh, [{}, {}]>, <@mesh, [{}, {}]>, <@mesh, [{}, {"batch"}]>] out_shardings=[<@mesh, [{}, {"batch"}]>]
+// CHECK: "stablehlo.scatter"(%{{.*}}, %{{.*}}, %{{.*}}) <{scatter_dimension_numbers = #stablehlo.scatter<update_window_dims = [1], inserted_window_dims = [0], scatter_dims_to_operand_dims = [0], index_vector_dim = 1>}>
+// CHECK: (tensor<32x8xbf16>, tensor<4x1xi64>, tensor<4x8xbf16>) -> tensor<32x8xbf16>
