@@ -1473,11 +1473,6 @@ struct EmitCTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
                  attr.getEnableWeightsDoubleBuffer());
       firstElement = false;
     }
-    if (attr.getInPlace()) {
-      rso << (firstElement ? "" : ", ") << ".in_place = "
-          << EmitCTypeConverter<bool>::convert(attr.getInPlace());
-      firstElement = false;
-    }
     if (attr.getEnableKernelStrideFolding()) {
       rso << (firstElement ? "" : ", ") << ".enable_kernel_stride_folding = "
           << EmitCTypeConverter<bool>::convert(
@@ -1685,8 +1680,17 @@ public:
     }
   }
 
+  // Emits std::nullopt. If TargetTy is specified, emits a typed empty optional
+  // (e.g., `std::optional<T>{}`) instead of bare `std::nullopt`. This is
+  // necessary for tt-metal APIs that use C++20 concepts/constraints where
+  // template deduction fails with bare `std::nullopt_t`.
+  template <typename TargetTy = void>
   mlir::Attribute emit(std::nullopt_t) {
-    return rewriter.getType<emitc::OpaqueAttr>(TypeNameV<std::nullopt_t>);
+    if constexpr (std::is_void_v<TargetTy>) {
+      return rewriter.getType<emitc::OpaqueAttr>(TypeNameV<std::nullopt_t>);
+    } else {
+      return rewriter.getType<emitc::OpaqueAttr>(TypeNameV<TargetTy> + "{}");
+    }
   }
 
   // The `val` should be either an operand of the current source operation, in

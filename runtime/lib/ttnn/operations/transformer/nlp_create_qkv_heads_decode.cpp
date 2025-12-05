@@ -23,12 +23,14 @@ void run(const ::tt::target::ttnn::NLPCreateQKVHeadsDecodeOp *op,
 
   uint32_t numHeads = op->num_heads();
   std::optional<const uint32_t> numKVHeads = op->num_kv_heads();
+  std::optional<std::array<::ttnn::Tensor, 3>> optionalOutputTensors =
+      std::nullopt;
   std::optional<const bool> overlapQKCoregrid(op->overlap_qk_coregrid());
   std::optional<const uint32_t> sliceSize = op->slice_size();
 
   auto [q, k, v] = ::ttnn::experimental::nlp_create_qkv_heads_decode(
-      input, numHeads, numKVHeads, overlapQKCoregrid, batch_offset, sliceSize,
-      outputMemoryConfig);
+      input, numHeads, numKVHeads, optionalOutputTensors, overlapQKCoregrid,
+      batch_offset, sliceSize, outputMemoryConfig);
 
   tensorPool.insertTTNNTensorAndValidate(op->q_out(), q);
   tensorPool.insertTTNNTensorAndValidate(op->k_out(), k);
