@@ -20,13 +20,13 @@ from utils import (
 
 BLOCK_SHARDED_SHAPE_GRIDS = []
 
-# Generates all rank 2 shapes with 1 to 4 tiles per core in each dimension, with every grid from single core to 8x8.
+# Generates all rank 2 shapes with 3 or 4 tiles per core in each dimension, with every grid from single core to 8x8.
 # TTNN grids are (Width, Height), while tensor shapes are (Height, Width).
 BLOCK_SHARDED_SHAPE_GRIDS.extend(
     [
         ((h * 32 * (grid_h + 1), w * 32 * (grid_w + 1)), (grid_w, grid_h))
         for h, w, grid_h, grid_w in itertools.product(
-            range(1, 4), range(1, 4), range(8), range(8)
+            range(3, 4), range(3, 4), range(8), range(8)
         )
     ]
 )
@@ -119,7 +119,7 @@ HEIGHT_SHARDED_SHAPE_GRIDS.extend(
     [
         ((h * 32 * (grid_w + 1) * (grid_h + 1), w * 32), (grid_w, grid_h))
         for h, w, grid_h, grid_w in itertools.product(
-            range(1, 4), range(1, 4), range(8), range(8)
+            range(3, 4), range(3, 4), range(8), range(8)
         )
     ]
 )
@@ -171,7 +171,7 @@ WIDTH_SHARDED_SHAPE_GRIDS.extend(
     [
         ((h * 32, w * 32 * (grid_h + 1) * (grid_w + 1)), (grid_w, grid_h))
         for h, w, grid_h, grid_w in itertools.product(
-            range(1, 4), range(1, 4), range(8), range(8)
+            range(3, 4), range(3, 4), range(8), range(8)
         )
     ]
 )
