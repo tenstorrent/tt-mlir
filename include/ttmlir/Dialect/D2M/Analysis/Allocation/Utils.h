@@ -64,7 +64,14 @@ inline bool debugEnabled() {
     OS << llvm::formatv(__VA_ARGS__) << "\n";                                  \
     OS.resetColor();                                                           \
   } while (false)
+//===---------------------------------------------------------------------===//
 
+/// @see https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2023/p2895r0.html
+struct noncopyable {
+  noncopyable() = default;
+  noncopyable(noncopyable &&) = default;
+  noncopyable &operator=(noncopyable &&) = default;
+};
 //===---------------------------------------------------------------------===//
 
 /// Namespace-local shortcut for `llvm::to_underlying(e)`.

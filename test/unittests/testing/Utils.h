@@ -25,6 +25,10 @@ namespace mlir::tt::testing {
 #define TT_TESTING_DEBUG
 #endif
 
+// Helper macro for logging on behalf of `ttmlir::LogComponent::Test`.
+#define TT_TEST_DEBUG(/* fmt, args */...)                                      \
+  TTMLIR_DEBUG(ttmlir::LogComponent::Test, __VA_ARGS__)
+
 // Return a 64-bit random seed that can be used by randomized tests. This value
 // is a sigleton in the current process and it generated according to the
 // following rules:
