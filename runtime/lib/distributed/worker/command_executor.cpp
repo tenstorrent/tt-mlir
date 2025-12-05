@@ -7,6 +7,7 @@
 #include "tt/runtime/detail/common/runtime_context.h"
 #include "tt/runtime/detail/common/socket.h"
 #include "tt/runtime/detail/distributed/worker/response_factory.h"
+#include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
@@ -653,11 +654,16 @@ void CommandExecutor::execute(uint64_t commandId,
   responseQueue_.push(std::move(responseBuilder));
 }
 
-// TODO - this does not really work - need to serialize the layout properly
 void CommandExecutor::execute(uint64_t commandId,
                               const fb::HasLayoutCommand *command) {
-  uint64_t layoutGlobalId = command->layout_global_id();
-  bool hasLayout = layoutPool_.contains(layoutGlobalId);
+  ::tt::runtime::Tensor tensor = tensorPool_.at(command->tensor_global_id());
+  ::tt::runtime::Layout layout = layoutPool_.at(command->layout_global_id());
+
+  const std::shared_ptr<::tt::runtime::ttnn::LayoutDesc> tensorLayoutDesc =
+      ::tt::runtime::ttnn::LayoutDesc::fromTensor(tensor);
+  const ::tt::runtime::ttnn::LayoutDesc &desiredLayoutDesc =
+      layout.as<::tt::runtime::ttnn::LayoutDesc>(DeviceRuntime::TTNN);
+  bool hasLayout = *tensorLayoutDesc == desiredLayoutDesc;
 
   std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
       buildResponse(ResponseFactory::buildHasLayoutResponse, commandId,
