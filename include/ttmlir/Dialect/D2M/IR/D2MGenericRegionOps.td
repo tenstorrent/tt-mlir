@@ -513,6 +513,16 @@ def D2M_TileMaximumOp : D2M_GenericRegionComputeBinaryDstOp<"tile_maximum", D2M_
     let results = (outs TTCore_Tile:$result);
 }
 
+def D2M_TileMinimumOp : D2M_GenericRegionComputeBinaryDstOp<"tile_minimum", D2M_TileComputeOpTraitBundle>{
+    let summary = "D2M Tile Minimum Op";
+    let description = [{
+        The `tile_minimum` operation calculates the minimum of two tensors element-wise.
+    }];
+
+    let arguments = (ins TTCore_Tile:$lhs, TTCore_Tile:$rhs);
+    let results = (outs TTCore_Tile:$result);
+}
+
 def D2M_TileReduceSumOp : D2M_GenericRegionComputeOp<"tile_reduce_sum", D2M_TileComputeOpTraitBundle> {
   let summary = "D2M Tile Reduce Sum Op";
   let description = [{

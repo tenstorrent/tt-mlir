@@ -49,6 +49,8 @@ binary_ops = [
     "bitwise_and",
     "bitwise_or",
     "bitwise_xor",
+    "maximum",
+    "minimum",
 ]
 
 # All supported operations
