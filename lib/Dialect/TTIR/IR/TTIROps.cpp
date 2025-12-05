@@ -1932,6 +1932,78 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
   return success();
 }
 
+// back to back producer-consumer SliceStaticOp can be folded
+// into a single SliceStaticOp.
+static mlir::OpFoldResult
+foldConsecutiveSliceStatic(mlir::tt::ttir::SliceStaticOp consumerOp) {
+
+  if (auto producerSliceOp =
+          consumerOp.getInput()
+              .getDefiningOp<mlir::tt::ttir::SliceStaticOp>()) {
+
+    // If producerOp has multiple uses, do not fold
+    if (!producerSliceOp->hasOneUse()) {
+      return nullptr;
+    }
+
+    mlir::RankedTensorType inputType = consumerOp.getInput().getType();
+    size_t input_rank = static_cast<size_t>(inputType.getRank());
+
+    // Producer begins and step arrays
+    mlir::ArrayAttr begins1 = producerSliceOp.getBeginsAttr();
+    mlir::ArrayAttr stepAttr1 = producerSliceOp.getStepAttr();
+
+    // Consumer begins, end and step arrays
+    mlir::ArrayAttr begins2 = consumerOp.getBeginsAttr();
+    mlir::ArrayAttr ends2 = consumerOp.getEndsAttr();
+    mlir::ArrayAttr stepAttr2 = consumerOp.getStepAttr();
+
+    llvm::SmallVector<mlir::Attribute> begins, ends, step;
+    mlir::MLIRContext *ctx = consumerOp->getContext();
+    auto i32Ty = mlir::IntegerType::get(ctx, 32);
+    for (size_t i = 0; i < input_rank; ++i) {
+      // ith dimension in Producer begins and step arrays
+      int32_t b1_i = mlir::cast<::mlir::IntegerAttr>(begins1[i]).getInt();
+      int32_t s1_i = mlir::cast<::mlir::IntegerAttr>(stepAttr1[i]).getInt();
+
+      // ith dimension in Consumer begins, end and step arrays
+      int32_t b2_i = mlir::cast<::mlir::IntegerAttr>(begins2[i]).getInt();
+      int32_t e2_i = mlir::cast<::mlir::IntegerAttr>(ends2[i]).getInt();
+      int32_t s2_i = mlir::cast<::mlir::IntegerAttr>(stepAttr2[i]).getInt();
+
+      int32_t b_i = b1_i + s1_i * b2_i;
+      int32_t e_i = b1_i + s1_i * (e2_i - 1) + 1;
+      int32_t s_i = s1_i * s2_i;
+
+      begins.push_back(mlir::IntegerAttr::get(i32Ty, b_i));
+      ends.push_back(mlir::IntegerAttr::get(i32Ty, e_i));
+      step.push_back(mlir::IntegerAttr::get(i32Ty, s_i));
+    }
+
+    mlir::ArrayAttr beginsArrayAttr = mlir::ArrayAttr::get(ctx, begins);
+    mlir::ArrayAttr endsArrayAttr = mlir::ArrayAttr::get(ctx, ends);
+    mlir::ArrayAttr stepArrayAttr = mlir::ArrayAttr::get(ctx, step);
+
+    consumerOp.setBeginsAttr(beginsArrayAttr);
+    consumerOp.setEndsAttr(endsArrayAttr);
+    consumerOp.setStepAttr(stepArrayAttr);
+    consumerOp->setOperand(0, producerSliceOp.getInput());
+    return consumerOp.getResult();
+  }
+
+  return nullptr;
+}
+
+// SliceStaticOp Folder
+mlir::OpFoldResult mlir::tt::ttir::SliceStaticOp::fold(FoldAdaptor adaptor) {
+
+  if (auto foldResult = foldConsecutiveSliceStatic(*this)) {
+    return foldResult;
+  }
+
+  return nullptr;
+}
+
 //===----------------------------------------------------------------------===//
 // SliceDynamicOp
 //===----------------------------------------------------------------------===//
