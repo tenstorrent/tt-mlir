@@ -872,13 +872,13 @@ public:
     const int64_t permuteSize = static_cast<int64_t>(permutation.size());
     assert(permuteSize >= 2 && "Permute size must be >= 2");
     bool isInnerPermute =
-        (permuteSize == 2 || (permutation[permuteSize - 2] == permuteSize - 1 &&
-                              permutation[permuteSize - 1] == permuteSize - 2));
-    if (permuteSize > 2 && isInnerPermute) {
-      // Will need to implement splitInnerPermute here to recursively handle the
-      // inner permute.
-      return failure();
-    }
+        (permutation[permuteSize - 2] == permuteSize - 1 &&
+         permutation[permuteSize - 1] == permuteSize - 2);
+    // if (permuteSize > 2 && isInnerPermute) {
+    //   // Will need to implement splitInnerPermute here to recursively handle the
+    //   // inner permute.
+    //   return failure();
+    // }
     // Transpose pattern on inner dims.
     if (isInnerPermute) {
       return permuteInnerDims(op, adaptor, rewriter);
@@ -1034,6 +1034,7 @@ public:
     auto stream =
         rewriter.create<d2m::StreamLayoutOp>(loc, viewType, inputs[0], storage);
     inputs[0] = stream.getResult();
+    auto logicalRank = deviceRank / 2;
 
     // For inner permute, we alse need a GenericOp to transpose each individual
     // tile.
@@ -1041,9 +1042,9 @@ public:
         loc, inputs, outputs,
         [&](OpBuilder &builder, Location bodyLoc, ValueRange blockArgs) {
           assert(blockArgs.size() == 2);
-          auto identityMap = builder.getMultiDimIdentityMap(2);
+          auto identityMap = builder.getMultiDimIdentityMap(logicalRank);
           SmallVector<mlir::utils::IteratorType> linalgIteratorTypes(
-              2, mlir::utils::IteratorType::parallel);
+              logicalRank, mlir::utils::IteratorType::parallel);
 
           auto input =
               builder.create<d2m::WaitOp>(bodyLoc, blockArgs[0]).getResult();
