@@ -369,10 +369,22 @@ computeOptimalBlockShardedGrid(ArrayRef<int64_t> physicalShape,
 // be implemented as a virtual grid and (B) if it makes sense to do so based
 // on low grid utilization with regular block sharding.
 static bool
-shouldImplementAsVirtualGrid(ArrayRef<int64_t> physicalShape,
-                             ArrayRef<int64_t> targetSquareGridShape,
-                             bool isInterleaved) {
-  if (isInterleaved) {
+shouldImplementAsVirtualGrid(RankedTensorType tensorType,
+                             ArrayRef<int64_t> physicalShape,
+                             ArrayRef<int64_t> targetSquareGridShape) {
+
+  auto layout =
+      mlir::dyn_cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+  TT_assert(layout);
+
+  // Interleaved tensors should never be implemented as virtual grids.
+  if (layout.getMemoryLayout() == ttcore::TensorMemoryLayout::Interleaved) {
+    return false;
+  }
+
+  // Tensors with collapsed leading dims are not currently supported as virtual
+  // grids.
+  if (layout.hasCollapsedLeadingDims(tensorType.getShape())) {
     return false;
   }
   if (physicalShape.size() != 2) {
@@ -391,11 +403,10 @@ shouldImplementAsVirtualGrid(ArrayRef<int64_t> physicalShape,
 }
 
 static std::pair<llvm::SmallVector<int64_t>, bool>
-computeOptimalGrid(ArrayRef<int64_t> physicalShape,
-                   ArrayRef<int64_t> targetSquareGridShape,
-                   bool isInterleaved) {
-  if (shouldImplementAsVirtualGrid(physicalShape, targetSquareGridShape,
-                                   isInterleaved)) {
+computeOptimalGrid(RankedTensorType tensorType, ArrayRef<int64_t> physicalShape,
+                   ArrayRef<int64_t> targetSquareGridShape) {
+  if (shouldImplementAsVirtualGrid(tensorType, physicalShape,
+                                   targetSquareGridShape)) {
     return {computeOptimalVirtualGrid(physicalShape, targetSquareGridShape),
             true};
   }
@@ -570,11 +581,8 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
     llvm::SmallVector<int64_t> physShape = computePhysicalShape(
         operandLayout, operandType, targetSquareGridShape, builder);
 
-    // Interleaved tensors do not support virtual grids
-    bool isInterleaved = operandLayout.getMemoryLayout() ==
-                         ttcore::TensorMemoryLayout::Interleaved;
     auto [optimalGrid, isVirtualGrid] =
-        computeOptimalGrid(physShape, targetSquareGridShape, isInterleaved);
+        computeOptimalGrid(operandType, physShape, targetSquareGridShape);
 
     optimalOperandGrids.push_back(optimalGrid);
 
@@ -597,10 +605,8 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
 
           llvm::SmallVector<int64_t> inputPhysShape = computePhysicalShape(
               inputLayout, inputType, targetSquareGridShape, builder);
-          bool isInterleaved = inputLayout.getMemoryLayout() ==
-                               ttcore::TensorMemoryLayout::Interleaved;
           auto [inputOptimalGrid, isVirtualGrid] = computeOptimalGrid(
-              inputPhysShape, targetSquareGridShape, isInterleaved);
+              inputType, inputPhysShape, targetSquareGridShape);
 
           toLayoutsToUpdate.push_back(
               {toLayoutOp, inputOptimalGrid, isVirtualGrid});
@@ -903,6 +909,7 @@ computeTTNNGenericGridShapes(GenericOp genericOp,
   };
 
   // Set all grid shapes according to constraints
+  OpBuilder builder(genericOp->getContext());
   for (auto [operandIdx, operand] : llvm::enumerate(genericOp.getOperands())) {
 
     auto constrainedDims = getConstrainedDims(operandIdx);
@@ -914,12 +921,27 @@ computeTTNNGenericGridShapes(GenericOp genericOp,
       auto metalTensor = mlir::cast<mlir::RankedTensorType>(operand.getType());
       auto baseMetalLayout =
           mlir::cast<ttcore::MetalLayoutAttr>(metalTensor.getEncoding());
+      auto constrainedDims = getConstrainedDims(operandIdx);
+
+      // Compute constrained target grid shape as min of targetSquareGridShape
+      // and constrainedDims (if constrainedDim > 0), else use
+      // targetSquareGridShape.
+      llvm::SmallVector<int64_t> constrainedTargetGridShape =
+          llvm::to_vector(targetSquareGridShape);
+      if (constrainedDims.size() == targetSquareGridShape.size()) {
+        for (size_t i = 0; i < targetSquareGridShape.size(); ++i) {
+          if (constrainedDims[i] > 0) {
+            constrainedTargetGridShape[i] =
+                std::min(constrainedDims[i], targetSquareGridShape[i]);
+          }
+        }
+      }
+
+      auto physicalShape = computePhysicalShape(
+          baseMetalLayout, metalTensor, constrainedTargetGridShape, builder);
       optimalOperandGrids[operandIdx] =
-          computeOptimalGrid(baseMetalLayout.getPhysicalShape(
-                                 ttcore::TileType::getDefaultShape()),
-                             targetSquareGridShape,
-                             baseMetalLayout.getMemoryLayout() ==
-                                 ttcore::TensorMemoryLayout::Interleaved)
+          computeOptimalGrid(metalTensor, physicalShape,
+                             constrainedTargetGridShape)
               .first;
     }
   }
