@@ -71,8 +71,12 @@ def _get_device_for_target(target: str, mesh_shape: Tuple[int, int], pytestconfi
     print(f"Opening device for {target} with mesh shape {mesh_shape}")
 
     mesh_options = tt_runtime.runtime.MeshDeviceOptions()
+    system_desc = fbb_as_dict(
+        tt_runtime.binary.load_system_desc_from_path(pytestconfig.option.sys_desc)
+    )["system_desc"]
+    board_id = get_board_id(system_desc)
 
-    if pytestconfig.getoption("--disable-eth-dispatch"):
+    if pytestconfig.getoption("--disable-eth-dispatch") or board_id in ["p150", "p300"]:
         mesh_options.dispatch_core_type = tt_runtime.runtime.DispatchCoreType.WORKER
     else:
         mesh_options.dispatch_core_type = tt_runtime.runtime.DispatchCoreType.ETH
@@ -557,7 +561,6 @@ def pytest_collection_modifyitems(config, items):
                     )
 
                 board_id = get_board_id(system_desc)
-                print(f" @@ board_id: {board_id}")
 
                 # Skip if the current config is NOT in the allowed list
                 if not platform_config <= set([current_target, board_id]):
