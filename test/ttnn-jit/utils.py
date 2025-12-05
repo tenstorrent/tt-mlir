@@ -165,6 +165,7 @@ def run_op_test(
     enable_cache=False,
     memory_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED,
     ttnn_dtype=None,
+    math_fidelity="HiFi2",
 ):
     """
     Common test runner for JIT operations.
@@ -205,6 +206,7 @@ def run_op_test(
         debug=True,
         enable_cache=enable_cache,
         graph_capture=graph_capture,
+        math_fidelity=math_fidelity,
     )(op)
     output_tensor = op_jit(*inputs)
     golden_tensor = (golden_op or op)(*inputs)
