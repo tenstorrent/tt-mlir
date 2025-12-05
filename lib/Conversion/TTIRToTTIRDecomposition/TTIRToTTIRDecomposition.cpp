@@ -2238,6 +2238,28 @@ public:
 // is performed by decomposing/converting into reduction sum (ttnn.sum op).
 // If ttnn.sum output is zero then reduce_or output is false; otherwise the
 // output is true.
+// This is a performance optimization specific to TTNN backend.
+namespace {
+struct ReductionOrTTNNPattern : public OpConversionPattern<ttir::ReduceOrOp> {
+public:
+  using OpConversionPattern<ttir::ReduceOrOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ReduceOrOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    RankedTensorType reduceOutputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(op.getResult().getType()));
+
+    rewriter.replaceOpWithNewOp<ttir::SumOp>(
+        op, reduceOutputType, adaptor.getInput(), op.getKeepDim(),
+        op.getDimArgAttr());
+
+    return success();
+  }
+};
+} // namespace
+
+// TTNN complete Decomposition for reduce_or Op.
 namespace {
 struct ReductionOrPattern : public OpConversionPattern<ttir::ReduceOrOp> {
 public:
@@ -2903,7 +2925,8 @@ public:
 
 void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
                                              RewritePatternSet &patterns,
-                                             TypeConverter &typeConverter) {
+                                             TypeConverter &typeConverter,
+                                             DecompMode decompConfig) {
   patterns.add<PoolingToPool2dPattern>(typeConverter, ctx);
   patterns.add<PoolingToFullOp>(typeConverter, ctx);
   patterns.add<IndexToSliceConversionPattern>(typeConverter, ctx);
@@ -2914,7 +2937,6 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<ArangeForceLastDimensionPattern>(typeConverter, ctx);
   patterns.add<DotGeneralToMatmulConversionPattern>(typeConverter, ctx);
   patterns.add<ReductionAndPattern>(typeConverter, ctx);
-  patterns.add<ReductionOrPattern>(typeConverter, ctx);
   patterns.add<BatchNormInferencePattern>(typeConverter, ctx);
   patterns.add<BatchNormTrainingPattern>(typeConverter, ctx);
   patterns.add<QuantizeOpPattern>(typeConverter, ctx);
@@ -2922,6 +2944,17 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<RequantizeOpPattern>(typeConverter, ctx);
   patterns.add<ReductionProdPattern>(typeConverter, ctx);
   patterns.add<ReverseOpConversionPattern>(typeConverter, ctx);
+
+  // Configure which ReductionPattern to add base on the configuration
+  switch (decompConfig) {
+  case DecompMode::CPUFallback:
+    patterns.add<ReductionOrPattern>(typeConverter, ctx);
+    break;
+  case DecompMode::TTNN:
+  case DecompMode::TTMetal:
+    patterns.add<ReductionOrTTNNPattern>(typeConverter, ctx);
+    break;
+  }
 }
 
 } // namespace mlir::tt
