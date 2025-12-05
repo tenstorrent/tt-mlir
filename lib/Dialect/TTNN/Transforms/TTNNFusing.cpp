@@ -443,8 +443,8 @@ public:
     patterns.add<TTNNConv2dWithActivation<ReluOp>,
                  TTNNConv2dWithActivation<Relu6Op>,
                  TTNNConv2dWithActivation<SiluOp>,
-                 TTNNConv2dWithActivation<SigmoidOp>, FuseTTNNReduceOrPattern,
-                 TTNNMatmulAndLinearWithActivation<MatmulOp, SigmoidOp>,
+                 TTNNConv2dWithActivation<SigmoidOp>
+                     TTNNMatmulAndLinearWithActivation<MatmulOp, SigmoidOp>,
                  TTNNMatmulAndLinearWithActivation<LinearOp, SigmoidOp>>(
         &getContext());
 
