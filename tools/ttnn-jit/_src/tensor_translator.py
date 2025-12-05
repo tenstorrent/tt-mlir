@@ -235,6 +235,19 @@ def _get_virtual_grid_shape(layout):
         )
 
 
+def _infer_block_sharding_grid(shape):
+    """Infer a (height, width) grid shape for block sharding the given logical tensor shape"""
+    assert len(shape) == 2, f"Only 2D shapes are supported"
+    tile_shape = [shape[0] // 32, shape[1] // 32]
+    grid = []
+    for dim in tile_shape:
+        for grid_dim in reversed(range(1, 9)):
+            if dim % grid_dim == 0:
+                grid.append(grid_dim)
+                break
+    return grid
+
+
 def _get_output_grid_shape(op_name, output_shape, input_layouts):
     if op_name == "matmul":
         in0_grid = _get_virtual_grid_shape(input_layouts[0])
@@ -244,14 +257,7 @@ def _get_output_grid_shape(op_name, output_shape, input_layouts):
         ):
             return [in0_grid[0], in1_grid[1]]
         else:
-            output_tile_shape = [output_shape[0] // 32, output_shape[1] // 32]
-            grid = []
-            for dim in output_tile_shape:
-                for grid_dim in reversed(range(1, 9)):
-                    if dim % grid_dim == 0:
-                        grid.append(grid_dim)
-                        break
-            return grid
+            return _infer_block_sharding_grid(output_shape)
     else:
         return _get_virtual_grid_shape(input_layouts[0])
 
