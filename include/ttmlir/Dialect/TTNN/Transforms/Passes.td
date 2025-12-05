@@ -356,4 +356,63 @@ def TTNNCollectPerfMetrics: Pass<"ttnn-collect-perf-metrics", "::mlir::ModuleOp"
   ];
 }
 
+def TTNNIsolateOps: Pass<"ttnn-isolate-ops", "::mlir::ModuleOp"> {
+  let summary = "Isolate TTNN operations into minimal separate functions.";
+  let description = [{
+    This pass isolates individual TTNN operations by extracting each target
+    operation into its own minimal function. Each isolated function contains:
+    - Only the target operation itself
+    - Function arguments with the final tensor types (after any preprocessing)
+    - A return operation for the result
+
+    The pass does NOT include preprocessing operations (like reshape, to_layout,
+    from_device, etc.) in the isolated functions. Instead, the function signature
+    captures the tensor types after preprocessing has been applied.
+
+    This transformation is useful for:
+    - Generating parametrized unit tests for individual operations
+    - Extracting operation configurations for test generation
+    - Creating minimal reproducers for debugging
+    - Analyzing individual operation behavior in isolation
+
+    Example:
+    ```mlir
+    func.func @model(%arg0: tensor<32x32x32x64xbf16>, ...) {
+      %0 = ttnn.get_device() : () -> !ttnn.device
+      %1 = ttnn.reshape(%arg0) : (...) -> tensor<1x1x32768x64xbf16>
+      %2 = ttnn.to_layout(%arg2) : (...) -> tensor<1x1x1x64xbf16>
+      %3 = ttnn.from_device(%2) : (...) -> tensor<1x1x1x64xbf16>
+      %4 = ttnn.to_layout(%1) : (...) -> tensor<1x1x32768x64xbf16>
+      %5 = ttnn.conv2d(%4, %arg1, %3, %0) : (...) -> tensor<1x1x28800x64xbf16>
+      %6 = ttnn.reshape(%5) : (...) -> tensor<32x30x30x64xbf16>
+      return %6
+    }
+    ```
+
+    After the pass with `--filter-ops="conv2d"`:
+    ```mlir
+    func.func private @conv2d_0(
+      %arg0: tensor<1x1x32768x64xbf16>,  // Final type after preprocessing
+      %arg1: tensor<64x1x3x3xbf16>,
+      %arg2: tensor<1x1x1x64xbf16>,
+      %arg3: !ttnn.device
+    ) -> tensor<1x1x28800x64xbf16> {
+      %0 = ttnn.conv2d(%arg0, %arg1, %arg2, %arg3) <{...}> : (...) -> (...)
+      return %0
+    }
+    ```
+
+    The isolated function arguments have the exact types needed by the operation,
+    making it easy to parametrize tests from multiple operation instances.
+  }];
+
+  let options = [
+    ListOption<"filterOps", "filter-ops", "std::string",
+               "List of operation names to isolate (e.g., conv2d, matmul). "
+               "If empty, isolates all non-utility operations.">,
+    Option<"preserveOriginal", "preserve-original", "bool", /*default=*/"false",
+           "Keep the original function in addition to isolated functions">
+  ];
+}
+
 #endif

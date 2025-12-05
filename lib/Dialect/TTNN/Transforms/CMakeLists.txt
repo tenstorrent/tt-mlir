@@ -13,6 +13,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNDecomposeLayouts.cpp
         TTNNEmitPyWorkarounds.cpp
         TTNNFusing.cpp
+        TTNNIsolateOps.cpp
         TTNNLayout.cpp
         TTNNToCpp.cpp
         TTNNToPython.cpp
