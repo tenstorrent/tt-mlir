@@ -1415,11 +1415,6 @@ struct EmitPyTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
                  attr.getEnableWeightsDoubleBuffer());
       firstElement = false;
     }
-    if (attr.getInPlace()) {
-      rso << (firstElement ? "" : ", ") << "in_place = "
-          << EmitPyTypeConverter<bool>::convert(attr.getInPlace());
-      firstElement = false;
-    }
     if (attr.getEnableKernelStrideFolding()) {
       rso << (firstElement ? "" : ", ") << "enable_kernel_stride_folding="
           << EmitPyTypeConverter<bool>::convert(
