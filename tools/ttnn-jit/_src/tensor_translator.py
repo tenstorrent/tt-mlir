@@ -239,13 +239,6 @@ def _get_output_grid_shape(op_name, output_shape, input_layouts):
     if op_name == "matmul":
         in0_grid = _get_virtual_grid_shape(input_layouts[0])
         in1_grid = _get_virtual_grid_shape(input_layouts[1])
-        print(f"in0_grid: {in0_grid}, in1_grid: {in1_grid}")
-        print(
-            f"input_layouts[0]: {input_layouts[0]}, input_layouts[1]: {input_layouts[1]}"
-        )
-        print(
-            f"_is_dram_layout(input_layouts[0]): {_is_dram_layout(input_layouts[0])}, _is_dram_layout(input_layouts[1]): {_is_dram_layout(input_layouts[1])}"
-        )
         if not _is_dram_layout(input_layouts[0]) and not _is_dram_layout(
             input_layouts[1]
         ):
