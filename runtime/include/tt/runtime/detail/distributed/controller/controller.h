@@ -162,6 +162,11 @@ public:
   ::tt::runtime::TensorDesc
   getTensorDesc(const ::tt::runtime::Tensor &tensorHandle);
 
+  bool hasLayout(const ::tt::runtime::Tensor &tensor,
+                 const ::tt::runtime::Layout &layout);
+  bool isProgramCacheEnabled(const ::tt::runtime::Device &meshDevice);
+  void clearProgramCache(const ::tt::runtime::Device &meshDevice);
+
   ShutdownResult shutdown();
 
 private:
@@ -299,6 +304,15 @@ private:
       std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
 
   void handleGetTensorDescResponse(
+      const std::vector<SizedBuffer> &responseBuffers,
+      std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+  void handleHasLayoutResponse(
+      const std::vector<SizedBuffer> &responseBuffers,
+      std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+  void handleIsProgramCacheEnabledResponse(
+      const std::vector<SizedBuffer> &responseBuffers,
+      std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+  void handleClearProgramCacheResponse(
       const std::vector<SizedBuffer> &responseBuffers,
       std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
 

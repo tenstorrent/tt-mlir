@@ -653,6 +653,46 @@ void CommandExecutor::execute(uint64_t commandId,
   responseQueue_.push(std::move(responseBuilder));
 }
 
+// TODO - this does not really work - need to serialize the layout properly
+void CommandExecutor::execute(uint64_t commandId,
+                              const fb::HasLayoutCommand *command) {
+  uint64_t layoutGlobalId = command->layout_global_id();
+  bool hasLayout = layoutPool_.contains(layoutGlobalId);
+
+  std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
+      buildResponse(ResponseFactory::buildHasLayoutResponse, commandId,
+                    hasLayout);
+
+  responseQueue_.push(std::move(responseBuilder));
+}
+
+void CommandExecutor::execute(uint64_t commandId,
+                              const fb::IsProgramCacheEnabledCommand *command) {
+  uint32_t deviceGlobalId = command->device()->global_id();
+  ::tt::runtime::Device device = devicePool_.at(deviceGlobalId);
+
+  bool isEnabled = ::tt::runtime::isProgramCacheEnabled(device);
+
+  std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
+      buildResponse(ResponseFactory::buildIsProgramCacheEnabledResponse,
+                    commandId, isEnabled);
+
+  responseQueue_.push(std::move(responseBuilder));
+}
+
+void CommandExecutor::execute(uint64_t commandId,
+                              const fb::ClearProgramCacheCommand *command) {
+  uint32_t deviceGlobalId = command->device()->global_id();
+  ::tt::runtime::Device device = devicePool_.at(deviceGlobalId);
+
+  ::tt::runtime::clearProgramCache(device);
+
+  std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
+      buildResponse(ResponseFactory::buildClearProgramCacheResponse, commandId);
+
+  responseQueue_.push(std::move(responseBuilder));
+}
+
 void CommandExecutor::executeCommand(const fb::Command *command) {
   switch (command->type_type()) {
   case fb::CommandType::ConfigureRuntimeContextCommand: {
@@ -749,6 +789,17 @@ void CommandExecutor::executeCommand(const fb::Command *command) {
   case fb::CommandType::GetTensorDescCommand: {
     return execute(command->command_id(),
                    command->type_as_GetTensorDescCommand());
+  }
+  case fb::CommandType::HasLayoutCommand: {
+    return execute(command->command_id(), command->type_as_HasLayoutCommand());
+  }
+  case fb::CommandType::IsProgramCacheEnabledCommand: {
+    return execute(command->command_id(),
+                   command->type_as_IsProgramCacheEnabledCommand());
+  }
+  case fb::CommandType::ClearProgramCacheCommand: {
+    return execute(command->command_id(),
+                   command->type_as_ClearProgramCacheCommand());
   }
   case fb::CommandType::NONE: {
     LOG_FATAL("Unhandled command type: ",

@@ -114,6 +114,15 @@ public:
   buildGetTensorDescResponse(::flatbuffers::FlatBufferBuilder &fbb,
                              uint64_t commandId,
                              const ::tt::runtime::TensorDesc &tensorDesc);
+  static void buildHasLayoutResponse(::flatbuffers::FlatBufferBuilder &fbb,
+                                     uint64_t commandId, bool hasLayout);
+  static void
+  buildIsProgramCacheEnabledResponse(::flatbuffers::FlatBufferBuilder &fbb,
+                                     uint64_t commandId, bool isEnabled);
+
+  static void
+  buildClearProgramCacheResponse(::flatbuffers::FlatBufferBuilder &fbb,
+                                 uint64_t commandId);
 };
 
 } // namespace tt::runtime::distributed::worker

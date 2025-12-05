@@ -257,6 +257,27 @@ void ResponseFactory::buildGetTensorDescResponse(
   BUILD_RESPONSE(GetTensorDesc, fbb, commandId, tensorDescFlatOffset);
 }
 
+void ResponseFactory::buildHasLayoutResponse(
+    ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId, bool hasLayout) {
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  BUILD_RESPONSE(HasLayout, fbb, commandId, hasLayout);
+}
+
+void ResponseFactory::buildIsProgramCacheEnabledResponse(
+    ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId, bool isEnabled) {
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  BUILD_RESPONSE(IsProgramCacheEnabled, fbb, commandId, isEnabled);
+}
+
+void ResponseFactory::buildClearProgramCacheResponse(
+    ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId) {
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  BUILD_RESPONSE(ClearProgramCache, fbb, commandId);
+}
+
 #undef BUILD_RESPONSE_IMPL
 #undef BUILD_RESPONSE
 #undef BUILD_RESPONSE_DIRECT
