@@ -48,8 +48,8 @@ public:
 // IMPORTANT: If this test FAILS (EXPECT_DEATH fails because code doesn't
 // crash), it means the metal issue
 // (https://github.com/tenstorrent/tt-metal/pull/33777) is fixed and uplifted.
-// In that case, all changes from this PR should be reverted (the check in
-// MatmulOp::getOpConstraints and this test).
+// In that case, all changes from this PR should be reverted:
+// https://github.com/tenstorrent/tt-mlir/pull/6169
 TEST_F(OpModelTest, MatmulBlockShardedInputWithPadding) {
   llvm::SmallVector<int64_t> inputShapeA = {4096, 16};
   TTNNLayoutAttr inputLayoutA = CreateTiledLayout(
