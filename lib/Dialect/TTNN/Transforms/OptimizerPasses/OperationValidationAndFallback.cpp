@@ -2,10 +2,12 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TTNN/Analysis/Conv2dConfigSearchSpace.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfigAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/Utils/Conv2dConfigParams.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
@@ -106,6 +108,13 @@ ToLayoutOp createToLayoutOp(OpBuilder &builder, Location loc,
 bool tryFallbacks(Operation *operation,
                   const std::vector<TTNNLayoutAttr> &originalInputLayouts,
                   const OpConfig &config);
+
+// Try config fallbacks for Conv2d-like operations
+bool tryConfigFallbacks(Operation *operation,
+                        const std::vector<TTNNLayoutAttr> &originalInputLayouts,
+                        const OpConfig &originalConfig);
+
+void applyConfigChange(Operation *operation, Conv2dConfigAttr newConfig);
 } // namespace fallbacks
 
 class TTNNOperationValidationAndFallback
@@ -208,7 +217,26 @@ public:
           }
         } else {
           // Try fallback configurations
-          if (fallbacks::tryFallbacks(operation, inputLayouts, config)) {
+          // For OOM errors, try config fallbacks first as they're cheaper (no
+          // ToLayout ops)
+          bool fixed = false;
+          if (originalResult.status ==
+              op_constraint_validation::ValidationStatus::OutOfMemoryError) {
+            TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+                         "OOM error detected, trying config fallbacks first "
+                         "for operation {} at {}",
+                         operation->getName(), operation->getLoc());
+            fixed =
+                fallbacks::tryConfigFallbacks(operation, inputLayouts, config);
+          }
+
+          // If config fallbacks didn't work or it wasn't an OOM error, try
+          // layout fallbacks
+          if (!fixed) {
+            fixed = fallbacks::tryFallbacks(operation, inputLayouts, config);
+          }
+
+          if (fixed) {
             operationsFixed++;
             TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
                          "Operation {} at {} fixed with fallback configuration",
@@ -686,6 +714,122 @@ ToLayoutOp createToLayoutOp(OpBuilder &builder, Location loc,
                                                 targetLayout.getBufferType()),
                             /*shardSpec=*/std::nullopt));
 }
+
+// Try config fallbacks for Conv2d-like operations
+bool tryConfigFallbacks(Operation *operation,
+                        const std::vector<TTNNLayoutAttr> &originalInputLayouts,
+                        const OpConfig &originalConfig) {
+  // Only applicable to operations with Conv2dAttrs
+  if (!std::holds_alternative<Conv2dAttrs>(originalConfig.opSpecificAttrs)) {
+    return false;
+  }
+
+  const auto &conv2dAttrs =
+      std::get<Conv2dAttrs>(originalConfig.opSpecificAttrs);
+  if (!conv2dAttrs.conv2dConfig.has_value()) {
+    return false;
+  }
+
+  Conv2dConfigAttr originalConfigAttr = conv2dAttrs.conv2dConfig.value();
+
+  // Create search space focused on act_block_h_override
+  // Try all multiples of 32 from 1024 down to 32
+  Conv2dConfigSearchSpace searchSpace;
+  searchSpace.actBlockHOverride.push_back(0);
+  for (uint32_t val = 1024; val >= 32; val -= 32) {
+    searchSpace.actBlockHOverride.push_back(val);
+  }
+
+  TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+               "Trying config fallbacks for operation {} at {} with {} "
+               "act_block_h_override values",
+               operation->getName(), operation->getLoc(),
+               searchSpace.actBlockHOverride.size());
+
+  // Use Conv2dConfigParams to unset act_block_h_override so the generator
+  // will iterate through the search space values
+  Conv2dConfigParams configParams(originalConfigAttr);
+  configParams.actBlockHOverride = std::nullopt; // Unset this field
+  Conv2dConfigAttr baseConfig =
+      configParams.buildConv2dConfigAttr(operation->getContext());
+
+  // Use the Conv2dConfigGenerator to iterate through configs
+  auto filterOutFn = [](const Conv2dConfigAttr &) { return false; };
+
+  Conv2dConfigAttr workingConfig = nullptr;
+  op_constraint_validation::ValidationResult workingResult;
+
+  // Use TypeSwitch to handle both Conv2dOp and ConvTranspose2dOp
+  bool foundConfig =
+      llvm::TypeSwitch<Operation *, bool>(operation)
+          .Case<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp>([&](auto convOp) {
+            Conv2dConfigGenerator configGenerator(&convOp, baseConfig,
+                                                  searchSpace, filterOutFn);
+
+            // Iterate through generated configs
+            while (Conv2dConfigAttr configAttr =
+                       configGenerator.getNextConfig()) {
+              // Test this config
+              OpConfig testConfig = originalConfig;
+              auto &testConv2dAttrs =
+                  std::get<Conv2dAttrs>(testConfig.opSpecificAttrs);
+              testConv2dAttrs.conv2dConfig = configAttr;
+
+              auto result = testFallbackCombination(operation, testConfig,
+                                                    originalInputLayouts);
+
+              if (result.isSuccess()) {
+                workingConfig = configAttr;
+                workingResult = result;
+                return true;
+              }
+
+              TTMLIR_TRACE(ttmlir::LogComponent::OpValidation,
+                           "Config fallback failed (status: {}): {}",
+                           static_cast<int>(result.status),
+                           result.errorMessage);
+            }
+            return false;
+          })
+          .Default([](Operation *) { return false; });
+
+  if (!foundConfig) {
+    return false;
+  }
+
+  if (workingConfig) {
+    // Found a working config, apply it
+    applyConfigChange(operation, workingConfig);
+
+    if (originalConfig.outputLayout &&
+        workingResult.actualOutputLayout != originalConfig.outputLayout) {
+      applyOutputLayoutRevert(operation, workingResult.actualOutputLayout,
+                              originalConfig.outputLayout);
+    }
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+                 "Found working config fallback for operation {} at {}",
+                 operation->getName(), operation->getLoc());
+    return true;
+  }
+
+  return false;
+}
+
+// Apply config change to the operation
+void applyConfigChange(Operation *operation, Conv2dConfigAttr newConfig) {
+  if (auto conv2dOp = mlir::dyn_cast<ttnn::Conv2dOp>(operation)) {
+    conv2dOp.setConv2dConfigAttr(newConfig);
+  } else if (auto convTranspose2dOp =
+                 mlir::dyn_cast<ttnn::ConvTranspose2dOp>(operation)) {
+    convTranspose2dOp.setConv2dConfigAttr(newConfig);
+  }
+
+  TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+               "Applied config change to operation {} at {}: new config = {}",
+               operation->getName(), operation->getLoc(), newConfig);
+}
+
 } // namespace fallbacks
 
 } // namespace mlir::tt::ttnn
