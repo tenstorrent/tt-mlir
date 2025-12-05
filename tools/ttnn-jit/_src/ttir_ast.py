@@ -249,7 +249,7 @@ class TTIRCompiler(ast.NodeVisitor):
             layout=layout_attr,
         )
         op.attributes["ttnn.hoist_generic_via_d2m"] = UnitAttr.get(self.ctx)
-        return op
+        return op.result
 
     def visit(self, node: ast.AST, **kwargs):
         if any(

@@ -618,7 +618,7 @@ class GraphToIRTranslator:
                 self.ctx
             )
 
-            return full_tensor
+            return full_tensor.result
 
     def compile(self) -> Module:
         """
