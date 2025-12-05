@@ -12,6 +12,8 @@ import os
 import logging
 import torch
 
+from ttmlir.ir import Module
+
 from . import ttrt_loader
 
 
@@ -24,9 +26,10 @@ def get_resolved_ir_dumps_dir():
     return str(Path(IR_DUMPS_DIR).expanduser().resolve())
 
 
-def parse_mlir_str(module_str):
+def parse_mlir_file(file_path):
     with ttmlir.ir.Context() as ctx:
-        module = ttmlir.ir.Module.parse(module_str, ctx)
+        # Use parseFile to preserve file location information
+        module = Module.parseFile(file_path, ctx)
         return module
 
 
