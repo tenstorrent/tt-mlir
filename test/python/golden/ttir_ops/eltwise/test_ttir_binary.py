@@ -185,12 +185,32 @@ binary_ops = [
 
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 @pytest.mark.parametrize("test_fn", binary_ops)
 def test_binary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
+    # gelu_backward ops not implemented for Int
+    if test_fn in (gelu_backward, gelu_backward_tanh) and dtype == torch.int32:
+        pytest.xfail("GeluBackwardKernelImpl not implemented for Int")
+
+    # atan2 fails for i32 on ttnn
+    if test_fn == atan2 and dtype == torch.int32 and target == "ttnn":
+        pytest.xfail("atan2 not supported for int32 on ttnn")
+
+    # pow fails for i32 on ttnn and ttmetal
+    # if test_fn == pow and dtype == torch.int32 and target in ("ttnn", "ttmetal"):
+    #     pytest.xfail("pow int32 PCC failure")
+
+    # ttmetal does not support int32 binary ops
+    if (
+        test_fn in (add, subtract, multiply, div)
+        and dtype == torch.int32
+        and target == "ttmetal"
+    ):
+        pytest.xfail("ttmetal int32 binary ops PCC failure")
+
     pipeline_options = []
     compile_and_execute_ttir(
         test_fn,

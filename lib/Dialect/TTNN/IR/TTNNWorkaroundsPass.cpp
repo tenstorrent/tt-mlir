@@ -531,7 +531,7 @@ binaryOpDTypeWorkaround(mlir::Operation *op, mlir::Type elementType) {
   // All remaining binary ops.
   // Tracked in :
   // https://github.com/issues/created?issue=tenstorrent%7Ctt-metal%7C25112
-  if (isa<ttnn::DivideOp, ttnn::PowTensorOp>(op)) {
+  if (isa<ttnn::PowTensorOp>(op)) {
     if (dType == mlir::tt::ttcore::DataType::Float32 ||
         dType == mlir::tt::ttcore::DataType::BFloat16 ||
         dType == mlir::tt::ttcore::DataType::BFP_BFloat8 ||

@@ -17,6 +17,10 @@ void run(const ::tt::target::ttnn::EltwiseBinaryCompositeOp *op,
 // Handles the binary composite ops with LHS=tensor and RHS=scalar.
 void run(const ::tt::target::ttnn::EltwiseBinaryCompositeScalarOp *op,
          ProgramContext &context);
+
+// Handles the div operation with round_mode parameter.
+void run(const ::tt::target::ttnn::EltwiseBinaryCompositeDivOp *op,
+         ProgramContext &context);
 } // namespace tt::runtime::ttnn::operations::eltwise::binary
 
 #endif

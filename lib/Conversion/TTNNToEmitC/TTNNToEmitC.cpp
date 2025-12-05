@@ -4260,6 +4260,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
       EltwiseBinaryCompositeOpConversionPattern<mlir::tt::ttnn::RemainderOp>,
       EltwiseBinaryNGCompositeOpConversionPattern<mlir::tt::ttnn::PowTensorOp>,
       EltwiseBinaryCompositeOpConversionPattern<mlir::tt::ttnn::Atan2Op>,
+      EltwiseBinaryCompositeOpConversionPattern<mlir::tt::ttnn::DivOp>,
       PowScalarOpConversionPattern>(typeConverter, ctx);
 
   // Experimental binary backward ops

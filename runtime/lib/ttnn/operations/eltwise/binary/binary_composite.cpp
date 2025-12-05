@@ -122,6 +122,37 @@ void run(const ::tt::target::ttnn::EltwiseBinaryCompositeOp *op,
   }
 }
 
+// Handles the div operation with round_mode parameter
+void run(const ::tt::target::ttnn::EltwiseBinaryCompositeDivOp *op,
+         ProgramContext &context) {
+  ProgramTensorPool &tensorPool = context.getTensorPool();
+  ::ttnn::Tensor *lhs = &(tensorPool.getTTNNTensorAndValidate(op->lhs()));
+  ::ttnn::Tensor *rhs = &(tensorPool.getTTNNTensorAndValidate(op->rhs()));
+
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          op->memory_config());
+  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
+                 outputMemoryConfig.has_value(),
+             "Memory config must exist for device tensors");
+
+  std::optional<std::string> roundMode = std::nullopt;
+  if (op->round_mode()) {
+    roundMode = op->round_mode()->str();
+  }
+
+  std::optional<::ttnn::DataType> outputDtype = std::nullopt;
+  if (op->output_dtype()) {
+    outputDtype =
+        ::tt::runtime::ttnn::utils::toTTNNDataType(*(op->output_dtype()));
+  }
+
+  ::ttnn::Tensor out = ::ttnn::div(*lhs, *rhs, false, roundMode, outputDtype,
+                                   outputMemoryConfig);
+
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+}
+
 // Handles the binary composite ops with LHS=tensor and RHS=scalar.
 void run(const ::tt::target::ttnn::EltwiseBinaryCompositeScalarOp *op,
          ProgramContext &context) {

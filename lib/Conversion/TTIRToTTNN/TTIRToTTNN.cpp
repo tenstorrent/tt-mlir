@@ -279,6 +279,42 @@ public:
 } // namespace
 
 namespace {
+// Custom conversion pattern for DivOp that lowers to different TTNN ops
+// based on element type:
+// - Integer types: lower to ttnn::DivOp (integer division)
+// - Float types: lower to ttnn::DivideOp (floating-point division)
+class DivOpConversionPattern : public OpConversionPattern<ttir::DivOp> {
+public:
+  using OpConversionPattern<ttir::DivOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::DivOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto resultType = mlir::cast<RankedTensorType>(op.getType());
+    Type elementType = resultType.getElementType();
+
+    if (elementType.isIntOrIndex()) {
+      auto convertedType = this->getTypeConverter()->convertType(op.getType());
+      auto outputLayoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
+          mlir::cast<RankedTensorType>(convertedType).getEncoding());
+      ttcore::DataTypeAttr outputDtypeAttr = ttcore::DataTypeAttr::get(
+          rewriter.getContext(), outputLayoutAttr.getDataType());
+
+      rewriter.replaceOpWithNewOp<ttnn::DivOp>(
+          op, convertedType, adaptor.getLhs(), adaptor.getRhs(),
+          /*accurate_mode=*/false, /*round_mode=*/nullptr, outputDtypeAttr,
+          /*memory_config=*/nullptr);
+    } else {
+      rewriter.replaceOpWithNewOp<ttnn::DivideOp>(
+          op, this->getTypeConverter()->convertType(op.getType()),
+          adaptor.getLhs(), adaptor.getRhs());
+    }
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 template <typename TTIROpTy, typename TTNNOpTy,
           typename OpAdaptor = typename TTIROpTy::Adaptor>
 class ReductionOpConversionPattern : public OpConversionPattern<TTIROpTy> {
@@ -2442,7 +2478,6 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ElementwiseBinaryOpConversionPattern<ttir::LogicalRightShiftOp, ttnn::LogicalRightShiftOp>,
            ElementwiseBinaryOpConversionPattern<ttir::SubtractOp, ttnn::SubtractOp>,
            ElementwiseBinaryOpConversionPattern<ttir::MultiplyOp, ttnn::MultiplyOp>,
-           ElementwiseBinaryOpConversionPattern<ttir::DivOp, ttnn::DivideOp>,
            ElementwiseBinaryOpConversionPattern<ttir::EqualOp, ttnn::EqualOp>,
            ElementwiseBinaryOpConversionPattern<ttir::NotEqualOp, ttnn::NotEqualOp>,
            ElementwiseBinaryOpConversionPattern<ttir::GreaterEqualOp, ttnn::GreaterEqualOp>,
@@ -2551,7 +2586,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ScaledDotProductAttentionDecodeOpConversionPattern,
            PagedScaledDotProductAttentionDecodeOpConversionPattern,
            SplitQueryKeyValueAndSplitHeadsOpConversionPattern,
-           GeluBackwardOpConversionPattern
+           GeluBackwardOpConversionPattern,
+           DivOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on
