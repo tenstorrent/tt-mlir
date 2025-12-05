@@ -30,7 +30,8 @@
   transpose_shards = true,
   output_layout = tile,
   enable_act_double_buffer = false,
-  enable_weights_double_buffer = false
+  enable_weights_double_buffer = false,
+  in_place = false
 >
 
 module attributes {} {
