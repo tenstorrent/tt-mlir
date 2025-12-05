@@ -403,6 +403,33 @@ createConv2dSliceConfig(const ::tt::target::ttnn::Conv2dSliceConfig *config) {
   return computeKernelConfig;
 }
 
+::ttnn::operations::transformer::SDPAProgramConfig
+createSDPAProgramConfig(const ::tt::target::ttnn::SDPAConfig *config) {
+  ::ttnn::operations::transformer::SDPAProgramConfig sdpaConfig;
+
+  sdpaConfig.compute_with_storage_grid_size =
+      ::tt::runtime::ttnn::utils::toTTNNCoreCoord(
+          *config->compute_with_storage_grid_size());
+
+  if (config->sub_core_grids()) {
+    sdpaConfig.sub_core_grids = ::tt::runtime::ttnn::utils::toTTNNCoreRangeSet(
+        *config->sub_core_grids());
+  }
+
+  sdpaConfig.q_chunk_size = config->q_chunk_size();
+  sdpaConfig.k_chunk_size = config->k_chunk_size();
+
+  if (config->exp_approx_mode()) {
+    sdpaConfig.exp_approx_mode = *config->exp_approx_mode();
+  }
+
+  if (config->max_cores_per_head_batch()) {
+    sdpaConfig.max_cores_per_head_batch = *config->max_cores_per_head_batch();
+  }
+
+  return sdpaConfig;
+}
+
 template <typename T>
 static ::ttnn::Tensor toTTNNTensorImpl(
     const ::flatbuffers::Vector<uint8_t> *input, const ::ttnn::Shape &shape,

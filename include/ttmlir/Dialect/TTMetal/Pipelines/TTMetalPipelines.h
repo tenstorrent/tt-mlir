@@ -162,6 +162,12 @@ struct TTIRToTTMetalPipelineOptions
       llvm::cl::desc("Target data format for global conversion: "
                      "f32, bf16, or bfp_bf8. Disabled by default."),
       llvm::cl::init("")};
+
+  // Option to enable/disable operation scheduling optimization.
+  Option<bool> enableOpScheduler{
+      *this, "enable-op-scheduler",
+      llvm::cl::desc("Enable operation scheduling optimization"),
+      llvm::cl::init(true)};
 };
 
 void createTTIRBufferizationPipeline(

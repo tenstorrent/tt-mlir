@@ -121,7 +121,6 @@ def create_sharded_tile_tensor(
         shard_spec=shard_spec,
     )
 
-    print("Armin: creating tensor with memory config", memory_config)
     return ttnn.from_torch(
         torch_tensor,
         dtype=ttnn_dtype,
@@ -199,18 +198,17 @@ def run_op_test(
             create_dram_tensor(device, shape, dtype, ttnn_dtype=ttnn_dtype)
             for _ in range(num_inputs)
         ]
-    print("created inputs:", inputs)
     golden_op = _get_ttnn_op(op)
 
     op_jit = ttnn_jit.jit(
         debug=True,
-        max_grid=max_grid,
         enable_cache=enable_cache,
         graph_capture=graph_capture,
     )(op)
     output_tensor = op_jit(*inputs)
     golden_tensor = (golden_op or op)(*inputs)
 
+    print("created inputs:\n", inputs)
     assert memory_configs_equal(
         output_tensor.memory_config(), golden_tensor.memory_config()
     )

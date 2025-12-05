@@ -3775,6 +3775,52 @@ mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
   return success();
 }
 
+void mlir::tt::ttir::UpdateCacheOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  patterns.add(
+      +[](mlir::tt::ttir::UpdateCacheOp op, mlir::PatternRewriter &rewriter) {
+        auto cacheShape = op.getCache().getType().getShape();
+        auto inputShape = op.getInput().getType().getShape();
+        auto updateIndexShape = op.getUpdateIndex().getType().getShape();
+
+        auto numUsers = cacheShape[0];
+        auto numHeads = cacheShape[1];
+        auto headDim = cacheShape[3];
+
+        TypedValue<RankedTensorType> newInput = op.getInput();
+
+        // Permute input if in the format [1, num_heads, num_users, head_dim]
+        if (inputShape[2] == numUsers && inputShape[1] == numHeads) {
+          llvm::SmallVector<int64_t> newInputShape = {1, numUsers, numHeads,
+                                                      headDim};
+          auto newInputType = RankedTensorType::get(
+              newInputShape, newInput.getType().getElementType(),
+              newInput.getType().getEncoding());
+          newInput = rewriter.create<PermuteOp>(
+              op.getLoc(), newInputType, newInput,
+              rewriter.getDenseI64ArrayAttr({0, 2, 1, 3}));
+        }
+
+        // If the update index shape is [1] then repeat to num users
+        TypedValue<RankedTensorType> newUpdateIndex = op.getUpdateIndex();
+        if (updateIndexShape[0] == 1) {
+          auto newUpdateIndexShape = {numUsers};
+          auto newUpdateIndexType = RankedTensorType::get(
+              newUpdateIndexShape, newUpdateIndex.getType().getElementType(),
+              newUpdateIndex.getType().getEncoding());
+          auto repeatDims = rewriter.getDenseI64ArrayAttr({numUsers});
+          newUpdateIndex = rewriter.create<RepeatOp>(
+              op.getLoc(), newUpdateIndexType, newUpdateIndex, repeatDims);
+        }
+
+        rewriter.replaceOpWithNewOp<ttir::PagedUpdateCacheOp>(
+            op, op.getType(), op.getCache(), newInput, newUpdateIndex, false,
+            nullptr);
+
+        return mlir::success();
+      });
+}
+
 //===----------------------------------------------------------------------===//
 // PagedUpdateCacheOp
 //===----------------------------------------------------------------------===//
@@ -3783,12 +3829,12 @@ mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
   auto cacheType = getCache().getType();
   auto inputType = getInput().getType();
   auto updateIndexType = getUpdateIndex().getType();
-  auto pageTableType = getPageTable().getType();
 
   auto cacheShape = cacheType.getShape();
   auto inputShape = inputType.getShape();
   auto updateIndexShape = updateIndexType.getShape();
-  auto pageTableShape = pageTableType.getShape();
+
+  bool usingStaticCache = getPageTable() == nullptr;
 
   if (cacheShape.size() != 4) {
     return emitOpError("Cache tensor must be a 4D tensor");
@@ -3802,15 +3848,11 @@ mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
     return emitOpError("Update index tensor must be a 1D tensor");
   }
 
-  if (pageTableShape.size() != 2) {
-    return emitOpError("Page table tensor must be a 2D tensor");
-  }
-
   int64_t blockSize = cacheShape[2];
   int64_t headDim = cacheShape[3];
   int64_t numUsers = updateIndexShape[0];
 
-  if (blockSize % ttnn::TILE_HEIGHT != 0) {
+  if (!usingStaticCache && blockSize % ttnn::TILE_HEIGHT != 0) {
     return emitOpError("Block size must be divisible by 32, got " +
                        std::to_string(blockSize));
   }
@@ -3834,13 +3876,21 @@ mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
                        std::to_string(inputShape[3]));
   }
 
-  if (pageTableShape[0] != numUsers) {
-    return emitOpError("Page table tensor must have dim 0 be equal to the "
-                       "number of users (determined by update index shape): " +
-                       std::to_string(numUsers) + ", got " +
-                       std::to_string(pageTableShape[0]));
-  }
+  if (!usingStaticCache) {
+    auto pageTableType = getPageTable().getType();
+    auto pageTableShape = pageTableType.getShape();
+    if (pageTableShape.size() != 2) {
+      return emitOpError("Page table tensor must be a 2D tensor");
+    }
 
+    if (pageTableShape[0] != numUsers) {
+      return emitOpError(
+          "Page table tensor must have dim 0 be equal to the "
+          "number of users (determined by update index shape): " +
+          std::to_string(numUsers) + ", got " +
+          std::to_string(pageTableShape[0]));
+    }
+  }
   return success();
 }
 
@@ -4773,10 +4823,6 @@ mlir::tt::ttir::ScaledDotProductAttentionDecodeOp::verify() {
       return emitOpError("Attention mask sequence length must match key/value "
                          "sequence length");
     }
-  } else {
-    if (!getIsCausal()) {
-      return emitOpError("Attention mask is required when is_causal is false");
-    }
   }
 
   return success();
@@ -4915,13 +4961,6 @@ mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp::verify() {
   int64_t seqLen = queryType.getShape()[2];
   int64_t maxSeqLen = keyType.getShape()[2];
 
-  // NOTE: The q_chunk_size is 32 by default in ttnn. This is configurable via
-  // the program config. However, this is not modeled in the ttnn dialect.
-  if (seqLen % 32 != 0) {
-    return emitOpError(
-        "Sequence length must be divisible by q_chunk_size (32)");
-  }
-
   if (keyType.getShape()[0] != batchSize) {
     return emitOpError("Key/Value batch size must match query batch size");
   }
@@ -4958,10 +4997,6 @@ mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp::verify() {
     if (attentionMaskType.getShape()[3] != maxSeqLen) {
       return emitOpError("Attention mask at dim 3 must match key/value "
                          "sequence length (max sequence length)");
-    }
-  } else {
-    if (!getIsCausal()) {
-      return emitOpError("Attention mask is required when is_causal is false");
     }
   }
 
@@ -5009,6 +5044,48 @@ mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp::verify() {
   if (inputShape[rank - 1] != outputShape[rank - 1]) {
     return emitOpError(
         "channel dimension must remain the same between input and output");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// GeluBackwardOp
+//===----------------------------------------------------------------------===//
+
+// GeluBackwardOp verification
+::mlir::LogicalResult mlir::tt::ttir::GeluBackwardOp::verify() {
+  llvm::StringRef approximate = getApproximate();
+
+  if (approximate != "none" && approximate != "tanh") {
+    return emitOpError("approximate attribute must be either 'none' or 'tanh', "
+                       "but got '")
+           << approximate << "'";
+  }
+
+  RankedTensorType lhsType = getLhs().getType();
+  RankedTensorType rhsType = getRhs().getType();
+
+  int64_t lhsRank = lhsType.getRank();
+  int64_t rhsRank = rhsType.getRank();
+
+  if (lhsRank < 2 || lhsRank > 4) {
+    return emitOpError(
+               "gradient tensor (lhs) must have rank 2, 3, or 4, but got rank ")
+           << lhsRank;
+  }
+
+  if (rhsRank < 2 || rhsRank > 4) {
+    return emitOpError(
+               "input tensor (rhs) must have rank 2, 3, or 4, but got rank ")
+           << rhsRank;
+  }
+
+  if (lhsRank != rhsRank) {
+    return emitOpError("gradient tensor (lhs) and input tensor (rhs) must have "
+                       "the same rank, "
+                       "but got lhs rank ")
+           << lhsRank << " and rhs rank " << rhsRank;
   }
 
   return success();

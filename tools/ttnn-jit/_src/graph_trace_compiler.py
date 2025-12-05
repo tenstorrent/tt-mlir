@@ -51,7 +51,6 @@ class GraphToIRTranslator:
         captured_graph: List[Dict[str, Any]],
         function_name: str,
         tensor_args: Dict[str, Any],
-        max_grid: Tuple[int, int],
     ):
         """
         Initialize the translator.
@@ -60,7 +59,6 @@ class GraphToIRTranslator:
             captured_graph: Raw captured graph from graph capture
             function_name: Name for the generated function
             tensor_args: Dictionary mapping argument names to tensor objects
-            max_grid: Maximum grid size for sharded tensors (height, width)
         """
         self.ctx = Context()
         self.cursor = Location.unknown(self.ctx)
@@ -69,7 +67,6 @@ class GraphToIRTranslator:
         self.captured_graph = captured_graph
         self.function_name = function_name
         self.tensor_args = tensor_args
-        self.max_grid = max_grid
         self.levelized_graph_ir: Optional[LevelizedGraph] = None
 
     def _find_optimal_depth(self, max_depth: int = 10) -> Tuple[int, LevelizedGraph]:
@@ -223,7 +220,7 @@ class GraphToIRTranslator:
             tiles_w = math.ceil(shard_w / 32)
             memref_shape = [tiles_h, tiles_w]
             affine_map = _get_collapsed_linear_affine_map(
-                self.ctx, shape, self.max_grid
+                self.ctx, shape, memory_config["grid"]
             )
         elif len(shape) == 1:
             # 1D tensor: use 1D memref and affine map
@@ -354,7 +351,7 @@ class GraphToIRTranslator:
             if i < len(tensor_args_list):
                 tensor_arg = tensor_args_list[i]
                 shape = list(tensor_arg.shape)
-                layout = create_tensor_layout(self.ctx, tensor_arg, self.max_grid)
+                layout = create_tensor_layout(self.ctx, tensor_arg)
                 dtype = mlir_dtype_from_ttnn_dtype(tensor_arg.dtype, self.ctx)
                 tensor_type = RankedTensorType.get(shape, dtype, layout)
                 input_types.append(tensor_type)
@@ -596,6 +593,9 @@ class GraphToIRTranslator:
                 device=device,
                 dtype=dtype_attr,
                 layout=layout_attr,
+            )
+            full_tensor.attributes["ttnn.hoist_generic_via_d2m"] = UnitAttr.get(
+                self.ctx
             )
 
             return full_tensor

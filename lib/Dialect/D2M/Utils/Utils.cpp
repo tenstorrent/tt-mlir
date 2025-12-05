@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
+#include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
@@ -14,69 +15,6 @@
 #include "ttmlir/Utils.h"
 
 namespace mlir::tt::d2m::utils {
-
-// Calculate a reblocking affine map from inputShape to outputShape.
-mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
-                                    mlir::ArrayRef<int64_t> outputShape,
-                                    mlir::MLIRContext *ctx) {
-  assert(inputShape.size() == outputShape.size() && "Rank must be preserved");
-
-  size_t rank = inputShape.size();
-  assert(rank % 2 == 0);
-
-  if (inputShape == outputShape) {
-    return AffineMap::getMultiDimIdentityMap(rank, ctx);
-  }
-
-  size_t halfRank = rank / 2;
-
-  mlir::ArrayRef<int64_t> inputShardShape = inputShape.drop_front(halfRank);
-  mlir::ArrayRef<int64_t> outputGridShape = outputShape.take_front(halfRank);
-  mlir::ArrayRef<int64_t> outputShardShape = outputShape.drop_front(halfRank);
-
-  mlir::SmallVector<mlir::AffineExpr> mapExprs(rank);
-
-  for (size_t i = 0; i < halfRank; i++) {
-    auto dG = getAffineDimExpr(i, ctx);
-    mapExprs[i] = dG.floorDiv(outputGridShape[i]);
-
-    size_t j = i + halfRank;
-    auto dS = getAffineDimExpr(j, ctx);
-    mapExprs[j] = dG * outputShardShape[i] + dS;
-  }
-  auto outputToCanonical = mlir::AffineMap::get(rank, 0, mapExprs, ctx);
-
-  for (size_t i = 0; i < halfRank; i++) {
-    size_t j = i + halfRank;
-    auto dS = getAffineDimExpr(j, ctx);
-    mapExprs[i] = dS.floorDiv(inputShardShape[i]);
-    mapExprs[j] = dS % inputShardShape[i];
-  }
-  auto canonicalToInput = mlir::AffineMap::get(rank, 0, mapExprs, ctx);
-
-  return canonicalToInput.compose(outputToCanonical);
-}
-
-// Calculate a reblock affine map given a shape and new grid shape.
-std::pair<mlir::SmallVector<int64_t>, mlir::AffineMap>
-calculateReblockMapForGrid(mlir::ArrayRef<int64_t> tensorShape,
-                           mlir::ArrayRef<int64_t> newGridShape,
-                           mlir::MLIRContext *context) {
-  assert(tensorShape.size() % 2 == 0 &&
-         "Expected even rank for grid + shard dimensions");
-  assert(newGridShape.size() == tensorShape.size() / 2 &&
-         "New grid shape must match grid rank of tensor shape");
-  mlir::SmallVector<int64_t> newTensorShape(tensorShape);
-  for (size_t i = 0; i < newGridShape.size(); i++) {
-    size_t j = i + newGridShape.size();
-    assert((tensorShape[i] * tensorShape[j]) % newGridShape[i] == 0 &&
-           "New grid shape must evenly divide tensor shape");
-    newTensorShape[j] = tensorShape[i] * tensorShape[j] / newGridShape[i];
-    newTensorShape[i] = newGridShape[i];
-  }
-  return {newTensorShape,
-          calculateReblockMap(tensorShape, newTensorShape, context)};
-}
 
 llvm::SmallVector<int64_t>
 getSquareTargetGrid(mlir::ArrayRef<int64_t> targetGridShape) {
@@ -94,7 +32,13 @@ Type getRegionLargestDstElemType(Region &region) {
 
   Type largestType = nullptr;
   region.walk([&](OperandLoadStoreRegisterOpInterface op) {
-    for (Value v : op.getOperation()->getOperands()) {
+    for (auto [operandIdx, v] :
+         llvm::enumerate(op.getOperation()->getOperands())) {
+      // Skip scalar operands.
+      if (op.isScalarOperand(operandIdx)) {
+        continue;
+      }
+
       Type t = ttcore::getOperandInnerElementType(v);
 
       if (!largestType ||
@@ -126,63 +70,47 @@ Type getRegionLargestDstElemType(Region &region) {
   return largestType;
 }
 
-AffineMap concatInversePermutationMap(mlir::ArrayRef<AffineMap> affineMaps,
-                                      bool reverse) {
-  assert(!affineMaps.empty());
-  auto *ctx = affineMaps.front().getContext();
-
-  // Concat all of the indexing maps together, matmul example:
-  // (d0, d1, d2) -> (d0, d2)
-  // (d0, d1, d2) -> (d2, d1)
-  // (d0, d1, d2) -> (d0, d1)
-  // Becomes:
-  // (d0, d1, d2) -> (d0, d2, d2, d1, d0, d1)
-  AffineMap concat;
-
-  // We typically want to reverse it so that output dimensions get priority for
-  // the inverse permutation.
-  if (reverse) {
-    const auto reversedMaps = llvm::to_vector(llvm::reverse(affineMaps));
-    concat = mlir::concatAffineMaps(reversedMaps, ctx);
-  } else {
-    concat = mlir::concatAffineMaps(affineMaps, ctx);
+RankedTensorType reblockTensor(RankedTensorType oldTensor,
+                               ArrayRef<int64_t> newGridShape) {
+  auto oldLayout = mlir::cast<ttcore::MetalLayoutAttr>(oldTensor.getEncoding());
+  if (oldLayout.getGridShape(oldTensor) == newGridShape) {
+    return oldTensor;
   }
 
-  // Invert the permutation to get a map that we can use to get the loop
-  // bounds. Above example becomes: (d0, d1, d2, d3, d4, d5) -> (d0, d3, d1)
-  return mlir::inversePermutation(concat);
+  auto [newShape, reblockMap] = ttmlir::utils::calculateReblockMapForGrid(
+      oldTensor.getShape(), newGridShape, oldTensor.getContext());
+
+  ttcore::MetalLayoutAttr newLayout = oldLayout.withIndexAffineMap(reblockMap);
+  return RankedTensorType::get(newShape, oldTensor.getElementType(), newLayout);
 }
 
-Value getPhysicalTensorOrMemref(mlir::Value tensorOrMemref) {
+std::optional<SmallVector<int64_t>>
+computeDimConstraints(mlir::ArrayRef<mlir::AffineMap> indexingMaps,
+                      mlir::ArrayRef<mlir::SmallVector<int64_t>> shapes) {
+  TT_assert(!indexingMaps.empty());
+  TT_assert(indexingMaps.size() == shapes.size());
+  auto numDims = indexingMaps.front().getNumDims();
+  SmallVector<int64_t> constrainedDims(numDims, 0);
+  for (auto [shapeIdx, shape] : llvm::enumerate(shapes)) {
+    auto dimProjectionMap =
+        mlir::inverseAndBroadcastProjectedPermutation(indexingMaps[shapeIdx]);
+    auto impliedDimConstraints = dimProjectionMap.compose(shape);
 
-  TT_assertv((mlir::isa<mlir::RankedTensorType>(tensorOrMemref.getType()) ||
-              mlir::isa<mlir::MemRefType>(tensorOrMemref.getType())),
-             "Expected a tensor or memref type");
-  auto physTensor = tensorOrMemref;
+    for (auto [dimIdx, dimConstraint] :
+         llvm::enumerate(impliedDimConstraints)) {
+      if (dimConstraint == 0) {
+        continue;
+      }
 
-  if (auto viewOp = mlir::dyn_cast<mlir::tt::d2m::ViewOpInterface>(
-          tensorOrMemref.getDefiningOp())) {
-    physTensor = viewOp.getInput();
-  } else if (auto toLayoutOp = mlir::dyn_cast<mlir::tt::d2m::ToLayoutOp>(
-                 tensorOrMemref.getDefiningOp())) {
-    return getPhysicalTensorOrMemref(toLayoutOp.getInitOperand());
-
-  } else if (auto genericOp = mlir::dyn_cast<mlir::tt::d2m::GenericOp>(
-                 tensorOrMemref.getDefiningOp())) {
-    // Assume that if the defining op is a generic op, the output is the first
-    // of the outputs.
-    physTensor = getPhysicalTensorOrMemref(genericOp.getOutputs()[0]);
+      // Early exit if shapes are incompatible.
+      if (constrainedDims[dimIdx] != 0 &&
+          constrainedDims[dimIdx] != dimConstraint) {
+        return std::nullopt;
+      }
+      constrainedDims[dimIdx] = dimConstraint;
+    }
   }
-
-  return physTensor;
-}
-
-ArrayRef<int64_t> getGridShape(Value tensorOrMemref) {
-  TT_assertv((mlir::isa<RankedTensorType>(tensorOrMemref.getType()) ||
-              mlir::isa<MemRefType>(tensorOrMemref.getType())),
-             "Expected a tensor or memref type");
-  return ttcore::getDeviceLayout(tensorOrMemref)
-      .getGridShape(mlir::cast<ShapedType>(tensorOrMemref.getType()));
+  return constrainedDims;
 }
 
 } // namespace mlir::tt::d2m::utils

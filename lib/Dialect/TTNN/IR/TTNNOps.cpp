@@ -401,17 +401,6 @@ static bool isDefinedByOp(mlir::Value value) {
     return mlir::failure();
   }
 
-  if (getConv2dConfig() && getConv2dConfig()->getDeallocateActivation() &&
-      getConv2dConfig()->getDeallocateActivation().getValue()) {
-    for (auto *user : getInput().getUsers()) {
-      if (this->getOperation()->isBeforeInBlock(user)) {
-        return emitOpError()
-               << "Conv2dOp with `deallocate_activation` set to true "
-                  "must be the last user of the input tensor. ";
-      }
-    }
-  }
-
   auto expectedParams = getAndVerifyConv2dParams(this);
   if (auto error = expectedParams.takeError()) {
     return emitOpError() << llvm::toString(std::move(error));
@@ -2900,12 +2889,12 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
   auto cacheType = getCache().getType();
   auto inputType = getInput().getType();
   auto updateIndexType = getUpdateIndex().getType();
-  auto pageTableType = getPageTable().getType();
 
   auto cacheShape = cacheType.getShape();
   auto inputShape = inputType.getShape();
   auto updateIndexShape = updateIndexType.getShape();
-  auto pageTableShape = pageTableType.getShape();
+
+  bool usingStaticCache = getPageTable() == nullptr;
 
   if (cacheShape.size() != 4) {
     return emitOpError("Cache tensor must be a 4D tensor");
@@ -2919,15 +2908,11 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
     return emitOpError("Update index tensor must be a 1D tensor");
   }
 
-  if (pageTableShape.size() != 2) {
-    return emitOpError("Page table tensor must be a 2D tensor");
-  }
-
   int64_t blockSize = cacheShape[2];
   int64_t headDim = cacheShape[3];
   int64_t numUsers = updateIndexShape[0];
 
-  if (blockSize % 32 != 0) {
+  if (!usingStaticCache && blockSize % 32 != 0) {
     return emitOpError("Block size must be divisible by 32, got " +
                        std::to_string(blockSize));
   }
@@ -2951,23 +2936,32 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
                        std::to_string(inputShape[3]));
   }
 
-  if (pageTableShape[0] != numUsers) {
-    return emitOpError("Page table tensor must have dim 0 be equal to the "
-                       "number of users (determined by update index shape): " +
-                       std::to_string(numUsers) + ", got " +
-                       std::to_string(pageTableShape[0]));
-  }
-
   if (!inputType.getElementType().isFloat()) {
     return emitOpError("Input tensor must be a floating point type");
   }
 
-  if (!pageTableType.getElementType().isInteger()) {
-    return emitOpError("Page table tensor must be an integer type");
-  }
-
   if (!updateIndexType.getElementType().isInteger()) {
     return emitOpError("Update index tensor must be an integer type");
+  }
+
+  // Verify page table
+  if (!usingStaticCache) {
+    auto pageTableType = getPageTable().getType();
+    if (!pageTableType.getElementType().isInteger()) {
+      return emitOpError("Page table tensor must be an integer type");
+    }
+    auto pageTableShape = pageTableType.getShape();
+    if (pageTableShape.size() != 2) {
+      return emitOpError("Page table tensor must be a 2D tensor");
+    }
+
+    if (pageTableShape[0] != numUsers) {
+      return emitOpError(
+          "Page table tensor must have dim 0 be equal to the "
+          "number of users (determined by update index shape): " +
+          std::to_string(numUsers) + ", got " +
+          std::to_string(pageTableShape[0]));
+    }
   }
 
   return success();
@@ -3205,6 +3199,62 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
       legalModes.end()) {
     return emitOpError("Expected modes are (")
            << llvm::join(legalModes, ", ") << "), got \"" << getMode() << "\"";
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// GeluBackwardOp
+//===----------------------------------------------------------------------===//
+
+// GeluBackwardOp verification
+::mlir::LogicalResult mlir::tt::ttnn::GeluBackwardOp::verify() {
+  llvm::StringRef approximate = getApproximate();
+
+  if (approximate != "none" && approximate != "tanh") {
+    return emitOpError("approximate attribute must be either 'none' or 'tanh', "
+                       "but got '")
+           << approximate << "'";
+  }
+
+  RankedTensorType lhsType = getLhs().getType();
+  RankedTensorType rhsType = getRhs().getType();
+  RankedTensorType resultType = getResult().getType();
+
+  int64_t lhsRank = lhsType.getRank();
+  int64_t rhsRank = rhsType.getRank();
+  int64_t resultRank = resultType.getRank();
+
+  if (lhsRank < 2 || lhsRank > 4) {
+    return emitOpError(
+               "gradient tensor (lhs) must have rank 2, 3, or 4, but got rank ")
+           << lhsRank;
+  }
+
+  if (rhsRank < 2 || rhsRank > 4) {
+    return emitOpError(
+               "input tensor (rhs) must have rank 2, 3, or 4, but got rank ")
+           << rhsRank;
+  }
+
+  if (resultRank < 2 || resultRank > 4) {
+    return emitOpError("result tensor must have rank 2, 3, or 4, but got rank ")
+           << resultRank;
+  }
+
+  if (lhsRank != rhsRank) {
+    return emitOpError("gradient tensor (lhs) and input tensor (rhs) must have "
+                       "the same rank, "
+                       "but got lhs rank ")
+           << lhsRank << " and rhs rank " << rhsRank;
+  }
+
+  if (lhsRank != resultRank) {
+    return emitOpError(
+               "input tensors and result tensor must have the same rank, "
+               "but got input rank ")
+           << lhsRank << " and result rank " << resultRank;
   }
 
   return success();
@@ -4185,19 +4235,10 @@ mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp::verify() {
   RankedTensorType queryType = getQuery().getType();
   RankedTensorType keyType = getKey().getType();
   RankedTensorType valueType = getValue().getType();
-  RankedTensorType curPosTensorType = getCurPosTensor().getType();
   RankedTensorType resultType = getResult().getType();
 
   if (queryType != resultType) {
     return emitOpError("Query and result must have the same type");
-  }
-
-  if (!curPosTensorType.getElementType().isInteger()) {
-    return emitOpError("Cur pos tensor must be a tensor of integers");
-  }
-
-  if (curPosTensorType.getShape().size() != 1) {
-    return emitOpError("Cur pos tensor must be a 1D tensor");
   }
 
   if (keyType != valueType) {
@@ -4218,14 +4259,27 @@ mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp::verify() {
   }
 
   int64_t batchSize = queryType.getShape()[1];
+
+  if (getCurPosTensor()) {
+    RankedTensorType curPosTensorType = getCurPosTensor().getType();
+
+    if (!curPosTensorType.getElementType().isInteger()) {
+      return emitOpError("Cur pos tensor must be a tensor of integers");
+    }
+
+    if (curPosTensorType.getShape().size() != 1) {
+      return emitOpError("Cur pos tensor must be a 1D tensor");
+    }
+
+    if (curPosTensorType.getShape()[0] != batchSize) {
+      return emitOpError(
+          "Cur pos tensor batch size must match query batch size");
+    }
+  }
   int64_t nQueryHeads = queryType.getShape()[2];
   int64_t nKVHeads = keyType.getShape()[1];
   int64_t headSize = queryType.getShape()[3];
   int64_t maxSeqLen = keyType.getShape()[2];
-
-  if (curPosTensorType.getShape()[0] != batchSize) {
-    return emitOpError("Cur pos tensor batch size must match query batch size");
-  }
 
   if (keyType.getShape()[0] != batchSize) {
     return emitOpError("Key/Value batch size must match query batch size");
@@ -4262,10 +4316,6 @@ mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp::verify() {
     if (attentionMaskType.getShape()[3] != maxSeqLen) {
       return emitOpError("Attention mask sequence length must match key/value "
                          "sequence length");
-    }
-  } else {
-    if (!getIsCausal()) {
-      return emitOpError("Attention mask is required when is_causal is false");
     }
   }
 
@@ -4388,35 +4438,37 @@ mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp::verify() {
   if (keyType != valueType) {
     return emitOpError("Key and value must have the same type");
   }
-  if (queryType.getShape().size() != 4) {
+
+  size_t queryRank = queryType.getShape().size();
+  size_t keyRank = keyType.getShape().size();
+  size_t resultRank = resultType.getShape().size();
+
+  if (queryRank != 4) {
     return emitOpError("Query must be a 4D tensor");
   }
-  if (keyType.getShape().size() != 4) {
+  if (keyRank != 4) {
     return emitOpError("Key/Value must be a 4D tensor");
   }
-  if (resultType.getShape().size() != 4) {
+  if (resultRank != 4) {
     return emitOpError("Output must be a 4D tensor");
   }
-
-  int64_t batchSize = queryType.getShape()[0];
-  int64_t nQueryHeads = queryType.getShape()[1];
-  int64_t nKVHeads = keyType.getShape()[1];
-  int64_t headSize = queryType.getShape()[3];
-  int64_t seqLen = queryType.getShape()[2];
-  int64_t maxSeqLen = keyType.getShape()[2];
-
-  // NOTE: The q_chunk_size is 32 by default in ttnn. This is configurable via
-  // the program config. However, this is not modelled in the ttnn dialect.
-  if (seqLen % 32 != 0) {
-    return emitOpError(
-        "Sequence length must be divisible by q_chunk_size (32)");
+  if (queryRank != resultRank) {
+    return emitOpError("Query and result must have the same rank");
   }
 
-  if (keyType.getShape()[0] != batchSize) {
+  int64_t batchSize = (queryRank == 4) ? queryType.getShape()[0] : 1;
+  int64_t nQueryHeads = queryType.getShape()[queryRank - 3];
+  int64_t keyBatchSize = (keyRank == 4) ? keyType.getShape()[0] : 1;
+  int64_t nKVHeads = keyType.getShape()[keyRank - 3];
+  int64_t headSize = queryType.getShape()[queryRank - 1];
+  int64_t seqLen = queryType.getShape()[queryRank - 2];
+  int64_t maxSeqLen = keyType.getShape()[keyRank - 2];
+
+  if (keyBatchSize != batchSize) {
     return emitOpError("Key/Value batch size must match query batch size");
   }
 
-  if (keyType.getShape()[3] != headSize) {
+  if (keyType.getShape()[keyRank - 1] != headSize) {
     return emitOpError("Key/Value head size must match query head size");
   }
 
@@ -4448,10 +4500,6 @@ mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp::verify() {
     if (attentionMaskType.getShape()[3] != maxSeqLen) {
       return emitOpError("Attention mask at dim 3 must match key/value "
                          "sequence length (max sequence length)");
-    }
-  } else {
-    if (!getIsCausal()) {
-      return emitOpError("Attention mask is required when is_causal is false");
     }
   }
 

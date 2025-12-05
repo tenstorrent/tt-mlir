@@ -1112,6 +1112,48 @@ Atan2Op::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// GeluBackwardOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+GeluBackwardOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                 const OpConfig &opConfig) {
+  assert(inputs.size() == 2);
+
+  const auto inputShapeA = getLhs().getType().getShape();
+  const auto inputShapeB = getRhs().getType().getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<GeluBackwardOp>::getOpConstraints, getOperation(),
+      deviceGrid, inputShapeA, inputs[0], inputShapeB, inputs[1],
+      getApproximate().str(), opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+GeluBackwardOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                             const OpConfig &opConfig) {
+  assert(inputs.size() == 2);
+
+  const auto inputShapeA = getLhs().getType().getShape();
+  const auto inputShapeB = getRhs().getType().getShape();
+
+  std::string approximate =
+      getApproximate().empty() ? "none" : getApproximate().str();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<GeluBackwardOp>::getOpRuntime, getOperation(),
+      inputShapeA, inputs[0], inputShapeB, inputs[1], approximate,
+      opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // RemainderOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
@@ -1616,6 +1658,7 @@ llvm::Expected<op_model::OpConstraints>
 ToLayoutOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                              const OpConfig &opConfig) {
   assert(inputs.size() == 1);
+  assert(opConfig.outputLayout && "ToLayoutOp requires output layout");
   assert(opConfig.outputLayout.getLayout() == getLayout());
 
   const auto inputShape = getInput().getType().getShape();
@@ -1637,6 +1680,7 @@ llvm::Expected<size_t>
 ToLayoutOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                          const OpConfig &opConfig) {
   assert(inputs.size() == 1);
+  assert(opConfig.outputLayout && "ToLayoutOp requires output layout");
   assert(opConfig.outputLayout.getLayout() == getLayout());
 
   const auto inputShape = getInput().getType().getShape();
@@ -1914,13 +1958,14 @@ struct ScaledDotProductAttentionDecodeArgs {
   llvm::SmallVector<int64_t> valueShape;
   TTNNLayoutAttr valueLayout;
   bool isCausal;
-  llvm::SmallVector<int64_t> curPosTensorShape;
-  TTNNLayoutAttr curPosTensorLayout;
+  std::optional<llvm::SmallVector<int64_t>> curPosTensorShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> curPosTensorLayout = std::nullopt;
   std::optional<llvm::SmallVector<int64_t>> attentionMaskShape = std::nullopt;
   std::optional<TTNNLayoutAttr> attentionMaskLayout = std::nullopt;
   std::optional<llvm::SmallVector<int64_t>> attentionSinkShape = std::nullopt;
   std::optional<TTNNLayoutAttr> attentionSinkLayout = std::nullopt;
   std::optional<llvm::APFloat> scale = std::nullopt;
+  std::optional<SDPAProgramConfigAttr> programConfig = std::nullopt;
 };
 
 static ScaledDotProductAttentionDecodeArgs
@@ -1938,37 +1983,38 @@ unpackScaledDotProductAttentionDecodeArgs(
   ret.valueLayout = inputs[2];
   ret.isCausal = op.getIsCausal();
   ret.scale = op.getScale();
+  if (op.getProgramConfigAttr()) {
+    ret.programConfig = op.getProgramConfigAttr();
+  }
 
   TypedValue<RankedTensorType> attentionMask = op.getAttentionMask();
+  TypedValue<RankedTensorType> curPosTensor = op.getCurPosTensor();
   TypedValue<RankedTensorType> attentionSink = op.getAttentionSink();
 
-  if (attentionMask && attentionSink) {
+  size_t idx = 3;
+  if (attentionMask) {
     ret.attentionMaskShape =
         llvm::SmallVector<int64_t>(attentionMask.getType().getShape());
-    ret.attentionMaskLayout = inputs[3];
+    assert(idx < inputs.size() &&
+           "Op has attention mask but no attention mask layout was provided.");
+    ret.attentionMaskLayout = inputs[idx];
+    idx++;
+  }
+  if (curPosTensor) {
     ret.curPosTensorShape =
-        llvm::SmallVector<int64_t>(op.getCurPosTensor().getType().getShape());
-    ret.curPosTensorLayout = inputs[4];
+        llvm::SmallVector<int64_t>(curPosTensor.getType().getShape());
+    assert(idx < inputs.size() &&
+           "Op has cur pos tensor but no cur pos tensor layout was provided.");
+    ret.curPosTensorLayout = inputs[idx];
+    idx++;
+  }
+  if (attentionSink) {
     ret.attentionSinkShape =
         llvm::SmallVector<int64_t>(attentionSink.getType().getShape());
-    ret.attentionSinkLayout = inputs[5];
-  } else if (attentionMask) {
-    ret.attentionMaskShape =
-        llvm::SmallVector<int64_t>(attentionMask.getType().getShape());
-    ret.attentionMaskLayout = inputs[3];
-    ret.curPosTensorShape =
-        llvm::SmallVector<int64_t>(op.getCurPosTensor().getType().getShape());
-    ret.curPosTensorLayout = inputs[4];
-  } else if (attentionSink) {
-    ret.curPosTensorShape =
-        llvm::SmallVector<int64_t>(op.getCurPosTensor().getType().getShape());
-    ret.curPosTensorLayout = inputs[3];
-    ret.attentionSinkShape =
-        llvm::SmallVector<int64_t>(attentionSink.getType().getShape());
-    ret.attentionSinkLayout = inputs[4];
-  } else {
-    llvm_unreachable("All combinations of attention mask and attention sink "
-                     "should have been handled");
+    assert(idx < inputs.size() &&
+           "Op has attention sink but no attention sink layout was provided.");
+    ret.attentionSinkLayout = inputs[idx];
+    idx++;
   }
 
   return ret;
@@ -1986,10 +2032,9 @@ ScaledDotProductAttentionDecodeOp::getOpConstraints(
   // https://godbolt.org/z/sa9ojqqov
   //
   // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
-  assert(inputs.size() >= 4 && inputs.size() <= 6 &&
-         "ttnn::transformer::scaled_dot_product_attention_decode can have 4, "
-         "5, or 6 "
-         "input tensors");
+  assert(inputs.size() >= 3 && inputs.size() <= 6 &&
+         "ttnn::transformer::scaled_dot_product_attention_decode can have 3, "
+         "4, 5, or 6 input tensors");
 
   llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
   if (!check) {
@@ -2009,7 +2054,8 @@ ScaledDotProductAttentionDecodeOp::getOpConstraints(
       sdpaArgs.valueLayout, sdpaArgs.isCausal, sdpaArgs.attentionMaskShape,
       sdpaArgs.attentionMaskLayout, sdpaArgs.curPosTensorShape,
       sdpaArgs.curPosTensorLayout, sdpaArgs.attentionSinkShape,
-      sdpaArgs.attentionSinkLayout, sdpaArgs.scale, opConfig.outputLayout);
+      sdpaArgs.attentionSinkLayout, sdpaArgs.scale, sdpaArgs.programConfig,
+      opConfig.outputLayout);
   // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 }
 
@@ -2018,10 +2064,9 @@ llvm::Expected<size_t> ScaledDotProductAttentionDecodeOp::getOpRuntime(
   // See the comment in caledDotProductAttentionDecodeOp::getOpConstraints for
   // an explanation of this lint suppression.
   // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
-  assert(inputs.size() >= 4 && inputs.size() <= 6 &&
-         "ttnn::transformer::scaled_dot_product_attention_decode can have 4, "
-         "5, or 6 "
-         "input tensors");
+  assert(inputs.size() >= 3 && inputs.size() <= 6 &&
+         "ttnn::transformer::scaled_dot_product_attention_decode can have 3, "
+         "4, 5, or 6 input tensors");
 
   llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
   if (!check) {
@@ -3004,7 +3049,8 @@ UpdateCacheOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<op_model::OpConstraints>
 PagedUpdateCacheOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                      const OpConfig &opConfig) {
-  assert(inputs.size() == 4);
+  assert(inputs.size() >= 3 && inputs.size() <= 4 &&
+         "PagedUpdateCacheOp must have 3 or 4 inputs");
   llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
   if (!check) {
     return check.takeError();
@@ -3015,27 +3061,39 @@ PagedUpdateCacheOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   auto cacheShape = getCache().getType().getShape();
   auto inputShape = getInput().getType().getShape();
   auto updateIndexShape = getUpdateIndex().getType().getShape();
-  auto pageTableShape = getPageTable().getType().getShape();
+  std::optional<llvm::ArrayRef<int64_t>> pageTableShape;
+  std::optional<TTNNLayoutAttr> pageTableLayout;
+  if (getPageTable()) {
+    pageTableShape = getPageTable().getType().getShape();
+    pageTableLayout = inputs[3];
+  }
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<PagedUpdateCacheOp>::getOpConstraints, *this,
       deviceGrid, cacheShape, inputs[0], inputShape, inputs[1],
-      updateIndexShape, inputs[2], pageTableShape, inputs[3], getShareCache(),
-      opConfig.outputLayout);
+      updateIndexShape, inputs[2], pageTableShape, pageTableLayout,
+      getShareCache(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
 PagedUpdateCacheOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                                  const OpConfig &opConfig) {
+  assert(inputs.size() >= 3 && inputs.size() <= 4 &&
+         "PagedUpdateCacheOp must have 3 or 4 inputs");
   auto cacheShape = getCache().getType().getShape();
   auto inputShape = getInput().getType().getShape();
   auto updateIndexShape = getUpdateIndex().getType().getShape();
-  auto pageTableShape = getPageTable().getType().getShape();
+  std::optional<llvm::ArrayRef<int64_t>> pageTableShape;
+  std::optional<TTNNLayoutAttr> pageTableLayout;
+  if (getPageTable()) {
+    pageTableShape = getPageTable().getType().getShape();
+    pageTableLayout = inputs[3];
+  }
 
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<PagedUpdateCacheOp>::getOpRuntime, *this, cacheShape,
       inputs[0], inputShape, inputs[1], updateIndexShape, inputs[2],
-      pageTableShape, inputs[3], getShareCache(), opConfig.outputLayout);
+      pageTableShape, pageTableLayout, getShareCache(), opConfig.outputLayout);
 }
 
 llvm::Expected<op_model::OpConstraints>

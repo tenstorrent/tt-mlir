@@ -825,6 +825,26 @@ def TTNN_Atan2Op :  TTNN_ElementwiseBinaryCompositeOp<"atan2"> {
     }];
 }
 
+def TTNN_GeluBackwardOp : TTNN_ElementwiseBinaryOp<"gelu_bw"> {
+  let summary = "Backward pass operation for the GELU activation function.";
+  let description = [{
+    Computes the gradient of the GELU (Gaussian Error Linear Unit) activation
+    function with respect to its input during backpropagation.
+
+    This operation corresponds to ttnn.experimental.gelu_bw.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$lhs,
+                       AnyRankedTensor:$rhs,
+                       OptionalAttr<TTCore_DataTypeAttr>:$dtype,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                       DefaultValuedAttr<StrAttr, "\"none\"">:$approximate);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 class TTNN_ReductionOp<string mnemonic, list<Trait> traits = []> : TTNN_Op<mnemonic, traits> {
   let summary = "Reduction op.";
   let description = [{
@@ -1030,11 +1050,11 @@ def TTNN_PagedUpdateCacheOp : TTNN_InplaceOp<"paged_update_cache"> {
                        AnyRankedTensor:$input,
                        AnyRankedTensor:$update_index,
                        DefaultValuedAttr<BoolAttr, "false">:$share_cache,
-                       AnyRankedTensor:$page_table);
+                       Optional<AnyRankedTensor>:$page_table);
 
   let extraClassDeclaration = [{
     wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-      return wa::TTNNOperandsWorkaroundsFactory::createPagedUpdateCacheOpOperandsWorkarounds(this->getContext());
+      return wa::TTNNOperandsWorkaroundsFactory::createPagedUpdateCacheOpOperandsWorkarounds(this->getOperation());
     }
   }];
 
@@ -2876,10 +2896,11 @@ def TTNN_ScaledDotProductAttentionDecodeOp : TTNN_Op<"scaled_dot_product_attenti
                          AnyRankedTensor:$value,
                          DefaultValuedAttr<BoolAttr, "true">:$is_causal,
                          Optional<AnyRankedTensor>:$attention_mask,
-                         AnyRankedTensor:$cur_pos_tensor,
+                         Optional<AnyRankedTensor>:$cur_pos_tensor,
                          Optional<AnyRankedTensor>:$attention_sink,
                          OptionalAttr<F32Attr>:$scale,
-                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<TTNN_SDPAProgramConfigAttr>:$program_config);
 
     let results = (outs AnyRankedTensor:$result);
 

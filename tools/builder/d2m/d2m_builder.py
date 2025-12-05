@@ -107,9 +107,9 @@ class D2MBuilder(Builder):
                         golden_output = op_golden_function(
                             *(organize_golden_args(inputs)), **golden_kwargs
                         )
-                    self._set_golden_tensor(op, golden_output)
+                    self._set_golden_tensor(op.result, golden_output)
 
-            return op
+            return op.result
 
     # ----- Public methods -----
 
@@ -117,7 +117,7 @@ class D2MBuilder(Builder):
 
     def _get_empty_op(self, tensor_type: RankedTensorType) -> OpView:
         """Get D2M-specific empty operation."""
-        return d2m.EmptyOp(tensor_type)
+        return d2m.EmptyOp(tensor_type).result
 
     # ----- D2M Layout Operations -----
 

@@ -211,7 +211,7 @@ def test_muladd_broadcast_jit_l1(device, shape, max_grid, dtype):
     C = create_sharded_tile_tensor(device, 1, shape[1], max_grid, dtype)
 
     # JIT path
-    op_jit = ttnn_jit.jit(debug=True, max_grid=max_grid)(mul_add)
+    op_jit = ttnn_jit.jit(debug=True)(mul_add)
     interop_result = op_jit(A, B, C)
 
     # Golden path
@@ -237,7 +237,7 @@ def test_muladd_broadcast_jit_dram(device, shape, dtype):
     C = create_dram_tensor(device, 1, shape[1], dtype)
 
     # JIT path
-    op_jit = ttnn_jit.jit(debug=True, max_grid=max_grid)(mul_add)
+    op_jit = ttnn_jit.jit(debug=True)(mul_add)
     interop_result = op_jit(A, B, C)
 
     # Golden path
