@@ -196,7 +196,7 @@ def _check_layout_supported(tensor_arg):
             raise ValueError("Sharded DRAM tensors are not supported.")
 
     if mem_config.buffer_type.value == ttnn.BufferType.L1:
-        if mem_config.memory_layout != ttnn.TensorMemoryLayout.Interleaved:
+        if mem_config.memory_layout == ttnn.TensorMemoryLayout.Interleaved:
             raise ValueError("Interleaved L1 tensors are not supported.")
 
 

@@ -24,9 +24,10 @@ def exp(input_tensor_a):
 @pytest.mark.parametrize(
     "use_graph_capture", [True, False], ids=["graph_capture", "ast"]
 )
+@pytest.mark.skip(
+    reason="Error is raised from ttnn first, not JIT frontend.",
+)
 def test_l1_interleaved_not_supported(device, use_graph_capture):
-    if use_graph_capture:
-        pytest.skip("Using graph capture results in error from ttnn, not JIT frontend.")
 
     with pytest.raises(ValueError, match="Interleaved L1 tensors are not supported."):
         shape = (32, 32)
@@ -45,7 +46,7 @@ def test_l1_interleaved_not_supported(device, use_graph_capture):
             memory_config=memory_config,
         )
 
-        op_jit = ttnn_jit.jit(debug=True, graph_capture=use_graph_capture)(exp)
+        op_jit = ttnn_jit.jit(debug=False, graph_capture=use_graph_capture)(exp)
         output_tensor = op_jit(ttnn_tensor)
 
 
