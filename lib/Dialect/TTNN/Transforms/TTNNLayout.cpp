@@ -376,20 +376,34 @@ public:
   // Match and rewrite the MeshShardOp.
   LogicalResult matchAndRewrite(ttir::MeshShardOp op,
                                 PatternRewriter &rewriter) const override {
-    // TTNN mesh shard expects host input and output
-    // TODO(#2291): This can be removed once the workaround pass can correctly
+    // TTNN mesh shard expects host input and output (except for identity shard)
+    //
+    // This rewrite handles the following cases:
+    // (1) *Non-identity* MeshShardOp receives device input or produces device
+    // output
+    //     In this case, we insert ToLayout ops to convert the input to host
+    //     layout and change the output layout to host layout.
+    // (2) *Identity* MeshShardOp receives host input and produces host output
+    //     In this case, we insert ToLayout ops to convert the input to device
+    //     layout and change the output layout to device layout.
+    //
+    //  TODO(#2291): This can be removed once the workaround pass can correctly
     // handle canonicalization of toLayout ops (#2102). Currently the
     // workaround pass cannot detect redundant toLayout ops as a result of
     // forcing the output layout and removing them.
-    if (!shouldMeshShardOpForceSystemMemory(op.getOperation())) {
-      return failure();
-    }
+    const bool shouldForceSystemMemory =
+        shouldMeshShardOpForceSystemMemory(op.getOperation());
+
+    const bool shouldTile = !shouldForceSystemMemory;
+    const auto desiredBufferType = shouldForceSystemMemory
+                                       ? BufferType::SystemMemory
+                                       : g_defaultMemorySpaceDevice;
 
     bool modified = false;
     Value input = op.getOperand();
     Location newLoc = appendInputSuffix(op.getLoc(), 0);
     std::optional<Value> inputLayout = createToLayoutOp(
-        rewriter, newLoc, input, BufferType::SystemMemory, /* tiled */ false);
+        rewriter, newLoc, input, desiredBufferType, /* tiled */ shouldTile);
     if (inputLayout.has_value()) {
       rewriter.modifyOpInPlace(op, [&]() { op->setOperand(0, *inputLayout); });
       modified = true;
@@ -399,12 +413,12 @@ public:
         mlir::cast<RankedTensorType>(op.getResult().getType());
     TTNNLayoutAttr newLayout =
         createLayoutAttr(rewriter.getContext(), nullptr, resultType,
-                         BufferType::SystemMemory, /* isTiled */ false);
+                         desiredBufferType, /* isTiled */ shouldTile);
     if (newLayout != resultType.getEncoding()) {
-      auto resultSystemMemoryType = RankedTensorType::get(
+      auto desiredResultType = RankedTensorType::get(
           resultType.getShape(), resultType.getElementType(), newLayout);
       rewriter.modifyOpInPlace(
-          op, [&]() { op->getResult(0).setType(resultSystemMemoryType); });
+          op, [&]() { op->getResult(0).setType(desiredResultType); });
       modified = true;
     }
     return success(modified);
@@ -564,10 +578,22 @@ private:
       }
     }
 
-    // For block arguments which are maked as conv2d weights leave them on host.
     func::FuncOp owningFunc = cast<func::FuncOp>(arg.getOwner()->getParentOp());
-    uint32_t argIdx = arg.getArgNumber();
 
+    // Const-eval functions' inputs should be on host.
+    if (ttmlir::utils::isConstEvalFunc(owningFunc)) {
+      return true;
+    }
+
+    // Arguments consumed by const-eval functions should be on host.
+    for (Operation *user : arg.getUsers()) {
+      if (llvm::isa_and_present<ttcore::LoadCachedOp>(user)) {
+        return true;
+      }
+    }
+
+    // For block arguments which are maked as conv2d weights leave them on host.
+    uint32_t argIdx = arg.getArgNumber();
     if (owningFunc.getArgAttr(argIdx, ttmlir::utils::g_conv2dWeightAttrName)) {
       return true;
     }
