@@ -561,7 +561,11 @@ hoisted_binary_ops = [
     create_hoisted_binary_op(add, "add"),
     create_hoisted_binary_op(multiply, "multiply"),
     create_hoisted_binary_op(subtract, "subtract"),
-    create_hoisted_binary_op(eq, "equal"),
+    # TODO(#6183): Re-enable when F32 untilize on-device precision loss is fixed
+    # F32 untilize on-device introduces precision loss that causes close values to become
+    # identical, breaking exact equality comparisons in CPU-hoisted ops.
+    # See: https://github.com/tenstorrent/tt-mlir/issues/6183
+    # create_hoisted_binary_op(eq, "equal"),
     create_hoisted_binary_op(ne, "not_equal"),
     create_hoisted_binary_op(gt, "greater_than"),
     create_hoisted_binary_op(ge, "greater_equal"),
