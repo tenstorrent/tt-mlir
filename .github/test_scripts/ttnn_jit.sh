@@ -30,7 +30,7 @@ if [ "$1" == "nightly" ]; then
     # Run tests that are exclusive to the nightly workflow
     pytest -v $WORK_DIR/test/ttnn-jit/nightly/ --junit-xml=$TEST_REPORT_PATH
 else
-    if [[ "$RUNS_ON" == "llmbox" ]]; then
+    if [[ "$RUNS_ON" == "n300-llmbox" ]]; then
         # only run multichip tests and matmul smoketests for llmbox
         pytest -v $WORK_DIR/test/ttnn-jit/test_mesh_tensor_eltwise.py $WORK_DIR/test/ttnn-jit/test_matmul_smoketest.py --junit-xml=$TEST_REPORT_PATH
     else
