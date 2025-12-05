@@ -1910,4 +1910,23 @@ bool d2m::GenericOp::hasComputeOpsInRegion(unsigned regionIndex) {
   return hasCompute;
 }
 
+bool d2m::GenericOp::isNontriviallyEltwiseFused() {
+  // if all parallel --> no reductions --> eltwise only
+  if (!this->isAllParallel()) {
+    return false;
+  }
+
+  // doesn't contain skippable eltwise ops (i.e. went through eltwise fusion)
+  if (this->hasSkipOpEltwiseFusionTrait()) {
+    return false;
+  }
+
+  // op is ternary or higher degree
+  if (!(this->getNumOperands() > 3)) {
+    return false;
+  }
+
+  return true;
+}
+
 } // namespace mlir::tt::d2m
