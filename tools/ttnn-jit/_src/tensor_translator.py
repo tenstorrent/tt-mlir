@@ -164,7 +164,7 @@ def _create_dram_tensor_layout(ctx, tensor_arg):
     data_type = _ttcore_dtype_from_ttnn_dtype(tensor_arg.dtype)
     tile_type = ttcore.ir.TileType.get(ctx, 32, 32, data_type)
     logical_shape = list(tensor_arg.shape)
-    if (len(logical_shape) > 2):
+    if len(logical_shape) > 2:
         collapsed_shape = [logical_shape[-2], logical_shape[-1]]
         for dim in logical_shape[:-2]:
             collapsed_shape[0] *= dim
