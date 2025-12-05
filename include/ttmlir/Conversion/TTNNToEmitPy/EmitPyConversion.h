@@ -1680,16 +1680,16 @@ public:
   }
 
   // Emits Python code for ttnn.MeshShape from an array of IntegerAttr.
-  // Returns empty string if meshShapeOverride is empty.
+  // Returns empty string if meshShape is empty.
   std::string
-  emitMeshShape(const mlir::ArrayRef<mlir::IntegerAttr> &meshShapeOverride) {
-    if (meshShapeOverride.empty()) {
+  emitMeshShape(const mlir::ArrayRef<mlir::IntegerAttr> &meshShape) {
+    if (meshShape.empty()) {
       return "";
     }
     std::string code = "ttnn.MeshShape([";
     llvm::raw_string_ostream rso(code);
     llvm::SmallVector<uint32_t> dims;
-    for (const auto &intAttr : meshShapeOverride) {
+    for (const auto &intAttr : meshShape) {
       dims.push_back(intAttr.getValue().getZExtValue());
     }
     llvm::interleaveComma(dims, rso);
