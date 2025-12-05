@@ -1489,7 +1489,7 @@ class StableHLOBuilder(Builder):
     ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
         stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.reshape_parser)
         in0 = global_dict[old_op.operand]
-        shape_attr = old_op.shape
+        shape_attr = old_op.result.type.shape
         result = old_op.result.type
         new_op = stablehlo_op(old_op.result.type, in0, loc=old_op.location)
 
@@ -1522,7 +1522,7 @@ class StableHLOBuilder(Builder):
                 @func.func(*op_input_types, name="reshape_module")
                 def decorated_func(*inputs):
                     in0 = inputs[0]
-                    shape_attr = old_op.shape
+                    shape_attr = old_op.result.type.shape
                     result = old_op.result.type
 
                     new_op = stablehlo_op(result, in0, loc=old_op.location)

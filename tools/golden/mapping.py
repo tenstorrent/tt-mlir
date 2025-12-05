@@ -3839,7 +3839,9 @@ def stablehlo_select_golden(
     output_type_mlir: Type,
 ) -> GoldenMapTensor:
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
-    return torch.where(pred_tensor, on_true_tensor, on_false_tensor).to(output_dtype)
+    # Ensure condition is boolean; builder-generated inputs may be float
+    pred_bool = pred_tensor.to(torch.bool)
+    return torch.where(pred_bool, on_true_tensor, on_false_tensor).to(output_dtype)
 
 
 def stablehlo_select_and_scatter_golden(
