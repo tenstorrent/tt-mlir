@@ -195,23 +195,24 @@ def _is_dram_layout(layout):
 
 
 def _check_layout_supported(tensor_arg):
-    if tensor_arg.memory_config().is_sharded():
-        if tensor_arg.memory_config().shard_spec is None:
+
+    if tensor_arg.layout.value != ttnn.Layout.Tile:
+        raise ValueError(
+            f"Only Layout.Tile tensors are supported. Found layout: {tensor_arg.layout}"
+        )
+
+    mem_config = tensor_arg.memory_config()
+    if mem_config.is_sharded():
+        if mem_config.shard_spec is None:
             raise ValueError(
                 "Tensor is sharded but no legacy shard spec is present. ND Sharded tensors are not supported yet."
             )
+        if mem_config.buffer_type.value == ttnn.BufferType.DRAM:
+            raise ValueError("Sharded DRAM tensors are not supported.")
 
-    if (
-        tensor_arg.memory_config().buffer_type == ttnn.BufferType.L1
-        and not tensor_arg.memory_config().is_sharded()
-    ):
-        raise ValueError("Interleaved L1 tensors are not supported.")
-
-    if (
-        tensor_arg.memory_config().buffer_type == ttnn.BufferType.DRAM
-        and tensor_arg.memory_config().is_sharded()
-    ):
-        raise ValueError("DRAM tensors must be interleaved.")
+    if mem_config.buffer_type.value == ttnn.BufferType.L1:
+        if mem_config.memory_layout == ttnn.TensorMemoryLayout.Interleaved:
+            raise ValueError("Interleaved L1 tensors are not supported.")
 
 
 def _get_output_shape(op_name, input_shapes):
@@ -330,11 +331,11 @@ def create_output_tensor(ctx, op_name, input_types):
 
 def create_tensor_layout(ctx, tensor_arg):
     """Create TTNN layout attribute from tensor."""
+    _check_layout_supported(tensor_arg)
 
-    if (
-        tensor_arg.memory_config() is not None
-        and tensor_arg.memory_config().is_sharded()
-    ):
+    mem_config = tensor_arg.memory_config()
+
+    if mem_config is not None and mem_config.is_sharded():
         return _create_sharded_tensor_layout(ctx, tensor_arg)
     else:
         return _create_dram_tensor_layout(ctx, tensor_arg)
