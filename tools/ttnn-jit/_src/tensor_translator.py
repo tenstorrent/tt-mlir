@@ -163,7 +163,15 @@ def _create_dram_tensor_layout(ctx, tensor_arg):
 
     data_type = _ttcore_dtype_from_ttnn_dtype(tensor_arg.dtype)
     tile_type = ttcore.ir.TileType.get(ctx, 32, 32, data_type)
-    shape = [tensor_arg.shape[0] // 32, tensor_arg.shape[1] // 32]
+    logical_shape = list(tensor_arg.shape)
+    if len(logical_shape) > 2:
+        collapsed_shape = [logical_shape[-2], logical_shape[-1]]
+        for dim in logical_shape[:-2]:
+            collapsed_shape[0] *= dim
+        shape = [collapsed_shape[0] // 32, collapsed_shape[1] // 32]
+    else:
+        shape = [logical_shape[0] // 32, logical_shape[1] // 32]
+
     memref = MemRefType.get(shape, tile_type, None, buffer_type)
 
     tensor_mesh = None
@@ -176,6 +184,13 @@ def _create_dram_tensor_layout(ctx, tensor_arg):
         ttnn.TensorMemoryLayout.Interleaved,
         tensor_mesh,
         exact_grid,
+    )
+
+
+def _is_dram_layout(layout):
+    return (
+        ttnn.ir.BufferTypeAttr.maybe_downcast(layout.memref.memory_space).value
+        == ttnn.BufferType.DRAM.value
     )
 
 
@@ -228,24 +243,45 @@ def _get_virtual_grid_shape(layout):
         )
 
 
-def _get_output_grid_shape(op_name, input_layouts):
+def _infer_block_sharding_grid(shape):
+    """Infer a (height, width) grid shape for block sharding the given logical tensor shape"""
+    assert len(shape) == 2, f"Only 2D shapes are supported"
+    tile_shape = [shape[0] // 32, shape[1] // 32]
+    grid = []
+    for dim in tile_shape:
+        for grid_dim in reversed(range(1, 9)):
+            if dim % grid_dim == 0:
+                grid.append(grid_dim)
+                break
+    return grid
+
+
+def _get_output_grid_shape(op_name, output_shape, input_layouts):
     if op_name == "matmul":
         in0_grid = _get_virtual_grid_shape(input_layouts[0])
         in1_grid = _get_virtual_grid_shape(input_layouts[1])
-        return [in0_grid[0], in1_grid[1]]
+        if not _is_dram_layout(input_layouts[0]) and not _is_dram_layout(
+            input_layouts[1]
+        ):
+            return [in0_grid[0], in1_grid[1]]
+        else:
+            return _infer_block_sharding_grid(output_shape)
     else:
         return _get_virtual_grid_shape(input_layouts[0])
 
 
-def _create_tensor_layout_with_shape(ctx, layout, new_shape, new_grid_shape):
+def _create_tensor_layout_with_shape(
+    ctx, base_layout, new_shape, new_grid_shape, mem_space, memory_layout
+):
     affine_map = _get_collapsed_linear_affine_map(ctx, new_shape, new_grid_shape)
 
     new_shard_shape = [
         new_shape[0] // new_grid_shape[0] // 32,
         new_shape[1] // new_grid_shape[1] // 32,
     ]
+    buffer_type = ttnn.ir.BufferTypeAttr.get(ctx, mem_space)
     memref = MemRefType.get(
-        new_shard_shape, layout.memref.element_type, None, layout.memref.memory_space
+        new_shard_shape, base_layout.memref.element_type, None, buffer_type
     )
     grid = ttcore.ir.GridAttr.get(ctx, new_grid_shape)
 
@@ -256,10 +292,20 @@ def _create_tensor_layout_with_shape(ctx, layout, new_shape, new_grid_shape):
         affine_map,
         grid,
         memref,
-        layout.tensor_memory_layout_as_int,
+        memory_layout,
         tensor_mesh,
         exact_grid,
     )
+
+
+def _get_output_memory_space_and_layout(op_name, input_layouts):
+    if op_name == "matmul":
+        return ttnn.BufferType.L1, ttnn.TensorMemoryLayout.BlockSharded
+    else:
+        return (
+            input_layouts[0].memref.memory_space,
+            input_layouts[0].tensor_memory_layout_as_int,
+        )
 
 
 def create_output_tensor(ctx, op_name, input_types):
@@ -270,8 +316,13 @@ def create_output_tensor(ctx, op_name, input_types):
         ttnn.ir.TTNNLayoutAttr.maybe_downcast(tensor.encoding) for tensor in input_types
     ]
     shape = _get_output_shape(op_name, [tensor.shape for tensor in input_types])
-    grid_shape = _get_output_grid_shape(op_name, input_layouts)
-    layout = _create_tensor_layout_with_shape(ctx, input_layouts[0], shape, grid_shape)
+    grid_shape = _get_output_grid_shape(op_name, shape, input_layouts)
+    mem_space, memory_layout = _get_output_memory_space_and_layout(
+        op_name, input_layouts
+    )
+    layout = _create_tensor_layout_with_shape(
+        ctx, input_layouts[0], shape, grid_shape, mem_space, memory_layout
+    )
     output_type = RankedTensorType.get(shape, input_types[0].element_type, layout)
 
     return output_type
