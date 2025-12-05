@@ -510,6 +510,9 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
       return getIndexAffineMap();
     }
 
+    // Returns true if this layout has leading dimensions that are collapsed together
+    bool hasCollapsedLeadingDims(ArrayRef<int64_t> deviceShape);
+
     bool isView() { return false; }
   }];
 
