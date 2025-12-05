@@ -1165,40 +1165,36 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
 
   // Logical shape must have at least 2 dimensions for tiling.
   if (logicalRank < 2) {
-    emitError() << "logical_shape must have at least 2 dimensions, got "
-                << logicalRank;
-    return ::mlir::failure();
+    return emitError() << "logical_shape must have at least 2 dimensions, got "
+                       << logicalRank;
   }
 
   // The dim_alignments rank must match logical_shape rank.
   if (static_cast<int64_t>(dimAlignments.size()) != logicalRank) {
-    emitError() << "dim_alignments size (" << dimAlignments.size()
-                << ") must match logical_shape rank (" << logicalRank << ")";
-    return ::mlir::failure();
+    return emitError() << "dim_alignments size (" << dimAlignments.size()
+                       << ") must match logical_shape rank (" << logicalRank
+                       << ")";
   }
 
   // All alignments must be positive.
   for (size_t i = 0; i < dimAlignments.size(); ++i) {
     if (dimAlignments[i] <= 0) {
-      emitError() << "dim_alignments[" << i << "] must be positive, got "
-                  << dimAlignments[i];
-      return ::mlir::failure();
+      return emitError() << "dim_alignments[" << i << "] must be positive, got "
+                         << dimAlignments[i];
     }
   }
 
   // The collapsed_intervals must be a 2D tensor with shape [N, 2].
   auto intervalsType = collapsedIntervals.getType();
   if (intervalsType.getRank() != 2) {
-    emitError() << "collapsed_intervals must be a 2D array, got rank "
-                << intervalsType.getRank();
-    return ::mlir::failure();
+    return emitError() << "collapsed_intervals must be a 2D array, got rank "
+                       << intervalsType.getRank();
   }
 
   if (intervalsType.getDimSize(1) != 2) {
-    emitError()
-        << "collapsed_intervals must have pairs (second dim size 2), got "
-        << intervalsType.getDimSize(1);
-    return ::mlir::failure();
+    return emitError()
+           << "collapsed_intervals must have pairs (second dim size 2), got "
+           << intervalsType.getDimSize(1);
   }
 
   // Validate each interval's bounds.
@@ -1214,26 +1210,23 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
 
     // Check bounds after normalization.
     if (normalizedStart < 0 || normalizedStart >= logicalRank) {
-      emitError() << "collapsed_intervals start index " << start
-                  << " (normalized: " << normalizedStart
-                  << ") is out of bounds for logical_shape rank "
-                  << logicalRank;
-      return ::mlir::failure();
+      return emitError() << "collapsed_intervals start index " << start
+                         << " (normalized: " << normalizedStart
+                         << ") is out of bounds for logical_shape rank "
+                         << logicalRank;
     }
 
     if (normalizedEnd < 0 || normalizedEnd > logicalRank) {
-      emitError() << "collapsed_intervals end index " << end
-                  << " (normalized: " << normalizedEnd
-                  << ") is out of bounds for logical_shape rank "
-                  << logicalRank;
-      return ::mlir::failure();
+      return emitError() << "collapsed_intervals end index " << end
+                         << " (normalized: " << normalizedEnd
+                         << ") is out of bounds for logical_shape rank "
+                         << logicalRank;
     }
 
     // Start must not exceed end (intervals are half-open [start, end)).
     if (normalizedStart > normalizedEnd) {
-      emitError() << "collapsed_intervals start (" << start
-                  << ") must not exceed end (" << end << ")";
-      return ::mlir::failure();
+      return emitError() << "collapsed_intervals start (" << start
+                         << ") must not exceed end (" << end << ")";
     }
   }
 
