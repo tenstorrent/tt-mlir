@@ -132,7 +132,7 @@ def TTIREraseInverseOps: Pass<"ttir-erase-inverse-ops", "::mlir::ModuleOp">
     Option<"enableCommuteUpwards", "enable-commute-upwards", "bool", "true", "Enable commuting upwards. This should only be false for testing purposes (i.e you want to test a commute downwards pattern)">,
     Option<"enableCommuteDownwards", "enable-commute-downwards", "bool", "true", "Enable commuting downwards. This should only be false for testing purposes (i.e you want to test a commute upwards pattern)">,
     Option<"maxIterations", "max-iterations", "uint64_t", "100", "Maximum number of iterations to perform commuting. The number of TMs is expected to converge before this limit is reached.">,
-    Option<"force", "force", "bool", "false", "Force the pass to run even if we don't expect any inverse TMs (no operations have TTIR_FlattenedCompatInfoAttr). When false, the pass only runs on funcOps containing at least one operation with the flattened_compat_info attribute.">
+    Option<"force", "force", "bool", "true", "Force the pass to run even if we don't expect any inverse TMs (no operations have TTIR_FlattenedCompatInfoAttr). When false, the pass only runs on funcOps containing at least one operation with the flattened_compat_info attribute.">
   ];
 }
 
