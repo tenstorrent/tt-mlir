@@ -26,6 +26,76 @@ class TTAdapterMetadata(model_explorer.AdapterMetadata):
     settings: Dict[str, list] = dataclasses.field(default_factory=dict)
 
 
+def parse_location_string(loc_str):
+    """Parse a location string like 'loc("relu_3"("MNISTLinear":4294967295:6))'
+    into a full location path like 'relu_3.MNISTLinear:4294967295:6'
+    Also handles simple cases like 'loc(matmul_output)' -> 'matmul_output'"""
+    if not loc_str.startswith('loc(') or not loc_str.endswith(')'):
+        return loc_str  # fallback to original string
+
+    # Remove 'loc(' prefix and ')' suffix
+    content = loc_str[4:-1]
+    
+    # Handle simple case: loc(name) -> name (no quotes, no nested structure)
+    if not content.startswith('"') and '"' not in content and '(' not in content:
+        return content
+
+    # Parse the hierarchical structure
+    path_parts = []
+    i = 0
+    while i < len(content):
+        if content[i] == '"':
+            # Find the matching quote
+            start = i + 1
+            i += 1
+            name_part = ""
+            while i < len(content) and content[i] != '"':
+                name_part += content[i]
+                i += 1
+            path_parts.append(name_part)
+            i += 1  # skip the quote
+
+            # Check if there's a parent location in parentheses
+            if i < len(content) and content[i] == '(':
+                # Find the matching closing paren
+                paren_start = i
+                paren_count = 1
+                i += 1
+                parent_content = ""
+                while i < len(content) and paren_count > 0:
+                    if content[i] == '(':
+                        paren_count += 1
+                    elif content[i] == ')':
+                        paren_count -= 1
+                    if paren_count > 0:  # Don't include the closing paren
+                        parent_content += content[i]
+                    i += 1
+
+                # Handle the parent content - it could be another loc() or just a name:id format
+                if parent_content.startswith('"') and '"' in parent_content:
+                    # Handle cases like "MNISTLinear":4294967295:6
+                    quote_end = parent_content.find('"', 1)
+                    if quote_end != -1:
+                        parent_name = parent_content[1:quote_end]
+                        suffix = parent_content[quote_end + 1:]  # e.g., :4294967295:6
+                        full_parent = parent_name + suffix
+                        path_parts.append(full_parent)
+                    else:
+                        path_parts.append(parent_content)
+                else:
+                    # Try to parse as another loc string
+                    parent_path = parse_location_string('loc(' + parent_content + ')')
+                    if parent_path and parent_path != 'loc(' + parent_content + ')':
+                        path_parts.append(parent_path)
+                    else:
+                        # Just append the parent content as-is
+                        path_parts.append(parent_content)
+        else:
+            i += 1
+
+    # Join with dots to create the full path
+    return '.'.join(path_parts) if path_parts else loc_str
+
 def settings_to_overrides(settings, artifacts_dir):
     override_handler = optimizer_overrides.OptimizerOverridesHandler()
     override_handler.set_system_desc_path(f"{artifacts_dir}/system_desc.ttsys")
@@ -39,7 +109,7 @@ def settings_to_overrides(settings, artifacts_dir):
         override_handler.set_enable_optimizer(False)
     else:
         override_handler.set_enable_optimizer(True)
-        override_handler.set_enable_memory_layout_analysis(False)
+        override_handler.set_enable_memory_layout_analysis(True)
         override_handler.set_enable_l1_interleaved_fallback_analysis(False)
         override_handler.set_memory_layout_analysis_policy(
             OPTIMIZATION_POLICIES[optimization_policy]
@@ -48,7 +118,9 @@ def settings_to_overrides(settings, artifacts_dir):
     # Convert settings to output layout overrides.
     if settings.get("overrides"):
         for op_id, overrides in settings["overrides"].items():
-            op_name_loc = overrides["named_location"]
+            # Parse location string if it's in MLIR loc() format, otherwise use as-is
+            # The override location must match what extractLocationPath() produces in the optimizer
+            op_name_loc = parse_location_string(op_id) if op_id.startswith('loc(') else op_id
             output_layout_override = optimizer_overrides.OutputLayoutOverrideParams()
             conv2d_config_override = optimizer_overrides.Conv2dConfigOverrideParams()
             for attr in overrides["attributes"]:

@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfigAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Support/Logger.h"
+#include "ttmlir/Utils.h"
 
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -138,14 +139,23 @@ bool LegalOpConfigAnalysis::applyOverrides() {
   return llvm::TypeSwitch<Operation *, bool>(op)
       .Case<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp>([&](auto convOp) {
         Conv2dConfigOverrideParams conv2dConfigOverrides;
-        if (!isa<NameLoc>(op->getLoc())) {
-          return false;
-        }
-        StringRef opLocName = mlir::cast<NameLoc>(op->getLoc()).getName();
+        // Extract the full location path for unique operation identification
+        std::string opLocPath = ttmlir::utils::extractLocationPath(op->getLoc());
+        
+        llvm::errs() << "[TIMELINE] LegalOpConfigAnalysis::applyOverrides() - "
+                     << "Checking conv2d op: '" << op->getName() 
+                     << "' with location path: '" << opLocPath << "'\n";
+        llvm::errs().flush();
+        
         auto overrideConv2dIt =
-            analysisInput.conv2dConfigOverrides->find(opLocName);
+            analysisInput.conv2dConfigOverrides->find(opLocPath);
         if (overrideConv2dIt != analysisInput.conv2dConfigOverrides->end()) {
           conv2dConfigOverrides = overrideConv2dIt->getValue();
+          llvm::errs() << "[TIMELINE]   → ✓ Conv2d config override found and applied\n";
+          llvm::errs().flush();
+        } else {
+          llvm::errs() << "[TIMELINE]   → No conv2d config override for this location\n";
+          llvm::errs().flush();
         }
         applyConv2dConfigOverrides(convOp, conv2dConfigOverrides,
                                    analysisResult);

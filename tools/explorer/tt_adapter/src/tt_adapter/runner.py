@@ -4,6 +4,7 @@
 import subprocess
 import os
 import logging
+import shutil
 
 # TODO(odjuricic) Cleaner to implement ttrt --quiet flag.
 # os.environ["TTRT_LOGGER_LEVEL"] = "ERROR"
@@ -229,8 +230,10 @@ class ModelRunner:
                 return f.read()
         return None
 
-    def run_in_subprocess(self, command):
+    def run_in_subprocess(self, command, log_file_path=None):
         self.log(f"Running command:\n{' '.join(command)}\n")
+        if log_file_path:
+            self.log(f"Writing output to log file: {log_file_path}")
 
         process = subprocess.Popen(
             command,
@@ -240,11 +243,37 @@ class ModelRunner:
             cwd=os.environ.get("TT_MLIR_HOME", os.getcwd()),
         )
 
-        for line in process.stdout:
-            self.log(line.strip())
+        output_lines = []
+        log_file = None
+        if log_file_path:
+            # Ensure the directory exists
+            log_dir = os.path.dirname(log_file_path)
+            if log_dir:
+                os.makedirs(log_dir, exist_ok=True)
+            try:
+                log_file = open(log_file_path, "w")
+            except Exception as e:
+                self.log(f"WARNING: Failed to open log file {log_file_path}: {e}", severity=logging.warning)
+                log_file = None
 
-        process.stdout.close()
-        process.wait()
+        try:
+            for line in process.stdout:
+                line_stripped = line.strip()
+                output_lines.append(line_stripped)
+                self.log(line_stripped)
+                # Also write to log file if provided
+                if log_file:
+                    log_file.write(line)
+                    log_file.flush()
+
+            process.stdout.close()
+            process.wait()
+        finally:
+            if log_file:
+                log_file.close()
+
+        # Store output in process object for error reporting
+        process.output_lines = output_lines
 
         return process
 
@@ -265,6 +294,9 @@ class ModelRunner:
             self.progress = 100
 
     def compile_and_run(self, model_path, overrides_string):
+        # Define tree print directory path for reuse
+        TREE_PRINT_DIR = "/tmp/explorer/tree/"
+
         FLATBUFFER = False
         if model_path.endswith(".ttnn"):
             # This is being run from a Flatbuffer. Need To Render TTIR from Flatbuffer
@@ -332,14 +364,46 @@ class ModelRunner:
             "-o",
             ttnn_ir_file,
             "--mlir-print-debuginfo",
+            "--mlir-print-ir-after-all",
+            f"--mlir-print-ir-tree-dir={TREE_PRINT_DIR}",
+            "--mlir-diagnostic-verbosity-level=remarks",
+            "--mlir-print-op-on-diagnostic",
+            "--mlir-print-stacktrace-on-diagnostic",
         ]
 
         self.log("Running compile TTIR to TTNN Backend Pipeline")
         self.log("With options: " + overrides_string)
 
-        compile_process = self.run_in_subprocess(compile_command)
+        # Clean and recreate the tree print directory
+        shutil.rmtree(TREE_PRINT_DIR, ignore_errors=True)
+        os.makedirs(TREE_PRINT_DIR, exist_ok=True)
+
+        # Create log file path in the model output directory
+        ttmlir_opt_log_file = f"{state.model_output_dir}/ttmlir-opt.log"
+        self.log(f"ttmlir-opt output will be written to: {ttmlir_opt_log_file}")
+
+        compile_process = self.run_in_subprocess(compile_command, log_file_path=ttmlir_opt_log_file)
         if compile_process.returncode != 0:
-            error = "Error running compile TTIR to TTNN Backend Pipeline"
+            # Extract error/warning lines from output
+            error_lines = [
+                line
+                for line in getattr(compile_process, "output_lines", [])
+                if any(
+                    keyword in line.lower()
+                    for keyword in ["error", "fatal", "assert", "abort", "terminate"]
+                )
+            ]
+            last_lines = getattr(compile_process, "output_lines", [])[-10:]
+
+            error = (
+                f"Error running compile TTIR to TTNN Backend Pipeline "
+                f"(exit code: {compile_process.returncode})\n"
+                f"Command: {' '.join(compile_command)}\n"
+            )
+            if error_lines:
+                error += f"\nError messages found:\n" + "\n".join(error_lines) + "\n"
+            if last_lines:
+                error += f"\nLast 10 lines of output:\n" + "\n".join(last_lines)
             self.log(error, severity=logging.error)
             raise ExplorerRunException(error)
         self.progress = 20

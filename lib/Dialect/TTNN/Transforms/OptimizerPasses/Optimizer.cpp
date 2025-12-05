@@ -40,6 +40,7 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Error.h"
@@ -227,12 +228,21 @@ public:
 #else
     op_model::ScopedSingletonDeviceGuard deviceGuard;
 
+    llvm::errs() << "\n[TIMELINE] ========================================\n";
+    llvm::errs() << "[TIMELINE] TTNNOptimizer::runOnOperation() STARTED\n";
+    llvm::errs() << "[TIMELINE] ========================================\n";
+    llvm::errs().flush();
+
     // Generate legal OP configuration candidates.
     // Perform memory layout analysis.
     // Perform final configuration analysis.
     // Apply graph transformations based on analysis results.
     //
+    llvm::errs() << "[TIMELINE] Step 1: Validating overrides...\n";
+    llvm::errs().flush();
     assertOverridesValid();
+    llvm::errs() << "[TIMELINE] Step 1: Override validation complete\n";
+    llvm::errs().flush();
 
     ModuleOp moduleOp = getOperation();
 
@@ -594,6 +604,9 @@ private:
     // Check if each overriden op exists in the graph.
     // Check if each conv2d config override is applied only to conv2d op.
     //
+    llvm::errs() << "[TIMELINE] assertOverridesValid() - Building override maps...\n";
+    llvm::errs().flush();
+    
     llvm::StringMap<bool> overridenOpExists;
     llvm::StringMap<bool> overrideConv2dOp;
     for (const auto &[opLoc, _] : overrideOutputLayout) {
@@ -608,27 +621,99 @@ private:
     }
 
     ModuleOp moduleOp = getOperation();
+    
+    // Collect all location paths found in the IR for debugging
+    llvm::StringSet<> foundLocations;
+    llvm::StringSet<> overrideRequestedLocations;
+    
+    // Collect requested override locations
+    llvm::errs() << "[TIMELINE] assertOverridesValid() - Override locations requested:\n";
+    for (const auto &[opLoc, _] : overrideOutputLayout) {
+      overrideRequestedLocations.insert(opLoc);
+      llvm::errs() << "[TIMELINE]   → Output layout override: '" << opLoc << "'\n";
+      llvm::errs().flush();
+    }
+    for (const auto &[opLoc, _] : insertMemReconfig) {
+      overrideRequestedLocations.insert(opLoc);
+      llvm::errs() << "[TIMELINE]   → Memreconfig override: '" << opLoc << "'\n";
+      llvm::errs().flush();
+    }
+    for (const auto &[opLoc, _] : overrideConv2dConfig) {
+      overrideRequestedLocations.insert(opLoc);
+      llvm::errs() << "[TIMELINE]   → Conv2d config override: '" << opLoc << "'\n";
+      llvm::errs().flush();
+    }
+    
+    llvm::errs() << "[TIMELINE] assertOverridesValid() - Walking IR to extract operation locations...\n";
+    llvm::errs().flush();
+    
+    int debugLocationCount = 0;
+    int matchedCount = 0;
     moduleOp->walk([&](Operation *op) {
-      if (not isa<NameLoc>(op->getLoc())) {
-        return;
+      // Extract the full location path for unique operation identification
+      std::string opLocPath = ttmlir::utils::extractLocationPath(op->getLoc());
+      foundLocations.insert(opLocPath);
+      
+      // Debug: show locations for ops with results (can have layout overrides)
+      // Limit to first 30 to avoid spam
+      if (op->getNumResults() > 0 && debugLocationCount++ < 30) {
+        llvm::errs() << "[TIMELINE]   Found operation: '" << op->getName() 
+                     << "' with location path: '" << opLocPath << "'\n";
+        llvm::errs().flush();
       }
-
-      StringRef opLocName = mlir::cast<NameLoc>(op->getLoc()).getName();
-      if (overridenOpExists.contains(opLocName)) {
-        overridenOpExists[opLocName] = true;
+      
+      if (overridenOpExists.contains(opLocPath)) {
+        overridenOpExists[opLocPath] = true;
+        matchedCount++;
+        llvm::errs() << "[TIMELINE]   ✓ MATCHED override for: '" << opLocPath 
+                     << "' (op: " << op->getName() << ")\n";
+        llvm::errs().flush();
       }
-      if (!isa<ttnn::Conv2dOp>(op) && overrideConv2dOp.contains(opLocName)) {
+      if (!isa<ttnn::Conv2dOp>(op) && overrideConv2dOp.contains(opLocPath)) {
         op->emitRemark() << "Trying to override non-conv2d op: '"
                          << op->getName()
                          << "' with conv2d config. Skipping...";
         return;
       }
+      if (overrideConv2dOp.contains(opLocPath)) {
+        overrideConv2dOp[opLocPath] = true;
+        matchedCount++;
+      }
     });
+    
+    llvm::errs() << "[TIMELINE] assertOverridesValid() - Matched " << matchedCount 
+                 << " override(s) out of " << overrideRequestedLocations.size() 
+                 << " requested\n";
+    llvm::errs().flush();
 
     for (const auto &[opLoc, opOverridenAndExists] : overridenOpExists) {
       if (!opOverridenAndExists) {
-        llvm::report_fatal_error("Trying to override non-existing op: " +
-                                 opLoc + ". Check logs for details");
+        std::string errorMsg = "Trying to override non-existing op: " + std::string(opLoc) + "\n\n";
+        
+        errorMsg += "Requested override locations:\n";
+        for (const auto &reqLoc : overrideRequestedLocations) {
+          errorMsg += "  - " + std::string(reqLoc.getKey()) + "\n";
+        }
+        
+        errorMsg += "\nFound locations in IR (showing first 50):\n";
+        int count = 0;
+        for (const auto &foundLoc : foundLocations) {
+          if (count++ >= 50) {
+            errorMsg += "  ... (showing first 50, total: " + 
+                       std::to_string(foundLocations.size()) + ")\n";
+            break;
+          }
+          errorMsg += "  - " + std::string(foundLoc.getKey()) + "\n";
+        }
+        
+        errorMsg += "\nTip: Override locations must exactly match the location path "
+                   "produced by extractLocationPath(). Check the operation's location "
+                   "in the IR to see the correct format.\n";
+        
+        // Print detailed error to stderr before fatal error
+        llvm::errs() << "\n" << errorMsg << "\n";
+        llvm::errs().flush();
+        llvm::report_fatal_error(llvm::Twine(errorMsg));
       }
     }
   }

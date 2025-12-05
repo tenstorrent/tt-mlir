@@ -418,6 +418,47 @@ inline mlir::Location appendLocationSuffix(mlir::Location loc,
       loc);
 }
 
+// Extract the full location path by traversing the location hierarchy.
+// This creates a unique identifier by concatenating all names in the location chain.
+inline std::string extractLocationPath(mlir::Location loc) {
+  std::vector<std::string> pathParts;
+  mlir::Location current = loc;
+
+  // Traverse up the location hierarchy until we hit UnknownLoc or a non-NameLoc
+  while (!mlir::isa<mlir::UnknownLoc>(current)) {
+    if (mlir::isa<mlir::NameLoc>(current)) {
+      mlir::NameLoc nameLoc = mlir::cast<mlir::NameLoc>(current);
+      pathParts.push_back(nameLoc.getName().str());
+      current = nameLoc.getChildLoc();
+    } else if (mlir::isa<mlir::FileLineColRange>(current)) {
+      // For file locations, we could include filename:line:column
+      mlir::FileLineColRange fileLoc = mlir::cast<mlir::FileLineColRange>(current);
+      std::string fileInfo = fileLoc.getFilename().str() + ":" +
+                            std::to_string(fileLoc.getStartLine()) + ":" +
+                            std::to_string(fileLoc.getStartColumn());
+      return fileInfo;
+      pathParts.push_back(fileInfo);
+      break; // File locations are typically the root
+    } else {
+      // For other location types, use a generic representation
+      std::string locType = current->getAbstractAttribute().getName().str();
+      pathParts.push_back(locType);
+      break; // Stop at unknown location types
+    }
+  }
+
+  // Build the path from leaf to root (the order we collected)
+  std::string path;
+  for (const auto& part : pathParts) {
+    if (!path.empty()) {
+      path += ".";
+    }
+    path += part;
+  }
+
+  return path.empty() ? "unknown" : path;
+}
+
 // Extract the first n lines from a string.
 inline std::string firstNLines(std::string str, int n) {
   std::unique_ptr<llvm::MemoryBuffer> memBuf =

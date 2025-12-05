@@ -13,6 +13,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
+#include "ttmlir/Utils.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 #include "ttmlir/Support/Logger.h"
 
@@ -53,15 +54,31 @@ bool LegalOpLayoutAnalysis::applyOverrides() {
     return false;
   }
 
-  if (!isa<NameLoc>(op->getLoc())) {
-    return false;
+  // Extract the full location path for unique operation identification
+  std::string opLocPath = ttmlir::utils::extractLocationPath(op->getLoc());
+  
+  // Debug: Log when checking for overrides
+  static thread_local int checkCount = 0;
+  if (checkCount++ < 20) {  // Limit to first 20 to avoid spam
+    llvm::errs() << "[TIMELINE] LegalOpLayoutAnalysis::hasFullLayoutOverride() - "
+                 << "Checking op: '" << op->getName() 
+                 << "' with location path: '" << opLocPath << "'\n";
+    llvm::errs().flush();
   }
-
-  StringRef opLocName = mlir::cast<NameLoc>(op->getLoc()).getName();
-  auto overrideIt = analysisInput.outputLayoutOverrides->find(opLocName);
+  
+  auto overrideIt = analysisInput.outputLayoutOverrides->find(opLocPath);
 
   if (overrideIt == analysisInput.outputLayoutOverrides->end()) {
+    if (checkCount <= 20) {
+      llvm::errs() << "[TIMELINE]   → No override found for this location\n";
+      llvm::errs().flush();
+    }
     return false;
+  }
+  
+  if (checkCount <= 20) {
+    llvm::errs() << "[TIMELINE]   → ✓ OVERRIDE FOUND! Applying full layout override\n";
+    llvm::errs().flush();
   }
 
   OutputLayoutOverrideParams layoutOverride = overrideIt->getValue();
