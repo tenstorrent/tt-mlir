@@ -11,10 +11,12 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Interfaces/OpModelError.h"
 #include "ttmlir/Dialect/TTNN/Interfaces/TTNNOpModelInterface.cpp.inc"
+#include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Operation.h"
+#include "llvm/Support/Error.h"
 
 #include <cassert>
 #include <cstdint>
@@ -2901,6 +2903,24 @@ MatmulOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShapeA = getA().getType().getShape();
   const auto inputShapeB = getB().getType().getShape();
+
+  // Skip getOpConstraints for matmul with block sharded first operand if height
+  // or width is less than tile size
+  // TODO (mvasiljevic): remove once the fix in metal is merged and uplifted:
+  // https://github.com/tenstorrent/tt-metal/pull/33777
+  if (!inputs.empty() && inputs[0].getMemLayout() &&
+      inputs[0].getMemLayout().getValue() == TensorMemoryLayout::BlockSharded &&
+      inputShapeA.size() >= 2) {
+    int64_t height = inputShapeA[inputShapeA.size() - 2];
+    int64_t width = inputShapeA[inputShapeA.size() - 1];
+    if (height < static_cast<int64_t>(TILE_HEIGHT) ||
+        width < static_cast<int64_t>(TILE_WIDTH)) {
+      return llvm::createStringError(
+          llvm::inconvertibleErrorCode(),
+          "Matmul with block sharded first operand having logical "
+          "shape less than tile size is not supported");
+    }
+  }
 
   llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
   if (!check) {

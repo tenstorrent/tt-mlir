@@ -8,7 +8,6 @@
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Interfaces/OpModelError.h"
-#include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Support/Logger.h"
 
@@ -103,35 +102,6 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
     llvm::reportFatalInternalError(
         llvm::Twine("No device attribute found for operation ")
             .concat(op->getName().getStringRef()));
-  }
-
-  // Skip getOpConstraints for matmul with block sharded first operand if height
-  // or width is less than tile size
-  // TODO (mvasiljevic): remove once the fix in metal is merged and uplifted:
-  // https://github.com/tenstorrent/tt-metal/pull/33777
-  if (mlir::isa<ttnn::MatmulOp>(op) && !inputLayouts.empty() &&
-      inputLayouts[0].getMemLayout() &&
-      inputLayouts[0].getMemLayout().getValue() ==
-          TensorMemoryLayout::BlockSharded &&
-      op->getNumOperands() > 0) {
-    auto firstOperand = op->getOperand(0);
-    auto tensorType =
-        mlir::dyn_cast<mlir::RankedTensorType>(firstOperand.getType());
-    if (tensorType && tensorType.getShape().size() >= 2) {
-      auto tensorShape = tensorType.getShape();
-      int64_t height = tensorShape[tensorShape.size() - 2];
-      int64_t width = tensorShape[tensorShape.size() - 1];
-      if (height < static_cast<int64_t>(ttnn::TILE_HEIGHT) ||
-          width < static_cast<int64_t>(ttnn::TILE_WIDTH)) {
-        TTMLIR_DEBUG(
-            ttmlir::LogComponent::OpValidation,
-            "Skipping getOpConstraints for matmul: block sharded first "
-            "operand has logical shape less than tile size");
-        return ValidationResult::notImplemented(
-            "Matmul with block sharded first operand having logical "
-            "shape less than tile size is not supported");
-      }
-    }
   }
 
   TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
