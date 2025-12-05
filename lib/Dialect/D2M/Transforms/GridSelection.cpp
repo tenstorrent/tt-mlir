@@ -192,53 +192,6 @@ findLegalPhysicalGridForVolume(int64_t volume,
   return {};
 }
 
-/// Returns all positive factors of `value`
-static llvm::SmallVector<int64_t> getFactors(size_t value) {
-  if (value == 1) {
-    return {1};
-  }
-  llvm::SmallVector<int64_t> lowFactors, highFactors;
-  int64_t limit = static_cast<int64_t>(std::floor(std::sqrt(value)));
-  for (int64_t i = limit; i >= 1; --i) {
-    if (value % i == 0) {
-      highFactors.push_back(value / i);
-      lowFactors.push_back(i);
-    }
-  }
-  return llvm::to_vector(
-      llvm::concat<int64_t>(llvm::reverse(lowFactors), highFactors));
-}
-
-static llvm::SmallVector<llvm::SmallVector<int64_t>>
-computeFactorCombinations(ArrayRef<llvm::SmallVector<int64_t>> factors) {
-  TT_assertv(!factors.empty(), "Factors must have at least one dimension");
-
-  uint64_t numCombosEstimate = 1;
-  for (const auto &factorList : factors) {
-    TT_assertv(!factorList.empty(),
-               "Each dimension must have at least one factor");
-    numCombosEstimate *= factorList.size();
-  }
-
-  llvm::SmallVector<llvm::SmallVector<int64_t>> factorCombinations;
-  factorCombinations.reserve(numCombosEstimate);
-
-  llvm::SmallVector<int64_t> currentCombination(factors.size(), 1);
-  auto enumerateCombinations = [&](auto &&self, size_t dimIndex = 0ul) -> void {
-    if (dimIndex == factors.size()) {
-      factorCombinations.push_back(currentCombination);
-      return;
-    }
-    for (int64_t factor : factors[dimIndex]) {
-      currentCombination[dimIndex] = factor;
-      self(self, dimIndex + 1);
-    }
-  };
-  enumerateCombinations(enumerateCombinations);
-
-  return factorCombinations;
-}
-
 static llvm::SmallVector<int64_t>
 computeOptimalBlockShardedGrid(ArrayRef<int64_t> physicalShape,
                                ArrayRef<int64_t> targetSquareGridShape);
@@ -251,21 +204,22 @@ computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
   if (physicalShape.size() != 2) {
 
     // compute factors for all dims
-    SmallVector<SmallVector<int64_t>> factors(physicalShape.size());
-    for (auto [i, dim] : llvm::enumerate(physicalShape)) {
-      factors[i] = getFactors(static_cast<size_t>(dim));
-    }
+    SmallVector<SmallVector<int64_t>> factors =
+        llvm::to_vector(llvm::map_range(physicalShape, [](int64_t dim) {
+          return ttmlir::utils::getFactors(dim);
+        }));
 
-    auto factorCombinations = computeFactorCombinations(factors);
+    auto factorCombinations =
+        ttmlir::utils::computeCartesianProduct<int64_t>(factors);
 
     // try to find grid with largest volume that is <= target grid volume
     SmallVector<int64_t> bestGrid = {0};
-    for (const auto &grid : llvm::reverse(factorCombinations)) {
-
+    int64_t bestGridVolume = 0;
+    for (const auto &grid : factorCombinations) {
       int64_t gridVolume = ttmlir::utils::volume<int64_t>(grid);
-      int64_t bestGridVolume = ttmlir::utils::volume<int64_t>(bestGrid);
       if (gridVolume <= targetGridVolume && gridVolume > bestGridVolume) {
         bestGrid = grid;
+        bestGridVolume = ttmlir::utils::volume<int64_t>(bestGrid);
       }
     }
     return bestGrid;
@@ -275,23 +229,22 @@ computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
   auto [shardedDimIndex, aspectRatio] = findMaxDimAndAspectRatio(physicalShape);
 
   // for now, can only support if largest dim is divisible by grid volume
-  int64_t gridVolume = ttmlir::utils::volume<int64_t>(targetSquareGridShape);
-  TT_assertv((physicalShape[shardedDimIndex] % gridVolume == 0),
+  TT_assertv((physicalShape[shardedDimIndex] % targetGridVolume == 0),
              "Sharded dimension {} in virtual gridPhysical shape dimension is "
              "not divisible by grid volume {}",
-             shardedDimIndex, gridVolume);
+             shardedDimIndex, targetGridVolume);
 
   llvm::SmallVector<int64_t> grid;
   for (size_t i = 0; i < physicalShape.size(); ++i) {
     if (i == shardedDimIndex) {
-      grid.push_back(gridVolume);
+      grid.push_back(targetGridVolume);
     } else {
       grid.push_back(1);
     }
   }
   int64_t virtualGridVolume =
       std::accumulate(grid.begin(), grid.end(), 1, std::multiplies<int64_t>());
-  TT_assertv((virtualGridVolume % gridVolume == 0),
+  TT_assertv((virtualGridVolume % targetGridVolume == 0),
              "Virtual grid volume should be divisible by target grid volume");
   return grid;
 }
