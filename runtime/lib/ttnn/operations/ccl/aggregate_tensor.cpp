@@ -14,21 +14,19 @@ using ::ttnn::distributed::MeshToTensor;
 void run(const ::tt::target::ttnn::AggregateTensorOp *op,
          ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
-
   const ::ttnn::Tensor &input = tensorPool.getTTNNTensorAndValidate(op->in());
-
-  LOG_ASSERT(
-      ttnn::utils::isOnHost(input.storage_type()),
-      "Input of aggregate_tensor must be HOST. id:", op->in()->global_id());
   ::ttnn::MeshDevice &meshDevice = context.getMeshDevice();
 
   MeshComposerConfig meshComposerConfig;
   meshComposerConfig.dims.assign(op->composer_config()->dims()->begin(),
                                  op->composer_config()->dims()->end());
-  ::ttsl::SmallVector<uint32_t> meshShapeOverride(
-      op->composer_config()->mesh_shape_override()->begin(),
-      op->composer_config()->mesh_shape_override()->end());
-  meshComposerConfig.mesh_shape_override = ::ttnn::MeshShape(meshShapeOverride);
+  if (op->composer_config()->mesh_shape_override().has_value()) {
+    ::ttsl::SmallVector<uint32_t> meshShapeOverride(
+        op->composer_config()->mesh_shape_override()->begin(),
+        op->composer_config()->mesh_shape_override()->end());
+    meshComposerConfig.mesh_shape_override =
+        ::ttnn::MeshShape(meshShapeOverride);
+  }
   std::unique_ptr<MeshToTensor> meshComposer =
       ::ttnn::distributed::create_mesh_composer(meshDevice, meshComposerConfig);
   ::ttnn::Tensor out =

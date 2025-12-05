@@ -19,7 +19,7 @@ void run(const ::tt::target::ttnn::DistributeTensorOp *op,
 
   LOG_ASSERT(
       ttnn::utils::isOnHost(input.storage_type()),
-      "Input of aggregate_tensor must be HOST. id:", op->in()->global_id());
+      "Input of distribute_tensor must be HOST. id:", op->in()->global_id());
   ::ttnn::MeshDevice &meshDevice = context.getMeshDevice();
 
   std::optional<::ttnn::QueueId> cqId = std::nullopt;
@@ -39,10 +39,12 @@ void run(const ::tt::target::ttnn::DistributeTensorOp *op,
     }
   }
 
-  ::ttsl::SmallVector<uint32_t> meshShapeOverride(
-      op->mapper_config()->mesh_shape_override()->begin(),
-      op->mapper_config()->mesh_shape_override()->end());
-  meshMapperConfig.mesh_shape_override = ::ttnn::MeshShape(meshShapeOverride);
+  if (op->mapper_config()->mesh_shape_override().has_value()) {
+    ::ttsl::SmallVector<uint32_t> meshShapeOverride(
+        op->mapper_config()->mesh_shape_override()->begin(),
+        op->mapper_config()->mesh_shape_override()->end());
+    meshMapperConfig.mesh_shape_override = ::ttnn::MeshShape(meshShapeOverride);
+  }
   std::unique_ptr<TensorToMesh> meshMapper =
       ::ttnn::distributed::create_mesh_mapper(meshDevice, meshMapperConfig);
   ::ttnn::Tensor out =
