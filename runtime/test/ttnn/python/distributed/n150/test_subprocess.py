@@ -78,7 +78,7 @@ def test_flatbuffer_execution(request, num_loops):
     launch_distributed_runtime()
 
     with DeviceContext(mesh_shape=[1, 1]) as device:
-        inputs_runtime_with_layout, golden = test_runner.get_inputs_and_golden(
+        inputs_runtime_with_layout, golden, _ = test_runner.get_inputs_and_golden(
             device, borrow=False
         )
         for i in range(num_loops):
