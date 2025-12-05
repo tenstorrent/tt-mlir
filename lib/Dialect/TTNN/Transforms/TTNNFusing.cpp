@@ -440,13 +440,11 @@ public:
     RewritePatternSet patterns(&getContext());
     // TODO(mvasiljevic): Add HardsigmoidOp once tt-metal issue is resolved
     // https://github.com/tenstorrent/tt-metal/issues/30973
-    patterns.add<TTNNConv2dWithActivation<ReluOp>,
-                 TTNNConv2dWithActivation<Relu6Op>,
-                 TTNNConv2dWithActivation<SiluOp>,
-                 TTNNConv2dWithActivation<SigmoidOp>
-                     TTNNMatmulAndLinearWithActivation<MatmulOp, SigmoidOp>,
-                 TTNNMatmulAndLinearWithActivation<LinearOp, SigmoidOp>>(
-        &getContext());
+    patterns.add<
+        TTNNConv2dWithActivation<ReluOp>, TTNNConv2dWithActivation<Relu6Op>,
+        TTNNConv2dWithActivation<SiluOp>, TTNNConv2dWithActivation<SigmoidOp>,
+        TTNNMatmulAndLinearWithActivation<MatmulOp, SigmoidOp>,
+        TTNNMatmulAndLinearWithActivation<LinearOp, SigmoidOp>>(&getContext());
 
 #ifdef TTMLIR_ENABLE_OPMODEL
     if (enableOpConstraints) {
