@@ -1818,6 +1818,7 @@ public:
       op.emitError("Mesh shape is not available");
       return failure();
     }
+    // TODO(hkwonTT): Support N-Dimensional mesh shape
     SmallVector<uint32_t, 2> meshShape;
     meshShape.push_back(srcMeshShapeAttr.getY());
     meshShape.push_back(srcMeshShapeAttr.getX());
@@ -1866,6 +1867,7 @@ public:
       op.emitError("Mesh shape is not available");
       return failure();
     }
+    // TODO(hkwonTT): Support N-Dimensional mesh shape
     SmallVector<uint32_t, 2> fullMeshShape = {
         static_cast<uint32_t>(meshShapeAttr.getY()),
         static_cast<uint32_t>(meshShapeAttr.getX())};
