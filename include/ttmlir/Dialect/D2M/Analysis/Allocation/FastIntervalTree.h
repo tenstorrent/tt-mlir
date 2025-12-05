@@ -8,6 +8,7 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/Analysis/Allocation/Utils.h"
 
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/iterator_range.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -136,7 +137,7 @@ private:
   template <typename, typename>
   friend class allocation::FastIntervalTree;
 
-  // Parent/child and sibling links, negative values are "null" markers.
+  // Parent/child and sibling links, negative values are "null" markers:
 
   IndexT parent_;
   IndexT leftSibling_;
@@ -170,7 +171,6 @@ public:
   // of the stack unwind logic in `FastIntervalTree::queryImpl()`:
 
   auto begin() const { return std::make_reverse_iterator(intervals_.end()); }
-
   auto end() const { return std::make_reverse_iterator(intervals_.begin()); }
 
   template <bool CHECK_BOUNDS = true>
