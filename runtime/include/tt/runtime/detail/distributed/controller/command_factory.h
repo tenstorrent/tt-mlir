@@ -137,6 +137,15 @@ public:
   buildGetTensorDescCommand(::flatbuffers::FlatBufferBuilder &fbb,
                             const ::tt::runtime::Tensor &tensor);
 
+  static uint64_t
+  buildClearProgramCacheCommand(::flatbuffers::FlatBufferBuilder &fbb,
+                                const tt::runtime::Device &meshDevice);
+  static uint64_t
+  buildIsProgramCacheEnabledCommand(::flatbuffers::FlatBufferBuilder &fbb,
+                                    const tt::runtime::Device &meshDevice);
+  static uint64_t buildHasLayoutCommand(::flatbuffers::FlatBufferBuilder &fbb,
+                                        const ::tt::runtime::Tensor &tensor,
+                                        const ::tt::runtime::Layout &layout);
   static uint64_t buildShutdownCommand(::flatbuffers::FlatBufferBuilder &fbb);
 };
 
