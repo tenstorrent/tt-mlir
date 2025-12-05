@@ -61,3 +61,18 @@ table PointToPointOp {
   receiver_coord: [uint32];
   optional_output_tensor: tt.target.ttnn.TensorRef;
 }
+
+table DistributeTensorOp {
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  mapper_config: tt.target.ttnn.MeshMapperConfig;
+  device: tt.target.DeviceRef;
+  cq_id: uint32 = null;
+}
+
+table AggregateTensorOp {
+  in: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  composer_config: tt.target.ttnn.MeshComposerConfig;
+  device: tt.target.DeviceRef;
+}
