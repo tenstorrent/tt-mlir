@@ -45,9 +45,7 @@ from utils import (
 )
 @pytest.mark.parametrize("keepdim", [True, False])
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
-@pytest.mark.skip(
-    reason="D2M Does not support reduction ops - causes assertion crashes"
-)
+@pytest.mark.skip(reason="D2M does not support reduction ops")
 def test_sum(device, shape, dim, keepdim, dtype):
     """Test sum reduction operation with various dimensions and keepdim values"""
 
@@ -93,9 +91,7 @@ def test_sum(device, shape, dim, keepdim, dtype):
 )
 @pytest.mark.parametrize("keepdim", [True, False])
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
-@pytest.mark.skip(
-    reason="D2M Does not support reduction ops - causes assertion crashes"
-)
+@pytest.mark.skip(reason="D2M Does not support reduction ops")
 def test_mean(device, shape, dim, keepdim, dtype):
     """Test mean reduction operation with various dimensions and keepdim values"""
 
@@ -121,9 +117,7 @@ def test_mean(device, shape, dim, keepdim, dtype):
 @pytest.mark.parametrize("shape", [(64, 64), (128, 128)])
 @pytest.mark.parametrize("dim", [0, 1])
 @pytest.mark.parametrize("dtype", [torch.float32])
-@pytest.mark.skip(
-    reason="D2M Does not support reduction ops - causes assertion crashes"
-)
+@pytest.mark.skip(reason="D2M Does not support reduction ops")
 def test_max(device, shape, dim, dtype):
     """Test max reduction operation"""
 
@@ -149,9 +143,7 @@ def test_max(device, shape, dim, dtype):
 @pytest.mark.parametrize("shape", [(64, 64), (128, 128)])
 @pytest.mark.parametrize("dim", [0, 1])
 @pytest.mark.parametrize("dtype", [torch.float32])
-@pytest.mark.skip(
-    reason="D2M Does not support reduction ops - causes assertion crashes"
-)
+@pytest.mark.skip(reason="D2M Does not support reduction ops")
 def test_min(device, shape, dim, dtype):
     """Test min reduction operation"""
 

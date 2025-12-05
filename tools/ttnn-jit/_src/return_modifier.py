@@ -15,7 +15,7 @@ def someFunction(input_tensor):
     return last_tensor
 In this case, the output tensor shape and info for ttnn.someOp(...) is not populated.
 To this aim, the following class inserts ttnn.identity calls before the return statements.
-So we canvert the aforemention function to this:
+So we convert the aforementioned function to this:
 def someFunction(input_tensor):
     # ... some functionality
     last_tensor = ttnn.someOp(...)
@@ -26,8 +26,9 @@ Therefore, we can correctly capture the output tensor shape and info for ttnn.so
 This also helps in identifying the final output tensor of the function.
 Note 1: that this code also supports multiple return values and expressions.
 Note 2: This is a temporary workaround for this problem. In order to fix it, we should either:
-- Add support for capturing the output tensor shape and info for ops without a consumer.
 - Add a ttnn.no-op as a pass through op to ttnn.
+- Add support for capturing the output tensor shape and info for ops without a consumer.
+  TODO(sgholami): https://github.com/tenstorrent/tt-metal/issues/33914
 Note 3: We assert that the original function does not contain any ttnn.identity calls.
 Note 4: This approach should work for any passthrough op. Rn, we use ttnn.identity as an example.
 """
@@ -35,17 +36,17 @@ Note 4: This approach should work for any passthrough op. Rn, we use ttnn.identi
 # Placeholder op is used to mark the output of a function without performing any computation.
 # One example of a placeholder op is "identity" (ttnn.identity), but other passthrough
 # operations could also serve this purpose.
-placeholder_op_name = "ttnn.identity"
+PLACEHOLDER_OP_NAME = "ttnn.identity"
 
 
 def get_placeholder_op_name():
     """Get the name of the placeholder operation (e.g., 'identity')."""
-    return placeholder_op_name.split(".")[-1]
+    return PLACEHOLDER_OP_NAME.split(".")[-1]
 
 
 def get_placeholder_op_dialect():
     """Get the dialect of the placeholder operation (e.g., 'ttnn')."""
-    return placeholder_op_name.split(".")[0]
+    return PLACEHOLDER_OP_NAME.split(".")[0]
 
 
 class ReturnModifier(ast.NodeTransformer):
@@ -169,8 +170,8 @@ def create_modified_function(f):
     source = inspect.getsource(f)
 
     # Assert that the original function does not contain any placeholder op calls
-    assert placeholder_op_name not in source, (
-        "The jit-ed function cannot include " + f"{placeholder_op_name} op for now"
+    assert PLACEHOLDER_OP_NAME not in source, (
+        "The jit-ed function cannot include " + f"{PLACEHOLDER_OP_NAME} op for now"
     )
 
     # Parse the source code into an AST

@@ -72,6 +72,9 @@ class GraphToIRTranslator:
     def _find_optimal_depth(self, max_depth: int = 10) -> Tuple[int, LevelizedGraph]:
         """
         Find the minimum depth k where all level 1 operations are visitable.
+        Level 1 operations are essentially the top level operations that can be executed on the device.
+        Eg. ttnn.add is a level 1 operation, but its internal node (ttnn.prim_binary_ng) is a level 2 operation.
+        Note that we don't need to include level 2 ops in the IR (unless their parent is a composite op, such as ttnn.digamma).
 
         Args:
             max_depth: Maximum depth to try before giving up
@@ -142,12 +145,19 @@ class GraphToIRTranslator:
         # Extract grid if sharded
         # Format: grid={[(x=0,y=0) - (x=0,y=0)]}
         # This represents a grid from (x_min, y_min) to (x_max, y_max)
-        grid_match = re.search(
-            r"grid=\{\[\(x=(\d+),y=(\d+)\)\s*-\s*\(x=(\d+),y=(\d+)\)\]\}",
-            output_info_str,
-        )
-        if grid_match:
-            x_min, y_min, x_max, y_max = map(int, grid_match.groups())
+        # Note: Multiple CoreRanges are not supported in JIT/D2M
+        grid_pattern = r"\[\(x=(\d+),y=(\d+)\)\s*-\s*\(x=(\d+),y=(\d+)\)\]"
+        grid_matches = re.findall(grid_pattern, output_info_str)
+
+        if len(grid_matches) > 1:
+            raise ValueError(
+                f"Multiple CoreRanges in grid attribute are not supported in JIT/D2M. "
+                f"Found {len(grid_matches)} CoreRange(s) in output_info. "
+                f"Only single CoreRange grids are currently supported."
+            )
+
+        if len(grid_matches) == 1:
+            x_min, y_min, x_max, y_max = map(int, grid_matches[0])
             # Grid size is (max - min + 1) for each dimension
             # But TTNN uses (width, height) while compiler uses (height, width)
             grid_width = x_max - x_min + 1
