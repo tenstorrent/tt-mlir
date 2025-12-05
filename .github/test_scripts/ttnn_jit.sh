@@ -32,8 +32,7 @@ if [ "$1" == "nightly" ]; then
 else
     if [[ "$RUNS_ON" == "llmbox" ]]; then
         # only run multichip tests and matmul smoketests for llmbox
-        pytest -v $WORK_DIR/test/ttnn-jit/test_mesh_tensor_eltwise.py --junit-xml=$TEST_REPORT_PATH
-        pytest -v $WORK_DIR/test/ttnn-jit/test_matmul_smoketest.py --junit-xml=$TEST_REPORT_PATH
+        pytest -v $WORK_DIR/test/ttnn-jit/test_mesh_tensor_eltwise.py $WORK_DIR/test/ttnn-jit/test_matmul_smoketest.py --junit-xml=$TEST_REPORT_PATH
     else
         # Only run tests in the top level directory. These are always run.
         pytest -v $WORK_DIR/test/ttnn-jit/*.py --junit-xml=$TEST_REPORT_PATH
