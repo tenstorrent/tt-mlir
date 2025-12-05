@@ -87,6 +87,16 @@ target_link_options(${TT_ALCHEMIST_LIBRARY_NAME}
     -Wl,-rpath-link,${TTNN_INSTALL_DIR}/lib
 )
 
+################################################################################
+# Python Model Runner Library (separate subdirectory due to RTTI requirements)
+################################################################################
+
+add_subdirectory(python_runner)
+
+################################################################################
+# Install headers and templates
+################################################################################
+
 # Install headers
 add_custom_target(tt-alchemist-install-public-headers
   # Clean old headers directory to avoid stale files
@@ -238,3 +248,9 @@ if(TTMLIR_ENABLE_ALCHEMIST_WHEEL)
   # Override default target to add editable wheel install
   add_dependencies(tt-alchemist tt-alchemist-install-wheel-editable)
 endif()
+
+################################################################################
+# Tests
+################################################################################
+
+add_subdirectory(${TT_ALCHEMIST_ROOT_SOURCE_DIR}/test ${CMAKE_CURRENT_BINARY_DIR}/test)

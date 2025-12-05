@@ -1303,6 +1303,31 @@ createEltwiseBinaryCompositeScalarOp(FlatbufferObjectCache &cache,
       *cache.fbb, type, lhs, rhsType, rhsValue, memoryConfig, out);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::ExperimentalEltwiseBinaryBackwardOp>
+createExperimentalEltwiseBinaryBackwardOp(FlatbufferObjectCache &cache,
+                                          GeluBackwardOp op) {
+  ::tt::target::ttnn::ExperimentalEltwiseBinaryBackwardOpType type =
+      ::tt::target::ttnn::ExperimentalEltwiseBinaryBackwardOpType::GeluBW;
+
+  auto grad = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getLhs()));
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getRhs()));
+
+  auto approximate = toFlatbuffer(cache, op.getApproximate());
+
+  ::flatbuffers::Optional<::tt::target::DataType> outputDtype =
+      toFlatbuffer(cache, op.getDtype());
+
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+
+  auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+
+  return ::tt::target::ttnn::CreateExperimentalEltwiseBinaryBackwardOp(
+      *cache.fbb, type, grad, input, approximate, outputDtype, memoryConfig,
+      out);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::EltwiseTernaryWhereOp>
 createEltwiseTernaryWhereOp(FlatbufferObjectCache &cache, WhereOp op) {
 
@@ -2209,8 +2234,10 @@ createOp(FlatbufferObjectCache &cache, ScaledDotProductAttentionDecodeOp op) {
       getOperandThroughDPSOps(op.getKey()));
   auto value = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getValue()));
-  auto curPosTensor = cache.at<::tt::target::ttnn::TensorRef>(
-      getOperandThroughDPSOps(op.getCurPosTensor()));
+  auto curPosTensor = op.getCurPosTensor()
+                          ? cache.at<::tt::target::ttnn::TensorRef>(
+                                getOperandThroughDPSOps(op.getCurPosTensor()))
+                          : 0;
   auto attentionMask = op.getAttentionMask()
                            ? cache.at<::tt::target::ttnn::TensorRef>(
                                  getOperandThroughDPSOps(op.getAttentionMask()))
@@ -2231,9 +2258,12 @@ createOp(FlatbufferObjectCache &cache, ScaledDotProductAttentionDecodeOp op) {
                  : std::nullopt);
   // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 
+  std::optional<::flatbuffers::Offset<::tt::target::ttnn::SDPAConfig>>
+      programConfig = toFlatbuffer(cache, op.getProgramConfig());
+
   return ::tt::target::ttnn::CreateScaledDotProductAttentionDecodeOp(
       *cache.fbb, query, key, value, isCausal, attentionMask, curPosTensor,
-      attentionSink, scale, out, memoryConfig);
+      attentionSink, scale, out, memoryConfig, programConfig.value_or(0));
 }
 
 ::flatbuffers::Offset<
@@ -2865,6 +2895,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto geluOp = dyn_cast<GeluOp>(op); geluOp) {
     return createOperation(cache, createEltwiseUnaryOp(cache, geluOp),
                            debugString, locInfo);
+  }
+  if (auto geluBackwardOp = dyn_cast<GeluBackwardOp>(op); geluBackwardOp) {
+    return createOperation(
+        cache, createExperimentalEltwiseBinaryBackwardOp(cache, geluBackwardOp),
+        debugString, locInfo);
   }
   if (auto tanOp = dyn_cast<TanOp>(op); tanOp) {
     return createOperation(cache, createEltwiseUnaryOp(cache, tanOp),

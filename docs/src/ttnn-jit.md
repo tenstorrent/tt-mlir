@@ -80,7 +80,6 @@ def model():
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `max_grid` | `tuple` | `(7,7)` | Maximum **sharding** grid size used for JIT compilation. |
 | `debug` | `bool` | `False` | Enable debug prints during compilation and execution. |
 | `compile_only` | `bool` | `False` | Only compile runtime without execution. The resulting flatbuffer will be dumped to `generated/jit`. |
 | `enable_cache` | `bool` | `False` | Turn on the JitCache for ttnn.jit (This will also turn on TTNN ProgramCache). |
