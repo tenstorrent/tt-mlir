@@ -61,6 +61,8 @@ def TTNN_ReduceType_Max  : I32EnumAttrCase<"Max",  2, "max">;
 def TTNN_ReduceType_Min  : I32EnumAttrCase<"Min",  3, "min">;
 def TTNN_ReduceType_Std  : I32EnumAttrCase<"Std",  4, "std">;
 def TTNN_ReduceType_Var  : I32EnumAttrCase<"Var",  5, "var">;
+def TTNN_ReduceType_Prod  : I32EnumAttrCase<"Prod",  6, "prod">;
+def TTNN_ReduceType_Invalid  : I32EnumAttrCase<"Invalid",  7, "invalid">;
 
 def TTNN_ReduceType: I32EnumAttr<"ReduceType", "TTNN Reduce Operation Type",
                           [
@@ -70,6 +72,8 @@ def TTNN_ReduceType: I32EnumAttr<"ReduceType", "TTNN Reduce Operation Type",
                            TTNN_ReduceType_Min,
                            TTNN_ReduceType_Std,
                            TTNN_ReduceType_Var,
+                           TTNN_ReduceType_Prod,
+                           TTNN_ReduceType_Invalid,
                           ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttnn::operations::reduction";
