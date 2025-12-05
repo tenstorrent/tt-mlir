@@ -429,83 +429,8 @@ private:
     return outputShape == expectedShape;
   }
 };
+
 #endif // TTMLIR_ENABLE_OPMODEL
-
-// Fusion patter to optimize reduce_or decomposition Patter.
-// ttnn.typecast(ttnn.ne(ttnn.sum(x), zero)) -> ttnn.sum(x)
-
-class FuseTTNNReduceOrPattern final
-    : public mlir::OpRewritePattern<ttnn::TypecastOp> {
-public:
-  using OpRewritePattern<ttnn::TypecastOp>::OpRewritePattern;
-
-  mlir::LogicalResult
-  matchAndRewrite(ttnn::TypecastOp castOp,
-                  mlir::PatternRewriter &rewriter) const override {
-    // Small local helper so we don't pollute namespace or expose a static.
-    auto isZeroLike = [](mlir::Value v) -> bool {
-      if (auto full = v.getDefiningOp<ttnn::FullOp>()) {
-        if (auto floatAttr = mlir::dyn_cast_if_present<mlir::FloatAttr>(
-                full.getFillValue())) {
-          return floatAttr.getValueAsDouble() == 0.0;
-        }
-        if (auto intAttr = mlir::dyn_cast_if_present<mlir::IntegerAttr>(
-                full.getFillValue())) {
-          return intAttr.getInt() == 0;
-        }
-        return false;
-      }
-      if (auto cst = v.getDefiningOp<ttnn::ConstantOp>()) {
-        if (auto elems =
-                mlir::dyn_cast<mlir::DenseElementsAttr>(cst.getValue())) {
-          if (!elems.isSplat()) {
-            return false;
-          }
-          mlir::Attribute splat = elems.getSplatValue<mlir::Attribute>();
-          if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(splat)) {
-            return floatAttr.getValueAsDouble() == 0.0;
-          }
-          if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(splat)) {
-            return intAttr.getInt() == 0;
-          }
-        }
-        return false;
-      }
-      return false;
-    };
-
-    auto neOp = castOp.getInput().getDefiningOp<ttnn::NotEqualOp>();
-    if (!neOp) {
-      return mlir::failure();
-    }
-
-    // Order-agnostic find of (sum, zero).
-    mlir::Value lhs = neOp.getLhs();
-    mlir::Value rhs = neOp.getRhs();
-
-    ttnn::SumOp sumOp = lhs.getDefiningOp<ttnn::SumOp>();
-    mlir::Value zeroCand = rhs;
-    if (!sumOp || !isZeroLike(zeroCand)) {
-      sumOp = rhs.getDefiningOp<ttnn::SumOp>();
-      zeroCand = lhs;
-      if (!sumOp || !isZeroLike(zeroCand)) {
-        return mlir::failure();
-      }
-    }
-
-    // Type preservation: result(sum) must match result(typecast).
-    auto sumType =
-        mlir::dyn_cast<mlir::RankedTensorType>(sumOp.getResult().getType());
-    auto castType =
-        mlir::dyn_cast<mlir::RankedTensorType>(castOp.getResult().getType());
-    if (!sumType || !castType || sumType != castType) {
-      return mlir::failure();
-    }
-
-    rewriter.replaceOp(castOp, sumOp.getResult());
-    return mlir::success();
-  }
-};
 
 class TTNNFusingPass : public impl::TTNNFusingBase<TTNNFusingPass> {
 public:
