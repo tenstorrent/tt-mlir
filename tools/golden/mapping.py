@@ -3936,6 +3936,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.SineOp: torch.sin,
     stablehlo.SqrtOp: torch.sqrt,
     stablehlo.TanOp: torch.tan,
+    stablehlo.GetDimensionSizeOp: get_dimension_size_golden,
     stablehlo.AndOp: stablehlo_and_golden,
     stablehlo.OrOp: stablehlo_or_golden,
     stablehlo.XorOp: stablehlo_xor_golden,

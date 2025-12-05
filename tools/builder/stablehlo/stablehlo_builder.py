@@ -1172,6 +1172,50 @@ class StableHLOBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
+        def get_dimension_size(
+            self,
+            operand: Operand,
+            dimension: int,
+            unit_attrs: Optional[List[str]] = None,
+            sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+        ) -> OpView:
+            """
+            Creates ``stablehlo.get_dimension_size``.
+
+            Returns a scalar tensor containing the runtime size of `operand` at the
+            given `dimension`. The op attribute `dimension` is the dimension index
+            to query (0-based).
+
+            Parameters
+            ----------
+            operand : Operand
+                Input tensor whose dimension size is queried
+            dimension : int
+                Dimension index to query (0-based)
+            unit_attrs : Optional[List[str]]
+                Optional list of unit attributes
+            sharding_attr : Optional[sdy.TensorShardingPerValueAttr]
+                Optional sharding attribute for the produced scalar
+
+            Returns
+            -------
+            (*OpView*)
+                A scalar tensor (tensor<i64> or tensor<i32> depending on dialect) containing the size
+            """
+            # Provide golden wiring: pass the concrete numpy/torch tensor and the dimension.
+            organize_golden_args = lambda inputs: (self._get_golden_tensor(inputs[0]),)
+            golden_kwargs = {"dimension": dimension}
+
+            return self._op_proxy(
+                stablehlo.GetDimensionSizeOp,
+                [operand],
+                unit_attrs=unit_attrs,
+                sharding_attr=sharding_attr,
+                organize_golden_args=organize_golden_args,
+                stablehlo_kwargs={"dimension": dimension},
+                golden_kwargs=golden_kwargs,
+            )
+
     def slice(
         self,
         in0: Operand,
