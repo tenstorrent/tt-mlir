@@ -25,7 +25,8 @@
   transpose_shards = true,
   output_layout = tile,
   enable_act_double_buffer = false,
-  enable_weights_double_buffer = false
+  enable_weights_double_buffer = false,
+  in_place = false
 >
 
 func.func @conv2d_conv2dconfig(%arg0: tensor<1x1x1024x64xbf16, #ttnn_layout>, %arg1: tensor<64x64x3x3xbf16, #ttnn_layout1>, %arg2: tensor<1x1x1x64xbf16, #ttnn_layout2>) -> tensor<1x30x30x64xbf16, #ttnn_layout3> {
