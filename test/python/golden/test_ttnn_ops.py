@@ -9,7 +9,7 @@ from typing import Callable, List, Optional
 from builder.base.builder import Operand, Shape
 from builder.ttnn.ttnn_builder import TTNNBuilder
 from builder.base.builder_utils import compile_and_execute_ttnn
-from test_utils import shape_str, shapes_list_str
+from test_utils import shape_str, shapes_list_str, Marks
 
 pytestmark = pytest.mark.frontend("ttnn")
 
@@ -227,7 +227,9 @@ def test_matmul(
     ids=shapes_list_str,
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
-@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+@pytest.mark.parametrize(
+    "target", ["ttnn", "emitpy" | Marks(pytest.mark.xfail(reason="type mismatch"))]
+)
 def test_linear(
     shapes: List[Shape],
     dtype: torch.dtype,

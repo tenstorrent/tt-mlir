@@ -3,20 +3,91 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
-import inspect
+import ast
 import time
 import torch
 import numpy as np
 from functools import reduce
-import operator
+import sys
+from pathlib import Path
 from typing import Callable, List, Optional, Tuple, Union, Literal, Dict
 from collections import OrderedDict
 import json
 from functools import partial
+import importlib
 
 from builder.base.builder import *
 
 import _ttmlir_runtime as tt_runtime
+import importlib.util
+import ctypes
+
+
+def setup_ttnn_environment():
+    """
+    Set up environment and pre-load libraries for ttnn without importing ttrt.
+    Returns True if setup succeeded, False otherwise.
+    """
+    package_name = "ttrt"
+    spec = importlib.util.find_spec(package_name)
+    if spec is None or spec.origin is None:
+        return False
+
+    package_path = os.path.dirname(spec.origin)
+    tt_metal_home = f"{package_path}/runtime"
+
+    # Set environment variables that ttnn needs
+    os.environ["TT_METAL_RUNTIME_ROOT_EXTERNAL"] = os.environ.get(
+        "TT_METAL_RUNTIME_ROOT", ""
+    )
+    os.environ["TT_METAL_RUNTIME_ROOT"] = tt_metal_home
+    os.environ["TT_METAL_HOME"] = tt_metal_home
+
+    # Pre-load shared libraries with RTLD_GLOBAL so they're available to ttnn
+    # This is necessary because LD_LIBRARY_PATH changes after process start don't work
+    runtime_libs = [
+        "libtt_stl.so",
+        "libtracy.so.0.10.0",
+        "libdevice.so",
+        "libtt_metal.so",
+        "_ttnncpp.so",
+    ]
+
+    for lib in runtime_libs:
+        lib_path = os.path.join(tt_metal_home, lib)
+        if os.path.exists(lib_path):
+            try:
+                # Load with RTLD_GLOBAL so symbols are available to subsequently loaded libraries
+                ctypes.CDLL(lib_path, mode=ctypes.RTLD_GLOBAL)
+            except OSError as e:
+                print(f"Warning: Failed to preload {lib}: {e}")
+                # Continue anyway, maybe it will work
+
+    # Add ttnn to sys.path
+    ttnn_path = f"{tt_metal_home}/ttnn"
+    if ttnn_path not in sys.path:
+        sys.path.append(ttnn_path)
+
+    return True
+
+
+def get_ttrt_metal_home_path():
+    package_name = "ttrt"
+    spec = importlib.util.find_spec(package_name)
+    if spec is None or spec.origin is None:
+        return None
+    package_path = os.path.dirname(spec.origin)
+    tt_metal_home = f"{package_path}/runtime"
+    return tt_metal_home
+
+
+def setup_ttnn_path():
+    """Add ttnn to sys.path if not already present and ttrt is available."""
+    ttrt_home = get_ttrt_metal_home_path()
+    if ttrt_home is not None:
+        ttnn_path = f"{ttrt_home}/ttnn"
+        if ttnn_path not in sys.path:
+            sys.path.append(ttnn_path)
 
 
 class TTBuilderCompileException(Exception):
@@ -435,6 +506,116 @@ def convert_golden_to_torch_tensors(
     return golden_torch_tensors
 
 
+def check_golden_outputs(
+    golden_outputs_torch: List[torch.Tensor],
+    output_tensors_torch: List[torch.Tensor],
+    pcc: float,
+    atol: float,
+    rtol: float,
+    check_atol: bool,
+    check_rtol: bool,
+) -> Dict[str, Dict[int, Dict]]:
+    """
+    Check output tensors against golden reference tensors.
+
+    Parameters
+    ----------
+    golden_outputs_torch : List[torch.Tensor]
+        List of expected golden output tensors
+    output_tensors_torch : List[torch.Tensor]
+        List of actual output tensors to check
+    pcc : float
+        PCC threshold for comparison
+    atol : float
+        Absolute tolerance for comparison
+    rtol : float
+        Relative tolerance for comparison
+    check_atol : bool
+        Whether to check absolute tolerance
+    check_rtol : bool
+        Whether to check relative tolerance
+
+    Returns
+    -------
+    Dict[str, Dict[int, Dict]]
+        Golden report with results for each output
+
+    Raises
+    ------
+    TTBuilderGoldenException
+        If any output fails the golden checks
+    """
+    golden_report = {}
+
+    for i in range(min(len(golden_outputs_torch), len(output_tensors_torch))):
+        cal_atol, cal_rtol, cal_pcc = get_atol_rtol_pcc(
+            golden_outputs_torch[i],
+            output_tensors_torch[i],
+            atol,
+            rtol,
+        )
+
+        output_key = f"output_{i}"
+        result = "pass"
+
+        # Check PCC
+        if cal_pcc < pcc:
+            result = "fail"
+            raise TTBuilderGoldenException(
+                f"Failed: program-level output golden comparison failed for {output_key}, "
+                f"actual_pcc={cal_pcc} < expected_pcc={pcc}"
+            )
+        else:
+            print(f"Program level golden for {output_key} matched. pcc={cal_pcc}")
+
+        # Check atol if enabled
+        if check_atol:
+            if cal_atol > atol:
+                result = "fail"
+                raise TTBuilderGoldenException(
+                    f"Failed: program-level output atol check failed for {output_key}, "
+                    f"actual_atol={cal_atol} > expected_atol={atol}"
+                )
+            else:
+                print(
+                    f"Program level atol check for {output_key} passed. atol={cal_atol}"
+                )
+
+        # Check rtol if enabled
+        if check_rtol:
+            if cal_rtol > rtol:
+                result = "fail"
+                raise TTBuilderGoldenException(
+                    f"Failed: program-level output rtol check failed for {output_key}, "
+                    f"actual_rtol={cal_rtol} > expected_rtol={rtol}"
+                )
+            else:
+                print(
+                    f"Program level rtol check for {output_key} passed. rtol={cal_rtol}"
+                )
+
+        # Add to golden report
+        golden_report[output_key] = {
+            0: {
+                "result": result,
+                "expected_pcc": pcc,
+                "actual_pcc": cal_pcc,
+                "expected_atol": atol,
+                "actual_atol": cal_atol,
+                "expected_rtol": rtol,
+                "actual_rtol": cal_rtol,
+                "allclose": torch.allclose(
+                    golden_outputs_torch[i],
+                    output_tensors_torch[i],
+                    atol=atol,
+                    rtol=rtol,
+                ),
+            }
+        }
+
+    return golden_report
+
+
 def execute_fb(
     fb_path: str,
     goldens: Dict[str, Dict[int, GoldenMapTensor]],
@@ -534,6 +715,7 @@ def execute_fb(
         e2e_duration_nanoseconds_submit = end_submit - start_submit
 
         e2e_duration_nanoseconds_output = 0
+        output_tensors_torch = []
 
         for i, runtime_output_tensor in enumerate(runtime_outputs):
             start_get_output = time.perf_counter_ns()
@@ -565,38 +747,163 @@ def execute_fb(
                     dtype=runtime_dtype_to_torch_dtype(outputs[i].get_dtype()),
                 ).reshape(outputs[i].get_shape())
 
-            cal_atol, cal_rtol, cal_pcc, = get_atol_rtol_pcc(
-                golden_outputs_torch[i],
-                output_tensor_torch,
+            output_tensors_torch.append(output_tensor_torch)
+
+        # Check golden outputs if not disabled
+        if not disable_golden and len(output_tensors_torch) > 0:
+            program_golden_report = check_golden_outputs(
+                golden_outputs_torch,
+                output_tensors_torch,
+                pcc,
                 atol,
                 rtol,
+                check_atol,
+                check_rtol,
             )
-
-            if cal_pcc < pcc:
-                raise TTBuilderGoldenException(
-                    f"Failed: program-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={pcc}"
-                )
-            else:
-                print(f"Program level golden for output_{i} matched. pcc={cal_pcc}")
-
-            if check_atol:
-                if cal_atol > atol:
-                    raise TTBuilderGoldenException(
-                        f"Failed: program-level output atol check failed, actual_atol={cal_atol} > expected_atol={atol}"
-                    )
-                else:
-                    print(
-                        f"Program level atol check for output_{i} passed. atol={cal_atol}"
-                    )
-
-            if check_rtol:
-                if cal_rtol > rtol:
-                    raise TTBuilderGoldenException(
-                        f"Failed: program-level output rtol check failed, actual_rtol={cal_rtol} > expected_rtol={rtol}"
-                    )
-                else:
-                    print(
-                        f"Program level rtol check for output_{i} passed. rtol={cal_rtol}"
-                    )
+            # Merge program golden report into callback runtime config golden report
+            callback_runtime_config.golden_report.update(program_golden_report)
 
     return callback_runtime_config.golden_report
+
+
+def execute_emitted_py(
+    dylib,
+    goldens: Dict[str, Dict[int, GoldenMapTensor]],
+    program_index: str = "all",
+    pcc: float = 0.99,
+    atol: float = 1e-08,
+    rtol: float = 1e-05,
+    disable_golden: bool = False,
+    device=None,
+    check_atol: bool = False,
+    check_rtol: bool = False,
+):
+    # Set up ttnn environment before loading the emitpy module
+    # The emitpy-generated Python file has "import ttnn" which needs this setup
+    if not setup_ttnn_environment():
+        print("Warning: Could not set up ttnn environment, execution may fail")
+
+    print(f"------executing emitpy API")
+
+    if dylib is None:
+        print(f"no EmitPy dylibs found to run - returning early")
+        return
+
+    # Convert goldens to torch tensors for comparison
+    golden_torch_tensors = convert_golden_to_torch_tensors(goldens)
+
+    # Golden report to track results
+    golden_report = {}
+
+    print(f"evaluating python file={dylib.file_path}")
+
+    # Add tt-alchemist utils.py to path for EmitPy tests
+    TT_MLIR_HOME = Path(os.environ.get("TT_MLIR_HOME", os.getcwd())).resolve()
+    utils_path = os.path.join(TT_MLIR_HOME, "tools/tt-alchemist/templates/python/local")
+    if utils_path not in sys.path:
+        sys.path.append(utils_path)
+
+    try:
+
+        print(f"loading module from file: {dylib.file_path}")
+        # Get the module name from the file path
+        module_name = os.path.splitext(os.path.basename(dylib.file_path))[0]
+
+        # Load the module from the file path
+        spec = importlib.util.spec_from_file_location(module_name, dylib.file_path)
+        module = importlib.util.module_from_spec(spec)
+
+        # Add the module to sys.modules so it can be imported by other modules
+        sys.modules[module_name] = module
+
+        # Execute the module
+        spec.loader.exec_module(module)
+        print(f"module {module_name} loaded and executed successfully")
+
+        # Parse the AST to find function names
+        with open(dylib.file_path, "r") as f:
+            source_code = f.read()
+
+        tree = ast.parse(source_code)
+        program_names = []
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.FunctionDef)
+                and node.name != "main"
+                and node.name[0:18] != "create_inputs_for_"
+                and not node.name.__contains__("_const_eval_")
+            ):
+                program_names.append(node.name)
+
+        print(f"Program names found: {program_names}")
+
+        if program_index != "all":
+            if len(program_names) > int(program_index):
+                print(
+                    f"program index={int(program_index)} is greater than number of programs in: {dylib.file_path} - skipping this test"
+                )
+                return
+
+        for cur_program_index, cur_program_name in enumerate(program_names):
+            if program_index != "all" and cur_program_index != int(program_index):
+                continue
+
+            print(
+                f"evaluating program={cur_program_name} for python file={dylib.file_path}"
+            )
+            create_program_inputs = "create_inputs_for_" + cur_program_name
+            create_inputs_func = getattr(module, create_program_inputs)
+            inputs = create_inputs_func()
+            print(f"created {len(inputs)} input tensors")
+
+            print(f"starting program={cur_program_name}")
+
+            program_func = getattr(module, cur_program_name)
+            outputs = program_func(inputs)
+            print(f"finished program={cur_program_name}")
+    except Exception as e:
+        raise TTBuilderRuntimeException(e) from e
+
+    # Perform golden checking if not disabled
+    if not disable_golden:
+        # Get expected golden outputs for this program
+        golden_outputs_torch = []
+        for i in range(len(outputs)):
+            output_key = f"output_{i}"
+            if output_key in golden_torch_tensors:
+                golden_outputs_torch.append(golden_torch_tensors[output_key][0])
+            else:
+                print(f"Warning: No golden found for {output_key}, skipping check")
+                continue
+
+        # Convert program outputs to torch tensors
+        # Need to import ttnn here since the setup was already done
+        try:
+            import ttnn
+
+            output_tensors_torch = []
+            for i, output in enumerate(outputs):
+                # Transfer from device to host and convert to torch
+                output_host = ttnn.from_device(output)
+                output_torch = output_host.to_torch()
+                output_tensors_torch.append(output_torch)
+        except ImportError:
+            print("Warning: ttnn not available, skipping golden checking")
+            return {}
+
+        # Check golden outputs using common function
+        program_golden_report = check_golden_outputs(
+            golden_outputs_torch,
+            output_tensors_torch,
+            pcc,
+            atol,
+            rtol,
+            check_atol,
+            check_rtol,
+        )
+        # Merge program golden report into overall golden report
+        golden_report.update(program_golden_report)
+
+    print(f"------finished executing emitpy API")
+
+    return golden_report
