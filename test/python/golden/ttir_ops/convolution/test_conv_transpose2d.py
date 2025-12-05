@@ -118,6 +118,7 @@ def test_conv_transpose2d(
     if test_id in [
         "ttnn-f32-superres_4x_large_kernel",
         "ttnn-f32-batch16_segmentation_training",
+        "emitpy-f32-batch16_segmentation_training",
     ]:
         pytest.xfail(
             "Metal issue: https://github.com/tenstorrent/tt-metal/issues/33449"
