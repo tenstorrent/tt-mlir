@@ -127,6 +127,55 @@ std::string formatIterable(Range &&iterable, llvm::StringRef separator = ",") {
   return "(" + content + ")";
 }
 
+/// Returns all positive factors of `value`
+inline llvm::SmallVector<int64_t> getFactors(int64_t value) {
+  value = std::abs(value);
+  if (value == 1) {
+    return {1};
+  }
+  llvm::SmallVector<int64_t> lowFactors, highFactors;
+  int64_t limit = static_cast<int64_t>(std::floor(std::sqrt(value)));
+  for (int64_t i = limit; i >= 1; --i) {
+    if (value % i == 0) {
+      highFactors.push_back(value / i);
+      lowFactors.push_back(i);
+    }
+  }
+  return llvm::to_vector(
+      llvm::concat<int64_t>(llvm::reverse(lowFactors), highFactors));
+}
+
+// Computes all possible combinations of a single element chosen from each
+// 'choice vector' in input possibilities. Each choice vector in the input must
+// be uniquified (no duplicates).
+// Example:
+// computeCartesianProduct(possibilities = {{1, 2}, {3, 4, 5}})
+//   -> {{1, 3}, {1, 4}, {1, 5}, {2, 3}, {2, 4}, {2, 5}}
+template <typename T>
+std::vector<llvm::SmallVector<T>>
+computeCartesianProduct(llvm::ArrayRef<llvm::SmallVector<T>> possibilities) {
+  if (possibilities.empty()) {
+    return {};
+  }
+
+  // recursively enumerate all combinations of the possibilities
+  std::vector<llvm::SmallVector<T>> cartesianProduct;
+  llvm::SmallVector<T> currentCombination(possibilities.size(), T());
+  auto enumerateCombinations = [&](auto &&self, size_t dimIndex = 0ul) -> void {
+    if (dimIndex == possibilities.size()) {
+      cartesianProduct.push_back(currentCombination);
+      return;
+    }
+    for (const T &choice : possibilities[dimIndex]) {
+      currentCombination[dimIndex] = choice;
+      self(self, dimIndex + 1);
+    }
+  };
+  enumerateCombinations(enumerateCombinations);
+
+  return cartesianProduct;
+}
+
 // Prepacks `MlirAttribute`s stored in input array into a vector of
 // `mlir::Attribute`s and then wraps that vector in `MlirAttribute` and returns
 // it.
