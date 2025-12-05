@@ -240,6 +240,23 @@ void ResponseFactory::buildShutdownResponse(
   BUILD_RESPONSE(Shutdown, fbb, commandId);
 }
 
+void ResponseFactory::buildGetTensorDescResponse(
+    ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId,
+    const ::tt::runtime::TensorDesc &tensorDesc) {
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  // Create FlatBuffer vectors for shape and stride
+  auto shapeOffset = fbb.CreateVector(tensorDesc.shape);
+  auto strideOffset = fbb.CreateVector(tensorDesc.stride);
+
+  // Create TensorDescFlat FlatBuffer object
+  auto tensorDescFlatOffset = fb::CreateTensorDescFlat(
+      fbb, shapeOffset, tensorDesc.dataType, tensorDesc.itemsize, strideOffset,
+      tensorDesc.physicalVolume);
+
+  BUILD_RESPONSE(GetTensorDesc, fbb, commandId, tensorDescFlatOffset);
+}
+
 #undef BUILD_RESPONSE_IMPL
 #undef BUILD_RESPONSE
 #undef BUILD_RESPONSE_DIRECT

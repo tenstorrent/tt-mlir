@@ -678,6 +678,32 @@ void Controller::deallocateTensor(::tt::runtime::Tensor &tensorHandle,
                                  std::move(commandBuilder));
 }
 
+::tt::runtime::TensorDesc
+Controller::getTensorDesc(const ::tt::runtime::Tensor &tensorHandle) {
+  auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+
+  uint64_t commandId =
+      CommandFactory::buildGetTensorDescCommand(*commandBuilder, tensorHandle);
+
+  std::shared_ptr<::tt::runtime::TensorDesc> resultDescHandle =
+      std::make_shared<::tt::runtime::TensorDesc>();
+
+  auto awaitingHandles = std::make_unique<std::vector<std::shared_ptr<void>>>();
+  awaitingHandles->push_back(std::static_pointer_cast<void>(resultDescHandle));
+
+  auto awaitingPromise = std::make_unique<std::promise<void>>();
+  std::future<void> awaitingFuture = awaitingPromise->get_future();
+
+  pushToCommandAndResponseQueues(
+      commandId, fb::CommandType::GetTensorDescCommand,
+      std::move(commandBuilder), std::move(awaitingHandles),
+      std::move(awaitingPromise));
+
+  awaitingFuture.wait();
+
+  return *resultDescHandle;
+}
+
 void Controller::pushToCommandAndResponseQueues(
     uint64_t commandId, const fb::CommandType &commandType,
     std::unique_ptr<::flatbuffers::FlatBufferBuilder> commandBuilder,
@@ -1296,6 +1322,44 @@ void Controller::handleShutdownResponse(
   awaitingPromise->set_value();
 }
 
+void Controller::handleGetTensorDescResponse(
+    const std::vector<SizedBuffer> &responseBuffers,
+    std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
+
+  debug::checkResponsesIdentical(responseBuffers);
+
+  debug::checkResponseTypes(responseBuffers,
+                            fb::ResponseType::GetTensorDescResponse);
+
+  const fb::GetTensorDescResponse *response =
+      getResponse(responseBuffers[0])->type_as_GetTensorDescResponse();
+
+  auto [awaitingHandles, awaitingPromise] =
+      awaitingResponse->popAwaitingState();
+
+  DEBUG_ASSERT(awaitingHandles && awaitingHandles->size() == 1,
+               "GetTensorDesc: Awaiting handles must be populated and contain "
+               "exactly one handle");
+  DEBUG_ASSERT(awaitingPromise, "Awaiting promise must be populated");
+
+  std::shared_ptr<::tt::runtime::TensorDesc> tensorDescHandle =
+      std::static_pointer_cast<::tt::runtime::TensorDesc>(
+          awaitingHandles->at(0));
+
+  // Extract fields from FlatBuffer TensorDescFlat into runtime TensorDesc
+  const fb::TensorDescFlat *tensorDescFlat = response->tensor_desc();
+
+  tensorDescHandle->shape.assign(tensorDescFlat->shape()->begin(),
+                                 tensorDescFlat->shape()->end());
+  tensorDescHandle->dataType = tensorDescFlat->data_type();
+  tensorDescHandle->itemsize = tensorDescFlat->itemsize();
+  tensorDescHandle->stride.assign(tensorDescFlat->stride()->begin(),
+                                  tensorDescFlat->stride()->end());
+  tensorDescHandle->physicalVolume = tensorDescFlat->physical_volume();
+
+  awaitingPromise->set_value();
+}
+
 void Controller::handleResponse(
     const std::vector<SizedBuffer> &responseBuffers,
     std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
@@ -1390,6 +1454,10 @@ void Controller::handleResponse(
   }
   case fb::CommandType::ShutdownCommand: {
     return handleShutdownResponse(responseBuffers, std::move(awaitingResponse));
+  }
+  case fb::CommandType::GetTensorDescCommand: {
+    return handleGetTensorDescResponse(responseBuffers,
+                                       std::move(awaitingResponse));
   }
   case fb::CommandType::NONE: {
     LOG_FATAL("Unhandled response type for command type: ",
