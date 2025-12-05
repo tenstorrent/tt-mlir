@@ -11,6 +11,7 @@ import pytest
 from utils import (
     create_sharded_tile_tensor,
     create_dram_tensor,
+    get_block_sharding_grid,
 )
 
 
@@ -20,19 +21,6 @@ def matmul_composite(input0, input1):
     c = ttnn.matmul(a, b)
     d = ttnn.abs(c)
     return d
-
-
-def get_block_sharding_grid(shape):
-    """Infer a TTNN grid/end coord for block sharding the given logicaltensor shape"""
-    assert len(shape) == 2, f"Only 2D shapes are supported"
-    tile_shape = [shape[0] // 32, shape[1] // 32]
-    grid = []
-    for dim in tile_shape:
-        for grid_dim in reversed(range(8)):
-            if dim % (grid_dim + 1) == 0:
-                grid.append(grid_dim)
-                break
-    return list(reversed(grid))
 
 
 MATMUL_SHAPES = [
