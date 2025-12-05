@@ -64,3 +64,22 @@ module {
     return %865  : tensor<1x384x35x35xi32>
   }
 }
+
+module {
+  func.func @main(%arg0: tensor<1x2048x7x7xbf16>) -> tensor<1x2048x1x1xbf16> {
+    // CHECK-NOT: "ttir.full"
+    // CHECK-NOT: "ttir.reshape"
+    // CHECK-NOT: "ttir.broadcast"
+    // CHECK: %[[POOLING:.*]] = "ttir.pooling"(%arg0
+    // CHECK: return %[[POOLING]]
+    %9 = "ttir.full"() <{fill_value = 1.000000e+00 : f32, shape = array<i32>}> : () -> tensor<bf16>
+    %13 = "ttir.reshape"(%9) <{shape = [1 : i32, 1 : i32]}> : (tensor<bf16>) -> tensor<1x1xbf16>
+    %15 = "ttir.broadcast"(%13) <{broadcast_dimensions = array<i64: 7, 7>}> : (tensor<1x1xbf16>) -> tensor<7x7xbf16>
+    %6651 = "ttir.pooling"(%arg0) <{base_dilations = array<i64: 1, 1, 1, 1>, operandSegmentSizes = array<i32: 1, 0>, padding = array<i64: 0, 0, 0, 0, 0, 0, 0, 0>, pooling_method = #ttir<pooling_method Sum>, window_dilations = array<i64: 1, 1, 1, 1>, window_dimensions = array<i64: 1, 1, 7, 7>, window_strides = array<i64: 1, 1, 1, 1>}> : (tensor<1x2048x7x7xbf16>) -> tensor<1x2048x1x1xbf16>
+    %6653 = "ttir.pooling"(%15) <{base_dilations = array<i64: 1, 1>, operandSegmentSizes = array<i32: 1, 0>, padding = array<i64: 0, 0, 0, 0>, pooling_method = #ttir<pooling_method Sum>, window_dilations = array<i64: 1, 1>, window_dimensions = array<i64: 7, 7>, window_strides = array<i64: 1, 1>}> : (tensor<7x7xbf16>) -> tensor<1x1xbf16>
+    %6655 = "ttir.reshape"(%6653) <{shape = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x1xbf16>) -> tensor<1x1x1x1xbf16>
+    %6657 = "ttir.broadcast"(%6655) <{broadcast_dimensions = array<i64: 1, 2048, 1, 1>}> : (tensor<1x1x1x1xbf16>) -> tensor<1x2048x1x1xbf16>
+    %6659 = "ttir.div"(%6651, %6657) : (tensor<1x2048x1x1xbf16>, tensor<1x2048x1x1xbf16>) -> tensor<1x2048x1x1xbf16>
+    return %6659 : tensor<1x2048x1x1xbf16>
+  }
+}

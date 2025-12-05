@@ -160,6 +160,12 @@ def sigmoid(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] 
     return builder.sigmoid(in0, unit_attrs=unit_attrs)
 
 
+def hardsigmoid(
+    in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+):
+    return builder.hardsigmoid(in0, unit_attrs=unit_attrs)
+
+
 def sign(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
     return builder.sign(in0, unit_attrs=unit_attrs)
 
@@ -214,8 +220,8 @@ unary_ops = [
     cbrt | Marks(pytest.mark.skip_config(["ttmetal"])),
     ceil | Marks(pytest.mark.skip_config(["ttmetal"])),
     cos,
-    erf | Marks(pytest.mark.skip_config(["ttmetal"])),
-    erfc | Marks(pytest.mark.skip_config(["ttmetal"])),
+    erf,
+    erfc,
     exp,
     expm1 | Marks(pytest.mark.skip_config(["ttmetal"])),
     floor,
@@ -231,12 +237,13 @@ unary_ops = [
     relu6 | Marks(pytest.mark.skip_config(["ttmetal"])),
     rsqrt,
     sigmoid,
-    sign | Marks(pytest.mark.skip_config(["ttmetal"])),
+    sign,
+    hardsigmoid | Marks(pytest.mark.skip_config(["emitpy"])),
     silu,
     sin,
     sqrt,
     tan,
-    tanh | Marks(pytest.mark.skip_config(["ttmetal"])),
+    tanh,
 ]
 
 

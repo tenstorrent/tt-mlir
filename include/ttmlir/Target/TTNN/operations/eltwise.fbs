@@ -301,3 +301,17 @@ table UnaryWithParam {
   op_type: UnaryOpType;
   params: [double];
 }
+
+enum ExperimentalEltwiseBinaryBackwardOpType: uint32 {
+  GeluBW
+}
+
+table ExperimentalEltwiseBinaryBackwardOp {
+  type: ExperimentalEltwiseBinaryBackwardOpType;
+  grad: tt.target.ttnn.TensorRef;
+  input: tt.target.ttnn.TensorRef;
+  approximate: string;
+  output_dtype: tt.target.DataType = null;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
+}

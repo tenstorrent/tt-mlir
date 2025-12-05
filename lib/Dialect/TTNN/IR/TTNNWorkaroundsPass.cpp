@@ -447,7 +447,7 @@ TTNNOperandsWorkaroundsFactory::createUpdateCacheOpOperandsWorkarounds(
 
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createPagedUpdateCacheOpOperandsWorkarounds(
-    MLIRContext *context) {
+    Operation *op) {
   TTNNOperandWorkarounds nullWorkarounds;
   TTNNOperandWorkarounds
       inputWorkarounds; // Input sharding requires specific virtual grid. This
@@ -459,11 +459,17 @@ TTNNOperandsWorkaroundsFactory::createPagedUpdateCacheOpOperandsWorkarounds(
 
   pageTableWorkarounds.tensorLayoutWorkaround = Layout::RowMajor;
 
+  if (cast<ttnn::PagedUpdateCacheOp>(op).getPageTable()) {
+    return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+        .addInputOperandWorkaround(nullWorkarounds)
+        .addInputOperandWorkaround(inputWorkarounds)
+        .addInputOperandWorkaround(updateIndexWorkarounds)
+        .addInputOperandWorkaround(pageTableWorkarounds);
+  }
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(nullWorkarounds)
       .addInputOperandWorkaround(inputWorkarounds)
-      .addInputOperandWorkaround(updateIndexWorkarounds)
-      .addInputOperandWorkaround(pageTableWorkarounds);
+      .addInputOperandWorkaround(updateIndexWorkarounds);
 }
 
 TTNNOperandsWorkarounds
@@ -511,6 +517,15 @@ binaryOpDTypeWorkaround(mlir::Operation *op, mlir::Type elementType) {
       return mlir::tt::ttcore::DataType::UInt32;
     }
     return {};
+  }
+
+  // GeluBackwardOp requires bfloat16 data type.
+  // ttnn.experimental.gelu_bw only supports BFLOAT16.
+  if (isa<ttnn::GeluBackwardOp>(op)) {
+    if (dType == mlir::tt::ttcore::DataType::BFloat16) {
+      return {};
+    }
+    return mlir::tt::ttcore::DataType::BFloat16;
   }
 
   // All remaining binary ops.
