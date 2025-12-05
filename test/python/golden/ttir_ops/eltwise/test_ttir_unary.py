@@ -227,7 +227,13 @@ unary_ops = [
     floor,
     gelu,
     is_finite | Marks(pytest.mark.skip_config(["ttmetal"])),
-    log,
+    log
+    | Marks(
+        pytest.mark.skip_config(
+            ["ttmetal", "p150"],
+            reason="https://github.com/tenstorrent/tt-mlir/pull/6131",
+        )
+    ),
     log1p | Marks(pytest.mark.skip_config(["ttmetal"])),
     logical_not,  # TODO (wenbinlyuTT): test int32 once untilize issue is fixed
     mish | Marks(pytest.mark.skip_config(["ttmetal"])),
