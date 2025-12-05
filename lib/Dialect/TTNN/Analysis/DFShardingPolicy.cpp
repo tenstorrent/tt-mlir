@@ -96,8 +96,8 @@ void DFShardingPolicy::run() {
             llvm::isa<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp, ttnn::AddOp,
                       ttnn::MultiplyOp, ttnn::ReluOp, ttnn::Relu6Op,
                       ttnn::TypecastOp, ttnn::SiluOp, ttnn::MatmulOp,
-                      ttnn::LinearOp, ttnn::MinimumOp, ttnn::RMSNormOp, ttnn::RotaryEmbeddingOp>(
-                currentOp) &&
+                      ttnn::LinearOp, ttnn::MinimumOp, ttnn::RMSNormOp,
+                      ttnn::RotaryEmbeddingOp>(currentOp) &&
             legalConfigs.lookup(currentOp).size() > 0;
 
         if (validForSharding) {
