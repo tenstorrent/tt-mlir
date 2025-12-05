@@ -644,7 +644,7 @@ class TTIRBuilder(Builder):
 
         if not self._disable_golden_check:
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(shape_attr, result_type.element_type)
+            golden_output = op_golden_function(shape_attr, mlir_output_type)
             self._set_golden_tensor(op.result, golden_output)
 
         return op.result
@@ -805,6 +805,196 @@ class TTIRBuilder(Builder):
                     return new_op
 
         return zeros_module, zeros_builder
+
+    ############### ttir.RandOp ###############
+
+    @tag(ttir.RandOp)
+    def rand(
+        self,
+        size: List[int],
+        dtype: torch.dtype,
+        low: float = 0.0,
+        high: float = 1.0,
+        seed: int = 0,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.rand)
+        mlir_output_type = self._get_type_from_torch_dtype(dtype)
+        size_attr = ArrayAttr.get(
+            [IntegerAttr.get(IntegerType.get_signless(32), dim) for dim in size]
+        )
+        low_attr = FloatAttr.get_f32(low)
+        high_attr = FloatAttr.get_f32(high)
+        seed_attr = IntegerAttr.get(IntegerType.get_unsigned(32), seed)
+        result = self._create_ranked_tensor_type(size, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            size_attr,
+            mlir_output_type,
+            low=low_attr,
+            high=high_attr,
+            seed=seed_attr,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(
+                size_attr, low_attr, high_attr, seed_attr, mlir_output_type
+            )
+            self._set_golden_tensor(op.result, golden_output)
+
+        self.bypass(op.result)
+        return op.result
+
+    @parse(ttir.RandOp)
+    def rand_parser(
+        self,
+        old_op: ttir.RandOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Operation:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.rand_parser)
+
+        result = old_op.result.type
+        size_attr = old_op.size
+        dtype_attr = old_op.dtype
+        low_attr = old_op.low
+        high_attr = old_op.high
+        seed_attr = old_op.seed
+
+        new_op = ttir_op(
+            result,
+            size_attr,
+            dtype_attr,
+            low=low_attr,
+            high=high_attr,
+            seed=seed_attr,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(
+                size_attr,
+                low_attr,
+                high_attr,
+                seed_attr,
+                dtype_attr,
+            )
+            self._set_golden_tensor(new_op.result, golden_output)
+
+        self.bypass(new_op.result)
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op.result
+        return new_op, op_map_dictionary
+
+    @split(ttir.RandOp)
+    def rand_split(
+        self,
+        old_op: ttir.RandOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.rand_split)
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+
+        with old_ctx, old_loc:
+            rand_module = Module.create()
+            rand_builder = TTIRBuilder(old_ctx, old_loc)
+            op_input_types: List[Type] = []
+
+            with InsertionPoint(rand_module.body):
+
+                @func.func(*op_input_types, name="rand_module")
+                def decorated_func():
+                    result = old_op.result.type
+                    size_attr = old_op.size
+                    dtype_attr = old_op.dtype
+                    low_attr = old_op.low
+                    high_attr = old_op.high
+                    seed_attr = old_op.seed
+
+                    new_op = ttir_op(
+                        result,
+                        size_attr,
+                        dtype_attr,
+                        low=low_attr,
+                        high=high_attr,
+                        seed=seed_attr,
+                        loc=old_op.location,
+                    )
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_output = op_golden_function(
+                            size_attr,
+                            low_attr,
+                            high_attr,
+                            seed_attr,
+                            dtype_attr,
+                        )
+                        rand_builder._set_golden_tensor(new_op, golden_output)
+                        rand_builder._set_output_ordering([new_op])
+
+                    rand_builder.bypass(new_op.result)
+                    return new_op
+
+        return rand_module, rand_builder
+
+    ################ ttir.ReverseOp ###############
+
+    @tag(ttir.ReverseOp)
+    def reverse(
+        self,
+        in0: Operand,
+        dimensions: List[int],
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.reverse)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        dimensions_attr = DenseI64ArrayAttr.get(dimensions)
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(input0, dimensions_attr, mlir_output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            in0,
+            dimensions_attr,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op, golden_output)
+
+        return op
 
     ############### ttir.CosOp ###############
 

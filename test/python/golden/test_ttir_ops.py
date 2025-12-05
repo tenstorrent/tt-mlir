@@ -1182,6 +1182,34 @@ def test_ones(shape: Shape, dtype: torch.dtype, request, device):
     )
 
 
+@pytest.mark.parametrize("shape", [(32, 32)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("low,high,seed", [(0.0, 1.0, 0)])
+def test_rand(
+    shape: Shape,
+    dtype: torch.dtype,
+    low: float,
+    high: float,
+    seed: int,
+    request,
+    device,
+):
+    def rand_model(builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
+        return builder.rand(
+            shape, dtype, low=low, high=high, seed=seed, unit_attrs=unit_attrs
+        )
+
+    compile_and_execute_ttir(
+        rand_model,
+        inputs_shapes=[],
+        inputs_types=[],
+        test_base=request.node.name,
+        device=device,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
 @pytest.mark.parametrize("shape", [(16, 16)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])

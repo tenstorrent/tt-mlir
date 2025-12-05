@@ -195,6 +195,10 @@ def _compile_and_execute(
 
     fb_path = mlir_path + "." + ("ttnn" if target == "ttnn" else "ttm")
 
+    enable_intermediate_verification = False
+    if export_golden_report or builder._bypass_ops:
+        enable_intermediate_verification = True
+
     # Execute the flatbuffer
     golden_report = None
     if target in ["ttnn", "ttmetal"]:
@@ -209,7 +213,7 @@ def _compile_and_execute(
             check_rtol=check_rtol,
             goldens=goldens,
             bypass_ops=builder._bypass_ops,
-            enable_intermediate_verification=export_golden_report,
+            enable_intermediate_verification=enable_intermediate_verification,
         )
 
     if golden_report and export_golden_report:

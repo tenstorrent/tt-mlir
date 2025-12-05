@@ -2840,6 +2840,26 @@ def ttir_zeros_golden(shape: ArrayAttr, output_type_mlir: Type) -> GoldenMapTens
     return GoldenMapTensor({0: torch.zeros(size, dtype=output_dtype)}, (1, 1))
 
 
+def ttir_rand_golden(
+    size: ArrayAttr,
+    low: FloatAttr,
+    high: FloatAttr,
+    seed: IntegerAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    size = unpack_mlir_attr(size)
+    low = unpack_mlir_attr(low)
+    high = unpack_mlir_attr(high)
+    seed = unpack_mlir_attr(seed)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    gen = torch.Generator()
+    gen.manual_seed(seed)
+    base = torch.rand(size, generator=gen, dtype=torch.bfloat16)
+    rand_tensor = (base * (high - low) + low).to(output_dtype)
+    return GoldenMapTensor({0: rand_tensor}, (1, 1))
+
+
 def ttir_cos_golden(
     input_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -3900,6 +3920,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.ConstantOp: ttir_constant_golden,
     ttir.FullOp: ttir_full_golden,
     ttir.ArangeOp: ttir_arange_golden,
+    ttir.RandOp: ttir_rand_golden,
     # Quantization operations
     ttir.QuantizeOp: quantize_golden,
     ttir.DequantizeOp: torch.dequantize,

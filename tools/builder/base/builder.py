@@ -274,7 +274,7 @@ class Builder(metaclass=BuilderMeta):
         if isinstance(operand, BlockArgument):
             raise TypeError("Cannot bypass BlockArgument")
 
-        loc = operand.owner.location
+        loc = str(operand.owner.location)
         self._bypass_ops.append(loc)
 
     # ----- Private methods -----
