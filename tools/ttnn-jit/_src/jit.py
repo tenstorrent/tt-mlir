@@ -4,6 +4,7 @@
 
 import os
 import inspect
+from typing import Literal
 
 from ttmlir.ir import *
 from ttmlir.passes import (
@@ -33,6 +34,7 @@ class JitFunction:
         debug: bool,
         enable_cache: bool,
         graph_capture: bool,
+        math_fidelity: Literal["LoFi", "HiFi2", "HiFi3", "HiFi4"],
     ):
         self.func = func
         self.source_code = cleanup_source_code(func)
@@ -40,6 +42,7 @@ class JitFunction:
         self.debug = debug
         self.graph_capture = graph_capture
         self.out_dir = os.path.join("generated", "ttnn-jit", func.__name__)
+        self.math_fidelity = math_fidelity
         os.makedirs(self.out_dir, exist_ok=True)
 
         self.system_desc_path = os.getenv("SYSTEM_DESC_PATH")
@@ -118,7 +121,9 @@ class JitFunction:
             **kwargs,
         )
 
-        options = f"system-desc-path={self.system_desc_path} ttnn-mode=true"
+        print(f"[DEBUG] math fidelity set to: {self.math_fidelity}")
+        options = f"system-desc-path={self.system_desc_path} ttnn-mode=true set-math-fidelity={self.math_fidelity}"
+        print(f"[DEBUG] Compilation options: {options}")
         if self.compile_only:
             ttnn_to_ttmetal_pipeline(ir, options)
             if self.debug:

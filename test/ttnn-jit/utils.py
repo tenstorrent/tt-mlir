@@ -230,6 +230,7 @@ def run_op_test(
         debug=True,
         enable_cache=enable_cache,
         graph_capture=graph_capture,
+        math_fidelity=math_fidelity,
     )(op)
 
     output_tensor = op_jit(*inputs)
