@@ -22,7 +22,9 @@
 /// in time and space. It is particularly suitable for working with interval
 /// bounds that are in some compact [0, N) range, e.g. op positions within an IR
 /// scope. Is uses O(N) memory, O(NlogN) preprocessing time, and guaranteed O(K)
-/// query times, where `K` is the number of intervals in the result.
+/// query times, where `K` is the number of intervals in the result. (This tight
+/// bound is due to the query algorithm never visiting nodes that are not in the
+/// result. In theory, this is great for very sparse interval sets.)
 ///
 /// Additionally, all queries return found intervals in lexicographic order
 /// (`a < b` if `a.left < b.left || (a.left == b.left && a.right < b.right)`)
@@ -56,7 +58,7 @@ struct IntervalBase {
 template <>
 struct IntervalBase<EmptyValue> {
   IntervalBase() = default;
-  IntervalBase(EmptyValue) {};
+  IntervalBase(EmptyValue){};
 };
 //===----------------------------------------------------------------------===//
 // A tree node type representing a closed [`left`, `right`] interval as well as
@@ -305,8 +307,8 @@ public:
   /// @return list of intervals intersecting interval `[left, right]`, in
   /// lexicographic order
   template <bool _ = hasIntervalIntersectionAPI>
-  auto query(SequenceT left,
-             SequenceT right) const -> std::enable_if_t<_, IntervalListT> {
+  auto query(SequenceT left, SequenceT right) const
+      -> std::enable_if_t<_, IntervalListT> {
     TT_debug(constructionCompleted());
     TT_assert_limit(left, limit_);
     TT_assert_open_range(right, left, limit_);
@@ -342,8 +344,8 @@ public:
   /// `ValueT` is anything other than `EmptyValue`, pass it as the 3rd
   /// parameter.
   template <typename... Args>
-  auto insert(SequenceT left, SequenceT right,
-              Args &&...value) -> std::enable_if_t<(sizeof...(Args) <= 1)> {
+  auto insert(SequenceT left, SequenceT right, Args &&...value)
+      -> std::enable_if_t<(sizeof...(Args) <= 1)> {
     TT_debug(!constructionCompleted());
     TT_assert_limit(left, limit_);
     TT_assert_open_range(right, left, limit_);
@@ -368,12 +370,11 @@ public:
     // order of *decreasing* `right`. This naturally arranges them into
     // `Smaller` sublists without needing to use dedicated `Smaller` links
     // as seems to be done in the paper.
-
-    auto treeOrder = [&](const IntervalT &lhs, const IntervalT &rhs) {
-      return (lhs.left < rhs.left) ||
-             ((lhs.left == rhs.left) && (lhs.right > rhs.right));
-    };
-    std::sort(intervals_.begin(), intervals_.end(), treeOrder);
+    std::sort(intervals_.begin(), intervals_.end(),
+              [&](const IntervalT &lhs, const IntervalT &rhs) {
+                return (lhs.left < rhs.left) ||
+                       ((lhs.left == rhs.left) && (lhs.right > rhs.right));
+              });
     // The root and the sentinel stay in first/last slots by design:
     TT_debug((intervals_.front().left < 0 && intervals_.back().left == limit_));
 
@@ -419,12 +420,11 @@ public:
       // later:
       start_[q].start = active.back();
 
-      // in reverse order so we see an interval open before close if it
-      // is length-1
+      // Processing events in reverse order so we see an interval open
+      // before close if it is length-1:
       for (auto e = events[q].rbegin(); e != events[q].rend(); ++e) {
         const IndexT i = *e;
-        TT_assert_open_range(
-            i, 1, intervals_.size()); // 'i' is a valid index of a non-root node
+        TT_assert_open_range(i, 1, intervals_.size());
         const IntervalT &iv = intervals_[i];
 
         if (q == iv.left) {
@@ -437,13 +437,12 @@ public:
 
         if (q == iv.right) {
           // This is an interval close event, at which point we have all
-          // information to know the interval's parent: it is its predecessor in
-          // `active` (which can be the root)
+          // the information necessary to know the interval's parent: it is
+          // its predecessor in `active` (which can be the root):
           TT_debug(in_active[i] != active.begin());
           const auto predecessor = std::prev(in_active[i]);
 
           appendChild(*predecessor, i);
-
           active.erase(in_active[i]);
         }
       }
@@ -553,7 +552,7 @@ private:
       // we take advantage of here.
       //
       // Note that using a sentinel node at the end of `intervals_` also
-      // saves us an are-we-at-end-of-vector check.
+      // saves us an are-we-at-the-end-of-vector check.
 
       for (IndexT s = j + 1; true; ++s) {
         // 's' is a valid index of a non-root node:

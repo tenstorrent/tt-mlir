@@ -26,7 +26,7 @@ void validate(const Tree &tree) {
 
 #if defined(TT_BUILD_DEBUG)
   tree.check(); // Internal consistency checker.
-#endif          // TT_BUILD_DEBUG
+#endif
 
   using IntervalT = typename Tree::IntervalT;
   using IntervalSet = std::unordered_set<const IntervalT *>;
