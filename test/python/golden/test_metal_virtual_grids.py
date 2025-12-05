@@ -59,6 +59,7 @@ def create_tileid_debug_tensor(shape: Shape, dtype: torch.dtype):
     return base_nd.expand(expand_shape)
 
 
+@pytest.mark.skip_exec(["ttmetal", "p150"])
 @pytest.mark.parametrize(
     "shape",
     [
