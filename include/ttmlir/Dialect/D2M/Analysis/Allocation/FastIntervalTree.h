@@ -59,7 +59,7 @@ struct IntervalBase {
 template <>
 struct IntervalBase<EmptyValue> {
   IntervalBase() = default;
-  IntervalBase(EmptyValue){};
+  IntervalBase(EmptyValue) {};
 };
 //===----------------------------------------------------------------------===//
 // A tree node type representing a closed [`left`, `right`] interval as well as
@@ -307,8 +307,8 @@ public:
   /// @return list of intervals intersecting interval `[left, right]`, in
   /// lexicographic order
   template <bool _ = hasIntervalIntersectionAPI>
-  auto query(SequenceT left, SequenceT right) const
-      -> std::enable_if_t<_, IntervalListT> {
+  auto query(SequenceT left,
+             SequenceT right) const -> std::enable_if_t<_, IntervalListT> {
     TT_debug(constructionCompleted());
     TT_assert_limit(left, limit_);
     TT_assert_open_range(right, left, limit_);
@@ -344,8 +344,8 @@ public:
   /// `ValueT` is anything other than `EmptyValue`, pass it as the 3rd
   /// parameter.
   template <typename... Args>
-  auto insert(SequenceT left, SequenceT right, Args &&...value)
-      -> std::enable_if_t<(sizeof...(Args) <= 1)> {
+  auto insert(SequenceT left, SequenceT right,
+              Args &&...value) -> std::enable_if_t<(sizeof...(Args) <= 1)> {
     TT_debug(!constructionCompleted());
     TT_assert_limit(left, limit_);
     TT_assert_open_range(right, left, limit_);
