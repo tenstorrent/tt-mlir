@@ -295,6 +295,17 @@ def ConvertD2MToTTNN: Pass<"convert-d2m-to-ttnn", "::mlir::ModuleOp">{
   }];
   let constructor = "createConvertD2MToTTNNPass()";
   let dependentDialects = ["mlir::tt::ttir::TTIRDialect", "mlir::tt::ttnn::TTNNDialect"];
+  let options = [
+    Option<"mathFidelity", "math-fidelity", "mlir::tt::ttmetal::MathFidelity",
+           /*default=*/"mlir::tt::ttmetal::MathFidelity::HiFi4",
+           "Set the math fidelity for ttnn.generic op",
+           [{::llvm::cl::values(
+             clEnumValN(mlir::tt::ttmetal::MathFidelity::LoFi, "LoFi", "LoFi"),
+             clEnumValN(mlir::tt::ttmetal::MathFidelity::HiFi2, "HiFi2", "HiFi2"),
+             clEnumValN(mlir::tt::ttmetal::MathFidelity::HiFi3, "HiFi3", "HiFi3"),
+             clEnumValN(mlir::tt::ttmetal::MathFidelity::HiFi4, "HiFi4", "HiFi4")
+           )}]>
+  ];
 }
 
 
