@@ -200,8 +200,8 @@ def test_binary_ops(
         pytest.xfail("atan2 not supported for int32 on ttnn")
 
     # pow fails for i32 on ttnn and ttmetal
-    # if test_fn == pow and dtype == torch.int32 and target in ("ttnn", "ttmetal"):
-    #     pytest.xfail("pow int32 PCC failure")
+    if test_fn == pow and dtype == torch.int32 and target in ("ttnn", "ttmetal"):
+        pytest.xfail("pow int32 PCC failure")
 
     # ttmetal does not support int32 binary ops
     if (

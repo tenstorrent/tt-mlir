@@ -122,7 +122,6 @@ void run(const ::tt::target::ttnn::EltwiseBinaryCompositeOp *op,
   }
 }
 
-// Handles the div operation with round_mode parameter
 void run(const ::tt::target::ttnn::EltwiseBinaryCompositeDivOp *op,
          ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
@@ -147,8 +146,8 @@ void run(const ::tt::target::ttnn::EltwiseBinaryCompositeDivOp *op,
         ::tt::runtime::ttnn::utils::toTTNNDataType(*(op->output_dtype()));
   }
 
-  ::ttnn::Tensor out = ::ttnn::div(*lhs, *rhs, false, roundMode, outputDtype,
-                                   outputMemoryConfig);
+  ::ttnn::Tensor out = ::ttnn::div(*lhs, *rhs, op->accurate_mode(), roundMode,
+                                   outputDtype, outputMemoryConfig);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
