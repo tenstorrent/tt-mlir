@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+from contextvars import ContextVar
 import os
 import inspect
 import time
@@ -345,170 +346,111 @@ def _run_ttir_pipeline(
 
 # ----- Public APIs -----
 
+#current_builder = ContextVar("current_builder")
+'''
+def function(input_shapes: List[List[int]], input_types: List[torch.dtype]):
+    def wrapper(fn):
+        builder = current_builder.get()
+
+        encoding_fn = None
+        if isinstance(builder, TTNNBuilder):
+            encoding_fn = builder.create_tensor_encoding
+
+        fn_input_types = [
+            builder._create_ranked_tensor_type(
+                shape,
+                builder._get_type_from_torch_dtype(dtype),
+                encoding_fn(shape, dtype) if encoding_fn else None,
+            )
+            for shape, dtype in zip(input_shapes, input_types)
+        ]
+
+        @func.func(*fn_input_types, name=fn.__name__)
+        def decorated_func(*inputs):
+            input_goldens: Dict[Operand, GoldenMapTensor] = {}
+            for index, (operand, dtype) in enumerate(zip(inputs, input_types)):
+                input_goldens[operand] = builder._generate_golden_tensor(
+                    operand, dtype
+                )
+            builder._set_goldens(input_goldens)
+            builder._set_input_ordering(inputs)
+
+            result = fn(*inputs, builder)
+
+            outputs = result if hasattr(result, "__iter__") else [result]
+            output_goldens: Dict[Operand, GoldenMapTensor] = {}
+            for op in outputs:
+                output_goldens[op] = builder._get_golden_tensor(op)
+            builder._set_goldens(output_goldens)
+            builder._set_output_ordering(outputs)
+
+            return _process_multi_return_result(result)
+
+    wrapper._input_shapes = input_shapes
+    wrapper._input_types = input_types
+    wrapper._func_op = True
+    return wrapper
+'''
+
+def compile(root_func: Callable):
+    def wrapper(builder: Builder, mesh_name: str = "mesh"):
+        new_module = Module.create()
+
+        if isinstance(builder, StableHLOBuilder):
+            new_module.body.append(builder._get_mesh())
+
+        with InsertionPoint(new_module.body):
+            root_func(builder)
+
+        return new_module
+    return wrapper
+
 
 def build_module(
-    fn: Callable,
+    mod: Callable,
     builder_type: Literal["ttir", "stablehlo", "ttnn", "d2m"],
-    inputs_shapes: List[Shape],
-    inputs_types: Optional[List[Union[torch.dtype, TypeInfo]]] = None,
     mesh_name: str = "mesh",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     module_dump: bool = False,
     base: Optional[str] = None,
     output_root: str = ".",
 ) -> Tuple[Module, Union[TTIRBuilder, StableHLOBuilder, TTNNBuilder, D2MBuilder]]:
-    """
-    Define a MLIR module specified as a python function.
-
-    It will wrap `fn` in a MLIR FuncOp and then wrap that in a MLIR
-    module, and finally tie arguments of that FuncOp to test function inputs. It will
-    also pass a builder object as the last argument of test function.
-
-    Parameters
-    ----------
-    fn : Callable
-        Python function to be converted to MLIR
-
-    builder_type : *Literal["ttir", "stablehlo", "ttnn", "d2m"]*
-        The type of builder to use for constructing the MLIR module.
-
-    inputs_shapes : *List[Shape]*
-        Shapes of the respective ranked tensor inputs of the test function.
-
-    inputs_types: *Optional[List[Union[torch.dtype, TypeInfo]]]*
-        Data types of the input tensors
-
-    mesh_name: *str*
-        Name of the mesh to be used in the module. Default is "mesh".
-
-    mesh_dict: *OrderedDict[str, int]*
-        Dictionary that defines the mesh shape, e.g. OrderedDict([("x", 1), ("y", 1)]).
-
-    module_dump : bool
-        Set to True to print out generated MLIR module. Default is True.
-
-    base : *Optional[str]*
-        Output file name
-
-    output_root: str = ".",
-        Output file path
-
-    Returns
-    -------
-    Tuple[Module, Union[TTIRBuilder, StableHLOBuilder, TTNNBuilder, D2MBuilder]]
-        A tuple containing the MLIR module and the Builder instance
-
-    Example
-    -------
-    >>> def test_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
-    ...     return builder.add(in0, in1)
-    ...
-    >>> build_module(test_add, "ttir", ((32, 32), (32, 32)))
-
-    This returns:
-
-    .. code-block:: mlir
-
-        #any = #ttcore.operand_constraint<...>
-        module {
-            func.func @test_add(
-                %arg0: tensor<32x32xf32>,
-                %arg1: tensor<32x32xf32>
-            ) -> tensor<32x32xf32> {
-                %0 = ttir.empty() : tensor<32x32xf32>
-                %1 = "ttir.add"(%arg0, %arg1, %0) ...
-                return %1 : tensor<32x32xf32>
-            }
-        }
-
-    Check out:
-    https://github.com/llvm/llvm-project/blob/main/mlir/test/python/dialects/tensor.py
-    """
-
     ctx = Context()
+    current_builder = ContextVar("current_builder")
 
-    # Grab the location of the test function in python for later debugging
     try:
-        fname = inspect.getfile(fn)
-        line_no = inspect.getsourcelines(fn)[1]
+        fname = inspect.getfile(mod)
+        line_no = inspect.getsourcelines(mod)[1]
         loc = Location.file(fname, line_no, 0, ctx)
     except (OSError, TypeError):
         loc = Location.unknown(ctx)
 
-    encoding_fn = None
     if builder_type == "ttir":
         builder = TTIRBuilder(ctx, loc, mesh_name, mesh_dict)
     elif builder_type == "stablehlo":
         builder = StableHLOBuilder(ctx, loc, mesh_name, mesh_dict)
     elif builder_type == "ttnn":
         builder = TTNNBuilder(ctx, loc)
-        encoding_fn = builder.create_tensor_encoding
     elif builder_type == "d2m":
         builder = D2MBuilder(ctx, loc, mesh_name, mesh_dict)
     dir_name = builder_type + "-builder-artifacts"
     mlir_suffix = "_" + builder_type + ".mlir"
 
-    # Default to all f32s
-    if inputs_types is None:
-        inputs_types = [torch.float32] * len(inputs_shapes)
-
-    if len(inputs_shapes) != len(inputs_types):
-        raise ValueError(
-            f"inputs_shapes and inputs_types must have the same length: "
-            f"{len(inputs_shapes)} != {len(inputs_types)}"
-        )
-
     with ctx, loc:
-        fn_input_types = [
-            builder._create_ranked_tensor_type(
-                shape,
-                builder._get_type_from_torch_dtype(
-                    dtype if isinstance(dtype, torch.dtype) else dtype
-                ),
-                encoding_fn(shape, dtype) if encoding_fn else None,
-            )
-            for (shape, dtype) in zip(inputs_shapes, inputs_types)
-        ]
+        new_module = mod(builder)
 
-        module = Module.create()
-        if builder_type == "stablehlo":
-            module.body.append(builder._get_mesh(mesh_name))
-
-        with InsertionPoint(module.body):
-
-            @func.func(*fn_input_types, name=fn.__name__)
-            def decorated_func(*inputs):
-                input_goldens: Dict[Operand, GoldenMapTensor] = {}
-                for index, (operand, dtype) in enumerate(zip(inputs, inputs_types)):
-                    input_goldens[operand] = builder._generate_golden_tensor(
-                        operand, dtype
-                    )
-                builder._set_goldens(input_goldens)
-                builder._set_input_ordering(inputs)
-
-                result = fn(*inputs, builder)
-
-                outputs = result if hasattr(result, "__iter__") else [result]
-                output_goldens: Dict[Operand, GoldenMapTensor] = {}
-                for op in outputs:
-                    output_goldens[op] = builder._get_golden_tensor(op)
-                builder._set_goldens(output_goldens)
-                builder._set_output_ordering(outputs)
-
-                return _process_multi_return_result(result)
-
-        print(f"`{fn.__name__}` successfully transformed into a MLIR module.")
-        base = fn.__name__ if base is None else base
+        print(f"`{mod.__name__}` successfully transformed into a MLIR module.")
+        base = mod.__name__ if base is None else base
         filename = _get_target_path(
             output_root, dir_name, base + mlir_suffix, builder_type
         )
 
         if module_dump:
             with open(filename, "w") as f:
-                f.write(str(module))
-                print(module)
+                f.write(str(new_module))
+                print(new_module)
 
-        return module, builder
+    return new_module, builder
 
 
 def compile_and_execute_d2m(
@@ -1714,7 +1656,6 @@ def split_mlir_file(
         )
 
     return modules_and_builders
-
 
 # ----- Experimental Public APIs -----
 

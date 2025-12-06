@@ -9,6 +9,7 @@ from typing import List, Optional, Union, Tuple, Callable, Dict, Any, Sequence
 import torch
 from enum import Enum, auto
 import re
+from contextvars import ContextVar
 
 from ttmlir.ir import *
 from ttmlir.dialects import ttir, ttcore, tensor, quant, func
@@ -16,6 +17,32 @@ from ttmlir.passes import GoldenTensor, DataType
 
 from builder.base.builder import *
 from golden import *
+
+def _convert_to_mlir_value(obj):
+    if hasattr(obj, "operation") and hasattr(obj.operation, "results"):
+        results = obj.operation.results
+        if len(results) == 1:
+            return results[0]
+        else:
+            return results
+    elif hasattr(obj, "type"):
+        return obj
+    else:
+        return obj
+
+
+def _process_multi_return_result(result):
+    if hasattr(result, "__iter__") and not isinstance(result, str):
+        converted_results = []
+        for item in result:
+            converted = _convert_to_mlir_value(item)
+            if hasattr(converted, "__iter__") and not hasattr(converted, "type"):
+                converted_results.extend(converted)
+            else:
+                converted_results.append(converted)
+        return tuple(converted_results)
+    else:
+        return _convert_to_mlir_value(result)
 
 
 class TTIRBuilder(Builder):
@@ -9550,3 +9577,71 @@ class TTIRBuilder(Builder):
                             sub_modules_and_builders.append(sub_op_module_builder)
 
         return sub_modules_and_builders
+
+    def func(self, input_shapes: List[List[int]], input_types: List[torch.dtype]):
+        def wrapper(fn):
+            print("HELLO0")
+            encoding_fn = None
+            fn_input_types = [
+                self._create_ranked_tensor_type(
+                    shape,
+                    self._get_type_from_torch_dtype(dtype),
+                    encoding_fn(shape, dtype) if encoding_fn else None,
+                )
+                for shape, dtype in zip(input_shapes, input_types)
+            ]
+
+            @func.func(*fn_input_types, name=fn.__name__)
+            def decorated_func(*inputs):
+                input_goldens: Dict[Operand, GoldenMapTensor] = {}
+                for index, (operand, dtype) in enumerate(zip(inputs, input_types)):
+                    input_goldens[operand] = self._generate_golden_tensor(
+                        operand, dtype
+                    )
+                self._set_goldens(input_goldens)
+                self._set_input_ordering(inputs)
+
+                result = fn(*inputs, self)
+
+                outputs = result if hasattr(result, "__iter__") else [result]
+                output_goldens: Dict[Operand, GoldenMapTensor] = {}
+                for op in outputs:
+                    output_goldens[op] = self._get_golden_tensor(op)
+                self._set_goldens(output_goldens)
+                self._set_output_ordering(outputs)
+
+                return _process_multi_return_result(result)
+
+        return wrapper
+
+    def device_module(self, root_func: Callable):
+        def wrapper(self, mesh_name: str = "mesh"):
+            print("HELLO")
+            #token = current_builder.set(self)
+            #try:
+            device_module_op = ttcore.DeviceModuleOp()
+            #new_module = Module.create()
+
+            #setInsertionPoint(device_module_op.bodyRegion)
+            region = device_module_op.regions[0]
+            block = Block.create_at_start(region)
+
+            #region = device_module_op.regions[0].blocks[0]
+
+
+            with InsertionPoint.at_block_begin(device_module_op.regions[0].blocks[0]):
+                new_module = Module.create()
+
+                print("LAJJA")
+
+                with InsertionPoint(new_module.body):
+                    root_func(self)
+
+            return device_module_op
+            #finally:
+            #    current_builder.reset(token)
+
+
+        
+        return wrapper(self)
+

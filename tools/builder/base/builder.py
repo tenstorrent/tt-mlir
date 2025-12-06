@@ -694,3 +694,4 @@ class Builder(metaclass=BuilderMeta):
                 inputs_shapes, inputs_types, input_encodings
             )
         ]
+        
