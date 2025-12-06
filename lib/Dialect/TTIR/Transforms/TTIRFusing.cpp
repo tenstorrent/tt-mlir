@@ -3273,6 +3273,86 @@ private:
     return type.getShape()[1] == 1;
   }
 };
+
+// If value is defined by PermuteOp with permute dimensions
+// (..., rank - 2, rank - 1), return the input of the PermuteOp, otherwise
+// return std::nullopt. This is used for fusing permute into MatmulOp and
+// LinearOp.
+static std::optional<mlir::TypedValue<mlir::RankedTensorType>>
+getPermuteOpOperand(mlir::TypedValue<mlir::RankedTensorType> value) {
+  auto producerPermuteOp = value.getDefiningOp<PermuteOp>();
+  if (!producerPermuteOp) {
+    return std::nullopt;
+  }
+
+  int64_t rank = value.getType().getRank();
+  // If the rank is less than two than it is impossible for this permute to be
+  // a transpose
+  bool rankIsLessThan2 = rank < 2;
+  // Ensure that the rightmost two dims are swapped by the permute
+  bool xyDimsTransposed =
+      producerPermuteOp.getPermutation()[rank - 2] == rank - 1 &&
+      producerPermuteOp.getPermutation()[rank - 1] == rank - 2;
+  // Ensure that the other dims are unchanged by the permute.
+  // Therefore this permute is equivalent to transpose(-1, -2)
+  bool otherDimsUnchanged =
+      std::is_sorted(producerPermuteOp.getPermutation().begin(),
+                     producerPermuteOp.getPermutation().end() - 2);
+  if (rankIsLessThan2 || !xyDimsTransposed || !otherDimsUnchanged) {
+    return std::nullopt;
+  }
+
+  return producerPermuteOp.getInput();
+}
+
+// Fuse permute ops into matmul/linear transpose attributes.
+// Handles both input A and input B for MatmulOp and LinearOp.
+//
+// matmul(transpose(a), b, transpose_a, transpose_b) ->
+//   matmul(a, b, !transpose_a, transpose_b)
+// matmul(a, transpose(b), transpose_a, transpose_b) ->
+//   matmul(a, b, transpose_a, !transpose_b)
+// linear(transpose(a), b, bias, transpose_a, transpose_b) ->
+//   linear(a, b, bias, !transpose_a, transpose_b)
+// linear(a, transpose(b), bias, transpose_a, transpose_b) ->
+//   linear(a, b, bias, transpose_a, !transpose_b)
+template <typename OpType>
+class PermuteMatmulFusionPattern : public mlir::OpRewritePattern<OpType> {
+  using mlir::OpRewritePattern<OpType>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(OpType op, mlir::PatternRewriter &rewriter) const override {
+    auto inputACanonical = getPermuteOpOperand(op.getA());
+    auto inputBCanonical = getPermuteOpOperand(op.getB());
+
+    if (!inputACanonical && !inputBCanonical) {
+      return mlir::failure();
+    }
+
+    auto newA = inputACanonical.value_or(op.getA());
+    auto newB = inputBCanonical.value_or(op.getB());
+    bool newTransposeA =
+        inputACanonical ? !op.getTransposeA() : op.getTransposeA();
+    bool newTransposeB =
+        inputBCanonical ? !op.getTransposeB() : op.getTransposeB();
+
+    if constexpr (std::is_same_v<OpType, MatmulOp>) {
+      rewriter.replaceOpWithNewOp<MatmulOp>(op, op.getType(), newA, newB,
+                                            newTransposeA, newTransposeB);
+    } else if constexpr (std::is_same_v<OpType, LinearOp>) {
+      rewriter.replaceOpWithNewOp<LinearOp>(op, op.getType(), newA, newB,
+                                            op.getBias(), newTransposeA,
+                                            newTransposeB);
+    } else {
+      static_assert(ttmlir::utils::always_false<OpType>(),
+                    "Unsupported OpType for PermuteMatmulFusionPattern");
+    }
+
+    return mlir::success();
+  }
+};
+
 } // namespace
 
 class TTIRFusingPass : public impl::TTIRFusingBase<TTIRFusingPass> {
@@ -3312,6 +3392,10 @@ public:
         patterns.add<ConvWithMultiply<Conv2dOp>>(&getContext());
         patterns.add<ConvWithMultiply<ConvolutionOp>>(&getContext());
         patterns.add<BatchNormDecomposition>(&getContext());
+      }
+      if (permuteMatmulEnabled) {
+        patterns.add<PermuteMatmulFusionPattern<MatmulOp>>(&getContext());
+        patterns.add<PermuteMatmulFusionPattern<LinearOp>>(&getContext());
       }
       patterns.add<RepVGGConvSumFusionPattern>(&getContext());
       patterns.add<ConcatenateHeadsUpdatePattern>(&getContext());
