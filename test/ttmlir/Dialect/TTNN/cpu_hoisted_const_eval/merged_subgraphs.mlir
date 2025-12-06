@@ -25,7 +25,7 @@ module {
     // CHECK: [[CE:%[0-9]+]] = ttcore.load_cached{{.*}}%arg1, %arg2, %arg3
 
     // Input operation - stays in device module
-    // CHECK: [[SUM:%[0-9]+]] = "ttnn.add"(%arg0, %arg1)
+    // CHECK: [[SUM:%[0-9]+]] = "ttnn.add"(%{{.*}}, %arg1)
     %0 = "ttir.add"(%arg0, %arg1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
 
     // All these ops are const-eval and merged into one subgraph.

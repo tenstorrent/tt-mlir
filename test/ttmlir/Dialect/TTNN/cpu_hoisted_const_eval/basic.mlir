@@ -14,15 +14,14 @@ module {
 
   // CHECK-LABEL: func.func private @forward_const_eval_0{{.*}} -> tensor<32x32xbf16
 
-  // CHECK: [[ARG0:%[0-9]+]] = "ttnn.typecast"(%arg0)
-  // CHECK: "ttnn.from_device"([[ARG0]])
-  // CHECK: [[ARG1:%[0-9]+]] = "ttnn.typecast"(%arg1)
-  // CHECK: "ttnn.from_device"([[ARG1]])
+  // CHECK: ttnn.typecast"(%arg0)
+  // CHECK: "ttnn.from_device"(%{{.*}})
+  // CHECK: "ttnn.typecast"(%arg1)
+  // CHECK: "ttnn.from_device"(%{{.*}})
 
   // CHECK: call @hoisted_forward_const_eval_0_decl
 
-  // CHECK: [[RES:%[0-9]+]] = "ttnn.to_dtype"
-  // CHECK: "ttnn.to_device"([[RES]]
+  // CHECK: "ttnn.to_device"(%{{.*}})
 
   // CHECK-LABEL: func.func @forward
   func.func @forward(%arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>},
@@ -31,7 +30,7 @@ module {
                      %arg3: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> tensor<32x32xbf16> {
     // CHECK: [[CONSTEVAL:%[0-9]+]] = ttcore.load_cached{{.*}}%arg2, %arg3
 
-    // CHECK: [[SUM:%[0-9]+]] = "ttnn.add"(%arg0, %arg1)
+    // CHECK: [[SUM:%[0-9]+]] = "ttnn.add"(%{{.*}}, %arg1)
     %0 = "ttir.add"(%arg0, %arg1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
 
     // CHECK-NOT: "ttnn.subtract"

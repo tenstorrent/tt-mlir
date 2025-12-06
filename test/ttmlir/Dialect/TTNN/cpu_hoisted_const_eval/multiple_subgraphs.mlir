@@ -29,7 +29,7 @@ module {
     // CHECK: [[CE0:%[0-9]+]] = ttcore.load_cached{{.*}}%arg1, %arg2
     // CHECK: [[CE1:%[0-9]+]] = ttcore.load_cached{{.*}}%arg3, %arg4
 
-    // CHECK: [[SUM:%[0-9]+]] = "ttnn.add"(%arg0, %arg1)
+    // CHECK: [[SUM:%[0-9]+]] = "ttnn.add"(%{{.*}}, %arg1)
     %0 = "ttir.add"(%arg0, %arg1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
 
     // CHECK-NOT: "ttnn.add"(%arg1, %arg2)

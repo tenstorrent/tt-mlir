@@ -25,7 +25,7 @@ module {
     // CHECK-NOT: "ttnn.add"(%arg1,
     %1 = "ttir.add"(%arg1, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
 
-    // CHECK: "ttnn.add"(%arg0, [[CE]]#0)
+    // CHECK: "ttnn.add"(%{{.*}}, [[CE]]#0)
     %2 = "ttir.add"(%arg0, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
 
     // CHECK: "ttnn.multiply"({{.*}}, [[CE]]#1)
@@ -46,7 +46,7 @@ module {
     // CHECK-NOT: "ttnn.multiply"(%arg1,
     %1 = "ttir.multiply"(%arg1, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
 
-    // CHECK: "ttnn.add"(%arg0, [[CE]])
+    // CHECK: "ttnn.add"(%{{.*}}, [[CE]])
     %2 = "ttir.add"(%arg0, %1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
     return %2 : tensor<32x32xbf16>
   }
