@@ -294,10 +294,6 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
         *config->enable_weights_double_buffer();
   }
 
-  if (config->in_place()) {
-    conv2dConfig.in_place = *config->in_place();
-  }
-
   if (config->enable_kernel_stride_folding()) {
     conv2dConfig.enable_kernel_stride_folding =
         *config->enable_kernel_stride_folding();

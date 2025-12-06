@@ -7670,7 +7670,7 @@ class TTIRBuilder(Builder):
             ttir.FillCacheOp,
             [in0, in1],
             ttir_kwargs={"batch_offset": batch_offset},
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1]),
+            organize_ttir_args=lambda i, o: (o, i[0], i[1]),
             organize_golden_args=lambda i: (
                 self._get_golden_tensor(i[0]),
                 self._get_golden_tensor(i[1]),
@@ -7738,7 +7738,7 @@ class TTIRBuilder(Builder):
             ttir.UpdateCacheOp,
             [in0, in1, in2],
             ttir_kwargs={"batch_offset": batch_offset},
-            organize_ttir_args=lambda i, o, _: (self._get_type(o), i[0], i[1], i[2]),
+            organize_ttir_args=lambda i, o: (o, i[0], i[1], i[2]),
             organize_golden_args=lambda i: (
                 self._get_golden_tensor(i[0]),
                 self._get_golden_tensor(i[1]),
@@ -7812,23 +7812,35 @@ class TTIRBuilder(Builder):
             [in0, weight, bias],
             ttir_kwargs={
                 "stride": (
-                    IntegerAttr.get(IntegerType.get_signed(32), stride)
+                    IntegerAttr.get(IntegerType.get_signless(32), stride)
                     if isinstance(stride, int)
                     else DenseI32ArrayAttr.get(stride)
                 ),
                 "padding": (
-                    IntegerAttr.get(IntegerType.get_signed(32), padding)
+                    IntegerAttr.get(IntegerType.get_signless(32), padding)
                     if isinstance(padding, int)
                     else DenseI32ArrayAttr.get(padding)
                 ),
                 "dilation": (
-                    IntegerAttr.get(IntegerType.get_signed(32), dilation)
+                    IntegerAttr.get(IntegerType.get_signless(32), dilation)
                     if isinstance(dilation, int)
                     else DenseI32ArrayAttr.get(dilation)
                 ),
                 "groups": groups,
+                "bias": bias,
             },
             organize_ttir_args=lambda i, o: (o, i[0], i[1]),
+            organize_golden_args=lambda i: [
+                self._get_golden_tensor(i[0]),
+                self._get_golden_tensor(i[1]),
+            ],
+            golden_kwargs={
+                "stride": stride,
+                "padding": padding,
+                "dilation": dilation,
+                "groups": groups,
+                "bias": self._get_golden_tensor(bias) if bias is not None else None,
+            },
             unit_attrs=unit_attrs,
         )
 
@@ -7895,7 +7907,7 @@ class TTIRBuilder(Builder):
             bias = None
         return self._op_proxy(
             ttir.ConvTranspose2dOp,
-            [in0, weight],
+            [in0, weight, bias],
             ttir_kwargs={
                 "stride": (
                     IntegerAttr.get(IntegerType.get_signless(32), stride)
@@ -7923,6 +7935,19 @@ class TTIRBuilder(Builder):
                     else DenseI32ArrayAttr.get(groups)
                 ),
                 "bias": bias,
+            },
+            organize_ttir_args=lambda i, o: (o, i[0], i[1]),
+            organize_golden_args=lambda i: [
+                self._get_golden_tensor(i[0]),
+                self._get_golden_tensor(i[1]),
+            ],
+            golden_kwargs={
+                "stride": stride,
+                "padding": padding,
+                "output_padding": output_padding,
+                "dilation": dilation,
+                "groups": groups,
+                "bias": self._get_golden_tensor(bias) if bias is not None else None,
             },
             unit_attrs=unit_attrs,
         )

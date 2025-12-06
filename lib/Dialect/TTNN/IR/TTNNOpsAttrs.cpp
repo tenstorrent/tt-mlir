@@ -766,7 +766,6 @@ Conv2dConfigAttr Conv2dConfigAttr::get(::mlir::MLIRContext *context) {
                                /*outputLayout=*/std::nullopt,
                                /*enableActDoubleBuffer=*/nullptr,
                                /*enableWeightsDoubleBuffer=*/nullptr,
-                               /*inPlace=*/nullptr,
                                /*enableKernelStrideFolding=*/nullptr);
 }
 
@@ -866,12 +865,6 @@ Conv2dConfigAttr::withEnableWeightsDoubleBuffer(bool value) const {
   return params.buildConv2dConfigAttr(getContext());
 }
 
-Conv2dConfigAttr Conv2dConfigAttr::withInPlace(bool value) const {
-  Conv2dConfigParams params(*this);
-  params.inPlace = value;
-  return params.buildConv2dConfigAttr(getContext());
-}
-
 Conv2dConfigAttr
 Conv2dConfigAttr::withEnableKernelStrideFolding(bool value) const {
   Conv2dConfigParams params(*this);
@@ -932,8 +925,6 @@ bool Conv2dConfigAttr::hasEnableActDoubleBuffer() const {
 bool Conv2dConfigAttr::hasEnableWeightsDoubleBuffer() const {
   return getEnableWeightsDoubleBuffer() != nullptr;
 }
-
-bool Conv2dConfigAttr::hasInPlace() const { return getInPlace() != nullptr; }
 
 bool Conv2dConfigAttr::hasEnableKernelStrideFolding() const {
   return getEnableKernelStrideFolding() != nullptr;

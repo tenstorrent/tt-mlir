@@ -210,7 +210,12 @@ module {
     // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
     // CHECK: d2m.tile_hardsigmoid
     %37 = "ttir.hardsigmoid"(%36) : (!ttype) -> !ttype
-    return %37: !ttype
+    // named elementwise op, binary:
+    // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: d2m.tile_minimum
+    %38 = "ttir.minimum"(%37, %36) : (!ttype, !ttype) -> !ttype
+    return %38: !ttype
   }
 
   // CHECK-LABEL: func @named_reductions_R

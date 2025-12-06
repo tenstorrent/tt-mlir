@@ -16,6 +16,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         LowerToLayout.cpp
         MaterializeViewReturns.cpp
         ElementwiseFusion.cpp
+        OpScheduler.cpp
         SFPUTileLoopFission.cpp
         GlobalDataFormatConversion.cpp
         ScalarizeConstTensors.cpp
