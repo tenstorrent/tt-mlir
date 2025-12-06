@@ -551,7 +551,8 @@ def conv_transpose2d_golden(
     output_padding = unpack_mlir_attr(output_padding)
     dilation = unpack_mlir_attr(dilation)
     groups = unpack_mlir_attr(groups)
-    golden_bias = torch.rand((weight.size()[0]), dtype=input_tensor.dtype)
+    if bias is not None:
+        bias = bias.squeeze()
 
     # Reorganize input and output tensors, golden and ttir functions have different expected tensor shapes
     copied_input_tensor = input_tensor.clone()
@@ -559,7 +560,7 @@ def conv_transpose2d_golden(
     result = torch.nn.functional.conv_transpose2d(
         copied_input_tensor,
         weight,
-        bias=golden_bias,
+        bias=bias,
         stride=stride,
         padding=padding,
         output_padding=output_padding,

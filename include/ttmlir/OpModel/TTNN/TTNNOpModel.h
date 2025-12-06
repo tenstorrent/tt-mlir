@@ -9,7 +9,6 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpConstraints.h"
 
-#include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/Support/Error.h"
 
@@ -19,12 +18,6 @@ namespace mlir::tt::ttnn::op_model {
 bool isLayoutLegalForTensorShape(llvm::ArrayRef<int64_t> tensorShape,
                                  TTNNLayoutAttr layout,
                                  ttcore::GridAttr maxGrid);
-
-// Calculate the output tensor type of the prepared weights for a conv2d op.
-// Conv2dConfigAttr is used to determine the output tensor type.
-mlir::RankedTensorType
-getPreparedConv2dWeightsOutputTensor(Conv2dOp *op,
-                                     Conv2dConfigAttr conv2dConfig);
 
 //===----------------------------------------------------------------------===//
 // Device
@@ -1239,6 +1232,47 @@ struct OpModel<PrepareConv2dWeightsOp> {
 
 template <>
 struct OpModel<PrepareConv2dBiasOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, TTNNLayoutAttr biasLayout,
+      llvm::ArrayRef<int64_t> biasShape, MemoryConfigAttr inputMemConfig,
+      ::mlir::tt::ttnn::Layout inputTensorLayout, int32_t inChannels,
+      int32_t outChannels, int32_t batchSize, int32_t inputHeight,
+      int32_t inputWidth, llvm::ArrayRef<int32_t> kernelSize,
+      llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
+      llvm::ArrayRef<int32_t> dilation, int32_t groups,
+      ttcore::DataType inputDtype, std::optional<ttcore::DataType> outputDtype,
+      std::optional<Conv2dConfigAttr> conv2dConfig,
+      std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
+      TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+// PrepareConvTranspose2dWeightsOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<PrepareConvTranspose2dWeightsOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      ttcore::GridAttr deviceGrid, TTNNLayoutAttr weightLayout,
+      llvm::ArrayRef<int64_t> weightShape, MemoryConfigAttr inputMemConfig,
+      ::mlir::tt::ttnn::Layout inputTensorLayout, llvm::StringRef weightsFormat,
+      int32_t inChannels, int32_t outChannels, int32_t batchSize,
+      int32_t inputHeight, int32_t inputWidth,
+      llvm::ArrayRef<int32_t> kernelSize, llvm::ArrayRef<int32_t> stride,
+      llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
+      bool hasBias, int32_t groups, ttcore::DataType inputDtype,
+      std::optional<ttcore::DataType> outputDtype,
+      std::optional<Conv2dConfigAttr> conv2dConfig,
+      std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
+      bool mirrorKernel, TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+// PrepareConvTranspose2dBiasOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<PrepareConvTranspose2dBiasOp> {
   static llvm::Expected<OpConstraints> getOpConstraints(
       ttcore::GridAttr deviceGrid, TTNNLayoutAttr biasLayout,
       llvm::ArrayRef<int64_t> biasShape, MemoryConfigAttr inputMemConfig,

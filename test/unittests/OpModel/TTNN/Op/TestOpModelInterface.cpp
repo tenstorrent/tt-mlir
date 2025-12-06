@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpsModelCache.h"
+#include "ttmlir/OpModel/TTNN/TTNNOutputTensorInference.h"
 
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/BuiltinAttributes.h"

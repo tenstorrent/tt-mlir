@@ -17,6 +17,8 @@
 #include "operations/conv/conv_transpose2d.h"
 #include "operations/conv/prepare_conv2d_bias.h"
 #include "operations/conv/prepare_conv2d_weights.h"
+#include "operations/conv/prepare_conv_transpose2d_bias.h"
+#include "operations/conv/prepare_conv_transpose2d_weights.h"
 #include "operations/cpu/cpu.h"
 #include "operations/creation/arange.h"
 #include "operations/creation/constant.h"
@@ -358,6 +360,14 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::PrepareConv2dBiasOp: {
     return operations::conv::run(op->type_as_PrepareConv2dBiasOp(),
+                                 getContext());
+  }
+  case ::tt::target::ttnn::OpType::PrepareConvTranspose2dWeightsOp: {
+    return operations::conv::run(op->type_as_PrepareConvTranspose2dWeightsOp(),
+                                 getContext());
+  }
+  case ::tt::target::ttnn::OpType::PrepareConvTranspose2dBiasOp: {
+    return operations::conv::run(op->type_as_PrepareConvTranspose2dBiasOp(),
                                  getContext());
   }
   case ::tt::target::ttnn::OpType::Conv2dOp: {
