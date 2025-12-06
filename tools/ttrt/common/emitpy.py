@@ -445,20 +445,64 @@ class EmitPy:
                         torch_inputs = self.file_manager.load_tensors_from_artifacts(
                             bin, "input", fbb_run_directory
                         )["program_" + str(program_index)]
-                        inputs = []
-                        for i in torch_inputs:
-                            inputs.append(
-                                ttnn.as_tensor(
-                                    i,
-                                    layout=ttnn.Layout.TILE,
-                                    device=device,
-                                    memory_config=ttnn.MemoryConfig(
-                                        ttnn.TensorMemoryLayout.INTERLEAVED,
-                                        ttnn.BufferType.DRAM,
-                                        None,
-                                    ),
-                                )
+
+                        # Try to use the generated create_inputs_for_* function to get
+                        # correct layouts for each input (e.g., ROW_MAJOR on host for
+                        # conv2d weights), then apply those layouts to the actual torch
+                        # inputs from artifacts
+                        create_inputs_func = getattr(
+                            module, f"create_inputs_for_{program_name}", None
+                        )
+                        if create_inputs_func:
+                            self.logging.debug(
+                                f"using layouts from create_inputs_for_{program_name}"
                             )
+                            # Get template tensors with correct layouts
+                            template_inputs = create_inputs_func()
+                            inputs = []
+                            for idx, (torch_in, template) in enumerate(
+                                zip(torch_inputs, template_inputs)
+                            ):
+                                # Use the layout and device from the template
+                                target_layout = template.layout
+                                target_device = template.device()
+                                self.logging.debug(
+                                    f"input {idx}: layout={target_layout}, on_device={target_device is not None}"
+                                )
+                                inputs.append(
+                                    ttnn.as_tensor(
+                                        torch_in,
+                                        dtype=template.dtype,
+                                        layout=target_layout,
+                                        device=target_device,
+                                        memory_config=ttnn.MemoryConfig(
+                                            ttnn.TensorMemoryLayout.INTERLEAVED,
+                                            ttnn.BufferType.DRAM,
+                                            None,
+                                        )
+                                        if target_device is not None
+                                        else None,
+                                    )
+                                )
+                                # Deallocate template tensor
+                                if target_device is not None:
+                                    ttnn.deallocate(template)
+                        else:
+                            # Fallback to manual input creation (legacy behavior)
+                            inputs = []
+                            for i in torch_inputs:
+                                inputs.append(
+                                    ttnn.as_tensor(
+                                        i,
+                                        layout=ttnn.Layout.TILE,
+                                        device=device,
+                                        memory_config=ttnn.MemoryConfig(
+                                            ttnn.TensorMemoryLayout.INTERLEAVED,
+                                            ttnn.BufferType.DRAM,
+                                            None,
+                                        ),
+                                    )
+                                )
 
                         # Save artifacts before they get deallocated
                         if self["--save-artifacts"]:
