@@ -7,7 +7,7 @@
 #ttnn_layout = #ttnn.ttnn_layout<(d0, d1, d2) -> (d0 * 32 + d1, d2), <1x1>, memref<32x32xf32, #system_memory>>
 #ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1, d2) -> (d0 * 32 + d1, d2), <1x1>, memref<32x32xf32, #dram>, <interleaved>>
 module attributes {} {
-  // CHECK-LABEL: func.func @main_const_eval_0
+  // CHECK-LABEL: func.func private @main_const_eval_0
 
   // CHECK-LABEL: func.func @main(
   func.func @main(%arg0: tensor<1x32x32xf32, #ttnn_layout>, %arg1: tensor<1x32x32xf32, #ttnn_layout> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> tensor<1x32x32xf32, #ttnn_layout1> {

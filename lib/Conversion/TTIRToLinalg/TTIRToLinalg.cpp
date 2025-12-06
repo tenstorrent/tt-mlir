@@ -19,6 +19,7 @@
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <cstdint>
@@ -287,12 +288,14 @@ static Value createReductionOpChain(Value input, RankedTensorType resultType,
 // Helper function to create DenseElementsAttr with a specific value based on
 // element type.
 static Attribute createDenseElementsAttr(RankedTensorType resultType,
-                                         int64_t value) {
+                                         double value) {
   auto elementType = resultType.getElementType();
-  if (isa<FloatType>(elementType)) {
-    return DenseElementsAttr::get(
-        resultType,
-        APFloat(cast<FloatType>(elementType).getFloatSemantics(), value));
+  if (auto floatType = dyn_cast<FloatType>(elementType)) {
+    APFloat apFloat(value);
+    bool lostInfo;
+    apFloat.convert(floatType.getFloatSemantics(), APFloat::rmNearestTiesToEven,
+                    &lostInfo);
+    return DenseElementsAttr::get(resultType, apFloat);
   }
   if (isa<IntegerType>(elementType)) {
     return DenseElementsAttr::get(
@@ -2023,6 +2026,74 @@ public:
 } // namespace
 
 namespace {
+// Template conversion pattern for constant fill operations (zeros, ones).
+template <typename TTIROpTy, int64_t FillValue>
+class NamedFillOpConversionPattern : public OpConversionPattern<TTIROpTy> {
+public:
+  using OpConversionPattern<TTIROpTy>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(TTIROpTy op, typename TTIROpTy::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    Attribute fillAttr =
+        createDenseElementsAttr(resultType, static_cast<double>(FillValue));
+    if (!fillAttr) {
+      return rewriter.notifyMatchFailure(
+          op, "Unsupported element type for constant fill");
+    }
+
+    auto constOp = rewriter.create<arith::ConstantOp>(
+        op.getLoc(), resultType, cast<DenseElementsAttr>(fillAttr));
+
+    rewriter.replaceOp(op, constOp.getResult());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+// Conversion pattern for ttir.full operation.
+class FullOpConversionPattern : public OpConversionPattern<ttir::FullOp> {
+public:
+  using OpConversionPattern<ttir::FullOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::FullOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto resultType = dyn_cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult().getType()));
+    assert(resultType && "Result type must be a ranked tensor type.");
+
+    // Extract numeric value as double.
+    Attribute fillValue = adaptor.getFillValue();
+    double value;
+    if (auto floatAttr = dyn_cast<FloatAttr>(fillValue)) {
+      value = floatAttr.getValue().convertToDouble();
+    } else if (auto intAttr = dyn_cast<IntegerAttr>(fillValue)) {
+      value = static_cast<double>(intAttr.getInt());
+    } else {
+      return rewriter.notifyMatchFailure(op, "Unsupported fill_value type");
+    }
+
+    // Create DenseElementsAttr with appropriate element type.
+    Attribute fillAttr = createDenseElementsAttr(resultType, value);
+    if (!fillAttr) {
+      return rewriter.notifyMatchFailure(
+          op, "Unsupported element type for full fill");
+    }
+
+    rewriter.replaceOpWithNewOp<arith::ConstantOp>(
+        op, resultType, cast<DenseElementsAttr>(fillAttr));
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class MeanOpConversionPattern : public OpConversionPattern<ttir::MeanOp> {
 public:
   using OpConversionPattern<ttir::MeanOp>::OpConversionPattern;
@@ -2058,7 +2129,8 @@ public:
       numElements *= inputType.getShape()[dim];
     }
 
-    Attribute divisorAttr = createDenseElementsAttr(resultType, numElements);
+    Attribute divisorAttr =
+        createDenseElementsAttr(resultType, static_cast<double>(numElements));
     if (!divisorAttr) {
       return rewriter.notifyMatchFailure(op,
                                          "Unsupported element type for mean");
@@ -2144,7 +2216,9 @@ void populateTTIRToLinalgPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
       SoftmaxOpConversionPattern, EmptyOpConversionPattern,
       PermuteOpConversionPattern, SliceStaticOpConversionPattern,
       ConstantOpConversionPattern, EmbeddingOpConversionPattern,
-      ReluOpConversionPattern>(typeConverter, ctx);
+      ReluOpConversionPattern, NamedFillOpConversionPattern<ttir::ZerosOp, 0>,
+      NamedFillOpConversionPattern<ttir::OnesOp, 1>, FullOpConversionPattern>(
+      typeConverter, ctx);
 }
 
 void populateTTIRToTosaPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
