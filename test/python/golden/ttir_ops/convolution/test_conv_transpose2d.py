@@ -117,6 +117,7 @@ def test_conv_transpose2d(
     test_id = request.node.callspec.id
     if test_id in [
         "ttnn-f32-superres_4x_large_kernel",
+        "emitpy-f32-superres_4x_large_kernel",
         "ttnn-f32-batch16_segmentation_training",
         "emitpy-f32-batch16_segmentation_training",
     ]:
