@@ -90,6 +90,8 @@ union OpType {
   Pool2dOp,
   PrepareConv2dBiasOp,
   PrepareConv2dWeightsOp,
+  PrepareConvTranspose2dBiasOp,
+  PrepareConvTranspose2dWeightsOp,
   RandOp,
   ReductionArgMaxOp,
   ReductionOp,
