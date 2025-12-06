@@ -10,9 +10,9 @@ from functools import reduce
 import operator
 from conftest import x86_only
 
-from builder.base.builder import Operand, Shape, TypeInfo
+from builder.base.builder_utils import Operand, Shape, TypeInfo
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import compile_and_execute_ttir
+from builder.base.builder_apis import compile_and_execute_ttir, build_module
 from ttmlir.ir import DenseI32ArrayAttr
 from test_utils import (
     Marks,
@@ -50,15 +50,17 @@ def logical_not(
 def test_hoisted_logical_not(
     shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
-    def hoisted_logical_not_wrapper(
-        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        return logical_not(in0, builder, shape, dtype, unit_attrs=["ttir.should_hoist"])
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def hoisted_logical_not_wrapper(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            return logical_not(
+                in0, builder, shape, dtype, unit_attrs=["ttir.should_hoist"]
+            )
 
     compile_and_execute_ttir(
-        hoisted_logical_not_wrapper,
-        [shape],
-        [dtype],
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -70,16 +72,17 @@ def test_hoisted_logical_not(
 @pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
 @pytest.mark.parametrize("max_arg,min_arg", [(3.0, 2.0)])
 def test_clamp_scalar(shape: Shape, max_arg: float, min_arg: float, request, device):
-    def clamp_scalar(
-        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        return builder.clamp_scalar(
-            in0, max_arg=max_arg, min_arg=min_arg, unit_attrs=unit_attrs
-        )
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.float32])
+        def clamp_scalar(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            return builder.clamp_scalar(
+                in0, max_arg=max_arg, min_arg=min_arg, unit_attrs=unit_attrs
+            )
 
     compile_and_execute_ttir(
-        clamp_scalar,
-        [shape],
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
@@ -91,18 +94,19 @@ def test_clamp_scalar(shape: Shape, max_arg: float, min_arg: float, request, dev
     "shapes", [[(32, 64), (32, 64), (32, 64)]], ids=shapes_list_str
 )
 def test_clamp_tensor(shapes: List[Shape], request, device):
-    def clamp_tensor(
-        in0: Operand,
-        in1: Operand,
-        in2: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return builder.clamp_tensor(in0, in1, in2, unit_attrs=unit_attrs)
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [torch.float32, torch.float32, torch.float32])
+        def clamp_tensor(
+            in0: Operand,
+            in1: Operand,
+            in2: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.clamp_tensor(in0, in1, in2, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
-        clamp_tensor,
-        shapes,
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
@@ -131,24 +135,25 @@ def test_dot_general(
     request,
     device,
 ):
-    def dot_general(
-        in0: Operand,
-        in1: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return builder.dot_general(
-            in0,
-            in1,
-            batch_dims_lhs,
-            contract_dims_lhs,
-            batch_dims_rhs,
-            contract_dims_rhs,
-        )
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [torch.float32, torch.float32])
+        def dot_general(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.dot_general(
+                in0,
+                in1,
+                batch_dims_lhs,
+                contract_dims_lhs,
+                batch_dims_rhs,
+                contract_dims_rhs,
+            )
 
     compile_and_execute_ttir(
-        dot_general,
-        shapes,
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
@@ -165,47 +170,46 @@ def gt(
     return builder.gt(in0, in1, unit_attrs=unit_attrs)
 
 
-def div(
-    in0: Operand,
-    in1: Operand,
-    builder: TTIRBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    dividend_tensor = builder._get_golden_tensor(in0)
-    divisor_tensor = builder._get_golden_tensor(in1)
-
-    dividend_tensor = dividend_tensor.apply_shardwise(
-        lambda shard: (
-            shard.__setitem__(shard.abs() < 0.01, 0.03) or shard
-            if torch.is_floating_point(shard)
-            else shard
-        )
-    )
-
-    divisor_tensor = divisor_tensor.apply_shardwise(
-        lambda shard: (
-            shard.__setitem__(shard.abs() < 0.01, -0.03) or shard
-            if torch.is_floating_point(shard)
-            else shard
-        )
-    )
-
-    output_golden = torch.div(dividend_tensor, divisor_tensor)
-    div0 = builder.div(in0, in1, unit_attrs=unit_attrs)
-    builder.set_goldens_from_builder_tensor(
-        {in0: dividend_tensor, in1: divisor_tensor}, {div0: output_golden}
-    )
-    return div0
-
-
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_div(shape: Shape, dtype: torch.dtype, target: str, request, device):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape], [torch.float32, torch.float32])
+        def div(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            dividend_tensor = builder._get_golden_tensor(in0)
+            divisor_tensor = builder._get_golden_tensor(in1)
+
+            dividend_tensor = dividend_tensor.apply_shardwise(
+                lambda shard: (
+                    shard.__setitem__(shard.abs() < 0.01, 0.03) or shard
+                    if torch.is_floating_point(shard)
+                    else shard
+                )
+            )
+
+            divisor_tensor = divisor_tensor.apply_shardwise(
+                lambda shard: (
+                    shard.__setitem__(shard.abs() < 0.01, -0.03) or shard
+                    if torch.is_floating_point(shard)
+                    else shard
+                )
+            )
+
+            output_golden = torch.div(dividend_tensor, divisor_tensor)
+            div0 = builder.div(in0, in1, unit_attrs=unit_attrs)
+            builder.set_goldens_from_builder_tensor(
+                {in0: dividend_tensor, in1: divisor_tensor}, {div0: output_golden}
+            )
+            return div0
+
     compile_and_execute_ttir(
-        div,
-        [shape, shape],
-        [dtype, dtype],
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -219,24 +223,24 @@ def test_div(shape: Shape, dtype: torch.dtype, target: str, request, device):
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_hoisted_div(shape: Shape, dtype: torch.dtype, target: str, request, device):
-    def hoisted_div_wrapper(
-        in0: Operand,
-        in1: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        golden_input_tensor = torch.randn(shape, dtype=dtype)
-        div0 = div(in0, in1, builder, unit_attrs=["ttir.should_hoist"])
-        builder.set_goldens(
-            {in0: golden_input_tensor, in1: golden_input_tensor},
-            {div0: torch.div(golden_input_tensor, golden_input_tensor)},
-        )
-        return div0
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape], [dtype, dtype])
+        def hoisted_div_wrapper(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            golden_input_tensor = torch.randn(shape, dtype=dtype)
+            div0 = builder.div(in0, in1, unit_attrs=["ttir.should_hoist"])
+            builder.set_goldens(
+                {in0: golden_input_tensor, in1: golden_input_tensor},
+                {div0: torch.div(golden_input_tensor, golden_input_tensor)},
+            )
+            return div0
 
     compile_and_execute_ttir(
-        hoisted_div_wrapper,
-        [shape, shape],
-        [dtype, dtype],
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -249,18 +253,19 @@ def test_hoisted_div(shape: Shape, dtype: torch.dtype, target: str, request, dev
     "shapes", [[(10, 64, 32), (32, 128), (128,)]], ids=shapes_list_str
 )
 def test_linear(shapes: List[Shape], request, device):
-    def linear(
-        in0: Operand,
-        in1: Operand,
-        in2: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return builder.linear(in0, in1, in2, unit_attrs=unit_attrs)
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [torch.float32, torch.float32, torch.float32])
+        def linear(
+            in0: Operand,
+            in1: Operand,
+            in2: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.linear(in0, in1, in2, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
-        linear,
-        shapes,
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
@@ -268,43 +273,23 @@ def test_linear(shapes: List[Shape], request, device):
     )
 
 
-def matmul(
-    in0: Operand,
-    in1: Operand,
-    builder: TTIRBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.matmul(in0, in1, unit_attrs=unit_attrs)
-
-
-def broadcast(
-    in0: Operand,
-    builder: TTIRBuilder,
-    broadcast_dimensions: Optional[List[int]] = None,
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.broadcast(
-        in0, broadcast_dimensions=broadcast_dimensions, unit_attrs=unit_attrs
-    )
-
-
 @pytest.mark.parametrize("shape", [(1, 1, 32)], ids=shape_str)
 @pytest.mark.parametrize("broadcast_dimensions", [[1, 16, 1]])
-def test_broadcast(shape: Shape, broadcast_dimensions: List[int], request, device):
-    # Create a wrapper function that captures broadcast_dimensions
-    def broadcast_wrapper(
-        in0: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return broadcast(in0, builder, broadcast_dimensions, unit_attrs)
-
-    # Set the name for better test identification
-    broadcast_wrapper.__name__ = "broadcast"
+def test_broadcast(shape: List[int], broadcast_dimensions: List[int], request, device):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.float32])
+        # Create a wrapper function that captures broadcast_dimensions
+        def broadcast(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.broadcast(
+                in0, broadcast_dimensions=broadcast_dimensions, unit_attrs=unit_attrs
+            )
 
     compile_and_execute_ttir(
-        broadcast_wrapper,
-        [shape],
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
@@ -354,28 +339,28 @@ def test_conv2d(
     request,
     device,
 ):
-    def conv2d(
-        in0: Operand,
-        weight: Operand,
-        bias: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return builder.conv2d(
-            in0,
-            weight,
-            bias,
-            stride=stride,
-            padding=padding,
-            dilation=dilation,
-            groups=groups,
-            unit_attrs=unit_attrs,
-        )
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, input_dtypes)
+        def conv2d(
+            in0: Operand,
+            weight: Operand,
+            bias: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.conv2d(
+                in0,
+                weight,
+                bias,
+                stride=stride,
+                padding=padding,
+                dilation=dilation,
+                groups=groups,
+                unit_attrs=unit_attrs,
+            )
 
     compile_and_execute_ttir(
-        conv2d,
-        shapes,
-        input_dtypes,
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
@@ -407,27 +392,28 @@ def test_conv2d_consteval(
     request,
     device,
 ):
-    def conv2d_consteval(
-        in0: Operand,
-        weight: Operand,
-        bias: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return builder.conv2d(
-            in0,
-            weight,
-            bias,
-            stride=stride,
-            padding=padding,
-            dilation=dilation,
-            groups=groups,
-            unit_attrs=unit_attrs,
-        )
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [torch.float32, torch.float32, torch.float32])
+        def conv2d_consteval(
+            in0: Operand,
+            weight: Operand,
+            bias: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.conv2d(
+                in0,
+                weight,
+                bias,
+                stride=stride,
+                padding=padding,
+                dilation=dilation,
+                groups=groups,
+                unit_attrs=unit_attrs,
+            )
 
     compile_and_execute_ttir(
-        conv2d_consteval,
-        shapes,
+        module,
         argument_types_string="conv2d_consteval=input,parameter,parameter",
         test_base=request.node.name,
         device=device,
@@ -463,29 +449,28 @@ def test_hoisted_conv2d(
 ):
     """Test hoisted conv2d operation"""
 
-    def hoisted_conv2d(
-        in0: Operand,
-        weight: Operand,
-        bias: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return builder.conv2d(
-            in0,
-            weight,
-            bias,
-            stride=stride,
-            padding=padding,
-            dilation=dilation,
-            groups=groups,
-            unit_attrs=["ttir.should_hoist"],
-        )
-
-    hoisted_conv2d.__name__ = "hoisted_conv2d"
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [torch.float32, torch.float32, torch.float32])
+        def hoisted_conv2d(
+            in0: Operand,
+            weight: Operand,
+            bias: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.conv2d(
+                in0,
+                weight,
+                bias,
+                stride=stride,
+                padding=padding,
+                dilation=dilation,
+                groups=groups,
+                unit_attrs=["ttir.should_hoist"],
+            )
 
     compile_and_execute_ttir(
-        hoisted_conv2d,
-        shapes,
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -520,29 +505,29 @@ def test_conv_transpose2d(
     request,
     device,
 ):
-    def conv_transpose2d(
-        in0: Operand,
-        weight: Operand,
-        bias: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return builder.conv_transpose2d(
-            in0,
-            weight,
-            bias,
-            stride=stride,
-            padding=padding,
-            output_padding=output_padding,
-            dilation=dilation,
-            groups=groups,
-            unit_attrs=unit_attrs,
-        )
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def conv_transpose2d(
+            in0: Operand,
+            weight: Operand,
+            bias: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.conv_transpose2d(
+                in0,
+                weight,
+                bias,
+                stride=stride,
+                padding=padding,
+                output_padding=output_padding,
+                dilation=dilation,
+                groups=groups,
+                unit_attrs=unit_attrs,
+            )
 
     compile_and_execute_ttir(
-        conv_transpose2d,
-        shapes,
-        dtypes,
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
@@ -624,38 +609,38 @@ def test_convolution(
 ):
     """Test the ttir.convolution op with various ResNet-style configurations"""
 
-    def convolution(
-        in0: Operand,
-        weight: Operand,
-        bias: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return builder.convolution(
-            in0,
-            weight,
-            bias,
-            window_strides=stride,
-            padding=padding,
-            input_dilation=[1, 1],
-            weight_dilation=dilation,
-            input_batch=0,
-            input_feature=1,
-            input_spatial_dimensions=[2, 3],
-            kernel_output_feature=0,
-            kernel_input_feature=1,
-            kernel_spatial_dimensions=[2, 3],
-            output_batch=0,
-            output_feature=1,
-            output_spatial_dimensions=[2, 3],
-            feature_group_count=groups,
-            batch_group_count=1,
-        )
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [dtype] * len(shapes))
+        def convolution(
+            in0: Operand,
+            weight: Operand,
+            bias: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.convolution(
+                in0,
+                weight,
+                bias,
+                window_strides=stride,
+                padding=padding,
+                input_dilation=[1, 1],
+                weight_dilation=dilation,
+                input_batch=0,
+                input_feature=1,
+                input_spatial_dimensions=[2, 3],
+                kernel_output_feature=0,
+                kernel_input_feature=1,
+                kernel_spatial_dimensions=[2, 3],
+                output_batch=0,
+                output_feature=1,
+                output_spatial_dimensions=[2, 3],
+                feature_group_count=groups,
+                batch_group_count=1,
+            )
 
     compile_and_execute_ttir(
-        convolution,
-        shapes,
-        [dtype] * len(shapes),
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
@@ -707,38 +692,38 @@ def test_convolution_groups_dilation(
 ):
     """Test convolution with group and dilation patterns"""
 
-    def convolution_grouped(
-        in0: Operand,
-        weight: Operand,
-        bias: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return builder.convolution(
-            in0,
-            weight,
-            bias,
-            window_strides=stride,
-            padding=padding,
-            input_dilation=[1, 1],
-            weight_dilation=dilation,
-            input_batch=0,
-            input_feature=1,
-            input_spatial_dimensions=[2, 3],
-            kernel_output_feature=0,
-            kernel_input_feature=1,
-            kernel_spatial_dimensions=[2, 3],
-            output_batch=0,
-            output_feature=1,
-            output_spatial_dimensions=[2, 3],
-            feature_group_count=groups,
-            batch_group_count=1,
-        )
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [dtype] * len(shapes))
+        def convolution_grouped(
+            in0: Operand,
+            weight: Operand,
+            bias: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.convolution(
+                in0,
+                weight,
+                bias,
+                window_strides=stride,
+                padding=padding,
+                input_dilation=[1, 1],
+                weight_dilation=dilation,
+                input_batch=0,
+                input_feature=1,
+                input_spatial_dimensions=[2, 3],
+                kernel_output_feature=0,
+                kernel_input_feature=1,
+                kernel_spatial_dimensions=[2, 3],
+                output_batch=0,
+                output_feature=1,
+                output_spatial_dimensions=[2, 3],
+                feature_group_count=groups,
+                batch_group_count=1,
+            )
 
     compile_and_execute_ttir(
-        convolution_grouped,
-        shapes,
-        [dtype] * len(shapes),
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
@@ -764,25 +749,25 @@ def test_max_pool2d(
     request,
     device,
 ):
-    def max_pool2d(
-        in0: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return builder.max_pool2d(
-            in0,
-            kernel=kernel,
-            stride=stride,
-            dilation=dilation,
-            padding=padding,
-            ceil_mode=ceil_mode,
-            unit_attrs=unit_attrs,
-        )
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def max_pool2d(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.max_pool2d(
+                in0,
+                kernel=kernel,
+                stride=stride,
+                dilation=dilation,
+                padding=padding,
+                ceil_mode=ceil_mode,
+                unit_attrs=unit_attrs,
+            )
 
     compile_and_execute_ttir(
-        max_pool2d,
-        [shape],
-        [dtype],
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
@@ -812,27 +797,25 @@ def test_hoisted_max_pool2d(
 ):
     """Test hoisted max_pool2d operation"""
 
-    def hoisted_max_pool2d(
-        in0: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return builder.max_pool2d(
-            in0,
-            kernel=kernel,
-            stride=stride,
-            dilation=dilation,
-            padding=padding,
-            ceil_mode=ceil_mode,
-            unit_attrs=["ttir.should_hoist"],
-        )
-
-    hoisted_max_pool2d.__name__ = "hoisted_max_pool2d"
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def hoisted_max_pool2d(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.max_pool2d(
+                in0,
+                kernel=kernel,
+                stride=stride,
+                dilation=dilation,
+                padding=padding,
+                ceil_mode=ceil_mode,
+                unit_attrs=["ttir.should_hoist"],
+            )
 
     compile_and_execute_ttir(
-        hoisted_max_pool2d,
-        [shape],
-        [dtype],
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -869,26 +852,26 @@ def test_avg_pool2d(
     request,
     device,
 ):
-    def avg_pool2d(
-        in0: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return builder.avg_pool2d(
-            in0,
-            kernel=kernel,
-            stride=stride,
-            dilation=dilation,
-            padding=padding,
-            ceil_mode=ceil_mode,
-            count_include_pad=count_include_pad,
-            unit_attrs=unit_attrs,
-        )
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def avg_pool2d(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.avg_pool2d(
+                in0,
+                kernel=kernel,
+                stride=stride,
+                dilation=dilation,
+                padding=padding,
+                ceil_mode=ceil_mode,
+                count_include_pad=count_include_pad,
+                unit_attrs=unit_attrs,
+            )
 
     compile_and_execute_ttir(
-        avg_pool2d,
-        [shape],
-        [dtype],
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
@@ -920,30 +903,30 @@ def test_batch_norm(
     request,
     device,
 ):
-    def batch_norm(
-        in0: Operand,
-        scale: Operand,
-        offset: Operand,
-        mean: Operand,
-        variance: Operand,
-        builder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def batch_norm(
+            in0: Operand,
+            scale: Operand,
+            offset: Operand,
+            mean: Operand,
+            variance: Operand,
+            builder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
 
-        return builder.batch_norm_inference(
-            in0,
-            scale,
-            offset,
-            mean,
-            variance,
-            epsilon=epsilon,
-            dimension=dimension,
-        )
+            return builder.batch_norm_inference(
+                in0,
+                scale,
+                offset,
+                mean,
+                variance,
+                epsilon=epsilon,
+                dimension=dimension,
+            )
 
     compile_and_execute_ttir(
-        batch_norm,
-        shapes,
-        dtypes,
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
@@ -983,31 +966,31 @@ def test_batch_norm_training(
     request,
     device,
 ):
-    def batch_norm_training(
-        in0: Operand,
-        scale: Operand,
-        offset: Operand,
-        running_mean: Operand,
-        running_variance: Operand,
-        builder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def batch_norm_training(
+            in0: Operand,
+            scale: Operand,
+            offset: Operand,
+            running_mean: Operand,
+            running_variance: Operand,
+            builder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
 
-        return builder.batch_norm_training(
-            in0,
-            scale,
-            offset,
-            running_mean,
-            running_variance,
-            epsilon=epsilon,
-            dimension=dimension,
-            momentum=momentum,
-        )
+            return builder.batch_norm_training(
+                in0,
+                scale,
+                offset,
+                running_mean,
+                running_variance,
+                epsilon=epsilon,
+                dimension=dimension,
+                momentum=momentum,
+            )
 
     compile_and_execute_ttir(
-        batch_norm_training,
-        shapes,
-        dtypes,
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
@@ -1070,25 +1053,25 @@ def test_pooling(
 ):
     """Test the generalized ttir.pooling operation with various configurations"""
 
-    def pooling(
-        in0: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return builder.pooling(
-            in0,
-            pooling_method=pooling_method,
-            window_dimensions=window_dims,
-            window_strides=window_strides,
-            padding=padding,
-            window_dilations=window_dilations,
-            unit_attrs=unit_attrs,
-        )
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def pooling(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.pooling(
+                in0,
+                pooling_method=pooling_method,
+                window_dimensions=window_dims,
+                window_strides=window_strides,
+                padding=padding,
+                window_dilations=window_dilations,
+                unit_attrs=unit_attrs,
+            )
 
     compile_and_execute_ttir(
-        pooling,
-        [shape],
-        [dtype],
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
@@ -1101,16 +1084,17 @@ def test_pooling(
 def test_index(
     shape: Shape, dim: int, begin: int, end: int, step: int, request, device
 ):
-    def index(
-        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        return builder.index(
-            in0, dim=dim, begin=begin, end=end, step=step, unit_attrs=unit_attrs
-        )
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.float32])
+        def index(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            return builder.index(
+                in0, dim=dim, begin=begin, end=end, step=step, unit_attrs=unit_attrs
+            )
 
     compile_and_execute_ttir(
-        index,
-        [shape],
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
@@ -1123,21 +1107,22 @@ def test_index(
 def test_select(
     shape: Shape, dim: int, begin: int, length: int, stride: int, request, device
 ):
-    def select(
-        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        return builder.select(
-            in0,
-            dim=dim,
-            begin=begin,
-            length=length,
-            stride=stride,
-            unit_attrs=unit_attrs,
-        )
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.float32])
+        def select(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            return builder.select(
+                in0,
+                dim=dim,
+                begin=begin,
+                length=length,
+                stride=stride,
+                unit_attrs=unit_attrs,
+            )
 
     compile_and_execute_ttir(
-        select,
-        [shape],
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
@@ -1151,13 +1136,13 @@ def test_select(
     "dtype", [torch.bfloat16, torch.float32, torch.int32], ids=["bf16", "f32", "i32"]
 )
 def test_zeros(shape: Shape, dtype: torch.dtype, request, device):
-    def zeros(builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
-        return builder.zeros(shape, dtype, unit_attrs=unit_attrs)
+    def module(builder: TTIRBuilder):
+        @builder.func([], [])
+        def zeros(builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
+            return builder.zeros(shape, dtype, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
-        zeros,
-        inputs_shapes=[],
-        inputs_types=[],
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
@@ -1167,12 +1152,13 @@ def test_zeros(shape: Shape, dtype: torch.dtype, request, device):
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=["128x128"])
 def test_ones(shape: Shape, request, device):
-    def ones(builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
-        return builder.ones(shape, unit_attrs=unit_attrs)
+    def module(builder: TTIRBuilder):
+        @builder.func([], [])
+        def ones(builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
+            return builder.ones(shape, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
-        ones,
-        inputs_shapes=[],
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
@@ -1188,20 +1174,20 @@ def test_callable_initialization_basic(
 ):
     """Basic test demonstrating callable initialization with torch.zeros and torch.ones"""
 
-    def test_with_basic_callables(
-        in0: Operand,
-        in1: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        builder.set_goldens({in0: torch.zeros, in1: torch.ones})
-        result = builder.add(in0, in1)
-        return result
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape], [dtype, dtype])
+        def test_with_basic_callables(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            builder.set_goldens({in0: torch.zeros, in1: torch.ones})
+            result = builder.add(in0, in1)
+            return result
 
     compile_and_execute_ttir(
-        test_with_basic_callables,
-        [shape, shape],
-        [dtype, dtype],
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -1216,17 +1202,17 @@ def test_callable_initialization_basic(
 def test_callable_initialization_zeros(
     shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
-    def test_with_zeros_init(
-        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        builder.set_goldens({in0: torch.zeros})
-        zeros_result = builder.neg(in0, unit_attrs=unit_attrs)
-        return zeros_result
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def test_with_zeros_init(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            builder.set_goldens({in0: torch.zeros})
+            zeros_result = builder.neg(in0, unit_attrs=unit_attrs)
+            return zeros_result
 
     compile_and_execute_ttir(
-        test_with_zeros_init,
-        [shape],
-        [dtype],
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -1241,17 +1227,17 @@ def test_callable_initialization_zeros(
 def test_callable_initialization_ones(
     shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
-    def test_with_ones_init(
-        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        builder.set_goldens({in0: torch.ones})
-        ones_result = builder.neg(in0, unit_attrs=unit_attrs)
-        return ones_result
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def test_with_ones_init(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            builder.set_goldens({in0: torch.ones})
+            ones_result = builder.neg(in0, unit_attrs=unit_attrs)
+            return ones_result
 
     compile_and_execute_ttir(
-        test_with_ones_init,
-        [shape],
-        [dtype],
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -1266,25 +1252,25 @@ def test_callable_initialization_ones(
 def test_callable_initialization_eye(
     shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
-    def test_with_eye_init(
-        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        def eye_init(s):
-            if len(s) == 2 and s[0] == s[1]:
-                return torch.eye(s[0])
-            elif len(s) == 2:
-                return torch.eye(s[0], s[1])
-            else:
-                raise ValueError(f"torch.eye only supports 2D shapes, got {s}")
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def test_with_eye_init(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            def eye_init(s):
+                if len(s) == 2 and s[0] == s[1]:
+                    return torch.eye(s[0])
+                elif len(s) == 2:
+                    return torch.eye(s[0], s[1])
+                else:
+                    raise ValueError(f"torch.eye only supports 2D shapes, got {s}")
 
-        builder.set_goldens({in0: eye_init})
-        eye_result = builder.abs(in0, unit_attrs=unit_attrs)
-        return eye_result
+            builder.set_goldens({in0: eye_init})
+            eye_result = builder.abs(in0, unit_attrs=unit_attrs)
+            return eye_result
 
     compile_and_execute_ttir(
-        test_with_eye_init,
-        [shape],
-        [dtype],
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -1299,20 +1285,20 @@ def test_callable_initialization_eye(
 def test_callable_initialization_mixed(
     shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
-    def test_with_mixed_init(
-        in0: Operand,
-        in1: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        builder.set_goldens({in0: torch.zeros, in1: torch.ones})
-        add_result = builder.add(in0, in1)
-        return add_result
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape], [dtype, dtype])
+        def test_with_mixed_init(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            builder.set_goldens({in0: torch.zeros, in1: torch.ones})
+            add_result = builder.add(in0, in1)
+            return add_result
 
     compile_and_execute_ttir(
-        test_with_mixed_init,
-        [shape, shape],
-        [dtype, dtype],
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -1327,18 +1313,18 @@ def test_callable_initialization_mixed(
 def test_callable_initialization_custom_lambda(
     shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
-    def test_with_custom_lambda(
-        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        custom_init = lambda s: torch.full(s, 2.0)
-        builder.set_goldens({in0: custom_init})
-        result = builder.multiply(in0, in0)
-        return result
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def test_with_custom_lambda(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            custom_init = lambda s: torch.full(s, 2.0)
+            builder.set_goldens({in0: custom_init})
+            result = builder.multiply(in0, in0)
+            return result
 
     compile_and_execute_ttir(
-        test_with_custom_lambda,
-        [shape],
-        [dtype],
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -1376,14 +1362,15 @@ def test_callable_initialization_error_handling(shape: Shape, dtype: torch.dtype
 @pytest.mark.parametrize("shape", [(256, 128, 2, 2)], ids=shape_str)
 @pytest.mark.parametrize("dims", [[2, 3]])
 def test_reverse(shape: Shape, dims: List[int], request, device):
-    def reverse(
-        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        return builder.reverse(in0, dimensions=dims, unit_attrs=unit_attrs)
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.float32])
+        def reverse(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            return builder.reverse(in0, dimensions=dims, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
-        reverse,
-        [shape],
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
@@ -1396,22 +1383,23 @@ def test_reverse(shape: Shape, dims: List[int], request, device):
 )
 @pytest.mark.parametrize("scale_factor", [[2, 4]])
 def test_upsample2d(shapes: List[Shape], scale_factor: List[int], request, device):
-    def upsample2d(
-        in0: Operand,
-        in1: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return builder.upsample2d(
-            in0,
-            in1,
-            scale_factor=scale_factor,
-            unit_attrs=unit_attrs,
-        )
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [torch.float32] * len(shapes))
+        def upsample2d(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.upsample2d(
+                in0,
+                in1,
+                scale_factor=scale_factor,
+                unit_attrs=unit_attrs,
+            )
 
     compile_and_execute_ttir(
-        upsample2d,
-        shapes,
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
@@ -1423,14 +1411,15 @@ def test_upsample2d(shapes: List[Shape], scale_factor: List[int], request, devic
 def test_arange(
     shape: Shape, start: int, end: int, step: int, dim: int, request, device
 ):
-    def arange(
-        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        return builder.arange(in0, start, end, step, dim, unit_attrs=unit_attrs)
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.float32])
+        def arange(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            return builder.arange(in0, start, end, step, dim, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
-        arange,
-        [shape],
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
@@ -1441,16 +1430,17 @@ def test_arange(
 @pytest.mark.parametrize("shapes", [[(4, 4, 128, 128)]], ids=shapes_list_str)
 @pytest.mark.parametrize("dim", [1])
 def test_cumsum(shapes: List[Shape], dim: int, request, device):
-    def cumsum(
-        in0: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return builder.cumsum(in0, dim=dim, unit_attrs=unit_attrs)
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [torch.float32] * len(shapes))
+        def cumsum(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.cumsum(in0, dim=dim, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
-        cumsum,
-        shapes,
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
@@ -1467,17 +1457,18 @@ def prod(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = N
     "shapes", [[(1, 32, 64, 512), (1, 32, 3, 512)]], ids=shapes_list_str
 )
 def test_fill_cache(shapes: List[Shape], request, device):
-    def fill_cache(
-        in0: Operand,
-        in1: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return builder.fill_cache(in0, in1, unit_attrs=unit_attrs)
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [torch.float32] * len(shapes))
+        def fill_cache(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.fill_cache(in0, in1, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
-        fill_cache,
-        shapes,
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
@@ -1485,34 +1476,26 @@ def test_fill_cache(shapes: List[Shape], request, device):
     )
 
 
-def softmax(
-    in0: Operand,
-    builder: TTIRBuilder,
-    dimension: int = -1,
-    numeric_stable: bool = False,
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.softmax(
-        in0, dimension=dimension, numeric_stable=numeric_stable, unit_attrs=unit_attrs
-    )
-
-
 @pytest.mark.parametrize("shape", [(512, 1024)], ids=shape_str)
 @pytest.mark.parametrize("dimension", [-1])
 @pytest.mark.parametrize("numeric_stable", [False, True])
 def test_softmax(shape: Shape, dimension: int, numeric_stable: bool, request, device):
-    # Create a wrapper function that captures dimension
-    def softmax_wrapper(
-        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        return softmax(in0, builder, dimension, numeric_stable, unit_attrs)
 
-    # Set the name for better test identification
-    softmax_wrapper.__name__ = "softmax"
+    # Create a wrapper function that captures dimension
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.float32])
+        def softmax(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            return builder.softmax(
+                in0,
+                dimension=dimension,
+                numeric_stable=numeric_stable,
+                unit_attrs=unit_attrs,
+            )
 
     compile_and_execute_ttir(
-        softmax_wrapper,
-        [shape],
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
@@ -1526,33 +1509,24 @@ def test_softmax(shape: Shape, dimension: int, numeric_stable: bool, request, de
 )
 @pytest.mark.parametrize("dtypes", [[torch.float32, torch.float32, torch.int32]])
 def test_update_cache(shapes: List[Shape], dtypes: List[torch.dtype], request, device):
-    def update_cache(
-        in0: Operand,
-        in1: Operand,
-        in2: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return builder.update_cache(in0, in1, in2, unit_attrs=unit_attrs)
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def update_cache(
+            in0: Operand,
+            in1: Operand,
+            in2: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.update_cache(in0, in1, in2, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
-        update_cache,
-        shapes,
-        inputs_types=dtypes,
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
-
-
-def embedding(
-    in0: Operand,
-    in1: Operand,
-    builder: TTIRBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.embedding(in0, in1, unit_attrs=unit_attrs)
 
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
@@ -1579,14 +1553,17 @@ def test_quantize(
     request,
     device,
 ):
-    def quantize(
-        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        return builder.quantize(in0, scale, zero_point, dtype, unit_attrs=unit_attrs)
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.float32])
+        def quantize(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            return builder.quantize(
+                in0, scale, zero_point, dtype, unit_attrs=unit_attrs
+            )
 
     compile_and_execute_ttir(
-        quantize,
-        [shape],
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
@@ -1620,15 +1597,17 @@ def test_dequantize(
     request,
     device,
 ):
-    def dequantize(
-        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        return builder.dequantize(in0, scale, zero_point, dtype, unit_attrs=unit_attrs)
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [input_dtype])
+        def dequantize(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            return builder.dequantize(
+                in0, scale, zero_point, dtype, unit_attrs=unit_attrs
+            )
 
     compile_and_execute_ttir(
-        dequantize,
-        [shape],
-        inputs_types=[input_dtype],
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
@@ -1670,15 +1649,17 @@ def test_requantize(
     request,
     device,
 ):
-    def requantize(
-        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        return builder.requantize(in0, scale, zero_point, dtype, unit_attrs=unit_attrs)
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [input_dtype])
+        def requantize(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            return builder.requantize(
+                in0, scale, zero_point, dtype, unit_attrs=unit_attrs
+            )
 
     compile_and_execute_ttir(
-        requantize,
-        [shape],
-        inputs_types=[input_dtype],
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
@@ -1813,34 +1794,35 @@ def create_hoisted_reduce_op(op_func, name):
     return hoisted_op
 
 
-# Create hoisted versions of all hoistable operations with proper names
-hoisted_single_operand_ops = [
-    pytest.param(
-        create_hoisted_single_operand_op(softmax, "softmax"),
-        marks=pytest.mark.xfail(
-            reason="Softmax does not lower to loops properly https://github.com/tenstorrent/tt-mlir/issues/3232"
-        ),
-    ),
-]
-
-
 @x86_only
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("test_fn", hoisted_single_operand_ops)
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_cpu_hoistable_single_operand_ops(
-    test_fn: Callable,
     shape: Shape,
     request,
     target: str,
     device,
     dtype: torch.dtype = torch.float32,
 ):
+    pytest.skip(
+        reason="Softmax does not lower to loops properly https://github.com/tenstorrent/tt-mlir/issues/3232"
+    )
+
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def softmax(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            return builder.softmax(
+                in0,
+                dimension=-1,
+                numeric_stable=False,
+                unit_attrs=["ttir.should_hoist"],
+            )
+
     """Test unary ops that support CPU hoisting"""
     compile_and_execute_ttir(
-        test_fn,
-        inputs_shapes=[shape],
-        inputs_types=[dtype],
+        module,
         test_base=f"{request.node.name}",
         target=target,
         device=device,
@@ -1863,19 +1845,20 @@ def test_cpu_hoistable_single_operand_ops(
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 @pytest.mark.xfail(reason="Fails Golden")
 def test_hoisted_permute(shapes, permutation, request, target: str, device):
-    def permute_wrapper(
-        in0: Operand,
-        in1: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return permute(in0, in1, builder, permutation, unit_attrs=["ttir.should_hoist"])
-
-    permute_wrapper.__name__ = "hoisted_permute"
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [torch.float32] * len(shapes))
+        def permute(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return permute(
+                in0, in1, builder, permutation, unit_attrs=["ttir.should_hoist"]
+            )
 
     compile_and_execute_ttir(
-        permute_wrapper,
-        shapes,
+        module,
         test_base=request.node.name,
         target=target,
         device=device,
@@ -1905,16 +1888,18 @@ def test_hoisted_slice(
     request,
     device,
 ):
-    def slice_wrapper(
-        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        # Now use the slice operation with the CPU hoisting attribute
-        return builder.slice(in0, begins, ends, step, unit_attrs=["ttir.should_hoist"])
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def slice(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            # Now use the slice operation with the CPU hoisting attribute
+            return builder.slice(
+                in0, begins, ends, step, unit_attrs=["ttir.should_hoist"]
+            )
 
     compile_and_execute_ttir(
-        slice_wrapper,
-        [shape],
-        [dtype],
+        module,
         test_base=request.node.name,
         target=target,
         device=device,
@@ -1930,14 +1915,13 @@ def test_hoisted_slice(
 )
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_hoisted_where(shapes, request, target: str, device):
-    def where_wrapper(condition: Operand, x: Operand, y: Operand, builder: TTIRBuilder):
-        return builder.where(condition, x, y, unit_attrs=["ttir.should_hoist"])
-
-    where_wrapper.__name__ = "hoisted_where"
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [torch.float32] * len(shapes))
+        def where(condition: Operand, x: Operand, y: Operand, builder: TTIRBuilder):
+            return builder.where(condition, x, y, unit_attrs=["ttir.should_hoist"])
 
     compile_and_execute_ttir(
-        where_wrapper,
-        shapes,
+        module,
         test_base=request.node.name,
         target=target,
         device=device,
@@ -1961,15 +1945,13 @@ def test_hoisted_where(shapes, request, target: str, device):
 def test_hoisted_reshape(
     input_shape, output_shape, dtype, request, target: str, device
 ):
-    def reshape_wrapper(in0: Operand, builder: TTIRBuilder):
-        return builder.reshape(in0, output_shape, unit_attrs=["ttir.should_hoist"])
-
-    reshape_wrapper.__name__ = "hoisted_reshape"
+    def module(builder: TTIRBuilder):
+        @builder.func([input_shape], [dtype])
+        def reshape(in0: Operand, builder: TTIRBuilder):
+            return builder.reshape(in0, output_shape, unit_attrs=["ttir.should_hoist"])
 
     compile_and_execute_ttir(
-        reshape_wrapper,
-        [input_shape],
-        [dtype],
+        module,
         test_base=request.node.name,
         target=target,
         device=device,
@@ -1991,21 +1973,19 @@ def test_hoisted_reshape(
 )
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_hoisted_transpose(input_shape, dims, dtype, request, target: str, device):
-    def transpose_wrapper(in0: Operand, builder: TTIRBuilder):
-        # For 2D tensors with permutation [1, 0], swap dimensions 0 and 1
-        # For 3D tensors with permutation [2, 1, 0], swap dimensions 0 and 2
-        dim0 = dims[0]
-        dim1 = dims[1]
-        return builder.transpose(
-            in0, dim0=dim0, dim1=dim1, unit_attrs=["ttir.should_hoist"]
-        )
-
-    transpose_wrapper.__name__ = "hoisted_transpose"
+    def module(builder: TTIRBuilder):
+        @builder.func([input_shape], [dtype])
+        def hoisted_transpose(in0: Operand, builder: TTIRBuilder):
+            # For 2D tensors with permutation [1, 0], swap dimensions 0 and 1
+            # For 3D tensors with permutation [2, 1, 0], swap dimensions 0 and 2
+            dim0 = dims[0]
+            dim1 = dims[1]
+            return builder.transpose(
+                in0, dim0=dim0, dim1=dim1, unit_attrs=["ttir.should_hoist"]
+            )
 
     compile_and_execute_ttir(
-        transpose_wrapper,
-        [input_shape],
-        [dtype],
+        module,
         test_base=request.node.name,
         target=target,
         device=device,
@@ -2021,16 +2001,15 @@ def test_hoisted_transpose(input_shape, dims, dtype, request, target: str, devic
 def test_hoisted_squeeze(shape: Shape, dim: int, target: str, request, device):
     """Test hoisted squeeze operation with appropriate shape that has a dimension of size 1"""
 
-    def hoisted_squeeze(
-        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        return builder.squeeze(in0, dim=dim, unit_attrs=["ttir.should_hoist"])
-
-    hoisted_squeeze.__name__ = "hoisted_squeeze"
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.float32])
+        def hoisted_squeeze(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            return builder.squeeze(in0, dim=dim, unit_attrs=["ttir.should_hoist"])
 
     compile_and_execute_ttir(
-        hoisted_squeeze,
-        [shape],
+        module,
         test_base=request.node.name,
         target=target,
         output_root=request.config.getoption("--path"),
@@ -2088,29 +2067,33 @@ def test_unary_ops_int32(
     )
 
 
+pytest.mark.skip_config(["ttmetal"])
+
+
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
-@pytest.mark.parametrize(
-    "test_fn",
-    [
-        matmul | Marks(pytest.mark.skip_config(["ttmetal"])),
-    ],
-)
 def test_matmul(
-    test_fn: Callable,
     shape: Shape,
     dtype: torch.dtype,
     target: str,
     request,
     device,
 ):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape], [dtype, dtype])
+        def matmul(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.matmul(in0, in1, unit_attrs=unit_attrs)
+
     # NOTE: this function is _only_ for binary ops that take the same shape arguments
     pipeline_options = []
     compile_and_execute_ttir(
-        test_fn,
-        [shape, shape],
-        [dtype, dtype],
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -2121,10 +2104,9 @@ def test_matmul(
 
 
 @pytest.mark.parametrize(
-    "test_fn,inputs_shapes,inputs_dtypes",
+    "inputs_shapes,inputs_dtypes",
     [
         pytest.param(
-            embedding,
             [(33, 32), (512, 128)],
             [torch.float32] * 2,
             marks=[pytest.mark.skip_config(["ttmetal"])],
@@ -2133,17 +2115,24 @@ def test_matmul(
 )
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_unique_ops(
-    test_fn: Callable,
     inputs_shapes: List[Shape],
     inputs_dtypes: List[torch.dtype],
     target: str,
     request,
     device,
 ):
+    def module(builder: TTIRBuilder):
+        @builder.func(inputs_shapes, inputs_dtypes)
+        def embedding(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.embedding(in0, in1, unit_attrs=unit_attrs)
+
     compile_and_execute_ttir(
-        test_fn,
-        inputs_shapes=inputs_shapes,
-        inputs_types=inputs_dtypes,
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -2162,17 +2151,17 @@ def test_hoisted_reduce_or(
 ):
     """Test the hoisted reduce_or operation with proper dimensions and keep_dim parameter"""
 
-    def hoisted_reduce_or_wrapper(
-        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        return reduce_or(
-            in0, builder, dim_args, keep_dim=True, unit_attrs=["ttir.should_hoist"]
-        )
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.float32])
+        def hoisted_reduce_or_wrapper(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            return reduce_or(
+                in0, builder, dim_args, keep_dim=True, unit_attrs=["ttir.should_hoist"]
+            )
 
     compile_and_execute_ttir(
-        hoisted_reduce_or_wrapper,
-        inputs_shapes=[shape],
-        inputs_types=[torch.float32],
+        module,
         test_base=request.node.name,
         target=target,
         device=device,
@@ -2195,18 +2184,19 @@ def test_hoisted_reduce_or(
 def test_hoisted_broadcast(shape, broadcast_dims, request, target: str, device):
     """Test broadcast operation with CPU hoisting enabled using the 'hoisted_' naming convention"""
 
-    def broadcast_wrapper(
-        in0: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return broadcast(in0, builder, broadcast_dims, unit_attrs=["ttir.should_hoist"])
-
-    broadcast_wrapper.__name__ = "hoisted_broadcast"
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.float32])
+        def hoisted_broadcast(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.broadcast(
+                in0, broadcast_dims, unit_attrs=["ttir.should_hoist"]
+            )
 
     compile_and_execute_ttir(
-        broadcast_wrapper,
-        inputs_shapes=[shape],
+        module,
         test_base=f"{request.node.name}",
         target=target,
         device=device,
@@ -2291,21 +2281,21 @@ def test_gather(
     request,
     device,
 ):
-    def gather_wrapper(in0: Operand, builder: TTIRBuilder):
-        return gather(
-            in0,
-            builder,
-            indices_shape,
-            start_index_map,
-            offset_dims,
-            slice_sizes,
-            input_dtype,
-        )
+    def module(builder: TTIRBuilder):
+        @builder.func([input_shape], [input_dtype])
+        def gather_wrapper(in0: Operand, builder: TTIRBuilder):
+            return gather(
+                in0,
+                builder,
+                indices_shape,
+                start_index_map,
+                offset_dims,
+                slice_sizes,
+                input_dtype,
+            )
 
     compile_and_execute_ttir(
-        gather_wrapper,
-        [input_shape],
-        [input_dtype],
+        module,
         test_base=request.node.name,
         target=target,
         device=device,
@@ -2345,23 +2335,24 @@ def test_hoisted_gather(
     request,
     device,
 ):
-    def gather_wrapper(
-        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        return gather(
-            in0,
-            builder,
-            indices_shape,
-            start_index_map,
-            offset_dims,
-            slice_sizes,
-            input_dtype,
-            unit_attrs=["ttir.should_hoist"],
-        )
+    def module(builder: TTIRBuilder):
+        @builder.func([input_shape], [torch.float32])
+        def gather_wrapper(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            return gather(
+                in0,
+                builder,
+                indices_shape,
+                start_index_map,
+                offset_dims,
+                slice_sizes,
+                input_dtype,
+                unit_attrs=["ttir.should_hoist"],
+            )
 
     compile_and_execute_ttir(
-        gather_wrapper,
-        [input_shape],
+        module,
         test_base=request.node.name,
         target=target,
         device=device,
@@ -2395,27 +2386,28 @@ def test_hoisted_dot_general(
     request,
     device,
 ):
-    def dot_general_wrapper(
-        in0: Operand,
-        in1: Operand,
-        out0: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return builder.dot_general(
-            in0,
-            in1,
-            out0,
-            batch_dims_lhs,
-            contract_dims_lhs,
-            batch_dims_rhs,
-            contract_dims_rhs,
-            unit_attrs=["ttir.should_hoist"],
-        )
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [torch.float32] * len(shapes))
+        def dot_general_wrapper(
+            in0: Operand,
+            in1: Operand,
+            out0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.dot_general(
+                in0,
+                in1,
+                out0,
+                batch_dims_lhs,
+                contract_dims_lhs,
+                batch_dims_rhs,
+                contract_dims_rhs,
+                unit_attrs=["ttir.should_hoist"],
+            )
 
     compile_and_execute_ttir(
-        dot_general_wrapper,
-        shapes,
+        module,
         test_base=request.node.name,
         target=target,
         device=device,
@@ -2438,20 +2430,18 @@ def test_hoisted_dot_general(
 def test_hoisted_matmul(
     shapes: List[Shape], dtype: torch.dtype, target: str, request, device
 ):
-    def hoisted_matmul_wrapper(
-        in0: Operand,
-        in1: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return matmul(in0, in1, builder, unit_attrs=["ttir.should_hoist"])
-
-    hoisted_matmul_wrapper.__name__ = "hoisted_matmul"
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [dtype] * len(shapes))
+        def hoisted_matmul(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.matmul(in0, in1, unit_attrs=["ttir.should_hoist"])
 
     compile_and_execute_ttir(
-        hoisted_matmul_wrapper,
-        shapes,
-        [dtype] * len(shapes),
+        module,
         test_base=request.node.name,
         target=target,
         device=device,
@@ -2479,30 +2469,6 @@ def test_rms_norm(
     request,
     device,
 ):
-    def rms_norm(*inputs, unit_attrs: Optional[List[str]] = None):
-
-        builder = inputs[-1]
-        # Extract inputs based on test configuration
-        in0 = inputs[0]
-        weight = None
-        bias = None
-
-        if has_weight and len(inputs) > 1:
-            weight = inputs[1]
-        if has_bias:
-            if has_weight and len(inputs) > 2:
-                bias = inputs[2]
-            elif not has_weight and len(inputs) > 1:
-                bias = inputs[1]
-
-        return builder.rms_norm(
-            in0,
-            normalized_shape=normalized_shape,
-            weight=weight,
-            bias=bias,
-            unit_attrs=unit_attrs,
-        )
-
     # Determine input shapes
     shapes = [shape]
     if has_weight:
@@ -2510,9 +2476,34 @@ def test_rms_norm(
     if has_bias:
         shapes.append(tuple(normalized_shape))
 
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [torch.float32] * len(shapes))
+        def rms_norm(*inputs, unit_attrs: Optional[List[str]] = None):
+
+            builder = inputs[-1]
+            # Extract inputs based on test configuration
+            in0 = inputs[0]
+            weight = None
+            bias = None
+
+            if has_weight and len(inputs) > 1:
+                weight = inputs[1]
+            if has_bias:
+                if has_weight and len(inputs) > 2:
+                    bias = inputs[2]
+                elif not has_weight and len(inputs) > 1:
+                    bias = inputs[1]
+
+            return builder.rms_norm(
+                in0,
+                normalized_shape=normalized_shape,
+                weight=weight,
+                bias=bias,
+                unit_attrs=unit_attrs,
+            )
+
     compile_and_execute_ttir(
-        rms_norm,
-        shapes,
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
@@ -2573,26 +2564,27 @@ def test_mesh_shard_devices(
         pytest.skip("sharding is meaningless, skipping test.")
     input_shape = [n_shards for idx, n_shards in enumerate(shard_shape)]
 
-    def mesh_shard_devices(in0: Operand, builder: TTIRBuilder):
-        mesh_shard_in0 = builder.mesh_shard(
-            in0,
-            shard_direction="#ttcore.shard_direction<full_to_shard>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=shard_shape,
-            shard_dims=shard_dims,
-        )
-        neg_output = builder.neg(mesh_shard_in0)
-        return builder.mesh_shard(
-            neg_output,
-            shard_direction="#ttcore.shard_direction<shard_to_full>",
-            shard_type="#ttcore.shard_type<devices>",
-            shard_shape=shard_shape,
-            shard_dims=shard_dims,
-        )
+    def module(builder: TTIRBuilder):
+        @builder.func([input_shape], [torch.float32])
+        def mesh_shard_devices(in0: Operand, builder: TTIRBuilder):
+            mesh_shard_in0 = builder.mesh_shard(
+                in0,
+                shard_direction="#ttcore.shard_direction<full_to_shard>",
+                shard_type="#ttcore.shard_type<devices>",
+                shard_shape=shard_shape,
+                shard_dims=shard_dims,
+            )
+            neg_output = builder.neg(mesh_shard_in0)
+            return builder.mesh_shard(
+                neg_output,
+                shard_direction="#ttcore.shard_direction<shard_to_full>",
+                shard_type="#ttcore.shard_type<devices>",
+                shard_shape=shard_shape,
+                shard_dims=shard_dims,
+            )
 
     compile_and_execute_ttir(
-        mesh_shard_devices,
-        [input_shape],
+        module,
         mesh_name="mesh",
         device=device,
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
@@ -2639,19 +2631,51 @@ def test_all_gather(
     if mesh_shape[cluster_axis] == 1:
         pytest.skip("all_gather across 1 device is meaningless")
 
-    def all_gather(mesh_shard_in: Operand, builder: TTIRBuilder):
-        return builder.all_gather(
-            mesh_shard_in,
-            all_gather_dim=all_gather_dim,
-            cluster_axis=cluster_axis,
+    rank_in = len(test_shape)
+    rank_mesh = len(mesh_shape)
+
+    if rank_mesh > rank_in:
+        raise ValueError(
+            f"Mesh shape {mesh_shape} has {rank_mesh} dimensions, but test shape "
+            f"{test_shape} only has {rank_in} dimensions. Cannot shard more "
+            f"dimensions than exist in the tensor."
         )
 
-    test_bundle = shard_wrap_factory(test_shape, mesh_shape, all_gather)
+    # Take the last `rank_mesh` dims as sharded dims
+    shard_dims = list(range(rank_in - rank_mesh, rank_in))
+    shard_shape = make_shard_shape(rank_in, shard_dims, mesh_shape)
+
+    full_input_shape = list(test_shape)
+    for d, factor in zip(shard_dims, mesh_shape):
+        full_input_shape[d] *= factor
+
+    def module(builder: TTIRBuilder):
+        @builder.func([full_input_shape], [dtype])
+        def all_gather(in0: Operand, builder: TTIRBuilder):
+            in_shard = builder.mesh_shard(
+                in0,
+                shard_direction="#ttcore.shard_direction<full_to_shard>",
+                shard_type="#ttcore.shard_type<devices>",
+                shard_shape=shard_shape,
+                shard_dims=shard_dims,
+            )
+
+            all_gather0 = builder.all_gather(
+                in_shard,
+                all_gather_dim=all_gather_dim,
+                cluster_axis=cluster_axis,
+            )
+
+            return builder.mesh_shard(
+                all_gather0,
+                shard_direction="#ttcore.shard_direction<shard_to_full>",
+                shard_type="#ttcore.shard_type<devices>",
+                shard_shape=shard_shape,
+                shard_dims=shard_dims,
+            )
 
     compile_and_execute_ttir(
-        test_bundle.test_fn,
-        [test_bundle.input_shape],
-        [dtype],
+        module,
         mesh_name="mesh",
         device=device,
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
@@ -2698,20 +2722,52 @@ def test_all_reduce(
     request,
     device,
 ):
-    # test 'sum' only for now. Other reduce types are not supported yet.
-    def all_reduce(mesh_shard_in: Operand, builder: TTIRBuilder):
-        return builder.all_reduce(
-            mesh_shard_in,
-            reduce_type="#ttcore.reduce_type<sum>",
-            cluster_axis=cluster_axis,
+    rank_in = len(test_shape)
+    rank_mesh = len(mesh_shape)
+
+    if rank_mesh > rank_in:
+        raise ValueError(
+            f"Mesh shape {mesh_shape} has {rank_mesh} dimensions, but test shape "
+            f"{test_shape} only has {rank_in} dimensions. Cannot shard more "
+            f"dimensions than exist in the tensor."
         )
 
-    test_bundle = shard_wrap_factory(test_shape, mesh_shape, all_reduce)
+    # Take the last `rank_mesh` dims as sharded dims
+    shard_dims = list(range(rank_in - rank_mesh, rank_in))
+    shard_shape = make_shard_shape(rank_in, shard_dims, mesh_shape)
+
+    full_input_shape = list(test_shape)
+    for d, factor in zip(shard_dims, mesh_shape):
+        full_input_shape[d] *= factor
+
+    # test 'sum' only for now. Other reduce types are not supported yet.
+    def module(builder: TTIRBuilder):
+        @builder.func([full_input_shape], [dtype])
+        def all_reduce(in0: Operand, builder: TTIRBuilder):
+            in_shard = builder.mesh_shard(
+                in0,
+                shard_direction="#ttcore.shard_direction<full_to_shard>",
+                shard_type="#ttcore.shard_type<devices>",
+                shard_shape=shard_shape,
+                shard_dims=shard_dims,
+            )
+
+            all_reduce0 = builder.all_reduce(
+                in_shard,
+                reduce_type="#ttcore.reduce_type<sum>",
+                cluster_axis=cluster_axis,
+            )
+
+            return builder.mesh_shard(
+                all_reduce0,
+                shard_direction="#ttcore.shard_direction<shard_to_full>",
+                shard_type="#ttcore.shard_type<devices>",
+                shard_shape=shard_shape,
+                shard_dims=shard_dims,
+            )
 
     compile_and_execute_ttir(
-        test_bundle.test_fn,
-        [test_bundle.input_shape],
-        [dtype],
+        module,
         mesh_name="mesh",
         device=device,
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
@@ -2760,21 +2816,53 @@ def test_reduce_scatter(
     if test_shape[scatter_dim] % mesh_shape[cluster_axis] != 0:
         pytest.skip("scatter_dim is not divisible by mesh_shape[cluster_axis]")
 
-    # test 'sum' only for now. Other reduce types are not supported yet.
-    def reduce_scatter(mesh_shard_in: Operand, builder: TTIRBuilder):
-        return builder.reduce_scatter(
-            mesh_shard_in,
-            reduce_type="#ttcore.reduce_type<sum>",
-            scatter_dim=scatter_dim,
-            cluster_axis=cluster_axis,
+    rank_in = len(test_shape)
+    rank_mesh = len(mesh_shape)
+
+    if rank_mesh > rank_in:
+        raise ValueError(
+            f"Mesh shape {mesh_shape} has {rank_mesh} dimensions, but test shape "
+            f"{test_shape} only has {rank_in} dimensions. Cannot shard more "
+            f"dimensions than exist in the tensor."
         )
 
-    test_bundle = shard_wrap_factory(test_shape, mesh_shape, reduce_scatter)
+    # Take the last `rank_mesh` dims as sharded dims
+    shard_dims = list(range(rank_in - rank_mesh, rank_in))
+    shard_shape = make_shard_shape(rank_in, shard_dims, mesh_shape)
+
+    full_input_shape = list(test_shape)
+    for d, factor in zip(shard_dims, mesh_shape):
+        full_input_shape[d] *= factor
+
+    # test 'sum' only for now. Other reduce types are not supported yet.
+    def module(builder: TTIRBuilder):
+        @builder.func([full_input_shape], [dtype])
+        def reduce_scatter(in0: Operand, builder: TTIRBuilder):
+            in_shard = builder.mesh_shard(
+                in0,
+                shard_direction="#ttcore.shard_direction<full_to_shard>",
+                shard_type="#ttcore.shard_type<devices>",
+                shard_shape=shard_shape,
+                shard_dims=shard_dims,
+            )
+
+            reduce_scatter0 = builder.reduce_scatter(
+                in_shard,
+                reduce_type="#ttcore.reduce_type<sum>",
+                scatter_dim=scatter_dim,
+                cluster_axis=cluster_axis,
+            )
+
+            return builder.mesh_shard(
+                reduce_scatter0,
+                shard_direction="#ttcore.shard_direction<shard_to_full>",
+                shard_type="#ttcore.shard_type<devices>",
+                shard_shape=shard_shape,
+                shard_dims=shard_dims,
+            )
 
     compile_and_execute_ttir(
-        test_bundle.test_fn,
-        [test_bundle.input_shape],
-        [dtype],
+        module,
         mesh_name="mesh",
         device=device,
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
@@ -2859,18 +2947,49 @@ def test_collective_permute(
     if not all(pair[0] < max_id and pair[1] < max_id for pair in source_target_pairs):
         pytest.skip("Source and target pairs are out of range")
 
-    def collective_permute(mesh_shard_in: Operand, builder: TTIRBuilder):
-        return builder.collective_permute(
-            mesh_shard_in,
-            source_target_pairs=source_target_pairs,
+    rank_in = len(test_shape)
+    rank_mesh = len(mesh_shape)
+
+    if rank_mesh > rank_in:
+        raise ValueError(
+            f"Mesh shape {mesh_shape} has {rank_mesh} dimensions, but test shape "
+            f"{test_shape} only has {rank_in} dimensions. Cannot shard more "
+            f"dimensions than exist in the tensor."
         )
 
-    test_bundle = shard_wrap_factory(test_shape, mesh_shape, collective_permute)
+    # Take the last `rank_mesh` dims as sharded dims
+    shard_dims = list(range(rank_in - rank_mesh, rank_in))
+    shard_shape = make_shard_shape(rank_in, shard_dims, mesh_shape)
+
+    full_input_shape = list(test_shape)
+    for d, factor in zip(shard_dims, mesh_shape):
+        full_input_shape[d] *= factor
+
+    def module(builder: TTIRBuilder):
+        @builder.func([full_input_shape], [dtype])
+        def collective_permute_wrapper(in0: Operand, builder: TTIRBuilder):
+            mesh_shard_in = builder.mesh_shard(
+                in0,
+                shard_direction="#ttcore.shard_direction<full_to_shard>",
+                shard_type="#ttcore.shard_type<devices>",
+                shard_shape=shard_shape,
+                shard_dims=shard_dims,
+            )
+
+            collective_permute_out = builder.collective_permute(
+                mesh_shard_in, source_target_pairs
+            )
+
+            return builder.mesh_shard(
+                collective_permute_out,
+                shard_direction="#ttcore.shard_direction<shard_to_full>",
+                shard_type="#ttcore.shard_type<devices>",
+                shard_shape=shard_shape,
+                shard_dims=shard_dims,
+            )
 
     compile_and_execute_ttir(
-        test_bundle.test_fn,
-        [test_bundle.input_shape],
-        [dtype],
+        module,
         mesh_name="mesh",
         device=device,
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
@@ -2930,21 +3049,53 @@ def test_all_to_all(
     if concat_dim >= len(test_shape):
         pytest.skip("Concat dimension is out of range")
 
-    def all_to_all(mesh_shard_in: Operand, builder: TTIRBuilder):
-        return builder.all_to_all(
-            mesh_shard_in,
-            split_dim=split_dim,
-            concat_dim=concat_dim,
-            split_count=split_count,
-            replica_groups=replica_groups,
+    rank_in = len(test_shape)
+    rank_mesh = len(mesh_shape)
+
+    if rank_mesh > rank_in:
+        raise ValueError(
+            f"Mesh shape {mesh_shape} has {rank_mesh} dimensions, but test shape "
+            f"{test_shape} only has {rank_in} dimensions. Cannot shard more "
+            f"dimensions than exist in the tensor."
         )
 
-    test_bundle = shard_wrap_factory(test_shape, mesh_shape, all_to_all)
+    # Take the last `rank_mesh` dims as sharded dims
+    shard_dims = list(range(rank_in - rank_mesh, rank_in))
+    shard_shape = make_shard_shape(rank_in, shard_dims, mesh_shape)
+
+    full_input_shape = list(test_shape)
+    for d, factor in zip(shard_dims, mesh_shape):
+        full_input_shape[d] *= factor
+
+    def module(builder: TTIRBuilder):
+        @builder.func([full_input_shape], [dtype])
+        def all_to_all_wrapper(in0: Operand, builder: TTIRBuilder):
+            in_shard = builder.mesh_shard(
+                in0,
+                shard_direction="#ttcore.shard_direction<full_to_shard>",
+                shard_type="#ttcore.shard_type<devices>",
+                shard_shape=shard_shape,
+                shard_dims=shard_dims,
+            )
+
+            all_to_all0 = builder.all_to_all(
+                in_shard,
+                split_dim=split_dim,
+                concat_dim=concat_dim,
+                split_count=split_count,
+                replica_groups=replica_groups,
+            )
+
+            return builder.mesh_shard(
+                all_to_all0,
+                shard_direction="#ttcore.shard_direction<shard_to_full>",
+                shard_type="#ttcore.shard_type<devices>",
+                shard_shape=shard_shape,
+                shard_dims=shard_dims,
+            )
 
     compile_and_execute_ttir(
-        test_bundle.test_fn,
-        [test_bundle.input_shape],
-        [dtype],
+        module,
         mesh_name="mesh",
         device=device,
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
@@ -2995,18 +3146,49 @@ def test_collective_broadcast(
     request,
     device,
 ):
-    def collective_broadcast(mesh_shard_in: Operand, builder: TTIRBuilder):
-        return builder.collective_broadcast(
-            mesh_shard_in,
-            replica_groups=replica_groups,
+    rank_in = len(test_shape)
+    rank_mesh = len(mesh_shape)
+
+    if rank_mesh > rank_in:
+        raise ValueError(
+            f"Mesh shape {mesh_shape} has {rank_mesh} dimensions, but test shape "
+            f"{test_shape} only has {rank_in} dimensions. Cannot shard more "
+            f"dimensions than exist in the tensor."
         )
 
-    test_bundle = shard_wrap_factory(test_shape, mesh_shape, collective_broadcast)
+    # Take the last `rank_mesh` dims as sharded dims
+    shard_dims = list(range(rank_in - rank_mesh, rank_in))
+    shard_shape = make_shard_shape(rank_in, shard_dims, mesh_shape)
+
+    full_input_shape = list(test_shape)
+    for d, factor in zip(shard_dims, mesh_shape):
+        full_input_shape[d] *= factor
+
+    def module(builder: TTIRBuilder):
+        @builder.func([full_input_shape], [dtype])
+        def collective_broadcast(in0: Operand, builder: TTIRBuilder):
+            in_shard = builder.mesh_shard(
+                in0,
+                shard_direction="#ttcore.shard_direction<full_to_shard>",
+                shard_type="#ttcore.shard_type<devices>",
+                shard_shape=shard_shape,
+                shard_dims=shard_dims,
+            )
+
+            collective_broadcast_out = builder.collective_broadcast(
+                in_shard, replica_groups
+            )
+
+            return builder.mesh_shard(
+                collective_broadcast_out,
+                shard_direction="#ttcore.shard_direction<shard_to_full>",
+                shard_type="#ttcore.shard_type<devices>",
+                shard_shape=shard_shape,
+                shard_dims=shard_dims,
+            )
 
     compile_and_execute_ttir(
-        test_bundle.test_fn,
-        [test_bundle.input_shape],
-        [dtype],
+        module,
         mesh_name="mesh",
         device=device,
         mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
@@ -3023,19 +3205,19 @@ def test_multi_return_support(
 ):
     """Test that multi-return functionality works after the builder fix."""
 
-    def multi_return_model(
-        in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder
-    ):
-        add_result = builder.add(in0, in1)
-        exp_result = builder.exp(in2)
-        mult_result = builder.multiply(add_result, exp_result)
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def multi_return_model(
+            in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder
+        ):
+            add_result = builder.add(in0, in1)
+            exp_result = builder.exp(in2)
+            mult_result = builder.multiply(add_result, exp_result)
 
-        return exp_result, mult_result
+            return exp_result, mult_result
 
     compile_and_execute_ttir(
-        multi_return_model,
-        shapes,
-        dtypes,
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -3050,19 +3232,35 @@ def test_triple_return_support(
 ):
     """Test that returning three values works."""
 
-    def triple_return_model(in0: Operand, in1: Operand, builder: TTIRBuilder):
-        add_result = builder.add(in0, in1)
-        exp_result = builder.exp(in0)
-        mult_result = builder.multiply(in0, in1)
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def triple_return_model(in0: Operand, in1: Operand, builder: TTIRBuilder):
+            add_result = builder.add(in0, in1)
+            exp_result = builder.exp(in0)
+            mult_result = builder.multiply(in0, in1)
 
-        return add_result, exp_result, mult_result
+            return add_result, exp_result, mult_result
 
     compile_and_execute_ttir(
-        triple_return_model,
-        shapes,
-        dtypes,
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         device=device,
     )
+
+
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_multiple_function(target, request, device):
+    def my_module(builder: TTIRBuilder):
+        @builder.func([(32, 32)], [torch.float32])
+        def my_modela(in0: Operand, builder: TTIRBuilder):
+            sigmoid0 = builder.sigmoid(in0)
+            return sigmoid0
+
+        @builder.func([(32, 32)], [torch.float32])
+        def my_modelb(in0: Operand, builder: TTIRBuilder):
+            sigmoid0 = builder.sigmoid(in0)
+            return sigmoid0
+
+    new_module, builder = build_module(my_module, "ttir")
