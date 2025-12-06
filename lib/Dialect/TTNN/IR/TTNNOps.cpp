@@ -948,7 +948,9 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
   bool weightIsPrepared =
       isDefinedByOp<mlir::tt::ttnn::PrepareConvTranspose2dWeightsOp>(
           getWeight()) ||
-      isDefinedByOp<mlir::tt::ttcore::LoadCachedOp>(getWeight());
+      isDefinedByOp<mlir::tt::ttcore::LoadCachedOp>(getWeight()) ||
+      (getWeight().getType().getDimSize(0) == 1 &&
+       getWeight().getType().getDimSize(1) == 1);
 
   if (!weightIsPrepared) {
     // Only check when the weight is not prepared because it changes the shape
@@ -972,21 +974,13 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
   }
 
   if (bias) {
-    bool biasIsPrepared =
-        isDefinedByOp<mlir::tt::ttnn::PrepareConvTranspose2dBiasOp>(
-            getBias()) ||
-        isDefinedByOp<mlir::tt::ttcore::LoadCachedOp>(getBias());
-
-    if (!biasIsPrepared) {
-      // Only check when the bias is not prepared because it changes the shape.
-      if (bias->getDimSize(bias->getRank() - 1) != outputChannels) {
-        return emitOpError()
-               << "Mismatch in bias tensor dimensions. "
-               << "Bias tensor has " << bias->getDimSize(bias->getRank() - 1)
-               << " channels, "
-               << "but the output tensor has " << outputChannels
-               << " channels.";
-      }
+    if (bias->getDimSize(bias->getRank() - 1) != outputChannels) {
+      return emitOpError() << "Mismatch in bias tensor dimensions. "
+                           << "Bias tensor has "
+                           << bias->getDimSize(bias->getRank() - 1)
+                           << " channels, "
+                           << "but the output tensor has " << outputChannels
+                           << " channels.";
     }
   }
 
