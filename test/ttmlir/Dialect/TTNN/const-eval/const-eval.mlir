@@ -11,7 +11,7 @@ module {
   func.func @forward(%arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>}, %arg1: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg2: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg3: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> tensor<32x32xbf16> {
     // CHECK: ttcore.load_cached(@forward_const_eval_0, [%arg2, %arg3])
     // CHECK: %[[TILED_INPUT1:.*]] = "ttnn.to_layout"(%arg0)
-    // CHECK: "ttnn.add"(%[[TILED_INPUT1]], %{{.*}})
+    // CHECK: "ttnn.add"(%[[TILED_INPUT1]], %arg1)
     %0 = "ttir.add"(%arg0, %arg1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
     %1 = "ttir.subtract"(%arg2, %arg3)  : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
     // CHECK: "ttnn.add"(%{{.*}}, %{{.*}})
