@@ -633,8 +633,7 @@ private:
     SmallVector<mlir::Value> newInputs(origInputs.begin(), origInputs.end());
     newInputs.emplace_back(createScaler(
         rewriter, loc,
-        mlir::cast<mlir::RankedTensorType>(origInputs.front().getType())
-            .getElementType()));
+        mlir::cast<mlir::RankedTensorType>(origInputs.front().getType())));
     auto [inputs, outputs] =
         toLayoutOperandsAndResults(rewriter, {newInputs, origOutputs},
                                    /*tiled*/ true);
@@ -770,9 +769,31 @@ private:
   // Create a reduction scaler value for a given type of tensor operand
   // (at the current 'builder' insertion point).
   static mlir::Value createScaler(mlir::OpBuilder &builder, mlir::Location loc,
-                                  mlir::Type elementType) {
-    mlir::RankedTensorType scalerType =
-        RankedTensorType::get(ttcore::TileType::getDefaultShape(), elementType);
+                                  mlir::RankedTensorType inputType) {
+
+    Type elementType = inputType.getElementType();
+    Attribute encoding = nullptr;
+
+    // If input has TTNNLayoutAttr, create scaler with matching layout.
+    // This ensures the scaler goes through TTNNMetalLayoutCastOp path.
+    if (auto ttnnLayout = mlir::dyn_cast_if_present<ttnn::TTNNLayoutAttr>(
+            inputType.getEncoding())) {
+      // Create a 1x1 grid TTNNLayoutAttr for the scaler.
+      auto grid = ttcore::GridAttr::get(builder.getContext(), {1, 1});
+      auto tileType = ttcore::TileType::get(
+          elementType, ttcore::TileType::getDefaultShape());
+      auto memref =
+          MemRefType::get({1, 1}, tileType, MemRefLayoutAttrInterface{},
+                          ttnnLayout.getMemref().getMemorySpace());
+      encoding = ttnn::TTNNLayoutAttr::get(
+          builder.getContext(), builder.getMultiDimIdentityMap(2), grid, memref,
+          ttnnLayout.getMemLayout(),
+          /*tensorMesh=*/nullptr, /*ignorePhysicalLayout=*/false,
+          /*exactGrid=*/true);
+    }
+
+    mlir::RankedTensorType scalerType = RankedTensorType::get(
+        ttcore::TileType::getDefaultShape(), elementType, encoding);
 
     mlir::Attribute one;
     if (mlir::isa<mlir::FloatType>(elementType)) {
