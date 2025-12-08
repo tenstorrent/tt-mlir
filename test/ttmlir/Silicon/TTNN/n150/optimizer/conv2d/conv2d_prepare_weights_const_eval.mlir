@@ -12,7 +12,7 @@ module {
   // extracted into a separate function (named with _const_eval_N suffix) and
   // replaced with a load_cached call in the main function.
   //
-  // CHECK: func.func @conv2d_const_eval_weights_const_eval_0
+  // CHECK: func.func private @conv2d_const_eval_weights_const_eval_0
   // CHECK: = "ttnn.get_device"()
   // CHECK: = "ttnn.prepare_conv2d_weights"(%{{.*}}, %{{.*}})
   //
