@@ -4,6 +4,7 @@
 
 #include "ttmlir/Conversion/TTIRToLinalg/TTIRToLinalg.h"
 
+#include "mlir/IR/BuiltinAttributes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
@@ -287,19 +288,15 @@ static Value createReductionOpChain(Value input, RankedTensorType resultType,
 
 // Helper function to create DenseElementsAttr with a specific value based on
 // element type.
-static Attribute createDenseElementsAttr(RankedTensorType resultType,
-                                         double value) {
+static DenseElementsAttr createDenseElementsAttr(RankedTensorType resultType,
+                                                 double value) {
   auto elementType = resultType.getElementType();
   if (auto floatType = dyn_cast<FloatType>(elementType)) {
-    APFloat apFloat(value);
-    bool lostInfo;
-    apFloat.convert(floatType.getFloatSemantics(), APFloat::rmNearestTiesToEven,
-                    &lostInfo);
-    return DenseElementsAttr::get(resultType, apFloat);
+    return SplatElementsAttr::get(resultType, FloatAttr::get(floatType, value));
   }
   if (isa<IntegerType>(elementType)) {
-    return DenseElementsAttr::get(
-        resultType, APInt(cast<IntegerType>(elementType).getWidth(), value));
+    return SplatElementsAttr::get(
+        resultType, IntegerAttr::get(elementType, static_cast<int64_t>(value)));
   }
   return {};
 }
@@ -1808,14 +1805,14 @@ public:
 
     assert(resultType && "Result type must be a ranked tensor type.");
 
-    Attribute zeroAttr = createDenseElementsAttr(resultType, 0);
+    DenseElementsAttr zeroAttr = createDenseElementsAttr(resultType, 0);
     if (!zeroAttr) {
       return rewriter.notifyMatchFailure(
           op, "Unsupported element type for ReLU zero constant");
     }
 
-    auto zeroes = rewriter.create<arith::ConstantOp>(
-        op.getLoc(), resultType, cast<DenseElementsAttr>(zeroAttr));
+    auto zeroes =
+        rewriter.create<arith::ConstantOp>(op.getLoc(), resultType, zeroAttr);
 
     auto output = rewriter.create<tensor::EmptyOp>(
         op.getLoc(), resultType.getShape(), resultType.getElementType());
@@ -2039,15 +2036,15 @@ public:
         this->getTypeConverter()->convertType(op.getResult().getType()));
     assert(resultType && "Result type must be a ranked tensor type.");
 
-    Attribute fillAttr =
+    DenseElementsAttr fillAttr =
         createDenseElementsAttr(resultType, static_cast<double>(FillValue));
     if (!fillAttr) {
       return rewriter.notifyMatchFailure(
           op, "Unsupported element type for constant fill");
     }
 
-    auto constOp = rewriter.create<arith::ConstantOp>(
-        op.getLoc(), resultType, cast<DenseElementsAttr>(fillAttr));
+    auto constOp =
+        rewriter.create<arith::ConstantOp>(op.getLoc(), resultType, fillAttr);
 
     rewriter.replaceOp(op, constOp.getResult());
     return success();
@@ -2080,14 +2077,13 @@ public:
     }
 
     // Create DenseElementsAttr with appropriate element type.
-    Attribute fillAttr = createDenseElementsAttr(resultType, value);
+    DenseElementsAttr fillAttr = createDenseElementsAttr(resultType, value);
     if (!fillAttr) {
       return rewriter.notifyMatchFailure(
           op, "Unsupported element type for full fill");
     }
 
-    rewriter.replaceOpWithNewOp<arith::ConstantOp>(
-        op, resultType, cast<DenseElementsAttr>(fillAttr));
+    rewriter.replaceOpWithNewOp<arith::ConstantOp>(op, resultType, fillAttr);
     return success();
   }
 };
@@ -2129,15 +2125,15 @@ public:
       numElements *= inputType.getShape()[dim];
     }
 
-    Attribute divisorAttr =
+    DenseElementsAttr divisorAttr =
         createDenseElementsAttr(resultType, static_cast<double>(numElements));
     if (!divisorAttr) {
       return rewriter.notifyMatchFailure(op,
                                          "Unsupported element type for mean");
     }
 
-    auto divisor = rewriter.create<tosa::ConstOp>(
-        op.getLoc(), resultType, cast<DenseElementsAttr>(divisorAttr));
+    auto divisor =
+        rewriter.create<tosa::ConstOp>(op.getLoc(), resultType, divisorAttr);
 
     auto output = rewriter.create<tensor::EmptyOp>(
         op.getLoc(), resultType.getShape(), resultType.getElementType());

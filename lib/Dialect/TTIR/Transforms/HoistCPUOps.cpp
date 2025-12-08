@@ -36,16 +36,16 @@ namespace mlir::tt::ttir {
 //===----------------------------------------------------------------------===//
 
 namespace {
-using OpsVectorType = llvm::SmallVector<mlir::Operation *, 4>;
-using ValuesVectorType = llvm::SmallVector<mlir::Value, 4>;
-using TypesVectorType = llvm::SmallVector<mlir::Type, 4>;
+using OpsVectorType = llvm::SmallVector<mlir::Operation *>;
+using ValuesVectorType = llvm::SmallVector<mlir::Value>;
+using TypesVectorType = llvm::SmallVector<mlir::Type>;
 
 // Helper function to get ranks of a set of input tensor values.
 // We use this to populate attrs which we need to perform
 // tensor unpacking operations later.
-static llvm::SmallVector<int64_t, 3>
+static llvm::SmallVector<int64_t>
 getSubgraphOperandTensorRanks(const ValuesVectorType &inputValues) {
-  llvm::SmallVector<int64_t, 3> ranks;
+  llvm::SmallVector<int64_t> ranks;
 
   // Iterate over input values.
   for (auto value : inputValues) {
@@ -85,10 +85,7 @@ llvm::SmallString<64> generateHoistedFuncName(const OpsVectorType &ops) {
 }
 
 // Helper function to collect input arguments to a set of operations.
-//
-static ValuesVectorType
-collectInputArguments(const OpsVectorType &operations,
-                      const OpsVectorType &outputProducers) {
+static ValuesVectorType collectInputArguments(const OpsVectorType &operations) {
   ValuesVectorType inputArguments;
 
   for (auto *op : operations) {
@@ -111,11 +108,10 @@ collectInputArguments(const OpsVectorType &operations,
 
 // Helper function to convert tensor types to CPU-compatible types.
 static mlir::RankedTensorType
-convertTensorType(mlir::RankedTensorType tensorType,
-                  mlir::MLIRContext *context) {
-  const auto f32Type = mlir::Float32Type::get(context);
-  const auto i32Type =
-      mlir::IntegerType::get(context, 32, mlir::IntegerType::Signless);
+convertTensorType(mlir::RankedTensorType tensorType) {
+  const auto f32Type = mlir::Float32Type::get(tensorType.getContext());
+  const auto i32Type = mlir::IntegerType::get(tensorType.getContext(), 32,
+                                              mlir::IntegerType::Signless);
 
   const auto elementType = tensorType.getElementType();
   auto convertedElementType = tensorType.getElementType();
@@ -127,8 +123,8 @@ convertTensorType(mlir::RankedTensorType tensorType,
   }
 
   if (elementType != convertedElementType) {
-    return mlir::RankedTensorType::get(
-        tensorType.getShape(), convertedElementType, tensorType.getEncoding());
+    return mlir::RankedTensorType::get(tensorType.getShape(),
+                                       convertedElementType);
   }
 
   return tensorType;
@@ -136,18 +132,17 @@ convertTensorType(mlir::RankedTensorType tensorType,
 
 // Helper function to convert input arguments to CPU-compatible types,
 // inserting conversion ops as needed.
-static void
+static ValuesVectorType
 performInputArgumentsConversion(mlir::OpBuilder &opBuilder,
-                                const ValuesVectorType &inputArguments,
-                                TypesVectorType &convertedArgumentTypes,
-                                ValuesVectorType &convertedArguments) {
+                                const ValuesVectorType &inputArguments) {
+  ValuesVectorType convertedArguments;
   for (auto argument : inputArguments) {
     auto tensorType =
         mlir::dyn_cast<mlir::RankedTensorType>(argument.getType());
 
     TT_assertv(tensorType, "Input argument is not a RankedTensorType.");
 
-    auto convertedType = convertTensorType(tensorType, opBuilder.getContext());
+    auto convertedType = convertTensorType(tensorType);
 
     if (tensorType != convertedType) {
       // Create converted tensor value.
@@ -160,12 +155,11 @@ performInputArgumentsConversion(mlir::OpBuilder &opBuilder,
                                    ->getResult(0);
 
       convertedArguments.push_back(convertedArgument);
-      convertedArgumentTypes.push_back(convertedType);
     } else {
       convertedArguments.push_back(argument);
-      convertedArgumentTypes.push_back(argument.getType());
     }
   }
+  return convertedArguments;
 }
 
 // Helper function to convert result types to CPU-compatible types.
@@ -178,8 +172,7 @@ performResultConversions(const ValuesVectorType &outputValues) {
 
     TT_assertv(tensorType, "Output value is not a RankedTensorType.");
 
-    auto convertedType =
-        convertTensorType(tensorType, outputValue.getContext());
+    auto convertedType = convertTensorType(tensorType);
     resultTypes.push_back(convertedType);
   }
   return resultTypes;
@@ -271,15 +264,15 @@ static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
       performResultConversions(descriptor.outputValues);
 
   const ValuesVectorType inputArguments =
-      collectInputArguments(descriptor.operations, outputProducers);
+      collectInputArguments(descriptor.operations);
 
   // Convert argument and gather types for function signature.
-  TypesVectorType argumentTypes;
-  ValuesVectorType convertedArguments;
-
   mlir::OpBuilder opBuilder(descriptor.operations.front());
-  performInputArgumentsConversion(opBuilder, inputArguments, argumentTypes,
-                                  convertedArguments);
+  const ValuesVectorType convertedArguments =
+      performInputArgumentsConversion(opBuilder, inputArguments);
+
+  const TypesVectorType argumentTypes = llvm::map_to_vector(
+      convertedArguments, [](mlir::Value val) { return val.getType(); });
 
   // Creating function types.
   mlir::FunctionType localFuncType =
@@ -324,7 +317,7 @@ static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
       for (auto operand : clonedOp->getOperands()) {
         if (auto tensorType =
                 mlir::dyn_cast<mlir::RankedTensorType>(operand.getType())) {
-          auto convertedTensorType = convertTensorType(tensorType, context);
+          auto convertedTensorType = convertTensorType(tensorType);
           operand.setType(convertedTensorType);
         }
       }
@@ -333,7 +326,7 @@ static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
       for (auto result : clonedOp->getResults()) {
         if (auto tensorType =
                 mlir::dyn_cast<mlir::RankedTensorType>(result.getType())) {
-          auto convertedTensorType = convertTensorType(tensorType, context);
+          auto convertedTensorType = convertTensorType(tensorType);
           result.setType(convertedTensorType);
         }
       }
@@ -346,10 +339,10 @@ static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
     }
 
     // Add return op to the function from the cloned output producers.
-    llvm::SmallVector<mlir::Value, 4> returnValues;
-    for (auto *outputProducer : clonedOutputProducers) {
-      returnValues.push_back(outputProducer->getResult(0));
-    }
+    const ValuesVectorType returnValues =
+        llvm::map_to_vector(clonedOutputProducers, [](mlir::Operation *op) {
+          return mlir::dyn_cast<mlir::Value>(op->getResult(0));
+        });
 
     builder.create<mlir::func::ReturnOp>(targetModule->getLoc(), returnValues);
 
@@ -419,7 +412,7 @@ using ShouldHoistOpType = std::function<bool(mlir::Operation *)>;
 // HoistAnalyzer which hoists single ops based on a provided predicate.
 CPUHoistAnalyzerType singleOpHoistAnalyzer(ShouldHoistOpType predicate) {
   return [predicate](func::FuncOp funcOp) {
-    llvm::SmallVector<CPUHoistedOpsDescriptor, 4> hoistedOpsDescriptors;
+    llvm::SmallVector<CPUHoistedOpsDescriptor> hoistedOpsDescriptors;
     // Hoisting individual ops based on the predicate.
     funcOp.walk([&](mlir::Operation *nestedOp) {
       if (predicate(nestedOp)) {
@@ -438,7 +431,7 @@ CPUHoistAnalyzerType singleOpHoistAnalyzer(ShouldHoistOpType predicate) {
 // HoistAnalyzer which hoists const-eval functions as a whole.
 CPUHoistAnalyzerType constEvalHoistAnalyzer() {
   return [](func::FuncOp funcOp) {
-    llvm::SmallVector<CPUHoistedOpsDescriptor, 4> hoistedOpsDescriptors;
+    llvm::SmallVector<CPUHoistedOpsDescriptor> hoistedOpsDescriptors;
 
     if (!ttmlir::utils::isConstEvalFunc(funcOp)) {
       return hoistedOpsDescriptors;

@@ -9,11 +9,12 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "llvm/ADT/SmallVector.h"
-
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/IR/BuiltinOps.h"
+
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/SmallVectorExtras.h"
 #include "llvm/Support/Casting.h"
 
 namespace mlir::tt::transforms {
@@ -55,7 +56,7 @@ public:
 private:
   void enableDPSInCPUModule(mlir::ModuleOp cpuModule) {
     // Gathering hoisted functions from CPU module.
-    llvm::SmallVector<func::FuncOp, 4> hoistedFuncs;
+    llvm::SmallVector<func::FuncOp> hoistedFuncs;
     cpuModule.walk([&](func::FuncOp funcOp) {
       if (funcOp->hasAttr(ttir::CPUHoistedFuncAttr::name)) {
         hoistedFuncs.push_back(funcOp);
@@ -74,22 +75,19 @@ private:
 
       auto returnedValues = returnOp.getOperands();
 
-      const auto returnTypes = llvm::to_vector<4>(
-          llvm::map_range(returnedValues, [](mlir::Value val) {
+      const auto returnTypes =
+          llvm::map_to_vector(returnedValues, [](mlir::Value val) {
             auto tensorType =
                 llvm::dyn_cast_or_null<RankedTensorType>(val.getType());
             assert(tensorType &&
                    "Return type can't be casted to RankedTensorType!");
             return tensorType;
-          }));
+          });
 
       // Create new function type with extra output arguments and void return
       // type.
-      llvm::SmallVector<Type, 4> inputTypes(funcOp.getArgumentTypes().begin(),
-                                            funcOp.getArgumentTypes().end());
-      for (auto returnType : returnTypes) {
-        inputTypes.push_back(returnType);
-      }
+      auto inputTypes =
+          ttmlir::utils::flatten(funcOp.getArgumentTypes(), returnTypes);
 
       auto newFuncType =
           builder.getFunctionType(inputTypes, llvm::ArrayRef<Type>{});
@@ -112,7 +110,7 @@ private:
       assert(argRanksAttr &&
              "arg_ranks attribute not found on hoisted function");
 
-      llvm::SmallVector<Attribute, 4> newArgRanksAttrValues(
+      llvm::SmallVector<Attribute> newArgRanksAttrValues(
           argRanksAttr.getValue().begin(), argRanksAttr.getValue().end());
 
       for (auto returnType : returnTypes) {
@@ -142,7 +140,7 @@ private:
 
   void enableDPSInDeviceModule(mlir::ModuleOp deviceModule) {
     // Gathering hoisted function prototypes in the device module.
-    llvm::SmallVector<func::FuncOp, 4> hoistedFuncStubs;
+    llvm::SmallVector<func::FuncOp> hoistedFuncStubs;
     deviceModule.walk([&](func::FuncOp funcOp) {
       if (funcOp->hasAttr(ttir::CPUHoistedFuncAttr::name)) {
         hoistedFuncStubs.push_back(funcOp);
@@ -157,8 +155,8 @@ private:
       auto returnTypes = funcOp.getFunctionType().getResults();
 
       // Create new function type with extra output arguments.
-      llvm::SmallVector<Type, 4> inputTypes(funcOp.getArgumentTypes().begin(),
-                                            funcOp.getArgumentTypes().end());
+      llvm::SmallVector<Type> inputTypes(funcOp.getArgumentTypes().begin(),
+                                         funcOp.getArgumentTypes().end());
       for (auto returnType : returnTypes) {
         inputTypes.push_back(returnType);
       }
@@ -166,7 +164,7 @@ private:
       auto newFuncType = builder.getFunctionType(inputTypes, returnTypes);
       funcOp.setType(newFuncType);
 
-      llvm::SmallVector<func::CallOp, 4> callsToErase;
+      llvm::SmallVector<func::CallOp> callsToErase;
 
       // Update all call sites.
       deviceModule.walk([&](func::CallOp callOp) {
@@ -177,8 +175,8 @@ private:
         builder.setInsertionPoint(callOp);
 
         // Create new call op with extra output arguments.
-        llvm::SmallVector<Value, 4> callOperands(callOp.getOperands().begin(),
-                                                 callOp.getOperands().end());
+        llvm::SmallVector<Value> callOperands(callOp.getOperands().begin(),
+                                              callOp.getOperands().end());
 
         for (auto returnType : returnTypes) {
           auto outputTensor =

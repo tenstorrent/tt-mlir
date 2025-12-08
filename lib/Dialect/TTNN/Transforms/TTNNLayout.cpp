@@ -371,7 +371,7 @@ public:
       }
     }
 
-    return modified ? success() : failure();
+    return success(modified);
   }
 };
 } // namespace
