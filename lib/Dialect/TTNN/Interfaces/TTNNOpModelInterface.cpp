@@ -3965,7 +3965,6 @@ EmbeddingOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShape = getInput().getType().getShape();
   const auto weightShape = getWeight().getType().getShape();
-  const auto outputShape = getResult().getType().getShape();
 
   llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
   if (!check) {
@@ -3976,8 +3975,7 @@ EmbeddingOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<EmbeddingOp>::getOpConstraints, *this, deviceGrid,
-      inputShape, inputs[0], weightShape, inputs[1], outputShape,
-      opConfig.outputLayout);
+      inputShape, inputs[0], weightShape, inputs[1], opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -3987,11 +3985,10 @@ EmbeddingOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   const auto inputShape = getInput().getType().getShape();
   const auto weightShape = getWeight().getType().getShape();
-  const auto outputShape = getResult().getType().getShape();
 
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<EmbeddingOp>::getOpRuntime, *this, inputShape,
-      inputs[0], weightShape, inputs[1], outputShape, opConfig.outputLayout);
+      inputs[0], weightShape, inputs[1], opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
