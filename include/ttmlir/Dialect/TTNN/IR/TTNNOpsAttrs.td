@@ -434,6 +434,61 @@ def TTNN_MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr : TTNN_Attr<"
   let assemblyFormat = "`<` struct($in0_block_w, $per_core_m, $per_core_n, qualified($fused_activation)) `>`";
 }
 
+def TTNN_SDPAProgramConfigAttr : TTNN_Attr<"SDPAProgramConfig", "sdpa_program_config"> {
+  let summary = "TTNN SDPA (Scaled Dot Product Attention) Program Config";
+  let description = [{
+    Configuration for Scaled Dot Product Attention (SDPA) operations.
+
+    Parameters:
+    - `compute_with_storage_grid_size`: Specifies the dimensions (x, y) of the core grid
+      used for computation and storage. This determines how many cores will participate
+      in the attention calculation. For example, <8, 8> uses a 8x8 grid of 64 cores.
+
+    - `sub_core_grids`: Optional subset of core ranges within the main grid for more
+      fine-grained control over which specific cores perform the computation. If not
+      specified, all cores in the compute_with_storage_grid_size are used uniformly.
+
+    - `q_chunk_size`: The number of query sequence tokens processed together in one chunk.
+      Larger chunks can improve throughput but require more memory. This value should be
+      chosen based on the sequence length and available L1 memory per core.
+
+    - `k_chunk_size`: The number of key/value sequence tokens processed together in one chunk.
+      Similar to q_chunk_size, this controls the memory-compute trade-off for the key and
+      value matrices in the attention mechanism.
+
+    - `exp_approx_mode`: Optional flag to enable approximation mode for the exponential
+      function used in softmax computation. When set to true, uses a faster but less precise
+      exponential approximation which can improve performance with minimal accuracy impact.
+      When false or not specified, uses precise exponential calculation.
+
+    - `max_cores_per_head_batch`: Maximum number of cores allocated per attention head and
+      batch combination. This parameter limits parallelization to prevent resource over-
+      subscription. Default value is 16 cores. Lower values reduce parallelism but may
+      improve memory efficiency for multi-head attention scenarios.
+
+    Example:
+
+    ```mlir
+    #sdpa_config = #ttnn.sdpa_program_config<
+      compute_with_storage_grid_size = #ttnn.core_coord<8, 8>,
+      q_chunk_size = 128,
+      k_chunk_size = 128,
+      exp_approx_mode = true,
+      max_cores_per_head_batch = 16
+    >
+    ```
+  }];
+
+  let parameters = (ins "CoreCoordAttr":$compute_with_storage_grid_size,
+                        OptionalParameter<"CoreRangeSetAttr">:$sub_core_grids,
+                        "uint64_t":$q_chunk_size,
+                        "uint64_t":$k_chunk_size,
+                        OptionalParameter<"BoolAttr">:$exp_approx_mode,
+                        OptionalParameter<"std::optional<uint32_t>">:$max_cores_per_head_batch);
+
+  let assemblyFormat = "`<` struct(params) `>`";
+}
+
 def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
   let summary = "TTNN Conv2dConfig attribute";
   let description = [{
@@ -441,21 +496,20 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
     performance optimizations, and execution behavior.
 
     Parameters:
-    - `weights_dtype`: Data type for weights and bias tensor after preprocessing (default: bfloat16)
-    - `activation`: Optional activation function to fuse ("relu" or "")
+    - `weights_dtype`: Data type for weights and bias tensor after preprocessing
+    - `activation`: Optional activation function to fuse
     - `deallocate_activation`: Whether to deallocate input activation tensor memory (default: false)
-    - `reallocate_halo_output`: Whether to reallocate intermediate halo tensor to reduce memory fragmentation (default: false)
+    - `reallocate_halo_output`: Whether to reallocate intermediate halo tensor to reduce memory fragmentation (default: true)
     - `act_block_h_override`: Override for act_block_h parameter (must be multiple of 32). Smaller values reduce memory usage but decrease performance. Ignored when shard_layout = WIDTH_SHARDED (default: 0)
     - `act_block_w_div`: Divisor for maximum possible act_block_w parameter. Only useful when in_channels > 2048. Ignored when shard_layout = HEIGHT_SHARDED or BLOCK_SHARDED (default: 1)
     - `reshard_if_not_optimal`: Whether operation can re-shard input tensor for optimal performance. Mutually exclusive with override_sharding_config (default: false)
     - `override_sharding_config`: Whether to override input sharding config with provided shard_layout. Mutually exclusive with reshard_if_not_optimal (default: false)
     - `shard_layout`: Optional tensor memory layout for sharding type specification
     - `core_grid`: Optional core grid specification. Only applicable when override_sharding_config = true
-    - `transpose_shards`: Whether shards should be distributed in ROW_MAJOR order. Only applicable when not using height sharding (default: true)
+    - `transpose_shards`: Whether shards should be distributed in ROW_MAJOR order. Only applicable when not using height sharding (default: false)
     - `output_layout`: Layout of output tensor - TILE_LAYOUT or ROW_MAJOR_LAYOUT (default: TILE_LAYOUT)
     - `enable_act_double_buffer`: Enable activation double buffering for increased performance at cost of higher L1 usage (default: false)
     - `enable_weights_double_buffer`: Enable weights double buffering when using block sharding for increased performance at cost of higher L1 usage (default: false)
-    - `in_place`: Re-use input tensor storage when creating output tensor (default: false)
     - `enable_kernel_stride_folding`: Enables tensor folding optimization
 
     Example:
@@ -475,7 +529,6 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
       output_layout = tile,
       enable_act_double_buffer = false,
       enable_weights_double_buffer = false,
-      in_place = false,
       enable_kernel_stride_folding = false
     >
     ```
@@ -495,7 +548,6 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
                         OptionalParameter<"std::optional<Layout>">:$output_layout,
                         OptionalParameter<"BoolAttr">:$enable_act_double_buffer,
                         OptionalParameter<"BoolAttr">:$enable_weights_double_buffer,
-                        OptionalParameter<"BoolAttr">:$in_place,
                         OptionalParameter<"BoolAttr">:$enable_kernel_stride_folding);
 
   let builders = [
@@ -519,7 +571,6 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
     Conv2dConfigAttr withOutputLayout(Layout layout) const;
     Conv2dConfigAttr withEnableActDoubleBuffer(bool value) const;
     Conv2dConfigAttr withEnableWeightsDoubleBuffer(bool value) const;
-    Conv2dConfigAttr withInPlace(bool value) const;
     Conv2dConfigAttr withEnableKernelStrideFolding(bool value) const;
     bool hasActivation() const;
     bool hasWeightsDtype() const;
@@ -537,7 +588,6 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
     bool hasAlwaysPreprocessWeights() const;
     bool hasEnableActDoubleBuffer() const;
     bool hasEnableWeightsDoubleBuffer() const;
-    bool hasInPlace() const;
     bool hasEnableKernelStrideFolding() const;
   }];
 
@@ -609,6 +659,25 @@ def TTNN_Conv2dSliceConfigAttr : TTNN_Attr<"Conv2dSliceConfig", "conv2d_slice_co
   );
 
   let assemblyFormat = "`<` $slice_type `,` $num_slices `>`";
+}
+
+def TTNN_Conv3dConfigAttr : TTNN_Attr<"Conv3dConfig", "conv3d_config"> {
+  let summary = "TTNN Conv3dConfig attribute";
+  let description = [{
+    Configuration parameters for TTNN conv3d operations.
+    Controls performance tuning parameters like block sizes and data formats.
+  }];
+
+  let parameters = (ins
+    OptionalParameter<"std::optional<ttcore::DataType>">:$weights_dtype,
+    OptionalParameter<"std::optional<uint32_t>">:$t_out_block,
+    OptionalParameter<"std::optional<uint32_t>">:$w_out_block,
+    OptionalParameter<"std::optional<uint32_t>">:$h_out_block,
+    OptionalParameter<"std::optional<uint32_t>">:$c_out_block,
+    OptionalParameter<"std::optional<uint32_t>">:$c_in_block
+  );
+
+  let assemblyFormat = "`<` struct(params) `>`";
 }
 
 def TTNN_MeshShapeAttr : TTNN_Mesh2DCoordAttr<"MeshShape", "mesh_shape"> {

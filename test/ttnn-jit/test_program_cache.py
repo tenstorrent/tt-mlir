@@ -32,15 +32,18 @@ def test_jit_cache(device):
     - Same operation, same parameters, only data differs
 
     Cache should miss when:
-    - Different JIT parameters (e.g., max_grid)
+    - Different JIT parameters (e.g., debug)
     - Different tensor properties (memory config, data type, shape)
     """
+    device.enable_program_cache()
+    device.clear_program_cache()
+    assert device.num_program_cache_entries() == 0
     shape1 = (256, 256)
     shape2 = (320, 320)
 
     # Create operations with different JIT parameters
-    op_single_core = jit(max_grid=(0, 0), enable_cache=True)(abs)
-    op_full_grid = jit(max_grid=(7, 7), enable_cache=True)(abs)
+    op_single_core = jit(debug=True, enable_cache=True)(abs)
+    op_full_grid = jit(debug=False, enable_cache=True)(abs)
 
     assert op_single_core.num_entries == 0, "No entries should be in the cache"
     assert op_full_grid.num_entries == 0, "No entries should be in the cache"
@@ -164,13 +167,18 @@ def test_program_cache_hits(device):
     This test will randomize tensor buffer addresses, and run jit'ed ops for the same shapes. The JitCache will always hit,
     but the ProgramDescCache will miss (due to reasons above). Run it many times to ensure it's not a fluke.
     """
+    device.enable_program_cache()
+    device.clear_program_cache()
+    assert device.num_program_cache_entries() == 0
+
     random.seed(0)
     tensor_full_shape_bf16_0 = create_sharded_tile_tensor(
         device, (512, 512), (7, 7), torch.bfloat16
     )
-    jit_abs = jit(enable_cache=True)(abs)
-    jit_exp = jit(enable_cache=True)(exp)
-    jit_cos = jit(enable_cache=True)(cos)
+    # Graph capture will +1 to program cache entries
+    jit_abs = jit(enable_cache=True, graph_capture=False)(abs)
+    jit_exp = jit(enable_cache=True, graph_capture=False)(exp)
+    jit_cos = jit(enable_cache=True, graph_capture=False)(cos)
     golden_map = {
         jit_abs: ttnn.abs,
         jit_exp: ttnn.exp,
@@ -184,6 +192,7 @@ def test_program_cache_hits(device):
     assert jit_abs.num_entries == 1, "New op is cache miss"
     assert jit_exp.num_entries == 1, "New op is cache miss"
     assert jit_cos.num_entries == 1, "New op is cache miss"
+    assert device.num_program_cache_entries() == 3
 
     for i in range(500):
         # Allocate random number of random dummy tensors to randomize tensor buffer addresses.
@@ -212,3 +221,7 @@ def test_program_cache_hits(device):
         ttnn.deallocate(input_tensor)
         ttnn.deallocate(golden)
         ttnn.deallocate(output)
+
+    assert (
+        device.num_program_cache_entries() == 6
+    ), "Program cache entries should be 6: 3 for jit, 3 for ttnn golden"

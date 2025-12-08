@@ -1,5 +1,6 @@
 # Misc
 /env/ @nsmithtt @vwellsTT
+/env/patches/shardy* @tenstorrent/forge-developers-mlir-stablehlo
 *.fbs @jnie-TT @nsmithtt
 /.github/CODEOWNERS @vmilosevic @tapspatel @nsmithtt @sdjordjevicTT @tt-mpantic
 LICENSE @nsmithtt

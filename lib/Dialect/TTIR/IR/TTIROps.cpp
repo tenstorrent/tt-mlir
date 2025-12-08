@@ -594,26 +594,27 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
   }
 
   auto [inputDims, weightDims, biasDims] =
-      verification_utils::getConv2dInputDims(this);
+      verification_utils::conv2d::getConv2dInputDims(this);
   verification_utils::OutputTensorDims outputDims =
-      verification_utils::getConv2dOutputDims(this);
-  auto expectedParams = verification_utils::getConv2dParams(this);
+      verification_utils::conv2d::getConv2dOutputDims(this);
+  auto expectedParams = verification_utils::conv2d::getConv2dParams(this);
   if (auto error = expectedParams.takeError()) {
     return emitOpError() << llvm::toString(std::move(error));
   }
-  verification_utils::Conv2dParams params = *expectedParams;
+  verification_utils::conv2d::Conv2dParams params = *expectedParams;
 
-  if (verifyConv2dParams(this, params).failed()) {
+  if (verification_utils::conv2d::verifyConv2dParams(this, params).failed()) {
     return mlir::failure();
   }
 
-  if (verifyConv2dInputDims(this, inputDims, weightDims, biasDims, params)
+  if (verification_utils::conv2d::verifyConv2dInputDims(
+          this, inputDims, weightDims, biasDims, params)
           .failed()) {
     return mlir::failure();
   }
 
-  if (verifyOutputDimensions(this, inputDims, weightDims, biasDims, outputDims,
-                             params)
+  if (verification_utils::conv2d::verifyOutputDimensions(
+          this, inputDims, weightDims, biasDims, outputDims, params)
           .failed()) {
     return mlir::failure();
   }
@@ -631,6 +632,63 @@ int64_t mlir::tt::ttir::Conv2dOp::getOutputChannelSize() {
 bool mlir::tt::ttir::Conv2dOp::isBiasCompatible(llvm::ArrayRef<int64_t> bias) {
   return bias[0] == 1 && bias[1] == 1 && bias[2] == 1 &&
          bias[3] == getOutputChannelSize();
+}
+
+//===----------------------------------------------------------------------===//
+// Conv3dOp
+//===----------------------------------------------------------------------===//
+
+// Conv3dOp verification
+::mlir::LogicalResult mlir::tt::ttir::Conv3dOp::verify() {
+  // Verify tensor ranks
+  if (this->getInput().getType().getRank() != 5) {
+    return this->emitOpError("input must be a 5D tensor");
+  }
+
+  if (this->getWeight().getType().getRank() != 5) {
+    return this->emitOpError("weight must be a 5D tensor");
+  }
+
+  // Bias is optional
+  if (this->getBias() && this->getBias().getType().getRank() != 5) {
+    return this->emitOpError(
+        "bias must be a 5D tensor with shape (1,1,1,1,C_out)");
+  }
+
+  if (this->getResult().getType().getRank() != 5) {
+    return this->emitOpError("output must be a 5D tensor");
+  }
+
+  auto [inputDims, weightDims, biasDims] =
+      verification_utils::conv3d::getConv3dInputDims(this);
+
+  verification_utils::conv3d::OutputTensorDims3d outputDims =
+      verification_utils::conv3d::getConv3dOutputDims(this);
+
+  auto expectedParams = verification_utils::conv3d::getConv3dParams(this);
+
+  if (auto error = expectedParams.takeError()) {
+    return emitOpError() << llvm::toString(std::move(error));
+  }
+
+  verification_utils::conv3d::Conv3dParams params = *expectedParams;
+  if (verification_utils::conv3d::verifyConv3dParams(this, params).failed()) {
+    return mlir::failure();
+  }
+
+  if (verification_utils::conv3d::verifyConv3dInputDims(
+          this, inputDims, weightDims, biasDims, params)
+          .failed()) {
+    return mlir::failure();
+  }
+
+  if (verification_utils::conv3d::verifyOutputDimensions(
+          this, inputDims, weightDims, biasDims, outputDims, params)
+          .failed()) {
+    return mlir::failure();
+  }
+
+  return mlir::success();
 }
 
 //===----------------------------------------------------------------------===//
@@ -1362,34 +1420,35 @@ static mlir::LogicalResult verifyPooling2dOp(PoolingOp *op) {
   }
 
   // Verify flattened compatibility info if present.
-  if (mlir::failed(verification_utils::verifyFlattenedCompatInfo(op))) {
+  if (mlir::failed(verification_utils::pool2d::verifyFlattenedCompatInfo(op))) {
     return mlir::failure();
   }
 
   // Get input and output dimensions with flattened support.
   verification_utils::InputTensorDims inputDims =
-      verification_utils::getPool2dInputDims(op);
+      verification_utils::pool2d::getPool2dInputDims(op);
   verification_utils::OutputTensorDims outputDims =
-      verification_utils::getPool2dOutputDims(op);
-  auto expectedParams = verification_utils::getPool2dParams(op);
+      verification_utils::pool2d::getPool2dOutputDims(op);
+  auto expectedParams = verification_utils::pool2d::getPool2dParams(op);
   if (auto error = expectedParams.takeError()) {
     return op->emitOpError() << llvm::toString(std::move(error));
   }
-  verification_utils::Pool2dParams params = *expectedParams;
+  verification_utils::pool2d::Pool2dParams params = *expectedParams;
 
   // Verify pooling parameters.
-  if (mlir::failed(verification_utils::verifyPool2dParams(op, params))) {
+  if (mlir::failed(
+          verification_utils::pool2d::verifyPool2dParams(op, params))) {
     return mlir::failure();
   }
 
   // Verify input dimensions constraints.
-  if (mlir::failed(
-          verification_utils::verifyPool2dInputDims(op, inputDims, params))) {
+  if (mlir::failed(verification_utils::pool2d::verifyPool2dInputDims(
+          op, inputDims, params))) {
     return mlir::failure();
   }
 
   // Verify output dimensions match expected calculations.
-  if (mlir::failed(verification_utils::verifyPool2dOutputDims(
+  if (mlir::failed(verification_utils::pool2d::verifyPool2dOutputDims(
           op, inputDims, outputDims, params))) {
     return mlir::failure();
   }
@@ -2994,37 +3053,6 @@ bool mlir::tt::ttir::TTNNMetalLayoutCastOp::bufferizesToMemoryWrite(
   return success();
 }
 
-// If value is defined by PermuteOp with permute dimensions
-// (..., rank - 2, rank - 1), return the input of the PermuteOp, otherwise
-// return std::nullopt. This is used for canonicalization of MatmulOp and
-// LinearOp.
-static std::optional<mlir::TypedValue<mlir::RankedTensorType>>
-getPermuteOpOperand(mlir::TypedValue<mlir::RankedTensorType> value) {
-  auto producerPermuteOp = value.getDefiningOp<mlir::tt::ttir::PermuteOp>();
-  if (!producerPermuteOp) {
-    return std::nullopt;
-  }
-
-  int64_t rank = value.getType().getRank();
-  // If the rank is less than two than it is impossible for this permute to be
-  // a transpose
-  bool rankIsLessThan2 = rank < 2;
-  // Ensure that the rightmost two dims are swapped by the permute
-  bool XYDimsTransposed =
-      producerPermuteOp.getPermutation()[rank - 2] == rank - 1 &&
-      producerPermuteOp.getPermutation()[rank - 1] == rank - 2;
-  // Ensure that the other dims are unchanged by the permute.
-  // Therefore this permute is equivalent to transpose(-1, -2)
-  bool otherDimsUnchanged =
-      std::is_sorted(producerPermuteOp.getPermutation().begin(),
-                     producerPermuteOp.getPermutation().end() - 2);
-  if (rankIsLessThan2 || !XYDimsTransposed || !otherDimsUnchanged) {
-    return std::nullopt;
-  }
-
-  return producerPermuteOp.getInput();
-}
-
 // LinearOp canonicalization
 void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
@@ -3038,36 +3066,6 @@ void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
       return mlir::success();
     }
     return mlir::failure();
-  });
-
-  // linear(transpose(a), b, bias transpose_a, transpose_b) ->
-  //   linear(a, b, bias, !transpose_a, transpose_b)
-  patterns.add(+[](ttir::LinearOp op, mlir::PatternRewriter &rewriter) {
-    auto inputACanonical = getPermuteOpOperand(op.getA());
-    if (!inputACanonical) {
-      return mlir::failure();
-    }
-
-    rewriter.replaceOpWithNewOp<ttir::LinearOp>(
-        op, op.getType(), *inputACanonical, op.getB(), op.getBias(),
-        !op.getTransposeA(), op.getTransposeB());
-
-    return mlir::success();
-  });
-
-  // linear(a, transpose(b), bias transpose_a, transpose_b) ->
-  //   linear(a, b, bias, transpose_a, !transpose_b)
-  patterns.add(+[](ttir::LinearOp op, mlir::PatternRewriter &rewriter) {
-    auto inputBCanonical = getPermuteOpOperand(op.getB());
-    if (!inputBCanonical) {
-      return mlir::failure();
-    }
-
-    rewriter.replaceOpWithNewOp<ttir::LinearOp>(
-        op, op.getType(), op.getA(), *inputBCanonical, op.getBias(),
-        op.getTransposeA(), !op.getTransposeB());
-
-    return mlir::success();
   });
   // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 }
@@ -3203,42 +3201,6 @@ void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
   return success();
 }
 // ANCHOR_END: adding_an_op_matmul_ttir_verify
-
-// MatmulOp canonicalization
-void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
-    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
-  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
-  // matmul(transpose(a), b, transpose_a, transpose_b) ->
-  //   matmul(a, b, !transpose_a, transpose_b)
-  patterns.add(+[](ttir::MatmulOp op, mlir::PatternRewriter &rewriter) {
-    auto inputACanonical = getPermuteOpOperand(op.getA());
-    if (!inputACanonical) {
-      return mlir::failure();
-    }
-
-    rewriter.replaceOpWithNewOp<ttir::MatmulOp>(
-        op, op.getType(), *inputACanonical, op.getB(), !op.getTransposeA(),
-        op.getTransposeB());
-
-    return mlir::success();
-  });
-
-  // matmul(a, transpose(b), transpose_a, transpose_b) ->
-  //   matmul(a, b, transpose_a, !transpose_b)
-  patterns.add(+[](ttir::MatmulOp op, mlir::PatternRewriter &rewriter) {
-    auto inputBCanonical = getPermuteOpOperand(op.getB());
-    if (!inputBCanonical) {
-      return mlir::failure();
-    }
-
-    rewriter.replaceOpWithNewOp<ttir::MatmulOp>(
-        op, op.getType(), op.getA(), *inputBCanonical, op.getTransposeA(),
-        !op.getTransposeB());
-
-    return mlir::success();
-  });
-  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
-}
 
 //===----------------------------------------------------------------------===//
 // UpsampleOp
@@ -3716,6 +3678,52 @@ mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
   return success();
 }
 
+void mlir::tt::ttir::UpdateCacheOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  patterns.add(
+      +[](mlir::tt::ttir::UpdateCacheOp op, mlir::PatternRewriter &rewriter) {
+        auto cacheShape = op.getCache().getType().getShape();
+        auto inputShape = op.getInput().getType().getShape();
+        auto updateIndexShape = op.getUpdateIndex().getType().getShape();
+
+        auto numUsers = cacheShape[0];
+        auto numHeads = cacheShape[1];
+        auto headDim = cacheShape[3];
+
+        TypedValue<RankedTensorType> newInput = op.getInput();
+
+        // Permute input if in the format [1, num_heads, num_users, head_dim]
+        if (inputShape[2] == numUsers && inputShape[1] == numHeads) {
+          llvm::SmallVector<int64_t> newInputShape = {1, numUsers, numHeads,
+                                                      headDim};
+          auto newInputType = RankedTensorType::get(
+              newInputShape, newInput.getType().getElementType(),
+              newInput.getType().getEncoding());
+          newInput = rewriter.create<PermuteOp>(
+              op.getLoc(), newInputType, newInput,
+              rewriter.getDenseI64ArrayAttr({0, 2, 1, 3}));
+        }
+
+        // If the update index shape is [1] then repeat to num users
+        TypedValue<RankedTensorType> newUpdateIndex = op.getUpdateIndex();
+        if (updateIndexShape[0] == 1) {
+          auto newUpdateIndexShape = {numUsers};
+          auto newUpdateIndexType = RankedTensorType::get(
+              newUpdateIndexShape, newUpdateIndex.getType().getElementType(),
+              newUpdateIndex.getType().getEncoding());
+          auto repeatDims = rewriter.getDenseI64ArrayAttr({numUsers});
+          newUpdateIndex = rewriter.create<RepeatOp>(
+              op.getLoc(), newUpdateIndexType, newUpdateIndex, repeatDims);
+        }
+
+        rewriter.replaceOpWithNewOp<ttir::PagedUpdateCacheOp>(
+            op, op.getType(), op.getCache(), newInput, newUpdateIndex, false,
+            nullptr);
+
+        return mlir::success();
+      });
+}
+
 //===----------------------------------------------------------------------===//
 // PagedUpdateCacheOp
 //===----------------------------------------------------------------------===//
@@ -3724,12 +3732,12 @@ mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
   auto cacheType = getCache().getType();
   auto inputType = getInput().getType();
   auto updateIndexType = getUpdateIndex().getType();
-  auto pageTableType = getPageTable().getType();
 
   auto cacheShape = cacheType.getShape();
   auto inputShape = inputType.getShape();
   auto updateIndexShape = updateIndexType.getShape();
-  auto pageTableShape = pageTableType.getShape();
+
+  bool usingStaticCache = getPageTable() == nullptr;
 
   if (cacheShape.size() != 4) {
     return emitOpError("Cache tensor must be a 4D tensor");
@@ -3743,15 +3751,11 @@ mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
     return emitOpError("Update index tensor must be a 1D tensor");
   }
 
-  if (pageTableShape.size() != 2) {
-    return emitOpError("Page table tensor must be a 2D tensor");
-  }
-
   int64_t blockSize = cacheShape[2];
   int64_t headDim = cacheShape[3];
   int64_t numUsers = updateIndexShape[0];
 
-  if (blockSize % ttnn::TILE_HEIGHT != 0) {
+  if (!usingStaticCache && blockSize % ttnn::TILE_HEIGHT != 0) {
     return emitOpError("Block size must be divisible by 32, got " +
                        std::to_string(blockSize));
   }
@@ -3775,13 +3779,21 @@ mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
                        std::to_string(inputShape[3]));
   }
 
-  if (pageTableShape[0] != numUsers) {
-    return emitOpError("Page table tensor must have dim 0 be equal to the "
-                       "number of users (determined by update index shape): " +
-                       std::to_string(numUsers) + ", got " +
-                       std::to_string(pageTableShape[0]));
-  }
+  if (!usingStaticCache) {
+    auto pageTableType = getPageTable().getType();
+    auto pageTableShape = pageTableType.getShape();
+    if (pageTableShape.size() != 2) {
+      return emitOpError("Page table tensor must be a 2D tensor");
+    }
 
+    if (pageTableShape[0] != numUsers) {
+      return emitOpError(
+          "Page table tensor must have dim 0 be equal to the "
+          "number of users (determined by update index shape): " +
+          std::to_string(numUsers) + ", got " +
+          std::to_string(pageTableShape[0]));
+    }
+  }
   return success();
 }
 
@@ -4714,10 +4726,6 @@ mlir::tt::ttir::ScaledDotProductAttentionDecodeOp::verify() {
       return emitOpError("Attention mask sequence length must match key/value "
                          "sequence length");
     }
-  } else {
-    if (!getIsCausal()) {
-      return emitOpError("Attention mask is required when is_causal is false");
-    }
   }
 
   return success();
@@ -4856,13 +4864,6 @@ mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp::verify() {
   int64_t seqLen = queryType.getShape()[2];
   int64_t maxSeqLen = keyType.getShape()[2];
 
-  // NOTE: The q_chunk_size is 32 by default in ttnn. This is configurable via
-  // the program config. However, this is not modeled in the ttnn dialect.
-  if (seqLen % 32 != 0) {
-    return emitOpError(
-        "Sequence length must be divisible by q_chunk_size (32)");
-  }
-
   if (keyType.getShape()[0] != batchSize) {
     return emitOpError("Key/Value batch size must match query batch size");
   }
@@ -4899,10 +4900,6 @@ mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp::verify() {
     if (attentionMaskType.getShape()[3] != maxSeqLen) {
       return emitOpError("Attention mask at dim 3 must match key/value "
                          "sequence length (max sequence length)");
-    }
-  } else {
-    if (!getIsCausal()) {
-      return emitOpError("Attention mask is required when is_causal is false");
     }
   }
 
@@ -4950,6 +4947,48 @@ mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp::verify() {
   if (inputShape[rank - 1] != outputShape[rank - 1]) {
     return emitOpError(
         "channel dimension must remain the same between input and output");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// GeluBackwardOp
+//===----------------------------------------------------------------------===//
+
+// GeluBackwardOp verification
+::mlir::LogicalResult mlir::tt::ttir::GeluBackwardOp::verify() {
+  llvm::StringRef approximate = getApproximate();
+
+  if (approximate != "none" && approximate != "tanh") {
+    return emitOpError("approximate attribute must be either 'none' or 'tanh', "
+                       "but got '")
+           << approximate << "'";
+  }
+
+  RankedTensorType lhsType = getLhs().getType();
+  RankedTensorType rhsType = getRhs().getType();
+
+  int64_t lhsRank = lhsType.getRank();
+  int64_t rhsRank = rhsType.getRank();
+
+  if (lhsRank < 2 || lhsRank > 4) {
+    return emitOpError(
+               "gradient tensor (lhs) must have rank 2, 3, or 4, but got rank ")
+           << lhsRank;
+  }
+
+  if (rhsRank < 2 || rhsRank > 4) {
+    return emitOpError(
+               "input tensor (rhs) must have rank 2, 3, or 4, but got rank ")
+           << rhsRank;
+  }
+
+  if (lhsRank != rhsRank) {
+    return emitOpError("gradient tensor (lhs) and input tensor (rhs) must have "
+                       "the same rank, "
+                       "but got lhs rank ")
+           << lhsRank << " and rhs rank " << rhsRank;
   }
 
   return success();

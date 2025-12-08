@@ -1818,6 +1818,17 @@ class StableHLOToTTIRReduceWindowOpConversionPattern
   using OpConversionPattern<
       mlir::stablehlo::ReduceWindowOp>::OpConversionPattern;
 
+private:
+  static DenseI64ArrayAttr prependValues(DenseI64ArrayAttr windowDimensions,
+                                         int64_t value, int64_t count,
+                                         PatternRewriter &rewriter) {
+    assert(windowDimensions.size() == count &&
+           "Window dimensions size must match number of prepending values.");
+    SmallVector<int64_t> winDims4D = SmallVector<int64_t>(count, value);
+    llvm::append_range(winDims4D, windowDimensions.asArrayRef());
+    return rewriter.getDenseI64ArrayAttr(winDims4D);
+  }
+
 public:
   LogicalResult
   matchAndRewrite(mlir::stablehlo::ReduceWindowOp srcOp,
@@ -1901,12 +1912,63 @@ public:
         return success();
       }
     }
+    // Check if the input is 2D and needs to be reshaped to 4D.
+    // TTIR pooling ops require 4D inputs.
+    bool needsReshape = false;
+    if (!srcOp.getInputs().empty()) {
+      auto firstInputType =
+          mlir::cast<RankedTensorType>(adaptor.getInputs()[0].getType());
+      needsReshape = (firstInputType.getRank() == 2);
+    }
+
+    DenseI64ArrayAttr adjustedWindowDimensions = windowDimensions;
+    DenseI64ArrayAttr adjustedWindowStrides = windowStrides;
+    DenseI64ArrayAttr adjustedBaseDilations = baseDilations;
+    DenseI64ArrayAttr adjustedWindowDilations = window_dilations;
+    DenseI64ArrayAttr adjustedPadding = padding;
+
+    if (needsReshape) {
+      adjustedWindowDimensions =
+          prependValues(windowDimensions, 1, 2, rewriter);
+
+      adjustedWindowStrides = prependValues(windowStrides, 1, 2, rewriter);
+
+      adjustedBaseDilations = prependValues(baseDilations, 1, 2, rewriter);
+
+      adjustedWindowDilations = prependValues(window_dilations, 1, 2, rewriter);
+
+      adjustedPadding = prependValues(padding, 0, 4, rewriter);
+    }
+
     // Build per-input pooling ops.
     SmallVector<Value> resultVals;
     for (size_t i = 0; i < srcOp.getInputs().size(); ++i) {
       Value input = adaptor.getInputs()[i];
+      mlir::RankedTensorType inputType =
+          mlir::cast<RankedTensorType>(input.getType());
       mlir::RankedTensorType resultType = cast<RankedTensorType>(
           getTypeConverter()->convertType(srcOp.getResult(i).getType()));
+
+      // Reshape 2D input to 4D if needed: [H, W] -> [1, 1, H, W].
+      if (needsReshape && inputType.getRank() == 2) {
+        SmallVector<int64_t> shape4D = {1, 1};
+        llvm::append_range(shape4D, inputType.getShape());
+        SmallVector<int32_t> shape4DI32(shape4D.begin(), shape4D.end());
+
+        auto inputType4D = RankedTensorType::get(
+            shape4D, inputType.getElementType(), inputType.getEncoding());
+
+        input = rewriter.create<ttir::ReshapeOp>(
+            srcOp.getLoc(), inputType4D, input,
+            rewriter.getI32ArrayAttr(shape4DI32));
+
+        SmallVector<int64_t> resultShape4D = {1, 1};
+        llvm::append_range(resultShape4D, resultType.getShape());
+        resultType =
+            RankedTensorType::get(resultShape4D, resultType.getElementType(),
+                                  resultType.getEncoding());
+      }
+
       TypicalInitReductionValue initVal = (*initValues)[i];
       mlir::Operation *frontOp = reductionOps[i];
       ttir::PoolingMethod method;
@@ -1917,10 +1979,25 @@ public:
         if (divOp && i == 0) {
           method = ttir::PoolingMethod::Average;
           ttir::PoolingOp poolingOp = rewriter.create<ttir::PoolingOp>(
-              srcOp.getLoc(), resultType, input, method, windowDimensions,
-              windowStrides, baseDilations, window_dilations, padding);
-          resultVals.push_back(poolingOp.getResult(0));
+              srcOp.getLoc(), resultType, input, method,
+              adjustedWindowDimensions, adjustedWindowStrides,
+              adjustedBaseDilations, adjustedWindowDilations, adjustedPadding);
           (*divOp)->getResult(0).replaceAllUsesWith(poolingOp.getResult(0));
+          Value result = poolingOp->getResult(0);
+
+          // Reshape 4D output back to 2D if needed: [1, 1, H, W] -> [H, W].
+          if (needsReshape) {
+            auto originalResultType = cast<RankedTensorType>(
+                getTypeConverter()->convertType(srcOp.getResult(i).getType()));
+            result = rewriter.create<ttir::ReshapeOp>(
+                srcOp.getLoc(), originalResultType, result,
+                rewriter.getI32ArrayAttr(
+                    SmallVector<int32_t>(originalResultType.getShape().begin(),
+                                         originalResultType.getShape().end())));
+          }
+
+          resultVals.push_back(result);
+          (*divOp)->getResult(0).replaceAllUsesWith(result);
           rewriter.eraseOp(*divOp);
           continue;
         }
@@ -1929,9 +2006,24 @@ public:
         return rewriter.notifyMatchFailure(srcOp, "Unsupported pooling method");
       }
       ttir::PoolingOp poolingOp = rewriter.create<ttir::PoolingOp>(
-          srcOp.getLoc(), resultType, input, method, windowDimensions,
-          windowStrides, baseDilations, window_dilations, padding);
-      llvm::append_range(resultVals, poolingOp.getResults());
+          srcOp.getLoc(), resultType, input, method, adjustedWindowDimensions,
+          adjustedWindowStrides, adjustedBaseDilations, adjustedWindowDilations,
+          adjustedPadding);
+
+      Value result = poolingOp.getResult(0);
+
+      // Reshape 4D output back to 2D if needed: [1, 1, H, W] -> [H, W].
+      if (needsReshape) {
+        auto originalResultType = cast<RankedTensorType>(
+            getTypeConverter()->convertType(srcOp.getResult(i).getType()));
+        result = rewriter.create<ttir::ReshapeOp>(
+            srcOp.getLoc(), originalResultType, result,
+            rewriter.getI32ArrayAttr(
+                SmallVector<int32_t>(originalResultType.getShape().begin(),
+                                     originalResultType.getShape().end())));
+      }
+
+      resultVals.push_back(result);
     }
     rewriter.replaceOp(srcOp, resultVals);
     return success();
@@ -2470,6 +2562,47 @@ public:
     auto outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResult().getType()));
 
+    // Bitwise ops for boolean operands:
+    // XLA lowering converts boolean to int8 and then bitwise ops is applied.
+    // Here we detect such cases and convert them to logical ops.
+    // This solution is required as TTNN doesn't support boolean types natively
+    // and tt-mlir converts boolean to bfloat16 and then to uint8 generating
+    // incorrect results.
+    // XLA lowering adds a NotEqual comparison op following the bitwise op to
+    // restore the original boolean semantics; which is removed here after
+    // replacing the bitwise op.
+    if (areOperandsBoolean(srcOp)) {
+      auto logicalOpType =
+          RankedTensorType::get(outputType.getShape(), rewriter.getI1Type(),
+                                outputType.getEncoding());
+      auto logicalOp = rewriter.create<LogicalDestOp>(
+          srcOp.getLoc(), logicalOpType,
+          ValueRange{
+              adaptor.getOperands()[0].getDefiningOp()->getOperands()[0],
+              adaptor.getOperands()[1].getDefiningOp()->getOperands()[0]});
+
+      auto numUsers = llvm::range_size(srcOp.getResult().getUsers());
+      if (numUsers == 1) {
+        // Erase NotEqual comparison op following the bitwise op and update its
+        // uses to use the logical op result directly.
+        auto userOp = mlir::dyn_cast<mlir::stablehlo::CompareOp>(
+            *srcOp.getResult().getUsers().begin());
+
+        if (userOp && userOp.getComparisonDirection() ==
+                          mlir::stablehlo::ComparisonDirection::NE) {
+          userOp.getResult().replaceAllUsesWith(logicalOp.getResult());
+          rewriter.eraseOp(userOp);
+          return success();
+        }
+      }
+
+      // Add a typecast to convert i1 result to original output type (if
+      // required).
+      rewriter.replaceOpWithNewOp<mlir::tt::ttir::TypecastOp>(
+          srcOp, outputType, logicalOp.getResult());
+      return success();
+    }
+
     if (getStableHLOOpType(srcOp) == StableHLOOpType::kLogical) {
       rewriter.replaceOpWithNewOp<LogicalDestOp>(srcOp, outputType,
                                                  adaptor.getOperands());
@@ -2488,14 +2621,43 @@ private:
   // bit width). This assumes boolean operands are modeled as 1bit wide ints.
   static StableHLOOpType getStableHLOOpType(const SrcOp &srcOp) {
     // Checks if all operands are boolean (have bit width equal to 1).
-    bool allOperandsAreBoolean = std::all_of(
-        srcOp->operand_begin(), srcOp->operand_end(), [](auto operand) {
+    bool allOperandsAreBoolean =
+        llvm::all_of(srcOp->getOperands(), [](auto operand) {
           return mlir::cast<RankedTensorType>(operand.getType())
                      .getElementTypeBitWidth() == 1;
         });
 
     return allOperandsAreBoolean ? StableHLOOpType::kLogical
                                  : StableHLOOpType::kBitwise;
+  }
+
+  // This function iterates over each operand of the provided source operation
+  // and determines if each operand represents a boolean value through a
+  // stablehlo::ConvertOp from a boolean tensor.
+  // return true if all operands of a given StableHLO operation are effectively
+  // boolean.
+  bool areOperandsBoolean(const SrcOp &srcOp) const {
+    bool allOperandsBoolean =
+        llvm::all_of(srcOp->getOperands(), [](auto operand) {
+          // Check if operand is a ranked tensor of bit width 1.
+          if (mlir::cast<RankedTensorType>(operand.getType())
+                  .getElementTypeBitWidth() == 1) {
+            return false; // Already boolean, so not counted as converted.
+          }
+
+          // Check if the defining op is a stablehlo::ConvertOp.
+          auto definingOp = operand.getDefiningOp();
+          if (!isa_and_nonnull<mlir::stablehlo::ConvertOp>(definingOp)) {
+            return false; // Not a conversion from boolean
+          }
+
+          // Check if the input to the conversion is boolean.
+          return mlir::cast<RankedTensorType>(
+                     definingOp->getOperand(0).getType())
+                     .getElementTypeBitWidth() == 1;
+        });
+
+    return allOperandsBoolean;
   }
 };
 } // namespace

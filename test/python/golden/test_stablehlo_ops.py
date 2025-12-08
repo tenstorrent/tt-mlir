@@ -818,6 +818,74 @@ def test_iota(
     shape: Shape,
     iota_dimension: int,
     dtype: torch.dtype,
+# ----- Pooling Operations -----
+
+
+def max_pool_2d(
+    in0: Operand,
+    builder: StableHLOBuilder,
+    kernel_size: List[int],
+    stride: List[int],
+    padding: List[int],
+    unit_attrs: Optional[List[str]] = None,
+):
+    builder.set_graph_level_check(True)
+    return builder.pool_2d(
+        in0,
+        kernel_size=kernel_size,
+        stride=stride,
+        padding=padding,
+        pool_type="max",
+        unit_attrs=unit_attrs,
+    )
+
+
+def avg_pool_2d(
+    in0: Operand,
+    builder: StableHLOBuilder,
+    kernel_size: List[int],
+    stride: List[int],
+    padding: List[int],
+    unit_attrs: Optional[List[str]] = None,
+):
+    builder.set_graph_level_check(True)
+    return builder.pool_2d(
+        in0,
+        kernel_size=kernel_size,
+        stride=stride,
+        padding=padding,
+        pool_type="avg",
+        unit_attrs=unit_attrs,
+    )
+
+
+@pytest.mark.parametrize(
+    "shape,kernel_size,stride,padding",
+    [
+        ((32, 32), [3, 3], [2, 2], [1, 1, 1, 1]),
+        ((64, 64), [2, 2], [2, 2], [0, 0, 0, 0]),
+        ((128, 128), [3, 3], [1, 1], [1, 1, 1, 1]),
+        ((1, 32, 64, 64), [1, 1, 3, 3], [1, 1, 2, 2], [0, 0, 0, 0, 1, 1, 1, 1]),
+        ((1, 64, 128, 128), [1, 1, 2, 2], [1, 1, 2, 2], [0, 0, 0, 0, 0, 0, 0, 0]),
+        ((1, 32, 64, 64), [1, 1, 3, 3], [1, 1, 1, 1], [0, 0, 0, 0, 1, 1, 1, 1]),
+    ],
+    ids=[
+        "rank2_k3s2p1",
+        "rank2_k2s2p0",
+        "rank2_k3s1p1",
+        "rank4_k3s2p1",
+        "rank4_k2s2p0",
+        "rank4_k3s1p1",
+    ],
+)
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_max_pool_2d(
+    shape: Shape,
+    dtype: torch.dtype,
+    kernel_size: List[int],
+    stride: List[int],
+    padding: List[int],
     target: str,
     request,
     device,
@@ -830,6 +898,13 @@ def test_iota(
         iota_model,
         [],
         [],
+    def max_pool_2d_wrapper(in0: Operand, builder: StableHLOBuilder):
+        return max_pool_2d(in0, builder, kernel_size, stride, padding)
+
+    compile_and_execute_shlo(
+        max_pool_2d_wrapper,
+        [shape],
+        [dtype],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -846,6 +921,33 @@ def test_dynamic_iota(
     shape: Shape,
     iota_dimension: int,
     dtype: torch.dtype,
+@pytest.mark.parametrize(
+    "shape,kernel_size,stride,padding",
+    [
+        ((32, 32), [3, 3], [2, 2], [1, 1, 1, 1]),
+        ((64, 64), [2, 2], [2, 2], [0, 0, 0, 0]),
+        ((128, 128), [3, 3], [1, 1], [1, 1, 1, 1]),
+        ((1, 32, 64, 64), [1, 1, 3, 3], [1, 1, 2, 2], [0, 0, 0, 0, 1, 1, 1, 1]),
+        ((1, 64, 128, 128), [1, 1, 2, 2], [1, 1, 2, 2], [0, 0, 0, 0, 0, 0, 0, 0]),
+        ((1, 32, 64, 64), [1, 1, 3, 3], [1, 1, 1, 1], [0, 0, 0, 0, 1, 1, 1, 1]),
+    ],
+    ids=[
+        "rank2_k3s2p1",
+        "rank2_k2s2p0",
+        "rank2_k3s1p1",
+        "rank4_k3s2p1",
+        "rank4_k2s2p0",
+        "rank4_k3s1p1",
+    ],
+)
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_avg_pool_2d(
+    shape: Shape,
+    dtype: torch.dtype,
+    kernel_size: List[int],
+    stride: List[int],
+    padding: List[int],
     target: str,
     request,
     device,
@@ -860,6 +962,13 @@ def test_dynamic_iota(
         dynamic_iota_model,
         [list(shape_tensor.shape)],
         [torch.int32],
+    def avg_pool_2d_wrapper(in0: Operand, builder: StableHLOBuilder):
+        return avg_pool_2d(in0, builder, kernel_size, stride, padding)
+
+    compile_and_execute_shlo(
+        avg_pool_2d_wrapper,
+        [shape],
+        [dtype],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),

@@ -35,7 +35,6 @@ struct Conv2dConfigParams {
   std::optional<Layout> outputLayout = std::nullopt;
   std::optional<bool> enableActDoubleBuffer = std::nullopt;
   std::optional<bool> enableWeightsDoubleBuffer = std::nullopt;
-  std::optional<bool> inPlace = std::nullopt;
   std::optional<bool> enableKernelStrideFolding = std::nullopt;
 
   // Default constructor - all fields nullopt
@@ -73,7 +72,6 @@ struct Conv2dConfigParams {
   bool hasEnableWeightsDoubleBuffer() const {
     return enableWeightsDoubleBuffer.has_value();
   }
-  bool hasInPlace() const { return inPlace.has_value(); }
 
   /// Check if all fields are unset (empty configuration)
   bool empty() const {
@@ -83,7 +81,7 @@ struct Conv2dConfigParams {
            !hasReshardIfNotOptimal() && !hasOverrideShardingConfig() &&
            !hasShardLayout() && !hasCoreGrid() && !hasTransposeShards() &&
            !hasOutputLayout() && !hasEnableActDoubleBuffer() &&
-           !hasEnableWeightsDoubleBuffer() && !hasInPlace();
+           !hasEnableWeightsDoubleBuffer();
   }
 
   /// Check if all fields are set (complete configuration)
@@ -93,8 +91,7 @@ struct Conv2dConfigParams {
            hasActBlockWDiv() && hasReshardIfNotOptimal() &&
            hasOverrideShardingConfig() && hasShardLayout() && hasCoreGrid() &&
            hasTransposeShards() && hasOutputLayout() &&
-           hasEnableActDoubleBuffer() && hasEnableWeightsDoubleBuffer() &&
-           hasInPlace();
+           hasEnableActDoubleBuffer() && hasEnableWeightsDoubleBuffer();
   }
 
   friend llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
@@ -111,8 +108,7 @@ struct Conv2dConfigParams {
        << ":output_layout#" << params.outputLayout
        << ":enable_act_double_buffer#" << params.enableActDoubleBuffer
        << ":enable_weights_double_buffer#" << params.enableWeightsDoubleBuffer
-       << ":in_place#" << params.inPlace << ":enable_kernel_stride_folding#"
-       << params.enableKernelStrideFolding;
+       << ":enable_kernel_stride_folding#" << params.enableKernelStrideFolding;
     return os;
   }
 };

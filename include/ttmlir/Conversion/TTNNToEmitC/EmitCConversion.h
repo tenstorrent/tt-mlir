@@ -1473,11 +1473,6 @@ struct EmitCTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
                  attr.getEnableWeightsDoubleBuffer());
       firstElement = false;
     }
-    if (attr.getInPlace()) {
-      rso << (firstElement ? "" : ", ") << ".in_place = "
-          << EmitCTypeConverter<bool>::convert(attr.getInPlace());
-      firstElement = false;
-    }
     if (attr.getEnableKernelStrideFolding()) {
       rso << (firstElement ? "" : ", ") << ".enable_kernel_stride_folding = "
           << EmitCTypeConverter<bool>::convert(
@@ -1685,8 +1680,17 @@ public:
     }
   }
 
+  // Emits std::nullopt. If TargetTy is specified, emits a typed empty optional
+  // (e.g., `std::optional<T>{}`) instead of bare `std::nullopt`. This is
+  // necessary for tt-metal APIs that use C++20 concepts/constraints where
+  // template deduction fails with bare `std::nullopt_t`.
+  template <typename TargetTy = void>
   mlir::Attribute emit(std::nullopt_t) {
-    return rewriter.getType<emitc::OpaqueAttr>(TypeNameV<std::nullopt_t>);
+    if constexpr (std::is_void_v<TargetTy>) {
+      return rewriter.getType<emitc::OpaqueAttr>(TypeNameV<std::nullopt_t>);
+    } else {
+      return rewriter.getType<emitc::OpaqueAttr>(TypeNameV<TargetTy> + "{}");
+    }
   }
 
   // The `val` should be either an operand of the current source operation, in
@@ -1748,6 +1752,73 @@ public:
     code += ")";
 
     return rewriter.getAttr<emitc::OpaqueAttr>(code);
+  }
+
+  mlir::Attribute emitConv3dConfig(
+      uint32_t outChannels, llvm::ArrayRef<int32_t> kernelSize,
+      llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
+      llvm::StringRef paddingMode, uint32_t groups,
+      ttcore::DataType outputDtype,
+      std::optional<mlir::tt::ttnn::Conv3dConfigAttr> conv3dConfig =
+          std::nullopt) {
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+
+    // for some fields we need default values, so we create a default config and
+    // override the fields
+    rso << "[&]() { ";
+    rso << "auto config = "
+           "ttnn::operations::experimental::conv3d::Conv3dConfig(); ";
+    rso << "config.output_channels = " << outChannels << "; ";
+
+    rso << "config.kernel_size = {";
+    llvm::interleaveComma(kernelSize, rso);
+    rso << "}; ";
+
+    rso << "config.stride = {";
+    llvm::interleaveComma(stride, rso);
+    rso << "}; ";
+
+    rso << "config.padding = {";
+    llvm::interleaveComma(padding, rso);
+    rso << "}; ";
+
+    rso << "config.padding_mode = \"" << paddingMode << "\"; ";
+    rso << "config.groups = " << groups << "; ";
+
+    // Set output dtype
+    rso << "config.dtype = ";
+    rso << EmitCTypeConverter<::ttnn::DataType>::convert(outputDtype);
+    rso << "; ";
+
+    // Apply Conv3dConfigAttr overrides if provided
+    if (conv3dConfig.has_value()) {
+      if (conv3dConfig->getWeightsDtype()) {
+        rso << "config.weights_dtype = ";
+        rso << EmitCTypeConverter<::ttnn::DataType>::convert(
+            *conv3dConfig->getWeightsDtype());
+        rso << "; ";
+      }
+      if (conv3dConfig->getTOutBlock()) {
+        rso << "config.T_out_block = " << *conv3dConfig->getTOutBlock() << "; ";
+      }
+      if (conv3dConfig->getWOutBlock()) {
+        rso << "config.W_out_block = " << *conv3dConfig->getWOutBlock() << "; ";
+      }
+      if (conv3dConfig->getHOutBlock()) {
+        rso << "config.H_out_block = " << *conv3dConfig->getHOutBlock() << "; ";
+      }
+      if (conv3dConfig->getCOutBlock()) {
+        rso << "config.C_out_block = " << *conv3dConfig->getCOutBlock() << "; ";
+      }
+      if (conv3dConfig->getCInBlock()) {
+        rso << "config.C_in_block = " << *conv3dConfig->getCInBlock() << "; ";
+      }
+    }
+
+    rso << "return config; }()";
+
+    return rewriter.getAttr<emitc::OpaqueAttr>(rso.str());
   }
 
   template <typename TargetTy = void>

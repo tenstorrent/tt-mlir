@@ -260,6 +260,18 @@ def get_original_op_loc(text: str) -> str:
         return ""
 
 
+def update_device_tensor(program_context, tensor_ref, dst_tensor, src_tensor):
+    data_ptr = src_tensor.data_ptr()
+    shape = dst_tensor.get_shape()
+    stride = dst_tensor.get_stride()
+    dtype = dst_tensor.get_dtype()
+    size = torch.numel(src_tensor)
+    tensor = tt_runtime.runtime.create_owned_host_tensor(
+        data_ptr, shape, stride, size, dtype
+    )
+    tt_runtime.runtime.update_tensor_in_pool(program_context, tensor_ref, tensor)
+
+
 class CallbackRuntimeConfig:
     def __init__(
         self,
@@ -270,6 +282,7 @@ class CallbackRuntimeConfig:
         check_atol: bool = True,
         check_rtol: bool = True,
         goldens={},
+        bypass_ops=None,
     ):
         self.device = device
         self.pcc = pcc
@@ -278,11 +291,8 @@ class CallbackRuntimeConfig:
         self.check_atol = check_atol
         self.check_rtol = check_rtol
         self.goldens = goldens
+        self.bypass_ops = bypass_ops if bypass_ops else []
         self.golden_report = {}
-
-    def save_golden_report(self, golden_report_path):
-        with open(golden_report_path, "w") as json_file:
-            json.dump(self.golden_report, json_file, indent=4)
 
 
 def pre_op_callback(callback_runtime_config, binary, program_context, op_context):
@@ -389,6 +399,19 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
                 output_tensor_torch.float().unsqueeze(0),
             ).item()
 
+            # Bypass the runtime tensor by replacing it with the intermediate golden tensor if the op is in the bypass list
+            if loc in callback_runtime_config.bypass_ops:
+                output_tensor_ref = tt_runtime.runtime.get_op_output_ref(
+                    op_context, program_context
+                )
+                tensor = tt_runtime.runtime.retrieve_tensor_from_pool(
+                    program_context, output_tensor_ref
+                )
+                update_device_tensor(
+                    program_context, output_tensor_ref, tensor, golden_tensor_torch
+                )
+                results["bypassed"] = "True"
+
             device_results[device_id] = results
         except Exception as e:
             print(e)
@@ -423,10 +446,13 @@ def execute_fb(
     check_atol: bool = False,
     check_rtol: bool = False,
     enable_intermediate_verification: bool = False,
+    bypass_ops: List[str] = None,
 ):
     fbb = tt_runtime.binary.load_binary_from_path(fb_path)
     program_indices = range(fbb.get_num_programs())
     golden_torch_tensors = convert_golden_to_torch_tensors(goldens)
+    if bypass_ops is None:
+        bypass_ops = []
 
     callback_runtime_config = CallbackRuntimeConfig(
         device=device,
@@ -436,6 +462,7 @@ def execute_fb(
         check_atol=check_atol,
         check_rtol=check_rtol,
         goldens=golden_torch_tensors,
+        bypass_ops=bypass_ops,
     )
 
     if enable_intermediate_verification:

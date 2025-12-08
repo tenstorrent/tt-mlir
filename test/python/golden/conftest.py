@@ -71,8 +71,12 @@ def _get_device_for_target(target: str, mesh_shape: Tuple[int, int], pytestconfi
     print(f"Opening device for {target} with mesh shape {mesh_shape}")
 
     mesh_options = tt_runtime.runtime.MeshDeviceOptions()
+    system_desc = fbb_as_dict(
+        tt_runtime.binary.load_system_desc_from_path(pytestconfig.option.sys_desc)
+    )["system_desc"]
+    board_id = get_board_id(system_desc)
 
-    if pytestconfig.getoption("--disable-eth-dispatch"):
+    if pytestconfig.getoption("--disable-eth-dispatch") or board_id in ["p150", "p300"]:
         mesh_options.dispatch_core_type = tt_runtime.runtime.DispatchCoreType.WORKER
     else:
         mesh_options.dispatch_core_type = tt_runtime.runtime.DispatchCoreType.ETH
@@ -538,6 +542,31 @@ def pytest_collection_modifyitems(config, items):
                     item.add_marker(
                         pytest.mark.skip(
                             reason=f"Operation not supported on following platform/target combination: {platform_config}. {reason}"
+                        )
+                    )
+
+        for marker in item.iter_markers(name="only_config"):
+            for platform_config in marker.args:
+
+                # All of the operations we need to do on these are set membership based
+                platform_config = set(platform_config)
+
+                reason = marker.kwargs.get("reason", "")
+
+                # Verify this is a valid configuration
+                if not platform_config <= ALL_BACKENDS.union(ALL_SYSTEMS):
+                    outliers = platform_config - ALL_BACKENDS.union(ALL_SYSTEMS)
+                    raise ValueError(
+                        f"Invalid only_config: {platform_config}, invalid entries: {outliers}. Please ensure that all entries in the config are members of {ALL_SYSTEMS} or {ALL_BACKENDS}"
+                    )
+
+                board_id = get_board_id(system_desc)
+
+                # Skip if the current config is NOT in the allowed list
+                if not platform_config <= set([current_target, board_id]):
+                    item.add_marker(
+                        pytest.mark.skip(
+                            reason=f"Test only runs on following platform/target combination: {platform_config}. {reason}"
                         )
                     )
 

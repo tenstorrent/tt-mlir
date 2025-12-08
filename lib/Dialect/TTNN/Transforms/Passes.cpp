@@ -25,7 +25,9 @@
 #include "mlir/IR/ValueRange.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Casting.h"
+
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNCREATEINPUTGENERATORS
 #define GEN_PASS_DEF_TTNNLOADINPUTTENSORS
@@ -67,6 +69,90 @@ public:
     return endOp;
   }
 
+  // Check if a value has a conv2d/conv_transpose2d user with
+  // deallocate_activation=true that is not the last user, which would cause a
+  // use-after-free.
+  LogicalResult checkConv2dUseAfterFree(Value value, Operation *lastOp) {
+    for (Operation *user : value.getUsers()) {
+      if (user == lastOp) {
+        continue;
+      }
+
+      auto result =
+          llvm::TypeSwitch<Operation *, LogicalResult>(user)
+              .Case<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp>([&](auto convOp) {
+                if (convOp.getInput() == value &&
+                    convOp.getConv2dConfigAttr() &&
+                    convOp.getConv2dConfigAttr().getDeallocateActivation() &&
+                    convOp.getConv2dConfigAttr()
+                        .getDeallocateActivation()
+                        .getValue()) {
+                  convOp->emitError(
+                      "use-after-free detected: op deallocates its input but "
+                      "is not the last user");
+                  return failure();
+                }
+                return success();
+              })
+              .Default([](Operation *) { return success(); });
+
+      if (failed(result)) {
+        return failure();
+      }
+    }
+    return success();
+  }
+
+  // Check and insert deallocation for a value after finding its last usage.
+  // Returns success() if checks pass and deallocation was inserted/skipped,
+  // returns failure() if validation checks fail (e.g., use-after-free
+  // detected).
+  LogicalResult checkAndInsertDeallocation(IRRewriter &rewriter, Value value,
+                                           Operation *lastOp) {
+    if (isa<func::ReturnOp>(lastOp)) {
+      return success();
+    }
+
+    RankedTensorType valueTy = mlir::cast<RankedTensorType>(value.getType());
+    assert(valueTy.getEncoding());
+    TTNNLayoutAttr layoutAttr =
+        mlir::cast<TTNNLayoutAttr>(valueTy.getEncoding());
+
+    if (layoutAttr.getBufferType() == BufferType::L1) {
+      // deallocate_activation is an option for Conv2d ops to deallocate
+      // their input activations only if it is in L1 memory.
+
+      // Sanity check: if there are any conv2d ops that consume this
+      // value and deallocate it (via deallocate_activation=true), ensure
+      // they are the last user to prevent use-after-free.
+      if (failed(checkConv2dUseAfterFree(value, lastOp))) {
+        return failure();
+      }
+
+      // Don't deallocate the activation after conv2d/conv_transpose2d op if
+      // 'deallocate_activation' in Conv2dConfig is set to true.
+      bool skipDeallocation =
+          llvm::TypeSwitch<Operation *, bool>(lastOp)
+              .Case<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp>([&](auto convOp) {
+                return convOp.getInput() == value &&
+                       convOp.getConv2dConfigAttr() &&
+                       convOp.getConv2dConfigAttr().getDeallocateActivation() &&
+                       convOp.getConv2dConfigAttr()
+                           .getDeallocateActivation()
+                           .getValue();
+              })
+              .Default([](Operation *) { return false; });
+
+      if (skipDeallocation) {
+        return success();
+      }
+    }
+
+    rewriter.setInsertionPointAfter(lastOp);
+    rewriter.create<DeallocateOp>(lastOp->getLoc(), value);
+    return success();
+  }
+
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
     IRRewriter rewriter(&getContext());
@@ -81,76 +167,55 @@ public:
       const LivenessBlockInfo *livenessInfo =
           liveness.getLiveness(&func.getBody().front());
 
+      // Collect all values to deallocate with their last usage operations.
+      SmallVector<std::pair<Value, Operation *>> valuesToDeallocate;
+
       // Const eval subgraphs and trace functions may not dealloc their params
       // since they don't own them.
       if (!ttmlir::utils::isConstEvalFunc(func) &&
           !utils::isTTNNTraceFunc(func)) {
-        // Handle func op input parameters
+        // Collect func op input parameters
         for (BlockArgument arg : func.getArguments()) {
           if (!isa<RankedTensorType>(arg.getType())) {
             continue;
           }
           Operation *lastOp = getLastValueUsageOp(livenessInfo, arg);
-
-          if (isa<func::ReturnOp>(lastOp)) {
-            continue;
-          }
-
-          rewriter.setInsertionPointAfter(lastOp);
-          rewriter.create<DeallocateOp>(lastOp->getLoc(), arg);
+          valuesToDeallocate.push_back({arg, lastOp});
         }
       }
 
-      // Handle non DPS ops which do not store function result and are used to
-      // allocate tensors. DPS ops are handled via ttnn::EmptyOp.
-      //
+      // Collect results from non-DPS ops which do not store function result
+      // and are used to allocate tensors. DPS ops are handled via
+      // ttnn::EmptyOp.
       func->walk([&](Operation *op) {
         if (isa<DestinationStyleOpInterface>(op)) {
           return;
         }
 
         // Skip ops which do not have results.
-        //
         if (op->getNumResults() == 0) {
           return;
         }
 
         // Iterate over all results of the op.
-        //
         for (OpResult result : op->getResults()) {
           // Check if result is ranked tensor type.
-          //
           if (!isa<RankedTensorType>(result.getType())) {
             continue;
           }
 
-          RankedTensorType resultTy =
-              mlir::cast<RankedTensorType>(result.getType());
-          assert(resultTy.getEncoding());
-
           Operation *lastOp = getLastValueUsageOp(livenessInfo, result);
-
-          if (isa<func::ReturnOp>(lastOp)) {
-            continue;
-          }
-
-          // Don't deallocate the activation after conv2d op if
-          // 'deallocate_activation' in Conv2dConfig is set to true.
-          if (auto conv2dOp = mlir::dyn_cast<ttnn::Conv2dOp>(lastOp)) {
-            if (conv2dOp.getInput() == result &&
-                conv2dOp.getConv2dConfigAttr() &&
-                conv2dOp.getConv2dConfigAttr().getDeallocateActivation() &&
-                conv2dOp.getConv2dConfigAttr()
-                    .getDeallocateActivation()
-                    .getValue()) {
-              continue;
-            }
-          }
-
-          rewriter.setInsertionPointAfter(lastOp);
-          rewriter.create<DeallocateOp>(lastOp->getLoc(), result);
+          valuesToDeallocate.push_back({result, lastOp});
         }
       });
+
+      // Check and insert deallocations for all collected values.
+      for (auto [value, lastOp] : valuesToDeallocate) {
+        if (failed(checkAndInsertDeallocation(rewriter, value, lastOp))) {
+          signalPassFailure();
+          return;
+        }
+      }
     });
   }
 };
@@ -485,9 +550,9 @@ public:
     SmallVector<func::FuncOp, 1> targetFuncOpsInput;
     SmallVector<func::FuncOp, 1> targetFuncOpsResult;
     block->walk([&](func::FuncOp funcOp) {
-      // Skip private functions.
+      // Skip function declarations (CPU-hoisted functions).
       //
-      if (funcOp.isPrivate()) {
+      if (funcOp.isDeclaration()) {
         return mlir::WalkResult::skip();
       }
 

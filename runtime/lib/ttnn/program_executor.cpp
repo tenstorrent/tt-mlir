@@ -13,9 +13,12 @@
 #include "operations/ccl/reduce_scatter.h"
 #include "operations/context/get_device.h"
 #include "operations/conv/conv2d.h"
+#include "operations/conv/conv3d.h"
 #include "operations/conv/conv_transpose2d.h"
 #include "operations/conv/prepare_conv2d_bias.h"
 #include "operations/conv/prepare_conv2d_weights.h"
+#include "operations/conv/prepare_conv_transpose2d_bias.h"
+#include "operations/conv/prepare_conv_transpose2d_weights.h"
 #include "operations/cpu/cpu.h"
 #include "operations/creation/arange.h"
 #include "operations/creation/constant.h"
@@ -43,6 +46,7 @@
 #include "operations/eltwise/unary/unary_composite.h"
 #include "operations/embedding/embedding.h"
 #include "operations/embedding/embedding_backward.h"
+#include "operations/experimental/gelu_bw.h"
 #include "operations/generic/generic_op.h"
 #include "operations/kv_cache/fill_cache.h"
 #include "operations/kv_cache/paged_fill_cache.h"
@@ -237,6 +241,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::LinearOp: {
     return operations::matmul::run(op->type_as_LinearOp(), getContext());
   }
+  case ::tt::target::ttnn::OpType::ExperimentalEltwiseBinaryBackwardOp: {
+    return operations::experimental::run(
+        op->type_as_ExperimentalEltwiseBinaryBackwardOp(), getContext());
+  }
   // ANCHOR: adding_an_op_matmul_runtime_program
   case ::tt::target::ttnn::OpType::MatmulOp: {
     return operations::matmul::run(op->type_as_MatmulOp(), getContext());
@@ -354,8 +362,19 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::conv::run(op->type_as_PrepareConv2dBiasOp(),
                                  getContext());
   }
+  case ::tt::target::ttnn::OpType::PrepareConvTranspose2dWeightsOp: {
+    return operations::conv::run(op->type_as_PrepareConvTranspose2dWeightsOp(),
+                                 getContext());
+  }
+  case ::tt::target::ttnn::OpType::PrepareConvTranspose2dBiasOp: {
+    return operations::conv::run(op->type_as_PrepareConvTranspose2dBiasOp(),
+                                 getContext());
+  }
   case ::tt::target::ttnn::OpType::Conv2dOp: {
     return operations::conv::run(op->type_as_Conv2dOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::Conv3dOp: {
+    return operations::conv::run(op->type_as_Conv3dOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::ConvTranspose2dOp: {
     return operations::conv::run(op->type_as_ConvTranspose2dOp(), getContext());

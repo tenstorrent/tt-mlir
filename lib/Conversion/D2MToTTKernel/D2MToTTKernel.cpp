@@ -356,20 +356,25 @@ using ComputeOpMap = OpMap<
   std::pair<d2m::TileBitwiseNotOp,  std::pair<ttkernel::BitwiseNotTileInitOp,      ttkernel::BitwiseNotTileOp>>,
   std::pair<d2m::TileCeilOp,        std::pair<ttkernel::RoundingTileInitOp,        ttkernel::CeilTileOp>>,
   std::pair<d2m::TileCosOp,         std::pair<ttkernel::CosTileInitOp,             ttkernel::CosTileOp>>,
+  std::pair<d2m::TileErfOp,         std::pair<ttkernel::ErfTileInitOp,             ttkernel::ErfTileOp>>,
+  std::pair<d2m::TileErfcOp,        std::pair<ttkernel::ErfcTileInitOp,            ttkernel::ErfcTileOp>>,
   std::pair<d2m::TileExpOp,         std::pair<ttkernel::ExpTileInitOp,             ttkernel::ExpTileOp>>,
   std::pair<d2m::TileFloorOp,       std::pair<ttkernel::RoundingTileInitOp,        ttkernel::FloorTileOp>>,
   std::pair<d2m::TileGeluOp,        std::pair<ttkernel::GeluTileInitOp,            ttkernel::GeluTileOp>>,
+  std::pair<d2m::TileHardsigmoidOp, std::pair<ttkernel::HardsigmoidTileInitOp,     ttkernel::HardsigmoidTileOp>>,
   std::pair<d2m::TileLogOp,         std::pair<ttkernel::LogTileInitOp,             ttkernel::LogTileOp>>,
   std::pair<d2m::TileLogicalNotOp,  std::pair<ttkernel::LogicalNotUnaryTileInitOp, ttkernel::LogicalNotUnaryTileOp>>,
   std::pair<d2m::TileNegativeOp,    std::pair<ttkernel::NegativeTileInitOp,        ttkernel::NegativeTileOp>>,
   std::pair<d2m::TileRecipOp,       std::pair<ttkernel::RecipTileInitOp,           ttkernel::RecipTileOp>>,
   std::pair<d2m::TileReluOp,        std::pair<ttkernel::ReluTileInitOp,            ttkernel::ReluTileOp>>,
   std::pair<d2m::TileRsqrtOp,       std::pair<ttkernel::RsqrtTileInitOp,           ttkernel::RsqrtTileOp>>,
+  std::pair<d2m::TileSignOp,        std::pair<ttkernel::SignTileInitOp,            ttkernel::SignTileOp>>,
   std::pair<d2m::TileSqrtOp,        std::pair<ttkernel::SqrtTileInitOp,            ttkernel::SqrtTileOp>>,
   std::pair<d2m::TileSigmoidOp,     std::pair<ttkernel::SigmoidTileInitOp,         ttkernel::SigmoidTileOp>>,
   std::pair<d2m::TileSiluOp,        std::pair<ttkernel::SiluTileInitOp,            ttkernel::SiluTileOp>>,
   std::pair<d2m::TileSinOp,         std::pair<ttkernel::SinTileInitOp,             ttkernel::SinTileOp>>,
   std::pair<d2m::TileTanOp,         std::pair<ttkernel::TanTileInitOp,             ttkernel::TanTileOp>>,
+  std::pair<d2m::TileTanhOp,        std::pair<ttkernel::TanhTileInitOp,            ttkernel::TanhTileOp>>,
   std::pair<d2m::TileEqzOp,         std::pair<ttkernel::EqzTileInitOp,             ttkernel::EqzTileOp>>,
   std::pair<d2m::TileNezOp,         std::pair<ttkernel::NezTileInitOp,             ttkernel::NezTileOp>>,
   std::pair<d2m::TileGtzOp,         std::pair<ttkernel::GtzTileInitOp,             ttkernel::GtzTileOp>>,
@@ -380,8 +385,12 @@ using ComputeOpMap = OpMap<
 
   // Elementwise SFPU Binary (can also handle scalar operands).
   std::pair<d2m::TileAddOp,         std::pair<ttkernel::AddBinaryTilesInitOp,      ttkernel::AddBinaryTilesOp>>,
+  std::pair<d2m::TileBitwiseAndOp,  std::pair<ttkernel::BinaryBitwiseTileInitOp,   ttkernel::BitwiseAndBinaryTilesOp>>,
+  std::pair<d2m::TileBitwiseOrOp,   std::pair<ttkernel::BinaryBitwiseTileInitOp,   ttkernel::BitwiseOrBinaryTilesOp>>,
+  std::pair<d2m::TileBitwiseXorOp,  std::pair<ttkernel::BinaryBitwiseTileInitOp,   ttkernel::BitwiseXorBinaryTilesOp>>,
   std::pair<d2m::TileDivOp,         std::pair<ttkernel::DivBinaryTilesInitOp,      ttkernel::DivBinaryTilesOp>>,
-  std::pair<d2m::TileMaximumOp,     std::pair<ttkernel::MaxTilesInitOp,            ttkernel::MaxTilesOp>>,
+  std::pair<d2m::TileMaximumOp,     std::pair<ttkernel::BinaryMaxTileInitOp,       ttkernel::BinaryMaxTileOp>>,
+  std::pair<d2m::TileMinimumOp,     std::pair<ttkernel::BinaryMinTileInitOp,       ttkernel::BinaryMinTileOp>>,
   std::pair<d2m::TileMulOp,         std::pair<ttkernel::MulBinaryTilesInitOp,      ttkernel::MulBinaryTilesOp>>,
   std::pair<d2m::TilePowOp,         std::pair<ttkernel::PowBinaryTilesInitOp,      ttkernel::PowBinaryTilesOp>>,
   std::pair<d2m::TileSubOp,         std::pair<ttkernel::SubBinaryTilesInitOp,      ttkernel::SubBinaryTilesOp>>,
@@ -632,7 +641,7 @@ public:
 
     // For binary ops (arity == 2), check if rhs is a scalar to create the right
     // init op
-    if constexpr (arity == 2 && !std::is_same_v<SFPUOp, ttkernel::MaxTilesOp>) {
+    if constexpr (arity == 2) {
       auto rhsType = adaptor.getRhs().getType();
       bool isScalarRhs = rhsType.isIntOrFloat();
 
@@ -738,8 +747,6 @@ public:
           op->getLoc(), adaptor.getInput(), inDtype, outDtype);
     } else if constexpr (arity == 1) {
       rewriter.create<SFPUOp>(op->getLoc(), adaptor.getInput());
-    } else if constexpr (std::is_same_v<SFPUOp, ttkernel::MaxTilesOp>) {
-      rewriter.create<SFPUOp>(op->getLoc(), adaptor.getLhs(), adaptor.getRhs());
     } else {
       // Check if rhs is a scalar (float or integer) at runtime
       auto rhsType = adaptor.getRhs().getType();
@@ -1593,20 +1600,25 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MSFPUOpsRewriter<d2m::TileBitwiseNotOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileCeilOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileCosOp>,
+               ttkernel::D2MSFPUOpsRewriter<d2m::TileErfOp>,
+               ttkernel::D2MSFPUOpsRewriter<d2m::TileErfcOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileExpOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileFloorOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileGeluOp>,
+               ttkernel::D2MSFPUOpsRewriter<d2m::TileHardsigmoidOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileLogOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileLogicalNotOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileNegativeOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileRecipOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileReluOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileRsqrtOp>,
+               ttkernel::D2MSFPUOpsRewriter<d2m::TileSignOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileSqrtOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileSigmoidOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileSiluOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileSinOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileTanOp>,
+               ttkernel::D2MSFPUOpsRewriter<d2m::TileTanhOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileEqzOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileNezOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileGtzOp>,
@@ -1617,8 +1629,12 @@ void populateD2MToTTKernelPatterns(
 
                // Elementwise SFPU Binary (also handles scalar operands).
                ttkernel::D2MSFPUOpsRewriter<d2m::TileAddOp>,
+               ttkernel::D2MSFPUOpsRewriter<d2m::TileBitwiseAndOp>,
+               ttkernel::D2MSFPUOpsRewriter<d2m::TileBitwiseOrOp>,
+               ttkernel::D2MSFPUOpsRewriter<d2m::TileBitwiseXorOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileDivOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileMaximumOp>,
+               ttkernel::D2MSFPUOpsRewriter<d2m::TileMinimumOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileMulOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TilePowOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileSubOp>,

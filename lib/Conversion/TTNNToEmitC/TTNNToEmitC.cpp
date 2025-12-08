@@ -427,6 +427,43 @@ public:
 };
 } // namespace
 
+// GeluBackwardOp conversion pattern
+namespace {
+class ExperimentalGeluBackwardOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::GeluBackwardOp> {
+private:
+  std::string getPrefixSearchPattern() const override { return "ttnn.gelu_bw"; }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::experimental::gelu_bw";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::GeluBackwardOp>::TTNNToEmitCBaseOpConversionPattern;
+  using Adaptor = mlir::tt::ttnn::GeluBackwardOp::Adaptor;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::GeluBackwardOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::GeluBackwardOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getLhs()),
+        emitter.emit(srcOp.getRhs()),
+        emitter.emit(srcOp.getApproximate()),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // Eltwise Binary Composite op conversion pattern
 //
 // Currently, it has to insert nullopts for some parameters that are not
@@ -1336,6 +1373,129 @@ public:
 };
 } // namespace
 
+// PrepareConvTranspose2dWeights op conversion pattern
+//
+namespace {
+class PrepareConvTranspose2dWeightsOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::PrepareConvTranspose2dWeightsOp> {
+
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.prepare_conv_transpose2d_weights";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::operations::conv::conv_transpose2d::prepare_conv_"
+           "transpose2d_weights";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::PrepareConvTranspose2dWeightsOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult matchAndRewrite(
+      mlir::tt::ttnn::PrepareConvTranspose2dWeightsOp srcOp,
+      mlir::tt::ttnn::PrepareConvTranspose2dWeightsOp::Adaptor adaptor,
+      ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<
+        mlir::tt::ttnn::PrepareConvTranspose2dWeightsOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getWeightTensor()),
+        emitter.emit(srcOp.getInputMemoryConfig()),
+        emitter.emit(srcOp.getInputTensorLayout()),
+        emitter.emit(srcOp.getWeightsFormat()),
+        emitter.emit(srcOp.getInChannels()),
+        emitter.emit(srcOp.getOutChannels()),
+        emitter.emit(srcOp.getBatchSize()),
+        emitter.emit(srcOp.getInputHeight()),
+        emitter.emit(srcOp.getInputWidth()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getKernelSizeAttr()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
+        emitter.emit<
+            std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>>>(
+            srcOp.getPaddingAttr()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
+        emitter.emit(srcOp.getHasBias()),
+        emitter.emit(srcOp.getGroups()),
+        emitter.emit(srcOp.getDevice()),
+        emitter.emit(srcOp.getInputDtype()),
+        emitter.emit(srcOp.getOutputDtype()),
+        emitter.emit(srcOp.getConv2dConfig()),
+        /*compute_config_=*/emitter.emit(std::nullopt),
+        emitter.emit(srcOp.getMirrorKernel()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// PrepareConvTranspose2dBias op conversion pattern
+//
+namespace {
+class PrepareConvTranspose2dBiasOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::PrepareConvTranspose2dBiasOp> {
+
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.prepare_conv_transpose2d_bias";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::operations::conv::conv_transpose2d::prepare_conv_"
+           "transpose2d_bias";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::PrepareConvTranspose2dBiasOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::PrepareConvTranspose2dBiasOp srcOp,
+                  mlir::tt::ttnn::PrepareConvTranspose2dBiasOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<
+        mlir::tt::ttnn::PrepareConvTranspose2dBiasOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getBiasTensor()),
+        emitter.emit(srcOp.getInputMemoryConfig()),
+        emitter.emit(srcOp.getInputTensorLayout()),
+        emitter.emit(srcOp.getInChannels()),
+        emitter.emit(srcOp.getOutChannels()),
+        emitter.emit(srcOp.getBatchSize()),
+        emitter.emit(srcOp.getInputHeight()),
+        emitter.emit(srcOp.getInputWidth()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getKernelSizeAttr()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
+        emitter.emit<
+            std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>>>(
+            srcOp.getPaddingAttr()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
+        emitter.emit(srcOp.getGroups()),
+        emitter.emit(srcOp.getDevice()),
+        emitter.emit(srcOp.getInputDtype()),
+        emitter.emit(srcOp.getOutputDtype()),
+        emitter.emit(srcOp.getConv2dConfig()),
+        /*compute_config_=*/emitter.emit(std::nullopt),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // Conv2d op conversion pattern
 //
 namespace {
@@ -1376,6 +1536,54 @@ public:
         /*compute_config=*/emitter.emit(std::nullopt),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
         emitter.emit(srcOp.getConv2dSliceConfigAttr()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// Conv3d op conversion pattern
+//
+namespace {
+class Conv3dOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::Conv3dOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::Conv3dOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  std::string getPrefixSearchPattern() const override { return "ttnn.conv3d"; }
+
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::experimental::conv3d";
+  }
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::Conv3dOp srcOp,
+                  mlir::tt::ttnn::Conv3dOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::Conv3dOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    // Get output dtype, default to BFLOAT16 if not specified
+    auto dtypeAttr = srcOp.getDtypeAttr();
+    auto outputDtype =
+        dtypeAttr ? dtypeAttr.getValue() : ttcore::DataType::BFloat16;
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getWeight()),
+        emitter.emit(srcOp.getBias()),
+        emitter.emitConv3dConfig(srcOp.getOutChannels(), srcOp.getKernelSize(),
+                                 srcOp.getStride(), srcOp.getPadding(),
+                                 srcOp.getPaddingMode(), srcOp.getGroups(),
+                                 outputDtype, srcOp.getConv3dConfig()),
+        emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.emit(std::nullopt), // compute_config - not yet supported
     };
 
     emitter.replaceOp(*this, args);
@@ -3205,7 +3413,9 @@ private:
     return "ttnn.nlp_create_qkv_heads_decode";
   }
   std::string getPrefixSwapPattern() const override {
-    return "ttnn::experimental::nlp_create_qkv_heads_decode";
+    // Use the wrapper function that handles the non-const lvalue reference
+    // parameter internally.
+    return "ttnn::nlp_create_qkv_heads_decode_wrapper";
   }
 
 public:
@@ -3221,6 +3431,9 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::NLPCreateQKVHeadsDecodeOp>
         emitter(srcOp, adaptor, rewriter);
 
+    // Note: optional_output_tensors is handled by the wrapper function, so we
+    // skip it here. The wrapper creates a local variable internally since the
+    // tt-metal API takes it as a non-const lvalue reference.
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getNumHeads()),
@@ -3234,12 +3447,21 @@ public:
     using OpReturnType =
         std::tuple<::ttnn::Tensor, ::ttnn::Tensor, ::ttnn::Tensor>;
 
+    // Explicitly build operands list - only include input and batch_offset
+    // (if present). Do NOT use adaptor.getOperands() as it may contain
+    // additional materialized operands.
+    llvm::SmallVector<mlir::Value> operands;
+    operands.push_back(adaptor.getInput());
+    if (srcOp.getBatchOffset()) {
+      operands.push_back(adaptor.getBatchOffset());
+    }
+
     auto nlpCreateQKVHeadsDecodeOp = rewriter.create<emitc::CallOpaqueOp>(
         srcOp.getLoc(),
         rewriter.getType<emitc::OpaqueType>(
             ttnn_to_emitc::TypeNameV<OpReturnType>),
         convertOpName(srcOp), rewriter.getArrayAttr(args),
-        /*template_args=*/nullptr, adaptor.getOperands());
+        /*template_args=*/nullptr, operands);
 
     llvm::SmallVector<mlir::Value, 3> results;
     for (std::size_t i = 0; i < srcOp.getNumResults(); ++i) {
@@ -4054,6 +4276,10 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
       EltwiseBinaryCompositeOpConversionPattern<mlir::tt::ttnn::Atan2Op>,
       PowScalarOpConversionPattern>(typeConverter, ctx);
 
+  // Experimental binary backward ops
+  //
+  patterns.add<ExperimentalGeluBackwardOpConversionPattern>(typeConverter, ctx);
+
   // Eltwise ternary ops
   //
   patterns.add<EltwiseTernaryOpConversionPattern<mlir::tt::ttnn::WhereOp>>(
@@ -4101,7 +4327,12 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   //
   patterns.add<PrepareConv2dWeightsOpConversionPattern>(typeConverter, ctx);
   patterns.add<PrepareConv2dBiasOpConversionPattern>(typeConverter, ctx);
+  patterns.add<PrepareConvTranspose2dWeightsOpConversionPattern>(typeConverter,
+                                                                 ctx);
+  patterns.add<PrepareConvTranspose2dBiasOpConversionPattern>(typeConverter,
+                                                              ctx);
   patterns.add<Conv2dOpConversionPattern>(typeConverter, ctx);
+  patterns.add<Conv3dOpConversionPattern>(typeConverter, ctx);
   patterns.add<ConvTranspose2dOpConversionPattern>(typeConverter, ctx);
 
   // Other ops

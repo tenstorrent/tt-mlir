@@ -148,20 +148,35 @@ def subtract(
     return builder.subtract(in0, in1, unit_attrs=unit_attrs)
 
 
+def gelu_backward(
+    in0: Operand,
+    in1: Operand,
+    builder: TTIRBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    return builder.gelu_backward(in0, in1, approximate="none", unit_attrs=unit_attrs)
+
+
+def gelu_backward_tanh(
+    in0: Operand,
+    in1: Operand,
+    builder: TTIRBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    return builder.gelu_backward(in0, in1, approximate="tanh", unit_attrs=unit_attrs)
+
+
 binary_ops = [
     add,
     atan2 | Marks(pytest.mark.skip_config(["ttmetal"])),
     div,
+    gelu_backward | Marks(pytest.mark.skip_config(["ttmetal"])),
+    gelu_backward_tanh | Marks(pytest.mark.skip_config(["ttmetal"])),
     logical_and | Marks(pytest.mark.skip_config(["ttmetal"])),
     logical_or | Marks(pytest.mark.skip_config(["ttmetal"])),
     logical_xor | Marks(pytest.mark.skip_config(["ttmetal"])),
-    maximum
-    | Marks(
-        pytest.mark.skip_config(
-            ["ttmetal"], reason="https://github.com/tenstorrent/tt-mlir/issues/5016"
-        )
-    ),
-    minimum | Marks(pytest.mark.skip_config(["ttmetal"])),
+    maximum,
+    minimum,
     multiply,
     pow,
     remainder | Marks(pytest.mark.skip_config(["ttmetal"])),
@@ -187,6 +202,125 @@ def test_binary_ops(
         target=target,
         device=device,
         pipeline_options=pipeline_options,
+    )
+
+
+# Scalar binary ops
+def add_scalar(
+    in0: Operand,
+    scalar_value: float,
+    builder: TTIRBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    """Add a scalar value to a tensor"""
+    shape = builder.get_shape(in0)
+    scalar = builder.constant(torch.full(shape, scalar_value))
+    return builder.add(in0, scalar, unit_attrs=unit_attrs)
+
+
+def multiply_scalar(
+    in0: Operand,
+    scalar_value: float,
+    builder: TTIRBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    """Multiply a tensor by a scalar value"""
+    shape = builder.get_shape(in0)
+    scalar = builder.constant(torch.full(shape, scalar_value))
+    return builder.multiply(in0, scalar, unit_attrs=unit_attrs)
+
+
+def subtract_scalar(
+    in0: Operand,
+    scalar_value: float,
+    builder: TTIRBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    """Subtract a scalar value from a tensor"""
+    shape = builder.get_shape(in0)
+    scalar = builder.constant(torch.full(shape, scalar_value))
+    return builder.subtract(in0, scalar, unit_attrs=unit_attrs)
+
+
+def div_scalar(
+    in0: Operand,
+    scalar_value: float,
+    builder: TTIRBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    """Divide a tensor by a scalar value"""
+    shape = builder.get_shape(in0)
+    scalar = builder.constant(torch.full(shape, scalar_value))
+    return builder.div(in0, scalar, unit_attrs=unit_attrs)
+
+
+def pow_scalar(
+    in0: Operand,
+    scalar_value: float,
+    builder: TTIRBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    """Raise a tensor to a scalar power"""
+    shape = builder.get_shape(in0)
+    scalar = builder.constant(torch.full(shape, scalar_value))
+    return builder.pow(in0, scalar, unit_attrs=unit_attrs)
+
+
+scalar_binary_ops = [
+    (add_scalar, 2.5),
+    (multiply_scalar, 3.0),
+    (subtract_scalar, 1.5),
+    (div_scalar, 3.0)
+    | Marks(
+        pytest.mark.xfail(
+            reason="Fails atol and rtol, issue here: https://github.com/tenstorrent/tt-mlir/issues/5924"
+        )
+    ),
+    (pow_scalar, 2.0),
+]
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize(
+    "test_fn_and_scalar",
+    scalar_binary_ops,
+    ids=[
+        "add_scalar",
+        "multiply_scalar",
+        "subtract_scalar",
+        "div_scalar",
+        "pow_scalar",
+    ],
+)
+def test_scalar_binary_ops(
+    test_fn_and_scalar: Tuple[Callable, float],
+    shape: Shape,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    """Test binary operations with scalar operands on ttmetal"""
+    test_fn, scalar_value = test_fn_and_scalar
+
+    def scalar_op_wrapper(
+        in0: Operand,
+        builder: TTIRBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        return test_fn(in0, scalar_value, builder, unit_attrs=unit_attrs)
+
+    compile_and_execute_ttir(
+        scalar_op_wrapper,
+        [shape],
+        [dtype],
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
     )
 
 
@@ -236,13 +370,17 @@ binary_bitwise_dtypes = [
 @pytest.mark.parametrize(
     "dtype", binary_bitwise_dtypes, ids=["i32", "u32", "u16", "u8"]
 )
-@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 @pytest.mark.parametrize("test_fn", binary_bitwise_ops)
 def test_bitwise_binary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
     if target == "emitpy" and (dtype == torch.uint16 or dtype == torch.uint32):
         pytest.xfail("uint16 and uint32 aren't supported in ttnn pybinds")
+    elif target == "ttmetal":
+        pytest.xfail(
+            "ttmetal does not support bitwise ops for integers due to tilize/untilize."
+        )
     compile_and_execute_ttir(
         test_fn,
         inputs_shapes=[shape, shape],
@@ -537,7 +675,11 @@ hoisted_binary_ops = [
     create_hoisted_binary_op(add, "add"),
     create_hoisted_binary_op(multiply, "multiply"),
     create_hoisted_binary_op(subtract, "subtract"),
-    create_hoisted_binary_op(eq, "equal"),
+    # TODO(#6183): Re-enable when F32 untilize on-device precision loss is fixed
+    # F32 untilize on-device introduces precision loss that causes close values to become
+    # identical, breaking exact equality comparisons in CPU-hoisted ops.
+    # See: https://github.com/tenstorrent/tt-mlir/issues/6183
+    # create_hoisted_binary_op(eq, "equal"),
     create_hoisted_binary_op(ne, "not_equal"),
     create_hoisted_binary_op(gt, "greater_than"),
     create_hoisted_binary_op(ge, "greater_equal"),

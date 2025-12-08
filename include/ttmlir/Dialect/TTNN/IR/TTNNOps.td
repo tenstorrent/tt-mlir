@@ -825,6 +825,26 @@ def TTNN_Atan2Op :  TTNN_ElementwiseBinaryCompositeOp<"atan2"> {
     }];
 }
 
+def TTNN_GeluBackwardOp : TTNN_ElementwiseBinaryOp<"gelu_bw"> {
+  let summary = "Backward pass operation for the GELU activation function.";
+  let description = [{
+    Computes the gradient of the GELU (Gaussian Error Linear Unit) activation
+    function with respect to its input during backpropagation.
+
+    This operation corresponds to ttnn.experimental.gelu_bw.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$lhs,
+                       AnyRankedTensor:$rhs,
+                       OptionalAttr<TTCore_DataTypeAttr>:$dtype,
+                       OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                       DefaultValuedAttr<StrAttr, "\"none\"">:$approximate);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 class TTNN_ReductionOp<string mnemonic, list<Trait> traits = []> : TTNN_Op<mnemonic, traits> {
   let summary = "Reduction op.";
   let description = [{
@@ -1030,11 +1050,11 @@ def TTNN_PagedUpdateCacheOp : TTNN_InplaceOp<"paged_update_cache"> {
                        AnyRankedTensor:$input,
                        AnyRankedTensor:$update_index,
                        DefaultValuedAttr<BoolAttr, "false">:$share_cache,
-                       AnyRankedTensor:$page_table);
+                       Optional<AnyRankedTensor>:$page_table);
 
   let extraClassDeclaration = [{
     wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-      return wa::TTNNOperandsWorkaroundsFactory::createPagedUpdateCacheOpOperandsWorkarounds(this->getContext());
+      return wa::TTNNOperandsWorkaroundsFactory::createPagedUpdateCacheOpOperandsWorkarounds(this->getOperation());
     }
   }];
 
@@ -1527,6 +1547,63 @@ def TTNN_PrepareConv2dBiasOp : TTNN_Op<"prepare_conv2d_bias"> {
     let hasVerifier = 1;
 }
 
+def TTNN_PrepareConvTranspose2dWeightsOp : TTNN_Op<"prepare_conv_transpose2d_weights"> {
+    let summary = "Prepares conv_transpose2d weights so that they can be consumed by the conv_transpose2d op.";
+
+    let arguments = (ins AnyRankedTensor:$weight_tensor,
+                         TTNN_MemoryConfigAttr:$input_memory_config,
+                         TTNN_LayoutAttr:$input_tensor_layout,
+                         StrAttr:$weights_format,
+                         I32Attr:$in_channels,
+                         I32Attr:$out_channels,
+                         I32Attr:$batch_size,
+                         I32Attr:$input_height,
+                         I32Attr:$input_width,
+                         DenseI32ArrayAttr:$kernel_size,
+                         DenseI32ArrayAttr:$stride,
+                         DenseI32ArrayAttr:$padding,
+                         DenseI32ArrayAttr:$dilation,
+                         BoolAttr:$has_bias,
+                         I32Attr:$groups,
+                         TTNN_Device:$device,
+                         TTCore_DataTypeAttr:$input_dtype,
+                         OptionalAttr<TTCore_DataTypeAttr>:$output_dtype,
+                         OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config,
+                         DefaultValuedAttr<BoolAttr, "true">:$mirror_kernel);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
+def TTNN_PrepareConvTranspose2dBiasOp : TTNN_Op<"prepare_conv_transpose2d_bias"> {
+    let summary = "Prepares conv_transpose2d bias so that it can be consumed by the conv_transpose2d op.";
+
+    let arguments = (ins AnyRankedTensor:$bias_tensor,
+                         TTNN_MemoryConfigAttr:$input_memory_config,
+                         TTNN_LayoutAttr:$input_tensor_layout,
+                         I32Attr:$in_channels,
+                         I32Attr:$out_channels,
+                         I32Attr:$batch_size,
+                         I32Attr:$input_height,
+                         I32Attr:$input_width,
+                         DenseI32ArrayAttr:$kernel_size,
+                         DenseI32ArrayAttr:$stride,
+                         DenseI32ArrayAttr:$padding,
+                         DenseI32ArrayAttr:$dilation,
+                         I32Attr:$groups,
+                         TTNN_Device:$device,
+                         TTCore_DataTypeAttr:$input_dtype,
+                         OptionalAttr<TTCore_DataTypeAttr>:$output_dtype,
+                         OptionalAttr<TTNN_Conv2dConfigAttr>:$conv2d_config,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_Conv2dOp : TTNN_Op<"conv2d", [TTNN_DtypeOpInterface]> {
     let summary = "Conv2d operation.";
     let description = [{
@@ -1616,6 +1693,94 @@ def TTNN_Conv2dOp : TTNN_Op<"conv2d", [TTNN_DtypeOpInterface]> {
         return wa::TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(*this);
       }
     }];
+}
+
+def TTNN_Conv3dOp : TTNN_Op<"conv3d", [TTNN_DtypeOpInterface]> {
+    let summary = "Conv3d operation.";
+    let description = [{
+      Applies a 3D convolution over an input volume composed of several input planes.
+
+      Inputs:
+      - `input` (AnyRankedTensor): expected in the following format (N, D, H, W, C) where:
+        - N is the batch size
+        - D is the depth of the input volume
+        - H is the height of the input planes
+        - W is the width of the input planes
+        - C is the number of input channels
+      - `weight` (AnyRankedTensor): expected in the following format (K_D * K_H * K_W * C / G, O) where:
+        - K_D is the depth of the kernel
+        - K_H is the height of the kernel
+        - K_W is the width of the kernel
+        - C is the number of input channels
+        - O is the number of output channels
+        - G is the number of groups
+        The spatial kernel dimensions and input channels are flattened together into a 2D tensor.
+      - `bias` (Optional<AnyRankedTensor>): expected in the following format (1, O) where:
+        - O is the number of output channels
+
+      Attributes:
+      - `in_channels` (i32): The number of input channels.
+      - `out_channels` (i32): The number of output channels.
+      - `batch_size` (i32): The batch size.
+      - `input_depth` (i32): The input depth.
+      - `input_height` (i32): The input height.
+      - `input_width` (i32): The input width.
+      - `kernel_size` (array<3xi32>): [K_D, K_H, K_W] where K_D is the kernel depth, K_H is the kernel height and K_W is the kernel width.
+      - `stride` (array<3xi32>): [sD, sH, sW] where sD is stride for depth, sH for height and sW is stride for width.
+      - `padding` (array<3xi32>): [pD, pH, pW] where pD is padding for depth, pH is padding for height and pW is padding for width.
+        Padding is symmetric (same on both sides of each dimension).
+      - `padding_mode` (StrAttr): "zeros" or "replicate" - padding fill strategy.
+      - `groups` (i32): Number of blocked connections from input channels to output channels. Input and output channels must both be divisible by groups.
+
+      Outputs:
+      - `result` (AnyRankedTensor): returned in the following format (N, D_out, H_out, W_out, O) where:
+        - `D_out = (D_in + 2*pD - K_D) / sD + 1`
+        - `H_out = (H_in + 2*pH - K_H) / sH + 1`
+        - `W_out = (W_in + 2*pW - K_W) / sW + 1`
+
+      Example:
+        %input = ttir.empty() : () -> tensor<1x28x28x28x32xbf16>
+        %weight = ttir.empty() : () -> tensor<864x64xbf16>  // 864 = 3*3*3*32 (2D tensor)
+        %bias = ttir.empty() : () -> tensor<1x64xbf16>      // 2D tensor
+        %device = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
+        %0 = "ttnn.conv3d"(%input, %weight, %bias, %device)
+          <{
+            in_channels = 32: i32,
+            out_channels = 64: i32,
+            batch_size = 1: i32,
+            input_depth = 28: i32,
+            input_height = 28: i32,
+            input_width = 28: i32,
+            kernel_size = array<i32: 3, 3, 3>,
+            stride = array<i32: 1, 1, 1>,
+            padding = array<i32: 0, 0, 0>,
+            padding_mode = "zeros",
+            groups = 1: i32
+          }> : (tensor<1x28x28x28x32xbf16>, tensor<864x64xbf16>, tensor<1x64xbf16>, !ttnn.device) -> tensor<1x26x26x26x64xbf16>
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$weight,
+                         Optional<AnyRankedTensor>:$bias,
+                         TTNN_Device:$device,
+                         I32Attr:$in_channels,
+                         I32Attr:$out_channels,
+                         I32Attr:$batch_size,
+                         I32Attr:$input_depth,
+                         I32Attr:$input_height,
+                         I32Attr:$input_width,
+                         DenseI32ArrayAttr:$kernel_size,
+                         DenseI32ArrayAttr:$stride,
+                         DenseI32ArrayAttr:$padding,
+                         DefaultValuedAttr<StrAttr, "\"zeros\"">:$padding_mode,
+                         I32Attr:$groups,
+                         OptionalAttr<TTCore_DataTypeAttr>:$dtype,
+                         OptionalAttr<TTNN_Conv3dConfigAttr>:$conv3d_config,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
 }
 
 def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d", [TTNN_DtypeOpInterface]> {
@@ -2788,10 +2953,11 @@ def TTNN_ScaledDotProductAttentionDecodeOp : TTNN_Op<"scaled_dot_product_attenti
                          AnyRankedTensor:$value,
                          DefaultValuedAttr<BoolAttr, "true">:$is_causal,
                          Optional<AnyRankedTensor>:$attention_mask,
-                         AnyRankedTensor:$cur_pos_tensor,
+                         Optional<AnyRankedTensor>:$cur_pos_tensor,
                          Optional<AnyRankedTensor>:$attention_sink,
                          OptionalAttr<F32Attr>:$scale,
-                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<TTNN_SDPAProgramConfigAttr>:$program_config);
 
     let results = (outs AnyRankedTensor:$result);
 
