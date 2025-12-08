@@ -7,6 +7,8 @@
 #include "ttmlir/Utils.h"
 
 #include "stablehlo/dialect/StablehloOps.h"
+#include "mlir/IR/BuiltinOps.h"
+#include <shardy/dialect/sdy/ir/dialect.h>
 
 namespace mlir::tt::stablehlo {
 
@@ -392,6 +394,8 @@ public:
                   mlir::PatternRewriter &rewriter) const override {
     MLIRContext *context = getContext();
 
+    bool shouldAddAllToAll = !allSliceOperandIsFullyReplicated(srcOp);
+
     // Mesh axis -> parts mapping.
     mlir::tt::shardy_utils::MeshMap meshMap =
         getMeshMap<mlir::sdy::AllSliceOp>(srcOp);
@@ -469,15 +473,18 @@ public:
       // 3) AllToAll along the inserted "parts" axis (split and concat on same
       // axis).
       int64_t partsDim = sliceDim; // "parts" axis is inserted at sliceDim
-      auto allToAll = rewriter.create<mlir::stablehlo::AllToAllOp>(
-          srcOp.getLoc(),
-          reshapedType, // result type is identical to input
-          reshaped.getResult(),
-          /*split_dimension=*/partsDim,
-          /*concat_dimension=*/partsDim,
-          /*split_count=*/parts,
-          /*replica_groups=*/groups,
-          /*channel_handle=*/ch);
+      mlir::stablehlo::AllToAllOp allToAll;
+      if (shouldAddAllToAll) {
+        allToAll = rewriter.create<mlir::stablehlo::AllToAllOp>(
+            srcOp.getLoc(),
+            reshapedType, // result type is identical to input
+            reshaped.getResult(),
+            /*split_dimension=*/partsDim,
+            /*concat_dimension=*/partsDim,
+            /*split_count=*/parts,
+            /*replica_groups=*/groups,
+            /*channel_handle=*/ch);
+      }
 
       // 4) Static slice the "parts" axis to take index 0 only.
       llvm::SmallVector<int64_t> startIdx(reshapeShape.size(), 0);
@@ -496,7 +503,12 @@ public:
       auto slicedType =
           mlir::RankedTensorType::get(slicedShape, prevType.getElementType());
 
-      mlir::Value allToAllOut = allToAll.getResult(0);
+      mlir::Value allToAllOut; // = allToAll.getResult(0);
+      if (shouldAddAllToAll) {
+        allToAllOut = allToAll.getResult(0);
+      } else {
+        allToAllOut = reshaped.getResult();
+      }
       auto slice = rewriter.create<mlir::stablehlo::SliceOp>(
           srcOp.getLoc(), slicedType, allToAllOut, startAttr, limitAttr,
           stridesAttr);
@@ -516,6 +528,16 @@ public:
 
     rewriter.replaceOp(srcOp, result);
     return mlir::success();
+  }
+
+private:
+  bool allSliceOperandIsFullyReplicated(mlir::sdy::AllSliceOp srcOp) const {
+    mlir::ModuleOp module = srcOp->getParentOfType<mlir::ModuleOp>();
+    mlir::sdy::MeshOp meshOp = mlir::tt::shardy_utils::getMeshOps(module)[0];
+    mlir::sdy::TensorShardingAttr sdyShardingAttr =
+        mlir::tt::shardy_utils::getOperandShardingAttr(srcOp->getOpOperand(0),
+                                                       meshOp);
+    return sdyShardingAttr.isFullyReplicated();
   }
 };
 
