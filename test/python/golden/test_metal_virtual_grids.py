@@ -121,7 +121,7 @@ def test_virtual_grid_eltwise(
 
     # device shape override is needed so that shapes are equivalently divisible
     # on both WH and BH.
-    options = [f"collapse-tensors-2d=0","override-device-shape=8,8"]
+    options = [f"collapse-tensors-2d=0", "override-device-shape=8,8"]
 
     compile_and_execute_ttir(
         eltwise_wrapper,
