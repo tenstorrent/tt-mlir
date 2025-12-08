@@ -1271,9 +1271,22 @@ public:
            op.getDim() == 1 &&
                "Expected core index dim to be in range 0-1, failing.");
     if (op.getDim()) {
-      auto coreIndex = rewriter.create<ttkernel::MyXOp>(op.getLoc(), nullptr);
+      Value coreIndex = rewriter.create<ttkernel::MyXOp>(op.getLoc(), nullptr);
+      
+      // hack to test coord translation issue
+      Value ten_cnst = rewriter.create<arith::ConstantOp>(op.getLoc(), rewriter.getIndexType(), rewriter.getIntegerAttr(rewriter.getIndexType(), 10));
+      Value two_cnst = rewriter.create<arith::ConstantOp>(op.getLoc(), rewriter.getIndexType(), rewriter.getIntegerAttr(rewriter.getIndexType(), 2));
+      auto predicate = rewriter.create<arith::CmpIOp>(op.getLoc(), arith::CmpIPredicate::uge, coreIndex, ten_cnst);
+      auto ifExpr = rewriter.create<scf::IfOp>(op.getLoc(), coreIndex.getType(), predicate,
+        true /*addThenBlock*/, true /*addElseBlock*/);
+      auto thenBuilder = ifExpr.getThenBodyBuilder();
+      auto sub = thenBuilder.create<arith::SubIOp>(op.getLoc(), coreIndex, two_cnst);
+      thenBuilder.create<scf::YieldOp>(op.getLoc(), sub->getResult(0));
+      auto elseBuilder = ifExpr.getElseBodyBuilder();
+      elseBuilder.create<scf::YieldOp>(op.getLoc(), coreIndex);
+
       auto normalizedCoreIndex = rewriter.create<arith::SubIOp>(
-          op.getLoc(), coreIndex,
+          op.getLoc(), ifExpr.getResult(0),
           index(rewriter, op->getLoc(),
                 chipDesc.getCoordTranslationOffsets()[1]));
       rewriter.replaceOp(op, normalizedCoreIndex);

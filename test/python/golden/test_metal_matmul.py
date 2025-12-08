@@ -105,7 +105,6 @@ def test_matmul_multi_core_8otpc(m: int, k: int, n: int, target: str, request, d
 
 
 # Temporary testcase to verify larger testcases compile on p150 (execution hangs, but we want to cover non-square grid cases)
-@pytest.mark.only_config(["ttmetal", "p150"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_matmul_p150_grid_selection_compile_only(target: str, request, device):
     from builder.base.builder_utils import compile_ttir_to_flatbuffer
@@ -127,7 +126,6 @@ def test_matmul_p150_grid_selection_compile_only(target: str, request, device):
     )
 
 
-@pytest.mark.skip_config(["ttmetal", "p150"], reason="See issue #5341")
 @pytest.mark.parametrize(
     "shape",
     [
@@ -179,7 +177,6 @@ def test_matmul_ttnn_shapes_single_buffered(
     )
 
 
-@pytest.mark.skip_config(["ttmetal", "p150"], reason="See issue #5341")
 @pytest.mark.parametrize(
     "shape",
     [
@@ -225,4 +222,6 @@ def test_matmul_ttnn_shapes_double_buffered(
         print_ir=True,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
+        rtol = 1e-2,
+        check_rtol = True,
     )
