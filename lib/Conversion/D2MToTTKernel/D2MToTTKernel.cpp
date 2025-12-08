@@ -50,14 +50,23 @@ getVirtualCoordsFromLogicalCoords(OpBuilder &rewriter, Location loc,
                                   ValueRange dstCoreIndex) {
   auto offset = chipDesc.getCoordTranslationOffsets();
 
-  return {rewriter
-              .create<arith::AddIOp>(dstCoreIndex[0].getLoc(), dstCoreIndex[0],
-                                     index(rewriter, loc, offset[0]))
-              .getResult(),
-          rewriter
-              .create<arith::AddIOp>(dstCoreIndex[1].getLoc(), dstCoreIndex[1],
-                                     index(rewriter, loc, offset[1]))
-              .getResult()};
+  auto offset0_calc = rewriter.create<arith::AddIOp>(dstCoreIndex[0].getLoc(), dstCoreIndex[0], index(rewriter, loc, offset[0]));
+  auto offset1_calc = rewriter.create<arith::AddIOp>(dstCoreIndex[1].getLoc(), dstCoreIndex[1], index(rewriter, loc, offset[1]));
+  
+  // hack to test coord translation issue
+  // insert condition of check if <= 7, we use normal offsets for BH, otherwise we use 2,3=(y,x) as offsets  
+  Value seven_cnst = rewriter.create<arith::ConstantOp>(dstCoreIndex[1].getLoc(), rewriter.getIndexType(), rewriter.getIntegerAttr(rewriter.getIndexType(), 7));
+  Value two_cnst = rewriter.create<arith::ConstantOp>(dstCoreIndex[1].getLoc(), rewriter.getIndexType(), rewriter.getIntegerAttr(rewriter.getIndexType(), 2));
+  auto predicate = rewriter.create<arith::CmpIOp>(dstCoreIndex[1].getLoc(), arith::CmpIPredicate::uge, dstCoreIndex[1], seven_cnst);
+  auto ifExpr = rewriter.create<scf::IfOp>(dstCoreIndex[1].getLoc(), dstCoreIndex[1].getType(), predicate,
+    true /*addThenBlock*/, true /*addElseBlock*/);
+  auto thenBuilder = ifExpr.getThenBodyBuilder();
+  auto add = thenBuilder.create<arith::AddIOp>(dstCoreIndex[1].getLoc(), offset1_calc->getResult(0), two_cnst);
+  thenBuilder.create<scf::YieldOp>(dstCoreIndex[1].getLoc(), add->getResult(0));
+  auto elseBuilder = ifExpr.getElseBodyBuilder();
+  elseBuilder.create<scf::YieldOp>(dstCoreIndex[1].getLoc(), offset1_calc->getResult(0));
+
+  return { offset0_calc.getResult(), ifExpr.getResult(0)};
 }
 
 static std::pair<Value, Value> getMcastEndCoords(PatternRewriter &rewriter,
@@ -1258,9 +1267,22 @@ public:
            op.getDim() == 1 &&
                "Expected core index dim to be in range 0-1, failing.");
     if (op.getDim()) {
-      auto coreIndex = rewriter.create<ttkernel::MyXOp>(op.getLoc(), nullptr);
+      Value coreIndex = rewriter.create<ttkernel::MyXOp>(op.getLoc(), nullptr);
+      
+      // hack to test coord translation issue
+      Value ten_cnst = rewriter.create<arith::ConstantOp>(op.getLoc(), rewriter.getIndexType(), rewriter.getIntegerAttr(rewriter.getIndexType(), 10));
+      Value two_cnst = rewriter.create<arith::ConstantOp>(op.getLoc(), rewriter.getIndexType(), rewriter.getIntegerAttr(rewriter.getIndexType(), 2));
+      auto predicate = rewriter.create<arith::CmpIOp>(op.getLoc(), arith::CmpIPredicate::uge, coreIndex, ten_cnst);
+      auto ifExpr = rewriter.create<scf::IfOp>(op.getLoc(), coreIndex.getType(), predicate,
+        true /*addThenBlock*/, true /*addElseBlock*/);
+      auto thenBuilder = ifExpr.getThenBodyBuilder();
+      auto sub = thenBuilder.create<arith::SubIOp>(op.getLoc(), coreIndex, two_cnst);
+      thenBuilder.create<scf::YieldOp>(op.getLoc(), sub->getResult(0));
+      auto elseBuilder = ifExpr.getElseBodyBuilder();
+      elseBuilder.create<scf::YieldOp>(op.getLoc(), coreIndex);
+
       auto normalizedCoreIndex = rewriter.create<arith::SubIOp>(
-          op.getLoc(), coreIndex,
+          op.getLoc(), ifExpr.getResult(0),
           index(rewriter, op->getLoc(),
                 chipDesc.getCoordTranslationOffsets()[1]));
       rewriter.replaceOp(op, normalizedCoreIndex);
