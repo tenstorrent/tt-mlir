@@ -12,6 +12,8 @@
 
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
+#include "ttmlir/Utils.h"
 
 using namespace mlir;
 using namespace mlir::tt::ttnn;
@@ -57,9 +59,21 @@ func::FuncOp createIsolatedFunction(Operation *targetOp,
 
   // Function arguments are the direct operands of the target op
   // with their final types (after preprocessing)
+  // Skip device operands - they will be created with get_device inside
   SmallVector<Type> inputTypes;
+  SmallVector<Value> nonDeviceOperands;
+  SmallVector<bool> isDeviceOperand;
+
   for (Value operand : targetOp->getOperands()) {
-    inputTypes.push_back(operand.getType());
+    Type opType = operand.getType();
+    if (isa<DeviceType>(opType)) {
+      // Mark this position as device operand (will be replaced with get_device)
+      isDeviceOperand.push_back(true);
+    } else {
+      inputTypes.push_back(opType);
+      nonDeviceOperands.push_back(operand);
+      isDeviceOperand.push_back(false);
+    }
   }
 
   // Result types from the target op
@@ -75,14 +89,35 @@ func::FuncOp createIsolatedFunction(Operation *targetOp,
       targetOp->getLoc(), funcName, funcType);
   isolatedFunc.setPrivate();
 
+  // Mark function as isolated
+  isolatedFunc->setAttr("isolated", builder.getUnitAttr());
+
   // Create function body
   Block *entryBlock = isolatedFunc.addEntryBlock();
   OpBuilder funcBuilder = OpBuilder::atBlockBegin(entryBlock);
 
-  // Map target op operands directly to function arguments
+  // Check if we need to create a device op (only if target op has device operands)
+  bool hasDeviceOperand = llvm::any_of(isDeviceOperand, [](bool b) { return b; });
+  Value deviceValue;
+  if (hasDeviceOperand) {
+    // Create get_device op for device operands using the utility function
+    // We need an IRRewriter for the utility, so create one from the OpBuilder
+    IRRewriter rewriter(funcBuilder);
+    GetDeviceOp deviceOp = utils::getOrInsertDevice(rewriter, entryBlock);
+    deviceValue = deviceOp.getResult();
+  }
+
+  // Map target op operands to function arguments or device value
   IRMapping mapping;
-  for (auto [operand, arg] : llvm::zip(targetOp->getOperands(), entryBlock->getArguments())) {
-    mapping.map(operand, arg);
+  size_t argIdx = 0;
+  for (size_t i = 0; i < targetOp->getNumOperands(); ++i) {
+    if (isDeviceOperand[i]) {
+      // Map device operand to the get_device result
+      mapping.map(targetOp->getOperand(i), deviceValue);
+    } else {
+      // Map non-device operand to function argument
+      mapping.map(targetOp->getOperand(i), entryBlock->getArgument(argIdx++));
+    }
   }
 
   // Clone only the target operation
@@ -108,10 +143,13 @@ struct TTNNIsolateOpsPass
 
     SmallVector<func::FuncOp> funcsToErase;
 
+    // Global counter map for each operation type to ensure unique names
+    llvm::StringMap<int> opTypeCounters;
+
     // Walk through all nested modules to find functions
     module.walk([&](func::FuncOp funcOp) {
       // Skip already isolated functions or trace functions
-      if (funcOp.isPrivate() || funcOp->hasAttr("ttnn.trace")) {
+      if (ttmlir::utils::isIsolatedFunc(funcOp)) {
         return;
       }
 
@@ -129,13 +167,18 @@ struct TTNNIsolateOpsPass
         }
       });
 
-      // Skip functions with no target ops
+      // Skip functions with no target ops - don't mark for erasure
       if (targetOpsFound.empty()) {
         return;
       }
 
+      // Mark original function for removal if preserveOriginal is false
+      // Only mark functions that actually have operations being isolated
+      if (!this->preserveOriginal) {
+        funcsToErase.push_back(funcOp);
+      }
+
       // Create isolated function for each target op
-      int index = 0;
       for (Operation *targetOp : targetOpsFound) {
         // Create base name from op type (remove "ttnn." prefix if present)
         std::string baseName = targetOp->getName().getStringRef().str();
@@ -144,16 +187,18 @@ struct TTNNIsolateOpsPass
           baseName = baseName.substr(dotPos + 1);
         }
 
+        // Get and increment counter for this op type
+        int index = opTypeCounters[baseName]++;
+
         // Create isolated function in the same parent module
         builder.setInsertionPointToEnd(parentModule.getBody());
-        createIsolatedFunction(targetOp, baseName, index++, builder);
-      }
-
-      // Mark original function for removal if preserveOriginal is false
-      if (!this->preserveOriginal) {
-        funcsToErase.push_back(funcOp);
+        createIsolatedFunction(targetOp, baseName, index, builder);
       }
     });
+
+    if (this->preserveOriginal) {
+      return;
+    }
 
     // Erase original functions after walking (to avoid iterator invalidation)
     for (auto funcOp : funcsToErase) {
@@ -164,6 +209,32 @@ struct TTNNIsolateOpsPass
         funcOp.erase();
       }
     }
+
+    // Clean up unreferenced functions (e.g., const_eval functions)
+    // This removes functions that are no longer called after removing originals
+    module.walk([&](ModuleOp moduleOp) {
+      SymbolTable symbolTable(moduleOp);
+      SmallVector<func::FuncOp> deadFuncs;
+
+      // Collect potentially dead functions
+      for (auto funcOp : moduleOp.getOps<func::FuncOp>()) {
+        // Skip isolated functions we just created
+        if (ttmlir::utils::isIsolatedFunc(funcOp)) {
+          continue;
+        }
+
+        // Check if this function is referenced by any other function
+        auto uses = symbolTable.getSymbolUses(funcOp, moduleOp);
+        if (!uses || uses->empty()) {
+          deadFuncs.push_back(funcOp);
+        }
+      }
+
+      // Remove dead functions
+      for (auto funcOp : deadFuncs) {
+        symbolTable.erase(funcOp);
+      }
+    });
   }
 };
 

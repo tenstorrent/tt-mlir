@@ -26,6 +26,8 @@ namespace mlir::tt::ttnn {
 // Pipeline implementation.
 //===----------------------------------------------------------------------===//
 
+using IsolateOpsMode = mlir::tt::ttnn::IsolateOpsMode;
+
 void createTTNNPipelineTTIRPasses(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options) {
 
@@ -253,6 +255,22 @@ void createTTIRToTTNNBackendPipeline(
   devicePm.addPass(ttcore::createTTCoreOptimizationBarrierFold());
 
   createTTNNPipelineDeallocPass(devicePm, options);
+
+  if(options.ttnnIsolateOps != IsolateOpsMode::None) {
+    TTNNIsolateOpsOptions isolateOptions;
+    isolateOptions.preserveOriginal =
+        (options.ttnnIsolateOps == IsolateOpsMode::PreserveOriginal);
+    if (!options.ttnnIsolateOpsFilter.empty()) {
+      llvm::SmallVector<llvm::StringRef> tokens;
+      llvm::StringRef(options.ttnnIsolateOpsFilter).split(tokens, ',');
+      for (auto token : tokens) {
+        isolateOptions.filterOps.push_back(token.trim().str());
+      }
+    }
+    devicePm.addPass(mlir::tt::ttnn::createTTNNIsolateOps(isolateOptions));
+    // Annotate isolated functions with input metadata for test generation
+    devicePm.addPass(mlir::tt::ttnn::createTTNNAnnotateIsolatedInputs());
+  }
 
   // Run lowering to LLVM pass on hoisted funcs in CPUModule.
   ttir::LinalgToLLVMPipelineOptions linalgToLLVMOptions;

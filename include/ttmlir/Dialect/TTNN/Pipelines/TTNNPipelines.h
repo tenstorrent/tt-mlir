@@ -17,6 +17,14 @@ class MeshDevice;
 } // namespace tt::tt_metal::distributed
 
 namespace mlir::tt::ttnn {
+
+// Enum for controlling operation isolation behavior
+enum class IsolateOpsMode {
+  None = 0,                   // No isolation
+  PreserveOriginal = 1,       // Isolate ops and keep original function
+  RemoveOriginal = 2          // Isolate ops and remove original function
+};
+
 // Options for the TTIR to TTNN backend pipeline.
 //
 struct TTIRToTTNNBackendPipelineOptions
@@ -346,6 +354,27 @@ struct TTIRToTTNNBackendPipelineOptions
       llvm::cl::desc(
           "Enable verbose output with per-operation details in metrics."),
       llvm::cl::init(true)};
+
+  Option<IsolateOpsMode> ttnnIsolateOps{
+      *this, "ttnn-isolate-ops",
+      llvm::cl::desc(
+          "Isolate each TTNN operation into its own function. "
+          "Options: none (0), preserve-original (1), remove-original (2)"),
+      llvm::cl::init(IsolateOpsMode::None),
+      llvm::cl::values(
+          clEnumValN(IsolateOpsMode::None, "none",
+                     "No operation isolation"),
+          clEnumValN(IsolateOpsMode::PreserveOriginal, "preserve-original",
+                     "Isolate ops and keep original function"),
+          clEnumValN(IsolateOpsMode::RemoveOriginal, "remove-original",
+                     "Isolate ops and remove original function"))};
+
+  Option<std::string> ttnnIsolateOpsFilter{
+      *this, "ttnn-isolate-ops-filter",
+      llvm::cl::desc(
+          "Comma-separated list of op names to isolate when "
+          "--ttnn-isolate-ops is enabled. If empty, all ops are isolated."),
+      llvm::cl::init("")};
 
   // Option to provide a pointer to an already opened device. When provided,
   // the optimizer will use this device instead of opening a new one.

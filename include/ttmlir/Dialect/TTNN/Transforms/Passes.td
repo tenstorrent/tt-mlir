@@ -415,4 +415,56 @@ def TTNNIsolateOps: Pass<"ttnn-isolate-ops", "::mlir::ModuleOp"> {
   ];
 }
 
+def TTNNAnnotateIsolatedInputs: Pass<"ttnn-annotate-isolated-inputs", "::mlir::ModuleOp"> {
+  let summary = "Annotate isolated functions with input operand metadata for test generation.";
+  let description = [{
+    This pass annotates isolated functions (marked with the `isolated` attribute)
+    with metadata about their input operands. This information can be used to
+    generate parametrized Python tests that automatically create appropriate
+    input tensors.
+
+    For each function with the `isolated` attribute, the pass adds attributes:
+    - `input_shapes`: Array of tensor shapes for each input operand
+    - `input_dtypes`: Array of data types for each input operand
+    - `input_layouts`: Array of layout information for each tensor operand
+    - `op_name`: Name of the operation being isolated
+
+    Example (input from TTNNIsolateOps pass):
+    ```mlir
+    func.func private @conv2d_0(%arg0: tensor<1x1x784x1xbf16, #layout1>,
+                                 %arg1: tensor<16x1x3x3xbf16, #layout2>,
+                                 %arg2: tensor<1x1x1x16xbf16, #layout3>)
+        -> tensor<1x1x784x16xbf16, #layout4> attributes {isolated} {
+      %0 = "ttnn.get_device"() : () -> !ttnn.device
+      %1 = "ttnn.conv2d"(%arg0, %arg1, %arg2, %0) <{...}> : (...) -> (...)
+      return %1
+    }
+    ```
+
+    After the pass:
+    ```mlir
+    func.func private @conv2d_0(%arg0: tensor<1x1x784x1xbf16, #layout1>,
+                                 %arg1: tensor<16x1x3x3xbf16, #layout2>,
+                                 %arg2: tensor<1x1x1x16xbf16, #layout3>)
+        -> tensor<1x1x784x16xbf16, #layout4>
+        attributes {
+          isolated,
+          op_name = "ttnn.conv2d",
+          input_shapes = [[1, 1, 784, 1], [16, 1, 3, 3], [1, 1, 1, 16]],
+          input_dtypes = ["bf16", "bf16", "bf16"],
+          input_layouts = [#layout1, #layout2, #layout3]
+        } {
+      %0 = "ttnn.get_device"() : () -> !ttnn.device
+      %1 = "ttnn.conv2d"(%arg0, %arg1, %arg2, %0) <{...}> : (...) -> (...)
+      return %1
+    }
+    ```
+
+    This metadata enables Python test generators to create appropriate input
+    tensors automatically.
+  }];
+
+  let options = [];
+}
+
 #endif
