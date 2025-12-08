@@ -605,6 +605,8 @@ private:
 
             if (allDepsSatisfied) {
               // Add to priority queue with incremented distance
+              // TODO (svuckovic): what if there's multiple paths to the same
+              // op, how should we calculate the distance?
               availableOps.push(
                   {userOp, userLocIt->second, opPyLoc.distanceFromRoot + 1});
               inQueue.insert(userOp);
