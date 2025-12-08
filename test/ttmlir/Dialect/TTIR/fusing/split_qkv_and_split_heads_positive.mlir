@@ -14,8 +14,8 @@ module {
 
     // Concatenate Q, K, V weights:
     // CHECK: "ttir.concat"
-    // CHECK-SAME: <{dim = 1 : si32}>
-    // CHECK-SAME: (tensor<1024x1024xf32>, tensor<1024x1024xf32>, tensor<1024x1024xf32>) -> tensor<1024x3072xf32>
+    // CHECK-SAME: <{dim = 0 : si32}>
+    // CHECK-SAME: (tensor<1024x1024xf32>, tensor<1024x1024xf32>, tensor<1024x1024xf32>) -> tensor<3072x1024xf32>
 
     // Concatenate Q, K, V biases:
     // CHECK: "ttir.concat"
@@ -24,8 +24,8 @@ module {
 
     // Linear Q, K, V projections with concatenated bias:
     // CHECK: "ttir.linear"
-    // CHECK-SAME:  <{transpose_a = false, transpose_b = false}>
-    // CHECK-SAME: (tensor<68x1024xf32>, tensor<1024x3072xf32>, tensor<1x1x3072xf32>) -> tensor<1x68x3072xf32>
+    // CHECK-SAME:  <{transpose_a = false, transpose_b = true}>
+    // CHECK-SAME: (tensor<68x1024xf32>, tensor<3072x1024xf32>, tensor<1x1x3072xf32>) -> tensor<1x68x3072xf32>
 
     // Check that linear op is reshaped.
     // CHECK: "ttir.reshape"
@@ -150,8 +150,8 @@ module {
 
     // Concatenate Q, K, V weights:
     // CHECK: "ttir.concat"
-    // CHECK-SAME:  <{dim = 1 : si32}>
-    // CHECK-SAME: (tensor<768x768xbf16>, tensor<768x768xbf16>, tensor<768x768xbf16>) -> tensor<768x2304xbf16>
+    // CHECK-SAME:  <{dim = 0 : si32}>
+    // CHECK-SAME: (tensor<768x768xbf16>, tensor<768x768xbf16>, tensor<768x768xbf16>) -> tensor<2304x768xbf16>
 
     // Concatenate Q, K, V biases:
     // CHECK: "ttir.concat"
@@ -160,8 +160,8 @@ module {
 
     // Linear Q, K, V projections with concatenated bias:
     // CHECK: "ttir.linear"
-    // CHECK-SAME: <{transpose_a = false, transpose_b = false}>
-    // CHECK-SAME: (tensor<128x768xbf16>, tensor<768x2304xbf16>, tensor<1x1x2304xbf16>) -> tensor<1x128x2304xbf16>
+    // CHECK-SAME: <{transpose_a = false, transpose_b = true}>
+    // CHECK-SAME: (tensor<128x768xbf16>, tensor<2304x768xbf16>, tensor<1x1x2304xbf16>) -> tensor<1x128x2304xbf16>
 
     // Split Q, K, V heads:
     // CHECK: "ttir.split_query_key_value_and_split_heads"
