@@ -31,6 +31,7 @@ unary_ops = [
     "silu",
     "logical_not",
     "bitwise_not",
+    "reciprocal",
 ]
 
 # Binary operations - two input tensors or tensor + scalar
@@ -49,15 +50,37 @@ binary_ops = [
     "bitwise_and",
     "bitwise_or",
     "bitwise_xor",
+    "maximum",
+    "minimum",
 ]
 
-# All supported operations
-all_ops = set(unary_ops + binary_ops)
+# Reduction operations - operations that reduce tensor dimensions
+reduction_ops = [
+    "sum",
+    "mean",
+    "max",
+    "min",
+]
+
+# Composite operations - operations that should be expanded into internals
+# These are operations that are not directly supported but can be decomposed
+# into simpler operations that are supported
+composite_ops = [
+    "digamma",
+]
+
+# All supported operations (excluding composite ops that need expansion)
+all_ops = set(unary_ops + binary_ops + reduction_ops)
 
 
 def is_supported(op_name: str) -> bool:
-    """Check if an operation is supported."""
+    """Check if an operation is directly supported (not requiring expansion)."""
     return op_name in all_ops
+
+
+def is_composite(op_name: str) -> bool:
+    """Check if an operation is a composite that needs expansion."""
+    return op_name in composite_ops
 
 
 def get_op_category(op_name: str) -> str:
@@ -66,5 +89,9 @@ def get_op_category(op_name: str) -> str:
         return "unary"
     elif op_name in binary_ops:
         return "binary"
+    elif op_name in reduction_ops:
+        return "reduction"
+    elif op_name in composite_ops:
+        return "composite"
     else:
         return "unsupported"

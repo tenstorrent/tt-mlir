@@ -16,6 +16,7 @@ module @L1InterleavedAddx10 attributes {} {
                     %arg9: tensor<32x4096xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "param9"} loc("SimpleAddModel":0:0),
                     %arg10: tensor<32x4096xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "param10"} loc("SimpleAddModel":0:0)) -> (tensor<32x4096xbf16> {ttir.name = "SimpleAddModel.output"}) {
 
+    // CHECK-DAG: #[[DRAM_RM_LAYOUT:.*]] = #ttnn.ttnn_layout<{{.*}}memref<{{.*}}#dram>{{.*}}
     // CHECK-DAG: #[[L1_LAYOUT:.*]] = #ttnn.ttnn_layout<{{.*}}memref<{{.*}}#l1>{{.*}}<interleaved>>
     // CHECK-DAG: #[[DRAM_LAYOUT:.*]] = #ttnn.ttnn_layout<{{.*}}memref<{{.*}}#dram>{{.*}}<interleaved>>
 

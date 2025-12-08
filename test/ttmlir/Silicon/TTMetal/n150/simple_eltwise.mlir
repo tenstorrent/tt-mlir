@@ -32,9 +32,22 @@ func.func @maximum(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tens
   // CHECK: emitc.call_opaque "copy_tile_init"(%[[CB1:.+]]) :
   // CHECK-NOT: emitc.call_opaque "copy_tile"(%{{.+}}, %{{.+}}, %[[DST_IDX0]])
   // CHECK-NEXT: emitc.call_opaque "copy_tile"(%[[CB1]], %{{.+}}, %[[DST_IDX1:.+]])
-  // CHECK: emitc.call_opaque "max_tile_init"
-  // CHECK-NEXT: emitc.call_opaque "max_tile"
+  // CHECK: emitc.call_opaque "binary_max_tile_init"
+  // CHECK-NEXT: emitc.call_opaque "binary_max_tile"
   %1 = "ttir.maximum"(%arg0, %arg1) : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
+  return %1 : tensor<64x128xf32>
+}
+
+func.func @minimum(%arg0: tensor<64x128xf32>, %arg1: tensor<64x128xf32>) -> tensor<64x128xf32> {
+  // CHECK: emitc.call_opaque "init_sfpu"
+  // CHECK: emitc.call_opaque "copy_tile_init"(%[[CB0:.+]]) :
+  // CHECK-NEXT: emitc.call_opaque "copy_tile"(%[[CB0]], %{{.+}}, %[[DST_IDX0:.+]])
+  // CHECK: emitc.call_opaque "copy_tile_init"(%[[CB1:.+]]) :
+  // CHECK-NOT: emitc.call_opaque "copy_tile"(%{{.+}}, %{{.+}}, %[[DST_IDX0]])
+  // CHECK-NEXT: emitc.call_opaque "copy_tile"(%[[CB1]], %{{.+}}, %[[DST_IDX1:.+]])
+  // CHECK: emitc.call_opaque "binary_min_tile_init"
+  // CHECK-NEXT: emitc.call_opaque "binary_min_tile"
+  %1 = "ttir.minimum"(%arg0, %arg1) : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
   return %1 : tensor<64x128xf32>
 }
 

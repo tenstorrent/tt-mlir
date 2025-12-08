@@ -496,21 +496,20 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
     performance optimizations, and execution behavior.
 
     Parameters:
-    - `weights_dtype`: Data type for weights and bias tensor after preprocessing (default: bfloat16)
-    - `activation`: Optional activation function to fuse ("relu" or "")
+    - `weights_dtype`: Data type for weights and bias tensor after preprocessing
+    - `activation`: Optional activation function to fuse
     - `deallocate_activation`: Whether to deallocate input activation tensor memory (default: false)
-    - `reallocate_halo_output`: Whether to reallocate intermediate halo tensor to reduce memory fragmentation (default: false)
+    - `reallocate_halo_output`: Whether to reallocate intermediate halo tensor to reduce memory fragmentation (default: true)
     - `act_block_h_override`: Override for act_block_h parameter (must be multiple of 32). Smaller values reduce memory usage but decrease performance. Ignored when shard_layout = WIDTH_SHARDED (default: 0)
     - `act_block_w_div`: Divisor for maximum possible act_block_w parameter. Only useful when in_channels > 2048. Ignored when shard_layout = HEIGHT_SHARDED or BLOCK_SHARDED (default: 1)
     - `reshard_if_not_optimal`: Whether operation can re-shard input tensor for optimal performance. Mutually exclusive with override_sharding_config (default: false)
     - `override_sharding_config`: Whether to override input sharding config with provided shard_layout. Mutually exclusive with reshard_if_not_optimal (default: false)
     - `shard_layout`: Optional tensor memory layout for sharding type specification
     - `core_grid`: Optional core grid specification. Only applicable when override_sharding_config = true
-    - `transpose_shards`: Whether shards should be distributed in ROW_MAJOR order. Only applicable when not using height sharding (default: true)
+    - `transpose_shards`: Whether shards should be distributed in ROW_MAJOR order. Only applicable when not using height sharding (default: false)
     - `output_layout`: Layout of output tensor - TILE_LAYOUT or ROW_MAJOR_LAYOUT (default: TILE_LAYOUT)
     - `enable_act_double_buffer`: Enable activation double buffering for increased performance at cost of higher L1 usage (default: false)
     - `enable_weights_double_buffer`: Enable weights double buffering when using block sharding for increased performance at cost of higher L1 usage (default: false)
-    - `in_place`: Re-use input tensor storage when creating output tensor (default: false)
     - `enable_kernel_stride_folding`: Enables tensor folding optimization
 
     Example:
@@ -530,7 +529,6 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
       output_layout = tile,
       enable_act_double_buffer = false,
       enable_weights_double_buffer = false,
-      in_place = false,
       enable_kernel_stride_folding = false
     >
     ```
@@ -550,7 +548,6 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
                         OptionalParameter<"std::optional<Layout>">:$output_layout,
                         OptionalParameter<"BoolAttr">:$enable_act_double_buffer,
                         OptionalParameter<"BoolAttr">:$enable_weights_double_buffer,
-                        OptionalParameter<"BoolAttr">:$in_place,
                         OptionalParameter<"BoolAttr">:$enable_kernel_stride_folding);
 
   let builders = [
@@ -574,7 +571,6 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
     Conv2dConfigAttr withOutputLayout(Layout layout) const;
     Conv2dConfigAttr withEnableActDoubleBuffer(bool value) const;
     Conv2dConfigAttr withEnableWeightsDoubleBuffer(bool value) const;
-    Conv2dConfigAttr withInPlace(bool value) const;
     Conv2dConfigAttr withEnableKernelStrideFolding(bool value) const;
     bool hasActivation() const;
     bool hasWeightsDtype() const;
@@ -592,7 +588,6 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
     bool hasAlwaysPreprocessWeights() const;
     bool hasEnableActDoubleBuffer() const;
     bool hasEnableWeightsDoubleBuffer() const;
-    bool hasInPlace() const;
     bool hasEnableKernelStrideFolding() const;
   }];
 
