@@ -13,6 +13,22 @@ from utils import (
 
 
 L1_REDUCTION_SHAPES = [
+    # 2D shapes (shape, max_grid)
+    ((32, 32), (0, 0)),
+    ((128, 128), (0, 0)),
+    ((64, 128), (0, 0)),
+    ((128, 64), (0, 0)),
+    ((256, 256), (0, 0)),
+]
+
+REDUCTION_OPS = [
+    ("max", ttnn.max),
+    ("sum", ttnn.sum),
+]
+
+
+
+L1_REDUCTION_SHAPES = [
     # (shape, max_grid, dim)
     # 1x1 grid
     ((32, 32), (0, 0), 1),
