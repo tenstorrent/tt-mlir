@@ -34,6 +34,10 @@ if config.enable_stablehlo:
 if config.enable_pykernel:
     config.available_features.add("pykernel")
 
+# TTNN-JIT tests are optionally enabled.
+if config.enable_ttnn_jit:
+    config.available_features.add("ttnn-jit")
+
 # suffixes: A list of file extensions to treat as test files.
 config.suffixes = [".mlir"]
 
@@ -64,6 +68,10 @@ if os.path.exists("/opt/tenstorrent/sfpi/compiler/bin/riscv32-tt-elf-g++"):
 # system_desc_path: The system desc that is to be used to generate the binary files.
 config.system_desc_path = os.getenv("SYSTEM_DESC_PATH", "")
 
+# Save original TT_METAL_RUNTIME_ROOT before importing ttrt, which overwrites it
+tt_metal_runtime_root = os.environ.get("TT_METAL_RUNTIME_ROOT")
+tt_metal_home = os.environ.get("TT_METAL_HOME")
+
 # set features based on system
 system_desc = None
 if config.system_desc_path:
@@ -74,6 +82,10 @@ if config.system_desc_path:
             ttrt.binary.load_system_desc_from_path(config.system_desc_path)
         )["system_desc"]
         config.available_features.add(system_desc["chip_descs"][0]["arch"])
+
+        # Restore original TT_METAL_RUNTIME_ROOT after ttrt import
+        os.environ["TT_METAL_RUNTIME_ROOT"] = tt_metal_runtime_root
+        os.environ["TT_METAL_HOME"] = tt_metal_home
     except ImportError:
         print(
             "ttrt not found. Please install ttrt to use have system desc driven test requirements set.",
@@ -108,7 +120,9 @@ config.substitutions.append(("%PATH%", config.environment["PATH"]))
 config.substitutions.append(("%shlibext", config.llvm_shlib_ext))
 config.substitutions.append(("%system_desc_path%", config.system_desc_path))
 
-llvm_config.with_system_environment(["HOME", "INCLUDE", "LIB", "TMP", "TEMP"])
+llvm_config.with_system_environment(
+    ["HOME", "INCLUDE", "LIB", "TMP", "TEMP", "PYTHONPATH"]
+)
 
 llvm_config.use_default_substitutions()
 
@@ -140,14 +154,6 @@ tools = ["mlir-opt", "ttmlir-opt", "ttmlir-translate"]
 
 llvm_config.add_tool_substitutions(tools, tool_dirs)
 
-llvm_config.with_environment(
-    "PYTHONPATH",
-    [
-        os.path.join(config.mlir_obj_dir, "python_packages"),
-    ],
-    append_path=True,
-)
-
 # Add `TT_MLIR_HOME` to lit environment.
 if "TT_MLIR_HOME" in os.environ:
     llvm_config.with_environment("TT_MLIR_HOME", os.environ["TT_MLIR_HOME"])
@@ -161,6 +167,11 @@ if "TT_METAL_RUNTIME_ROOT" in os.environ:
     )
 else:
     raise OSError("Error: TT_METAL_RUNTIME_ROOT not set")
+
+if "TT_METAL_HOME" in os.environ:
+    llvm_config.with_environment("TT_METAL_HOME", os.environ["TT_METAL_HOME"])
+else:
+    raise OSError("Error: TT_METAL_HOME not set")
 
 # Add `TT_METAL_BUILD_HOME` to lit environment.
 if "TT_METAL_BUILD_HOME" in os.environ:
