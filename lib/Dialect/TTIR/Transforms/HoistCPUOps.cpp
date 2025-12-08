@@ -461,6 +461,13 @@ CPUHoistAnalyzerType constEvalHoistAnalyzer() {
         return WalkResult::interrupt();
       }
 
+      // If there's a ttir.mesh_shard op inside the const-eval subgraph,
+      // skip CPU hoisting altogether, as mesh-shard ops do not make sense
+      // to hoist to CPU.
+      if (llvm::isa<ttir::MeshShardOp>(nestedOp)) {
+        return WalkResult::interrupt();
+      }
+
       descriptor.operations.push_back(nestedOp);
       return WalkResult::advance();
     });
