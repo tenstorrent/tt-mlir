@@ -716,7 +716,7 @@ class TTIRBuilder(Builder):
         ttir_op = self.get_opview_from_method(TTIRBuilder.zeros)
         mlir_output_type = self._get_type_from_torch_dtype(dtype)
         shape_attr = DenseI32ArrayAttr.get(shape)
-        result_type = self._create_ranked_tensor_type(shape, mlir_output_type)
+        result = self._create_ranked_tensor_type(shape, mlir_output_type)
 
         if loc is None:
             loc = self._get_location()
@@ -724,7 +724,7 @@ class TTIRBuilder(Builder):
             loc = Location.name(loc)
 
         op = ttir_op(
-            result_type,
+            result,
             shape_attr,
             loc=loc,
         )
@@ -735,7 +735,7 @@ class TTIRBuilder(Builder):
 
         if not self._disable_golden_check:
             op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(shape_attr, result_type.element_type)
+            golden_output = op_golden_function(shape_attr, result.element_type)
             self._set_golden_tensor(op.result, golden_output)
 
         return op.result
