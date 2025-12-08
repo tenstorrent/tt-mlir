@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "shardy/dialect/sdy/ir/utils.h"
 #include "shardy/dialect/sdy/transforms/propagation/op_sharding_rule_builder.h"
 #include "stablehlo/dialect/StablehloOps.h"
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h"
@@ -23,6 +24,115 @@ static constexpr llvm::StringLiteral pagedUpdateCacheTargetName =
 
 static constexpr llvm::StringLiteral pagedFillCacheTargetName =
     "tt.paged_fill_cache";
+
+static mlir::sdy::OpShardingRuleAttr
+getScatterShardingRule(mlir::stablehlo::ScatterOp scatterOp) {
+  mlir::Operation::operand_range inputs = scatterOp.getInputs();
+  mlir::Operation::operand_range updates = scatterOp.getUpdates();
+  mlir::Value indices = scatterOp.getScatterIndices();
+
+  if (!llvm::hasSingleElement(inputs) || !llvm::hasSingleElement(updates)) {
+    scatterOp->emitError(
+        "Scatter operation has multiple input or update tensors. This is not "
+        "supported.");
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  RankedTensorType inputType =
+      llvm::dyn_cast<RankedTensorType>(inputs.front().getType());
+  RankedTensorType updateType =
+      llvm::dyn_cast<RankedTensorType>(updates.front().getType());
+  RankedTensorType indicesType =
+      llvm::dyn_cast<RankedTensorType>(indices.getType());
+
+  if (!inputType || !updateType || !indicesType) {
+    scatterOp->emitError(
+        "Scatter operation has unranked tensor types. This is not supported.");
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  const int64_t inputRank = inputType.getRank();
+  const int64_t indicesRank = indicesType.getRank();
+  const int64_t updateRank = updateType.getRank();
+
+  auto dimNums = scatterOp.getScatterDimensionNumbers();
+  ArrayRef<int64_t> scatterDimsToOperandDims =
+      dimNums.getScatterDimsToOperandDims();
+  ArrayRef<int64_t> insertedWindowDims = dimNums.getInsertedWindowDims();
+
+  // Return null if input is not sharded along scatter_dims_to_operand_dims.
+  // This would fallback to default sharding rule in
+  // op_sharding_rule_registry.cc.
+  bool isShardedAlongScatterDims = false;
+  if (sdy::TensorShardingAttr inputSharding =
+          mlir::sdy::getSharding(inputs.front())) {
+    ArrayRef<mlir::sdy::DimensionShardingAttr> dimShardings =
+        inputSharding.getDimShardings();
+    for (int64_t scatterDim : scatterDimsToOperandDims) {
+      if (scatterDim < static_cast<int64_t>(dimShardings.size()) &&
+          !dimShardings[scatterDim].getAxes().empty()) {
+        isShardedAlongScatterDims = true;
+        break;
+      }
+    }
+  }
+
+  if (!isShardedAlongScatterDims) {
+    // Return null to fallback to default sharding rule.
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  // Check input and update have the same rank.
+  if (inputRank != updateRank) {
+    scatterOp->emitError(
+        "Custom sharding rule not implemented for scatter "
+        "operations where input and update tensors have different ranks.");
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  sdy::OpShardingRuleBuilder builder(scatterOp);
+
+  // Input, updates, and result need to be sharded together.
+  // Replicate if dimension is in scatter_dims_to_operand_dims.
+  // Replicate if dimension is in inserted_window_dims.
+  // Shard otherwise.
+  for (int64_t inputDim = 0; inputDim < inputRank; inputDim++) {
+    bool isScatterDimsToOperandDim =
+        llvm::is_contained(scatterDimsToOperandDims, inputDim);
+    bool isInsertedWindowDim = llvm::is_contained(insertedWindowDims, inputDim);
+
+    if (isScatterDimsToOperandDim || isInsertedWindowDim) {
+      // Dimension is in scatter_dims_to_operand_dims or inserted_window_dims -
+      // MUST REPLICATE.
+      builder.addFactor({inputDim, sdy::kNullDim,
+                         inputDim}, // [input_dim, indices_dim, updates_dim]
+                        {inputDim}, // result_dim
+                        inputType.getDimSize(inputDim),
+                        mlir::sdy::FactorType::kNeedReplication);
+    } else {
+      // Dimension is NOT in scatter_dims_to_operand_dims or
+      // inserted_window_dims - CAN SHARD. Shard input, updates, and result
+      // together.
+      builder.addFactor({inputDim, sdy::kNullDim,
+                         inputDim}, // [input_dim, indices_dim, updates_dim]
+                        {inputDim}, // result_dim
+                        inputType.getDimSize(inputDim),
+                        sdy::FactorType::kPassThrough // Can be sharded.
+      );
+    }
+  }
+
+  // Replicate all scatter_indices dimensions.
+  for (int64_t indicesDim = 0; indicesDim < indicesRank; indicesDim++) {
+    builder.addFactor({sdy::kNullDim, indicesDim,
+                       sdy::kNullDim}, // [input_dim, indices_dim, updates_dim]
+                      {sdy::kNullDim}, // Doesn't appear in result.
+                      indicesType.getDimSize(indicesDim),
+                      sdy::FactorType::kNeedReplication);
+  }
+
+  return builder.build();
+}
 
 static mlir::sdy::OpShardingRuleAttr
 getSDPAShardingRule(mlir::stablehlo::CustomCallOp op) {
@@ -220,6 +330,23 @@ getPagedAttentionShardingRule(mlir::stablehlo::CustomCallOp op) {
   return mlir::sdy::OpShardingRuleAttr();
 }
 
+template <typename OpTy>
+struct StablehloShardingModel
+    : public mlir::sdy::ShardingRuleOpInterface::ExternalModel<
+          StablehloShardingModel<OpTy>, OpTy> {
+
+  mlir::sdy::OpShardingRuleAttr getShardingRule(mlir::Operation *op) const {
+    if (auto scatterOp = llvm::dyn_cast<mlir::stablehlo::ScatterOp>(op)) {
+      return getScatterShardingRule(scatterOp);
+    }
+    return mlir::sdy::OpShardingRuleBuilder::buildPointwise(op);
+  }
+
+  bool shouldKeepOutputShardingsDivisible(mlir::Operation *) const {
+    return true;
+  }
+};
+
 struct StablehloCustomCallShardingModel
     : public mlir::sdy::ShardingRuleOpInterface::ExternalModel<
           StablehloCustomCallShardingModel, ::mlir::stablehlo::CustomCallOp> {
@@ -278,6 +405,8 @@ public:
     // Register for stablehlo.CustomCallOp
     mlir::stablehlo::CustomCallOp::attachInterface<
         StablehloCustomCallShardingModel>(*context);
+    mlir::stablehlo::ScatterOp::attachInterface<
+        StablehloShardingModel<mlir::stablehlo::ScatterOp>>(*context);
   }
 };
 

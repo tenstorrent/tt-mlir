@@ -550,9 +550,9 @@ public:
     SmallVector<func::FuncOp, 1> targetFuncOpsInput;
     SmallVector<func::FuncOp, 1> targetFuncOpsResult;
     block->walk([&](func::FuncOp funcOp) {
-      // Skip private functions.
+      // Skip function declarations (CPU-hoisted functions).
       //
-      if (funcOp.isPrivate()) {
+      if (funcOp.isDeclaration()) {
         return mlir::WalkResult::skip();
       }
 

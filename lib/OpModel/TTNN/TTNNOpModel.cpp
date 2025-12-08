@@ -630,6 +630,8 @@ llvm::Expected<::ttnn::TensorSpec> getPrepareConv2dWeightsOpOutputTensorSpec(
         hasBias, groups, device, *inputDtype, outputDtype,
         conv2dConfigConverted,
         /* compute_config_ */ std::nullopt,
+        /* dram_slice_config_ */
+        std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>{},
         /* mirror_kernel */ true);
   };
 
@@ -728,7 +730,9 @@ getPrepareConv2dBiasOpOutputTensorSpec(
             padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         groups, device, *inputDtype, outputDtype, conv2dConfigConverted,
-        /*compute_config_=*/std::nullopt);
+        /*compute_config_=*/std::nullopt,
+        /* dram_slice_config_ */
+        std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>{});
   };
 
   auto output =
@@ -3142,12 +3146,14 @@ OpModel<NLPCreateQKVHeadsDecodeOp>::getOpConstraints(
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   // Create query closure
+  std::optional<std::array<::ttnn::Tensor, 3>> optionalOutputTensors =
+      std::nullopt;
   auto nlpCreateQKVHeadsDecode = [&]() {
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::experimental::nlp_create_qkv_heads_decode, device, inputSpec,
-        numHeads, numKVHeads, std::optional<const bool>(overlapQKCoregrid),
-        batchOffsetSpec, sliceSize,
-        detail::getNullableMemoryConfig(outputLayout));
+        numHeads, numKVHeads, optionalOutputTensors,
+        std::optional<const bool>(overlapQKCoregrid), batchOffsetSpec,
+        sliceSize, detail::getNullableMemoryConfig(outputLayout));
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -3187,12 +3193,14 @@ llvm::Expected<size_t> OpModel<NLPCreateQKVHeadsDecodeOp>::getOpRuntime(
   ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
 
   // Create query closure
+  std::optional<std::array<::ttnn::Tensor, 3>> optionalOutputTensors =
+      std::nullopt;
   auto nlpCreateQKVHeadsDecode = [=]() {
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::experimental::nlp_create_qkv_heads_decode, device, inputSpec,
-        numHeads, numKVHeads, std::optional<const bool>(overlapQKCoregrid),
-        batchOffsetSpec, sliceSize,
-        detail::getNullableMemoryConfig(outputLayout));
+        numHeads, numKVHeads, optionalOutputTensors,
+        std::optional<const bool>(overlapQKCoregrid), batchOffsetSpec,
+        sliceSize, detail::getNullableMemoryConfig(outputLayout));
   };
 
   return operation::getOpRuntime(nlpCreateQKVHeadsDecode);
@@ -5366,6 +5374,7 @@ OpModel<PrepareConvTranspose2dWeightsOp>::getOpConstraints(
         hasBias, groups, device, conversion::getDataType(inputDtype),
         convertedOutputDtype, conversion::getConv2dConfig(conv2dConfig),
         conversion::getDeviceComputeKernelConfig(deviceComputeKernelConfig),
+        std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>{},
         mirrorKernel);
   };
 
@@ -5424,7 +5433,8 @@ OpModel<PrepareConvTranspose2dBiasOp>::getOpConstraints(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         groups, device, conversion::getDataType(inputDtype),
         convertedOutputDtype, conversion::getConv2dConfig(conv2dConfig),
-        conversion::getDeviceComputeKernelConfig(deviceComputeKernelConfig));
+        conversion::getDeviceComputeKernelConfig(deviceComputeKernelConfig),
+        std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>{});
   };
 
   return operation::getOpConstraints(biasLayout.getContext(), deviceGrid,

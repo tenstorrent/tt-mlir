@@ -502,7 +502,7 @@ TensorDesc getTensorDesc(Tensor t) {
       [&]() -> RetType { return ::tt::runtime::ttnn::getTensorDesc(t); },
       [&]() -> RetType { return ::tt::runtime::ttmetal::getTensorDesc(t); },
       [&]() -> RetType {
-        detail::fatalNotImplemented("getTensorDesc", HostRuntime::Distributed);
+        return ::tt::runtime::distributed::getTensorDesc(t);
       });
 }
 

@@ -58,70 +58,24 @@ def UndoConstEvalTransform : Pass<"undo-const-eval", "mlir::ModuleOp"> {
   let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect"];
 }
 
-def ReenableLostDPS: Pass<"ttir-reenable-dps", "::mlir::ModuleOp"> {
-  let summary = "Transform functions with return values to use output parameters.";
+def ConvertCPUHoistedFunctionsToDPS: Pass<"convert-cpu-hoisted-functions-to-dps", "::mlir::ModuleOp"> {
+  let summary = "Enables Destination Passing Style semantics in the CPU-hoisted functions.";
   let description = [{
-    This pass finds functions with the ttir.return_to_output_mapping attribute and
-    transforms them to use output parameters instead of return values. This is useful
-    for operations that implement the DestinationStyleOpInterface, where we want to
-    write directly to the output buffer instead of creating a new tensor and returning it.
+    CPU-hoisted functions created through the CPUHoistTransform pass return their results
+    via a Return Op. This pass modifies those functions so that they become
+    void functions that take an additional argument representing the output destination,
+    thus enabling Destination Passing Style (DPS) semantics.
 
-    Example:
-    ```mlir
-    // Before
-    func.func @hoisted_op(%arg0: tensor<4x4xf32>, %arg1: tensor<4x4xf32>) -> tensor<4x4xf32> {
-      %0 = linalg.generic ... {
-        ...
-      } : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
-      return %0 : tensor<4x4xf32>
-    }
+    This pass can run on both Device and CPU modules:
+    - In Device modules, it updates the function declarations to reflect the DPS semantics.
+    - In CPU modules, it modifies the function definitions accordingly - changing the return type to void,
+      adding the output destination argument, and inserting `linalg.copy` operations to copy the results
+      into the provided output destination.
 
-    // After
-    func.func @hoisted_op(%arg0: tensor<4x4xf32>, %arg1: tensor<4x4xf32>, %arg2: tensor<4x4xf32>) {
-      // The linalg.generic now writes directly to %arg2 instead of creating a new tensor
-      linalg.generic ... {
-        ...
-      } : tensor<4x4xf32>, tensor<4x4xf32>, tensor<4x4xf32>
-      return
-    }
-    ```
+    This pass is crucial for allowing CPU-hoisted functions to properly be lowered
+    to LLVM dialect, and then to executable code.
   }];
-
-  let dependentDialects = ["mlir::linalg::LinalgDialect", "mlir::tensor::TensorDialect", "mlir::func::FuncDialect"];
 }
-
-def RemoveReturnValues: Pass<"ttir-remove-return-values", "::mlir::ModuleOp"> {
-  let summary = "Remove return values from functions.";
-  let description = [{
-    This pass finds functions with return values and transforms them to have no return
-    values.  We use this on the CPU hoisting path, since we want to avoid RVO issues at
-    runtime, but model the functions as returning values during some intermediate stages
-    to avoid op elimination, track which operation is the final output (corresponding
-    to DPS output tensor), etc.
-
-    Example:
-    ```mlir
-    // Before
-    func.func @hoisted_op(%arg0: tensor<4x4xf32>, %arg1: tensor<4x4xf32>) -> tensor<4x4xf32> {
-      %0 = linalg.generic ... {
-        ...
-      } : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
-      return %0 : tensor<4x4xf32>
-    }
-
-    // After
-    func.func @hoisted_op(%arg0: tensor<4x4xf32>, %arg1: tensor<4x4xf32>) {
-      %0 = linalg.generic ... {
-        ...
-      } : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
-      return
-    }
-    ```
-  }];
-
-  let dependentDialects = ["mlir::func::FuncDialect"];
-}
-
 
 def CollapseParallelLoops: Pass<"collapse-parallel-loops", "::mlir::func::FuncOp"> {
   let summary = "Collapse and reverse dimensions in multidimensional SCF parallel loops";

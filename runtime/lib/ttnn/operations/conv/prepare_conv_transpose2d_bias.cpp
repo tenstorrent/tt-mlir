@@ -75,7 +75,7 @@ void run(const ::tt::target::ttnn::PrepareConvTranspose2dBiasOp *op,
           op->in_channels(), op->out_channels(), op->batch_size(),
           op->input_height(), op->input_width(), kernelSize, stride, padding,
           dilation, op->groups(), &targetDevice, inputDtype, outputDtype,
-          conv2dConfig, computeConfig);
+          conv2dConfig, computeConfig, std::nullopt);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

@@ -71,12 +71,21 @@ def TTIR_FlattenedCompatInfoAttr : AttrDef<TTIR_Dialect, "FlattenedCompatInfo", 
   let constBuilderCall = "$0";
 }
 
-def TTIR_HoistedCallAttr : AttrDef<TTIR_Dialect, "HoistedCall", [], "::mlir::Attribute"> {
-  let mnemonic = "hoisted_call";
-  let summary = "Indicates that this call operation has been hoisted";
+def TTIR_CPUHoistedCallAttr : AttrDef<TTIR_Dialect, "CPUHoistedCall", [], "::mlir::Attribute"> {
+  let mnemonic = "cpu_hoisted_call";
+  let summary = "Indicates that this call operation has been CPU-hoisted";
   let description = [{
-    This attribute marks call operations that have been hoisted during optimization.
+    This attribute marks call operations that have been CPU-hoisted during optimization.
     It is used as a marker and doesn't carry any additional data.
+  }];
+}
+
+def TTIR_CPUHoistedFuncAttr : AttrDef<TTIR_Dialect, "CPUHoistedFunc", [], "::mlir::Attribute"> {
+  let mnemonic = "cpu_hoisted_func";
+  let summary = "Indicates that this func operation represents a CPU-hoisted function";
+  let description = [{
+    This attribute marks functions that have been hoisted to the CPU module, as well
+    as their associated prototype declarations in the Device module.
   }];
 }
 
@@ -87,27 +96,6 @@ def TTIR_ShouldHoistAttr : AttrDef<TTIR_Dialect, "ShouldHoist", [], "::mlir::Att
   let description = [{
     This attribute marks functions that should be hoisted during optimization.
     It is used as a marker and doesn't carry any additional data.
-  }];
-}
-
-// Integer attribute for return mapping
-def TTIR_ReturnToOutputMappingAttr : AttrDef<TTIR_Dialect, "ReturnToOutputMapping", [], "::mlir::Attribute"> {
-  let mnemonic = "return_to_output_mapping";
-  let summary = "Maps return values to output indices";
-  let description = [{
-    This attribute stores an integer mapping value that indicates how
-    return values correspond to output indices.
-  }];
-
-  let parameters = (ins
-    "int64_t":$value
-  );
-
-  let assemblyFormat = [{ `<` $value `>` }];
-
-  let extraClassDeclaration = [{
-    // Convenience getter that matches IntegerAttr interface
-    int64_t getInt() const { return getValue(); }
   }];
 }
 

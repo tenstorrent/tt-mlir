@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTKernel/Transforms/Passes.h"
+#include "ttmlir/Transforms/Passes.h"
 
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Dialect/Affine/Passes.h"
@@ -221,19 +222,26 @@ void createTTIRToTTMetalPipeline(OpPassManager &pm,
                                  const TTIRToTTMetalPipelineOptions &options) {
   // Create DeviceModule to wrap all ops.
   pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
-  // Create CPUModuleOp to wrap hoisted ops (if any).
-  pm.addPass(ttir::createTTIRHoistTransform());
 
-  // Run regular ttir to ttmetal pipelines on IR in DeviceModule.
+  // Hoist manually-tagged ops to CPU module.
+  pm.addPass(ttir::createCPUHoistManuallyTaggedOpsTransform());
+
   OpPassManager &devicePm =
       pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
+
+  // Enable DPS semantics in CPU-hoisted functions in DeviceModule.
+  devicePm.addPass(transforms::createConvertCPUHoistedFunctionsToDPS());
+
+  // Run regular ttir to ttmetal pipelines on IR in DeviceModule.
   createTTIRToTTMetalFrontendPipeline(devicePm, options);
   createTTIRToTTMetalMiddleendPipeline(devicePm, options);
   createTTIRToTTMetalBackendPipeline(devicePm, options);
 
   // Run lowering to LLVM pass on hoisted funcs in CPUModule.
+  auto &cpuPm = pm.nest<ttcore::CPUModuleOp>().nest<mlir::ModuleOp>();
+
   ttir::LinalgToLLVMPipelineOptions linalgToLLVMOptions;
-  ttir::createTTIRToCPUPipeline(pm, linalgToLLVMOptions);
+  ttir::createTTIRToCPUPipeline(cpuPm, linalgToLLVMOptions);
 }
 
 //===----------------------------------------------------------------------===//
