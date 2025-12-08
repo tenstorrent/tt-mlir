@@ -6492,12 +6492,11 @@ struct EmbeddingOpArgs {
   std::optional<::ttnn::TensorSpec> outputSpec;
 };
 
-llvm::Expected<EmbeddingOpArgs>
-getEmbeddingOpArgs(::tt::tt_metal::distributed::MeshDevice *device,
-                   llvm::ArrayRef<int64_t> inputShape,
-                   TTNNLayoutAttr inputLayout,
-                   llvm::ArrayRef<int64_t> weightShape,
-                   TTNNLayoutAttr weightLayout, TTNNLayoutAttr outputLayout) {
+llvm::Expected<EmbeddingOpArgs> getEmbeddingOpArgs(
+    ::tt::tt_metal::distributed::MeshDevice *device,
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
+    llvm::ArrayRef<int64_t> outputShape, TTNNLayoutAttr outputLayout) {
   auto inputSpecExp =
       detail::convertToTensorSpec(device, inputShape, inputLayout);
   if (!inputSpecExp) {
@@ -6512,22 +6511,12 @@ getEmbeddingOpArgs(::tt::tt_metal::distributed::MeshDevice *device,
   }
   ::ttnn::TensorSpec weightSpec = weightSpecExp.get();
 
-  std::optional<::ttnn::TensorSpec> outputSpec = std::nullopt;
-  if (outputLayout) {
-    // Compute the correct output shape for embedding operation:
-    // outputShape = inputShape + [embeddingDim]
-    // where embeddingDim = weightShape[-1]
-    llvm::SmallVector<int64_t> outputShape;
-    outputShape.append(inputShape.begin(), inputShape.end());
-    outputShape.push_back(weightShape.back());
-
-    auto outputSpecExp =
-        detail::convertToTensorSpec(device, outputShape, outputLayout);
-    if (!outputSpecExp) {
-      return outputSpecExp.takeError();
-    }
-    outputSpec = outputSpecExp.get();
+  auto outputSpecExp =
+      detail::convertToTensorSpec(device, outputShape, outputLayout);
+  if (!outputSpecExp) {
+    return outputSpecExp.takeError();
   }
+  ::ttnn::TensorSpec outputSpec = outputSpecExp.get();
 
   return EmbeddingOpArgs{inputSpec, weightSpec, outputSpec};
 }
@@ -6536,13 +6525,15 @@ getEmbeddingOpArgs(::tt::tt_metal::distributed::MeshDevice *device,
 llvm::Expected<OpConstraints> OpModel<EmbeddingOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
     TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> weightShape,
-    TTNNLayoutAttr weightLayout, TTNNLayoutAttr outputLayout) {
+    TTNNLayoutAttr weightLayout, llvm::ArrayRef<int64_t> outputShape,
+    TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  llvm::Expected<EmbeddingOpArgs> embeddingOpArgsExp = getEmbeddingOpArgs(
-      device, inputShape, inputLayout, weightShape, weightLayout, outputLayout);
+  llvm::Expected<EmbeddingOpArgs> embeddingOpArgsExp =
+      getEmbeddingOpArgs(device, inputShape, inputLayout, weightShape,
+                         weightLayout, outputShape, outputLayout);
   if (!embeddingOpArgsExp) {
     return embeddingOpArgsExp.takeError();
   }
@@ -6580,13 +6571,14 @@ llvm::Expected<OpConstraints> OpModel<EmbeddingOp>::getOpConstraints(
 llvm::Expected<size_t> OpModel<EmbeddingOp>::getOpRuntime(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
-    TTNNLayoutAttr outputLayout) {
+    llvm::ArrayRef<int64_t> outputShape, TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  llvm::Expected<EmbeddingOpArgs> embeddingOpArgsExp = getEmbeddingOpArgs(
-      device, inputShape, inputLayout, weightShape, weightLayout, outputLayout);
+  llvm::Expected<EmbeddingOpArgs> embeddingOpArgsExp =
+      getEmbeddingOpArgs(device, inputShape, inputLayout, weightShape,
+                         weightLayout, outputShape, outputLayout);
   if (!embeddingOpArgsExp) {
     return embeddingOpArgsExp.takeError();
   }
