@@ -795,11 +795,12 @@ private:
     mlir::RankedTensorType scalerType = RankedTensorType::get(
         ttcore::TileType::getDefaultShape(), elementType, encoding);
 
+    // d2m.full requires fill_value to be 32-bit float or 32-bit integer.
     mlir::Attribute one;
     if (mlir::isa<mlir::FloatType>(elementType)) {
-      one = mlir::FloatAttr::get(elementType, 1.0);
+      one = mlir::FloatAttr::get(builder.getF32Type(), 1.0);
     } else if (mlir::isa<mlir::IntegerType>(elementType)) {
-      one = mlir::IntegerAttr::get(elementType, 1);
+      one = mlir::IntegerAttr::get(builder.getI32Type(), 1);
     } else {
       llvm_unreachable("unexpected input element type");
     }
