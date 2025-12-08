@@ -2,11 +2,7 @@
 // RUN: FileCheck %s --input-file=%t
 
 module {
-  //===------------------------------------------------------------------===//
-  // 1) Llama-style example: 32x8x1x64 -> 1x32x8x64
-  //    (permute moves only the singleton dim)
-  //===------------------------------------------------------------------===//
-
+  // LLaMA-style: 32x8x1x64 -> 1x32x8x64 (only singleton dim moves).
   func.func @permute_llama_like(%arg0: tensor<32x8x1x64xbf16>)
       -> tensor<1x32x8x64xbf16> {
     %0 = "ttnn.permute"(%arg0)
@@ -21,11 +17,7 @@ module {
   // CHECK-SAME: : (tensor<32x8x1x64xbf16>) -> tensor<1x32x8x64xbf16>
   // CHECK: return %[[R0]] : tensor<1x32x8x64xbf16>
 
-  //===------------------------------------------------------------------===//
-  // 2) Different batch, same pattern: 16x8x1x64 -> 1x16x8x64
-  //    (shows we don't hard-code 32)
-  //===------------------------------------------------------------------===//
-
+  // Same pattern, different batch size.
   func.func @permute_llama_like_other_batch(%arg0: tensor<16x8x1x64xbf16>)
       -> tensor<1x16x8x64xbf16> {
     %0 = "ttnn.permute"(%arg0)
@@ -40,11 +32,7 @@ module {
   // CHECK-SAME: : (tensor<16x8x1x64xbf16>) -> tensor<1x16x8x64xbf16>
   // CHECK: return %[[R1]] : tensor<1x16x8x64xbf16>
 
-  //===------------------------------------------------------------------===//
-  // 3) Multiple singleton dims: 2x1x3x1 -> 1x1x2x3
-  //    (both size-1 dims can move around)
-  //===------------------------------------------------------------------===//
-
+  // Multiple singletons: only 1-dims move.
   func.func @permute_two_singletons(%arg0: tensor<2x1x3x1xbf16>)
       -> tensor<1x1x2x3xbf16> {
     %0 = "ttnn.permute"(%arg0)
@@ -59,11 +47,7 @@ module {
   // CHECK-SAME: : (tensor<2x1x3x1xbf16>) -> tensor<1x1x2x3xbf16>
   // CHECK: return %[[R2]] : tensor<1x1x2x3xbf16>
 
-  //===------------------------------------------------------------------===//
-  // 4) Rank-5 example with scattered singletons
-  //    1x4x1x3x1 -> 1x1x4x3x1, only 1-dims move.
-  //===------------------------------------------------------------------===//
-
+  // Rank-5: singleton dims move, non-singletons keep order.
   func.func @permute_rank5_singletons(%arg0: tensor<1x4x1x3x1xbf16>)
       -> tensor<1x1x4x3x1xbf16> {
     %0 = "ttnn.permute"(%arg0)
@@ -78,11 +62,7 @@ module {
   // CHECK-SAME: : (tensor<1x4x1x3x1xbf16>) -> tensor<1x1x4x3x1xbf16>
   // CHECK: return %[[R3]] : tensor<1x1x4x3x1xbf16>
 
-  //===------------------------------------------------------------------===//
-  // NEGATIVE 1: Reorder non-singleton dims → must *not* rewrite
-  //    4x3x1x5, permutation [1,0,2,3] swaps 4 and 3 (non-one).
-  //===------------------------------------------------------------------===//
-
+  // Negative: swaps non-singleton dims, should stay permute.
   func.func @permute_reorder_non_singletons(%arg0: tensor<4x3x1x5xbf16>)
       -> tensor<3x4x1x5xbf16> {
     %0 = "ttnn.permute"(%arg0)
@@ -97,10 +77,7 @@ module {
   // CHECK-NOT: "ttnn.reshape"
   // CHECK: return %[[P0]] : tensor<3x4x1x5xbf16>
 
-  //===------------------------------------------------------------------===//
-  // NEGATIVE 2: Rank-3 – we don’t do anything special here.
-  //===------------------------------------------------------------------===//
-
+  // Negative: generic rank-3 permute, should not be rewritten.
   func.func @permute_rank3_keep(%arg0: tensor<4x3x5xbf16>)
       -> tensor<4x5x3xbf16> {
     %0 = "ttnn.permute"(%arg0)
