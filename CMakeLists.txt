@@ -65,6 +65,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(TTMLIR_ENABLE_BINDINGS_PYTHON ON CACHE BOOL "Enable Python bindings")
 
+set(NB_USE_SUBMODULE_DEPS ON CACHE BOOL "Use nanobind bundled dependencies")
+
 if (APPLE)
   set(TTMLIR_ENABLE_OPMODEL OFF)
   message(WARNING "TTNNOpModelLib is disabled on Apple platforms. Optimizer will not get true performance.")
@@ -153,7 +155,6 @@ add_subdirectory(third_party)
 if (TTMLIR_ENABLE_STABLEHLO)
   set(STABLEHLO_BUILD_EMBEDDED ON)
   set(STABLEHLO_ENABLE_BINDINGS_PYTHON ON)
-  set(NB_USE_SUBMODULE_DEPS ON CACHE BOOL "Use nanobind bundled dependencies")
   include_directories(SYSTEM ${CMAKE_CURRENT_BINARY_DIR}/shardy)
   include_directories(SYSTEM ${TTMLIR_TOOLCHAIN_DIR}/src/shardy)
   include_directories(SYSTEM ${CMAKE_CURRENT_BINARY_DIR}/stablehlo)
