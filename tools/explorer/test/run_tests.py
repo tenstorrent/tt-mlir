@@ -25,6 +25,8 @@ MNIST_STABLEHLO_PATH = "test/ttmlir/Silicon/StableHLO/n150/mnist_inference.mlir"
 TEST_EXECUTE_MODEL_PATHS = [
     MNIST_SHARDING_PATH,
 ]
+MATMUL_TTNN_PATH = "matmul_ttnn.mlir"
+SIMPLE_NAMELOC_PATH = "simple_nameloc_test.mlir"
 
 if "TT_EXPLORER_GENERATED_MLIR_TEST_DIRS" in os.environ:
     for path in os.environ["TT_EXPLORER_GENERATED_MLIR_TEST_DIRS"].split(","):
@@ -213,10 +215,46 @@ def test_execute_mnist_with_overrides():
     }
     execute_command_and_wait(
         MNIST_SHARDING_PATH,
-        {"optimizationPolicy": "Optimizer Disabled", "overrides": overrides},
+        {"optimizationPolicy": "DF Sharding", "overrides": overrides},
         timeout=300,
     )
     convert_command_and_assert(MNIST_SHARDING_PATH)
+
+
+def test_execute_matmul_with_overrides():
+    overrides = {
+        'loc("matmul_ttnn.mlir:11:14")': {
+            "named_location": "loc(\"matmul_ttnn.mlir\":11:14)__0",
+            "full_location": "loc(matmul_ttnn.mlir:11:14)",
+            "attributes": [
+                {"key": "tensor_memory_layout", "value": "block_sharded"},
+            ],
+        }
+    }
+    execute_command_and_wait(
+        MATMUL_TTNN_PATH,
+        {"optimizationPolicy": "DF Sharding", "overrides": overrides},
+        timeout=300,
+    )
+    convert_command_and_assert(MATMUL_TTNN_PATH)
+
+
+def test_execute_simple_nameloc_with_overrides():
+    overrides = {
+        'loc("pure_nameloc_add")': {
+            "named_location": "pure_nameloc_add",
+            "full_location": "loc(\"pure_nameloc_add\")",
+            "attributes": [
+                {"key": "tensor_memory_layout", "value": "block_sharded"},
+            ],
+        }
+    }
+    execute_command_and_wait(
+        SIMPLE_NAMELOC_PATH,
+        {"optimizationPolicy": "DF Sharding", "overrides": overrides},
+        timeout=300,
+    )
+    convert_command_and_assert(SIMPLE_NAMELOC_PATH)
 
 
 def test_execute_and_check_perf_data_exists():

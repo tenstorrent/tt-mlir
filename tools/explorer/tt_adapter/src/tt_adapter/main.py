@@ -7,6 +7,8 @@ from . import runner, utils, mlir
 import dataclasses
 import logging
 import os
+import re
+
 from ttmlir import optimizer_overrides
 
 OVERRIDE_PARAMETER_DISABLED_STR = "None"
@@ -48,7 +50,9 @@ def settings_to_overrides(settings, artifacts_dir):
     # Convert settings to output layout overrides.
     if settings.get("overrides"):
         for op_id, overrides in settings["overrides"].items():
-            op_name_loc = overrides["named_location"]
+            named_loc = overrides.get("named_location", "")
+            # Strip the unique ID suffix pattern: __N that explorer adds to have unique IDs in UI
+            op_name_loc = re.sub(r'__\d+$', '', named_loc) if named_loc else overrides.get("full_location", "")
             output_layout_override = optimizer_overrides.OutputLayoutOverrideParams()
             conv2d_config_override = optimizer_overrides.Conv2dConfigOverrideParams()
             for attr in overrides["attributes"]:
@@ -188,7 +192,7 @@ class TTAdapter(model_explorer.Adapter):
             cpp_code = self.model_runner.get_cpp_code(model_path)
 
             with open(optimized_model_path, "r") as model_file:
-                module = utils.parse_mlir_str(model_file.read())
+                module = utils.parse_mlir_str(model_file.read(), file_path=optimized_model_path)
 
             # Convert TTIR to Model Explorer Graphs and Display/Return
             graph_handler = mlir.GraphHandler()
@@ -217,12 +221,12 @@ class TTAdapter(model_explorer.Adapter):
                 )
 
                 if module_str:
-                    module = utils.parse_mlir_str(module_str)
+                    module = utils.parse_mlir_str(module_str, file_path=None)
                 elif module_str is None:
                     raise Exception("Failed to parse flatbuffer")
             else:
                 with open(model_path, "r") as model_file:
-                    module = utils.parse_mlir_str(model_file.read())
+                    module = utils.parse_mlir_str(model_file.read(), file_path=model_path)
 
             # Convert TTIR to Model Explorer Graphs and Display/Return
             graph_handler = mlir.GraphHandler()

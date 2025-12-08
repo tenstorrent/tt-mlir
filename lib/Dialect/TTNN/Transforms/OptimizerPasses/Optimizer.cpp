@@ -41,10 +41,12 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/raw_ostream.h"
 
 namespace mlir::tt::ttnn {
 
@@ -615,17 +617,27 @@ private:
       overrideConv2dOp[opLoc] = false;
     }
 
-    ModuleOp moduleOp = getOperation();
-    moduleOp->walk([&](Operation *op) {
-      if (not isa<NameLoc>(op->getLoc())) {
-        return;
+    auto getOverrideKey = [](Operation *op) -> std::string {
+      if (auto nameLoc = llvm::dyn_cast<NameLoc>(op->getLoc())) {
+        return nameLoc.getName().str();
       }
+      std::string locStr;
+      llvm::raw_string_ostream locOS(locStr);
+      op->getLoc().print(locOS);
+      locOS.flush();
+      return locStr;
+    };
 
-      StringRef opLocName = mlir::cast<NameLoc>(op->getLoc()).getName();
-      if (overridenOpExists.contains(opLocName)) {
-        overridenOpExists[opLocName] = true;
+    ModuleOp moduleOp = getOperation();
+    llvm::StringSet<llvm::MallocAllocator> allAvailableLocs;
+    moduleOp->walk([&](Operation *op) {
+      std::string opLocKey = getOverrideKey(op);
+      allAvailableLocs.insert(opLocKey);
+
+      if (overridenOpExists.contains(opLocKey)) {
+        overridenOpExists[opLocKey] = true;
       }
-      if (!isa<ttnn::Conv2dOp>(op) && overrideConv2dOp.contains(opLocName)) {
+      if (!isa<ttnn::Conv2dOp>(op) && overrideConv2dOp.contains(opLocKey)) {
         op->emitRemark() << "Trying to override non-conv2d op: '"
                          << op->getName()
                          << "' with conv2d config. Skipping...";

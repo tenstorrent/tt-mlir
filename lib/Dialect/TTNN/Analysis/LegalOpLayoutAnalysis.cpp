@@ -19,6 +19,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include "mlir/Support/LLVM.h"
 #include <algorithm>
@@ -53,12 +54,19 @@ bool LegalOpLayoutAnalysis::applyOverrides() {
     return false;
   }
 
-  if (!isa<NameLoc>(op->getLoc())) {
-    return false;
+  // Get override key: use NameLoc name if available, otherwise use printed location string
+  std::string opLocKey;
+  if (auto nameLoc = llvm::dyn_cast<NameLoc>(op->getLoc())) {
+    opLocKey = nameLoc.getName().str();
+  } else {
+    std::string opLocStr;
+    llvm::raw_string_ostream opLocOS(opLocStr);
+    op->getLoc().print(opLocOS);
+    opLocOS.flush();
+    opLocKey = opLocStr;
   }
-
-  StringRef opLocName = mlir::cast<NameLoc>(op->getLoc()).getName();
-  auto overrideIt = analysisInput.outputLayoutOverrides->find(opLocName);
+  
+  auto overrideIt = analysisInput.outputLayoutOverrides->find(opLocKey);
 
   if (overrideIt == analysisInput.outputLayoutOverrides->end()) {
     return false;
@@ -156,9 +164,20 @@ void LegalOpLayoutAnalysis::fillTTNNLayoutAttrs(TTNNLayoutAttr baseLayout) {
   std::optional<OutputLayoutOverrideParams> override;
 
   // Check if we have an override for this op.
-  if (isa<NameLoc>(op->getLoc())) {
-    StringRef opLocName = mlir::cast<NameLoc>(op->getLoc()).getName();
-    if (auto overrideIt = analysisInput.outputLayoutOverrides->find(opLocName);
+  // Get override key: use NameLoc name if available, otherwise use printed location string
+  std::string opLocKey;
+  if (auto nameLoc = llvm::dyn_cast<NameLoc>(op->getLoc())) {
+    opLocKey = nameLoc.getName().str();
+  } else {
+    std::string opLocStr;
+    llvm::raw_string_ostream opLocOS(opLocStr);
+    op->getLoc().print(opLocOS);
+    opLocOS.flush();
+    opLocKey = opLocStr;
+  }
+
+  if (analysisInput.outputLayoutOverrides) {
+    if (auto overrideIt = analysisInput.outputLayoutOverrides->find(opLocKey);
         overrideIt != analysisInput.outputLayoutOverrides->end()) {
       override = overrideIt->getValue();
       if (override->dataType.has_value()) {

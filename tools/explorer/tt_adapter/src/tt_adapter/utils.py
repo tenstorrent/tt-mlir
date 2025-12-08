@@ -24,8 +24,7 @@ def get_resolved_ir_dumps_dir():
     return str(Path(IR_DUMPS_DIR).expanduser().resolve())
 
 
-def parse_mlir_str(module_str):
-    with ttmlir.ir.Context() as ctx:
+def parse_mlir_str(module_str, file_path=None):
         module = ttmlir.ir.Module.parse(module_str, ctx)
         return module
 
