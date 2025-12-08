@@ -106,8 +106,7 @@ void doSomething(Operation *op)
 {
     if (op->getNumOperands() > 0
         && isDpsOp(op)
-        && doSomethingDifferent(op))
-    {
+        && doSomethingDifferent(op)) {
         // ... some long code ...
     }
 }
@@ -120,19 +119,63 @@ void doSomething(Operation *op)
 {
     // ...
     // We need to do something with the op that has more than 0 operands
-    if (op->getNumOperands() <= 0 ) return;
+    if (op->getNumOperands() <= 0) {
+      return;
+    }
 
     // We need something to do with the DPS op
-    if (!isDpsOp(op)) return;
+    if (!isDpsOp(op)) {
+      return;
+    }
 
     // Just for example purposes
-    if (!doSomethingDifferent(op)) return;
+    if (!doSomethingDifferent(op)) {
+      return;
+    }
 
     // .. some long code ...
 }
 ```
 
 This reduces loop nesting, makes the reasoning behind the conditions clearer, and signals to the reader that there is no subsequent else to worry about, reducing cognitive load. This can significantly improve code readability and comprehension.
+
+## Braces for Control Flow Statements
+
+Always use braces for the body of `if`, `else`, `for`, `while`, and `do-while` statements, even when the body contains only a single statement. This rule is enforced in CI via the [readability-braces-around-statements](https://clang.llvm.org/extra/clang-tidy/checks/readability/braces-around-statements.html) clang-tidy check.
+
+Example of incorrect style:
+
+```c++
+if (condition)
+    doSomething();
+
+for (int i = 0; i < n; i++)
+    process(i);
+
+for (int i = 0; i < n; i++)
+  if (condition)
+    doSomething();
+```
+
+Example of correct style:
+
+```c++
+if (condition) {
+    doSomething();
+}
+
+for (int i = 0; i < n; i++) {
+    process(i);
+}
+
+while (isRunning) {
+    update();
+}
+
+do {
+    processNext();
+} while (hasMore);
+```
 
 ## Function Declaration and Definition Order
 
