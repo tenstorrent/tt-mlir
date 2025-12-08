@@ -179,6 +179,7 @@ def run_op_test(
     check_pcc=True,
     check_allclose=False,
     pcc_threshold=0.99,
+    math_fidelity="HiFi4",
 ):
     """
     Common test runner for JIT operations.
