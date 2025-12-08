@@ -6511,12 +6511,15 @@ llvm::Expected<EmbeddingOpArgs> getEmbeddingOpArgs(
   }
   ::ttnn::TensorSpec weightSpec = weightSpecExp.get();
 
-  auto outputSpecExp =
-      detail::convertToTensorSpec(device, outputShape, outputLayout);
-  if (!outputSpecExp) {
-    return outputSpecExp.takeError();
+  std::optional<::ttnn::TensorSpec> outputSpec = std::nullopt;
+  if (outputLayout) {
+    auto outputSpecExp =
+        detail::convertToTensorSpec(device, outputShape, outputLayout);
+    if (!outputSpecExp) {
+      return outputSpecExp.takeError();
+    }
+    outputSpec = outputSpecExp.get();
   }
-  ::ttnn::TensorSpec outputSpec = outputSpecExp.get();
 
   return EmbeddingOpArgs{inputSpec, weightSpec, outputSpec};
 }
