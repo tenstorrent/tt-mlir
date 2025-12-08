@@ -24,7 +24,8 @@ std::shared_ptr<void> ttnnToFlatbuffer(
     const std::unordered_map<std::string,
                              std::unordered_map<std::uint32_t, GoldenTensor>>
         &goldenMap = {},
-    const std::vector<std::pair<std::string, std::string>> &moduleCache = {});
+    const std::vector<std::pair<std::string, std::string>> &moduleCache = {},
+    const std::string &kernelDumpDir = "");
 
 // Convert a TTNNIR operation to a flatbuffer
 // This function signature is required in order to register the conversion in
@@ -41,7 +42,8 @@ LogicalResult translateTTNNToFlatbuffer(
         }
         */
         &goldenMap = {},
-    const std::vector<std::pair<std::string, std::string>> &moduleCache = {});
+    const std::vector<std::pair<std::string, std::string>> &moduleCache = {},
+    const std::string &kernelDumpDir = "");
 } // namespace mlir::tt::ttnn
 
 #endif

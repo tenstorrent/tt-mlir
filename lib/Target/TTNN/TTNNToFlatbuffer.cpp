@@ -41,6 +41,8 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/FileSystem.h"
+#include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
 
 namespace mlir::tt::ttnn {
@@ -2474,7 +2476,8 @@ createKernelArgs(FlatbufferObjectCache &cache,
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::GenericOp>
-createOp(FlatbufferObjectCache &cache, GenericOp op) {
+createOp(FlatbufferObjectCache &cache, GenericOp op,
+         const std::string &kernelDumpDir = "") {
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> ios;
   for (auto operand : op.getInputsAndOutputs()) {
     ios.push_back(cache.at<::tt::target::ttnn::TensorRef>(
@@ -2498,6 +2501,27 @@ createOp(FlatbufferObjectCache &cache, GenericOp op) {
         ttkernel::translateTopLevelKernelToCpp(moduleOp, stream, kernelSymbol);
     assert(result.succeeded());
     assert(source.size() > 0 && "empty kernel source");
+
+    // Dump kernel to file if requested
+    if (!kernelDumpDir.empty()) {
+      llvm::SmallString<256> dumpPath(kernelDumpDir);
+      std::error_code ec = llvm::sys::fs::create_directories(dumpPath);
+      if (ec) {
+        llvm::errs() << "Failed to create kernel dump directory " << dumpPath
+                     << ": " << ec.message() << "\n";
+      } else {
+        llvm::sys::path::append(dumpPath, kernelSymbol.str() + ".cpp");
+        std::error_code fileError;
+        llvm::raw_fd_ostream kernelFile(dumpPath, fileError);
+        if (fileError) {
+          llvm::errs() << "Failed to open kernel dump file " << dumpPath << ": "
+                       << fileError.message() << "\n";
+        } else {
+          kernelFile << source;
+          kernelFile.flush();
+        }
+      }
+    }
 
     ::tt::target::ttnn::KernelConfig configType =
         ::tt::target::ttnn::KernelConfig::NONE;
@@ -2706,7 +2730,8 @@ createOp(FlatbufferObjectCache &cache, LoadTensorOp op) {
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                   const llvm::StringMap<uint32_t> &programIndexMap,
-                  const std::string &debugString, const std::string &locInfo) {
+                  const std::string &debugString, const std::string &locInfo,
+                  const std::string &kernelDumpDir = "") {
   if (auto getDeviceOp = dyn_cast<GetDeviceOp>(op); getDeviceOp) {
     return createOperation(cache, createOp(cache, getDeviceOp), debugString,
                            locInfo);
@@ -3306,8 +3331,8 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                            debugString, locInfo);
   }
   if (auto genericOp = dyn_cast<GenericOp>(op); genericOp) {
-    return createOperation(cache, createOp(cache, genericOp), debugString,
-                           locInfo);
+    return createOperation(cache, createOp(cache, genericOp, kernelDumpDir),
+                           debugString, locInfo);
   }
   if (auto nlpConcatHeadsDecodeOp = dyn_cast<NLPConcatHeadsDecodeOp>(op);
       nlpConcatHeadsDecodeOp) {
@@ -3371,7 +3396,8 @@ std::shared_ptr<void> ttnnToFlatbuffer(
     const std::unordered_map<std::string,
                              std::unordered_map<std::uint32_t, GoldenTensor>>
         &goldenMap,
-    const std::vector<std::pair<std::string, std::string>> &moduleCache) {
+    const std::vector<std::pair<std::string, std::string>> &moduleCache,
+    const std::string &kernelDumpDir) {
   ModuleOp rootModule = dyn_cast<ModuleOp>(op);
   assert(rootModule && "Expected ModuleOp as top level operation");
 
@@ -3463,7 +3489,7 @@ std::shared_ptr<void> ttnnToFlatbuffer(
       Program<::tt::target::ttnn::Operation> program =
           funcOpToProgram<::tt::target::ttnn::Operation>(
               cache, func, emitTTNNOperation, tensorValueToFlatbuffer,
-              programIdxMap);
+              programIdxMap, kernelDumpDir);
 
       ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(func);
 
@@ -3514,8 +3540,10 @@ LogicalResult translateTTNNToFlatbuffer(
     const std::unordered_map<std::string,
                              std::unordered_map<std::uint32_t, GoldenTensor>>
         &goldenMap,
-    const std::vector<std::pair<std::string, std::string>> &moduleCache) {
-  std::shared_ptr<void> data = ttnnToFlatbuffer(op, goldenMap, moduleCache);
+    const std::vector<std::pair<std::string, std::string>> &moduleCache,
+    const std::string &kernelDumpDir) {
+  std::shared_ptr<void> data =
+      ttnnToFlatbuffer(op, goldenMap, moduleCache, kernelDumpDir);
   std::size_t size = ::flatbuffers::GetSizePrefixedBufferLength(
       static_cast<const uint8_t *>(data.get()));
   os.write(reinterpret_cast<const char *>(data.get()), size);

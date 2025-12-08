@@ -124,7 +124,9 @@ class JitFunction:
                 print("---- IR Dump after ttnn_to_ttmetal_pipeline ----")
                 print(ir)
             flatbuffer_bin = os.path.join(self.out_dir, self.func.__name__ + ".ttn")
-            ttnn_to_flatbuffer_file(ir, flatbuffer_bin, {}, [])
+            ttnn_to_flatbuffer_file(
+                ir, flatbuffer_bin, {}, [], kernel_dump_dir=self.out_dir
+            )
             return ir
 
         if self.cache:
