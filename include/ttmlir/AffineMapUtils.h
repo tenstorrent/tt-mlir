@@ -5,12 +5,14 @@
 #ifndef TTMLIR_AFFINEMAPUTILS_H
 #define TTMLIR_AFFINEMAPUTILS_H
 
+#include "ttmlir/Asserts.h"
+#include "ttmlir/Utils.h"
+
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
-#include "ttmlir/Asserts.h"
-#include "ttmlir/Utils.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
 #include <cstdint>
@@ -151,7 +153,8 @@ createIdentityGridInverseMap(mlir::MLIRContext *context) {
 // The index_map encodes virtual-to-physical coordinate mapping. The grid
 // portion (first gridRank results) may permute the grid dimensions. This
 // function extracts that permutation and computes its inverse for use in
-// the grid attribute.
+// the grid attribute.  Remark that we can only use this if the index_map
+// is a permutation or identity map.
 inline mlir::AffineMap
 createGridInverseMapFromIndexMap(mlir::AffineMap indexMap, unsigned gridRank,
                                  mlir::MLIRContext *context) {
@@ -171,23 +174,30 @@ createGridInverseMapFromIndexMap(mlir::AffineMap indexMap, unsigned gridRank,
   // Create a map with just the grid dimensions
   auto gridMap = mlir::AffineMap::get(gridRank, 0, gridResults, context);
 
-  // Get the inverse permutation
-  auto invGridMap = mlir::inversePermutation(gridMap);
+  // Check if the grid map is a permutation
+  if (gridMap.isPermutation()) {
+    // Get the inverse permutation
+    auto invGridMap = mlir::inversePermutation(gridMap);
 
-  // If inverse is null (not a valid permutation), fall back to identity
-  if (!invGridMap) {
-    return createIdentityGridInverseMap(context);
+    // If inverse is null (not a valid permutation), fall back to identity
+    if (!invGridMap) {
+      return createIdentityGridInverseMap(context);
+    }
+
+    // Build grid inverse map with device ID prefix: (d0, d1) -> (0, inv_y,
+    // inv_x)
+    mlir::AffineExpr zero = mlir::getAffineConstantExpr(0, context);
+    llvm::SmallVector<mlir::AffineExpr> invResults;
+    invResults.push_back(zero);
+    for (auto result : invGridMap.getResults()) {
+      invResults.push_back(result);
+    }
+
+    return mlir::AffineMap::get(gridRank, 0, invResults, context);
   }
 
-  // Build grid inverse map with device ID prefix: (d0, d1) -> (0, inv_y, inv_x)
-  mlir::AffineExpr zero = mlir::getAffineConstantExpr(0, context);
-  llvm::SmallVector<mlir::AffineExpr> invResults;
-  invResults.push_back(zero);
-  for (auto result : invGridMap.getResults()) {
-    invResults.push_back(result);
-  }
-
-  return mlir::AffineMap::get(gridRank, 0, invResults, context);
+  llvm_unreachable("Grid inverse map can only be created from a "
+                   "permutation or identity map");
 }
 
 /// Calculate a reblocking affine map from inputShape to outputShape.
