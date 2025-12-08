@@ -81,6 +81,8 @@ void memcpy(const ::tt::runtime::Tensor &dstHandle,
 
 void deallocateTensor(::tt::runtime::Tensor &tensorHandle, bool force = false);
 
+::tt::runtime::TensorDesc getTensorDesc(::tt::runtime::Tensor t);
+
 } // namespace tt::runtime::distributed
 
 #endif
