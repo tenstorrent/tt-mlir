@@ -50,14 +50,23 @@ getVirtualCoordsFromLogicalCoords(OpBuilder &rewriter, Location loc,
                                   ValueRange dstCoreIndex) {
   auto offset = chipDesc.getCoordTranslationOffsets();
 
-  return {rewriter
-              .create<arith::AddIOp>(dstCoreIndex[0].getLoc(), dstCoreIndex[0],
-                                     index(rewriter, loc, offset[0]))
-              .getResult(),
-          rewriter
-              .create<arith::AddIOp>(dstCoreIndex[1].getLoc(), dstCoreIndex[1],
-                                     index(rewriter, loc, offset[1]))
-              .getResult()};
+  auto offset0_calc = rewriter.create<arith::AddIOp>(dstCoreIndex[0].getLoc(), dstCoreIndex[0], index(rewriter, loc, offset[0]));
+  auto offset1_calc = rewriter.create<arith::AddIOp>(dstCoreIndex[1].getLoc(), dstCoreIndex[1], index(rewriter, loc, offset[1]));
+  
+  // hack to test coord translation issue
+  // insert condition of check if <= 7, we use normal offsets for BH, otherwise we use 2,3=(y,x) as offsets  
+  Value seven_cnst = rewriter.create<arith::ConstantOp>(dstCoreIndex[1].getLoc(), rewriter.getIndexType(), rewriter.getIntegerAttr(rewriter.getIndexType(), 7));
+  Value two_cnst = rewriter.create<arith::ConstantOp>(dstCoreIndex[1].getLoc(), rewriter.getIndexType(), rewriter.getIntegerAttr(rewriter.getIndexType(), 2));
+  auto predicate = rewriter.create<arith::CmpIOp>(dstCoreIndex[1].getLoc(), arith::CmpIPredicate::uge, dstCoreIndex[1], seven_cnst);
+  auto ifExpr = rewriter.create<scf::IfOp>(dstCoreIndex[1].getLoc(), dstCoreIndex[1].getType(), predicate,
+    true /*addThenBlock*/, true /*addElseBlock*/);
+  auto thenBuilder = ifExpr.getThenBodyBuilder();
+  auto add = thenBuilder.create<arith::AddIOp>(dstCoreIndex[1].getLoc(), offset1_calc->getResult(0), two_cnst);
+  thenBuilder.create<scf::YieldOp>(dstCoreIndex[1].getLoc(), add->getResult(0));
+  auto elseBuilder = ifExpr.getElseBodyBuilder();
+  elseBuilder.create<scf::YieldOp>(dstCoreIndex[1].getLoc(), offset1_calc->getResult(0));
+
+  return { offset0_calc.getResult(), ifExpr.getResult(0)};
 }
 
 static std::pair<Value, Value> getMcastEndCoords(PatternRewriter &rewriter,
@@ -1166,17 +1175,23 @@ public:
         // Get virtual start coordinates from DMA op logical coordinates
         auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
             rewriter, op.getLoc(), chipDesc, op.getMcastStartIndex());
-        // Get the multicast end coordinates from the virtual start coordinates
+        // Get the multicast end coordinates from the logical start coordinates
         // and mcast shape
+        auto startY = op.getMcastStartIndex()[0];
+        auto startX = op.getMcastStartIndex()[1];
         auto [mcastEndY, mcastEndX] = getMcastEndCoords(
-            rewriter, op.getLoc(), virtY, virtX, op.getMcastShape());
-        auto numDestsIdx = rewriter.create<arith::MulIOp>(
+          rewriter, op.getLoc(), startY, startX, op.getMcastShape());
+        // then convert to virtual
+        auto [virtMcastEndY, virtMcastEndX] = getVirtualCoordsFromLogicalCoords(
+          rewriter, op.getLoc(), chipDesc, {mcastEndY, mcastEndX});
+        
+          auto numDestsIdx = rewriter.create<arith::MulIOp>(
             op.getLoc(), op.getMcastShape()[0], op.getMcastShape()[1]);
         auto numDests = rewriter.create<arith::IndexCastOp>(
             op.getLoc(), rewriter.getI32Type(), numDestsIdx);
         auto mcastAddr =
             rewriter.create<ttkernel::ExperimentalGetNocMulticastAddrOp>(
-                op.getLoc(), virtX, virtY, mcastEndX, mcastEndY, dstL1Start,
+                op.getLoc(), virtX, virtY, virtMcastEndX, virtMcastEndY, dstL1Start,
                 nullptr);
         if (adaptor.getSrc() == adaptor.getDst()) {
           // If src and dst refer to the same memref, we do not loopback mcast
@@ -1184,11 +1199,13 @@ public:
           rewriter.create<ttkernel::NocAsyncWriteMulticastOp>(
               op.getLoc(), srcL1Start, mcastAddr, transferSize, numDests,
               nullptr, nullptr, nullptr);
+          //rewriter.create<ttkernel::NocAsyncWritesFlushedOp>(op.getLoc());
         } else {
           // If src != dst, we loopback mcast
           rewriter.create<ttkernel::NocAsyncWriteMulticastLoopbackSrcOp>(
               op.getLoc(), srcL1Start, mcastAddr, transferSize, numDests,
               nullptr, nullptr, nullptr);
+          //rewriter.create<ttkernel::NocAsyncWritesFlushedOp>(op.getLoc());
         }
       } else {
         // Local L1 to Local L1 local data movement lowering
@@ -1519,15 +1536,24 @@ public:
 
       auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
           rewriter, op.getLoc(), chipDesc, op.getDstCoreIndex());
+
+      // Get the multicast end coordinates from the logical start coordinates
+      // and mcast shape
+      auto startY = op.getDstCoreIndex()[0];
+      auto startX = op.getDstCoreIndex()[1];
       auto [mcastEndY, mcastEndX] = getMcastEndCoords(
-          rewriter, op.getLoc(), virtY, virtX, op.getMcastShape());
+        rewriter, op.getLoc(), startY, startX, op.getMcastShape());
+      // then convert to virtual
+      auto [virtMcastEndY, virtMcastEndX] = getVirtualCoordsFromLogicalCoords(
+        rewriter, op.getLoc(), chipDesc, {mcastEndY, mcastEndX});
+
       Value numDestsIdx = rewriter.create<arith::MulIOp>(
           op.getLoc(), op.getMcastShape()[0], op.getMcastShape()[1]);
       Value numDests = rewriter.create<arith::IndexCastOp>(
           op.getLoc(), rewriter.getI32Type(), numDestsIdx);
       auto mcastAddr =
           rewriter.create<ttkernel::ExperimentalGetNocMulticastAddrOp>(
-              op.getLoc(), virtX, virtY, mcastEndX, mcastEndY, semaphoreAddr,
+              op.getLoc(), virtX, virtY, virtMcastEndX, virtMcastEndY, semaphoreAddr,
               nullptr);
 
       auto semaphorePtr =
@@ -1536,6 +1562,7 @@ public:
                                                    value);
       rewriter.replaceOpWithNewOp<ttkernel::NocSemaphoreSetMulticastOp>(
           op, semaphoreAddr, mcastAddr, numDests, nullptr, nullptr);
+      //rewriter.create<ttkernel::NocAsyncWritesFlushedOp>(op.getLoc());
     }
 
     return success();

@@ -891,6 +891,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<
             ttkernel::NocAsyncReadOnePacketWithStateOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncReadBarrierOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncWritesFlushedOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteBarrierOp>,

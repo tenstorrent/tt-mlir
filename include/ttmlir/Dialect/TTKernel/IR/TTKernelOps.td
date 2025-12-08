@@ -2118,6 +2118,17 @@ def TTKernel_NocAsyncReadBarrierOp : TTKernel_Op<"noc_async_read_barrier", [TTKe
     }];
 }
 
+def TTKernel_NocAsyncWritesFlushedOp : TTKernel_Op<"noc_async_writes_flushed", [TTKernel_DeviceZoneOpTrait]> {
+    let summary = "NocAsyncWritesFlushed";
+    let description = [{
+      NocAsyncWritesFlushed
+    }];
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_NocAsyncWriteOp : TTKernel_Op<"noc_async_write"> {
     let summary = "NocAsyncWrite";
     let description = [{
