@@ -2645,7 +2645,9 @@ def ttir_arange_golden(
     step = unpack_mlir_attr(step)
     arange_dimension = unpack_mlir_attr(arange_dimension)
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
-    result = torch.arange(start=start, end=end, step=step, dtype=torch.float32)
+    result = torch.arange(start=start, end=end, step=step, dtype=torch.float32).to(
+        output_dtype
+    )
     if len(shape) == 2 and arange_dimension == 1:
         unsqueezed = torch.unsqueeze(result, dim=0)
         result = torch.cat([unsqueezed] * shape[0], dim=0)
