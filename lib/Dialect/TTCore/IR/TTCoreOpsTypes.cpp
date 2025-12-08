@@ -1153,6 +1153,86 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
              memorySpace, memoryLayout, indexAffineMap);
 }
 
+::mlir::LogicalResult MetalLayoutAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    ::llvm::ArrayRef<int64_t> logicalShape,
+    ::llvm::ArrayRef<int64_t> dimAlignments,
+    DenseIntElementsAttr collapsedIntervals, OOBVal oobVal,
+    MemorySpace memorySpace, TensorMemoryLayout memoryLayout,
+    ::mlir::AffineMap indexAffineMap) {
+
+  int64_t logicalRank = logicalShape.size();
+
+  // Logical shape must have at least 2 dimensions for tiling.
+  if (logicalRank < 2) {
+    return emitError() << "logical_shape must have at least 2 dimensions, got "
+                       << logicalRank;
+  }
+
+  // The dim_alignments rank must match logical_shape rank.
+  if (static_cast<int64_t>(dimAlignments.size()) != logicalRank) {
+    return emitError() << "dim_alignments size (" << dimAlignments.size()
+                       << ") must match logical_shape rank (" << logicalRank
+                       << ")";
+  }
+
+  // All alignments must be positive.
+  for (size_t i = 0; i < dimAlignments.size(); ++i) {
+    if (dimAlignments[i] <= 0) {
+      return emitError() << "dim_alignments[" << i << "] must be positive, got "
+                         << dimAlignments[i];
+    }
+  }
+
+  // The collapsed_intervals must be a 2D tensor with shape [N, 2].
+  auto intervalsType = collapsedIntervals.getType();
+  if (intervalsType.getRank() != 2) {
+    return emitError() << "collapsed_intervals must be a 2D array, got rank "
+                       << intervalsType.getRank();
+  }
+
+  if (intervalsType.getDimSize(1) != 2) {
+    return emitError()
+           << "collapsed_intervals must have pairs (second dim size 2), got "
+           << intervalsType.getDimSize(1);
+  }
+
+  // Validate each interval's bounds.
+  auto values = collapsedIntervals.getValues<int64_t>();
+  auto it = values.begin();
+  while (it != values.end()) {
+    const int64_t start = *it++;
+    const int64_t end = *it++;
+
+    // Normalize negative indices (Python-style).
+    const int64_t normalizedStart = start < 0 ? start + logicalRank : start;
+    const int64_t normalizedEnd = end < 0 ? end + logicalRank : end;
+
+    // Check bounds after normalization.
+    if (normalizedStart < 0 || normalizedStart >= logicalRank) {
+      return emitError() << "collapsed_intervals start index " << start
+                         << " (normalized: " << normalizedStart
+                         << ") is out of bounds for logical_shape rank "
+                         << logicalRank;
+    }
+
+    if (normalizedEnd < 0 || normalizedEnd > logicalRank) {
+      return emitError() << "collapsed_intervals end index " << end
+                         << " (normalized: " << normalizedEnd
+                         << ") is out of bounds for logical_shape rank "
+                         << logicalRank;
+    }
+
+    // Start must not exceed end (intervals are half-open [start, end)).
+    if (normalizedStart > normalizedEnd) {
+      return emitError() << "collapsed_intervals start (" << start
+                         << ") must not exceed end (" << end << ")";
+    }
+  }
+
+  return ::mlir::success();
+}
+
 // Get effective stride (use provided or calculate from shape)
 llvm::SmallVector<int64_t>
 MetalLayoutAttr::getShardStride(RankedTensorType tensorType) const {

@@ -5,6 +5,7 @@
 #include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"
 
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
@@ -172,13 +173,13 @@ public:
         mlir::cast<ttnn::TTNNLayoutAttr>(op.getType().getEncoding());
     bool isOnDevice =
         ttnnLayoutAttr.getBufferType() != ttnn::BufferType::SystemMemory;
-    ttnn::GetDeviceOp deviceOp;
+    mlir::Value device;
     if (isOnDevice) {
-      deviceOp = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+      device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
     }
     rewriter.replaceOpWithNewOp<ttnn::FullOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getFillValue(), deviceOp);
+        adaptor.getFillValue(), device);
 
     return success();
   }
@@ -531,25 +532,85 @@ public:
 namespace {
 class PowOpConversionPattern : public OpConversionPattern<ttir::PowOp> {
 private:
+  // Helper function to extract a constant fill value from a FullOp.
+  template <typename FullOpTy>
+  static mlir::Attribute getConstantAttrFromFullOp(mlir::Operation *op) {
+    if (auto fullOp = mlir::dyn_cast_if_present<FullOpTy>(op)) {
+      mlir::Attribute fillValueAttr = fullOp.getFillValueAttr();
+      if (isa<FloatAttr, IntegerAttr>(fillValueAttr)) {
+        return fillValueAttr;
+      }
+    }
+    return {};
+  }
+
+  // Helper function to skip TTNN and TTIR reshape and typecast ops.
+  static mlir::Value skipReshapeTypecastLayoutOps(mlir::Value value) {
+    mlir::Operation *op = value.getDefiningOp();
+    while (mlir::isa_and_present<
+           mlir::tt::ttnn::ReshapeOp, mlir::tt::ttnn::TypecastOp,
+           mlir::tt::ttnn::ToLayoutOp, mlir::tt::ttir::ReshapeOp,
+           mlir::tt::ttir::TypecastOp, mlir::tt::ttir::ToLayoutOp>(op)) {
+      value = op->getOperand(0);
+      op = value.getDefiningOp();
+    }
+
+    return value;
+  }
+
+  // Helper function to trace back through const-eval function.
+  static mlir::Value getDefiningOpThroughConstEval(mlir::Value value) {
+    auto loadCachedOp =
+        mlir::dyn_cast_if_present<ttcore::LoadCachedOp>(value.getDefiningOp());
+
+    if (!loadCachedOp) {
+      return value;
+    }
+
+    size_t valueIndex =
+        std::distance(loadCachedOp.getResults().begin(),
+                      llvm::find(loadCachedOp.getResults(), value));
+
+    if (valueIndex >= loadCachedOp.getNumResults()) {
+      return value;
+    }
+
+    auto callee = loadCachedOp.getCallee();
+    auto calleeFunc = mlir::dyn_cast<func::FuncOp>(
+        loadCachedOp->getParentOfType<mlir::ModuleOp>().lookupSymbol(callee));
+    if (!calleeFunc) {
+      return value;
+    }
+
+    auto *terminatorOp = calleeFunc.getBody().back().getTerminator();
+    auto returnOp = mlir::dyn_cast<func::ReturnOp>(terminatorOp);
+    assert(returnOp && "Expected function to have a return op");
+
+    auto returnValue = returnOp.getOperand(valueIndex);
+
+    // Skip layout ops that may be present between the ReturnOp and the FullOp.
+    returnValue = skipReshapeTypecastLayoutOps(returnValue);
+
+    return returnValue;
+  }
+
   // Helper function to extract constant value.
   static mlir::Attribute getConstantAttr(mlir::Value value) {
+    // Skip layout ops that may be present between the PowOp and the FullOp.
+    value = skipReshapeTypecastLayoutOps(value);
+
+    // If the value is received through const-eval, we need to trace it back.
+    value = getDefiningOpThroughConstEval(value);
+
     mlir::Operation *op = value.getDefiningOp();
-    while (mlir::isa_and_present<mlir::tt::ttnn::ReshapeOp,
-                                 mlir::tt::ttnn::TypecastOp>(op)) {
-      op = op->getOperand(0).getDefiningOp();
+    if (auto attr = getConstantAttrFromFullOp<mlir::tt::ttir::FullOp>(op)) {
+      return attr;
+    }
+    if (auto attr = getConstantAttrFromFullOp<mlir::tt::ttnn::FullOp>(op)) {
+      return attr;
     }
 
-    auto fullOp = mlir::dyn_cast_if_present<mlir::tt::ttnn::FullOp>(op);
-    if (!fullOp) {
-      return {};
-    }
-
-    mlir::Attribute fillValueAttr = fullOp.getFillValueAttr();
-
-    if (!isa<FloatAttr, IntegerAttr>(fillValueAttr)) {
-      return {};
-    }
-    return fillValueAttr;
+    return {};
   }
 
 public:
@@ -1335,34 +1396,12 @@ public:
           rewriter, op.getLoc());
     }
 
-    // Convert input to ROW_MAJOR layout (required by TTNN Conv3d API)
-    auto inputLayoutAttr =
-        mlir::cast<ttnn::TTNNLayoutAttr>(inputTy.getEncoding());
-    auto rowMajorLayoutAttr =
-        ttnn::LayoutAttr::get(op.getContext(), ttnn::Layout::RowMajor);
-    RankedTensorType rowMajorInputType =
-        ttnn::utils::RankedTensorTypeFactory::create(inputTy,
-                                                     ttnn::Layout::RowMajor);
-
-    ttnn::BufferTypeAttr inputBufferTypeAttr = ttnn::BufferTypeAttr::get(
-        op.getContext(), inputLayoutAttr.getBufferType());
-    ttnn::MemoryConfigAttr inputMemoryConfigAttr = ttnn::MemoryConfigAttr::get(
-        op.getContext(), inputLayoutAttr.getMemLayout(), inputBufferTypeAttr,
-        std::nullopt);
-    auto inputDtype =
-        rewriter.getAttr<ttcore::DataTypeAttr>(inputLayoutAttr.getDataType());
-
-    Value rowMajorInput = rewriter.create<ttnn::ToLayoutOp>(
-        op.getLoc(), rowMajorInputType, adaptor.getInput(), rowMajorLayoutAttr,
-        inputDtype, inputMemoryConfigAttr);
-
-    // Create TTNN Conv3dOp with ROW_MAJOR input and TILE weight/bias
     rewriter.replaceOpWithNewOp<ttnn::Conv3dOp>(
         op, getTypeConverter()->convertType(op.getResult().getType()),
-        rowMajorInput, reshapedWeight, reshapedBias, device, inChannelsAttr,
-        outChannelsAttr, batchSizeAttr, inputDepthAttr, inputHeightAttr,
-        inputWidthAttr, kernelSizeAttr, *strideAttr, *paddingAttr,
-        paddingModeAttr, groupsAttr, outputDtypeAttr,
+        adaptor.getInput(), reshapedWeight, reshapedBias, device,
+        inChannelsAttr, outChannelsAttr, batchSizeAttr, inputDepthAttr,
+        inputHeightAttr, inputWidthAttr, kernelSizeAttr, *strideAttr,
+        *paddingAttr, paddingModeAttr, groupsAttr, outputDtypeAttr,
         /*conv3d_config=*/nullptr, /*compute_config=*/nullptr);
 
     return success();

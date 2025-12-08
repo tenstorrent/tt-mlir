@@ -16,6 +16,8 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/conv/conv_transpose2d.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/conv/prepare_conv2d_weights.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/conv/prepare_conv2d_bias.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/conv/prepare_conv_transpose2d_weights.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/conv/prepare_conv_transpose2d_bias.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/conv/conv3d.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/cpu/cpu.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/arange.cpp

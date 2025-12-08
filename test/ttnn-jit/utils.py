@@ -60,6 +60,19 @@ def create_dram_tensor(
     )
 
 
+def get_block_sharding_grid(shape):
+    """Infer a TTNN grid/end coord for block sharding the given logical tensor shape"""
+    assert len(shape) == 2, f"Only 2D shapes are supported"
+    tile_shape = [shape[0] // 32, shape[1] // 32]
+    grid = []
+    for dim in tile_shape:
+        for grid_dim in reversed(range(8)):
+            if dim % (grid_dim + 1) == 0:
+                grid.append(grid_dim)
+                break
+    return list(reversed(grid))
+
+
 def get_shard_shape(collapsed_shape, max_grid, memory_layout):
     h, w = collapsed_shape
     # IMPORTANT: TTNN grids are (Width, Height), while tensor shapes are (Height, Width).
@@ -198,7 +211,6 @@ def run_op_test(
             create_dram_tensor(device, shape, dtype, ttnn_dtype=ttnn_dtype)
             for _ in range(num_inputs)
         ]
-    print("created inputs:", inputs)
     golden_op = _get_ttnn_op(op)
 
     op_jit = ttnn_jit.jit(
@@ -209,6 +221,7 @@ def run_op_test(
     output_tensor = op_jit(*inputs)
     golden_tensor = (golden_op or op)(*inputs)
 
+    print("created inputs:\n", inputs)
     assert memory_configs_equal(
         output_tensor.memory_config(), golden_tensor.memory_config()
     )
