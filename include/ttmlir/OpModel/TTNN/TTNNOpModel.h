@@ -1533,11 +1533,13 @@ struct OpModel<EmbeddingOp> {
   static llvm::Expected<OpConstraints> getOpConstraints(
       ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
       TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> weightShape,
-      TTNNLayoutAttr weightLayout, TTNNLayoutAttr outputLayout);
+      TTNNLayoutAttr weightLayout, llvm::ArrayRef<int64_t> outputShape,
+      TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
                llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
+               llvm::ArrayRef<int64_t> outputShape,
                TTNNLayoutAttr outputLayout);
 };
 

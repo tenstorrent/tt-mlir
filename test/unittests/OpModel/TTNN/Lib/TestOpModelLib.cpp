@@ -3629,7 +3629,7 @@ protected:
 
     auto constraintsExp = OpModel<EmbeddingOp>::getOpConstraints(
         CreateWorkerGrid(), inputShape, inputTiledLayout, weightShape,
-        weightTiledLayout, outputTiledLayout);
+        weightTiledLayout, outputShape, outputTiledLayout);
 
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {
@@ -3647,7 +3647,7 @@ protected:
     // Test runtime using the interface directly
     auto runtimeExp = OpModel<EmbeddingOp>::getOpRuntime(
         inputShape, inputTiledLayout, weightShape, weightTiledLayout,
-        outputTiledLayout);
+        outputShape, outputTiledLayout);
     EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
     if (expectedLegal) {
       EXPECT_GT(runtimeExp.get(), 0);
