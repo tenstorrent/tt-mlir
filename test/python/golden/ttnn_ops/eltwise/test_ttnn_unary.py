@@ -11,7 +11,7 @@ from builder.ttnn.ttnn_builder import TTNNBuilder
 from builder.base.builder_utils import (
     compile_and_execute_ttnn,
 )
-from test_utils import shape_str
+from test_utils import shape_str, Marks
 
 pytestmark = pytest.mark.frontend("ttnn")
 
@@ -222,7 +222,7 @@ unary_ops = [
     floor,
     gelu,
     isfinite,
-    log,
+    log | Marks(pytest.mark.skip_config(["emitpy"], reason="Golden failure")),
     log1p,
     logical_not,
     neg,

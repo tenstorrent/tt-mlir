@@ -218,6 +218,7 @@ def test_matmul(
     )
 
 
+@pytest.mark.skip_config(["emitpy"], reason="type mismatch")
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -227,9 +228,7 @@ def test_matmul(
     ids=shapes_list_str,
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
-@pytest.mark.parametrize(
-    "target", ["ttnn", "emitpy" | Marks(pytest.mark.xfail(reason="type mismatch"))]
-)
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 def test_linear(
     shapes: List[Shape],
     dtype: torch.dtype,

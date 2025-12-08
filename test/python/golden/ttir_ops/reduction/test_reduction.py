@@ -17,11 +17,13 @@ pytestmark = pytest.mark.frontend("ttir")
 
 
 reduction_op_names = [
-    "argmax",
+    "argmax"
+    | Marks(pytest.mark.skip_config(["emitpy"], reason="Golden failure for emitpy")),
     "max",
     "mean",
     "min",
-    "prod",
+    "prod"
+    | Marks(pytest.mark.skip_config(["emitpy"], reason="Golden failure for emitpy")),
     "reduce_and" | Marks(pytest.mark.skip(reason="Builder test not supported #5792")),
     "reduce_or" | Marks(pytest.mark.skip(reason="Builder test not supported #5792")),
     "sum",
@@ -48,7 +50,7 @@ dim_arg_options = [
 @pytest.mark.parametrize("reduction_op_name", reduction_op_names)
 @pytest.mark.parametrize(
     "target",
-    ["ttnn", "emitpy" | Marks(pytest.mark.xfail(reason="Golden failure")), "emitc"],
+    ["ttnn", "emitpy", "emitc"],
 )
 def test_reduction_ops(
     shapes,
