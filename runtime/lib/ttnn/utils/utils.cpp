@@ -73,15 +73,24 @@ bool isSharded(
              ::tt::target::ttnn::TensorMemoryLayout::BlockSharded;
 }
 
-// TODO (jnie): Add support for fp32, currently there's some precision loss
-// which causes some FE tests to fail.
-// Tracking here: https://github.com/tenstorrent/tt-metal/issues/21023
 bool canTilizeDataTypeOnDevice(const ::ttnn::DataType &dataType) {
-  return dataType == ::ttnn::DataType::BFLOAT16;
+  // tt-metal tilize supports: bfloat16, float32, uint32, int32, uint16
+  // See: ttnn/operations/data_movement/tilize/device/tilize_op.cpp
+  return dataType == ::ttnn::DataType::BFLOAT16 ||
+         dataType == ::ttnn::DataType::FLOAT32 ||
+         dataType == ::ttnn::DataType::UINT32 ||
+         dataType == ::ttnn::DataType::UINT16 ||
+         dataType == ::ttnn::DataType::INT32;
 }
 
 bool canUntilizeDataTypeOnDevice(const ::ttnn::DataType &dataType) {
-  return dataType == ::ttnn::DataType::BFLOAT16;
+  // tt-metal untilize supports: bfloat16, float32, uint32, int32
+  // (requires use_pack_untilize for uint32/int32)
+  // See: ttnn/operations/data_movement/untilize/device/untilize_op.cpp
+  return dataType == ::ttnn::DataType::BFLOAT16 ||
+         dataType == ::ttnn::DataType::FLOAT32 ||
+         dataType == ::ttnn::DataType::UINT32 ||
+         dataType == ::ttnn::DataType::INT32;
 }
 
 const ::tt::target::ttnn::TTNNBinary *
