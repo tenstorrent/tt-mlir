@@ -13,6 +13,8 @@ if (NOT DEFINED ENV{TTMLIR_ENV_ACTIVATED})
   message(FATAL_ERROR "tt-mlir environment not activated. Please run 'source env/activate'.")
 endif()
 
+set(NB_USE_SUBMODULE_DEPS ON CACHE BOOL "Use nanobind bundled dependencies")
+
 option(TT_RUNTIME_ENABLE_PERF_TRACE "Enable performance mode" OFF)
 option(TTMLIR_ENABLE_RUNTIME "Enable runtime" OFF)
 option(TTMLIR_ENABLE_PYKERNEL "Enable python kernels" OFF)
