@@ -542,6 +542,8 @@ executeMeshDeviceProgram(distributed::MeshDevice *meshDevice,
     std::string zoneName =
         "executeCommandQueue_mcq_" + std::to_string(cq->queue_id());
     ZoneName(zoneName.c_str(), zoneName.size());
+    perf::Env::get().tracyLogProgramMetadata(
+        perf::Env::get().tracyProgramMetadata);
 
     executor.execute(cq);
 
