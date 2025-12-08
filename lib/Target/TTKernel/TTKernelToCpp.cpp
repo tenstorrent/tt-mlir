@@ -53,6 +53,9 @@ public:
     if (threadType == ThreadType::Compute) {
       builder->create<emitc::IncludeOp>(loc, "llk_defs.h",
                                         /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc,
+                                        "compute_kernel_api/binary_max_min.h",
+                                        /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/common.h",
                                         /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/matmul.h",

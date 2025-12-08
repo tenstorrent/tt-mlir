@@ -82,9 +82,13 @@ else ()
         _src/utils.py
         _src/dispatch_op.py
         _src/ir_generator.py
+        _src/levelized_graph.py
         _src/graph_trace_compiler.py
         _src/tensor_translator.py
         _src/supported_ops.py
+        _src/conversions.py
+        _src/op_registry.py
+        _src/return_modifier.py
   )
 
   add_mlir_python_modules(TTNNJITModules

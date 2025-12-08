@@ -272,6 +272,13 @@ struct TTIRToTTNNBackendPipelineOptions
       llvm::cl::desc("Enable Conv2dWithMultiply pattern in the fusing pass."),
       llvm::cl::init(false)};
 
+  // Enable fusing of permute + matmul/linear pattern.
+  Option<bool> enablePermuteMatmulFusion{
+      *this, "enable-permute-matmul-fusion",
+      llvm::cl::desc(
+          "Fuse permute ops into matmul/linear transpose attributes."),
+      llvm::cl::init(true)};
+
   Option<ttcore::TTArgumentTypeMap, ttcore::ArgumentTypeMapParser>
       argumentTypeMap{
           *this, ttcore::OptionNames::argumentTypes,
