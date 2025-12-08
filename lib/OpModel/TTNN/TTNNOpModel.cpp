@@ -630,6 +630,8 @@ llvm::Expected<::ttnn::TensorSpec> getPrepareConv2dWeightsOpOutputTensorSpec(
         hasBias, groups, device, *inputDtype, outputDtype,
         conv2dConfigConverted,
         /* compute_config_ */ std::nullopt,
+        /* dram_slice_config_ */
+        std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>{},
         /* mirror_kernel */ true);
   };
 
@@ -728,7 +730,9 @@ getPrepareConv2dBiasOpOutputTensorSpec(
             padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         groups, device, *inputDtype, outputDtype, conv2dConfigConverted,
-        /*compute_config_=*/std::nullopt);
+        /*compute_config_=*/std::nullopt,
+        /* dram_slice_config_ */
+        std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>{});
   };
 
   auto output =
@@ -5370,6 +5374,7 @@ OpModel<PrepareConvTranspose2dWeightsOp>::getOpConstraints(
         hasBias, groups, device, conversion::getDataType(inputDtype),
         convertedOutputDtype, conversion::getConv2dConfig(conv2dConfig),
         conversion::getDeviceComputeKernelConfig(deviceComputeKernelConfig),
+        std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>{},
         mirrorKernel);
   };
 
@@ -5428,7 +5433,8 @@ OpModel<PrepareConvTranspose2dBiasOp>::getOpConstraints(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         groups, device, conversion::getDataType(inputDtype),
         convertedOutputDtype, conversion::getConv2dConfig(conv2dConfig),
-        conversion::getDeviceComputeKernelConfig(deviceComputeKernelConfig));
+        conversion::getDeviceComputeKernelConfig(deviceComputeKernelConfig),
+        std::optional<::ttnn::operations::conv::conv2d::Conv2dSliceConfig>{});
   };
 
   return operation::getOpConstraints(biasLayout.getContext(), deviceGrid,
