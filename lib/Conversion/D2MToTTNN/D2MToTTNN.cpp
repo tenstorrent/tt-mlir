@@ -39,7 +39,7 @@ convertMathFidelity(ttmetal::MathFidelity fidelity) {
   case ttmetal::MathFidelity::HiFi4:
     return ttnn::ComputeKernelMathFidelity::HiFi4;
   }
-  llvm_unreachable("Unknown MathFidelity");
+  llvm_unreachable("Invalid MathFidelity");
 }
 
 class D2MGenericRewriter : public OpConversionPattern<d2m::GenericOp> {

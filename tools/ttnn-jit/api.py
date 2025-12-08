@@ -13,7 +13,7 @@ def jit(
     debug: bool = False,
     enable_cache: bool = False,
     graph_capture: bool = True,
-    math_fidelity: Literal["LoFi", "HiFi2", "HiFi3", "HiFi4"] = "HiFi2",
+    math_fidelity: Literal["LoFi", "HiFi2", "HiFi3", "HiFi4"] = "HiFi4",
 ):
     """
     Sets up the decorated function to be JIT compiled through D2M.

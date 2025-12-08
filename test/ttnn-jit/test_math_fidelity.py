@@ -23,10 +23,26 @@ def abs(input_tensor):
 
 @pytest.mark.parametrize(
     "math_fidelity",
-    ["LoFi", "HiFi2", "HiFi3", "HiFi4"],
-    ids=["LoFi", "HiFi2", "HiFi3", "HiFi4"],
+    ["LoFi", "HiFi2", "HiFi3", "HiFi4", "default", "invalid"],
+    ids=["LoFi", "HiFi2", "HiFi3", "HiFi4", "default", "invalid"],
 )
 def test_math_fidelity(device, math_fidelity):
+    if math_fidelity == "invalid":
+        pytest.xfail("Invalid math fidelity raises runtime error.")
+
+    if math_fidelity == "default":
+        run_op_test(
+            device,
+            (128, 128),
+            max_grid=(0, 0),
+            dtype=torch.bfloat16,
+            op=abs,
+            num_inputs=1,
+            buffer_type=ttnn.BufferType.L1,
+            memory_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED,
+        )
+        return
+
     run_op_test(
         device,
         (128, 128),
