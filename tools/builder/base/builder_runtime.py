@@ -14,80 +14,10 @@ from typing import Callable, List, Optional, Tuple, Union, Literal, Dict
 from collections import OrderedDict
 import json
 from functools import partial
-import importlib
 
 from builder.base.builder import *
 
 import _ttmlir_runtime as tt_runtime
-import importlib.util
-import ctypes
-
-
-def setup_ttnn_environment():
-    """
-    Set up environment and pre-load libraries for ttnn without importing ttrt.
-    Returns True if setup succeeded, False otherwise.
-    """
-    package_name = "ttrt"
-    spec = importlib.util.find_spec(package_name)
-    if spec is None or spec.origin is None:
-        return False
-
-    package_path = os.path.dirname(spec.origin)
-    tt_metal_home = f"{package_path}/runtime"
-
-    # Set environment variables that ttnn needs
-    os.environ["TT_METAL_RUNTIME_ROOT_EXTERNAL"] = os.environ.get(
-        "TT_METAL_RUNTIME_ROOT", ""
-    )
-    os.environ["TT_METAL_RUNTIME_ROOT"] = tt_metal_home
-    os.environ["TT_METAL_HOME"] = tt_metal_home
-
-    # Pre-load shared libraries with RTLD_GLOBAL so they're available to ttnn
-    # This is necessary because LD_LIBRARY_PATH changes after process start don't work
-    runtime_libs = [
-        "libtt_stl.so",
-        "libtracy.so.0.10.0",
-        "libdevice.so",
-        "libtt_metal.so",
-        "_ttnncpp.so",
-    ]
-
-    for lib in runtime_libs:
-        lib_path = os.path.join(tt_metal_home, lib)
-        if os.path.exists(lib_path):
-            try:
-                # Load with RTLD_GLOBAL so symbols are available to subsequently loaded libraries
-                ctypes.CDLL(lib_path, mode=ctypes.RTLD_GLOBAL)
-            except OSError as e:
-                print(f"Warning: Failed to preload {lib}: {e}")
-                # Continue anyway, maybe it will work
-
-    # Add ttnn to sys.path
-    ttnn_path = f"{tt_metal_home}/ttnn"
-    if ttnn_path not in sys.path:
-        sys.path.append(ttnn_path)
-
-    return True
-
-
-def get_ttrt_metal_home_path():
-    package_name = "ttrt"
-    spec = importlib.util.find_spec(package_name)
-    if spec is None or spec.origin is None:
-        return None
-    package_path = os.path.dirname(spec.origin)
-    tt_metal_home = f"{package_path}/runtime"
-    return tt_metal_home
-
-
-def setup_ttnn_path():
-    """Add ttnn to sys.path if not already present and ttrt is available."""
-    ttrt_home = get_ttrt_metal_home_path()
-    if ttrt_home is not None:
-        ttnn_path = f"{ttrt_home}/ttnn"
-        if ttnn_path not in sys.path:
-            sys.path.append(ttnn_path)
 
 
 class TTBuilderCompileException(Exception):
@@ -778,10 +708,8 @@ def execute_emitted_py(
     check_atol: bool = False,
     check_rtol: bool = False,
 ):
-    # Set up ttnn environment before loading the emitpy module
-    # The emitpy-generated Python file has "import ttnn" which needs this setup
-    if not setup_ttnn_environment():
-        print("Warning: Could not set up ttnn environment, execution may fail")
+    import importlib.util
+    import ttnn
 
     print(f"------executing emitpy API")
 
@@ -877,19 +805,12 @@ def execute_emitted_py(
                 continue
 
         # Convert program outputs to torch tensors
-        # Need to import ttnn here since the setup was already done
-        try:
-            import ttnn
-
-            output_tensors_torch = []
-            for i, output in enumerate(outputs):
-                # Transfer from device to host and convert to torch
-                output_host = ttnn.from_device(output)
-                output_torch = output_host.to_torch()
-                output_tensors_torch.append(output_torch)
-        except ImportError:
-            print("Warning: ttnn not available, skipping golden checking")
-            return {}
+        output_tensors_torch = []
+        for i, output in enumerate(outputs):
+            # Transfer from device to host and convert to torch
+            output_host = ttnn.from_device(output)
+            output_torch = output_host.to_torch()
+            output_tensors_torch.append(output_torch)
 
         # Check golden outputs using common function
         program_golden_report = check_golden_outputs(
