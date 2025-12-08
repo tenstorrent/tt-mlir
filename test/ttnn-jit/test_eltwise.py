@@ -60,15 +60,15 @@ WIDTH_SHARDED_SHAPE_GRIDS = [
 
 SHARDED_SHAPE_GRID_LAYOUTS = (
     [
-        (shape, grid, ttnn.TensorMemoryLayout.BLOCK_SHARDED)
+        (shape, grid, ttnn.ShardStrategy.BLOCK)
         for shape, grid in BLOCK_SHARDED_SHAPE_GRIDS
     ]
     + [
-        (shape, grid, ttnn.TensorMemoryLayout.HEIGHT_SHARDED)
+        (shape, grid, ttnn.ShardStrategy.HEIGHT)
         for shape, grid in HEIGHT_SHARDED_SHAPE_GRIDS
     ]
     + [
-        (shape, grid, ttnn.TensorMemoryLayout.WIDTH_SHARDED)
+        (shape, grid, ttnn.ShardStrategy.WIDTH)
         for shape, grid in WIDTH_SHARDED_SHAPE_GRIDS
     ]
 )
@@ -76,17 +76,17 @@ _MINIMAL_SHARDED_SHAPE_GRID_LAYOUTS = [
     (
         BLOCK_SHARDED_SHAPE_GRIDS[-1][0],
         BLOCK_SHARDED_SHAPE_GRIDS[-1][1],
-        ttnn.TensorMemoryLayout.BLOCK_SHARDED,
+        ttnn.ShardStrategy.BLOCK,
     ),
     (
         HEIGHT_SHARDED_SHAPE_GRIDS[-1][0],
         HEIGHT_SHARDED_SHAPE_GRIDS[-1][1],
-        ttnn.TensorMemoryLayout.HEIGHT_SHARDED,
+        ttnn.ShardStrategy.HEIGHT,
     ),
     (
         WIDTH_SHARDED_SHAPE_GRIDS[-1][0],
         WIDTH_SHARDED_SHAPE_GRIDS[-1][1],
-        ttnn.TensorMemoryLayout.WIDTH_SHARDED,
+        ttnn.ShardStrategy.WIDTH,
     ),
 ]
 
@@ -251,11 +251,11 @@ def test_unary_op_dram(device, shape, dtype, ttnn_dtype, op, graph_capture):
 
 
 @pytest.mark.parametrize(
-    "shape, max_grid, memory_layout",
+    "shape, max_grid, shard_strategy",
     SHARDED_SHAPE_GRID_LAYOUTS,
     ids=[
-        f"shape_{shape}_grid_{grid}_{layout}"
-        for shape, grid, layout in SHARDED_SHAPE_GRID_LAYOUTS
+        f"shape_{shape}_grid_{grid}_{shard_strategy}"
+        for shape, grid, shard_strategy in SHARDED_SHAPE_GRID_LAYOUTS
     ],
 )
 @pytest.mark.parametrize(
@@ -289,7 +289,7 @@ def test_unary_op_dram(device, shape, dtype, ttnn_dtype, op, graph_capture):
 )
 @pytest.mark.parametrize("graph_capture", [True, False])
 def test_unary_op_l1(
-    device, shape, max_grid, memory_layout, dtype, ttnn_dtype, op, graph_capture
+    device, shape, max_grid, shard_strategy, dtype, ttnn_dtype, op, graph_capture
 ):
     if op in [log, ceil, floor, rsqrt, logical_not] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes for float32")
@@ -303,17 +303,17 @@ def test_unary_op_l1(
         num_inputs=1,
         buffer_type=ttnn.BufferType.L1,
         graph_capture=graph_capture,
-        memory_layout=memory_layout,
+        shard_strategy=shard_strategy,
         ttnn_dtype=ttnn_dtype,
     )
 
 
 @pytest.mark.parametrize(
-    "shape, max_grid, memory_layout",
+    "shape, max_grid, shard_strategy",
     _MINIMAL_SHARDED_SHAPE_GRID_LAYOUTS,
     ids=[
-        f"shape_{shape}_grid_{grid}_{layout.name}"
-        for shape, grid, layout in _MINIMAL_SHARDED_SHAPE_GRID_LAYOUTS
+        f"shape_{shape}_grid_{grid}_{shard_strategy.name}"
+        for shape, grid, shard_strategy in _MINIMAL_SHARDED_SHAPE_GRID_LAYOUTS
     ],
 )
 @pytest.mark.parametrize(
@@ -337,7 +337,7 @@ def test_unary_op_l1(
 )
 @pytest.mark.parametrize("graph_capture", [True, False])
 def test_unary_op_l1_minimal(
-    device, shape, max_grid, memory_layout, dtype, ttnn_dtype, op, graph_capture
+    device, shape, max_grid, shard_strategy, dtype, ttnn_dtype, op, graph_capture
 ):
     run_op_test(
         device,
@@ -348,7 +348,7 @@ def test_unary_op_l1_minimal(
         num_inputs=1,
         buffer_type=ttnn.BufferType.L1,
         graph_capture=graph_capture,
-        memory_layout=memory_layout,
+        shard_strategy=shard_strategy,
         ttnn_dtype=ttnn_dtype,
     )
 
@@ -381,11 +381,11 @@ def test_bitwise_unary_op_dram(device, shape, dtype, op, graph_capture):
 
 
 @pytest.mark.parametrize(
-    "shape, max_grid, memory_layout",
+    "shape, max_grid, shard_strategy",
     SHARDED_SHAPE_GRID_LAYOUTS,
     ids=[
-        f"shape_{shape}_grid_{grid}_{layout}"
-        for shape, grid, layout in SHARDED_SHAPE_GRID_LAYOUTS
+        f"shape_{shape}_grid_{grid}_{shard_strategy}"
+        for shape, grid, shard_strategy in SHARDED_SHAPE_GRID_LAYOUTS
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
@@ -397,7 +397,7 @@ def test_bitwise_unary_op_dram(device, shape, dtype, op, graph_capture):
 )
 @pytest.mark.parametrize("graph_capture", [True, False])
 def test_bitwise_unary_op_l1(
-    device, shape, max_grid, memory_layout, dtype, op, graph_capture
+    device, shape, max_grid, shard_strategy, dtype, op, graph_capture
 ):
     run_op_test(
         device,
@@ -408,7 +408,7 @@ def test_bitwise_unary_op_l1(
         num_inputs=1,
         buffer_type=ttnn.BufferType.L1,
         graph_capture=graph_capture,
-        memory_layout=memory_layout,
+        shard_strategy=shard_strategy,
     )
 
 
