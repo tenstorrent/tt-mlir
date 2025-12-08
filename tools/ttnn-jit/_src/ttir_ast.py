@@ -10,7 +10,6 @@ from ttmlir.dialects import (
     ttir,
     func,
     ttnn,
-    tensor,
     ttcore,
 )
 

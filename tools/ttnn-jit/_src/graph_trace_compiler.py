@@ -20,17 +20,19 @@ from ttmlir.ir import *
 from ttmlir.dialects import ttnn, func, ttcore
 from typing import Dict, List, Any, Optional, Tuple
 import ttnn_jit._src.supported_ops as supported_ops
-from ttnn._ttnn.graph import extract_levelized_graph
-from .tensor_translator import _get_collapsed_linear_affine_map, create_tensor_layout
-from .levelized_graph import LevelizedGraph, LevelizedGraphVertex
-from .op_registry import get_registry
-from .conversions import (
+from ttnn_jit._src.tensor_translator import (
+    _get_collapsed_linear_affine_map,
+    create_tensor_layout,
+)
+from ttnn_jit._src.levelized_graph import LevelizedGraph, LevelizedGraphVertex
+from ttnn_jit._src.op_registry import get_registry
+from ttnn_jit._src.conversions import (
     mlir_dtype_from_ttnn_dtype,
-    ttcore_dtype_from_ttnn_dtype,
     ttcore_dtype_from_mlir_dtype,
     buffer_type_from_string,
     memory_layout_from_string,
 )
+from ttnn._ttnn.graph import extract_levelized_graph
 
 
 class GraphToIRTranslator:
@@ -532,7 +534,7 @@ class GraphToIRTranslator:
         operands: List,
         device,
         vertex: LevelizedGraphVertex,
-    ):
+    ) -> OpResult:
         """
         Create a TTNN MLIR operation using the operation registry.
 
@@ -584,7 +586,7 @@ class GraphToIRTranslator:
 
         return result
 
-    def _create_constant_tensor(self, value: float, result_type, device):
+    def _create_constant_tensor(self, value: float, result_type, device) -> OpResult:
         """Create a constant tensor with the given value."""
         with Location.unknown(self.ctx):
             shape = list(result_type.shape)
@@ -658,7 +660,7 @@ class GraphToIRTranslator:
 
         return self.module
 
-    def _create_device(self):
+    def _create_device(self) -> OpResult:
         """
         Create a device handle for TTNN operations.
 
@@ -678,7 +680,7 @@ class GraphToIRTranslator:
         tensor_vertices: List[Tuple[LevelizedGraphVertex, int]],
         input_types: List,
         output_types: List,
-    ):
+    ) -> None:
         """Build the function body from the levelized graph."""
         with InsertionPoint(func_bb):
             # Create device handle
