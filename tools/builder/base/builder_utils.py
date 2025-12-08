@@ -1647,6 +1647,9 @@ def compile_ttir_module_to_flatbuffer(
 
     # We need to generate golden dictionary before pipeline run because pipeline run modifies the graph in place.
     goldens = dict(builder.golden_map) if goldens is None else goldens
+    for g in goldens:
+        print(goldens[g].golden_map_tensor_as_torch_tensors())
+    # print(goldens)
     golden_tensors: Dict[str, Dict[int, GoldenTensor]] = {}
 
     for loc, golden in goldens.items():
