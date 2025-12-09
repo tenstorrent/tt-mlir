@@ -12,6 +12,7 @@
   - [Level 2: D2M Compilation Pipeline](#level-2-d2m-compilation-pipeline)
   - [Level 3: Runtime Execution](#level-3-runtime-execution)
   - [JIT Caching](#jit-caching)
+  - [Op Fusion](#op-fusion)
 - [Limitations & Constraints](#limitations--constraints)
 - [Debugging FAQ](#debugging-faq)
   - [AssertionError: Function ___ not supported](#assertionerror-function-___-not-supported)
