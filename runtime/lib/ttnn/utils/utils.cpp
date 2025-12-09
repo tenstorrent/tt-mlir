@@ -73,9 +73,9 @@ bool isSharded(
              ::tt::target::ttnn::TensorMemoryLayout::BlockSharded;
 }
 
+// tt-metal tilize supports: bfloat16, float32, uint32, int32, uint16
+// See: ttnn/operations/data_movement/tilize/device/tilize_op.cpp
 bool canTilizeDataTypeOnDevice(const ::ttnn::DataType &dataType) {
-  // tt-metal tilize supports: bfloat16, float32, uint32, int32, uint16
-  // See: ttnn/operations/data_movement/tilize/device/tilize_op.cpp
   return dataType == ::ttnn::DataType::BFLOAT16 ||
          dataType == ::ttnn::DataType::FLOAT32 ||
          dataType == ::ttnn::DataType::UINT32 ||
@@ -83,10 +83,13 @@ bool canTilizeDataTypeOnDevice(const ::ttnn::DataType &dataType) {
          dataType == ::ttnn::DataType::INT32;
 }
 
+// tt-metal untilize supports: bfloat16, float32, uint32, int32
+// (requires use_pack_untilize for uint32/int32)
+// See: ttnn/operations/data_movement/untilize/device/untilize_op.cpp
+// FP32 untilize fix: https://github.com/tenstorrent/tt-metal/pull/33904
+// UINT32 large tensor untilize issue:
+// https://github.com/tenstorrent/tt-metal/issues/34072
 bool canUntilizeDataTypeOnDevice(const ::ttnn::DataType &dataType) {
-  // tt-metal untilize supports: bfloat16, float32, uint32, int32
-  // (requires use_pack_untilize for uint32/int32)
-  // See: ttnn/operations/data_movement/untilize/device/untilize_op.cpp
   return dataType == ::ttnn::DataType::BFLOAT16 ||
          dataType == ::ttnn::DataType::FLOAT32 ||
          dataType == ::ttnn::DataType::UINT32 ||

@@ -70,6 +70,14 @@ def test_reduction_ops(
             )
         )
 
+    # FP32 prod reduction fails due to tt-metal untilize NaN handling.
+    # See: https://github.com/tenstorrent/tt-metal/pull/33904
+    if reduction_op_name == "prod" and dtype == torch.float32 and target == "ttnn":
+        pytest.xfail(
+            "FP32 prod reduction fails due to tt-metal untilize NaN handling. "
+            "See: https://github.com/tenstorrent/tt-metal/pull/33904"
+        )
+
     if reduction_op_name == "argmax" and dim_arg is not None and len(dim_arg) > 1:
         request.node.add_marker(
             pytest.xfail(

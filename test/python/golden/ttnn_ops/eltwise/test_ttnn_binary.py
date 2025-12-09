@@ -174,6 +174,13 @@ binary_ops = [
 @pytest.mark.parametrize("target", ["ttnn"])
 @pytest.mark.parametrize("test_fn", binary_ops)
 def test_binary_ops(test_fn: Callable, target: str, request, device):
+    # FP32 device untilize has precision issues with NaN handling.
+    # See: https://github.com/tenstorrent/tt-metal/pull/33904
+    if test_fn.__name__ == "module_pow_tensor":
+        pytest.xfail(
+            "FP32 pow_tensor fails due to tt-metal untilize NaN handling. "
+            "See: https://github.com/tenstorrent/tt-metal/pull/33904"
+        )
     pipeline_options = []
     compile_and_execute_ttnn(
         test_fn,

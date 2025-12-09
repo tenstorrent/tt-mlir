@@ -903,6 +903,14 @@ def test_batch_norm(
     request,
     device,
 ):
+    # FP32 batch_norm fails due to tt-metal untilize NaN handling.
+    # See: https://github.com/tenstorrent/tt-metal/pull/33904
+    if torch.float32 in dtypes:
+        pytest.xfail(
+            "FP32 batch_norm fails due to tt-metal untilize NaN handling. "
+            "See: https://github.com/tenstorrent/tt-metal/pull/33904"
+        )
+
     def module(builder: TTIRBuilder):
         @builder.func(shapes, dtypes)
         def batch_norm(

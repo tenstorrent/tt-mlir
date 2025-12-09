@@ -280,6 +280,18 @@ def test_binary_ops(target: str, request, device):
 def test_unary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
+    # FP32 sqrt/rsqrt/log fail due to tt-metal untilize NaN handling.
+    # See: https://github.com/tenstorrent/tt-metal/pull/33904
+    if (
+        test_fn.__name__ in ["sqrt", "rsqrt", "log"]
+        and dtype == torch.float32
+        and target == "ttnn"
+    ):
+        pytest.xfail(
+            f"FP32 {test_fn.__name__} fails due to tt-metal untilize NaN handling. "
+            "See: https://github.com/tenstorrent/tt-metal/pull/33904"
+        )
+
     compile_and_execute_shlo(
         test_fn,
         test_base=request.node.name,
