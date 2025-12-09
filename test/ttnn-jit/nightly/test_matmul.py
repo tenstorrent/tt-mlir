@@ -65,7 +65,7 @@ def test_matmul_with_dtypes(device, shape_grids, dtype, ttnn_dtype, graph_captur
         shape0,
         grid0,
         dtype,
-        memory_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED,
+        shard_strategy=ttnn.ShardStrategy.BLOCK,
         ttnn_dtype=ttnn_dtype,
     )
     input1_tensor = create_sharded_tile_tensor(
@@ -73,7 +73,7 @@ def test_matmul_with_dtypes(device, shape_grids, dtype, ttnn_dtype, graph_captur
         shape1,
         grid1,
         dtype,
-        memory_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED,
+        shard_strategy=ttnn.ShardStrategy.BLOCK,
         ttnn_dtype=ttnn_dtype,
     )
     output = compiled_op(input0_tensor, input1_tensor)
@@ -132,7 +132,7 @@ def test_matmul_with_grids(
                     shape,
                     grid,
                     dtype,
-                    memory_layout=layout,
+                    shard_strategy=ttnn.ShardStrategy.BLOCK,
                     ttnn_dtype=ttnn_dtype,
                 )
             )

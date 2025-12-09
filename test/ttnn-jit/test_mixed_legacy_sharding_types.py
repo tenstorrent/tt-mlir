@@ -69,14 +69,14 @@ def test_height_width_mixed_legacy_sharding_types(
         shape,
         max_grid,
         dtype,
-        memory_layout=ttnn.TensorMemoryLayout.HEIGHT_SHARDED,
+        shard_strategy=ttnn.ShardStrategy.HEIGHT,
     )
     input_tensor_b = create_sharded_tile_tensor(
         device,
         shape,
         max_grid,
         dtype,
-        memory_layout=ttnn.TensorMemoryLayout.WIDTH_SHARDED,
+        shard_strategy=ttnn.ShardStrategy.WIDTH,
     )
 
     op_jit = ttnn_jit.jit(
@@ -112,14 +112,14 @@ def test_height_block_mixed_legacy_sharding_types(
         shape,
         max_grid,
         dtype,
-        memory_layout=ttnn.TensorMemoryLayout.HEIGHT_SHARDED,
+        shard_strategy=ttnn.ShardStrategy.HEIGHT,
     )
     input_tensor_b = create_sharded_tile_tensor(
         device,
         shape,
         max_grid,
         dtype,
-        memory_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED,
+        shard_strategy=ttnn.ShardStrategy.BLOCK,
     )
 
     op_jit = ttnn_jit.jit(
@@ -155,14 +155,14 @@ def test_width_block_mixed_legacy_sharding_types(
         shape,
         max_grid,
         dtype,
-        memory_layout=ttnn.TensorMemoryLayout.WIDTH_SHARDED,
+        shard_strategy=ttnn.ShardStrategy.WIDTH,
     )
     input_tensor_b = create_sharded_tile_tensor(
         device,
         shape,
         max_grid,
         dtype,
-        memory_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED,
+        shard_strategy=ttnn.ShardStrategy.BLOCK,
     )
 
     op_jit = ttnn_jit.jit(
