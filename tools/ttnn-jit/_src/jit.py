@@ -121,9 +121,7 @@ class JitFunction:
             **kwargs,
         )
 
-        print(f"[DEBUG] math fidelity set to: {self.math_fidelity}")
         options = f"system-desc-path={self.system_desc_path} ttnn-mode=true set-math-fidelity={self.math_fidelity}"
-        print(f"[DEBUG] Compilation options: {options}")
         if self.compile_only:
             ttnn_to_ttmetal_pipeline(ir, options)
             if self.debug:
