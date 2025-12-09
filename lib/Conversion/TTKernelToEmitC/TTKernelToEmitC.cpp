@@ -421,6 +421,59 @@ private:
 } // namespace
 
 namespace {
+  template <typename Op, typename Adaptor = typename Op::Adaptor>
+  class TTKernelConvertCoordRewriter : public OpConversionPattern<Op> {
+  public:
+    TTKernelConvertCoordRewriter(TTKernelToEmitCTypeConverter &typeConverter,
+                             MLIRContext *ctx)
+        : OpConversionPattern<Op>(typeConverter, ctx) {}
+  
+    LogicalResult
+    matchAndRewrite(Op op, Adaptor adaptor,
+                    ConversionPatternRewriter &rewriter) const final {
+      StringRef arrayName;
+      if constexpr (std::is_same_v<Op, ttkernel::ConvertLogicalToTranslatedXOp>) {
+        arrayName = "worker_logical_col_to_virtual_col";
+      } else if constexpr (std::is_same_v<Op, ttkernel::ConvertLogicalToTranslatedYOp>) {
+        arrayName = "worker_logical_row_to_virtual_row";
+      }
+      
+      auto elementType = emitc::OpaqueType::get(op.getContext(), "uint8_t");
+      auto arrayType = emitc::PointerType::get(elementType);
+      auto elementLvalueType = emitc::LValueType::get(op.getContext(), elementType);
+      auto arrayLvalueType = emitc::LValueType::get(op.getContext(), arrayType);
+      
+      // Ensure the extern global is declared in the module (only once)
+      auto moduleOp = op->template getParentOfType<ModuleOp>();
+      if (!moduleOp.lookupSymbol(arrayName)) {
+        OpBuilder::InsertionGuard guard(rewriter);
+        rewriter.setInsertionPointToStart(moduleOp.getBody());
+        rewriter.create<emitc::GlobalOp>(op->getLoc(), arrayName, arrayType,
+            /*initial_value=*/nullptr, /*extern_specifier=*/true, /*static_specifier=*/false, /*const_specifier=*/false);
+      }
+      
+      auto globalRef = rewriter.create<emitc::GetGlobalOp>(op->getLoc(), arrayLvalueType, arrayName);
+      auto ptrValue = rewriter.create<emitc::LoadOp>(op->getLoc(), arrayType, globalRef);
+      auto subscript = rewriter.create<emitc::SubscriptOp>(op->getLoc(), elementLvalueType, ptrValue.getResult(), adaptor.getOperands()[0]);
+      auto loadOp = rewriter.create<emitc::LoadOp>(op->getLoc(), elementType, subscript);
+      
+      // Cast result back to the expected type (e.g., index -> size_t in C)
+      auto resultType = this->getTypeConverter()->convertType(op.getResult().getType());
+      if (resultType != elementType) {
+        auto castOp = rewriter.create<emitc::CastOp>(op->getLoc(), resultType, loadOp.getResult());
+        rewriter.replaceOp(op, castOp.getResult());
+      } else {
+        rewriter.replaceOp(op, loadOp.getResult());
+      }
+      return success();
+    }
+  
+  private:
+    std::string opaque;
+  };
+  } // namespace
+
+namespace {
 class TTKernelInvokeSFPIOpRewriter
     : public OpConversionPattern<ttkernel::InvokeSFPIOp> {
 public:
@@ -929,9 +982,13 @@ public:
                                                funcOp.getContext());
 
     patterns.add<TTKernelConstantRewriter<ttkernel::MyXOp>>(
-        typeConverter, funcOp.getContext(), "my_x[noc_index]");
+        typeConverter, funcOp.getContext(), "get_absolute_logical_x()");
     patterns.add<TTKernelConstantRewriter<ttkernel::MyYOp>>(
-        typeConverter, funcOp.getContext(), "my_y[noc_index]");
+        typeConverter, funcOp.getContext(), "get_absolute_logical_y()");
+    
+    patterns.add<TTKernelConvertCoordRewriter<ttkernel::ConvertLogicalToTranslatedXOp>, 
+      TTKernelConvertCoordRewriter<ttkernel::ConvertLogicalToTranslatedYOp>>(
+      typeConverter, funcOp.getContext());
 
     patterns.add<TTKernelStoreToL1OpToEmitCOpRewriter>(typeConverter,
                                                        funcOp.getContext());

@@ -2576,6 +2576,7 @@ def TTKernel_InterleavedAddrGenFastGetNocAddrOp : TTKernel_Op<"interleaved_addr_
     }];
 }
 
+// fix here!!!
 def TTKernel_MyXOp : TTKernel_Op<"my_x", [Pure]> {
     let summary = "MyX";
     let description = [{
@@ -2590,6 +2591,7 @@ def TTKernel_MyXOp : TTKernel_Op<"my_x", [Pure]> {
     }];
 }
 
+// fix here!!!
 def TTKernel_MyYOp : TTKernel_Op<"my_y", [Pure]> {
     let summary = "MyY";
     let description = [{
@@ -2602,6 +2604,48 @@ def TTKernel_MyYOp : TTKernel_Op<"my_y", [Pure]> {
     let assemblyFormat = [{
       `(` ($noc^)? `)` attr-dict `:` functional-type(operands, results)
     }];
+}
+
+//def TTKernel_ConvertLogicalToTranslatedXOp : TTKernel_Op<"worker_logical_col_to_virtual"> {
+//  let summary = "ConvertLogicalToTranslated";
+//  let description = [{
+//    this converts the x and y coordinates from the LOGICAL coordinate system to TRANSLATED
+//  }];
+//
+//  let arguments = (ins IndexLike:$logical_x, ins IndexLike:$logical_y);
+//  let results = (outs CoordType:$virtual_coord);
+//
+//  let assemblyFormat = [{
+//    `[` $logical_x `]` attr-dict `:` functional-type(operands, results)
+//  }];
+//}
+
+def TTKernel_ConvertLogicalToTranslatedXOp : TTKernel_Op<"worker_logical_col_to_virtual_col"> {
+  let summary = "ConvertLogicalToTranslatedX";
+  let description = [{
+    this converts the x coordinate from the LOGICAL coordinate system to TRANSLATED
+  }];
+
+  let arguments = (ins IndexLike:$logical_x);
+  let results = (outs IndexLike:$virtual_x);
+
+  let assemblyFormat = [{
+    `[` $logical_x `]` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+def TTKernel_ConvertLogicalToTranslatedYOp : TTKernel_Op<"worker_logical_row_to_virtual_row"> {
+  let summary = "ConvertLogicalToTranslatedY";
+  let description = [{
+    this converts the y coordinate from the LOGICAL coordinate system to TRANSLATED
+  }];
+
+  let arguments = (ins IndexLike:$logical_y);
+  let results = (outs IndexLike:$virtual_y);
+
+  let assemblyFormat = [{
+    `[` $logical_y `]` attr-dict `:` functional-type(operands, results)
+  }];
 }
 
 //===----------------------------------------------------------------------===//

@@ -104,7 +104,6 @@ def test_matmul_multi_core_8otpc(m: int, k: int, n: int, target: str, request, d
     )
 
 
-@pytest.mark.skip_exec(["ttmetal", "p150"], reason="See issue #5341")
 @pytest.mark.parametrize(
     "shape",
     [
@@ -157,7 +156,6 @@ def test_matmul_ttnn_shapes_single_buffered(
     )
 
 
-@pytest.mark.skip_exec(["ttmetal", "p150"], reason="See issue #5341")
 @pytest.mark.parametrize(
     "shape",
     [
@@ -204,4 +202,6 @@ def test_matmul_ttnn_shapes_double_buffered(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         skip_exec=getattr(request.node, "skip_exec", False),
+        rtol = 1e-2,
+        check_rtol = True,
     )
