@@ -368,8 +368,14 @@ public:
     // (similar to MaterializeViewReturns pass). For now, we allow it and let
     // downstream passes handle it.
 
-    // Create the final ToLayoutOp with layout attribute set
-    return rewriter.create<ToLayoutOp>(loc, input, output, *deviceLayout)
+    // Emit dedicated host transfer ops based on direction.
+    if (inputInfo.isSystem()) {
+      // Host → Device: use ToDeviceOp
+      return rewriter.create<ToDeviceOp>(loc, input, output, *deviceLayout)
+          .getResult(0);
+    }
+    // Device → Host: use ToHostOp
+    return rewriter.create<ToHostOp>(loc, input, output, *deviceLayout)
         .getResult(0);
   }
 
@@ -530,11 +536,6 @@ public:
 
   LogicalResult matchAndRewrite(ToLayoutOp op,
                                 PatternRewriter &rewriter) const final {
-    // Skip ToLayoutOps that are already lowered (have layout attribute set)
-    if (op.getLayout()) {
-      return failure();
-    }
-
     // Use producer-first ordering to ensure dependencies are lowered first.
     if (producerMustBeLoweredFirst(op)) {
       return failure();

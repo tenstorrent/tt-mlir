@@ -63,46 +63,129 @@ def D2M_ToLayoutOp : D2M_Op<"to_layout", [
     ]>,
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
   ]> {
-    let summary = "Layout op.";
+    let summary = "Device-to-device layout transformation op.";
     let description = [{
-      ToLayout operation, transition tensors from one layout to another.  Some examples include:
-        - Transitioning between different memory spaces, e.g. DRAM to L1.
-        - Transitioning between different data types, e.g. f32 to f16.
+      ToLayout operation transitions tensors between different device layouts.
+      This op is used for device-to-device transformations only. For host transfers,
+      use the dedicated ToDeviceOp (host->device) and ToHostOp (device->host).
+
+      Examples include:
+        - Transitioning between DRAM and L1 memory spaces
         - Transitioning between different tile sizes, e.g. 1x16 to 32x32
         - Transitioning between different tensor sharding
-        - Some combination of the above
 
-      ```llvm
-      #layout = #ttcore.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #system>>
-      #layout1 = #ttcore.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #l1_>>
-      %1 = "d2m.to_layout"(%arg0, %0) : (tensor<64x128xf32, #layout>, tensor<64x128xf32, #layout1>) -> tensor<64x128xf32, #layout1>
+      ```mlir
+      #layout_dram = #ttcore.metal_layout<..., dram, ...>
+      #layout_l1 = #ttcore.metal_layout<..., l1, ...>
+      %1 = d2m.to_layout %arg0, %0 : tensor<64x128xf32, #layout_dram> into tensor<64x128xf32, #layout_l1>
+      ```
+    }];
+
+    let arguments = (ins AnyRankedTensorOrMemRef:$input,
+                         AnyRankedTensorOrMemRef:$output);
+    let results = (outs Variadic<AnyRankedTensor>:$results);
+
+    let assemblyFormat = [{ $input `,` $output `:` type($input) `into` type($output) attr-dict (`->` type($results)^)? }];
+
+    let builders =
+    [
+      OpBuilder<(ins "Value": $input, "Value": $output),
+      [{
+        build($_builder, $_state, {output.getType()}, input, output);
+      }]>,
+    ];
+
+    let hasVerifier = 1;
+    let hasFolder = 1;
+    let hasCanonicalizer = 1;
+}
+
+//===----------------------------------------------------------------------===//
+// Host-Device Transfer Ops
+//===----------------------------------------------------------------------===//
+
+def D2M_ToDeviceOp : D2M_Op<"to_device", [
+    DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType"
+    ]>,
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  ]> {
+    let summary = "Transfer data from host to device.";
+    let description = [{
+      ToDevice operation transfers tensor data from host (system) memory to device memory.
+      This is the explicit host-to-device data movement operation that replaces the
+      overloaded system transfer case of ToLayoutOp.
+
+      The `layout` attribute stores the device layout information needed for the transfer.
+
+      ```mlir
+      #layout = #ttcore.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #l1_>>
+      %1 = d2m.to_device %arg0, %0 layout = #layout : tensor<64x128xf32> into tensor<64x128xf32, #layout>
       ```
     }];
 
     let arguments = (ins AnyRankedTensorOrMemRef:$input,
                          AnyRankedTensorOrMemRef:$output,
-                         OptionalAttr<TTCore_MetalLayoutAttr>:$layout);
+                         TTCore_MetalLayoutAttr:$layout);
     let results = (outs Variadic<AnyRankedTensor>:$results);
 
-    let assemblyFormat = [{ $input `,` $output `:` type($input) `into` type($output) (`hostInfo` `=` $layout^)? attr-dict (`->` type($results)^)? }];
-
+    let assemblyFormat = [{ $input `,` $output `layout` `=` $layout attr-dict `:` type($input) `into` type($output) (`->` type($results)^)? }];
 
     let builders =
     [
-      OpBuilder<(ins "Value": $input, "Value": $output, CArg<"ttcore::MetalLayoutAttr", "nullptr">: $layout),
+      OpBuilder<(ins "Value": $input, "Value": $output, "ttcore::MetalLayoutAttr": $layout),
       [{
         build($_builder, $_state, {output.getType()}, input, output, layout);
       }]>,
     ];
 
-    let extraClassDeclaration = [{
-      bool isHostToDevice();
-      bool isDeviceToHost();
+    let hasVerifier = 1;
+}
+
+def D2M_ToHostOp : D2M_Op<"to_host", [
+    DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType"
+    ]>,
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  ]> {
+    let summary = "Transfer data from device to host.";
+    let description = [{
+      ToHost operation transfers tensor data from device memory to host (system) memory.
+      This is the explicit device-to-host data movement operation that replaces the
+      overloaded system transfer case of ToLayoutOp.
+
+      The `layout` attribute stores the device layout information needed for the transfer.
+
+      ```mlir
+      #layout = #ttcore.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #l1_>>
+      %1 = d2m.to_host %arg0, %0 layout = #layout : tensor<64x128xf32, #layout> into tensor<64x128xf32>
+      ```
     }];
 
+    let arguments = (ins AnyRankedTensorOrMemRef:$input,
+                         AnyRankedTensorOrMemRef:$output,
+                         TTCore_MetalLayoutAttr:$layout);
+    let results = (outs Variadic<AnyRankedTensor>:$results);
+
+    let assemblyFormat = [{ $input `,` $output `layout` `=` $layout attr-dict `:` type($input) `into` type($output) (`->` type($results)^)? }];
+
+    let builders =
+    [
+      OpBuilder<(ins "Value": $input, "Value": $output, "ttcore::MetalLayoutAttr": $layout),
+      [{
+        build($_builder, $_state, {output.getType()}, input, output, layout);
+      }]>,
+    ];
+
     let hasVerifier = 1;
-    let hasFolder = 1;
-    let hasCanonicalizer = 1;
 }
 
 def D2M_StreamLayoutOp : D2M_Op<"stream_layout", [
