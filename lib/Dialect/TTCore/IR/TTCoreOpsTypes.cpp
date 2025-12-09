@@ -548,12 +548,17 @@ ChipDescAttr::getDstLogicalSizeTiles(Type type, bool fullSyncEn,
 }
 
 static llvm::SmallVector<int64_t>
-getPhysicalGridShapeFromShapeAndMap(ShapedType shapedType, AffineMap map) {
-  auto shape = shapedType.getShape();
+getPhysicalGridShapeFromShapeAndMap(ArrayRef<int64_t> overallDeviceShape,
+                                    ArrayRef<int64_t> virtualGridShape,
+                                    AffineMap map) {
+  // If the map is empty, the virtual and physical grid shapes are the same.
+  if (map.isEmpty()) {
+    return llvm::SmallVector<int64_t>(virtualGridShape);
+  }
   TT_assert(map.getNumResults() >= 2u);
-  TT_assert(shape.size() == map.getNumDims());
   auto gridResultMap = ttmlir::utils::affineMapTakeFrontResults(map, 2);
-  return ttmlir::utils::applyMapToGrid(shape, gridResultMap);
+  TT_assert(overallDeviceShape.size() == gridResultMap.getNumDims());
+  return ttmlir::utils::applyMapToGrid(overallDeviceShape, gridResultMap);
 }
 
 ShardLayoutAttr ShardLayoutAttr::get(mlir::MLIRContext *context,
@@ -594,8 +599,9 @@ mlir::AffineMap ShardLayoutAttr::getAffineMap() const {
 
 llvm::SmallVector<int64_t>
 ShardLayoutAttr::getPhysicalGridShape(ShapedType tensorType) const {
-  return getPhysicalGridShapeFromShapeAndMap(tensorType,
-                                             this->getCoreVirtualizationMap());
+  return getPhysicalGridShapeFromShapeAndMap(tensorType.getShape(),
+                                             getGridShape(tensorType),
+                                             getCoreVirtualizationMap());
 }
 
 InterleavedLayoutAttr InterleavedLayoutAttr::get(mlir::MLIRContext *context,
@@ -816,85 +822,6 @@ static llvm::SmallVector<int64_t> applyCollapsedIntervalsAndAlignments(
   return resultShape;
 }
 
-SmallVector<int64_t>
-GridAttr::getPhysicalGridShape(ArrayRef<int64_t> deviceGridShape) {
-
-  // physShape == virtual shape if mapping function is empty
-  if (getMapping().isEmpty()) {
-    return llvm::to_vector(getShape());
-  }
-
-  TT_assertv(deviceGridShape.size() == 2ul, "Device grid shape must be 2D.");
-
-  // Checks that a physical grid shape injectively maps onto the virtual grid
-  // using the provided mapping function.
-  auto checkInjective = [&](ArrayRef<int64_t> physGridShape) {
-    auto map = getMapping();
-    auto vGrid = getShape();
-    auto virtualVolume = ttmlir::utils::volume(vGrid);
-    SmallVector<bool, 256> occupied(virtualVolume, false);
-    for (int y = 0; y < physGridShape[0]; y++) {
-      for (int x = 0; x < physGridShape[1]; x++) {
-        auto fullVCoord = map.compose({y, x});
-
-        // Drop device index result from coord.
-        auto vCoord = ArrayRef<int64_t>{fullVCoord}.drop_front(1);
-
-        int64_t index = 0;
-        int64_t stride = 1;
-        for (auto [i, coord] : llvm::enumerate(vCoord)) {
-          index += coord * stride;
-          stride *= vGrid[i];
-        }
-
-        // Index must be in bounds and location not occupied.
-        if (index >= virtualVolume || occupied[index]) {
-          return false;
-        }
-        // If the location is not within the virtual grid, the physical grid is
-        // invalid.
-        for (size_t i = 0; i < vCoord.size(); ++i) {
-          if (vCoord[i] < 0 || vCoord[i] >= vGrid[i]) {
-            return false;
-          }
-        }
-
-        // Mark location as occupied.
-        occupied[index] = true;
-      }
-    }
-    return true;
-  };
-
-  // Generate all possible grid shapes.
-  // The physical grid volume must equal the virtual grid volume.
-  // The physical grid shape must not exceed the device grid dimensions.
-  // For now, assume that the phys grid shape is a rectangle.
-  auto virtualGridVolume = ttmlir::utils::volume(getShape());
-  for (int x = std::floor(std::sqrt(virtualGridVolume)); x > 0; x--) {
-    if (virtualGridVolume % x == 0) {
-      int y = virtualGridVolume / x;
-      auto checkValid = [&](int y,
-                            int x) -> std::optional<SmallVector<int64_t>> {
-        if (y <= deviceGridShape[0] && x <= deviceGridShape[1]) {
-          if (checkInjective({y, x})) {
-            return SmallVector<int64_t>{y, x};
-          }
-        }
-        return std::nullopt;
-      };
-      if (auto result = checkValid(y, x)) {
-        return result.value();
-      }
-      auto swapped_result = checkValid(x, y);
-      if (swapped_result) {
-        return swapped_result.value();
-      }
-    }
-  }
-  llvm_unreachable("No injective physical grid shape found.");
-}
-
 MetalLayoutAttr MetalLayoutAttr::compose(AffineMap affineMap) const {
   if (getIndexAffineMap().isEmpty()) {
     return withIndexAffineMap(affineMap);
@@ -933,7 +860,8 @@ MetalLayoutAttr::getPhysicalShape(ArrayRef<int64_t> tileShape) const {
 
 llvm::SmallVector<int64_t>
 MetalLayoutAttr::getPhysicalGridShape(ShapedType tensorType) const {
-  return getPhysicalGridShapeFromShapeAndMap(tensorType, getIndexAffineMap());
+  return getPhysicalGridShapeFromShapeAndMap(
+      tensorType.getShape(), getGridShape(tensorType), getIndexAffineMap());
 }
 
 // Takes various shape fields and returns the expected physical shape, which

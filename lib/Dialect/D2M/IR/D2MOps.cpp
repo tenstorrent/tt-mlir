@@ -1665,6 +1665,12 @@ d2m::GenericOp::getOperandShardShapes(bool convertTileToScalar) {
   return shardShapes;
 }
 
+mlir::SmallVector<int64_t> d2m::GenericOp::getPhysicalGridShape() {
+  auto outputType = mlir::cast<ShapedType>(getOutputs().front().getType());
+  ttcore::DeviceLayoutInterface deviceLayout = ttcore::getDeviceLayout(outputType);
+  return deviceLayout.getPhysicalGridShape(outputType);
+}
+
 mlir::SmallVector<int64_t> d2m::GenericOp::getLoopBounds() {
   return getBlockFactorsValue();
 }
