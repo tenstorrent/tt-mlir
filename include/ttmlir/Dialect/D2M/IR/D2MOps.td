@@ -63,21 +63,20 @@ def D2M_ToLayoutOp : D2M_Op<"to_layout", [
     ]>,
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
   ]> {
-    let summary = "Device-to-device layout transformation op.";
+    let summary = "Layout op.";
     let description = [{
-      ToLayout operation transitions tensors between different device layouts.
-      This op is used for device-to-device transformations only. For host transfers,
-      use the dedicated ToDeviceOp (host->device) and ToHostOp (device->host).
-
-      Examples include:
+      ToLayout operation, transition tensors from one layout to another.  Some examples include:
+        - Transitioning between different memory spaces, e.g. DRAM to L1.
+        - Transitioning between different data types, e.g. f32 to f16.
         - Transitioning between DRAM and L1 memory spaces
         - Transitioning between different tile sizes, e.g. 1x16 to 32x32
         - Transitioning between different tensor sharding
+        - Some combination of the above
 
       ```mlir
-      #layout_dram = #ttcore.metal_layout<..., dram, ...>
-      #layout_l1 = #ttcore.metal_layout<..., l1, ...>
-      %1 = d2m.to_layout %arg0, %0 : tensor<64x128xf32, #layout_dram> into tensor<64x128xf32, #layout_l1>
+      #layout = #ttcore.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #system>>
+      #layout1 = #ttcore.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #l1_>>
+      %1 = "d2m.to_layout"(%arg0, %0) : (tensor<64x128xf32, #layout>, tensor<64x128xf32, #layout1>) -> tensor<64x128xf32, #layout1>
       ```
     }];
 

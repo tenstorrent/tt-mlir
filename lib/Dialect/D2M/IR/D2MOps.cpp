@@ -161,7 +161,7 @@ mlir::LogicalResult d2m::MeshShardOp::bufferize(
     mlir::RewriterBase &rewriter,
     const mlir::bufferization::BufferizationOptions &options,
     mlir::bufferization::BufferizationState &state) {
-
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
   if (mlir::isa<::mlir::MemRefType>(getInput().getType())) {
     return failure();
   }
@@ -183,6 +183,7 @@ mlir::LogicalResult d2m::MeshShardOp::bufferize(
       getShardDirection(), getShardShape(), getShardDims());
 
   return success();
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 }
 
 mlir::FailureOr<mlir::bufferization::BufferLikeType>

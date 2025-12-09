@@ -69,9 +69,6 @@ struct ConvertD2MToTTKernel
     target.addIllegalDialect<d2m::D2MDialect>();
     target.addIllegalDialect<memref::MemRefDialect>();
 
-    // ToDeviceOp and ToHostOp are the dedicated host transfer ops after
-    // LowerToLayout decomposition. ToLayoutOp should no longer appear for
-    // system transfers at this point.
     target.addLegalOp<d2m::ToDeviceOp>();
     target.addLegalOp<d2m::ToHostOp>();
     target.addLegalOp<d2m::StreamLayoutOp>();
