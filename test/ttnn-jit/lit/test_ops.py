@@ -2,14 +2,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-# RUN: %python %s
+# RUN: %python %s | FileCheck %s
 # REQUIRES: ttnn-jit
-
-import sys
-from pathlib import Path
-
-# Add parent directory to path to import utils
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import ttnn_jit
 import ttnn
@@ -31,21 +25,25 @@ def add(input_tensor_a, input_tensor_b):
 if __name__ == "__main__":
     device = ttnn.open_device(device_id=0)
 
-    # input_tensor_a_l1 = create_sharded_tile_tensor(device, (128, 128), (0, 0), torch.bfloat16)
-    # input_tensor_b_l1 = create_sharded_tile_tensor(device, (128, 128), (0, 0), torch.bfloat16)
-    # input_tensor_a_dram = create_dram_tensor(device, (128, 128), torch.bfloat16)
-    # input_tensor_b_dram = create_dram_tensor(device, (128, 128), torch.bfloat16)
+    input_tensor_a_l1 = create_sharded_tile_tensor(
+        device, (128, 128), (0, 0), torch.bfloat16
+    )
+    input_tensor_b_l1 = create_sharded_tile_tensor(
+        device, (128, 128), (0, 0), torch.bfloat16
+    )
+    input_tensor_a_dram = create_dram_tensor(device, (128, 128), torch.bfloat16)
+    input_tensor_b_dram = create_dram_tensor(device, (128, 128), torch.bfloat16)
 
     # CHECK: ---- IR Dump after TTIRCompiler (AST-based) ----
     # CHECK: #ttnn.buffer_type<l1>
     # CHECK: func.func @abs
     # CHECK: "ttnn.abs"(%arg0) {ttnn.hoist_generic_via_d2m}
-    # _ = abs(input_tensor_a_l1)
+    _ = abs(input_tensor_a_l1)
 
     # CHECK: #ttnn.buffer_type<dram>
     # CHECK: #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>{{.*}} <interleaved>
     # CHECK: func.func @abs
     # CHECK: "ttnn.abs"(%arg0) {ttnn.hoist_generic_via_d2m}
-    # _ = abs(input_tensor_a_dram)
+    _ = abs(input_tensor_a_dram)
 
     ttnn.close_device(device)

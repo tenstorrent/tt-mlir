@@ -58,10 +58,6 @@ if config.enable_opmodel:
     lit_config.parallelism_groups["opmodel"] = 1
     config.available_features.add("opmodel")
 
-if config.enable_ttnn_jit:
-    lit_config.parallelism_groups["ttnn-jit"] = 1
-    config.available_features.add("ttnn-jit")
-
 # Optimizer models performance tests are optionally enabled for specific CI jobs via lit parameter.
 if lit_config.params.get("TTMLIR_ENABLE_OPTIMIZER_MODELS_PERF_TESTS", "") == "1":
     config.available_features.add("perf")
@@ -149,6 +145,21 @@ config.models_root = os.path.join(config.ttmlir_source_dir, "test/ttmlir/models"
 config.substitutions.append(("%ttmlir_test_root", config.test_root))
 config.substitutions.append(("%models", config.models_root))
 config.substitutions.append(("%ttmlir_scripts_root", config.scripts_root))
+
+if config.enable_ttnn_jit:
+    lit_config.parallelism_groups["ttnn-jit"] = 1
+    config.available_features.add("ttnn-jit")
+
+    # Add test/ttnn-jit to PYTHONPATH so tests can import utils module
+    llvm_config.with_environment(
+        "PYTHONPATH",
+        os.path.join(config.test_source_root, "ttnn-jit"),
+        append_path=True,
+    )
+
+    # WORKAROUND: Enable TT_METAL_WATCHER to add 5ms sleep in device polling loop.
+    # If not, ttnn.open_device will fail device firmware init..
+    llvm_config.with_environment("TT_METAL_WATCHER", "1")
 
 # Tweak the PATH to include the tools dir.
 llvm_config.with_environment("PATH", config.llvm_tools_dir, append_path=True)
