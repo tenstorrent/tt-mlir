@@ -165,7 +165,8 @@ class GraphToIRTranslator:
                 f"Found {len(grid_matches)} CoreRange(s) in output_info. "
                 f"Only single CoreRange grids are currently supported."
             )
-        if len(unique_grids) == 1:
+
+        if len(grid_matches) == 1:
             x_min, y_min, x_max, y_max = map(int, grid_matches[0])
             # Grid size is (max - min + 1) for each dimension
             # But TTNN uses (width, height) while compiler uses (height, width)
