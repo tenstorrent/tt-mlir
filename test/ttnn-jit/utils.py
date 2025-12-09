@@ -60,6 +60,53 @@ def all_close_check(result, golden_result, atol=1e-1, rtol=1e-1, debug=True):
     return all_close
 
 
+def create_torch_tensor(shape, dtype):
+    if not (dtype.is_floating_point or dtype.is_complex):
+        # recreate spatial coverage of fp [0,1] in randn and give some overflow headroom
+        high_val = torch.iinfo(dtype).max // 2
+        torch_tensor = torch.randint(high_val, shape, dtype=dtype)
+    else:
+        torch_tensor = torch.randn(shape, dtype=dtype)
+    return torch_tensor
+
+
+def create_sharded_tile_tensor(
+    device,
+    shape,
+    max_grid,
+    dtype,
+    shard_strategy=ttnn.ShardStrategy.BLOCK,
+    ttnn_dtype=None,
+):
+    torch_tensor = create_torch_tensor(shape, dtype)
+    # IMPORTANT: TTNN grids are (Width, Height), while tensor shapes are (Height, Width).
+    # We add 1 to the grid dimensions to account for the zero-based indexing.
+    memory_config = ttnn.create_sharded_memory_config(
+        shape=shape,
+        core_grid=ttnn.CoreGrid(x=max_grid[0] + 1, y=max_grid[1] + 1),
+        strategy=shard_strategy,
+        use_height_and_width_as_shard_shape=False,
+    )
+    return ttnn.from_torch(
+        torch_tensor,
+        dtype=ttnn_dtype,
+        layout=ttnn.TILE_LAYOUT,
+        device=device,
+        memory_config=memory_config,
+    )
+
+
+def create_dram_tensor(device, shape, dtype, ttnn_dtype=None):
+    torch_tensor = create_torch_tensor(shape, dtype)
+    return ttnn.from_torch(
+        torch_tensor,
+        dtype=ttnn_dtype,
+        layout=ttnn.TILE_LAYOUT,
+        device=device,
+        memory_config=ttnn.DRAM_MEMORY_CONFIG,
+    )
+
+
 def run_op_test(
     device,
     shape,
@@ -89,41 +136,16 @@ def run_op_test(
         enable_cache: Whether to enable cache for the JIT-compiled function (default: False)
         ttnn_dtype: Optional ttnn.DataType override (e.g., ttnn.DataType.BFLOAT8_B)
     """
-    if not (dtype.is_floating_point or dtype.is_complex):
-        # recreate spatial coverage of fp [0,1] in randn and give some overflow headroom
-        high_val = torch.iinfo(dtype).max // 2
-        torch_tensor = torch.randint(high_val, shape, dtype=dtype)
-    else:
-        torch_tensor = torch.randn(shape, dtype=dtype)
-
     if buffer_type == ttnn.BufferType.L1:
-        # IMPORTANT: TTNN grids are (Width, Height), while tensor shapes are (Height, Width).
-        # We add 1 to the grid dimensions to account for the zero-based indexing.
-        memory_config = ttnn.create_sharded_memory_config(
-            shape=shape,
-            core_grid=ttnn.CoreGrid(x=max_grid[0] + 1, y=max_grid[1] + 1),
-            strategy=shard_strategy,
-            use_height_and_width_as_shard_shape=False,
-        )
         inputs = [
-            ttnn.from_torch(
-                torch_tensor,
-                dtype=ttnn_dtype,
-                layout=ttnn.TILE_LAYOUT,
-                device=device,
-                memory_config=memory_config,
+            create_sharded_tile_tensor(
+                device, shape, max_grid, dtype, shard_strategy, ttnn_dtype
             )
             for _ in range(num_inputs)
         ]
     else:
         inputs = [
-            ttnn.from_torch(
-                torch_tensor,
-                dtype=ttnn_dtype,
-                layout=ttnn.TILE_LAYOUT,
-                device=device,
-                memory_config=ttnn.DRAM_MEMORY_CONFIG,
-            )
+            create_dram_tensor(device, shape, dtype, ttnn_dtype)
             for _ in range(num_inputs)
         ]
     golden_op = _get_ttnn_op(op)

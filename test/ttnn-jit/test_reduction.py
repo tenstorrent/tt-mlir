@@ -8,9 +8,6 @@ import torch
 import pytest
 
 from utils import (
-    all_close_check,
-    memory_configs_equal,
-    create_dram_tensor,
     run_op_test,
 )
 

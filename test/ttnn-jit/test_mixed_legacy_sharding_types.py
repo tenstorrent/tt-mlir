@@ -8,12 +8,8 @@ import torch
 import pytest
 
 from utils import (
-    _get_ttnn_op,
     all_close_check,
-    memory_configs_equal,
-    create_dram_tensor,
     create_sharded_tile_tensor,
-    run_op_test,
 )
 
 HEIGHT_WIDTH_SHARDED_SHAPE_GRIDS = [
