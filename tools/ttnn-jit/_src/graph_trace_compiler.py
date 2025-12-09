@@ -146,11 +146,21 @@ class GraphToIRTranslator:
         # Format: grid={[(x=0,y=0) - (x=0,y=0)]}
         # This represents a grid from (x_min, y_min) to (x_max, y_max)
         # Note: Multiple CoreRanges are not supported in JIT/D2M
-        grid_pattern = r"\[\(x=(\d+),y=(\d+)\)\s*-\s*\(x=(\d+),y=(\d+)\)\]"
-        grid_matches = re.findall(grid_pattern, output_info_str)
+        # Only parse grid from ShardSpec, not from NdShardSpec (which may also contain grid)
+        grid_pattern = r"shard_spec=ShardSpec\(.*?grid=\{\[\(x=(\d+),y=(\d+)\)\s*-\s*\(x=(\d+),y=(\d+)\)\]\}"
+        grid_match = re.search(grid_pattern, output_info_str)
+        grid_matches = [grid_match.groups()] if grid_match else []
 
         if len(grid_matches) > 1:
-            raise ValueError(
+            print(f"Multiple CoreRanges detected in output_info:")
+            print(f"  output_info: {output_info_str}")
+            print(f"  Found {len(grid_matches)} CoreRange(s):")
+            for i, match in enumerate(grid_matches):
+                x_min, y_min, x_max, y_max = map(int, match)
+                print(
+                    f"    CoreRange {i+1}: (x={x_min},y={y_min}) - (x={x_max},y={y_max})"
+                )
+            raise BaseException(
                 f"Multiple CoreRanges in grid attribute are not supported in JIT/D2M. "
                 f"Found {len(grid_matches)} CoreRange(s) in output_info. "
                 f"Only single CoreRange grids are currently supported."
