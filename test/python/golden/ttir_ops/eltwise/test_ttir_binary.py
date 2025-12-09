@@ -199,6 +199,14 @@ def test_binary_ops(
             "See: https://github.com/tenstorrent/tt-metal/pull/33904"
         )
 
+    # FP32 emitpy tests fail torch.allclose due to tt-metal tilize precision loss (FP32->FP16 conversion).
+    # See: https://github.com/tenstorrent/tt-metal/issues/21023
+    if dtype == torch.float32 and target == "emitpy":
+        pytest.xfail(
+            "FP32 emitpy fails torch.allclose due to tt-metal tilize precision loss. "
+            "See: https://github.com/tenstorrent/tt-metal/issues/21023"
+        )
+
     def module(builder: TTIRBuilder):
         @builder.func([shape, shape], [dtype, dtype])
         def binary_op_fn(in0: Operand, in1: Operand, builder: TTIRBuilder) -> Operand:
