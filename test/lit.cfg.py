@@ -58,6 +58,10 @@ if config.enable_opmodel:
     lit_config.parallelism_groups["opmodel"] = 1
     config.available_features.add("opmodel")
 
+if config.enable_ttnn_jit:
+    lit_config.parallelism_groups["ttnn-jit"] = 1
+    config.available_features.add("ttnn-jit")
+
 # Optimizer models performance tests are optionally enabled for specific CI jobs via lit parameter.
 if lit_config.params.get("TTMLIR_ENABLE_OPTIMIZER_MODELS_PERF_TESTS", "") == "1":
     config.available_features.add("perf")
