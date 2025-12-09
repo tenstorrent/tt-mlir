@@ -10592,7 +10592,8 @@ class TTIRBuilder(Builder):
                 for block in entry.body:
                     for op in block.operations:
                         if isinstance(op, func.ReturnOp) or isinstance(
-                            op, ttir.EmptyOp  # ) or isinstance(op, ttir.ZerosOp
+                            op,
+                            ttir.EmptyOp,
                         ):
                             continue
                         else:

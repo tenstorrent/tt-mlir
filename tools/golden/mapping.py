@@ -3307,15 +3307,10 @@ def ttir_pooling_golden(
     # Get pooling method enum value
     pooling_method_str = str(pooling_method)
 
-    # Convert input from NCHW (ttir.pooling format) to NHWC (expected by pool2d_golden functions)
-    # NCHW [batch, channels, height, width] -> NHWC [batch, height, width, channels]
-    # Transpose: (0, 1, 2, 3) -> (0, 2, 3, 1)
-    input_tensor_nhwc = input_tensor.transpose(-3, -2).transpose(-2, -1)
-
     # Call the appropriate golden function based on pooling method
     if "Max" in pooling_method_str:
         result = max_pool2d_golden(
-            input_tensor_nhwc,
+            input_tensor,
             kernel=kernel,
             stride=stride,
             padding=pool_padding,
@@ -3324,7 +3319,7 @@ def ttir_pooling_golden(
         )
     elif "Average" in pooling_method_str:
         result = avg_pool2d_golden(
-            input_tensor_nhwc,
+            input_tensor,
             kernel=kernel,
             stride=stride,
             padding=pool_padding,
@@ -3335,7 +3330,7 @@ def ttir_pooling_golden(
     elif "Sum" in pooling_method_str:
         # Sum pooling = average pooling * kernel size
         result = avg_pool2d_golden(
-            input_tensor_nhwc,
+            input_tensor,
             kernel=kernel,
             stride=stride,
             padding=pool_padding,
@@ -3348,10 +3343,6 @@ def ttir_pooling_golden(
     else:
         raise ValueError(f"Unknown pooling method: {pooling_method_str}")
 
-    # Convert result back from NHWC to NCHW
-    # NHWC [batch, height, width, channels] -> NCHW [batch, channels, height, width]
-    # Transpose: (0, 1, 2, 3) -> (0, 3, 1, 2)
-    result = result.transpose(-2, -1).transpose(-3, -2)
     return result.to(output_dtype)
 
 

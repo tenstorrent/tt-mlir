@@ -1021,31 +1021,31 @@ def test_batch_norm_training(
         # ResNet-style max pooling: 3x3 window, stride 2 (NCHW format)
         (
             "Max",
-            [1, 1, 3, 3],
-            [1, 1, 2, 2],
+            [1, 3, 3, 1],
+            [1, 2, 2, 1],
             [0, 0, 0, 0, 0, 0, 0, 0],
             [1, 1, 1, 1],
         ),
         # Average pooling: 2x2 window, stride 2 (NCHW format)
         (
             "Average",
-            [1, 1, 2, 2],
-            [1, 1, 2, 2],
+            [1, 2, 2, 1],
+            [1, 2, 2, 1],
             [0, 0, 0, 0, 0, 0, 0, 0],
             [1, 1, 1, 1],
         ),
         # Sum pooling: 2x2 window, stride 2 (NCHW format)
         (
             "Sum",
-            [1, 1, 2, 2],
-            [1, 1, 2, 2],
+            [1, 2, 2, 1],
+            [1, 2, 2, 1],
             [0, 0, 0, 0, 0, 0, 0, 0],
             [1, 1, 1, 1],
         ),
         # Max pooling with padding (NCHW format)
         (
             "Max",
-            [1, 1, 3, 3],
+            [1, 3, 3, 1],
             [1, 1, 1, 1],
             [0, 0, 0, 0, 1, 1, 1, 1],
             [1, 1, 1, 1],
