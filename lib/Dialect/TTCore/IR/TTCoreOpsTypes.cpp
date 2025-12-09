@@ -1252,7 +1252,8 @@ int64_t MetalLayoutAttr::getHostVolume() const {
   return getHostStrideAndVolume().second;
 }
 
-bool MetalLayoutAttr::hasCollapsedLeadingDims(ArrayRef<int64_t> deviceShape) {
+bool MetalLayoutAttr::hasNonTrivialCollapsedDims(
+    ArrayRef<int64_t> deviceShape) {
 
   auto numDims = deviceShape.size();
   auto normalizedIntervals = getNormalizedIntervals();

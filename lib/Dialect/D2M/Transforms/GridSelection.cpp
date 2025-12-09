@@ -336,9 +336,8 @@ shouldImplementAsVirtualGrid(RankedTensorType tensorType,
     return false;
   }
 
-  // Tensors with collapsed leading dims are not currently supported as virtual
-  // grids.
-  if (layout.hasCollapsedLeadingDims(tensorType.getShape())) {
+  // Tensors with collapsed dims are not currently supported as virtual grids.
+  if (layout.hasNonTrivialCollapsedDims(tensorType.getShape())) {
     return false;
   }
   if (physicalShape.size() != 2) {
