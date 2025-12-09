@@ -607,6 +607,9 @@ def add_tree_31_to_1(
 def test_add_tree_31_to_1_l1(device, shape, max_grid, dtype, memory_layout):
     num_inputs = 31
 
+    if dtype is torch.bfloat16 and shape == (2, 32, 384):
+        pytest.xfail("add_tree_31_to_1 fails all close")
+
     size_limit = 256 * 256
 
     elements = 1
@@ -615,9 +618,6 @@ def test_add_tree_31_to_1_l1(device, shape, max_grid, dtype, memory_layout):
 
     if elements > size_limit:
         pytest.xfail("add_tree_31_to_1 runs out of memory")
-
-    if shape == (2, 32, 384):
-        pytest.xfail("add_tree_31_to_1 fails all close")
 
     run_op_test(
         device,
@@ -656,7 +656,7 @@ def test_add_tree_31_to_1_dram(device, shape, dtype):
 # Unlike the balanced tree, this creates a long dependency chain and requires less
 # intermediate storage. It's still limited to fusing into 7-input d2m.generics when in 32b mode due to
 # the way the CB limit is currently enforced but will be fusable into a single 31x 32b inputs in
-# later releases YMMV based on tensor/grid sizes.
+# later releases. YMMV based on tensor/grid sizes.
 def binary_ladder_31(
     in0,
     in1,
@@ -748,6 +748,7 @@ def binary_ladder_31(
 def test_binary_ladder_31_l1(device, shape, max_grid, dtype, memory_layout):
     num_inputs = 31
 
+    # bfloat16 fails all-close, removed from parameters for now
     if dtype is torch.bfloat16:
         pytest.xfail("binary_ladder_31 fails all close")
 
@@ -774,10 +775,11 @@ def test_binary_ladder_31_l1(device, shape, max_grid, dtype, memory_layout):
 
 
 @pytest.mark.parametrize("shape", DRAM_SHAPES)
-@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
+@pytest.mark.parametrize("dtype", [torch.float32])
 def test_binary_ladder_31_dram(device, shape, dtype):
     num_inputs = 31
 
+    # bfloat16 fails all-close, removed from parameters for now
     if dtype is torch.bfloat16:
         pytest.xfail("binary_ladder_31 fails all close")
 
