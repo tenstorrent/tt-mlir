@@ -167,6 +167,8 @@ Fusion is a key optimization in the D2M compilation pipeline that can combine mu
 
 Currently only supports elementwise ops as shown below. Currently at work on moving more ops from their cages into the Fusion Cage.
 
+(If the figures aren't showing up, please install the 'Mermaid' package for Markdown file)
+
 ```mermaid
 graph LR
     subgraph MatMul["MatMul"]
@@ -259,9 +261,9 @@ graph TD
             in1_e6[in1] --> EltBinary6A
             in2_e6[in2] --> EltBinary6B((Binary))
             in3_e6[in3] --> EltBinary6B
-            EltBinary6A --> EltUnary6((Unary))
-            EltBinary6B --> EltUnary6
-            EltUnary6 --> out0_e6[out0]
+            EltBinary6A --> EltBinary7((Binary))
+            EltBinary6B --> EltBinary7
+            EltBinary7 --> out0_e6[out0]
         end
 
         Left ~~~ Right
@@ -271,8 +273,8 @@ graph TD
     classDef whiteCircle fill:#fff,stroke:#444,stroke-width:3px,color:#000
     classDef inputOutput fill:#fff,stroke:#444,stroke-width:1px
 
-    class EltUnary1,EltUnary3A,EltUnary3B,EltUnary4,EltUnary5,EltUnary6 greenCircle
-    class EltBinary1,EltBinary4,EltBinary5,EltBinary6A,EltBinary6B whiteCircle
+    class EltUnary1,EltUnary3A,EltUnary3B,EltUnary4,EltUnary5 greenCircle
+    class EltBinary1,EltBinary4,EltBinary5,EltBinary6A,EltBinary6B,EltBinary7 whiteCircle
     class in0_e1,out0_e1,in0_e2,in1_e2,out0_e2,in0_e3,out0_e3,in0_e4,in1_e4,out0_e4 inputOutput
     class in0_e5,in1_e5,out0_e5,in0_e6,in1_e6,in2_e6,in3_e6,out0_e6 inputOutput
 
@@ -362,6 +364,9 @@ Arbitrary Binary + Unary Op Trees
 - No init hoisting benefits
 - Op tree is evaluated and op execution order is rescheduled to minimize number of required DST registers (minimize the max number of tensors that can be live at any point during execution)
 - "loads" of input data tiles are moved to immediately before their users
+
+
+Sample op tree to be fused and rescheduled:
 
 ```Python
 @ttnn_jit.jit(backend="ttnn", max_grid=(7, 7), debug=False)
