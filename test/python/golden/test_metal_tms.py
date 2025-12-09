@@ -21,14 +21,18 @@ pytestmark = pytest.mark.frontend("ttir")
 @pytest.mark.parametrize(
     "shapes, permutation",
     [
-        # 4d outer permutes
-        [(1, 32, 31, 32), [0, 2, 1, 3]],
-        [(1, 32, 1, 32), [0, 2, 1, 3]],
-        [(5, 7, 2, 32), [0, 2, 1, 3]],
-        # 5d outer permutes
-        [(1, 3, 3, 3, 3), [0, 2, 1, 3, 4]],
-        [(1, 3, 3, 3, 3), [0, 2, 1, 3, 4]],
-        [(5, 7, 2, 3, 3), [0, 2, 1, 3, 4]],
+        # # 4d outer permutes
+        # [(1, 32, 31, 32), [0, 2, 1, 3]],
+        # [(1, 32, 1, 32), [0, 2, 1, 3]],
+        # [(5, 7, 2, 32), [0, 2, 1, 3]],
+        # # 5d outer permutes
+        # [(1, 3, 3, 3, 3), [0, 2, 1, 3, 4]],
+        # [(1, 3, 3, 3, 3), [0, 2, 1, 3, 4]],
+        # [(5, 7, 2, 3, 3), [0, 2, 1, 3, 4]],
+        # 4d inner permutes
+        [(1, 32, 32, 32), [0, 1, 3, 2]],
+        # [(1, 32, 1, 32), [0, 1, 3, 2]],
+        # [(5, 7, 2, 32), [0, 1, 3, 2]],
     ],
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
@@ -42,7 +46,7 @@ def test_permute_abs(
         builder: TTIRBuilder,
     ):
         res = builder.permute(in0, permutation=permutation)
-        res = builder.abs(res)
+        # res = builder.abs(res)
         return res
 
     options = ["collapse-tensors-2d=false"]

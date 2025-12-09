@@ -134,6 +134,13 @@ struct D2MGenericComputeRewriter : public OpRewritePattern<linalg::GenericOp> {
                                  : WalkResult::interrupt();
     });
 
+    // print the op
+    llvm::errs() << "op: " << op << "\n";
+    // print the op outputs
+    for (auto output : op.getOutputs()) {
+      llvm::errs() << "output: " << output << "\n";
+    }
+
     assert(op.getRegion().hasOneBlock());
     assert(op.getOutputs().size() == 1 &&
            "Only one output tensor is supported");

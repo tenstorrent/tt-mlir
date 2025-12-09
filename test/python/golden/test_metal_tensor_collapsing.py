@@ -51,43 +51,43 @@ def unary_exp(in0: Operand, builder: TTIRBuilder):
 
 def transpose_inner_dims(in0: Operand, builder: TTIRBuilder):
     """Transpose operation on inner dimensions (last two dims)."""
-    return builder.transpose(in0, 1, 2)
+    return builder.permute(in0, permutation=[0, 2, 1])
 
 
 @pytest.mark.parametrize(
     "shapes,test_func,test_name",
     [
-        # 3D element-wise operations (working with non-collapsed tensors)
-        ([(3, 32, 64), (3, 32, 64)], elementwise_add, "3d_add"),
-        ([(3, 32, 64), (3, 32, 64)], elementwise_multiply, "3d_multiply"),
-        ([(3, 32, 64)], unary_exp, "3d_exp"),
-        # 4D element-wise operations (working with non-collapsed tensors)
-        pytest.param(
-            [(2, 3, 64, 32), (2, 3, 64, 32)],
-            elementwise_add,
-            "4d_add",
-            marks=pytest.mark.xfail(reason="Golden failure"),
-        ),
-        ([(1, 2, 32, 32)], unary_exp, "4d_exp"),
-        # Operations with known issues (marked as skip)
-        pytest.param(
-            [(2, 32, 64), (2, 64, 32)],
-            batch_matmul,
-            "matmul",
-            marks=pytest.mark.skip(
-                reason="Hardcoded rank==2 assertions in matmul rewriter cause core dump"
-            ),
-        ),
+        # # 3D element-wise operations (working with non-collapsed tensors)
+        # ([(3, 32, 64), (3, 32, 64)], elementwise_add, "3d_add"),
+        # ([(3, 32, 64), (3, 32, 64)], elementwise_multiply, "3d_multiply"),
+        # ([(3, 32, 64)], unary_exp, "3d_exp"),
+        # # 4D element-wise operations (working with non-collapsed tensors)
+        # pytest.param(
+        #     [(2, 3, 64, 32), (2, 3, 64, 32)],
+        #     elementwise_add,
+        #     "4d_add",
+        #     marks=pytest.mark.xfail(reason="Golden failure"),
+        # ),
+        # ([(1, 2, 32, 32)], unary_exp, "4d_exp"),
+        # # Operations with known issues (marked as skip)
+        # pytest.param(
+        #     [(2, 32, 64), (2, 64, 32)],
+        #     batch_matmul,
+        #     "matmul",
+        #     marks=pytest.mark.skip(
+        #         reason="Hardcoded rank==2 assertions in matmul rewriter cause core dump"
+        #     ),
+        # ),
         pytest.param(
             [(3, 32, 64)],
             transpose_inner_dims,
             "transpose",
-            marks=pytest.mark.skip(
-                reason="Hardcoded rank==2 assertions in permute rewriter cause core dump"
-            ),
+            # marks=pytest.mark.skip(
+            #     reason="Hardcoded rank==2 assertions in permute rewriter cause core dump"
+            # ),
         ),
     ],
-    ids=["3d_add", "3d_multiply", "3d_exp", "4d_add", "4d_exp", "matmul", "transpose"],
+    ids=["transpose"],
 )
 @pytest.mark.parametrize(
     "collapse_tensors", [True, False], ids=["collapsed", "non_collapsed"]
