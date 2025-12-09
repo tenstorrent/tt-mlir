@@ -650,10 +650,102 @@ recreateGenericOp(d2m::GenericOp genericOp,
 
   OpBuilder builder(genericOp);
 
+  TT_assert(optimalOperandGrids.size() == genericOp.getNumOperands());
+
+  // First, normalize input operand grids for operands that share loop
+  // dimensions. For example, in a matmul, the two inputs share the reduction
+  // dimension. If their independently chosen optimal grids differ along that
+  // dimension, promote the grid factor for that *dimension only* to the
+  // maximum across all inputs that share it.
+  llvm::SmallVector<llvm::SmallVector<int64_t>> adjustedOperandGrids(
+      optimalOperandGrids.begin(), optimalOperandGrids.end());
+
+  unsigned numInputs = genericOp.getNumDpsInputs();
+  // Map: loopDim -> list of (operandIndex, operandDimIdx) pairs that reference
+  // this loop dimension in their indexing maps.
+  llvm::DenseMap<int64_t, llvm::SmallVector<std::pair<unsigned, unsigned>>>
+      dimToInputOperandDims;
+
+  auto indexingMaps = genericOp.getIndexingMapsValue();
+  for (unsigned operandIndex = 0; operandIndex < numInputs; ++operandIndex) {
+    AffineMap operandIndexingMap = indexingMaps[operandIndex];
+    auto results = operandIndexingMap.getResults();
+    for (auto [operandDimIdx, expr] : llvm::enumerate(results)) {
+      auto dimExpr = mlir::dyn_cast<AffineDimExpr>(expr);
+      if (!dimExpr) {
+        continue;
+      }
+      int64_t loopDim = dimExpr.getPosition();
+      dimToInputOperandDims[loopDim].push_back(
+          std::make_pair(operandIndex, static_cast<unsigned>(operandDimIdx)));
+    }
+  }
+
+  // For each loop dimension that is used by multiple inputs, promote the grid
+  // size associated with that loop dimension to the maximum across those
+  // inputs.
+  for (auto &it : dimToInputOperandDims) {
+    auto &entries = it.second;
+    if (entries.size() < 2) {
+      continue;
+    }
+
+    int64_t maxFactor = 0;
+    TT_assertv(
+        entries.size() <= adjustedOperandGrids.size(),
+        "adjusted operand grids size does not match dim-operand mapping size");
+    for (auto [operandIndex, operandDimIdx] : entries) {
+      TT_assertv(operandDimIdx < adjustedOperandGrids[operandIndex].size(),
+                 "operand dim index out of bounds on adjusted operand grids");
+      maxFactor = std::max(maxFactor,
+                           adjustedOperandGrids[operandIndex][operandDimIdx]);
+    }
+    for (auto [operandIndex, operandDimIdx] : entries) {
+      TT_assertv(operandDimIdx < adjustedOperandGrids[operandIndex].size(),
+                 "operand dim index out of bounds on adjusted operand grids");
+      adjustedOperandGrids[operandIndex][operandDimIdx] = maxFactor;
+    }
+  }
+
   llvm::SmallVector<Value> newOperands;
-  assert(optimalOperandGrids.size() == genericOp.getNumOperands());
-  for (const auto &[optimalGrid, operand] :
-       llvm::zip(optimalOperandGrids, genericOp->getOpOperands())) {
+
+  // Compute grid dim constraints implied by the generic's outputs. These
+  // constraints describe which loop dimensions must agree across operands.
+  auto outputIndexingMap =
+      genericOp.getIndexingMapsValue()[genericOp.getOutputs()
+                                           .getBeginOperandIndex()];
+  auto outputShape =
+      optimalOperandGrids[genericOp.getOutputs().getBeginOperandIndex()];
+  std::optional<SmallVector<int64_t>> outputConstraints =
+      utils::computeDimConstraints(
+          llvm::ArrayRef<AffineMap>(outputIndexingMap),
+          llvm::ArrayRef<SmallVector<int64_t>>(outputShape));
+
+  for (auto [operandIndex, operand] :
+       llvm::enumerate(genericOp->getOpOperands())) {
+    llvm::SmallVector<int64_t> operandGrid =
+        llvm::to_vector(adjustedOperandGrids[operandIndex]);
+
+    // Ensure that operand grid shapes respect any constraints implied by the
+    // outputs' grids. If multiple operands participate in the same loop
+    // dimension, the corresponding grid extents must agree.
+    if (outputConstraints && !genericOp.isDpsInit(&operand)) {
+      AffineMap indexingMap = genericOp.getIndexingMap(operandIndex);
+      auto results = indexingMap.getResults();
+      if (results.size() == operandGrid.size()) {
+        for (auto [resultIdx, expr] : llvm::enumerate(results)) {
+          auto dimExpr = mlir::dyn_cast<AffineDimExpr>(expr);
+          if (!dimExpr) {
+            continue;
+          }
+          int64_t dimPos = dimExpr.getPosition();
+          int64_t constraint = (*outputConstraints)[dimPos];
+          if (constraint != 0) {
+            operandGrid[resultIdx] = constraint;
+          }
+        }
+      }
+    }
 
     auto definingView = operand.get().getDefiningOp<d2m::ViewLayoutOp>();
     if (!definingView) {
@@ -676,7 +768,7 @@ recreateGenericOp(d2m::GenericOp genericOp,
 
     auto tensorType =
         mlir::cast<mlir::RankedTensorType>(operand.get().getType());
-    auto viewTensorType = utils::reblockTensor(tensorType, optimalGrid);
+    auto viewTensorType = utils::reblockTensor(tensorType, operandGrid);
     auto view = builder.create<d2m::ViewLayoutOp>(
         genericOp.getLoc(), viewTensorType, operand.get());
     newOperands.push_back(view.getResult());
