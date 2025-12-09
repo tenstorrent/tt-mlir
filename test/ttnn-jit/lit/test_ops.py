@@ -5,16 +5,17 @@
 # RUN: %python %s
 # REQUIRES: ttnn-jit
 
+import sys
+from pathlib import Path
+
 # Add parent directory to path to import utils
-# import sys
-# from pathlib import Path
-# sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import ttnn_jit
 import ttnn
 import torch
 
-# from utils import create_sharded_tile_tensor, create_dram_tensor
+from utils import create_sharded_tile_tensor, create_dram_tensor
 
 
 @ttnn_jit.jit(debug=True, compile_only=True, graph_capture=False)
