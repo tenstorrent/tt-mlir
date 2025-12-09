@@ -283,7 +283,7 @@ def test_unary_ops(
     # FP32 sqrt/rsqrt/log fail due to tt-metal untilize NaN handling.
     # See: https://github.com/tenstorrent/tt-metal/pull/33904
     if (
-        test_fn.__name__ in ["sqrt", "rsqrt", "log"]
+        test_fn.__name__ in ["module_sqrt", "module_rsqrt", "module_log"]
         and dtype == torch.float32
         and target == "ttnn"
     ):
