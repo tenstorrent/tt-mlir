@@ -167,7 +167,7 @@ Fusion is a key optimization in the D2M compilation pipeline that can combine mu
 
 Currently only supports elementwise ops as shown below. Currently at work on moving more ops from their cages into the Fusion Cage.
 
-(If the figures aren't showing up, please install the 'Mermaid' package for Markdown file)
+(If the figures aren't showing up, please install the support for the 'Mermaid' package in Markdown files)
 
 ```mermaid
 graph LR
@@ -427,7 +427,7 @@ d2m.generic {// . . . omitted . . .
 
           // Loads from l1/DRAM into DST are moved into the same loop as the compute ops
           // Currently any d2m.generic with 3+ inputs will lower down to so that the inner loop nest operates on only 1xTile at a time.
-          // To be improvd in later revisions
+          // To be improved in later revisions
           affine.for %arg10 = 0 to 1 {
             affine.for %arg11 = 0 to 1 {
               %9 = affine.load %subview[%arg10, %arg11] : memref<1x1x!ttcore.tile<32x32, bf16>, strided<[4, 1], offset: ?>, #ttcore.memory_space<l1>>
