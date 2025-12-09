@@ -76,7 +76,7 @@ void run(const ::tt::target::ttnn::PrepareConvTranspose2dWeightsOp *op,
           op->batch_size(), op->input_height(), op->input_width(), kernelSize,
           stride, padding, dilation, op->has_bias(), op->groups(),
           &targetDevice, inputDtype, outputDtype, conv2dConfig, computeConfig,
-          op->mirror_kernel());
+          std::nullopt, op->mirror_kernel());
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
