@@ -45,6 +45,7 @@ private:
       std::string moduleName;
     };
 
+    int opIndex;
     llvm::SmallVector<Module> modules;
     std::string funcPath;
     std::string funcName;
@@ -93,12 +94,14 @@ private:
 
       // Split locStr by "|" character.
       // For example, given:
-      //   "Tail[tail]|ReLU[tail.relu]|/localdev/.../test.py:106|forward|107|aten__relu"
+      //   "7|Tail[tail]|ReLU[tail.relu]|/localdev/.../test.py:106|forward|107|aten__relu"
       // Return:
-      //   ["Tail[tail]", "ReLU[tail.relu]", "/localdev/.../test.py:106",
+      //   ["7", "Tail[tail]", "ReLU[tail.relu]", "/localdev/.../test.py:106",
       //   "forward", "107", "aten__relu"]
       llvm::SmallVector<llvm::StringRef, 5> locParts;
       llvm::StringRef(locStr).split(locParts, "|", -1, false);
+
+      this->opIndex = std::stoi(locParts[0].str());
 
       // Validate that we have at least 4 parts (funcPath, funcName, opLineNum,
       // opName)
@@ -114,7 +117,7 @@ private:
       this->funcName = locParts[n - 3].str();
       this->funcPath = locParts[n - 4].str();
       this->modules = llvm::SmallVector<Module>();
-      for (size_t i = 0; i < n - 4; i++) {
+      for (size_t i = 1; i < n - 4; i++) {
         // Split each module into class and name.
         // For example, given:
         //   "Tail[tail]"
@@ -493,23 +496,23 @@ private:
     }
 
     // Print all ops in queue
-    llvm::outs() << "Root ops in queue: " << inQueue.size() << "\n";
+    // llvm::outs() << "Root ops in queue: " << inQueue.size() << "\n";
     // for (Operation *op : inQueue) {
     //   llvm::outs() << "  - " << op->getName() << "\n";
     // }
 
-    for (Operation *op : inQueue) {
-      auto it = opToOpPyLoc.find(op);
-      if (it == opToOpPyLoc.end()) {
-        llvm::errs() << "DIDNT FIND OP IN OPTOOPPYLOC\n";
-        exit(1);
-      }
+    // for (Operation *op : inQueue) {
+    //   auto it = opToOpPyLoc.find(op);
+    //   if (it == opToOpPyLoc.end()) {
+    //     llvm::errs() << "DIDNT FIND OP IN OPTOOPPYLOC\n";
+    //     exit(1);
+    //   }
 
-      const OpPyLoc &opPyLoc = it->second;
-      llvm::outs() << "  - " << opPyLoc.op->getName() << " - "
-                   << opPyLoc.distanceFromRoot << " - "
-                   << opPyLoc.pyLoc.funcPath << "\n";
-    }
+    //   const OpPyLoc &opPyLoc = it->second;
+    //   llvm::outs() << "  - " << opPyLoc.op->getName() << " - "
+    //                << opPyLoc.distanceFromRoot << " - "
+    //                << opPyLoc.pyLoc.funcPath << "\n";
+    // }
 
     while (!availableOps.empty()) {
       OpPyLoc opPyLoc = availableOps.top();
@@ -526,50 +529,50 @@ private:
 
       // Check if funcPath changed (make a "cut")
       if (!prevFuncPath.empty() && pyLoc.funcPath != prevFuncPath) {
-        // Print current group
-        llvm::outs() << "Current group: " << currentGroup.opPyLocs.size()
-                     << "\n";
-        llvm::outs() << "  Func path: " << prevFuncPath << "\n";
-        for (const OpPyLoc &opPyLoc : currentGroup.opPyLocs) {
-          // Print pyloc op name and modules
-          llvm::outs() << "  - " << opPyLoc.op->getName() << " (modules: ";
-          for (const PyLoc::Module &module : opPyLoc.pyLoc.modules) {
-            llvm::outs() << module.moduleClass << "[" << module.moduleName
-                         << "] ";
-          }
-          if (groupCounter >= 3 and groupCounter <= 7) {
-            llvm::outs() << "  PRINTING WHOLE OP:\n";
-            opPyLoc.op->dump();
-          }
-          llvm::outs() << ")\n";
-        }
-        llvm::outs() << "  Ops currently in queue: " << inQueue.size() << "\n";
-        llvm::outs() << "    - " << opPyLoc.op->getName() << " - "
-                     << opPyLoc.distanceFromRoot << " - "
-                     << opPyLoc.pyLoc.funcPath << "\n";
-        for (Operation *op : inQueue) {
-          auto it = opToOpPyLoc.find(op);
-          if (it == opToOpPyLoc.end()) {
-            llvm::errs() << "DIDNT FIND OP IN OPTOOPPYLOC\n";
-            exit(1);
-          }
-          const OpPyLoc &opPyLoc = it->second;
-          llvm::outs() << "    - " << opPyLoc.op->getName() << " - "
-                       << opPyLoc.distanceFromRoot << " - "
-                       << opPyLoc.pyLoc.funcPath << "\n";
-        }
+        // // Print current group
+        // llvm::outs() << "Current group: " << currentGroup.opPyLocs.size()
+        //              << "\n";
+        // llvm::outs() << "  Func path: " << prevFuncPath << "\n";
+        // for (const OpPyLoc &opPyLoc : currentGroup.opPyLocs) {
+        //   // Print pyloc op name and modules
+        //   llvm::outs() << "  - " << opPyLoc.op->getName() << " (modules: ";
+        //   for (const PyLoc::Module &module : opPyLoc.pyLoc.modules) {
+        //     llvm::outs() << module.moduleClass << "[" << module.moduleName
+        //                  << "] ";
+        //   }
+        //   if (groupCounter >= 3 and groupCounter <= 7) {
+        //     llvm::outs() << "  PRINTING WHOLE OP:\n";
+        //     opPyLoc.op->dump();
+        //   }
+        //   llvm::outs() << ")\n";
+        // }
+        // llvm::outs() << "  Ops currently in queue: " << inQueue.size() <<
+        // "\n"; llvm::outs() << "    - " << opPyLoc.op->getName() << " - "
+        //              << opPyLoc.distanceFromRoot << " - "
+        //              << opPyLoc.pyLoc.funcPath << "\n";
+        // for (Operation *op : inQueue) {
+        //   auto it = opToOpPyLoc.find(op);
+        //   if (it == opToOpPyLoc.end()) {
+        //     llvm::errs() << "DIDNT FIND OP IN OPTOOPPYLOC\n";
+        //     exit(1);
+        //   }
+        //   const OpPyLoc &opPyLoc = it->second;
+        //   llvm::outs() << "    - " << opPyLoc.op->getName() << " - "
+        //                << opPyLoc.distanceFromRoot << " - "
+        //                << opPyLoc.pyLoc.funcPath << "\n";
+        // }
 
         // Save the current group with a unique key
         currentGroup.funcName = "forward_" + std::to_string(groupCounter);
         currentGroup.index = groupCounter;
         currentGroup.generateFuncName();
-        llvm::outs() << "  Func name: " << currentGroup.funcName << "\n";
+        // llvm::outs() << "  Func name: " << currentGroup.funcName << "\n";
         std::string uniqueKey =
             prevFuncPath + "_group_" + std::to_string(groupCounter++);
         funcGroups[uniqueKey] = currentGroup;
         currentGroup = FuncGroup();
 
-        llvm::outs() << "\n";
+        // llvm::outs() << "\n";
       }
 
       // Add current op to the group
@@ -1115,16 +1118,16 @@ public:
 
     // Group operations by function
     auto funcGroups = groupOperationsByFunction(candidateFn, opToLocation);
-    printFunctionGroups(funcGroups);
+    // printFunctionGroups(funcGroups);
 
     // Analyze function boundaries and data flow
     auto boundaryInfos = analyzeFunctionBoundaries(funcGroups);
-    printFunctionBoundaries(boundaryInfos);
+    // printFunctionBoundaries(boundaryInfos);
 
     // Create new functions based on boundary information
     auto newFunctions =
         createNewFunctions(rewriter, candidateFn, boundaryInfos);
-    printNewFunctions(newFunctions);
+    // printNewFunctions(newFunctions);
 
     // Populate function bodies with operations
     populateFunctionBodies(rewriter, boundaryInfos, newFunctions);
