@@ -657,7 +657,7 @@ def test_add_tree_31_to_1_dram(device, shape, dtype):
 # intermediate storage. It's still limited to fusing into 7-input d2m.generics when in 32b mode due to
 # the way the CB limit is currently enforced but will be fusable into a single 31x 32b inputs in
 # later releases YMMV based on tensor/grid sizes.
-def adder_ladder_31(
+def binary_ladder_31(
     in0,
     in1,
     in2,
@@ -690,38 +690,50 @@ def adder_ladder_31(
     in29,
     in30,
 ):
-    add_0 = ttnn.add(in0, in1)
-    add_1 = ttnn.add(add_0, in2)
-    add_2 = ttnn.add(add_1, in3)
-    add_3 = ttnn.add(add_2, in4)
-    add_4 = ttnn.add(add_3, in5)
-    add_5 = ttnn.add(add_4, in6)
-    add_6 = ttnn.add(add_5, in7)
-    add_7 = ttnn.add(add_6, in8)
-    add_8 = ttnn.add(add_7, in9)
-    add_9 = ttnn.add(add_8, in10)
-    add_10 = ttnn.add(add_9, in11)
-    add_11 = ttnn.add(add_10, in12)
-    add_12 = ttnn.add(add_11, in13)
-    add_13 = ttnn.add(add_12, in14)
-    add_14 = ttnn.add(add_13, in15)
-    add_15 = ttnn.add(add_14, in16)
-    add_16 = ttnn.add(add_15, in17)
-    add_17 = ttnn.add(add_16, in18)
-    add_18 = ttnn.add(add_17, in19)
-    add_19 = ttnn.add(add_18, in20)
-    add_20 = ttnn.add(add_19, in21)
-    add_21 = ttnn.add(add_20, in22)
-    add_22 = ttnn.add(add_21, in23)
-    add_23 = ttnn.add(add_22, in24)
-    add_24 = ttnn.add(add_23, in25)
-    add_25 = ttnn.add(add_24, in26)
-    add_26 = ttnn.add(add_25, in27)
-    add_27 = ttnn.add(add_26, in28)
-    add_28 = ttnn.add(add_27, in29)
-    add_29 = ttnn.add(add_28, in30)
+    res_0 = ttnn.add(in0, in1)
+    res_1 = ttnn.subtract(res_0, in2)
+    res_2 = ttnn.multiply(res_1, in3)
 
-    return add_29
+    # TODO(mbagherbeikTT) update for DIV support
+    # change to DIV once support is added
+    res_3 = ttnn.subtract(res_2, in4)
+
+    res_4 = ttnn.add(in5, res_3)
+    res_5 = ttnn.subtract(in6, res_4)
+    res_6 = ttnn.multiply(in7, res_5)
+
+    # change to DIV once support is added
+    res_7 = ttnn.subtract(in8, res_6)
+
+    res_8 = ttnn.add(res_7, in9)
+    res_9 = ttnn.add(in10, res_8)
+    res_10 = ttnn.add(res_9, in11)
+    res_11 = ttnn.add(in12, res_10)
+
+    res_12 = ttnn.subtract(res_11, in13)
+    res_13 = ttnn.subtract(in14, res_12)
+    res_14 = ttnn.subtract(res_13, in15)
+    res_15 = ttnn.subtract(in16, res_14)
+
+    res_16 = ttnn.multiply(res_15, in17)
+    res_17 = ttnn.multiply(in18, res_16)
+    res_18 = ttnn.multiply(res_17, in19)
+    res_19 = ttnn.multiply(in20, res_18)
+
+    # change to DIV once support is added
+    res_20 = ttnn.subtract(res_19, in21)
+    res_21 = ttnn.subtract(in22, res_20)
+    res_22 = ttnn.subtract(res_21, in23)
+    res_23 = ttnn.subtract(in24, res_22)
+
+    res_24 = ttnn.add(res_23, in25)
+    res_25 = ttnn.add(res_24, in26)
+    res_26 = ttnn.add(res_25, in27)
+    res_27 = ttnn.add(res_26, in28)
+    res_28 = ttnn.add(res_27, in29)
+    res_29 = ttnn.add(res_28, in30)
+
+    return res_29
 
 
 @pytest.mark.parametrize(
@@ -733,11 +745,11 @@ def adder_ladder_31(
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.float32])
-def test_adder_ladder_31_l1(device, shape, max_grid, dtype, memory_layout):
+def test_binary_ladder_31_l1(device, shape, max_grid, dtype, memory_layout):
     num_inputs = 31
 
     if dtype is torch.bfloat16:
-        pytest.xfail("adder_ladder_31 fails all close")
+        pytest.xfail("binary_ladder_31 fails all close")
 
     size_limit = 256 * 256
     elements = 1
@@ -746,14 +758,14 @@ def test_adder_ladder_31_l1(device, shape, max_grid, dtype, memory_layout):
         elements *= dim
 
     if elements > size_limit or (shape == (64, 128) and max_grid == (0, 0)):
-        pytest.xfail("adder_ladder_31 runs out of memory")
+        pytest.xfail("binary_ladder_31 runs out of memory")
 
     run_op_test(
         device,
         shape,
         max_grid,
         dtype,
-        adder_ladder_31,
+        binary_ladder_31,
         num_inputs,
         buffer_type=ttnn.BufferType.L1,
         memory_layout=memory_layout,
@@ -763,18 +775,18 @@ def test_adder_ladder_31_l1(device, shape, max_grid, dtype, memory_layout):
 
 @pytest.mark.parametrize("shape", DRAM_SHAPES)
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
-def test_adder_ladder_31_dram(device, shape, dtype):
+def test_binary_ladder_31_dram(device, shape, dtype):
     num_inputs = 31
 
     if dtype is torch.bfloat16:
-        pytest.xfail("adder_ladder_31 fails all close")
+        pytest.xfail("binary_ladder_31 fails all close")
 
     run_op_test(
         device,
         shape,
         max_grid=(0, 0),
         dtype=dtype,
-        op=adder_ladder_31,
+        op=binary_ladder_31,
         num_inputs=num_inputs,
         buffer_type=ttnn.BufferType.DRAM,
         graph_capture=False,
