@@ -1655,6 +1655,54 @@ public:
     int32_t paddingBottom = std::get<2>(*paddingQuad);
     int32_t paddingRight = std::get<3>(*paddingQuad);
 
+    auto batchSize = adaptor.getFlattenedCompatInfo().getBatchSize();
+    auto inputHeight = adaptor.getFlattenedCompatInfo().getInputHeight();
+    auto inputWidth = adaptor.getFlattenedCompatInfo().getInputWidth();
+    constexpr unsigned int CHANNEL_DIM = 3;
+    auto channels = op.getInput().getType().getDimSize(CHANNEL_DIM);
+
+    // Check if padding exceeds half kernel size (tt-metal constraint).
+    int32_t maxPadH = kernelSizeAttr.asArrayRef()[0] / 2;
+    int32_t maxPadW = kernelSizeAttr.asArrayRef()[1] / 2;
+
+    Value input = adaptor.getInput();
+    if (paddingTop > maxPadH || paddingLeft > maxPadW ||
+        paddingBottom > maxPadH || paddingRight > maxPadW) {
+      // Unflatten (1, 1, N*H*W, C) -> (N, H, W, C).
+
+      llvm::SmallVector<int64_t> nhwcShape = {batchSize, inputHeight,
+                                              inputWidth, channels};
+      auto unflattenedInput = ttir_to_ttnn::utils::generateReshape(
+          mlir::cast<mlir::TypedValue<mlir::RankedTensorType>>(input),
+          nhwcShape, rewriter, op.getLoc());
+
+      // Apply padding to NHWC tensor.
+      llvm::SmallVector<int32_t> nhwcPadding = {
+          0, 0, paddingTop, paddingBottom, paddingLeft, paddingRight, 0, 0};
+      auto paddedInput = ttir_to_ttnn::utils::generatePad(
+          mlir::cast<mlir::TypedValue<mlir::RankedTensorType>>(
+              unflattenedInput.getResult()),
+          nhwcPadding, rewriter, op.getLoc());
+
+      // Flatten back to (1, 1, N*H'*W', C).
+      int64_t paddedHeight = inputHeight + paddingTop + paddingBottom;
+      int64_t paddedWidth = inputWidth + paddingLeft + paddingRight;
+      auto flattenedPaddedInput = ttir_to_ttnn::utils::generateNHWFlatten(
+          mlir::cast<mlir::TypedValue<mlir::RankedTensorType>>(
+              paddedInput.getResult()),
+          rewriter, op.getLoc());
+
+      input = flattenedPaddedInput.getResult();
+
+      inputHeight = paddedHeight;
+      inputWidth = paddedWidth;
+
+      paddingTop = 0;
+      paddingLeft = 0;
+      paddingBottom = 0;
+      paddingRight = 0;
+    }
+
     DenseI32ArrayAttr paddingAttr;
     // If padding is symmetric along both spatial dimensions, we can use the
     // {height, width} definition of padding.
@@ -1665,27 +1713,19 @@ public:
       paddingAttr = rewriter.getDenseI32ArrayAttr(
           {paddingTop, paddingLeft, paddingBottom, paddingRight});
     }
-
-    auto batchSize = adaptor.getFlattenedCompatInfo().getBatchSize();
-    constexpr unsigned int CHANNEL_DIM = 3;
-    auto channels = op.getInput().getType().getDimSize(CHANNEL_DIM);
     if constexpr (std::is_same_v<TTIROpTy, ttir::AvgPool2dOp>) {
       rewriter.replaceOpWithNewOp<TTNNOpTy>(
           op, this->getTypeConverter()->convertType(op.getResult().getType()),
-          adaptor.getInput(), batchSize,
-          adaptor.getFlattenedCompatInfo().getInputHeight(),
-          adaptor.getFlattenedCompatInfo().getInputWidth(), channels,
-          kernelSizeAttr, strideAttr, paddingAttr, dilationAttr,
+          input, batchSize, inputHeight, inputWidth, channels, kernelSizeAttr,
+          strideAttr, paddingAttr, dilationAttr,
           /*memory_config=*/nullptr,
           /* applied_shard_scheme=*/nullptr, adaptor.getCeilMode(),
           /* in_place_halo=*/false, adaptor.getCountIncludePad());
     } else if constexpr (std::is_same_v<TTIROpTy, ttir::MaxPool2dOp>) {
       rewriter.replaceOpWithNewOp<TTNNOpTy>(
           op, this->getTypeConverter()->convertType(op.getResult().getType()),
-          adaptor.getInput(), batchSize,
-          adaptor.getFlattenedCompatInfo().getInputHeight(),
-          adaptor.getFlattenedCompatInfo().getInputWidth(), channels,
-          kernelSizeAttr, strideAttr, paddingAttr, dilationAttr,
+          input, batchSize, inputHeight, inputWidth, channels, kernelSizeAttr,
+          strideAttr, paddingAttr, dilationAttr,
           /*memory_config=*/nullptr,
           /* applied_shard_scheme=*/nullptr, adaptor.getCeilMode(),
           /* in_place_halo=*/false);
@@ -1700,9 +1740,7 @@ public:
       }
 
       rewriter.replaceOpWithNewOp<ttnn::MaxPool2dWithIndicesOp>(
-          op, resultTypes, adaptor.getInput(), batchSize,
-          adaptor.getFlattenedCompatInfo().getInputHeight(),
-          adaptor.getFlattenedCompatInfo().getInputWidth(), channels,
+          op, resultTypes, input, batchSize, inputHeight, inputWidth, channels,
           kernelSizeAttr, strideAttr, paddingAttr, dilationAttr,
           /*memory_config=*/nullptr,
           /* applied_shard_scheme=*/nullptr, adaptor.getCeilMode(),
