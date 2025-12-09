@@ -175,23 +175,23 @@ graph LR
         in0_bm[in0] --> BlockMM((BlockMM))
         in1_bm[in1] --> BlockMM
         BlockMM --> out0_bm[out0]
-        
+
         in0_tm[in0] --> TileMM((TileMM))
         in1_tm[in1] --> TileMM
         TileMM --> out0_tm[out0]
     end
-    
+
     subgraph Reductions
         direction TB
         title_red["<b>Reductions</b>"]
         in0_r1[in0] --> Unary((Unary))
         Unary --> out0_r1[out0]
-        
+
         in0_r2[in0] --> Binary((Binary))
         in1_r2[in1] --> Binary
         Binary --> out0_r2[out0]
     end
-    
+
     subgraph TMs
         direction TB
         title_tms["<b>TMs</b>"]
@@ -199,33 +199,33 @@ graph LR
         dots_in[". . ."] --> Gather
         inN_tm1[inN] --> Gather
         Gather --> out0_tm1[out0]
-        
+
         in0_tm2[in0] --> Scatter((Scatter))
         Scatter --> out0_tm2[out0]
         Scatter --> dots_out[". . ."]
         Scatter --> outN_tm2[outN]
     end
-    
+
     MatMul ~~~ Reductions ~~~ TMs
-    
+
     classDef purpleCircle fill:#9370db,stroke:#444,stroke-width:3px,color:#fff
     classDef blueCircle fill:#4169e1,stroke:#444,stroke-width:3px,color:#fff
     classDef yellowCircle fill:#ffd700,stroke:#444,stroke-width:3px,color:#000
     classDef inputOutput fill:#fff,stroke:#444,stroke-width:1px
-    
+
     class BlockMM,TileMM purpleCircle
     class Unary,Binary blueCircle
     class Gather,Scatter yellowCircle
     class in0_bm,in1_bm,out0_bm,in0_tm,in1_tm,out0_tm,in0_r1,out0_r1,in0_r2,in1_r2,out0_r2 inputOutput
     class in0_tm1,dots_in,inN_tm1,out0_tm1,in0_tm2,out0_tm2,dots_out,outN_tm2 inputOutput
-    
+
     style MatMul fill:#fff,stroke:#444,stroke-width:3px,rx:15,ry:15
     style Reductions fill:#fff,stroke:#444,stroke-width:3px,rx:15,ry:15
     style TMs fill:#fff,stroke:#444,stroke-width:3px,rx:15,ry:15
 ```
 
 ```mermaid
-graph TD  
+graph TD
     subgraph Elementwise
         direction LR
         subgraph Left[" "]
@@ -233,28 +233,28 @@ graph TD
             title_left["<b>Elementwise</b>"]
             in0_e1[in0] --> EltUnary1((Unary))
             EltUnary1 --> out0_e1[out0]
-            
+
             in0_e2[in0] --> EltBinary1((Binary))
             in1_e2[in1] --> EltBinary1
             EltBinary1 --> out0_e2[out0]
         end
-        
+
         subgraph Right[" "]
             direction TB
             in0_e3[in0] --> EltUnary3A((Unary))
             EltUnary3A --> EltUnary3B((Unary))
             EltUnary3B --> out0_e3[out0]
-            
+
             in0_e4[in0] --> EltUnary4((Unary))
             EltUnary4 --> EltBinary4((Binary))
             in1_e4[in1] --> EltBinary4
             EltBinary4 --> out0_e4[out0]
-            
+
             in0_e5[in0] --> EltBinary5((Binary))
             in1_e5[in1] --> EltBinary5
             EltBinary5 --> EltUnary5((Unary))
             EltUnary5 --> out0_e5[out0]
-            
+
             in0_e6[in0] --> EltBinary6A((Binary))
             in1_e6[in1] --> EltBinary6A
             in2_e6[in2] --> EltBinary6B((Binary))
@@ -263,19 +263,19 @@ graph TD
             EltBinary6B --> EltUnary6
             EltUnary6 --> out0_e6[out0]
         end
-        
+
         Left ~~~ Right
     end
-    
+
     classDef greenCircle fill:#32cd32,stroke:#444,stroke-width:3px,color:#fff
     classDef whiteCircle fill:#fff,stroke:#444,stroke-width:3px,color:#000
     classDef inputOutput fill:#fff,stroke:#444,stroke-width:1px
-    
+
     class EltUnary1,EltUnary3A,EltUnary3B,EltUnary4,EltUnary5,EltUnary6 greenCircle
     class EltBinary1,EltBinary4,EltBinary5,EltBinary6A,EltBinary6B whiteCircle
     class in0_e1,out0_e1,in0_e2,in1_e2,out0_e2,in0_e3,out0_e3,in0_e4,in1_e4,out0_e4 inputOutput
     class in0_e5,in1_e5,out0_e5,in0_e6,in1_e6,in2_e6,in3_e6,out0_e6 inputOutput
-    
+
     style Elementwise fill:#fff,stroke:#444,stroke-width:3px,rx:15,ry:15
     style Left fill:none,stroke:none
     style Right fill:none,stroke:none
@@ -286,7 +286,7 @@ graph TD
 - **Only supports elementwise ops** (no reductions/matmuls/TMs yet)
 - **Fused `d2m.generic` can't have more than 32 input/output tensors** (CB limit)
   - If all tensors have data types with <= 16b, can fuse freely until we hit CB limit
-  - If any of the tensors being fused has a data type > 16b, can only fuse up-to and including 7 inputs 
+  - If any of the tensors being fused has a data type > 16b, can only fuse up-to and including 7 inputs
 - **Ops with 2+ inputs** are currently lowered to loops that operate on 1xDST-tile at a time
   - Can fuse aggressively and save on dispatch but less savings on redundant ops
   - **Major revisions incoming** in later releases
@@ -409,15 +409,15 @@ This will then lower into the following loop structure (assuming tensor sizes of
 
 ```
 d2m.generic {// . . . omitted . . .
-    
+
     ^compute0(%cb0: !d2m.cb<memref<4x4x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>>, %cb1: !d2m.cb<memref<4x4x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>>, %cb2: !d2m.cb<memref<4x4x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>>, %cb3: !d2m.cb<memref<4x4x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>>, %cb4: !d2m.cb<memref<4x4x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>>, %cb5: !d2m.cb<memref<4x4x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>>, %cb6: !d2m.cb<memref<4x4x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>>, %cb7: !d2m.cb<memref<4x4x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>>, %cb8: !d2m.cb<memref<4x4x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<l1>>>):
-      
+
       // . . . omitted . . .
       scf.for %arg8 = %c0 to %c4 step %c1 {
         scf.for %arg9 = %c0 to %c4 step %c1 {
-          
+
           // . . . omitted . . .
-          
+
           %dst = d2m.acquire_dst() : memref<8x1x1x!ttcore.tile<32x32, bf16>, #ttcore.memory_space<dst>>
 
           // Loads from l1/DRAM into DST are moved into the same loop as the compute ops
