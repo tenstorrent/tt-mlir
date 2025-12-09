@@ -67,6 +67,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(TTMLIR_ENABLE_BINDINGS_PYTHON ON CACHE BOOL "Enable Python bindings")
 
+set(NB_USE_SUBMODULE_DEPS ON CACHE BOOL "Use nanobind bundled dependencies")
+
 if (APPLE)
   set(TTMLIR_ENABLE_OPMODEL OFF)
   message(WARNING "TTNNOpModelLib is disabled on Apple platforms. Optimizer will not get true performance.")
