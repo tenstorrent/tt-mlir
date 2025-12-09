@@ -40,7 +40,7 @@ if [[ "$runttrt" == "1" ]]; then
 
                 # Check if the corresponding TTNN file exists
                 if [ -f "$ttnn_file" ]; then
-                    echo "Found matching TTNN file: $ttnn_file"
+                    # echo "Found matching TTNN file: $ttnn_file"
                     FLATBUFFER=" --flatbuffer $ttnn_file "
                 else
                     echo "No matching TTNN file found for $basename_file, running without flatbuffer comparison"
@@ -70,7 +70,7 @@ if [[ "$runttrt" == "1" ]]; then
 
                 # Check if the corresponding TTNN file exists
                 if [ -f "$ttnn_file" ]; then
-                    echo "Found matching TTNN file: $ttnn_file"
+                    # echo "Found matching TTNN file: $ttnn_file"
                     FLATBUFFER=" --flatbuffer $ttnn_file "
                 else
                     echo "No matching TTNN file found for $basename_file, running without flatbuffer comparison"

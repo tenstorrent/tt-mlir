@@ -45,7 +45,7 @@ class DeviceGetter:
                 mesh_shape=ttnn.MeshShape(mesh_shape),
                 l1_small_size=cls.l1_small_size,
             )
-            print(f"Device: {cls._instance}")
+            # print(f"Device: {cls._instance}")
 
         # Compare requested mesh_shape with _mesh_shape used to initialize the device
         if tuple(cls._mesh_shape) != tuple(mesh_shape):
