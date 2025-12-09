@@ -1,6 +1,9 @@
 // RUN: ttmlir-opt --convert-ttnn-to-ttir --ttir-to-ttmetal-pipeline="system-desc-path=%system_desc_path% ttnn-mode=true" -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
+// XFAIL: *
+// Test uses BLOCK_SHARDED memory but tilize on device requires HEIGHT_SHARDED or INTERLEAVED.
+// See: https://github.com/tenstorrent/tt-mlir/issues/6247
 
 #dram = #ttnn.buffer_type<dram>
 #l1 = #ttnn.buffer_type<l1>
