@@ -2671,16 +2671,12 @@ public:
   matchAndRewrite(mlir::tt::ttnn::MeshShardOp srcOp,
                   mlir::tt::ttnn::MeshShardOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-
-    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::MeshShardOp> emitter(
-        srcOp, adaptor, rewriter);
     // Identity mesh_shard has no backend behavior, so we just forward the input
-    // tensor to the output.
-    llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(srcOp.getInput()),
-    };
-
-    emitter.replaceOp(*this, args);
+    // tensor to the output without generating any function call.
+    assert(adaptor.getShardType() ==
+               mlir::tt::ttcore::MeshShardType::Identity &&
+           "ttnn.mesh_shard op with non-identity shard type is not supported");
+    rewriter.replaceOp(srcOp, adaptor.getInput());
 
     return success();
   }
