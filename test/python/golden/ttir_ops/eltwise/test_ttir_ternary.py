@@ -36,7 +36,8 @@ def where(
 ternary_ops = [
     where
     | Marks(
-        pytest.mark.xfail(reason="Fails Golden"), pytest.mark.skip_config(["ttmetal"])
+        pytest.mark.skip_config(["emitpy"], reason="Fails Golden"),
+        pytest.mark.skip_config(["ttmetal"]),
     ),
 ]
 

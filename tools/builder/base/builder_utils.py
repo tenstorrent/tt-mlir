@@ -37,6 +37,19 @@ from builder.d2m.d2m_builder import D2MBuilder
 from builder.base.builder_runtime import *
 
 
+class EmitPyDylib:
+    def __init__(self, file_path):
+        self.file_path = file_path if file_path != None else "<dylib-from-capsule>"
+        self.name = file_path
+
+        # temporary state value to check if test failed
+        self.test_result = "pass"
+
+    @staticmethod
+    def get_py_file_extension():
+        return ".py"
+
+
 # ----- Shared Helper Functions -----
 
 
@@ -210,6 +223,22 @@ def _compile_and_execute(
             goldens=goldens,
             bypass_ops=builder._bypass_ops,
             enable_intermediate_verification=export_golden_report,
+        )
+
+    elif target == "emitpy":
+        py_path = mlir_path + ".py"
+        dylib = EmitPyDylib(file_path=py_path)
+        golden_report = execute_emitted_py(
+            dylib=dylib,
+            goldens=goldens,
+            program_index="all",
+            pcc=pcc,
+            atol=atol,
+            rtol=rtol,
+            disable_golden=disable_golden,
+            device=device,
+            check_atol=check_atol,
+            check_rtol=check_rtol,
         )
 
     if golden_report and export_golden_report:

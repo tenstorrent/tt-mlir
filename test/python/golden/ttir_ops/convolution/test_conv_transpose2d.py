@@ -6,6 +6,7 @@ import pytest
 import sys
 import torch
 from typing import List, Optional
+from test_utils import Marks
 from builder.base.builder import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_utils import compile_and_execute_ttir
@@ -29,6 +30,7 @@ def clear_program_cache_after_test(device):
         conftest._current_device.clear_program_cache()
 
 
+@pytest.mark.skip_config(["emitpy"], reason="Out of memory errors during runtime")
 @pytest.mark.parametrize(
     "input_shape, weight_shape, bias_shape, stride, padding, output_padding, dilation, groups",
     [

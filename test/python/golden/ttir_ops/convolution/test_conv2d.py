@@ -6,6 +6,7 @@ import pytest
 import sys
 import torch
 from typing import List, Optional, Tuple, Union
+from test_utils import Marks
 from builder.base.builder import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_utils import compile_and_execute_ttir
@@ -96,7 +97,14 @@ def clear_program_cache_after_test(device):
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
-@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+@pytest.mark.parametrize(
+    "target",
+    [
+        "ttnn",
+        "emitpy"
+        | Marks(pytest.mark.xfail(reason="Out of memory error during runtime")),
+    ],
+)
 def test_conv2d(
     input_shape: Shape,
     weight_shape: Shape,

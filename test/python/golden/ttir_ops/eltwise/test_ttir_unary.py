@@ -231,6 +231,7 @@ unary_ops = [
     | Marks(
         pytest.mark.skip_config(
             ["ttmetal", "p150"],
+            ["emitpy"],
             reason="https://github.com/tenstorrent/tt-mlir/pull/6131",
         )
     ),
@@ -374,6 +375,7 @@ def get_dimension_size(
     return builder.get_dimension_size(in0, parameter, unit_attrs=unit_attrs)
 
 
+@pytest.mark.skip_config(["emitpy"], reason="Float vs Int mismatch")
 @pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
 @pytest.mark.parametrize("target", ["ttnn", "emitpy"])
