@@ -736,6 +736,8 @@ def binary_ladder_31(
     return res_29
 
 
+# TODO(mbagherbeikTT) add bfloat16 tests back once issue #6252 is fixed
+# Currently fails all-close checks when using bfloat16
 @pytest.mark.parametrize(
     "shape, max_grid, memory_layout",
     SHARDED_SHAPE_GRID_LAYOUTS,
@@ -747,10 +749,6 @@ def binary_ladder_31(
 @pytest.mark.parametrize("dtype", [torch.float32])
 def test_binary_ladder_31_l1(device, shape, max_grid, dtype, memory_layout):
     num_inputs = 31
-
-    # bfloat16 fails all-close, removed from parameters for now
-    if dtype is torch.bfloat16:
-        pytest.xfail("binary_ladder_31 fails all close")
 
     size_limit = 256 * 256
     elements = 1
@@ -774,14 +772,12 @@ def test_binary_ladder_31_l1(device, shape, max_grid, dtype, memory_layout):
     )
 
 
+# TODO(mbagherbeikTT) add bfloat16 tests back once issue #6252 is fixed
+# Currently fails all-close checks when using bfloat16
 @pytest.mark.parametrize("shape", DRAM_SHAPES)
 @pytest.mark.parametrize("dtype", [torch.float32])
 def test_binary_ladder_31_dram(device, shape, dtype):
     num_inputs = 31
-
-    # bfloat16 fails all-close, removed from parameters for now
-    if dtype is torch.bfloat16:
-        pytest.xfail("binary_ladder_31 fails all close")
 
     run_op_test(
         device,
