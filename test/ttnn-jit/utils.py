@@ -178,6 +178,7 @@ def run_op_test(
     enable_cache=False,
     memory_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED,
     ttnn_dtype=None,
+    compile_only=False,
 ):
     """
     Common test runner for JIT operations.
@@ -214,6 +215,7 @@ def run_op_test(
     golden_op = _get_ttnn_op(op)
 
     op_jit = ttnn_jit.jit(
+        compile_only=compile_only,
         debug=True,
         enable_cache=enable_cache,
         graph_capture=graph_capture,
@@ -222,7 +224,8 @@ def run_op_test(
     golden_tensor = (golden_op or op)(*inputs)
 
     print("created inputs:\n", inputs)
-    assert memory_configs_equal(
-        output_tensor.memory_config(), golden_tensor.memory_config()
-    )
-    assert all_close_check(output_tensor, golden_tensor)
+    if not compile_only:
+        assert memory_configs_equal(
+            output_tensor.memory_config(), golden_tensor.memory_config()
+        )
+        assert all_close_check(output_tensor, golden_tensor)

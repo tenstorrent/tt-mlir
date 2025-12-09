@@ -243,10 +243,15 @@ class BinaryOpHandler(OpHandler):
 
         Binary operations may have a constant argument that needs to be converted
         to a constant tensor and added to the operand list.
+
+        Only adds a constant tensor if we have fewer than 2 operands. If we already
+        have 2 tensor operands from in_edges, we ignore any constant in parsed_args
+        (which may be metadata/default values from the trace).
         """
         constant_value = parsed_args.get("constant")
-        if constant_value is not None:
+        if constant_value is not None and len(operands) < 2:
             # Create a constant tensor and add it to operands
+            # Only do this if we don't already have 2 operands
             constant_tensor = compiler_context._create_constant_tensor(
                 constant_value, result_type, device
             )
