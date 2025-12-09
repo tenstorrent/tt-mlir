@@ -1667,7 +1667,8 @@ d2m::GenericOp::getOperandShardShapes(bool convertTileToScalar) {
 
 mlir::SmallVector<int64_t> d2m::GenericOp::getPhysicalGridShape() {
   auto outputType = mlir::cast<ShapedType>(getOutputs().front().getType());
-  ttcore::DeviceLayoutInterface deviceLayout = ttcore::getDeviceLayout(outputType);
+  ttcore::DeviceLayoutInterface deviceLayout =
+      ttcore::getDeviceLayout(outputType);
   return deviceLayout.getPhysicalGridShape(outputType);
 }
 

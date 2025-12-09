@@ -127,7 +127,6 @@ public:
 
     ArrayAttr threads = op.getThreads();
     auto physicalGridShape = op.getPhysicalGridShape();
-    llvm::errs() << "[D2MToTTMetal] physicalGridShape: " << physicalGridShape[0] << "x" << physicalGridShape[1] << "\n";
     SymbolTable symbolTable(op->getParentOfType<ModuleOp>());
     auto kernelConfigs = convertThreadsToKernelConfigs(
         rewriter, adaptor.getOperands(), threads, physicalGridShape,

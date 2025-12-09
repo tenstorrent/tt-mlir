@@ -28,7 +28,8 @@ void TTMetalDialect::registerTypes() {
 }
 
 CoreRangeAttr
-CoreRangeAttr::getPhysicalCoreRange(MLIRContext *context, ArrayRef<int64_t> physicalGridShape) {
+CoreRangeAttr::getPhysicalCoreRange(MLIRContext *context,
+                                    ArrayRef<int64_t> physicalGridShape) {
   // Default offset is (0, 0) -- in the future, we can make it a parameter when
   // we need to offset differently.
   const SmallVector<int64_t> offset = {0, 0};
