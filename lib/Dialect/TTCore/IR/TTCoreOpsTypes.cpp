@@ -837,7 +837,7 @@ GridAttr::getPhysicalGridShape(ArrayRef<int64_t> deviceGridShape) {
       for (int x = 0; x < physGridShape[1]; x++) {
         auto fullVCoord = map.compose({y, x});
 
-        // drop device index result from coord
+        // Drop device index result from coord.
         auto vCoord = ArrayRef<int64_t>{fullVCoord}.drop_front(1);
 
         int64_t index = 0;
@@ -847,7 +847,7 @@ GridAttr::getPhysicalGridShape(ArrayRef<int64_t> deviceGridShape) {
           stride *= vGrid[i];
         }
 
-        // index must be in bounds and location not occupied
+        // Index must be in bounds and location not occupied.
         if (index >= virtualVolume || occupied[index]) {
           return false;
         }
@@ -859,7 +859,7 @@ GridAttr::getPhysicalGridShape(ArrayRef<int64_t> deviceGridShape) {
           }
         }
 
-        // mark location as occupied
+        // Mark location as occupied.
         occupied[index] = true;
       }
     }
@@ -1122,6 +1122,7 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
   return get(context, logicalShape, oobVal, memorySpace, memoryLayout,
              collapsedIntervals, mlir::AffineMap::get(context));
 }
+
 // Getter with explicit collapsedIntervals, we calculate the alignments.
 MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
                                      ArrayRef<int64_t> logicalShape,

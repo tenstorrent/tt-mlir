@@ -40,16 +40,17 @@ inline mlir::AffineMap extendWithIdentityDimsAndResults(mlir::AffineMap map,
 
 inline mlir::AffineMap createCollapseMap(mlir::MLIRContext *context,
                                          llvm::ArrayRef<int64_t> virtualGrid) {
-  using namespace mlir;
 
   int64_t virtualGridRank = virtualGrid.size();
-  AffineExpr collapseExpr = getAffineDimExpr(virtualGrid.size() - 1, context);
-  AffineExpr strideExpr = getAffineConstantExpr(virtualGrid.back(), context);
+  mlir::AffineExpr collapseExpr =
+      getAffineDimExpr(virtualGrid.size() - 1, context);
+  mlir::AffineExpr strideExpr =
+      getAffineConstantExpr(virtualGrid.back(), context);
   for (int64_t i = virtualGrid.size() - 2; i >= 0; i--) {
     collapseExpr = collapseExpr + getAffineDimExpr(i, context) * strideExpr;
     strideExpr = strideExpr * getAffineConstantExpr(virtualGrid[i], context);
   }
-  SmallVector<AffineExpr> collapseMapExprs = {collapseExpr};
+  llvm::SmallVector<mlir::AffineExpr> collapseMapExprs = {collapseExpr};
   auto map =
       mlir::AffineMap::get(virtualGridRank, 0, collapseMapExprs, context);
   return map;
@@ -57,20 +58,19 @@ inline mlir::AffineMap createCollapseMap(mlir::MLIRContext *context,
 
 inline mlir::AffineMap create1DtoNDMap(mlir::MLIRContext *context,
                                        llvm::ArrayRef<int64_t> targetGrid) {
-  using namespace mlir;
 
   TT_assertv(!targetGrid.empty(), "Target grid must have at least one dim");
   for (int64_t size : targetGrid) {
     TT_assertv(size > 0, "Target grid dimensions must be positive");
   }
 
-  SmallVector<AffineExpr> expandMapExprs;
+  llvm::SmallVector<mlir::AffineExpr> expandMapExprs;
   expandMapExprs.resize(targetGrid.size());
 
-  AffineExpr linearIdx = getAffineDimExpr(0, context);
-  AffineExpr strideExpr = getAffineConstantExpr(1, context);
+  mlir::AffineExpr linearIdx = getAffineDimExpr(0, context);
+  mlir::AffineExpr strideExpr = getAffineConstantExpr(1, context);
   for (int64_t dim = targetGrid.size() - 1; dim >= 0; --dim) {
-    AffineExpr sizeExpr = getAffineConstantExpr(targetGrid[dim], context);
+    mlir::AffineExpr sizeExpr = getAffineConstantExpr(targetGrid[dim], context);
     expandMapExprs[dim] = linearIdx.floorDiv(strideExpr) % sizeExpr;
     strideExpr = strideExpr * sizeExpr;
   }
@@ -96,9 +96,6 @@ createCoreVirtMaps(mlir::MLIRContext *context,
                    llvm::ArrayRef<int64_t> virtualGrid,
                    llvm::ArrayRef<int64_t> targetGrid) {
 
-  using namespace llvm;
-  using namespace mlir;
-
   TT_assertv(targetGrid.size() == 2ul, "Target grid must have 2 dimensions {}",
              targetGrid.size());
 
@@ -122,19 +119,21 @@ createCoreVirtMaps(mlir::MLIRContext *context,
 
   TT_assertv((is2DWidthSharded || is2DHeightSharded),
              "Only supporting 2D width or height sharding (actual grid shape = "
-             "{1})",
+             "{})",
              ttmlir::utils::formatIterable(virtualGrid, "x"));
 
-  SmallVector<AffineExpr> forwardMapExprs;
-  SmallVector<AffineExpr> inverseMapExprs;
+  llvm::SmallVector<mlir::AffineExpr> forwardMapExprs;
+  llvm::SmallVector<mlir::AffineExpr> inverseMapExprs;
 
-  AffineExpr d0 = getAffineDimExpr(0, context);
-  AffineExpr d1 = getAffineDimExpr(1, context);
-  AffineExpr d2 = getAffineDimExpr(2, context);
-  AffineExpr d3 = getAffineDimExpr(3, context);
-  AffineExpr zero = getAffineConstantExpr(0, context);
-  AffineExpr gridRowStride = getAffineConstantExpr(targetGrid[0], context);
-  AffineExpr gridColStride = getAffineConstantExpr(targetGrid[1], context);
+  mlir::AffineExpr d0 = getAffineDimExpr(0, context);
+  mlir::AffineExpr d1 = getAffineDimExpr(1, context);
+  mlir::AffineExpr d2 = getAffineDimExpr(2, context);
+  mlir::AffineExpr d3 = getAffineDimExpr(3, context);
+  mlir::AffineExpr zero = getAffineConstantExpr(0, context);
+  mlir::AffineExpr gridRowStride =
+      getAffineConstantExpr(targetGrid[0], context);
+  mlir::AffineExpr gridColStride =
+      getAffineConstantExpr(targetGrid[1], context);
 
   if (is2DWidthSharded) {
     forwardMapExprs = {d1.floorDiv(gridColStride), d1 % gridColStride, d2, d3};

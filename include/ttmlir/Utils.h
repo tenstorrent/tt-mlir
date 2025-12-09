@@ -158,7 +158,7 @@ computeCartesianProduct(llvm::ArrayRef<llvm::SmallVector<T>> possibilities) {
     return {};
   }
 
-  // recursively enumerate all combinations of the possibilities
+  // Recursively enumerate all combinations of the possibilities.
   std::vector<llvm::SmallVector<T>> cartesianProduct;
   llvm::SmallVector<T> currentCombination(possibilities.size(), T());
   auto enumerateCombinations = [&](auto &&self, size_t dimIndex = 0ul) -> void {

@@ -13,6 +13,7 @@
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/STLExtras.h"
 
 namespace ttmlir::utils {
 
@@ -137,8 +138,7 @@ applyMapToGrid(mlir::ArrayRef<int64_t> gridShape, mlir::AffineMap map,
     }
   });
   if (assertResultStartsAtOrigin) {
-    TT_assertv(std::all_of(lowerBound.begin(), lowerBound.end(),
-                           [](int64_t x) { return x == 0; }),
+    TT_assertv(llvm::all_of(lowerBound, [](int64_t x) { return x == 0; }),
                "Grid must start at origin");
   }
   return resultGridShape;

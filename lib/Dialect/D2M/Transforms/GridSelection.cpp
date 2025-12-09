@@ -153,13 +153,13 @@ findMaxDimAndAspectRatio(ArrayRef<int64_t> physicalShape) {
   return {maxDimIndex, aspectRatio};
 }
 
-/// Finds a 2D grid (y, x) such that y * x = volume.
+/// Finds a 2D grid (y, x) such that y * x = grid volume.
 /// The returned grid aims to be as square as possible while respecting the
 /// provided target grid shape bounds.
 static llvm::SmallVector<int64_t>
-findLegalPhysicalGridForVolume(int64_t volume,
+findLegalPhysicalGridForVolume(int64_t gridVolume,
                                ArrayRef<int64_t> targetGridShape) {
-  TT_assertv(volume > 0, "Volume must be positive");
+  TT_assertv(gridVolume > 0, "Grid volume must be positive");
   TT_assertv(targetGridShape.size() >= 2u,
              "Target grid shape must provide at least two dimensions");
   TT_assertv((targetGridShape[0] > 0 && targetGridShape[1] > 0),
@@ -170,11 +170,11 @@ findLegalPhysicalGridForVolume(int64_t volume,
   };
 
   int64_t y = 1;
-  // Find the largest factor of volume that is <= sqrt(volume)
-  for (int64_t i = static_cast<int64_t>(std::sqrt(volume)); i > 0; --i) {
-    if (volume % i == 0) {
+  // Find the largest factor of grid volume that is <= sqrt(gridVolume)
+  for (int64_t i = static_cast<int64_t>(std::sqrt(gridVolume)); i > 0; --i) {
+    if (gridVolume % i == 0) {
       int64_t candidateY = i;
-      int64_t candidateX = volume / i;
+      int64_t candidateX = gridVolume / i;
       if (fitsTarget(candidateY, candidateX)) {
         return {candidateY, candidateX};
       }
@@ -188,7 +188,7 @@ findLegalPhysicalGridForVolume(int64_t volume,
   }
   TT_assertv(false,
              "Unable to find 2D grid with volume {} within target grid {}",
-             volume, ttmlir::utils::formatIterable(targetGridShape, "x"));
+             gridVolume, ttmlir::utils::formatIterable(targetGridShape, "x"));
   return {};
 }
 
@@ -203,7 +203,7 @@ computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
   int64_t targetGridVolume = ttmlir::utils::volume(targetSquareGridShape);
   if (physicalShape.size() != 2) {
 
-    // compute factors for all dims
+    // Compute factors for all dims.
     SmallVector<SmallVector<int64_t>> factors =
         llvm::to_vector(llvm::map_range(physicalShape, [](int64_t dim) {
           return ttmlir::utils::getFactors(dim);
@@ -212,7 +212,8 @@ computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
     auto factorCombinations =
         ttmlir::utils::computeCartesianProduct<int64_t>(factors);
 
-    // try to find grid with largest volume that is <= target grid volume
+    // Find grid with the greatest volume that is less than or equal to the
+    // target grid volume.
     SmallVector<int64_t> bestGrid = {0};
     int64_t bestGridVolume = 0;
     for (const auto &grid : factorCombinations) {
@@ -225,7 +226,7 @@ computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
     return bestGrid;
   }
 
-  // 2D HW Sharding
+  // If not ND sharded, compute grid for 2D height or width sharding (Nx1, 1xN).
   auto [shardedDimIndex, aspectRatio] = findMaxDimAndAspectRatio(physicalShape);
 
   // for now, can only support if largest dim is divisible by grid volume

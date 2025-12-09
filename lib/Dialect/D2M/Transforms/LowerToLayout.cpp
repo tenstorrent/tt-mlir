@@ -87,7 +87,7 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
                                   ArrayRef<int64_t> deviceGridShape) const {
 
       TT_assert(virtualGridShape.size() >= 2u);
-      // Collapse all leading dimensions into the first dimension of a 2D shape
+      // Collapse all leading dimensions into the first dimension of a 2D shape.
       llvm::SmallVector<int64_t> collapsedVirtualGridShape(2);
       collapsedVirtualGridShape[0] = virtualGridShape[0];
       for (int64_t i = 1; i < static_cast<int64_t>(virtualGridShape.size()) - 1;
@@ -615,14 +615,14 @@ public:
       auto sysToBounceToLayout =
           lowerSystemLayoutChange(rewriter, currentValue, l1Empty, op.getLoc());
 
-      // replace ToLayout producing virtual grid target with blockToVirtual
+      // Replace ToLayout producing virtual grid target with blockToVirtual.
       auto blockToVirtual = lowerDatamovementGeneric(
           rewriter, sysToBounceToLayout, op.getOutput(), op.getLoc());
 
-      // final output is from blockToVirtual
+      // Final output is from blockToVirtual.
       rewriter.replaceOp(op, blockToVirtual);
 
-      // remaining pipeline splits the sys -> BS tolayout
+      // Remaining pipeline splits the sys -> BS tolayout.
       op = sysToBounceToLayout.getDefiningOp<ToLayoutOp>();
       rewriter.setInsertionPoint(op);
       targetInfo = TensorInfo::from(sysToBounceToLayout);
