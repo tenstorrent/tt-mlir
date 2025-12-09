@@ -396,7 +396,7 @@ def test_long_unary_chain_dram(device, shape, dtype):
 
 
 # Example of fusing 2 unary op chains that eventually join through a binary op.
-# Unary chains can be made arbitrarily long with jit.
+# Unary chains can be arbitrarily long and still be fused when using jit.
 def join_unary_chains(in0, in1):
     chain_0_0 = ttnn.abs(in0)
     chain_0_1 = ttnn.exp(chain_0_0)
@@ -523,7 +523,7 @@ def test_add_tree_7_to_1_dram(device, shape, dtype):
 
 
 # The largest BALANCED op tree that can be fused into one d2m.generic and fully DST fused
-# when in 16b DST mode. Works with 32b as well but results in more ops/kernels
+# when in 16b DST mode. Works with 32b as well but results in more ops/kernels.
 def add_tree_31_to_1(
     in0, in1, in2, in3, in4, in5, in6, in7,
     in8, in9, in10, in11, in12, in13, in14, in15,
@@ -635,7 +635,10 @@ def test_add_tree_31_to_1_dram(device, shape, dtype):
 
 
 # A ladder pattern where each add output is summed with the next input sequentially.
-# Unlike the balanced tree, this creates a long dependency chain.
+# Unlike the balanced tree, this creates a long dependency chain and requires less
+# intermediate storage. It's still limited to fusing into 7-input d2m.generics when in 32b mode due to
+# the way the CB limit is currently enforced but will be fusable into a single 31x 32b inputs in 
+# later releases YMMV based on tensor/grid sizes.
 def adder_ladder_31(
     in0, in1, in2, in3, in4, in5, in6, in7,
     in8, in9, in10, in11, in12, in13, in14, in15,
