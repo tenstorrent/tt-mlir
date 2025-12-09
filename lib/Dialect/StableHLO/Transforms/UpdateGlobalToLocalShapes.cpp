@@ -380,19 +380,37 @@ static mlir::LogicalResult updateShapes(MLIRContext *context,
                                         mlir::sdy::MeshOp &globalMeshOp,
                                         func::FuncOp &funcOp) {
   mlir::WalkResult result = funcOp.getBody().walk([&](mlir::Operation *op) {
-    for (auto namedAttr : op->getAttrs()) {
-      if (namedAttr.getName() != mlir::sdy::TensorShardingAttr::name) {
-        continue;
-      }
+  llvm::SmallVector<mlir::sdy::TensorShardingAttr> tensorShardings;
 
-      // Get tensor sharding annotation for this op.
-      mlir::sdy::TensorShardingPerValueAttr tensorShardingPerValueAttr =
-          mlir::cast<mlir::sdy::TensorShardingPerValueAttr>(
-              op->getAttr(mlir::sdy::TensorShardingAttr::name));
-      llvm::ArrayRef<mlir::sdy::TensorShardingAttr> tensorShardings =
-          tensorShardingPerValueAttr.getShardings();
-      FailureOr<llvm::SmallVector<mlir::RankedTensorType>> newTypes =
-          shardy_utils::getNewResultTypes(op, globalMeshOp, tensorShardings);
+  if (auto perValueAttr =
+          op->getAttrOfType<mlir::sdy::TensorShardingPerValueAttr>(
+              mlir::sdy::TensorShardingPerValueAttr::name)) {
+    llvm::ArrayRef<mlir::sdy::TensorShardingAttr> perValueShardings =
+        perValueAttr.getShardings();
+    tensorShardings.append(perValueShardings.begin(), perValueShardings.end());
+
+  } else if (auto perValueAttr =
+                 op->getAttrOfType<mlir::sdy::TensorShardingPerValueAttr>(
+                     "sdy.sharding")) {
+    llvm::ArrayRef<mlir::sdy::TensorShardingAttr> perValueShardings =
+        perValueAttr.getShardings();
+    tensorShardings.append(perValueShardings.begin(), perValueShardings.end());
+
+  } else if (auto shardingAttr =
+                 op->getAttrOfType<mlir::sdy::TensorShardingAttr>(
+                     "sdy.sharding")) {
+    tensorShardings.assign(op->getNumResults(), shardingAttr);
+
+  } else if (auto outShardingAttr =
+                 op->getAttrOfType<mlir::sdy::TensorShardingAttr>(
+                     "out_sharding")) {
+
+    tensorShardings.assign(op->getNumResults(), outShardingAttr);
+  } else {
+    return mlir::WalkResult::advance();
+  }
+        FailureOr<llvm::SmallVector<mlir::RankedTensorType>> newTypes =
+      shardy_utils::getNewResultTypes(op, globalMeshOp, tensorShardings);
 
       if (failed(newTypes)) {
         op->emitError("Could not apply propagated tensor shardings to "
@@ -424,14 +442,11 @@ static mlir::LogicalResult updateShapes(MLIRContext *context,
       builder.setInsertionPoint(op);
       builder.insert(newOp);
       op->erase();
-    }
 
     return WalkResult::advance();
   });
 
   return result.wasInterrupted() ? mlir::failure() : mlir::success();
-
-  return mlir::success();
 }
 
 // Convert all sdy ccl ops into stablehlo ccl ops.
@@ -551,7 +566,6 @@ public:
         return;
       }
     });
-
     // Run conversion pattern to convert all sdy ccl operations into stablehlo
     // ccl operations
     if (failed(convertShardyCCLToStableHLOCCL(context, rootModule))) {

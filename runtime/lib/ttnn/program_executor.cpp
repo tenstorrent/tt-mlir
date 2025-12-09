@@ -86,6 +86,7 @@
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/perf.h"
 #include "tt/runtime/utils.h"
+#include <chrono>
 
 namespace tt::runtime::ttnn {
 
@@ -142,6 +143,9 @@ void ProgramExecutor::runCallback(
 void ProgramExecutor::execute() {
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Starting execution of program: ", program->name()->c_str());
+    using Clock = std::chrono::steady_clock;
+
+  auto programStartTime = Clock::now();
   for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
     LOG_DEBUG(LogType::LogRuntimeTTNN,
               "Executing operation: ", op->debug_info()->c_str());
@@ -156,6 +160,12 @@ void ProgramExecutor::execute() {
                 op, context.get());
     dumpPerfCountersIfNeeded();
   }
+    auto programEndTime = Clock::now();
+  auto programDurationMilliseconds =
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          programEndTime - programStartTime)
+          .count();
+  std::cerr << "Program execution time: " << programDurationMilliseconds << " ms\n";
   LOG_DEBUG(LogType::LogRuntimeTTNN,
             "Finished execution of program: ", program->name()->c_str());
 }

@@ -402,7 +402,23 @@ public:
 
     // Current tensor value/type threaded through the loop.
     mlir::Value result = srcOp.getOperand();
+
+    // Get the actual local shape from the defining op.
+    // If the input is a sdy.* op (which uses global shape in its type),
+    // we need to get the actual local shape from its operand instead.
     auto prevType = mlir::cast<mlir::RankedTensorType>(result.getType());
+    // if (auto defOp = result.getDefiningOp()) {
+    //   // If defining op is a sdy op, its type is global shape.
+    //   // Use its operand's type which is already local shape.
+    //   if (llvm::isa<mlir::sdy::AllReduceOp>(defOp) ||
+    //       llvm::isa<mlir::sdy::AllGatherOp>(defOp) ||
+    //       llvm::isa<mlir::sdy::ReduceScatterOp>(defOp)) {
+    //     if (defOp->getNumOperands() > 0) {
+    //       prevType = mlir::cast<mlir::RankedTensorType>(
+    //           defOp->getOperand(0).getType());
+    //     }
+    //   }
+    // }
 
     // Per-dimension slicing axes (we support at most one mesh axis per tensor
     // dim).
