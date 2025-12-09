@@ -68,7 +68,6 @@ def D2M_ToLayoutOp : D2M_Op<"to_layout", [
       ToLayout operation, transition tensors from one layout to another.  Some examples include:
         - Transitioning between different memory spaces, e.g. DRAM to L1.
         - Transitioning between different data types, e.g. f32 to f16.
-        - Transitioning between DRAM and L1 memory spaces
         - Transitioning between different tile sizes, e.g. 1x16 to 32x32
         - Transitioning between different tensor sharding
         - Some combination of the above
