@@ -173,6 +173,8 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(
       d2m::createD2MInsertDstRegisterAccess(insertDstRegisterAccessOptions));
 
+  // pm.addPass(affine::createLoopFusionPass());
+
   pm.addPass(d2m::createD2MSFPUTileLoopFission());
   pm.addPass(mlir::createCanonicalizerPass());
 

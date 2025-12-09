@@ -694,8 +694,28 @@ def TTCore_Tile : TTCore_Type<"Tile", "tile", [MemRefElementTypeInterface, Float
       // Returns the scalar element type of the tile, if compressed it returns
       // the corresponding uncompressed element type, i.e. bfp_bf8 -> bf16
       Type getElementType() const;
-      const ::llvm::fltSemantics &getFloatSemantics() {
-        llvm_unreachable("TTCore_Tile::getFloatSemantics unimplemented #5124");
+      const ::llvm::fltSemantics &getFloatSemantics() const {
+        switch (getDataType()) {
+        case DataType::Float32:
+          return llvm::APFloat::IEEEsingle();
+        case DataType::Float16:
+          return llvm::APFloat::IEEEhalf();
+        case DataType::BFloat16:
+        case DataType::BFP_Float8:
+        case DataType::BFP_BFloat8:
+        case DataType::BFP_Float4:
+        case DataType::BFP_BFloat4:
+        case DataType::BFP_Float2:
+        case DataType::BFP_BFloat2:
+          return llvm::APFloat::BFloat();
+        case DataType::UInt32:
+        case DataType::UInt16:
+        case DataType::UInt8:
+        case DataType::Int32:
+        case DataType::Bool:
+          llvm_unreachable("TileType with integer DataType does not have float semantics");
+        }
+        llvm_unreachable("Unknown DataType");
       }
 
       // ShapedTypeInterface methods
