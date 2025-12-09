@@ -1268,9 +1268,9 @@ getOpOutputRef(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::NLPCreateQKVHeadsDecodeOp:
   case ::tt::target::ttnn::OpType::SplitQueryKeyValueAndSplitHeadsOp:
   case ::tt::target::ttnn::OpType::DumpTensorOp: {
-    LOG_WARNING("getting output tensor is not supported for ",
-                ::tt::target::ttnn::EnumNamesOpType()[static_cast<size_t>(
-                    opContext.type_type())]);
+    // LOG_WARNING("getting output tensor is not supported for ",
+    //             ::tt::target::ttnn::EnumNamesOpType()[static_cast<size_t>(
+    //                 opContext.type_type())]);
     return std::nullopt;
   }
   case ::tt::target::ttnn::OpType::GenericOp: {
