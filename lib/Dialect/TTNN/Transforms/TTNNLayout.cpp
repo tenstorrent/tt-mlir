@@ -595,6 +595,12 @@ private:
   }
 
   bool shouldForceInputRowMajor(BlockArgument arg) const {
+    for (Operation *user : arg.getUsers()) {
+      if (mlir::isa<ttir::MeshShardOp>(user)) {
+        return false;
+      }
+    }
+
     func::FuncOp owningFunc = cast<func::FuncOp>(arg.getOwner()->getParentOp());
     if (auto typeAttr = owningFunc.getArgAttrOfType<ttcore::ArgumentTypeAttr>(
             arg.getArgNumber(), ttcore::ArgumentTypeAttr::name)) {
