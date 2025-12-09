@@ -40,10 +40,15 @@ if __name__ == "__main__":
     # CHECK: "ttnn.abs"(%arg0) {ttnn.hoist_generic_via_d2m}
     _ = abs(input_tensor_a_l1)
 
+    # CHECK: ---- IR Dump after TTIRCompiler (AST-based) ----
     # CHECK: #ttnn.buffer_type<dram>
     # CHECK: #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>{{.*}} <interleaved>
     # CHECK: func.func @abs
     # CHECK: "ttnn.abs"(%arg0) {ttnn.hoist_generic_via_d2m}
     _ = abs(input_tensor_a_dram)
+
+    _ = add(input_tensor_a_l1, input_tensor_b_l1)
+
+    _ = add(input_tensor_a_dram, input_tensor_b_dram)
 
     ttnn.close_device(device)

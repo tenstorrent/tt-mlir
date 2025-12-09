@@ -34,10 +34,6 @@ if config.enable_stablehlo:
 if config.enable_pykernel:
     config.available_features.add("pykernel")
 
-# TTNN-JIT tests are optionally enabled.
-if config.enable_ttnn_jit:
-    config.available_features.add("ttnn-jit")
-
 # suffixes: A list of file extensions to treat as test files.
 config.suffixes = [".mlir"]
 
