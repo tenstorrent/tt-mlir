@@ -328,7 +328,7 @@ def test_nested_composite_dram(device, shape, dtype):
 # Fusion Tests
 # ------------------------------------------------------------
 
-# Chain can be made arbitrarily long when using JIT (as long as the 
+# Chain can be made arbitrarily long when using JIT (as long as the
 # instructions fit on the tensix I-SRAM) and executed as one compute
 # kernel. With a sufficiently long chain and large enough input size,
 # regular ttnn will run out of memory while ttnn.jit will not.
@@ -345,9 +345,9 @@ def long_unary_chain(input_tensor_a):
 
     return res_7
     # replace the above return with the code below
-    # to see shapes/grids where ttnn runs out of memory 
+    # to see shapes/grids where ttnn runs out of memory
     # but ttnn.jit, through fusion, does not.
-    
+
     # res_8 = ttnn.neg(res_7)
     # return res_8
 
@@ -430,7 +430,7 @@ def test_join_unary_chains_l1(device, shape, max_grid, dtype, memory_layout):
         num_inputs,
         buffer_type=ttnn.BufferType.L1,
         memory_layout=memory_layout,
-        graph_capture=False
+        graph_capture=False,
     )
 
 
@@ -447,7 +447,7 @@ def test_join_unary_chains_dram(device, shape, dtype):
         op=join_unary_chains,
         num_inputs=num_inputs,
         buffer_type=ttnn.BufferType.DRAM,
-        graph_capture=False
+        graph_capture=False,
     )
 
 
@@ -456,10 +456,7 @@ def test_join_unary_chains_dram(device, shape, dtype):
 
 # The largest BALANCED op tree that can be fused into one d2m.generic and fully DST fused
 # when in 32b DST mode.
-def add_tree_7_to_1(
-    in0, in1, in2, in3, 
-    in4,in5, in6
-):
+def add_tree_7_to_1(in0, in1, in2, in3, in4, in5, in6):
     add_0_0 = ttnn.add(in0, in1)
     add_0_1 = ttnn.add(in2, in3)
     add_0_2 = ttnn.add(in4, in5)
@@ -485,9 +482,7 @@ def test_add_tree_7_to_1_l1(device, shape, max_grid, dtype, memory_layout):
     num_inputs = 7
 
     if shape == (2, 512, 2048):
-        pytest.xfail(
-            "add_tree_7_to_1 runs out of memory in regular TTNN path"
-        )
+        pytest.xfail("add_tree_7_to_1 runs out of memory in regular TTNN path")
 
     run_op_test(
         device,
@@ -498,7 +493,7 @@ def test_add_tree_7_to_1_l1(device, shape, max_grid, dtype, memory_layout):
         num_inputs,
         buffer_type=ttnn.BufferType.L1,
         memory_layout=memory_layout,
-        graph_capture=False
+        graph_capture=False,
     )
 
 
@@ -515,7 +510,7 @@ def test_add_tree_7_to_1_dram(device, shape, dtype):
         op=add_tree_7_to_1,
         num_inputs=num_inputs,
         buffer_type=ttnn.BufferType.DRAM,
-        graph_capture=False
+        graph_capture=False,
     )
 
 
@@ -525,10 +520,37 @@ def test_add_tree_7_to_1_dram(device, shape, dtype):
 # The largest BALANCED op tree that can be fused into one d2m.generic and fully DST fused
 # when in 16b DST mode. Works with 32b as well but results in more ops/kernels.
 def add_tree_31_to_1(
-    in0, in1, in2, in3, in4, in5, in6, in7,
-    in8, in9, in10, in11, in12, in13, in14, in15,
-    in16, in17, in18, in19, in20, in21, in22, in23,
-    in24, in25, in26, in27, in28, in29, in30
+    in0,
+    in1,
+    in2,
+    in3,
+    in4,
+    in5,
+    in6,
+    in7,
+    in8,
+    in9,
+    in10,
+    in11,
+    in12,
+    in13,
+    in14,
+    in15,
+    in16,
+    in17,
+    in18,
+    in19,
+    in20,
+    in21,
+    in22,
+    in23,
+    in24,
+    in25,
+    in26,
+    in27,
+    in28,
+    in29,
+    in30,
 ):
     # Level 0: 15 pairs + 1 unpaired (31 -> 16)
     add_0_0 = ttnn.add(in0, in1)
@@ -590,16 +612,12 @@ def test_add_tree_31_to_1_l1(device, shape, max_grid, dtype, memory_layout):
     elements = 1
     for dim in shape:
         elements *= dim
-        
+
     if elements > size_limit:
-        pytest.xfail(
-            "add_tree_31_to_1 runs out of memory"
-        )
-    
+        pytest.xfail("add_tree_31_to_1 runs out of memory")
+
     if shape == (2, 32, 384):
-        pytest.xfail(
-            "add_tree_31_to_1 fails all close"
-        )
+        pytest.xfail("add_tree_31_to_1 fails all close")
 
     run_op_test(
         device,
@@ -610,7 +628,7 @@ def test_add_tree_31_to_1_l1(device, shape, max_grid, dtype, memory_layout):
         num_inputs,
         buffer_type=ttnn.BufferType.L1,
         memory_layout=memory_layout,
-        graph_capture=False
+        graph_capture=False,
     )
 
 
@@ -627,7 +645,7 @@ def test_add_tree_31_to_1_dram(device, shape, dtype):
         op=add_tree_31_to_1,
         num_inputs=num_inputs,
         buffer_type=ttnn.BufferType.DRAM,
-        graph_capture=False
+        graph_capture=False,
     )
 
 
@@ -637,13 +655,40 @@ def test_add_tree_31_to_1_dram(device, shape, dtype):
 # A ladder pattern where each add output is summed with the next input sequentially.
 # Unlike the balanced tree, this creates a long dependency chain and requires less
 # intermediate storage. It's still limited to fusing into 7-input d2m.generics when in 32b mode due to
-# the way the CB limit is currently enforced but will be fusable into a single 31x 32b inputs in 
+# the way the CB limit is currently enforced but will be fusable into a single 31x 32b inputs in
 # later releases YMMV based on tensor/grid sizes.
 def adder_ladder_31(
-    in0, in1, in2, in3, in4, in5, in6, in7,
-    in8, in9, in10, in11, in12, in13, in14, in15,
-    in16, in17, in18, in19, in20, in21, in22, in23,
-    in24, in25, in26, in27, in28, in29, in30
+    in0,
+    in1,
+    in2,
+    in3,
+    in4,
+    in5,
+    in6,
+    in7,
+    in8,
+    in9,
+    in10,
+    in11,
+    in12,
+    in13,
+    in14,
+    in15,
+    in16,
+    in17,
+    in18,
+    in19,
+    in20,
+    in21,
+    in22,
+    in23,
+    in24,
+    in25,
+    in26,
+    in27,
+    in28,
+    in29,
+    in30,
 ):
     add_0 = ttnn.add(in0, in1)
     add_1 = ttnn.add(add_0, in2)
@@ -692,20 +737,16 @@ def test_adder_ladder_31_l1(device, shape, max_grid, dtype, memory_layout):
     num_inputs = 31
 
     if dtype is torch.bfloat16:
-        pytest.xfail(
-            "adder_ladder_31 fails all close"
-        )
+        pytest.xfail("adder_ladder_31 fails all close")
 
     size_limit = 256 * 256
     elements = 1
 
     for dim in shape:
         elements *= dim
-        
-    if elements > size_limit or (shape == (64, 128) and max_grid == (0,0)):
-        pytest.xfail(
-            "adder_ladder_31 runs out of memory"
-        )
+
+    if elements > size_limit or (shape == (64, 128) and max_grid == (0, 0)):
+        pytest.xfail("adder_ladder_31 runs out of memory")
 
     run_op_test(
         device,
@@ -716,7 +757,7 @@ def test_adder_ladder_31_l1(device, shape, max_grid, dtype, memory_layout):
         num_inputs,
         buffer_type=ttnn.BufferType.L1,
         memory_layout=memory_layout,
-        graph_capture=False
+        graph_capture=False,
     )
 
 
@@ -726,9 +767,7 @@ def test_adder_ladder_31_dram(device, shape, dtype):
     num_inputs = 31
 
     if dtype is torch.bfloat16:
-        pytest.xfail(
-            "adder_ladder_31 fails all close"
-        )
+        pytest.xfail("adder_ladder_31 fails all close")
 
     run_op_test(
         device,
@@ -738,5 +777,5 @@ def test_adder_ladder_31_dram(device, shape, dtype):
         op=adder_ladder_31,
         num_inputs=num_inputs,
         buffer_type=ttnn.BufferType.DRAM,
-        graph_capture=False
+        graph_capture=False,
     )
