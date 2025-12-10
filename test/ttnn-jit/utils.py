@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
+import math
 import ttnn
 import ttnn_jit
 import torch
@@ -121,6 +122,9 @@ def run_op_test(
     shard_strategy=ttnn.ShardStrategy.BLOCK,
     ttnn_dtype=None,
     compile_only=False,
+    check_pcc=True,
+    check_allclose=False,
+    pcc_threshold=0.99,
 ):
     """
     Common test runner for JIT operations.
@@ -136,7 +140,14 @@ def run_op_test(
         graph_capture: Whether to use graph capture compiler (default: True)
         enable_cache: Whether to enable cache for the JIT-compiled function (default: False)
         ttnn_dtype: Optional ttnn.DataType override (e.g., ttnn.DataType.BFLOAT8_B)
+        check_pcc: Whether to check PCC (default: True)
+        check_allclose: Whether to check allclose (default: False)
+        pcc_threshold: PCC threshold for comparison (default: 0.99)
     """
+    # Auto-select input transform based on op name
+    input_transform = _get_input_transform(op)
+
+    # Create inputs (same tensors used for both JIT and golden)
     if buffer_type == ttnn.BufferType.L1:
         inputs = [
             create_sharded_tile_tensor(
@@ -149,14 +160,15 @@ def run_op_test(
             create_dram_tensor(device, shape, dtype, ttnn_dtype)
             for _ in range(num_inputs)
         ]
-    golden_op = _get_ttnn_op(op)
 
+    golden_op = _get_ttnn_op(op)
     op_jit = ttnn_jit.jit(
         compile_only=compile_only,
         debug=True,
         enable_cache=enable_cache,
         graph_capture=graph_capture,
     )(op)
+
     output_tensor = op_jit(*inputs)
     golden_tensor = (golden_op or op)(*inputs)
 
@@ -165,4 +177,10 @@ def run_op_test(
         assert memory_configs_equal(
             output_tensor.memory_config(), golden_tensor.memory_config()
         )
-        assert all_close_check(output_tensor, golden_tensor)
+        if check_pcc:
+            passed, pcc = pcc_check(
+                output_tensor, golden_tensor, pcc_threshold, inputs=inputs
+            )
+            assert passed, f"PCC check failed: {pcc} < {pcc_threshold}"
+        if check_allclose:
+            assert all_close_check(output_tensor, golden_tensor)
