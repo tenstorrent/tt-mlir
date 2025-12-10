@@ -115,6 +115,15 @@ jobs:
           ttrt query --save-artifacts
         fi
 
+    - name: Run Lit Tests
+      shell: bash
+      run: |
+        echo "Running lit tests..."
+        source env/activate
+        export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
+        llvm-lit --filter-out="optimizer" --xunit-xml-output ${{ steps.strings.outputs.work-dir }}/test_reports/report_lit_${{matrix.build.runs-on}}_${{ matrix.build.image }}_${{strategy.job-index}}_${{steps.fetch-job-id.outputs.job_id}}.xml \
+          ${{ steps.strings.outputs.build-output-dir }}/test
+
     - name: Run Tests
       shell: bash
       env:
@@ -147,12 +156,6 @@ jobs:
         rm -rf ttrt_results || true
         mkdir -p ttrt_results
 
-        echo "Running lit tests..."
-        llvm-lit --filter-out="optimizer" --xunit-xml-output ${{ steps.strings.outputs.work-dir }}/test_reports/report_${{matrix.build.runs-on}}_${{ matrix.build.image }}_${{strategy.job-index}}_${{steps.fetch-job-id.outputs.job_id}}.xml \
-          ${{ steps.strings.outputs.build-output-dir }}/test
-
-        echo
-        echo
         echo "Running tests on ${{ matrix.build.runs-on }} with image ${{ matrix.build.image }}"
         cat << 'EOF' > _test_to_run.json
           ${{ toJson(matrix.build.tests) }}
