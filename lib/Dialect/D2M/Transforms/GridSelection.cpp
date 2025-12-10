@@ -186,9 +186,6 @@ findLegalPhysicalGridForVolume(int64_t gridVolume,
       }
     }
   }
-  TT_assertv(false,
-             "Unable to find 2D grid with volume {} within target grid {}",
-             gridVolume, ttmlir::utils::formatIterable(targetGridShape, "x"));
   return {};
 }
 
@@ -219,8 +216,13 @@ computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
     for (const auto &grid : factorCombinations) {
       int64_t gridVolume = ttmlir::utils::volume<int64_t>(grid);
       if (gridVolume <= targetGridVolume && gridVolume > bestGridVolume) {
-        bestGrid = grid;
-        bestGridVolume = ttmlir::utils::volume<int64_t>(bestGrid);
+        auto physGrid =
+            findLegalPhysicalGridForVolume(gridVolume, targetSquareGridShape);
+        if (!physGrid.empty()) {
+
+          bestGrid = grid;
+          bestGridVolume = ttmlir::utils::volume<int64_t>(bestGrid);
+        }
       }
     }
     return bestGrid;
@@ -382,6 +384,13 @@ static ttcore::MetalLayoutAttr layoutWithOptimalGrid(
   if (isVirtualGrid) {
     auto physicalGridShape = findLegalPhysicalGridForVolume(
         ttmlir::utils::volume(optimalGrid), targetSquareGridShape);
+    // At this point, it should be guaranteed that we can find a legal physical
+    // grid
+    TT_assertv(!physicalGridShape.empty(),
+               "Unable to find 2D rect that can fit virtual grid {} within "
+               "device grid {}",
+               ttmlir::utils::formatIterable(optimalGrid, "x"),
+               ttmlir::utils::formatIterable(targetSquareGridShape, "x"));
     auto [fwdMap, _] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
         builder.getContext(), optimalGrid, physicalGridShape);
     indexAffineMap = fwdMap;
