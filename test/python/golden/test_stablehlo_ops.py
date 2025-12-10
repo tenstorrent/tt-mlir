@@ -229,14 +229,14 @@ def module_log(builder: StableHLOBuilder):
 
 def module_and_int(builder: StableHLOBuilder):
     @builder.func([(128, 128), (128, 128)], [torch.int32, torch.int32])
-    def and_(
+    def logical_and(
         in0: Operand,
         in1: Operand,
         builder: StableHLOBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
         builder.set_graph_level_check(True)
-        return builder.and_(in0, in1, unit_attrs=unit_attrs)
+        return builder.logical_and(in0, in1, unit_attrs=unit_attrs)
 
 
 def module_or_int(builder: StableHLOBuilder):
@@ -265,14 +265,14 @@ def module_xor_int(builder: StableHLOBuilder):
 
 def module_and_bool(builder: StableHLOBuilder):
     @builder.func([(128, 128), (128, 128)], [torch.bool, torch.bool])
-    def and_(
+    def logical_and(
         in0: Operand,
         in1: Operand,
         builder: StableHLOBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
         builder.set_graph_level_check(True)
-        return builder.and_(in0, in1, unit_attrs=unit_attrs)
+        return builder.logical_and(in0, in1, unit_attrs=unit_attrs)
 
 
 def module_or_bool(builder: StableHLOBuilder):

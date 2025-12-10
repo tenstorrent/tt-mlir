@@ -7578,58 +7578,9 @@ class TTIRBuilder(Builder):
     ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.slice)
 
-        # If step is not provided, use 1 for each dimension
         if step is None:
             step = [1] * len(begins)
 
-        # Ensure begins, ends, and step have the same length
-        if not (len(begins) == len(ends) == len(step)):
-            raise ValueError("begins, ends, and step must have the same length")
-
-        # Get the input shape
-        input_shape = self.get_shape(in0)
-
-        # Ensure we're not slicing more dimensions than exist
-        if len(begins) > len(input_shape):
-            raise ValueError("Cannot slice more dimensions than input has")
-
-        # Calculate the output shape
-        output_shape = []
-
-        # Process dimensions that are being sliced
-        for i, (b, e, s) in enumerate(zip(begins, ends, step)):
-            # Handle negative indices
-            dim_size = input_shape[i]
-            if b < 0:
-                b += dim_size
-            if e < 0:
-                e += dim_size
-
-            # Clamp to valid range
-            b = max(0, min(b, dim_size))
-            e = max(0, min(e, dim_size))
-
-            # Calculate dimension size using correct formula
-            # For positive step: ceil((e - b) / s)
-            if s > 0:
-                if e > b:
-                    size = (e - b + s - 1) // s
-                else:
-                    size = 0
-            else:
-                # Negative step not typically supported in MLIR/TOSA
-                raise ValueError("Negative step not supported")
-
-            output_shape.append(size)
-
-        # Add remaining dimensions that aren't being sliced
-        for i in range(len(begins), len(input_shape)):
-            output_shape.append(input_shape[i])
-
-        # Create the attributes
-        from ttmlir.ir import ArrayAttr, IntegerAttr, IntegerType
-
-        # Create integer attributes for each value
         begins_int_attrs = [
             IntegerAttr.get(IntegerType.get_signless(32), b) for b in begins
         ]
@@ -7640,7 +7591,6 @@ class TTIRBuilder(Builder):
             IntegerAttr.get(IntegerType.get_signless(32), s) for s in step
         ]
 
-        # Create array attributes
         begins_attr = ArrayAttr.get(begins_int_attrs, self._ctx)
         ends_attr = ArrayAttr.get(ends_int_attrs, self._ctx)
         step_attr = ArrayAttr.get(step_int_attrs, self._ctx)
