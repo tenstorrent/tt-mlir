@@ -257,11 +257,10 @@ def TTKernel_MatmulTilesOp : TTKernel_FPUOp<"matmul_tiles", [TTKernel_TernaryOpT
                          TTKernel_CB:$in1_cb_id,
                          IndexLike:$in0_tile_idx,
                          IndexLike:$in1_tile_idx,
-                         IndexLike:$dst_tile_idx,
-                         I32:$transpose);
+                         IndexLike:$dst_tile_idx);
 
     let assemblyFormat = [{
-      `(` $in0_cb_id `,` $in1_cb_id `,` $in0_tile_idx `,` $in1_tile_idx `,` $dst_tile_idx `,` $transpose `)` attr-dict `:` functional-type(operands, results)
+      `(` $in0_cb_id `,` $in1_cb_id `,` $in0_tile_idx `,` $in1_tile_idx `,` $dst_tile_idx `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
