@@ -113,27 +113,45 @@ def module_sqrt(builder: StableHLOBuilder):
         return builder.sqrt(in0, unit_attrs=unit_attrs)
 
 
-def tan(
-    in0: Operand, builder: StableHLOBuilder, unit_attrs: Optional[List[str]] = None
-):
-    import math
+def module_tan(builder: StableHLOBuilder):
+    @builder.func([(128, 128)], [torch.float32])
+    def tan(
+        in0: Operand, builder: StableHLOBuilder, unit_attrs: Optional[List[str]] = None
+    ):
+        import math
 
-    if str(in0.type.element_type) not in ["bf16", "f32"]:
-        raise ValueError("tan op only supports bf16 and f32 data types")
-    dtype = torch.bfloat16 if in0.type.element_type == "bf16" else torch.float32
-    randn_tensor = torch.randn(in0.type.shape, dtype=dtype)
-    input_golden = randn_tensor.uniform_((-math.pi / 2 + 0.05), (math.pi / 2 - 0.05))
-    output_golden = torch.tan(input_golden)
-    tan_0 = builder.tan(in0, unit_attrs=unit_attrs)
-    builder.set_goldens({in0: input_golden}, {tan_0: output_golden})
-    builder.set_graph_level_check(True)
-    return tan_0
+        if str(in0.type.element_type) not in ["bf16", "f32"]:
+            raise ValueError("tan op only supports bf16 and f32 data types")
+        dtype = torch.bfloat16 if in0.type.element_type == "bf16" else torch.float32
+        randn_tensor = torch.randn(in0.type.shape, dtype=dtype)
+        input_golden = randn_tensor.uniform_(
+            (-math.pi / 2 + 0.05), (math.pi / 2 - 0.05)
+        )
+        builder.set_goldens({in0: input_golden})
+        builder.set_graph_level_check(True)
+        return builder.tan(in0, unit_attrs=unit_attrs)
 
 
-def tanh(
-    in0: Operand, builder: StableHLOBuilder, unit_attrs: Optional[List[str]] = None
-):
-    return builder.tanh(in0, unit_attrs=unit_attrs)
+def module_tanh(builder: StableHLOBuilder):
+    @builder.func([(128, 128)], [torch.float32])
+    def tanh(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.tanh(in0, unit_attrs=unit_attrs)
+
+
+def module_log_plus_one(builder: StableHLOBuilder):
+    @builder.func([(128, 128)], [torch.float32])
+    def log_plus_one(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.log_plus_one(in0, unit_attrs=unit_attrs)
 
 
 def module_logistic(builder: StableHLOBuilder):
@@ -147,6 +165,93 @@ def module_logistic(builder: StableHLOBuilder):
         return builder.logistic(in0, unit_attrs=unit_attrs)
 
 
+def module_shift_right_logical(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.int32, torch.int32])
+    def shift_right_logical(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.shift_right_logical(in0, in1, unit_attrs=unit_attrs)
+
+
+def module_reverse(builder: StableHLOBuilder, dimensions: List[int]):
+    @builder.func([(2, 3, 4)], [torch.float32])
+    def reverse(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.reverse(in0, dimensions, unit_attrs=unit_attrs)
+
+
+def module_pad(builder: StableHLOBuilder, padding_value, edge_low, edge_high, interior):
+    @builder.func([(16, 16)], [torch.float32])
+    def pad(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.pad(
+            in0, padding_value, edge_low, edge_high, interior, unit_attrs=unit_attrs
+        )
+
+
+def module_select(builder: StableHLOBuilder):
+    @builder.func(
+        [(32, 32), (32, 32), (32, 32)], [torch.bool, torch.float32, torch.float32]
+    )
+    def select(
+        pred: Operand,
+        on_true: Operand,
+        on_false: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.select(pred, on_true, on_false, unit_attrs=unit_attrs)
+
+
+def module_select_and_scatter(
+    builder: StableHLOBuilder, window_dimensions, window_strides, padding
+):
+    @builder.func([(4, 2), (2, 2), ()], [torch.float32, torch.float32, torch.float32])
+    def select_and_scatter(
+        operand: Operand,
+        source: Operand,
+        init_value: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+
+        # Define the select computation (greater-than-or-equal comparison)
+        @builder.region
+        def select_computation(lhs, rhs, builder):
+            return builder.ge(lhs, rhs)
+
+        # Define the scatter computation (addition)
+        @builder.region
+        def scatter_computation(lhs, rhs, builder):
+            return builder.add(lhs, rhs)
+
+        return builder.select_and_scatter(
+            operand,
+            select_computation,
+            window_dimensions,
+            window_strides,
+            padding,
+            source,
+            init_value,
+            scatter_computation,
+            unit_attrs=unit_attrs,
+        )
+
+
 def module_log(builder: StableHLOBuilder):
     @builder.func([(128, 128)], [torch.float32])
     def log(
@@ -156,15 +261,6 @@ def module_log(builder: StableHLOBuilder):
     ):
         builder.set_graph_level_check(True)
         return builder.log(in0, unit_attrs=unit_attrs)
-
-
-def log_plus_one(
-    in0: Operand,
-    builder: StableHLOBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.log_plus_one(in0, unit_attrs=unit_attrs)
 
 
 def module_and_int(builder: StableHLOBuilder):
@@ -267,69 +363,6 @@ def transpose(
     return builder.transpose(in0, permutation, unit_attrs=unit_attrs)
 
 
-def reverse(
-    in0: Operand,
-    builder: StableHLOBuilder,
-    dimensions: List[int],
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.reverse(in0, dimensions, unit_attrs=unit_attrs)
-
-
-def pad(
-    in0: Operand,
-    builder: StableHLOBuilder,
-    padding_value: List[int],
-    edge_padding_low: List[int],
-    edge_padding_high: List[int],
-    interior_padding: List[int],
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.pad(
-        in0,
-        padding_value=padding_value,
-        edge_padding_low=edge_padding_low,
-        edge_padding_high=edge_padding_high,
-        interior_padding=interior_padding,
-        unit_attrs=unit_attrs,
-    )
-
-
-def select(
-    pred: Operand,
-    on_true: Operand,
-    on_false: Operand,
-    builder: StableHLOBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.select(pred, on_true, on_false, unit_attrs=unit_attrs)
-
-
-def select_and_scatter(
-    operand: Operand,
-    source: Operand,
-    init_value: Operand,
-    builder: StableHLOBuilder,
-    window_dimensions: List[int],
-    window_strides: List[int],
-    padding: Optional[List[List[int]]] = None,
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.select_and_scatter(
-        operand,
-        source,
-        init_value,
-        window_dimensions=window_dimensions,
-        window_strides=window_strides,
-        padding=padding,
-        unit_attrs=unit_attrs,
-    )
-
-
 def module_add(builder: StableHLOBuilder):
     @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
     def add(
@@ -342,64 +375,64 @@ def module_add(builder: StableHLOBuilder):
         return builder.add(in0, in1)
 
 
-def maximum(
-    in0: Operand,
-    in1: Operand,
-    builder: StableHLOBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.maximum(in0, in1, unit_attrs=unit_attrs)
+def module_maximum(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
+    def maximum(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.maximum(in0, in1, unit_attrs=unit_attrs)
 
 
-def minimum(
-    in0: Operand,
-    in1: Operand,
-    builder: StableHLOBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.minimum(in0, in1, unit_attrs=unit_attrs)
+def module_minimum(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
+    def minimum(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.minimum(in0, in1, unit_attrs=unit_attrs)
 
 
-def multiply(
-    in0: Operand,
-    in1: Operand,
-    builder: StableHLOBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.multiply(in0, in1, unit_attrs=unit_attrs)
+def module_multiply(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
+    def multiply(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.multiply(in0, in1, unit_attrs=unit_attrs)
 
 
-def pow(
-    in0: Operand,
-    in1: Operand,
-    builder: StableHLOBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.pow(in0, in1, unit_attrs=unit_attrs)
+def module_pow(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
+    def pow(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.pow(in0, in1, unit_attrs=unit_attrs)
 
 
-def subtract(
-    in0: Operand,
-    in1: Operand,
-    builder: StableHLOBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.subtract(in0, in1, unit_attrs=unit_attrs)
-
-
-def shift_right_logical(
-    in0: Operand,
-    in1: Operand,
-    builder: StableHLOBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.shift_right_logical(in0, in1, unit_attrs=unit_attrs)
+def module_subtract(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
+    def subtract(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.subtract(in0, in1, unit_attrs=unit_attrs)
 
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
@@ -409,16 +442,16 @@ def shift_right_logical(
     "test_fn",
     [
         module_add,
-        maximum
+        module_maximum
         | Marks(
             pytest.mark.skip_config(
                 ["ttmetal"], reason="https://github.com/tenstorrent/tt-mlir/issues/5016"
             )
         ),
-        minimum | Marks(pytest.mark.skip_config(["ttmetal"])),
-        multiply,
-        pow,
-        subtract,
+        module_minimum | Marks(pytest.mark.skip_config(["ttmetal"])),
+        module_multiply,
+        module_pow,
+        module_subtract,
     ],
 )
 def test_binary_ops(
@@ -446,14 +479,14 @@ def test_binary_ops(
         module_exp,
         module_floor,
         module_log,
-        log_plus_one,
+        module_log_plus_one,
         module_logistic,
         module_neg,
         module_rsqrt,
         module_sine,
         module_sqrt,
-        tan,
-        tanh,
+        module_tan,
+        module_tanh,
     ],
 )
 def test_unary_ops(
@@ -609,69 +642,6 @@ def test_dot_general(
     )
 
 
-def reverse(
-    in0: Operand,
-    builder: StableHLOBuilder,
-    dimensions: List[int],
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.reverse(in0, dimensions, unit_attrs=unit_attrs)
-
-
-def pad(
-    in0: Operand,
-    builder: StableHLOBuilder,
-    padding_value: List[int],
-    edge_padding_low: List[int],
-    edge_padding_high: List[int],
-    interior_padding: List[int],
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.pad(
-        in0,
-        padding_value=padding_value,
-        edge_padding_low=edge_padding_low,
-        edge_padding_high=edge_padding_high,
-        interior_padding=interior_padding,
-        unit_attrs=unit_attrs,
-    )
-
-
-def select(
-    pred: Operand,
-    on_true: Operand,
-    on_false: Operand,
-    builder: StableHLOBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.select(pred, on_true, on_false, unit_attrs=unit_attrs)
-
-
-def select_and_scatter(
-    operand: Operand,
-    source: Operand,
-    init_value: Operand,
-    builder: StableHLOBuilder,
-    window_dimensions: List[int],
-    window_strides: List[int],
-    padding: Optional[List[List[int]]] = None,
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.select_and_scatter(
-        operand,
-        source,
-        init_value,
-        window_dimensions=window_dimensions,
-        window_strides=window_strides,
-        padding=padding,
-        unit_attrs=unit_attrs,
-    )
-
-
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn"])
@@ -785,152 +755,6 @@ def test_concatenate(
     )
 
 
-@pytest.mark.parametrize("shape", [(2, 3, 4), (128, 64)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.parametrize(
-    "dimensions",
-    [
-        [0],
-        [1],
-        [0, 1],
-    ],
-)
-def test_reverse(
-    shape: Shape,
-    dtype: torch.dtype,
-    dimensions: List[int],
-    target: str,
-    request,
-    device,
-):
-    if any(d >= len(shape) for d in dimensions):
-        pytest.skip(f"Reverse dimensions {dimensions} invalid for rank {len(shape)}")
-
-    compile_and_execute_shlo(
-        lambda in0, builder: reverse(in0, builder, dimensions),
-        [shape],
-        [dtype],
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        target=target,
-        device=device,
-    )
-
-
-@pytest.mark.xfail(reason="Failed to legalize error")
-@pytest.mark.parametrize(
-    "shape,padding_value,edge_low,edge_high,interior",
-    [
-        ((16, 16), [0], [1, 2], [1, 2], [0, 0]),
-        ((8, 8), [0], [0, 1], [2, 0], [1, 0]),
-        ((4, 5, 6), [0], [1, 0, 2], [1, 1, 0], [0, 0, 0]),
-    ],
-    ids=["2d_edge", "2d_interior", "3d_edge"],
-)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn"])
-def test_pad(
-    shape: Shape,
-    padding_value: List[int],
-    edge_low: List[int],
-    edge_high: List[int],
-    interior: List[int],
-    dtype: torch.dtype,
-    target: str,
-    request,
-    device,
-):
-    compile_and_execute_shlo(
-        lambda in0, pad_val, builder: builder.pad(
-            in0,
-            pad_val,
-            edge_padding_low=edge_low,
-            edge_padding_high=edge_high,
-            interior_padding=interior,
-        ),
-        [shape, ()],
-        [dtype, dtype],
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        target=target,
-        device=device,
-    )
-
-
-@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn"])
-def test_select(
-    shape: Shape,
-    dtype: torch.dtype,
-    target: str,
-    request,
-    device,
-):
-    def select_wrapper(
-        pred: Operand, on_true: Operand, on_false: Operand, builder: StableHLOBuilder
-    ):
-        return select(pred, on_true, on_false, builder)
-
-    compile_and_execute_shlo(
-        select_wrapper,
-        [shape, shape, shape],
-        [torch.bool, dtype, dtype],
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        target=target,
-        device=device,
-    )
-
-
-@pytest.mark.xfail(reason="Golden mapping incorrect")
-@pytest.mark.parametrize("shape", [(1, 1, 4, 4)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn"])
-def test_select_and_scatter(
-    shape: Shape,
-    dtype: torch.dtype,
-    target: str,
-    request,
-    device,
-):
-    window_dimensions = [1, 1, 2, 2]
-    window_strides = [1, 1, 2, 2]
-    padding = None
-
-    def model(
-        operand: Operand,
-        source: Operand,
-        init_value: Operand,
-        builder: StableHLOBuilder,
-    ):
-        return select_and_scatter(
-            operand,
-            source,
-            init_value,
-            builder,
-            window_dimensions,
-            window_strides,
-            padding,
-        )
-
-    # source shape corresponds to pooled output with stride 2 on 4x4 -> 2x2
-    compile_and_execute_shlo(
-        model,
-        [shape, (1, 1, 2, 2), ()],
-        [dtype, dtype, dtype],
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        target=target,
-        device=device,
-    )
-
-
 @pytest.mark.parametrize("shapes", [[(64, 64), (64, 64), (64, 64)]], ids=["64x64"])
 @pytest.mark.parametrize("dtypes", [[torch.float32] * 3], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn"])
@@ -970,7 +794,7 @@ def test_stablehlo_multi_return_support(
         module_and_bool,
         module_or_bool,
         module_xor_bool,
-        shift_right_logical,
+        module_shift_right_logical,
     ],
 )
 def test_logical_binary_ops(
@@ -1338,6 +1162,84 @@ def test_avg_pool_2d(
 
     compile_and_execute_shlo(
         module,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
+    "dimensions",
+    [
+        [1],
+        [0, 1],
+    ],
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_reverse(dimensions: List[int], target: str, request, device):
+    compile_and_execute_shlo(
+        lambda builder: module_reverse(builder, dimensions),
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
+    "padding_value,edge_low,edge_high,interior",
+    [
+        ([0], [1, 2], [1, 2], [0, 0]),
+        ([0], [0, 1], [2, 0], [1, 0]),
+    ],
+    ids=["edge", "interior"],
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_pad(
+    padding_value, edge_low, edge_high, interior, target: str, request, device
+):
+    compile_and_execute_shlo(
+        lambda builder: module_pad(
+            builder, padding_value, edge_low, edge_high, interior
+        ),
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_select(target: str, request, device):
+    compile_and_execute_shlo(
+        module_select,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
+    "window_dimensions,window_strides,padding",
+    [
+        ([2, 2], [2, 2], [[0, 0], [0, 0]]),
+    ],
+    ids=["basic"],
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_select_and_scatter(
+    window_dimensions, window_strides, padding, target: str, request, device
+):
+    compile_and_execute_shlo(
+        lambda builder: module_select_and_scatter(
+            builder, window_dimensions, window_strides, padding
+        ),
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
