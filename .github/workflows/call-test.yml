@@ -124,6 +124,11 @@ jobs:
         export TT_METAL_HOME="$WORK_DIR/third_party/tt-metal/src/tt-metal"
         export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
+        ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
+        rm -rf test_reports || true
+        mkdir -p test_reports
+        rm -rf ttrt_results || true
+        mkdir -p ttrt_results
         llvm-lit --filter-out="optimizer" --xunit-xml-output ${{ steps.strings.outputs.work-dir }}/test_reports/report_lit_${{matrix.build.runs-on}}_${{ matrix.build.image }}_${{strategy.job-index}}_${{steps.fetch-job-id.outputs.job_id}}.xml \
           ${{ steps.strings.outputs.build-output-dir }}/test
 
@@ -153,11 +158,6 @@ jobs:
         export IMAGE_NAME="${{ matrix.build.image }}"
         export RUN_ID="${{ github.run_id }}"
         export PATH="$WORK_DIR/.github/test_scripts:$PATH"
-        ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
-        rm -rf test_reports || true
-        mkdir -p test_reports
-        rm -rf ttrt_results || true
-        mkdir -p ttrt_results
 
         echo "Running tests on ${{ matrix.build.runs-on }} with image ${{ matrix.build.image }}"
         cat << 'EOF' > _test_to_run.json
