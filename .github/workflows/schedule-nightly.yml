@@ -11,9 +11,6 @@ permissions:
   contents: write
 
 jobs:
-  build-macos:
-    uses: ./.github/workflows/call-build-macos.yml
-    secrets: inherit
   prepare-run:
     uses: ./.github/workflows/call-prepare-run.yml
     with:
@@ -55,7 +52,6 @@ jobs:
   fail-notify:
     if: always()
     needs:
-      - build-macos
       - prepare-run
       - build-image
       - release-build
@@ -74,7 +70,6 @@ jobs:
         uses: re-actors/alls-green@v1.2.2
         with:
           jobs: ${{ toJSON(needs) }}
-          allowed-skips: build-macos
 
   fail-send-msg:
     if: always()
