@@ -160,14 +160,3 @@ def test_matmul_with_grids(
     )
     print("pcc: ", pcc)
     assert pcc > 0.99, f"PCC: {pcc} is less than 0.99"
-
-
-MATMUL_L1_DRAM_SHAPE_GRIDS = [
-    (
-        (m * 32 * (grid_m + 1), k * 32 * (grid_k + 1), n * 32),
-        (grid_m, grid_k),
-    )
-    for m, k, n, grid_m, grid_k in itertools.product(
-        [1], [1], [1, 4, 8, 16], range(0, 8), range(0, 8)
-    )
-]
