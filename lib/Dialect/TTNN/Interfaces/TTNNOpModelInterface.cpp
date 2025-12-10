@@ -1052,6 +1052,57 @@ BitwiseXorOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// DivOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+DivOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                        const OpConfig &opConfig) {
+  assert(inputs.size() == 2);
+
+  const auto inputShapeA = getLhs().getType().getShape();
+  const auto inputShapeB = getRhs().getType().getShape();
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  bool accurateMode = getAccurateMode();
+  std::optional<std::string> roundMode = std::nullopt;
+  if (getRoundMode()) {
+    roundMode = getRoundMode()->str();
+  }
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<DivOp>::getOpConstraints, getOperation(), deviceGrid,
+      inputShapeA, inputs[0], inputShapeB, inputs[1], accurateMode, roundMode,
+      opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+DivOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                    const OpConfig &opConfig) {
+  assert(inputs.size() == 2);
+
+  const auto inputShapeA = getLhs().getType().getShape();
+  const auto inputShapeB = getRhs().getType().getShape();
+
+  bool accurateMode = getAccurateMode();
+  std::optional<std::string> roundMode = std::nullopt;
+  if (getRoundMode()) {
+    roundMode = getRoundMode()->str();
+  }
+
+  return opRuntimeCache().getOrCompute(op_model::OpModel<DivOp>::getOpRuntime,
+                                       getOperation(), inputShapeA, inputs[0],
+                                       inputShapeB, inputs[1], accurateMode,
+                                       roundMode, opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // ScatterOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 

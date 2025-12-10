@@ -1357,6 +1357,37 @@ createEltwiseBinaryCompositeOp(FlatbufferObjectCache &cache,
       *cache.fbb, type, lhs, rhs, memoryConfig, out);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::EltwiseBinaryCompositeDivOp>
+createEltwiseBinaryCompositeDivOp(FlatbufferObjectCache &cache, DivOp op) {
+  auto lhs = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getLhs()));
+
+  auto rhs = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getRhs()));
+
+  auto result = op.getResult();
+  auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
+  auto out = cache.getOrCreate(result, tensorValueToFlatbuffer);
+
+  bool accurateMode = op.getAccurateMode();
+
+  auto roundMode = op.getRoundMode();
+  ::flatbuffers::Offset<::flatbuffers::String> roundModeOffset = 0;
+  if (roundMode) {
+    roundModeOffset = cache.fbb->CreateString(roundMode->str());
+  }
+
+  ::flatbuffers::Optional<::tt::target::DataType> outputDtype =
+      ::flatbuffers::nullopt;
+  if (op.getOutputDtype()) {
+    outputDtype = toFlatbuffer(cache, *op.getOutputDtype());
+  }
+
+  return ::tt::target::ttnn::CreateEltwiseBinaryCompositeDivOp(
+      *cache.fbb, lhs, rhs, accurateMode, roundModeOffset, outputDtype,
+      memoryConfig, out);
+}
+
 template <typename EltwiseBinaryCompositeScalarOp>
 ::flatbuffers::Offset<::tt::target::ttnn::EltwiseBinaryCompositeScalarOp>
 createEltwiseBinaryCompositeScalarOp(FlatbufferObjectCache &cache,
@@ -2858,6 +2889,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto atan2Op = dyn_cast<Atan2Op>(op); atan2Op) {
     return createOperation(cache,
                            createEltwiseBinaryCompositeOp(cache, atan2Op),
+                           debugString, locInfo);
+  }
+  if (auto divOp = dyn_cast<DivOp>(op); divOp) {
+    return createOperation(cache,
+                           createEltwiseBinaryCompositeDivOp(cache, divOp),
                            debugString, locInfo);
   }
   if (auto powScalarOp = dyn_cast<PowScalarOp>(op); powScalarOp) {

@@ -771,6 +771,41 @@ def TTNN_RemainderOp : TTNN_ElementwiseBinaryCompositeOp<"remainder"> {
     }];
 }
 
+def TTNN_DivOp : TTNN_ElementwiseBinaryCompositeOp<"div"> {
+    let summary = "Eltwise integer division.";
+    let description = [{
+      Performs element-wise division of lhs by rhs tensor with support for rounding mode,
+      suitable for integer division. The round_mode parameter controls the rounding behavior:
+      - "trunc": Truncate towards zero (default for integer division)
+      - "floor": Floor division (round towards negative infinity)
+
+      The accurate_mode flag enables more precise division at the cost of performance.
+
+      Example:
+
+      // %lhs: [7, -7, 7, -7]
+      // %rhs: [3, 3, -3, -3]
+      %result = "ttnn.div"(%lhs, %rhs) {round_mode = "trunc"} : (tensor<4xi32>, tensor<4xi32>) -> tensor<4xi32>
+      // %result: [2, -2, -2, 2]
+    }];
+
+    let arguments = (ins AnyRankedTensor:$lhs,
+                         AnyRankedTensor:$rhs,
+                         DefaultValuedAttr<BoolAttr, "false">:$accurate_mode,
+                         OptionalAttr<StrAttr>:$round_mode,
+                         OptionalAttr<TTCore_DataTypeAttr>:$output_dtype,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let builders =
+    [
+      OpBuilder<(ins "Type": $resultType, "Value": $lhs, "Value": $rhs),
+      [{
+        build($_builder, $_state, resultType, lhs, rhs,
+              /*accurate_mode=*/nullptr, /*round_mode=*/nullptr, /*output_dtype=*/nullptr, /*memory_config=*/nullptr);
+      }]>
+    ];
+}
+
 def TTNN_PowTensorOp : TTNN_ElementwiseBinaryCompositeOp<"pow_tensor"> {
     let summary = "Eltwise power OP.";
     let description = [{
