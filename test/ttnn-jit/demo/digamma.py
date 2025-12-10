@@ -9,12 +9,16 @@ import torch
 import pytest
 
 
+def digamma_ttnn(input_tensor):
+    return ttnn.digamma(input_tensor)
+
+
 @ttnn_jit.jit(debug=True, graph_capture=False, enable_cache=True)
-def digamma(input_a):
-    t_log_out = ttnn.log(input_a)  # negative log is not useful here
+def digamma(input_tensor):
+    t_log_out = ttnn.log(input_tensor)  # negative log is not useful here
 
     # 1/2(z)
-    tmp_reciprocal = ttnn.reciprocal(input_a)
+    tmp_reciprocal = ttnn.reciprocal(input_tensor)
     output = ttnn.multiply(tmp_reciprocal, 0.5)
     tmp = ttnn.multiply(tmp_reciprocal, tmp_reciprocal)
     val_square = tmp
@@ -60,8 +64,16 @@ def digamma(input_a):
         (1024, 1024),
     ],
 )
-def test_digamma_trace(h, w):
-    device = ttnn.open_device(device_id=0, trace_region_size=10240)
+@pytest.mark.parametrize(
+    "op",
+    [
+        digamma,
+        ttnn_jit.jit(debug=True, graph_capture=True, enable_cache=True)(digamma.func),
+        digamma_ttnn,
+    ],
+)
+def test_digamma_metal_trace(h, w, op):
+    device = ttnn.open_device(device_id=0, trace_region_size=240000)
 
     dtype = torch.bfloat16
     torch_tensor_a = torch.rand((h, w), dtype=dtype) * 100
@@ -82,14 +94,14 @@ def test_digamma_trace(h, w):
 
     ttnn.copy_host_to_device_tensor(input_a, input_a_tensor)
 
-    output_tensor = digamma(input_a_tensor)
+    output_tensor = op(input_a_tensor)
     ttnn.synchronize_device(device)
 
     # Capture trace
     ttnn.copy_host_to_device_tensor(input_a, input_a_tensor)
 
     tid = ttnn.begin_trace_capture(device)
-    output_tensor = digamma(input_a_tensor)
+    output_tensor = op(input_a_tensor)
     ttnn.end_trace_capture(device, tid)
     ttnn.synchronize_device(device)
 
@@ -124,7 +136,15 @@ def test_digamma_trace(h, w):
         (1024, 1024),
     ],
 )
-def test_digamma_compare(h, w):
+@pytest.mark.parametrize(
+    "op",
+    [
+        digamma,
+        ttnn_jit.jit(debug=True, graph_capture=True, enable_cache=True)(digamma.func),
+        digamma_ttnn,
+    ],
+)
+def test_digamma_compare(h, w, op):
     device = ttnn.open_device(device_id=0)
 
     # h, w = 1024, 1024
@@ -144,7 +164,7 @@ def test_digamma_compare(h, w):
     ).block_sharded(core_range_set)
 
     input_a = ttnn.from_torch(torch_tensor_a, spec=tensor_spec, device=device)
-    output_tensor = digamma(input_a)
+    output_tensor = op(input_a)
     golden = ttnn.digamma(input_a)
 
     print(f"output_tensor\n: {output_tensor}")
