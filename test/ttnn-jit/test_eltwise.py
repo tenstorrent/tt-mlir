@@ -34,9 +34,12 @@ BLOCK_SHARDED_SHAPE_GRIDS = [
 ]
 
 HEIGHT_SHARDED_SHAPE_GRIDS = [
-    ((32, 32), (0, 0)),
-    ((32, 64), (0, 0)),
-    ((256, 64), (7, 0)),
+    ((256, 32), (3, 0)),
+    ((128, 32), (3, 0)),
+    ((256, 32), (3, 1)),
+    ((512, 32), (3, 3)),
+    ((1024, 32), (7, 1)),
+    ((1024, 32), (7, 3)),
     ((256, 64), (0, 7)),
     ((2048, 128), (7, 7)),
     ((384, 32), (1, 5)),
@@ -526,13 +529,9 @@ def minimum(a, b):
         add,
     ],
 )
-def test_binary_ops_mixed1(device, shape, max_grid, memory_layout, dtype, op):
+def test_binary_ops_mixed1(device, shape, max_grid, shard_strategy, dtype, op):
     input0 = create_sharded_tile_tensor(
-        device,
-        shape,
-        max_grid,
-        dtype,
-        memory_layout=memory_layout,
+        device, shape, max_grid, dtype, shard_strategy=shard_strategy
     )
     input1 = create_dram_tensor(device, shape, dtype)
     op_jit = ttnn_jit.jit(
@@ -551,7 +550,7 @@ def test_binary_ops_mixed1(device, shape, max_grid, memory_layout, dtype, op):
 
 
 @pytest.mark.parametrize(
-    "shape, max_grid, memory_layout",
+    "shape, max_grid, shard_strategy",
     SHARDED_SHAPE_GRID_LAYOUTS,
     ids=[
         f"shape_{shape}_grid_{grid}_{layout}"
