@@ -255,19 +255,6 @@ protected:
     return dpsOutputs;
   }
 
-  // Common need to navigate DPS (<inputs>;<inits>) operand split:
-  // note that this requires only 'getDpsInits()' to be available.
-  template <typename Adaptor>
-  static std::array<mlir::SmallVector<Value>, 2>
-  splitDpsSignature(Adaptor adaptor, size_t numDPSInits) {
-    auto numOperands = adaptor.getOperands().size();
-    assert(numDPSInits <= numOperands && "expected numDPSInits <= numOperands");
-    auto numInputs = numOperands - numDPSInits;
-    mlir::ValueRange inputs = adaptor.getOperands().take_front(numInputs);
-    mlir::ValueRange outputs = adaptor.getOperands().drop_front(numInputs);
-    return {inputs, outputs};
-  }
-
   static SmallVector<mlir::AffineMap>
   getIdentityAffineMapsArray(mlir::OpBuilder &builder, std::size_t arity,
                              std::size_t rank) {
@@ -1278,6 +1265,97 @@ class D2MMeshShardOpRewriter : public OpConversionPattern<ttir::MeshShardOp> {
   }
 };
 
+namespace {
+template <typename TensorManipulationOp,
+          AffineMap (*LogicalAffineMapFn)(TensorManipulationOp)>
+class D2MTensorManipulationOpRewriter
+    : public OpConversionPattern<TensorManipulationOp>,
+      D2MNamedRewriterCommon {
+public:
+  D2MTensorManipulationOpRewriter(const TypeConverter &typeConverter,
+                                  mlir::MLIRContext *ctx,
+                                  ttcore::MemorySpace defaultInputMemSpace,
+                                  ttcore::MemorySpace defaultOutputMemSpace,
+                                  bool ttnnMode, bool /*collapseTensors*/)
+      : OpConversionPattern<TensorManipulationOp>(typeConverter, ctx),
+        D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
+                               ttnnMode, /*collapse*/ false) {}
+
+  LogicalResult
+  matchAndRewrite(TensorManipulationOp op,
+                  typename TensorManipulationOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    AffineMap deviceMap =
+        projectLogicalMapToUnitDeviceSpace(rewriter, LogicalAffineMapFn(op));
+
+    auto origInputs = adaptor.getOperands();
+    auto origOutputs =
+        createDpsOutputs(op.getLoc(), rewriter, {op.getResult().getType()});
+
+    auto [inputs, outputs] =
+        toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
+                                   /*tiled*/ false);
+    assert(outputs.size() == 1);
+
+    auto outTy = mlir::cast<RankedTensorType>(outputs[0].getType());
+    auto layout = mlir::cast<ttcore::MetalLayoutAttr>(outTy.getEncoding());
+    auto newLayout = ttcore::MetalLayoutAttr::get(
+        layout.getContext(), layout.getLogicalShape(), layout.getOobVal(),
+        layout.getMemorySpace(), layout.getMemoryLayout(),
+        layout.getCollapsedIntervals(), layout.getDimAlignments(), deviceMap);
+    auto newOutTy = RankedTensorType::get(outTy.getShape(),
+                                          outTy.getElementType(), newLayout);
+
+    auto storage =
+        rewriter.create<d2m::EmptyOp>(op.getLoc(), outputs[0].getType());
+    auto view = rewriter.create<d2m::StreamLayoutOp>(
+        op.getLoc(), newOutTy, inputs[0], storage.getResult());
+
+    rewriter.replaceOp(op, unLayoutResult(rewriter, view->getResult(0),
+                                          op->getResult(0).getType()));
+
+    return success();
+  }
+
+  static AffineMap projectLogicalMapToUnitDeviceSpace(Builder &builder,
+                                                      AffineMap logicalMap) {
+    unsigned deviceRank = static_cast<int64_t>(logicalMap.getNumDims() * 2);
+    SmallVector<AffineExpr> exprs(logicalMap.getResults());
+    while (exprs.size() < (logicalMap.getNumResults() * 2)) {
+      auto expr = exprs.size() <= deviceRank
+                      ? builder.getAffineDimExpr(
+                            (deviceRank - 1) -
+                            (exprs.size() - logicalMap.getNumResults()))
+                      : builder.getAffineConstantExpr(0);
+      exprs.insert(exprs.begin(), expr);
+    }
+
+    AffineMap shardGridFlippedMap =
+        AffineMap::get(deviceRank, 0, exprs, builder.getContext());
+
+    SmallVector<unsigned> shardGridPermutation;
+    for (unsigned d = logicalMap.getNumDims();
+         d < (logicalMap.getNumDims() * 2); ++d) {
+      shardGridPermutation.push_back(d);
+    }
+    for (unsigned d = 0; d < logicalMap.getNumDims(); ++d) {
+      shardGridPermutation.push_back(d);
+    }
+
+    AffineMap shardGridPermutationMap = AffineMap::getPermutationMap(
+        shardGridPermutation, builder.getContext());
+
+    return shardGridFlippedMap.compose(shardGridPermutationMap);
+  }
+};
+} // namespace
+
+static AffineMap rearrangeLogicalMap(ttir::RearrangeOp op) {
+  mlir::FailureOr<AffineMap> maybeMap = op.getInvPatternMap();
+  assert(succeeded(maybeMap));
+  return *maybeMap;
+}
+
 } // namespace mlir::tt
 
 namespace mlir::tt {
@@ -1337,6 +1415,8 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MNamedReductionRewriter<ttir::SumOp,          d2m::TileReduceSumOp>,
     // Data movement.
     D2MNamedElementwiseRewriter<ttir::TypecastOp,     d2m::TileTypecastOp>,
+    // View ops.
+    D2MTensorManipulationOpRewriter<ttir::RearrangeOp, rearrangeLogicalMap>,
     // Permute (handles tranpose ops, since they're canonicalized into permutes).
     D2MPermuteRewriter
   >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, ttnnMode, collapseTensors);

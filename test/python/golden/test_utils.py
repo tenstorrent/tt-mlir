@@ -48,7 +48,7 @@ class Marks:
         pytest.param
             Marked test parameter
         """
-        return pytest.param(lhs, marks=self.marks)
+        return pytest.param(*lhs if isinstance(lhs, tuple) else lhs, marks=self.marks)
 
 
 def shape_str(shape):
