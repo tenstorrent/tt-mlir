@@ -2775,6 +2775,36 @@ def collective_broadcast_golden(
     )
 
 
+def iota_golden(output_shape: tuple, iota_dimension: int, **kwargs) -> torch.Tensor:
+    """
+    Generate a tensor filled with increasing values along the specified dimension.
+
+    This function creates a tensor where values increase from 0 along the
+    iota_dimension. For example, with shape (3, 4) and iota_dimension=1:
+    [[0, 1, 2, 3],
+     [0, 1, 2, 3],
+     [0, 1, 2, 3]]
+
+    Parameters
+    ----------
+    output_shape : tuple
+        Shape of the output tensor
+    iota_dimension : int
+        Dimension along which to fill with increasing values
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor filled with increasing values along the specified dimension
+    """
+    iota_size = output_shape[iota_dimension]
+    shape = [1] * len(output_shape)
+    shape[iota_dimension] = iota_size
+
+    iota_values = torch.arange(iota_size, dtype=torch.float32).view(shape)
+    return iota_values.expand(*output_shape)
+
+
 def stablehlo_and_golden(
     input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, **kwargs
 ) -> GoldenMapTensor:

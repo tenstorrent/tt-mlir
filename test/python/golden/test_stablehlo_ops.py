@@ -810,6 +810,14 @@ def test_reduce_min(
     )
 
 
+@pytest.mark.parametrize("shape", [(32, 128, 128)], ids=shape_str)
+@pytest.mark.parametrize("iota_dimension", [0, 1, 2])
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_iota(
+    shape: Shape,
+    iota_dimension: int,
+    dtype: torch.dtype,
 # ----- Pooling Operations -----
 
 
@@ -882,6 +890,14 @@ def test_max_pool_2d(
     request,
     device,
 ):
+    def iota_model(builder: StableHLOBuilder):
+        builder.set_graph_level_check(True)
+        return builder.iota(shape, iota_dimension)
+
+    compile_and_execute_shlo(
+        iota_model,
+        [],
+        [],
     def max_pool_2d_wrapper(in0: Operand, builder: StableHLOBuilder):
         return max_pool_2d(in0, builder, kernel_size, stride, padding)
 
@@ -897,6 +913,14 @@ def test_max_pool_2d(
     )
 
 
+@pytest.mark.parametrize("shape", [(32, 128, 128)], ids=shape_str)
+@pytest.mark.parametrize("iota_dimension", [0, 1, 2])
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_dynamic_iota(
+    shape: Shape,
+    iota_dimension: int,
+    dtype: torch.dtype,
 @pytest.mark.parametrize(
     "shape,kernel_size,stride,padding",
     [
@@ -928,6 +952,16 @@ def test_avg_pool_2d(
     request,
     device,
 ):
+    def dynamic_iota_model(in0: Operand, builder: StableHLOBuilder):
+        builder.set_graph_level_check(True)
+        return builder.dynamic_iota(in0, iota_dimension)
+
+    shape_tensor = torch.tensor(list(shape), dtype=torch.int32)
+
+    compile_and_execute_shlo(
+        dynamic_iota_model,
+        [list(shape_tensor.shape)],
+        [torch.int32],
     def avg_pool_2d_wrapper(in0: Operand, builder: StableHLOBuilder):
         return avg_pool_2d(in0, builder, kernel_size, stride, padding)
 
