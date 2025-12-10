@@ -710,20 +710,20 @@ std::optional<std::string> getScatterReductionType(
     const std::optional<ttcore::ReduceTypeAttr> &reduceTypeAttr) {
   switch (reduceTypeAttr.value().getValue()) {
   case ttcore::ReduceType::Sum:
-    return std::optional<std::string>("add");
+    return "add";
   case ttcore::ReduceType::Max:
-    return std::optional<std::string>("amax");
+    return "amax";
   case ttcore::ReduceType::Min:
-    return std::optional<std::string>("amin");
+    return "amin";
   case ttcore::ReduceType::Prod:
-    return std::optional<std::string>("multiply");
+    return "multiply";
   case ttcore::ReduceType::Invalid:
     return std::nullopt;
   case ttcore::ReduceType::Mean:
   case ttcore::ReduceType::Std:
   case ttcore::ReduceType::Var:
     // These reduction types are not supported by scatter operation
-    return std::nullopt;
+    llvm_unreachable("Unsupported reduction type");
   }
 }
 
