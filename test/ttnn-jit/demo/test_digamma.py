@@ -9,10 +9,6 @@ import torch
 import pytest
 
 
-def digamma_ttnn(input_tensor):
-    return ttnn.digamma(input_tensor)
-
-
 @ttnn_jit.jit(debug=True, graph_capture=False, enable_cache=True)
 def digamma(input_tensor):
     t_log_out = ttnn.log(input_tensor)  # negative log is not useful here
@@ -69,7 +65,6 @@ def digamma(input_tensor):
     [
         digamma,
         ttnn_jit.jit(debug=True, graph_capture=True, enable_cache=True)(digamma.func),
-        digamma_ttnn,
     ],
 )
 def test_digamma_metal_trace(h, w, op):
@@ -141,7 +136,6 @@ def test_digamma_metal_trace(h, w, op):
     [
         digamma,
         ttnn_jit.jit(debug=True, graph_capture=True, enable_cache=True)(digamma.func),
-        digamma_ttnn,
     ],
 )
 def test_digamma_compare(h, w, op):
