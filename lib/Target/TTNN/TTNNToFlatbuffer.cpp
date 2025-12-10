@@ -939,8 +939,10 @@ toFlatbuffer(ttcore::ReduceType reduceType) {
     return ::tt::target::ttnn::ScatterReduceType::Min;
   case ttcore::ReduceType::Prod:
     return ::tt::target::ttnn::ScatterReduceType::Prod;
-  default:
+  case ttcore::ReduceType::Invalid:
     return ::tt::target::ttnn::ScatterReduceType::Invalid;
+  default:
+    llvm_unreachable("Unhandled reduce type");
   }
 }
 

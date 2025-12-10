@@ -2353,11 +2353,11 @@ getReduceTypeFromRegion(Region &region) {
       return ttcore::ReduceType::Max;
     } else if (isa<mlir::stablehlo::MinOp>(op)) {
       return ttcore::ReduceType::Min;
-    } else {
+    } else if (isa<mlir::stablehlo::ReturnOp>(op)) {
       return ttcore::ReduceType::Invalid;
     }
   }
-  // Other reduce types are currently not supported
+  // Reduction type is not supported
   return llvm::ErrorOr<ttcore::ReduceType>(
       std::make_error_code(std::errc::operation_not_supported));
 }
