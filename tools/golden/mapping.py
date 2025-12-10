@@ -1538,6 +1538,27 @@ def index_golden(
     return torch.index_select(input_tensor, dim=dim, index=index)
 
 
+def shlo_constant_golden(**kwargs) -> GoldenMapTensor:
+    """
+    Golden function for constant operation with TTIR parameter names.
+
+    Parameters
+    ----------
+    **kwargs : dict
+        Keyword arguments including 'value'
+
+    Returns
+    -------
+    GoldenMapTensor
+        Constant tensor
+    """
+    value = kwargs.get("value", [1])
+    # Convert value to torch tensor if it's not already one
+    if not isinstance(value, torch.Tensor):
+        value = torch.tensor(value)
+    return GoldenMapTensor({0: value}, (1, 1))
+
+
 def gather_golden(
     input_tensor: GoldenMapTensor,
     start_indices_tensor: GoldenMapTensor,
@@ -2304,6 +2325,98 @@ def index_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
 
     indices = torch.arange(begin, end, step, device=input_tensor.device)
     return torch.index_select(input_tensor, dim, indices)
+
+
+def slice_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
+    """
+    Golden function for slice operation with TTIR parameter names.
+
+    Parameters
+    ----------
+    input_tensor : GoldenMapTensor
+        Input tensor
+    **kwargs : dict
+        Keyword arguments including slice attributes as MLIR attributes
+
+    Returns
+    -------
+    GoldenMapTensor
+        Sliced tensor
+    """
+
+    # Unpack MLIR attributes from kwargs
+    begins = unpack_mlir_attr(kwargs.get("begins", [0]))
+    ends = unpack_mlir_attr(kwargs.get("ends", None))
+    step = unpack_mlir_attr(kwargs.get("step", [1]))
+
+    if ends is None:
+        ends = [input_tensor.size(i) for i in range(len(begins))]
+
+    # Build slice objects for each dimension
+    slices = []
+    for i in range(len(begins)):
+        start = begins[i] if i < len(begins) else 0
+        end = ends[i] if i < len(ends) else input_tensor.size(i)
+        step_val = step[i] if i < len(step) else 1
+        slices.append(slice(start, end, step_val))
+
+    shard_map = {}
+    for device_id, shard in input_tensor.shard_map.items():
+        shard_map[device_id] = shard[slices]
+
+    return GoldenMapTensor(shard_map, input_tensor.mesh_shape)
+
+
+def dynamic_slice_golden(
+    input_tensor: GoldenMapTensor,
+    **kwargs,
+) -> GoldenMapTensor:
+    """
+    Golden function for dynamic_slice operation.
+
+    Parameters
+    ----------
+    input_tensor : GoldenMapTensor
+        Input tensor to slice
+    *start_indices_tensors : GoldenMapTensor
+        One tensor per dimension, each providing the start index for that dimension.
+        Scalars or rank-1 tensors are supported; values are interpreted as integers.
+    **kwargs : dict
+        Keyword arguments including 'slice_sizes' as MLIR attribute
+
+    Returns
+    -------
+    GoldenMapTensor
+        Dynamically sliced tensor
+    """
+
+    start_indices_tensors = unpack_mlir_attr(kwargs.get("start_indices", []))
+    slice_sizes = unpack_mlir_attr(kwargs.get("slice_sizes", []))
+    rank = len(slice_sizes)
+    assert rank == len(start_indices_tensors), "start_indices_tensors must match rank"
+
+    # Extract start indices (use shard-0 for validation)
+    starts: List[int] = []
+    x0 = input_tensor.shard_at(0)
+    for d, st in enumerate(start_indices_tensors):
+        val0 = st if not isinstance(st, GoldenMapTensor) else st.shard_at(0)
+        starts.append(val0)
+
+        # Bounds check
+        max_valid = x0.size(d) - slice_sizes[d]
+        if starts[d] < 0 or starts[d] > max_valid:
+            raise IndexError(
+                f"dynamic_slice start index out of bounds for dim {d}: {starts[d]} not in [0,{max_valid}]"
+            )
+
+    # Build slices
+    slicers = tuple(slice(starts[d], starts[d] + slice_sizes[d]) for d in range(rank))
+
+    shard_map = {}
+    for device_id, shard in input_tensor.shard_map.items():
+        shard_map[device_id] = shard[slicers]
+
+    return GoldenMapTensor(shard_map, input_tensor.mesh_shape)
 
 
 def slice_golden_stablehlo(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
@@ -3945,6 +4058,8 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # stablehlo complex operations
     stablehlo.DotGeneralOp: dot_general_golden,
     stablehlo.ConcatenateOp: concat_golden,
+    stablehlo.ConstantOp: shlo_constant_golden,
+    stablehlo.DynamicSliceOp: dynamic_slice_golden,
     # ----- TTNN OPS -----
     # Elementwise unary operations
     ttnn.AbsOp: torch.abs,
