@@ -68,7 +68,7 @@ def test_reductions_l1(device, shape, max_grid, dim, op_name, op_func, dtype):
         reduction_func,
         num_inputs=1,
         buffer_type=ttnn.BufferType.L1,
-        memory_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED,
+        shard_strategy=ttnn.ShardStrategy.BLOCK,
         graph_capture=True,
     )
 
