@@ -1217,8 +1217,14 @@ static mlir::LogicalResult verifyAffineBlocking(
       }
       AffineMap fwdMap = *maybeFwdMap;
 
+      // Drop the shard dim results from the virtual grid mapping.
+      if (fwdMap.getNumResults() % 2 != 0) {
+        return emitOpError("GenericOp output operand's virtual grid mapping "
+                           "must have an even number of results.");
+      }
+
       fwdMap = ttmlir::utils::affineMapDropBackResults(
-          fwdMap, fwdMap.getNumResults() - 2);
+          fwdMap, fwdMap.getNumResults() / 2);
       // first result is deviceID, so drop it
       auto invMap = getGrid().getMapping().dropResult(0);
 
@@ -1663,13 +1669,6 @@ d2m::GenericOp::getOperandShardShapes(bool convertTileToScalar) {
   }
 
   return shardShapes;
-}
-
-mlir::SmallVector<int64_t> d2m::GenericOp::getPhysicalGridShape() {
-  auto outputType = mlir::cast<ShapedType>(getOutputs().front().getType());
-  ttcore::DeviceLayoutInterface deviceLayout =
-      ttcore::getDeviceLayout(outputType);
-  return deviceLayout.getPhysicalGridShape(outputType);
 }
 
 mlir::SmallVector<int64_t> d2m::GenericOp::getLoopBounds() {

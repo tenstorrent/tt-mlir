@@ -46,13 +46,13 @@ public:
 
   static ArrayAttr convertThreadsToKernelConfigs(
       Builder &builder, mlir::ValueRange operands, ArrayAttr threads,
-      ArrayRef<int64_t> physicalGridShape, const SymbolTable &symbolTable,
-      ttmetal::MathFidelity mathFidelity) {
+      ttcore::GridAttr opGrid, ArrayRef<int64_t> deviceGridShape,
+      const SymbolTable &symbolTable, ttmetal::MathFidelity mathFidelity) {
     SmallVector<Attribute> kernelConfigs;
     uint32_t nocIndex = 0;
 
-    auto coreRange = ttmetal::CoreRangeAttr::getPhysicalCoreRange(
-        builder.getContext(), physicalGridShape);
+    auto coreRange =
+        ttmetal::CoreRangeAttr::getPhysicalCoreRange(opGrid, deviceGridShape);
 
     for (Attribute threadAttr : threads) {
       d2m::ThreadAttr thread = mlir::cast<d2m::ThreadAttr>(threadAttr);
@@ -125,11 +125,14 @@ public:
       cbPorts.push_back(cbPort++);
     }
 
+    ttcore::DeviceAttr device = ttcore::lookupDevice(op);
+    auto deviceGridShape = device.getWorkerGrid().getShape();
+
     ArrayAttr threads = op.getThreads();
-    auto physicalGridShape = op.getPhysicalGridShape();
+    ttcore::GridAttr opGrid = op.getGrid();
     SymbolTable symbolTable(op->getParentOfType<ModuleOp>());
     auto kernelConfigs = convertThreadsToKernelConfigs(
-        rewriter, adaptor.getOperands(), threads, physicalGridShape,
+        rewriter, adaptor.getOperands(), threads, opGrid, deviceGridShape,
         symbolTable, mathFidelity_);
     rewriter.replaceOpWithNewOp<ttmetal::EnqueueProgramOp>(
         op, buffers, cbs, cbPorts, kernelConfigs);
