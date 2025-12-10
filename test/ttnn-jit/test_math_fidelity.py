@@ -23,7 +23,14 @@ def abs(input_tensor):
 
 @pytest.mark.parametrize(
     "math_fidelity",
-    ["LoFi", "HiFi2", "HiFi3", "HiFi4", "default", "invalid"],
+    [
+        ttnn.MathFidelity.LoFi,
+        ttnn.MathFidelity.HiFi2,
+        ttnn.MathFidelity.HiFi3,
+        ttnn.MathFidelity.HiFi4,
+        "default",
+        "invalid",
+    ],
     ids=["LoFi", "HiFi2", "HiFi3", "HiFi4", "default", "invalid"],
 )
 def test_math_fidelity(device, math_fidelity):

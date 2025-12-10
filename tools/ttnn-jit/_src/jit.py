@@ -13,6 +13,7 @@ from ttmlir.passes import (
     ttnn_to_ttmetal_pipeline,
     ttkernel_to_cpp_file,
 )
+from ttmlir.dialects import ttnn
 
 from ttnn_jit._src.utils import cleanup_source_code, get_dispatch_core_type
 from ttnn_jit._src.dispatch_op import run_binary, run_binary_from_capsule
@@ -34,7 +35,7 @@ class JitFunction:
         debug: bool,
         enable_cache: bool,
         graph_capture: bool,
-        math_fidelity: Literal["LoFi", "HiFi2", "HiFi3", "HiFi4"],
+        math_fidelity: ttnn.MathFidelity,
     ):
         self.func = func
         self.source_code = cleanup_source_code(func)
@@ -121,7 +122,7 @@ class JitFunction:
             **kwargs,
         )
 
-        options = f"system-desc-path={self.system_desc_path} ttnn-mode=true set-math-fidelity={self.math_fidelity}"
+        options = f"system-desc-path={self.system_desc_path} ttnn-mode=true set-math-fidelity={self.math_fidelity.name}"
         if self.compile_only:
             ttnn_to_ttmetal_pipeline(ir, options)
             if self.debug:

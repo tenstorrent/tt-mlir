@@ -5,6 +5,7 @@
 import inspect
 from typing import Literal
 
+import ttnn
 from ttnn_jit._src.jit import JitFunction
 
 
@@ -13,7 +14,7 @@ def jit(
     debug: bool = False,
     enable_cache: bool = False,
     graph_capture: bool = True,
-    math_fidelity: Literal["LoFi", "HiFi2", "HiFi3", "HiFi4"] = "HiFi4",
+    math_fidelity: ttnn.MathFidelity = ttnn.MathFidelity.HiFi4,
 ):
     """
     Sets up the decorated function to be JIT compiled through D2M.
