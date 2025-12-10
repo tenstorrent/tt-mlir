@@ -444,17 +444,21 @@ def parse_ttnn_ttnn_layout(attr):
 def parse_conv2d_config(attr):
     conv2d_config = ttnn.ir.Conv2dConfigAttr.maybe_downcast(attr)
     result = []
-    weights_dtype = str(
-        ttcore.DataType(conv2d_config.weights_dtype_as_int)
-        if conv2d_config.weights_dtype_as_int
+    weights_dtype = (
+        str(ttcore.DataType(conv2d_config.weights_dtype_as_int))
+        if conv2d_config.weights_dtype_as_int is not None
         else OVERRIDE_PARAMETER_DISABLED_STR
     )
     result.append(
         utils.make_editable_kv(
-            graph_builder.KeyValue(key="weights_dtype", value=weights_dtype),
+            graph_builder.KeyValue(
+                key="weights_dtype",
+                value=weights_dtype,
+            ),
             editable={
                 "input_type": "value_list",
-                "options": [str(o) for o in ttcore.DataType],
+                "options": [str(o) for o in ttcore.DataType]
+                + [OVERRIDE_PARAMETER_DISABLED_STR],
             },
         )
     )

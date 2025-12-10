@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-erase-inverse-ops -o %t %s
+// RUN: ttmlir-opt --ttir-erase-inverse-ops="force=false" -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // This test verifies that the EIO pass is skipped when no operations have

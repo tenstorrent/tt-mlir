@@ -304,16 +304,16 @@ createCpuOp(FlatbufferObjectCache &cache, func::CallOp op, uint32_t dylib_id) {
         getOperandThroughDPSOps(input)));
   }
 
-  // For now, assume we will get exactly 1 result tensor from our call -- this
-  // is hardcoded assumption for all ops AFAICT.
-  auto output =
-      cache.getOrCreate(*op.getResults().begin(), tensorValueToFlatbuffer);
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> outs;
+  for (auto output : op.getResults()) {
+    outs.push_back(cache.getOrCreate(output, tensorValueToFlatbuffer));
+  }
 
   llvm::SmallString<24> funcName =
       tt::utils::convertDylibFuncName(op.getCallee());
 
   return ::tt::target::ttnn::CreateCpuOp(
-      *cache.fbb, cache.fbb->CreateVector(ins), output,
+      *cache.fbb, cache.fbb->CreateVector(ins), cache.fbb->CreateVector(outs),
       cache.fbb->CreateString(funcName.c_str()), dylib_id);
 }
 
@@ -619,6 +619,98 @@ createOp(FlatbufferObjectCache &cache, PrepareConv2dBiasOp op) {
       dilation, op.getGroups(), cache.at<::tt::target::DeviceRef>(device),
       inputDtype, outputDtype, conv2dConfig.value_or(0),
       computeConfig.value_or(0), sliceConfig.value_or(0));
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::PrepareConvTranspose2dWeightsOp>
+createOp(FlatbufferObjectCache &cache, PrepareConvTranspose2dWeightsOp op) {
+  auto weightTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getWeightTensor()));
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+
+  ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig =
+      toFlatbuffer(cache, op.getInputMemoryConfig());
+
+  ::tt::target::TensorLayout inputTensorLayout =
+      toFlatbuffer(cache, op.getInputTensorLayout());
+  ::flatbuffers::Offset<::flatbuffers::String> weightsFormat =
+      toFlatbuffer(cache, op.getWeightsFormat());
+
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> kernelSize =
+      toFlatbuffer(cache, op.getKernelSize());
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> stride =
+      toFlatbuffer(cache, op.getStride());
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> padding =
+      toFlatbuffer(cache, op.getPadding());
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> dilation =
+      toFlatbuffer(cache, op.getDilation());
+  auto device = getOperandThroughDPSOps(op.getDevice());
+
+  ::tt::target::DataType inputDtype = toFlatbuffer(cache, op.getInputDtype());
+
+  ::flatbuffers::Optional<::tt::target::DataType> outputDtype;
+  if (op.getOutputDtype()) {
+    outputDtype = toFlatbuffer(cache, *op.getOutputDtype());
+  }
+
+  std::optional<::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>>
+      conv2dConfig = toFlatbuffer(cache, op.getConv2dConfig());
+
+  std::optional<
+      ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
+      computeConfig = toFlatbuffer(cache, op.getComputeConfig());
+
+  return ::tt::target::ttnn::CreatePrepareConvTranspose2dWeightsOp(
+      *cache.fbb, weightTensor, output, memoryConfig, inputTensorLayout,
+      weightsFormat, op.getInChannels(), op.getOutChannels(), op.getBatchSize(),
+      op.getInputHeight(), op.getInputWidth(), kernelSize, stride, padding,
+      dilation, op.getHasBias(), op.getGroups(),
+      cache.at<::tt::target::DeviceRef>(device), inputDtype, outputDtype,
+      conv2dConfig.value_or(0), computeConfig.value_or(0),
+      op.getMirrorKernel());
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::PrepareConvTranspose2dBiasOp>
+createOp(FlatbufferObjectCache &cache, PrepareConvTranspose2dBiasOp op) {
+  auto biasTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getBiasTensor()));
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+
+  ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig =
+      toFlatbuffer(cache, op.getInputMemoryConfig());
+  ::tt::target::TensorLayout inputTensorLayout =
+      toFlatbuffer(cache, op.getInputTensorLayout());
+
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> kernelSize =
+      toFlatbuffer(cache, op.getKernelSize());
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> stride =
+      toFlatbuffer(cache, op.getStride());
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> padding =
+      toFlatbuffer(cache, op.getPadding());
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> dilation =
+      toFlatbuffer(cache, op.getDilation());
+  auto device = getOperandThroughDPSOps(op.getDevice());
+
+  ::tt::target::DataType inputDtype = toFlatbuffer(cache, op.getInputDtype());
+
+  ::flatbuffers::Optional<::tt::target::DataType> outputDtype;
+  if (op.getOutputDtype()) {
+    outputDtype = toFlatbuffer(cache, *op.getOutputDtype());
+  }
+
+  std::optional<::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>>
+      conv2dConfig = toFlatbuffer(cache, op.getConv2dConfig());
+
+  std::optional<
+      ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
+      computeConfig = toFlatbuffer(cache, op.getComputeConfig());
+
+  return ::tt::target::ttnn::CreatePrepareConvTranspose2dBiasOp(
+      *cache.fbb, biasTensor, output, memoryConfig, inputTensorLayout,
+      op.getInChannels(), op.getOutChannels(), op.getBatchSize(),
+      op.getInputHeight(), op.getInputWidth(), kernelSize, stride, padding,
+      dilation, op.getGroups(), cache.at<::tt::target::DeviceRef>(device),
+      inputDtype, outputDtype, conv2dConfig.value_or(0),
+      computeConfig.value_or(0));
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::Conv2dOp>
@@ -2999,6 +3091,19 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto prepareConv2dBiasOp = dyn_cast<PrepareConv2dBiasOp>(op);
       prepareConv2dBiasOp) {
     return createOperation(cache, createOp(cache, prepareConv2dBiasOp),
+                           debugString, locInfo);
+  }
+  if (auto prepareConvTranspose2dWeightsOp =
+          dyn_cast<PrepareConvTranspose2dWeightsOp>(op);
+      prepareConvTranspose2dWeightsOp) {
+    return createOperation(cache,
+                           createOp(cache, prepareConvTranspose2dWeightsOp),
+                           debugString, locInfo);
+  }
+  if (auto prepareConvTranspose2dBiasOp =
+          dyn_cast<PrepareConvTranspose2dBiasOp>(op);
+      prepareConvTranspose2dBiasOp) {
+    return createOperation(cache, createOp(cache, prepareConvTranspose2dBiasOp),
                            debugString, locInfo);
   }
   if (auto conv2dOp = dyn_cast<Conv2dOp>(op); conv2dOp) {

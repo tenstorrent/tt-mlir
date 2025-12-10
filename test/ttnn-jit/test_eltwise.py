@@ -455,10 +455,6 @@ def bitwise_xor(a, b):
     return ttnn.bitwise_xor(a, b)
 
 
-def remainder(a, b):
-    return ttnn.remainder(a, b)
-
-
 def pow(a, b):
     # Test pow operation.
     #
@@ -487,10 +483,6 @@ def pow(a, b):
     return ttnn.pow(a, b)
 
 
-def atan2(a, b):
-    return ttnn.atan2(a, b)
-
-
 def eq(a, b):
     return ttnn.eq(a, b)
 
@@ -513,6 +505,14 @@ def lt(a, b):
 
 def le(a, b):
     return ttnn.le(a, b)
+
+
+def maximum(a, b):
+    return ttnn.maximum(a, b)
+
+
+def minimum(a, b):
+    return ttnn.minimum(a, b)
 
 
 @pytest.mark.parametrize(
@@ -538,8 +538,9 @@ def le(a, b):
         ge,
         lt,
         le,
+        maximum,
+        minimum,
         # logical_and, logical_or, logical_xor
-        # remainder, atan2,
     ],
 )
 @pytest.mark.parametrize("graph_capture", [True, False])
@@ -582,6 +583,8 @@ def test_binary_ops(device, shape, max_grid, memory_layout, dtype, op, graph_cap
         ge,
         lt,
         le,
+        maximum,
+        minimum,
         # logical_and, logical_or, logical_xor,
         # remainder, atan2,
     ],
@@ -924,3 +927,33 @@ def test_interop_jit_and_ttnn_to_binary_dram(
         interop_result.memory_config(), golden_result.memory_config()
     )
     assert all_close_check(interop_result, golden_result)
+
+
+# ------------------------------------------------------------
+# Return modifier tests
+# ------------------------------------------------------------
+def identity_op(input_tensor):
+    """Function that uses ttnn.identity, which should be rejected by return_modifier."""
+    return ttnn.identity(input_tensor)
+
+
+def test_identity_op_rejection(device):
+    """
+    Test that JIT compilation fails with a clear assertion when a function
+    contains ttnn.identity, as return_modifier expects functions NOT to have it.
+    """
+    shape = (32, 32)
+    dtype = torch.bfloat16
+    input_tensor = create_dram_tensor(device, shape, dtype)
+
+    # Attempting to JIT compile a function with ttnn.identity should raise AssertionError
+    with pytest.raises(AssertionError) as exc_info:
+        compiled_op = ttnn_jit.jit(graph_capture=True)(identity_op)
+        # The error should occur during compilation, not execution
+        _ = compiled_op(input_tensor)
+
+    # Verify the error message matches the expected assertion message
+    expected_message = "The jit-ed function cannot include ttnn.identity op for now"
+    assert expected_message in str(
+        exc_info.value
+    ), f"Expected error message '{expected_message}' not found in: {str(exc_info.value)}"

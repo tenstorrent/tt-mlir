@@ -1144,6 +1144,14 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_PrepareConv2dBiasOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::PrepareConvTranspose2dWeightsOp: {
+    tensorRef = opContext.type_as_PrepareConvTranspose2dWeightsOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PrepareConvTranspose2dBiasOp: {
+    tensorRef = opContext.type_as_PrepareConvTranspose2dBiasOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::BatchNormInferenceOp: {
     tensorRef = opContext.type_as_BatchNormInferenceOp()->out();
     break;
@@ -1178,10 +1186,6 @@ getOpOutputRef(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::UpsampleOp: {
     tensorRef = opContext.type_as_UpsampleOp()->out();
-    break;
-  }
-  case ::tt::target::ttnn::OpType::CpuOp: {
-    tensorRef = opContext.type_as_CpuOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::ConstantOp: {
@@ -1249,6 +1253,7 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_NLPConcatHeadsDecodeOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::CpuOp:
   case ::tt::target::ttnn::OpType::BatchNormTrainingOp:
   case ::tt::target::ttnn::OpType::MaxPool2dWithIndicesOp:
   case ::tt::target::ttnn::OpType::SortOp:
@@ -1489,6 +1494,16 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::PrepareConv2dBiasOp: {
     tensorRefs = {opContext.type_as_PrepareConv2dBiasOp()->bias_tensor()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PrepareConvTranspose2dWeightsOp: {
+    tensorRefs = {
+        opContext.type_as_PrepareConvTranspose2dWeightsOp()->weight_tensor()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PrepareConvTranspose2dBiasOp: {
+    tensorRefs = {
+        opContext.type_as_PrepareConvTranspose2dBiasOp()->bias_tensor()};
     break;
   }
   case ::tt::target::ttnn::OpType::BatchNormInferenceOp: {

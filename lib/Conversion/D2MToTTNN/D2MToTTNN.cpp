@@ -107,12 +107,17 @@ public:
           kernelSymbol.getRootReference());
       auto kernelSpec = kernelFunc->getAttrOfType<ttkernel::ArgSpecAttr>(
           ttkernel::ArgSpecAttr::name);
-      auto rtArgs = kernelSpec.getRtArgs();
+
+      // Note: D2MToTTKernel will only populate kernelSpec with rtargs in the
+      // ttnn-mode, however despite the name, they are actually common runtime
+      // args. TTKernel ArgSpec does not have crt field, and the normal tt-metal
+      // path doesn't use rt args at all.
+      auto crtArgs = kernelSpec.getRtArgs();
       auto ctArgs = kernelSpec.getCtArgs();
       llvm::SmallVector<mlir::Attribute> kernelCTArgs(ctArgs.size());
-      llvm::SmallVector<mlir::Attribute> kernelRTArgs(rtArgs.size());
-      for (const auto [i, arg] : llvm::enumerate(rtArgs)) {
-        kernelRTArgs[i] = convertKernelArg(builder, arg);
+      llvm::SmallVector<mlir::Attribute> kernelCRTArgs(crtArgs.size());
+      for (const auto [i, arg] : llvm::enumerate(crtArgs)) {
+        kernelCRTArgs[i] = convertKernelArg(builder, arg);
       }
       for (const auto [i, arg] : llvm::enumerate(ctArgs)) {
         kernelCTArgs[i] = convertKernelArg(builder, arg);
@@ -131,7 +136,7 @@ public:
             ArrayRef<ttnn::ComputeKernelUnpackToDestMode>{
                 ttnn::ComputeKernelUnpackToDestMode::Default},
             /*bfp8_pack_precise*/ false,
-            /*math_approx_mode*/ false, kernelRTArgs, kernelCTArgs);
+            /*math_approx_mode*/ false, kernelCRTArgs, kernelCTArgs);
         break;
       }
       // TODO (vtangTT) #5033: fix this assumption that order is
@@ -140,10 +145,10 @@ public:
         TT_assert(nocIndex < 2);
         if (nocIndex == 0) {
           kernelConfigs[i] = builder.getAttr<ttnn::ReadKernelAttr>(
-              kernelSymbol, coreRangeSet, kernelRTArgs, kernelCTArgs);
+              kernelSymbol, coreRangeSet, kernelCRTArgs, kernelCTArgs);
         } else {
           kernelConfigs[i] = builder.getAttr<ttnn::WriteKernelAttr>(
-              kernelSymbol, coreRangeSet, kernelRTArgs, kernelCTArgs);
+              kernelSymbol, coreRangeSet, kernelCRTArgs, kernelCTArgs);
         }
         nocIndex++;
         break;

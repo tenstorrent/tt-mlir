@@ -506,6 +506,8 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
 
     bool isView() { return false; }
   }];
+
+  let genVerifyDecl = 1;
 }
 
 def TTCore_DeviceAttr : TTCore_Attr<"Device", "device", []> {

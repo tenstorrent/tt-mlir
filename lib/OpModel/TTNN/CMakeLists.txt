@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(SOURCES
     TTNNOpModel.cpp
+    TTNNOutputTensorInference.cpp
     Conversion.cpp
     SingletonDeviceContext.cpp
 )

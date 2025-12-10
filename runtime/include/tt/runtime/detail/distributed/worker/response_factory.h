@@ -109,6 +109,11 @@ public:
 
   static void buildShutdownResponse(::flatbuffers::FlatBufferBuilder &fbb,
                                     uint64_t commandId);
+
+  static void
+  buildGetTensorDescResponse(::flatbuffers::FlatBufferBuilder &fbb,
+                             uint64_t commandId,
+                             const ::tt::runtime::TensorDesc &tensorDesc);
 };
 
 } // namespace tt::runtime::distributed::worker
