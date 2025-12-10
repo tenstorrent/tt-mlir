@@ -4,7 +4,7 @@
 
 import pytest
 
-from builder.base.builder_utils import compile_and_execute_ttir
+from builder.base.builder_apis import compile_and_execute_ttir
 
 # borrow currently constrained way to build matmul inputs:
 from test_metal_matmul import create_matmul_constrained_inputs as create_matmul_inputs
@@ -42,7 +42,6 @@ def test_allocate_matmul(m: int, k: int, n: int, target: str, request, device):
 
     compile_and_execute_ttir(
         create_matmul_inputs(lhs, rhs),
-        [lhs, rhs],
         target=target,
         device=device,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
@@ -76,7 +75,6 @@ def test_allocate_max(
 
     compile_and_execute_ttir(
         create_reduction_inputs(shape, "max", dim_arg, keep_dim),
-        [shape],
         target=target,
         device=device,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",

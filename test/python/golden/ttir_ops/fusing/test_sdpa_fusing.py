@@ -6,9 +6,9 @@ import pytest
 import torch
 import math
 from typing import List, Optional
-from builder.base.builder import Operand, Shape
+from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import compile_and_execute_ttir
+from builder.base.builder_apis import compile_and_execute_ttir
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -181,81 +181,83 @@ def test_sdpa(shapes: List[Shape], use_mask: bool, target: str, request, device)
     input_shapes = shapes + [mask_shape] if use_mask else shapes
     dtypes = [torch.bfloat16] * len(input_shapes)
 
-    def sdpa_no_mask(
-        query: Operand,
-        key: Operand,
-        value: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        query_data = torch.randn(query_shape, dtype=torch.bfloat16)
-        key_data = torch.randn(key_shape, dtype=torch.bfloat16)
-        value_data = torch.randn(value_shape, dtype=torch.bfloat16)
+    def module_sdpa_no_mask(builder: TTIRBuilder):
+        @builder.func(input_shapes, dtypes)
+        def sdpa_no_mask(
+            query: Operand,
+            key: Operand,
+            value: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            query_data = torch.randn(query_shape, dtype=torch.bfloat16)
+            key_data = torch.randn(key_shape, dtype=torch.bfloat16)
+            value_data = torch.randn(value_shape, dtype=torch.bfloat16)
 
-        head_dim = query_shape[-1]
-        scale = 1.0 / math.sqrt(head_dim)
+            head_dim = query_shape[-1]
+            scale = 1.0 / math.sqrt(head_dim)
 
-        golden_output = build_torch_golden(
-            query_data, key_data, value_data, scale=scale
-        )
+            golden_output = build_torch_golden(
+                query_data, key_data, value_data, scale=scale
+            )
 
-        result = build_ttir(
-            query, key, value, builder, scale=scale, unit_attrs=unit_attrs
-        )
+            result = build_ttir(
+                query, key, value, builder, scale=scale, unit_attrs=unit_attrs
+            )
 
-        builder.set_goldens(
-            {query: query_data, key: key_data, value: value_data},
-            {result: golden_output},
-        )
-        return result
+            builder.set_goldens(
+                {query: query_data, key: key_data, value: value_data},
+                {result: golden_output},
+            )
+            return result
 
-    def sdpa_with_mask(
-        query: Operand,
-        key: Operand,
-        value: Operand,
-        attention_mask: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        query_data = torch.randn(query_shape, dtype=torch.bfloat16)
-        key_data = torch.randn(key_shape, dtype=torch.bfloat16)
-        value_data = torch.randn(value_shape, dtype=torch.bfloat16)
-        mask_data = torch.triu(
-            torch.full(mask_shape, float("-inf"), dtype=torch.bfloat16), diagonal=1
-        )
+    def module_sdpa_with_mask(builder: TTIRBuilder):
+        @builder.func(input_shapes, dtypes)
+        def sdpa_with_mask(
+            query: Operand,
+            key: Operand,
+            value: Operand,
+            attention_mask: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            query_data = torch.randn(query_shape, dtype=torch.bfloat16)
+            key_data = torch.randn(key_shape, dtype=torch.bfloat16)
+            value_data = torch.randn(value_shape, dtype=torch.bfloat16)
+            mask_data = torch.triu(
+                torch.full(mask_shape, float("-inf"), dtype=torch.bfloat16), diagonal=1
+            )
 
-        head_dim = query_shape[-1]
-        scale = 1.0 / math.sqrt(head_dim)
+            head_dim = query_shape[-1]
+            scale = 1.0 / math.sqrt(head_dim)
 
-        golden_output = build_torch_golden(
-            query_data, key_data, value_data, scale=scale, attention_mask=mask_data
-        )
+            golden_output = build_torch_golden(
+                query_data, key_data, value_data, scale=scale, attention_mask=mask_data
+            )
 
-        result = build_ttir(
-            query,
-            key,
-            value,
-            builder,
-            scale=scale,
-            attention_mask=attention_mask,
-            unit_attrs=unit_attrs,
-        )
+            result = build_ttir(
+                query,
+                key,
+                value,
+                builder,
+                scale=scale,
+                attention_mask=attention_mask,
+                unit_attrs=unit_attrs,
+            )
 
-        builder.set_goldens(
-            {
-                query: query_data,
-                key: key_data,
-                value: value_data,
-                attention_mask: mask_data,
-            },
-            {result: golden_output},
-        )
-        return result
+            builder.set_goldens(
+                {
+                    query: query_data,
+                    key: key_data,
+                    value: value_data,
+                    attention_mask: mask_data,
+                },
+                {result: golden_output},
+            )
+            return result
 
     output = compile_and_execute_ttir(
-        sdpa_with_mask if use_mask else sdpa_no_mask,
-        input_shapes,
-        dtypes,
+        module_sdpa_with_mask if use_mask else module_sdpa_no_mask,
         target=target,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
@@ -338,80 +340,82 @@ def test_sdpa_decode(shapes: List[Shape], use_mask: bool, target: str, request, 
     input_shapes = shapes + [mask_shape] if use_mask else shapes
     dtypes = [torch.bfloat16] * len(input_shapes)
 
-    def sdpa_no_mask(
-        query: Operand,
-        key: Operand,
-        value: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        query_data = torch.randn(query_shape, dtype=torch.bfloat16)
-        key_data = torch.randn(key_shape, dtype=torch.bfloat16)
-        value_data = torch.randn(value_shape, dtype=torch.bfloat16)
+    def module_sdpa_no_mask(builder: TTIRBuilder):
+        @builder.func(input_shapes, dtypes)
+        def sdpa_no_mask(
+            query: Operand,
+            key: Operand,
+            value: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            query_data = torch.randn(query_shape, dtype=torch.bfloat16)
+            key_data = torch.randn(key_shape, dtype=torch.bfloat16)
+            value_data = torch.randn(value_shape, dtype=torch.bfloat16)
 
-        head_dim = query_shape[-1]
-        scale = 1.0 / math.sqrt(head_dim)
+            head_dim = query_shape[-1]
+            scale = 1.0 / math.sqrt(head_dim)
 
-        golden_output = build_torch_golden(
-            query_data, key_data, value_data, scale=scale
-        )
+            golden_output = build_torch_golden(
+                query_data, key_data, value_data, scale=scale
+            )
 
-        result = build_ttir(
-            query, key, value, builder, scale=scale, unit_attrs=unit_attrs
-        )
+            result = build_ttir(
+                query, key, value, builder, scale=scale, unit_attrs=unit_attrs
+            )
 
-        builder.set_goldens(
-            {query: query_data, key: key_data, value: value_data},
-            {result: golden_output},
-        )
-        return result
+            builder.set_goldens(
+                {query: query_data, key: key_data, value: value_data},
+                {result: golden_output},
+            )
+            return result
 
-    def sdpa_with_mask(
-        query: Operand,
-        key: Operand,
-        value: Operand,
-        attention_mask: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        query_data = torch.randn(query_shape, dtype=torch.bfloat16)
-        key_data = torch.randn(key_shape, dtype=torch.bfloat16)
-        value_data = torch.randn(value_shape, dtype=torch.bfloat16)
-        # For decode, use zeros mask (no causal masking needed)
-        mask_data = torch.zeros(mask_shape, dtype=torch.bfloat16)
+    def module_sdpa_with_mask(builder: TTIRBuilder):
+        @builder.func(input_shapes, dtypes)
+        def sdpa_with_mask(
+            query: Operand,
+            key: Operand,
+            value: Operand,
+            attention_mask: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            query_data = torch.randn(query_shape, dtype=torch.bfloat16)
+            key_data = torch.randn(key_shape, dtype=torch.bfloat16)
+            value_data = torch.randn(value_shape, dtype=torch.bfloat16)
+            # For decode, use zeros mask (no causal masking needed)
+            mask_data = torch.zeros(mask_shape, dtype=torch.bfloat16)
 
-        head_dim = query_shape[-1]
-        scale = 1.0 / math.sqrt(head_dim)
+            head_dim = query_shape[-1]
+            scale = 1.0 / math.sqrt(head_dim)
 
-        golden_output = build_torch_golden(
-            query_data, key_data, value_data, scale=scale, attention_mask=mask_data
-        )
+            golden_output = build_torch_golden(
+                query_data, key_data, value_data, scale=scale, attention_mask=mask_data
+            )
 
-        result = build_ttir(
-            query,
-            key,
-            value,
-            builder,
-            scale=scale,
-            attention_mask=attention_mask,
-            unit_attrs=unit_attrs,
-        )
+            result = build_ttir(
+                query,
+                key,
+                value,
+                builder,
+                scale=scale,
+                attention_mask=attention_mask,
+                unit_attrs=unit_attrs,
+            )
 
-        builder.set_goldens(
-            {
-                query: query_data,
-                key: key_data,
-                value: value_data,
-                attention_mask: mask_data,
-            },
-            {result: golden_output},
-        )
-        return result
+            builder.set_goldens(
+                {
+                    query: query_data,
+                    key: key_data,
+                    value: value_data,
+                    attention_mask: mask_data,
+                },
+                {result: golden_output},
+            )
+            return result
 
     output = compile_and_execute_ttir(
-        sdpa_with_mask if use_mask else sdpa_no_mask,
-        input_shapes,
-        dtypes,
+        module_sdpa_with_mask if use_mask else module_sdpa_no_mask,
         target=target,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),

@@ -6,10 +6,10 @@ import pytest
 import torch
 from typing import Callable, List, Optional, Tuple
 from conftest import x86_only
-from builder.base.builder import Operand, Shape
+from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base import get_golden_function
-from builder.base.builder_utils import (
+from golden import get_golden_function
+from builder.base.builder_apis import (
     compile_and_execute_ttir,
 )
 from test_utils import (
@@ -191,11 +191,14 @@ binary_ops = [
 def test_binary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape], [dtype, dtype])
+        def binary_op_fn(in0: Operand, in1: Operand, builder: TTIRBuilder) -> Operand:
+            return test_fn(in0, in1, builder)
+
     pipeline_options = []
     compile_and_execute_ttir(
-        test_fn,
-        inputs_shapes=[shape, shape],
-        inputs_types=[dtype, dtype],
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -305,17 +308,17 @@ def test_scalar_binary_ops(
     """Test binary operations with scalar operands on ttmetal"""
     test_fn, scalar_value = test_fn_and_scalar
 
-    def scalar_op_wrapper(
-        in0: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return test_fn(in0, scalar_value, builder, unit_attrs=unit_attrs)
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def scalar_op_wrapper(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return test_fn(in0, scalar_value, builder, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
-        scalar_op_wrapper,
-        [shape],
-        [dtype],
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -381,10 +384,14 @@ def test_bitwise_binary_ops(
         pytest.xfail(
             "ttmetal does not support bitwise ops for integers due to tilize/untilize."
         )
+
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape], [dtype, dtype])
+        def binary_op_fn(in0: Operand, in1: Operand, builder: TTIRBuilder) -> Operand:
+            return test_fn(in0, in1, builder)
+
     compile_and_execute_ttir(
-        test_fn,
-        inputs_shapes=[shape, shape],
-        inputs_types=[dtype, dtype],
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -466,10 +473,14 @@ def test_logical_shift_binary_ops(
         pytest.xfail("uint16 logical left shift op is not supported yet")
     if target == "emitpy" and (dtype == torch.uint16 or dtype == torch.uint32):
         pytest.xfail("uint16 and uint32 aren't supported in ttnn pybinds")
+
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape], [dtype, dtype])
+        def binary_op_fn(in0: Operand, in1: Operand, builder: TTIRBuilder) -> Operand:
+            return test_fn(in0, in1, builder)
+
     compile_and_execute_ttir(
-        test_fn,
-        inputs_shapes=[shape, shape],
-        inputs_types=[dtype, dtype],
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -560,34 +571,36 @@ def test_comparison_ops(
     if target == "ttmetal" and dtype == torch.int32:
         pytest.skip("ttmetal does not support int32 comparison ops")
 
-    def comparison_ops(
-        in0: Operand,
-        in1: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        randn_tensor1 = torch.randn(shape, dtype=torch.float32)
-        randn_tensor2 = torch.randn(shape, dtype=torch.float32)
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape], [dtype, dtype])
+        def comparison_ops(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            randn_tensor1 = torch.randn(shape, dtype=torch.float32)
+            randn_tensor2 = torch.randn(shape, dtype=torch.float32)
 
-        # Set some indices in randn_tensor2 to be the same as randn_tensor1
-        # This ensures we have both equal and unequal values for comprehensive testing
-        num_elements = torch.numel(randn_tensor1)
-        num_equal_indices = num_elements // 2
+            # Set some indices in randn_tensor2 to be the same as randn_tensor1
+            # This ensures we have both equal and unequal values for comprehensive testing
+            num_elements = torch.numel(randn_tensor1)
+            num_equal_indices = num_elements // 2
 
-        equal_indices = torch.randperm(num_elements)[:num_equal_indices]
-        randn_tensor2.view(-1)[equal_indices] = randn_tensor1.view(-1)[equal_indices]
+            equal_indices = torch.randperm(num_elements)[:num_equal_indices]
+            randn_tensor2.view(-1)[equal_indices] = randn_tensor1.view(-1)[
+                equal_indices
+            ]
 
-        input_tensor1 = randn_tensor1.to(dtype)
-        input_tensor2 = randn_tensor2.to(dtype)
+            input_tensor1 = randn_tensor1.to(dtype)
+            input_tensor2 = randn_tensor2.to(dtype)
 
-        builder.set_goldens(inputs={in0: input_tensor1, in1: input_tensor2})
+            builder.set_goldens(inputs={in0: input_tensor1, in1: input_tensor2})
 
-        return test_fn(in0, in1, builder, unit_attrs=unit_attrs)
+            return test_fn(in0, in1, builder, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
-        comparison_ops,
-        [shape, shape],
-        [dtype, dtype],
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -632,26 +645,26 @@ unaligned_shapes = [
 def test_unaligned_shapes_add(
     shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
-    def add(
-        in0: Operand,
-        in1: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        # Magnitudes of the elements should be in [0.01, 1) to avoid FP accuracy issue.
-        tensor_lhs = torch.rand(shape, dtype=dtype) * 0.99 + 0.01
-        tensor_rhs = torch.rand(shape, dtype=dtype) * 0.99 + 0.01
-        signs_lhs = torch.randint(0, 2, shape) * 2 - 1
-        signs_rhs = torch.randint(0, 2, shape) * 2 - 1
-        tensor_lhs *= signs_lhs
-        tensor_rhs *= signs_rhs
-        builder.set_goldens(inputs={in0: tensor_lhs, in1: tensor_rhs})
-        return builder.add(in0, in1)
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape], [dtype, dtype])
+        def add(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            # Magnitudes of the elements should be in [0.01, 1) to avoid FP accuracy issue.
+            tensor_lhs = torch.rand(shape, dtype=dtype) * 0.99 + 0.01
+            tensor_rhs = torch.rand(shape, dtype=dtype) * 0.99 + 0.01
+            signs_lhs = torch.randint(0, 2, shape) * 2 - 1
+            signs_rhs = torch.randint(0, 2, shape) * 2 - 1
+            tensor_lhs *= signs_lhs
+            tensor_rhs *= signs_rhs
+            builder.set_goldens(inputs={in0: tensor_lhs, in1: tensor_rhs})
+            return builder.add(in0, in1)
 
     compile_and_execute_ttir(
-        add,
-        [shape, shape],
-        [dtype, dtype],
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -672,19 +685,19 @@ def create_hoisted_binary_op(op_func, name):
 
 
 hoisted_binary_ops = [
-    create_hoisted_binary_op(add, "add"),
-    create_hoisted_binary_op(multiply, "multiply"),
-    create_hoisted_binary_op(subtract, "subtract"),
+    add,
+    multiply,
+    subtract,
     # TODO(#6183): Re-enable when F32 untilize on-device precision loss is fixed
     # F32 untilize on-device introduces precision loss that causes close values to become
     # identical, breaking exact equality comparisons in CPU-hoisted ops.
     # See: https://github.com/tenstorrent/tt-mlir/issues/6183
-    # create_hoisted_binary_op(eq, "equal"),
-    create_hoisted_binary_op(ne, "not_equal"),
-    create_hoisted_binary_op(gt, "greater_than"),
-    create_hoisted_binary_op(ge, "greater_equal"),
-    create_hoisted_binary_op(lt, "less_than"),
-    create_hoisted_binary_op(le, "less_equal"),
+    # eq,
+    ne,
+    gt,
+    ge,
+    lt,
+    le,
 ]
 
 
@@ -711,10 +724,19 @@ def test_cpu_hoistable_binary_ops(
     device,
 ):
     """Test binary ops that support CPU hoisting"""
+
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [dtype] * len(shapes))
+        def hoisted_binary_op_fn(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ) -> Operand:
+            return test_fn(in0, in1, builder, unit_attrs=["ttir.should_hoist"])
+
     compile_and_execute_ttir(
-        test_fn,
-        shapes,
-        [dtype] * len(shapes),
+        module,
         test_base=f"{request.node.name}",
         target=target,
         device=device,
@@ -752,45 +774,45 @@ def test_implicit_bcast_inner_2D(
     shape_S = (1, 1)
 
     # Avoid too many test entries, test LHS & RHS bcast together.
-    def bcast_all_cases(
-        in_F0: Operand,
-        in_C0: Operand,
-        in_R0: Operand,
-        in_S0: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        tensor_F0 = torch.rand(shape_F, dtype=dtype) * 2.0 - 1.0
-        tensor_C0 = torch.rand(shape_C, dtype=dtype) * 2.0 - 1.0
-        tensor_R0 = torch.rand(shape_R, dtype=dtype) * 2.0 - 1.0
-        tensor_S0 = torch.rand(shape_S, dtype=dtype) - 0.5
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape_C, shape_R, shape_S], [dtype, dtype, dtype, dtype])
+        def bcast_all_cases(
+            in_F0: Operand,
+            in_C0: Operand,
+            in_R0: Operand,
+            in_S0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            tensor_F0 = torch.rand(shape_F, dtype=dtype) * 2.0 - 1.0
+            tensor_C0 = torch.rand(shape_C, dtype=dtype) * 2.0 - 1.0
+            tensor_R0 = torch.rand(shape_R, dtype=dtype) * 2.0 - 1.0
+            tensor_S0 = torch.rand(shape_S, dtype=dtype) - 0.5
 
-        builder.set_goldens(
-            inputs={
-                in_F0: tensor_F0,
-                in_C0: tensor_C0,
-                in_R0: tensor_R0,
-                in_S0: tensor_S0,
-            }
-        )
+            builder.set_goldens(
+                inputs={
+                    in_F0: tensor_F0,
+                    in_C0: tensor_C0,
+                    in_R0: tensor_R0,
+                    in_S0: tensor_S0,
+                }
+            )
 
-        in_R1 = builder.add(
-            builder.add(in_S0, in_R0, unit_attrs=unit_attrs),
-            in_S0,
-            unit_attrs=unit_attrs,
-        )
-        in_C1 = builder.subtract(
-            in_S0,
-            builder.subtract(in_C0, in_S0, unit_attrs=unit_attrs),
-            unit_attrs=unit_attrs,
-        )
-        in_F1 = builder.add(in_C1, in_R1, unit_attrs=unit_attrs)
-        return builder.add(in_F1, in_S0, unit_attrs=unit_attrs)
+            in_R1 = builder.add(
+                builder.add(in_S0, in_R0, unit_attrs=unit_attrs),
+                in_S0,
+                unit_attrs=unit_attrs,
+            )
+            in_C1 = builder.subtract(
+                in_S0,
+                builder.subtract(in_C0, in_S0, unit_attrs=unit_attrs),
+                unit_attrs=unit_attrs,
+            )
+            in_F1 = builder.add(in_C1, in_R1, unit_attrs=unit_attrs)
+            return builder.add(in_F1, in_S0, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
-        bcast_all_cases,
-        [shape, shape_C, shape_R, shape_S],
-        [dtype, dtype, dtype, dtype],
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -853,10 +875,18 @@ def test_binary_eltwise_ops_implicit_broadcast(
     if test_fn == div:
         pcc = 0.97
 
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [dtype, dtype])
+        def binary_eltwise_op_fn(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ) -> Operand:
+            return test_fn(in0, in1, builder, unit_attrs=unit_attrs)
+
     compile_and_execute_ttir(
-        test_fn,
-        shapes,
-        [dtype, dtype],
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -871,18 +901,18 @@ def test_binary_eltwise_ops_implicit_broadcast(
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_hoisted_pow(shape: Shape, dtype: torch.dtype, target: str, request, device):
-    def hoisted_pow_wrapper(
-        in0: Operand,
-        in1: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return pow(in0, in1, builder, unit_attrs=["ttir.should_hoist"])
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape], [dtype, dtype])
+        def hoisted_pow_wrapper(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return pow(in0, in1, builder, unit_attrs=["ttir.should_hoist"])
 
     compile_and_execute_ttir(
-        hoisted_pow_wrapper,
-        [shape, shape],
-        [dtype, dtype],
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),

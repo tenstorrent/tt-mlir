@@ -6,171 +6,205 @@ import pytest
 import torch
 from typing import Callable, List, Optional, Tuple
 
-from builder.base.builder import Operand, Shape, TypeInfo
+from builder.base.builder_utils import Operand, Shape, TypeInfo
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
-from builder.base.builder_utils import compile_and_execute_shlo
+from builder.base.builder_apis import compile_and_execute_shlo
 from test_utils import shape_str, shapes_list_str
 
 pytestmark = pytest.mark.frontend("shlo")
 
 
-def add(
-    in0: Operand,
-    in1: Operand,
-    builder: StableHLOBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.add(in0, in1)
+def module_abs(builder: StableHLOBuilder):
+    @builder.func([(128, 128)], [torch.float32])
+    def abs(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.abs(in0, unit_attrs=unit_attrs)
 
 
-def clamp(
-    in0: Operand,
-    in1: Operand,
-    in2: Operand,
-    builder: StableHLOBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.clamp(in0, in1, in2, unit_attrs=unit_attrs)
+def module_ceil(builder: StableHLOBuilder):
+    @builder.func([(128, 128)], [torch.float32])
+    def ceil(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.ceil(in0, unit_attrs=unit_attrs)
 
 
-def abs(
-    in0: Operand,
-    builder: StableHLOBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.abs(in0, unit_attrs=unit_attrs)
+def module_cosine(builder: StableHLOBuilder):
+    @builder.func([(128, 128)], [torch.float32])
+    def cosine(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.cosine(in0, unit_attrs=unit_attrs)
 
 
-def ceil(
-    in0: Operand,
-    builder: StableHLOBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.ceil(in0, unit_attrs=unit_attrs)
+def module_exp(builder: StableHLOBuilder):
+    @builder.func([(128, 128)], [torch.float32])
+    def exp(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.exp(in0, unit_attrs=unit_attrs)
 
 
-def cosine(
-    in0: Operand,
-    builder: StableHLOBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.cosine(in0, unit_attrs=unit_attrs)
+def module_floor(builder: StableHLOBuilder):
+    @builder.func([(128, 128)], [torch.float32])
+    def floor(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.floor(in0, unit_attrs=unit_attrs)
 
 
-def exp(
-    in0: Operand,
-    builder: StableHLOBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.exp(in0, unit_attrs=unit_attrs)
+def module_neg(builder: StableHLOBuilder):
+    @builder.func([(128, 128)], [torch.float32])
+    def neg(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.neg(in0, unit_attrs=unit_attrs)
 
 
-def floor(
-    in0: Operand,
-    builder: StableHLOBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.floor(in0, unit_attrs=unit_attrs)
+def module_rsqrt(builder: StableHLOBuilder):
+    @builder.func([(128, 128)], [torch.float32])
+    def rsqrt(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.rsqrt(in0, unit_attrs=unit_attrs)
 
 
-def neg(
-    in0: Operand,
-    builder: StableHLOBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.neg(in0, unit_attrs=unit_attrs)
+def module_sine(builder: StableHLOBuilder):
+    @builder.func([(128, 128)], [torch.float32])
+    def sine(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.sine(in0, unit_attrs=unit_attrs)
 
 
-def rsqrt(
-    in0: Operand,
-    builder: StableHLOBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.rsqrt(in0, unit_attrs=unit_attrs)
+def module_sqrt(builder: StableHLOBuilder):
+    @builder.func([(128, 128)], [torch.float32])
+    def sqrt(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.sqrt(in0, unit_attrs=unit_attrs)
 
 
-def sine(
-    in0: Operand,
-    builder: StableHLOBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.sine(in0, unit_attrs=unit_attrs)
+def module_logistic(builder: StableHLOBuilder):
+    @builder.func([(128, 128)], [torch.float32])
+    def logistic(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.logistic(in0, unit_attrs=unit_attrs)
 
 
-def sqrt(
-    in0: Operand,
-    builder: StableHLOBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.sqrt(in0, unit_attrs=unit_attrs)
+def module_log(builder: StableHLOBuilder):
+    @builder.func([(128, 128)], [torch.float32])
+    def log(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.log(in0, unit_attrs=unit_attrs)
 
 
-def logistic(
-    in0: Operand,
-    builder: StableHLOBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.logistic(in0, unit_attrs=unit_attrs)
+def module_and_int(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.int32, torch.int32])
+    def and_(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.and_(in0, in1, unit_attrs=unit_attrs)
 
 
-def log(
-    in0: Operand,
-    builder: StableHLOBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.log(in0, unit_attrs=unit_attrs)
+def module_or_int(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.int32, torch.int32])
+    def or_(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.or_(in0, in1, unit_attrs=unit_attrs)
 
 
-def and_(
-    in0: Operand,
-    in1: Operand,
-    builder: StableHLOBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.and_(in0, in1, unit_attrs=unit_attrs)
+def module_xor_int(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.int32, torch.int32])
+    def xor(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.xor(in0, in1, unit_attrs=unit_attrs)
 
 
-def or_(
-    in0: Operand,
-    in1: Operand,
-    builder: StableHLOBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.or_(in0, in1, unit_attrs=unit_attrs)
+def module_and_bool(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.bool, torch.bool])
+    def and_(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.and_(in0, in1, unit_attrs=unit_attrs)
 
 
-def xor(
-    in0: Operand,
-    in1: Operand,
-    builder: StableHLOBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.xor(in0, in1, unit_attrs=unit_attrs)
+def module_or_bool(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.bool, torch.bool])
+    def or_(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.or_(in0, in1, unit_attrs=unit_attrs)
 
 
-def not_(
-    in0: Operand,
-    builder: StableHLOBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.not_(in0, unit_attrs=unit_attrs)
+def module_xor_bool(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.bool, torch.bool])
+    def xor(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.xor(in0, in1, unit_attrs=unit_attrs)
 
 
 def slice(
@@ -201,22 +235,21 @@ def transpose(
     return builder.transpose(in0, permutation, unit_attrs=unit_attrs)
 
 
-@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-@pytest.mark.parametrize(
-    "test_fn",
-    [
-        add,
-    ],
-)
-def test_binary_ops(
-    test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
-):
+def test_binary_ops(target: str, request, device):
+    def module(builder: StableHLOBuilder):
+        @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
+        def add(
+            in0: Operand,
+            in1: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            builder.set_graph_level_check(True)
+            return builder.add(in0, in1)
+
     compile_and_execute_shlo(
-        test_fn,
-        [shape, shape],
-        [dtype, dtype],
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -231,17 +264,17 @@ def test_binary_ops(
 @pytest.mark.parametrize(
     "test_fn",
     [
-        abs,
-        ceil,
-        cosine,
-        exp,
-        floor,
-        log,
-        logistic,
-        neg,
-        rsqrt,
-        sine,
-        sqrt,
+        module_abs,
+        module_ceil,
+        module_cosine,
+        module_exp,
+        module_floor,
+        module_log,
+        module_logistic,
+        module_neg,
+        module_rsqrt,
+        module_sine,
+        module_sqrt,
     ],
 )
 def test_unary_ops(
@@ -249,8 +282,6 @@ def test_unary_ops(
 ):
     compile_and_execute_shlo(
         test_fn,
-        [shape],
-        [dtype],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -295,17 +326,15 @@ def test_reshape(
 ):
     input_shape, output_shape = shapes
 
-    def reshape_wrapper(in0: Operand, builder: StableHLOBuilder):
-        if hasattr(builder, "set_graph_level_check"):
-            builder.set_graph_level_check(True)
-        return builder.reshape(in0, output_shape)
-
-    reshape_wrapper.__name__ = f"reshape"
+    def module(builder: StableHLOBuilder):
+        @builder.func([input_shape], [dtype])
+        def reshape_wrapper(in0: Operand, builder: StableHLOBuilder):
+            if hasattr(builder, "set_graph_level_check"):
+                builder.set_graph_level_check(True)
+            return builder.reshape(in0, output_shape)
 
     compile_and_execute_shlo(
-        reshape_wrapper,
-        [input_shape],
-        [dtype],
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -323,18 +352,16 @@ def test_reshape_mismatch_raises(target, request, device):
     input_shape = (2, 3)  # 6
     output_shape = (4, 2)  # 8 -> not match
 
-    def reshape_wrapper(in0: Operand, builder: StableHLOBuilder):
-        if hasattr(builder, "set_graph_level_check"):
-            builder.set_graph_level_check(True)
-        return builder.reshape(in0, output_shape)
-
-    reshape_wrapper.__name__ = "reshape"
+    def module(builder: StableHLOBuilder):
+        @builder.func([input_shape], [torch.float32])
+        def reshape_wrapper(in0: Operand, builder: StableHLOBuilder):
+            if hasattr(builder, "set_graph_level_check"):
+                builder.set_graph_level_check(True)
+            return builder.reshape(in0, output_shape)
 
     with pytest.raises(Exception):
         compile_and_execute_shlo(
-            reshape_wrapper,
-            [input_shape],
-            [torch.float32],
+            module,
             test_base=request.node.name,
             output_root=request.config.getoption("--path"),
             system_desc_path=request.config.getoption("--sys-desc"),
@@ -364,24 +391,25 @@ def test_dot_general(
     request,
     device,
 ):
-    def dot_general(
-        in0: Operand,
-        in1: Operand,
-        builder: StableHLOBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return builder.dot_general(
-            in0,
-            in1,
-            batch_dims_lhs,
-            contract_dims_lhs,
-            batch_dims_rhs,
-            contract_dims_rhs,
-        )
+    def module(builder: StableHLOBuilder):
+        @builder.func(shapes, [torch.float32] * len(shapes))
+        def dot_general(
+            in0: Operand,
+            in1: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.dot_general(
+                in0,
+                in1,
+                batch_dims_lhs,
+                contract_dims_lhs,
+                batch_dims_rhs,
+                contract_dims_rhs,
+            )
 
     compile_and_execute_shlo(
-        dot_general,
-        shapes,
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -395,25 +423,27 @@ def test_dot_general(
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_tan(shape: Shape, dtype: torch.dtype, target: str, request, device):
-    def tan(
-        in0: Operand, builder: StableHLOBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        import math
+    def module(builder: StableHLOBuilder):
+        @builder.func([shape], [dtype])
+        def tan(
+            in0: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            import math
 
-        randn_tensor = torch.randn(shape, dtype=dtype)
-        input_golden = randn_tensor.uniform_(
-            (-math.pi / 2 + 0.05), (math.pi / 2 - 0.05)
-        )
-        output_golden = torch.tan(input_golden)
-        tan_0 = builder.tan(in0, unit_attrs=unit_attrs)
-        builder.set_goldens({in0: input_golden}, {tan_0: output_golden})
-        builder.set_graph_level_check(True)
-        return tan_0
+            randn_tensor = torch.randn(shape, dtype=dtype)
+            input_golden = randn_tensor.uniform_(
+                (-math.pi / 2 + 0.05), (math.pi / 2 - 0.05)
+            )
+            output_golden = torch.tan(input_golden)
+            tan_0 = builder.tan(in0, unit_attrs=unit_attrs)
+            builder.set_goldens({in0: input_golden}, {tan_0: output_golden})
+            builder.set_graph_level_check(True)
+            return tan_0
 
     compile_and_execute_shlo(
-        tan,
-        [shape],
-        [dtype],
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -425,19 +455,21 @@ def test_tan(shape: Shape, dtype: torch.dtype, target: str, request, device):
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.parametrize(
-    "test_fn",
-    [
-        clamp,
-    ],
-)
-def test_ternary_ops(
-    test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
-):
+def test_ternary_ops(shape: Shape, dtype: torch.dtype, target: str, request, device):
+    def module(builder: StableHLOBuilder):
+        @builder.func([shape, shape, shape], [dtype, dtype, dtype])
+        def clamp(
+            in0: Operand,
+            in1: Operand,
+            in2: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            builder.set_graph_level_check(True)
+            return builder.clamp(in0, in1, in2, unit_attrs=unit_attrs)
+
     compile_and_execute_shlo(
-        test_fn,
-        [shape, shape, shape],
-        [dtype, dtype, dtype],
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -474,10 +506,17 @@ def test_transpose(
             f"ttmetal does not support transpose for dimensions > 2, got shape with {len(shape)} dimensions"
         )
 
+    def module(builder: StableHLOBuilder):
+        @builder.func([shape], [dtype])
+        def transpose(
+            in0: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.transpose(in0, permutation, unit_attrs=unit_attrs)
+
     compile_and_execute_shlo(
-        lambda in0, builder: transpose(in0, builder, permutation),
-        [shape],
-        [dtype],
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -509,18 +548,15 @@ def test_concatenate(
     device,
 ):
     # Create a wrapper function
-    def concatenate_wrapper(*inputs_and_builder):
-        *inputs, builder = inputs_and_builder
-        builder.set_graph_level_check(True)
-        return builder.concatenate(list(inputs), dim=dim)
-
-    # Set the name for better test identification.
-    concatenate_wrapper.__name__ = "concatenate"
+    def module(builder: StableHLOBuilder):
+        @builder.func(shapes, [dtype] * len(shapes))
+        def concatenate_wrapper(*inputs_and_builder):
+            *inputs, builder = inputs_and_builder
+            builder.set_graph_level_check(True)
+            return builder.concatenate(list(inputs), dim=dim)
 
     compile_and_execute_shlo(
-        concatenate_wrapper,
-        shapes,
-        [dtype] * len(shapes),
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -535,21 +571,21 @@ def test_concatenate(
 def test_stablehlo_multi_return_support(
     shapes: List[Shape], dtypes: List[torch.dtype], target: str, request, device
 ):
-    def multi_return_model(
-        in0: Operand, in1: Operand, in2: Operand, builder: StableHLOBuilder
-    ):
-        builder.set_graph_level_check(True)
+    def module(builder: StableHLOBuilder):
+        @builder.func(shapes, dtypes)
+        def multi_return_model(
+            in0: Operand, in1: Operand, in2: Operand, builder: StableHLOBuilder
+        ):
+            builder.set_graph_level_check(True)
 
-        add_result = builder.add(in0, in1)
-        exp_result = builder.exp(in2)
-        sqrt_result = builder.sqrt(exp_result)
+            add_result = builder.add(in0, in1)
+            exp_result = builder.exp(in2)
+            sqrt_result = builder.sqrt(exp_result)
 
-        return exp_result, sqrt_result
+            return exp_result, sqrt_result
 
     compile_and_execute_shlo(
-        multi_return_model,
-        shapes,
-        dtypes,
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -565,9 +601,9 @@ def test_stablehlo_multi_return_support(
 @pytest.mark.parametrize(
     "test_fn",
     [
-        and_,
-        or_,
-        xor,
+        module_and_bool,
+        module_or_bool,
+        module_xor_bool,
     ],
 )
 def test_logical_binary_ops(
@@ -575,8 +611,6 @@ def test_logical_binary_ops(
 ):
     compile_and_execute_shlo(
         test_fn,
-        [shape, shape],
-        [dtype, dtype],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -589,19 +623,21 @@ def test_logical_binary_ops(
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.bool], ids=["bool"])
 @pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.parametrize(
-    "test_fn",
-    [
-        not_,
-    ],
-)
 def test_logical_unary_ops(
-    test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
+    shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
+    def module_not_(builder: StableHLOBuilder):
+        @builder.func([(128, 128)], [torch.bool])
+        def not_(
+            in0: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            builder.set_graph_level_check(True)
+            return builder.not_(in0, unit_attrs=unit_attrs)
+
     compile_and_execute_shlo(
-        test_fn,
-        [shape],
-        [dtype],
+        module_not_,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -633,13 +669,13 @@ def test_slice(
     request,
     device,
 ):
-    def slice_fn(in0: Operand, builder: StableHLOBuilder):
-        return slice(in0, start_indices, limit_indices, strides, builder)
+    def module(builder: StableHLOBuilder):
+        @builder.func([shape], [dtype])
+        def slice_fn(in0: Operand, builder: StableHLOBuilder):
+            return slice(in0, start_indices, limit_indices, strides, builder)
 
     compile_and_execute_shlo(
-        slice_fn,
-        [shape],
-        [dtype],
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -655,9 +691,9 @@ def test_slice(
 @pytest.mark.parametrize(
     "test_fn",
     [
-        and_,
-        or_,
-        xor,
+        module_and_int,
+        module_or_int,
+        module_xor_int,
     ],
 )
 def test_bitwise_binary_ops(
@@ -665,8 +701,6 @@ def test_bitwise_binary_ops(
 ):
     compile_and_execute_shlo(
         test_fn,
-        [shape, shape],
-        [dtype, dtype],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -678,19 +712,21 @@ def test_bitwise_binary_ops(
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
 @pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.parametrize(
-    "test_fn",
-    [
-        not_,
-    ],
-)
 def test_bitwise_unary_ops(
-    test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
+    shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
+    def module_not_(builder: StableHLOBuilder):
+        @builder.func([(128, 128)], [torch.int32])
+        def not_(
+            in0: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            builder.set_graph_level_check(True)
+            return builder.not_(in0, unit_attrs=unit_attrs)
+
     compile_and_execute_shlo(
-        test_fn,
-        [shape],
-        [dtype],
+        module_not_,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -741,13 +777,13 @@ def test_reduce_sum(
     request,
     device,
 ):
-    def reduce_sum_wrapper(in0: Operand, builder: StableHLOBuilder):
-        return reduce_sum(in0, builder, dimensions)
+    def module(builder: StableHLOBuilder):
+        @builder.func([shape], [dtype])
+        def reduce_sum_wrapper(in0: Operand, builder: StableHLOBuilder):
+            return reduce_sum(in0, builder, dimensions)
 
     compile_and_execute_shlo(
-        reduce_sum_wrapper,
-        [shape],
-        [dtype],
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -768,13 +804,13 @@ def test_reduce_max(
     request,
     device,
 ):
-    def reduce_max_wrapper(in0: Operand, builder: StableHLOBuilder):
-        return reduce_max(in0, builder, dimensions)
+    def module(builder: StableHLOBuilder):
+        @builder.func([shape], [dtype])
+        def reduce_max_wrapper(in0: Operand, builder: StableHLOBuilder):
+            return reduce_max(in0, builder, dimensions)
 
     compile_and_execute_shlo(
-        reduce_max_wrapper,
-        [shape],
-        [dtype],
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -795,13 +831,13 @@ def test_reduce_min(
     request,
     device,
 ):
-    def reduce_min_wrapper(in0: Operand, builder: StableHLOBuilder):
-        return reduce_min(in0, builder, dimensions)
+    def module(builder: StableHLOBuilder):
+        @builder.func([shape], [dtype])
+        def reduce_min_wrapper(in0: Operand, builder: StableHLOBuilder):
+            return reduce_min(in0, builder, dimensions)
 
     compile_and_execute_shlo(
-        reduce_min_wrapper,
-        [shape],
-        [dtype],
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -882,13 +918,13 @@ def test_max_pool_2d(
     request,
     device,
 ):
-    def max_pool_2d_wrapper(in0: Operand, builder: StableHLOBuilder):
-        return max_pool_2d(in0, builder, kernel_size, stride, padding)
+    def module(builder: StableHLOBuilder):
+        @builder.func([shape], [dtype])
+        def max_pool_2d_wrapper(in0: Operand, builder: StableHLOBuilder):
+            return max_pool_2d(in0, builder, kernel_size, stride, padding)
 
     compile_and_execute_shlo(
-        max_pool_2d_wrapper,
-        [shape],
-        [dtype],
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -928,13 +964,13 @@ def test_avg_pool_2d(
     request,
     device,
 ):
-    def avg_pool_2d_wrapper(in0: Operand, builder: StableHLOBuilder):
-        return avg_pool_2d(in0, builder, kernel_size, stride, padding)
+    def module(builder: StableHLOBuilder):
+        @builder.func([shape], [dtype])
+        def avg_pool_2d_wrapper(in0: Operand, builder: StableHLOBuilder):
+            return avg_pool_2d(in0, builder, kernel_size, stride, padding)
 
     compile_and_execute_shlo(
-        avg_pool_2d_wrapper,
-        [shape],
-        [dtype],
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),

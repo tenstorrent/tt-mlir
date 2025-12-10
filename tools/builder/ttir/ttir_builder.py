@@ -9,12 +9,15 @@ from typing import List, Optional, Union, Tuple, Callable, Dict, Any, Sequence
 import torch
 from enum import Enum, auto
 import re
+from contextvars import ContextVar
 
 from ttmlir.ir import *
 from ttmlir.dialects import ttir, ttcore, tensor, quant, func
 from ttmlir.passes import GoldenTensor, DataType
 
 from builder.base.builder import *
+from builder.base.builder_utils import *
+
 from golden import *
 
 
@@ -149,6 +152,11 @@ class TTIRBuilder(Builder):
         filename = caller_frame.filename
         lineno = caller_frame.lineno
         return Location.name(f"{filename}:{lineno}")
+
+    def create_tensor_encoding(
+        self, shape: Shape, element_type: Union[torch.dtype, TypeInfo]
+    ) -> ttnn.ir.TTNNLayoutAttr:
+        return None
 
     # ----- Public Op Generators ----
 
@@ -9440,33 +9448,6 @@ class TTIRBuilder(Builder):
     def from_module(
         ctx: Context, mlir_text: str, golden_inputs: List[torch.tensor] = None
     ) -> Tuple(Module, TTIRBuilder):
-        def _convert_to_mlir_value(obj):
-            if hasattr(obj, "operation") and hasattr(obj.operation, "results"):
-                results = obj.operation.results
-                if len(results) == 1:
-                    return results[0]
-                else:
-                    return results
-            elif hasattr(obj, "type"):
-                return obj
-            else:
-                return obj
-
-        def _process_multi_return_result(result):
-            if hasattr(result, "__iter__") and not isinstance(result, str):
-                converted_results = []
-                for item in result:
-                    converted = _convert_to_mlir_value(item)
-                    if hasattr(converted, "__iter__") and not hasattr(
-                        converted, "type"
-                    ):
-                        converted_results.extend(converted)
-                    else:
-                        converted_results.append(converted)
-                return tuple(converted_results)
-            else:
-                return _convert_to_mlir_value(result)
-
         if golden_inputs is None:
             golden_inputs = []
 
@@ -9540,7 +9521,7 @@ class TTIRBuilder(Builder):
                     ttir_builder._set_goldens(output_goldens)
                     ttir_builder._set_output_ordering(list(outputs))
 
-                    return _process_multi_return_result(global_result)
+                    return process_multi_return_result(global_result)
 
         return new_module, ttir_builder
 
