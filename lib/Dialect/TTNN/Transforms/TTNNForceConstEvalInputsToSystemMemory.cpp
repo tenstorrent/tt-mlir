@@ -29,17 +29,16 @@ namespace {
 // tensor type.
 //
 static TTNNLayoutAttr createSystemMemoryLayoutAttr(RankedTensorType type) {
+  static const std::array<std::pair<int64_t, int64_t>, 1> defaultCollapseDims =
+      {{{0, -1}}};
+
   auto currentLayout = mlir::cast<TTNNLayoutAttr>(type.getEncoding());
-
-  ttcore::GridAttr tensorGrid = ttcore::GridAttr::get(type.getContext());
-
-  static const std::array<std::pair<int64_t, int64_t>, 1>
-      g_defaultCollapseDims = {{{0, -1}}};
+  auto defaultGrid = ttcore::GridAttr::get(type.getContext());
 
   return TTNNLayoutAttr::get(
       type.getContext(), type.getShape(), type.getElementType(),
-      BufferType::SystemMemory, tensorGrid, TensorMemoryLayoutAttr{},
-      currentLayout.getTensorMesh(), g_defaultCollapseDims);
+      BufferType::SystemMemory, defaultGrid, TensorMemoryLayoutAttr{},
+      currentLayout.getTensorMesh(), defaultCollapseDims);
 }
 
 // Helper function to convert a tensor type to system memory type.
@@ -91,6 +90,9 @@ public:
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
 
+    ttcore::DeviceAttr device = ttcore::lookupDevice(moduleOp);
+    TT_assertv(device, "Device not found");
+
     moduleOp->walk([&](func::FuncOp funcOp) {
       // We only want to process forward functions.
       //
@@ -138,8 +140,9 @@ public:
           // Finally, update the const-eval function so that the argument is in
           // system memory.
           //
-          convertArgumentOfConstEvalFun(constEvalFuncOp, argumentIndex,
-                                        convertedArgument.getType());
+          convertArgumentOfConstEvalFunc(constEvalFuncOp, argumentIndex,
+                                         convertedArgument.getType(),
+                                         device.getWorkerGrid());
         }
       }
     });
@@ -218,9 +221,10 @@ private:
   // Updates the const-eval function to have the specified argument index
   // in system memory.
   //
-  void convertArgumentOfConstEvalFun(func::FuncOp constEvalFuncOp,
-                                     size_t argumentIndex,
-                                     Type systemMemoryType) {
+  void convertArgumentOfConstEvalFunc(func::FuncOp constEvalFuncOp,
+                                      size_t argumentIndex,
+                                      Type systemMemoryType,
+                                      ttcore::GridAttr deviceGrid) {
     SmallVector<Type> constEvalArgumentTypes(
         constEvalFuncOp.getFunctionType().getInputs());
 
@@ -267,13 +271,10 @@ private:
       auto originalDataTypeAttr = mlir::tt::ttcore::DataTypeAttr::get(
           ctx, deviceTensorLayout.getDataType());
 
-      // TODO(dmilinkovic): Use proper grid attr.
-      auto originalGridAttr = ttcore::GridAttr::get(ctx);
-
       auto toLayoutOp = builder.create<ttnn::ToLayoutOp>(
           blockArgument.getLoc(), deviceTensorType, blockArgument,
           deviceTensorLayout.getLayout(), originalDataTypeAttr,
-          MemoryConfigAttr::get(deviceTensorLayout, originalGridAttr));
+          MemoryConfigAttr::get(deviceTensorLayout, deviceGrid));
 
       // Replace the argument usages with the to_layout op result.
       //
