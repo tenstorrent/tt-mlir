@@ -545,8 +545,9 @@ def minimum(a, b):
 )
 @pytest.mark.parametrize("graph_capture", [True, False])
 def test_binary_ops(device, shape, max_grid, memory_layout, dtype, op, graph_capture):
+    compile_only = False
     if op == div:
-        pytest.xfail("failing allclose for some shapes")
+        compile_only = True
     if op in [pow, eq, ne, gt, ge, lt, le] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes")
 
@@ -560,6 +561,7 @@ def test_binary_ops(device, shape, max_grid, memory_layout, dtype, op, graph_cap
         buffer_type=ttnn.BufferType.L1,
         graph_capture=graph_capture,
         memory_layout=memory_layout,
+        compile_only=compile_only,
     )
 
 
@@ -591,8 +593,9 @@ def test_binary_ops(device, shape, max_grid, memory_layout, dtype, op, graph_cap
 )
 def test_binary_ops_dram(device, shape, dtype, op):
     max_grid = (0, 0)
+    compile_only = False
     if op == div:
-        pytest.xfail("failing allclose for some shapes")
+        compile_only = True
     if op in [pow, eq, ne, gt, ge, lt, le] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes")
 
@@ -604,6 +607,7 @@ def test_binary_ops_dram(device, shape, dtype, op):
         op,
         num_inputs=2,
         buffer_type=ttnn.BufferType.DRAM,
+        compile_only=compile_only,
     )
 
 

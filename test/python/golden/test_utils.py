@@ -8,7 +8,7 @@ from typing import Callable, List, Sequence
 
 from dataclasses import dataclass
 
-from builder.base.builder import Operand, Shape
+from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from ttmlir.ir import *
 

@@ -15,6 +15,7 @@ import json
 from functools import partial
 
 from builder.base.builder import *
+from builder.base.builder_utils import *
 
 import _ttmlir_runtime as tt_runtime
 

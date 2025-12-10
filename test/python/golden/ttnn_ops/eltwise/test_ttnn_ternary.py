@@ -6,10 +6,9 @@ import pytest
 import torch
 from typing import Callable, List, Optional, Tuple
 from conftest import x86_only
-from builder.base.builder import Operand, Shape
+from builder.base.builder_utils import Operand, Shape
 from builder.ttnn.ttnn_builder import TTNNBuilder
-from builder.base import get_golden_function
-from builder.base.builder_utils import (
+from builder.base.builder_apis import (
     compile_and_execute_ttnn,
 )
 from test_utils import (
@@ -22,18 +21,23 @@ from ttmlir.dialects import ttnn
 pytestmark = pytest.mark.frontend("ttnn")
 
 
-def where(
-    in0: Operand,
-    in1: Operand,
-    in2: Operand,
-    builder: TTNNBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    return builder.where(in0, in1, in2, unit_attrs=unit_attrs)
+def module_where(builder: TTNNBuilder):
+    @builder.func(
+        [(128, 128), (128, 128), (128, 128)],
+        [torch.float32, torch.float32, torch.float32],
+    )
+    def where(
+        in0: Operand,
+        in1: Operand,
+        in2: Operand,
+        builder: TTNNBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        return builder.where(in0, in1, in2, unit_attrs=unit_attrs)
 
 
 ternary_ops = [
-    where | Marks(pytest.mark.xfail(reason="Fails Golden")),
+    module_where | Marks(pytest.mark.xfail(reason="Fails Golden")),
 ]
 
 
@@ -47,8 +51,6 @@ def test_ternary_ops(
     pipeline_options = []
     compile_and_execute_ttnn(
         test_fn,
-        inputs_shapes=[shape, shape, shape],
-        inputs_types=[dtype, dtype, dtype],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -83,9 +85,7 @@ def test_ternary_ops(
     ],
 )
 @pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.parametrize("test_fn", [where])
 def test_ternary_eltwise_ops_implicit_broadcast(
-    test_fn: Callable,
     shapes: List[Shape],
     input_dtypes: Tuple[torch.dtype, torch.dtype, torch.dtype],
     target: str,
@@ -94,10 +94,19 @@ def test_ternary_eltwise_ops_implicit_broadcast(
 ):
     dtype1, dtype2, dtype3 = input_dtypes
 
+    def module_where(builder: TTNNBuilder):
+        @builder.func(shapes, [dtype1, dtype2, dtype3])
+        def where(
+            in0: Operand,
+            in1: Operand,
+            in2: Operand,
+            builder: TTNNBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.where(in0, in1, in2, unit_attrs=unit_attrs)
+
     compile_and_execute_ttnn(
         test_fn,
-        shapes,
-        [dtype1, dtype2, dtype3],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
