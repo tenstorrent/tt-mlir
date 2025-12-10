@@ -20,7 +20,7 @@
 #include "mlir/Support/LLVM.h"
 
 namespace mlir::tt::ttnn {
-#define GEN_PASS_DEF_TTNNFORCECONSTEVALINPUTSTOSYSTEMMEMORY
+#define GEN_PASS_DEF_TTNNCONSTEVALINPUTSTOSYSTEMMEMORY
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
 namespace {
@@ -79,13 +79,12 @@ static bool shouldTransferArgumentToDevice(BlockArgument blockArgument) {
          BufferType::SystemMemory;
 }
 
-class TTNNForceConstEvalInputsToSystemMemory
-    : public impl::TTNNForceConstEvalInputsToSystemMemoryBase<
-          TTNNForceConstEvalInputsToSystemMemory> {
+class TTNNConstEvalInputsToSystemMemory
+    : public impl::TTNNConstEvalInputsToSystemMemoryBase<
+          TTNNConstEvalInputsToSystemMemory> {
 public:
-  using impl::TTNNForceConstEvalInputsToSystemMemoryBase<
-      TTNNForceConstEvalInputsToSystemMemory>::
-      TTNNForceConstEvalInputsToSystemMemoryBase;
+  using impl::TTNNConstEvalInputsToSystemMemoryBase<
+      TTNNConstEvalInputsToSystemMemory>::TTNNConstEvalInputsToSystemMemoryBase;
 
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
@@ -292,9 +291,7 @@ private:
       // to_layout op, as the argument is already in system memory.
       //
       auto toLayoutOp =
-          mlir::dyn_cast<ttnn::ToLayoutOp>(*blockArgument.getUsers().begin());
-
-      TT_assertv(toLayoutOp, "Expected to_layout op as the only user.");
+          mlir::cast<ttnn::ToLayoutOp>(*blockArgument.getUsers().begin());
 
       // If the data type and layout of the to_layout op matches the argument
       // type, we can remove it.

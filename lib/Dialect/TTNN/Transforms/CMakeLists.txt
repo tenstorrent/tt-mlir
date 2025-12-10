@@ -13,7 +13,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNCollectPerfMetrics.cpp
         TTNNDecomposeLayouts.cpp
         TTNNEmitPyWorkarounds.cpp
-        TTNNForceConstEvalInputsToSystemMemory.cpp
+        TTNNConstEvalInputsToSystemMemory.cpp
         TTNNFusing.cpp
         TTNNLayout.cpp
         TTNNToCpp.cpp

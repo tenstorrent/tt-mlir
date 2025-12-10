@@ -335,7 +335,7 @@ def TTNNWeightBFP8Conversion: Pass<"ttnn-weight-bfp8-conversion", "::mlir::Modul
   }];
 }
 
-def TTNNForceConstEvalInputsToSystemMemory : Pass<"ttnn-force-const-eval-to-system-memory", "::mlir::ModuleOp"> {
+def TTNNConstEvalInputsToSystemMemory : Pass<"ttnn-force-const-eval-to-system-memory", "::mlir::ModuleOp"> {
   let summary = "Force const-eval function inputs to system memory.";
   let description = [{
     This pass forces all inputs of const-eval functions to be in system memory.
