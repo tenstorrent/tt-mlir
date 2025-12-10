@@ -96,7 +96,7 @@ def create_sharded_tile_tensor(
     )
 
 
-def create_dram_tensor(device, shape, dtype, ttnn_dtype=None):
+def create_dram_tensor(device, shape, dtype, ttnn_dtype=None, mesh_mapper=None):
     torch_tensor = create_torch_tensor(shape, dtype)
     return ttnn.from_torch(
         torch_tensor,
@@ -104,6 +104,7 @@ def create_dram_tensor(device, shape, dtype, ttnn_dtype=None):
         layout=ttnn.TILE_LAYOUT,
         device=device,
         memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        mesh_mapper=mesh_mapper,
     )
 
 

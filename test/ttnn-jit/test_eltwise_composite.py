@@ -48,15 +48,15 @@ WIDTH_SHARDED_SHAPE_GRIDS = [
 
 SHARDED_SHAPE_GRID_LAYOUTS = (
     [
-        (shape, grid, ttnn.TensorMemoryLayout.BLOCK_SHARDED)
+        (shape, grid, ttnn.ShardStrategy.BLOCK)
         for shape, grid in BLOCK_SHARDED_SHAPE_GRIDS
     ]
     + [
-        (shape, grid, ttnn.TensorMemoryLayout.HEIGHT_SHARDED)
+        (shape, grid, ttnn.ShardStrategy.HEIGHT)
         for shape, grid in HEIGHT_SHARDED_SHAPE_GRIDS
     ]
     + [
-        (shape, grid, ttnn.TensorMemoryLayout.WIDTH_SHARDED)
+        (shape, grid, ttnn.ShardStrategy.WIDTH)
         for shape, grid in WIDTH_SHARDED_SHAPE_GRIDS
     ]
 )
