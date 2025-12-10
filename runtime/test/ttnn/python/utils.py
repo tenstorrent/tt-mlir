@@ -102,6 +102,7 @@ class ProgramTestRunner:
 
         # Returnining inputs_torch to prevent Python GC to free memory of the Torch tensors,
         # which can lead to invalid memory access if the inputs are expected in the host memory.
+        # Issue #6254.
         return inputs_runtime_with_layout, golden, inputs_torch
 
     def submit_program(self, device, inputs):
