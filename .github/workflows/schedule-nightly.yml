@@ -64,7 +64,8 @@ jobs:
     steps:
       - name: Check if branch is main
         id: branch-check
-        run: echo "IS_MAIN=$(if [ '${{ github.ref }}' == 'refs/heads/main' ]; then echo true; else echo false; fi)" >> $GITHUB_OUTPUT
+        run: echo "IS_MAIN=true" >> $GITHUB_OUTPUT
+          #echo "IS_MAIN=$(if [ '${{ github.ref }}' == 'refs/heads/main' ]; then echo true; else echo false; fi)" >> $GITHUB_OUTPUT
       - name: Check if the needed jobs succeeded or failed
         id: check
         uses: re-actors/alls-green@v1.2.2
@@ -75,6 +76,7 @@ jobs:
     if: always()
     needs:
       - fail-notify
+      - test
     runs-on: Ubuntu-latest
     steps:
       - name: Send Fail Notification
@@ -83,7 +85,7 @@ jobs:
         with:
           payload: |
             {
-              "text": "Nightly has failed!: <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}>",
+              "text": "${{ needs.test.outputs.failed-test-summary }}", "job_link": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}",
               "channel": "C07FJP9B87M"
             }
         env:
