@@ -236,6 +236,15 @@ def test_repeat(shape: Shape, dims: List[int], dtype, target: str, request, devi
 def test_reshape(shapes, dtype: torch.dtype, target: str, request, device):
     input_shape, output_shape = shapes
 
+    # Large tensor reshape with int types fails due to tt-metal untilize issue
+    # for tensors wider than MAX_PACK_UNTILIZE_WIDTH (8 tiles).
+    # See: https://github.com/tenstorrent/tt-metal/issues/34072
+    if dtype in [torch.int32, torch.int64]:
+        pytest.xfail(
+            "Large tensor reshape with int types fails due to tt-metal untilize issue. "
+            "See: https://github.com/tenstorrent/tt-metal/issues/34072"
+        )
+
     def module(builder: TTIRBuilder):
         @builder.func([input_shape], [dtype])
         def reshape_wrapper(in0: Operand, builder: TTIRBuilder):
@@ -494,6 +503,14 @@ def test_typecast(
 ):
     if from_type == torch.float32 and to_type == torch.int32 and target == "ttmetal":
         pytest.xfail("ttmetal does not support int32 to float32 typecast")
+
+    # i32->f32 typecast fails due to tt-metal untilize issue.
+    # See: https://github.com/tenstorrent/tt-metal/pull/33904
+    if from_type == torch.int32 and to_type == torch.float32 and target == "ttnn":
+        pytest.xfail(
+            "i32->f32 typecast fails due to tt-metal untilize issue. "
+            "See: https://github.com/tenstorrent/tt-metal/pull/33904"
+        )
 
     def module(builder: TTIRBuilder):
         @builder.func([shape], [to_type])

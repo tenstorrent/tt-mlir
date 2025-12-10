@@ -191,6 +191,14 @@ binary_ops = [
 def test_binary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
+    # FP32 pow fails due to tt-metal untilize NaN handling.
+    # See: https://github.com/tenstorrent/tt-metal/pull/33904
+    if test_fn.__name__ == "pow" and dtype == torch.float32 and target == "ttnn":
+        pytest.xfail(
+            "FP32 pow fails due to tt-metal untilize NaN handling. "
+            "See: https://github.com/tenstorrent/tt-metal/pull/33904"
+        )
+
     def module(builder: TTIRBuilder):
         @builder.func([shape, shape], [dtype, dtype])
         def binary_op_fn(in0: Operand, in1: Operand, builder: TTIRBuilder) -> Operand:
@@ -870,6 +878,14 @@ def test_binary_eltwise_ops_implicit_broadcast(
     request,
     device,
 ):
+    # FP32 eq broadcast fails due to tt-metal untilize NaN handling.
+    # See: https://github.com/tenstorrent/tt-metal/pull/33904
+    if test_fn == eq and dtype == torch.float32 and target == "ttnn":
+        pytest.xfail(
+            "FP32 eq broadcast fails due to tt-metal untilize NaN handling. "
+            "See: https://github.com/tenstorrent/tt-metal/pull/33904"
+        )
+
     pcc = 0.99
 
     if test_fn == div:
@@ -901,6 +917,14 @@ def test_binary_eltwise_ops_implicit_broadcast(
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_hoisted_pow(shape: Shape, dtype: torch.dtype, target: str, request, device):
+    # FP32 pow fails due to tt-metal untilize NaN handling.
+    # See: https://github.com/tenstorrent/tt-metal/pull/33904
+    if dtype == torch.float32 and target == "ttnn":
+        pytest.xfail(
+            "FP32 hoisted_pow fails due to tt-metal untilize NaN handling. "
+            "See: https://github.com/tenstorrent/tt-metal/pull/33904"
+        )
+
     def module(builder: TTIRBuilder):
         @builder.func([shape, shape], [dtype, dtype])
         def hoisted_pow_wrapper(
