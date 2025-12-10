@@ -3637,6 +3637,144 @@ private:
   }
 };
 
+// Look through reshape, typecast, and broadcast ops to find the defining op.
+static mlir::Value lookThroughReshapes(mlir::Value value) {
+  while (auto *op = value.getDefiningOp()) {
+    if (llvm::isa<ReshapeOp, TypecastOp, BroadcastOp>(op)) {
+      value = op->getOperand(0);
+    } else {
+      break;
+    }
+  }
+  return value;
+}
+
+// Get defining op, looking through reshapes.
+template <typename OpTy>
+static OpTy getDefiningOpThroughReshapes(mlir::Value value) {
+  return lookThroughReshapes(value).template getDefiningOp<OpTy>();
+}
+
+// RMS (Root Mean Square) Normalization Fusion Pattern
+// Fuses: (x * rsqrt(mean(x^2) + epsilon)) * gamma -> RMSNormOp
+class RMSNormFusionPattern : public mlir::OpRewritePattern<MultiplyOp> {
+  using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(MultiplyOp outerMul,
+                  mlir::PatternRewriter &rewriter) const final {
+
+    // Find inner multiply on either side (look through reshapes).
+    MultiplyOp innerMul =
+        getDefiningOpThroughReshapes<MultiplyOp>(outerMul.getLhs());
+    mlir::Value gamma = lookThroughReshapes(outerMul.getRhs());
+    if (!innerMul) {
+      innerMul = getDefiningOpThroughReshapes<MultiplyOp>(outerMul.getRhs());
+      gamma = lookThroughReshapes(outerMul.getLhs());
+    }
+    if (!innerMul) {
+      return mlir::failure();
+    }
+
+    // Find rsqrt on either side of inner multiply (look through reshapes).
+    // Keep raw operand to find typecast later.
+    RsqrtOp rsqrtOp = getDefiningOpThroughReshapes<RsqrtOp>(innerMul.getLhs());
+    mlir::Value xRaw = innerMul.getRhs();
+    mlir::Value x = lookThroughReshapes(xRaw);
+    if (!rsqrtOp) {
+      rsqrtOp = getDefiningOpThroughReshapes<RsqrtOp>(innerMul.getRhs());
+      xRaw = innerMul.getLhs();
+      x = lookThroughReshapes(xRaw);
+    }
+    if (!rsqrtOp) {
+      return mlir::failure();
+    }
+
+    // Match: mean(...) + epsilon (look through reshapes).
+    auto addOp = getDefiningOpThroughReshapes<AddOp>(rsqrtOp.getInput());
+    if (!addOp) {
+      return mlir::failure();
+    }
+
+    // Find mean on either side of add (look through reshapes).
+    MeanOp meanOp = getDefiningOpThroughReshapes<MeanOp>(addOp.getLhs());
+    mlir::Value epsilon = lookThroughReshapes(addOp.getRhs());
+    if (!meanOp) {
+      meanOp = getDefiningOpThroughReshapes<MeanOp>(addOp.getRhs());
+      epsilon = lookThroughReshapes(addOp.getLhs());
+    }
+    if (!meanOp) {
+      return mlir::failure();
+    }
+
+    // Match x^2: mul(x,x) or pow(x,2) (look through reshapes).
+    mlir::Value meanInput = lookThroughReshapes(meanOp.getInput());
+    mlir::Value squareInput = nullptr;
+    if (auto sq = getDefiningOpThroughReshapes<MultiplyOp>(meanInput)) {
+      mlir::Value sqLhs = lookThroughReshapes(sq.getLhs());
+      mlir::Value sqRhs = lookThroughReshapes(sq.getRhs());
+      if (sqLhs == sqRhs) {
+        squareInput = sqLhs;
+      }
+    } else if (auto pw = getDefiningOpThroughReshapes<PowOp>(meanInput)) {
+      if (isFullOpWithValue(pw.getRhs(), 2.0f)) {
+        squareInput = lookThroughReshapes(pw.getLhs());
+      }
+    }
+    if (!squareInput || squareInput != x) {
+      return mlir::failure();
+    }
+
+    // Extract epsilon (look through reshapes).
+    auto epsFull = getDefiningOpThroughReshapes<FullOp>(epsilon);
+    if (!epsFull) {
+      return mlir::failure();
+    }
+    auto epsAttr = mlir::dyn_cast<FloatAttr>(epsFull.getFillValue());
+    if (!epsAttr) {
+      return mlir::failure();
+    }
+
+    // TTNN RMS norm only supports normalization over the last dimension.
+    // Verify mean reduces over exactly the last dimension.
+    auto dimArg = meanOp.getDimArg();
+    if (!dimArg || dimArg->size() != 1) {
+      return mlir::failure();
+    }
+    auto meanInputType =
+        mlir::cast<RankedTensorType>(meanOp.getInput().getType());
+    int64_t dim = mlir::cast<mlir::IntegerAttr>((*dimArg)[0]).getInt();
+    int64_t actualDim = dim < 0 ? meanInputType.getRank() + dim : dim;
+    if (actualDim != meanInputType.getRank() - 1) {
+      return mlir::failure();
+    }
+
+    // Look through typecast to find the original input (e.g., bf16 before f32).
+    // Use xRaw (direct operand from innerMul) to find the typecast.
+    mlir::Value originalInput = xRaw;
+    if (auto typecast = xRaw.getDefiningOp<TypecastOp>()) {
+      originalInput = typecast.getInput();
+    }
+
+    // Look through reshapes/broadcasts to find the original gamma.
+    mlir::Value originalGamma = lookThroughReshapes(gamma);
+
+    auto inputType = mlir::cast<RankedTensorType>(originalInput.getType());
+    llvm::SmallVector<int64_t> normalizedShape{inputType.getShape().back()};
+
+    // Create RMSNormOp with output type matching outerMul (e.g., bf16).
+    auto rmsNorm = rewriter.create<RMSNormOp>(
+        outerMul.getLoc(), outerMul.getType(), originalInput, originalGamma,
+        /*bias=*/nullptr, rewriter.getDenseI64ArrayAttr(normalizedShape),
+        rewriter.getF32FloatAttr(epsAttr.getValue().convertToFloat()));
+
+    rewriter.replaceOp(outerMul, rmsNorm.getResult());
+
+    return mlir::success();
+  }
+};
+
 // If value is defined by PermuteOp with permute dimensions
 // (..., rank - 2, rank - 1), return the input of the PermuteOp, otherwise
 // return std::nullopt. This is used for fusing permute into MatmulOp and
@@ -3774,6 +3912,7 @@ public:
       patterns.add<SpatialMeanOptimizationPattern>(&getContext());
       patterns.add<MatmulWithBiasFusionPattern>(&getContext());
       patterns.add<SDPAFusing>(&getContext());
+      patterns.add<RMSNormFusionPattern>(&getContext());
 
       patterns.add<GeluFusionPattern>(&getContext());
       patterns.add<Relu6FusionPattern>(&getContext());
