@@ -178,9 +178,7 @@ def run_op_test(
             output_tensor.memory_config(), golden_tensor.memory_config()
         )
         if check_pcc:
-            passed, pcc = pcc_check(
-                output_tensor, golden_tensor, pcc_threshold, inputs=inputs
-            )
+            passed, pcc = pcc_check(output_tensor, golden_tensor, pcc_threshold)
             assert passed, f"PCC check failed: {pcc} < {pcc_threshold}"
         if check_allclose:
             assert all_close_check(output_tensor, golden_tensor)

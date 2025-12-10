@@ -219,6 +219,8 @@ def hardsigmoid(input_tensor):
         tanh,
         sigmoid,
         hardsigmoid,
+        sqrt,
+        tan,
     ],
 )
 @pytest.mark.parametrize(
@@ -228,7 +230,10 @@ def hardsigmoid(input_tensor):
 )
 @pytest.mark.parametrize("graph_capture", [True, False])
 def test_unary_op_dram(device, shape, dtype, ttnn_dtype, op, graph_capture):
-    if op in [log, ceil, floor, logical_not] and dtype == torch.float32:
+    if (
+        op in [log, ceil, floor, sqrt, reciprocal, logical_not]
+        and dtype == torch.float32
+    ):
         pytest.xfail("failing allclose for some shapes for float32")
 
     max_grid = (0, 0)
@@ -276,18 +281,22 @@ def test_unary_op_dram(device, shape, dtype, ttnn_dtype, op, graph_capture):
         tanh,
         sigmoid,
         hardsigmoid,
-        # Not supported in TTIRToD2M:
-        # gelu, reciprocal cbrt, sign, erf, erfc
-        # Always fails allclose
-        # tan, sqrt
+        sqrt,
+        reciprocal,
+        tan,
     ],
 )
 @pytest.mark.parametrize("graph_capture", [True, False])
 def test_unary_op_l1(
     device, shape, max_grid, shard_strategy, dtype, ttnn_dtype, op, graph_capture
 ):
-    if op in [log, ceil, floor, rsqrt, logical_not] and dtype == torch.float32:
+    if op in [log, ceil, floor, sqrt, rsqrt, logical_not] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes for float32")
+
+    if op == reciprocal and (
+        ttnn_dtype == ttnn.DataType.BFLOAT8_B or dtype == torch.float32
+    ):
+        pytest.xfail("reciprocal not supported for bfp8")
 
     run_op_test(
         device,
