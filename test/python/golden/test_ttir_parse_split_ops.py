@@ -11,7 +11,7 @@ import operator
 import os
 
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import (
+from builder.base.builder_apis import (
     build_module,
     load_mlir_file,
     split_mlir_file,
