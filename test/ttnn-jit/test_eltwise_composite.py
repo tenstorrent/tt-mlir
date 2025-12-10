@@ -352,7 +352,7 @@ def long_unary_chain(input_tensor_a):
 
 
 @pytest.mark.parametrize(
-    "shape, max_grid, memory_layout",
+    "shape, max_grid, shard_strategy",
     SHARDED_SHAPE_GRID_LAYOUTS,
     ids=[
         f"shape_{shape}_grid_{grid}_{layout}"
@@ -360,7 +360,7 @@ def long_unary_chain(input_tensor_a):
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
-def test_long_unary_chain_l1(device, shape, max_grid, dtype, memory_layout):
+def test_long_unary_chain_l1(device, shape, max_grid, dtype, shard_strategy):
     num_inputs = 1
 
     if shape == (2, 512, 2048):
@@ -374,7 +374,7 @@ def test_long_unary_chain_l1(device, shape, max_grid, dtype, memory_layout):
         long_unary_chain,
         num_inputs,
         buffer_type=ttnn.BufferType.L1,
-        memory_layout=memory_layout,
+        shard_strategy=shard_strategy,
     )
 
 
@@ -412,7 +412,7 @@ def join_unary_chains(in0, in1):
 
 
 @pytest.mark.parametrize(
-    "shape, max_grid, memory_layout",
+    "shape, max_grid, shard_strategy",
     SHARDED_SHAPE_GRID_LAYOUTS,
     ids=[
         f"shape_{shape}_grid_{grid}_{layout}"
@@ -420,7 +420,7 @@ def join_unary_chains(in0, in1):
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
-def test_join_unary_chains_l1(device, shape, max_grid, dtype, memory_layout):
+def test_join_unary_chains_l1(device, shape, max_grid, dtype, shard_strategy):
     num_inputs = 2
 
     run_op_test(
@@ -431,8 +431,7 @@ def test_join_unary_chains_l1(device, shape, max_grid, dtype, memory_layout):
         join_unary_chains,
         num_inputs,
         buffer_type=ttnn.BufferType.L1,
-        memory_layout=memory_layout,
-        graph_capture=False,
+        shard_strategy=shard_strategy,
     )
 
 
@@ -449,7 +448,6 @@ def test_join_unary_chains_dram(device, shape, dtype):
         op=join_unary_chains,
         num_inputs=num_inputs,
         buffer_type=ttnn.BufferType.DRAM,
-        graph_capture=False,
     )
 
 
@@ -472,7 +470,7 @@ def add_tree_7_to_1(in0, in1, in2, in3, in4, in5, in6):
 
 
 @pytest.mark.parametrize(
-    "shape, max_grid, memory_layout",
+    "shape, max_grid, shard_strategy",
     SHARDED_SHAPE_GRID_LAYOUTS,
     ids=[
         f"shape_{shape}_grid_{grid}_{layout}"
@@ -480,7 +478,7 @@ def add_tree_7_to_1(in0, in1, in2, in3, in4, in5, in6):
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
-def test_add_tree_7_to_1_l1(device, shape, max_grid, dtype, memory_layout):
+def test_add_tree_7_to_1_l1(device, shape, max_grid, dtype, shard_strategy):
     num_inputs = 7
 
     if shape == (2, 512, 2048):
@@ -494,8 +492,7 @@ def test_add_tree_7_to_1_l1(device, shape, max_grid, dtype, memory_layout):
         add_tree_7_to_1,
         num_inputs,
         buffer_type=ttnn.BufferType.L1,
-        memory_layout=memory_layout,
-        graph_capture=False,
+        shard_strategy=shard_strategy,
     )
 
 
@@ -512,7 +509,6 @@ def test_add_tree_7_to_1_dram(device, shape, dtype):
         op=add_tree_7_to_1,
         num_inputs=num_inputs,
         buffer_type=ttnn.BufferType.DRAM,
-        graph_capture=False,
     )
 
 
@@ -598,7 +594,7 @@ def add_tree_31_to_1(
 
 
 @pytest.mark.parametrize(
-    "shape, max_grid, memory_layout",
+    "shape, max_grid, shard_strategy",
     SHARDED_SHAPE_GRID_LAYOUTS,
     ids=[
         f"shape_{shape}_grid_{grid}_{layout}"
@@ -606,7 +602,7 @@ def add_tree_31_to_1(
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
-def test_add_tree_31_to_1_l1(device, shape, max_grid, dtype, memory_layout):
+def test_add_tree_31_to_1_l1(device, shape, max_grid, dtype, shard_strategy):
     num_inputs = 31
 
     if dtype is torch.bfloat16 and shape == (2, 32, 384):
@@ -629,8 +625,7 @@ def test_add_tree_31_to_1_l1(device, shape, max_grid, dtype, memory_layout):
         add_tree_31_to_1,
         num_inputs,
         buffer_type=ttnn.BufferType.L1,
-        memory_layout=memory_layout,
-        graph_capture=False,
+        shard_strategy=shard_strategy,
     )
 
 
@@ -647,7 +642,6 @@ def test_add_tree_31_to_1_dram(device, shape, dtype):
         op=add_tree_31_to_1,
         num_inputs=num_inputs,
         buffer_type=ttnn.BufferType.DRAM,
-        graph_capture=False,
     )
 
 
@@ -741,7 +735,7 @@ def binary_ladder_31(
 # TODO(mbagherbeikTT) add bfloat16 tests back once issue #6252 is fixed
 # Currently fails all-close checks when using bfloat16
 @pytest.mark.parametrize(
-    "shape, max_grid, memory_layout",
+    "shape, max_grid, shard_strategy",
     SHARDED_SHAPE_GRID_LAYOUTS,
     ids=[
         f"shape_{shape}_grid_{grid}_{layout}"
@@ -749,7 +743,7 @@ def binary_ladder_31(
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.float32])
-def test_binary_ladder_31_l1(device, shape, max_grid, dtype, memory_layout):
+def test_binary_ladder_31_l1(device, shape, max_grid, dtype, shard_strategy):
     num_inputs = 31
 
     size_limit = 256 * 256
@@ -759,7 +753,7 @@ def test_binary_ladder_31_l1(device, shape, max_grid, dtype, memory_layout):
         elements *= dim
 
     if elements > size_limit or (shape == (64, 128) and max_grid == (0, 0)):
-        pytest.xfail("binary_ladder_31 runs out of memory")
+        pytest.xfail("binary_ladder_31 runs out of memory in regular TTNN mode")
 
     run_op_test(
         device,
@@ -769,8 +763,7 @@ def test_binary_ladder_31_l1(device, shape, max_grid, dtype, memory_layout):
         binary_ladder_31,
         num_inputs,
         buffer_type=ttnn.BufferType.L1,
-        memory_layout=memory_layout,
-        graph_capture=False,
+        shard_strategy=shard_strategy,
     )
 
 
@@ -789,5 +782,4 @@ def test_binary_ladder_31_dram(device, shape, dtype):
         op=binary_ladder_31,
         num_inputs=num_inputs,
         buffer_type=ttnn.BufferType.DRAM,
-        graph_capture=False,
     )
