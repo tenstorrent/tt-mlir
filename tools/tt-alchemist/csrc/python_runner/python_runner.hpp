@@ -8,10 +8,10 @@
 #include <string>
 #include <vector>
 
+#include "tt/runtime/types.h"
+
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wcovered-switch-default"
-#include "ttnn/device.hpp"
-#include "ttnn/tensor/tensor.hpp"
 #include <pybind11/embed.h>
 #include <pybind11/pybind11.h>
 #pragma clang diagnostic pop
@@ -39,8 +39,9 @@ public:
                   const std::string &functionName = "forward");
 
   /// Execute the loaded model function.
-  std::vector<ttnn::Tensor> forward(const std::vector<ttnn::Tensor> &inputs,
-                                    ttnn::MeshDevice *device);
+  std::vector<tt::runtime::Tensor>
+  forward(const std::vector<tt::runtime::Tensor> &inputs,
+          tt::runtime::Device device);
 
 private:
   pybind11::object moduleObject;

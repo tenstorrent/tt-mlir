@@ -7,6 +7,7 @@
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wcovered-switch-default"
+#include "tt/runtime/detail/ttnn/utils.h"
 #include <pybind11/stl.h>
 #pragma clang diagnostic pop
 
@@ -32,29 +33,45 @@ void PythonModelRunner::loadModule(const std::string &moduleName,
   forwardFunc = moduleObject.attr(functionName.c_str());
 }
 
-std::vector<ttnn::Tensor>
-PythonModelRunner::forward(const std::vector<ttnn::Tensor> &inputs,
-                           ttnn::MeshDevice *device) {
+std::vector<tt::runtime::Tensor>
+PythonModelRunner::forward(const std::vector<tt::runtime::Tensor> &inputs,
+                           tt::runtime::Device device) {
   py::gil_scoped_acquire acquire;
 
+  // Extract the underlying TTNN MeshDevice from the runtime Device
+  ttnn::MeshDevice *ttnnDevice =
+      &device.as<ttnn::MeshDevice>(tt::runtime::DeviceRuntime::TTNN);
+
+  // Convert runtime tensors to TTNN tensors for Python interop
   py::list pyInputs;
-  for (const auto &tensor : inputs) {
-    pyInputs.append(py::cast(tensor));
+  for (auto &tensor : inputs) {
+    // Extract the underlying TTNN tensor from the runtime tensor wrapper
+    ttnn::Tensor &ttnnTensor =
+        tt::runtime::ttnn::utils::getTTNNTensorFromRuntimeTensor(
+            const_cast<tt::runtime::Tensor &>(tensor));
+    pyInputs.append(py::cast(ttnnTensor));
   }
 
-  py::object result = forwardFunc(pyInputs, py::cast(device));
+  py::object result = forwardFunc(pyInputs, py::cast(ttnnDevice));
 
-  std::vector<ttnn::Tensor> outputs;
+  // Convert Python results (TTNN tensors) back to runtime tensors
+  std::vector<tt::runtime::Tensor> outputs;
   if (py::isinstance<py::list>(result)) {
     for (auto item : result.cast<py::list>()) {
-      outputs.push_back(item.cast<ttnn::Tensor>());
+      ttnn::Tensor ttnnOutput = item.cast<ttnn::Tensor>();
+      outputs.push_back(
+          tt::runtime::ttnn::utils::createRuntimeTensorFromTTNN(ttnnOutput));
     }
   } else if (py::isinstance<py::tuple>(result)) {
     for (auto item : result.cast<py::tuple>()) {
-      outputs.push_back(item.cast<ttnn::Tensor>());
+      ttnn::Tensor ttnnOutput = item.cast<ttnn::Tensor>();
+      outputs.push_back(
+          tt::runtime::ttnn::utils::createRuntimeTensorFromTTNN(ttnnOutput));
     }
   } else {
-    outputs.push_back(result.cast<ttnn::Tensor>());
+    ttnn::Tensor ttnnOutput = result.cast<ttnn::Tensor>();
+    outputs.push_back(
+        tt::runtime::ttnn::utils::createRuntimeTensorFromTTNN(ttnnOutput));
   }
 
   return outputs;

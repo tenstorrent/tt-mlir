@@ -70,11 +70,23 @@ target_compile_options(test_python_runner
 target_include_directories(test_python_runner
   PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../csrc/python_runner
+    ${PROJECT_SOURCE_DIR}/runtime/include
+    ${PROJECT_BINARY_DIR}/runtime/include
+    ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
+  SYSTEM PRIVATE
+    ${TTMETAL_INCLUDE_DIRS}
 )
 
 target_link_libraries(test_python_runner
   PRIVATE
     tt-alchemist-python-runner
+    TTRuntimeTTNNUtils
+    TTRuntimeTTNNTypes
+    TTRuntimeUtils
+    TTRuntimeContext
+    ${TTMETAL_LIBRARY_DIR}/libtt_metal.so
+    ${TTMETAL_LIBRARY_DIR}/_ttnncpp.so
+    ${TTMETAL_LIBRARY_DIR}/libtt_stl.so
 )
 
 # Path to tt-metal source directory
