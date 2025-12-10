@@ -1150,8 +1150,6 @@ def test_zeros(shape: Shape, dtype: torch.dtype, request, device):
             return builder.zeros(shape, dtype, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
-        zeros,
-        inputs_shapes=[],
         module,
         test_base=request.node.name,
         device=device,
@@ -1471,7 +1469,9 @@ def test_arange(
         def arange(
             in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
         ):
-            return builder.arange(shape, dtype, start, end, step, dim, unit_attrs=unit_attrs)
+            return builder.arange(
+                shape, dtype, start, end, step, dim, unit_attrs=unit_attrs
+            )
 
     compile_and_execute_ttir(
         module,
