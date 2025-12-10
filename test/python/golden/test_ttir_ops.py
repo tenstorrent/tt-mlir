@@ -1189,15 +1189,15 @@ def test_rand(
     request,
     device,
 ):
-    def rand_model(builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
-        return builder.rand(
-            shape, dtype, low=low, high=high, seed=seed, unit_attrs=unit_attrs
-        )
+    def module(builder: TTIRBuilder):
+        @builder.func([], [])
+        def rand(builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
+            return builder.rand(
+                shape, dtype, low=low, high=high, seed=seed, unit_attrs=unit_attrs
+            )
 
     compile_and_execute_ttir(
-        rand_model,
-        inputs_shapes=[],
-        inputs_types=[],
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),

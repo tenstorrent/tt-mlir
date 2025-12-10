@@ -466,7 +466,7 @@ def execute_fb(
         bypass_ops=bypass_ops,
     )
 
-    if enable_intermediate_verification:
+    if enable_intermediate_verification or bypass_ops:
         tt_runtime.runtime.DebugHooks.get(
             pre_op_get_callback_fn(callback_runtime_config),
             post_op_get_callback_fn(callback_runtime_config),
