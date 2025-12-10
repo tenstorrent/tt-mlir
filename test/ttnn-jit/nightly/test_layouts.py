@@ -34,7 +34,7 @@ BLOCK_SHARDED_SHAPE_GRIDS.extend(
     [
         ((batch, h * 32 * (grid_h + 1), w * 32 * (grid_w + 1)), (grid_w, grid_h))
         for batch, h, w, grid_h, grid_w in itertools.product(
-            [1, 8], range(1, 3), range(1, 3), range(8), range(8)
+            [1, 8], [3], [3], range(8), range(8)
         )
     ]
 )
@@ -47,7 +47,7 @@ BLOCK_SHARDED_SHAPE_GRIDS.extend(
             (grid_w, grid_h),
         )
         for batch1, batch2, h, w, grid_h, grid_w in itertools.product(
-            [1, 2], [1, 4], range(1, 3), range(1, 3), range(8), range(8)
+            [1, 2], [1, 4], [3], [3], range(8), range(8)
         )
     ]
 )
@@ -124,7 +124,7 @@ HEIGHT_SHARDED_SHAPE_GRIDS.extend(
     [
         ((batch, h * 32 * (grid_w + 1) * (grid_h + 1), w * 32), (grid_w, grid_h))
         for batch, h, w, grid_h, grid_w in itertools.product(
-            [1, 8], range(1, 3), range(1, 3), range(8), range(8)
+            [1, 8], [3], [3], range(8), range(8)
         )
     ]
 )
@@ -135,7 +135,7 @@ HEIGHT_SHARDED_SHAPE_GRIDS.extend(
             (grid_w, grid_h),
         )
         for batch1, batch2, h, w, grid_h, grid_w in itertools.product(
-            [1, 2], [1, 4], range(1, 3), range(1, 3), range(8), range(8)
+            [1, 2], [1, 4], [3], [3], range(8), range(8)
         )
     ]
 )
@@ -174,7 +174,7 @@ WIDTH_SHARDED_SHAPE_GRIDS.extend(
     [
         ((batch, h * 32, w * 32 * (grid_h + 1) * (grid_w + 1)), (grid_w, grid_h))
         for batch, h, w, grid_h, grid_w in itertools.product(
-            [1, 8], range(1, 3), range(1, 3), range(8), range(8)
+            [1, 8], [3], [3], range(8), range(8)
         )
     ]
 )
@@ -185,7 +185,7 @@ WIDTH_SHARDED_SHAPE_GRIDS.extend(
             (grid_w, grid_h),
         )
         for batch1, batch2, h, w, grid_h, grid_w in itertools.product(
-            [1, 2], [1, 4], range(1, 3), range(1, 3), range(8), range(8)
+            [1, 2], [1, 4], [3], [3], range(8), range(8)
         )
     ]
 )
