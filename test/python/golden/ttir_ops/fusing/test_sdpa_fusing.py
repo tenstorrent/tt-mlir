@@ -199,13 +199,9 @@ def test_sdpa(shapes: List[Shape], use_mask: bool, target: str, request, device)
             query_data, key_data, value_data, scale=scale
         )
 
+        builder.set_goldens({query: query_data, key: key_data, value: value_data})
         result = build_ttir(
             query, key, value, builder, scale=scale, unit_attrs=unit_attrs
-        )
-
-        builder.set_goldens(
-            {query: query_data, key: key_data, value: value_data},
-            {result: golden_output},
         )
         return result
 
@@ -231,6 +227,14 @@ def test_sdpa(shapes: List[Shape], use_mask: bool, target: str, request, device)
             query_data, key_data, value_data, scale=scale, attention_mask=mask_data
         )
 
+        builder.set_goldens(
+            {
+                query: query_data,
+                key: key_data,
+                value: value_data,
+                attention_mask: mask_data,
+            }
+        )
         result = build_ttir(
             query,
             key,
@@ -239,16 +243,6 @@ def test_sdpa(shapes: List[Shape], use_mask: bool, target: str, request, device)
             scale=scale,
             attention_mask=attention_mask,
             unit_attrs=unit_attrs,
-        )
-
-        builder.set_goldens(
-            {
-                query: query_data,
-                key: key_data,
-                value: value_data,
-                attention_mask: mask_data,
-            },
-            {result: golden_output},
         )
         return result
 

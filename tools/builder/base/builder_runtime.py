@@ -16,7 +16,7 @@ from functools import partial
 
 from builder.base.builder import *
 
-import _ttmlir_runtime as tt_runtime
+import ttrt.runtime._ttmlir_runtime as tt_runtime
 
 
 class TTBuilderCompileException(Exception):

@@ -106,6 +106,9 @@ def test_matmul_k_split_parallelism(
         pytest.skip("parallelism across 1 device is meaningless")
 
     def matmul_multi(in0: Operand, in1: Operand, builder: TTIRBuilder):
+        input_0 = builder._get_golden_tensor(in0)
+        input_1 = builder._get_golden_tensor(in1)
+        builder.set_goldens_from_builder_tensor({in0: input_0, in1: input_1})
         output = _build_matmul_parallel(
             in0,
             in1,
@@ -113,13 +116,6 @@ def test_matmul_k_split_parallelism(
             mesh_shape,
             cluster_axis,
             do_unshard=True,
-        )
-
-        input_0 = builder._get_golden_tensor(in0)
-        input_1 = builder._get_golden_tensor(in1)
-        golden = torch.matmul(input_0, input_1)
-        builder.set_goldens_from_builder_tensor(
-            {in0: input_0, in1: input_1}, {output: golden}
         )
         return output
 
@@ -150,6 +146,9 @@ def test_parallelized_matmul_with_unary_chaining(
     shapes: List[Shape], mesh_shape: Tuple[int, int], request, device
 ):
     def matmul_test(in0: Operand, in1: Operand, builder: TTIRBuilder):
+        input_0 = builder._get_golden_tensor(in0)
+        input_1 = builder._get_golden_tensor(in1)
+        builder.set_goldens_from_builder_tensor({in0: input_0, in1: input_1})
         matmul_shard = _build_matmul_parallel(
             in0,
             in1,
@@ -167,13 +166,6 @@ def test_parallelized_matmul_with_unary_chaining(
             shard_type="#ttcore.shard_type<devices>",
             shard_shape=shard_shape_out,
             shard_dims=shard_dims_out,
-        )
-
-        input_0 = builder._get_golden_tensor(in0)
-        input_1 = builder._get_golden_tensor(in1)
-        golden = torch.neg(torch.matmul(input_0, input_1))
-        builder.set_goldens_from_builder_tensor(
-            {in0: input_0, in1: input_1}, {output: golden}
         )
 
         return output
@@ -205,6 +197,12 @@ def test_parallelized_matmul_with_binary_chaining(
     shapes: List[Shape], mesh_shape: Tuple[int, int], request, device
 ):
     def matmul_test(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
+        input_0 = builder._get_golden_tensor(in0)
+        input_1 = builder._get_golden_tensor(in1)
+        input_2 = builder._get_golden_tensor(in2)
+        builder.set_goldens_from_builder_tensor(
+            {in0: input_0, in1: input_1, in2: input_2}
+        )
         matmul_shard = _build_matmul_parallel(
             in0,
             in1,
@@ -229,13 +227,6 @@ def test_parallelized_matmul_with_binary_chaining(
             shard_type="#ttcore.shard_type<devices>",
             shard_shape=shard_shape,
             shard_dims=shard_dims,
-        )
-        input_0 = builder._get_golden_tensor(in0)
-        input_1 = builder._get_golden_tensor(in1)
-        input_2 = builder._get_golden_tensor(in2)
-        golden = torch.add(torch.matmul(input_0, input_1), input_2)
-        builder.set_goldens_from_builder_tensor(
-            {in0: input_0, in1: input_1, in2: input_2}, {output: golden}
         )
         return output
 
@@ -269,6 +260,13 @@ def test_parallelized_matmul_fusion_with_binary_chaining(
     def matmul_test(
         in0: Operand, in1: Operand, in2: Operand, in3: Operand, builder: TTIRBuilder
     ):
+        input_0 = builder._get_golden_tensor(in0)
+        input_1 = builder._get_golden_tensor(in1)
+        input_2 = builder._get_golden_tensor(in2)
+        input_3 = builder._get_golden_tensor(in3)
+        builder.set_goldens_from_builder_tensor(
+            {in0: input_0, in1: input_1, in2: input_2, in3: input_3}
+        )
         matmul_0 = _build_matmul_parallel(
             in0,
             in1,
@@ -293,16 +291,6 @@ def test_parallelized_matmul_fusion_with_binary_chaining(
             shard_type="#ttcore.shard_type<devices>",
             shard_shape=shard_shape_out,
             shard_dims=shard_dims_out,
-        )
-        input_0 = builder._get_golden_tensor(in0)
-        input_1 = builder._get_golden_tensor(in1)
-        input_2 = builder._get_golden_tensor(in2)
-        input_3 = builder._get_golden_tensor(in3)
-        golden = torch.add(
-            torch.matmul(input_0, input_1), torch.matmul(input_2, input_3)
-        )
-        builder.set_goldens_from_builder_tensor(
-            {in0: input_0, in1: input_1, in2: input_2, in3: input_3}, {output: golden}
         )
         return output
 
@@ -347,6 +335,9 @@ def test_parallelized_elementwise_operations(
     shape: Shape, shard_dims: List[int], mesh_shape: Tuple[int, int], request, device
 ):
     def eltwise_parallel(in0: Operand, in1: Operand, builder: TTIRBuilder):
+        input_0 = builder._get_golden_tensor(in0)
+        input_1 = builder._get_golden_tensor(in1)
+        builder.set_goldens_from_builder_tensor({in0: input_0, in1: input_1})
         shard_shape = make_shard_shape(len(shape), shard_dims, mesh_shape)
         mesh_shard_in0 = builder.mesh_shard(
             in0,
@@ -369,12 +360,6 @@ def test_parallelized_elementwise_operations(
             shard_type="#ttcore.shard_type<devices>",
             shard_shape=shard_shape,
             shard_dims=shard_dims,
-        )
-        input_0 = builder._get_golden_tensor(in0)
-        input_1 = builder._get_golden_tensor(in1)
-        golden = torch.add(input_0, input_1)
-        builder.set_goldens_from_builder_tensor(
-            {in0: input_0, in1: input_1}, {output: golden}
         )
         return output
 
@@ -410,6 +395,10 @@ def test_mixed_device_parallelism_with_unary(
     shapes: List[Shape], mesh_shape: Tuple[int, int], request, device
 ):
     def matmul_test(in0: Operand, in1: Operand, builder: TTIRBuilder):
+        # Set inputs before building ops
+        input_0 = builder._get_golden_tensor(in0)
+        input_1 = builder._get_golden_tensor(in1)
+        builder.set_goldens_from_builder_tensor({in0: input_0, in1: input_1})
         matmul_result = _build_matmul_parallel(
             in0,
             in1,
@@ -419,14 +408,6 @@ def test_mixed_device_parallelism_with_unary(
         )
 
         output = builder.neg(matmul_result)
-
-        # Golden is computed on a single device
-        input_0 = builder._get_golden_tensor(in0)
-        input_1 = builder._get_golden_tensor(in1)
-        golden = torch.neg(torch.matmul(input_0, input_1))
-        builder.set_goldens_from_builder_tensor(
-            {in0: input_0, in1: input_1}, {output: golden}
-        )
 
         return output
 
@@ -457,6 +438,13 @@ def test_mixed_device_parallelism_with_binary(
     shapes: List[Shape], mesh_shape: Tuple[int, int], request, device
 ):
     def matmul_test(in0: Operand, in1: Operand, in2: Operand, builder: TTIRBuilder):
+        # Set inputs before building ops
+        input_0 = builder._get_golden_tensor(in0)
+        input_1 = builder._get_golden_tensor(in1)
+        input_2 = builder._get_golden_tensor(in2)
+        builder.set_goldens_from_builder_tensor(
+            {in0: input_0, in1: input_1, in2: input_2}
+        )
         matmul_result = _build_matmul_parallel(
             in0,
             in1,
@@ -465,15 +453,6 @@ def test_mixed_device_parallelism_with_binary(
             do_unshard=True,
         )
         output = builder.add(matmul_result, in2)
-
-        # Golden is computed on a single device
-        input_0 = builder._get_golden_tensor(in0)
-        input_1 = builder._get_golden_tensor(in1)
-        input_2 = builder._get_golden_tensor(in2)
-        golden = torch.add(torch.matmul(input_0, input_1), input_2)
-        builder.set_goldens_from_builder_tensor(
-            {in0: input_0, in1: input_1, in2: input_2}, {output: golden}
-        )
         return output
 
     compile_and_execute_ttir(

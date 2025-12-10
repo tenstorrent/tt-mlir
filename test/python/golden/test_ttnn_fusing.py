@@ -56,16 +56,14 @@ def test_matmul_activation_fusing(
         matmul_result = torch.matmul(input_tensor_data, weight_data)
         golden_output = torch_activation_fn(matmul_result)
 
-        matmul = builder.matmul(input_tensor, weight, unit_attrs=unit_attrs)
-        activation_op = builder_activation_fn(builder, matmul, unit_attrs)
-
         builder.set_goldens(
             {
                 input_tensor: input_tensor_data,
                 weight: weight_data,
-            },
-            {activation_op: golden_output},
+            }
         )
+        matmul = builder.matmul(input_tensor, weight, unit_attrs=unit_attrs)
+        activation_op = builder_activation_fn(builder, matmul, unit_attrs)
         return activation_op
 
     output = compile_and_execute_ttnn(
@@ -127,12 +125,11 @@ def test_linear_activation_fusing(
 
         golden_output = torch_activation_fn(linear_result)
 
+        builder.set_goldens(goldens)
         linear = builder.linear(
             input_tensor, weight, bias=bias, transpose_b=True, unit_attrs=unit_attrs
         )
         activation_op = builder_activation_fn(builder, linear, unit_attrs)
-
-        builder.set_goldens(goldens, {activation_op: golden_output})
         return activation_op
 
     output = compile_and_execute_ttnn(

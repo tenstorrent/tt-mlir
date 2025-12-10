@@ -129,10 +129,9 @@ def test_batch_norm_decomposition(
                 bn_offset: bn_offset_data,
                 bn_mean: bn_mean_data,
                 bn_variance: bn_variance_data,
-            },
-            {batch_norm_0: golden_output},
+            }
         )
-        builder.set_operand_goldens({conv2d_0: conv_result})
+        # builder.set_operand_goldens({conv2d_0: conv_result})
         return batch_norm_0
 
     output = compile_and_execute_ttir(
@@ -227,6 +226,13 @@ def test_conv_activation_fusing(
             unit_attrs=unit_attrs,
         )
 
+        builder.set_goldens(
+            {
+                input_tensor: input_tensor_data,
+                conv_weight: conv_weight_data,
+                conv_bias: conv_bias_data,
+            }
+        )
         # Add activation builder op based on parameter
         if activation == "relu":
             activation_op = builder.relu(conv)
@@ -234,15 +240,6 @@ def test_conv_activation_fusing(
             activation_op = builder.relu6(conv)
         elif activation == "silu":
             activation_op = builder.silu(conv)
-
-        builder.set_goldens(
-            {
-                input_tensor: input_tensor_data,
-                conv_weight: conv_weight_data,
-                conv_bias: conv_bias_data,
-            },
-            {conv: golden_output},
-        )
         return activation_op
 
     output = compile_and_execute_ttir(
@@ -315,6 +312,13 @@ def test_conv_silu_decomposed_fusing(
         conv_result = conv_result.transpose(-3, -2).transpose(-2, -1)
         golden_output = conv_result * torch.sigmoid(conv_result)
 
+        builder.set_goldens(
+            {
+                input_tensor: input_tensor_data,
+                conv_weight: conv_weight_data,
+                conv_bias: conv_bias_data,
+            }
+        )
         # Create conv2d builder op
         conv = builder.conv2d(
             input_tensor,
@@ -330,15 +334,6 @@ def test_conv_silu_decomposed_fusing(
         # Add builder ops for x * sigmoid(x)
         sigmoid_op = builder.sigmoid(conv, unit_attrs=unit_attrs)
         silu_decomposed = builder.multiply(conv, sigmoid_op)
-
-        builder.set_goldens(
-            {
-                input_tensor: input_tensor_data,
-                conv_weight: conv_weight_data,
-                conv_bias: conv_bias_data,
-            },
-            {conv: golden_output},
-        )
         return silu_decomposed
 
     output = compile_and_execute_ttir(

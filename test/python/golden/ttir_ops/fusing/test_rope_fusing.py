@@ -132,12 +132,10 @@ def test_rotary_embedding(
 
         golden_output = build_torch_golden(input_data, cos_data, sin_data)
 
-        result = build_ttir(input, cos_input, sin_input, builder, unit_attrs=unit_attrs)
-
         builder.set_goldens(
-            {input: input_data, cos_input: cos_data, sin_input: sin_data},
-            {result: golden_output},
+            {input: input_data, cos_input: cos_data, sin_input: sin_data}
         )
+        result = build_ttir(input, cos_input, sin_input, builder, unit_attrs=unit_attrs)
         return result
 
     output = compile_and_execute_ttir(
@@ -205,12 +203,10 @@ def test_rotary_embedding_failure(
 
         golden_output = build_torch_golden(input_data, cos_data, sin_data)
 
-        result = build_ttir(input, cos_input, sin_input, builder, unit_attrs=unit_attrs)
-
         builder.set_goldens(
-            {input: input_data, cos_input: cos_data, sin_input: sin_data},
-            {result: golden_output},
+            {input: input_data, cos_input: cos_data, sin_input: sin_data}
         )
+        result = build_ttir(input, cos_input, sin_input, builder, unit_attrs=unit_attrs)
         return result
 
     output = compile_and_execute_ttir(

@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 import pytest
-import _ttmlir_runtime as tt_runtime
+import ttrt.runtime._ttmlir_runtime as tt_runtime
 import json
 import re
 import platform
@@ -218,7 +218,13 @@ def get_board_id(system_desc) -> str:
 
 
 def filter_valid_mesh_shape(system_desc, params, require_exact_mesh=False):
-    num_chips = reduce(operator.mul, params.get("mesh_shape", [1]), 1)
+    mesh_shape_param = params.get("mesh_shape", [1])
+    # Be permissive: if mesh_shape is not a list/tuple of ints, treat as valid
+    if not isinstance(mesh_shape_param, (list, tuple)):
+        return True
+    if any(not isinstance(v, int) for v in mesh_shape_param):
+        return True
+    num_chips = reduce(operator.mul, mesh_shape_param, 1)
     num_physical_chips = len(system_desc["chip_desc_indices"])
     if require_exact_mesh:
         return num_chips == num_physical_chips
@@ -489,12 +495,16 @@ def pytest_runtest_call(item: pytest.Item):
 def pytest_collection_modifyitems(config, items):
     valid_items = []
     deselected = []
+    # Be resilient if pytest_addoption hasn't registered options yet
+    sys_desc_path = getattr(
+        config.option, "sys_desc", "ttrt-artifacts/system_desc.ttsys"
+    )
     system_desc = fbb_as_dict(
-        tt_runtime.binary.load_system_desc_from_path(config.option.sys_desc)
+        tt_runtime.binary.load_system_desc_from_path(sys_desc_path)
     )["system_desc"]
 
     skip_opmodel = pytest.mark.skip(reason="Test requires --require-opmodel flag")
-    require_opmodel = config.getoption("--require-opmodel")
+    require_opmodel = getattr(config.option, "require_opmodel", False)
 
     for item in items:
         # Skip optimizer tests if opmodel flag is missing
@@ -504,8 +514,9 @@ def pytest_collection_modifyitems(config, items):
         # Only check parameterized tests
         if hasattr(item, "callspec"):
             params = item.callspec.params
+            require_exact_mesh = getattr(config.option, "require_exact_mesh", False)
             if not filter_valid_mesh_shape(
-                system_desc, params, require_exact_mesh=config.option.require_exact_mesh
+                system_desc, params, require_exact_mesh=require_exact_mesh
             ):
                 # Deselect the test case
                 deselected.append(item)
@@ -516,10 +527,11 @@ def pytest_collection_modifyitems(config, items):
 
         # Fetch the current target of this test, if any
         current_target = None
-        for param in item.callspec.params.items():
-            if param[0] == "target":
-                current_target = param[1]
-                break
+        if hasattr(item, "callspec"):
+            for param in item.callspec.params.items():
+                if param[0] == "target":
+                    current_target = param[1]
+                    break
 
         for marker in item.iter_markers(name="skip_config"):
             for platform_config in marker.args:
@@ -602,7 +614,13 @@ def pytest_collection_modifyitems(config, items):
     items[:] = valid_items
 
     # Sort tests alphabetically by their target and then nodeid to ensure consistent ordering.
-    items.sort(key=lambda x: (x.callspec.params.get("target", "ttnn"), x.nodeid))
+    def _sort_key(x):
+        target = "ttnn"
+        if hasattr(x, "callspec"):
+            target = x.callspec.params.get("target", "ttnn")
+        return (target, x.nodeid)
+
+    items.sort(key=_sort_key)
     items.reverse()
 
     # Report deselected items to pytest

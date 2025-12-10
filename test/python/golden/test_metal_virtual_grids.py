@@ -60,10 +60,8 @@ def test_virtual_grid_eltwise(
         input_tensor = create_tileid_debug_tensor(shape, dtype)
 
         # abs is an identity function for positive integers, so use it for debugging ease
+        builder.set_goldens({in0: input_tensor})
         result = builder.abs(in0, unit_attrs=unit_attrs)
-
-        golden_output_tensor = torch.abs(input_tensor).to(dtype)
-        builder.set_goldens({in0: input_tensor}, {result: golden_output_tensor})
 
         return result
 

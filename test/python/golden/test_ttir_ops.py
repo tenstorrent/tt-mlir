@@ -38,9 +38,8 @@ def logical_not(
     input_tensor = input_tensor.to(dtype)
     # Torch returns bool tensor but ttnn doesn't have bool type, convert to input dtype.
     golden_output_tensor = torch.logical_not(input_tensor).to(dtype)
-    logical_not_0 = builder.logical_not(in0, unit_attrs=unit_attrs)
-    builder.set_goldens({in0: input_tensor}, {logical_not_0: golden_output_tensor})
-    return logical_not_0
+    builder.set_goldens({in0: input_tensor})
+    return builder.logical_not(in0, unit_attrs=unit_attrs)
 
 
 @x86_only
@@ -226,12 +225,8 @@ def test_hoisted_div(shape: Shape, dtype: torch.dtype, target: str, request, dev
         unit_attrs: Optional[List[str]] = None,
     ):
         golden_input_tensor = torch.randn(shape, dtype=dtype)
-        div0 = div(in0, in1, builder, unit_attrs=["ttir.should_hoist"])
-        builder.set_goldens(
-            {in0: golden_input_tensor, in1: golden_input_tensor},
-            {div0: torch.div(golden_input_tensor, golden_input_tensor)},
-        )
-        return div0
+        builder.set_goldens({in0: golden_input_tensor, in1: golden_input_tensor})
+        return div(in0, in1, builder, unit_attrs=["ttir.should_hoist"])
 
     compile_and_execute_ttir(
         hoisted_div_wrapper,

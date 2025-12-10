@@ -73,8 +73,6 @@ def is_finite(
 # small changes in input values result in large changes in output values at negative values,
 # so both graph and golden tensors must be constrained accordingly.
 def log(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
-    log_0 = builder.log(in0, unit_attrs=unit_attrs)
-
     # Constrain values for log
     if str(in0.type.element_type) not in ["bf16", "f32"]:
         raise ValueError("log op only supports bf16 and f32 data types")
@@ -83,14 +81,12 @@ def log(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = No
     abs_tensor = torch.abs(randn_tensor)
     error_margin = torch.full(randn_tensor.shape, 0.01)
     input_golden = torch.add(abs_tensor, error_margin)
-    output_golden = torch.log(input_golden)
-    builder.set_goldens({in0: input_golden}, {log_0: output_golden})
+    builder.set_goldens({in0: input_golden})
+    log_0 = builder.log(in0, unit_attrs=unit_attrs)
     return log_0
 
 
 def log1p(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
-    log1p_0 = builder.log1p(in0, unit_attrs=unit_attrs)
-
     # Constrain values for log1p
     if str(in0.type.element_type) not in ["bf16", "f32"]:
         raise ValueError("log1p op only supports bf16 and f32 data types")
@@ -99,9 +95,8 @@ def log1p(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = 
     abs_tensor = torch.abs(randn_tensor)
     error_margin = torch.full(randn_tensor.shape, -0.99)
     input_golden = torch.add(abs_tensor, error_margin)
-    output_golden = torch.log1p(input_golden)
-
-    builder.set_goldens({in0: input_golden}, {log1p_0: output_golden})
+    builder.set_goldens({in0: input_golden})
+    log1p_0 = builder.log1p(in0, unit_attrs=unit_attrs)
     return log1p_0
 
 
@@ -126,8 +121,6 @@ def relu(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = N
 def reciprocal(
     in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
 ):
-    reciprocal_0 = builder.reciprocal(in0, unit_attrs=unit_attrs)
-
     # Constrain values for reciprocal
     if str(in0.type.element_type) not in ["bf16", "f32"]:
         raise ValueError("reciprocal op only supports bf16 and f32 data types")
@@ -135,8 +128,8 @@ def reciprocal(
     input = torch.abs(torch.randn(in0.type.shape, dtype=dtype))
     input_safe = torch.clamp(input, min=-1e-6, max=None)
     input_safe = torch.where(input_safe == 0, torch.tensor(1e-6), input_safe)
-    golden_output = torch.reciprocal(input_safe)
-    builder.set_goldens({in0: input_safe}, {reciprocal_0: golden_output})
+    builder.set_goldens({in0: input_safe})
+    reciprocal_0 = builder.reciprocal(in0, unit_attrs=unit_attrs)
     return reciprocal_0
 
 
@@ -145,14 +138,13 @@ def relu6(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = 
 
 
 def rsqrt(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
-    rsqrt_0 = builder.rsqrt(in0, unit_attrs=unit_attrs)
     # Constrain values for rsqrt
     if str(in0.type.element_type) not in ["bf16", "f32"]:
         raise ValueError("rsqrt op only supports bf16 and f32 data types")
     dtype = torch.bfloat16 if in0.type.element_type == "bf16" else torch.float32
     input_tensor = torch.abs(torch.randn(in0.type.shape, dtype=dtype))
-    golden_output_tensor = torch.rsqrt(input_tensor)
-    builder.set_goldens({in0: input_tensor}, {rsqrt_0: golden_output_tensor})
+    builder.set_goldens({in0: input_tensor})
+    rsqrt_0 = builder.rsqrt(in0, unit_attrs=unit_attrs)
     return rsqrt_0
 
 
@@ -175,15 +167,13 @@ def silu(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = N
 
 
 def sqrt(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
-    sqrt_0 = builder.sqrt(in0, unit_attrs=unit_attrs)
-
     # Constrain values for sqrt
     if str(in0.type.element_type) not in ["bf16", "f32"]:
         raise ValueError("rsqrt op only supports bf16 and f32 data types")
     dtype = torch.bfloat16 if in0.type.element_type == "bf16" else torch.float32
     input_tensor = torch.abs(torch.randn(in0.type.shape, dtype=dtype))
-    golden_output_tensor = torch.sqrt(input_tensor)
-    builder.set_goldens({in0: input_tensor}, {sqrt_0: golden_output_tensor})
+    builder.set_goldens({in0: input_tensor})
+    sqrt_0 = builder.sqrt(in0, unit_attrs=unit_attrs)
     return sqrt_0
 
 
@@ -194,9 +184,21 @@ def sin(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = No
 # Special handling for log PCC checks. Due to the vertical asymptote on the log graph,
 # small changes in input values result in large changes in output values at negative values,
 # so both graph and golden tensors must be constrained accordingly.
-def tan(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
-    tan_0 = builder.tan(in0, unit_attrs=unit_attrs)
+def old_tan(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
+    # Constrain values for tan
+    import math
 
+    if str(in0.type.element_type) not in ["bf16", "f32"]:
+        raise ValueError("tan op only supports bf16 and f32 data types")
+    dtype = torch.bfloat16 if in0.type.element_type == "bf16" else torch.float32
+    randn_tensor = torch.randn(in0.type.shape, dtype=dtype)
+    input_golden = randn_tensor.uniform_((-math.pi / 2 + 0.05), (math.pi / 2 - 0.05))
+    builder.set_goldens({in0: input_golden})
+    tan_0 = builder.tan(in0, unit_attrs=unit_attrs)
+    return tan_0
+
+
+def tan(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
     # Constrain values for tan
     import math
 
@@ -206,8 +208,8 @@ def tan(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = No
     randn_tensor = torch.randn(in0.type.shape, dtype=dtype)
     input_golden = randn_tensor.uniform_((-math.pi / 2 + 0.05), (math.pi / 2 - 0.05))
     output_golden = torch.tan(input_golden)
-    builder.set_goldens({in0: input_golden}, {tan_0: output_golden})
-    return tan_0
+    builder.set_goldens({in0: input_golden})
+    return builder.tan(in0, unit_attrs=unit_attrs)
 
 
 def tanh(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):

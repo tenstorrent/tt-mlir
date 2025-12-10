@@ -285,11 +285,10 @@ def test_digamma(
         # compute output golden
         output_golden = torch.digamma(x_tensor).to(dtype)
 
+        # set goldens
+        builder.set_goldens({x: x_tensor})
         # Create builder output following ttnn implementation
         result = digamma_composite(x, shape, dtype, builder, unit_attrs)
-
-        # set goldens
-        builder.set_goldens({x: x_tensor}, {result: output_golden})
         return result
 
     options = []
@@ -333,11 +332,10 @@ def test_lgamma(
         # compute output golden
         output_golden = torch.lgamma(x_tensor).to(dtype)
 
+        # Set goldens
+        builder.set_goldens({x: x_tensor})
         # Create builder output following ttnn implementation
         result = lgamma_composite(x, shape, dtype, builder, unit_attrs)
-
-        # Set goldens
-        builder.set_goldens({x: x_tensor}, {result: output_golden})
 
         return result
 
@@ -380,11 +378,10 @@ def test_multigammaln(
         # compute output golden (p=4 for multigammaln)
         output_golden = torch.special.multigammaln(x_tensor, 4).to(dtype)
 
+        # Set goldens
+        builder.set_goldens({x: x_tensor})
         # Create builder output following ttnn implementation
         result = multigammaln_composite(x, shape, dtype, builder, unit_attrs=unit_attrs)
-
-        # Set goldens
-        builder.set_goldens({x: x_tensor}, {result: output_golden})
 
         return result
 
@@ -428,11 +425,10 @@ def test_polygamma(
         # compute output golden
         output_golden = torch.special.polygamma(k, x_tensor).to(dtype)
 
+        # Set goldens
+        builder.set_goldens({x: x_tensor})
         # Create builder output following ttnn implementation
         result = polygamma_composite(x, k, shape, dtype, builder, unit_attrs=unit_attrs)
-
-        # Set goldens
-        builder.set_goldens({x: x_tensor}, {result: output_golden})
 
         return result
 

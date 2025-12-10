@@ -405,8 +405,8 @@ def test_tan(shape: Shape, dtype: torch.dtype, target: str, request, device):
             (-math.pi / 2 + 0.05), (math.pi / 2 - 0.05)
         )
         output_golden = torch.tan(input_golden)
+        builder.set_goldens({in0: input_golden})
         tan_0 = builder.tan(in0, unit_attrs=unit_attrs)
-        builder.set_goldens({in0: input_golden}, {tan_0: output_golden})
         builder.set_graph_level_check(True)
         return tan_0
 

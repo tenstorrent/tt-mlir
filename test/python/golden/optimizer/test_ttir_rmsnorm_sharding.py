@@ -63,24 +63,15 @@ def test_rmsnorm_sharding(
         torch_input = torch.randn(input_shape, dtype=dtypes[0])
         torch_weight = torch.randn(weight_shape, dtype=dtypes[1])
 
+        builder.set_goldens(
+            {input_tensor: torch_input, weight: torch_weight},
+        )
         result = builder.rms_norm(
             input_tensor,
             normalized_shape=weight_shape,
             weight=weight,
             epsilon=epsilon,
             unit_attrs=unit_attrs,
-        )
-
-        builder.set_goldens(
-            {input_tensor: torch_input, weight: torch_weight},
-            {
-                result: torch.rms_norm(
-                    torch_input,
-                    normalized_shape=weight_shape,
-                    weight=torch_weight,
-                    eps=epsilon,
-                )
-            },
         )
         return result
 

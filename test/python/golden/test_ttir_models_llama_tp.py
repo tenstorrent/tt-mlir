@@ -368,19 +368,15 @@ def test_llama_attention_1xn_tp(
             )
         ]
 
-        # Generate the golden output using a single CPU device
-        golden = golden_llama(*input_tensors_torch)
-
-        # Set the input and output tensors for the program-level golden check.
+        # Set the input tensors for the program-level golden check before building downstream ops.
         builder.set_goldens(
             {
                 operand: input_tensor
                 for operand, input_tensor in zip(operands, input_tensors_torch)
-            },
-            {
-                output116: golden,
-            },
+            }
         )
+        # Generate the golden output using a single CPU device
+        golden = golden_llama(*input_tensors_torch)
         # Clear the golden check list for the op-level golden check.
         # This is a bit hacky, but it's the only way to get both the op-level and program-level golden checks.
         builder.set_goldens_to_check([], override=True)

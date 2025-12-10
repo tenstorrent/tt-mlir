@@ -122,11 +122,10 @@ def pow(
 
     if torch.is_floating_point(randn_exponent_tensor):
         randn_base_tensor = torch.abs(randn_base_tensor)
-    output_golden = torch.pow(randn_base_tensor, randn_exponent_tensor)
-    pow0 = builder.pow(in0, in1, unit_attrs=unit_attrs)
     builder.set_goldens_from_builder_tensor(
-        {in0: randn_base_tensor, in1: randn_exponent_tensor}, {pow0: output_golden}
+        {in0: randn_base_tensor, in1: randn_exponent_tensor}
     )
+    pow0 = builder.pow(in0, in1, unit_attrs=unit_attrs)
     return pow0
 
 
@@ -400,7 +399,6 @@ def logical_left_shift(
     builder: TTIRBuilder,
     unit_attrs: Optional[List[str]] = None,
 ):
-    logical_left_shift_0 = builder.logical_left_shift(in0, in1, unit_attrs=unit_attrs)
     # Constrain shift amounts to be within valid range
     shift_tensor_1 = builder._get_golden_tensor(in1)
     dtype_bits = torch.iinfo(shift_tensor_1.shard_at(0).dtype).bits
@@ -409,11 +407,8 @@ def logical_left_shift(
         lambda shard: (shard.to(torch.int64) % dtype_bits).to(shard.dtype)
     )
 
-    golden_fn = get_golden_function(ttir.LogicalLeftShiftOp)
-    output_golden = golden_fn(builder._get_golden_tensor(in0), constrained_shift_tensor)
-    builder.set_goldens_from_builder_tensor(
-        {in1: constrained_shift_tensor}, {logical_left_shift_0: output_golden}
-    )
+    builder.set_goldens_from_builder_tensor({in1: constrained_shift_tensor})
+    logical_left_shift_0 = builder.logical_left_shift(in0, in1, unit_attrs=unit_attrs)
     return logical_left_shift_0
 
 
@@ -423,7 +418,6 @@ def logical_right_shift(
     builder: TTIRBuilder,
     unit_attrs: Optional[List[str]] = None,
 ):
-    logical_right_shift_0 = builder.logical_right_shift(in0, in1, unit_attrs=unit_attrs)
     # Constrain shift amounts to be within valid range
     shift_tensor_1 = builder._get_golden_tensor(in1)
     dtype_bits = torch.iinfo(shift_tensor_1.shard_at(0).dtype).bits
@@ -432,11 +426,8 @@ def logical_right_shift(
         lambda shard: (shard.to(torch.int64) % dtype_bits).to(shard.dtype)
     )
 
-    golden_fn = get_golden_function(ttir.LogicalRightShiftOp)
-    output_golden = golden_fn(builder._get_golden_tensor(in0), constrained_shift_tensor)
-    builder.set_goldens_from_builder_tensor(
-        {in1: constrained_shift_tensor}, {logical_right_shift_0: output_golden}
-    )
+    builder.set_goldens_from_builder_tensor({in1: constrained_shift_tensor})
+    logical_right_shift_0 = builder.logical_right_shift(in0, in1, unit_attrs=unit_attrs)
     return logical_right_shift_0
 
 
