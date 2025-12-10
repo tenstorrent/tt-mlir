@@ -28,6 +28,8 @@ from ttmlir.passes import (
     stablehlo_pipeline,
     stablehlo_to_ttir_pipeline,
     ttir_to_emitpy_pipeline,
+    ttnn_to_flatbuffer_bin,
+    ttmetal_to_flatbuffer_bin,
 )
 
 from builder.base.builder_utils import *
@@ -50,9 +52,10 @@ def _compile_and_execute(
     disable_golden: bool,
     device,
     skip_exec: bool = False,
+    check_pcc: bool = False,
     check_atol: bool = False,
     check_rtol: bool = False,
-    export_golden_report: bool = False,
+    enable_intermediate_verification: bool = False,
     **compile_kwargs,
 ) -> str:
     """
@@ -86,7 +89,7 @@ def _compile_and_execute(
     **compile_kwargs
         All other arguments to pass through to the compile function
     """
-    builder, mlir_path, goldens = compile_fn(
+    builder, compiled_bin, goldens = compile_fn(
         target=target,
         **compile_kwargs,
     )
@@ -94,48 +97,25 @@ def _compile_and_execute(
     if skip_exec:
         raise TTBuilderRuntimeException("Manually skipped execution")
 
-    fb_path = mlir_path + "." + ("ttnn" if target == "ttnn" else "ttm")
-
     # Execute the flatbuffer
-    golden_report = None
+    golden_report = {}
     if target in ["ttnn", "ttmetal"]:
         golden_report = execute_fb(
-            fb_path=fb_path,
+            compiled_bin,
             pcc=pcc,
             atol=atol,
             rtol=rtol,
             disable_golden=disable_golden,
             device=device,
+            check_pcc=check_pcc,
             check_atol=check_atol,
             check_rtol=check_rtol,
             goldens=goldens,
             bypass_ops=builder._bypass_ops,
-            enable_intermediate_verification=export_golden_report,
+            enable_intermediate_verification=enable_intermediate_verification,
         )
 
-    if golden_report and export_golden_report:
-        _save_golden_report(builder, golden_report, mlir_path + ".golden_report.json")
-
-    return mlir_path
-
-
-def _save_golden_report(builder, golden_report, report_path):
-    report: Dict[str, Dict] = {}
-
-    # Use loc data to build final report with operation names
-    for loc, device_results in golden_report.items():
-        operand = builder._loc_to_operand.get(loc)
-        op_name = ""
-        if operand is not None and hasattr(operand, "OPERATION_NAME"):
-            op_name = getattr(operand, "OPERATION_NAME", "") or ""
-
-        report[loc] = {
-            "op_name": op_name,
-            **device_results[0],
-        }
-
-    with open(report_path, "w") as f:
-        json.dump(report, f, indent=2)
+    return golden_report
 
 
 def _compile(root_func: Callable, builder: Builder, mesh_name: str = "mesh"):
@@ -219,9 +199,10 @@ def compile_and_execute_d2m(
     rtol: float = 1e-05,
     disable_golden: bool = False,
     skip_exec: bool = False,
+    check_pcc: bool = False,
     check_atol: bool = False,
     check_rtol: bool = False,
-    export_golden_report: bool = False,
+    enable_intermediate_verification: bool = False,
 ) -> str:
     """
     Compiles and executes a D2MBuilder function through the complete pipeline.
@@ -296,9 +277,10 @@ def compile_and_execute_d2m(
         rtol=rtol,
         disable_golden=disable_golden,
         skip_exec=skip_exec,
+        check_pcc=check_pcc,
         check_atol=check_atol,
         check_rtol=check_rtol,
-        export_golden_report=export_golden_report,
+        enable_intermediate_verification=enable_intermediate_verification,
     )
 
 
@@ -323,9 +305,10 @@ def compile_and_execute_shlo(
     rtol: float = 1e-05,
     disable_golden: bool = False,
     skip_exec: bool = False,
+    check_pcc: bool = False,
     check_atol: bool = False,
     check_rtol: bool = False,
-    export_golden_report: bool = False,
+    enable_intermediate_verification: bool = False,
 ) -> str:
     """
     Compiles and executes a StableHLO function through the complete pipeline.
@@ -406,9 +389,10 @@ def compile_and_execute_shlo(
         rtol=rtol,
         disable_golden=disable_golden,
         skip_exec=skip_exec,
+        check_pcc=check_pcc,
         check_atol=check_atol,
         check_rtol=check_rtol,
-        export_golden_report=export_golden_report,
+        enable_intermediate_verification=enable_intermediate_verification,
     )
 
 
@@ -431,9 +415,10 @@ def compile_and_execute_ttnn(
     rtol: float = 1e-05,
     disable_golden: bool = False,
     skip_exec: bool = False,
+    check_pcc: bool = False,
     check_atol: bool = False,
     check_rtol: bool = False,
-    export_golden_report: bool = False,
+    enable_intermediate_verification: bool = False,
 ) -> str:
     """
     Compiles and executes a TTNNBuilder function through the complete pipeline.
@@ -511,9 +496,10 @@ def compile_and_execute_ttnn(
         rtol=rtol,
         disable_golden=disable_golden,
         skip_exec=skip_exec,
+        check_pcc=check_pcc,
         check_atol=check_atol,
         check_rtol=check_rtol,
-        export_golden_report=export_golden_report,
+        enable_intermediate_verification=enable_intermediate_verification,
     )
 
 
@@ -536,9 +522,10 @@ def compile_and_execute_ttir(
     rtol: float = 1e-05,
     disable_golden: bool = False,
     skip_exec: bool = False,
+    check_pcc: bool = False,
     check_atol: bool = False,
     check_rtol: bool = False,
-    export_golden_report: bool = False,
+    enable_intermediate_verification: bool = False,
 ) -> str:
     """
     Compiles and executes a TTIR function through the complete pipeline.
@@ -613,9 +600,10 @@ def compile_and_execute_ttir(
         rtol=rtol,
         disable_golden=disable_golden,
         skip_exec=skip_exec,
+        check_pcc=check_pcc,
         check_atol=check_atol,
         check_rtol=check_rtol,
-        export_golden_report=export_golden_report,
+        enable_intermediate_verification=enable_intermediate_verification,
     )
 
 
@@ -1249,14 +1237,14 @@ def compile_ttir_module_to_flatbuffer(
         pipeline_fn = (
             custom_pipeline if custom_pipeline else ttir_to_ttnn_backend_pipeline
         )
-        to_target = ttnn_to_flatbuffer_file
+        to_target = ttnn_to_flatbuffer_bin
         mlir_suffix = "_ttnn.mlir"
         target_extension = "ttnn"
     elif target == "ttmetal":
         pipeline_fn = (
             custom_pipeline if custom_pipeline else ttir_to_ttmetal_backend_pipeline
         )
-        to_target = ttmetal_to_flatbuffer_file
+        to_target = ttmetal_to_flatbuffer_bin
         mlir_suffix = "_ttm.mlir"
         target_extension = "ttm"
     elif target == "emitc":
@@ -1308,13 +1296,12 @@ def compile_ttir_module_to_flatbuffer(
 
     # Compile TT{Metal,NN} MLIR -> flatbuffer
     try:
-        to_target(module, output_file_fbb, golden_tensors, [])
+        compiled_bin = to_target(module)
+
     except Exception as e:
         raise TTBuilderCompileException(e)
 
-    print(f"{target} flatbuffer created successfully at: {output_file_fbb}")
-
-    return output_file_mlir, goldens
+    return compiled_bin, goldens
 
 
 def load_mlir_file(
