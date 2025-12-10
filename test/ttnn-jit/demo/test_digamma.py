@@ -49,6 +49,11 @@ def digamma(input_tensor):
     return ttnn.subtract(t_log_out, output)
 
 
+def digamma_ttnn(input_tensor):
+    """Wrapper function that uses ttnn.digamma composite op."""
+    return ttnn.digamma(input_tensor)
+
+
 @pytest.mark.parametrize(
     "h, w",
     [
@@ -65,6 +70,7 @@ def digamma(input_tensor):
     [
         digamma,
         ttnn_jit.jit(debug=True, graph_capture=True, enable_cache=True)(digamma.func),
+        ttnn_jit.jit(debug=True, graph_capture=True, enable_cache=True)(digamma_ttnn),
     ],
 )
 def test_digamma_metal_trace(h, w, op):
@@ -136,6 +142,7 @@ def test_digamma_metal_trace(h, w, op):
     [
         digamma,
         ttnn_jit.jit(debug=True, graph_capture=True, enable_cache=True)(digamma.func),
+        ttnn_jit.jit(debug=True, graph_capture=True, enable_cache=True)(digamma_ttnn),
     ],
 )
 def test_digamma_compare(h, w, op):
