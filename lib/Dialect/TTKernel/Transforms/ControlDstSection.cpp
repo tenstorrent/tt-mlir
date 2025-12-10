@@ -47,6 +47,26 @@ public:
     rewriter.setInsertionPointAfter(parent);
     rewriter.create<ttkernel::TileRegsReleaseOp>(op->getLoc());
 
+    // Remove any existing TileRegsReleaseOp that comes after the parent in the
+    // same block. This handles the case where d2m.release_dst was converted to
+    // ttkernel.tile_regs_release before this pass runs - we don't want duplicate
+    // releases as they cause semaphore errors on the simulator.
+    SmallVector<ttkernel::TileRegsReleaseOp> toErase;
+    for (Operation &blockOp : *acquireBlock) {
+      if (&blockOp == parent || blockOp.isBeforeInBlock(parent)) {
+        continue;
+      }
+      if (auto releaseOp = dyn_cast<ttkernel::TileRegsReleaseOp>(&blockOp)) {
+        // Check if this is not the one we just inserted (different location)
+        if (releaseOp.getLoc() != op->getLoc()) {
+          toErase.push_back(releaseOp);
+        }
+      }
+    }
+    for (auto releaseOp : toErase) {
+      rewriter.eraseOp(releaseOp);
+    }
+
     return success();
   };
 
