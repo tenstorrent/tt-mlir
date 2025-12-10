@@ -1419,6 +1419,11 @@ struct EmitPyTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
       rso << (firstElement ? "" : ", ") << "enable_kernel_stride_folding="
           << EmitPyTypeConverter<bool>::convert(
                  attr.getEnableKernelStrideFolding());
+      firstElement = false;
+    }
+    if (attr.getConfigTensorsInDram()) {
+      rso << (firstElement ? "" : ", ") << "config_tensors_in_dram="
+          << EmitPyTypeConverter<bool>::convert(attr.getConfigTensorsInDram());
     }
     rso << ")";
     return buf;
