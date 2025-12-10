@@ -10,9 +10,9 @@ from ttmlir.ir import *
 from ttmlir.passes import ttir_to_ttmetal_backend_pipeline
 from ttmlir.dialects import ttir
 
-from builder.base.builder import Operand, Shape, TypeInfo
+from builder.base.builder_utils import Operand, Shape, TypeInfo
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import compile_and_execute_ttir
+from builder.base.builder_apis import compile_and_execute_ttir
 from test_utils import (
     Marks,
     shape_str,
@@ -174,18 +174,6 @@ def binary_op_builder(op_name: str, builder: TTIRBuilder):
 ### ----------------------------------------------------------------------- ###
 
 
-def cosh(in0: Operand, in1: Operand, builder: TTIRBuilder):
-    neg_x = builder.neg(in0)
-
-    e_neg_x = builder.exp(neg_x)
-    e_pos_x = builder.exp(in0)
-
-    nr_term = builder.add(e_pos_x, e_neg_x)
-    ret_val = builder.multiply(nr_term, in1)
-
-    return ret_val
-
-
 # Everything should pass
 @pytest.mark.parametrize("grid", gridParams)
 @pytest.mark.parametrize(
@@ -198,10 +186,21 @@ def test_eltwise_fuse_cosh(
 ):
     options = [grid]
 
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape], [dtype, dtype])
+        def cosh(in0: Operand, in1: Operand, builder: TTIRBuilder):
+            neg_x = builder.neg(in0)
+
+            e_neg_x = builder.exp(neg_x)
+            e_pos_x = builder.exp(in0)
+
+            nr_term = builder.add(e_pos_x, e_neg_x)
+            ret_val = builder.multiply(nr_term, in1)
+
+            return ret_val
+
     compile_and_execute_ttir(
-        cosh,
-        [shape] * 2,
-        [dtype] * 2,
+        module,
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         test_base=request.node.name,
@@ -251,25 +250,25 @@ def test_eltwise_sanity_check_unary_op(
     request,
     device,
 ):
-    def unary_op_wrapper(
-        in0: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return repeat_op_chain(
-            op=unary_op_builder(op_name, builder),
-            inputs=[in0],
-            arity=1,
-            repeat_count=1,
-            num_inputs=1,
-        )
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def unary_op_wrapper(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return repeat_op_chain(
+                op=unary_op_builder(op_name, builder),
+                inputs=[in0],
+                arity=1,
+                repeat_count=1,
+                num_inputs=1,
+            )
 
     options = [grid]
 
     compile_and_execute_ttir(
-        unary_op_wrapper,
-        [shape],
-        [dtype],
+        module,
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         test_base=request.node.name,
@@ -285,36 +284,6 @@ def test_eltwise_sanity_check_unary_op(
 # Test: Long Unary Chain
 ### ----------------------------------------------------------------------- ###
 
-# unary ops are done in place, should be able to fuse
-# indefinitely
-def unary_chain(in0: Operand, builder: TTIRBuilder):
-    res_0 = builder.abs(in0)
-    res_1 = builder.sin(res_0)
-    res_2 = builder.neg(res_1)
-    res_3 = builder.exp(res_2)
-
-    res_4 = builder.abs(res_3)
-    res_5 = builder.cos(res_4)
-    res_6 = builder.neg(res_5)
-    res_7 = builder.exp(res_6)
-
-    res_8 = builder.neg(res_7)
-    res_9 = builder.sin(res_8)
-    res_10 = builder.neg(res_9)
-    res_11 = builder.exp(res_10)
-
-    res_12 = builder.abs(res_11)
-    res_13 = builder.cos(res_12)
-    res_14 = builder.neg(res_13)
-    res_15 = builder.exp(res_14)
-
-    res_16 = builder.neg(res_15)
-    res_17 = builder.sin(res_16)
-    res_18 = builder.neg(res_17)
-    res_19 = builder.exp(res_18)
-
-    return res_19
-
 
 @pytest.mark.parametrize("grid", gridParams)
 @pytest.mark.parametrize("shape", [(128, 128)])
@@ -323,13 +292,42 @@ def unary_chain(in0: Operand, builder: TTIRBuilder):
 def test_eltwise_fuse_unary_chain(
     grid: str, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
+    # unary ops are done in place, should be able to fuse
+    # indefinitely
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def unary_chain(in0: Operand, builder: TTIRBuilder):
+            res_0 = builder.abs(in0)
+            res_1 = builder.sin(res_0)
+            res_2 = builder.neg(res_1)
+            res_3 = builder.exp(res_2)
+
+            res_4 = builder.abs(res_3)
+            res_5 = builder.cos(res_4)
+            res_6 = builder.neg(res_5)
+            res_7 = builder.exp(res_6)
+
+            res_8 = builder.neg(res_7)
+            res_9 = builder.sin(res_8)
+            res_10 = builder.neg(res_9)
+            res_11 = builder.exp(res_10)
+
+            res_12 = builder.abs(res_11)
+            res_13 = builder.cos(res_12)
+            res_14 = builder.neg(res_13)
+            res_15 = builder.exp(res_14)
+
+            res_16 = builder.neg(res_15)
+            res_17 = builder.sin(res_16)
+            res_18 = builder.neg(res_17)
+            res_19 = builder.exp(res_18)
+
+            return res_19
 
     options = [grid]
 
     compile_and_execute_ttir(
-        unary_chain,
-        [shape],
-        [dtype],
+        module,
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         test_base=request.node.name,
@@ -346,22 +344,6 @@ def test_eltwise_fuse_unary_chain(
 ### ----------------------------------------------------------------------- ###
 
 
-def converging_unary_branches(
-    in0: Operand,
-    in1: Operand,
-    builder: TTIRBuilder,
-):
-    branch_0_0 = builder.abs(in0)
-    branch_0_1 = builder.exp(branch_0_0)
-    branch_0_2 = builder.neg(branch_0_1)
-
-    branch_1_0 = builder.neg(in1)
-    branch_1_1 = builder.exp(branch_1_0)
-    branch_1_2 = builder.abs(branch_1_1)
-
-    return builder.div(branch_0_2, branch_1_2)
-
-
 @pytest.mark.parametrize("grid", gridParams)
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
@@ -369,13 +351,27 @@ def converging_unary_branches(
 def test_eltwise_fuse_converging_unary_branches(
     grid: str, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape], [dtype, dtype])
+        def converging_unary_branches(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+        ):
+            branch_0_0 = builder.abs(in0)
+            branch_0_1 = builder.exp(branch_0_0)
+            branch_0_2 = builder.neg(branch_0_1)
+
+            branch_1_0 = builder.neg(in1)
+            branch_1_1 = builder.exp(branch_1_0)
+            branch_1_2 = builder.abs(branch_1_1)
+
+            return builder.div(branch_0_2, branch_1_2)
 
     options = [grid]
 
     compile_and_execute_ttir(
-        converging_unary_branches,
-        [shape] * 2,
-        [dtype] * 2,
+        module,
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         test_base=request.node.name,
@@ -402,58 +398,58 @@ def test_eltwise_fuse_binary_reduction_tree(
 ):
     options = [grid]
 
-    def add_tree_8_to_1(
-        in0: Operand,
-        in1: Operand,
-        in2: Operand,
-        in3: Operand,
-        in4: Operand,
-        in5: Operand,
-        in6: Operand,
-        in7: Operand,
-        builder: TTIRBuilder,
-    ):
-        input_0 = torch.full(shape, 1).to(dtype)
-        input_1 = torch.full(shape, 2).to(dtype)
-        input_2 = torch.full(shape, 3).to(dtype)
-        input_3 = torch.full(shape, 4).to(dtype)
-        input_4 = torch.full(shape, 5).to(dtype)
-        input_5 = torch.full(shape, 6).to(dtype)
-        input_6 = torch.full(shape, 7).to(dtype)
-        input_7 = torch.full(shape, 8).to(dtype)
+    def module(builder: TTIRBuilder):
+        @builder.func([shape] * 8, [dtype] * 8)
+        def add_tree_8_to_1(
+            in0: Operand,
+            in1: Operand,
+            in2: Operand,
+            in3: Operand,
+            in4: Operand,
+            in5: Operand,
+            in6: Operand,
+            in7: Operand,
+            builder: TTIRBuilder,
+        ):
+            input_0 = torch.full(shape, 1).to(dtype)
+            input_1 = torch.full(shape, 2).to(dtype)
+            input_2 = torch.full(shape, 3).to(dtype)
+            input_3 = torch.full(shape, 4).to(dtype)
+            input_4 = torch.full(shape, 5).to(dtype)
+            input_5 = torch.full(shape, 6).to(dtype)
+            input_6 = torch.full(shape, 7).to(dtype)
+            input_7 = torch.full(shape, 8).to(dtype)
 
-        add_0_0 = builder.add(in0, in1)
-        add_0_1 = builder.add(in2, in3)
-        add_1_0 = builder.add(add_0_0, add_0_1)
+            add_0_0 = builder.add(in0, in1)
+            add_0_1 = builder.add(in2, in3)
+            add_1_0 = builder.add(add_0_0, add_0_1)
 
-        add_0_2 = builder.add(in4, in5)
-        add_0_3 = builder.add(in6, in7)
-        add_1_1 = builder.add(add_0_2, add_0_3)
+            add_0_2 = builder.add(in4, in5)
+            add_0_3 = builder.add(in6, in7)
+            add_1_1 = builder.add(add_0_2, add_0_3)
 
-        add_2_0 = builder.add(add_1_0, add_1_1)
+            add_2_0 = builder.add(add_1_0, add_1_1)
 
-        output_0 = torch.full(shape, 36).to(dtype)
+            output_0 = torch.full(shape, 36).to(dtype)
 
-        builder.set_goldens(
-            {
-                in0: input_0,
-                in1: input_1,
-                in2: input_2,
-                in3: input_3,
-                in4: input_4,
-                in5: input_5,
-                in6: input_6,
-                in7: input_7,
-            },
-            {add_2_0: output_0},
-        )
+            builder.set_goldens(
+                {
+                    in0: input_0,
+                    in1: input_1,
+                    in2: input_2,
+                    in3: input_3,
+                    in4: input_4,
+                    in5: input_5,
+                    in6: input_6,
+                    in7: input_7,
+                },
+                {add_2_0: output_0},
+            )
 
-        return add_2_0
+            return add_2_0
 
     compile_and_execute_ttir(
-        add_tree_8_to_1,
-        [shape] * 8,
-        [dtype] * 8,
+        module,
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         test_base=request.node.name,
@@ -470,21 +466,6 @@ def test_eltwise_fuse_binary_reduction_tree(
 ### ----------------------------------------------------------------------- ###
 
 
-def diamond_unary_op_fanout(
-    in0: Operand,
-    builder: TTIRBuilder,
-):
-    abs_0 = builder.abs(in0)
-
-    ceil_0 = builder.ceil(abs_0)
-    neg_0 = builder.neg(ceil_0)
-
-    floor_0 = builder.floor(abs_0)
-    neg_1 = builder.neg(floor_0)
-
-    return builder.add(neg_0, neg_1)
-
-
 @pytest.mark.parametrize("grid", gridParams)
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
@@ -492,13 +473,26 @@ def diamond_unary_op_fanout(
 def test_diamond_unary_op_fanout(
     grid: str, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def diamond_unary_op_fanout(
+            in0: Operand,
+            builder: TTIRBuilder,
+        ):
+            abs_0 = builder.abs(in0)
+
+            ceil_0 = builder.ceil(abs_0)
+            neg_0 = builder.neg(ceil_0)
+
+            floor_0 = builder.floor(abs_0)
+            neg_1 = builder.neg(floor_0)
+
+            return builder.add(neg_0, neg_1)
 
     options = [grid]
 
     compile_and_execute_ttir(
-        diamond_unary_op_fanout,
-        [shape],
-        [dtype],
+        module,
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         test_base=request.node.name,

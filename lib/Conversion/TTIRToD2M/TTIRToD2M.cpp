@@ -1193,8 +1193,8 @@ class D2MToLayoutOpRewriter : public OpConversionPattern<ttir::ToLayoutOp> {
     Value empty = rewriter.create<d2m::EmptyOp>(op.getLoc(), outType.getShape(),
                                                 outType.getElementType(),
                                                 outType.getEncoding());
-    auto newOp = rewriter.create<d2m::ToLayoutOp>(
-        op.getLoc(), adaptor.getInput(), empty, nullptr);
+    auto newOp = rewriter.create<d2m::ToLayoutOp>(op.getLoc(),
+                                                  adaptor.getInput(), empty);
     rewriter.replaceOp(op, newOp.getResult(0));
     return success();
   }

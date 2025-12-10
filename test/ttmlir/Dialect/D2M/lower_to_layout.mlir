@@ -12,7 +12,8 @@ func.func @tilize(%arg0: tensor<1024x1024xf32>) -> tensor<8x8x4x4x!ttcore.tile<3
   // Verify the operation creates intermediate 8x8 distributed tensor
   // CHECK: %[[TILED:.*]] = d2m.empty() : tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #layout>
   // CHECK: %[[INTERMEDIATE:.*]] = d2m.empty() : tensor<8x8x128x128xf32, #layout{{[0-9]*}}>
-  // CHECK: %[[TO_DEVICE:.*]] = d2m.to_layout %arg0, %[[INTERMEDIATE]] : tensor<1024x1024xf32> into tensor<8x8x128x128xf32, #layout{{[0-9]*}}>
+  // Host-to-device transfer now uses dedicated d2m.to_device op
+  // CHECK: %[[TO_DEVICE:.*]] = d2m.to_device %arg0, %[[INTERMEDIATE]] layout = #layout{{[0-9]*}} : tensor<1024x1024xf32> into tensor<8x8x128x128xf32, #layout{{[0-9]*}}> -> tensor<8x8x128x128xf32, #layout{{[0-9]*}}>
   // CHECK: %[[RESULT:.*]] = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<8x8>
   // CHECK-SAME: threads = [#d2m.thread<compute>]
   // CHECK-NEXT: ins(%[[TO_DEVICE]] : tensor<8x8x128x128xf32, #layout{{[0-9]*}}>)
@@ -56,7 +57,8 @@ func.func @untilize(%arg0: tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #layout>) ->
   // CHECK: %[[UNTILIZED:.*]] = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<8x8>
   // CHECK-SAME: threads = [#d2m.thread<compute>]
   // CHECK: d2m.tile_untilize_block
-  // CHECK: d2m.to_layout %[[UNTILIZED]], %[[HOST]] : tensor<8x8x128x128xf32, #layout{{[0-9]*}}> into tensor<1024x1024xf32>
+  // Device-to-host transfer now uses dedicated d2m.to_host op
+  // CHECK: d2m.to_host %[[UNTILIZED]], %[[HOST]] layout = #layout{{[0-9]*}} : tensor<8x8x128x128xf32, #layout{{[0-9]*}}> into tensor<1024x1024xf32>
 
   %1 = d2m.to_layout %arg0, %0 : tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #layout> into tensor<1024x1024xf32>
     -> tensor<1024x1024xf32>
@@ -71,12 +73,14 @@ func.func @compound(%arg0: tensor<256x768xf32>) -> tensor<256x768xf32> {
 
   // CHECK-LABEL: @compound
   // CHECK: d2m.empty() : tensor<8x8x32x96xf32, #layout{{[0-9]*}}>
-  // CHECK: d2m.to_layout %arg0, %{{.*}} : tensor<256x768xf32> into tensor<8x8x32x96xf32, #layout{{[0-9]*}}>
+  // Host-to-device transfer uses d2m.to_device
+  // CHECK: d2m.to_device %arg0, %{{.*}} layout = #layout{{[0-9]*}} : tensor<256x768xf32> into tensor<8x8x32x96xf32, #layout{{[0-9]*}}>
   // CHECK: d2m.generic {{{.*}}grid = #ttcore.grid<8x8>{{.*}}threads = [#d2m.thread<compute>]
   // CHECK: d2m.tile_tilize_block
   // CHECK: d2m.generic {{{.*}}grid = #ttcore.grid<8x8>{{.*}}threads = [#d2m.thread<compute>]
   // CHECK: d2m.tile_untilize_block
-  // CHECK: d2m.to_layout %{{.*}} : tensor<8x8x32x96xf32, #layout{{[0-9]*}}> into tensor<256x768xf32>
+  // Device-to-host transfer uses d2m.to_host
+  // CHECK: d2m.to_host %{{.*}} layout = #layout{{[0-9]*}} : tensor<8x8x32x96xf32, #layout{{[0-9]*}}> into tensor<256x768xf32>
 
   %2 = d2m.to_layout %arg0, %0 : tensor<256x768xf32> into tensor<8x8x1x3x!ttcore.tile<32x32, f32>, #layout2>
     -> tensor<8x8x1x3x!ttcore.tile<32x32, f32>, #layout2>
@@ -101,7 +105,8 @@ func.func @old_behavior_example(%arg0: tensor<1024x1024xf32>) -> tensor<8x8x4x4x
 
   // But the new implementation should produce the same output as distributed_tilize:
   // CHECK: d2m.empty() : tensor<8x8x128x128xf32, #layout{{[0-9]*}}>
-  // CHECK: d2m.to_layout %arg0, %{{.*}} : tensor<1024x1024xf32> into tensor<8x8x128x128xf32, #layout{{[0-9]*}}>
+  // Host-to-device transfer uses d2m.to_device
+  // CHECK: d2m.to_device %arg0, %{{.*}} layout = #layout{{[0-9]*}} : tensor<1024x1024xf32> into tensor<8x8x128x128xf32, #layout{{[0-9]*}}>
   // CHECK: d2m.generic {{{.*}}grid = #ttcore.grid<8x8>{{.*}}threads = [#d2m.thread<compute>]
 
   %1 = d2m.to_layout %arg0, %0 : tensor<1024x1024xf32> into tensor<8x8x4x4x!ttcore.tile<32x32, f32>, #layout>
