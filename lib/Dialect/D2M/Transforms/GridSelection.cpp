@@ -131,7 +131,7 @@ computeGridAwareDimAlignments(ArrayRef<int64_t> logicalShape,
 // Virtual Grid
 //--------------------------------------------------------
 
-static std::pair<unsigned, double>
+std::pair<unsigned, double>
 findMaxDimAndAspectRatio(ArrayRef<int64_t> physicalShape) {
 
   // Find max aspect ratio between any dim and the other dims combined.
@@ -153,99 +153,36 @@ findMaxDimAndAspectRatio(ArrayRef<int64_t> physicalShape) {
   return {maxDimIndex, aspectRatio};
 }
 
-/// Finds a 2D grid (y, x) such that y * x = grid volume.
-/// The returned grid aims to be as square as possible while respecting the
-/// provided target grid shape bounds.
-static llvm::SmallVector<int64_t>
-findLegalPhysicalGridForVolume(int64_t gridVolume,
-                               ArrayRef<int64_t> targetGridShape) {
-  TT_assertv(gridVolume > 0, "Grid volume must be positive");
-  TT_assertv(targetGridShape.size() >= 2u,
-             "Target grid shape must provide at least two dimensions");
-  TT_assertv((targetGridShape[0] > 0 && targetGridShape[1] > 0),
-             "Target grid dimensions must be positive");
-
-  auto fitsTarget = [&](int64_t dimY, int64_t dimX) {
-    return dimY <= targetGridShape[0] && dimX <= targetGridShape[1];
-  };
-
-  int64_t y = 1;
-  // Find the largest factor of grid volume that is <= sqrt(gridVolume)
-  for (int64_t i = static_cast<int64_t>(std::sqrt(gridVolume)); i > 0; --i) {
-    if (gridVolume % i == 0) {
-      int64_t candidateY = i;
-      int64_t candidateX = gridVolume / i;
-      if (fitsTarget(candidateY, candidateX)) {
-        return {candidateY, candidateX};
-      }
-      if (fitsTarget(candidateX, candidateY)) {
-        return {candidateX, candidateY};
-      }
-      if (y == 1) {
-        y = candidateY;
-      }
-    }
-  }
-  TT_assertv(false,
-             "Unable to find 2D grid with volume {} within target grid {}",
-             gridVolume, ttmlir::utils::formatIterable(targetGridShape, "x"));
-  return {};
+int64_t getTargetGridVolume(ArrayRef<int64_t> targetSquareGridShape) {
+  return std::accumulate(targetSquareGridShape.begin(),
+                         targetSquareGridShape.end(), uint64_t{1},
+                         std::multiplies<uint64_t>());
 }
 
-static llvm::SmallVector<int64_t>
-computeOptimalBlockShardedGrid(ArrayRef<int64_t> physicalShape,
-                               ArrayRef<int64_t> targetSquareGridShape);
-
-static llvm::SmallVector<int64_t>
+llvm::SmallVector<int64_t>
 computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
                           ArrayRef<int64_t> targetSquareGridShape) {
 
-  int64_t targetGridVolume = ttmlir::utils::volume(targetSquareGridShape);
-  if (physicalShape.size() != 2) {
-
-    // Compute factors for all dims.
-    SmallVector<SmallVector<int64_t>> factors =
-        llvm::to_vector(llvm::map_range(physicalShape, [](int64_t dim) {
-          return ttmlir::utils::getFactors(dim);
-        }));
-
-    auto factorCombinations =
-        ttmlir::utils::computeCartesianProduct<int64_t>(factors);
-
-    // Find grid with the greatest volume that is less than or equal to the
-    // target grid volume.
-    SmallVector<int64_t> bestGrid = {0};
-    int64_t bestGridVolume = 0;
-    for (const auto &grid : factorCombinations) {
-      int64_t gridVolume = ttmlir::utils::volume<int64_t>(grid);
-      if (gridVolume <= targetGridVolume && gridVolume > bestGridVolume) {
-        bestGrid = grid;
-        bestGridVolume = ttmlir::utils::volume<int64_t>(bestGrid);
-      }
-    }
-    return bestGrid;
-  }
-
-  // If not ND sharded, compute grid for 2D height or width sharding (Nx1, 1xN).
   auto [shardedDimIndex, aspectRatio] = findMaxDimAndAspectRatio(physicalShape);
 
   // for now, can only support if largest dim is divisible by grid volume
-  TT_assertv((physicalShape[shardedDimIndex] % targetGridVolume == 0),
+  int64_t gridVolume = getTargetGridVolume(targetSquareGridShape);
+  TT_assertv((physicalShape[shardedDimIndex] % gridVolume == 0),
              "Sharded dimension {} in virtual gridPhysical shape dimension is "
              "not divisible by grid volume {}",
-             shardedDimIndex, targetGridVolume);
+             shardedDimIndex, gridVolume);
 
   llvm::SmallVector<int64_t> grid;
   for (size_t i = 0; i < physicalShape.size(); ++i) {
     if (i == shardedDimIndex) {
-      grid.push_back(targetGridVolume);
+      grid.push_back(gridVolume);
     } else {
       grid.push_back(1);
     }
   }
   int64_t virtualGridVolume =
       std::accumulate(grid.begin(), grid.end(), 1, std::multiplies<int64_t>());
-  TT_assertv((virtualGridVolume % targetGridVolume == 0),
+  TT_assertv((virtualGridVolume % gridVolume == 0),
              "Virtual grid volume should be divisible by target grid volume");
   return grid;
 }
@@ -322,33 +259,18 @@ computeOptimalBlockShardedGrid(ArrayRef<int64_t> physicalShape,
 // The following is a simple heuristic that determines (A) if a tensor _can_
 // be implemented as a virtual grid and (B) if it makes sense to do so based
 // on low grid utilization with regular block sharding.
-static bool
-shouldImplementAsVirtualGrid(RankedTensorType tensorType,
-                             ArrayRef<int64_t> physicalShape,
-                             ArrayRef<int64_t> targetSquareGridShape) {
+bool shouldImplementAsVirtualGrid(ArrayRef<int64_t> physicalShape,
+                                  ArrayRef<int64_t> targetSquareGridShape) {
 
-  auto layout =
-      mlir::dyn_cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
-  TT_assert(layout);
-
-  // Interleaved tensors should never be implemented as virtual grids.
-  if (layout.getMemoryLayout() == ttcore::TensorMemoryLayout::Interleaved) {
-    return false;
-  }
-
-  // Tensors with collapsed dims are not currently supported as virtual grids.
-  if (layout.hasNonTrivialCollapsedDims(tensorType.getShape())) {
-    return false;
-  }
+  // For now, only 2D virtual grids are supported.
   if (physicalShape.size() != 2) {
-    return true;
+    return false;
   }
 
   auto [maxRatioIndex, aspectRatio] = findMaxDimAndAspectRatio(physicalShape);
   auto regularShardedGridVolume = ttmlir::utils::volume<int64_t>(
       computeOptimalBlockShardedGrid(physicalShape, targetSquareGridShape));
-  int64_t targetGridVolume =
-      ttmlir::utils::volume<int64_t>(targetSquareGridShape);
+  int64_t targetGridVolume = getTargetGridVolume(targetSquareGridShape);
   bool lowGridUtilization = regularShardedGridVolume < 0.5 * targetGridVolume;
   bool dimIsDivisibleByGridVolume =
       physicalShape[maxRatioIndex] % targetGridVolume == 0;
@@ -356,10 +278,11 @@ shouldImplementAsVirtualGrid(RankedTensorType tensorType,
 }
 
 static std::pair<llvm::SmallVector<int64_t>, bool>
-computeOptimalGrid(RankedTensorType tensorType, ArrayRef<int64_t> physicalShape,
-                   ArrayRef<int64_t> targetSquareGridShape) {
-  if (shouldImplementAsVirtualGrid(tensorType, physicalShape,
-                                   targetSquareGridShape)) {
+computeOptimalGrid(ArrayRef<int64_t> physicalShape,
+                   ArrayRef<int64_t> targetSquareGridShape,
+                   bool isInterleaved) {
+  if (!isInterleaved &&
+      shouldImplementAsVirtualGrid(physicalShape, targetSquareGridShape)) {
     return {computeOptimalVirtualGrid(physicalShape, targetSquareGridShape),
             true};
   }
@@ -380,10 +303,8 @@ static ttcore::MetalLayoutAttr layoutWithOptimalGrid(
   // If using a virtual grid, compute required forward index affine map.
   AffineMap indexAffineMap = oldLayout.getIndexAffineMap();
   if (isVirtualGrid) {
-    auto physicalGridShape = findLegalPhysicalGridForVolume(
-        ttmlir::utils::volume(optimalGrid), targetSquareGridShape);
     auto [fwdMap, _] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
-        builder.getContext(), optimalGrid, physicalGridShape);
+        builder.getContext(), optimalGrid, targetSquareGridShape);
     indexAffineMap = fwdMap;
   }
 
@@ -534,8 +455,11 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
     llvm::SmallVector<int64_t> physShape = computePhysicalShape(
         operandLayout, operandType, targetSquareGridShape, builder);
 
+    // Interleaved tensors do not support virtual grids
+    bool isInterleaved = operandLayout.getMemoryLayout() ==
+                         ttcore::TensorMemoryLayout::Interleaved;
     auto [optimalGrid, isVirtualGrid] =
-        computeOptimalGrid(operandType, physShape, targetSquareGridShape);
+        computeOptimalGrid(physShape, targetSquareGridShape, isInterleaved);
 
     optimalOperandGrids.push_back(optimalGrid);
 
@@ -558,8 +482,10 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
 
           llvm::SmallVector<int64_t> inputPhysShape = computePhysicalShape(
               inputLayout, inputType, targetSquareGridShape, builder);
+          bool isInterleaved = inputLayout.getMemoryLayout() ==
+                               ttcore::TensorMemoryLayout::Interleaved;
           auto [inputOptimalGrid, isVirtualGrid] = computeOptimalGrid(
-              inputType, inputPhysShape, targetSquareGridShape);
+              inputPhysShape, targetSquareGridShape, isInterleaved);
 
           toLayoutsToUpdate.push_back(
               {toLayoutOp, inputOptimalGrid, isVirtualGrid});
@@ -655,9 +581,7 @@ updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
     mlir::AffineMap reblockMap = ttmlir::utils::calculateReblockMap(
         outputStreamType.getShape(), newStorageShape, builder.getContext());
     auto newOutputIndexMap =
-        outputLayout.getIndexAffineMapOrIdentity(outputStreamType.getRank())
-            .compose(reblockMap);
-
+        outputLayout.getIndexAffineMap().compose(reblockMap);
     auto newOutputLayout = ttcore::MetalLayoutAttr::get(
         builder.getContext(), outputLayout.getLogicalShape(),
         storageDimAlignments, outputLayout.getCollapsedIntervals(),
@@ -862,7 +786,6 @@ computeTTNNGenericGridShapes(GenericOp genericOp,
   };
 
   // Set all grid shapes according to constraints
-  OpBuilder builder(genericOp->getContext());
   for (auto [operandIdx, operand] : llvm::enumerate(genericOp.getOperands())) {
 
     auto constrainedDims = getConstrainedDims(operandIdx);
@@ -874,27 +797,12 @@ computeTTNNGenericGridShapes(GenericOp genericOp,
       auto metalTensor = mlir::cast<mlir::RankedTensorType>(operand.getType());
       auto baseMetalLayout =
           mlir::cast<ttcore::MetalLayoutAttr>(metalTensor.getEncoding());
-      auto constrainedDims = getConstrainedDims(operandIdx);
-
-      // Compute constrained target grid shape as min of targetSquareGridShape
-      // and constrainedDims (if constrainedDim > 0), else use
-      // targetSquareGridShape.
-      llvm::SmallVector<int64_t> constrainedTargetGridShape =
-          llvm::to_vector(targetSquareGridShape);
-      if (constrainedDims.size() == targetSquareGridShape.size()) {
-        for (size_t i = 0; i < targetSquareGridShape.size(); ++i) {
-          if (constrainedDims[i] > 0) {
-            constrainedTargetGridShape[i] =
-                std::min(constrainedDims[i], targetSquareGridShape[i]);
-          }
-        }
-      }
-
-      auto physicalShape = computePhysicalShape(
-          baseMetalLayout, metalTensor, constrainedTargetGridShape, builder);
       optimalOperandGrids[operandIdx] =
-          computeOptimalGrid(metalTensor, physicalShape,
-                             constrainedTargetGridShape)
+          computeOptimalGrid(baseMetalLayout.getPhysicalShape(
+                                 ttcore::TileType::getDefaultShape()),
+                             targetSquareGridShape,
+                             baseMetalLayout.getMemoryLayout() ==
+                                 ttcore::TensorMemoryLayout::Interleaved)
               .first;
     }
   }

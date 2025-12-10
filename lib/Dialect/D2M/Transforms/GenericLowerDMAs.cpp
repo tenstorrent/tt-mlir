@@ -69,9 +69,10 @@ public:
     // Compute virtualized core indices from raw physical core indices using the
     // core virtualization map. This ensures both grid and shard indices are
     // in the virtual (viewed) coord space of the generic op's output operand.
-    constexpr unsigned numPhysicalGridDims = 2;
-    SmallVector<Value> physicalCoreIndices(numPhysicalGridDims);
-    for (unsigned gridIndex = 0; gridIndex < numPhysicalGridDims; gridIndex++) {
+    SmallVector<Value> physicalCoreIndices(
+        outputOperandIndexingMap.getNumResults());
+    for (unsigned gridIndex = 0;
+         gridIndex < outputOperandIndexingMap.getNumResults(); gridIndex++) {
       physicalCoreIndices[gridIndex] = builder.create<CoreIndexOp>(
           loc, builder.getIndexType(), builder.getI64IntegerAttr(gridIndex));
     }

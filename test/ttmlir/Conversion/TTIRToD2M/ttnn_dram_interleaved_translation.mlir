@@ -8,21 +8,21 @@
 // CHECK: #layout1 = #ttcore.metal_layout<logical_shape = 1024x1024, dim_alignments = 32x32, collapsed_intervals
 // CHECK-SAME: l1
 // CHECK: #layout2 = #ttcore.metal_layout<logical_shape = 1024x1024, dim_alignments = 32x32, collapsed_intervals
-// CHECK-SAME: dram, interleaved, index_map = (d0, d1, d2, d3) -> (0, 0, (d0 * 4 + d2 + (d1 * 4 + d3) floordiv 32) mod 32, (d1 * 4 + d3) mod 32)>
+// CHECK-SAME: dram, interleaved, index_map = (d0, d1, d2, d3) -> ((d0 * 4 + d2) floordiv 32, (d1 * 4 + d3) floordiv 32, (d0 * 4 + d2) mod 32, (d1 * 4 + d3) mod 32)>
 
 // CHECK: #layout3 = #ttcore.metal_layout<logical_shape = 2x512x1024, dim_alignments = 1x32x32, collapsed_intervals
 // CHECK-SAME: dram, interleaved
 // CHECK: #layout4 = #ttcore.metal_layout<logical_shape = 2x512x1024, dim_alignments = 1x32x32, collapsed_intervals
 // CHECK-SAME: l1
 // CHECK: #layout5 = #ttcore.metal_layout<logical_shape = 2x512x1024, dim_alignments = 1x32x32, collapsed_intervals
-// CHECK-SAME: dram, interleaved, index_map = (d0, d1, d2, d3) -> (0, 0, (d0 * 4 + d2 + (d1 * 4 + d3) floordiv 32) mod 32, (d1 * 4 + d3) mod 32)>
+// CHECK-SAME: dram, interleaved, index_map = (d0, d1, d2, d3) -> ((d0 * 4 + d2) floordiv 32, (d1 * 4 + d3) floordiv 32, (d0 * 4 + d2) mod 32, (d1 * 4 + d3) mod 32)>
 
 // CHECK: #layout6 = #ttcore.metal_layout<logical_shape = 2x2x256x1024, dim_alignments = 1x1x32x32, collapsed_intervals
 // CHECK-SAME: dram, interleaved
 // CHECK: #layout7 = #ttcore.metal_layout<logical_shape = 2x2x256x1024, dim_alignments = 1x1x32x32, collapsed_intervals
 // CHECK-SAME: l1
 // CHECK: #layout8 = #ttcore.metal_layout<logical_shape = 2x2x256x1024, dim_alignments = 1x1x32x32, collapsed_intervals
-// CHECK-SAME: dram, interleaved, index_map = (d0, d1, d2, d3) -> (0, 0, (d0 * 4 + d2 + (d1 * 4 + d3) floordiv 32) mod 32, (d1 * 4 + d3) mod 32)>
+// CHECK-SAME: dram, interleaved, index_map = (d0, d1, d2, d3) -> ((d0 * 4 + d2) floordiv 32, (d1 * 4 + d3) floordiv 32, (d0 * 4 + d2) mod 32, (d1 * 4 + d3) mod 32)>
 
 
 // Interleaved - Rank 2 layouts
