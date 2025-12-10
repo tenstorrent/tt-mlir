@@ -85,7 +85,7 @@ jobs:
         with:
           payload: |
             {
-              "text": "${{ needs.test.outputs.failed-test-summary }}", "job_link": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}",
+              "text": ${{ needs.test.outputs.failed-test-summary }}, "job_link": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}",
               "channel": "C07FJP9B87M"
             }
         env:
