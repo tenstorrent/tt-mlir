@@ -107,7 +107,7 @@ def test_ternary_eltwise_ops_implicit_broadcast(
             return builder.where(in0, in1, in2, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
-        test_fn,
+        module_implicit_broadcast,
         shapes,
         [dtype1, dtype2, dtype3],
         test_base=request.node.name,

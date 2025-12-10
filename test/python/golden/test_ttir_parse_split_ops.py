@@ -15,9 +15,6 @@ from builder.base.builder_apis import (
     build_module,
     load_mlir_file,
     split_mlir_file,
-    compile_ttir_module_to_flatbuffer,
-    execute_fb,
-    compile_and_execute_ttir,
 )
 from builder.base.builder_runtime import *
 

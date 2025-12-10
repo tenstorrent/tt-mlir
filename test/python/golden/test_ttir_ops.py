@@ -1012,31 +1012,31 @@ def test_batch_norm_training(
         # ResNet-style max pooling: 3x3 window, stride 2 (NCHW format)
         (
             "Max",
-            [1, 1, 3, 3],
-            [1, 1, 2, 2],
+            [1, 3, 3, 1],
+            [1, 2, 2, 1],
             [0, 0, 0, 0, 0, 0, 0, 0],
             [1, 1, 1, 1],
         ),
         # Average pooling: 2x2 window, stride 2 (NCHW format)
         (
             "Average",
-            [1, 1, 2, 2],
-            [1, 1, 2, 2],
+            [1, 2, 2, 1],
+            [1, 2, 2, 1],
             [0, 0, 0, 0, 0, 0, 0, 0],
             [1, 1, 1, 1],
         ),
         # Sum pooling: 2x2 window, stride 2 (NCHW format)
         (
             "Sum",
-            [1, 1, 2, 2],
-            [1, 1, 2, 2],
+            [1, 2, 2, 1],
+            [1, 2, 2, 1],
             [0, 0, 0, 0, 0, 0, 0, 0],
             [1, 1, 1, 1],
         ),
         # Max pooling with padding (NCHW format)
         (
             "Max",
-            [1, 1, 3, 3],
+            [1, 3, 3, 1],
             [1, 1, 1, 1],
             [0, 0, 0, 0, 1, 1, 1, 1],
             [1, 1, 1, 1],
@@ -1159,11 +1159,42 @@ def test_zeros(shape: Shape, dtype: torch.dtype, request, device):
 
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=["128x128"])
-def test_ones(shape: Shape, request, device):
+@pytest.mark.parametrize(
+    "dtype", [torch.bfloat16, torch.float32, torch.int32], ids=["bf16", "f32", "i32"]
+)
+def test_ones(shape: Shape, dtype: torch.dtype, request, device):
     def module(builder: TTIRBuilder):
         @builder.func([], [])
         def ones(builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
-            return builder.ones(shape, unit_attrs=unit_attrs)
+            return builder.ones(shape, dtype, unit_attrs=unit_attrs)
+
+    compile_and_execute_ttir(
+        module,
+        test_base=request.node.name,
+        device=device,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize("shape", [(32, 32)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("low,high,seed", [(0.0, 1.0, 0)])
+def test_rand(
+    shape: Shape,
+    dtype: torch.dtype,
+    low: float,
+    high: float,
+    seed: int,
+    request,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([], [])
+        def rand(builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
+            return builder.rand(
+                shape, dtype, low=low, high=high, seed=seed, unit_attrs=unit_attrs
+            )
 
     compile_and_execute_ttir(
         module,
@@ -1415,16 +1446,32 @@ def test_upsample2d(shapes: List[Shape], scale_factor: List[int], request, devic
     )
 
 
-@pytest.mark.parametrize("shape,start,end,step,dim", [((5,), 0, 5, 1, 0)])
+@pytest.mark.parametrize(
+    "shape,dtype,start,end,step,dim",
+    [
+        ((5,), torch.float32, 0, 5, 1, 0),
+        ((5, 3), torch.int64, 0, 5, 1, 0),
+        ((5, 3), torch.int64, 0, 3, 1, 1),
+    ],
+)
 def test_arange(
-    shape: Shape, start: int, end: int, step: int, dim: int, request, device
+    shape: Shape,
+    dtype: torch.dtype,
+    start: int,
+    end: int,
+    step: int,
+    dim: int,
+    request,
+    device,
 ):
     def module(builder: TTIRBuilder):
         @builder.func([shape], [torch.float32])
         def arange(
             in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
         ):
-            return builder.arange(in0, start, end, step, dim, unit_attrs=unit_attrs)
+            return builder.arange(
+                shape, dtype, start, end, step, dim, unit_attrs=unit_attrs
+            )
 
     compile_and_execute_ttir(
         module,
