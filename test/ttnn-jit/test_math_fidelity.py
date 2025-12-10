@@ -29,12 +29,12 @@ def abs(input_tensor):
         ttnn.MathFidelity.HiFi3,
         ttnn.MathFidelity.HiFi4,
         "default",
-        "invalid",
+        ttnn.MathFidelity.Invalid,
     ],
     ids=["LoFi", "HiFi2", "HiFi3", "HiFi4", "default", "invalid"],
 )
 def test_math_fidelity(device, math_fidelity):
-    if math_fidelity == "invalid":
+    if math_fidelity == ttnn.MathFidelity.Invalid:
         pytest.xfail("Invalid math fidelity raises runtime error.")
 
     if math_fidelity == "default":
