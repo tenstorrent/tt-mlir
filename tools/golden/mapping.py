@@ -3733,7 +3733,7 @@ def stablehlo_log_golden(
     return torch.log(input_tensor).to(output_dtype)
 
 
-def stablehlo_log_plus_one_golden(
+def stablehlo_log1p_golden(
     input_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
@@ -3821,6 +3821,59 @@ def stablehlo_tanh_golden(
 ) -> GoldenMapTensor:
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     return torch.tanh(input_tensor).to(output_dtype)
+
+
+def stablehlo_sort_golden(
+    input_tensors: Tuple[GoldenMapTensor, ...],
+    dimension: int,
+    is_stable: bool,
+    single_input: bool,
+) -> Tuple[GoldenMapTensor, ...]:
+    """
+    Golden function for stablehlo.sort operation.
+
+    Args:
+        input_tensors: Tuple of tensors to sort (always a tuple, even for single input)
+        dimension: Dimension along which to sort
+        is_stable: Whether to use stable sorting
+        single_input: True if single input (return values + indices), False if multiple inputs
+
+    Returns:
+        Tuple of sorted tensors. If single_input=True, returns (sorted_values, indices).
+        If single_input=False, returns sorted versions of all input tensors.
+    """
+    if single_input:
+        # Single input case: return sorted values and indices
+        tensor = input_tensors[0]
+
+        if is_stable:
+            sorted_values, indices = torch.sort(tensor, dim=dimension, stable=True)
+        else:
+            sorted_values, indices = torch.sort(tensor, dim=dimension, stable=False)
+
+        # Convert indices to int32 to match StableHLO behavior
+        indices = indices.to(torch.int32)
+        return (sorted_values, indices)
+    else:
+        # Multiple inputs case: sort all tensors together
+        # The first tensor determines the sort order, others follow
+        if len(input_tensors) == 0:
+            return ()
+
+        # Sort the first tensor to get indices
+        first_tensor = input_tensors[0]
+        if is_stable:
+            _, indices = torch.sort(first_tensor, dim=dimension, stable=True)
+        else:
+            _, indices = torch.sort(first_tensor, dim=dimension, stable=False)
+
+        # Apply the same ordering to all tensors
+        sorted_tensors = []
+        for tensor in input_tensors:
+            sorted_tensor = torch.gather(tensor, dimension, indices)
+            sorted_tensors.append(sorted_tensor)
+
+        return tuple(sorted_tensors)
 
 
 def stablehlo_transpose_golden(
@@ -4168,12 +4221,13 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.ExpOp: torch.exp,
     stablehlo.FloorOp: torch.floor,
     stablehlo.LogOp: stablehlo_log_golden,
-    stablehlo.Log1pOp: stablehlo_log_plus_one_golden,
+    stablehlo.Log1pOp: stablehlo_log1p_golden,
     stablehlo.LogisticOp: stablehlo_logistic_golden,
     stablehlo.NegOp: stablehlo_neg_golden,
     stablehlo.ReshapeOp: stablehlo_reshape_golden,
     stablehlo.RsqrtOp: stablehlo_rsqrt_golden,
     stablehlo.SineOp: stablehlo_sine_golden,
+    stablehlo.SortOp: stablehlo_sort_golden,
     stablehlo.SqrtOp: stablehlo_sqrt_golden,
     stablehlo.TanOp: stablehlo_tan_golden,
     stablehlo.TanhOp: stablehlo_tanh_golden,

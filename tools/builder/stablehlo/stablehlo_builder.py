@@ -1005,7 +1005,7 @@ class StableHLOBuilder(Builder):
     ############### stablehlo.Log1pOp ###############
 
     @tag(stablehlo.Log1pOp)
-    def log_plus_one(
+    def log1p(
         self,
         in0: Operand,
         output_type: Optional[torch.dtype] = None,
@@ -1013,7 +1013,7 @@ class StableHLOBuilder(Builder):
         unit_attrs: Optional[List[str]] = None,
         sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
     ) -> OpResult:
-        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.log_plus_one)
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.log1p)
 
         if output_type is None:
             mlir_output_type = self.get_type(in0)
@@ -1047,12 +1047,12 @@ class StableHLOBuilder(Builder):
         return op.result
 
     @parse(stablehlo.Log1pOp)
-    def log_plus_one_parser(
+    def log1p_parser(
         self,
         old_op: stablehlo.Log1pOp,
         global_dict: Dict[Operand, Operand],
     ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
-        stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.log_plus_one_parser)
+        stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.log1p_parser)
         in0 = global_dict[old_op.operand]
 
         new_op = stablehlo_op(
@@ -1071,22 +1071,22 @@ class StableHLOBuilder(Builder):
         return new_op, op_map_dictionary
 
     @split(stablehlo.Log1pOp)
-    def log_plus_one_split(
+    def log1p_split(
         self,
         old_op: stablehlo.Log1pOp,
     ) -> Tuple[Module, StableHLOBuilder]:
-        stablehlo_op = self.get_opview_from_split(StableHLOBuilder.log_plus_one_split)
+        stablehlo_op = self.get_opview_from_split(StableHLOBuilder.log1p_split)
 
         old_ctx = old_op.context
         old_loc = Location.unknown(old_ctx)
         with old_ctx, old_loc:
-            log_plus_one_module = Module.create()
-            log_plus_one_builder = StableHLOBuilder(old_ctx, old_loc)
+            log1p_module = Module.create()
+            log1p_builder = StableHLOBuilder(old_ctx, old_loc)
             op_input_types = [old_op.operand.type]
 
-            with InsertionPoint(log_plus_one_module.body):
+            with InsertionPoint(log1p_module.body):
 
-                @func.func(*op_input_types, name="log_plus_one_module")
+                @func.func(*op_input_types, name="log1p_module")
                 def decorated_func(*inputs):
                     in0 = inputs[0]
                     new_op = stablehlo_op(in0, loc=old_op.location)
@@ -1097,16 +1097,14 @@ class StableHLOBuilder(Builder):
                         golden_output = op_golden_function(
                             input0, old_op.result.type.element_type
                         )
-                        log_plus_one_builder._set_golden_tensor(
-                            new_op.result, golden_output
-                        )
-                        log_plus_one_builder._set_output_ordering([new_op.result])
-                        log_plus_one_builder._set_golden_tensor(in0, input0)
-                        log_plus_one_builder._set_input_ordering([in0])
+                        log1p_builder._set_golden_tensor(new_op.result, golden_output)
+                        log1p_builder._set_output_ordering([new_op.result])
+                        log1p_builder._set_golden_tensor(in0, input0)
+                        log1p_builder._set_input_ordering([in0])
 
                     return new_op
 
-        return log_plus_one_module, log_plus_one_builder
+        return log1p_module, log1p_builder
 
     ############### stablehlo.LogisticOp ###############
 
@@ -1596,6 +1594,164 @@ class StableHLOBuilder(Builder):
                     return new_op
 
         return reshape_module, reshape_builder
+
+    ############### stablehlo.SortOp ###############
+
+    @tag(stablehlo.SortOp)
+    def sort(
+        self,
+        inputs: List[Operand],
+        dimension: int = -1,
+        is_stable: bool = False,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.sort)
+
+        # Determine if this is single input mode (return values + indices)
+        single_input = len(inputs) == 1
+
+        input_type = RankedTensorType(inputs[0].type)
+        input_shape = list(input_type.shape)
+
+        # Handle negative dimension
+        if dimension < 0:
+            dimension = len(input_shape) + dimension
+
+        dimension_attr = IntegerAttr.get(IntegerType.get_signless(64), dimension)
+        is_stable_attr = BoolAttr.get(is_stable)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        # Determine result types based on input configuration
+        if single_input:
+            # Single input: return sorted tensor + indices
+            result = [
+                inputs[0].type,
+                RankedTensorType.get(input_shape, IntegerType.get_signless(32)),
+            ]
+        else:
+            # Multiple inputs: return sorted versions of all inputs
+            result = [inp.type for inp in inputs]
+
+        op = stablehlo_op(
+            result,
+            inputs,
+            dimension=dimension_attr,
+            is_stable=is_stable_attr,
+            loc=loc,
+        )
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            input_tensors = tuple([self._get_golden_tensor(inp) for inp in inputs])
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_outputs = op_golden_function(
+                input_tensors, dimension, is_stable, single_input
+            )
+            for i, result in enumerate(op.results):
+                self._set_golden_tensor(result, golden_outputs[i])
+
+        return op.results
+
+    @parse(stablehlo.SortOp)
+    def sort_parser(
+        self,
+        old_op: stablehlo.SortOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.sort_parser)
+        inputs = [global_dict[operand] for operand in old_op.inputs]
+        dimension_attr = old_op.dimension
+        is_stable_attr = old_op.is_stable
+
+        result_types = [result.type for result in old_op.results]
+
+        new_op = stablehlo_op(
+            result_types,
+            inputs,
+            dimension=dimension_attr,
+            is_stable=is_stable_attr,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input_tensors = tuple([self._get_golden_tensor(inp) for inp in inputs])
+            op_golden_function = get_golden_function(stablehlo_op)
+            single_input = len(inputs) == 1 and len(old_op.results) == 2
+            golden_outputs = op_golden_function(
+                input_tensors, dimension_attr.value, is_stable_attr.value, single_input
+            )
+            for i, result in enumerate(new_op.results):
+                self._set_golden_tensor(result, golden_outputs[i])
+
+        op_map_dictionary = {}
+        for i, result in enumerate(old_op.results):
+            op_map_dictionary[result] = new_op.results[i]
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.SortOp)
+    def sort_split(
+        self,
+        old_op: stablehlo.SortOp,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        stablehlo_op = self.get_opview_from_split(StableHLOBuilder.sort_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            sort_module = Module.create()
+            sort_builder = StableHLOBuilder(old_ctx, old_loc)
+            op_input_types = [operand.type for operand in old_op.inputs]
+
+            with InsertionPoint(sort_module.body):
+
+                @func.func(*op_input_types, name="sort_module")
+                def decorated_func(*inputs):
+                    dimension_attr = old_op.dimension
+                    is_stable_attr = old_op.is_stable
+                    result_types = [result.type for result in old_op.results]
+
+                    new_op = stablehlo_op(
+                        result_types,
+                        inputs,
+                        dimension=dimension_attr,
+                        is_stable=is_stable_attr,
+                        loc=old_loc,
+                    )
+
+                    if not sort_builder._disable_golden_check:
+                        input_tensors = tuple(
+                            [sort_builder._get_golden_tensor(inp) for inp in inputs]
+                        )
+                        op_golden_function = get_golden_function(stablehlo_op)
+                        single_input = len(inputs) == 1 and len(old_op.results) == 2
+                        golden_outputs = op_golden_function(
+                            input_tensors,
+                            dimension_attr.value,
+                            is_stable_attr.value,
+                            single_input,
+                        )
+                        for i, result in enumerate(new_op.results):
+                            sort_builder._set_golden_tensor(result, golden_outputs[i])
+                        sort_builder._set_output_ordering(list(new_op.results))
+                        for i, inp in enumerate(inputs):
+                            sort_builder._set_golden_tensor(inp, input_tensors[i])
+                        sort_builder._set_input_ordering(list(inputs))
+
+                    return new_op.results
+
+        return sort_module, sort_builder
 
     # ----- Tensor Manipulation Operations -----
 
@@ -3557,20 +3713,9 @@ class StableHLOBuilder(Builder):
     ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
         stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.select_parser)
 
-        # Try to robustly fetch operands from old_op
-        old_pred = getattr(old_op, "pred", None)
-        if old_pred is None:
-            old_pred = old_op.operation.operands[0]
-        old_true = getattr(old_op, "on_true", None)
-        if old_true is None:
-            old_true = old_op.operation.operands[1]
-        old_false = getattr(old_op, "on_false", None)
-        if old_false is None:
-            old_false = old_op.operation.operands[2]
-
-        pred = global_dict[old_pred]
-        on_true = global_dict[old_true]
-        on_false = global_dict[old_false]
+        pred = global_dict[old_op.pred]
+        on_true = global_dict[old_op.on_true]
+        on_false = global_dict[old_op.on_false]
 
         new_op = stablehlo_op(
             pred,
@@ -3605,16 +3750,11 @@ class StableHLOBuilder(Builder):
         with old_ctx, old_loc:
             sel_module = Module.create()
             sel_builder = StableHLOBuilder(old_ctx, old_loc)
-
-            # Build input types list in order (pred, on_true, on_false)
-            def _get_operand(op, name, idx) -> Operand:
-                v = getattr(op, name, None)
-                return v if v is not None else op.operation.operands[idx]
-
-            pred_old = _get_operand(old_op, "pred", 0)
-            true_old = _get_operand(old_op, "on_true", 1)
-            false_old = _get_operand(old_op, "on_false", 2)
-            op_input_types = [pred_old.type, true_old.type, false_old.type]
+            op_input_types = [
+                old_op.pred.type,
+                old_op.on_true.type,
+                old_op.on_false.type,
+            ]
 
             with InsertionPoint(sel_module.body):
 
