@@ -140,9 +140,11 @@ public:
           // Finally, update the const-eval function so that the argument is in
           // system memory.
           //
+          const auto convertedType =
+              mlir::cast<RankedTensorType>(convertedArgument.getType());
+
           convertArgumentOfConstEvalFunc(constEvalFuncOp, argumentIndex,
-                                         convertedArgument.getType(),
-                                         device.getWorkerGrid());
+                                         convertedType, device.getWorkerGrid());
         }
       }
     });
@@ -223,7 +225,7 @@ private:
   //
   void convertArgumentOfConstEvalFunc(func::FuncOp constEvalFuncOp,
                                       size_t argumentIndex,
-                                      Type systemMemoryType,
+                                      RankedTensorType systemMemoryType,
                                       ttcore::GridAttr deviceGrid) {
     SmallVector<Type> constEvalArgumentTypes(
         constEvalFuncOp.getFunctionType().getInputs());
@@ -245,11 +247,13 @@ private:
 
     auto blockArgument = constEvalFuncOp.getArgument(argumentIndex);
 
-    // We need to insert a to_layout op which converts the argument to the
-    // original layout only if the argument is actually used as a device tensor
-    // inside the const-eval function.
+    // Check whether the argument is expected to be transferred to device
+    // memory.
     //
     if (shouldTransferArgumentToDevice(blockArgument)) {
+      // We need to insert a to_layout op which converts the argument to the
+      // original layout on device.
+      //
       mlir::OpBuilder builder(constEvalFuncOp.getRegion());
 
       // If there is already a ttnn.get_device op, we need to
@@ -264,12 +268,10 @@ private:
       auto deviceTensorLayout =
           mlir::cast<TTNNLayoutAttr>(deviceTensorType.getEncoding());
 
-      auto *ctx = constEvalFuncOp.getContext();
-
       // Create to_layout op to convert the argument to the original layout.
       //
       auto originalDataTypeAttr = mlir::tt::ttcore::DataTypeAttr::get(
-          ctx, deviceTensorLayout.getDataType());
+          constEvalFuncOp.getContext(), deviceTensorLayout.getDataType());
 
       auto toLayoutOp = builder.create<ttnn::ToLayoutOp>(
           blockArgument.getLoc(), deviceTensorType, blockArgument,
@@ -279,6 +281,34 @@ private:
       // Replace the argument usages with the to_layout op result.
       //
       blockArgument.replaceAllUsesExcept(toLayoutOp.getResult(), toLayoutOp);
+    } else {
+      // Otherwise, the argument is already being used only as a system memory
+      // tensor.
+      //
+      // We need to check if the only purpose of the ttnn.to_layout op
+      // consuming this argument is to transfer it to system memory.
+      // If so, we should remove this to_layout op altogether, in order to
+      // avoid TTNNDecomposeLayouts pass failing because of a redundant
+      // to_layout op, as the argument is already in system memory.
+      //
+      auto toLayoutOp =
+          mlir::dyn_cast<ttnn::ToLayoutOp>(*blockArgument.getUsers().begin());
+
+      TT_assertv(toLayoutOp, "Expected to_layout op as the only user.");
+
+      // If the data type and layout of the to_layout op matches the argument
+      // type, we can remove it.
+      //
+      auto toLayoutOpResultType =
+          mlir::cast<RankedTensorType>(toLayoutOp.getResult().getType());
+
+      if (toLayoutOpResultType.getEncoding() ==
+              systemMemoryType.getEncoding() &&
+          toLayoutOpResultType.getElementType() ==
+              systemMemoryType.getElementType()) {
+        toLayoutOp.getResult().replaceAllUsesWith(blockArgument);
+        toLayoutOp.erase();
+      }
     }
 
     // Finally, update the block argument type.
