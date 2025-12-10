@@ -384,33 +384,20 @@ public:
   // Match and rewrite the MeshShardOp.
   LogicalResult matchAndRewrite(ttir::MeshShardOp op,
                                 PatternRewriter &rewriter) const override {
-    // TTNN mesh shard expects host input and output (except for identity shard)
-    //
-    // This rewrite handles the following cases:
-    // (1) *Non-identity* MeshShardOp receives device input or produces device
-    //     output. In this case, we insert ToLayout ops to convert the input to
-    //     host layout and change the output layout to host layout.
-    // (2) *Identity* MeshShardOp receives host input and produces host output
-    //     In this case, we insert ToLayout ops to convert the input to device
-    //     layout and change the output layout to device layout.
-    //
+    // TTNN mesh shard expects host input and output
     // TODO(#2291): This can be removed once the workaround pass can correctly
     // handle canonicalization of toLayout ops (#2102). Currently the
     // workaround pass cannot detect redundant toLayout ops as a result of
     // forcing the output layout and removing them.
-    const bool shouldForceSystemMemory =
-        shouldMeshShardOpForceSystemMemory(op.getOperation());
-
-    const bool shouldTile = !shouldForceSystemMemory;
-    const auto desiredBufferType = shouldForceSystemMemory
-                                       ? BufferType::SystemMemory
-                                       : g_defaultMemorySpaceDevice;
+    if (!shouldMeshShardOpForceSystemMemory(op.getOperation())) {
+      return failure();
+    }
 
     bool modified = false;
     Value input = op.getOperand();
     Location newLoc = appendInputSuffix(op.getLoc(), 0);
     std::optional<Value> inputLayout = createToLayoutOp(
-        rewriter, newLoc, input, desiredBufferType, /* tiled */ shouldTile);
+        rewriter, newLoc, input, BufferType::SystemMemory, /* tiled */ false);
     if (inputLayout.has_value()) {
       rewriter.modifyOpInPlace(op, [&]() { op->setOperand(0, *inputLayout); });
       modified = true;
@@ -420,12 +407,12 @@ public:
         mlir::cast<RankedTensorType>(op.getResult().getType());
     TTNNLayoutAttr newLayout =
         createLayoutAttr(rewriter.getContext(), nullptr, resultType,
-                         desiredBufferType, /* isTiled */ shouldTile);
+                         BufferType::SystemMemory, /* isTiled */ false);
     if (newLayout != resultType.getEncoding()) {
-      auto desiredResultType = RankedTensorType::get(
+      auto resultSystemMemoryType = RankedTensorType::get(
           resultType.getShape(), resultType.getElementType(), newLayout);
       rewriter.modifyOpInPlace(
-          op, [&]() { op->getResult(0).setType(desiredResultType); });
+          op, [&]() { op->getResult(0).setType(resultSystemMemoryType); });
       modified = true;
     }
     return success(modified);
