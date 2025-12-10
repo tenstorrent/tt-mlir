@@ -464,6 +464,15 @@ struct TTIRToEmitPyPipelineOptions : public TTIRToTTNNBackendPipelineOptions,
                                      public TTNNBackendToEmitPyPipelineOptions {
 };
 
+// Prettify XLA/Torch pipeline options.
+// This pipeline applies prettification passes to make TTNN IR more readable
+// for code generation from XLA/Torch frontends.
+//
+struct PrettifyXLATorchPipelineOptions
+    : public PassPipelineOptions<PrettifyXLATorchPipelineOptions> {
+  // Add any future options here if needed
+};
+
 //===----------------------------------------------------------------------===//
 // Passes and pipelines
 //===----------------------------------------------------------------------===//
@@ -497,6 +506,9 @@ void createTTIRToEmitCPipeline(OpPassManager &pm,
 
 void createTTIRToEmitPyPipeline(OpPassManager &pm,
                                 const TTIRToEmitPyPipelineOptions &options);
+
+void createPrettifyXLATorchPipeline(
+    OpPassManager &pm, const PrettifyXLATorchPipelineOptions &options);
 
 /// Registers all pipelines for the `bufferization` dialect. Currently,
 /// this includes only the "ttir-to-ttnn-backend-pipeline".

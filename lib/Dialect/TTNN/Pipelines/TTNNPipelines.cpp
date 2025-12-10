@@ -305,6 +305,19 @@ void createTTIRToTTNNBackendPipeline(
   }
 }
 
+void createPrettifyXLATorchPipeline(
+    OpPassManager &pm, const PrettifyXLATorchPipelineOptions &options) {
+  // Simplify locations to remove nested location information
+  pm.addPass(createTTNNSimplifyLocsForCodegen());
+
+  // Prettify IR by splitting into multiple functions based on source locations
+  pm.addPass(createTTNNPrettifyForCodegen());
+
+  // TODO (svuckovic): This is a temporary workaround - deallocs aren't properly
+  // modeled in prettification pass yet.
+  // pm.addPass(createTTNNRemoveDeallocs());
+}
+
 void createTTNNBackendToEmitCPipeline(
     OpPassManager &pm, const TTNNBackendToEmitCPipelineOptions &options) {
 
@@ -345,8 +358,7 @@ void createTTNNBackendToEmitPyPipeline(
 
   pm.addPass(createTTNNAdjustDeallocs());
 
-  pm.addPass(createTTNNSimplifyLocsForCodegen());
-  pm.addPass(createTTNNPrettifyForCodegen());
+  createPrettifyXLATorchPipeline(pm, PrettifyXLATorchPipelineOptions());
 
   pm.addPass(ttcore::createTTCoreUnwrapDeviceModulePass());
 
@@ -439,5 +451,15 @@ void registerTTNNPipelines() {
       "Pipeline lowering TTIR to EmitPy. Under the hood, it runs "
       "--ttir-to-ttnn-backend-pipeline and --ttnn-backend-to-emitpy-pipeline.",
       mlir::tt::ttnn::createTTIRToEmitPyPipeline);
+
+  // Prettify XLA/Torch pipeline.
+  //
+  mlir::PassPipelineRegistration<
+      mlir::tt::ttnn::PrettifyXLATorchPipelineOptions>(
+      "prettify-xla-torch-pipeline",
+      "Pipeline to prettify TTNN IR for code generation from XLA/Torch. "
+      "Simplifies locations, splits functions based on source locations, "
+      "and removes deallocations.",
+      mlir::tt::ttnn::createPrettifyXLATorchPipeline);
 }
 } // namespace mlir::tt::ttnn
