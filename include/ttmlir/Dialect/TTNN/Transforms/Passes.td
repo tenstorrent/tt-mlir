@@ -335,6 +335,23 @@ def TTNNWeightBFP8Conversion: Pass<"ttnn-weight-bfp8-conversion", "::mlir::Modul
   }];
 }
 
+def TTNNForceConstEvalInputsToSystemMemory : Pass<"ttnn-force-const-eval-to-system-memory", "::mlir::ModuleOp"> {
+  let summary = "Force const-eval function inputs to system memory.";
+  let description = [{
+    This pass forces all inputs of const-eval functions to be in system memory.
+
+    The pass rewrites const-eval function signatures to change the memory configuration
+    of all input tensor arguments to system memory, inserting necessary layout conversion
+    ops to transfer the inputs to device memory if needed.
+
+    This pass also modifies the forward functions' arguments that correspond to const-eval
+    function inputs, forcing them to system memory as well.
+
+    Note: only the arguments which sole user is the ttcore.load_cached op are forced to system memory,
+    in order to avoid unnecessary to_device transfers for other users.
+  }];
+}
+
 def TTNNCollectPerfMetrics: Pass<"ttnn-collect-perf-metrics", "::mlir::ModuleOp"> {
   let summary = "Collect and export TTNN operation metrics.";
   let description = [{

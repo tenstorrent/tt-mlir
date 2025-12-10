@@ -597,22 +597,10 @@ private:
       }
     }
 
-    func::FuncOp owningFunc = cast<func::FuncOp>(arg.getOwner()->getParentOp());
-
-    // Const-eval functions' inputs should be on host.
-    if (ttmlir::utils::isConstEvalFunc(owningFunc)) {
-      return true;
-    }
-
-    // Arguments consumed by const-eval functions should be on host.
-    for (Operation *user : arg.getUsers()) {
-      if (llvm::isa_and_present<ttcore::LoadCachedOp>(user)) {
-        return true;
-      }
-    }
-
     // For block arguments which are maked as conv2d weights leave them on host.
+    func::FuncOp owningFunc = cast<func::FuncOp>(arg.getOwner()->getParentOp());
     uint32_t argIdx = arg.getArgNumber();
+
     if (owningFunc.getArgAttr(argIdx, ttmlir::utils::g_conv2dWeightAttrName)) {
       return true;
     }

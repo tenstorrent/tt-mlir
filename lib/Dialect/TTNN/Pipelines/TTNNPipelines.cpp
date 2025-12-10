@@ -264,6 +264,10 @@ void createTTIRToTTNNBackendPipeline(
     // split during the analysis passes.
     if (options.enableConstEval) {
       devicePm.addPass(transforms::createConstEvalHoistTransform());
+
+      // Now that all const-eval passes have run, we can force the const-eval
+      // function inputs to system memory.
+      devicePm.addPass(createTTNNForceConstEvalInputsToSystemMemory());
     }
     createTTNNPipelineLayoutDecompositionPass(devicePm, options);
     if (options.enableTrace) {

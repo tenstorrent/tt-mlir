@@ -50,10 +50,8 @@ def test_consteval_add_mul_subtract(helper: Helper, request, num_loops):
             test_runner.run_program_and_compare_golden(
                 device, inputs_runtime_with_layout, golden
             )
-            # One const-eval subgraph for (add, subtract, multiply) ops,
-            # and one for the to_layout op on %arg1.
-            assert debug_stats.get_stat("ConstEvalCacheMiss") == 1 + 1
-            assert debug_stats.get_stat("ConstEvalCacheHit") == 2 * i
+            assert debug_stats.get_stat("ConstEvalCacheMiss") == 1
+            assert debug_stats.get_stat("ConstEvalCacheHit") == i
 
         ttrt.runtime.DebugStats.get().clear()
 
@@ -69,10 +67,8 @@ def test_consteval_add_mul_subtract(helper: Helper, request, num_loops):
                 inputs_runtime_with_layout,
                 golden,
             )
-            # One const-eval subgraph for (add, subtract, multiply) ops,
-            # and one for the to_layout op on %arg1.
-            assert debug_stats.get_stat("ConstEvalCacheMiss") == 1 + 1
-            assert debug_stats.get_stat("ConstEvalCacheHit") == 2 * i
+            assert debug_stats.get_stat("ConstEvalCacheMiss") == 1
+            assert debug_stats.get_stat("ConstEvalCacheHit") == i
 
     ttrt.runtime.DebugStats.get().clear()
     helper.teardown()
