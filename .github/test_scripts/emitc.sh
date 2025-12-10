@@ -5,6 +5,7 @@
 
 set -e -o pipefail
 
+exit 9
 llvm-lit -sv --xunit-xml-output $TEST_REPORT_PATH $BUILD_DIR/test/ttmlir/EmitC/TTNN
 ttrt emitc $BUILD_DIR/test/ttmlir/EmitC/TTNN
 cp emitc_results.json ${TTRT_REPORT_PATH} || true
