@@ -2,7 +2,6 @@
 // RUN: FileCheck %s --input-file=%t
 
 module {
-
   // CHECK-LABEL: func.func private @forward_const_eval_0
   // Both const-eval arguments should be in system memory.
   // CHECK: "ttnn.to_device"(%arg1, %{{.*}})
@@ -40,7 +39,7 @@ module {
     // CHECK: ttcore.load_cached(@forward_split_const_eval_0, [%arg1, %arg2])
     // CHECK: ttcore.load_cached(@forward_split_const_eval_1, [%arg2, %arg3])
     // CHECK: %[[TILED_INPUT2:.*]] = "ttnn.to_layout"(%arg0)
-    // CHECK: "ttnn.add"(%[[TILED_INPUT2]], %{{.*}})
+    // CHECK: "ttnn.add"(%[[TILED_INPUT2]], %arg1)
     %0 = "ttir.add"(%arg0, %arg1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
     %1 = "ttir.add"(%arg1, %arg2)  : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
     %2 = "ttir.add"(%arg2, %arg3)  : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
@@ -51,10 +50,10 @@ module {
     return %4 : tensor<32x32xbf16>
   }
 
-  // Second and third const-eval arguments should be in system memory,
-  // first should NOT be in system memory.
-
   // CHECK-LABEL: func.func private @forward_merge_const_eval_0
+  // Second and third const-eval arguments should be in system memory,
+  // first should NOT be in system memory as it has usages
+  // other than const-eval input.
   // CHECK: "ttnn.to_device"(%arg2, %{{.*}})
   // CHECK: "ttnn.to_device"(%arg1, %{{.*}})
   // CHECK-NOT: "ttnn.to_device"(%arg0, %{{.*}})
@@ -66,7 +65,7 @@ module {
   func.func @forward_merge(%arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>}, %arg1: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg2: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg3: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> tensor<32x32xbf16> {
     // CHECK: = ttcore.load_cached(@forward_merge_const_eval_0, [%arg1, %arg2, %arg3])
     // CHECK: %[[TILED_INPUT:.*]] = "ttnn.to_layout"(%arg0)
-    // CHECK: = "ttnn.add"(%[[TILED_INPUT]], %{{.*}})
+    // CHECK: = "ttnn.add"(%[[TILED_INPUT]], %arg1)
     %0 = "ttir.add"(%arg0, %arg1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
     %1 = "ttir.add"(%arg1, %arg2)  : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
     %2 = "ttir.add"(%arg2, %arg3)  : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
@@ -76,10 +75,10 @@ module {
     return %4 : tensor<32x32xbf16>
   }
 
-  // Second and third const-eval arguments should be in system memory,
-  // first should NOT be in system memory.
-
   // CHECK-LABEL: func.func private @forward_merge_return_multiple_values_const_eval_0
+  // Second and third const-eval arguments should be in system memory,
+  // first should NOT be in system memory as it has usages
+  // other than const-eval input.
   // CHECK: "ttnn.to_device"(%arg2, %{{.*}})
   // CHECK: "ttnn.to_device"(%arg1, %{{.*}})
   // CHECK-NOT: "ttnn.to_device"(%arg0, %{{.*}})
@@ -91,7 +90,7 @@ module {
   func.func @forward_merge_return_multiple_values(%arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>}, %arg1: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg2: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg3: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> tensor<32x32xbf16> {
     // CHECK: = ttcore.load_cached(@forward_merge_return_multiple_values_const_eval_0, [%arg1, %arg2, %arg3])
     // CHECK: %[[TILED_INPUT:.*]] = "ttnn.to_layout"(%arg0)
-    // CHECK: = "ttnn.add"(%[[TILED_INPUT]], %{{.*}}
+    // CHECK: = "ttnn.add"(%[[TILED_INPUT]], %arg1
     %0 = "ttir.add"(%arg0, %arg1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
     %1 = "ttir.add"(%arg1, %arg2)  : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
     %2 = "ttir.add"(%arg2, %arg3)  : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
@@ -103,9 +102,8 @@ module {
     return %5 : tensor<32x32xbf16>
   }
 
-  // Both const-eval arguments should be in system memory.
-
   // CHECK-LABEL: func.func private @forward_reuse_zeros_const_eval_0
+  // Both const-eval arguments should be in system memory.
   // CHECK: = "ttnn.get_device"
   // CHECK: "ttnn.to_device"(%arg1, %{{.*}})
   // CHECK: "ttnn.to_device"(%arg0, %{{.*}})
@@ -130,9 +128,8 @@ module {
   }
 
 
-  // Both const-eval arguments should be in system memory.
-
   // CHECK-LABEL: func.func private @forward_reuse_constant_merge_const_eval_0
+  // Both const-eval arguments should be in system memory.
   // CHECK: = "ttnn.get_device"
   // CHECK: "ttnn.to_device"(%arg1, %{{.*}})
   // CHECK: "ttnn.to_device"(%arg0, %{{.*}})
@@ -194,12 +191,12 @@ module {
     return %4: tensor<4x4xbf16>
   }
 
-  // Both const-eval arguments should be in system memory.
-
   // CHECK-LABEL: func.func private @forward_all_const_const_eval
+  // Both const-eval arguments should be in system memory.
   // CHECK: "ttnn.to_device"(%arg1, %{{.*}})
   // CHECK: "ttnn.to_device"(%arg0, %{{.*}})
   // CHECK: "ttnn.add"
+
 
   // CHECK-LABEL: func.func @forward_all_const(
   func.func @forward_all_const(%arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}, %arg1: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> tensor<32x32xbf16> {
