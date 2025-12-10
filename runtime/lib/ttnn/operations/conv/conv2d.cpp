@@ -60,8 +60,6 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
     conv2dConfig = utils::createConv2dConfig(op->conv2d_config());
   }
 
-  conv2dConfig.config_tensors_in_dram = true;
-
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
   std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig;

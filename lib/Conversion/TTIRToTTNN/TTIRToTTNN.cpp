@@ -1296,12 +1296,15 @@ public:
     auto outputDtypeAttr =
         rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
 
+    auto conv2dConfigAttr = ttnn::Conv2dConfigAttr::get(rewriter.getContext())
+                                .withConfigTensorsInDram(true);
+
     rewriter.replaceOpWithNewOp<ttnn::Conv2dOp>(
         op, getTypeConverter()->convertType(op.getResult().getType()),
         adaptor.getInput(), adaptor.getWeight(), adaptor.getBias(), device,
         inChannelsAttr, outChannelsAttr, batchSizeAttr, inputHeightAttr,
         inputWidthAttr, kernelSizeAttr, *strideAttr, paddingAttr, *dilationAttr,
-        groupsAttr, outputDtypeAttr, /*conv2d_config=*/nullptr,
+        groupsAttr, outputDtypeAttr, conv2dConfigAttr,
         /*compute_config=*/nullptr, /*conv2d_slice_config=*/nullptr);
 
     return success();
