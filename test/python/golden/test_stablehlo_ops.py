@@ -8,40 +8,21 @@ from typing import Callable, List, Optional, Tuple
 
 from builder.base.builder_utils import Operand, Shape, TypeInfo
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
-from builder.base.builder_utils import compile_and_execute_shlo
-from test_utils import shape_str, shapes_list_str
+from builder.base.builder_apis import compile_and_execute_shlo
+from test_utils import shape_str, shapes_list_str, Marks
 
 pytestmark = pytest.mark.frontend("shlo")
 
 
-def add(
-    in0: Operand,
-    in1: Operand,
-    builder: StableHLOBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.add(in0, in1)
-
-
-def clamp(
-    in0: Operand,
-    in1: Operand,
-    in2: Operand,
-    builder: StableHLOBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.clamp(in0, in1, in2, unit_attrs=unit_attrs)
-
-
-def abs(
-    in0: Operand,
-    builder: StableHLOBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.abs(in0, unit_attrs=unit_attrs)
+def module_abs(builder: StableHLOBuilder):
+    @builder.func([(128, 128)], [torch.float32])
+    def abs(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.abs(in0, unit_attrs=unit_attrs)
 
 
 def module_ceil(builder: StableHLOBuilder):
@@ -349,18 +330,102 @@ def select_and_scatter(
     )
 
 
+def module_add(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
+    def add(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.add(in0, in1)
+
+
+def maximum(
+    in0: Operand,
+    in1: Operand,
+    builder: StableHLOBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    builder.set_graph_level_check(True)
+    return builder.maximum(in0, in1, unit_attrs=unit_attrs)
+
+
+def minimum(
+    in0: Operand,
+    in1: Operand,
+    builder: StableHLOBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    builder.set_graph_level_check(True)
+    return builder.minimum(in0, in1, unit_attrs=unit_attrs)
+
+
+def multiply(
+    in0: Operand,
+    in1: Operand,
+    builder: StableHLOBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    builder.set_graph_level_check(True)
+    return builder.multiply(in0, in1, unit_attrs=unit_attrs)
+
+
+def pow(
+    in0: Operand,
+    in1: Operand,
+    builder: StableHLOBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    builder.set_graph_level_check(True)
+    return builder.pow(in0, in1, unit_attrs=unit_attrs)
+
+
+def subtract(
+    in0: Operand,
+    in1: Operand,
+    builder: StableHLOBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    builder.set_graph_level_check(True)
+    return builder.subtract(in0, in1, unit_attrs=unit_attrs)
+
+
+def shift_right_logical(
+    in0: Operand,
+    in1: Operand,
+    builder: StableHLOBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    builder.set_graph_level_check(True)
+    return builder.shift_right_logical(in0, in1, unit_attrs=unit_attrs)
+
+
+@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 @pytest.mark.parametrize(
     "test_fn",
     [
-        add,
+        module_add,
+        maximum
+        | Marks(
+            pytest.mark.skip_config(
+                ["ttmetal"], reason="https://github.com/tenstorrent/tt-mlir/issues/5016"
+            )
+        ),
+        minimum | Marks(pytest.mark.skip_config(["ttmetal"])),
+        multiply,
+        pow,
+        subtract,
     ],
 )
 def test_binary_ops(
     test_fn: Callable, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
     compile_and_execute_shlo(
-        module,
+        test_fn,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -375,17 +440,20 @@ def test_binary_ops(
 @pytest.mark.parametrize(
     "test_fn",
     [
-        abs,
-        ceil,
-        cosine,
-        exp,
-        floor,
-        log,
-        logistic,
-        neg,
-        rsqrt,
-        sine,
-        sqrt,
+        module_abs,
+        module_ceil,
+        module_cosine,
+        module_exp,
+        module_floor,
+        module_log,
+        log_plus_one,
+        module_logistic,
+        module_neg,
+        module_rsqrt,
+        module_sine,
+        module_sqrt,
+        tan,
+        tanh,
     ],
 )
 def test_unary_ops(
@@ -541,35 +609,66 @@ def test_dot_general(
     )
 
 
-# Special handling for tan PCC checks. Due to the vertical asymptote on the tan graph, small changes in input values result in large changes in output values at multiples of pi/2, so both graph and golden tensors must be constrained accordingly.
-@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_tan(shape: Shape, dtype: torch.dtype, target: str, request, device):
-    def tan(
-        in0: Operand, builder: StableHLOBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        import math
+def reverse(
+    in0: Operand,
+    builder: StableHLOBuilder,
+    dimensions: List[int],
+    unit_attrs: Optional[List[str]] = None,
+):
+    builder.set_graph_level_check(True)
+    return builder.reverse(in0, dimensions, unit_attrs=unit_attrs)
 
-        randn_tensor = torch.randn(shape, dtype=dtype)
-        input_golden = randn_tensor.uniform_(
-            (-math.pi / 2 + 0.05), (math.pi / 2 - 0.05)
-        )
-        output_golden = torch.tan(input_golden)
-        tan_0 = builder.tan(in0, unit_attrs=unit_attrs)
-        builder.set_goldens({in0: input_golden}, {tan_0: output_golden})
-        builder.set_graph_level_check(True)
-        return tan_0
 
-    compile_and_execute_shlo(
-        tan,
-        [shape],
-        [dtype],
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        target=target,
-        device=device,
+def pad(
+    in0: Operand,
+    builder: StableHLOBuilder,
+    padding_value: List[int],
+    edge_padding_low: List[int],
+    edge_padding_high: List[int],
+    interior_padding: List[int],
+    unit_attrs: Optional[List[str]] = None,
+):
+    builder.set_graph_level_check(True)
+    return builder.pad(
+        in0,
+        padding_value=padding_value,
+        edge_padding_low=edge_padding_low,
+        edge_padding_high=edge_padding_high,
+        interior_padding=interior_padding,
+        unit_attrs=unit_attrs,
+    )
+
+
+def select(
+    pred: Operand,
+    on_true: Operand,
+    on_false: Operand,
+    builder: StableHLOBuilder,
+    unit_attrs: Optional[List[str]] = None,
+):
+    builder.set_graph_level_check(True)
+    return builder.select(pred, on_true, on_false, unit_attrs=unit_attrs)
+
+
+def select_and_scatter(
+    operand: Operand,
+    source: Operand,
+    init_value: Operand,
+    builder: StableHLOBuilder,
+    window_dimensions: List[int],
+    window_strides: List[int],
+    padding: Optional[List[List[int]]] = None,
+    unit_attrs: Optional[List[str]] = None,
+):
+    builder.set_graph_level_check(True)
+    return builder.select_and_scatter(
+        operand,
+        source,
+        init_value,
+        window_dimensions=window_dimensions,
+        window_strides=window_strides,
+        padding=padding,
+        unit_attrs=unit_attrs,
     )
 
 
@@ -635,6 +734,46 @@ def test_transpose(
             unit_attrs: Optional[List[str]] = None,
         ):
             return builder.transpose(in0, permutation, unit_attrs=unit_attrs)
+
+    compile_and_execute_shlo(
+        module,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes,dim",
+    [
+        ([(64, 128), (64, 128)], 0),  # 2 tensors, dim 0
+        ([(128, 64), (128, 64)], 1),  # 2 tensors, dim 1
+        ([(64, 128), (32, 128), (16, 128)], 0),  # 3 tensors, dim 0
+        ([(32, 64), (32, 128)], 1),  # Different sizes in dim
+        ([(64, 64), (64, 64), (64, 64)], 0),  # 3 identical tensors
+        ([(128, 64), (128, 64), (128, 64), (128, 64)], 1),  # 4 tensors
+    ],
+    ids=["2t_dim0", "2t_dim1", "3t_dim0_ttir", "diff_size", "3t_same", "4t_dim1"],
+)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_concatenate(
+    shapes: List[Shape],
+    dim: int,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    # Create a wrapper function
+    def module(builder: StableHLOBuilder):
+        @builder.func(shapes, [dtype] * len(shapes))
+        def concatenate_wrapper(*inputs_and_builder):
+            *inputs, builder = inputs_and_builder
+            builder.set_graph_level_check(True)
+            return builder.concatenate(list(inputs), dim=dim)
 
     compile_and_execute_shlo(
         module,
@@ -792,46 +931,6 @@ def test_select_and_scatter(
     )
 
 
-@pytest.mark.parametrize(
-    "shapes,dim",
-    [
-        ([(64, 128), (64, 128)], 0),  # 2 tensors, dim 0
-        ([(128, 64), (128, 64)], 1),  # 2 tensors, dim 1
-        ([(64, 128), (32, 128), (16, 128)], 0),  # 3 tensors, dim 0
-        ([(32, 64), (32, 128)], 1),  # Different sizes in dim
-        ([(64, 64), (64, 64), (64, 64)], 0),  # 3 identical tensors
-        ([(128, 64), (128, 64), (128, 64), (128, 64)], 1),  # 4 tensors
-    ],
-    ids=["2t_dim0", "2t_dim1", "3t_dim0_ttir", "diff_size", "3t_same", "4t_dim1"],
-)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn"])
-def test_concatenate(
-    shapes: List[Shape],
-    dim: int,
-    dtype: torch.dtype,
-    target: str,
-    request,
-    device,
-):
-    # Create a wrapper function
-    def module(builder: StableHLOBuilder):
-        @builder.func(shapes, [dtype] * len(shapes))
-        def concatenate_wrapper(*inputs_and_builder):
-            *inputs, builder = inputs_and_builder
-            builder.set_graph_level_check(True)
-            return builder.concatenate(list(inputs), dim=dim)
-
-    compile_and_execute_shlo(
-        module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        target=target,
-        device=device,
-    )
-
-
 @pytest.mark.parametrize("shapes", [[(64, 64), (64, 64), (64, 64)]], ids=["64x64"])
 @pytest.mark.parametrize("dtypes", [[torch.float32] * 3], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn"])
@@ -871,6 +970,7 @@ def test_stablehlo_multi_return_support(
         module_and_bool,
         module_or_bool,
         module_xor_bool,
+        shift_right_logical,
     ],
 )
 def test_logical_binary_ops(
@@ -958,9 +1058,9 @@ def test_slice(
 @pytest.mark.parametrize(
     "test_fn",
     [
-        and_,
-        or_,
-        xor,
+        module_and_int,
+        module_or_int,
+        module_xor_int,
     ],
 )
 def test_bitwise_binary_ops(
