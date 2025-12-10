@@ -9,11 +9,6 @@ import pytest
 import itertools
 
 from utils import (
-    _get_ttnn_op,
-    all_close_check,
-    memory_configs_equal,
-    create_dram_tensor,
-    create_sharded_tile_tensor,
     run_op_test,
 )
 
@@ -108,7 +103,7 @@ def test_l1_block_sharded_shapes(device, shape, max_grid, op):
         num_inputs=1,
         buffer_type=ttnn.BufferType.L1,
         enable_cache=True,
-        memory_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED,
+        shard_strategy=ttnn.ShardStrategy.BLOCK,
     )
 
 
@@ -157,7 +152,7 @@ def test_l1_height_sharded_shapes(device, shape, max_grid, op):
         num_inputs=1,
         buffer_type=ttnn.BufferType.L1,
         enable_cache=True,
-        memory_layout=ttnn.TensorMemoryLayout.HEIGHT_SHARDED,
+        shard_strategy=ttnn.ShardStrategy.HEIGHT,
     )
 
 
@@ -207,7 +202,7 @@ def test_l1_width_sharded_shapes(device, shape, max_grid, op):
         num_inputs=1,
         buffer_type=ttnn.BufferType.L1,
         enable_cache=True,
-        memory_layout=ttnn.TensorMemoryLayout.WIDTH_SHARDED,
+        shard_strategy=ttnn.ShardStrategy.WIDTH,
     )
 
 
