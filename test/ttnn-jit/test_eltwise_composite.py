@@ -340,14 +340,14 @@ def long_unary_chain(input_tensor_a):
 
     res_4 = ttnn.abs(res_3)
     res_5 = ttnn.cos(res_4)
-    res_6 = ttnn.neg(res_5)
-    res_7 = ttnn.exp(res_6)
 
-    return res_7
+    return res_5
     # replace the above return with the code below
     # to see shapes/grids where ttnn runs out of memory
     # but ttnn.jit, through fusion, does not.
 
+    # res_6 = ttnn.neg(res_5)
+    # res_7 = ttnn.exp(res_6)
     # res_8 = ttnn.neg(res_7)
     # return res_8
 
