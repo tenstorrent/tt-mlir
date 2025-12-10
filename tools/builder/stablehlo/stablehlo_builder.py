@@ -286,6 +286,7 @@ class StableHLOBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
     ) -> OpResult:
         stablehlo_op = self.get_opview_from_method(StableHLOBuilder.log)
 
@@ -307,6 +308,9 @@ class StableHLOBuilder(Builder):
             in0,
             loc=loc,
         )
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
 
         if unit_attrs is not None:
             for attr_name in unit_attrs:
@@ -387,6 +391,7 @@ class StableHLOBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
     ) -> OpResult:
         stablehlo_op = self.get_opview_from_method(StableHLOBuilder.neg)
 
@@ -408,6 +413,9 @@ class StableHLOBuilder(Builder):
             in0,
             loc=loc,
         )
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
 
         if unit_attrs is not None:
             for attr_name in unit_attrs:
@@ -486,6 +494,7 @@ class StableHLOBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
     ) -> OpResult:
         stablehlo_op = self.get_opview_from_method(StableHLOBuilder.rsqrt)
 
@@ -507,6 +516,9 @@ class StableHLOBuilder(Builder):
             in0,
             loc=loc,
         )
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
 
         if unit_attrs is not None:
             for attr_name in unit_attrs:
@@ -586,6 +598,7 @@ class StableHLOBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
     ) -> OpResult:
         stablehlo_op = self.get_opview_from_method(StableHLOBuilder.sine)
 
@@ -607,6 +620,9 @@ class StableHLOBuilder(Builder):
             in0,
             loc=loc,
         )
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
 
         if unit_attrs is not None:
             for attr_name in unit_attrs:
@@ -685,6 +701,7 @@ class StableHLOBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
     ) -> OpResult:
         stablehlo_op = self.get_opview_from_method(StableHLOBuilder.sqrt)
 
@@ -706,6 +723,9 @@ class StableHLOBuilder(Builder):
             in0,
             loc=loc,
         )
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
 
         if unit_attrs is not None:
             for attr_name in unit_attrs:
@@ -784,6 +804,7 @@ class StableHLOBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
     ) -> OpResult:
         stablehlo_op = self.get_opview_from_method(StableHLOBuilder.tan)
 
@@ -805,6 +826,9 @@ class StableHLOBuilder(Builder):
             in0,
             loc=loc,
         )
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
 
         if unit_attrs is not None:
             for attr_name in unit_attrs:
@@ -883,6 +907,7 @@ class StableHLOBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
     ) -> OpResult:
         stablehlo_op = self.get_opview_from_method(StableHLOBuilder.tanh)
 
@@ -904,6 +929,9 @@ class StableHLOBuilder(Builder):
             in0,
             loc=loc,
         )
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
 
         if unit_attrs is not None:
             for attr_name in unit_attrs:
@@ -983,6 +1011,7 @@ class StableHLOBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
     ) -> OpResult:
         stablehlo_op = self.get_opview_from_method(StableHLOBuilder.log_plus_one)
 
@@ -1004,6 +1033,9 @@ class StableHLOBuilder(Builder):
             in0,
             loc=loc,
         )
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
 
         if unit_attrs is not None:
             for attr_name in unit_attrs:
@@ -1085,6 +1117,7 @@ class StableHLOBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
     ) -> OpResult:
         stablehlo_op = self.get_opview_from_method(StableHLOBuilder.logistic)
 
@@ -1106,6 +1139,9 @@ class StableHLOBuilder(Builder):
             in0,
             loc=loc,
         )
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
 
         if unit_attrs is not None:
             for attr_name in unit_attrs:
@@ -1189,6 +1225,7 @@ class StableHLOBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
     ) -> OpResult:
         stablehlo_op = self.get_opview_from_method(StableHLOBuilder.slice)
 
@@ -1216,6 +1253,9 @@ class StableHLOBuilder(Builder):
             strides_attr,
             loc=loc,
         )
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
 
         if unit_attrs is not None:
             for attr_name in unit_attrs:
@@ -1331,6 +1371,7 @@ class StableHLOBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
     ) -> OpResult:
         stablehlo_op = self.get_opview_from_method(StableHLOBuilder.transpose)
         permutation_attr = DenseI64ArrayAttr.get(permutation)
@@ -1345,6 +1386,9 @@ class StableHLOBuilder(Builder):
             permutation_attr,
             loc=loc,
         )
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
 
         if unit_attrs is not None:
             for attr_name in unit_attrs:
@@ -1450,6 +1494,7 @@ class StableHLOBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
     ) -> OpResult:
         stablehlo_op = self.get_opview_from_method(StableHLOBuilder.reshape)
         shape_attr = ArrayAttr.get(
@@ -1473,6 +1518,9 @@ class StableHLOBuilder(Builder):
             in0,
             loc=loc,
         )
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
 
         if unit_attrs is not None:
             for attr_name in unit_attrs:
@@ -3208,6 +3256,7 @@ class StableHLOBuilder(Builder):
         dimensions: List[int],
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
     ) -> OpResult:
         stablehlo_op = self.get_opview_from_method(StableHLOBuilder.reverse)
 
@@ -3223,6 +3272,9 @@ class StableHLOBuilder(Builder):
             dimensions_attr,
             loc=loc,
         )
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
 
         if unit_attrs is not None:
             for attr_name in unit_attrs:
@@ -3319,6 +3371,7 @@ class StableHLOBuilder(Builder):
         interior_padding: List[int],
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
     ) -> OpResult:
         stablehlo_op = self.get_opview_from_method(StableHLOBuilder.pad)
 
@@ -3339,6 +3392,9 @@ class StableHLOBuilder(Builder):
             interior_attr,
             loc=loc,
         )
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
 
         if unit_attrs is not None:
             for attr_name in unit_attrs:
@@ -3615,10 +3671,8 @@ class StableHLOBuilder(Builder):
             mlir_output_elem_type,
         )
 
-        window_dimensions_attr = DenseI64ArrayAttr.get(
-            window_dimensions, context=self._ctx
-        )
-        window_strides_attr = DenseI64ArrayAttr.get(window_strides, context=self._ctx)
+        window_dimensions_attr = DenseI64ArrayAttr.get(window_dimensions)
+        window_strides_attr = DenseI64ArrayAttr.get(window_strides)
         padding_attr = None
         if padding is not None:
             # Convert [[low, high], ...] to tensor<rankx2xi64> DenseElementsAttr
