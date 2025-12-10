@@ -100,7 +100,7 @@ class ProgramTestRunner:
         if self.config.compute_golden:
             golden = self.config.compute_golden(inputs_torch)
 
-        # Returning inputs_torch to prevent Python GC to free memory of the Torch tensors,
+        # Returning inputs_torch to prevent Python GC from freeing memory of the Torch tensors,
         # which can lead to invalid memory access if the inputs are expected in the host memory.
         # Issue #6254.
         return inputs_runtime_with_layout, golden, inputs_torch

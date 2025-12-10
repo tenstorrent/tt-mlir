@@ -347,7 +347,7 @@ def TTNNForceConstEvalInputsToSystemMemory : Pass<"ttnn-force-const-eval-to-syst
     This pass also modifies the forward functions' arguments that correspond to const-eval
     function inputs, forcing them to system memory as well.
 
-    Note: only the arguments which sole user is the ttcore.load_cached op are forced to system memory,
+    Note: only the arguments whose sole user is the ttcore.load_cached op are forced to system memory,
     in order to avoid unnecessary to_device transfers for other users.
   }];
 }

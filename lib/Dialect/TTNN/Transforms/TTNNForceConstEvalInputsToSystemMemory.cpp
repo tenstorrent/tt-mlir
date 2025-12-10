@@ -159,7 +159,7 @@ private:
   // to system memory. Returns the list of converted arguments.
   //
   // An argument is considered to be a const-eval input if it is only
-  // consumed by a LoadCachedOps
+  // consumed by LoadCachedOps
   //
   SmallVector<BlockArgument>
   convertArgumentsOfForwardFunc(func::FuncOp funcOp) {

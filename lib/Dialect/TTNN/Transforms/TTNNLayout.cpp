@@ -388,14 +388,13 @@ public:
     //
     // This rewrite handles the following cases:
     // (1) *Non-identity* MeshShardOp receives device input or produces device
-    // output
-    //     In this case, we insert ToLayout ops to convert the input to host
-    //     layout and change the output layout to host layout.
+    //     output. In this case, we insert ToLayout ops to convert the input to
+    //     host layout and change the output layout to host layout.
     // (2) *Identity* MeshShardOp receives host input and produces host output
     //     In this case, we insert ToLayout ops to convert the input to device
     //     layout and change the output layout to device layout.
     //
-    //  TODO(#2291): This can be removed once the workaround pass can correctly
+    // TODO(#2291): This can be removed once the workaround pass can correctly
     // handle canonicalization of toLayout ops (#2102). Currently the
     // workaround pass cannot detect redundant toLayout ops as a result of
     // forcing the output layout and removing them.
