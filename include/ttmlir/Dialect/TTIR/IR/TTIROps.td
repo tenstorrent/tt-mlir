@@ -1923,7 +1923,7 @@ def TTIR_GeluBackwardOp : TTIR_ElementwiseBinaryOp<"gelu_bw"> {
   let hasVerifier = 1;
 }
 
-def TTIR_BatchNormInferenceOp : TTIR_Op<"batch_norm_inference"> {
+def TTIR_BatchNormInferenceOp : TTIR_NamedOp<"batch_norm_inference"> {
   let summary = "BatchNormInference operation";
   let description = [{
     Performs batch normalization inference on the input tensor. Normalizes the `operand` tensor
@@ -1970,7 +1970,7 @@ def TTIR_BatchNormInferenceOp : TTIR_Op<"batch_norm_inference"> {
   let hasVerifier = 1;
 }
 
-def TTIR_BatchNormTrainingOp : TTIR_Op<"batch_norm_training"> {
+def TTIR_BatchNormTrainingOp : TTIR_NamedOp<"batch_norm_training"> {
   let summary = "BatchNormTraining operation";
   let description = [{
     Performs batch normalization during training on the input tensor. Normalizes the `operand` tensor
@@ -2030,7 +2030,7 @@ def TTIR_BatchNormTrainingOp : TTIR_Op<"batch_norm_training"> {
   let hasVerifier = 1;
 }
 
-def TTIR_RMSNormOp : TTIR_Op<"rms_norm", [AttrSizedOperandSegments]> {
+def TTIR_RMSNormOp : TTIR_NamedOp<"rms_norm", [AttrSizedOperandSegments]> {
   let summary = "RMS normalization operation";
   let description = [{
     Performs RMS (Root Mean Square) normalization on the input tensor. This operation
