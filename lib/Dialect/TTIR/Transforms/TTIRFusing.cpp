@@ -21,31 +21,6 @@ namespace mlir::tt::ttir {
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 namespace {
-// Moves the use-define chain of a value before a target operation.
-// Used when operations are moved or new operations are added to ensure that
-// operations are not placed before the definitions of their inputs, preserving
-// MLIR's topological ordering.
-static void moveUDChainBefore(Value value, Operation *targetOp) {
-  if (!value.getDefiningOp() ||
-      value.getDefiningOp()->isBeforeInBlock(targetOp)) {
-    return;
-  }
-
-  SetVector<Value> udChain = ttmlir::utils::getUseDefChain(value);
-  SetVector<Operation *> udChainOps =
-      ttmlir::utils::filterOperations(udChain.getArrayRef());
-  SetVector<Operation *> udChainSorted = topologicalSort(udChainOps);
-
-  // We are not moving ops in UD chain that are already before the target, as
-  // they could have descendants that are also before target but are not in
-  // the UD chain.
-  for (auto *op : udChainSorted) {
-    if (op->isBeforeInBlock(targetOp)) {
-      continue;
-    }
-    op->moveBefore(targetOp);
-  }
-}
 
 // Check if we can fuse conv followed by add into conv with bias.
 // This pattern supports both:
@@ -77,7 +52,7 @@ public:
     }
 
     // Move bias UD chain before conv to keep the ordering of ops.
-    moveUDChainBefore(bias, convOp);
+    utils::moveUDChainBefore(bias, convOp);
 
     rewriter.modifyOpInPlace(convOp,
                              [&]() { convOp.getBiasMutable().assign(bias); });
@@ -106,9 +81,8 @@ private:
                     "Unsupported ConvOpType");
     }
 
-    if (auto bcastOp = bias.getDefiningOp<BroadcastOp>()) {
-      bias = bcastOp.getInput();
-    }
+    bias = mlir::cast<mlir::TypedValue<mlir::RankedTensorType>>(
+        utils::lookThrough<BroadcastOp>(bias));
     auto biasShape = bias.getType().getShape();
     auto outputShape =
         mlir::cast<mlir::RankedTensorType>(convOp.getType()).getShape();
@@ -255,14 +229,9 @@ public:
     // Check if the denominator is a broadcast operation or directly a sum
     // reduce. If broadcast folding has occurred, the broadcast may be
     // eliminated.
-    mlir::Value sumValue = denominator;
     BroadcastOp broadcastOp = denominator.getDefiningOp<BroadcastOp>();
-    if (broadcastOp) {
-      sumValue = broadcastOp.getInput();
-    }
-
     // Check that we have a sum reduce operation with keep_dim=true.
-    auto sumOp = sumValue.getDefiningOp<SumOp>();
+    auto sumOp = utils::findOpThrough<SumOp, BroadcastOp>(denominator);
     if (!sumOp || !sumOp.getKeepDim()) {
       return mlir::failure();
     }
@@ -342,14 +311,9 @@ public:
 
     // Check if the subtracted value is a broadcast operation or directly a max.
     // If broadcast folding has occurred, the broadcast may be eliminated.
-    mlir::Value maxValue = subtractedValue;
     BroadcastOp broadcastOp = subtractedValue.getDefiningOp<BroadcastOp>();
-    if (broadcastOp) {
-      maxValue = broadcastOp.getInput();
-    }
-
     // Check if we have a max operation.
-    auto maxOp = maxValue.getDefiningOp<MaxOp>();
+    auto maxOp = utils::findOpThrough<MaxOp, BroadcastOp>(subtractedValue);
     if (!maxOp) {
       return mlir::failure();
     }
@@ -565,16 +529,8 @@ public:
   mlir::LogicalResult
   matchAndRewrite(MultiplyOp multiplyOp,
                   mlir::PatternRewriter &rewriter) const final {
-    mlir::Value lhs = multiplyOp.getLhs();
-    mlir::Value rhs = multiplyOp.getRhs();
-
-    // If either operand is a typecast, we want to look through it.
-    if (auto lhsTypecast = lhs.getDefiningOp<TypecastOp>()) {
-      lhs = lhsTypecast.getInput();
-    }
-    if (auto rhsTypecast = rhs.getDefiningOp<TypecastOp>()) {
-      rhs = rhsTypecast.getInput();
-    }
+    mlir::Value lhs = utils::lookThrough<TypecastOp>(multiplyOp.getLhs());
+    mlir::Value rhs = utils::lookThrough<TypecastOp>(multiplyOp.getRhs());
 
     if (lhs.getType() != rhs.getType()) {
       return mlir::failure();
@@ -667,7 +623,7 @@ public:
     Value reshapedScale = createReshapedScale(rewriter, scaleValue, convOp);
 
     // Move scale UD chain before conv to keep the ordering of ops.
-    moveUDChainBefore(reshapedScale, convOp);
+    utils::moveUDChainBefore(reshapedScale, convOp);
 
     rewriter.setInsertionPoint(convOp);
 
@@ -1203,7 +1159,7 @@ private:
            "Expected same weight type");
 
     // Move additional weight UD chain before conv to ensure it is before addOp.
-    moveUDChainBefore(additionalWeight, conv);
+    utils::moveUDChainBefore(additionalWeight, conv);
 
     auto combinedWeight = rewriter.create<AddOp>(
         ttmlir::utils::appendLocationSuffix(conv.getLoc(), "_weight_add"),
@@ -1223,7 +1179,7 @@ private:
       assert(bias1.getType() == bias2.getType() && "Expected same bias type");
 
       // Move bias2 UD chain before conv1 to ensure it is before addOp.
-      moveUDChainBefore(bias2, conv1);
+      utils::moveUDChainBefore(bias2, conv1);
 
       auto combinedBias = rewriter.create<AddOp>(
           ttmlir::utils::appendLocationSuffix(conv1.getLoc(), "_bias_add"),
@@ -3410,16 +3366,16 @@ private:
     components.attentionMatmul = matmul;
 
     // Check if this matmul has softmax feeding into it (attention scores @ V)
-    SoftmaxOp softmax = findOpThroughLayoutOps<SoftmaxOp>(matmul.getA());
+    SoftmaxOp softmax = utils::findOpThroughLayoutOps<SoftmaxOp>(matmul.getA());
     if (!softmax) {
       return false;
     }
     components.softmax = softmax;
-    components.value = traceToSourceTensor(matmul.getB());
+    components.value = utils::lookThroughLayoutOps(matmul.getB());
 
     // Look for optional mask addition
     Value cursor = softmax.getInput();
-    if (auto maskAdd = findOpThroughLayoutOps<AddOp>(cursor)) {
+    if (auto maskAdd = utils::findOpThroughLayoutOps<AddOp>(cursor)) {
       if (auto maskResult = tryExtractMask(maskAdd)) {
         components.mask = maskResult->first;
         cursor = maskResult->second;
@@ -3427,7 +3383,7 @@ private:
     }
 
     // Look for optional scale multiplication
-    if (auto mulOp = findOpThroughLayoutOps<MultiplyOp>(cursor)) {
+    if (auto mulOp = utils::findOpThroughLayoutOps<MultiplyOp>(cursor)) {
       if (auto scaleResult = tryExtractScale(mulOp)) {
         components.scale = scaleResult->first;
         cursor = scaleResult->second;
@@ -3435,13 +3391,13 @@ private:
     }
 
     // Look for Q@K matmul (required)
-    auto qkMatmul = findOpThroughLayoutOps<MatmulOp>(cursor);
+    auto qkMatmul = utils::findOpThroughLayoutOps<MatmulOp>(cursor);
     if (!qkMatmul) {
       return false;
     }
     components.qkMatmul = qkMatmul;
-    components.query = traceToSourceTensor(components.qkMatmul.getA());
-    components.key = traceToSourceTensor(components.qkMatmul.getB());
+    components.query = utils::lookThroughLayoutOps(components.qkMatmul.getA());
+    components.key = utils::lookThroughLayoutOps(components.qkMatmul.getB());
 
     return true;
   }
@@ -3521,8 +3477,8 @@ private:
   // Try to extract mask from an add operation.
   // Returns {mask, score_path} if found, nullopt otherwise.
   std::optional<std::pair<Value, Value>> tryExtractMask(AddOp addOp) const {
-    auto lhsMul = findOpThroughLayoutOps<MultiplyOp>(addOp.getLhs());
-    auto rhsMul = findOpThroughLayoutOps<MultiplyOp>(addOp.getRhs());
+    auto lhsMul = utils::findOpThroughLayoutOps<MultiplyOp>(addOp.getLhs());
+    auto rhsMul = utils::findOpThroughLayoutOps<MultiplyOp>(addOp.getRhs());
     if (lhsMul && looksLikeMask(addOp.getRhs())) {
       return std::make_pair(addOp.getRhs(), addOp.getLhs());
     }
@@ -3548,32 +3504,6 @@ private:
     return std::nullopt;
   }
 
-  // Traces backward from a value through layout ops (typecast, reshape,
-  // permute, broadcast, repeat_interleave) to find an operation of type OpType.
-  // Returns nullptr if a non-layout op is encountered before finding the
-  // target.
-  template <typename OpType>
-  OpType findOpThroughLayoutOps(Value v) const {
-    while (Operation *defOp = v.getDefiningOp()) {
-      if (auto targetOp = dyn_cast<OpType>(defOp)) {
-        return targetOp;
-      }
-
-      if (!isLayoutOp(defOp)) {
-        return nullptr;
-      }
-
-      v = defOp->getOperand(0);
-    }
-
-    return nullptr;
-  }
-
-  bool isLayoutOp(Operation *op) const {
-    return isa<TypecastOp, ReshapeOp, PermuteOp, BroadcastOp,
-               RepeatInterleaveOp>(op);
-  }
-
   // Checks that all values from 'start' back to 'end' have single uses.
   // This ensures intermediate results (like attention weights after softmax)
   // are not used elsewhere, which is required for safe fusion.
@@ -3595,16 +3525,6 @@ private:
     }
 
     return false;
-  }
-
-  Value traceToSourceTensor(Value v) const {
-    while (Operation *defOp = v.getDefiningOp()) {
-      if (!isLayoutOp(defOp)) {
-        break;
-      }
-      v = defOp->getOperand(0);
-    }
-    return v;
   }
 
   std::optional<float> extractConstantScale(Value scaleVal) const {
@@ -3637,24 +3557,6 @@ private:
   }
 };
 
-// Look through reshape, typecast, and broadcast ops to find the defining op.
-static mlir::Value lookThroughReshapes(mlir::Value value) {
-  while (auto *op = value.getDefiningOp()) {
-    if (llvm::isa<ReshapeOp, TypecastOp, BroadcastOp>(op)) {
-      value = op->getOperand(0);
-    } else {
-      break;
-    }
-  }
-  return value;
-}
-
-// Get defining op, looking through reshapes.
-template <typename OpTy>
-static OpTy getDefiningOpThroughReshapes(mlir::Value value) {
-  return lookThroughReshapes(value).template getDefiningOp<OpTy>();
-}
-
 // RMS (Root Mean Square) Normalization Fusion Pattern
 // Fuses: (x * rsqrt(mean(x^2) + epsilon)) * gamma -> RMSNormOp
 class RMSNormFusionPattern : public mlir::OpRewritePattern<MultiplyOp> {
@@ -3664,70 +3566,67 @@ public:
   mlir::LogicalResult
   matchAndRewrite(MultiplyOp outerMul,
                   mlir::PatternRewriter &rewriter) const final {
-
-    // Find inner multiply on either side (look through reshapes).
+    // Find inner multiply (through typecast only - bf16->f32 conversion).
     MultiplyOp innerMul =
-        getDefiningOpThroughReshapes<MultiplyOp>(outerMul.getLhs());
-    mlir::Value gamma = lookThroughReshapes(outerMul.getRhs());
+        utils::findOpThrough<MultiplyOp, TypecastOp>(outerMul.getLhs());
+    mlir::Value gammaRaw = outerMul.getRhs();
     if (!innerMul) {
-      innerMul = getDefiningOpThroughReshapes<MultiplyOp>(outerMul.getRhs());
-      gamma = lookThroughReshapes(outerMul.getLhs());
+      innerMul =
+          utils::findOpThrough<MultiplyOp, TypecastOp>(outerMul.getRhs());
+      gammaRaw = outerMul.getLhs();
     }
     if (!innerMul) {
       return mlir::failure();
     }
 
-    // Find rsqrt on either side of inner multiply (look through reshapes).
-    // Keep raw operand to find typecast later.
-    RsqrtOp rsqrtOp = getDefiningOpThroughReshapes<RsqrtOp>(innerMul.getLhs());
+    // Find rsqrt on either side of inner multiply (through layout ops).
+    RsqrtOp rsqrtOp = utils::findOpThroughLayoutOps<RsqrtOp>(innerMul.getLhs());
     mlir::Value xRaw = innerMul.getRhs();
-    mlir::Value x = lookThroughReshapes(xRaw);
     if (!rsqrtOp) {
-      rsqrtOp = getDefiningOpThroughReshapes<RsqrtOp>(innerMul.getRhs());
+      rsqrtOp = utils::findOpThroughLayoutOps<RsqrtOp>(innerMul.getRhs());
       xRaw = innerMul.getLhs();
-      x = lookThroughReshapes(xRaw);
     }
     if (!rsqrtOp) {
       return mlir::failure();
     }
 
-    // Match: mean(...) + epsilon (look through reshapes).
-    auto addOp = getDefiningOpThroughReshapes<AddOp>(rsqrtOp.getInput());
+    // Match: mean(...) + epsilon (through layout ops).
+    auto addOp = utils::findOpThroughLayoutOps<AddOp>(rsqrtOp.getInput());
     if (!addOp) {
       return mlir::failure();
     }
 
-    // Find mean on either side of add (look through reshapes).
-    MeanOp meanOp = getDefiningOpThroughReshapes<MeanOp>(addOp.getLhs());
-    mlir::Value epsilon = lookThroughReshapes(addOp.getRhs());
+    // Find mean on either side of add.
+    MeanOp meanOp = addOp.getLhs().getDefiningOp<MeanOp>();
+    mlir::Value epsilon = addOp.getRhs();
     if (!meanOp) {
-      meanOp = getDefiningOpThroughReshapes<MeanOp>(addOp.getRhs());
-      epsilon = lookThroughReshapes(addOp.getLhs());
+      meanOp = addOp.getRhs().getDefiningOp<MeanOp>();
+      epsilon = addOp.getLhs();
     }
     if (!meanOp) {
       return mlir::failure();
     }
 
-    // Match x^2: mul(x,x) or pow(x,2) (look through reshapes).
-    mlir::Value meanInput = lookThroughReshapes(meanOp.getInput());
+    // Match x^2: mul(x,x) or pow(x,2).
+    mlir::Value meanInput = meanOp.getInput();
     mlir::Value squareInput = nullptr;
-    if (auto sq = getDefiningOpThroughReshapes<MultiplyOp>(meanInput)) {
-      mlir::Value sqLhs = lookThroughReshapes(sq.getLhs());
-      mlir::Value sqRhs = lookThroughReshapes(sq.getRhs());
-      if (sqLhs == sqRhs) {
-        squareInput = sqLhs;
+    mlir::Value x = utils::lookThrough<TypecastOp>(xRaw);
+
+    if (auto sq = meanInput.getDefiningOp<MultiplyOp>()) {
+      if (sq.getLhs() == sq.getRhs()) {
+        squareInput = utils::lookThrough<TypecastOp>(sq.getLhs());
       }
-    } else if (auto pw = getDefiningOpThroughReshapes<PowOp>(meanInput)) {
+    } else if (auto pw = meanInput.getDefiningOp<PowOp>()) {
       if (isFullOpWithValue(pw.getRhs(), 2.0f)) {
-        squareInput = lookThroughReshapes(pw.getLhs());
+        squareInput = utils::lookThrough<TypecastOp>(pw.getLhs());
       }
     }
     if (!squareInput || squareInput != x) {
       return mlir::failure();
     }
 
-    // Extract epsilon (look through reshapes).
-    auto epsFull = getDefiningOpThroughReshapes<FullOp>(epsilon);
+    // Extract epsilon.
+    auto epsFull = epsilon.getDefiningOp<FullOp>();
     if (!epsFull) {
       return mlir::failure();
     }
@@ -3737,7 +3636,6 @@ public:
     }
 
     // TTNN RMS norm only supports normalization over the last dimension.
-    // Verify mean reduces over exactly the last dimension.
     auto dimArg = meanOp.getDimArg();
     if (!dimArg || dimArg->size() != 1) {
       return mlir::failure();
@@ -3750,27 +3648,21 @@ public:
       return mlir::failure();
     }
 
-    // Look through typecast to find the original input (e.g., bf16 before f32).
-    // Use xRaw (direct operand from innerMul) to find the typecast.
-    mlir::Value originalInput = xRaw;
-    if (auto typecast = xRaw.getDefiningOp<TypecastOp>()) {
-      originalInput = typecast.getInput();
-    }
+    // Get original input (through typecast only to preserve shape).
+    mlir::Value originalInput = utils::lookThrough<TypecastOp>(xRaw);
 
-    // Look through reshapes/broadcasts to find the original gamma.
-    mlir::Value originalGamma = lookThroughReshapes(gamma);
+    // Get original gamma (through layout ops).
+    mlir::Value originalGamma = utils::lookThroughLayoutOps(gammaRaw);
 
     auto inputType = mlir::cast<RankedTensorType>(originalInput.getType());
     llvm::SmallVector<int64_t> normalizedShape{inputType.getShape().back()};
 
-    // Create RMSNormOp with output type matching outerMul (e.g., bf16).
     auto rmsNorm = rewriter.create<RMSNormOp>(
         outerMul.getLoc(), outerMul.getType(), originalInput, originalGamma,
         /*bias=*/nullptr, rewriter.getDenseI64ArrayAttr(normalizedShape),
         rewriter.getF32FloatAttr(epsAttr.getValue().convertToFloat()));
 
     rewriter.replaceOp(outerMul, rmsNorm.getResult());
-
     return mlir::success();
   }
 };
