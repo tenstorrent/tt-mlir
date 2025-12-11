@@ -244,22 +244,33 @@ class GraphToIRTranslator:
             affine_map = _get_collapsed_linear_affine_map(
                 self.ctx, shape, memory_config["grid"]
             )
+        elif len(shape) == 0:
+            # Scalar: use 1x1 tile memref
+            memref_shape = [1, 1]
+            affine_map = _get_collapsed_linear_affine_map(self.ctx, [1, 1], (0, 0))
         elif len(shape) == 1:
             # 1D tensor: use 1D memref and affine map
             dim_w = shape[0]
             tiles_w = math.ceil(dim_w / 32)
             memref_shape = [tiles_w]  # 1D memref
             affine_map = _get_collapsed_linear_affine_map(self.ctx, shape, (0, 0))
-        elif len(shape) == 0:
-            # Scalar: use 1x1 tile memref
-            memref_shape = [1, 1]
-            affine_map = _get_collapsed_linear_affine_map(self.ctx, [1, 1], (0, 0))
         else:
-            # 2D or higher: use last 2 dimensions for tile layout
-            dim_h = shape[-2]
-            dim_w = shape[-1]
-            tiles_h = math.ceil(dim_h / 32)
-            tiles_w = math.ceil(dim_w / 32)
+            if len(shape) == 2:
+                # 2D tensor: use dimensions directly
+                dim_h = shape[-2]
+                dim_w = shape[-1]
+                tiles_h = math.ceil(dim_h / 32)
+                tiles_w = math.ceil(dim_w / 32)
+            else:
+                # 2D or higher: collapse leading dimensions for 3D+ tensors
+                # Collapse leading dimensions into the first dimension
+                # This matches the logic in _create_dram_tensor_layout
+                collapsed_shape = [shape[-2], shape[-1]]
+                for dim in shape[:-2]:
+                    collapsed_shape[0] *= dim
+                tiles_h = math.ceil(collapsed_shape[0] / 32)
+                tiles_w = math.ceil(collapsed_shape[1] / 32)
+
             memref_shape = [tiles_h, tiles_w]
             affine_map = _get_collapsed_linear_affine_map(self.ctx, shape, (0, 0))
 
