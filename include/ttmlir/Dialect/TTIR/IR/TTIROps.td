@@ -4008,6 +4008,8 @@ def TTIR_SliceStaticOp: TTIR_NamedOp<"slice_static"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+
+    let hasFolder = 1;
 }
 
 def TTIR_SliceDynamicOp: TTIR_NamedOp<"slice_dynamic"> {
