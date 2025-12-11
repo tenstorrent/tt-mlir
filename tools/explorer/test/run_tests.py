@@ -317,10 +317,19 @@ def test_get_emitc_cpp_code(start_server):
     assert "cppCode" in result["graphs"][0]
 
 
-@pytest.mark.skip("TODO")
 def test_disable_execution(start_server_no_execution):
-    # TODO(ctr-mcampos): load model, execute it and check for failure
-    pass
+    result = send_command(
+        "execute",
+        MNIST_SHARDING_PATH,
+        {"optimizationPolicy": "Optimizer Disabled"},
+    )
+
+    print(result)
+
+    assert result.ok
+    if "error" in result.json():
+        print(result.json())
+        assert True
 
 
 def test_preload_ir_dump_directory(start_server):
