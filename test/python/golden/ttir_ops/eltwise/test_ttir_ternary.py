@@ -107,9 +107,13 @@ def test_ternary_eltwise_ops_implicit_broadcast(
     # Check if any shape is not 2D
     is_non_2d = any(len(shape) != 2 for shape in shapes)
     if target == "ttmetal" and is_non_2d:
-        pytest.xfail("non-2D shapes bcast not yet supported on ttmetal backend")
+        pytest.xfail(
+            "non-2D shapes bcast not yet supported on ttmetal backend, issue here: https://github.com/tenstorrent/tt-mlir/issues/3023"
+        )
     if target == "ttmetal" and input_dtypes[0] != input_dtypes[1]:
-        pytest.xfail("different input dtypes not yet supported on ttmetal backend")
+        pytest.xfail(
+            "different input dtypes not yet supported on ttmetal backend, issue here: https://github.com/tenstorrent/tt-mlir/issues/6289"
+        )
 
     dtype1, dtype2, dtype3 = input_dtypes
 
