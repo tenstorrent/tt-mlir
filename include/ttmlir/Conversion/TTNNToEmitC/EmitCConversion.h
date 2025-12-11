@@ -1417,6 +1417,11 @@ struct EmitCTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
           << EmitCTypeConverter<bool>::convert(attr.getReallocateHaloOutput());
       firstElement = false;
     }
+    if (attr.getConfigTensorsInDram()) {
+      rso << (firstElement ? "" : ", ") << ".config_tensors_in_dram = "
+          << EmitCTypeConverter<bool>::convert(attr.getConfigTensorsInDram());
+      firstElement = false;
+    }
     if (attr.getActBlockHOverride()) {
       rso << (firstElement ? "" : ", ") << ".act_block_h_override = "
           << EmitCTypeConverter<uint32_t>::convert(
@@ -1477,11 +1482,6 @@ struct EmitCTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
       rso << (firstElement ? "" : ", ") << ".enable_kernel_stride_folding = "
           << EmitCTypeConverter<bool>::convert(
                  attr.getEnableKernelStrideFolding());
-      firstElement = false;
-    }
-    if (attr.getConfigTensorsInDram()) {
-      rso << (firstElement ? "" : ", ") << ".config_tensors_in_dram = "
-          << EmitCTypeConverter<bool>::convert(attr.getConfigTensorsInDram());
     }
     rso << "}";
     return buf;
