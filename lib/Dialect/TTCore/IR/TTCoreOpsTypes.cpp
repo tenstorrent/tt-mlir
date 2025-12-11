@@ -1546,6 +1546,8 @@ mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
   MemorySpace memorySpace =
       mlir::cast<MemorySpaceAttr>(memrefType.getMemorySpace()).getValue();
   AffineMap affineMap = memrefType.getLayout().getAffineMap();
+  fprintf(stderr, "------ getMemoryMap: affineMap ");
+  affineMap.dump();
 
   if (auto shardLayout =
           mlir::dyn_cast<ShardLayoutAttr>(memrefType.getLayout())) {
@@ -1553,14 +1555,24 @@ mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
     // Core virtualization map must be composed before other maps.
     if (auto coreVirtMap = shardLayout.getCoreVirtualizationMap();
         !coreVirtMap.isEmpty()) {
+      fprintf(stderr, "------ getMemoryMap: coreVirtMap ");
+      coreVirtMap.dump();
       affineMap = affineMap.compose(coreVirtMap);
     }
     if (view) {
+      fprintf(stderr, "------ getMemoryMap: view ");
+      view->dump();
       affineMap = affineMap.compose(*view);
     }
 
     switch (memorySpace) {
     case MemorySpace::DeviceL1: {
+      fprintf(stderr, "------ getMemoryMap: memref ");
+      memrefType.dump();
+      fprintf(stderr, "------ getMemoryMap: affineMap(final) ");
+      affineMap.dump();
+      fprintf(stderr, "------ getMemoryMap: L1Map ");
+      getL1Map().dump();
       SmallVector<int64_t> symbols = {static_cast<int64_t>(baseOffset)};
       return ttmlir::utils::replaceAffineMapSymbols(getL1Map(), symbols)
           .compose(affineMap);

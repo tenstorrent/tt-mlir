@@ -40,6 +40,8 @@ void populateTTModule(nb::module_ &m) {
                   })
       // 6-arg overload (with index_map, computes defaults for collapseIntervals
       // and dimAlignments)
+      // Why does this exist while there is a 6-arg MetalLayoutAttr::get that
+      // does the same thing? Port the cleaner code over?
       .def_static(
           "get",
           [](MlirContext ctx, std::vector<int64_t> logicalShape,
@@ -66,6 +68,21 @@ void populateTTModule(nb::module_ &m) {
                 static_cast<tt::ttcore::MemorySpace>(memorySpaceValue),
                 static_cast<tt::ttcore::TensorMemoryLayout>(memoryLayoutValue),
                 collapsedIntervals, dimAlignments, unwrap(indexMap)));
+          })
+      // 7-arg overload (everything except for index_map)
+      .def_static(
+          "get",
+          [](MlirContext ctx, std::vector<int64_t> logicalShape,
+             uint32_t oobValValue, uint32_t memorySpaceValue,
+             uint32_t memoryLayoutValue, MlirAttribute collapseIntervals,
+             std::vector<int64_t> dimAlignments) {
+            return wrap(tt::ttcore::MetalLayoutAttr::get(
+                unwrap(ctx), ArrayRef<int64_t>(logicalShape),
+                static_cast<tt::ttcore::OOBVal>(oobValValue),
+                static_cast<tt::ttcore::MemorySpace>(memorySpaceValue),
+                static_cast<tt::ttcore::TensorMemoryLayout>(memoryLayoutValue),
+                mlir::cast<DenseIntElementsAttr>(unwrap(collapseIntervals)),
+                ArrayRef<int64_t>(dimAlignments)));
           })
       // 8-arg overload (full specification with index_map)
       .def_static(
