@@ -9,6 +9,7 @@
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Dialect/TTKernel/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/RegisterAll.h"
 #include "ttmlir/Target/Python/PythonEmitter.h"
 #include "ttmlir/Target/Python/Utils.h"
@@ -142,6 +143,8 @@ void populatePassesModule(nb::module_ &m) {
         if (mlir::failed(pipeline->addToPipeline(pm, options, err_handler))) {
           throw std::runtime_error("Failed to add pipeline to pass manager");
         }
+
+        pm.addPass(tt::ttnn::createTTNNDeallocate());
 
         if (mlir::failed(pm.run(moduleOp))) {
           throw std::runtime_error("Failed to run pass manager");

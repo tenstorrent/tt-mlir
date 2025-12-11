@@ -14,6 +14,9 @@ void run(const ::tt::target::ttnn::DeallocateOp *op, ProgramContext &context) {
 
   if (!tensorWrapper.shouldRetain()) {
     ::ttnn::deallocate(ttnnTensor, op->force());
+  } else {
+    LOG_INFO("Tensor is retained thus not deallocating. To deallocate, set "
+             "retain to false first");
   }
 
   tensorPool.erase(op->in());
