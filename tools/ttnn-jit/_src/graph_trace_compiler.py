@@ -266,7 +266,10 @@ class GraphToIRTranslator:
         return memref_shape, affine_map
 
     def _get_output_type_from_vertex(
-        self, vertex: "LevelizedGraphVertex", default_type
+        self,
+        vertex: "LevelizedGraphVertex",
+        default_type,
+        parent_output_info: Optional[List[str]] = None,
     ) -> Any:
         """
         Extract MLIR output type from vertex output_shape and output_info.
@@ -281,6 +284,8 @@ class GraphToIRTranslator:
         Args:
             vertex: The vertex containing output information
             default_type: Fallback type to inherit dtype and layout properties from
+            parent_output_info: Optional parent composite op's output_info to inherit
+                              when vertex.output_info is empty (for internal ops)
 
         Returns:
             MLIR tensor type with correct shape and memory configuration
@@ -301,9 +306,16 @@ class GraphToIRTranslator:
                 "shard_shape": None,
                 "grid": [1, 1],
             }
+            # Use vertex's output_info if available, otherwise fall back to parent's output_info
+            output_info_to_use = None
             if vertex.output_info and len(vertex.output_info) > 0:
+                output_info_to_use = vertex.output_info[0]
+            elif parent_output_info and len(parent_output_info) > 0:
+                output_info_to_use = parent_output_info[0]
+
+            if output_info_to_use:
                 memory_config = self._parse_memory_config_from_output_info(
-                    vertex.output_info[0]
+                    output_info_to_use
                 )
 
             # Create tile type
@@ -487,6 +499,9 @@ class GraphToIRTranslator:
                 f"Composite operation {vertex.name} has no internals to expand"
             )
 
+        # Parse parent composite vertex's output_info once to inherit for internal ops
+        parent_output_info = vertex.output_info if vertex.output_info else None
+
         # Process each internal operation in order
         for internal_id in vertex.internals:
             internal_vertex = self.levelized_graph_ir.get_vertex(internal_id)
@@ -498,9 +513,10 @@ class GraphToIRTranslator:
                 continue
 
             # For internal operations, infer the result type from the vertex's output shape
-            # Use the parent's result_type as a fallback
+            # Use the parent's result_type as a fallback, and inherit parent's output_info
+            # if the internal op doesn't have its own output_info
             internal_result_type = self._get_output_type_from_vertex(
-                internal_vertex, result_type
+                internal_vertex, result_type, parent_output_info=parent_output_info
             )
 
             # Recursively process internal vertex
