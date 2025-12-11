@@ -550,7 +550,11 @@ private:
           // Print pyloc op name and modules
           TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
                        "\t- {} (modules: {})", opPyLoc.op->getName(),
-                       llvm::join(opPyLoc.pyLoc.modules, ", "));
+                       llvm::join(llvm::map_range(opPyLoc.pyLoc.modules,
+                                                  [](const auto &m) {
+                                                    return m.toString();
+                                                  }),
+                                  ", "));
         }
         TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
                      "\tOps currently in queue: {}", inQueue.size());
@@ -1113,7 +1117,11 @@ public:
                    "Only one candidate fn is supported now, but got {}",
                    candidateFns.size());
       TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
-                   "Candidate fns: {}", llvm::join(candidateFns, ", "));
+                   "Candidate fns: {}",
+                   llvm::join(llvm::map_range(
+                                  candidateFns,
+                                  [](func::FuncOp fn) { return fn.getName(); }),
+                              ", "));
       signalPassFailure();
     }
     func::FuncOp candidateFn = candidateFns.front();
