@@ -31,11 +31,10 @@ static bool isSharedOp(mlir::Operation *op) {
   return op->hasTrait<mlir::tt::ttcore::Trait::TTCoreDuplicateConstEvalTrait>();
 }
 
+// Check if any result of the op is written in-place by any of its users.
 static bool isResultWrittenInPlace(mlir::Operation *op) {
   for (auto result : op->getResults()) {
-    // Check all users of this result
     for (auto *user : result.getUsers()) {
-      // Check their operands
       auto memEffectOp = dyn_cast<mlir::MemoryEffectOpInterface>(user);
       if (!memEffectOp) {
         continue;
@@ -46,7 +45,6 @@ static bool isResultWrittenInPlace(mlir::Operation *op) {
             return isa<mlir::MemoryEffects::Write>(effect.getEffect()) &&
                    effect.getValue() == result;
           })) {
-        // This result is written to, not safe for consteval
         return true;
       }
     }
@@ -76,7 +74,6 @@ struct DisjointSetUnion {
       return v;
     }
 
-    // Path compression
     return it->second = findRoot(it->second);
   }
 
