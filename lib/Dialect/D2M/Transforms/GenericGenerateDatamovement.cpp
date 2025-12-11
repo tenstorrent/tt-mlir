@@ -98,7 +98,8 @@ public:
   static Value createDMA(OpBuilder &builder, Location loc, Value src, Value dst,
                          std::optional<AffineMap> operandIndexingMap,
                          bool isOutput, SmallVector<Value> coreIndex = {},
-                         SmallVector<Value> mcastShape = {}, bool isLoopback = false) {
+                         SmallVector<Value> mcastShape = {},
+                         bool isLoopback = false) {
 
     AffineMapAttr indexingMapAttr =
         (operandIndexingMap) ? AffineMapAttr::get(*operandIndexingMap)
@@ -206,8 +207,8 @@ public:
     assert(mcastArgs.mcastVolume > 0);
     Value numReceivers = builder.create<arith::ConstantOp>(
         loc, builder.getIndexType(),
-        builder.getIndexAttr(
-            mcastArgs.isLoopback ? mcastArgs.mcastVolume : mcastArgs.mcastVolume - 1));
+        builder.getIndexAttr(mcastArgs.isLoopback ? mcastArgs.mcastVolume - 1
+                                                  : mcastArgs.mcastVolume));
     Value receiversReadySemaphore = createSemaphore(builder, loc, regions);
     Value senderFinishedSemaphore = createSemaphore(builder, loc, regions);
     assert(mcastArgs.senderCoreIndex.size() == mcastArgs.mcastShape.size());
@@ -233,11 +234,12 @@ public:
                                                numReceivers, zero);
           Value mcastMemTx =
               createDMA(builder, loc, dst, dst, std::nullopt, isOutput,
-                        mcastArgs.senderCoreIndex, mcastArgs.mcastShape, mcastArgs.isLoopback);
+                        mcastArgs.mcastCoreIndex, mcastArgs.mcastShape,
+                        mcastArgs.isLoopback);
           builder.create<d2m::DMAWaitOp>(loc, mcastMemTx);
-          builder.create<d2m::SemaphoreSetOp>(loc, senderFinishedSemaphore, one,
-                                              mcastArgs.senderCoreIndex,
-                                              mcastArgs.mcastShape, mcastArgs.isLoopback);
+          builder.create<d2m::SemaphoreSetOp>(
+              loc, senderFinishedSemaphore, one, mcastArgs.mcastCoreIndex,
+              mcastArgs.mcastShape, mcastArgs.isLoopback);
           builder.create<scf::YieldOp>(loc);
         },
         [&](OpBuilder &builder, Location loc) {
