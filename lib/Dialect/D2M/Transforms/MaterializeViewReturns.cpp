@@ -126,25 +126,23 @@ public:
             continue;
           }
 
-          // Case 2: View consumed by device-to-host ToLayoutOp before return.
-          // Pattern: %view = view_layout ... -> %host = to_layout %view ->
+          // Case 2: View consumed by device-to-host ToHostOp before return.
+          // Pattern: %view = view_layout ... -> %host = to_host %view ->
           // return %host. We need to materialize the view BEFORE the
           // device-to-host transfer.
-          if (auto toLayoutOp =
-                  mlir::dyn_cast_if_present<d2m::ToLayoutOp>(definingOp)) {
-            if (toLayoutOp.isDeviceToHost()) {
-              Value toLayoutInput = toLayoutOp.getInput();
-              Operation *inputDefiningOp = toLayoutInput.getDefiningOp();
+          if (auto toHostOp =
+                  mlir::dyn_cast_if_present<d2m::ToHostOp>(definingOp)) {
+            Value toHostInput = toHostOp.getInput();
+            Operation *inputDefiningOp = toHostInput.getDefiningOp();
 
-              if (isViewOp(inputDefiningOp)) {
-                // Materialize the view before the device-to-host transfer.
-                builder.setInsertionPoint(toLayoutOp);
-                Value materialized = materializeView(
-                    builder, toLayoutOp.getLoc(), toLayoutInput);
+            if (isViewOp(inputDefiningOp)) {
+              // Materialize the view before the device-to-host transfer.
+              builder.setInsertionPoint(toHostOp);
+              Value materialized =
+                  materializeView(builder, toHostOp.getLoc(), toHostInput);
 
-                // Update the ToLayoutOp to use the materialized value.
-                toLayoutOp.getInputMutable().assign(materialized);
-              }
+              // Update the ToHostOp to use the materialized value.
+              toHostOp.getInputMutable().assign(materialized);
             }
           }
         }

@@ -9,11 +9,6 @@ import pytest
 import itertools
 
 from utils import (
-    _get_ttnn_op,
-    all_close_check,
-    memory_configs_equal,
-    create_dram_tensor,
-    create_sharded_tile_tensor,
     run_op_test,
 )
 
@@ -34,7 +29,7 @@ BLOCK_SHARDED_SHAPE_GRIDS.extend(
     [
         ((batch, h * 32 * (grid_h + 1), w * 32 * (grid_w + 1)), (grid_w, grid_h))
         for batch, h, w, grid_h, grid_w in itertools.product(
-            [1, 8], range(1, 3), range(1, 3), range(8), range(8)
+            [1, 8], [3], [3], range(8), range(8)
         )
     ]
 )
@@ -47,7 +42,7 @@ BLOCK_SHARDED_SHAPE_GRIDS.extend(
             (grid_w, grid_h),
         )
         for batch1, batch2, h, w, grid_h, grid_w in itertools.product(
-            [1, 2], [1, 4], range(1, 3), range(1, 3), range(8), range(8)
+            [1, 2], [1, 4], [3], [3], range(8), range(8)
         )
     ]
 )
@@ -108,7 +103,7 @@ def test_l1_block_sharded_shapes(device, shape, max_grid, op):
         num_inputs=1,
         buffer_type=ttnn.BufferType.L1,
         enable_cache=True,
-        memory_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED,
+        shard_strategy=ttnn.ShardStrategy.BLOCK,
     )
 
 
@@ -124,7 +119,7 @@ HEIGHT_SHARDED_SHAPE_GRIDS.extend(
     [
         ((batch, h * 32 * (grid_w + 1) * (grid_h + 1), w * 32), (grid_w, grid_h))
         for batch, h, w, grid_h, grid_w in itertools.product(
-            [1, 8], range(1, 3), range(1, 3), range(8), range(8)
+            [1, 8], [3], [3], range(8), range(8)
         )
     ]
 )
@@ -135,7 +130,7 @@ HEIGHT_SHARDED_SHAPE_GRIDS.extend(
             (grid_w, grid_h),
         )
         for batch1, batch2, h, w, grid_h, grid_w in itertools.product(
-            [1, 2], [1, 4], range(1, 3), range(1, 3), range(8), range(8)
+            [1, 2], [1, 4], [3], [3], range(8), range(8)
         )
     ]
 )
@@ -157,7 +152,7 @@ def test_l1_height_sharded_shapes(device, shape, max_grid, op):
         num_inputs=1,
         buffer_type=ttnn.BufferType.L1,
         enable_cache=True,
-        memory_layout=ttnn.TensorMemoryLayout.HEIGHT_SHARDED,
+        shard_strategy=ttnn.ShardStrategy.HEIGHT,
     )
 
 
@@ -174,7 +169,7 @@ WIDTH_SHARDED_SHAPE_GRIDS.extend(
     [
         ((batch, h * 32, w * 32 * (grid_h + 1) * (grid_w + 1)), (grid_w, grid_h))
         for batch, h, w, grid_h, grid_w in itertools.product(
-            [1, 8], range(1, 3), range(1, 3), range(8), range(8)
+            [1, 8], [3], [3], range(8), range(8)
         )
     ]
 )
@@ -185,7 +180,7 @@ WIDTH_SHARDED_SHAPE_GRIDS.extend(
             (grid_w, grid_h),
         )
         for batch1, batch2, h, w, grid_h, grid_w in itertools.product(
-            [1, 2], [1, 4], range(1, 3), range(1, 3), range(8), range(8)
+            [1, 2], [1, 4], [3], [3], range(8), range(8)
         )
     ]
 )
@@ -207,7 +202,7 @@ def test_l1_width_sharded_shapes(device, shape, max_grid, op):
         num_inputs=1,
         buffer_type=ttnn.BufferType.L1,
         enable_cache=True,
-        memory_layout=ttnn.TensorMemoryLayout.WIDTH_SHARDED,
+        shard_strategy=ttnn.ShardStrategy.WIDTH,
     )
 
 

@@ -8,8 +8,8 @@ from typing import List, Optional
 import pytest
 import torch
 
-from builder.base.builder import Operand, Shape
-from builder.base.builder_utils import compile_and_execute_ttir
+from builder.base.builder_utils import Operand, Shape
+from builder.base.builder_apis import compile_and_execute_ttir
 from builder.ttir.ttir_builder import TTIRBuilder
 
 pytestmark = pytest.mark.frontend("ttir")
@@ -50,44 +50,44 @@ def test_rmsnorm_sharding(
     request,
     device,
 ):
-    def rmsnorm_test(
-        input_tensor: Operand,
-        weight: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        # Create torch tensors for golden reference
-        torch.manual_seed(42)
-        input_shape = shapes[0]
-        weight_shape = shapes[1]
-        torch_input = torch.randn(input_shape, dtype=dtypes[0])
-        torch_weight = torch.randn(weight_shape, dtype=dtypes[1])
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def rmsnorm_test(
+            input_tensor: Operand,
+            weight: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            # Create torch tensors for golden reference
+            torch.manual_seed(42)
+            input_shape = shapes[0]
+            weight_shape = shapes[1]
+            torch_input = torch.randn(input_shape, dtype=dtypes[0])
+            torch_weight = torch.randn(weight_shape, dtype=dtypes[1])
 
-        result = builder.rms_norm(
-            input_tensor,
-            normalized_shape=weight_shape,
-            weight=weight,
-            epsilon=epsilon,
-            unit_attrs=unit_attrs,
-        )
+            result = builder.rms_norm(
+                input_tensor,
+                normalized_shape=weight_shape,
+                weight=weight,
+                epsilon=epsilon,
+                unit_attrs=unit_attrs,
+            )
 
-        builder.set_goldens(
-            {input_tensor: torch_input, weight: torch_weight},
-            {
-                result: torch.rms_norm(
-                    torch_input,
-                    normalized_shape=weight_shape,
-                    weight=torch_weight,
-                    eps=epsilon,
-                )
-            },
-        )
-        return result
+            builder.set_goldens(
+                {input_tensor: torch_input, weight: torch_weight},
+                {
+                    result: torch.rms_norm(
+                        torch_input,
+                        normalized_shape=weight_shape,
+                        weight=torch_weight,
+                        eps=epsilon,
+                    )
+                },
+            )
+            return result
 
     output_file_mlir = compile_and_execute_ttir(
-        rmsnorm_test,
-        shapes,
-        dtypes,
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         device=device,

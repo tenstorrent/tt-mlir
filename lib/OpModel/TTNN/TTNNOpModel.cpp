@@ -6489,15 +6489,12 @@ llvm::Expected<size_t> OpModel<UpsampleOp>::getOpRuntime(
 struct EmbeddingOpArgs {
   ::ttnn::TensorSpec inputSpec;
   ::ttnn::TensorSpec weightSpec;
-  std::optional<::ttnn::TensorSpec> outputSpec;
 };
 
-llvm::Expected<EmbeddingOpArgs>
-getEmbeddingOpArgs(::tt::tt_metal::distributed::MeshDevice *device,
-                   llvm::ArrayRef<int64_t> inputShape,
-                   TTNNLayoutAttr inputLayout,
-                   llvm::ArrayRef<int64_t> weightShape,
-                   TTNNLayoutAttr weightLayout, TTNNLayoutAttr outputLayout) {
+llvm::Expected<EmbeddingOpArgs> getEmbeddingOpArgs(
+    ::tt::tt_metal::distributed::MeshDevice *device,
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout) {
   auto inputSpecExp =
       detail::convertToTensorSpec(device, inputShape, inputLayout);
   if (!inputSpecExp) {
@@ -6512,17 +6509,7 @@ getEmbeddingOpArgs(::tt::tt_metal::distributed::MeshDevice *device,
   }
   ::ttnn::TensorSpec weightSpec = weightSpecExp.get();
 
-  std::optional<::ttnn::TensorSpec> outputSpec = std::nullopt;
-  if (outputLayout) {
-    auto outputSpecExp =
-        detail::convertToTensorSpec(device, weightShape, outputLayout);
-    if (!outputSpecExp) {
-      return outputSpecExp.takeError();
-    }
-    outputSpec = outputSpecExp.get();
-  }
-
-  return EmbeddingOpArgs{inputSpec, weightSpec, outputSpec};
+  return EmbeddingOpArgs{inputSpec, weightSpec};
 }
 #endif // TTMLIR_ENABLE_OPMODEL
 
@@ -6535,7 +6522,7 @@ llvm::Expected<OpConstraints> OpModel<EmbeddingOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   llvm::Expected<EmbeddingOpArgs> embeddingOpArgsExp = getEmbeddingOpArgs(
-      device, inputShape, inputLayout, weightShape, weightLayout, outputLayout);
+      device, inputShape, inputLayout, weightShape, weightLayout);
   if (!embeddingOpArgsExp) {
     return embeddingOpArgsExp.takeError();
   }
@@ -6559,8 +6546,7 @@ llvm::Expected<OpConstraints> OpModel<EmbeddingOp>::getOpConstraints(
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::embedding, device, embeddingOpArgs.inputSpec,
         embeddingOpArgs.weightSpec, padToken, layout, embeddingsType, dtype,
-        detail::getNullableMemoryConfig(outputLayout),
-        embeddingOpArgs.outputSpec);
+        detail::getNullableMemoryConfig(outputLayout), std::nullopt);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
@@ -6579,7 +6565,7 @@ llvm::Expected<size_t> OpModel<EmbeddingOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   llvm::Expected<EmbeddingOpArgs> embeddingOpArgsExp = getEmbeddingOpArgs(
-      device, inputShape, inputLayout, weightShape, weightLayout, outputLayout);
+      device, inputShape, inputLayout, weightShape, weightLayout);
   if (!embeddingOpArgsExp) {
     return embeddingOpArgsExp.takeError();
   }
@@ -6603,8 +6589,7 @@ llvm::Expected<size_t> OpModel<EmbeddingOp>::getOpRuntime(
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::embedding, device, embeddingOpArgs.inputSpec,
         embeddingOpArgs.weightSpec, padToken, layout, embeddingsType, dtype,
-        detail::getNullableMemoryConfig(outputLayout),
-        embeddingOpArgs.outputSpec);
+        detail::getNullableMemoryConfig(outputLayout), std::nullopt);
   };
 
   return operation::getOpRuntime(embeddingOpQuery);

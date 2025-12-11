@@ -368,8 +368,14 @@ public:
     // (similar to MaterializeViewReturns pass). For now, we allow it and let
     // downstream passes handle it.
 
-    // Create the final ToLayoutOp with layout attribute set
-    return rewriter.create<ToLayoutOp>(loc, input, output, *deviceLayout)
+    // Emit dedicated host transfer ops based on direction.
+    if (inputInfo.isSystem()) {
+      // Host → Device: use ToDeviceOp.
+      return rewriter.create<ToDeviceOp>(loc, input, output, *deviceLayout)
+          .getResult(0);
+    }
+    // Device → Host: use ToHostOp.
+    return rewriter.create<ToHostOp>(loc, input, output, *deviceLayout)
         .getResult(0);
   }
 
@@ -530,11 +536,6 @@ public:
 
   LogicalResult matchAndRewrite(ToLayoutOp op,
                                 PatternRewriter &rewriter) const final {
-    // Skip ToLayoutOps that are already lowered (have layout attribute set)
-    if (op.getLayout()) {
-      return failure();
-    }
-
     // Use producer-first ordering to ensure dependencies are lowered first.
     if (producerMustBeLoweredFirst(op)) {
       return failure();
@@ -547,8 +548,8 @@ public:
     BounceTypeBuilder typeBuilder(rewriter.getContext());
 
     // === TRANSFORMATION PIPELINE ===
-    // Apply transformations in priority order
-    // Each step emits lowered ops and updates currentValue/currentInfo
+    // Apply transformations in priority order.
+    // Each step emits lowered ops and updates currentValue/currentInfo.
 
     // Helper to create empty ops for intermediate types. If the type matches
     // the final target, reuse the original output.
@@ -565,10 +566,10 @@ public:
           .getResult();
     };
 
-    // 1. SYSTEM→DEVICE: Transfer to L1 with same element type as input
+    // 1. SYSTEM→DEVICE: Transfer to L1 with same element type as input.
     if (!currentInfo.hasLayout() && targetInfo.hasLayout()) {
-      // System transfer can ONLY change memory space, not element type
-      // Create L1 intermediate with scalar element type (same as system input)
+      // System transfer can ONLY change memory space, not element type.
+      // Create L1 intermediate with scalar element type (same as system input).
       Type scalarElemType = getScalarType(currentInfo.type.getElementType());
       auto l1Type = typeBuilder.createDeviceType(
           currentInfo.type, *targetInfo.layout, targetInfo.type,
@@ -585,7 +586,7 @@ public:
       currentInfo = TensorInfo::from(currentValue);
     }
 
-    // 2. DRAM→L1: Must happen before other device ops
+    // 2. DRAM→L1: Must happen before other device ops.
     // Use target's layout characteristics.
     if (currentInfo.hasLayout() && currentInfo.isDRAM() &&
         targetInfo.hasLayout() && !targetInfo.isDRAM()) {

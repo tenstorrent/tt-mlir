@@ -8,7 +8,6 @@ import torch
 import pytest
 
 from utils import (
-    _get_ttnn_op,
     all_close_check,
     memory_configs_equal,
     create_dram_tensor,
@@ -49,15 +48,15 @@ WIDTH_SHARDED_SHAPE_GRIDS = [
 
 SHARDED_SHAPE_GRID_LAYOUTS = (
     [
-        (shape, grid, ttnn.TensorMemoryLayout.BLOCK_SHARDED)
+        (shape, grid, ttnn.ShardStrategy.BLOCK)
         for shape, grid in BLOCK_SHARDED_SHAPE_GRIDS
     ]
     + [
-        (shape, grid, ttnn.TensorMemoryLayout.HEIGHT_SHARDED)
+        (shape, grid, ttnn.ShardStrategy.HEIGHT)
         for shape, grid in HEIGHT_SHARDED_SHAPE_GRIDS
     ]
     + [
-        (shape, grid, ttnn.TensorMemoryLayout.WIDTH_SHARDED)
+        (shape, grid, ttnn.ShardStrategy.WIDTH)
         for shape, grid in WIDTH_SHARDED_SHAPE_GRIDS
     ]
 )
@@ -91,16 +90,16 @@ def mul_add(input_tensor_a, input_tensor_b, input_tensor_c):
 
 
 @pytest.mark.parametrize(
-    "shape, max_grid, memory_layout",
+    "shape, max_grid, shard_strategy",
     SHARDED_SHAPE_GRID_LAYOUTS,
     ids=[
-        f"shape_{shape}_grid_{grid}_{layout}"
-        for shape, grid, layout in SHARDED_SHAPE_GRID_LAYOUTS
+        f"shape_{shape}_grid_{grid}_{shard_strategy}"
+        for shape, grid, shard_strategy in SHARDED_SHAPE_GRID_LAYOUTS
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
 @pytest.mark.parametrize("op", [cosh, sinh, mul_add])
-def test_composite_ops_l1(device, shape, max_grid, dtype, op, memory_layout):
+def test_composite_ops_l1(device, shape, max_grid, dtype, op, shard_strategy):
     num_inputs = 1
     if op is mul_add:
         num_inputs = 3
@@ -112,7 +111,7 @@ def test_composite_ops_l1(device, shape, max_grid, dtype, op, memory_layout):
         op,
         num_inputs,
         buffer_type=ttnn.BufferType.L1,
-        memory_layout=memory_layout,
+        shard_strategy=shard_strategy,
     )
 
 

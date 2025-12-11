@@ -157,10 +157,9 @@ static std::unique_ptr<::tt::runtime::SystemDesc> getCurrentSystemDescImpl(
       ::tt::target::ChipCoord(0, 0, 0, 0)};
   ::flatbuffers::FlatBufferBuilder fbb;
 
+  std::uint32_t pcieAlignment = ::tt::tt_metal::hal::get_pcie_alignment();
   std::uint32_t l1Alignment = ::tt::tt_metal::hal::get_l1_alignment();
   std::uint32_t dramAlignment = ::tt::tt_metal::hal::get_dram_alignment();
-  // PCIE and DRAM alignments are identical across all architectures
-  std::uint32_t pcieAlignment = dramAlignment;
 
   for (const ::tt::tt_metal::IDevice *device : devices) {
     size_t l1UnreservedBase =
