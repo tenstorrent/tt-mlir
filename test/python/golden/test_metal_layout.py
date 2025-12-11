@@ -309,6 +309,71 @@ def test_view_with_padding(
 @pytest.mark.parametrize(
     "grid_sequence",
     [
+        ((2, 32, 64), (1, 1, 2), (2, 1, 1)),
+    ],
+)
+def test_foo(
+    target: str,
+    grid_sequence: tuple,
+    request,
+    device,
+):
+    shape = grid_sequence[0]
+
+    def module(builder: D2MBuilder):
+        @builder.func([shape], [torch.float32])
+        def multiple_reblocks(
+            in0: Operand,
+            builder: D2MBuilder,
+            unit_attrs: List[str] = None,
+        ):
+            current = builder.to_layout(
+                in0,
+                output_type=builder.get_metal_tensor_layout(
+                    shape,
+                    grid=grid_sequence[1],
+                    tiled=False,
+                    collapsed_intervals=[],
+                    dim_alignments=[1, 32, 32],
+                ),
+                unit_attrs=unit_attrs,
+                loc="to_device",
+            )
+            current = builder.to_layout(
+                current,
+                output_type=builder.get_metal_tensor_layout(
+                    shape,
+                    grid=grid_sequence[2],
+                    tiled=False,
+                    collapsed_intervals=[],
+                    dim_alignments=[1, 32, 32],
+                ),
+                unit_attrs=unit_attrs,
+                loc="reblock",
+            )
+            from_device = builder.to_layout(
+                current,
+                output_type=in0.type,
+                unit_attrs=unit_attrs,
+                loc="from_device",
+            )
+            return from_device
+
+    compile_and_execute_d2m(
+        module,
+        target=target,
+        custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        device=device,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize(
+    "grid_sequence",
+    [
         ((1, 1), (4, 4), (2, 2)),  # Upscale then downscale
         ((2, 2), (1, 2), (2, 4)),  # Multiple redistributions
         ((1, 4), (4, 1), (2, 2)),  # Reshape through chain

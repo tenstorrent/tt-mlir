@@ -13,11 +13,8 @@ else()
 endif()
 message(STATUS "Setting tt-metal CPM cache to: ${CPM_SOURCE_CACHE}")
 
-if (CMAKE_BUILD_TYPE STREQUAL "Release")
-  set(TTMETAL_BUILD_DIR ${TTMLIR_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build)
-else()
-  set(TTMETAL_BUILD_DIR ${TTMLIR_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build_Debug)
-endif()
+set(TTMETAL_BUILD_DIR ${TTMLIR_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build_${CMAKE_BUILD_TYPE})
+set(TTMETAL_BUILD_SYMLINK ${TTMLIR_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build)
 set(TTMETAL_LIBRARY_DIR ${TTMETAL_BUILD_DIR}/lib)
 
 set(TRACY_INCLUDE_DIRS
@@ -43,7 +40,7 @@ set(TTMETAL_INCLUDE_DIRS
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_stl
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_stl/tt_stl
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_eager
-  ${TTMETAL_BUILD_DIR}/include
+  ${TTMETAL_BUILD_SYMLINK}/include
   ${CPM_SOURCE_CACHE}/reflect/f93e77475670eaeacf332927dfe8b50e3f3812e0
   ${CPM_SOURCE_CACHE}/nanomsg/28cc32d5bdb6a858fe53b3ccf7e923957e53eada/include
   ${CPM_SOURCE_CACHE}/fmt/69912fb6b71fcb1f7e5deca191a2bb4748c4e7b6/include
@@ -128,6 +125,15 @@ ExternalProject_Add(
 )
 
 ExternalProject_Add_StepTargets(tt-metal download update configure)
+
+# Symlink `build` to always point to the latest tt-metal build dir, for hard-coded paths.
+ExternalProject_Add_Step(tt-metal create_build_symlink
+  COMMAND ${CMAKE_COMMAND} -E rm -f ${TTMETAL_BUILD_SYMLINK}
+  COMMAND ${CMAKE_COMMAND} -E create_symlink ${TTMETAL_BUILD_DIR} ${TTMETAL_BUILD_SYMLINK}
+  COMMENT "Creating symlink: build -> build_${CMAKE_BUILD_TYPE}"
+  DEPENDEES build
+)
+
 set_target_properties(tt-metal-download PROPERTIES EXCLUDE_FROM_ALL TRUE)
 set_target_properties(tt-metal-update PROPERTIES EXCLUDE_FROM_ALL TRUE)
 set_target_properties(tt-metal-configure PROPERTIES EXCLUDE_FROM_ALL TRUE)

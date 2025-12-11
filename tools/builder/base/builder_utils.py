@@ -13,6 +13,7 @@ from typing import Callable, List, Optional, Tuple, Union, Literal, Dict
 from collections import OrderedDict
 import json
 from dataclasses import dataclass
+import array
 
 from ttmlir.ir import *
 from ttmlir.dialects import func, ttcore, ttnn, ttir
@@ -177,6 +178,7 @@ def run_ttir_pipeline(
     return module
 
 
+# Ugh, this creates a metal tensor? Not just layout!
 def get_metal_tensor_layout(
     ctx: Context,
     logical_shape: Shape,
@@ -188,6 +190,8 @@ def get_metal_tensor_layout(
     memory_layout: Optional[
         ttcore.TensorMemoryLayout
     ] = ttcore.TensorMemoryLayout.Sharded,
+    collapsed_intervals: Optional[List[List[int]]] = None,
+    dim_alignments: Optional[List[int]] = None,
 ) -> RankedTensorType:
     """
     Create a metal tensor layout.
@@ -225,9 +229,33 @@ def get_metal_tensor_layout(
         grid_shape = list(grid)
 
     # Create layout with original logical shape.
-    if index_map is None:
+    if index_map is None and collapsed_intervals is None and dim_alignments is None:
         layout = ttcore.ir.MetalLayoutAttr.get(
             ctx, logical_shape, oobVal, memorySpace, memory_layout
+        )
+    elif index_map is None:
+        assert collapsed_intervals is not None
+        assert dim_alignments is not None
+
+        i64_type = IntegerType.get_signless(64, ctx)
+        interval_shape = [len(collapsed_intervals), 2]
+        interval_type = RankedTensorType.get(interval_shape, i64_type)
+
+        flattened = [v for interval in collapsed_intervals for v in interval]
+        data_buffer = array.array("q", flattened)
+
+        collapsed_intervals_attr = DenseIntElementsAttr.get(
+            data_buffer, type=interval_type
+        )
+
+        layout = ttcore.ir.MetalLayoutAttr.get(
+            ctx,
+            logical_shape,
+            oobVal,
+            memorySpace,
+            memory_layout,
+            collapsed_intervals_attr,
+            dim_alignments,
         )
     else:
         layout = ttcore.ir.MetalLayoutAttr.get(
