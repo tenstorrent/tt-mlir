@@ -3319,3 +3319,23 @@ def test_multiple_function(target, request, device):
             return sigmoid0
 
     new_module, builder = build_module(my_module, "ttir")
+
+
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_device_cpu_module(target, request, device):
+    def my_module(builder: TTIRBuilder):
+        @builder.device_module
+        def my_device_module(builder: TTIRBuilder):
+            @builder.func([(32, 32)], [torch.float32])
+            def my_modela(in0: Operand, builder: TTIRBuilder):
+                sigmoid0 = builder.sigmoid(in0)
+                return sigmoid0
+
+        @builder.cpu_module
+        def my_cpu_module(builder: TTIRBuilder):
+            @builder.func([(32, 32)], [torch.float32])
+            def my_modelb(in0: Operand, builder: TTIRBuilder):
+                sigmoid0 = builder.sigmoid(in0)
+                return sigmoid0
+
+    new_module, builder = build_module(my_module, "ttir")
