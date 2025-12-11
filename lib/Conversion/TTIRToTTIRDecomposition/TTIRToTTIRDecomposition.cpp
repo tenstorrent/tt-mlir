@@ -1627,9 +1627,9 @@ struct DotGeneralToMatmulConversionPattern
     SmallVector<int64_t> rhsBatchDims(op.getBatchDimsRhs());
     SmallVector<int64_t> rhsContractDims(op.getContractDimsRhs());
 
-    Type elementType = lhsType.getElementType();
+    Type elementType = op.getType().getElementType();
     Attribute encoding = lhsType.getEncoding();
-
+    
     SmallVector<int64_t> lhsResultDims =
         getResultDims(lhsBatchDims, lhsContractDims, lhsRank);
     SmallVector<int64_t> rhsResultDims =

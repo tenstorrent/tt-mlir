@@ -88,6 +88,7 @@
 #include "tt/runtime/perf.h"
 #include "tt/runtime/utils.h"
 
+#include <iostream>
 namespace tt::runtime::ttnn {
 
 using LogType = ::tt::runtime::logger::LogType;
@@ -128,12 +129,19 @@ void ProgramExecutor::runCallback(
     std::optional<debug::Hooks::CallbackFn> callback, Binary &executableHandle,
     const ::tt::target::ttnn::Operation *opContext,
     ProgramContext *programContext) {
+      std::shared_ptr<void> programContextPtr =
+      ::tt::runtime::utils::unsafeBorrowShared(programContext);
+      auto cbContext = CallbackContext(programContextPtr, DeviceRuntime::TTNN);
+      std::shared_ptr<void> opContextPtr =
+      ::tt::runtime::utils::unsafeBorrowShared(
+          const_cast<::tt::target::ttnn::Operation *>(opContext));
+  auto t = tt::runtime::ttnn::getOpOutputTensor(OpContext(opContextPtr, DeviceRuntime::TTNN), cbContext)[0];
+  if (t.handle.get() != nullptr)
+  {
+    auto k = t.as<::ttnn::Tensor>(DeviceRuntime::TTNN);
+    std::cerr << "output=" << k.write_to_string() << std::endl;
+  }
   if (callback) {
-    std::shared_ptr<void> programContextPtr =
-        ::tt::runtime::utils::unsafeBorrowShared(programContext);
-    std::shared_ptr<void> opContextPtr =
-        ::tt::runtime::utils::unsafeBorrowShared(
-            const_cast<::tt::target::ttnn::Operation *>(opContext));
     (*callback)(executableHandle,
                 CallbackContext(programContextPtr, DeviceRuntime::TTNN),
                 OpContext(opContextPtr, DeviceRuntime::TTNN));
@@ -150,8 +158,8 @@ void ProgramExecutor::execute() {
     perf::Env::get().tracyLogConstEvalProgram(constEvalProgram);
     perf::Env::get().tracyLogProgramMetadata(
         perf::Env::get().tracyProgramMetadata);
-    runCallback(debug::Hooks::get().getPreOperatorCallback(), executableHandle,
-                op, context.get());
+    // runCallback(debug::Hooks::get().getPreOperatorCallback(), executableHandle,
+    //             op, context.get());
     runOperation(op);
     runCallback(debug::Hooks::get().getPostOperatorCallback(), executableHandle,
                 op, context.get());
