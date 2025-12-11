@@ -467,4 +467,107 @@ def TTNNAnnotateIsolatedInputs: Pass<"ttnn-annotate-isolated-inputs", "::mlir::M
   let options = [];
 }
 
+def TTNNExtractIsolatedToTestModule: Pass<"ttnn-extract-isolated-to-test-module", "::mlir::ModuleOp"> {
+  let summary = "Extract isolated functions to a separate test module.";
+  let description = [{
+    This pass extracts all functions marked with the `isolated` attribute
+    into a separate nested module for test generation. This enables:
+    - Clear separation between production code and test code
+    - Independent processing of test functions for pytest generation
+    - Eventual emission to separate Python files
+
+    The pass creates a new nested `ModuleOp` named "test_module" and moves
+    all isolated functions from the original module into it. The isolated
+    functions are removed from the original module.
+
+    Example:
+    ```mlir
+    module {
+      func.func @main(...) {...}
+      func.func @reshape_0(...) attributes {isolated} {...}
+      func.func @reshape_1(...) attributes {isolated} {...}
+    }
+    ```
+
+    After the pass:
+    ```mlir
+    module {
+      func.func @main(...) {...}
+      module @test_module {
+        func.func @reshape_0(...) attributes {isolated} {...}
+        func.func @reshape_1(...) attributes {isolated} {...}
+      }
+    }
+    ```
+  }];
+
+  let options = [];
+}
+
+def TTNNPrepareIsolatedForPytest: Pass<"ttnn-prepare-isolated-for-pytest", "::mlir::ModuleOp"> {
+  let summary = "Transform isolated functions into parametrized pytest tests.";
+  let description = [{
+    This pass transforms isolated TTNN operations into parametrized pytest
+    test functions. It groups isolated functions by operation type, identifies
+    varying attributes, and merges functions with the same operation into a
+    single parametrized test.
+
+    For each group of functions with the same `op_name`:
+    1. Identify varying attributes across functions (input_shapes, input_dtypes, call_opaque inline attrs)
+    2. Create a merged test function named `test_{op_name}`
+    3. Add function arguments for varying attributes
+    4. Generate `@pytest.mark.parametrize` decorators
+    5. Convert call_opaque inline attributes to function operands
+    6. Delete original isolated functions
+
+    Example transformation:
+
+    Before:
+    ```mlir
+    func.func @reshape_5(%arg0: tensor) attributes {
+      isolated, op_name = "ttnn.reshape",
+      input_shapes = [[1,1,784,1]], input_dtypes = ["bf16"]
+    } {
+      %0 = emitpy.call_opaque "ttnn.reshape"(%arg0)
+             {args = [0, #emitpy.opaque<"[1,28,28,1]">, ...]}
+      return %0
+    }
+    func.func @reshape_6(%arg0: tensor) attributes {
+      isolated, op_name = "ttnn.reshape",
+      input_shapes = [[2,2,784,1]], input_dtypes = ["bf16"]
+    } {
+      %0 = emitpy.call_opaque "ttnn.reshape"(%arg0)
+             {args = [0, #emitpy.opaque<"[2,32,32,1]">, ...]}
+      return %0
+    }
+    ```
+
+    After:
+    ```mlir
+    func.func @test_reshape(%input: tensor, %shape: opaque, %input_shape: opaque) attributes {
+      emitpy.decorators = [
+        #emitpy.decorator<"@pytest.mark.parametrize('shape', [[1,28,28,1], [2,32,32,1]])">,
+        #emitpy.decorator<"@pytest.mark.parametrize('input_shape', [(1,1,784,1), (2,2,784,1)])">,
+        #emitpy.decorator<"@pytest.mark.parametrize('dtype', ['bf16'])">,
+      ]
+    } {
+      %0 = emitpy.call_opaque "ttnn.reshape"(%input, %shape) {args = [0, 1], ...}
+      return %0
+    }
+    ```
+
+    This generates Python code:
+    ```python
+    @pytest.mark.parametrize('shape', [[1,28,28,1], [2,32,32,1]])
+    @pytest.mark.parametrize('input_shape', [(1,1,784,1), (2,2,784,1)])
+    @pytest.mark.parametrize('dtype', ['bf16'])
+    def test_reshape(input, shape, input_shape):
+        result = ttnn.reshape(input, shape, ...)
+        return result
+    ```
+  }];
+
+  let options = [];
+}
+
 #endif

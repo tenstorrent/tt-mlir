@@ -15,6 +15,8 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNFusing.cpp
         TTNNIsolateOps.cpp
         TTNNAnnotateIsolatedInputs.cpp
+        TTNNExtractIsolatedToTestModule.cpp
+        TTNNPrepareIsolatedForPytest.cpp
         TTNNLayout.cpp
         TTNNToCpp.cpp
         TTNNToPython.cpp

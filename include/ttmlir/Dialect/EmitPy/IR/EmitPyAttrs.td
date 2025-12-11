@@ -39,6 +39,25 @@ def EmitPy_OpaqueAttr : EmitPy_Attr<"Opaque", "opaque"> {
   let assemblyFormat = "`<` $value `>`";
 }
 
+def EmitPy_DecoratorAttr : EmitPy_Attr<"Decorator", "decorator"> {
+  let summary = "A Python decorator attribute";
+
+  let description = [{
+    A decorator attribute that represents a Python decorator to be applied to a function.
+    Multiple decorators can be applied using an array of DecoratorAttr.
+
+    Example:
+
+    ```mlir
+    #emitpy.decorator<"@pytest.mark.parametrize('x', [1, 2, 3])">
+    #emitpy.decorator<"@staticmethod">
+    ```
+  }];
+
+  let parameters = (ins StringRefParameter<"the decorator string">:$value);
+  let assemblyFormat = "`<` $value `>`";
+}
+
 def EmitPy_OpaqueOrTypedAttr : AnyAttrOf<[EmitPy_OpaqueAttr, TypedAttrInterface]>;
 
 #endif // TTMLIR_TTMLIR_DIALECT_EMITPY_IR_EMITPYATTRIBUTES_TD

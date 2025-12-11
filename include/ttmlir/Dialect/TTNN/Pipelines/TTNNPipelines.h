@@ -457,6 +457,11 @@ struct TTNNBackendToEmitPyPipelineOptions
   Option<std::string> tensorLoadFilePrefix{
       *this, "tensor-load-file-prefix",
       llvm::cl::desc("Prefix for input tensor files"), llvm::cl::init("arg")};
+
+  Option<bool> generatePytestModule{
+      *this, "generate-pytest-module",
+      llvm::cl::desc("Generate parametrized pytest module from isolated ops"),
+      llvm::cl::init(false)};
 };
 
 // TTIR to EmitC pipeline options.

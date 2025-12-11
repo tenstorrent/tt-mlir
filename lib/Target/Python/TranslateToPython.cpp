@@ -354,6 +354,17 @@ static LogicalResult printOperation(PythonEmitter &emitter,
   raw_indented_ostream &os = emitter.ostream();
   StringRef callee = functionOp.getName();
   emitter.reserveName(callee.str());
+
+  // Emit decorators if present
+  // Example: {emitpy.decorators = [#emitpy.decorator<"@pytest.mark.parametrize('x', [1, 2, 3])">, #emitpy.decorator<"@staticmethod">]}
+  if (auto decoratorsAttr = functionOp->getAttrOfType<ArrayAttr>("emitpy.decorators")) {
+    for (Attribute decoratorAttr : decoratorsAttr) {
+      if (auto decorator = llvm::dyn_cast<DecoratorAttr>(decoratorAttr)) {
+        os << decorator.getValue() << "\n";
+      }
+    }
+  }
+
   os << "def";
   os << " " << callee;
   os << "(";

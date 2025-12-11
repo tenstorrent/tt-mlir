@@ -345,6 +345,16 @@ void createTTNNBackendToEmitPyPipeline(
   pm.addPass(createConvertTTNNToEmitPyPass());
 
   pm.addPass(createEmitPyNameVarsPass());
+
+  // If pytest generation is enabled, extract isolated ops to test module
+  // and prepare them for pytest parametrization
+  // These passes run AFTER conversion to EmitPy, so functions contain emitpy.call_opaque
+  if (options.generatePytestModule) {
+    pm.addPass(createTTNNExtractIsolatedToTestModule());
+    // The prepare pass needs to run on the test_module specifically
+    // For now it will run on the whole module and skip non-test functions
+    pm.addPass(createTTNNPrepareIsolatedForPytest());
+  }
 }
 
 void createTTIRToEmitCPipeline(OpPassManager &pm,
