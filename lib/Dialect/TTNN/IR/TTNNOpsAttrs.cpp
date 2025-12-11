@@ -684,11 +684,21 @@ MemoryConfigAttr MemoryConfigAttr::get(TTNNLayoutAttr layoutAttr,
       utils::createShardSpecIfNeeded(layoutAttr, deviceGrid));
 }
 
+MemoryConfigAttr MemoryConfigAttr::get(
+    ::mlir::MLIRContext *context, TensorMemoryLayoutAttr tensorMemoryLayout,
+    BufferTypeAttr bufferType, std::optional<ShardSpecAttr> shardSpec) {
+  return MemoryConfigAttr::get(context, tensorMemoryLayout, bufferType,
+                               shardSpec, /*ndShardSpec=*/std::nullopt);
+}
+
 // Verify memory config attribute
 ::llvm::LogicalResult MemoryConfigAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
     TensorMemoryLayoutAttr tensorMemoryLayout, BufferTypeAttr bufferType,
-    std::optional<ShardSpecAttr> shardSpec) {
+    std::optional<ShardSpecAttr> shardSpec,
+    std::optional<NDShardSpecAttr> ndShardSpec) {
+
+  (void)ndShardSpec;
   // Verify buffer type, memory layout and sharding
   return ::llvm::success(verifyBufferAndMemoryLayout(emitError,
                                                      bufferType.getValue(),
@@ -1131,6 +1141,10 @@ TTNNLayoutAttr TTNNLayoutAttr::withLayout(Layout layout,
   assert(layout == Layout::RowMajor || layout == Layout::Tile);
   Type elementType = utils::getElementType(getContext(), layout, getDataType());
   return withElementType(elementType, tensorShape);
+}
+
+BufferType TTNNNDLayoutAttr::getBufferType() const {
+  return mlir::cast<BufferTypeAttr>(getMemref().getMemorySpace()).getValue();
 }
 
 bool TTNNNDLayoutAttr::isInterleaved() const {

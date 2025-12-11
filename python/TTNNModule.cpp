@@ -222,14 +222,19 @@ void populateTTNNModule(nb::module_ &m) {
              MlirAttribute memLayout,
              std::optional<unsigned> shardOrientation = std::nullopt,
              std::optional<unsigned> shardDistributionStrategy = std::nullopt) {
-            tt::ttnn::ShardOrientationAttr shardOrientationAttr;
+            tt::ttnn::ShardOrientationAttr shardOrientationAttr =
+                tt::ttnn::ShardOrientationAttr::get(
+                    unwrap(ctx), tt::ttnn::ShardOrientation::RowMajor);
             if (shardOrientation.has_value()) {
               shardOrientationAttr = tt::ttnn::ShardOrientationAttr::get(
                   unwrap(ctx), static_cast<tt::ttnn::ShardOrientation>(
                                    shardOrientation.value()));
             }
             tt::ttnn::ShardDistributionStrategyAttr
-                shardDistributionStrategyAttr;
+                shardDistributionStrategyAttr =
+                    tt::ttnn::ShardDistributionStrategyAttr::get(
+                        unwrap(ctx),
+                        tt::ttnn::ShardDistributionStrategy::Grid2D);
             if (shardDistributionStrategy.has_value()) {
               shardDistributionStrategyAttr =
                   tt::ttnn::ShardDistributionStrategyAttr::get(
