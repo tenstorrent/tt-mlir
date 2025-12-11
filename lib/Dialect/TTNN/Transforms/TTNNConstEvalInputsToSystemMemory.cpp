@@ -30,7 +30,8 @@ namespace {
 //
 static TTNNLayoutAttr createSystemMemoryLayoutAttr(RankedTensorType type) {
   auto currentLayout = mlir::cast<TTNNLayoutAttr>(type.getEncoding());
-  return currentLayout.withBufferType(BufferType::SystemMemory);
+  return currentLayout.withBufferType(BufferType::SystemMemory)
+      .withLayout(Layout::RowMajor, type.getShape());
 }
 
 // Helper function to convert a tensor type to system memory type.
@@ -184,31 +185,6 @@ static void convertArgumentOfConstEvalFunc(func::FuncOp constEvalFuncOp,
     // Replace the argument usages with the to_layout op result.
     //
     blockArgument.replaceAllUsesExcept(toLayoutOp.getResult(), toLayoutOp);
-  } else {
-    // Otherwise, the argument is already being used only as a system memory
-    // tensor.
-    //
-    // We need to check if the only purpose of the ttnn.to_layout op
-    // consuming this argument is to transfer it to system memory.
-    // If so, we should remove this to_layout op altogether, in order to
-    // avoid TTNNDecomposeLayouts pass failing because of a redundant
-    // to_layout op, as the argument is already in system memory.
-    //
-    auto toLayoutOp =
-        mlir::cast<ttnn::ToLayoutOp>(*blockArgument.getUsers().begin());
-
-    // If the data type and layout of the to_layout op matches the argument
-    // type, we can remove it.
-    //
-    auto toLayoutOpResultType =
-        mlir::cast<RankedTensorType>(toLayoutOp.getResult().getType());
-
-    if (toLayoutOpResultType.getEncoding() == systemMemoryType.getEncoding() &&
-        toLayoutOpResultType.getElementType() ==
-            systemMemoryType.getElementType()) {
-      toLayoutOp.getResult().replaceAllUsesWith(blockArgument);
-      toLayoutOp.erase();
-    }
   }
 
   // Finally, update the block argument type and the function type.
