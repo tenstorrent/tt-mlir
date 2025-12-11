@@ -10476,77 +10476,11 @@ class TTIRBuilder(Builder):
         if golden_inputs is None:
             golden_inputs = []
 
-        parsed_module = Module.parse(mlir_text, ctx)
+        root_module = Module.parse(mlir_text, ctx)
         loc = Location.unknown(ctx)
         with ctx, loc:
             ttir_builder = TTIRBuilder(ctx, loc)
-            new_module = Module.create()
-            fn_input_types = ttir_builder.get_input_types(parsed_module)
-
-            if len(golden_inputs) == 0:
-                for ttype in fn_input_types:
-                    shape = ttype.shape
-                    dtype = ttir_builder._get_datatype_from_torch_dtype(
-                        ttype.element_type
-                    )
-                    # Handle scalar tensors (empty shape)
-                    if len(shape) == 0:
-                        golden_input = torch.randn(1, dtype=dtype).squeeze()
-                    else:
-                        golden_input = torch.randn(*shape, dtype=dtype)
-                    golden_inputs.append(golden_input)
-
-            with InsertionPoint(new_module.body):
-
-                @func.func(*fn_input_types, name="parsed_module")
-                def decorated_func(*inputs):
-                    golden_dict = {}
-                    for operand, torch_golden in zip(inputs, golden_inputs):
-                        golden_dict[operand] = torch_golden
-
-                    input_goldens: Dict[
-                        Operand, GoldenMapTensor
-                    ] = ttir_builder._create_builder_golden_from_torch_tensor(
-                        golden_dict
-                    )
-                    ttir_builder._set_goldens(input_goldens)
-                    ttir_builder._set_input_ordering(inputs)
-
-                    global_dict = {}
-                    for entry in parsed_module.body.operations:
-                        if isinstance(entry, func.FuncOp):
-                            for i, arg in enumerate(entry.arguments):
-                                global_dict[arg] = inputs[i]
-
-                    global_result = None
-                    for entry in parsed_module.body.operations:
-                        for block in entry.body:
-                            for op in block.operations:
-                                if isinstance(op, func.ReturnOp):
-                                    global_result = tuple(
-                                        global_dict[operand] for operand in op.operands
-                                    )
-                                else:
-                                    (
-                                        parsed_op,
-                                        op_golden_dictionary,
-                                    ) = ttir_builder._build_op_from_parsed_op(
-                                        op, global_dict
-                                    )
-                                    global_dict.update(op_golden_dictionary)
-
-                    outputs = (
-                        global_result
-                        if hasattr(global_result, "__iter__")
-                        else (global_result,)
-                    )
-                    output_goldens: Dict[Operand, GoldenMapTensor] = {}
-                    for op in outputs:
-                        output_goldens[op] = ttir_builder._get_golden_tensor(op)
-                    ttir_builder._set_goldens(output_goldens)
-                    ttir_builder._set_output_ordering(list(outputs))
-
-                    return process_multi_return_result(global_result)
+            new_module = ttir_builder.parse_root_module(root_module, golden_inputs)
 
         return new_module, ttir_builder
 
@@ -10570,15 +10504,34 @@ class TTIRBuilder(Builder):
 
         with old_ctx, old_loc:
             for entry in module.body.operations:
-                for block in entry.body:
-                    for op in block.operations:
-                        if isinstance(op, func.ReturnOp) or isinstance(
-                            op,
-                            ttir.EmptyOp,
+                if isinstance(entry, ttcore.DeviceModuleOp):
+                    for device_op_module in entry.regions[0].blocks[0].operations:
+                        for device_module_op in (
+                            device_op_module.regions[0].blocks[0].operations
                         ):
-                            continue
-                        else:
-                            sub_op_module_builder = builder.split_op(op)
-                            sub_modules_and_builders.append(sub_op_module_builder)
+                            if isinstance(device_module_op, func.FuncOp):
+                                for block in device_module_op.body:
+                                    for op in block.operations:
+                                        if isinstance(op, func.ReturnOp) or isinstance(
+                                            op,
+                                            ttir.EmptyOp,
+                                        ):
+                                            continue
+                                        else:
+                                            sub_op_module_builder = builder.split_op(op)
+                                            sub_modules_and_builders.append(
+                                                sub_op_module_builder
+                                            )
+                elif isinstance(entry, func.FuncOp):
+                    for block in entry.body:
+                        for op in block.operations:
+                            if isinstance(op, func.ReturnOp) or isinstance(
+                                op,
+                                ttir.EmptyOp,
+                            ):
+                                continue
+                            else:
+                                sub_op_module_builder = builder.split_op(op)
+                                sub_modules_and_builders.append(sub_op_module_builder)
 
         return sub_modules_and_builders
