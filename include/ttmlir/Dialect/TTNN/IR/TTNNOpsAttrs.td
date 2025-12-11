@@ -205,7 +205,9 @@ def TTNN_NDShardSpecAttr : TTNN_Attr<"NDShardSpec", "nd_shard_spec"> {
                     "ShapeAttr":$shape,
                     "ShardOrientationAttr":$shardOrientation,
                     "ShardDistributionStrategyAttr":$shardDistributionStrategy);
-
+  let extraClassDeclaration = [{
+    static NDShardSpecAttr get(::mlir::MLIRContext *context, TTNNNDLayoutAttr layout);
+  }];
   let assemblyFormat = "`<` params `>`";
 }
 
@@ -226,7 +228,8 @@ def TTNN_TTNNNDLayoutAttr: TTNN_Attr<"TTNNNDLayout", "ttnn_nd_layout"> {
    bool isInterleaved() const;
    bool isSharded() const;
    BufferType getBufferType() const;
-
+   bool isTiled() const;
+   llvm::SmallVector<int64_t> getScalarShardShape() const;
 
    // Determine if an ND sharding layout is the same as a legacy sharding mode
    bool isLegacyBlockSharded(ArrayRef<int64_t> tensorShape) const;
