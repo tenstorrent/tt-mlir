@@ -150,11 +150,15 @@ TTNNOperandsWorkaroundsFactory::createEmbeddingOpOperandsWorkarounds() {
   inputRowMajorInt32Workaround.tensorLayoutWorkaround = Layout::RowMajor;
   inputRowMajorInt32Workaround.tensorDataTypeWorkaround =
       ttcore::DataType::UInt32;
+  TTNNOperandWorkarounds weightRowMajorBf16Workaround;
+  weightRowMajorBf16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+  weightRowMajorBf16Workaround.tensorDataTypeWorkaround =
+      ttcore::DataType::BFloat16;
   TTNNOperandWorkarounds bf16Workaround =
       TTNNOperandWorkarounds(ttcore::DataType::BFloat16);
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds(0, 0)
       .addInputOperandWorkaround(inputRowMajorInt32Workaround)
-      .addInputOperandWorkaround(bf16Workaround)
+      .addInputOperandWorkaround(weightRowMajorBf16Workaround)
       .addOutputOperandWorkaround(bf16Workaround);
 }
 
