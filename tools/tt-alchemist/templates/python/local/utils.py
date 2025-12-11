@@ -7,7 +7,6 @@ import math
 
 
 # Monkey-patch ttnn with ttnn_supplemental objects
-ttnn.collective_permute = ttnn_supplemental.collective_permute
 
 
 class DeviceGetter:
