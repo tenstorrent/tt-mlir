@@ -6,9 +6,9 @@ import pytest
 import torch
 from typing import List, Optional
 
-from builder.base.builder import Operand
+from builder.base.builder_utils import Operand
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import compile_and_execute_ttir
+from builder.base.builder_apis import compile_and_execute_ttir
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -26,49 +26,53 @@ def check_op(mlir_file: str, op_name: str, dialect: str = "ttnn") -> bool:
 def create_permute_matmul_lhs(lhs_shape, rhs_shape):
     """Create a permute -> matmul pattern where LHS is permuted."""
 
-    def permute_matmul(
-        in0: Operand,
-        in1: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        # Use float32 to avoid dtype issues with golden computation
-        in0_data = torch.rand(lhs_shape, dtype=torch.float32) * 0.999 + 0.001
-        in1_data = torch.rand(rhs_shape, dtype=torch.float32) * 0.999 + 0.001
+    def module(builder: TTIRBuilder):
+        @builder.func([lhs_shape, rhs_shape], [torch.float32, torch.float32])
+        def permute_matmul(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            # Use float32 to avoid dtype issues with golden computation
+            in0_data = torch.rand(lhs_shape, dtype=torch.float32) * 0.999 + 0.001
+            in1_data = torch.rand(rhs_shape, dtype=torch.float32) * 0.999 + 0.001
 
-        builder.set_goldens(inputs={in0: in0_data, in1: in1_data})
+            builder.set_goldens(inputs={in0: in0_data, in1: in1_data})
 
-        # Permute the first input (transpose)
-        permuted = builder.permute(in0, [1, 0], unit_attrs=unit_attrs)
+            # Permute the first input (transpose)
+            permuted = builder.permute(in0, [1, 0], unit_attrs=unit_attrs)
 
-        # Matmul: permuted @ in1
-        return builder.matmul(permuted, in1, unit_attrs=unit_attrs)
+            # Matmul: permuted @ in1
+            return builder.matmul(permuted, in1, unit_attrs=unit_attrs)
 
-    return permute_matmul
+    return module
 
 
 def create_permute_matmul_rhs(lhs_shape, rhs_shape):
     """Create a permute -> matmul pattern where RHS is permuted."""
 
-    def permute_matmul(
-        in0: Operand,
-        in1: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        # Use float32 to avoid dtype issues with golden computation
-        in0_data = torch.rand(lhs_shape, dtype=torch.float32) * 0.999 + 0.001
-        in1_data = torch.rand(rhs_shape, dtype=torch.float32) * 0.999 + 0.001
+    def module(builder: TTIRBuilder):
+        @builder.func([lhs_shape, rhs_shape], [torch.float32, torch.float32])
+        def permute_matmul(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            # Use float32 to avoid dtype issues with golden computation
+            in0_data = torch.rand(lhs_shape, dtype=torch.float32) * 0.999 + 0.001
+            in1_data = torch.rand(rhs_shape, dtype=torch.float32) * 0.999 + 0.001
 
-        builder.set_goldens(inputs={in0: in0_data, in1: in1_data})
+            builder.set_goldens(inputs={in0: in0_data, in1: in1_data})
 
-        # Permute the second input (transpose)
-        permuted = builder.permute(in1, [1, 0], unit_attrs=unit_attrs)
+            # Permute the second input (transpose)
+            permuted = builder.permute(in1, [1, 0], unit_attrs=unit_attrs)
 
-        # Matmul: in0 @ permuted
-        return builder.matmul(in0, permuted, unit_attrs=unit_attrs)
+            # Matmul: in0 @ permuted
+            return builder.matmul(in0, permuted, unit_attrs=unit_attrs)
 
-    return permute_matmul
+    return module
 
 
 @pytest.mark.parametrize(
@@ -87,7 +91,6 @@ def test_permute_matmul_lhs_fusion_enabled(
     """Test that permute on LHS is fused into matmul when flag is enabled (default)."""
     output = compile_and_execute_ttir(
         create_permute_matmul_lhs(lhs_shape, rhs_shape),
-        [lhs_shape, rhs_shape],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         device=device,
@@ -115,7 +118,6 @@ def test_permute_matmul_lhs_fusion_disabled(
     """Test that permute on LHS is NOT fused into matmul when flag is disabled."""
     output = compile_and_execute_ttir(
         create_permute_matmul_lhs(lhs_shape, rhs_shape),
-        [lhs_shape, rhs_shape],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         device=device,
@@ -146,7 +148,6 @@ def test_permute_matmul_rhs_fusion_enabled(
     """Test that permute on RHS is fused into matmul when flag is enabled."""
     output = compile_and_execute_ttir(
         create_permute_matmul_rhs(lhs_shape, rhs_shape),
-        [lhs_shape, rhs_shape],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         device=device,

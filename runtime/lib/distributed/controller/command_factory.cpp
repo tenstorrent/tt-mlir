@@ -464,6 +464,45 @@ CommandFactory::buildGetTensorDescCommand(::flatbuffers::FlatBufferBuilder &fbb,
   return commandId;
 }
 
+uint64_t
+CommandFactory::buildHasLayoutCommand(::flatbuffers::FlatBufferBuilder &fbb,
+                                      const ::tt::runtime::Tensor &tensor,
+                                      const ::tt::runtime::Layout &layout) {
+
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  uint64_t commandId =
+      BUILD_COMMAND(HasLayout, fbb, tensor.getGlobalId(), layout.getGlobalId());
+
+  return commandId;
+}
+
+uint64_t CommandFactory::buildIsProgramCacheEnabledCommand(
+    ::flatbuffers::FlatBufferBuilder &fbb,
+    const tt::runtime::Device &meshDevice) {
+
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  auto deviceRef = ::tt::target::CreateDeviceRef(fbb, meshDevice.getGlobalId());
+
+  uint64_t commandId = BUILD_COMMAND(IsProgramCacheEnabled, fbb, deviceRef);
+
+  return commandId;
+}
+
+uint64_t CommandFactory::buildClearProgramCacheCommand(
+    ::flatbuffers::FlatBufferBuilder &fbb,
+    const tt::runtime::Device &meshDevice) {
+
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  auto deviceRef = ::tt::target::CreateDeviceRef(fbb, meshDevice.getGlobalId());
+
+  uint64_t commandId = BUILD_COMMAND(ClearProgramCache, fbb, deviceRef);
+
+  return commandId;
+}
+
 #undef BUILD_COMMAND_IMPL
 #undef BUILD_COMMAND
 #undef BUILD_COMMAND_DIRECT
