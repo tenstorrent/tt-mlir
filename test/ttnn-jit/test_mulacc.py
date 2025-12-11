@@ -46,18 +46,17 @@ WIDTH_SHARDED_SHAPE_GRIDS = [
     ((128, 2048), (7, 7)),
     ((2, 32, 384), (1, 5)),
 ]
-
-SHARDED_SHAPE_GRID_LAYOUTS = (
+SHARDED_SHAPE_GRIDS = (
     [
-        (shape, grid, ttnn.TensorMemoryLayout.BLOCK_SHARDED)
+        (shape, grid, ttnn.ShardStrategy.BLOCK)
         for shape, grid in BLOCK_SHARDED_SHAPE_GRIDS
     ]
     + [
-        (shape, grid, ttnn.TensorMemoryLayout.HEIGHT_SHARDED)
+        (shape, grid, ttnn.ShardStrategy.HEIGHT)
         for shape, grid in HEIGHT_SHARDED_SHAPE_GRIDS
     ]
     + [
-        (shape, grid, ttnn.TensorMemoryLayout.WIDTH_SHARDED)
+        (shape, grid, ttnn.ShardStrategy.WIDTH)
         for shape, grid in WIDTH_SHARDED_SHAPE_GRIDS
     ]
 )
@@ -86,18 +85,18 @@ def mul_add(input_tensor_a, input_tensor_b, input_tensor_c):
 
 
 @pytest.mark.parametrize(
-    "shape, max_grid, memory_layout",
-    SHARDED_SHAPE_GRID_LAYOUTS,
+    "shape, max_grid, shard_strategy",
+    SHARDED_SHAPE_GRIDS,
     ids=[
-        f"shape_{shape}_grid_{grid}_{layout}"
-        for shape, grid, layout in SHARDED_SHAPE_GRID_LAYOUTS
+        f"shape_{shape}_grid_{grid}_strategy_{strategy}"
+        for shape, grid, strategy in SHARDED_SHAPE_GRIDS
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
 @pytest.mark.parametrize("op", [mul_add])
 @pytest.mark.parametrize("use_graph_capture", [True, False])
 def test_muladd_l1(
-    device, shape, max_grid, dtype, op, memory_layout, use_graph_capture
+    device, shape, max_grid, shard_strategy, dtype, op, use_graph_capture
 ):
     num_inputs = 3
     run_op_test(
@@ -108,8 +107,8 @@ def test_muladd_l1(
         op,
         num_inputs,
         buffer_type=ttnn.BufferType.L1,
-        memory_layout=memory_layout,
         graph_capture=use_graph_capture,
+        shard_strategy=shard_strategy,
     )
 
 

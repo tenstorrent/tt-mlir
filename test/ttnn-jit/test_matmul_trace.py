@@ -9,6 +9,7 @@ import pytest
 
 from utils import (
     get_block_sharding_grid,
+    create_torch_tensor,
 )
 
 SHAPES = [
@@ -28,42 +29,56 @@ def matmul(input_tensor_a, input_tensor_b):
     return ttnn.matmul(input_tensor_a, input_tensor_b)
 
 
+def matmul_no_jit(input_tensor_a, input_tensor_b):
+    return ttnn.matmul(input_tensor_a, input_tensor_b)
+
+
 @pytest.mark.parametrize(
     "m, k, n",
     SHAPES,
 )
 def test_matmul_block_sharded_trace(m, k, n):
-    device = ttnn.open_device(device_id=0, trace_region_size=81920)
+    device = ttnn.open_device(device_id=0, trace_region_size=20480)
 
     # setup inputs
-    dtype = torch.bfloat16
+    dtype = torch.float32
+    ttnn_dtype = ttnn.DataType.FLOAT32
     shape_a = (m, k)
     shape_b = (k, n)
 
-    torch_input_a = torch.randn(shape_a, dtype=dtype)
-    torch_input_b = torch.randn(shape_b, dtype=dtype)
+    torch_input_a = create_torch_tensor(shape_a, dtype=dtype)
+    torch_input_b = create_torch_tensor(shape_b, dtype=dtype)
 
     # Use helper to get a valid grid size
-    grid_a = get_block_sharding_grid(shape_a)
-    grid_b = get_block_sharding_grid(shape_b)
+    grid_list_a = get_block_sharding_grid(shape_a)
+    grid_list_b = get_block_sharding_grid(shape_b)
+
+    grid_a = ttnn.CoreGrid(x=grid_list_a[0] + 1, y=grid_list_a[1] + 1)
+    grid_b = ttnn.CoreGrid(x=grid_list_b[0] + 1, y=grid_list_b[1] + 1)
+
+    print(f"Using core grid A: {grid_a}, core grid B: {grid_b}")
+
+    # Create MemoryConfig using the modern, strategy-based helper
+    # This is the method used by the smoketest's helpers.
+    memory_config_a = ttnn.create_sharded_memory_config(
+        shape=shape_a,
+        core_grid=grid_a,
+        strategy=ttnn.ShardStrategy.BLOCK,
+        orientation=ttnn.ShardOrientation.ROW_MAJOR,
+        use_height_and_width_as_shard_shape=False,
+    )
+    memory_config_b = ttnn.create_sharded_memory_config(
+        shape=shape_b,
+        core_grid=grid_b,
+        strategy=ttnn.ShardStrategy.BLOCK,
+        orientation=ttnn.ShardOrientation.ROW_MAJOR,
+        use_height_and_width_as_shard_shape=False,
+    )
 
     # Tensor A Spec
-    core_range_a = ttnn.CoreRange(
-        ttnn.CoreCoord(0, 0), ttnn.CoreCoord(grid_a[0], grid_a[1])
-    )
-    shard_spec_a = ttnn.ShardSpec(
-        grid=ttnn.CoreRangeSet([core_range_a]),
-        shard_shape=(m // (grid_a[1] + 1), k // (grid_a[0] + 1)),
-        shard_orientation=ttnn.ShardOrientation.ROW_MAJOR,
-    )
-    memory_config_a = ttnn.MemoryConfig(
-        memory_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED,
-        buffer_type=ttnn.BufferType.L1,
-        shard_spec=shard_spec_a,
-    )
     tensor_spec_a = ttnn.TensorSpec(
         shape=shape_a,
-        dtype=ttnn.DataType.BFLOAT16,
+        dtype=ttnn_dtype,
         layout=ttnn.TILE_LAYOUT,
         memory_layout=memory_config_a.memory_layout,
         shard_spec=memory_config_a.shard_spec,
@@ -71,22 +86,9 @@ def test_matmul_block_sharded_trace(m, k, n):
     )
 
     # Tensor B Spec
-    core_range_b = ttnn.CoreRange(
-        ttnn.CoreCoord(0, 0), ttnn.CoreCoord(grid_b[0], grid_b[1])
-    )
-    shard_spec_b = ttnn.ShardSpec(
-        grid=ttnn.CoreRangeSet([core_range_b]),
-        shard_shape=(k // (grid_b[1] + 1), n // (grid_b[0] + 1)),
-        shard_orientation=ttnn.ShardOrientation.ROW_MAJOR,
-    )
-    memory_config_b = ttnn.MemoryConfig(
-        memory_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED,
-        buffer_type=ttnn.BufferType.L1,
-        shard_spec=shard_spec_b,
-    )
     tensor_spec_b = ttnn.TensorSpec(
         shape=shape_b,
-        dtype=ttnn.DataType.BFLOAT16,
+        dtype=ttnn_dtype,
         layout=ttnn.TILE_LAYOUT,
         memory_layout=memory_config_b.memory_layout,
         shard_spec=memory_config_b.shard_spec,
@@ -138,3 +140,131 @@ def test_matmul_block_sharded_trace(m, k, n):
 
     ttnn.release_trace(device, tid)
     ttnn.close_device(device)
+
+
+# COPIED FROM TT-METAL
+def comp_pcc(golden, calculated, pcc=0.99):
+    import numpy as np
+
+    # 1. Convert to torch tensors
+    golden = torch.Tensor(golden)
+    calculated = torch.Tensor(calculated)
+
+    # 2. Handle dtype mismatches
+    if golden.dtype != calculated.dtype:
+        calculated = calculated.type(golden.dtype)
+
+    # 3. Handle special cases
+    if torch.all(torch.isnan(golden)) and torch.all(torch.isnan(calculated)):
+        return True, 1.0  # Both NaN
+
+    if torch.all(torch.isnan(golden)) or torch.all(torch.isnan(calculated)):
+        return False, 0.0  # One NaN, one not
+
+    if torch.any(golden.bool()) != torch.any(calculated.bool()):
+        return False, 0.0  # One all zero, one not
+
+    # 4. Mask infs and nans
+    golden = golden.clone()
+    golden[
+        torch.logical_or(
+            torch.isnan(golden),
+            torch.logical_or(torch.isinf(golden), torch.isneginf(golden)),
+        )
+    ] = 0
+    calculated = calculated.clone()
+    calculated[
+        torch.logical_or(
+            torch.isnan(calculated),
+            torch.logical_or(torch.isinf(calculated), torch.isneginf(calculated)),
+        )
+    ] = 0
+
+    # 5. Convert bfloat16 to float32 for better precision
+    if golden.dtype == torch.bfloat16:
+        golden = golden.type(torch.float32)
+        calculated = calculated.type(torch.float32)
+
+    # 6. Compute PCC using numpy correlation
+    cal_pcc = np.min(
+        np.ma.corrcoef(
+            np.ma.masked_invalid(torch.squeeze(golden).detach().numpy()).flatten(),
+            np.ma.masked_invalid(torch.squeeze(calculated).detach().numpy()).flatten(),
+        )
+    )
+
+    return cal_pcc >= pcc, cal_pcc
+
+
+@pytest.mark.parametrize(
+    "m, k, n",
+    SHAPES,
+)
+def test_matmul_block_sharded_compare(device, m, k, n):
+
+    # setup inputs
+    dtype = torch.bfloat16
+    shape_a = (m, k)
+    shape_b = (k, n)
+    print(f"Testing matmul compare with shapes A: {shape_a}, B: {shape_b}")
+
+    torch_input_a = torch.randn(shape_a, dtype=dtype)
+    torch_input_b = torch.randn(shape_b, dtype=dtype)
+
+    # Use helper to get a valid grid size
+    grid_list_a = get_block_sharding_grid(shape_a)
+    grid_list_b = get_block_sharding_grid(shape_b)
+
+    print("Grid A:", grid_list_a)
+    print("Grid B:", grid_list_b)
+
+    grid_a = ttnn.CoreGrid(x=grid_list_a[0] + 1, y=grid_list_a[1] + 1)
+    grid_b = ttnn.CoreGrid(x=grid_list_b[0] + 1, y=grid_list_b[1] + 1)
+
+    # Create MemoryConfig using the modern, strategy-based helper
+    # This is the method used by the smoketest's helpers.
+    memory_config_a = ttnn.create_sharded_memory_config(
+        shape=shape_a,
+        core_grid=grid_a,
+        strategy=ttnn.ShardStrategy.BLOCK,
+        orientation=ttnn.ShardOrientation.ROW_MAJOR,
+        use_height_and_width_as_shard_shape=False,
+    )
+    memory_config_b = ttnn.create_sharded_memory_config(
+        shape=shape_b,
+        core_grid=grid_b,
+        strategy=ttnn.ShardStrategy.BLOCK,
+        orientation=ttnn.ShardOrientation.ROW_MAJOR,
+        use_height_and_width_as_shard_shape=False,
+    )
+
+    ttnn_tensor_a = ttnn.from_torch(
+        torch_input_a,
+        dtype=ttnn.DataType.BFLOAT16,
+        layout=ttnn.TILE_LAYOUT,
+        device=device,
+        memory_config=memory_config_a,
+    )
+
+    ttnn_tensor_b = ttnn.from_torch(
+        torch_input_b,
+        dtype=ttnn.DataType.BFLOAT16,
+        layout=ttnn.TILE_LAYOUT,
+        device=device,
+        memory_config=memory_config_b,
+    )
+
+    output_tensor = matmul(ttnn_tensor_a, ttnn_tensor_b)
+    ttnn_tensor_a = ttnn.to_memory_config(ttnn_tensor_a, ttnn.DRAM_MEMORY_CONFIG)
+    ttnn_tensor_b = ttnn.to_memory_config(ttnn_tensor_b, ttnn.DRAM_MEMORY_CONFIG)
+    print("ttnn tensor a memory config:", ttnn_tensor_a.memory_config())
+    print("ttnn tensor b memory config:", ttnn_tensor_b.memory_config())
+
+    golden_output = matmul_no_jit(ttnn_tensor_a, ttnn_tensor_b)
+    print("output tensor:", output_tensor)
+
+    pcc = ttnn.pearson_correlation_coefficient(
+        golden_output.cpu().to_torch(), output_tensor.cpu().to_torch()
+    )
+    print("pcc: ", pcc)
+    assert pcc > 0.99, f"PCC: {pcc} is less than 0.99"
