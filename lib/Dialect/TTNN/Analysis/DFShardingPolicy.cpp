@@ -92,12 +92,15 @@ void DFShardingPolicy::run() {
 
         // Consider sharding only if we found at least single legal config for
         // the current op.
+        // TODO (mvasiljevic): Add RMSNormOp back once metal fix is uplifted.
+        // RMSNormOp with sharded input causes divide-by-zero crash in metal's
+        // LayerNormShardedProgramFactory.
         bool validForSharding =
             llvm::isa<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp, ttnn::AddOp,
                       ttnn::MultiplyOp, ttnn::ReluOp, ttnn::Relu6Op,
                       ttnn::TypecastOp, ttnn::SiluOp, ttnn::MatmulOp,
-                      ttnn::LinearOp, ttnn::MinimumOp, ttnn::RMSNormOp,
-                      ttnn::RotaryEmbeddingOp, ttnn::GeluOp>(currentOp) &&
+                      ttnn::LinearOp, ttnn::MinimumOp, ttnn::RotaryEmbeddingOp,
+                      ttnn::GeluOp>(currentOp) &&
             legalConfigs.lookup(currentOp).size() > 0;
 
         if (validForSharding) {
