@@ -6,9 +6,9 @@ import pytest
 import sys
 import torch
 from typing import List, Optional, Tuple, Union
-from builder.base.builder import Operand, Shape
+from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import compile_and_execute_ttir
+from builder.base.builder_apis import compile_and_execute_ttir
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -111,55 +111,54 @@ def test_conv2d(
     device,
 ):
     if bias_shape:
-
-        def conv2d_wrapper(
-            in0: Operand,
-            weight: Operand,
-            bias: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            return builder.conv2d(
-                in0,
-                weight,
-                bias,
-                stride=stride,
-                padding=padding,
-                dilation=dilation,
-                groups=groups,
-                unit_attrs=unit_attrs,
-            )
-
         input_shapes = [input_shape, weight_shape, bias_shape]
         input_types = [dtype, dtype, dtype]
+
+        def module(builder: TTIRBuilder):
+            @builder.func(input_shapes, input_types)
+            def conv2d_wrapper(
+                in0: Operand,
+                weight: Operand,
+                bias: Operand,
+                builder: TTIRBuilder,
+                unit_attrs: Optional[List[str]] = None,
+            ):
+                return builder.conv2d(
+                    in0,
+                    weight,
+                    bias,
+                    stride=stride,
+                    padding=padding,
+                    dilation=dilation,
+                    groups=groups,
+                    unit_attrs=unit_attrs,
+                )
+
     else:
-
-        def conv2d_wrapper(
-            in0: Operand,
-            weight: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            return builder.conv2d(
-                in0,
-                weight,
-                None,
-                stride=stride,
-                padding=padding,
-                dilation=dilation,
-                groups=groups,
-                unit_attrs=unit_attrs,
-            )
-
         input_shapes = [input_shape, weight_shape]
         input_types = [dtype, dtype]
 
-    conv2d_wrapper.__name__ = "conv2d_extended"
+        def module(builder: TTIRBuilder):
+            @builder.func(input_shapes, input_types)
+            def conv2d_wrapper(
+                in0: Operand,
+                weight: Operand,
+                builder: TTIRBuilder,
+                unit_attrs: Optional[List[str]] = None,
+            ):
+                return builder.conv2d(
+                    in0,
+                    weight,
+                    None,
+                    stride=stride,
+                    padding=padding,
+                    dilation=dilation,
+                    groups=groups,
+                    unit_attrs=unit_attrs,
+                )
 
     compile_and_execute_ttir(
-        conv2d_wrapper,
-        input_shapes,
-        inputs_types=input_types,
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),

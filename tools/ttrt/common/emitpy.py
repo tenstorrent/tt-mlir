@@ -565,6 +565,20 @@ class EmitPy:
                                     )
 
                             # Compare outputs
+                            #
+                            # Note: EmitPy (dylib) and Flatbuffer runtime may produce slightly
+                            # different results for FP32 due to different tilization paths:
+                            #
+                            # - EmitPy path (ttnn.as_tensor): Tilizes on HOST via
+                            #   tensor_impl::encode_tensor_data(), preserving full FP32 precision.
+                            #   See: tt-metal/ttnn/core/tensor/tensor.cpp Tensor::from_vector()
+                            #
+                            # - Flatbuffer runtime path (LayoutConverter): Tilizes on DEVICE via
+                            #   toLayoutIfNeeded() when canTilizeDataTypeOnDevice() returns true.
+                            #   The device tilizer has an internal FP32->BF16 conversion causing
+                            #   precision loss.
+                            #   See: runtime/lib/ttnn/types/layout_converter.cpp
+                            #
                             for i in range(len(torch_fbb_outputs)):
                                 # Nan and Inf handling
                                 torch_dylib_outputs[i] = mask_torch_inf_nan(
@@ -577,18 +591,32 @@ class EmitPy:
                                 if not torch.allclose(
                                     torch_dylib_outputs[i], torch_fbb_outputs[i]
                                 ):
-                                    self.logging.error(
-                                        f"EmitPy dylib output tensor does not match flatbuffer output for program_index={program_index}, loop={loop}"
+                                    # Fallback to PCC check if allclose fails (see note above)
+                                    pcc_threshold = 0.99
+                                    _, _, pcc, pcc_msg = get_atol_rtol_pcc(
+                                        torch_fbb_outputs[i],
+                                        torch_dylib_outputs[i],
+                                        atol=1e-3,
+                                        rtol=1e-3,
+                                        logging=self.logging,
                                     )
-                                    self.logging.debug(
-                                        f"EmitPy dylib output tensor {torch_dylib_outputs[i]}"
-                                    )
-                                    self.logging.debug(
-                                        f"Flatbuffer output tensor {torch_fbb_outputs[i]}"
-                                    )
-                                    raise Exception(
-                                        f"EmitPy dylib output tensor does not match flatbuffer output for program_index={program_index}, loop={loop}"
-                                    )
+                                    if pcc >= pcc_threshold:
+                                        self.logging.warning(
+                                            f"torch.allclose failed but PCC={pcc:.6f} >= {pcc_threshold} for program_index={program_index}, loop={loop}. {pcc_msg}"
+                                        )
+                                    else:
+                                        self.logging.error(
+                                            f"EmitPy dylib output tensor does not match flatbuffer output for program_index={program_index}, loop={loop}. {pcc_msg}"
+                                        )
+                                        self.logging.debug(
+                                            f"EmitPy dylib output tensor {torch_dylib_outputs[i]}"
+                                        )
+                                        self.logging.debug(
+                                            f"Flatbuffer output tensor {torch_fbb_outputs[i]}"
+                                        )
+                                        raise Exception(
+                                            f"EmitPy dylib output tensor does not match flatbuffer output for program_index={program_index}, loop={loop}. PCC={pcc:.6f} < {pcc_threshold}"
+                                        )
                                 else:
                                     self.logging.debug(
                                         f"Output tensors match for program_index={program_index}, loop={loop}"

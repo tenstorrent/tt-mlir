@@ -8,9 +8,9 @@ from typing import List
 
 from ttmlir.ir import *
 
-from builder.base.builder import Operand, Shape
+from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import (
+from builder.base.builder_apis import (
     compile_ttir_to_flatbuffer,
     compile_and_execute_ttir,
 )
@@ -273,30 +273,30 @@ def test_digamma(
     request,
     device,
 ):
-    def digamma(
-        x: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        # set input golden
-        x_tensor = torch.rand(shape).to(dtype) * 1e5
-        x_tensor = torch.clamp(x_tensor, min=1)
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def digamma(
+            x: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            # set input golden
+            x_tensor = torch.rand(shape).to(dtype) * 1e5
+            x_tensor = torch.clamp(x_tensor, min=1)
 
-        # compute output golden
-        output_golden = torch.digamma(x_tensor).to(dtype)
+            # compute output golden
+            output_golden = torch.digamma(x_tensor).to(dtype)
 
-        # Create builder output following ttnn implementation
-        result = digamma_composite(x, shape, dtype, builder, unit_attrs)
+            # Create builder output following ttnn implementation
+            result = digamma_composite(x, shape, dtype, builder, unit_attrs)
 
-        # set goldens
-        builder.set_goldens({x: x_tensor}, {result: output_golden})
-        return result
+            # set goldens
+            builder.set_goldens({x: x_tensor}, {result: output_golden})
+            return result
 
     options = []
     compile_and_execute_ttir(
-        digamma,
-        [shape],
-        [dtype],
+        module,
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         test_base=request.node.name,
@@ -321,31 +321,31 @@ def test_lgamma(
     request,
     device,
 ):
-    def lgamma(
-        x: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        # set input golden
-        x_tensor = torch.rand(shape).to(dtype) * 1e5
-        x_tensor = torch.clamp(x_tensor, min=1)
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def lgamma(
+            x: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            # set input golden
+            x_tensor = torch.rand(shape).to(dtype) * 1e5
+            x_tensor = torch.clamp(x_tensor, min=1)
 
-        # compute output golden
-        output_golden = torch.lgamma(x_tensor).to(dtype)
+            # compute output golden
+            output_golden = torch.lgamma(x_tensor).to(dtype)
 
-        # Create builder output following ttnn implementation
-        result = lgamma_composite(x, shape, dtype, builder, unit_attrs)
+            # Create builder output following ttnn implementation
+            result = lgamma_composite(x, shape, dtype, builder, unit_attrs)
 
-        # Set goldens
-        builder.set_goldens({x: x_tensor}, {result: output_golden})
+            # Set goldens
+            builder.set_goldens({x: x_tensor}, {result: output_golden})
 
-        return result
+            return result
 
     options = []
     compile_and_execute_ttir(
-        lgamma,
-        [shape],
-        [dtype],
+        module,
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         test_base=request.node.name,
@@ -368,31 +368,33 @@ def test_multigammaln(
     request,
     device,
 ):
-    def multigammaln(
-        x: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        # set input golden
-        x_tensor = torch.rand(shape).to(dtype) * 1e5
-        x_tensor = torch.clamp(x_tensor, min=1.5)
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def multigammaln(
+            x: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            # set input golden
+            x_tensor = torch.rand(shape).to(dtype) * 1e5
+            x_tensor = torch.clamp(x_tensor, min=1.5)
 
-        # compute output golden (p=4 for multigammaln)
-        output_golden = torch.special.multigammaln(x_tensor, 4).to(dtype)
+            # compute output golden (p=4 for multigammaln)
+            output_golden = torch.special.multigammaln(x_tensor, 4).to(dtype)
 
-        # Create builder output following ttnn implementation
-        result = multigammaln_composite(x, shape, dtype, builder, unit_attrs=unit_attrs)
+            # Create builder output following ttnn implementation
+            result = multigammaln_composite(
+                x, shape, dtype, builder, unit_attrs=unit_attrs
+            )
 
-        # Set goldens
-        builder.set_goldens({x: x_tensor}, {result: output_golden})
+            # Set goldens
+            builder.set_goldens({x: x_tensor}, {result: output_golden})
 
-        return result
+            return result
 
     options = []
     compile_and_execute_ttir(
-        multigammaln,
-        [shape],
-        [dtype],
+        module,
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         test_base=request.node.name,
@@ -416,31 +418,33 @@ def test_polygamma(
     request,
     device,
 ):
-    # choose
-    def polygamma(
-        x: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        # set input golden
-        x_tensor = (torch.rand(shape) * 9 + 1).to(dtype)
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        # choose
+        def polygamma(
+            x: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            # set input golden
+            x_tensor = (torch.rand(shape) * 9 + 1).to(dtype)
 
-        # compute output golden
-        output_golden = torch.special.polygamma(k, x_tensor).to(dtype)
+            # compute output golden
+            output_golden = torch.special.polygamma(k, x_tensor).to(dtype)
 
-        # Create builder output following ttnn implementation
-        result = polygamma_composite(x, k, shape, dtype, builder, unit_attrs=unit_attrs)
+            # Create builder output following ttnn implementation
+            result = polygamma_composite(
+                x, k, shape, dtype, builder, unit_attrs=unit_attrs
+            )
 
-        # Set goldens
-        builder.set_goldens({x: x_tensor}, {result: output_golden})
+            # Set goldens
+            builder.set_goldens({x: x_tensor}, {result: output_golden})
 
-        return result
+            return result
 
     options = []
     compile_and_execute_ttir(
-        polygamma,
-        [shape],
-        [dtype],
+        module,
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         test_base=request.node.name,
@@ -463,21 +467,21 @@ def test_glu_split(
     request,
     device,
 ):
-    def glu(
-        x1: Operand,
-        x2: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: List[str] = None,
-    ):
-        result = builder.multiply(x1, builder.sigmoid(x2, unit_attrs=unit_attrs))
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape], [dtype, dtype])
+        def glu(
+            x1: Operand,
+            x2: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: List[str] = None,
+        ):
+            result = builder.multiply(x1, builder.sigmoid(x2, unit_attrs=unit_attrs))
 
-        return result
+            return result
 
     options = []
     compile_and_execute_ttir(
-        glu,
-        [shape, shape],
-        [dtype, dtype],
+        module,
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         test_base=request.node.name,
@@ -499,21 +503,21 @@ def test_reglu_split(
     request,
     device,
 ):
-    def reglu(
-        x1: Operand,
-        x2: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: List[str] = None,
-    ):
-        result = builder.multiply(x1, builder.relu(x2, unit_attrs=unit_attrs))
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape], [dtype, dtype])
+        def reglu(
+            x1: Operand,
+            x2: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: List[str] = None,
+        ):
+            result = builder.multiply(x1, builder.relu(x2, unit_attrs=unit_attrs))
 
-        return result
+            return result
 
     options = []
     compile_and_execute_ttir(
-        reglu,
-        [shape, shape],
-        [dtype, dtype],
+        module,
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         test_base=request.node.name,
@@ -535,21 +539,21 @@ def test_geglu_split(
     request,
     device,
 ):
-    def geglu(
-        x1: Operand,
-        x2: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: List[str] = None,
-    ):
-        result = builder.multiply(x1, builder.gelu(x2, unit_attrs=unit_attrs))
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape], [dtype, dtype])
+        def geglu(
+            x1: Operand,
+            x2: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: List[str] = None,
+        ):
+            result = builder.multiply(x1, builder.gelu(x2, unit_attrs=unit_attrs))
 
-        return result
+            return result
 
     options = []
     compile_and_execute_ttir(
-        geglu,
-        [shape, shape],
-        [dtype, dtype],
+        module,
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         test_base=request.node.name,
@@ -571,21 +575,21 @@ def test_swiglu_split(
     request,
     device,
 ):
-    def swiglu(
-        x1: Operand,
-        x2: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: List[str] = None,
-    ):
-        result = builder.multiply(x1, builder.silu(x2, unit_attrs=unit_attrs))
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape], [dtype, dtype])
+        def swiglu(
+            x1: Operand,
+            x2: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: List[str] = None,
+        ):
+            result = builder.multiply(x1, builder.silu(x2, unit_attrs=unit_attrs))
 
-        return result
+            return result
 
     options = []
     compile_and_execute_ttir(
-        swiglu,
-        [shape, shape],
-        [dtype, dtype],
+        module,
         target=target,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         test_base=request.node.name,

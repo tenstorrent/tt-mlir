@@ -32,6 +32,9 @@ static Value getLayoutOrCastResult(Operation *op) {
   if (auto toLayoutOp = dyn_cast<ToLayoutOp>(op)) {
     return toLayoutOp.getResult(0);
   }
+  if (auto viewLayoutOp = dyn_cast<ViewLayoutOp>(op)) {
+    return viewLayoutOp.getResult();
+  }
   if (auto castOp = dyn_cast<ttir::TTNNMetalLayoutCastOp>(op)) {
     return castOp.getResult();
   }

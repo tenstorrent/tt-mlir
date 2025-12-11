@@ -3615,17 +3615,14 @@ protected:
     const auto [weightShape, weightLayout, weightBufferType,
                 weightVirtualGrid] = weightTensor;
     const auto expectedLegal = expected.expectedLegal;
-    // output shape: [batch, seq_len, hidden_size]
-    llvm::SmallVector<int64_t> outputShape = {inputShape[0], inputShape[1],
-                                              weightShape[1]};
 
     const TTNNLayoutAttr inputTiledLayout = CreateTiledLayout(
         inputShape, inputBufferType, inputLayout, inputVirtualGrid);
     const TTNNLayoutAttr weightTiledLayout = CreateTiledLayout(
         weightShape, weightBufferType, weightLayout, weightVirtualGrid);
-    const TTNNLayoutAttr outputTiledLayout =
-        CreateTiledLayout(outputShape, BufferType::L1,
-                          TensorMemoryLayout::Interleaved, std::nullopt);
+    const TTNNLayoutAttr outputTiledLayout = CreateTiledLayout(
+        {inputShape[0], inputShape[1], weightShape[1]}, BufferType::L1,
+        TensorMemoryLayout::Interleaved, std::nullopt);
 
     auto constraintsExp = OpModel<EmbeddingOp>::getOpConstraints(
         CreateWorkerGrid(), inputShape, inputTiledLayout, weightShape,

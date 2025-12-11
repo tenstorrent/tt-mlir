@@ -199,4 +199,24 @@ void deallocateTensor(::tt::runtime::Tensor &tensorHandle, bool force) {
   ControllerSingleton::get().deallocateTensor(tensorHandle, force);
 }
 
+::tt::runtime::TensorDesc getTensorDesc(::tt::runtime::Tensor t) {
+  assertControllerLaunched();
+  return ControllerSingleton::get().getTensorDesc(t);
+}
+
+bool hasLayout(::tt::runtime::Tensor tensor, ::tt::runtime::Layout layout) {
+  assertControllerLaunched();
+  return ControllerSingleton::get().hasLayout(tensor, layout);
+}
+
+void clearProgramCache(Device meshDevice) {
+  assertControllerLaunched();
+  ControllerSingleton::get().clearProgramCache(meshDevice);
+}
+
+bool isProgramCacheEnabled(Device meshDevice) {
+  assertControllerLaunched();
+  return ControllerSingleton::get().isProgramCacheEnabled(meshDevice);
+}
+
 } // namespace tt::runtime::distributed

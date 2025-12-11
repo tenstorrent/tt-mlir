@@ -16,17 +16,14 @@ from ttmlir.dialects import d2m, ttcore, tensor, quant
 from ttmlir.passes import GoldenTensor, DataType
 
 from builder.base.builder import *
+from builder.base.builder_utils import *
+
 from golden import *
 
 
 class D2MBuilder(Builder):
-    """
-    Builder class for creating D2M (Direct-to-Metal) operations.
 
-    This builder creates D2M operations directly, bypassing the TTIR dialect.
-    It's designed for use cases where operations need to be generated for
-    pipelines that work directly with D2M operations.
-    """
+    # ----- Methods -----
 
     def __init__(
         self,
@@ -110,6 +107,11 @@ class D2MBuilder(Builder):
                     self._set_golden_tensor(op.result, golden_output)
 
             return op.result
+
+    def create_tensor_encoding(
+        self, shape: Shape, element_type: Union[torch.dtype, TypeInfo]
+    ) -> ttnn.ir.TTNNLayoutAttr:
+        return None
 
     # ----- Public methods -----
 

@@ -8,9 +8,9 @@ import pytest
 from typing import List, Tuple
 from collections import OrderedDict
 
-from builder.base.builder import Operand, Shape
+from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import compile_and_execute_ttir
+from builder.base.builder_apis import compile_and_execute_ttir
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -193,204 +193,204 @@ def test_llama_attention_1xn_tp(
     request,
     device,
 ):
-    def model(
-        arg0: Operand,
-        arg1: Operand,
-        arg2: Operand,
-        arg3: Operand,
-        arg4: Operand,
-        arg5: Operand,
-        arg6: Operand,
-        arg7: Operand,
-        arg8: Operand,
-        arg9: Operand,
-        arg10: Operand,
-        arg11: Operand,
-        arg12: Operand,
-        arg13: Operand,
-        arg14: Operand,
-        builder: TTIRBuilder,
-    ):
-        local_vars = locals()
-        operands = [local_vars[f"arg{i}"] for i in range(15)]
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def model(
+            arg0: Operand,
+            arg1: Operand,
+            arg2: Operand,
+            arg3: Operand,
+            arg4: Operand,
+            arg5: Operand,
+            arg6: Operand,
+            arg7: Operand,
+            arg8: Operand,
+            arg9: Operand,
+            arg10: Operand,
+            arg11: Operand,
+            arg12: Operand,
+            arg13: Operand,
+            arg14: Operand,
+            builder: TTIRBuilder,
+        ):
+            local_vars = locals()
+            operands = [local_vars[f"arg{i}"] for i in range(15)]
 
-        output1 = full_to_shard_device(arg0, builder, 2)
-        output1 = builder.squeeze(output1, 0)
-        arg11_mesh_shard = full_to_shard_device(arg11, builder, 0)
-        output3 = builder.matmul(output1, arg11_mesh_shard)
-        output3 = builder.all_reduce(
-            output3, reduce_type="#ttcore.reduce_type<sum>", cluster_axis=1
-        )
-        output5 = builder.reshape(output3, (1, 128, 32, 128))
-        output7 = builder.transpose(output5, -3, -2)
-        output7 = shard_to_full_replicate(output7, builder)
-        output7 = full_to_shard_device(output7, builder, 3)
-        output9 = full_to_shard_device(arg2, builder, 1)
-        output9 = builder.unsqueeze(output9, 1)
-        arg3_mesh_shard = full_to_shard_replicate(arg3, builder)
-        output11 = builder.matmul(arg3_mesh_shard, output9)
-        output11 = builder.all_gather(
-            output11,
-            all_gather_dim=2,
-            cluster_axis=1,
-        )
-        output13 = builder.transpose(output11, -2, -1)
-        output15 = builder.concat([output13, output13], -1)
-        output15 = shard_to_full_replicate(output15, builder)
-        output15 = full_to_shard_device(output15, builder, 2)
-        output17 = builder.cos(output15)
-        output19 = builder.unsqueeze(output17, 1)
-        output21 = builder.multiply(output7, output19)
-        output23 = builder.transpose(output7, -2, -1)
-        arg4_mesh_shard = full_to_shard_device(arg4, builder, 3)
-        output25 = builder.matmul(arg4_mesh_shard, output23)
-        output25 = builder.reduce_scatter(
-            output25,
-            reduce_type="#ttcore.reduce_type<sum>",
-            scatter_dim=3,
-            cluster_axis=1,
-        )
-        output27 = builder.transpose(output25, -2, -1)
-        arg5_mesh_shard = full_to_shard_replicate(arg5, builder)
-        output29 = builder.multiply(output27, arg5_mesh_shard)
-        output31 = builder.transpose(output7, -2, -1)
-        arg6_mesh_shard = full_to_shard_device(arg6, builder, 3)
-        output33 = builder.matmul(arg6_mesh_shard, output31)
-        output33 = builder.reduce_scatter(
-            output33,
-            reduce_type="#ttcore.reduce_type<sum>",
-            scatter_dim=3,
-            cluster_axis=1,
-        )
-        output35 = builder.transpose(output33, -2, -1)
-        output35 = builder.all_gather(output35, all_gather_dim=2, cluster_axis=1)
-        output29 = builder.all_gather(output29, all_gather_dim=2, cluster_axis=1)
-        output37 = builder.concat([output29, output35], -1)
-        output37 = shard_to_full_replicate(output37, builder)
-        output37 = full_to_shard_device(output37, builder, 3)
-        output39 = builder.sin(output15)
-        output41 = builder.unsqueeze(output39, 1)
-        output43 = builder.multiply(output37, output41)
-        output45 = builder.add(output21, output43)
-        output47 = builder.squeeze(output45, 0)
-        arg12_mesh_shard = full_to_shard_device(arg12, builder, 0)
-        output49 = builder.matmul(output1, arg12_mesh_shard)
-        output49 = builder.all_reduce(
-            output49, reduce_type="#ttcore.reduce_type<sum>", cluster_axis=1
-        )
-        output51 = builder.reshape(output49, (1, 128, 32, 128))
-        output53 = builder.transpose(output51, -3, -2)
-        output53 = shard_to_full_replicate(output53, builder)
-        output53 = full_to_shard_device(output53, builder, 3)
-        output55 = builder.multiply(output53, output19)
-        output57 = builder.transpose(output53, -2, -1)
-        arg7_mesh_shard = full_to_shard_device(arg7, builder, 3)
-        output59 = builder.matmul(arg7_mesh_shard, output57)
-        output59 = builder.reduce_scatter(
-            output59,
-            reduce_type="#ttcore.reduce_type<sum>",
-            scatter_dim=3,
-            cluster_axis=1,
-        )
-        output61 = builder.transpose(output59, -2, -1)
-        arg8_mesh_shard = full_to_shard_replicate(arg8, builder)
-        output63 = builder.multiply(output61, arg8_mesh_shard)
-        output65 = builder.transpose(output53, -2, -1)
-        arg9_mesh_shard = full_to_shard_device(arg9, builder, 3)
-        output67 = builder.matmul(arg9_mesh_shard, output65)
-        output67 = builder.reduce_scatter(
-            output67,
-            reduce_type="#ttcore.reduce_type<sum>",
-            scatter_dim=3,
-            cluster_axis=1,
-        )
-        output69 = builder.transpose(output67, -2, -1)
-        output63 = builder.all_gather(output63, all_gather_dim=2, cluster_axis=1)
-        output69 = builder.all_gather(output69, all_gather_dim=2, cluster_axis=1)
-        output71 = builder.concat([output63, output69], -1)
-        output71 = shard_to_full_replicate(output71, builder)
-        output71 = full_to_shard_device(output71, builder, 3)
-        output73 = builder.multiply(output71, output41)
-        output75 = builder.add(output55, output73)
-        output77 = builder.squeeze(output75, 0)
-        output79 = builder.transpose(output77, -2, -1)
-
-        # Use weight sharding to avoid PCC drop
-        output47 = shard_to_full_device(output47, builder, 2)
-        output79 = shard_to_full_device(output79, builder, 1)
-        output47 = full_to_shard_replicate(output47, builder)
-        output79 = full_to_shard_device(output79, builder, 2)
-        output81 = builder.matmul(output47, output79)
-        output83 = builder.unsqueeze(output81, 0)
-        output83 = shard_to_full_device(output83, builder, 3)
-
-        output83 = full_to_shard_device(output83, builder, 3)
-        arg10_mesh_shard = full_to_shard_replicate(arg10, builder)
-        output85 = builder.multiply(output83, arg10_mesh_shard)
-        arg1_mesh_shard = full_to_shard_device(arg1, builder, 3)
-        output87 = builder.add(output85, arg1_mesh_shard)
-        output87 = shard_to_full_device(output87, builder, 3)
-        output87 = full_to_shard_device(output87, builder, 2)
-        output89 = builder.softmax(output87, -1, numeric_stable=True)
-        output89 = shard_to_full_device(output89, builder, 2)
-        output89 = full_to_shard_device(output89, builder, 3)
-        output91 = builder.squeeze(output89, 0)
-        arg13_mesh_shard = full_to_shard_device(arg13, builder, 0)
-        output93 = builder.matmul(output1, arg13_mesh_shard)
-        output93 = builder.all_reduce(
-            output93, reduce_type="#ttcore.reduce_type<sum>", cluster_axis=1
-        )
-        output95 = builder.reshape(output93, (1, 128, 32, 128))
-        output95 = shard_to_full_replicate(output95, builder)
-        output95 = full_to_shard_device(output95, builder, 1)
-        output97 = builder.transpose(output95, -3, -2)
-        output99 = builder.transpose(output97, -2, -1)
-        output101 = builder.squeeze(output99, 0)
-        output103 = builder.transpose(output101, -2, -1)
-        output105 = builder.matmul(output91, output103)
-        output105 = builder.all_reduce(
-            output105, reduce_type="#ttcore.reduce_type<sum>", cluster_axis=1
-        )
-        output107 = builder.unsqueeze(output105, 0)
-        output109 = builder.transpose(output107, -3, -2)
-        output111 = builder.reshape(output109, (128, 4096))
-        arg14_mesh_shard = full_to_shard_device(arg14, builder, 1)
-        output113 = builder.matmul(output111, arg14_mesh_shard)
-        output115 = builder.unsqueeze(output113, 0)
-        output116 = shard_to_full_device(output115, builder, dim=2)
-
-        # Retrieve the input tensors from the builder.
-        input_tensors_torch = [
-            input_tensor.shard_map[0]
-            for input_tensor in get_input_tensors_from_builder(
-                operands,
-                builder,
+            output1 = full_to_shard_device(arg0, builder, 2)
+            output1 = builder.squeeze(output1, 0)
+            arg11_mesh_shard = full_to_shard_device(arg11, builder, 0)
+            output3 = builder.matmul(output1, arg11_mesh_shard)
+            output3 = builder.all_reduce(
+                output3, reduce_type="#ttcore.reduce_type<sum>", cluster_axis=1
             )
-        ]
+            output5 = builder.reshape(output3, (1, 128, 32, 128))
+            output7 = builder.transpose(output5, -3, -2)
+            output7 = shard_to_full_replicate(output7, builder)
+            output7 = full_to_shard_device(output7, builder, 3)
+            output9 = full_to_shard_device(arg2, builder, 1)
+            output9 = builder.unsqueeze(output9, 1)
+            arg3_mesh_shard = full_to_shard_replicate(arg3, builder)
+            output11 = builder.matmul(arg3_mesh_shard, output9)
+            output11 = builder.all_gather(
+                output11,
+                all_gather_dim=2,
+                cluster_axis=1,
+            )
+            output13 = builder.transpose(output11, -2, -1)
+            output15 = builder.concat([output13, output13], -1)
+            output15 = shard_to_full_replicate(output15, builder)
+            output15 = full_to_shard_device(output15, builder, 2)
+            output17 = builder.cos(output15)
+            output19 = builder.unsqueeze(output17, 1)
+            output21 = builder.multiply(output7, output19)
+            output23 = builder.transpose(output7, -2, -1)
+            arg4_mesh_shard = full_to_shard_device(arg4, builder, 3)
+            output25 = builder.matmul(arg4_mesh_shard, output23)
+            output25 = builder.reduce_scatter(
+                output25,
+                reduce_type="#ttcore.reduce_type<sum>",
+                scatter_dim=3,
+                cluster_axis=1,
+            )
+            output27 = builder.transpose(output25, -2, -1)
+            arg5_mesh_shard = full_to_shard_replicate(arg5, builder)
+            output29 = builder.multiply(output27, arg5_mesh_shard)
+            output31 = builder.transpose(output7, -2, -1)
+            arg6_mesh_shard = full_to_shard_device(arg6, builder, 3)
+            output33 = builder.matmul(arg6_mesh_shard, output31)
+            output33 = builder.reduce_scatter(
+                output33,
+                reduce_type="#ttcore.reduce_type<sum>",
+                scatter_dim=3,
+                cluster_axis=1,
+            )
+            output35 = builder.transpose(output33, -2, -1)
+            output35 = builder.all_gather(output35, all_gather_dim=2, cluster_axis=1)
+            output29 = builder.all_gather(output29, all_gather_dim=2, cluster_axis=1)
+            output37 = builder.concat([output29, output35], -1)
+            output37 = shard_to_full_replicate(output37, builder)
+            output37 = full_to_shard_device(output37, builder, 3)
+            output39 = builder.sin(output15)
+            output41 = builder.unsqueeze(output39, 1)
+            output43 = builder.multiply(output37, output41)
+            output45 = builder.add(output21, output43)
+            output47 = builder.squeeze(output45, 0)
+            arg12_mesh_shard = full_to_shard_device(arg12, builder, 0)
+            output49 = builder.matmul(output1, arg12_mesh_shard)
+            output49 = builder.all_reduce(
+                output49, reduce_type="#ttcore.reduce_type<sum>", cluster_axis=1
+            )
+            output51 = builder.reshape(output49, (1, 128, 32, 128))
+            output53 = builder.transpose(output51, -3, -2)
+            output53 = shard_to_full_replicate(output53, builder)
+            output53 = full_to_shard_device(output53, builder, 3)
+            output55 = builder.multiply(output53, output19)
+            output57 = builder.transpose(output53, -2, -1)
+            arg7_mesh_shard = full_to_shard_device(arg7, builder, 3)
+            output59 = builder.matmul(arg7_mesh_shard, output57)
+            output59 = builder.reduce_scatter(
+                output59,
+                reduce_type="#ttcore.reduce_type<sum>",
+                scatter_dim=3,
+                cluster_axis=1,
+            )
+            output61 = builder.transpose(output59, -2, -1)
+            arg8_mesh_shard = full_to_shard_replicate(arg8, builder)
+            output63 = builder.multiply(output61, arg8_mesh_shard)
+            output65 = builder.transpose(output53, -2, -1)
+            arg9_mesh_shard = full_to_shard_device(arg9, builder, 3)
+            output67 = builder.matmul(arg9_mesh_shard, output65)
+            output67 = builder.reduce_scatter(
+                output67,
+                reduce_type="#ttcore.reduce_type<sum>",
+                scatter_dim=3,
+                cluster_axis=1,
+            )
+            output69 = builder.transpose(output67, -2, -1)
+            output63 = builder.all_gather(output63, all_gather_dim=2, cluster_axis=1)
+            output69 = builder.all_gather(output69, all_gather_dim=2, cluster_axis=1)
+            output71 = builder.concat([output63, output69], -1)
+            output71 = shard_to_full_replicate(output71, builder)
+            output71 = full_to_shard_device(output71, builder, 3)
+            output73 = builder.multiply(output71, output41)
+            output75 = builder.add(output55, output73)
+            output77 = builder.squeeze(output75, 0)
+            output79 = builder.transpose(output77, -2, -1)
 
-        # Generate the golden output using a single CPU device
-        golden = golden_llama(*input_tensors_torch)
+            # Use weight sharding to avoid PCC drop
+            output47 = shard_to_full_device(output47, builder, 2)
+            output79 = shard_to_full_device(output79, builder, 1)
+            output47 = full_to_shard_replicate(output47, builder)
+            output79 = full_to_shard_device(output79, builder, 2)
+            output81 = builder.matmul(output47, output79)
+            output83 = builder.unsqueeze(output81, 0)
+            output83 = shard_to_full_device(output83, builder, 3)
 
-        # Set the input and output tensors for the program-level golden check.
-        builder.set_goldens(
-            {
-                operand: input_tensor
-                for operand, input_tensor in zip(operands, input_tensors_torch)
-            },
-            {
-                output116: golden,
-            },
-        )
-        # Clear the golden check list for the op-level golden check.
-        # This is a bit hacky, but it's the only way to get both the op-level and program-level golden checks.
-        builder.set_goldens_to_check([], override=True)
+            output83 = full_to_shard_device(output83, builder, 3)
+            arg10_mesh_shard = full_to_shard_replicate(arg10, builder)
+            output85 = builder.multiply(output83, arg10_mesh_shard)
+            arg1_mesh_shard = full_to_shard_device(arg1, builder, 3)
+            output87 = builder.add(output85, arg1_mesh_shard)
+            output87 = shard_to_full_device(output87, builder, 3)
+            output87 = full_to_shard_device(output87, builder, 2)
+            output89 = builder.softmax(output87, -1, numeric_stable=True)
+            output89 = shard_to_full_device(output89, builder, 2)
+            output89 = full_to_shard_device(output89, builder, 3)
+            output91 = builder.squeeze(output89, 0)
+            arg13_mesh_shard = full_to_shard_device(arg13, builder, 0)
+            output93 = builder.matmul(output1, arg13_mesh_shard)
+            output93 = builder.all_reduce(
+                output93, reduce_type="#ttcore.reduce_type<sum>", cluster_axis=1
+            )
+            output95 = builder.reshape(output93, (1, 128, 32, 128))
+            output95 = shard_to_full_replicate(output95, builder)
+            output95 = full_to_shard_device(output95, builder, 1)
+            output97 = builder.transpose(output95, -3, -2)
+            output99 = builder.transpose(output97, -2, -1)
+            output101 = builder.squeeze(output99, 0)
+            output103 = builder.transpose(output101, -2, -1)
+            output105 = builder.matmul(output91, output103)
+            output105 = builder.all_reduce(
+                output105, reduce_type="#ttcore.reduce_type<sum>", cluster_axis=1
+            )
+            output107 = builder.unsqueeze(output105, 0)
+            output109 = builder.transpose(output107, -3, -2)
+            output111 = builder.reshape(output109, (128, 4096))
+            arg14_mesh_shard = full_to_shard_device(arg14, builder, 1)
+            output113 = builder.matmul(output111, arg14_mesh_shard)
+            output115 = builder.unsqueeze(output113, 0)
+            output116 = shard_to_full_device(output115, builder, dim=2)
 
-        return output116
+            # Retrieve the input tensors from the builder.
+            input_tensors_torch = [
+                input_tensor.shard_map[0]
+                for input_tensor in get_input_tensors_from_builder(
+                    operands,
+                    builder,
+                )
+            ]
+
+            # Generate the golden output using a single CPU device
+            golden = golden_llama(*input_tensors_torch)
+
+            # Set the input and output tensors for the program-level golden check.
+            builder.set_goldens(
+                {
+                    operand: input_tensor
+                    for operand, input_tensor in zip(operands, input_tensors_torch)
+                },
+                {
+                    output116: golden,
+                },
+            )
+            # Clear the golden check list for the op-level golden check.
+            # This is a bit hacky, but it's the only way to get both the op-level and program-level golden checks.
+            builder.set_goldens_to_check([], override=True)
+
+            return output116
 
     compile_and_execute_ttir(
-        model,
-        shapes,
-        dtypes,
+        module,
         target=target,
         device=device,
         mesh_name="mesh",

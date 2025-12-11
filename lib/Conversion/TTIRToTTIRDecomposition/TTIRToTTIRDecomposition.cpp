@@ -1627,8 +1627,7 @@ struct DotGeneralToMatmulConversionPattern
     SmallVector<int64_t> rhsBatchDims(op.getBatchDimsRhs());
     SmallVector<int64_t> rhsContractDims(op.getContractDimsRhs());
 
-    Type elementType = lhsType.getElementType();
-    Attribute encoding = lhsType.getEncoding();
+    Type elementType = op.getType().getElementType();
 
     SmallVector<int64_t> lhsResultDims =
         getResultDims(lhsBatchDims, lhsContractDims, lhsRank);
@@ -1690,8 +1689,7 @@ struct DotGeneralToMatmulConversionPattern
 
     // Perform matmul operation.
     auto matmulOp = rewriter.create<ttir::MatmulOp>(
-        op.getLoc(),
-        RankedTensorType::get(matmulDestinationShape, elementType, encoding),
+        op.getLoc(), RankedTensorType::get(matmulDestinationShape, elementType),
         lhsMatmulInput, rhsMatmulInput);
 
     // Propagate the hoist attribute to the matmul op.
@@ -1717,7 +1715,7 @@ struct DotGeneralToMatmulConversionPattern
                                              resultShape.end());
 
     auto reshapeOutput = rewriter.replaceOpWithNewOp<ttir::ReshapeOp>(
-        op, RankedTensorType::get(resultShape, elementType, encoding), matmulOp,
+        op, RankedTensorType::get(resultShape, elementType), matmulOp,
         rewriter.getI32ArrayAttr(finalShapeI32));
 
     reshapeOutput->setLoc(ttmlir::utils::appendLocationSuffix(

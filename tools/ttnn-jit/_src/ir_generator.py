@@ -11,7 +11,6 @@ from ttnn._ttnn.graph import (
     RunMode,
     begin_graph_capture,
     end_graph_capture,
-    extract_levelized_graph,
 )
 from ttnn.graph import visualize
 
@@ -27,7 +26,6 @@ def generate_ir_from_ast(source_code, debug, *args, **kwargs):
     # Parse and compile
     m = ast.parse(source_code)
     if debug:
-        print("---- IR Dump after AST traversal ----")
         print(ast.dump(m, indent=2) + "\n")
 
     # TODO (#5043): emit ttnn IR instead of TTIR, TTIR should be fallback.

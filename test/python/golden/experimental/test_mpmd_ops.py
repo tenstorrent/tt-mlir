@@ -7,9 +7,9 @@ import torch
 from typing import Callable, List, Optional, Tuple
 from collections import OrderedDict
 
-from builder.base.builder import Operand, Shape, TypeInfo
+from builder.base.builder_utils import Operand, Shape, TypeInfo
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
-from builder.base.builder_utils import experimental_build_stablehlo_module
+from builder.base.builder_apis import experimental_build_stablehlo_module
 
 pytestmark = pytest.mark.frontend("shlo")
 

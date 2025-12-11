@@ -2,43 +2,56 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/Location.h"
+#include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/Value.h"
+#include "mlir/IR/ValueRange.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/Casting.h"
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
 #include "stablehlo/dialect/StablehloOps.h"
 #endif
 
 namespace mlir::tt::ttir {
-#define GEN_PASS_DEF_TTIRHOISTTRANSFORM
+#define GEN_PASS_DEF_CPUHOISTTRANSFORM
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 //===----------------------------------------------------------------------===//
 // Hoist CPU ops to standalone funcs pass
 //===----------------------------------------------------------------------===//
 
-// Helper function to get ranks of an op's operands
-// we use this to populate attrs which we need to tensor unpacking operations
-// later.
-static llvm::SmallVector<int64_t, 3>
-getOperandTensorRanks(mlir::Operation *op) {
-  llvm::SmallVector<int64_t, 3> ranks;
+namespace {
+using OpsVectorType = llvm::SmallVector<mlir::Operation *>;
+using ValuesVectorType = llvm::SmallVector<mlir::Value>;
+using TypesVectorType = llvm::SmallVector<mlir::Type>;
 
-  // Iterate over operands (inputs).
-  for (auto operand : op->getOperands()) {
-    // Check if the operand is a tensor.
+// Helper function to get ranks of a set of input tensor values.
+// We use this to populate attrs which we need to perform
+// tensor unpacking operations later.
+static llvm::SmallVector<int64_t>
+getSubgraphOperandTensorRanks(const ValuesVectorType &inputValues) {
+  llvm::SmallVector<int64_t> ranks;
+
+  // Iterate over input values.
+  for (auto value : inputValues) {
+    // Check if the value is a tensor.
     if (auto tensorType =
-            mlir::dyn_cast<mlir::RankedTensorType>(operand.getType())) {
+            mlir::dyn_cast<mlir::RankedTensorType>(value.getType())) {
       // Add the rank of the tensor (number of dimensions).
       ranks.push_back(tensorType.getRank());
     }
@@ -47,318 +60,426 @@ getOperandTensorRanks(mlir::Operation *op) {
   return ranks;
 }
 
-// Generate unique name base on operation type + argument tensors dims & types.
-static llvm::SmallString<16> generateHoistedFuncName(mlir::Operation *op) {
-  llvm::SmallString<16> uniqueName("hoisted_");
-  uniqueName.append(op->getName().getStringRef());
+// Helper function which generates a unique name based on operation type +
+// argument tensors dims & types.
+llvm::SmallString<64> generateHoistedFuncName(const OpsVectorType &ops) {
+  llvm::SmallString<64> uniqueName("hoisted_");
 
-  for (auto operand : op->getOperands()) {
-    if (auto tensorType =
-            mlir::dyn_cast<mlir::RankedTensorType>(operand.getType())) {
-      uniqueName += "_";
-      llvm::raw_svector_ostream os(uniqueName);
-      llvm::interleave(tensorType.getShape(), os, "x");
+  for (auto *op : ops) {
+    uniqueName.append(op->getName().getStringRef());
+
+    for (auto operand : op->getOperands()) {
+      if (auto tensorType =
+              mlir::dyn_cast<mlir::RankedTensorType>(operand.getType())) {
+        uniqueName += "_";
+        llvm::raw_svector_ostream os(uniqueName);
+        llvm::interleave(tensorType.getShape(), os, "x");
+      }
     }
   }
 
   uniqueName += "_func";
   std::replace(uniqueName.begin(), uniqueName.end(), '.', '_');
+
   return uniqueName;
 }
 
-// Helper function to hoist an arbitrary op into a new function in targetModule,
-// generate a matching extern prototype in the sourceModule, and replace the
-// original op with a callOp to the extern function.
-static void hoistOperationToFunction(mlir::Operation *opToHoist,
-                                     mlir::ModuleOp sourceModule,
-                                     mlir::ModuleOp targetModule) {
+// Helper function to collect input arguments to a set of operations.
+static ValuesVectorType collectInputArguments(const OpsVectorType &operations) {
+  ValuesVectorType inputArguments;
 
-  llvm::SmallVector<int64_t, 3> ranks = getOperandTensorRanks(opToHoist);
+  for (auto *op : operations) {
+    for (auto operand : op->getOperands()) {
+      // If the operand is defined inside the hoisted ops set, it is not an
+      // input argument to the set of operations.
+      if (llvm::is_contained(operations, operand.getDefiningOp())) {
+        continue;
+      }
+
+      // Insert the argument if not already present.
+      if (!llvm::is_contained(inputArguments, operand)) {
+        inputArguments.push_back(operand);
+      }
+    }
+  }
+
+  return inputArguments;
+}
+
+// Helper function to convert tensor types to CPU-compatible types.
+static mlir::RankedTensorType
+convertTensorType(mlir::RankedTensorType tensorType) {
+  const auto f32Type = mlir::Float32Type::get(tensorType.getContext());
+  const auto i32Type = mlir::IntegerType::get(tensorType.getContext(), 32,
+                                              mlir::IntegerType::Signless);
+
+  const auto elementType = tensorType.getElementType();
+  auto convertedElementType = tensorType.getElementType();
+
+  if (elementType.isInteger()) {
+    convertedElementType = i32Type;
+  } else if (elementType.isFloat()) {
+    convertedElementType = f32Type;
+  }
+
+  if (elementType != convertedElementType) {
+    return mlir::RankedTensorType::get(tensorType.getShape(),
+                                       convertedElementType);
+  }
+
+  return tensorType;
+}
+
+// Helper function to convert input arguments to CPU-compatible types,
+// inserting conversion ops as needed.
+static ValuesVectorType
+performInputArgumentsConversion(mlir::OpBuilder &opBuilder,
+                                const ValuesVectorType &inputArguments) {
+  ValuesVectorType convertedArguments;
+  for (auto argument : inputArguments) {
+    auto tensorType =
+        mlir::dyn_cast<mlir::RankedTensorType>(argument.getType());
+
+    TT_assertv(tensorType, "Input argument is not a RankedTensorType.");
+
+    auto convertedType = convertTensorType(tensorType);
+
+    if (tensorType != convertedType) {
+      // Create converted tensor value.
+      auto emptyTensor = opBuilder.create<mlir::tt::ttir::EmptyOp>(
+          argument.getLoc(), tensorType.getShape(),
+          convertedType.getElementType());
+      auto convertedArgument = opBuilder
+                                   .create<mlir::tt::ttir::ToLayoutOp>(
+                                       argument.getLoc(), argument, emptyTensor)
+                                   ->getResult(0);
+
+      convertedArguments.push_back(convertedArgument);
+    } else {
+      convertedArguments.push_back(argument);
+    }
+  }
+  return convertedArguments;
+}
+
+// Helper function to convert result types to CPU-compatible types.
+static TypesVectorType
+performResultConversions(const ValuesVectorType &outputValues) {
+  TypesVectorType resultTypes;
+  for (auto outputValue : outputValues) {
+    auto tensorType =
+        mlir::dyn_cast<mlir::RankedTensorType>(outputValue.getType());
+
+    TT_assertv(tensorType, "Output value is not a RankedTensorType.");
+
+    auto convertedType = convertTensorType(tensorType);
+    resultTypes.push_back(convertedType);
+  }
+  return resultTypes;
+}
+
+// Helper function to collect the operations producing the output values of a
+// set of operations.
+static OpsVectorType
+collectOutputProducers(const OpsVectorType &operations,
+                       const ValuesVectorType &outputValues) {
+  OpsVectorType outputProducers;
+  for (auto outputValue : outputValues) {
+    auto *definingOp = outputValue.getDefiningOp();
+
+    TT_assertv(definingOp, "Output value does not have a defining operation.");
+
+    TT_assertv(llvm::is_contained(operations, definingOp),
+               "Output value's defining operation is not in the hoisted ops "
+               "set.");
+
+    TT_assertv(!mlir::isa<DestinationStyleOpInterface>(definingOp),
+               "DPS ops as output producers are not supported.");
+
+    TT_assertv(definingOp->getNumResults() == 1L,
+               "Output producer ops with multiple results are not supported.");
+
+    outputProducers.push_back(definingOp);
+  }
+  return outputProducers;
+}
+
+// Helper function to convert results of callOp back to original types,
+// inserting conversion ops as needed.
+static void
+convertResultsBackToOriginalTypes(mlir::OpBuilder &opBuilder,
+                                  mlir::ModuleOp sourceModule,
+                                  ValuesVectorType &callOpOutputValues,
+                                  ValuesVectorType &originalOutputValues) {
+  for (auto [callOpOutput, originalOutput] :
+       llvm::zip(callOpOutputValues, originalOutputValues)) {
+    auto originalResultType = llvm::dyn_cast_or_null<mlir::RankedTensorType>(
+        originalOutput.getType());
+
+    auto convertedResultType =
+        llvm::dyn_cast_or_null<mlir::RankedTensorType>(callOpOutput.getType());
+
+    if (originalResultType != convertedResultType) {
+      auto emptyTensor = opBuilder.create<mlir::tt::ttir::EmptyOp>(
+          sourceModule->getLoc(), originalResultType.getShape(),
+          originalResultType.getElementType());
+      auto toOriginal = opBuilder.create<mlir::tt::ttir::ToLayoutOp>(
+          sourceModule->getLoc(), callOpOutput, emptyTensor);
+      // Replace all uses of the output value with the converted one.
+      originalOutput.replaceAllUsesWith(toOriginal->getResult(0));
+    } else {
+      // Replace all uses of the output value with the call result directly.
+      originalOutput.replaceAllUsesWith(callOpOutput);
+    }
+  }
+}
+
+// Descriptor for the set of operations which are to be CPU-hoisted.
+struct CPUHoistedOpsDescriptor {
+  // Vector of operations to be hoisted.
+  OpsVectorType operations;
+  // Values representing the outputs of the hoisted operations.
+  ValuesVectorType outputValues;
+  // Name of the generated hoisted function.
+  llvm::SmallString<64> funcName;
+
+  CPUHoistedOpsDescriptor(const OpsVectorType &ops,
+                          const ValuesVectorType &outputs,
+                          llvm::SmallString<64> name)
+      : operations(ops), outputValues(outputs), funcName(std::move(name)) {}
+};
+
+// Helper function to hoist an arbitrary set of ops into a new function in
+// targetModule, generate a matching extern prototype in the sourceModule, and
+// replace the ops in the set with a callOp to the extern function.
+static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
+                                      mlir::ModuleOp sourceModule,
+                                      mlir::ModuleOp targetModule) {
   mlir::MLIRContext *context = sourceModule.getContext();
-  mlir::OpBuilder typeBuilder(opToHoist);
 
-  auto f32Type = mlir::Float32Type::get(context);
-  auto i32Type =
-      mlir::IntegerType::get(context, 32, mlir::IntegerType::Signless);
+  const OpsVectorType outputProducers =
+      collectOutputProducers(descriptor.operations, descriptor.outputValues);
 
-  // Helper lambda to unify tensor element types.
-  auto convertTensorElementType = [f32Type, i32Type](Type elementType) -> Type {
-    if (elementType.isInteger()) {
-      return i32Type;
-    }
-    if (elementType.isFloat()) {
-      return f32Type;
-    }
-    return elementType;
-  };
+  const TypesVectorType resultTypes =
+      performResultConversions(descriptor.outputValues);
 
-  // Helper lambda to unify tensor types.
-  auto convertTensorType =
-      [&](RankedTensorType tensorType) -> RankedTensorType {
-    auto elementType = tensorType.getElementType();
-    auto convertedElementType = convertTensorElementType(elementType);
-    if (elementType != convertedElementType) {
-      return RankedTensorType::get(tensorType.getShape(), convertedElementType,
-                                   tensorType.getEncoding());
-    }
-    return tensorType;
-  };
+  const ValuesVectorType inputArguments =
+      collectInputArguments(descriptor.operations);
 
-  // Convert operands and gather types for function signature.
-  llvm::SmallVector<mlir::Type> operandTypes;
-  llvm::SmallVector<mlir::Value> convertedOperands;
+  // Convert argument and gather types for function signature.
+  mlir::OpBuilder opBuilder(descriptor.operations.front());
+  const ValuesVectorType convertedArguments =
+      performInputArgumentsConversion(opBuilder, inputArguments);
 
-  for (auto operand : opToHoist->getOperands()) {
-    if (auto tensorType =
-            mlir::dyn_cast<mlir::RankedTensorType>(operand.getType())) {
-      auto convertedTensorType = convertTensorType(tensorType);
-      if (convertedTensorType != tensorType) {
-        // Create converted tensor value.
-        auto emptyTensor = typeBuilder.create<mlir::tt::ttir::EmptyOp>(
-            opToHoist->getLoc(), tensorType.getShape(),
-            convertedTensorType.getElementType());
-        auto converted = typeBuilder.create<mlir::tt::ttir::ToLayoutOp>(
-            opToHoist->getLoc(), operand, emptyTensor);
-        operandTypes.push_back(convertedTensorType);
-        convertedOperands.push_back(converted->getResult(0));
-      } else {
-        operandTypes.push_back(tensorType);
-        convertedOperands.push_back(operand);
-      }
-    } else {
-      operandTypes.push_back(operand.getType());
-      convertedOperands.push_back(operand);
-    }
-  }
+  const TypesVectorType argumentTypes = llvm::map_to_vector(
+      convertedArguments, [](mlir::Value val) { return val.getType(); });
 
-  // When hoisting a non-DPS op (e.g. SHLO op), we need to DPS-ify to maintain
-  // calling convention.
-  const bool isDPSOp = mlir::isa<mlir::DestinationStyleOpInterface>(opToHoist);
-  if (!isDPSOp) {
-    // Create empty tensors for each tensor result.
-    for (auto resultType : opToHoist->getResultTypes()) {
-      if (auto tensorType =
-              mlir::dyn_cast<mlir::RankedTensorType>(resultType)) {
-        auto elementType = tensorType.getElementType();
-        auto convertedElementType = convertTensorElementType(elementType);
-        auto empty = typeBuilder.create<mlir::tt::ttir::EmptyOp>(
-            opToHoist->getLoc(), tensorType.getShape(), convertedElementType);
-        convertedOperands.push_back(empty);
-
-        // Add to function signature.
-        operandTypes.push_back(empty.getType());
-        ranks.push_back(tensorType.getRank());
-      }
-    }
-  }
-
-  // Gather result types for function signature.
-  llvm::SmallVector<mlir::Type> resultTypes;
-  for (auto result : opToHoist->getResultTypes()) {
-    if (auto tensorType = mlir::dyn_cast<mlir::RankedTensorType>(result)) {
-      auto convertedTensorType = convertTensorType(tensorType);
-      resultTypes.push_back(convertedTensorType);
-    } else {
-      resultTypes.push_back(result);
-    }
-  }
-
-  // Create function types.
+  // Creating function types.
   mlir::FunctionType localFuncType =
-      mlir::FunctionType::get(context, operandTypes, resultTypes);
+      mlir::FunctionType::get(context, argumentTypes, resultTypes);
   mlir::FunctionType funcType =
-      mlir::FunctionType::get(context, operandTypes, resultTypes);
+      mlir::FunctionType::get(context, argumentTypes, resultTypes);
 
-  const llvm::SmallString<16> functionName = generateHoistedFuncName(opToHoist);
-  llvm::SmallString<16> localFunctionName = functionName;
-  localFunctionName.append("_decl");
-
+  llvm::SmallString<64> localFunctionName(descriptor.funcName);
+  localFunctionName += "_decl";
   auto localFunc = llvm::dyn_cast_if_present<func::FuncOp>(
-      sourceModule.lookupSymbol(localFunctionName.str()));
+      sourceModule.lookupSymbol(localFunctionName));
 
   // Create a new hoisted function only if an equivalent one does not exist.
   if (localFunc == nullptr) {
     // Insert the function and the terminator.
-    auto hoistedFunc =
-        func::FuncOp::create(opToHoist->getLoc(), functionName, funcType);
+    auto hoistedFunc = func::FuncOp::create(targetModule->getLoc(),
+                                            descriptor.funcName, funcType);
     targetModule.push_back(hoistedFunc);
 
     // Add a basic block to the function.
     mlir::Block *block = hoistedFunc.addEntryBlock();
     mlir::OpBuilder builder(block, block->end());
 
-    // Map operands to block arguments and clone the operation.
-    llvm::SmallVector<mlir::Value> newOperands;
-    for (auto operand : llvm::enumerate(opToHoist->getOperands())) {
-      newOperands.push_back(block->getArgument(operand.index()));
+    // Map arguments to block arguments and clone the operation.
+    llvm::SmallVector<mlir::Value> newArguments;
+    for (auto operand : llvm::enumerate(inputArguments)) {
+      newArguments.push_back(block->getArgument(operand.index()));
     }
 
     mlir::IRMapping mapping;
-    for (auto operand : llvm::zip(opToHoist->getOperands(), newOperands)) {
-      mapping.map(std::get<0>(operand), std::get<1>(operand));
+    for (auto operands : llvm::zip(inputArguments, newArguments)) {
+      mapping.map(std::get<0>(operands), std::get<1>(operands));
     }
 
-    // Clone the operation, but modify its type if needed.
-    auto *clonedOp = builder.clone(*opToHoist, mapping);
+    // Clone each operation, but modify its type if needed.
+    OpsVectorType clonedOutputProducers;
 
-    // Update operand types to supported tensor types.
-    for (auto operand : clonedOp->getOperands()) {
-      if (auto tensorType =
-              mlir::dyn_cast<mlir::RankedTensorType>(operand.getType())) {
-        auto convertedTensorType = convertTensorType(tensorType);
-        operand.setType(convertedTensorType);
-      }
-    }
+    for (auto *opToHoist : descriptor.operations) {
+      auto *clonedOp = builder.clone(*opToHoist, mapping);
 
-    // Update result types to supported tensor types.
-    for (auto result : clonedOp->getResults()) {
-      if (auto tensorType =
-              mlir::dyn_cast<mlir::RankedTensorType>(result.getType())) {
-        auto convertedTensorType = convertTensorType(tensorType);
-        result.setType(convertedTensorType);
-      }
-    }
-
-    // Add an attribute to the function that maps return values to output
-    // arguments.
-    unsigned outputOperandIdx = opToHoist->getNumOperands();
-    if (auto dpsOp =
-            mlir::dyn_cast<mlir::DestinationStyleOpInterface>(opToHoist)) {
-      // Ensure there's only a single output.
-      assert(dpsOp.getDpsInits().size() == 1 &&
-             "Only operations with a single output are supported");
-
-      // Get the index of the output operand.
-      outputOperandIdx -= dpsOp.getDpsInits().size();
-
-      // Store this mapping as an attribute on the function
-      hoistedFunc->setAttr(ttir::ReturnToOutputMappingAttr::name,
-                           builder.getI64IntegerAttr(outputOperandIdx));
-    } else {
-      // For a non-DPS op, we should have inserted a placeholder output arg at
-      // the end.
-      // Rely on ReenableLostDPS to use the placeholder output arg.
-      hoistedFunc->setAttr(ttir::ReturnToOutputMappingAttr::name,
-                           builder.getI64IntegerAttr(outputOperandIdx));
-    }
-
-    // Add bufferization access attributes to function arguments.
-    for (auto [index, value] : llvm::enumerate(hoistedFunc.getArguments())) {
-      if (auto tensorType =
-              mlir::dyn_cast<mlir::RankedTensorType>(value.getType())) {
-        if (index < outputOperandIdx) {
-          hoistedFunc.setArgAttr(index, "bufferization.access",
-                                 builder.getStringAttr("read"));
-        } else {
-          hoistedFunc.setArgAttr(index, "bufferization.access",
-                                 builder.getStringAttr("write"));
+      // Update operand types to supported tensor types.
+      for (auto operand : clonedOp->getOperands()) {
+        if (auto tensorType =
+                mlir::dyn_cast<mlir::RankedTensorType>(operand.getType())) {
+          auto convertedTensorType = convertTensorType(tensorType);
+          operand.setType(convertedTensorType);
         }
       }
+
+      // Update result types to supported tensor types.
+      for (auto result : clonedOp->getResults()) {
+        if (auto tensorType =
+                mlir::dyn_cast<mlir::RankedTensorType>(result.getType())) {
+          auto convertedTensorType = convertTensorType(tensorType);
+          result.setType(convertedTensorType);
+        }
+      }
+
+      // Check if this is the output producing op. If it is, keep track of it
+      // for later.
+      if (llvm::is_contained(outputProducers, opToHoist)) {
+        clonedOutputProducers.push_back(clonedOp);
+      }
     }
 
-    // Add a return operation to the function with the operation results.
-    builder.create<mlir::func::ReturnOp>(opToHoist->getLoc(),
-                                         clonedOp->getResults());
+    // Add return op to the function from the cloned output producers.
+    const ValuesVectorType returnValues =
+        llvm::map_to_vector(clonedOutputProducers, [](mlir::Operation *op) {
+          return mlir::dyn_cast<mlir::Value>(op->getResult(0));
+        });
+
+    builder.create<mlir::func::ReturnOp>(targetModule->getLoc(), returnValues);
+
+    // Add bufferization access attributes to function arguments.
+    for (auto [index, argument] : llvm::enumerate(hoistedFunc.getArguments())) {
+      if (auto tensorType =
+              mlir::dyn_cast<mlir::RankedTensorType>(argument.getType())) {
+        hoistedFunc.setArgAttr(index, "bufferization.access",
+                               builder.getStringAttr("read"));
+      }
+    }
 
     // Declare the function prototype in the source module.
-    localFunc = func::FuncOp::create(opToHoist->getLoc(),
-                                     localFunctionName.str(), localFuncType);
+    localFunc = func::FuncOp::create(sourceModule->getLoc(), localFunctionName,
+                                     localFuncType);
     localFunc.setPrivate();
 
     // Add the function to the module first.
     sourceModule.push_back(localFunc);
 
-    hoistedFunc->setAttr("arg_ranks", builder.getI64ArrayAttr(ranks));
+    // Get operand ranks and set them as an attribute on the hoisted function.
+    hoistedFunc->setAttr(
+        "arg_ranks",
+        builder.getI64ArrayAttr(getSubgraphOperandTensorRanks(inputArguments)));
+
+    // Mark the hoisted function with the HoistedFuncAttr.
+    hoistedFunc->setAttr(CPUHoistedFuncAttr::name,
+                         mlir::UnitAttr::get(context));
   }
+
+  // Mark the local function with the HoistedFuncAttr.
+  localFunc->setAttr(CPUHoistedFuncAttr::name, mlir::UnitAttr::get(context));
 
   // Create the call using already converted inputs.
-  mlir::OpBuilder opBuilder(opToHoist);
   auto callOp = opBuilder.create<mlir::func::CallOp>(
-      opToHoist->getLoc(), localFunc, convertedOperands);
+      sourceModule->getLoc(), localFunc, convertedArguments);
 
   // Add the hoisted_call attribute.
-  callOp->setAttr(HoistedCallAttr::name,
-                  UnitAttr::get(opToHoist->getContext()));
+  callOp->setAttr(CPUHoistedCallAttr::name, UnitAttr::get(context));
 
-  // Convert results back to original types if needed.
-  llvm::SmallVector<mlir::Value> finalResults;
-  for (auto [result, callResult] :
-       llvm::zip(opToHoist->getResults(), callOp.getResults())) {
-    if (auto tensorType =
-            mlir::dyn_cast<mlir::RankedTensorType>(result.getType())) {
-      auto convertedTensorType = convertTensorType(tensorType);
-      if (tensorType != convertedTensorType) {
-        auto converted = opBuilder.create<mlir::tt::ttir::EmptyOp>(
-            opToHoist->getLoc(), tensorType.getShape(),
-            tensorType.getElementType());
-        auto toOriginal = opBuilder.create<mlir::tt::ttir::ToLayoutOp>(
-            opToHoist->getLoc(), callResult, converted);
-        finalResults.push_back(toOriginal->getResult(0));
-      } else {
-        finalResults.push_back(callResult);
-      }
-    } else {
-      finalResults.push_back(callResult);
-    }
+  ValuesVectorType callOpResults = callOp.getResults();
+
+  convertResultsBackToOriginalTypes(opBuilder, sourceModule, callOpResults,
+                                    descriptor.outputValues);
+
+  // Erase the original operations in a topologically-reversed order.
+  for (auto *opToErase : llvm::reverse(descriptor.operations)) {
+    opToErase->erase();
   }
-
-  // Replace original op with the converted results.
-  opToHoist->replaceAllUsesWith(finalResults);
-
-  // Erase the original operation.
-  opToHoist->erase();
 }
-
-namespace {
-// Predicate type for determining whether an op should be hoisted.
-using ShouldHoistPredicateType = std::function<bool(mlir::Operation *)>;
-
-// Analysis pass to find ops to hoist based on the provided predicate.
-// Currently, we only support hoisting single op at a time.
-// In the future, we may want to support hoisting sets of multiple ops
-// contiguously.
-class TTIRHoistAnalyze {
-public:
-  // Data structure to hold all sets of ops to hoist--each op should be hoisted
-  // continguously.  (Currently, we only support sets of size 1).
-  using HoistOpSet = llvm::SmallVector<llvm::SmallSet<mlir::Operation *, 4>>;
-
-  TTIRHoistAnalyze(ShouldHoistPredicateType predicate) : predicate{predicate} {}
-
-  HoistOpSet getHoistedOps(mlir::ModuleOp moduleOp) {
-    HoistOpSet hoistedOps;
-
-    moduleOp.walk([&](mlir::Operation *nestedOp) {
-      if (predicate(nestedOp)) {
-        // TODO (#1646): Add support for hoisting sets of multiple ops instead
-        // of single ops.
-        llvm::SmallSet<mlir::Operation *, 4> opSet;
-        opSet.insert(nestedOp);
-        hoistedOps.push_back(opSet);
-      }
-    });
-
-    return hoistedOps;
-  }
-
-private:
-  ShouldHoistPredicateType predicate;
-};
 } // namespace
 
 namespace {
-// Transform pass to hoist specific ops (based on configured analysis pass) into
-// a cpu submodule for later independent lowering.
-class TTIRHoistTransform
-    : public impl::TTIRHoistTransformBase<TTIRHoistTransform> {
-public:
-  using impl::TTIRHoistTransformBase<
-      TTIRHoistTransform>::TTIRHoistTransformBase;
+// Predicate type for determining sets of ops to hoist in the provided function.
+// Returns a vector of descriptors, one for each set of ops to hoist.
+//
+// TODO(dmilinkovic): Currently, the implementation limits the user to hoisting
+// ops inside a single function; we should consider allowing cross-function
+// CPU-hoisting in the future - issue #6097.
+using CPUHoistAnalyzerType =
+    std::function<llvm::SmallVector<CPUHoistedOpsDescriptor>(func::FuncOp)>;
 
-  // Constructor which allows specifying a custom predicate for determining
-  // whether an op should be hoisted.
-  TTIRHoistTransform(ShouldHoistPredicateType predicate)
-      : customPredicate{predicate} {}
+// Predicate type for determining whether an op should be hoisted in an op-by-op
+// CPU hoisting analyzer.
+using ShouldHoistOpType = std::function<bool(mlir::Operation *)>;
+
+// HoistAnalyzer which hoists single ops based on a provided predicate.
+CPUHoistAnalyzerType singleOpHoistAnalyzer(ShouldHoistOpType predicate) {
+  return [predicate](func::FuncOp funcOp) {
+    llvm::SmallVector<CPUHoistedOpsDescriptor> hoistedOpsDescriptors;
+    // Hoisting individual ops based on the predicate.
+    funcOp.walk([&](mlir::Operation *nestedOp) {
+      if (predicate(nestedOp)) {
+        OpsVectorType operations{nestedOp};
+        ValuesVectorType outputValues{nestedOp->getResult(0)};
+
+        hoistedOpsDescriptors.emplace_back(operations, outputValues,
+                                           generateHoistedFuncName({nestedOp}));
+      }
+    });
+
+    return hoistedOpsDescriptors;
+  };
+}
+
+// HoistAnalyzer which hoists const-eval functions as a whole.
+CPUHoistAnalyzerType constEvalHoistAnalyzer() {
+  return [](func::FuncOp funcOp) {
+    llvm::SmallVector<CPUHoistedOpsDescriptor> hoistedOpsDescriptors;
+
+    if (!ttmlir::utils::isConstEvalFunc(funcOp)) {
+      return hoistedOpsDescriptors;
+    }
+
+    llvm::SmallString<64> hoistedFuncName("hoisted_");
+    hoistedFuncName += funcOp.getName();
+    CPUHoistedOpsDescriptor descriptor({}, {}, hoistedFuncName);
+
+    auto walkResult = funcOp.walk([&](mlir::Operation *nestedOp) {
+      // Skip the FuncOp itself.
+      if (llvm::isa<func::FuncOp>(nestedOp)) {
+        return WalkResult::advance();
+      }
+
+      // Skip the ReturnOp, but collect its operands as outputs.
+      if (llvm::isa<mlir::func::ReturnOp>(nestedOp)) {
+        for (auto retVal : nestedOp->getOperands()) {
+          descriptor.outputValues.push_back(retVal);
+        }
+        return WalkResult::advance();
+      }
+
+      // If there is already a CPU-hoisted call inside the const-eval
+      // subgraph, skip CPU hoisting altogether to avoid nested hoisting.
+      if (nestedOp->hasAttr(ttir::CPUHoistedCallAttr::name)) {
+        return WalkResult::interrupt();
+      }
+
+      descriptor.operations.push_back(nestedOp);
+      return WalkResult::advance();
+    });
+
+    if (!walkResult.wasInterrupted() && !descriptor.operations.empty()) {
+      hoistedOpsDescriptors.push_back(std::move(descriptor));
+    }
+
+    return hoistedOpsDescriptors;
+  };
+}
+
+// Transform pass to hoist specific ops, based on the provided
+// HoistAnalyzerType implementation. By default, only ops manually tagged with
+// ttir.should_hoist are hoisted.
+class CPUHoistTransform
+    : public impl::CPUHoistTransformBase<CPUHoistTransform> {
+public:
+  CPUHoistTransform(CPUHoistAnalyzerType analyzer) : analyzer(analyzer) {}
 
   void runOnOperation() final {
     mlir::ModuleOp rootModule = getOperation();
@@ -376,31 +497,29 @@ public:
         break;
       }
     }
-    assert(deviceModule &&
-           "must run tt::WrapDeviceModulePass on IR before hoisting!");
+    TT_assertv(deviceModule,
+               "Must run tt::WrapDeviceModulePass on IR before hoisting.");
 
     ModuleOp deviceInnerModule = dyn_cast_if_present<mlir::ModuleOp>(
         deviceModule.getBodyRegion().front().front());
-    assert(deviceInnerModule &&
-           "ttcore::DeviceModuleOp must have single ModuleOp child!");
+    TT_assertv(deviceInnerModule,
+               "ttcore::DeviceModuleOp must have single ModuleOp child.");
 
     IRRewriter rewriter(&getContext());
 
     auto loc = rootModule->getLoc();
 
-    const auto isOpManuallyTaggedForHoisting = [](mlir::Operation *op) {
-      return op->hasAttr(ttir::ShouldHoistAttr::name);
-    };
-
-    const auto combinedPredicate = [&](mlir::Operation *op) {
-      return isOpManuallyTaggedForHoisting(op) || this->customPredicate(op);
-    };
-
-    TTIRHoistAnalyze analysisPass(combinedPredicate);
-    auto hoistOpSets = analysisPass.getHoistedOps(rootModule);
+    // Collect hoisted ops descriptors by iterating over all functions.
+    llvm::SmallVector<CPUHoistedOpsDescriptor> hoistedOpsDescriptors;
+    deviceInnerModule.walk([&](func::FuncOp funcOp) {
+      auto descriptors = analyzer(funcOp);
+      for (auto &descriptor : descriptors) {
+        hoistedOpsDescriptors.push_back(std::move(descriptor));
+      }
+    });
 
     // We don't want to create a CPUModuleOp etc. if we aren't hoisting any ops.
-    if (hoistOpSets.empty()) {
+    if (hoistedOpsDescriptors.empty()) {
       return;
     }
 
@@ -412,7 +531,7 @@ public:
         cpuModule = module;
         cpuInnerModule = dyn_cast_if_present<mlir::ModuleOp>(
             cpuModule.getBodyRegion().front().front());
-        assert(cpuInnerModule && "CPUModuleOp must contain 1 ModuleOp!");
+        TT_assertv(cpuInnerModule, "CPUModuleOp must contain 1 ModuleOp.");
         break;
       }
     }
@@ -425,37 +544,56 @@ public:
       cpuInnerModule = rewriter.create<mlir::ModuleOp>(loc);
     }
 
-    for (const auto &opSet : hoistOpSets) {
-      assert(opSet.size() == 1 &&
-             "currently don't support hoisting multiple instructions at once!");
-      hoistOperationToFunction(*opSet.begin(), deviceInnerModule,
-                               cpuInnerModule);
+    // Hoist each set of ops into a new function in the CPU module.
+    for (auto &descriptor : hoistedOpsDescriptors) {
+      hoistOperationsToFunction(descriptor, deviceInnerModule, cpuInnerModule);
     }
   }
 
 private:
-  // By default, no custom ops are hoisted unless specified via constructor.
-  ShouldHoistPredicateType customPredicate = [](mlir::Operation *op) {
-    return false;
-  };
+  CPUHoistAnalyzerType analyzer;
 };
 } // namespace
 
 template <typename... Dialects>
-std::unique_ptr<mlir::Pass> createTTIRHoistTransformForDialects() {
+std::unique_ptr<mlir::Pass> createCPUHoistForDialectsTransform() {
   const auto customPredicate = [](mlir::Operation *op) {
     return ((op->getDialect()->getTypeID() == TypeID::get<Dialects>()) || ...);
   };
-  auto pass = std::make_unique<TTIRHoistTransform>(customPredicate);
+  CPUHoistAnalyzerType analyzer = singleOpHoistAnalyzer(customPredicate);
+  auto pass = std::make_unique<CPUHoistTransform>(analyzer);
   return pass;
 }
 
 template <typename... Ops>
-std::unique_ptr<mlir::Pass> createTTIRHoistTransformForOps() {
+std::unique_ptr<mlir::Pass> createCPUHoistForOpsTransform() {
   const auto customPredicate = [](mlir::Operation *op) {
     return llvm::isa<Ops...>(op);
   };
-  auto pass = std::make_unique<TTIRHoistTransform>(customPredicate);
+  CPUHoistAnalyzerType analyzer = singleOpHoistAnalyzer(customPredicate);
+  auto pass = std::make_unique<CPUHoistTransform>(analyzer);
+  return pass;
+}
+
+std::unique_ptr<mlir::Pass> createCPUHoistConstEvalTransform() {
+  CPUHoistAnalyzerType analyzer = constEvalHoistAnalyzer();
+  auto pass = std::make_unique<CPUHoistTransform>(analyzer);
+  return pass;
+}
+
+std::unique_ptr<mlir::Pass> createCPUHoistManuallyTaggedOpsTransform() {
+  const auto customPredicate = [](mlir::Operation *op) {
+    return op->hasAttr(ttir::ShouldHoistAttr::name);
+  };
+  CPUHoistAnalyzerType analyzer = singleOpHoistAnalyzer(customPredicate);
+  auto pass = std::make_unique<CPUHoistTransform>(analyzer);
+  return pass;
+}
+
+std::unique_ptr<mlir::Pass>
+createSingleOpCPUHoistTransform(ShouldHoistOpType predicate) {
+  CPUHoistAnalyzerType analyzer = singleOpHoistAnalyzer(predicate);
+  auto pass = std::make_unique<CPUHoistTransform>(analyzer);
   return pass;
 }
 
@@ -463,14 +601,14 @@ std::unique_ptr<mlir::Pass> createTTIRHoistTransformForOps() {
 // potentially fallback elsewhere due to template in .cpp file constraints.
 #ifdef TTMLIR_ENABLE_STABLEHLO
 template std::unique_ptr<mlir::Pass>
-createTTIRHoistTransformForDialects<mlir::stablehlo::StablehloDialect>();
+createCPUHoistForDialectsTransform<mlir::stablehlo::StablehloDialect>();
 
 template std::unique_ptr<mlir::Pass>
-createTTIRHoistTransformForOps<stablehlo::DynamicUpdateSliceOp,
-                               stablehlo::EinsumOp>();
+createCPUHoistForOpsTransform<stablehlo::DynamicUpdateSliceOp,
+                              stablehlo::EinsumOp>();
 
 #endif
 template std::unique_ptr<mlir::Pass>
-createTTIRHoistTransformForDialects<TTIRDialect>();
+createCPUHoistForDialectsTransform<TTIRDialect>();
 
 } // namespace mlir::tt::ttir

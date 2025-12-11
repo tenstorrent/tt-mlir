@@ -20,17 +20,19 @@ from ttmlir.ir import *
 from ttmlir.dialects import ttnn, func, ttcore
 from typing import Dict, List, Any, Optional, Tuple
 import ttnn_jit._src.supported_ops as supported_ops
-from ttnn._ttnn.graph import extract_levelized_graph
-from .tensor_translator import _get_collapsed_linear_affine_map, create_tensor_layout
-from .levelized_graph import LevelizedGraph, LevelizedGraphVertex
-from .op_registry import get_registry
-from .conversions import (
+from ttnn_jit._src.tensor_translator import (
+    _get_collapsed_linear_affine_map,
+    create_tensor_layout,
+)
+from ttnn_jit._src.levelized_graph import LevelizedGraph, LevelizedGraphVertex
+from ttnn_jit._src.op_registry import get_registry
+from ttnn_jit._src.conversions import (
     mlir_dtype_from_ttnn_dtype,
-    ttcore_dtype_from_ttnn_dtype,
     ttcore_dtype_from_mlir_dtype,
     buffer_type_from_string,
     memory_layout_from_string,
 )
+from ttnn._ttnn.graph import extract_levelized_graph
 
 
 class GraphToIRTranslator:
@@ -146,11 +148,21 @@ class GraphToIRTranslator:
         # Format: grid={[(x=0,y=0) - (x=0,y=0)]}
         # This represents a grid from (x_min, y_min) to (x_max, y_max)
         # Note: Multiple CoreRanges are not supported in JIT/D2M
-        grid_pattern = r"\[\(x=(\d+),y=(\d+)\)\s*-\s*\(x=(\d+),y=(\d+)\)\]"
-        grid_matches = re.findall(grid_pattern, output_info_str)
+        # Only parse grid from ShardSpec, not from NdShardSpec (which may also contain grid)
+        grid_pattern = r"shard_spec=ShardSpec\(.*?grid=\{\[\(x=(\d+),y=(\d+)\)\s*-\s*\(x=(\d+),y=(\d+)\)\]\}"
+        grid_match = re.search(grid_pattern, output_info_str)
+        grid_matches = [grid_match.groups()] if grid_match else []
 
         if len(grid_matches) > 1:
-            raise ValueError(
+            print(f"Multiple CoreRanges detected in output_info:")
+            print(f"  output_info: {output_info_str}")
+            print(f"  Found {len(grid_matches)} CoreRange(s):")
+            for i, match in enumerate(grid_matches):
+                x_min, y_min, x_max, y_max = map(int, match)
+                print(
+                    f"    CoreRange {i+1}: (x={x_min},y={y_min}) - (x={x_max},y={y_max})"
+                )
+            raise BaseException(
                 f"Multiple CoreRanges in grid attribute are not supported in JIT/D2M. "
                 f"Found {len(grid_matches)} CoreRange(s) in output_info. "
                 f"Only single CoreRange grids are currently supported."
@@ -522,7 +534,7 @@ class GraphToIRTranslator:
         operands: List,
         device,
         vertex: LevelizedGraphVertex,
-    ):
+    ) -> OpResult:
         """
         Create a TTNN MLIR operation using the operation registry.
 
@@ -574,7 +586,7 @@ class GraphToIRTranslator:
 
         return result
 
-    def _create_constant_tensor(self, value: float, result_type, device):
+    def _create_constant_tensor(self, value: float, result_type, device) -> OpResult:
         """Create a constant tensor with the given value."""
         with Location.unknown(self.ctx):
             shape = list(result_type.shape)
@@ -608,7 +620,7 @@ class GraphToIRTranslator:
                 self.ctx
             )
 
-            return full_tensor
+            return full_tensor.result
 
     def compile(self) -> Module:
         """
@@ -648,7 +660,7 @@ class GraphToIRTranslator:
 
         return self.module
 
-    def _create_device(self):
+    def _create_device(self) -> OpResult:
         """
         Create a device handle for TTNN operations.
 
@@ -668,7 +680,7 @@ class GraphToIRTranslator:
         tensor_vertices: List[Tuple[LevelizedGraphVertex, int]],
         input_types: List,
         output_types: List,
-    ):
+    ) -> None:
         """Build the function body from the levelized graph."""
         with InsertionPoint(func_bb):
             # Create device handle

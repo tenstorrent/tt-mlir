@@ -16,47 +16,11 @@ def _get_ttnn_op(func: Callable) -> Optional[Callable]:
     return attr if callable(attr) else None
 
 
-def _build_golden_map(ops: Iterable[Callable]) -> Dict[Callable, Callable]:
-    # Build a func ->ttnn op map for provided ops
-    result: Dict[Callable, Callable] = {}
-    for op in ops:
-        ttnn_op = _get_ttnn_op(op)
-        if ttnn_op is not None:
-            result[op] = ttnn_op
-    return result
-
-
 def memory_configs_equal(memory_config1, memory_config2):
     return (
         memory_config1.memory_layout == memory_config2.memory_layout
         and memory_config1.buffer_type == memory_config2.buffer_type
         and memory_config1.shard_spec == memory_config2.shard_spec
-    )
-
-
-def create_dram_tensor(
-    device, shape, dtype, int_max=0, mesh_mapper=None, ttnn_dtype=None
-):
-    if not (dtype.is_floating_point or dtype.is_complex):
-        # recreate spatial coverage of fp [0,1] in randn and give some overflow headroom
-        high_val = int_max if int_max else torch.iinfo(dtype).max // 2
-        torch_tensor = torch.randint(high_val, shape, dtype=dtype)
-    else:
-        if int_max:
-            print("Warning: int_max provided for floating point tensor, ignoring.")
-        torch_tensor = torch.randn(shape, dtype=dtype)
-
-    memory_config = ttnn.MemoryConfig(
-        memory_layout=ttnn.TensorMemoryLayout.INTERLEAVED,
-        buffer_type=ttnn.BufferType.DRAM,
-    )
-    return ttnn.from_torch(
-        torch_tensor,
-        dtype=ttnn_dtype,
-        layout=ttnn.TILE_LAYOUT,
-        device=device,
-        memory_config=memory_config,
-        mesh_mapper=mesh_mapper,
     )
 
 
@@ -71,76 +35,6 @@ def get_block_sharding_grid(shape):
                 grid.append(grid_dim)
                 break
     return list(reversed(grid))
-
-
-def get_shard_shape(collapsed_shape, max_grid, memory_layout):
-    h, w = collapsed_shape
-    # IMPORTANT: TTNN grids are (Width, Height), while tensor shapes are (Height, Width).
-    if memory_layout == ttnn.TensorMemoryLayout.BLOCK_SHARDED:
-        shard_shape_x = h if max_grid[1] == 0 else h // (max_grid[1] + 1)
-        shard_shape_y = w if max_grid[0] == 0 else w // (max_grid[0] + 1)
-        return shard_shape_x, shard_shape_y
-    elif memory_layout == ttnn.TensorMemoryLayout.HEIGHT_SHARDED:
-        grid_size = (max_grid[0] + 1) * (max_grid[1] + 1)
-        shard_shape_x = h // grid_size
-        return shard_shape_x, w
-    elif memory_layout == ttnn.TensorMemoryLayout.WIDTH_SHARDED:
-        grid_size = (max_grid[0] + 1) * (max_grid[1] + 1)
-        shard_shape_y = w // grid_size
-        return h, shard_shape_y
-    else:
-        raise ValueError(f"Invalid memory layout: {memory_layout}")
-
-
-def create_sharded_tile_tensor(
-    device,
-    shape,
-    max_grid,
-    dtype,
-    int_max=0,
-    memory_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED,
-    ttnn_dtype=None,
-):
-    if not (dtype.is_floating_point or dtype.is_complex):
-        # recreate spatial coverage of fp [0,1] in randn and give some overflow headroom
-        high_val = int_max if int_max else torch.iinfo(dtype).max // 2
-        torch_tensor = torch.randint(high_val, shape, dtype=dtype)
-    else:
-        if int_max:
-            print("Warning: int_max provided for floating point tensor, ignoring.")
-        torch_tensor = torch.randn(shape, dtype=dtype)
-
-    start_coord = ttnn.CoreCoord(0, 0)
-    end_coord = ttnn.CoreCoord(max_grid[0], max_grid[1])
-    core_range = ttnn.CoreRange(start_coord, end_coord)
-    core_range_set = ttnn.CoreRangeSet([core_range])
-
-    w = shape[-1]
-    h = 1
-    for dim in shape[:-1]:
-        h *= dim
-
-    shard_shape_x, shard_shape_y = get_shard_shape((h, w), max_grid, memory_layout)
-
-    shard_spec = ttnn.ShardSpec(
-        grid=core_range_set,
-        shard_shape=[shard_shape_x, shard_shape_y],
-        shard_orientation=ttnn.ShardOrientation.ROW_MAJOR,
-    )
-
-    memory_config = ttnn.MemoryConfig(
-        memory_layout=memory_layout,
-        buffer_type=ttnn.BufferType.L1,
-        shard_spec=shard_spec,
-    )
-
-    return ttnn.from_torch(
-        torch_tensor,
-        dtype=ttnn_dtype,
-        layout=ttnn.TILE_LAYOUT,
-        device=device,
-        memory_config=memory_config,
-    )
 
 
 def all_close_check(result, golden_result, atol=1e-1, rtol=1e-1, debug=True):
@@ -166,6 +60,54 @@ def all_close_check(result, golden_result, atol=1e-1, rtol=1e-1, debug=True):
     return all_close
 
 
+def create_torch_tensor(shape, dtype):
+    if not (dtype.is_floating_point or dtype.is_complex):
+        # recreate spatial coverage of fp [0,1] in randn and give some overflow headroom
+        high_val = torch.iinfo(dtype).max // 2
+        torch_tensor = torch.randint(high_val, shape, dtype=dtype)
+    else:
+        torch_tensor = torch.randn(shape, dtype=dtype)
+    return torch_tensor
+
+
+def create_sharded_tile_tensor(
+    device,
+    shape,
+    max_grid,
+    dtype,
+    shard_strategy=ttnn.ShardStrategy.BLOCK,
+    ttnn_dtype=None,
+):
+    torch_tensor = create_torch_tensor(shape, dtype)
+    # IMPORTANT: TTNN grids are (Width, Height), while tensor shapes are (Height, Width).
+    # We add 1 to the grid dimensions to account for the zero-based indexing.
+    memory_config = ttnn.create_sharded_memory_config(
+        shape=shape,
+        core_grid=ttnn.CoreGrid(x=max_grid[0] + 1, y=max_grid[1] + 1),
+        strategy=shard_strategy,
+        use_height_and_width_as_shard_shape=False,
+    )
+    return ttnn.from_torch(
+        torch_tensor,
+        dtype=ttnn_dtype,
+        layout=ttnn.TILE_LAYOUT,
+        device=device,
+        memory_config=memory_config,
+    )
+
+
+def create_dram_tensor(device, shape, dtype, ttnn_dtype=None, mesh_mapper=None):
+    torch_tensor = create_torch_tensor(shape, dtype)
+    return ttnn.from_torch(
+        torch_tensor,
+        dtype=ttnn_dtype,
+        layout=ttnn.TILE_LAYOUT,
+        device=device,
+        memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        mesh_mapper=mesh_mapper,
+    )
+
+
 def run_op_test(
     device,
     shape,
@@ -176,8 +118,9 @@ def run_op_test(
     buffer_type=ttnn.BufferType.L1,
     graph_capture=True,
     enable_cache=False,
-    memory_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED,
+    shard_strategy=ttnn.ShardStrategy.BLOCK,
     ttnn_dtype=None,
+    compile_only=False,
 ):
     """
     Common test runner for JIT operations.
@@ -197,23 +140,19 @@ def run_op_test(
     if buffer_type == ttnn.BufferType.L1:
         inputs = [
             create_sharded_tile_tensor(
-                device,
-                shape,
-                max_grid,
-                dtype,
-                memory_layout=memory_layout,
-                ttnn_dtype=ttnn_dtype,
+                device, shape, max_grid, dtype, shard_strategy, ttnn_dtype
             )
             for _ in range(num_inputs)
         ]
     else:
         inputs = [
-            create_dram_tensor(device, shape, dtype, ttnn_dtype=ttnn_dtype)
+            create_dram_tensor(device, shape, dtype, ttnn_dtype)
             for _ in range(num_inputs)
         ]
     golden_op = _get_ttnn_op(op)
 
     op_jit = ttnn_jit.jit(
+        compile_only=compile_only,
         debug=True,
         enable_cache=enable_cache,
         graph_capture=graph_capture,
@@ -222,7 +161,8 @@ def run_op_test(
     golden_tensor = (golden_op or op)(*inputs)
 
     print("created inputs:\n", inputs)
-    assert memory_configs_equal(
-        output_tensor.memory_config(), golden_tensor.memory_config()
-    )
-    assert all_close_check(output_tensor, golden_tensor)
+    if not compile_only:
+        assert memory_configs_equal(
+            output_tensor.memory_config(), golden_tensor.memory_config()
+        )
+        assert all_close_check(output_tensor, golden_tensor)

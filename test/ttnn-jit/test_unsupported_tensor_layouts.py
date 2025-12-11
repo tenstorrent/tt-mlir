@@ -7,15 +7,6 @@ import torch
 
 import pytest
 
-from utils import (
-    _get_ttnn_op,
-    all_close_check,
-    memory_configs_equal,
-    create_dram_tensor,
-    create_sharded_tile_tensor,
-    run_op_test,
-)
-
 
 def exp(input_tensor_a):
     return ttnn.exp(input_tensor_a)

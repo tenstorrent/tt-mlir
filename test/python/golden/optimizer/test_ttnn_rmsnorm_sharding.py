@@ -7,8 +7,8 @@ from typing import List, Optional
 import pytest
 import torch
 
-from builder.base.builder import Shape
-from builder.base.builder_utils import compile_and_execute_ttnn
+from builder.base.builder_utils import Shape
+from builder.base.builder_apis import compile_and_execute_ttnn
 from builder.ttnn.ttnn_builder import TTNNBuilder
 
 pytestmark = pytest.mark.frontend("ttnn")
@@ -43,33 +43,33 @@ def test_rmsnorm_sharding(
         used_dtypes += [dtypes[0]]
         used_shapes += [shapes[2]]
 
-    def rmsnorm_test(*inputs):
-        builder: TTNNBuilder = inputs[-1]
-        input_tensor = inputs[0]
-        weight = None
-        bias = None
+    def module(builder: TTNNBuilder):
+        @builder.func(used_shapes, used_dtypes)
+        def rmsnorm_test(*inputs):
+            builder: TTNNBuilder = inputs[-1]
+            input_tensor = inputs[0]
+            weight = None
+            bias = None
 
-        if has_weight:
-            weight = inputs[1]
-            if has_bias:
-                bias = inputs[2]
-        elif has_bias:
-            bias = inputs[1]
+            if has_weight:
+                weight = inputs[1]
+                if has_bias:
+                    bias = inputs[2]
+            elif has_bias:
+                bias = inputs[1]
 
-        result = builder.rms_norm(
-            input_tensor,
-            weight=weight,
-            bias=bias,
-            epsilon=epsilon,
-            unit_attrs=["l1_width_sharded"],
-        )
-        return result
+            result = builder.rms_norm(
+                input_tensor,
+                weight=weight,
+                bias=bias,
+                epsilon=epsilon,
+                unit_attrs=["l1_width_sharded"],
+            )
+            return result
 
     # Execute the test with sharding enabled
     output_file_mlir = compile_and_execute_ttnn(
-        rmsnorm_test,
-        used_shapes,
-        used_dtypes,
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         device=device,

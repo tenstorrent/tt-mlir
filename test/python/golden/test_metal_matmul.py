@@ -8,9 +8,9 @@ from typing import List
 
 from test_utils import shape_str
 
-from builder.base.builder import Operand
+from builder.base.builder_utils import Operand
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import compile_and_execute_ttir
+from builder.base.builder_apis import compile_and_execute_ttir
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -26,15 +26,20 @@ pytestmark = pytest.mark.frontend("ttir")
 # Solution: constraint the input range to within (0.001, 0.999) to avoid large
 # differences of magnitudes in the calculation.
 def create_matmul_constrained_inputs(lhs_shape, rhs_shape):
-    def matmul_constrained_inputs(
-        in0: Operand, in1: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None
-    ):
-        in_lhs = torch.rand(lhs_shape, dtype=torch.float32) * 0.999 + 0.001
-        in_rhs = torch.rand(rhs_shape, dtype=torch.float32) * 0.999 + 0.001
-        builder.set_goldens(inputs={in0: in_lhs, in1: in_rhs})
-        return builder.matmul(in0, in1, unit_attrs=unit_attrs)
+    def module(builder: TTIRBuilder):
+        @builder.func([lhs_shape, rhs_shape], [torch.float32, torch.float32])
+        def matmul_constrained_inputs(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: List[str] = None,
+        ):
+            in_lhs = torch.rand(lhs_shape, dtype=torch.float32) * 0.999 + 0.001
+            in_rhs = torch.rand(rhs_shape, dtype=torch.float32) * 0.999 + 0.001
+            builder.set_goldens(inputs={in0: in_lhs, in1: in_rhs})
+            return builder.matmul(in0, in1, unit_attrs=unit_attrs)
 
-    return matmul_constrained_inputs
+    return module
 
 
 @pytest.mark.parametrize("m", [2])
@@ -60,7 +65,6 @@ def test_matmul_single_core_8otpc(m: int, k: int, n: int, target: str, request, 
 
     compile_and_execute_ttir(
         create_matmul_constrained_inputs(lhs, rhs),
-        [lhs, rhs],
         target=target,
         device=device,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
@@ -93,7 +97,6 @@ def test_matmul_multi_core_8otpc(m: int, k: int, n: int, target: str, request, d
 
     compile_and_execute_ttir(
         create_matmul_constrained_inputs(lhs, rhs),
-        [lhs, rhs],
         target=target,
         device=device,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
@@ -144,7 +147,6 @@ def test_matmul_ttnn_shapes_single_buffered(
     ]
     compile_and_execute_ttir(
         create_matmul_constrained_inputs(lhs, rhs),
-        [lhs, rhs],
         target=target,
         device=device,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
@@ -194,7 +196,6 @@ def test_matmul_ttnn_shapes_double_buffered(
     ]
     compile_and_execute_ttir(
         create_matmul_constrained_inputs(lhs, rhs),
-        [lhs, rhs],
         target=target,
         device=device,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",

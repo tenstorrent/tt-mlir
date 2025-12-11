@@ -87,9 +87,7 @@ def test_mesh_tensor_eltwise(
         )
 
     inputs = [
-        create_dram_tensor(
-            mesh_device, shape, dtype, int_max=0, mesh_mapper=mesh_mapper
-        )
+        create_dram_tensor(mesh_device, shape, dtype, mesh_mapper=mesh_mapper)
         for i in range(num_inputs)
     ]
 

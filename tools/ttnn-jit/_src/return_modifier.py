@@ -3,8 +3,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import ast
-import inspect
-import textwrap
+
+from ttnn_jit._src.utils import cleanup_source_code
 
 """
 There's a known limitation in graph capture that it does not populate the output tensor shape and info for ops without a consumer.
@@ -166,8 +166,8 @@ def create_modified_function(f):
     """
     Create a modified version of function f that inserts passthrough calls before returns.
     """
-    # Get the source code of the function
-    source = inspect.getsource(f)
+    # Get the source code of the function (without decorators, already dedented)
+    source = cleanup_source_code(f)
 
     # Assert that the original function does not contain any placeholder op calls
     assert PLACEHOLDER_OP_NAME not in source, (
@@ -175,7 +175,6 @@ def create_modified_function(f):
     )
 
     # Parse the source code into an AST
-    source = textwrap.dedent(source)
     tree = ast.parse(source)
 
     # Apply the transformation

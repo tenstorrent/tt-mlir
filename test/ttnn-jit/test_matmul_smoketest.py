@@ -81,7 +81,7 @@ def test_matmul_composite(
                     shape,
                     grid,
                     dtype,
-                    memory_layout=layout,
+                    shard_strategy=ttnn.ShardStrategy.BLOCK,
                     ttnn_dtype=ttnn_dtype,
                 )
             )

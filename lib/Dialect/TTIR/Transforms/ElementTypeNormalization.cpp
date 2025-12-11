@@ -234,10 +234,12 @@ struct ElementTypeNormalization
     }
 
     mlir::RewritePatternSet patterns(&getContext());
+    GreedyRewriteConfig config;
+    config.enableFolding(false);
     patterns.add<UniformTypeRewriter>(converter, &getContext());
     patterns.add<ConstantOpAttrRewriter>(converter, &getContext());
-    if (failed(
-            mlir::applyPatternsGreedily(getOperation(), std::move(patterns)))) {
+    if (failed(mlir::applyPatternsGreedily(getOperation(), std::move(patterns),
+                                           config))) {
       signalPassFailure();
       return;
     }

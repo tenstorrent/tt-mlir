@@ -3413,7 +3413,9 @@ private:
     return "ttnn.nlp_create_qkv_heads_decode";
   }
   std::string getPrefixSwapPattern() const override {
-    return "ttnn::experimental::nlp_create_qkv_heads_decode";
+    // Use the wrapper function that handles the non-const lvalue reference
+    // parameter internally.
+    return "ttnn::nlp_create_qkv_heads_decode_wrapper";
   }
 
 public:
@@ -3429,6 +3431,9 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::NLPCreateQKVHeadsDecodeOp>
         emitter(srcOp, adaptor, rewriter);
 
+    // Note: optional_output_tensors is handled by the wrapper function, so we
+    // skip it here. The wrapper creates a local variable internally since the
+    // tt-metal API takes it as a non-const lvalue reference.
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getNumHeads()),
@@ -3442,12 +3447,21 @@ public:
     using OpReturnType =
         std::tuple<::ttnn::Tensor, ::ttnn::Tensor, ::ttnn::Tensor>;
 
+    // Explicitly build operands list - only include input and batch_offset
+    // (if present). Do NOT use adaptor.getOperands() as it may contain
+    // additional materialized operands.
+    llvm::SmallVector<mlir::Value> operands;
+    operands.push_back(adaptor.getInput());
+    if (srcOp.getBatchOffset()) {
+      operands.push_back(adaptor.getBatchOffset());
+    }
+
     auto nlpCreateQKVHeadsDecodeOp = rewriter.create<emitc::CallOpaqueOp>(
         srcOp.getLoc(),
         rewriter.getType<emitc::OpaqueType>(
             ttnn_to_emitc::TypeNameV<OpReturnType>),
         convertOpName(srcOp), rewriter.getArrayAttr(args),
-        /*template_args=*/nullptr, adaptor.getOperands());
+        /*template_args=*/nullptr, operands);
 
     llvm::SmallVector<mlir::Value, 3> results;
     for (std::size_t i = 0; i < srcOp.getNumResults(); ++i) {

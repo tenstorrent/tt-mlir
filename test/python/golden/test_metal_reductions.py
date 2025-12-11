@@ -8,32 +8,34 @@ from typing import List
 
 from ttmlir.ir import *
 
-from builder.base.builder import Operand
+from builder.base.builder_utils import Operand
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import compile_and_execute_ttir
+from builder.base.builder_apis import compile_and_execute_ttir
 
 pytestmark = pytest.mark.frontend("ttir")
 torch.manual_seed(0)
 
 
 def create_reductions_constrained_inputs(input_shape, reduce_type, dim_arg, keep_dim):
-    def reductions_constrained_inputs(
-        in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None
-    ):
-        in_tensor = torch.randn(input_shape, dtype=torch.float32)
-        # Simulate TF32 truncation in the golden computation
-        # TF32 has 10 bits mantissa vs FP32's 23 bits = ~3 decimal digits precision
-        scale = 2**13  # Roughly equivalent to TF32 precision
-        in_tensor = (in_tensor * scale).round() / scale
-        builder.set_goldens(inputs={in0: in_tensor})
-        if reduce_type == "sum":
-            return builder.sum(in0, dim_arg=dim_arg, keep_dim=keep_dim)
-        elif reduce_type == "max":
-            return builder.max(
-                in0, dim_arg=dim_arg, keep_dim=keep_dim, unit_attrs=unit_attrs
-            )
+    def module(builder: TTIRBuilder):
+        @builder.func([input_shape], [torch.float32])
+        def reductions_constrained_inputs(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None
+        ):
+            in_tensor = torch.randn(input_shape, dtype=torch.float32)
+            # Simulate TF32 truncation in the golden computation
+            # TF32 has 10 bits mantissa vs FP32's 23 bits = ~3 decimal digits precision
+            scale = 2**13  # Roughly equivalent to TF32 precision
+            in_tensor = (in_tensor * scale).round() / scale
+            builder.set_goldens(inputs={in0: in_tensor})
+            if reduce_type == "sum":
+                return builder.sum(in0, dim_arg=dim_arg, keep_dim=keep_dim)
+            elif reduce_type == "max":
+                return builder.max(
+                    in0, dim_arg=dim_arg, keep_dim=keep_dim, unit_attrs=unit_attrs
+                )
 
-    return reductions_constrained_inputs
+    return module
 
 
 @pytest.mark.skip_config(["p150"], ["p300"])
@@ -59,7 +61,6 @@ def test_sum(
 
     compile_and_execute_ttir(
         create_reductions_constrained_inputs(shape, "sum", dim_arg, keep_dim),
-        [shape],
         target=target,
         test_base=request.node.name,
         print_ir=True,
@@ -87,7 +88,6 @@ def test_max(
 
     compile_and_execute_ttir(
         create_reductions_constrained_inputs(shape, "max", dim_arg, keep_dim),
-        [shape],
         target=target,
         test_base=request.node.name,
         print_ir=True,

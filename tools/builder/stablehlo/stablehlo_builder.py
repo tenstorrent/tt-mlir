@@ -18,6 +18,8 @@ from ttmlir.ir import *
 from ttmlir.dialects import stablehlo, sdy, mpmd, func
 
 from builder.base.builder import *
+from builder.base.builder_utils import *
+
 from golden import *
 
 
@@ -267,6 +269,11 @@ class StableHLOBuilder(Builder):
         sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
     ) -> OpView:
         return self._op_proxy(op_stablehlo_function, inputs, unit_attrs, sharding_attr)
+
+    def create_tensor_encoding(
+        self, shape: Shape, element_type: Union[torch.dtype, TypeInfo]
+    ) -> ttnn.ir.TTNNLayoutAttr:
+        return None
 
     # ----- Public StableHLO Op Generators ----
 
@@ -2159,33 +2166,6 @@ class StableHLOBuilder(Builder):
     def from_module(
         ctx: Context, mlir_text: str, golden_inputs: List[torch.tensor] = None
     ) -> Tuple(Module, StableHLOBuilder):
-        def _convert_to_mlir_value(obj):
-            if hasattr(obj, "operation") and hasattr(obj.operation, "results"):
-                results = obj.operation.results
-                if len(results) == 1:
-                    return results[0]
-                else:
-                    return results
-            elif hasattr(obj, "type"):
-                return obj
-            else:
-                return obj
-
-        def _process_multi_return_result(result):
-            if hasattr(result, "__iter__") and not isinstance(result, str):
-                converted_results = []
-                for item in result:
-                    converted = _convert_to_mlir_value(item)
-                    if hasattr(converted, "__iter__") and not hasattr(
-                        converted, "type"
-                    ):
-                        converted_results.extend(converted)
-                    else:
-                        converted_results.append(converted)
-                return tuple(converted_results)
-            else:
-                return _convert_to_mlir_value(result)
-
         if golden_inputs is None:
             golden_inputs = []
 
@@ -2259,7 +2239,7 @@ class StableHLOBuilder(Builder):
                     stablehlo_builder._set_goldens(output_goldens)
                     stablehlo_builder._set_output_ordering(list(outputs))
 
-                    return _process_multi_return_result(global_result)
+                    return process_multi_return_result(global_result)
 
         return new_module, stablehlo_builder
 

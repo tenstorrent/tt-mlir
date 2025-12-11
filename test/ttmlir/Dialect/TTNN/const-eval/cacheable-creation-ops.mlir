@@ -12,7 +12,7 @@ module {
   // Test 1: Standalone ttnn.full op used by non-const-eval op
   // The full op should be hoisted into its own const-eval subgraph
 
-  // CHECK-LABEL: func.func @standalone_full_const_eval_0
+  // CHECK-LABEL: func.func private @standalone_full_const_eval_0
   // CHECK: %[[DEVICE:.*]] = "ttnn.get_device"()
   // CHECK: %[[FULL:.*]] = "ttnn.full"(%[[DEVICE]])
   // CHECK-SAME: fill_value = 0.000000e+00 : f32
@@ -31,12 +31,12 @@ module {
   // Test 2: Multiple standalone creation ops
   // Each should get its own const-eval subgraph
 
-  // CHECK-LABEL: func.func @multiple_creation_ops_const_eval_0
+  // CHECK-LABEL: func.func private @multiple_creation_ops_const_eval_0
   // CHECK: %[[DEVICE0:.*]] = "ttnn.get_device"()
   // CHECK: "ttnn.full"(%[[DEVICE0]])
   // CHECK-SAME: fill_value = 1.000000e+00 : f32
 
-  // CHECK-LABEL: func.func @multiple_creation_ops_const_eval_1
+  // CHECK-LABEL: func.func private @multiple_creation_ops_const_eval_1
   // CHECK: %[[DEVICE1:.*]] = "ttnn.get_device"()
   // CHECK: "ttnn.full"(%[[DEVICE1]])
   // CHECK-SAME: fill_value = 2.000000e+00 : f32
@@ -58,7 +58,7 @@ module {
   // Test 3: Creation op consumed by const-eval op
   // The creation op should be merged into the const-eval subgraph (existing behavior)
 
-  // CHECK-LABEL: func.func @merged_with_const_eval_const_eval_0
+  // CHECK-LABEL: func.func private @merged_with_const_eval_const_eval_0
   // CHECK: %[[DEVICE:.*]] = "ttnn.get_device"()
   // CHECK: %[[FULL_INNER:.*]] = "ttnn.full"(%[[DEVICE]])
   // CHECK-SAME: fill_value = 5.000000e+00 : f32
@@ -82,7 +82,7 @@ module {
   // Test 4: ttnn.arange operation (no device operand)
   // Should be hoisted as a standalone const-eval subgraph
 
-  // CHECK-LABEL: func.func @arange_op_const_eval_0
+  // CHECK-LABEL: func.func private @arange_op_const_eval_0
   // CHECK: %[[ARANGE:.*]] = "ttnn.arange"()
   // CHECK-SAME: end = 32
   // CHECK-SAME: start = 0
@@ -101,7 +101,7 @@ module {
   // Test 5: ttnn.constant operation
   // Should be hoisted as a standalone const-eval subgraph
 
-  // CHECK-LABEL: func.func @constant_op_const_eval_0
+  // CHECK-LABEL: func.func private @constant_op_const_eval_0
   // CHECK: %[[DEVICE:.*]] = "ttnn.get_device"()
   // CHECK: %[[CONST:.*]] = "ttnn.constant"(%[[DEVICE]])
   // CHECK-SAME: value = dense<3.000000e+00>

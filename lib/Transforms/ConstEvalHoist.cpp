@@ -504,8 +504,11 @@ static void undoConstEvalImpl(mlir::ModuleOp module,
   // Inline each const-eval function
   for (auto funcOp : constEvalFuncs) {
     auto callIt = funcToCall.find(funcOp);
-    assert(callIt != funcToCall.end() &&
-           "Found const-eval func that was never called!");
+    if (callIt == funcToCall.end()) {
+      // No call found; this can happen if the const-evaled value
+      // is optimized-away.
+      continue;
+    }
     mlir::tt::ttcore::LoadCachedOp &callOp = callIt->second;
     // Get the parent function of this call
     mlir::func::FuncOp parentFunc =
@@ -647,9 +650,33 @@ private:
     builder.setInsertionPoint(originalFunc);
     auto newFuncOp = builder.create<func::FuncOp>(originalFunc.getLoc(),
                                                   newFuncName, funcType);
-    // Mark the new function as const-eval.
+    // Mark the new function as const-eval and private.
     newFuncOp->setAttr(ttmlir::utils::g_constEvalAttrName,
                        builder.getUnitAttr());
+    newFuncOp.setPrivate();
+
+    // Retain connv2dWeight input attributes from original function.
+    // This is required because TTNNLayout pass places the
+    // conv2d weights in the system memory.
+    for (auto [newArgIdx, input] : llvm::enumerate(inputs)) {
+      // Check if input argument is also original function argument.
+      auto *maybeFunctionArgument =
+          std::find(originalFunc.getArguments().begin(),
+                    originalFunc.getArguments().end(), input);
+
+      if (maybeFunctionArgument == originalFunc.getArguments().end()) {
+        continue;
+      }
+
+      auto originalArgIdx = maybeFunctionArgument->getArgNumber();
+
+      // Check for existence of ttmlir::utils::g_conv2dWeightAttrName.
+      if (auto attr = originalFunc.getArgAttrOfType<mlir::Attribute>(
+              originalArgIdx, ttmlir::utils::g_conv2dWeightAttrName)) {
+        newFuncOp.setArgAttr(newArgIdx, ttmlir::utils::g_conv2dWeightAttrName,
+                             attr);
+      }
+    }
 
     // Build the body of the new function.
     auto *newEntryBlock = newFuncOp.addEntryBlock();

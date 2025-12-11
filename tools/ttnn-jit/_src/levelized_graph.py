@@ -12,7 +12,7 @@ extracted from TTNN operation traces.
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass
 import re
-from .return_modifier import get_placeholder_op_name
+from ttnn_jit._src.return_modifier import get_placeholder_op_name
 import ttnn_jit._src.supported_ops as supported_ops
 
 

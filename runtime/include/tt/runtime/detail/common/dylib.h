@@ -45,7 +45,6 @@ using WrappedFunc = void (*)(WrappedTensor *);
 template <typename TensorRefType>
 std::vector<common::WrappedTensor> inline packTensors(
     const flatbuffers::Vector<flatbuffers::Offset<TensorRefType>> *ins,
-    const TensorRefType *out,
     std::function<void *(const TensorRefType *)> getTensorDataPtr,
     std::vector<std::vector<int64_t>> &allSizesAndStrides) {
 
