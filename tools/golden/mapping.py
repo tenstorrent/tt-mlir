@@ -3823,59 +3823,6 @@ def stablehlo_tanh_golden(
     return torch.tanh(input_tensor).to(output_dtype)
 
 
-def stablehlo_sort_golden(
-    input_tensors: Tuple[GoldenMapTensor, ...],
-    dimension: int,
-    is_stable: bool,
-    single_input: bool,
-) -> Tuple[GoldenMapTensor, ...]:
-    """
-    Golden function for stablehlo.sort operation.
-
-    Args:
-        input_tensors: Tuple of tensors to sort (always a tuple, even for single input)
-        dimension: Dimension along which to sort
-        is_stable: Whether to use stable sorting
-        single_input: True if single input (return values + indices), False if multiple inputs
-
-    Returns:
-        Tuple of sorted tensors. If single_input=True, returns (sorted_values, indices).
-        If single_input=False, returns sorted versions of all input tensors.
-    """
-    if single_input:
-        # Single input case: return sorted values and indices
-        tensor = input_tensors[0]
-
-        if is_stable:
-            sorted_values, indices = torch.sort(tensor, dim=dimension, stable=True)
-        else:
-            sorted_values, indices = torch.sort(tensor, dim=dimension, stable=False)
-
-        # Convert indices to int32 to match StableHLO behavior
-        indices = indices.to(torch.int32)
-        return (sorted_values, indices)
-    else:
-        # Multiple inputs case: sort all tensors together
-        # The first tensor determines the sort order, others follow
-        if len(input_tensors) == 0:
-            return ()
-
-        # Sort the first tensor to get indices
-        first_tensor = input_tensors[0]
-        if is_stable:
-            _, indices = torch.sort(first_tensor, dim=dimension, stable=True)
-        else:
-            _, indices = torch.sort(first_tensor, dim=dimension, stable=False)
-
-        # Apply the same ordering to all tensors
-        sorted_tensors = []
-        for tensor in input_tensors:
-            sorted_tensor = torch.gather(tensor, dimension, indices)
-            sorted_tensors.append(sorted_tensor)
-
-        return tuple(sorted_tensors)
-
-
 def stablehlo_transpose_golden(
     input_tensor: GoldenMapTensor,
     permutation: DenseI64ArrayAttr,
@@ -3898,61 +3845,6 @@ def stablehlo_select_golden(
     return torch.where(pred_bool, on_true_tensor, on_false_tensor).to(output_dtype)
 
 
-def stablehlo_select_and_scatter_golden(
-    operand: GoldenMapTensor,
-    source: GoldenMapTensor,
-    init_value: GoldenMapTensor,
-    window_dimensions_attr: DenseI64ArrayAttr,
-    window_strides_attr: DenseI64ArrayAttr,
-    padding_attr: Optional[DenseElementsAttr],
-    output_type_mlir: Type,
-) -> GoldenMapTensor:
-    # Assume NHWC input; convert to NCHW
-    x = operand.permute([0, 3, 1, 2])
-    src = source.permute([0, 3, 1, 2])
-    window_dimensions = unpack_mlir_attr(window_dimensions_attr)
-    window_strides = unpack_mlir_attr(window_strides_attr)
-    k_h, k_w = window_dimensions[-2], window_dimensions[-1]
-    s_h, s_w = window_strides[-2], window_strides[-1]
-    pad_top = pad_left = 0
-    if padding_attr is not None:
-        pad_mat = list(padding_attr)
-        # Expect 4x2; spatial dims at [-2],[-1]
-        pad_top = int(pad_mat[-2][0])
-        pad_left = int(pad_mat[-1][0])
-    # Max pool to get indices
-    values, indices = torch.nn.functional.max_pool2d(
-        x,
-        kernel_size=(k_h, k_w),
-        stride=(s_h, s_w),
-        padding=(pad_top, pad_left),
-        return_indices=True,
-    )
-    n, c, h, w = x.shape
-    out = torch.full_like(x, init_value.to(x.dtype))
-    for i in range(h):
-        pass  # placeholder to satisfy linter (no empty loops)
-    # Scatter
-    N, C, OH, OW = indices.shape
-    for n_idx in range(N):
-        for c_idx in range(C):
-            for oh in range(OH):
-                for ow in range(OW):
-                    idx = indices[n_idx, c_idx, oh, ow].item()
-                    ky = idx // k_w
-                    kx = idx % k_w
-                    y = oh * s_h - pad_top + ky
-                    x_pos = ow * s_w - pad_left + kx
-                    if 0 <= y < out.shape[2] and 0 <= x_pos < out.shape[3]:
-                        out[n_idx, c_idx, y, x_pos] = (
-                            out[n_idx, c_idx, y, x_pos] + src[n_idx, c_idx, oh, ow]
-                        )
-    # Convert back to NHWC
-    out = out.permute([0, 2, 3, 1])
-    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
-    return out.to(output_dtype)
-
-
 def stablehlo_reverse_golden(
     input_tensor: GoldenMapTensor,
     dimensions_attr: DenseI64ArrayAttr,
@@ -3961,57 +3853,6 @@ def stablehlo_reverse_golden(
     dims = unpack_mlir_attr(dimensions_attr)
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     return torch.flip(input_tensor, dims).to(output_dtype)
-
-
-def stablehlo_pad_golden(
-    input_tensor: GoldenMapTensor,
-    padding_value: GoldenMapTensor,
-    edge_padding_low_attr: DenseI64ArrayAttr,
-    edge_padding_high_attr: DenseI64ArrayAttr,
-    interior_padding_attr: DenseI64ArrayAttr,
-    output_type_mlir: Type,
-) -> GoldenMapTensor:
-    # Unpack attributes
-    edge_low = unpack_mlir_attr(edge_padding_low_attr)
-    edge_high = unpack_mlir_attr(edge_padding_high_attr)
-    interior = unpack_mlir_attr(interior_padding_attr)
-    # Extract scalar padding value from GoldenMapTensor
-    first_shard = next(iter(padding_value.shard_map.values()))
-    if first_shard.numel() == 1:
-        value = first_shard.item()
-    else:
-        value = first_shard.flatten()[0].item()
-
-    x = input_tensor
-    # Apply interior padding per dimension
-    for dim, k in enumerate(interior):
-        if k <= 0:
-            continue
-        shape = list(x.shape)
-        new_dim_size = shape[dim] + max(0, shape[dim] - 1) * k
-        new_shape = shape.copy()
-        new_shape[dim] = new_dim_size
-        out = torch.full(new_shape, value, dtype=x.dtype)
-        index = [slice(None)] * x.ndim
-        index[dim] = slice(0, new_dim_size, k + 1)
-        out[tuple(index)] = x
-        x = out
-
-    # Build torch.nn.functional.pad tuple (reverse order: last-dim first)
-    golden_pad = []
-    rank = x.ndim
-    # If edge padding lists shorter than rank, pad with zeros
-    if len(edge_low) < rank:
-        edge_low = list(edge_low) + [0] * (rank - len(edge_low))
-    if len(edge_high) < rank:
-        edge_high = list(edge_high) + [0] * (rank - len(edge_high))
-    for i in range(rank - 1, -1, -1):
-        golden_pad.append(edge_low[i])
-        golden_pad.append(edge_high[i])
-
-    padded = torch.nn.functional.pad(x, pad=golden_pad, mode="constant", value=value)
-    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
-    return padded.to(output_dtype)
 
 
 def stablehlo_maximum_golden(
@@ -4227,7 +4068,6 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.ReshapeOp: stablehlo_reshape_golden,
     stablehlo.RsqrtOp: stablehlo_rsqrt_golden,
     stablehlo.SineOp: stablehlo_sine_golden,
-    stablehlo.SortOp: stablehlo_sort_golden,
     stablehlo.SqrtOp: stablehlo_sqrt_golden,
     stablehlo.TanOp: stablehlo_tan_golden,
     stablehlo.TanhOp: stablehlo_tanh_golden,
@@ -4243,14 +4083,12 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.PowOp: stablehlo_pow_golden,
     stablehlo.ShiftRightLogicalOp: stablehlo_shift_right_logical_golden,
     stablehlo.ReverseOp: stablehlo_reverse_golden,
-    stablehlo.PadOp: stablehlo_pad_golden,
     # stablehlo complex operations
     stablehlo.DotGeneralOp: dot_general_golden,
     stablehlo.ConcatenateOp: concat_golden,
     # StableHLO tensor manipulation operations
     stablehlo.TransposeOp: stablehlo_transpose_golden,
     stablehlo.SelectOp: stablehlo_select_golden,
-    stablehlo.SelectAndScatterOp: stablehlo_select_and_scatter_golden,
     # ----- TTNN OPS -----
     # Elementwise unary operations
     ttnn.AbsOp: torch.abs,
