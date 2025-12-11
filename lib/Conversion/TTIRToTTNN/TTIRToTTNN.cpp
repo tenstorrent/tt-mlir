@@ -2074,20 +2074,6 @@ public:
     ttcore::DataTypeAttr dTypeAttr = ttcore::DataTypeAttr::get(
         rewriter.getContext(), layoutAttr.getDataType());
 
-    auto meshDevice = ttcore::lookupDevice(op);
-    llvm::SmallVector<int64_t> meshShape{meshDevice.getMeshShape()};
-
-    auto baseTensor = rewriter.create<ttnn::AssignOp>(
-        op.getLoc(), this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), memoryConfigAttr, dTypeAttr);
-    mlir::Value resultTensor = baseTensor;
-
-    // Record visited and unvisited devices
-    int64_t numDevices =
-        std::accumulate(meshShape.begin(), meshShape.end(), int64_t{1},
-                        std::multiplies<int64_t>());
-    llvm::SmallBitVector unvisited(static_cast<unsigned>(numDevices), true);
-
     auto sourceTargetPairs = adaptor.getSourceTargetPairs();
     auto sourceTargetPairsValues = sourceTargetPairs.getValues<int64_t>();
     if (sourceTargetPairsValues.size() == 0) {
@@ -2105,6 +2091,19 @@ public:
           adaptor.getInput(), zeroAttr, zeroAttr, memoryConfigAttr);
       return success();
     }
+
+    auto baseTensor = rewriter.create<ttnn::AssignOp>(
+        op.getLoc(), this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), memoryConfigAttr, dTypeAttr);
+    mlir::Value resultTensor = baseTensor;
+
+    auto meshDevice = ttcore::lookupDevice(op);
+    llvm::SmallVector<int64_t> meshShape{meshDevice.getMeshShape()};
+    int64_t numDevices =
+        std::accumulate(meshShape.begin(), meshShape.end(), int64_t{1},
+                        std::multiplies<int64_t>());
+    // Record visited and unvisited devices
+    llvm::SmallBitVector unvisited(static_cast<unsigned>(numDevices), true);
 
     // Iterate over each source-target pair and create ttnn::PointToPointOp
     for (size_t i = 0; i < sourceTargetPairsValues.size(); i += 2) {
