@@ -434,9 +434,11 @@ def D2MLowerToLayout: Pass<"d2m-lower-to-layout", "::mlir::ModuleOp"> {
 
     A single to_layout op in d2m can simultaneously perform multiple layout transformations
     at once, including changing layout, format, memory space or memory layout. This pass splits each of
-    these transformation categories into separate to_layout ops and then lowers them to generic ops.
-    There is one exception to the generic lowering and that is to/from device memory, this case lowers
-    to a specialized flavor of to_layout that has the hostInfo attribute set.
+    these transformation categories into separate ops and then lowers them to generic ops.
+
+    Host transfers are lowered to dedicated ops:
+    - Host to device: d2m.to_device
+    - Device to host: d2m.to_host
 
     For example a compound to layout that goes from host to tilized 8x8 device grid might look like:
     ```
@@ -453,8 +455,8 @@ def D2MLowerToLayout: Pass<"d2m-lower-to-layout", "::mlir::ModuleOp"> {
     %0 = d2m.empty() : tensor<256x768xf32, #layout2>
     %1 = d2m.empty() : tensor<256x768xf32>
     %2 = d2m.empty() : tensor<256x768xf32, #layout>
-    // Move to device
-    %3 = d2m.to_layout %arg0, %2 : tensor<256x768xf32> into tensor<256x768xf32, #layout> hostInfo = #layout -> tensor<256x768xf32, #layout>
+    // Move to device using dedicated to_device op
+    %3 = d2m.to_device %arg0, %2 layout = #layout : tensor<256x768xf32> into tensor<256x768xf32, #layout> -> tensor<256x768xf32, #layout>
     %4 = d2m.empty() : tensor<256x768xf32, #layout1>
     // Tilize
     %5 = d2m.generic {grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<compute>]}

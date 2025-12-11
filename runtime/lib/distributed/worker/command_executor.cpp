@@ -7,6 +7,7 @@
 #include "tt/runtime/detail/common/runtime_context.h"
 #include "tt/runtime/detail/common/socket.h"
 #include "tt/runtime/detail/distributed/worker/response_factory.h"
+#include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
@@ -653,6 +654,51 @@ void CommandExecutor::execute(uint64_t commandId,
   responseQueue_.push(std::move(responseBuilder));
 }
 
+void CommandExecutor::execute(uint64_t commandId,
+                              const fb::HasLayoutCommand *command) {
+  ::tt::runtime::Tensor tensor = tensorPool_.at(command->tensor_global_id());
+  ::tt::runtime::Layout layout = layoutPool_.at(command->layout_global_id());
+
+  const std::shared_ptr<::tt::runtime::ttnn::LayoutDesc> tensorLayoutDesc =
+      ::tt::runtime::ttnn::LayoutDesc::fromTensor(tensor);
+  const ::tt::runtime::ttnn::LayoutDesc &desiredLayoutDesc =
+      layout.as<::tt::runtime::ttnn::LayoutDesc>(DeviceRuntime::TTNN);
+  bool hasLayout = *tensorLayoutDesc == desiredLayoutDesc;
+
+  std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
+      buildResponse(ResponseFactory::buildHasLayoutResponse, commandId,
+                    hasLayout);
+
+  responseQueue_.push(std::move(responseBuilder));
+}
+
+void CommandExecutor::execute(uint64_t commandId,
+                              const fb::IsProgramCacheEnabledCommand *command) {
+  uint32_t deviceGlobalId = command->device()->global_id();
+  ::tt::runtime::Device device = devicePool_.at(deviceGlobalId);
+
+  bool isEnabled = ::tt::runtime::isProgramCacheEnabled(device);
+
+  std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
+      buildResponse(ResponseFactory::buildIsProgramCacheEnabledResponse,
+                    commandId, isEnabled);
+
+  responseQueue_.push(std::move(responseBuilder));
+}
+
+void CommandExecutor::execute(uint64_t commandId,
+                              const fb::ClearProgramCacheCommand *command) {
+  uint32_t deviceGlobalId = command->device()->global_id();
+  ::tt::runtime::Device device = devicePool_.at(deviceGlobalId);
+
+  ::tt::runtime::clearProgramCache(device);
+
+  std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
+      buildResponse(ResponseFactory::buildClearProgramCacheResponse, commandId);
+
+  responseQueue_.push(std::move(responseBuilder));
+}
+
 void CommandExecutor::executeCommand(const fb::Command *command) {
   switch (command->type_type()) {
   case fb::CommandType::ConfigureRuntimeContextCommand: {
@@ -749,6 +795,17 @@ void CommandExecutor::executeCommand(const fb::Command *command) {
   case fb::CommandType::GetTensorDescCommand: {
     return execute(command->command_id(),
                    command->type_as_GetTensorDescCommand());
+  }
+  case fb::CommandType::HasLayoutCommand: {
+    return execute(command->command_id(), command->type_as_HasLayoutCommand());
+  }
+  case fb::CommandType::IsProgramCacheEnabledCommand: {
+    return execute(command->command_id(),
+                   command->type_as_IsProgramCacheEnabledCommand());
+  }
+  case fb::CommandType::ClearProgramCacheCommand: {
+    return execute(command->command_id(),
+                   command->type_as_ClearProgramCacheCommand());
   }
   case fb::CommandType::NONE: {
     LOG_FATAL("Unhandled command type: ",

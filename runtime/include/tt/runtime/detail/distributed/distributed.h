@@ -83,6 +83,12 @@ void deallocateTensor(::tt::runtime::Tensor &tensorHandle, bool force = false);
 
 ::tt::runtime::TensorDesc getTensorDesc(::tt::runtime::Tensor t);
 
+bool hasLayout(::tt::runtime::Tensor tensor, ::tt::runtime::Layout layout);
+
+void clearProgramCache(Device meshDevice);
+
+bool isProgramCacheEnabled(Device meshDevice);
+
 } // namespace tt::runtime::distributed
 
 #endif

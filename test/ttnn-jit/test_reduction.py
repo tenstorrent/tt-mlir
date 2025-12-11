@@ -8,121 +8,83 @@ import torch
 import pytest
 
 from utils import (
-    all_close_check,
-    memory_configs_equal,
-    create_dram_tensor,
     run_op_test,
 )
 
-# ------------------------------------------------------------
-# Reduction operations
-# ------------------------------------------------------------
+
+L1_REDUCTION_SHAPES = [
+    # (shape, max_grid, dim)
+    # 1x1 grid
+    ((32, 32), (0, 0), 1),
+    ((128, 128), (0, 0), 0),
+    ((64, 128), (0, 0), 1),
+    ((128, 64), (0, 0), 0),
+    ((128, 128), (0, 0), 1),
+    ((256, 256), (0, 0), 0),
+    ((128, 1024), (0, 0), 0),
+    # grids > 1x1
+    ((64, 64), (1, 0), 0),
+    ((128, 64), (1, 0), 0),
+    ((256, 128), (3, 0), 0),
+    ((512, 1024), (7, 0), 0),
+    ((64, 32), (0, 1), 1),
+    ((512, 512), (0, 3), 1),
+    ((384, 96), (0, 5), 1),
+    ((1024, 1024), (0, 7), 1),
+]
+
+DRAM_REDUCTION_SHAPES = [(shape, dim) for shape, _, dim in L1_REDUCTION_SHAPES]
+
+REDUCTION_OPS = [
+    ("max", ttnn.max),
+    ("sum", ttnn.sum),
+    ("mean", ttnn.mean),
+    ("min", ttnn.min),
+]
 
 
 # ------------------------------------------------------------
-# Sum operation tests
+# L1 reduction tests (max, sum)
 # ------------------------------------------------------------
-@pytest.mark.parametrize(
-    "shape,dim",
-    [
-        # Rank-2 tensors with dim=None
-        ((64, 64), None),
-        # Rank-2 tensors with specific dims
-        ((64, 64), 0),
-        ((128, 128), 0),
-        ((256, 256), 0),
-        ((64, 64), 1),
-        ((128, 128), 1),
-        ((256, 256), 1),
-        # Rank-3 tensors
-        ((4, 64, 64), 0),
-        ((8, 128, 128), 0),
-        ((4, 64, 64), 1),
-        ((8, 128, 128), 1),
-        ((4, 64, 64), 2),
-        ((8, 128, 128), 2),
-    ],
-)
-@pytest.mark.parametrize("keepdim", [True, False])
+@pytest.mark.parametrize("shape, max_grid, dim", L1_REDUCTION_SHAPES)
+@pytest.mark.parametrize("op_name, op_func", REDUCTION_OPS)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
-@pytest.mark.skip(reason="D2M does not support reduction ops")
-def test_sum(device, shape, dim, keepdim, dtype):
-    """Test sum reduction operation with various dimensions and keepdim values"""
+def test_reductions_l1(device, shape, max_grid, dim, op_name, op_func, dtype):
+    """Test reduction operations (max, sum) with L1 block-sharded config."""
+    if op_name in ["mean", "min"]:
+        pytest.xfail("[Mean/Min] reduction ops are not currently supported in D2M")
 
-    def sum_func(input_tensor):
-        return ttnn.sum(input_tensor, dim=dim, keepdim=keepdim)
+    if op_name == "sum" and (dtype == torch.bfloat16 or shape[0] >= 512):
+        pytest.xfail("failing allclose for some shapes and dtypes")
 
-    max_grid = (0, 0)
+    def reduction_func(input_tensor):
+        return op_func(input_tensor, dim=dim, keepdim=True)
+
     run_op_test(
         device,
         shape,
         max_grid,
         dtype,
-        sum_func,
+        reduction_func,
         num_inputs=1,
-        buffer_type=ttnn.BufferType.DRAM,
+        buffer_type=ttnn.BufferType.L1,
+        shard_strategy=ttnn.ShardStrategy.BLOCK,
         graph_capture=True,
     )
 
 
 # ------------------------------------------------------------
-# Mean operation tests
+# DRAM reduction tests (max, sum)
 # ------------------------------------------------------------
-@pytest.mark.parametrize(
-    "shape,dim",
-    [
-        # Rank-2 tensors with dim=None
-        ((64, 64), None),
-        # Rank-2 tensors with specific dims
-        ((64, 64), 0),
-        ((128, 128), 0),
-        ((256, 256), 0),
-        ((64, 64), 1),
-        ((128, 128), 1),
-        ((256, 256), 1),
-        # Rank-3 tensors
-        ((4, 64, 64), 0),
-        ((8, 128, 128), 0),
-        ((4, 64, 64), 1),
-        ((8, 128, 128), 1),
-        ((4, 64, 64), 2),
-        ((8, 128, 128), 2),
-    ],
-)
-@pytest.mark.parametrize("keepdim", [True, False])
+@pytest.mark.parametrize("shape, dim", DRAM_REDUCTION_SHAPES)
+@pytest.mark.parametrize("op_name, op_func", REDUCTION_OPS)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
-@pytest.mark.skip(reason="D2M Does not support reduction ops")
-def test_mean(device, shape, dim, keepdim, dtype):
-    """Test mean reduction operation with various dimensions and keepdim values"""
+@pytest.mark.skip(reason="DRAM reduction ops are not currently supported")
+def test_reductions_dram(device, shape, dim, op_name, op_func, dtype):
+    """Test reduction operations (max, sum) with DRAM config."""
 
-    def mean_func(input_tensor):
-        return ttnn.mean(input_tensor, dim=dim, keepdim=keepdim)
-
-    max_grid = (0, 0)
-    run_op_test(
-        device,
-        shape,
-        max_grid,
-        dtype,
-        mean_func,
-        num_inputs=1,
-        buffer_type=ttnn.BufferType.DRAM,
-        graph_capture=True,
-    )
-
-
-# ------------------------------------------------------------
-# Max operation tests
-# ------------------------------------------------------------
-@pytest.mark.parametrize("shape", [(64, 64), (128, 128)])
-@pytest.mark.parametrize("dim", [0, 1])
-@pytest.mark.parametrize("dtype", [torch.float32])
-@pytest.mark.skip(reason="D2M Does not support reduction ops")
-def test_max(device, shape, dim, dtype):
-    """Test max reduction operation"""
-
-    def max_func(input_tensor):
-        return ttnn.max(input_tensor, dim=dim)
+    def reduction_func(input_tensor):
+        return op_func(input_tensor, dim=dim, keepdim=True)
 
     max_grid = (0, 0)
     run_op_test(
@@ -130,33 +92,7 @@ def test_max(device, shape, dim, dtype):
         shape,
         max_grid,
         dtype,
-        max_func,
-        num_inputs=1,
-        buffer_type=ttnn.BufferType.DRAM,
-        graph_capture=True,
-    )
-
-
-# ------------------------------------------------------------
-# Min operation tests
-# ------------------------------------------------------------
-@pytest.mark.parametrize("shape", [(64, 64), (128, 128)])
-@pytest.mark.parametrize("dim", [0, 1])
-@pytest.mark.parametrize("dtype", [torch.float32])
-@pytest.mark.skip(reason="D2M Does not support reduction ops")
-def test_min(device, shape, dim, dtype):
-    """Test min reduction operation"""
-
-    def min_func(input_tensor):
-        return ttnn.min(input_tensor, dim=dim)
-
-    max_grid = (0, 0)
-    run_op_test(
-        device,
-        shape,
-        max_grid,
-        dtype,
-        min_func,
+        reduction_func,
         num_inputs=1,
         buffer_type=ttnn.BufferType.DRAM,
         graph_capture=True,

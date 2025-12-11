@@ -9,9 +9,9 @@ from typing import List
 from ttmlir.dialects import ttcore
 from ttmlir.ir import *
 
-from builder.base.builder import Operand
+from builder.base.builder_utils import Operand
 from builder.d2m.d2m_builder import D2MBuilder
-from builder.base.builder_utils import compile_and_execute_d2m
+from builder.base.builder_apis import compile_and_execute_d2m
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -44,34 +44,35 @@ def test_to_layout(
         input_grid_x * output_grid_x * shard_mul_x * tile_size,
     )
 
-    def to_layout(
-        in0: Operand,
-        builder: D2MBuilder,
-        unit_attrs: List[str] = None,
-    ):
-        to_device = builder.to_layout(
-            in0,
-            output_type=builder.get_metal_tensor_layout(shape, tiled=tiled),
-            unit_attrs=unit_attrs,
-            loc="to_device",
-        )
-        reblock = builder.to_layout(
-            to_device,
-            output_type=builder.get_metal_tensor_layout(shape, tiled=tiled),
-            unit_attrs=unit_attrs,
-            loc="reblock",
-        )
-        from_device = builder.to_layout(
-            reblock,
-            output_type=in0.type,
-            unit_attrs=unit_attrs,
-            loc="from_device",
-        )
-        return from_device
+    def module(builder: D2MBuilder):
+        @builder.func([shape], [torch.float32])
+        def to_layout(
+            in0: Operand,
+            builder: D2MBuilder,
+            unit_attrs: List[str] = None,
+        ):
+            to_device = builder.to_layout(
+                in0,
+                output_type=builder.get_metal_tensor_layout(shape, tiled=tiled),
+                unit_attrs=unit_attrs,
+                loc="to_device",
+            )
+            reblock = builder.to_layout(
+                to_device,
+                output_type=builder.get_metal_tensor_layout(shape, tiled=tiled),
+                unit_attrs=unit_attrs,
+                loc="reblock",
+            )
+            from_device = builder.to_layout(
+                reblock,
+                output_type=in0.type,
+                unit_attrs=unit_attrs,
+                loc="from_device",
+            )
+            return from_device
 
     compile_and_execute_d2m(
-        to_layout,
-        [shape],
+        module,
         target=target,
         custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
         device=device,
@@ -99,42 +100,43 @@ def test_view_materialization_on_return(
     output_grid = (2, 2)
     shape = (64, 64)
 
-    def view_return_test(
-        in0: Operand,
-        builder: D2MBuilder,
-        unit_attrs: List[str] = None,
-    ):
-        # Move to device with 1x1 grid
-        to_device = builder.to_layout(
-            in0,
-            output_type=builder.get_metal_tensor_layout(
-                shape, grid=input_grid, tiled=False
-            ),
-            unit_attrs=unit_attrs,
-            loc="to_device",
-        )
-        # Reblock to 2x2 grid - this creates a view that needs materialization
-        reblocked = builder.to_layout(
-            to_device,
-            output_type=builder.get_metal_tensor_layout(
-                shape, grid=output_grid, tiled=False
-            ),
-            unit_attrs=unit_attrs,
-            loc="reblock",
-        )
-        # Return directly from device without moving back to host.
-        # The view must be materialized before returning.
-        from_device = builder.to_layout(
-            reblocked,
-            output_type=in0.type,
-            unit_attrs=unit_attrs,
-            loc="from_device",
-        )
-        return from_device
+    def module(builder: D2MBuilder):
+        @builder.func([shape], [torch.float32])
+        def view_return_test(
+            in0: Operand,
+            builder: D2MBuilder,
+            unit_attrs: List[str] = None,
+        ):
+            # Move to device with 1x1 grid
+            to_device = builder.to_layout(
+                in0,
+                output_type=builder.get_metal_tensor_layout(
+                    shape, grid=input_grid, tiled=False
+                ),
+                unit_attrs=unit_attrs,
+                loc="to_device",
+            )
+            # Reblock to 2x2 grid - this creates a view that needs materialization
+            reblocked = builder.to_layout(
+                to_device,
+                output_type=builder.get_metal_tensor_layout(
+                    shape, grid=output_grid, tiled=False
+                ),
+                unit_attrs=unit_attrs,
+                loc="reblock",
+            )
+            # Return directly from device without moving back to host.
+            # The view must be materialized before returning.
+            from_device = builder.to_layout(
+                reblocked,
+                output_type=in0.type,
+                unit_attrs=unit_attrs,
+                loc="from_device",
+            )
+            return from_device
 
     compile_and_execute_d2m(
-        view_return_test,
-        [shape],
+        module,
         target=target,
         custom_pipeline="d2m-lower-to-layout,d2m-materialize-view-returns,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
         device=device,
@@ -179,44 +181,51 @@ def test_chained_view_composition(
     grid3 = (grid2[0] // 2 if grid2[0] > 1 else 2, grid2[1] * 2 if grid2[1] > 1 else 2)
     shape = (128, 128)
 
-    def chained_views(
-        in0: Operand,
-        builder: D2MBuilder,
-        unit_attrs: List[str] = None,
-    ):
-        # Host to device with grid1
-        to_device = builder.to_layout(
-            in0,
-            output_type=builder.get_metal_tensor_layout(shape, grid=grid1, tiled=False),
-            unit_attrs=unit_attrs,
-            loc="to_device",
-        )
-        # First device-to-device: grid1 -> grid2 (should be a view)
-        view1 = builder.to_layout(
-            to_device,
-            output_type=builder.get_metal_tensor_layout(shape, grid=grid2, tiled=False),
-            unit_attrs=unit_attrs,
-            loc="view1",
-        )
-        # Second device-to-device: grid2 -> grid3 (should compose with view1)
-        view2 = builder.to_layout(
-            view1,
-            output_type=builder.get_metal_tensor_layout(shape, grid=grid3, tiled=False),
-            unit_attrs=unit_attrs,
-            loc="view2",
-        )
-        # Back to host (will materialize the composed view)
-        from_device = builder.to_layout(
-            view2,
-            output_type=in0.type,
-            unit_attrs=unit_attrs,
-            loc="from_device",
-        )
-        return from_device
+    def module(builder: D2MBuilder):
+        @builder.func([shape], [torch.float32])
+        def chained_views(
+            in0: Operand,
+            builder: D2MBuilder,
+            unit_attrs: List[str] = None,
+        ):
+            # Host to device with grid1
+            to_device = builder.to_layout(
+                in0,
+                output_type=builder.get_metal_tensor_layout(
+                    shape, grid=grid1, tiled=False
+                ),
+                unit_attrs=unit_attrs,
+                loc="to_device",
+            )
+            # First device-to-device: grid1 -> grid2 (should be a view)
+            view1 = builder.to_layout(
+                to_device,
+                output_type=builder.get_metal_tensor_layout(
+                    shape, grid=grid2, tiled=False
+                ),
+                unit_attrs=unit_attrs,
+                loc="view1",
+            )
+            # Second device-to-device: grid2 -> grid3 (should compose with view1)
+            view2 = builder.to_layout(
+                view1,
+                output_type=builder.get_metal_tensor_layout(
+                    shape, grid=grid3, tiled=False
+                ),
+                unit_attrs=unit_attrs,
+                loc="view2",
+            )
+            # Back to host (will materialize the composed view)
+            from_device = builder.to_layout(
+                view2,
+                output_type=in0.type,
+                unit_attrs=unit_attrs,
+                loc="from_device",
+            )
+            return from_device
 
     compile_and_execute_d2m(
-        chained_views,
-        [shape],
+        module,
         target=target,
         custom_pipeline="d2m-lower-to-layout,d2m-materialize-view-returns,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
         device=device,
@@ -251,37 +260,42 @@ def test_view_with_padding(
     properly handles alignment and padding in the composed affine maps.
     """
 
-    def view_with_padding(
-        in0: Operand,
-        builder: D2MBuilder,
-        unit_attrs: List[str] = None,
-    ):
-        # Host to device with grid1
-        to_device = builder.to_layout(
-            in0,
-            output_type=builder.get_metal_tensor_layout(shape, grid=grid1, tiled=False),
-            unit_attrs=unit_attrs,
-            loc="to_device",
-        )
-        # Redistribute to grid2 (may have different padding/alignment)
-        redistributed = builder.to_layout(
-            to_device,
-            output_type=builder.get_metal_tensor_layout(shape, grid=grid2, tiled=False),
-            unit_attrs=unit_attrs,
-            loc="redistribute",
-        )
-        # Back to host
-        from_device = builder.to_layout(
-            redistributed,
-            output_type=in0.type,
-            unit_attrs=unit_attrs,
-            loc="from_device",
-        )
-        return from_device
+    def module(builder: D2MBuilder):
+        @builder.func([shape], [torch.float32])
+        def view_with_padding(
+            in0: Operand,
+            builder: D2MBuilder,
+            unit_attrs: List[str] = None,
+        ):
+            # Host to device with grid1
+            to_device = builder.to_layout(
+                in0,
+                output_type=builder.get_metal_tensor_layout(
+                    shape, grid=grid1, tiled=False
+                ),
+                unit_attrs=unit_attrs,
+                loc="to_device",
+            )
+            # Redistribute to grid2 (may have different padding/alignment)
+            redistributed = builder.to_layout(
+                to_device,
+                output_type=builder.get_metal_tensor_layout(
+                    shape, grid=grid2, tiled=False
+                ),
+                unit_attrs=unit_attrs,
+                loc="redistribute",
+            )
+            # Back to host
+            from_device = builder.to_layout(
+                redistributed,
+                output_type=in0.type,
+                unit_attrs=unit_attrs,
+                loc="from_device",
+            )
+            return from_device
 
     compile_and_execute_d2m(
-        view_with_padding,
-        [shape],
+        module,
         target=target,
         custom_pipeline="d2m-lower-to-layout,d2m-materialize-view-returns,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
         device=device,
@@ -315,41 +329,42 @@ def test_multiple_grid_reblocks(
     """
     shape = (128, 128)
 
-    def multiple_reblocks(
-        in0: Operand,
-        builder: D2MBuilder,
-        unit_attrs: List[str] = None,
-    ):
-        current = builder.to_layout(
-            in0,
-            output_type=builder.get_metal_tensor_layout(
-                shape, grid=grid_sequence[0], tiled=False
-            ),
-            unit_attrs=unit_attrs,
-            loc="to_device",
-        )
-
-        for i, grid in enumerate(grid_sequence[1:], 1):
+    def module(builder: D2MBuilder):
+        @builder.func([shape], [torch.float32])
+        def multiple_reblocks(
+            in0: Operand,
+            builder: D2MBuilder,
+            unit_attrs: List[str] = None,
+        ):
             current = builder.to_layout(
-                current,
+                in0,
                 output_type=builder.get_metal_tensor_layout(
-                    shape, grid=grid, tiled=False
+                    shape, grid=grid_sequence[0], tiled=False
                 ),
                 unit_attrs=unit_attrs,
-                loc=f"reblock_{i}",
+                loc="to_device",
             )
 
-        from_device = builder.to_layout(
-            current,
-            output_type=in0.type,
-            unit_attrs=unit_attrs,
-            loc="from_device",
-        )
-        return from_device
+            for i, grid in enumerate(grid_sequence[1:], 1):
+                current = builder.to_layout(
+                    current,
+                    output_type=builder.get_metal_tensor_layout(
+                        shape, grid=grid, tiled=False
+                    ),
+                    unit_attrs=unit_attrs,
+                    loc=f"reblock_{i}",
+                )
+
+            from_device = builder.to_layout(
+                current,
+                output_type=in0.type,
+                unit_attrs=unit_attrs,
+                loc="from_device",
+            )
+            return from_device
 
     compile_and_execute_d2m(
-        multiple_reblocks,
-        [shape],
+        module,
         target=target,
         custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
         device=device,
@@ -383,63 +398,64 @@ def test_tiled_grid_reblocking(
     # Shape must be divisible by tile size (32) and grid dimensions
     shape = (256, 256)
 
-    def tiled_reblock(
-        in0: Operand,
-        builder: D2MBuilder,
-        unit_attrs: List[str] = None,
-    ):
-        # Host -> device tiled with input_grid
-        to_device_untiled = builder.to_layout(
-            in0,
-            output_type=builder.get_metal_tensor_layout(
-                shape, grid=input_grid, tiled=False
-            ),
-            unit_attrs=unit_attrs,
-            loc="to_device",
-        )
+    def module(builder: D2MBuilder):
+        @builder.func([shape], [torch.float32])
+        def tiled_reblock(
+            in0: Operand,
+            builder: D2MBuilder,
+            unit_attrs: List[str] = None,
+        ):
+            # Host -> device tiled with input_grid
+            to_device_untiled = builder.to_layout(
+                in0,
+                output_type=builder.get_metal_tensor_layout(
+                    shape, grid=input_grid, tiled=False
+                ),
+                unit_attrs=unit_attrs,
+                loc="to_device",
+            )
 
-        # Tilize
-        tiled_input = builder.to_layout(
-            to_device_untiled,
-            output_type=builder.get_metal_tensor_layout(
-                shape, grid=input_grid, tiled=True
-            ),
-            unit_attrs=unit_attrs,
-            loc="tilize",
-        )
+            # Tilize
+            tiled_input = builder.to_layout(
+                to_device_untiled,
+                output_type=builder.get_metal_tensor_layout(
+                    shape, grid=input_grid, tiled=True
+                ),
+                unit_attrs=unit_attrs,
+                loc="tilize",
+            )
 
-        # Grid reblock while tiled
-        tiled_reblocked = builder.to_layout(
-            tiled_input,
-            output_type=builder.get_metal_tensor_layout(
-                shape, grid=output_grid, tiled=True
-            ),
-            unit_attrs=unit_attrs,
-            loc="tiled_reblock",
-        )
+            # Grid reblock while tiled
+            tiled_reblocked = builder.to_layout(
+                tiled_input,
+                output_type=builder.get_metal_tensor_layout(
+                    shape, grid=output_grid, tiled=True
+                ),
+                unit_attrs=unit_attrs,
+                loc="tiled_reblock",
+            )
 
-        # Untilize
-        untiled_reblocked = builder.to_layout(
-            tiled_reblocked,
-            output_type=builder.get_metal_tensor_layout(
-                shape, grid=output_grid, tiled=False
-            ),
-            unit_attrs=unit_attrs,
-            loc="untilize",
-        )
+            # Untilize
+            untiled_reblocked = builder.to_layout(
+                tiled_reblocked,
+                output_type=builder.get_metal_tensor_layout(
+                    shape, grid=output_grid, tiled=False
+                ),
+                unit_attrs=unit_attrs,
+                loc="untilize",
+            )
 
-        # Device -> host
-        from_device = builder.to_layout(
-            untiled_reblocked,
-            output_type=in0.type,
-            unit_attrs=unit_attrs,
-            loc="from_device",
-        )
-        return from_device
+            # Device -> host
+            from_device = builder.to_layout(
+                untiled_reblocked,
+                output_type=in0.type,
+                unit_attrs=unit_attrs,
+                loc="from_device",
+            )
+            return from_device
 
     compile_and_execute_d2m(
-        tiled_reblock,
-        [shape],
+        module,
         target=target,
         custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
         device=device,
