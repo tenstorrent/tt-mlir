@@ -70,6 +70,8 @@ def ttcore_dtype_from_ttnn_dtype(dtype):
             return ttcore.DataType.Int32
         case "DataType.BFP_BFloat8":
             return ttcore.DataType.BFP_BFloat8
+        case "DataType.BFLOAT8_B":
+            return ttcore.DataType.BFP_BFloat8
         case _:
             raise ValueError(f"Unsupported TTNN dtype string: {dtype}")
 
