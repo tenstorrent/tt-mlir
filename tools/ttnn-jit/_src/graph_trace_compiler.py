@@ -24,6 +24,8 @@ from ttnn_jit._src.tensor_translator import (
     _get_collapsed_linear_affine_map,
     create_tensor_layout,
     _calculate_tile_shape,
+    TILE_WIDTH,
+    TILE_HEIGHT,
 )
 from ttnn_jit._src.levelized_graph import LevelizedGraph, LevelizedGraphVertex
 from ttnn_jit._src.op_registry import get_registry
@@ -239,8 +241,8 @@ class GraphToIRTranslator:
         if memory_config["shard_shape"]:
             # Use shard shape for sharded tensors
             shard_h, shard_w = memory_config["shard_shape"]
-            tiles_h = math.ceil(shard_h / 32)
-            tiles_w = math.ceil(shard_w / 32)
+            tiles_h = math.ceil(shard_h / TILE_HEIGHT)
+            tiles_w = math.ceil(shard_w / TILE_WIDTH)
             memref_shape = [tiles_h, tiles_w]
             affine_map = _get_collapsed_linear_affine_map(
                 self.ctx, shape, memory_config["grid"]
@@ -297,7 +299,9 @@ class GraphToIRTranslator:
 
             # Create tile type
             data_type_ttcore = ttcore_dtype_from_mlir_dtype(dtype)
-            tile_type = ttcore.ir.TileType.get(self.ctx, 32, 32, data_type_ttcore)
+            tile_type = ttcore.ir.TileType.get(
+                self.ctx, TILE_WIDTH, TILE_HEIGHT, data_type_ttcore
+            )
 
             # Map buffer type and memory layout to enums
             buffer_type_enum = buffer_type_from_string(memory_config["buffer_type"])

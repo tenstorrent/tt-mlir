@@ -4,10 +4,13 @@
 
 from ttmlir.ir import *
 from ttmlir.dialects import ttnn, ttcore
+from ttnn_jit._src.conversions import ttcore_dtype_from_ttnn_dtype
 import math
 
 DRAM_GRID_SIZE = [1, 1]
 OUTPUT_TENSOR_DERIVATION_REQUIRED = ["matmul"]
+TILE_WIDTH = 32
+TILE_HEIGHT = 32
 
 
 def _get_collapsed_linear_affine_map(
@@ -99,7 +102,7 @@ def _calculate_tile_shape(shape):
         - Scalar (len=0): [1, 1]
         - 1D tensor (len=1): [tiles_w] (1D memref)
         - 2D+ tensor (len>=2): [tiles_h, tiles_w] (2D memref)
-        Tiles are calculated using ceil division by 32.
+        Tiles are calculated using ceil division by TILE_WIDTH and TILE_HEIGHT.
     """
     logical_shape = list(shape)
 
@@ -109,49 +112,21 @@ def _calculate_tile_shape(shape):
     elif len(logical_shape) == 1:
         # 1D tensor: use 1D memref
         dim_w = logical_shape[0]
-        tiles_w = math.ceil(dim_w / 32)
+        tiles_w = math.ceil(dim_w / TILE_WIDTH)
         return [tiles_w]
     elif len(logical_shape) == 2:
         # 2D tensor: use dimensions directly
-        tiles_h = math.ceil(logical_shape[0] / 32)
-        tiles_w = math.ceil(logical_shape[1] / 32)
+        tiles_h = math.ceil(logical_shape[0] / TILE_HEIGHT)
+        tiles_w = math.ceil(logical_shape[1] / TILE_WIDTH)
         return [tiles_h, tiles_w]
     else:
         # 3D+ tensor: collapse leading dimensions into the first dimension
         collapsed_shape = [logical_shape[-2], logical_shape[-1]]
         for dim in logical_shape[:-2]:
             collapsed_shape[0] *= dim
-        tiles_h = math.ceil(collapsed_shape[0] / 32)
-        tiles_w = math.ceil(collapsed_shape[1] / 32)
+        tiles_h = math.ceil(collapsed_shape[0] / TILE_HEIGHT)
+        tiles_w = math.ceil(collapsed_shape[1] / TILE_WIDTH)
         return [tiles_h, tiles_w]
-
-
-def _mlir_memory_layout_from_ttnn_memory_layout(memory_layout):
-    match str(memory_layout):
-        case "TensorMemoryLayout.INTERLEAVED":
-            return ttnn.TensorMemoryLayout.Interleaved
-        case "TensorMemoryLayout.HEIGHT_SHARDED":
-            return ttnn.TensorMemoryLayout.HeightSharded
-        case "TensorMemoryLayout.WIDTH_SHARDED":
-            return ttnn.TensorMemoryLayout.WidthSharded
-        case "TensorMemoryLayout.BLOCK_SHARDED":
-            return ttnn.TensorMemoryLayout.BlockSharded
-        case _:
-            raise ValueError(f"Unsupported memory layout: {memory_layout}")
-
-
-def _ttcore_dtype_from_ttnn_dtype(dtype):
-    match str(dtype):
-        case "DataType.BFLOAT16":
-            return ttcore.DataType.BFloat16
-        case "DataType.FLOAT32":
-            return ttcore.DataType.Float32
-        case "DataType.BFLOAT8_B":
-            return ttcore.DataType.BFP_BFloat8
-        case "DataType.INT32":
-            return ttcore.DataType.Int32
-        case _:
-            raise ValueError(f"Unsupported dtype: {dtype}")
 
 
 def _get_physical_grid_shape(tensor_arg):
@@ -178,8 +153,8 @@ def _create_sharded_tensor_layout(ctx, tensor_arg):
     shard_shape = shard_spec.shape
     shard_shape_tile = _calculate_tile_shape(shard_shape)
 
-    data_type = _ttcore_dtype_from_ttnn_dtype(tensor_arg.dtype)
-    tile_type = ttcore.ir.TileType.get(ctx, 32, 32, data_type)
+    data_type = ttcore_dtype_from_ttnn_dtype(tensor_arg.dtype)
+    tile_type = ttcore.ir.TileType.get(ctx, TILE_WIDTH, TILE_HEIGHT, data_type)
     memref = MemRefType.get(shard_shape_tile, tile_type, None, buffer_type)
 
     tensor_mesh = None
@@ -201,8 +176,8 @@ def _create_dram_tensor_layout(ctx, tensor_arg):
     grid = ttcore.ir.GridAttr.get(ctx, DRAM_GRID_SIZE)
     buffer_type = ttnn.ir.BufferTypeAttr.get(ctx, ttnn.BufferType.DRAM)
 
-    data_type = _ttcore_dtype_from_ttnn_dtype(tensor_arg.dtype)
-    tile_type = ttcore.ir.TileType.get(ctx, 32, 32, data_type)
+    data_type = ttcore_dtype_from_ttnn_dtype(tensor_arg.dtype)
+    tile_type = ttcore.ir.TileType.get(ctx, TILE_WIDTH, TILE_HEIGHT, data_type)
     shape = _calculate_tile_shape(tensor_arg.shape)
 
     memref = MemRefType.get(shape, tile_type, None, buffer_type)
