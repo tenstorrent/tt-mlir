@@ -34,6 +34,12 @@ def _transform_reciprocal(t: torch.Tensor) -> torch.Tensor:
     return torch.where(t == 0, torch.tensor(1e-6, dtype=t.dtype), t)
 
 
+def _transform_digamma(t: torch.Tensor) -> torch.Tensor:
+    t = t * 1e5
+    t = torch.clamp(t, min=1)
+    return t
+
+
 def _transform_sqrt(t: torch.Tensor) -> torch.Tensor:
     """Ensure non-negative values."""
     return torch.abs(t)
@@ -47,6 +53,7 @@ def _transform_tan(t: torch.Tensor) -> torch.Tensor:
 # Map op names to their input transforms
 _INPUT_TRANSFORMS: Dict[str, Callable[[torch.Tensor], torch.Tensor]] = {
     "reciprocal": _transform_reciprocal,
+    "digamma_func": _transform_digamma,
     "sqrt": _transform_sqrt,
     "tan": _transform_tan,
 }
