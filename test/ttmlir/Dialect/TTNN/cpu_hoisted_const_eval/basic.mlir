@@ -13,11 +13,10 @@ module {
   // CHECK: builtin.module
 
   // CHECK-LABEL: func.func private @forward_const_eval_0{{.*}} -> tensor<32x32xbf16
-
-  // CHECK: ttnn.typecast"(%arg0)
-  // CHECK: "ttnn.from_device"(%{{.*}})
-  // CHECK: "ttnn.typecast"(%arg1)
-  // CHECK: "ttnn.from_device"(%{{.*}})
+  // Inputs should already be on the host.
+  // CHECK-NOT: "ttnn.from_device"
+  // CHECK: "ttnn.to_dtype"(%arg0)
+  // CHECK: "ttnn.to_dtype"(%arg1)
 
   // CHECK: call @hoisted_forward_const_eval_0_decl
 
