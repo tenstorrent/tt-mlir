@@ -113,7 +113,9 @@ def _ttcore_dtype_from_ttnn_dtype(dtype):
 
 def _get_physical_grid_shape(tensor_arg):
     # IMPORTANT: TTNN writes grids as (width, height) but compiler expects (height, width). This function returns (width, height).
-    core_range_set = tensor_arg.memory_config().shard_spec.grid
+    core_range_set = tensor_arg.memory_config().nd_shard_spec.grid
+    if tensor_arg.memory_config().shard_spec is not None:
+        assert core_range_set == tensor_arg.memory_config().shard_spec.grid, "ND shard spec and shard spec must have the same grid"
     number_of_core_ranges = len(core_range_set.ranges())
     if number_of_core_ranges != 1:
         raise ValueError(

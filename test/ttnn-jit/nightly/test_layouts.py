@@ -260,7 +260,6 @@ def test_nd_ttnn_layout(device, op, graph_capture):
     input_tensor = create_nd_tensor(device)
     op_jit = ttnn_jit.jit(
         debug=True,
-        max_grid=(1, 1),
         enable_cache=False,
         graph_capture=graph_capture,
     )(op)
