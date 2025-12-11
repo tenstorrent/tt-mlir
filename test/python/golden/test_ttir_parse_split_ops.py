@@ -9,6 +9,19 @@ from collections import OrderedDict
 from functools import reduce
 import operator
 import os
+from ttmlir.passes import (
+    tt_populate_argument_types,
+    ttir_to_ttnn_backend_pipeline,
+    ttnn_to_flatbuffer_file,
+    ttir_to_ttmetal_backend_pipeline,
+    ttmetal_to_flatbuffer_file,
+    translate_to_cpp,
+    translate_to_python,
+    MLIRModuleLogger,
+    stablehlo_pipeline,
+    stablehlo_to_ttir_pipeline,
+    ttir_to_emitpy_pipeline,
+)
 
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import (
@@ -17,7 +30,7 @@ from builder.base.builder_apis import (
     split_mlir_file,
     compile_ttir_module_to_flatbuffer,
     execute_fb,
-    compile_and_execute_ttir,
+    # compile_and_execute_stablehlo,
 )
 from builder.base.builder_runtime import *
 
@@ -34,7 +47,7 @@ for filename in os.listdir(ttir_snippets_dir_path):
 
 stablehlo_mlir_snippets = {}
 stablehlo_snippets_dir_path = os.path.join(
-    os.path.dirname(__file__), "mlir_snippets/stablehlo"
+    os.path.dirname(__file__), "mlir_snippets/stablehlo2"
 )
 for filename in os.listdir(stablehlo_snippets_dir_path):
     if filename.endswith(".mlir"):
@@ -58,6 +71,20 @@ def test_ttir_parsing_splitting_ops(mlir_snippet, request, device):
     mlir_ir_string = ttir_mlir_snippets[mlir_snippet]
     mlir_module, builder = load_mlir_file(mlir_ir_string, target="ttir")
     split_modules = split_mlir_file(mlir_module, builder)
+    module = split_modules[0][0]
+    builder = split_modules[0][1]
+    print(module.body)
+    goldens = dict(builder.golden_map)
+    mlir_path, goldens = compile_ttir_module_to_flatbuffer(
+        module, builder, goldens=goldens
+    )
+    print(mlir_path)
+    fb_path = mlir_path + ".ttnn"
+    execute_fb(
+        fb_path=fb_path,
+        goldens=goldens,
+        device=device,
+    )
 
 
 @pytest.mark.parametrize("mlir_snippet", stablehlo_mlir_snippets.keys())
@@ -65,6 +92,24 @@ def test_stablehlo_parsing_splitting_ops(mlir_snippet, request, device):
     mlir_ir_string = stablehlo_mlir_snippets[mlir_snippet]
     mlir_module, builder = load_mlir_file(mlir_ir_string, target="stablehlo")
     split_modules = split_mlir_file(mlir_module, builder)
+    module = split_modules[0][0]
+    builder = split_modules[0][1]
+    print(dir(module))
+    print(module.body)
+    stablehlo_pipeline(module)
+    stablehlo_to_ttir_pipeline(module)
+    print(module.body)
+    goldens = dict(builder.golden_map)
+    mlir_path, goldens = compile_ttir_module_to_flatbuffer(
+        module, builder, goldens=goldens
+    )
+    print(mlir_path)
+    fb_path = mlir_path + ".ttnn"
+    execute_fb(
+        fb_path=fb_path,
+        goldens=goldens,
+        device=device,
+    )
 
 
 @pytest.mark.parametrize("mlir_snippet", ttnn_mlir_snippets.keys())

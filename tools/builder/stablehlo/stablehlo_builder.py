@@ -1606,7 +1606,7 @@ class StableHLOBuilder(Builder):
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
         sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
-    ) -> OpResult:
+    ) -> Tuple[OpResult, ...]:
         stablehlo_op = self.get_opview_from_method(StableHLOBuilder.sort)
 
         # Determine if this is single input mode (return values + indices)
@@ -1646,6 +1646,30 @@ class StableHLOBuilder(Builder):
             loc=loc,
         )
 
+        # Create default comparator region for ascending sort
+        # For multiple inputs, we compare elements from the first input
+        first_input_type = RankedTensorType(inputs[0].type)
+        element_type = first_input_type.element_type
+        scalar_type = RankedTensorType.get([], element_type)
+
+        # The comparator takes 2*num_inputs arguments (pairs from each input)
+        comparator_arg_types = [scalar_type] * (2 * len(inputs))
+
+        block = Block.create_at_start(op.comparator, comparator_arg_types)
+
+        with InsertionPoint(block):
+            # For default ascending sort, compare first two arguments (from first input)
+            # Return true if lhs < rhs
+            lhs = block.arguments[0]  # First element from first input
+            rhs = block.arguments[1]  # Second element from first input
+
+            # Create comparison: lhs < rhs for ascending sort
+            compare_result = stablehlo.CompareOp(
+                lhs, rhs, stablehlo.ComparisonDirection.LT, loc=loc
+            ).result
+
+            stablehlo.ReturnOp([compare_result], loc=loc)
+
         if sharding_attr is not None:
             op.operation.attributes["sdy.sharding"] = sharding_attr
 
@@ -1662,7 +1686,7 @@ class StableHLOBuilder(Builder):
             for i, result in enumerate(op.results):
                 self._set_golden_tensor(result, golden_outputs[i])
 
-        return op.results
+        return tuple(op.results)
 
     @parse(stablehlo.SortOp)
     def sort_parser(
@@ -1749,9 +1773,207 @@ class StableHLOBuilder(Builder):
                             sort_builder._set_golden_tensor(inp, input_tensors[i])
                         sort_builder._set_input_ordering(list(inputs))
 
-                    return new_op.results
+                    return tuple(new_op.results)
 
         return sort_module, sort_builder
+
+    # ----- Random Number Generation Operations -----
+
+    ############### stablehlo.RngBitGeneratorOp ###############
+
+    @tag(stablehlo.RngBitGeneratorOp)
+    def rng_bit_generator(
+        self,
+        initial_state: Operand,
+        output_shape: List[int],
+        algorithm: str = "DEFAULT",
+        output_dtype: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> Tuple[OpResult, OpResult]:
+        """
+        Creates ``stablehlo.rng_bit_generator``.
+
+        Returns an output filled with uniform random data and an updated output
+        state given an initial state using the pseudorandom number generator algorithm.
+
+        .. code-block:: mlir
+
+            // Generate random bits using THREE_FRY algorithm
+            %output_state, %output = stablehlo.rng_bit_generator %initial_state,
+                algorithm = THREE_FRY : (tensor<2xui64>) -> (tensor<2xui64>, tensor<2x2xui64>)
+
+        Parameters
+        ----------
+        initial_state : Operand
+            Initial state tensor for the random number generator.
+        output_shape : List[int]
+            Shape of the output random tensor.
+        algorithm : str, optional
+            RNG algorithm to use. Options: "THREE_FRY", "PHILOX", "DEFAULT". Default is "DEFAULT".
+        output_dtype : Optional[torch.dtype], optional
+            Data type for the output tensor. If None, uses ui64.
+        loc : Optional[str]
+            Location for MLIR debugging
+        unit_attrs : Optional[List[str]]
+            Unit attributes to add to the operation
+        sharding_attr : Optional[sdy.TensorShardingPerValueAttr]
+            Tensor sharding attribute for distributed execution
+
+        Returns
+        -------
+        Tuple[OpResult, OpResult]
+            A tuple containing (output_state, output) where output_state is the
+            updated RNG state and output is the generated random data.
+        """
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.rng_bit_generator)
+
+        # Get input state type information
+        input_state_type = RankedTensorType(initial_state.type)
+
+        if output_dtype is None:
+            # Default to ui64 for random bit generation
+            output_element_type = IntegerType.get_unsigned(64)
+        else:
+            output_element_type = self._get_type_from_torch_dtype(output_dtype)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        # Create output types
+        output_state_type = input_state_type  # Same as input state
+        output_tensor_type = RankedTensorType.get(output_shape, output_element_type)
+
+        # Create algorithm attribute
+        # The algorithm parameter should be passed as a string that gets converted to the appropriate attribute
+        algorithm_attr = StringAttr.get(algorithm)
+
+        op = stablehlo_op(
+            output_state_type,
+            output_tensor_type,
+            algorithm_attr,
+            initial_state,
+            loc=loc,
+        )
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            input_state_golden = self._get_golden_tensor(initial_state)
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output_state, golden_output = op_golden_function(
+                input_state_golden, output_shape, algorithm
+            )
+            self._set_golden_tensor(op.output_state, golden_output_state)
+            self._set_golden_tensor(op.output, golden_output)
+
+        return op.output_state, op.output
+
+    @parse(stablehlo.RngBitGeneratorOp)
+    def rng_bit_generator_parser(
+        self,
+        old_op: stablehlo.RngBitGeneratorOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(
+            StableHLOBuilder.rng_bit_generator_parser
+        )
+        initial_state = global_dict[old_op.initial_state]
+        algorithm_attr = old_op.rng_algorithm
+
+        new_op = stablehlo_op(
+            old_op.output_state.type,
+            old_op.output.type,
+            algorithm_attr,
+            initial_state,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input_state_golden = self._get_golden_tensor(initial_state)
+            op_golden_function = get_golden_function(stablehlo_op)
+            output_shape = list(RankedTensorType(old_op.output.type).shape)
+            algorithm_str = str(algorithm_attr).replace(
+                '"', ""
+            )  # Convert attr to string
+            golden_output_state, golden_output = op_golden_function(
+                input_state_golden, output_shape, algorithm_str
+            )
+            self._set_golden_tensor(new_op.output_state, golden_output_state)
+            self._set_golden_tensor(new_op.output, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.output_state] = new_op.output_state
+        op_map_dictionary[old_op.output] = new_op.output
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.RngBitGeneratorOp)
+    def rng_bit_generator_split(
+        self,
+        old_op: stablehlo.RngBitGeneratorOp,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        stablehlo_op = self.get_opview_from_split(
+            StableHLOBuilder.rng_bit_generator_split
+        )
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            rng_bit_generator_module = Module.create()
+            rng_bit_generator_builder = StableHLOBuilder(old_ctx, old_loc)
+            op_input_types = [old_op.initial_state.type]
+
+            with InsertionPoint(rng_bit_generator_module.body):
+
+                @func.func(*op_input_types, name="rng_bit_generator_module")
+                def decorated_func(*inputs):
+                    algorithm_attr = old_op.rng_algorithm
+
+                    new_op = stablehlo_op(
+                        old_op.output_state.type,
+                        old_op.output.type,
+                        algorithm_attr,
+                        inputs[0],
+                        loc=old_loc,
+                    )
+
+                    if not rng_bit_generator_builder._disable_golden_check:
+                        input_state_golden = (
+                            rng_bit_generator_builder._get_golden_tensor(inputs[0])
+                        )
+                        op_golden_function = get_golden_function(stablehlo_op)
+                        output_shape = list(RankedTensorType(old_op.output.type).shape)
+                        algorithm_str = str(algorithm_attr).replace(
+                            '"', ""
+                        )  # Convert attr to string
+                        golden_output_state, golden_output = op_golden_function(
+                            input_state_golden, output_shape, algorithm_str
+                        )
+                        rng_bit_generator_builder._set_golden_tensor(
+                            new_op.output_state, golden_output_state
+                        )
+                        rng_bit_generator_builder._set_golden_tensor(
+                            new_op.output, golden_output
+                        )
+                        rng_bit_generator_builder._set_output_ordering(
+                            [new_op.output_state, new_op.output]
+                        )
+                        rng_bit_generator_builder._set_golden_tensor(
+                            inputs[0], input_state_golden
+                        )
+                        rng_bit_generator_builder._set_input_ordering([inputs[0]])
+
+                    return tuple([new_op.output_state, new_op.output])
+
+        return rng_bit_generator_module, rng_bit_generator_builder
 
     # ----- Tensor Manipulation Operations -----
 
@@ -3781,6 +4003,269 @@ class StableHLOBuilder(Builder):
                     return new_op
 
         return sel_module, sel_builder
+
+    ############### stablehlo.ScatterOp ###############
+
+    @tag(stablehlo.ScatterOp)
+    def scatter(
+        self,
+        inputs: List[Operand],
+        scatter_indices: Operand,
+        updates: List[Operand],
+        update_window_dims: List[int],
+        inserted_window_dims: List[int],
+        input_batching_dims: List[int],
+        scatter_indices_batching_dims: List[int],
+        scatter_dims_to_operand_dims: List[int],
+        index_vector_dim: int,
+        indices_are_sorted: bool = False,
+        unique_indices: bool = False,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> Tuple[OpResult, ...]:
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.scatter)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        # Create scatter dimension numbers attribute
+        print(dir(stablehlo))
+        scatter_dimension_numbers_attr = stablehlo.ScatterDimensionNumbers.get(
+            update_window_dims,  # =update_window_dims,
+            inserted_window_dims,  # =inserted_window_dims,
+            input_batching_dims,  # =input_batching_dims,
+            scatter_indices_batching_dims,  # =scatter_indices_batching_dims,
+            scatter_dims_to_operand_dims,  # =scatter_dims_to_operand_dims,
+            index_vector_dim,  # =index_vector_dim,
+        )
+
+        # Result types are the same as input types
+        results = [inp.type for inp in inputs]
+
+        op = stablehlo_op(
+            results,
+            inputs,
+            scatter_indices,
+            updates,
+            scatter_dimension_numbers_attr,
+            indices_are_sorted=indices_are_sorted,
+            unique_indices=unique_indices,
+            loc=loc,
+        )
+
+        # Create default update computation (addition)
+        # The computation takes 2*len(inputs) arguments (pairs from each input)
+        element_types = [RankedTensorType(inp.type).element_type for inp in inputs]
+        scalar_types = [
+            RankedTensorType.get([], elem_type) for elem_type in element_types
+        ]
+
+        # The update computation takes pairs: (old_value, update_value) for each input
+        computation_arg_types = []
+        for scalar_type in scalar_types:
+            computation_arg_types.extend([scalar_type, scalar_type])
+
+        block = Block.create_at_start(op.update_computation, computation_arg_types)
+
+        with InsertionPoint(block):
+            # Default update computation: addition for each pair
+            results = []
+            for i in range(len(inputs)):
+                old_val = block.arguments[2 * i]  # Old value from input
+                update_val = block.arguments[2 * i + 1]  # Update value
+
+                # Add old value and update value
+                add_result = stablehlo.AddOp(old_val, update_val, loc=loc).result
+                results.append(add_result)
+
+            stablehlo.ReturnOp(results, loc=loc)
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+        print("2.5?")
+        if not self._disable_golden_check:
+            input_tensors = [self._get_golden_tensor(inp) for inp in inputs]
+            indices_tensor = self._get_golden_tensor(scatter_indices)
+            update_tensors = [self._get_golden_tensor(upd) for upd in updates]
+
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_outputs = op_golden_function(
+                input_tensors,
+                indices_tensor,
+                update_tensors,
+                update_window_dims,
+                inserted_window_dims,
+                input_batching_dims,
+                scatter_indices_batching_dims,
+                scatter_dims_to_operand_dims,
+                index_vector_dim,
+                indices_are_sorted,
+                unique_indices,
+            )
+
+            for i, result in enumerate(op.results):
+                self._set_golden_tensor(result, golden_outputs[i])
+
+        print("3")
+        return tuple(op.results)
+
+    @parse(stablehlo.ScatterOp)
+    def scatter_parser(
+        self,
+        old_op: stablehlo.ScatterOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.scatter_parser)
+        inputs = [global_dict[operand] for operand in old_op.inputs]
+        scatter_indices = global_dict[old_op.scatter_indices]
+        updates = [global_dict[operand] for operand in old_op.updates]
+        scatter_dimension_numbers_attr = old_op.scatter_dimension_numbers
+        indices_are_sorted_attr = old_op.indices_are_sorted
+        unique_indices_attr = old_op.unique_indices
+
+        results = [result.type for result in old_op.results]
+
+        new_op = stablehlo_op(
+            results,
+            inputs,
+            scatter_indices,
+            updates,
+            scatter_dimension_numbers_attr,
+            indices_are_sorted=indices_are_sorted_attr,
+            unique_indices=unique_indices_attr,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input_tensors = [self._get_golden_tensor(inp) for inp in inputs]
+            indices_tensor = self._get_golden_tensor(scatter_indices)
+            update_tensors = [self._get_golden_tensor(upd) for upd in updates]
+
+            op_golden_function = get_golden_function(stablehlo_op)
+            # Extract dimension information from the attribute
+            # For simplicity, we'll use default values in parsing
+            golden_outputs = op_golden_function(
+                input_tensors,
+                indices_tensor,
+                update_tensors,
+                [],  # update_window_dims
+                [],  # inserted_window_dims
+                [],  # input_batching_dims
+                [],  # scatter_indices_batching_dims
+                [],  # scatter_dims_to_operand_dims
+                0,  # index_vector_dim
+                indices_are_sorted_attr.value if indices_are_sorted_attr else False,
+                unique_indices_attr.value if unique_indices_attr else False,
+            )
+
+            for i, result in enumerate(new_op.results):
+                self._set_golden_tensor(result, golden_outputs[i])
+
+        op_map_dictionary = {}
+        for i, result in enumerate(old_op.results):
+            op_map_dictionary[result] = new_op.results[i]
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.ScatterOp)
+    def scatter_split(
+        self,
+        old_op: stablehlo.ScatterOp,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        stablehlo_op = self.get_opview_from_split(StableHLOBuilder.scatter_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            scatter_module = Module.create()
+            scatter_builder = StableHLOBuilder(old_ctx, old_loc)
+            input_types = [operand.type for operand in old_op.inputs]
+            indices_type = [old_op.scatter_indices.type]
+            updates_types = [operand.type for operand in old_op.updates]
+            op_input_types = input_types + indices_type + updates_types
+
+            with InsertionPoint(scatter_module.body):
+
+                @func.func(*op_input_types, name="scatter_module")
+                def decorated_func(*all_inputs):
+                    n_inputs = len(input_types)
+                    n_updates = len(updates_types)
+
+                    inputs = all_inputs[:n_inputs]
+                    scatter_indices = all_inputs[n_inputs]
+                    updates = all_inputs[n_inputs + 1 : n_inputs + 1 + n_updates]
+
+                    scatter_dimension_numbers_attr = old_op.scatter_dimension_numbers
+                    indices_are_sorted_attr = old_op.indices_are_sorted
+                    unique_indices_attr = old_op.unique_indices
+                    results = [result.type for result in old_op.results]
+
+                    new_op = stablehlo_op(
+                        results,
+                        inputs,
+                        scatter_indices,
+                        updates,
+                        scatter_dimension_numbers_attr,
+                        indices_are_sorted=indices_are_sorted_attr,
+                        unique_indices=unique_indices_attr,
+                        loc=old_loc,
+                    )
+
+                    if not scatter_builder._disable_golden_check:
+                        input_tensors = [
+                            scatter_builder._get_golden_tensor(inp) for inp in inputs
+                        ]
+                        indices_tensor = scatter_builder._get_golden_tensor(
+                            scatter_indices
+                        )
+                        update_tensors = [
+                            scatter_builder._get_golden_tensor(upd) for upd in updates
+                        ]
+
+                        op_golden_function = get_golden_function(stablehlo_op)
+                        golden_outputs = op_golden_function(
+                            input_tensors,
+                            indices_tensor,
+                            update_tensors,
+                            [],  # update_window_dims
+                            [],  # inserted_window_dims
+                            [],  # input_batching_dims
+                            [],  # scatter_indices_batching_dims
+                            [],  # scatter_dims_to_operand_dims
+                            0,  # index_vector_dim
+                            indices_are_sorted_attr.value
+                            if indices_are_sorted_attr
+                            else False,
+                            unique_indices_attr.value if unique_indices_attr else False,
+                        )
+
+                        for i, result in enumerate(new_op.results):
+                            scatter_builder._set_golden_tensor(
+                                result, golden_outputs[i]
+                            )
+                        scatter_builder._set_output_ordering(list(new_op.results))
+                        for i, inp in enumerate(all_inputs):
+                            if i < n_inputs:
+                                scatter_builder._set_golden_tensor(
+                                    inp, input_tensors[i]
+                                )
+                            elif i == n_inputs:
+                                scatter_builder._set_golden_tensor(inp, indices_tensor)
+                            else:
+                                scatter_builder._set_golden_tensor(
+                                    inp, update_tensors[i - n_inputs - 1]
+                                )
+                        scatter_builder._set_input_ordering(list(all_inputs))
+
+                    return tuple(new_op.results)
+
+        return scatter_module, scatter_builder
 
     ############### stablehlo.SelectAndScatterOp ###############
 

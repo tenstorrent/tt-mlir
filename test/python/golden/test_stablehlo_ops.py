@@ -1270,3 +1270,94 @@ def test_sort(
         target=target,
         device=device,
     )
+
+
+@pytest.mark.parametrize(
+    "initial_state_shape, output_shape, algorithm",
+    [
+        ([2], [4, 4], "DEFAULT"),
+        ([3], [2, 3], "THREE_FRY"),
+        ([2], [5], "PHILOX"),
+        ([1], [2, 2, 2], "DEFAULT"),
+    ],
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_rng_bit_generator(
+    initial_state_shape, output_shape, algorithm, target: str, request, device
+):
+    def module(builder: StableHLOBuilder):
+        @builder.func([initial_state_shape], [torch.uint32])
+        def rng_bit_generator(initial_state: Operand, builder: StableHLOBuilder):
+            builder.set_graph_level_check(True)
+            return builder.rng_bit_generator(initial_state, output_shape, algorithm)
+
+    compile_and_execute_shlo(
+        module,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
+    "input_shape, indices_shape, update_shape, update_window_dims, inserted_window_dims, input_batching_dims, scatter_indices_batching_dims, scatter_dims_to_operand_dims, index_vector_dim",
+    [
+        ([1, 3, 320, 320], [1, 1], [1, 3, 32, 32], [1, 2, 3], [0], [], [], [0], 1),
+    ],
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_scatter(
+    input_shape,
+    indices_shape,
+    update_shape,
+    update_window_dims,
+    inserted_window_dims,
+    input_batching_dims,
+    scatter_indices_batching_dims,
+    scatter_dims_to_operand_dims,
+    index_vector_dim,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: StableHLOBuilder):
+        @builder.func(
+            [
+                input_shape,
+                indices_shape,
+                update_shape,
+                update_window_dims,
+                inserted_window_dims,
+                input_batching_dims,
+                scatter_indices_batching_dims,
+                scatter_dims_to_operand_dims,
+                index_vector_dim,
+            ],
+            [torch.int64, torch.int64, torch.int64],
+        )
+        def scatter(
+            input: Operand, indices: Operand, update: Operand, builder: StableHLOBuilder
+        ):
+            builder.set_graph_level_check(True)
+            return builder.scatter(
+                inputs=[input],
+                scatter_indices=indices,
+                updates=[update],
+                update_window_dims=update_window_dims,
+                inserted_window_dims=inserted_window_dims,
+                input_batching_dims=input_batching_dims,
+                scatter_indices_batching_dims=scatter_indices_batching_dims,
+                scatter_dims_to_operand_dims=scatter_dims_to_operand_dims,
+                index_vector_dim=index_vector_dim,
+            )
+
+    compile_and_execute_shlo(
+        module,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )

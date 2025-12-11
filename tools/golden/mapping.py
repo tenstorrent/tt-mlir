@@ -3876,6 +3876,121 @@ def stablehlo_sort_golden(
         return tuple(sorted_tensors)
 
 
+def stablehlo_rng_bit_generator_golden(
+    initial_state: GoldenMapTensor,
+    output_shape: List[int],
+    algorithm: str,
+) -> Tuple[GoldenMapTensor, GoldenMapTensor]:
+    """
+    Golden function for stablehlo.rng_bit_generator operation.
+
+    Args:
+        initial_state: Initial RNG state tensor
+        output_shape: Shape of the output random tensor
+        algorithm: RNG algorithm ("THREE_FRY", "PHILOX", "DEFAULT")
+
+    Returns:
+        Tuple of (output_state, output) where output_state is the updated RNG state
+        and output is the generated random data.
+    """
+    # For simplicity in testing, we'll use PyTorch's random number generation
+    # In a real implementation, this would implement the specific algorithms
+
+    # Create a simple deterministic "random" output based on the initial state
+    # This ensures reproducible results for testing
+    print("Initial RNG state:", initial_state)
+    print(torch.sum(initial_state))
+    state_sum = torch.sum(initial_state) if initial_state.numel() > 0 else 0
+    print(type(state_sum), type(state_sum.value()))
+    # Use the state sum as a seed for reproducibility
+    generator = torch.Generator()
+    generator.manual_seed(int(state_sum.contiguous()) % (2**31))
+
+    # Generate random output tensor
+    if algorithm == "THREE_FRY":
+        # THREE_FRY typically generates 64-bit unsigned integers
+        output = torch.randint(
+            0, 2**63 - 1, output_shape, generator=generator, dtype=torch.int64
+        )
+        output = output.to(torch.uint64)  # Convert to unsigned
+    elif algorithm == "PHILOX":
+        # PHILOX also generates 64-bit unsigned integers
+        output = torch.randint(
+            0, 2**63 - 1, output_shape, generator=generator, dtype=torch.int64
+        )
+        output = output.to(torch.uint64)  # Convert to unsigned
+    else:  # DEFAULT
+        # Default algorithm, generate random bits
+        output = torch.randint(
+            0, 2**63 - 1, output_shape, generator=generator, dtype=torch.int64
+        )
+        output = output.to(torch.uint64)  # Convert to unsigned
+
+    # Update the output state (in practice this would be algorithm-specific)
+    # For simplicity, we'll just increment the state values
+    output_state = initial_state.clone()
+    if output_state.numel() > 0:
+        output_state = output_state + 1
+
+    return (output_state, output)
+
+
+def stablehlo_scatter_golden(
+    input_tensors: List[GoldenMapTensor],
+    scatter_indices: GoldenMapTensor,
+    update_tensors: List[GoldenMapTensor],
+    update_window_dims: Optional[List[int]] = None,
+    inserted_window_dims: Optional[List[int]] = None,
+    input_batching_dims: Optional[List[int]] = None,
+    scatter_indices_batching_dims: Optional[List[int]] = None,
+    scatter_dims_to_operand_dims: Optional[List[int]] = None,
+    index_vector_dim: Optional[int] = None,
+    indices_are_sorted: bool = False,
+    unique_indices: bool = False,
+) -> List[GoldenMapTensor]:
+    print(input_tensors)
+    print("1")
+    results = []
+    for i, (input_tensor, update_tensor) in enumerate(
+        zip(input_tensors, update_tensors)
+    ):
+        result = input_tensor.clone()
+
+        # Simple scatter implementation for basic cases
+        # This assumes scatter_indices is 1D and we're updating along the first dimension
+        if scatter_indices.dim() == 1:
+            for j in range(scatter_indices.size(0)):
+                # Get the index value from the first shard
+                idx_shard = next(iter(scatter_indices[j].shard_map.values()))
+                idx = int(idx_shard.item())
+                if 0 <= idx < result.size(0):
+                    if update_tensor.dim() == 1:
+                        # Simple 1D case
+                        result[idx] = result[idx] + update_tensor[j]
+                    else:
+                        # Multi-dimensional case - update the slice
+                        if j < update_tensor.size(0):
+                            result[idx] = result[idx] + update_tensor[j]
+        else:
+            # For multi-dimensional indices, implement basic scatter
+            flat_indices = scatter_indices.flatten()
+            flat_updates = update_tensor.flatten()
+            flat_result = result.flatten()
+
+            for j in range(min(flat_indices.numel(), flat_updates.numel())):
+                # Get the index value from the first shard
+                idx_shard = next(iter(flat_indices[j].shard_map.values()))
+                idx = int(idx_shard.item())
+                if 0 <= idx < flat_result.numel():
+                    flat_result[idx] = flat_result[idx] + flat_updates[j]
+
+            result = flat_result.reshape(result.shape)
+
+        results.append(result)
+    print("2")
+    return results
+
+
 def stablehlo_transpose_golden(
     input_tensor: GoldenMapTensor,
     permutation: DenseI64ArrayAttr,
@@ -4225,6 +4340,8 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.LogisticOp: stablehlo_logistic_golden,
     stablehlo.NegOp: stablehlo_neg_golden,
     stablehlo.ReshapeOp: stablehlo_reshape_golden,
+    stablehlo.RngBitGeneratorOp: stablehlo_rng_bit_generator_golden,
+    stablehlo.ScatterOp: stablehlo_scatter_golden,
     stablehlo.RsqrtOp: stablehlo_rsqrt_golden,
     stablehlo.SineOp: stablehlo_sine_golden,
     stablehlo.SortOp: stablehlo_sort_golden,
