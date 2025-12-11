@@ -205,9 +205,16 @@ class TTNNBuilder(Builder):
             )
             return RankedTensorType.get(shape, element_type, ttnn_layout_attr)
 
+    def _get_location(self) -> Location:
+        stack = inspect.stack()
+        caller_frame = stack[2]
+        filename = caller_frame.filename
+        lineno = caller_frame.lineno
+        return Location.name(f"{filename}:{lineno}")
+
     # ----- Public TTNN Op Generators ----
 
-    ################ ttnn.AddOp ###############
+    ############### ttnn.AddOp ###############
 
     @tag(ttnn.AddOp)
     def add(
@@ -231,6 +238,11 @@ class TTNNBuilder(Builder):
         op_golden_function = get_golden_function(ttnn_op)
         golden_output = op_golden_function(input0, input1, mlir_output_type)
         result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
 
         op = ttnn_op(
             result,
@@ -309,8 +321,8 @@ class TTNNBuilder(Builder):
                         golden_output = op_golden_function(
                             input0, input1, result.element_type
                         )
-                        add_builder._set_golden_tensor(new_op, golden_output)
-                        add_builder._set_output_ordering([new_op])
+                        add_builder._set_golden_tensor(new_op.result, golden_output)
+                        add_builder._set_output_ordering([new_op.result])
                         add_builder._set_golden_tensor(lhs, input0)
                         add_builder._set_golden_tensor(rhs, input1)
                         add_builder._set_input_ordering([lhs, rhs])
