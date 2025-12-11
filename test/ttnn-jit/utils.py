@@ -166,3 +166,10 @@ def run_op_test(
             output_tensor.memory_config(), golden_tensor.memory_config()
         )
         assert all_close_check(output_tensor, golden_tensor)
+
+    # Explicit deallocate just in case Python GC is lazy
+    for inp in inputs:
+        ttnn.deallocate(inp, force=True)
+    ttnn.deallocate(golden_tensor, force=True)
+    if not compile_only:
+        ttnn.deallocate(output_tensor, force=True)
