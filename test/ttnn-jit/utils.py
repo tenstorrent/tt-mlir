@@ -82,15 +82,6 @@ def pcc_check(result, golden_result, threshold=0.99):
 
 
 def all_close_check(result, golden_result, atol=1e-1, rtol=1e-1, debug=True):
-    if debug:
-        print("--------------------------------")
-        print("Result:")
-        print(result)
-        print("--------------------------------")
-        print("Golden result:")
-        print(golden_result)
-        print("--------------------------------")
-
     all_close = torch.allclose(
         result.cpu().to_torch(),
         golden_result.cpu().to_torch(),
@@ -242,6 +233,13 @@ def run_op_test(
         assert memory_configs_equal(
             output_tensor.memory_config(), golden_tensor.memory_config()
         )
+        print("--------------------------------")
+        print("Output:")
+        print(output_tensor)
+        print("--------------------------------")
+        print("Golden:")
+        print(golden_tensor)
+        print("--------------------------------")
         if check_pcc:
             passed, pcc = pcc_check(output_tensor, golden_tensor, pcc_threshold)
             assert passed, f"PCC check failed: {pcc} < {pcc_threshold}"
