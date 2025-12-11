@@ -10,6 +10,7 @@ from ttmlir.passes import (
     ttnn_to_flatbuffer_file,
     ttnn_to_flatbuffer_bin,
     ttnn_to_ttmetal_pipeline,
+    ttkernel_to_cpp,
 )
 
 from ttnn_jit._src.utils import cleanup_source_code, get_dispatch_core_type
@@ -124,7 +125,14 @@ class JitFunction:
                 print("---- IR Dump after ttnn_to_ttmetal_pipeline ----")
                 print(ir)
             flatbuffer_bin = os.path.join(self.out_dir, self.func.__name__ + ".ttn")
-            ttnn_to_flatbuffer_file(ir, flatbuffer_bin, {}, [])
+            ttnn_to_flatbuffer_file(
+                ir, flatbuffer_bin, {}, [], kernel_dump_dir=self.out_dir
+            )
+            kernel_cpp = ttkernel_to_cpp(ir)
+            kernel_path = os.path.join(self.out_dir, self.func.__name__ + ".cpp")
+            with open(kernel_path, "w") as f:
+                f.write(kernel_cpp)
+            print(f"Kernel source code dumped to {kernel_path}")
             return ir
 
         if self.cache:
