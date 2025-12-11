@@ -326,6 +326,44 @@ protected:
     return defaultMemSpaceAttr ? defaultMemSpaceAttr.getValue() : dflt;
   }
 
+  // Common conversion logic for tensor manipulation ops (reshape, rearrange).
+  // Takes the device-space affine map and creates a StreamLayoutOp with the
+  // appropriate layout.
+  template <typename OpType>
+  void convertTensorManipulationOp(OpType op, typename OpType::Adaptor adaptor,
+                                   AffineMap deviceMap,
+                                   ConversionPatternRewriter &rewriter,
+                                   ArrayRef<int64_t> outputLogicalShape) const {
+    Location loc = op->getLoc();
+
+    SmallVector<Value> origInputs = {adaptor.getInput()};
+    auto origOutputs =
+        createDpsOutputs(loc, rewriter, {op.getResult().getType()});
+
+    auto [inputs, outputs] =
+        toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
+                                   /*tiled*/ false);
+    assert(outputs.size() == 1);
+
+    auto outTy = mlir::cast<RankedTensorType>(outputs[0].getType());
+    auto layout = mlir::cast<ttcore::MetalLayoutAttr>(outTy.getEncoding());
+
+    // Create new layout with the device map
+    auto newLayout = ttcore::MetalLayoutAttr::get(
+        layout.getContext(), outputLogicalShape, layout.getOobVal(),
+        layout.getMemorySpace(), layout.getMemoryLayout(),
+        layout.getCollapsedIntervals(), layout.getDimAlignments(), deviceMap);
+    auto newOutTy = RankedTensorType::get(outTy.getShape(),
+                                          outTy.getElementType(), newLayout);
+
+    auto storage = rewriter.create<d2m::EmptyOp>(loc, outputs[0].getType());
+    auto view = rewriter.create<d2m::StreamLayoutOp>(loc, newOutTy, inputs[0],
+                                                     storage.getResult());
+
+    rewriter.replaceOp(op, unLayoutResult(rewriter, view->getResult(0),
+                                          op->getResult(0).getType()));
+  }
+
 protected:
   // Default memory spaces for {inputs, outputs}.
   std::array<ttcore::MemorySpace, 2> memorySpaces;
@@ -1244,9 +1282,122 @@ class D2MMeshShardOpRewriter : public OpConversionPattern<ttir::MeshShardOp> {
   }
 };
 
+// Project a logical affine map to device space (doubles the rank for
+// grid + shard dimensions).
+static AffineMap projectLogicalMapToUnitDeviceSpace(Builder &builder,
+                                                    AffineMap logicalMap) {
+  unsigned deviceRank = static_cast<int64_t>(logicalMap.getNumDims() * 2);
+  SmallVector<AffineExpr> exprs(logicalMap.getResults());
+  while (exprs.size() < (logicalMap.getNumResults() * 2)) {
+    auto expr = exprs.size() <= deviceRank
+                    ? builder.getAffineDimExpr(
+                          (deviceRank - 1) -
+                          (exprs.size() - logicalMap.getNumResults()))
+                    : builder.getAffineConstantExpr(0);
+    exprs.insert(exprs.begin(), expr);
+  }
+
+  AffineMap shardGridFlippedMap =
+      AffineMap::get(deviceRank, 0, exprs, builder.getContext());
+
+  SmallVector<unsigned> shardGridPermutation;
+  for (unsigned d = logicalMap.getNumDims(); d < (logicalMap.getNumDims() * 2);
+       ++d) {
+    shardGridPermutation.push_back(d);
+  }
+  for (unsigned d = 0; d < logicalMap.getNumDims(); ++d) {
+    shardGridPermutation.push_back(d);
+  }
+
+  AffineMap shardGridPermutationMap =
+      AffineMap::getPermutationMap(shardGridPermutation, builder.getContext());
+
+  return shardGridFlippedMap.compose(shardGridPermutationMap);
+}
+
+// Compute device map for RearrangeOp: get logical map and project to device
+// space.
+static AffineMap rearrangeDeviceMap(ttir::RearrangeOp op, OpBuilder &builder) {
+  mlir::FailureOr<AffineMap> maybeMap = op.getInvPatternMap();
+  assert(succeeded(maybeMap));
+  return projectLogicalMapToUnitDeviceSpace(builder, *maybeMap);
+}
+
+// Compute device map for ReshapeOp: linearize output coords, delinearize to
+// input coords. This handles rank changes (e.g., 2D -> 3D).
+static AffineMap reshapeDeviceMap(ttir::ReshapeOp op, OpBuilder &builder) {
+  auto inputTensorType = mlir::cast<RankedTensorType>(op.getInput().getType());
+  auto outputTensorType =
+      mlir::cast<RankedTensorType>(op.getResult().getType());
+
+  ArrayRef<int64_t> inputShape = inputTensorType.getShape();
+  ArrayRef<int64_t> outputShape = outputTensorType.getShape();
+
+  int32_t inputLogicalRank = static_cast<int32_t>(inputShape.size());
+  int32_t outputLogicalRank = static_cast<int32_t>(outputShape.size());
+
+  // Compute strides for linearizing output coordinates
+  SmallVector<int64_t> outputStrides;
+  int64_t stride = 1;
+  for (int64_t i = outputShape.size() - 1; i >= 0; --i) {
+    outputStrides.insert(outputStrides.begin(), stride);
+    stride *= outputShape[i];
+  }
+
+  // Compute strides for delinearizing to input coordinates
+  SmallVector<int64_t> inputStrides;
+  stride = 1;
+  for (int64_t i = inputShape.size() - 1; i >= 0; --i) {
+    inputStrides.insert(inputStrides.begin(), stride);
+    stride *= inputShape[i];
+  }
+
+  // Step 1: Linearize output shard coordinates into a flat index
+  // Output shard dims start at index outputLogicalRank (after grid dims)
+  AffineExpr linearIdx = builder.getAffineConstantExpr(0);
+  for (int32_t i = 0; i < outputLogicalRank; ++i) {
+    AffineExpr dim = builder.getAffineDimExpr(outputLogicalRank + i);
+    AffineExpr strideExpr = builder.getAffineConstantExpr(outputStrides[i]);
+    linearIdx = linearIdx + dim * strideExpr;
+  }
+
+  // Step 2: Build expressions for input device coordinates
+  SmallVector<AffineExpr> reshapeExprs;
+
+  // Input grid dimensions: map from output grid dims (zeros for higher dims,
+  // pass through last 2 dims for compatibility with 2D grid)
+  for (int32_t i = 0; i < inputLogicalRank - 2; ++i) {
+    reshapeExprs.push_back(builder.getAffineConstantExpr(0));
+  }
+  for (int32_t i = 0; i < 2; ++i) {
+    reshapeExprs.push_back(builder.getAffineDimExpr(outputLogicalRank - 2 + i));
+  }
+
+  // Input shard dimensions: delinearize flat index to input coordinates
+  AffineExpr remainingIdx = linearIdx;
+  for (int32_t i = 0; i < inputLogicalRank; ++i) {
+    if (i == inputLogicalRank - 1) {
+      // Last dimension: use the remaining index directly
+      reshapeExprs.push_back(remainingIdx);
+    } else {
+      // Extract this dimension using floorDiv with stride
+      AffineExpr strideExpr = builder.getAffineConstantExpr(inputStrides[i]);
+      reshapeExprs.push_back(remainingIdx.floorDiv(strideExpr));
+      // Update remaining index for next iteration
+      remainingIdx = remainingIdx % strideExpr;
+    }
+  }
+
+  int32_t outputDeviceRank = outputLogicalRank * 2;
+  return AffineMap::get(outputDeviceRank, 0, reshapeExprs,
+                        builder.getContext());
+}
+
 namespace {
+// Rewriter for tensor manipulation ops (reshape, rearrange, etc).
+// Takes a function that computes the device-space affine map for the op.
 template <typename TensorManipulationOp,
-          AffineMap (*LogicalAffineMapFn)(TensorManipulationOp)>
+          AffineMap (*DeviceMapFn)(TensorManipulationOp, OpBuilder &)>
 class D2MTensorManipulationOpRewriter
     : public OpConversionPattern<TensorManipulationOp>,
       D2MNamedRewriterCommon {
@@ -1264,76 +1415,16 @@ public:
   matchAndRewrite(TensorManipulationOp op,
                   typename TensorManipulationOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    AffineMap deviceMap =
-        projectLogicalMapToUnitDeviceSpace(rewriter, LogicalAffineMapFn(op));
+    AffineMap deviceMap = DeviceMapFn(op, rewriter);
 
-    auto origInputs = adaptor.getOperands();
-    auto origOutputs =
-        createDpsOutputs(op.getLoc(), rewriter, {op.getResult().getType()});
-
-    auto [inputs, outputs] =
-        toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
-                                   /*tiled*/ false);
-    assert(outputs.size() == 1);
-
-    auto outTy = mlir::cast<RankedTensorType>(outputs[0].getType());
-    auto layout = mlir::cast<ttcore::MetalLayoutAttr>(outTy.getEncoding());
-    auto newLayout = ttcore::MetalLayoutAttr::get(
-        layout.getContext(), layout.getLogicalShape(), layout.getOobVal(),
-        layout.getMemorySpace(), layout.getMemoryLayout(),
-        layout.getCollapsedIntervals(), layout.getDimAlignments(), deviceMap);
-    auto newOutTy = RankedTensorType::get(outTy.getShape(),
-                                          outTy.getElementType(), newLayout);
-
-    auto storage =
-        rewriter.create<d2m::EmptyOp>(op.getLoc(), outputs[0].getType());
-    auto view = rewriter.create<d2m::StreamLayoutOp>(
-        op.getLoc(), newOutTy, inputs[0], storage.getResult());
-
-    rewriter.replaceOp(op, unLayoutResult(rewriter, view->getResult(0),
-                                          op->getResult(0).getType()));
-
+    auto outputTensorType =
+        mlir::cast<RankedTensorType>(op.getResult().getType());
+    convertTensorManipulationOp(op, adaptor, deviceMap, rewriter,
+                                outputTensorType.getShape());
     return success();
-  }
-
-  static AffineMap projectLogicalMapToUnitDeviceSpace(Builder &builder,
-                                                      AffineMap logicalMap) {
-    unsigned deviceRank = static_cast<int64_t>(logicalMap.getNumDims() * 2);
-    SmallVector<AffineExpr> exprs(logicalMap.getResults());
-    while (exprs.size() < (logicalMap.getNumResults() * 2)) {
-      auto expr = exprs.size() <= deviceRank
-                      ? builder.getAffineDimExpr(
-                            (deviceRank - 1) -
-                            (exprs.size() - logicalMap.getNumResults()))
-                      : builder.getAffineConstantExpr(0);
-      exprs.insert(exprs.begin(), expr);
-    }
-
-    AffineMap shardGridFlippedMap =
-        AffineMap::get(deviceRank, 0, exprs, builder.getContext());
-
-    SmallVector<unsigned> shardGridPermutation;
-    for (unsigned d = logicalMap.getNumDims();
-         d < (logicalMap.getNumDims() * 2); ++d) {
-      shardGridPermutation.push_back(d);
-    }
-    for (unsigned d = 0; d < logicalMap.getNumDims(); ++d) {
-      shardGridPermutation.push_back(d);
-    }
-
-    AffineMap shardGridPermutationMap = AffineMap::getPermutationMap(
-        shardGridPermutation, builder.getContext());
-
-    return shardGridFlippedMap.compose(shardGridPermutationMap);
   }
 };
 } // namespace
-
-static AffineMap rearrangeLogicalMap(ttir::RearrangeOp op) {
-  mlir::FailureOr<AffineMap> maybeMap = op.getInvPatternMap();
-  assert(succeeded(maybeMap));
-  return *maybeMap;
-}
 
 } // namespace mlir::tt
 
@@ -1393,8 +1484,9 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MNamedReductionRewriter<ttir::SumOp,          d2m::TileReduceSumOp>,
     // Data movement.
     D2MNamedElementwiseRewriter<ttir::TypecastOp,     d2m::TileTypecastOp>,
-    // View ops.
-    D2MTensorManipulationOpRewriter<ttir::RearrangeOp, rearrangeLogicalMap>,
+    // Tensor manipulation ops.
+    D2MTensorManipulationOpRewriter<ttir::RearrangeOp, rearrangeDeviceMap>,
+    D2MTensorManipulationOpRewriter<ttir::ReshapeOp, reshapeDeviceMap>,
     // Permute (handles tranpose ops, since they're canonicalized into permutes).
     D2MPermuteRewriter
   >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, ttnnMode, collapseTensors);
