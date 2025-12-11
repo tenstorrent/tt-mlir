@@ -22,28 +22,31 @@ pytestmark = pytest.mark.frontend("ttir")
 
 
 # Ternary ops
-def module_where(builder: TTIRBuilder):
-    @builder.func([(128, 128), (128, 128), (128, 128)], [torch.float32] * 3)
-    def where(
-        in0: Operand,
-        in1: Operand,
-        in2: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return builder.where(in0, in1, in2, unit_attrs=unit_attrs)
+def module_where(dtype: torch.dtype):
+    def _module_where(builder: TTIRBuilder):
+        @builder.func([(128, 128), (128, 128), (128, 128)], [dtype] * 3)
+        def where(
+            in0: Operand,
+            in1: Operand,
+            in2: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            # in0 is the condition tensor, should be filled with 0s or 1s
+            condition_tensor = torch.randint(0, 2, (128, 128), dtype=dtype)
+            builder.set_goldens(inputs={in0: condition_tensor})
+            return builder.where(in0, in1, in2, unit_attrs=unit_attrs)
+
+    return _module_where
 
 
 ternary_ops = [
-    module_where
-    | Marks(
-        pytest.mark.xfail(reason="Fails Golden"), pytest.mark.skip_config(["ttmetal"])
-    ),
+    module_where,
 ]
 
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 @pytest.mark.parametrize("test_fn", ternary_ops)
 def test_ternary_ops(
@@ -51,7 +54,7 @@ def test_ternary_ops(
 ):
     pipeline_options = []
     compile_and_execute_ttir(
-        test_fn,
+        test_fn(dtype),
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),

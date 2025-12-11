@@ -598,6 +598,55 @@ def TTKernel_BinaryMinTileOp : TTKernel_SFPUOp<"binary_min_tile", [TTKernel_Bina
     }];
 }
 
+def TTKernel_WhereTileInitOp : TTKernel_InitOp<"where_tile_init"> {
+    let summary = "Short init function";
+    let description = [{
+      Must be run before where_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_WhereTileOp : TTKernel_SFPUOp<"where_tile", [TTKernel_TernaryOpTrait]> {
+    let summary = "Conditional selection operation";
+    let description = [{
+      Performs element-wise conditional selection
+      DST[odst_index] <- condition ? DST[dst_true_index] : DST[dst_false_index]
+      For each element, if condition is non-zero, selects from dst_true_index,
+      otherwise selects from dst_false_index.
+      The DST register buffer must be in acquired state via *acquire_dst* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst_cond_index, IndexLike:$dst_true_index, IndexLike:$dst_false_index, IndexLike:$odst_index);
+
+    let assemblyFormat = [{
+      `(` $dst_cond_index `,` $dst_true_index `,` $dst_false_index `,` $odst_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_WhereTileF32Op : TTKernel_SFPUOp<"where_fp32_tile", [TTKernel_TernaryOpTrait]> {
+    let summary = "Conditional selection operation";
+    let description = [{
+      Performs element-wise conditional selection
+      DST[odst_index] <- condition ? DST[dst_true_index] : DST[dst_false_index]
+      For each element, if condition is non-zero, selects from dst_true_index,
+      otherwise selects from dst_false_index.
+      The DST register buffer must be in acquired state via *acquire_dst* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst_cond_index, IndexLike:$dst_true_index, IndexLike:$dst_false_index, IndexLike:$odst_index);
+
+    let assemblyFormat = [{
+      `(` $dst_cond_index `,` $dst_true_index `,` $dst_false_index `,` $odst_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+
+
 def TTKernel_AddBinaryTilesInitOp : TTKernel_InitOp<"add_binary_tile_init"> {
     let summary = "Short init function";
     let description = [{
