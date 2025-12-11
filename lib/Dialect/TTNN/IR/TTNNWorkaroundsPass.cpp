@@ -154,12 +154,14 @@ TTNNOperandsWorkaroundsFactory::createEmbeddingOpOperandsWorkarounds() {
   weightRowMajorBf16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
   weightRowMajorBf16Workaround.tensorDataTypeWorkaround =
       ttcore::DataType::BFloat16;
-  TTNNOperandWorkarounds bf16Workaround =
-      TTNNOperandWorkarounds(ttcore::DataType::BFloat16);
+  TTNNOperandWorkarounds outputTiledBf16Workaround;
+  outputTiledBf16Workaround.tensorLayoutWorkaround = Layout::Tile;
+  outputTiledBf16Workaround.tensorDataTypeWorkaround =
+      ttcore::DataType::BFloat16;
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds(0, 0)
       .addInputOperandWorkaround(inputRowMajorInt32Workaround)
       .addInputOperandWorkaround(weightRowMajorBf16Workaround)
-      .addOutputOperandWorkaround(bf16Workaround);
+      .addOutputOperandWorkaround(outputTiledBf16Workaround);
 }
 
 // Factory method to create a set of workarounds for embedding backward
