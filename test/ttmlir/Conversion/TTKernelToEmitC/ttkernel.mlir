@@ -347,8 +347,8 @@ module {
       %cb_idx_A = arith.constant 1 : i32
       %cb_idx_B = arith.constant 2 : i32
       %cb_idx_C = arith.constant 3 : i32
-      // CHECK: emitc.call_opaque "matmul_tiles"(%[[CB_A]], %[[CB_B]], %[[CB_IDX_A]], %[[CB_IDX_B]], %[[CB_IDX_C]], %[[TRANSPOSE]])
-      "ttkernel.matmul_tiles"(%cb_A, %cb_B, %cb_idx_A, %cb_idx_B, %cb_idx_C, %transpose) : (!cb0_tiles, !cb1_tiles, i32, i32, i32, i32) -> ()
+      // CHECK: emitc.call_opaque "matmul_tiles"(%[[CB_A]], %[[CB_B]], %[[CB_IDX_A]], %[[CB_IDX_B]], %[[CB_IDX_C]])
+      "ttkernel.matmul_tiles"(%cb_A, %cb_B, %cb_idx_A, %cb_idx_B, %cb_idx_C) : (!cb0_tiles, !cb1_tiles, i32, i32, i32) -> ()
       return
     }
 

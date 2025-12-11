@@ -472,7 +472,7 @@ public:
                                                    transpose);
       rewriter.create<ttkernel::MatmulTilesOp>(op->getLoc(), cbA, cbB,
                                                adaptor.getA(), adaptor.getB(),
-                                               adaptor.getC(), transpose);
+                                               adaptor.getC());
     } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileMatmulBlockOp>) {
       auto insertionPoint = rewriter.getInsertionPoint();
       auto cbA = getCB(rewriter, op.getA());
