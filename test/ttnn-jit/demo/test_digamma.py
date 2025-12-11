@@ -49,8 +49,8 @@ def digamma(input_tensor):
     return ttnn.subtract(t_log_out, output)
 
 
+@ttnn_jit.jit(debug=True, graph_capture=True, enable_cache=True)
 def digamma_ttnn(input_tensor):
-    """Wrapper function that uses ttnn.digamma composite op."""
     return ttnn.digamma(input_tensor)
 
 
@@ -70,7 +70,7 @@ def digamma_ttnn(input_tensor):
     [
         digamma,
         ttnn_jit.jit(debug=True, graph_capture=True, enable_cache=True)(digamma.func),
-        ttnn_jit.jit(debug=True, graph_capture=True, enable_cache=True)(digamma_ttnn),
+        digamma_ttnn,
     ],
 )
 def test_digamma_metal_trace(h, w, op):
@@ -142,7 +142,7 @@ def test_digamma_metal_trace(h, w, op):
     [
         digamma,
         ttnn_jit.jit(debug=True, graph_capture=True, enable_cache=True)(digamma.func),
-        ttnn_jit.jit(debug=True, graph_capture=True, enable_cache=True)(digamma_ttnn),
+        digamma_ttnn,
     ],
 )
 def test_digamma_compare(h, w, op):
