@@ -29,16 +29,8 @@ namespace {
 // tensor type.
 //
 static TTNNLayoutAttr createSystemMemoryLayoutAttr(RankedTensorType type) {
-  static const std::array<std::pair<int64_t, int64_t>, 1> defaultCollapseDims =
-      {{{0, -1}}};
-
   auto currentLayout = mlir::cast<TTNNLayoutAttr>(type.getEncoding());
-  auto defaultGrid = ttcore::GridAttr::get(type.getContext());
-
-  return TTNNLayoutAttr::get(
-      type.getContext(), type.getShape(), type.getElementType(),
-      BufferType::SystemMemory, defaultGrid, TensorMemoryLayoutAttr{},
-      currentLayout.getTensorMesh(), defaultCollapseDims);
+  return currentLayout.withBufferType(BufferType::SystemMemory);
 }
 
 // Helper function to convert a tensor type to system memory type.
@@ -53,7 +45,7 @@ static RankedTensorType toSystemMemoryType(RankedTensorType ty) {
 //
 static bool isSystemMemory(RankedTensorType ty) {
   auto layout = mlir::cast<TTNNLayoutAttr>(ty.getEncoding());
-  return layout.getBufferType() == BufferType::SystemMemory;
+  return layout.isSystemBufferType();
 }
 
 // Helper function to determine whether to transfer the const-eval argument to
@@ -77,6 +69,157 @@ static bool shouldTransferArgumentToDevice(BlockArgument blockArgument) {
 
   return toLayoutOp.getMemoryConfig()->getBufferType().getValue() !=
          BufferType::SystemMemory;
+}
+
+// Converts the arguments of the forward function which are const-eval inputs
+// to system memory. Returns the list of converted arguments.
+//
+// An argument is considered to be a const-eval input if it is
+// consumed only by LoadCachedOps.
+//
+static SmallVector<BlockArgument> moveConstEvalArgsToHost(func::FuncOp funcOp) {
+  SmallVector<Type> argumentTypes;
+  SmallVector<BlockArgument> convertedArguments;
+
+  // Find relevant const-eval inputs and convert them to system
+  // memory.
+  //
+  for (auto blockArgument : funcOp.getRegion().getArguments()) {
+    auto tensorType = mlir::dyn_cast<RankedTensorType>(blockArgument.getType());
+
+    // If the argument is not a tensor or is already in system memory,
+    // skip it.
+    //
+    if (!tensorType || isSystemMemory(tensorType)) {
+      argumentTypes.push_back(blockArgument.getType());
+      continue;
+    }
+
+    // If the block argument has no uses, skip it.
+    //
+    if (blockArgument.getNumUses() == 0) {
+      argumentTypes.push_back(blockArgument.getType());
+      continue;
+    }
+
+    // If the block argument has a user which is not a LoadCachedOp, skip it.
+    //
+    if (llvm::any_of(blockArgument.getUsers(), [](Operation *userOp) {
+          return !mlir::isa<ttcore::LoadCachedOp>(userOp);
+        })) {
+      argumentTypes.push_back(blockArgument.getType());
+      continue;
+    }
+
+    // Convert the argument to system memory type.
+    //
+    auto systemMemoryTensorType = toSystemMemoryType(tensorType);
+
+    blockArgument.setType(systemMemoryTensorType);
+    argumentTypes.push_back(systemMemoryTensorType);
+    convertedArguments.push_back(blockArgument);
+  }
+
+  // Update function type with new argument types only if necessary.
+  //
+  if (!convertedArguments.empty()) {
+    auto newFunctionType =
+        mlir::FunctionType::get(funcOp->getContext(), argumentTypes,
+                                funcOp.getFunctionType().getResults());
+    funcOp.setFunctionType(newFunctionType);
+  }
+
+  return convertedArguments;
+}
+
+// Updates the const-eval function to have the specified argument index
+// in system memory.
+//
+static void convertArgumentOfConstEvalFunc(func::FuncOp constEvalFuncOp,
+                                           size_t argumentIndex,
+                                           RankedTensorType systemMemoryType,
+                                           ttcore::GridAttr deviceGrid) {
+  SmallVector<Type> constEvalArgumentTypes(
+      constEvalFuncOp.getFunctionType().getInputs());
+
+  // If the argument is already converted to system memory, skip it.
+  //
+  if (constEvalArgumentTypes[argumentIndex] == systemMemoryType) {
+    return;
+  }
+
+  auto blockArgument = constEvalFuncOp.getArgument(argumentIndex);
+
+  // Check whether the argument is expected to be transferred to device
+  // memory.
+  //
+  if (shouldTransferArgumentToDevice(blockArgument)) {
+    // We need to insert a to_layout op which converts the argument to the
+    // original layout on device.
+    //
+    mlir::OpBuilder builder(constEvalFuncOp.getRegion());
+
+    // If there is already a ttnn.get_device op, we need to
+    // set the insertion point after it.
+    //
+    constEvalFuncOp.walk([&builder](ttnn::GetDeviceOp getDeviceOp) {
+      builder.setInsertionPointAfter(getDeviceOp);
+    });
+
+    auto deviceTensorType =
+        mlir::cast<RankedTensorType>(blockArgument.getType());
+    auto deviceTensorLayout =
+        mlir::cast<TTNNLayoutAttr>(deviceTensorType.getEncoding());
+
+    // Create to_layout op to convert the argument to the original layout.
+    //
+    auto originalDataTypeAttr = mlir::tt::ttcore::DataTypeAttr::get(
+        constEvalFuncOp.getContext(), deviceTensorLayout.getDataType());
+
+    auto toLayoutOp = builder.create<ttnn::ToLayoutOp>(
+        blockArgument.getLoc(), deviceTensorType, blockArgument,
+        deviceTensorLayout.getLayout(), originalDataTypeAttr,
+        MemoryConfigAttr::get(deviceTensorLayout, deviceGrid));
+
+    // Replace the argument usages with the to_layout op result.
+    //
+    blockArgument.replaceAllUsesExcept(toLayoutOp.getResult(), toLayoutOp);
+  } else {
+    // Otherwise, the argument is already being used only as a system memory
+    // tensor.
+    //
+    // We need to check if the only purpose of the ttnn.to_layout op
+    // consuming this argument is to transfer it to system memory.
+    // If so, we should remove this to_layout op altogether, in order to
+    // avoid TTNNDecomposeLayouts pass failing because of a redundant
+    // to_layout op, as the argument is already in system memory.
+    //
+    auto toLayoutOp =
+        mlir::cast<ttnn::ToLayoutOp>(*blockArgument.getUsers().begin());
+
+    // If the data type and layout of the to_layout op matches the argument
+    // type, we can remove it.
+    //
+    auto toLayoutOpResultType =
+        mlir::cast<RankedTensorType>(toLayoutOp.getResult().getType());
+
+    if (toLayoutOpResultType.getEncoding() == systemMemoryType.getEncoding() &&
+        toLayoutOpResultType.getElementType() ==
+            systemMemoryType.getElementType()) {
+      toLayoutOp.getResult().replaceAllUsesWith(blockArgument);
+      toLayoutOp.erase();
+    }
+  }
+
+  // Finally, update the block argument type and the function type.
+  //
+  blockArgument.setType(systemMemoryType);
+
+  constEvalArgumentTypes[argumentIndex] = systemMemoryType;
+  auto newConstEvalFunctionType = mlir::FunctionType::get(
+      constEvalFuncOp->getContext(), constEvalArgumentTypes,
+      constEvalFuncOp.getFunctionType().getResults());
+  constEvalFuncOp.setFunctionType(newConstEvalFunctionType);
 }
 
 class TTNNConstEvalInputsToSystemMemory
@@ -103,7 +246,7 @@ public:
       // const-eval inputs to system memory.
       //
       SmallVector<BlockArgument> convertedArguments =
-          convertArgumentsOfForwardFunc(funcOp);
+          moveConstEvalArgsToHost(funcOp);
 
       // Next, we need to update all const-eval functions accordingly.
       //
@@ -112,9 +255,9 @@ public:
         //
         llvm::SmallVector<ttcore::LoadCachedOp> loadCachedOps;
         for (auto *userOp : convertedArgument.getUsers()) {
-          if (auto op = llvm::dyn_cast<ttcore::LoadCachedOp>(userOp)) {
-            loadCachedOps.push_back(op);
-          }
+          TT_assertv(mlir::isa<ttcore::LoadCachedOp>(userOp),
+                     "Expected load cached op");
+          loadCachedOps.push_back(mlir::cast<ttcore::LoadCachedOp>(userOp));
         }
 
         for (auto loadCachedOp : loadCachedOps) {
@@ -153,164 +296,6 @@ public:
     registry.insert<mlir::tt::ttnn::TTNNDialect>();
     registry.insert<mlir::tt::ttcore::TTCoreDialect>();
     registry.insert<mlir::func::FuncDialect>();
-  }
-
-private:
-  // Converts the arguments of the forward function which are const-eval inputs
-  // to system memory. Returns the list of converted arguments.
-  //
-  // An argument is considered to be a const-eval input if it is only
-  // consumed by LoadCachedOps
-  //
-  SmallVector<BlockArgument>
-  convertArgumentsOfForwardFunc(func::FuncOp funcOp) {
-    SmallVector<Type> argumentTypes;
-    SmallVector<BlockArgument> convertedArguments;
-
-    // Find relevant const-eval inputs and convert them to system
-    // memory.
-    //
-    for (auto blockArgument : funcOp.getRegion().getArguments()) {
-      auto tensorType =
-          mlir::dyn_cast<RankedTensorType>(blockArgument.getType());
-
-      // If the argument is not a tensor or is already in system memory,
-      // skip it.
-      //
-      if (!tensorType || isSystemMemory(tensorType)) {
-        argumentTypes.push_back(blockArgument.getType());
-        continue;
-      }
-
-      // If the block argument has no uses, skip it.
-      //
-      if (blockArgument.getNumUses() == 0) {
-        argumentTypes.push_back(blockArgument.getType());
-        continue;
-      }
-
-      // If the block argument has a user which is not a LoadCachedOp, skip it.
-      //
-      if (llvm::any_of(blockArgument.getUsers(), [](Operation *userOp) {
-            return !mlir::isa<ttcore::LoadCachedOp>(userOp);
-          })) {
-        argumentTypes.push_back(blockArgument.getType());
-        continue;
-      }
-
-      // Convert the argument to system memory type.
-      //
-      auto systemMemoryTensorType = toSystemMemoryType(tensorType);
-
-      blockArgument.setType(systemMemoryTensorType);
-      argumentTypes.push_back(systemMemoryTensorType);
-      convertedArguments.push_back(blockArgument);
-    }
-
-    // Update function type with new argument types only if necessary.
-    //
-    if (!convertedArguments.empty()) {
-      auto newFunctionType =
-          mlir::FunctionType::get(funcOp->getContext(), argumentTypes,
-                                  funcOp.getFunctionType().getResults());
-      funcOp.setFunctionType(newFunctionType);
-    }
-
-    return convertedArguments;
-  }
-
-  // Updates the const-eval function to have the specified argument index
-  // in system memory.
-  //
-  void convertArgumentOfConstEvalFunc(func::FuncOp constEvalFuncOp,
-                                      size_t argumentIndex,
-                                      RankedTensorType systemMemoryType,
-                                      ttcore::GridAttr deviceGrid) {
-    SmallVector<Type> constEvalArgumentTypes(
-        constEvalFuncOp.getFunctionType().getInputs());
-
-    // If the argument is already converted to system memory, skip it.
-    //
-    if (constEvalArgumentTypes[argumentIndex] == systemMemoryType) {
-      return;
-    }
-
-    constEvalArgumentTypes[argumentIndex] = systemMemoryType;
-
-    // Update the function type.
-    auto newConstEvalFunctionType = mlir::FunctionType::get(
-        constEvalFuncOp->getContext(), constEvalArgumentTypes,
-        constEvalFuncOp.getFunctionType().getResults());
-
-    constEvalFuncOp.setFunctionType(newConstEvalFunctionType);
-
-    auto blockArgument = constEvalFuncOp.getArgument(argumentIndex);
-
-    // Check whether the argument is expected to be transferred to device
-    // memory.
-    //
-    if (shouldTransferArgumentToDevice(blockArgument)) {
-      // We need to insert a to_layout op which converts the argument to the
-      // original layout on device.
-      //
-      mlir::OpBuilder builder(constEvalFuncOp.getRegion());
-
-      // If there is already a ttnn.get_device op, we need to
-      // set the insertion point after it.
-      //
-      constEvalFuncOp.walk([&builder](ttnn::GetDeviceOp getDeviceOp) {
-        builder.setInsertionPointAfter(getDeviceOp);
-      });
-
-      auto deviceTensorType =
-          mlir::cast<RankedTensorType>(blockArgument.getType());
-      auto deviceTensorLayout =
-          mlir::cast<TTNNLayoutAttr>(deviceTensorType.getEncoding());
-
-      // Create to_layout op to convert the argument to the original layout.
-      //
-      auto originalDataTypeAttr = mlir::tt::ttcore::DataTypeAttr::get(
-          constEvalFuncOp.getContext(), deviceTensorLayout.getDataType());
-
-      auto toLayoutOp = builder.create<ttnn::ToLayoutOp>(
-          blockArgument.getLoc(), deviceTensorType, blockArgument,
-          deviceTensorLayout.getLayout(), originalDataTypeAttr,
-          MemoryConfigAttr::get(deviceTensorLayout, deviceGrid));
-
-      // Replace the argument usages with the to_layout op result.
-      //
-      blockArgument.replaceAllUsesExcept(toLayoutOp.getResult(), toLayoutOp);
-    } else {
-      // Otherwise, the argument is already being used only as a system memory
-      // tensor.
-      //
-      // We need to check if the only purpose of the ttnn.to_layout op
-      // consuming this argument is to transfer it to system memory.
-      // If so, we should remove this to_layout op altogether, in order to
-      // avoid TTNNDecomposeLayouts pass failing because of a redundant
-      // to_layout op, as the argument is already in system memory.
-      //
-      auto toLayoutOp =
-          mlir::cast<ttnn::ToLayoutOp>(*blockArgument.getUsers().begin());
-
-      // If the data type and layout of the to_layout op matches the argument
-      // type, we can remove it.
-      //
-      auto toLayoutOpResultType =
-          mlir::cast<RankedTensorType>(toLayoutOp.getResult().getType());
-
-      if (toLayoutOpResultType.getEncoding() ==
-              systemMemoryType.getEncoding() &&
-          toLayoutOpResultType.getElementType() ==
-              systemMemoryType.getElementType()) {
-        toLayoutOp.getResult().replaceAllUsesWith(blockArgument);
-        toLayoutOp.erase();
-      }
-    }
-
-    // Finally, update the block argument type.
-    //
-    blockArgument.setType(systemMemoryType);
   }
 };
 } // namespace
