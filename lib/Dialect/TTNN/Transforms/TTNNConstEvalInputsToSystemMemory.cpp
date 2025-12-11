@@ -86,20 +86,19 @@ static SmallVector<BlockArgument> moveConstEvalArgsToHost(func::FuncOp funcOp) {
   // memory.
   //
   for (auto blockArgument : funcOp.getRegion().getArguments()) {
-    auto tensorType = mlir::dyn_cast<RankedTensorType>(blockArgument.getType());
+    auto tensorType = mlir::cast<RankedTensorType>(blockArgument.getType());
 
-    // If the argument is not a tensor or is already in system memory,
-    // skip it.
+    // If the argument is already in the system memory, skip it.
     //
-    if (!tensorType || isSystemMemory(tensorType)) {
-      argumentTypes.push_back(blockArgument.getType());
+    if (isSystemMemory(tensorType)) {
+      argumentTypes.push_back(tensorType);
       continue;
     }
 
     // If the block argument has no uses, skip it.
     //
     if (blockArgument.getNumUses() == 0) {
-      argumentTypes.push_back(blockArgument.getType());
+      argumentTypes.push_back(tensorType);
       continue;
     }
 
@@ -108,7 +107,7 @@ static SmallVector<BlockArgument> moveConstEvalArgsToHost(func::FuncOp funcOp) {
     if (llvm::any_of(blockArgument.getUsers(), [](Operation *userOp) {
           return !mlir::isa<ttcore::LoadCachedOp>(userOp);
         })) {
-      argumentTypes.push_back(blockArgument.getType());
+      argumentTypes.push_back(tensorType);
       continue;
     }
 
