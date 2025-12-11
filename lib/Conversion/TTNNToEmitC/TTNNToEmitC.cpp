@@ -2518,6 +2518,181 @@ public:
 };
 } // namespace
 
+// DistributeTensorOp conversion pattern
+//
+namespace {
+class DistributeTensorOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::DistributeTensorOp> {
+private:
+  std::string getPrefixSwapPattern() const override { return kDistributedNs; }
+
+  inline static const std::string kDistributedNs = "::ttnn::distributed::";
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::DistributeTensorOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::DistributeTensorOp srcOp,
+                  mlir::tt::ttnn::DistributeTensorOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::DistributeTensorOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    auto mapperConfigAttr = srcOp.getMapperConfig();
+
+    // Build placements code
+    std::string placementsCode = "{";
+    llvm::raw_string_ostream os(placementsCode);
+    auto placements = mapperConfigAttr.getPlacements();
+    llvm::interleave(
+        placements.begin(), placements.end(),
+        [&](const mlir::tt::ttnn::PlacementAttr &placement) {
+          if (placement.getType() == mlir::tt::ttnn::PlacementType::Replicate) {
+            os << kDistributedNs << "MeshMapperConfig"
+               << "::Placement{" << kDistributedNs << "MeshMapperConfig"
+               << "::Replicate{}}";
+          } else if (placement.getType() ==
+                     mlir::tt::ttnn::PlacementType::Shard) {
+            if (auto dimAttr = placement.getDim()) {
+              os << kDistributedNs << "MeshMapperConfig"
+                 << "::Placement{" << kDistributedNs << "MeshMapperConfig"
+                 << "::Shard{" << dimAttr.getValue().getSExtValue() << "}}";
+            }
+          }
+        },
+        [&] { os << ", "; });
+    os << "}";
+
+    // Build mesh shape code
+    std::string meshShapeCode =
+        emitter.createMeshShapeCode(mapperConfigAttr.getMeshShapeOverride());
+
+    // Build config code
+    std::string configCode = kDistributedNs + "MeshMapperConfig{";
+    configCode += placementsCode;
+    if (!meshShapeCode.empty()) {
+      configCode += ", " + meshShapeCode;
+    }
+    configCode += "}";
+
+    auto mapperConfigType = emitc::OpaqueType::get(
+        rewriter.getContext(), kDistributedNs + "MeshMapperConfig");
+    auto mapperConfigOpaqueAttr =
+        rewriter.getAttr<emitc::OpaqueAttr>(configCode);
+    auto mapperConfigOp = rewriter.create<emitc::ConstantOp>(
+        srcOp.getLoc(), mapperConfigType, mapperConfigOpaqueAttr);
+
+    auto meshDeviceRef = emitter.dereferenceToRef(
+        adaptor.getMeshDevice(), kDistributedNs + "MeshDevice&");
+
+    auto meshMapperType = emitc::OpaqueType::get(
+        rewriter.getContext(),
+        "::std::unique_ptr<" + kDistributedNs + "TensorToMesh>");
+    auto createMapperOp = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(), meshMapperType,
+        rewriter.getStringAttr(kDistributedNs + "create_mesh_mapper"), nullptr,
+        nullptr,
+        llvm::SmallVector<mlir::Value>{meshDeviceRef,
+                                       mapperConfigOp.getResult()});
+
+    auto tensorToMeshRef = emitter.dereferenceUniquePtr(
+        createMapperOp.getResult(0), kDistributedNs + "TensorToMesh&");
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(tensorToMeshRef, /*index=*/1)};
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
+// AggregateTensorOp conversion pattern
+//
+namespace {
+class AggregateTensorOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::AggregateTensorOp> {
+private:
+  std::string getPrefixSwapPattern() const override { return kDistributedNs; }
+
+  inline static const std::string kDistributedNs = "::ttnn::distributed::";
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::AggregateTensorOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::AggregateTensorOp srcOp,
+                  mlir::tt::ttnn::AggregateTensorOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::AggregateTensorOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    auto composerConfig = srcOp.getComposerConfig();
+
+    // Build dims code
+    std::string dimsCode = "{";
+    llvm::raw_string_ostream os(dimsCode);
+    auto dims = composerConfig.getDims();
+    llvm::interleave(
+        dims.begin(), dims.end(),
+        [&](const mlir::IntegerAttr &dimAttr) {
+          os << dimAttr.getValue().getSExtValue();
+        },
+        [&] { os << ", "; });
+    os << "}";
+
+    // Build mesh shape code
+    std::string meshShapeCode =
+        emitter.createMeshShapeCode(composerConfig.getMeshShapeOverride());
+
+    // Build config code
+    std::string configCode = kDistributedNs + "MeshComposerConfig{";
+    configCode += dimsCode;
+    if (!meshShapeCode.empty()) {
+      configCode += ", " + meshShapeCode;
+    }
+    configCode += "}";
+
+    auto composerConfigType = emitc::OpaqueType::get(
+        rewriter.getContext(), kDistributedNs + "MeshComposerConfig");
+    auto composerConfigOpaqueAttr =
+        rewriter.getAttr<emitc::OpaqueAttr>(configCode);
+    auto composerConfigOp = rewriter.create<emitc::ConstantOp>(
+        srcOp.getLoc(), composerConfigType, composerConfigOpaqueAttr);
+
+    auto meshDeviceRef = emitter.dereferenceToRef(
+        adaptor.getMeshDevice(), kDistributedNs + "MeshDevice&");
+
+    auto meshComposerType = emitc::OpaqueType::get(
+        rewriter.getContext(),
+        "::std::unique_ptr<" + kDistributedNs + "MeshToTensor>");
+    auto createComposerOp = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(), meshComposerType,
+        rewriter.getStringAttr(kDistributedNs + "create_mesh_composer"),
+        nullptr, nullptr,
+        llvm::SmallVector<mlir::Value>{meshDeviceRef,
+                                       composerConfigOp.getResult()});
+
+    auto meshToTensorRef = emitter.dereferenceUniquePtr(
+        createComposerOp.getResult(0), kDistributedNs + "MeshToTensor&");
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(meshToTensorRef, /*index=*/1)};
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
 // AllGatherOp conversion pattern
 //
 namespace {
@@ -4352,6 +4527,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<ScatterOpConversionPattern>(typeConverter, ctx);
   patterns.add<CollectivePermuteOpConversionPattern>(typeConverter, ctx);
   patterns.add<MeshShardOpConversionPattern>(typeConverter, ctx);
+  patterns.add<DistributeTensorOpConversionPattern>(typeConverter, ctx);
+  patterns.add<AggregateTensorOpConversionPattern>(typeConverter, ctx);
   patterns.add<PointToPointOpConversionPattern>(typeConverter, ctx);
 
   // KV Cache ops
