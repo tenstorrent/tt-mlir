@@ -18,7 +18,7 @@ completely generic and query this registry to determine how to handle each opera
 from typing import Dict, List, Any, Optional
 from abc import ABC, abstractmethod
 import ttnn_jit._src.supported_ops as supported_ops
-from .conversions import ttcore_dtype_from_mlir_dtype
+from ttnn_jit._src.conversions import ttcore_dtype_from_mlir_dtype
 
 
 class OpHandler(ABC):

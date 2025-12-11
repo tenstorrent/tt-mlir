@@ -223,7 +223,11 @@ void registerRuntimeBindings(nb::module_ &m) {
             return nb::bytearray(reinterpret_cast<const char *>(vec.data()),
                                  vec.size());
           },
-          nb::rv_policy::take_ownership);
+          nb::rv_policy::take_ownership)
+      .def("has_layout",
+           [](tt::runtime::Tensor self, tt::runtime::Layout layout) {
+             return tt::runtime::hasLayout(self, layout);
+           });
 
   nb::class_<tt::runtime::TensorRef>(m, "TensorRef");
   nb::class_<tt::runtime::Layout>(m, "Layout");

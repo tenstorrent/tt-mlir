@@ -12,10 +12,13 @@ from ttmlir import util
 from ttmlir.dialects import ttnn, ttcore, func
 
 from builder.base.builder import *
+from builder.base.builder_utils import *
+
 from golden import *
 
 
 class TTNNBuilder(Builder):
+
     # ----- Methods -----
 
     def __init__(
@@ -2864,33 +2867,6 @@ class TTNNBuilder(Builder):
     def from_module(
         ctx: Context, mlir_text: str, golden_inputs: List[torch.tensor] = None
     ) -> Tuple(Module, TTNNBuilder):
-        def _convert_to_mlir_value(obj):
-            if hasattr(obj, "operation") and hasattr(obj.operation, "results"):
-                results = obj.operation.results
-                if len(results) == 1:
-                    return results[0]
-                else:
-                    return results
-            elif hasattr(obj, "type"):
-                return obj
-            else:
-                return obj
-
-        def _process_multi_return_result(result):
-            if hasattr(result, "__iter__") and not isinstance(result, str):
-                converted_results = []
-                for item in result:
-                    converted = _convert_to_mlir_value(item)
-                    if hasattr(converted, "__iter__") and not hasattr(
-                        converted, "type"
-                    ):
-                        converted_results.extend(converted)
-                    else:
-                        converted_results.append(converted)
-                return tuple(converted_results)
-            else:
-                return _convert_to_mlir_value(result)
-
         if golden_inputs is None:
             golden_inputs = []
 
@@ -2964,7 +2940,7 @@ class TTNNBuilder(Builder):
                     ttnn_builder._set_goldens(output_goldens)
                     ttnn_builder._set_output_ordering(list(outputs))
 
-                    return _process_multi_return_result(global_result)
+                    return process_multi_return_result(global_result)
 
         return new_module, ttnn_builder
 
