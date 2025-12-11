@@ -417,8 +417,8 @@ def join_unary_chains(in0, in1):
 def test_join_unary_chains_l1(device, shape, max_grid, dtype, shard_strategy):
     num_inputs = 2
 
-    # if shape == (2, 512, 2048):
-    #     pytest.xfail("long_unary_chain runs out of memory in regular TTNN path")
+    if shape == (2, 512, 2048):
+        pytest.xfail("long_unary_chain runs out of memory in regular TTNN path")
 
     run_op_test(
         device,
