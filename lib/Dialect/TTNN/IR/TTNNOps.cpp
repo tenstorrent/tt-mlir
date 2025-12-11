@@ -3264,10 +3264,8 @@ void mlir::tt::ttnn::PermuteOp::getCanonicalizationPatterns(
   patterns.add(+[](PermuteOp op,
                    mlir::PatternRewriter &rewriter) -> mlir::LogicalResult {
     // Require ranked tensors so we can reason about shapes.
-    auto inputType =
-        mlir::cast<mlir::RankedTensorType>(op.getInput().getType());
-    auto resultType =
-        mlir::cast<mlir::RankedTensorType>(op.getResult().getType());
+    auto inputType = op.getInput().getType();
+    auto resultType = op.getResult().getType();
 
     // Reshape cannot change layout/encoding, only the view.
     if (inputType.getEncoding() != resultType.getEncoding()) {
@@ -3300,11 +3298,7 @@ void mlir::tt::ttnn::PermuteOp::getCanonicalizationPatterns(
     }
 
     // Only singleton dims are moved: we can safely rewrite as reshape.
-    llvm::SmallVector<int32_t> newShape;
-    newShape.reserve(outShape.size());
-    for (int64_t d : outShape) {
-      newShape.push_back(static_cast<int32_t>(d));
-    }
+    llvm::SmallVector<int32_t> newShape(outShape.begin(), outShape.end());
 
     auto shapeAttr = rewriter.getI32ArrayAttr(newShape);
     auto memCfg = op.getMemoryConfigAttr();
