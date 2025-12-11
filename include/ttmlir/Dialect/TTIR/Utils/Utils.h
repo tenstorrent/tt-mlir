@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Analysis/TopologicalSortUtils.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Location.h"
@@ -28,10 +29,11 @@ namespace detail {
 // mlir::Value but should not be considered an operand.
 template <typename T>
 struct is_operand
-    : std::bool_constant<(std::is_convertible_v<T, mlir::Value> ||
-                          std::is_convertible_v<T, mlir::ValueRange>) &&
-                         !std::is_convertible_v<
-                             T, mlir::TypedValue<mlir::tt::ttnn::DeviceType>>> {
+    : std::bool_constant<
+          (std::is_convertible_v<T, mlir::Value> ||
+           std::is_convertible_v<T, mlir::ValueRange>)&&!std::
+              is_convertible_v<T,
+                               mlir::TypedValue<mlir::tt::ttnn::DeviceType>>> {
 };
 
 template <typename T>
@@ -328,6 +330,67 @@ inline Value flattenTensor(PatternRewriter &rewriter, Location loc,
 
   return flattenedTensor;
 }
+
+// Traces backward from a value through specified ops to find the source value.
+template <typename... Ops>
+mlir::Value lookThrough(mlir::Value value) {
+  while (auto *op = value.getDefiningOp()) {
+    if (llvm::isa<Ops...>(op)) {
+      value = op->getOperand(0);
+    } else {
+      break;
+    }
+  }
+  return value;
+}
+
+// Traces backward from a value through specified ops to find an operation of
+// type OpTy.
+template <typename OpTy, typename... Ops>
+OpTy findOpThrough(mlir::Value value) {
+  return lookThrough<Ops...>(value).template getDefiningOp<OpTy>();
+}
+
+// Traces backward through all layout ops (typecast, reshape, permute,
+// broadcast, repeat_interleave) to find the source value.
+inline mlir::Value lookThroughLayoutOps(mlir::Value value) {
+  return lookThrough<TypecastOp, ReshapeOp, PermuteOp, BroadcastOp,
+                     RepeatInterleaveOp>(value);
+}
+
+// Traces backward through all layout ops to find an operation of type OpTy.
+template <typename OpTy>
+OpTy findOpThroughLayoutOps(mlir::Value value) {
+  return lookThroughLayoutOps(value).template getDefiningOp<OpTy>();
+}
+
+// Moves the use-define chain of a value before a target operation.
+// Used when operations are moved or new operations are added to ensure that
+// operations are not placed before the definitions of their inputs, preserving
+// MLIR's topological ordering.
+inline void moveUDChainBefore(mlir::Value value, mlir::Operation *targetOp) {
+  if (!value.getDefiningOp() ||
+      value.getDefiningOp()->isBeforeInBlock(targetOp)) {
+    return;
+  }
+
+  llvm::SetVector<mlir::Value> udChain = ttmlir::utils::getUseDefChain(value);
+  llvm::SetVector<mlir::Operation *> udChainOps =
+      ttmlir::utils::filterOperations(udChain.getArrayRef());
+  llvm::SetVector<mlir::Operation *> udChainSorted =
+      mlir::topologicalSort(udChainOps);
+
+  // We are not moving ops in UD chain that are already before the target, as
+  // they could have descendants that are also before target but are not in
+  // the UD chain.
+  for (auto *op : udChainSorted) {
+    if (op->isBeforeInBlock(targetOp)) {
+      continue;
+    }
+    op->moveBefore(targetOp);
+  }
+}
+
 } // namespace mlir::tt::ttir::utils
 
 #endif // TTMLIR_DIALECT_TTIR_UTILS_UTILS_H
