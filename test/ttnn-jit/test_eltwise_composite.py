@@ -337,18 +337,12 @@ def long_unary_chain(input_tensor_a):
     res_2 = ttnn.neg(res_1)
     res_3 = ttnn.exp(res_2)
 
-    # res_4 = ttnn.abs(res_3)
-    # res_5 = ttnn.cos(res_4)
-
-    return res_3
-    # replace the above return with the code below
-    # to see shapes/grids where ttnn runs out of memory
-    # but ttnn.jit, through fusion, does not.
-
-    # res_6 = ttnn.neg(res_5)
-    # res_7 = ttnn.exp(res_6)
-    # res_8 = ttnn.neg(res_7)
-    # return res_8
+    res_4 = ttnn.abs(res_3)
+    res_5 = ttnn.cos(res_4)
+    res_6 = ttnn.neg(res_5)
+    res_7 = ttnn.exp(res_6)
+    res_8 = ttnn.neg(res_7)
+    return res_8
 
 
 @pytest.mark.parametrize(
@@ -423,8 +417,8 @@ def join_unary_chains(in0, in1):
 def test_join_unary_chains_l1(device, shape, max_grid, dtype, shard_strategy):
     num_inputs = 2
 
-    if shape == (2, 512, 2048):
-        pytest.xfail("long_unary_chain runs out of memory in regular TTNN path")
+    # if shape == (2, 512, 2048):
+    #     pytest.xfail("long_unary_chain runs out of memory in regular TTNN path")
 
     run_op_test(
         device,
