@@ -12,7 +12,11 @@ from builder.base.builder_utils import Operand, Shape
 from builder.base.builder_apis import compile_and_execute_ttir
 from builder.ttir.ttir_builder import TTIRBuilder
 
-pytestmark = pytest.mark.frontend("ttir")
+# Temporarily disabled: RMSNorm with sharded input causes crash in metal.
+pytestmark = [
+    pytest.mark.frontend("ttir"),
+    pytest.mark.skip(reason="Temporarily disabled: RMSNorm sharding causes crash in metal"),
+]
 
 
 def check_sharded_output(mlir_file: str, op_name: str):
