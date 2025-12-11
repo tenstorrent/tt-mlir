@@ -818,6 +818,66 @@ def test_slice(
     )
 
 
+@pytest.mark.parametrize(
+    "shapes,dimension,is_stable",
+    [
+        ([(32, 64)], 0, True),  # Sort along first dimension, stable
+        ([(32, 64)], 1, True),  # Sort along second dimension, stable
+        ([(32, 64)], 0, False),  # Sort along first dimension, unstable
+        ([(32, 64)], 1, False),  # Sort along second dimension, unstable
+        ([(128, 128)], 0, True),  # Larger tensor, sort along first dimension
+        ([(128, 128)], 1, True),  # Larger tensor, sort along second dimension
+        ([(16, 32, 48)], 2, True),  # 3D tensor, sort along last dimension
+        # Multi-input sort (sort multiple tensors together)
+        ([(32, 32), (32, 32)], 0, True),  # Two tensors, sort together
+        ([(32, 32), (32, 32)], 1, False),  # Two tensors, different dimension
+        ([(16, 64), (16, 64), (16, 64)], 1, True),  # Three tensors
+    ],
+    ids=[
+        "32x64_dim0_stable",
+        "32x64_dim1_stable",
+        "32x64_dim0_unstable",
+        "32x64_dim1_unstable",
+        "128x128_dim0",
+        "128x128_dim1",
+        "3d_dim2",
+        "multi_2tensors_dim0",
+        "multi_2tensors_dim1",
+        "multi_3tensors",
+    ],
+)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_sort(
+    shapes: List[Shape],
+    dimension: int,
+    is_stable: bool,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: StableHLOBuilder):
+        @builder.func(shapes, [dtype] * len(shapes))
+        def sort(*inputs_and_builder):
+            *inputs, builder = inputs_and_builder
+            builder.set_graph_level_check(True)
+            results = builder.sort(
+                list(inputs), dimension=dimension, is_stable=is_stable
+            )
+            # Return all sorted tensors
+            return results if len(results) > 1 else results[0]
+
+    compile_and_execute_shlo(
+        module,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
 # Bitwise operations tests (integer tensors)
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])

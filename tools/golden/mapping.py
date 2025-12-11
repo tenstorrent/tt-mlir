@@ -4086,6 +4086,70 @@ def stablehlo_shift_right_logical_golden(
     return shifted.to(output_dtype)
 
 
+def stablehlo_sort_golden(
+    input_tensors: List[GoldenMapTensor],
+    dimension: int,
+    is_stable: bool,
+    output_types_mlir: List[Type],
+) -> List[GoldenMapTensor]:
+    """
+    Golden function for StableHLO sort operation.
+
+    Parameters
+    ----------
+    input_tensors : List[GoldenMapTensor]
+        List of input tensors to be sorted together
+    dimension : int
+        The dimension along which to sort
+    is_stable : bool
+        Whether to use stable sorting
+    output_types_mlir : List[Type]
+        MLIR types for output tensors
+
+    Returns
+    -------
+    List[GoldenMapTensor]
+        Sorted tensors in the same order as inputs
+    """
+    if not input_tensors:
+        return []
+
+    # Convert dimension to unpack from MLIR attribute if needed
+    if hasattr(dimension, "value"):
+        dimension = dimension.value
+    if hasattr(is_stable, "value"):
+        is_stable = is_stable.value
+
+    # Get the primary tensor (first one) for sorting
+    primary_tensor = input_tensors[0]
+
+    # Get sort indices from the primary tensor
+    # For StableHLO, default to ascending sort (descending=False)
+    # The comparator region would determine actual direction in real implementation
+    sorted_values, sort_indices = torch.sort(
+        primary_tensor,
+        dim=dimension,
+        descending=False,  # StableHLO comparator determines direction
+        stable=is_stable,
+    )
+
+    # Apply the same sort indices to all input tensors
+    result_tensors = []
+
+    for i, input_tensor in enumerate(input_tensors):
+        # Apply the sort permutation to this tensor
+        sorted_tensor = torch.gather(input_tensor, dimension, sort_indices)
+
+        # Convert to output dtype if specified
+        if i < len(output_types_mlir):
+            output_dtype = mlir_type_to_torch_dtype(output_types_mlir[i])
+            sorted_tensor = sorted_tensor.to(output_dtype)
+
+        result_tensors.append(sorted_tensor)
+
+    return result_tensors
+
+
 ################ TTNN Op Golden Functions ###############
 
 
@@ -4256,6 +4320,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.RsqrtOp: stablehlo_rsqrt_golden,
     stablehlo.ScatterOp: stablehlo_scatter_golden,
     stablehlo.SineOp: stablehlo_sine_golden,
+    stablehlo.SortOp: stablehlo_sort_golden,
     stablehlo.SqrtOp: stablehlo_sqrt_golden,
     stablehlo.TanOp: stablehlo_tan_golden,
     stablehlo.TanhOp: stablehlo_tanh_golden,

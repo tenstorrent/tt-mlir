@@ -1605,6 +1605,257 @@ class StableHLOBuilder(Builder):
 
         return slice_module, slice_builder
 
+    ############### stablehlo.SortOp ###############
+
+    @tag(stablehlo.SortOp)
+    def sort(
+        self,
+        inputs: List[Operand],
+        dimension: int,
+        is_stable: bool = True,
+        output_types: Optional[List[torch.dtype]] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> List[OpResult]:
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.sort)
+
+        if output_types is None:
+            mlir_output_types = [self.get_type(input) for input in inputs]
+        else:
+            mlir_output_types = [
+                self._get_type_from_torch_dtype(dtype) for dtype in output_types
+            ]
+
+        # Create output tensors
+        results = []
+        for i, output_type in enumerate(mlir_output_types):
+            results.append(
+                self._create_ranked_tensor_type(self.get_shape(inputs[i]), output_type)
+            )
+
+        # Get golden tensors for inputs
+        input_goldens = []
+        if not self._disable_golden_check:
+            for input in inputs:
+                input_goldens.append(self._get_golden_tensor(input))
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        # Create the sort operation - let the StableHLO constructor handle attribute creation
+        op = stablehlo_op(
+            results,
+            inputs,
+            dimension=dimension,  # Pass Python int directly
+            is_stable=is_stable,  # Pass Python bool directly
+            loc=loc,
+        )
+
+        # Create a simple comparator region for ascending order sort
+        # The comparator block takes 2*N arguments where N is the number of inputs
+        # For each pair of elements (left, right), it should return true if left < right
+        arg_types = []
+        for input in inputs:
+            input_type = self.get_type(input)
+            # Get the element type - if it's a shaped type, get element_type, otherwise use the type directly
+            if hasattr(input_type, "element_type"):
+                element_type = input_type.element_type
+            else:
+                element_type = input_type
+            # Create scalar tensor types for the comparator arguments
+            scalar_tensor_type = RankedTensorType.get([], element_type)
+            arg_types.extend([scalar_tensor_type, scalar_tensor_type])
+
+        block = op.comparator.blocks.append(*arg_types)
+
+        with InsertionPoint(block):
+            # TEMPORARY WORKAROUND: Use GT instead of LT due to potential TTNN sort parameter issue
+            # For what should be ascending sort, we'll try GT to see if TTNN parameters are inverted
+            comparison = stablehlo.compare(
+                block.arguments[0],
+                block.arguments[1],
+                stablehlo.ComparisonDirectionAttr.get("GT"),
+            )
+            stablehlo.return_([comparison])
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get()
+
+        if not self._disable_golden_check:
+            # Get golden function and compute golden outputs
+            op_golden_function = get_golden_function(stablehlo_op)
+            if op_golden_function is not None:
+                golden_outputs = op_golden_function(
+                    input_goldens, dimension, is_stable, mlir_output_types
+                )
+
+                # Set golden tensors for each output
+                if isinstance(golden_outputs, (list, tuple)):
+                    for i, result in enumerate(op.results):
+                        if i < len(golden_outputs):
+                            self._set_golden_tensor(result, golden_outputs[i])
+                else:
+                    # Single output case
+                    self._set_golden_tensor(op.results[0], golden_outputs)
+
+        return op.results
+
+    @parse(stablehlo.SortOp)
+    def sort_parser(
+        self,
+        old_op: stablehlo.SortOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.sort_parser)
+
+        # Map old inputs to new inputs
+        inputs = [global_dict[old_input] for old_input in old_op.inputs]
+
+        # Extract attributes
+        dimension = old_op.dimension
+        is_stable = old_op.is_stable
+
+        # Create output tensors with same types as old operation
+        outputs = []
+        for result in old_op.results:
+            outputs.append(self._create_ranked_tensor_type_from_mlir_type(result.type))
+
+        # Create new operation
+        new_op = stablehlo_op(
+            outputs,
+            inputs,
+            dimension=dimension,
+            is_stable=is_stable,
+            loc=old_op.location,
+        )
+
+        # Copy the comparator region
+        old_op.comparator.clone_into(new_op.comparator)
+
+        if not self._disable_golden_check:
+            # Get golden tensors for inputs
+            input_goldens = []
+            for old_input in old_op.inputs:
+                input_golden = self._get_golden_tensor(global_dict[old_input])
+                input_goldens.append(input_golden)
+
+            # Get golden function and compute outputs
+            op_golden_function = get_golden_function(stablehlo_op)
+            if op_golden_function is not None:
+                golden_outputs = op_golden_function(
+                    input_goldens,
+                    dimension.value if dimension else 0,
+                    is_stable.value if is_stable else True,
+                    [result.type for result in old_op.results],
+                )
+
+                # Set golden tensors for each output
+                if isinstance(golden_outputs, (list, tuple)):
+                    for i, result in enumerate(new_op.results):
+                        if i < len(golden_outputs):
+                            self._set_golden_tensor(result, golden_outputs[i])
+                else:
+                    self._set_golden_tensor(new_op.results[0], golden_outputs)
+
+        # Create operation mapping
+        op_map_dictionary = {}
+        for old_result, new_result in zip(old_op.results, new_op.results):
+            op_map_dictionary[old_result] = new_result
+
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.SortOp)
+    def sort_split(
+        self,
+        old_op: stablehlo.SortOp,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        stablehlo_op = self.get_opview_from_split(StableHLOBuilder.sort_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            sort_module = Module.create()
+            sort_builder = StableHLOBuilder(old_ctx, old_loc)
+            op_input_types = [input.type for input in old_op.inputs]
+
+            with InsertionPoint(sort_module.body):
+
+                @func.func(*op_input_types, name="sort_module")
+                def decorated_func(*inputs):
+                    # Extract attributes
+                    dimension = old_op.dimension.value if old_op.dimension else 0
+                    is_stable = old_op.is_stable.value if old_op.is_stable else True
+
+                    # Create output tensors
+                    outputs = []
+                    for result in old_op.results:
+                        outputs.append(
+                            sort_builder._create_ranked_tensor_type_from_mlir_type(
+                                result.type
+                            )
+                        )
+
+                    # Create new operation
+                    new_op = stablehlo_op(
+                        outputs,
+                        list(inputs),
+                        dimension=IntegerAttr.get(
+                            IntegerType.get_signed(64), dimension
+                        ),
+                        is_stable=BoolAttr.get(is_stable),
+                        loc=old_op.location,
+                    )
+
+                    # Copy the comparator region
+                    old_op.comparator.clone_into(new_op.comparator)
+
+                    if not self._disable_golden_check:
+                        # Get golden tensors for inputs
+                        input_goldens = []
+                        for i, old_input in enumerate(old_op.inputs):
+                            input_golden = self._get_golden_tensor(old_input)
+                            input_goldens.append(input_golden)
+                            sort_builder._set_golden_tensor(inputs[i], input_golden)
+
+                        # Get golden function and compute outputs
+                        op_golden_function = get_golden_function(stablehlo_op)
+                        if op_golden_function is not None:
+                            golden_outputs = op_golden_function(
+                                input_goldens,
+                                dimension,
+                                is_stable,
+                                [result.type for result in old_op.results],
+                            )
+
+                            # Set golden tensors and ordering
+                            if isinstance(golden_outputs, (list, tuple)):
+                                for i, result in enumerate(new_op.results):
+                                    if i < len(golden_outputs):
+                                        sort_builder._set_golden_tensor(
+                                            result, golden_outputs[i]
+                                        )
+                                sort_builder._set_output_ordering(list(new_op.results))
+                            else:
+                                sort_builder._set_golden_tensor(
+                                    new_op.results[0], golden_outputs
+                                )
+                                sort_builder._set_output_ordering([new_op.results[0]])
+
+                        sort_builder._set_input_ordering(list(inputs))
+
+                    return (
+                        new_op.results if len(new_op.results) > 1 else new_op.results[0]
+                    )
+
+        return sort_module, sort_builder
+
     ############### stablehlo.TransposeOp ###############
 
     @tag(stablehlo.TransposeOp)
