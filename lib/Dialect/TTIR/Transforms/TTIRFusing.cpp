@@ -3566,7 +3566,7 @@ public:
   mlir::LogicalResult
   matchAndRewrite(MultiplyOp outerMul,
                   mlir::PatternRewriter &rewriter) const final {
-    // Find inner multiply (through typecast only - bf16->f32 conversion).
+    // Match inner multiply.
     MultiplyOp innerMul =
         utils::findOpThrough<MultiplyOp, TypecastOp>(outerMul.getLhs());
     mlir::Value gammaRaw = outerMul.getRhs();
@@ -3579,7 +3579,7 @@ public:
       return mlir::failure();
     }
 
-    // Find rsqrt on either side of inner multiply (through layout ops).
+    // Match rsqrt on either side of inner multiply.
     RsqrtOp rsqrtOp = utils::findOpThroughLayoutOps<RsqrtOp>(innerMul.getLhs());
     mlir::Value xRaw = innerMul.getRhs();
     if (!rsqrtOp) {
@@ -3590,13 +3590,11 @@ public:
       return mlir::failure();
     }
 
-    // Match: mean(...) + epsilon (through layout ops).
+    // Match mean + epsilon.
     auto addOp = utils::findOpThroughLayoutOps<AddOp>(rsqrtOp.getInput());
     if (!addOp) {
       return mlir::failure();
     }
-
-    // Find mean on either side of add.
     MeanOp meanOp = addOp.getLhs().getDefiningOp<MeanOp>();
     mlir::Value epsilon = addOp.getRhs();
     if (!meanOp) {
@@ -3604,34 +3602,6 @@ public:
       epsilon = addOp.getLhs();
     }
     if (!meanOp) {
-      return mlir::failure();
-    }
-
-    // Match x^2: mul(x,x) or pow(x,2).
-    mlir::Value meanInput = meanOp.getInput();
-    mlir::Value squareInput = nullptr;
-    mlir::Value x = utils::lookThrough<TypecastOp>(xRaw);
-
-    if (auto sq = meanInput.getDefiningOp<MultiplyOp>()) {
-      if (sq.getLhs() == sq.getRhs()) {
-        squareInput = utils::lookThrough<TypecastOp>(sq.getLhs());
-      }
-    } else if (auto pw = meanInput.getDefiningOp<PowOp>()) {
-      if (isFullOpWithValue(pw.getRhs(), 2.0f)) {
-        squareInput = utils::lookThrough<TypecastOp>(pw.getLhs());
-      }
-    }
-    if (!squareInput || squareInput != x) {
-      return mlir::failure();
-    }
-
-    // Extract epsilon.
-    auto epsFull = epsilon.getDefiningOp<FullOp>();
-    if (!epsFull) {
-      return mlir::failure();
-    }
-    auto epsAttr = mlir::dyn_cast<FloatAttr>(epsFull.getFillValue());
-    if (!epsAttr) {
       return mlir::failure();
     }
 
@@ -3648,17 +3618,41 @@ public:
       return mlir::failure();
     }
 
-    // Get original input (through typecast only to preserve shape).
-    mlir::Value originalInput = utils::lookThrough<TypecastOp>(xRaw);
+    // Match x^2 as mul(x,x) or pow(x,2).
+    mlir::Value meanInput = meanOp.getInput();
+    mlir::Value squareInput = nullptr;
+    mlir::Value x = utils::lookThrough<TypecastOp>(xRaw);
+    if (auto sq = meanInput.getDefiningOp<MultiplyOp>()) {
+      if (sq.getLhs() == sq.getRhs()) {
+        squareInput = utils::lookThrough<TypecastOp>(sq.getLhs());
+      }
+    } else if (auto pw = meanInput.getDefiningOp<PowOp>()) {
+      if (isFullOpWithValue(pw.getRhs(), 2.0f)) {
+        squareInput = utils::lookThrough<TypecastOp>(pw.getLhs());
+      }
+    }
+    if (!squareInput || squareInput != x) {
+      return mlir::failure();
+    }
 
-    // Get original gamma (through layout ops).
-    mlir::Value originalGamma = utils::lookThroughLayoutOps(gammaRaw);
+    // Match epsilon value.
+    auto epsFull = epsilon.getDefiningOp<FullOp>();
+    if (!epsFull) {
+      return mlir::failure();
+    }
+    auto epsAttr = mlir::dyn_cast<FloatAttr>(epsFull.getFillValue());
+    if (!epsAttr) {
+      return mlir::failure();
+    }
 
-    auto inputType = mlir::cast<RankedTensorType>(originalInput.getType());
+    // Match gamma.
+    mlir::Value gamma = utils::lookThroughLayoutOps(gammaRaw);
+
+    auto inputType = mlir::cast<RankedTensorType>(x.getType());
     llvm::SmallVector<int64_t> normalizedShape{inputType.getShape().back()};
 
     auto rmsNorm = rewriter.create<RMSNormOp>(
-        outerMul.getLoc(), outerMul.getType(), originalInput, originalGamma,
+        outerMul.getLoc(), outerMul.getType(), x, gamma,
         /*bias=*/nullptr, rewriter.getDenseI64ArrayAttr(normalizedShape),
         rewriter.getF32FloatAttr(epsAttr.getValue().convertToFloat()));
 
