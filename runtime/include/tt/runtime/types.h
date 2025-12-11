@@ -405,7 +405,6 @@ struct Tensor : public detail::RuntimeCheckedObjectImpl {
 
 private:
   std::uint64_t nextTensorGlobalId();
-
   std::uint64_t globalId;
 };
 

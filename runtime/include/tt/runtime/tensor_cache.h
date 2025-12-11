@@ -83,24 +83,32 @@ public:
     return &value.tensors;
   }
 
-  // Store tensors with explicit input versions
-  // Note: if ttrt used C++20 we could replace this code with proper
-  // concept/constraint.
-  template <typename VersionVec,
-            typename = std::enable_if_t<std::is_convertible_v<
-                std::decay_t<VersionVec>, std::vector<uint64_t>>>>
   void store(const std::string &parentFuncName,
-             const std::string &constEvalFuncName, VersionVec &&inputVersions,
+             const std::string &constEvalFuncName, std::vector<uint64_t> &&inputVersions,
              const std::vector<tt::runtime::Tensor> &tensors) {
     std::unique_lock<std::shared_mutex> lock(cacheMutex);
     cache[parentFuncName][constEvalFuncName] =
-        CacheValue{std::forward<VersionVec>(inputVersions), tensors};
+        CacheValue{inputVersions, tensors};
   }
 
   // Clear the entire cache
   void clear() {
     std::unique_lock<std::shared_mutex> lock(cacheMutex);
     cache.clear();
+  }
+
+  void remove(const std::string &parentFuncName,
+              const std::string &constEvalFuncName) {
+    std::unique_lock<std::shared_mutex> lock(cacheMutex);
+    auto it = cache.find(parentFuncName);
+    if (it == cache.end()) {
+      return;
+    }
+    auto internalIt = it->second.find(constEvalFuncName);
+    if (internalIt == it->second.end()) {
+      return;
+    }
+    it->second.erase(internalIt);
   }
 
   // Get the size of the cache (number of entries)
