@@ -3792,6 +3792,15 @@ unpackRMSNormOptionalArgs(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<op_model::OpConstraints>
 RMSNormOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                             const OpConfig &opConfig) {
+  // RMS norm with sharded input causes divide-by-zero in metal.
+  // TODO (mvasiljevic): Remove once metal fix is uplifted.
+  if (!inputs.empty() && inputs[0].getMemLayout() &&
+      isShardedMemoryLayout(inputs[0].getMemLayout().getValue())) {
+    return llvm::createStringError(llvm::inconvertibleErrorCode(),
+                                   "RMS norm with sharded input is not "
+                                   "supported");
+  }
+
   llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
   if (!check) {
     return check.takeError();
