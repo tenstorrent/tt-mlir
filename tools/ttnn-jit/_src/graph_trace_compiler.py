@@ -23,6 +23,7 @@ import ttnn_jit._src.supported_ops as supported_ops
 from ttnn_jit._src.tensor_translator import (
     _get_collapsed_linear_affine_map,
     create_tensor_layout,
+    _calculate_tile_shape,
 )
 from ttnn_jit._src.levelized_graph import LevelizedGraph, LevelizedGraphVertex
 from ttnn_jit._src.op_registry import get_registry
@@ -244,35 +245,12 @@ class GraphToIRTranslator:
             affine_map = _get_collapsed_linear_affine_map(
                 self.ctx, shape, memory_config["grid"]
             )
-        elif len(shape) == 0:
-            # Scalar: use 1x1 tile memref
-            memref_shape = [1, 1]
-            affine_map = _get_collapsed_linear_affine_map(self.ctx, [1, 1], (0, 0))
-        elif len(shape) == 1:
-            # 1D tensor: use 1D memref and affine map
-            dim_w = shape[0]
-            tiles_w = math.ceil(dim_w / 32)
-            memref_shape = [tiles_w]  # 1D memref
-            affine_map = _get_collapsed_linear_affine_map(self.ctx, shape, (0, 0))
         else:
-            if len(shape) == 2:
-                # 2D tensor: use dimensions directly
-                dim_h = shape[-2]
-                dim_w = shape[-1]
-                tiles_h = math.ceil(dim_h / 32)
-                tiles_w = math.ceil(dim_w / 32)
-            else:
-                # 2D or higher: collapse leading dimensions for 3D+ tensors
-                # Collapse leading dimensions into the first dimension
-                # This matches the logic in _create_dram_tensor_layout
-                collapsed_shape = [shape[-2], shape[-1]]
-                for dim in shape[:-2]:
-                    collapsed_shape[0] *= dim
-                tiles_h = math.ceil(collapsed_shape[0] / 32)
-                tiles_w = math.ceil(collapsed_shape[1] / 32)
-
-            memref_shape = [tiles_h, tiles_w]
-            affine_map = _get_collapsed_linear_affine_map(self.ctx, shape, (0, 0))
+            memref_shape = _calculate_tile_shape(shape)
+            affine_shape = shape if len(shape) > 0 else [1, 1]
+            affine_map = _get_collapsed_linear_affine_map(
+                self.ctx, affine_shape, (0, 0)
+            )
 
         return memref_shape, affine_map
 

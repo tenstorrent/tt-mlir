@@ -4,6 +4,7 @@
 
 from ttmlir.ir import *
 from ttmlir.dialects import ttnn, ttcore
+import math
 
 DRAM_GRID_SIZE = [1, 1]
 OUTPUT_TENSOR_DERIVATION_REQUIRED = ["matmul"]
@@ -83,6 +84,48 @@ def _get_collapsed_linear_affine_map(
     return AffineMap.get(rank, 0, results, context)
 
 
+def _calculate_tile_shape(shape):
+    """
+    Calculate memref shape (tile dimensions) for a given tensor shape.
+
+    For 3D+ tensors, collapses leading dimensions into the first dimension
+    before calculating tiles. This matches TTNN's dimension collapsing behavior.
+
+    Args:
+        shape: List of tensor dimensions (e.g., [], [64], [64, 64], or [16, 64, 64])
+
+    Returns:
+        List representing memref shape:
+        - Scalar (len=0): [1, 1]
+        - 1D tensor (len=1): [tiles_w] (1D memref)
+        - 2D+ tensor (len>=2): [tiles_h, tiles_w] (2D memref)
+        Tiles are calculated using ceil division by 32.
+    """
+    logical_shape = list(shape)
+
+    if len(logical_shape) == 0:
+        # Scalar: use 1x1 tile memref
+        return [1, 1]
+    elif len(logical_shape) == 1:
+        # 1D tensor: use 1D memref
+        dim_w = logical_shape[0]
+        tiles_w = math.ceil(dim_w / 32)
+        return [tiles_w]
+    elif len(logical_shape) == 2:
+        # 2D tensor: use dimensions directly
+        tiles_h = math.ceil(logical_shape[0] / 32)
+        tiles_w = math.ceil(logical_shape[1] / 32)
+        return [tiles_h, tiles_w]
+    else:
+        # 3D+ tensor: collapse leading dimensions into the first dimension
+        collapsed_shape = [logical_shape[-2], logical_shape[-1]]
+        for dim in logical_shape[:-2]:
+            collapsed_shape[0] *= dim
+        tiles_h = math.ceil(collapsed_shape[0] / 32)
+        tiles_w = math.ceil(collapsed_shape[1] / 32)
+        return [tiles_h, tiles_w]
+
+
 def _mlir_memory_layout_from_ttnn_memory_layout(memory_layout):
     match str(memory_layout):
         case "TensorMemoryLayout.INTERLEAVED":
@@ -133,14 +176,11 @@ def _create_sharded_tensor_layout(ctx, tensor_arg):
 
     shard_spec = tensor_arg.memory_config().shard_spec
     shard_shape = shard_spec.shape
-    shard_shape_tile_x = shard_shape[0] // 32
-    shard_shape_tile_y = shard_shape[1] // 32
+    shard_shape_tile = _calculate_tile_shape(shard_shape)
 
     data_type = _ttcore_dtype_from_ttnn_dtype(tensor_arg.dtype)
     tile_type = ttcore.ir.TileType.get(ctx, 32, 32, data_type)
-    memref = MemRefType.get(
-        [shard_shape_tile_x, shard_shape_tile_y], tile_type, None, buffer_type
-    )
+    memref = MemRefType.get(shard_shape_tile, tile_type, None, buffer_type)
 
     tensor_mesh = None
     exact_grid = True
@@ -163,14 +203,7 @@ def _create_dram_tensor_layout(ctx, tensor_arg):
 
     data_type = _ttcore_dtype_from_ttnn_dtype(tensor_arg.dtype)
     tile_type = ttcore.ir.TileType.get(ctx, 32, 32, data_type)
-    logical_shape = list(tensor_arg.shape)
-    if len(logical_shape) > 2:
-        collapsed_shape = [logical_shape[-2], logical_shape[-1]]
-        for dim in logical_shape[:-2]:
-            collapsed_shape[0] *= dim
-        shape = [collapsed_shape[0] // 32, collapsed_shape[1] // 32]
-    else:
-        shape = [logical_shape[0] // 32, logical_shape[1] // 32]
+    shape = _calculate_tile_shape(tensor_arg.shape)
 
     memref = MemRefType.get(shape, tile_type, None, buffer_type)
 
@@ -247,7 +280,7 @@ def _get_virtual_grid_shape(layout):
 def _infer_block_sharding_grid(shape):
     """Infer a (height, width) grid shape for block sharding the given logical tensor shape"""
     assert len(shape) == 2, f"Only 2D shapes are supported"
-    tile_shape = [shape[0] // 32, shape[1] // 32]
+    tile_shape = _calculate_tile_shape(shape)
     grid = []
     for dim in tile_shape:
         for grid_dim in reversed(range(1, 9)):
