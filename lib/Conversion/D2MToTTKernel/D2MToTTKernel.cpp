@@ -1047,32 +1047,23 @@ static Value castCBTypeAsAddress(OpBuilder &rewriter, Location loc, Value cb) {
 
 /// Check if a memref has DRAM interleaved layout
 static bool isDRAMInterleaved(MemRefType memref) {
-  llvm::errs() << "DEBUG isDRAMInterleaved: memref=" << memref << "\n";
-  llvm::errs() << "DEBUG isDRAMInterleaved: layout=" << memref.getLayout() << "\n";
-
   // First check the memory space
   auto memorySpace = ttcore::getMemorySpace(memref);
-  llvm::errs() << "DEBUG isDRAMInterleaved: memorySpace=" << static_cast<int>(memorySpace) << "\n";
   if (memorySpace != ttcore::MemorySpace::DeviceDRAM) {
-    llvm::errs() << "DEBUG isDRAMInterleaved: not DRAM, returning false\n";
     return false;
   }
 
   // Check if the layout is InterleavedLayoutAttr (used by tt-lang bufferization)
   if (mlir::isa<ttcore::InterleavedLayoutAttr>(memref.getLayout())) {
-    llvm::errs() << "DEBUG isDRAMInterleaved: is InterleavedLayoutAttr + DRAM, returning true\n";
     return true;
   }
 
   // Also check MetalLayoutAttr for compatibility
   auto metalLayout = mlir::dyn_cast<ttcore::MetalLayoutAttr>(memref.getLayout());
   if (metalLayout) {
-    bool isInterleaved = metalLayout.getMemoryLayout() == ttcore::TensorMemoryLayout::Interleaved;
-    llvm::errs() << "DEBUG isDRAMInterleaved: MetalLayoutAttr with interleaved=" << isInterleaved << "\n";
-    return isInterleaved;
+    return metalLayout.getMemoryLayout() == ttcore::TensorMemoryLayout::Interleaved;
   }
 
-  llvm::errs() << "DEBUG isDRAMInterleaved: unknown layout type, returning false\n";
   return false;
 }
 
