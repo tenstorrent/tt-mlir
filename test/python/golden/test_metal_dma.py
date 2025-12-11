@@ -33,7 +33,7 @@ def compile_dma_test(test_func, shape, request, device):
         device=device,
         custom_pipeline=pipeline,
         test_base=request.node.name,
-        print_ir="ir_dump",
+        print_ir=True,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
