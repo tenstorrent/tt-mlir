@@ -2523,33 +2523,6 @@ def collective_broadcast_golden(
     )
 
 
-def stablehlo_and_golden(
-    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, **kwargs
-) -> GoldenMapTensor:
-    """
-    Golden function for StableHLO and operation.
-
-    Supports both logical AND (for boolean tensors) and bitwise AND (for integer tensors).
-
-    Parameters
-    ----------
-    input_tensor : GoldenMapTensor
-        Left-hand side tensor.
-    other_tensor : GoldenMapTensor
-        Right-hand side tensor.
-
-    Returns
-    -------
-    GoldenMapTensor
-        Tensor containing the AND results.
-    """
-    if input_tensor.dtype == torch.bool:
-        result_bool = torch.logical_and(input_tensor, other_tensor)
-        return result_bool.to(input_tensor.dtype)
-    else:
-        return torch.bitwise_and(input_tensor, other_tensor)
-
-
 def stablehlo_or_golden(
     input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, **kwargs
 ) -> GoldenMapTensor:
@@ -2739,6 +2712,11 @@ def ttir_gather_golden(
     # Determine batch shape and flatten indices to [B, K]
     if idx0.ndim == 1:  # simple path, K == 1
         batch_shape = idx0.shape  # [N]
+        K = 1
+        idx_flat0 = idx0.reshape(-1, 1).long()
+    elif index_vector_dim == idx0.ndim:
+        # No explicit index vector dimension - each scalar is a single index
+        batch_shape = idx0.shape
         K = 1
         idx_flat0 = idx0.reshape(-1, 1).long()
     else:
@@ -3797,6 +3775,453 @@ def stablehlo_add_golden(
     return torch.add(input_tensor, other_tensor).to(output_dtype)
 
 
+def stablehlo_and_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.logical_and(input_tensor, other_tensor).to(output_dtype)
+
+
+def stablehlo_abs_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.abs(input_tensor).to(output_dtype)
+
+
+def stablehlo_ceil_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.ceil(input_tensor).to(output_dtype)
+
+
+def stablehlo_convert_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return input_tensor.to(output_dtype)
+
+
+def stablehlo_convolution_golden(
+    lhs: GoldenMapTensor,
+    rhs: GoldenMapTensor,
+    window_strides: List[int],
+    padding: List[List[int]],
+    lhs_dilation: List[int],
+    rhs_dilation: List[int],
+    window_reversal: List[bool],
+    input_batch_dimension: int,
+    input_feature_dimension: int,
+    input_spatial_dimensions: List[int],
+    kernel_input_feature_dimension: int,
+    kernel_output_feature_dimension: int,
+    kernel_spatial_dimensions: List[int],
+    output_batch_dimension: int,
+    output_feature_dimension: int,
+    output_spatial_dimensions: List[int],
+    feature_group_count: int,
+    batch_group_count: int,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    import torch.nn.functional as F
+
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    input_tensor = lhs.clone()
+    weight = rhs.clone()
+
+    # Permute input from arbitrary layout to NCHW (PyTorch's expected format)
+    # Build permutation: [batch, feature, spatial_0, spatial_1, ...]
+    input_layout = [None] * input_tensor.ndim
+    input_layout[input_batch_dimension] = 0
+    input_layout[input_feature_dimension] = 1
+    for i, spatial_dim in enumerate(input_spatial_dimensions):
+        input_layout[spatial_dim] = 2 + i
+
+    if input_layout != list(range(input_tensor.ndim)):
+        input_perm = [input_layout.index(i) for i in range(input_tensor.ndim)]
+        input_tensor = input_tensor.permute(input_perm)
+
+    # Permute weight from arbitrary layout to [out_feat, in_feat, spatial...]
+    weight_layout = [None] * weight.ndim
+    weight_layout[kernel_output_feature_dimension] = 0
+    weight_layout[kernel_input_feature_dimension] = 1
+    for i, spatial_dim in enumerate(kernel_spatial_dimensions):
+        weight_layout[spatial_dim] = 2 + i
+
+    if weight_layout != list(range(weight.ndim)):
+        weight_perm = [weight_layout.index(i) for i in range(weight.ndim)]
+        weight = weight.permute(weight_perm)
+
+    # Build output permutation for later
+    output_layout = [None] * (len(output_spatial_dimensions) + 2)
+    output_layout[output_batch_dimension] = 0
+    output_layout[output_feature_dimension] = 1
+    for i, spatial_dim in enumerate(output_spatial_dimensions):
+        output_layout[spatial_dim] = 2 + i
+
+    # Handle padding: convert from [[top, bottom], [left, right]] to PyTorch format
+    if len(padding) == 2:
+        pad_h = padding[0]
+        pad_w = padding[1]
+        if pad_h[0] == pad_h[1] and pad_w[0] == pad_w[1]:
+            torch_padding = (pad_h[0], pad_w[0])
+        else:
+            # Asymmetric padding - manually pad input
+            manual_pad = [pad_w[0], pad_w[1], pad_h[0], pad_h[1]]
+            input_tensor = F.pad(input_tensor, manual_pad, mode="constant", value=0)
+            torch_padding = (0, 0)
+    else:
+        torch_padding = (0, 0)
+
+    # Convert strides and dilations
+    stride = tuple(window_strides) if window_strides else (1, 1)
+    dilation = tuple(rhs_dilation) if rhs_dilation else (1, 1)
+
+    # Perform convolution
+    result = F.conv2d(
+        input_tensor,
+        weight,
+        bias=None,
+        stride=stride,
+        padding=torch_padding,
+        dilation=dilation,
+        groups=feature_group_count,
+    )
+
+    # Permute output back to expected layout if needed
+    if output_layout != list(range(result.ndim)):
+        result = result.permute(output_layout)
+
+    return result.to(output_dtype)
+
+
+def stablehlo_compare_golden(
+    lhs: GoldenMapTensor,
+    rhs: GoldenMapTensor,
+    comparison_direction: str,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    if comparison_direction == "EQ":
+        result = torch.eq(lhs, rhs)
+    elif comparison_direction == "NE":
+        result = torch.ne(lhs, rhs)
+    elif comparison_direction == "GE":
+        result = torch.ge(lhs, rhs)
+    elif comparison_direction == "GT":
+        result = torch.gt(lhs, rhs)
+    elif comparison_direction == "LE":
+        result = torch.le(lhs, rhs)
+    elif comparison_direction == "LT":
+        result = torch.lt(lhs, rhs)
+    else:
+        raise ValueError(f"Unknown comparison direction: {comparison_direction}")
+
+    return result.to(output_dtype)
+
+
+def stablehlo_cosine_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.cos(input_tensor).to(output_dtype)
+
+
+def stablehlo_exp_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.exp(input_tensor).to(output_dtype)
+
+
+def stablehlo_floor_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.floor(input_tensor).to(output_dtype)
+
+
+def stablehlo_divide_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.div(input_tensor, other_tensor).to(output_dtype)
+
+
+def stablehlo_clamp_golden(
+    min_tensor: GoldenMapTensor,
+    operand_tensor: GoldenMapTensor,
+    max_tensor: GoldenMapTensor,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.clamp(operand_tensor, min=min_tensor, max=max_tensor).to(output_dtype)
+
+
+def stablehlo_concatenate_golden(
+    input_tensors: Tuple[GoldenMapTensor, ...], dim: int, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.cat(input_tensors, dim=dim).to(output_dtype)
+
+
+def stablehlo_dot_general_golden(
+    lhs: GoldenMapTensor,
+    rhs: GoldenMapTensor,
+    batch_dims_lhs: List[int],
+    contract_dims_lhs: List[int],
+    batch_dims_rhs: List[int],
+    contract_dims_rhs: List[int],
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    result = dot_general_golden(
+        lhs, rhs, batch_dims_lhs, contract_dims_lhs, batch_dims_rhs, contract_dims_rhs
+    )
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return result.to(output_dtype)
+
+
+def stablehlo_constant_golden(value: DenseElementsAttr) -> GoldenMapTensor:
+    return ttir_constant_golden(value)
+
+
+def stablehlo_iota_golden(
+    iota_dimension: int, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir.element_type)
+    shape = list(output_type_mlir.shape)
+
+    # Create iota values along the specified dimension
+    iota_size = shape[iota_dimension]
+    iota_values = torch.arange(iota_size, dtype=output_dtype)
+
+    # Create the output shape with 1s everywhere except the iota dimension
+    broadcast_shape = [1] * len(shape)
+    broadcast_shape[iota_dimension] = iota_size
+
+    # Reshape and broadcast
+    iota_tensor = iota_values.reshape(broadcast_shape)
+    result = iota_tensor.expand(shape).clone()
+
+    return GoldenMapTensor({0: result}, (1, 1))
+
+
+def stablehlo_gather_golden(
+    operand: GoldenMapTensor,
+    start_indices: GoldenMapTensor,
+    offset_dims: List[int],
+    collapsed_slice_dims: List[int],
+    operand_batching_dims: List[int],
+    start_indices_batching_dims: List[int],
+    start_index_map: List[int],
+    index_vector_dim: int,
+    slice_sizes: List[int],
+    indices_are_sorted: bool,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    result = ttir_gather_golden(
+        operand,
+        start_indices,
+        offset_dims=offset_dims,
+        collapsed_slice_dims=collapsed_slice_dims,
+        operand_batching_dims=operand_batching_dims,
+        start_indices_batching_dims=start_indices_batching_dims,
+        start_index_map=start_index_map,
+        index_vector_dim=index_vector_dim,
+        slice_sizes=slice_sizes,
+        indices_are_sorted=indices_are_sorted,
+        output_type_mlir=output_type_mlir,
+    )
+    return result
+
+
+def stablehlo_dynamic_update_slice_golden(
+    operand: GoldenMapTensor,
+    update: GoldenMapTensor,
+    start_indices: List[GoldenMapTensor],
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    # Get the start indices as integer values from the first shard (scalar tensors)
+    starts = []
+    for idx in start_indices:
+        # Access the underlying torch tensor from the first shard
+        first_shard = next(iter(idx.shard_map.values()))
+        starts.append(int(first_shard.item()))
+
+    # Process each shard independently
+    result_shards = {}
+    for device_id in operand.shard_map.keys():
+        operand_shard = operand.shard_map[device_id]
+        update_shard = update.shard_map[device_id]
+
+        # Clone the operand shard to avoid modifying the original
+        result_shard = operand_shard.clone()
+
+        # Build slices for the update region
+        update_shape = list(update_shard.shape)
+        slices = tuple(
+            slice(start, start + size) for start, size in zip(starts, update_shape)
+        )
+
+        # Perform the update
+        result_shard[slices] = update_shard
+        result_shards[device_id] = result_shard
+
+    return GoldenMapTensor(result_shards, operand.mesh_shape)
+
+
+def stablehlo_broadcast_in_dim_golden(
+    operand: GoldenMapTensor,
+    shape: List[int],
+    broadcast_dimensions: List[int],
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    result_shards = {}
+    for device_id in operand.shard_map.keys():
+        operand_shard = operand.shard_map[device_id]
+
+        # Build the intermediate shape for broadcasting
+        # Start with all 1s for the output shape
+        intermediate_shape = [1] * len(shape)
+
+        # Place input dimensions at the broadcast positions
+        for i, dim in enumerate(broadcast_dimensions):
+            intermediate_shape[dim] = operand_shard.shape[i]
+
+        # Reshape the input to the intermediate shape
+        reshaped = operand_shard.reshape(intermediate_shape)
+
+        # Expand to the final shape
+        result_shard = reshaped.expand(shape).clone()
+        result_shards[device_id] = result_shard
+
+    return GoldenMapTensor(result_shards, operand.mesh_shape)
+
+
+def stablehlo_batch_norm_grad_golden(
+    operand: GoldenMapTensor,
+    scale: GoldenMapTensor,
+    mean: GoldenMapTensor,
+    variance: GoldenMapTensor,
+    grad_output: GoldenMapTensor,
+    epsilon: float,
+    feature_index: int,
+) -> Tuple[GoldenMapTensor, GoldenMapTensor, GoldenMapTensor]:
+    grad_operand_shards = {}
+    grad_scale_shards = {}
+    grad_offset_shards = {}
+
+    for device_id in operand.shard_map.keys():
+        operand_shard = operand.shard_map[device_id]
+        scale_shard = scale.shard_map[device_id]
+        mean_shard = mean.shard_map[device_id]
+        variance_shard = variance.shard_map[device_id]
+        grad_output_shard = grad_output.shard_map[device_id]
+
+        ndim = operand_shard.ndim
+
+        # Compute the dimensions to reduce over (all dims except feature_index)
+        reduce_dims = [i for i in range(ndim) if i != feature_index]
+
+        # Compute the number of elements per feature
+        n = 1
+        for dim in reduce_dims:
+            n *= operand_shard.shape[dim]
+
+        # Reshape scale, mean, variance to broadcast correctly
+        broadcast_shape = [1] * ndim
+        broadcast_shape[feature_index] = scale_shard.shape[0]
+        scale_bc = scale_shard.reshape(broadcast_shape)
+        mean_bc = mean_shard.reshape(broadcast_shape)
+        variance_bc = variance_shard.reshape(broadcast_shape)
+
+        # Compute standard deviation
+        std = torch.sqrt(variance_bc + epsilon)
+
+        # Normalized input
+        x_norm = (operand_shard - mean_bc) / std
+
+        # grad_offset: sum of grad_output over all dimensions except feature_index
+        grad_offset_shard = grad_output_shard.sum(dim=reduce_dims)
+
+        # grad_scale: sum of (grad_output * x_norm) over all dimensions except feature_index
+        grad_scale_shard = (grad_output_shard * x_norm).sum(dim=reduce_dims)
+
+        # grad_operand: more complex, involves the chain rule through normalization
+        # grad_x = (1/std) * (grad_output - (1/n) * grad_offset_bc - (1/n) * x_norm * grad_scale_bc)
+        # where grad_offset_bc and grad_scale_bc are broadcast versions
+        grad_offset_bc = grad_offset_shard.reshape(broadcast_shape)
+        grad_scale_bc = grad_scale_shard.reshape(broadcast_shape)
+
+        grad_operand_shard = (
+            scale_bc
+            / std
+            * (grad_output_shard - grad_offset_bc / n - x_norm * grad_scale_bc / n)
+        )
+
+        grad_operand_shards[device_id] = grad_operand_shard
+        grad_scale_shards[device_id] = grad_scale_shard
+        grad_offset_shards[device_id] = grad_offset_shard
+
+    return (
+        GoldenMapTensor(grad_operand_shards, operand.mesh_shape),
+        GoldenMapTensor(grad_scale_shards, scale.mesh_shape),
+        GoldenMapTensor(grad_offset_shards, scale.mesh_shape),
+    )
+
+
+def stablehlo_batch_norm_training_golden(
+    operand: GoldenMapTensor,
+    scale: GoldenMapTensor,
+    offset: GoldenMapTensor,
+    epsilon: float,
+    feature_index: int,
+) -> Tuple[GoldenMapTensor, GoldenMapTensor, GoldenMapTensor]:
+    output_shards = {}
+    batch_mean_shards = {}
+    batch_var_shards = {}
+
+    for device_id in operand.shard_map.keys():
+        operand_shard = operand.shard_map[device_id]
+        scale_shard = scale.shard_map[device_id]
+        offset_shard = offset.shard_map[device_id]
+
+        ndim = operand_shard.ndim
+
+        # Compute the dimensions to reduce over (all dims except feature_index)
+        reduce_dims = [i for i in range(ndim) if i != feature_index]
+
+        # Compute batch mean and variance
+        batch_mean_shard = torch.mean(operand_shard, dim=reduce_dims)
+        batch_var_shard = torch.var(operand_shard, dim=reduce_dims, unbiased=False)
+
+        # Reshape for broadcasting
+        broadcast_shape = [1] * ndim
+        broadcast_shape[feature_index] = scale_shard.shape[0]
+
+        batch_mean_bc = batch_mean_shard.reshape(broadcast_shape)
+        batch_var_bc = batch_var_shard.reshape(broadcast_shape)
+        scale_bc = scale_shard.reshape(broadcast_shape)
+        offset_bc = offset_shard.reshape(broadcast_shape)
+
+        # Normalize: (x - mean) / sqrt(var + eps) * scale + offset
+        std = torch.sqrt(batch_var_bc + epsilon)
+        normalized = (operand_shard - batch_mean_bc) / std
+        output_shard = normalized * scale_bc + offset_bc
+
+        output_shards[device_id] = output_shard
+        batch_mean_shards[device_id] = batch_mean_shard
+        batch_var_shards[device_id] = batch_var_shard
+
+    return (
+        GoldenMapTensor(output_shards, operand.mesh_shape),
+        GoldenMapTensor(batch_mean_shards, scale.mesh_shape),
+        GoldenMapTensor(batch_var_shards, scale.mesh_shape),
+    )
+
+
 ################ TTNN Op Golden Functions ###############
 
 
@@ -3954,12 +4379,26 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # ----- STABLEHLO OPS -----
     # StableHLO elementwise operations
     stablehlo.AddOp: stablehlo_add_golden,
-    stablehlo.AbsOp: torch.abs,
-    stablehlo.CeilOp: torch.ceil,
-    stablehlo.ClampOp: torch.clamp,
-    stablehlo.CosineOp: torch.cos,
-    stablehlo.ExpOp: torch.exp,
-    stablehlo.FloorOp: torch.floor,
+    stablehlo.AndOp: stablehlo_and_golden,
+    stablehlo.AbsOp: stablehlo_abs_golden,
+    stablehlo.CeilOp: stablehlo_ceil_golden,
+    stablehlo.ClampOp: stablehlo_clamp_golden,
+    stablehlo.CompareOp: stablehlo_compare_golden,
+    stablehlo.ConcatenateOp: stablehlo_concatenate_golden,
+    stablehlo.ConvertOp: stablehlo_convert_golden,
+    stablehlo.ConvolutionOp: stablehlo_convolution_golden,
+    stablehlo.CosineOp: stablehlo_cosine_golden,
+    stablehlo.DivOp: stablehlo_divide_golden,
+    stablehlo.ExpOp: stablehlo_exp_golden,
+    stablehlo.FloorOp: stablehlo_floor_golden,
+    stablehlo.DotGeneralOp: stablehlo_dot_general_golden,
+    stablehlo.ConstantOp: stablehlo_constant_golden,
+    stablehlo.IotaOp: stablehlo_iota_golden,
+    stablehlo.GatherOp: stablehlo_gather_golden,
+    stablehlo.DynamicUpdateSliceOp: stablehlo_dynamic_update_slice_golden,
+    stablehlo.BroadcastInDimOp: stablehlo_broadcast_in_dim_golden,
+    stablehlo.BatchNormGradOp: stablehlo_batch_norm_grad_golden,
+    stablehlo.BatchNormTrainingOp: stablehlo_batch_norm_training_golden,
     stablehlo.LogOp: torch.log,
     stablehlo.LogisticOp: torch.sigmoid,
     stablehlo.NegOp: torch.neg,
@@ -3968,14 +4407,10 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.SineOp: torch.sin,
     stablehlo.SqrtOp: torch.sqrt,
     stablehlo.TanOp: torch.tan,
-    stablehlo.AndOp: stablehlo_and_golden,
     stablehlo.OrOp: stablehlo_or_golden,
     stablehlo.XorOp: stablehlo_xor_golden,
     stablehlo.NotOp: stablehlo_not_golden,
     stablehlo.SliceOp: slice_golden_stablehlo,
-    # stablehlo complex operations
-    stablehlo.DotGeneralOp: dot_general_golden,
-    stablehlo.ConcatenateOp: concat_golden,
     # ----- TTNN OPS -----
     # Elementwise unary operations
     ttnn.AbsOp: torch.abs,
