@@ -224,3 +224,44 @@ def test_dram_interleaved_shapes(device, shape, op):
         buffer_type=ttnn.BufferType.DRAM,
         enable_cache=True,
     )
+
+
+def create_nd_tensor(device):
+    torch.manual_seed(0)
+    core_ranges = ttnn.CoreRangeSet(
+        {ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(1, 1))}
+    )
+
+    nd_shard_spec = ttnn.NdShardSpec(
+        [2 * 32, 2 * 32, 2 * 32],
+        core_ranges,
+    )
+    memory_config = ttnn.MemoryConfig(
+        buffer_type=ttnn.BufferType.L1,
+        nd_shard_spec=nd_shard_spec,
+    )
+
+    torch_tensor = torch.randn(tuple([4 * 32, 4 * 32, 4 * 32]))
+    nd_sharded = ttnn.from_torch(
+        torch_tensor,
+        dtype=ttnn.bfloat16,
+        layout=ttnn.TILE_LAYOUT,
+        device=device,
+        memory_config=memory_config,
+    )
+    print("nd tensor memory config", nd_sharded.memory_config())
+    print("nd tensor spec", nd_sharded.memory_config().nd_shard_spec)
+    return nd_sharded
+
+
+@pytest.mark.parametrize("op", [abs])
+@pytest.mark.parametrize("graph_capture", [False])
+def test_nd_ttnn_layout(device, op, graph_capture):
+    input_tensor = create_nd_tensor(device)
+    op_jit = ttnn_jit.jit(
+        debug=True,
+        max_grid=(1, 1),
+        enable_cache=False,
+        graph_capture=graph_capture,
+    )(op)
+    output_tensor = op_jit(input_tensor)
