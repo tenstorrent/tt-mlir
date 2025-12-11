@@ -1138,7 +1138,7 @@ def test_reverse(shapes, dtype, dimensions, target: str, request, device):
     )
 
 
-@pytest.mark.xfail(reason="Failed to legalize error")
+# @pytest.mark.xfail(reason="Failed to legalize error")
 @pytest.mark.parametrize(
     "shapes, dtype, edge_padding_low, edge_padding_high, interior_padding",
     [
@@ -1160,6 +1160,7 @@ def test_pad(
         @builder.func(shapes, [dtype, dtype])
         def pad(in0: Operand, padding_value: Operand, builder: StableHLOBuilder):
             builder.set_graph_level_check(True)
+            padding_value = 0
             return builder.pad(
                 in0,
                 padding_value,
@@ -1302,9 +1303,80 @@ def test_rng_bit_generator(
 
 
 @pytest.mark.parametrize(
-    "input_shape, indices_shape, update_shape, update_window_dims, inserted_window_dims, input_batching_dims, scatter_indices_batching_dims, scatter_dims_to_operand_dims, index_vector_dim",
+    "input_shape, indices_shape, update_shape, update_window_dims, inserted_window_dims, input_batching_dims, scatter_indices_batching_dims, scatter_dims_to_operand_dims, index_vector_dim, indices_are_sorted, unique_indices, dtypes",
     [
-        ([1, 3, 320, 320], [1, 1], [1, 3, 32, 32], [1, 2, 3], [0], [], [], [0], 1),
+        # Single-dimensional scatter cases (based on test examples)
+        (
+            [1, 3, 320, 320],
+            [1, 1],
+            [1, 3, 32, 32],
+            [1, 2, 3],
+            [0],
+            [],
+            [],
+            [0],
+            1,
+            False,
+            False,
+            [torch.float32, torch.int32, torch.float32],
+        ),
+        (
+            [32, 32],
+            [1, 1],
+            [1, 32],
+            [1],
+            [0],
+            [],
+            [],
+            [0],
+            1,
+            False,
+            False,
+            [torch.int32, torch.int32, torch.int32],
+        ),
+        (
+            [1000, 32],
+            [1, 1],
+            [1, 32],
+            [1],
+            [0],
+            [],
+            [],
+            [0],
+            1,
+            False,
+            False,
+            [torch.float32, torch.int64, torch.float32],
+        ),
+        # Multi-dimensional scatter cases (empty update_window_dims required)
+        (
+            [71, 32],
+            [71, 4, 2],
+            [71, 4],
+            [],
+            [0, 1],
+            [],
+            [],
+            [0, 1],
+            2,
+            False,
+            False,
+            [torch.bfloat16, torch.int64, torch.bfloat16],
+        ),
+        (
+            [10, 20],
+            [5, 2, 2],
+            [5, 2],
+            [],
+            [0, 1],
+            [],
+            [],
+            [0, 1],
+            2,
+            True,
+            True,
+            [torch.float32, torch.int32, torch.float32],
+        ),
     ],
 )
 @pytest.mark.parametrize("target", ["ttnn"])
@@ -1318,6 +1390,9 @@ def test_scatter(
     scatter_indices_batching_dims,
     scatter_dims_to_operand_dims,
     index_vector_dim,
+    indices_are_sorted,
+    unique_indices,
+    dtypes,
     target: str,
     request,
     device,
@@ -1334,23 +1409,27 @@ def test_scatter(
                 scatter_indices_batching_dims,
                 scatter_dims_to_operand_dims,
                 index_vector_dim,
+                indices_are_sorted,
+                unique_indices,
             ],
-            [torch.int64, torch.int64, torch.int64],
+            dtypes,
         )
         def scatter(
             input: Operand, indices: Operand, update: Operand, builder: StableHLOBuilder
         ):
             builder.set_graph_level_check(True)
             return builder.scatter(
-                inputs=[input],
-                scatter_indices=indices,
-                updates=[update],
-                update_window_dims=update_window_dims,
-                inserted_window_dims=inserted_window_dims,
-                input_batching_dims=input_batching_dims,
-                scatter_indices_batching_dims=scatter_indices_batching_dims,
-                scatter_dims_to_operand_dims=scatter_dims_to_operand_dims,
-                index_vector_dim=index_vector_dim,
+                [input],
+                indices,
+                [update],
+                update_window_dims,
+                inserted_window_dims,
+                input_batching_dims,
+                scatter_indices_batching_dims,
+                scatter_dims_to_operand_dims,
+                index_vector_dim,
+                indices_are_sorted=indices_are_sorted,
+                unique_indices=unique_indices,
             )
 
     compile_and_execute_shlo(

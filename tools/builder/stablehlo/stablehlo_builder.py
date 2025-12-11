@@ -3743,7 +3743,7 @@ class StableHLOBuilder(Builder):
     def pad(
         self,
         in0: Operand,
-        padding_value: Operand,
+        padding_value: int,
         edge_padding_low: List[int],
         edge_padding_high: List[int],
         interior_padding: List[int],
@@ -3756,11 +3756,17 @@ class StableHLOBuilder(Builder):
         edge_low_attr = DenseI64ArrayAttr.get(edge_padding_low, context=self._ctx)
         edge_high_attr = DenseI64ArrayAttr.get(edge_padding_high, context=self._ctx)
         interior_attr = DenseI64ArrayAttr.get(interior_padding, context=self._ctx)
+        padding_value_attr = IntegerAttr.get(self.get_type(in0), padding_value)
 
         if loc is None:
             loc = self._get_location()
         else:
             loc = Location.name(loc)
+
+        padding_value = DenseElementsAttr.get_splat(
+            self.get_type(in0), padding_value_attr
+        )
+        padding_value = stablehlo.ConstantOp(padding_value, loc=loc).result
 
         op = stablehlo_op(
             in0,
@@ -4032,15 +4038,16 @@ class StableHLOBuilder(Builder):
             loc = Location.name(loc)
 
         # Create scatter dimension numbers attribute
-        print(dir(stablehlo))
         scatter_dimension_numbers_attr = stablehlo.ScatterDimensionNumbers.get(
-            update_window_dims,  # =update_window_dims,
-            inserted_window_dims,  # =inserted_window_dims,
-            input_batching_dims,  # =input_batching_dims,
-            scatter_indices_batching_dims,  # =scatter_indices_batching_dims,
-            scatter_dims_to_operand_dims,  # =scatter_dims_to_operand_dims,
-            index_vector_dim,  # =index_vector_dim,
+            update_window_dims,
+            inserted_window_dims,
+            input_batching_dims,
+            scatter_indices_batching_dims,
+            scatter_dims_to_operand_dims,
+            index_vector_dim,
         )
+        indices_are_sorted_attr = BoolAttr.get(indices_are_sorted)
+        unique_indices_attr = BoolAttr.get(unique_indices)
 
         # Result types are the same as input types
         results = [inp.type for inp in inputs]
@@ -4051,8 +4058,8 @@ class StableHLOBuilder(Builder):
             scatter_indices,
             updates,
             scatter_dimension_numbers_attr,
-            indices_are_sorted=indices_are_sorted,
-            unique_indices=unique_indices,
+            indices_are_sorted=indices_are_sorted_attr,
+            unique_indices=unique_indices_attr,
             loc=loc,
         )
 
@@ -4071,13 +4078,11 @@ class StableHLOBuilder(Builder):
         block = Block.create_at_start(op.update_computation, computation_arg_types)
 
         with InsertionPoint(block):
-            # Default update computation: addition for each pair
             results = []
             for i in range(len(inputs)):
-                old_val = block.arguments[2 * i]  # Old value from input
-                update_val = block.arguments[2 * i + 1]  # Update value
+                old_val = block.arguments[2 * i]
+                update_val = block.arguments[2 * i + 1]
 
-                # Add old value and update value
                 add_result = stablehlo.AddOp(old_val, update_val, loc=loc).result
                 results.append(add_result)
 
@@ -4089,31 +4094,25 @@ class StableHLOBuilder(Builder):
         if unit_attrs is not None:
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
-        print("2.5?")
+
         if not self._disable_golden_check:
-            input_tensors = [self._get_golden_tensor(inp) for inp in inputs]
+            input_tensors = [self._get_golden_tensor(input) for input in inputs]
             indices_tensor = self._get_golden_tensor(scatter_indices)
-            update_tensors = [self._get_golden_tensor(upd) for upd in updates]
+            update_tensors = [self._get_golden_tensor(update) for update in updates]
 
             op_golden_function = get_golden_function(stablehlo_op)
             golden_outputs = op_golden_function(
                 input_tensors,
                 indices_tensor,
                 update_tensors,
-                update_window_dims,
-                inserted_window_dims,
-                input_batching_dims,
-                scatter_indices_batching_dims,
-                scatter_dims_to_operand_dims,
-                index_vector_dim,
-                indices_are_sorted,
-                unique_indices,
+                scatter_dimension_numbers_attr,
+                indices_are_sorted=indices_are_sorted_attr,
+                unique_indices=unique_indices_attr,
             )
 
             for i, result in enumerate(op.results):
                 self._set_golden_tensor(result, golden_outputs[i])
 
-        print("3")
         return tuple(op.results)
 
     @parse(stablehlo.ScatterOp)
@@ -4149,20 +4148,13 @@ class StableHLOBuilder(Builder):
             update_tensors = [self._get_golden_tensor(upd) for upd in updates]
 
             op_golden_function = get_golden_function(stablehlo_op)
-            # Extract dimension information from the attribute
-            # For simplicity, we'll use default values in parsing
             golden_outputs = op_golden_function(
                 input_tensors,
                 indices_tensor,
                 update_tensors,
-                [],  # update_window_dims
-                [],  # inserted_window_dims
-                [],  # input_batching_dims
-                [],  # scatter_indices_batching_dims
-                [],  # scatter_dims_to_operand_dims
-                0,  # index_vector_dim
-                indices_are_sorted_attr.value if indices_are_sorted_attr else False,
-                unique_indices_attr.value if unique_indices_attr else False,
+                scatter_dimension_numbers_attr,
+                indices_are_sorted=indices_are_sorted_attr,
+                unique_indices=unique_indices_attr,
             )
 
             for i, result in enumerate(new_op.results):
@@ -4233,16 +4225,9 @@ class StableHLOBuilder(Builder):
                             input_tensors,
                             indices_tensor,
                             update_tensors,
-                            [],  # update_window_dims
-                            [],  # inserted_window_dims
-                            [],  # input_batching_dims
-                            [],  # scatter_indices_batching_dims
-                            [],  # scatter_dims_to_operand_dims
-                            0,  # index_vector_dim
-                            indices_are_sorted_attr.value
-                            if indices_are_sorted_attr
-                            else False,
-                            unique_indices_attr.value if unique_indices_attr else False,
+                            scatter_dimension_numbers_attr,
+                            indices_are_sorted=indices_are_sorted_attr,
+                            unique_indices=unique_indices_attr,
                         )
 
                         for i, result in enumerate(new_op.results):
