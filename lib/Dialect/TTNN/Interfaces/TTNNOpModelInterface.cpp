@@ -4224,25 +4224,6 @@ PointToPointOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
-// CollectivePermuteOp - TTNN Op Model Interface
-//===----------------------------------------------------------------------===//
-
-// CollectivePermuteOp is not supported rn. The reason is that the metal
-// definition is missing for this op.
-llvm::Expected<op_model::OpConstraints>
-CollectivePermuteOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                                      const OpConfig &opConfig) {
-  return issueErrorForGetOpConstraints(
-      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
-}
-llvm::Expected<size_t>
-CollectivePermuteOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
-                                  const OpConfig &opConfig) {
-  return issueErrorForGetOpRuntime(
-      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
-}
-
-//===----------------------------------------------------------------------===//
 // AllReduceOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
