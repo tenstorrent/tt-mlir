@@ -104,6 +104,7 @@ void Env::setProgramMetadata(const std::string &programMetadata) {
 
 namespace debug {
 
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
 // Stub for debug::Env::get
 const Env &Env::get(bool dumpKernelsToDisk, bool loadKernelsFromDisk,
                     bool useLocForKernelName, std::string kernelSourceDir,
@@ -131,6 +132,7 @@ void Stats::removeStat(const std::string &stat) { __builtin_trap(); }
 void Stats::clear() { __builtin_trap(); }
 
 std::string Stats::toString() const { __builtin_trap(); }
+#endif
 
 void logMemoryState(
     const std::unordered_map<tt::runtime::MemoryBufferType,
