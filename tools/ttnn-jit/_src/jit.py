@@ -57,6 +57,17 @@ class JitFunction:
         # Hashing based off runtime tensor metadata.
         self.cache = JitCache(64) if enable_cache else None
 
+    def _validate_arguments(self, args, kwargs):
+        """Validate arguments (handles defaults and kwargs)."""
+        sig = inspect.signature(self.func)
+        try:
+            sig.bind(*args, **kwargs)
+        except TypeError as e:
+            raise ValueError(
+                f"Invalid arguments for function {self.func.__name__}: {str(e)}"
+            ) from e
+        return sig
+
     def _query_and_save_system_desc(self, ttnn_device=None):
         """Query system descriptor from device and save it to a file.
         Uses the MLIR runtime bindings directly, replicating the logic from
@@ -98,16 +109,9 @@ class JitFunction:
                 args[0].device() if args else None
             )
 
-        tensor_args = {}
-        param_names = list(inspect.signature(self.func).parameters.keys())
-        if len(param_names) != len(args):
-            raise ValueError(
-                f"Passed {len(args)} args, but function expects {len(param_names)}"
-            )
-
-        for i, arg in enumerate(args):
-            tensor_args[param_names[i]] = arg
-        kwargs["_tensor_args"] = tensor_args
+        sig = self._validate_arguments(args, kwargs)
+        param_names = list(sig.parameters.keys())
+        kwargs["_tensor_args"] = {param_names[i]: args[i] for i in range(len(args))}
 
         # Cache hit, no need to compile.
         if self.cache and self.cache.contains(*args):

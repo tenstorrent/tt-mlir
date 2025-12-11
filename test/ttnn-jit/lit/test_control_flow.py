@@ -1,6 +1,10 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
+
+# RUN: %python %s | FileCheck %s
+# REQUIRES: ttnn-jit
+
 import ttnn_jit
 import ttnn
 import torch
@@ -123,31 +127,121 @@ if __name__ == "__main__":
         device, (32, 32), (0, 0), torch.bfloat16
     )
 
+    # CHECK: ---- IR Dump after GraphToIRTranslator (Graph-based) ----
+    # CHECK: func.func @if_else_branch
+    # CHECK: "ttnn.exp"
     _ = if_else_branch(input_tensor_a_l1)
+
+    # CHECK: ---- IR Dump after GraphToIRTranslator (Graph-based) ----
+    # CHECK: func.func @if_else_branch
+    # CHECK: "ttnn.log"
     _ = if_else_branch(input_tensor_a_l1, use_exp=False)
 
+    # CHECK: ---- IR Dump after GraphToIRTranslator (Graph-based) ----
+    # CHECK: func.func @nested_if
+    # CHECK: "ttnn.abs"
     _ = nested_if(input_tensor_a_l1)
+
+    # CHECK: ---- IR Dump after GraphToIRTranslator (Graph-based) ----
+    # CHECK: func.func @nested_if
+    # CHECK: "ttnn.exp"
     _ = nested_if(input_tensor_a_l1, mode=1)
 
+    # CHECK: ---- IR Dump after GraphToIRTranslator (Graph-based) ----
+    # CHECK: func.func @nested_if
+    # CHECK: "ttnn.sin"
+    _ = nested_if(input_tensor_a_l1, mode=2)
+
+    # CHECK: ---- IR Dump after GraphToIRTranslator (Graph-based) ----
+    # CHECK: func.func @if_with_ops_before_after
+    # CHECK: "ttnn.abs"
+    # CHECK: "ttnn.exp"
+    # CHECK: "ttnn.multiply"
     _ = if_with_ops_before_after(input_tensor_a_l1)
+
+    # CHECK: ---- IR Dump after GraphToIRTranslator (Graph-based) ----
+    # CHECK: func.func @if_with_ops_before_after
+    # CHECK: "ttnn.abs"
+    # CHECK: "ttnn.sin"
+    # CHECK: "ttnn.multiply"
     _ = if_with_ops_before_after(input_tensor_a_l1, apply_exp=False)
 
+    # CHECK: ---- IR Dump after GraphToIRTranslator (Graph-based) ----
+    # CHECK: func.func @multiple_sequential_ifs
+    # CHECK-NOT: "ttnn.exp"
+    # CHECK-NOT: "ttnn.cos"
     _ = multiple_sequential_ifs(input_tensor_a_l1)
+
+    # CHECK: ---- IR Dump after GraphToIRTranslator (Graph-based) ----
+    # CHECK: func.func @multiple_sequential_ifs
+    # CHECK: "ttnn.exp"
+    # CHECK: "ttnn.cos"
     _ = multiple_sequential_ifs(input_tensor_a_l1, apply_exp=True, apply_cos=True)
 
+    # CHECK: ---- IR Dump after GraphToIRTranslator (Graph-based) ----
+    # CHECK: func.func @for_loop_simple
+    # CHECK: "ttnn.add"
+    # CHECK: "ttnn.add"
+    # CHECK: "ttnn.add"
     _ = for_loop_simple(input_tensor_a_l1)
-    _ = for_loop_simple(input_tensor_a_l1, iterations=5)
 
+    # CHECK: ---- IR Dump after GraphToIRTranslator (Graph-based) ----
+    # CHECK: func.func @for_loop_simple
+    # CHECK: "ttnn.add"
+    # CHECK: "ttnn.add"
+    _ = for_loop_simple(input_tensor_a_l1, iterations=2)
+
+    # CHECK: ---- IR Dump after GraphToIRTranslator (Graph-based) ----
+    # CHECK: func.func @for_loop_with_index
+    # CHECK: "ttnn.multiply"
+    # CHECK: "ttnn.add"
+    # CHECK: "ttnn.add"
     _ = for_loop_with_index(input_tensor_a_l1)
+
+    # CHECK: ---- IR Dump after GraphToIRTranslator (Graph-based) ----
+    # CHECK: func.func @for_loop_with_index
+    # CHECK: "ttnn.multiply"
+    # CHECK: "ttnn.add"
+    # CHECK: "ttnn.add"
+    # CHECK: "ttnn.add"
+    # CHECK: "ttnn.add"
     _ = for_loop_with_index(input_tensor_a_l1, iterations=5)
 
+    # CHECK: ---- IR Dump after GraphToIRTranslator (Graph-based) ----
+    # CHECK: func.func @nested_for_loops
+    # CHECK: "ttnn.multiply"
+    # CHECK: "ttnn.multiply"
+    # CHECK: "ttnn.multiply"
+    # CHECK: "ttnn.multiply"
     _ = nested_for_loops(input_tensor_a_l1)
-    _ = nested_for_loops(input_tensor_a_l1, outer=3, inner=3)
 
+    # CHECK: ---- IR Dump after GraphToIRTranslator (Graph-based) ----
+    # CHECK: func.func @nested_for_loops
+    # CHECK: "ttnn.multiply"
+    _ = nested_for_loops(input_tensor_a_l1, outer=1, inner=1)
+
+    # CHECK: ---- IR Dump after GraphToIRTranslator (Graph-based) ----
+    # CHECK: func.func @for_loop_with_if
+    # CHECK: "ttnn.add"
+    # CHECK: "ttnn.multiply"
+    # CHECK: "ttnn.add"
+    # CHECK: "ttnn.multiply"
     _ = for_loop_with_if(input_tensor_a_l1)
-    _ = for_loop_with_if(input_tensor_a_l1, iterations=5)
 
+    # CHECK: ---- IR Dump after GraphToIRTranslator (Graph-based) ----
+    # CHECK: func.func @if_inside_for_multiple_branches
+    # CHECK: "ttnn.exp"
+    # CHECK: "ttnn.sin"
+    # CHECK: "ttnn.cos"
     _ = if_inside_for_multiple_branches(input_tensor_a_l1)
+
+    # CHECK: ---- IR Dump after GraphToIRTranslator (Graph-based) ----
+    # CHECK: func.func @if_inside_for_multiple_branches
+    # CHECK: "ttnn.exp"
+    # CHECK: "ttnn.sin"
+    # CHECK: "ttnn.cos"
+    # CHECK: "ttnn.cos"
+    # CHECK: "ttnn.cos"
     _ = if_inside_for_multiple_branches(input_tensor_a_l1, iterations=5)
 
     ttnn.close_device(device)
