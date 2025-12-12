@@ -47,14 +47,8 @@ void registerRuntimeUtilsBindings(nb::module_ &m) {
       [](tt::runtime::Tensor tensor) -> nb::object {
         ::ttnn::Tensor &ttnn_tensor =
             ::tt::runtime::ttnn::utils::getTTNNTensorFromRuntimeTensor(tensor);
-        py::object py_tensor = py::cast(std::move(ttnn_tensor),
-                                        py::return_value_policy::reference);
-        // IMPORTANT: Maybe use copy policy, not reference. Check this again!!
-        // If this is areference, doesn't py object point to ::ttnn::Tensor
-        // inside TTNNTensorWrapper which when refcount drops to 0, the wrapper
-        // is destroyed along with the internal ::ttnn::Tensor, leaving Python
-        // with a dangling pointer? py::object py_tensor =
-        //     py::cast(ttnn_tensor, py::return_value_policy::copy);
+        py::object py_tensor =
+            py::cast(ttnn_tensor, py::return_value_policy::copy);
         return nb::borrow(py_tensor.ptr());
       },
       "Get a TTNN tensor from a tt::runtime tensor");
