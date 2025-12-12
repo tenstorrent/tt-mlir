@@ -15,8 +15,8 @@
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/ArrayRef.h"
-#include <algorithm>
-#include <string>
+
+#include <dbg.h>
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MLOWERTOLAYOUT
@@ -178,12 +178,14 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
 
       ttcore::MetalLayoutAttr layout;
       if (hasVirtualGrid) {
+        fprintf(stderr, "---- modifyDeviceType: hasVirtualGrid => default collapse\n");
         // Recompute default collapsed intervals and dim alignments if virtual
         // grid shape is being reblocked.
         layout = ttcore::MetalLayoutAttr::get(ctx, baseLayout.getLogicalShape(),
                                               baseLayout.getOobVal(), memSpace,
                                               baseLayout.getMemoryLayout());
       } else {
+        fprintf(stderr, "---- modifyDeviceType: noVirtualGrid => preserve collapse\n");
         // Otherwise, preserve dim alignments and collapsed intervals.
         layout = ttcore::MetalLayoutAttr::get(
             ctx, baseLayout.getLogicalShape(), baseLayout.getDimAlignments(),
@@ -402,6 +404,8 @@ public:
                                  Value output, Location loc) const {
     auto inputInfo = TensorInfo::from(input);
     auto outputInfo = TensorInfo::from(output);
+    fprintf(stderr, "---- lowerDatamovementGeneric: inputInfo "); inputInfo.type.dump();
+    fprintf(stderr, "---- lowerDatamovementGeneric: outputInfo "); outputInfo.type.dump();
 
     if (inputInfo.isSystem() || outputInfo.isSystem()) {
       return lowerSystemLayoutChange(rewriter, input, output, loc);
@@ -416,6 +420,7 @@ public:
         inputInfo.isDRAM() ||
         (!outputInfo.isDRAM() &&
          (inputInfo.getGridShape() != outputInfo.getGridShape()));
+    fprintf(stderr, "---- lowerDatamovementGeneric: "); dbg(isSrcDramOrReblock);
 
     assert(!(isSrcDramOrReblock && outputInfo.isDRAM()) &&
            "input and output cannot both be remote");
@@ -542,6 +547,7 @@ public:
     if (op.getLayout()) {
       return failure();
     }
+    fprintf(stderr, "-- LowerToLayout: for "); op.dump();
 
     // Use producer-first ordering to ensure dependencies are lowered first.
     if (producerMustBeLoweredFirst(op)) {
@@ -582,6 +588,9 @@ public:
       return !indexMap.isEmpty() && !indexMap.isIdentity();
     };
 
+    fprintf(stderr, "-- LowerToLayout: current/input L1? %d SYS? %d Layout? %d VirtualGrid? %d\n", currentInfo.isL1(), currentInfo.isSystem(), currentInfo.hasLayout(), hasVirtualGrid(currentInfo.layout));
+    fprintf(stderr, "-- LowerToLayout: target/output L1? %d SYS? %d Layout? %d VirtualGrid? %d\n", targetInfo.isL1(), targetInfo.isSystem(), targetInfo.hasLayout(), hasVirtualGrid(targetInfo.layout));
+
     // 0. Split virtual grid shapes earlier into a conventional block sharded
     // bounce shape. The rest of the splitting pipeline can be oblivious to
     // virtual grid shapes.
@@ -590,6 +599,7 @@ public:
                "current and target cannot both have virtual grids");
 
     if (hasVirtualGrid(currentInfo.layout) && targetInfo.isSystem()) {
+      fprintf(stderr, "-- LowerToLayout: virtual->system\n");
       // Create block sharded bounce tensor that host system can read from.
       auto bounceShape = typeBuilder.computeVirtualGridBounceShape(
           currentInfo.getGridShape(), targetGridShape);
@@ -603,17 +613,21 @@ public:
       currentInfo = TensorInfo::from(currentValue);
 
     } else if (currentInfo.isSystem() && hasVirtualGrid(targetInfo.layout)) {
+      fprintf(stderr, "-- LowerToLayout: system->virtual\n");
       // Create block sharded bounce tensor that host system can read from.
       auto bounceShape = typeBuilder.computeVirtualGridBounceShape(
           targetInfo.getGridShape(), targetGridShape);
+      fprintf(stderr, "-- LowerToLayout: "); dbg(bounceShape);
       auto l1Type = typeBuilder.modifyDeviceType(
           targetInfo.type, *targetInfo.layout, targetGridShape,
           ttcore::MemorySpace::DeviceL1, bounceShape);
+      fprintf(stderr, "-- LowerToLayout: l1Type "); l1Type.dump();
       auto l1Empty = createEmpty(l1Type);
 
       // Create a ToLayoutOp from system to block sharded bounce tensor.
       auto sysToBounceToLayout =
           lowerSystemLayoutChange(rewriter, currentValue, l1Empty, op.getLoc());
+      fprintf(stderr, "-- LowerToLayout: sysToBounceToLayout "); sysToBounceToLayout.dump();
 
       // Replace ToLayout producing virtual grid target with blockToVirtual.
       auto blockToVirtual = lowerDatamovementGeneric(

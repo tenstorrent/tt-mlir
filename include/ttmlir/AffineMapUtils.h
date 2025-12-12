@@ -15,6 +15,8 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include <dbg.h>
+
 namespace ttmlir::utils {
 
 /// Returns a new shape by applying `map` to the input shape.
@@ -205,7 +207,8 @@ createGridInverseMapFromIndexMap(mlir::AffineMap indexMap, unsigned gridRank,
 inline mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
                                            mlir::ArrayRef<int64_t> outputShape,
                                            mlir::MLIRContext *ctx) {
-
+  fprintf(stderr, "-------- calculateReblockMap: "); dbg(inputShape, outputShape);
+  TT_assert(utils::volume<int64_t>(inputShape) == utils::volume<int64_t>(outputShape));
   int64_t inputRank = static_cast<int64_t>(inputShape.size());
   int64_t outputRank = static_cast<int64_t>(outputShape.size());
   TT_assertv(inputRank % 2 == 0, "Input rank must be even");
@@ -225,7 +228,9 @@ inline mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
     expr = (dim * overallStride) + expr;
     overallStride = overallStride * dimStride;
   }
+  // This is flat, not logical!
   auto outputToLogical = mlir::AffineMap::get(outputRank, 0, {expr}, ctx);
+  fprintf(stderr, "-------- calculateReblockMap: outputToLogical "); outputToLogical.dump();
 
   // Construct a map that transforms logical indices to input (grid x shard)
   // indices.
@@ -237,6 +242,7 @@ inline mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
     overallStride = overallStride * dimStride;
   }
   auto logicalToInput = mlir::AffineMap::get(1, 0, toInputExprs, ctx);
+  fprintf(stderr, "-------- calculateReblockMap: logicalToInput "); logicalToInput.dump();
 
   return logicalToInput.compose(outputToLogical);
 }
@@ -259,6 +265,7 @@ calculateReblockMapForGrid(mlir::ArrayRef<int64_t> tensorShape,
     newTensorShape[j] = tensorShape[i] * tensorShape[j] / newGridShape[i];
     newTensorShape[i] = newGridShape[i];
   }
+  fprintf(stderr, "------ calculateReblockMapForGrid: "); dbg(newTensorShape);
   return {newTensorShape,
           calculateReblockMap(tensorShape, newTensorShape, context)};
 }

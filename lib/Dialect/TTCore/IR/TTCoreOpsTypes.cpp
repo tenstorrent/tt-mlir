@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <dbg.h>
 #include <fstream>
 #include <numeric>
 
@@ -551,12 +552,15 @@ static llvm::SmallVector<int64_t>
 getPhysicalGridShapeFromShapeAndMap(ArrayRef<int64_t> overallDeviceShape,
                                     ArrayRef<int64_t> virtualGridShape,
                                     AffineMap map) {
+  fprintf(stderr, "-------- getPhysicalGridShapeFromShapeAndMap: map "); map.dump();
+  fprintf(stderr, "-------- getPhysicalGridShapeFromShapeAndMap: "); dbg(overallDeviceShape, virtualGridShape);
   // If the map is empty, the virtual and physical grid shapes are the same.
   if (map.isEmpty()) {
     return llvm::SmallVector<int64_t>(virtualGridShape);
   }
   TT_assert(map.getNumResults() >= 2u);
   auto gridResultMap = ttmlir::utils::affineMapTakeFrontResults(map, 2);
+  fprintf(stderr, "-------- getPhysicalGridShapeFromShapeAndMap: gridResultMap "); gridResultMap.dump();
   TT_assert(overallDeviceShape.size() == gridResultMap.getNumDims());
   return ttmlir::utils::applyMapToGrid(overallDeviceShape, gridResultMap);
 }
@@ -599,6 +603,7 @@ mlir::AffineMap ShardLayoutAttr::getAffineMap() const {
 
 llvm::SmallVector<int64_t>
 ShardLayoutAttr::getPhysicalGridShape(ShapedType tensorType) const {
+  fprintf(stderr, "------ getPhysicalGridShape(ShardLayoutAttr)\n");
   return getPhysicalGridShapeFromShapeAndMap(tensorType.getShape(),
                                              getGridShape(tensorType),
                                              getCoreVirtualizationMap());
@@ -846,6 +851,7 @@ MetalLayoutAttr::getPhysicalShape(ArrayRef<int64_t> tileShape) const {
   llvm::SmallVector<int64_t> physicalShape =
       applyCollapsedIntervalsAndAlignments(
           getLogicalShape(), normalizedIntervals, getDimAlignments());
+  fprintf(stderr, "------ getPhysicalShape: "); dbg(this->getLogicalShape(), physicalShape);
 
   if (!tileShape.empty()) {
     assert(physicalShape.size() >= 2);
@@ -854,12 +860,14 @@ MetalLayoutAttr::getPhysicalShape(ArrayRef<int64_t> tileShape) const {
     physicalShape[physicalShape.size() - 2] /= tileShape[0];
     assert(physicalShape[physicalShape.size() - 1] % tileShape[1] == 0);
     physicalShape[physicalShape.size() - 1] /= tileShape[1];
+    fprintf(stderr, "------ getPhysicalShape(tile-div): "); dbg(this->getLogicalShape(), physicalShape);
   }
   return physicalShape;
 }
 
 llvm::SmallVector<int64_t>
 MetalLayoutAttr::getPhysicalGridShape(ShapedType tensorType) const {
+  fprintf(stderr, "------ getPhysicalGridShape(MetalLayoutAttr)\n");
   return getPhysicalGridShapeFromShapeAndMap(
       tensorType.getShape(), getGridShape(tensorType), getIndexAffineMap());
 }
@@ -1306,6 +1314,7 @@ static mlir::AffineMap createL1Map(mlir::MLIRContext *context,
 static GridAttr createWorkerGrid(::mlir::MLIRContext *context,
                                  mlir::ArrayRef<int64_t> chipGrid,
                                  mlir::ArrayRef<int64_t> meshShapeRef) {
+  fprintf(stderr, "---- createWorkerGrid "); dbg(meshShapeRef);
   assert(chipGrid.size() == 2 && "expected 2D grid");
   mlir::SmallVector<int64_t> meshShape(meshShapeRef);
 
@@ -1357,6 +1366,9 @@ static GridAttr createWorkerGrid(::mlir::MLIRContext *context,
     meshStride *= meshShape[i];
   }
 
+  fprintf(stderr, "---- createWorkerGrid workerDeviceIdx "); workerDeviceIdx.dump();
+  fprintf(stderr, "---- createWorkerGrid workerCoreY "); workerCoreY.dump();
+  fprintf(stderr, "---- createWorkerGrid workerCoreX "); workerCoreX.dump();
   mlir::SmallVector<mlir::AffineExpr> workerGridExprs = {
       workerDeviceIdx, workerCoreY, workerCoreX};
   auto workerGridMap =
@@ -1474,7 +1486,11 @@ DeviceAttr DeviceAttr::get(::mlir::MLIRContext *context,
 
   // Due mainly to SPMD programming model for multi-devices, workerGrid
   // currently is set to be limited to a single device {1, 1}.
+  fprintf(stderr, "-- DeviceAttr::get() "); dbg(chipGrid);
   auto workerGrid = createWorkerGrid(context, chipGrid, {1, 1});
+  const auto workerGridShape = workerGrid.getShape();
+  fprintf(stderr, "-- DeviceAttr::get() "); dbg(workerGridShape);
+  fprintf(stderr, "-- DeviceAttr::get() "); workerGrid.getMapping().dump();
   auto l1Map = createL1Map(context, workerGrid);
   auto dramMap = createDramMap(context, workerGrid, systemDesc, chipIds);
   return get(context, workerGrid, l1Map, dramMap, meshShape, chipIds);
@@ -1506,6 +1522,7 @@ mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
   MemorySpace memorySpace =
       mlir::cast<MemorySpaceAttr>(memrefType.getMemorySpace()).getValue();
   AffineMap affineMap = memrefType.getLayout().getAffineMap();
+  fprintf(stderr, "------ getMemoryMap: affineMap "); affineMap.dump();
 
   if (auto shardLayout =
           mlir::dyn_cast<ShardLayoutAttr>(memrefType.getLayout())) {
@@ -1513,7 +1530,7 @@ mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
     // Core virtualization map must be composed before other maps.
     if (auto coreVirtMap = shardLayout.getCoreVirtualizationMap();
         !coreVirtMap.isEmpty()) {
-
+      fprintf(stderr, "------ getMemoryMap: coreVirtMap "); coreVirtMap.dump();
       if (affineMap.getNumDims() > coreVirtMap.getNumResults()) {
         auto dimsToRemove =
             affineMap.getNumDims() - coreVirtMap.getNumResults();
@@ -1527,10 +1544,14 @@ mlir::AffineMap DeviceAttr::getMemoryMap(MemRefType memrefType, size_t pageSize,
       affineMap = affineMap.compose(coreVirtMap);
     }
     if (view) {
+      fprintf(stderr, "------ getMemoryMap: view "); view->dump();
       affineMap = affineMap.compose(*view);
     }
 
     switch (memorySpace) {
+      fprintf(stderr, "------ getMemoryMap: memref "); memrefType.dump();
+      fprintf(stderr, "------ getMemoryMap: affineMap(final) "); affineMap.dump();
+      fprintf(stderr, "------ getMemoryMap: L1Map "); getL1Map().dump();
     case MemorySpace::DeviceL1: {
       SmallVector<int64_t> symbols = {static_cast<int64_t>(baseOffset)};
       auto resolvedL1Map =

@@ -11,9 +11,11 @@
 
 #include "ttmlir/Target/TTMetal/Target.h"
 
+#include <enchantum/enchantum.hpp>
 #include <filesystem>
 #include <functional>
 #include <variant>
+#include <dbg.h>
 
 namespace tt::runtime::ttmetal {
 
@@ -107,6 +109,9 @@ createMeshBufferForShardedMetalBuffer(
     const target::metal::ShardedBufferConfig *shardedBufferConfig,
     target::BufferType bufferType,
     const DeviceAddressValidator &deviceAddressValidator) {
+  fprintf(stderr, "------ createMeshBufferForShardedMetalBuffer: meshDevice H %zu W %zu\n", meshDevice->num_rows(), meshDevice->num_cols());
+  fprintf(stderr, "------ createMeshBufferForShardedMetalBuffer: shardedBufferConfig->size() %lu\n", shardedBufferConfig->size());
+  fprintf(stderr, "------ createMeshBufferForShardedMetalBuffer: shardedBufferConfig->page_size() %lu\n", shardedBufferConfig->page_size());
   const target::metal::ShardSpecBuffer *shardSpecBuffer =
       shardedBufferConfig->shard_spec_buffer();
   const target::metal::ShardSpec *shardSpec = shardSpecBuffer->shard_spec();
@@ -117,6 +122,8 @@ createMeshBufferForShardedMetalBuffer(
       static_cast<uint32_t>(shardSpec->shard_shape()->y()),
       static_cast<uint32_t>(shardSpec->shard_shape()->x()),
   };
+  fprintf(stderr, "------ ShardSpec.grid %s\n", coreRangeSet.str().c_str());
+  fprintf(stderr, "------ ShardSpec.shape [%u %u]\n", shardShape[0], shardShape[1]);
   tt_metal::ShardSpec metalShardSpec(coreRangeSet, shardShape);
 
   std::array<uint32_t, 2> pageShape = {
@@ -127,6 +134,8 @@ createMeshBufferForShardedMetalBuffer(
       static_cast<uint32_t>(shardSpecBuffer->tensor_shape_in_pages()->y()),
       static_cast<uint32_t>(shardSpecBuffer->tensor_shape_in_pages()->x()),
   };
+  fprintf(stderr, "------ ShardSpecBuffer.page_shape [%u %u]\n", pageShape[0], pageShape[1]);
+  fprintf(stderr, "------ ShardSpecBuffer.tensor2d_shape_in_pages [%u %u]\n", tensorShapeInPages[0], tensorShapeInPages[1]);
   tt_metal::ShardSpecBuffer metalShardSpecBuffer(metalShardSpec, pageShape,
                                                  tensorShapeInPages);
 
@@ -137,7 +146,16 @@ createMeshBufferForShardedMetalBuffer(
                                              : tt_metal::BufferType::L1;
   uint32_t address = deviceAddressValidator(refAddress, bufferType);
 
-  auto localShardShape = tt_metal::Shape2D{shardShape[0], shardShape[1]};
+  //////////////////////////////////////////////////////////////////////////////////////////////////
+  // This is device shard, not core shard.
+  // auto localShardShape = tt_metal::Shape2D{shardShape[0], shardShape[1]};
+  auto localShardShape = tt_metal::Shape2D{pageShape[0] * tensorShapeInPages[0], pageShape[1] * tensorShapeInPages[1]};
+  assert(localShardShape.height() >= shardShape[0]);
+  assert(localShardShape.width() >= shardShape[1]);
+  assert(localShardShape.height() % shardShape[0] == 0);
+  assert(localShardShape.width() % shardShape[1] == 0);
+  assert(coreRangeSet.num_cores() * shardShape[0] * shardShape[1] == localShardShape.height() * localShardShape.width());
+  //////////////////////////////////////////////////////////////////////////////////////////////////
   auto distributedBufferShape =
       tt_metal::Shape2D{localShardShape.height() * meshDevice->num_rows(),
                         localShardShape.width() * meshDevice->num_cols()};
@@ -148,6 +166,8 @@ createMeshBufferForShardedMetalBuffer(
   tt_metal::BufferShardingArgs bufferShardingArgs(
       metalShardSpecBuffer, tt_metal::TensorMemoryLayout::BLOCK_SHARDED);
 
+  fprintf(stderr, "------ DeviceLocalBufferConfig.page_size: %lu\n", shardedBufferConfig->page_size());
+  fprintf(stderr, "------ DeviceLocalBufferConfig.buffer_type: %s\n", enchantum::to_string(metalBufferType).data());
   auto localBufferConfig = tt_metal::distributed::DeviceLocalBufferConfig{
       .page_size = shardedBufferConfig->page_size(),
       .buffer_type = metalBufferType,
@@ -155,12 +175,16 @@ createMeshBufferForShardedMetalBuffer(
       .bottom_up = std::nullopt,
       .sub_device_id = std::nullopt};
 
+  fprintf(stderr, "------ ShardedBufferConfig.global_size %ld\n", distributedBufferSizeBytes);
+  fprintf(stderr, "------ ShardedBufferConfig.global_buffer_shape H %zu W %zu\n", distributedBufferShape.height(), distributedBufferShape.width());
+  fprintf(stderr, "------ ShardedBufferConfig.device_shard_shape H %zu W %zu\n", localShardShape.height(), localShardShape.width());
   auto distributedBufferConfig = tt::tt_metal::distributed::ShardedBufferConfig{
       .global_size = distributedBufferSizeBytes,
       .global_buffer_shape = distributedBufferShape,
       .shard_shape = localShardShape,
       .shard_orientation = tt_metal::ShardOrientation::ROW_MAJOR};
 
+  fprintf(stderr, "------ MeshBuffer: refAddress %lu -> address %u\n", refAddress, address);
   return tt_metal::distributed::MeshBuffer::create(
       distributedBufferConfig, localBufferConfig, meshDevice, address);
 }
@@ -170,6 +194,7 @@ createMeshBufferForInterleavedMetalBuffer(
     tt_metal::distributed::MeshDevice *meshDevice, uint64_t refAddress,
     const target::metal::InterleavedBufferConfig *interleavedBufferConfig,
     const DeviceAddressValidator &deviceAddressValidator) {
+  fprintf(stderr, "!! createMeshBufferForInterleavedMetalBuffer: creating DRAM\n");
 
   auto metalInterleavedBufferConfig =
       tt::tt_metal::distributed::ShardedBufferConfig{
@@ -213,6 +238,7 @@ createMeshBufferFromBufferRef(
               "Creating Sharded Buffer ",
               logger::Buffer(bufferRef->global_id()), ": ", *bufferRef);
 
+    fprintf(stderr, "---- Create sharded mesh buffer\n");
     return createMeshBufferForShardedMetalBuffer(
         meshDevice, bufferRef->address(),
         metalBuffer->buffer_config_as_ShardedBufferConfig(),
@@ -228,6 +254,7 @@ createMeshBufferFromBufferRef(
               "Creating interleaved buffer ",
               logger::Buffer(bufferRef->global_id()), ": ", *bufferRef);
 
+    fprintf(stderr, "!! Create interleaved mesh buffer\n");
     return createMeshBufferForInterleavedMetalBuffer(
         meshDevice, bufferRef->address(),
         metalBuffer->buffer_config_as_InterleavedBufferConfig(),
@@ -285,14 +312,11 @@ inline std::string
 coreRangeToString(const tt::tt_metal::CoreRangeSet &coreRanges) {
   std::string result;
   for (const auto &coreRange : coreRanges.ranges()) {
-    result += std::to_string(coreRange.start_coord.y) + "_" +
-              std::to_string(coreRange.start_coord.x) + "-" +
-              std::to_string(coreRange.end_coord.y) + "_" +
-              std::to_string(coreRange.end_coord.x);
-    result += "__";
+    result += "--y" + std::to_string(coreRange.start_coord.y) +
+              "x" + std::to_string(coreRange.start_coord.x) +
+              "-y" + std::to_string(coreRange.end_coord.y) +
+              "x" + std::to_string(coreRange.end_coord.x);
   }
-  result.pop_back();
-  result.pop_back();
 
   return result;
 }
@@ -320,8 +344,6 @@ inline std::string createKernelFilePath(
     path += "_";
     path += kernelConfigTypeString(kernelConfig);
 
-    // Double underscore to visually separate core ranges from the rest.
-    path += "__";
     path += coreRangeToString(coreRangeSet);
   }
   path += extention;
@@ -564,11 +586,34 @@ inline tt_metal::CircularBufferConfig createCircularBufferConfig(
             logger::Address(cbRef->buffer_ref()->address()), ": ",
             metalBuffer->circular_buffer_config());
   auto meshBuffer = meshBuffers.at(cbRef->buffer_ref()->global_id());
+  fprintf(stderr, "---- createCircularBufferConfig: Size %ld Port %u PageSz %lu ID %u Addr %lu\n", metalBuffer->circular_buffer_config()->total_size(), cbRef->port(), metalBuffer->circular_buffer_config()->page_size(), cbRef->buffer_ref()->global_id(), meshBuffer->address());
   return tt_metal::CircularBufferConfig(
              metalBuffer->circular_buffer_config()->total_size(),
              {{cbRef->port(), dataFormat}}, *meshBuffer->get_reference_buffer())
       .set_page_size(cbRef->port(),
                      metalBuffer->circular_buffer_config()->page_size());
+}
+
+inline void printTensorDesc(const Tensor& tensor, const bool print, void* vec) {
+  auto td = std::get<TensorDesc>(tensor.as<MetalTensor>(DeviceRuntime::TTMetal));
+  fprintf(stderr, "------ TensorDesc.shape "); dbg(td.shape);
+  fprintf(stderr, "------ TensorDesc.dataType %s\n", enchantum::to_string(td.dataType).data());
+  fprintf(stderr, "------ TensorDesc.itemsize %u\n", td.itemsize);
+  fprintf(stderr, "------ TensorDesc.stride "); dbg(td.stride);
+  fprintf(stderr, "------ TensorDesc.physicalVolume %lu\n", td.physicalVolume);
+  fprintf(stderr, "------ TensorDesc.isPadded() %d\n", td.isPadded());
+  fprintf(stderr, "------ TensorDesc.sizeBytes() %zu\n", td.sizeBytes());
+
+  if (!print) return;
+
+  float* fvec = reinterpret_cast<float*>(vec);
+  for (int64_t i = 0; i < 32; i++) {
+    fprintf(stderr, "%2ld: ", i);
+    for (int64_t j = 0; j < 512; j++) {
+      fprintf(stderr, "%2d ", static_cast<int>(fvec[i * 512 + j]));
+    }
+    fprintf(stderr, "\n");
+  }
 }
 
 inline void writeHostTensorToMeshBuffer(
@@ -580,13 +625,17 @@ inline void writeHostTensorToMeshBuffer(
           [&](const TensorDesc &) {
             void *src = input.data.get();
             LOG_ASSERT(src);
+            fprintf(stderr, "---- Write TensorDesc to device addr %lu\n", meshBuffer->address());
+            printTensorDesc(input, false, src);
             mcq->enqueue_write_mesh_buffer(meshBuffer, src, blockingCQ);
           },
           [&](const HostBuffer &hostBuffer) {
             auto span = hostBuffer->view_bytes();
+            fprintf(stderr, "!! Write HostBuffer\n");
             mcq->enqueue_write_mesh_buffer(meshBuffer, span.data(), blockingCQ);
           },
           [&](const DistributedHostBuffer &distributedHostBuffer) {
+            fprintf(stderr, "!! Write DistributedHostBuffer\n");
             mcq->enqueue_write(meshBuffer, *distributedHostBuffer, blockingCQ);
           },
           [&](const MeshBuffer &meshBuffer) {
@@ -605,12 +654,16 @@ inline void readHostTensorFromMeshBuffer(
           [&](const TensorDesc &) {
             void *dst = output.data.get();
             LOG_ASSERT(dst);
+            fprintf(stderr, "---- Read TensorDesc from device addr %lu\n", meshBuffer->address());
             mcq->enqueue_read_mesh_buffer(dst, meshBuffer, true);
+            printTensorDesc(output, true, dst);
           },
           [&](const HostBuffer &hostBuffer) {
+            fprintf(stderr, "!! Read HostBuffer\n");
             LOG_FATAL("readTensorFromMeshBuffer to HostBuffer not supported.");
           },
           [&](const DistributedHostBuffer &distributedHostBuffer) {
+            fprintf(stderr, "!! Read DistributedHostBuffer\n");
             mcq->enqueue_read(meshBuffer, *distributedHostBuffer, std::nullopt,
                               blockingCQ);
           },

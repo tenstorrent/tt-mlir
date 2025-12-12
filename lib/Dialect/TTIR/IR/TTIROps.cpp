@@ -1938,15 +1938,13 @@ mlir::tt::ttir::RearrangeOp::getInvPatternMap(mlir::MLIRContext *context,
     assert(!group.empty());
     // For flattening like b h -> (b h)@d, we create inverse map: (d / h_size, d
     // % h_size).
-    bool needsMod =
-        group.size() > 1; // mod only required for collapsed groups, we elide it
-                          // otherwise to reduce clutter.
     int64_t stride = 1;
     mlir::AffineExpr expr = mlir::getAffineConstantExpr(0, context);
     for (int64_t i = static_cast<int64_t>(group.size()) - 1; i >= 0; --i) {
       unsigned dimPos = dimToInputPos[group[i]];
       expr = mlir::getAffineDimExpr(groupPos, context).floorDiv(stride);
-      if (needsMod) {
+      // Elide redundant mod on the outermost dim.
+      if (i > 0) {
         expr = expr % shape[dimPos];
       }
       stride *= shape[dimPos];

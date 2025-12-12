@@ -670,7 +670,7 @@ def test_logical_unary_ops(
     ids=["128x128_basic", "128x128_offset", "128x128_stride", "256x256_large"],
 )
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_slice(
     shape: Shape,
     start_indices: List[int],

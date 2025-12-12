@@ -41,6 +41,7 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <dbg.h>
 #include <memory>
 #include <vector>
 
@@ -272,6 +273,7 @@ getPhysicalGridShapeForVirtualGrid(ttcore::ShardLayoutAttr shardLayout,
   // we only need the first 2 (physical grid dimensions).
   auto fullPhysicalShape =
       ttmlir::utils::applyMapToGrid(memref.getShape(), virtMap);
+  fprintf(stderr, "------ getPhysicalGridShapeForVirtualGrid: brute-forced "); dbg(fullPhysicalShape);
   return {fullPhysicalShape[0], fullPhysicalShape[1]};
 }
 
@@ -280,6 +282,8 @@ createShardedBufferConfigForL1Memref(FlatbufferObjectCache &cache,
                                      MemRefType memref,
                                      ttcore::DeviceAttr device,
                                      target::Dim2d elementShape) {
+  fprintf(stderr, "-- createShardedBufferConfigForL1Memref:\n");
+  fprintf(stderr, "---- elementShape: H %d W %d\n", elementShape.y(), elementShape.x());
   auto deviceLayout = mlir::dyn_cast_if_present<ttcore::DeviceLayoutInterface>(
       memref.getLayout());
   if (!deviceLayout) {
@@ -289,6 +293,7 @@ createShardedBufferConfigForL1Memref(FlatbufferObjectCache &cache,
   auto shardLayout = mlir::cast<ttcore::ShardLayoutAttr>(deviceLayout);
   assert(shardLayout &&
          "expected shard layout for sharded buffer config generation");
+  fprintf(stderr, "---- shardLayout: "); shardLayout.dump();
 
   ArrayRef<int64_t> stride = shardLayout.getStride();
   int64_t elementSize = stride[stride.size() - 1];
@@ -296,18 +301,24 @@ createShardedBufferConfigForL1Memref(FlatbufferObjectCache &cache,
       llvm::to_vector(shardLayout.getGridShape(memref));
 
   if (!shardLayout.getCoreVirtualizationMap().isEmpty()) {
+    fprintf(stderr, "---- memrefGridShape(pre-virtual grid): "); dbg(memrefGridShape);
     memrefGridShape =
         getPhysicalGridShapeForVirtualGrid(shardLayout, device, memref);
   }
+  fprintf(stderr, "---- memrefGridShape: "); dbg(memrefGridShape);
 
   auto memrefShardShape = shardLayout.getShardShape(memref);
+  fprintf(stderr, "---- memrefShardShape: "); dbg(memrefShardShape);
   auto extendedMapping = extendMappingForHigherDimGrid(
       device.getWorkerGrid().getMapping(), memrefGridShape.size());
+  fprintf(stderr, "---- originalMapping: "); device.getWorkerGrid().getMapping().dump();
+  fprintf(stderr, "---- extendedMapping: "); extendedMapping.dump();
 
   std::vector<target::Dim2dRange> coreRangeSet =
       toFlatbuffer(cache, memrefGridShape, extendedMapping);
   std::array<int32_t, 2> gridShapeExtents =
       calculateCoreRangeSetShapeExtents(coreRangeSet);
+  fprintf(stderr, "---- gridShapeExtents: H %d W %d\n", gridShapeExtents[0], gridShapeExtents[1]);
 
   // Calculate ShardSpec.
   assert(stride[stride.size() - 1] % elementSize == 0);
@@ -315,22 +326,28 @@ createShardedBufferConfigForL1Memref(FlatbufferObjectCache &cache,
   assert((memrefShardShape[0] * stride[0] / elementSize) % shardXElements == 0);
   int32_t collapsedShardYElements =
       (memrefShardShape[0] * stride[0] / elementSize) / shardXElements;
+  fprintf(stderr, "---- shardXElements: %d collapsedShardYElements %d nBuffers %u\n", shardXElements, collapsedShardYElements, shardLayout.getBuffers());
   // Shard shape is the fully collapsed shard down to 2D, so:
   //   [d0 * ... * dN-2, dN-1].
   target::Dim2d shardShape(collapsedShardYElements * elementShape.y() *
                                shardLayout.getBuffers(),
                            shardXElements * elementShape.x());
+  fprintf(stderr, "---- shardShape: H %d W %d\n", shardShape.y(), shardShape.x());
   auto shardSpec = target::metal::CreateShardSpecDirect(
       *cache.fbb, &coreRangeSet, &shardShape);
 
   // Calculate ShardSpecBuffer.
+  // WTF???
   target::Dim2d pageShape(elementShape.y(), shardShape.x());
+  fprintf(stderr, "---- pageShape: H %d W %d\n", pageShape.y(), pageShape.x());
   std::array<int32_t, 2> tensorShape = {gridShapeExtents[0] * shardShape.y(),
                                         gridShapeExtents[1] * shardShape.x()};
+  fprintf(stderr, "---- tensorShape: H %d W %d\n", tensorShape[0], tensorShape[1]);
   assert(tensorShape[0] % pageShape.y() == 0);
   assert(tensorShape[1] % pageShape.x() == 0);
   target::Dim2d tensorShapeInPages(tensorShape[0] / pageShape.y(),
                                    tensorShape[1] / pageShape.x());
+  fprintf(stderr, "---- tensorShapeInPages: H %d W %d\n", tensorShapeInPages.y(), tensorShapeInPages.x());
   auto shardSpecBuffer = target::metal::CreateShardSpecBuffer(
       *cache.fbb, shardSpec, &pageShape, &tensorShapeInPages);
 
@@ -344,6 +361,7 @@ createShardedBufferConfigForL1Memref(FlatbufferObjectCache &cache,
   uint64_t shardSize =
       device.getMemrefSizeBytes(memref, pageSize, /*includeBuffers=*/true);
   uint64_t size = gridShapeExtents[0] * gridShapeExtents[1] * shardSize;
+  fprintf(stderr, "---- pageSize: %lu shardSize %lu size %lu\n", pageSize, shardSize, size);
   return target::metal::CreateShardedBufferConfig(*cache.fbb, size, pageSize,
                                                   shardSpecBuffer);
 }
@@ -417,6 +435,7 @@ static flatbuffers::Offset<target::metal::CircularBufferConfig>
 memrefTypeToCircularBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
                                            MemRefType memref,
                                            ttcore::DeviceAttr device) {
+  fprintf(stderr, "-- memrefTypeToCircularBufferConfigFlatbuffer: for "); memref.dump();
   auto deviceLayout = mlir::dyn_cast_if_present<ttcore::DeviceLayoutInterface>(
       memref.getLayout());
   if (!deviceLayout) {
@@ -445,6 +464,7 @@ memrefTypeToCircularBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
   uint64_t shardSize =
       device.getMemrefSizeBytes(memref, pageSize, /*includeBuffers=*/true);
   uint64_t numBuffers = shardLayout.getBuffers();
+  fprintf(stderr, "---- pageSize %lu shardSize %lu numBuffers %lu\n", pageSize, shardSize, numBuffers);
   return target::metal::CreateCircularBufferConfigDirect(
       *cache.fbb, &coreRangeSet, /*total_size=*/shardSize,
       /*page_size=*/pageSize, numBuffers);
@@ -454,6 +474,7 @@ static flatbuffers::Offset<target::metal::BufferDesc>
 memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
                        ttcore::DeviceAttr device,
                        ttcore::SystemDescAttr systemDesc) {
+  fprintf(stderr, "\n- memrefTypeToFlatbuffer: for "); memref.dump();
   std::vector<int32_t> shape =
       ttmlir::utils::castContainer<std::vector<int32_t>>(memref.getShape());
   target::Dim2d elementShape(1, 1);
@@ -463,6 +484,7 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
   flatbuffers::Offset<void> bufferDetail;
 
   if (!memref.getMemorySpace()) {
+    fprintf(stderr, "- memrefTypeToFlatbuffer: SystemBuffer\n");
     std::vector<int32_t> stride =
         ttmlir::utils::castContainer<std::vector<int32_t>>(
             memref.getStridesAndOffset().first);
@@ -478,6 +500,7 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
     bool isSharded = mlir::isa<ttcore::ShardLayoutAttr>(memref.getLayout());
 
     if (isSharded) {
+      fprintf(stderr, "- memrefTypeToFlatbuffer: ShardedBuffer\n");
       flatbuffers::Offset<target::metal::ShardedBufferConfig>
           shardedBufferConfig = memrefTypeToShardedBufferConfigFlatbuffer(
               cache, memref, device, elementShape, systemDesc);

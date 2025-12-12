@@ -14,6 +14,8 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include <dbg.h>
+
 namespace ttmlir::d2m::utils::grids {
 
 inline mlir::AffineMap prependResult(mlir::AffineMap map,
@@ -25,6 +27,7 @@ inline mlir::AffineMap prependResult(mlir::AffineMap map,
 }
 inline mlir::AffineMap extendWithIdentityDimsAndResults(mlir::AffineMap map,
                                                         unsigned extraDims) {
+  fprintf(stderr, "-------- extendW/Id: to dim %u ", extraDims); map.dump();
   if (!map) {
     return map;
   }
@@ -95,7 +98,7 @@ inline std::pair<mlir::AffineMap, mlir::AffineMap>
 createCoreVirtMaps(mlir::MLIRContext *context,
                    llvm::ArrayRef<int64_t> virtualGrid,
                    llvm::ArrayRef<int64_t> targetGrid) {
-
+  fprintf(stderr, "------ createCoreVirtMaps: "); dbg(virtualGrid, targetGrid);
   TT_assertv(targetGrid.size() == 2ul, "Target grid must have 2 dimensions {}",
              targetGrid.size());
 

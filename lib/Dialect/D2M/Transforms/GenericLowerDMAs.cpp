@@ -306,6 +306,7 @@ public:
   analyzeStream(PatternRewriter &rewriter, Location loc,
                 AffineMap dmaIndexingMap, MemRefType memref,
                 ViewOpInterface viewInterface, GenericOp genericParent) {
+    fprintf(stderr, "---- analyzeStream\n");
     size_t elemSizeBytes = getElementSizeBytes(memref);
     ttcore::DeviceLayoutInterface layout =
         mlir::cast<ttcore::DeviceLayoutInterface>(memref.getLayout());
@@ -345,6 +346,7 @@ public:
 
   LogicalResult matchAndRewrite(DMAOp dma,
                                 PatternRewriter &rewriter) const final {
+    fprintf(stderr, "-- matchAndRewrite for DMAOp "); dma.dump();
     if (!dma.isAffine()) {
       // Already lowered, skip.
       return failure();

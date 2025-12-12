@@ -72,6 +72,7 @@ inline mlir::SmallVector<T> calculateStrides(mlir::ArrayRef<T> shape,
   return strides;
 }
 
+// Apply fn to every point of a shape.
 template <typename Vector, typename Fn>
 inline void sample(const Vector &shape, Fn fn) {
   if (shape.size() == 0) {

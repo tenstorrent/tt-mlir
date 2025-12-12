@@ -4,6 +4,7 @@
 
 import pytest
 import torch
+import math
 import einops
 import itertools
 from typing import Callable, List
@@ -33,6 +34,8 @@ def _test_pattern_map(pattern, shape, pattern_map):
 @pytest.mark.parametrize(
     "shape,pattern",
     [
+        ((33, 2, 8), "z y x -> y (z x)"),
+
         ((3, 32, 32), "z y x -> y z x"),
         ((3, 32, 32), "z y x -> (y z) x"),
         ((3, 32, 32), "z y x -> y (z x)"),
@@ -40,12 +43,12 @@ def _test_pattern_map(pattern, shape, pattern_map):
         ((3, 4, 5), "z y x -> y z x"),
         ((5, 7, 8), "z y x -> (y z) x"),
         ((5, 7, 8), "z y x -> y (z x)"),
+        ((4, 85, 1055), "z y x -> (z y ) x"),
         # Multicore
         ((2, 4, 250), "z y x -> y z x"),
         ((2, 7, 180), "z y x -> (y z) x"),
         ((25, 7, 8), "z y x -> y (z x)"),
-        ((50, 7, 8), "z y x -> y (z x)")
-        | Marks(pytest.mark.xfail(reason="PCC error #6268")),
+        ((50, 7, 8), "z y x -> y (z x)"),
         ((50, 15, 8), "z y x -> z (y x)"),
         # 4d
         ((2, 3, 4, 32), "w z y x -> y w z x"),
@@ -72,6 +75,15 @@ def test_rearrange(
     def rearrange_module(builder: TTIRBuilder):
         @builder.func([shape], [torch.float32])
         def rearrange(in0, builder: TTIRBuilder, unit_attrs: List[str] = None):
+            n_elems = math.prod(shape)
+            in_0 = torch.zeros(shape, dtype=torch.float32)
+            flat_view = in_0.view(-1)
+            stride = shape[-1] * 1
+            for i in range(n_elems // stride):
+                start = i * stride
+                end = start + stride
+                flat_view[start:end] = i + 1
+            builder.set_goldens({in0: in_0})
             return builder.rearrange(in0, pattern, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
@@ -80,7 +92,7 @@ def test_rearrange(
         device=device,
         custom_pipeline=f"ttir-to-ttmetal-pipeline",
         test_base=request.node.name,
-        module_dump=False,
+        module_dump=True,
         print_ir=False,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),

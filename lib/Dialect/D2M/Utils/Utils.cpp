@@ -9,6 +9,8 @@
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 
+#include <dbg.h>
+
 namespace mlir::tt::d2m::utils {
 
 llvm::SmallVector<int64_t>
@@ -68,12 +70,15 @@ Type getRegionLargestDstElemType(Region &region) {
 RankedTensorType reblockTensor(RankedTensorType oldTensor,
                                ArrayRef<int64_t> newGridShape) {
   auto oldLayout = mlir::cast<ttcore::MetalLayoutAttr>(oldTensor.getEncoding());
+  fprintf(stderr, "---- reblockTensor: oldLayout "); oldLayout.dump();
+  fprintf(stderr, "---- reblockTensor: "); dbg(newGridShape);
   if (oldLayout.getGridShape(oldTensor) == newGridShape) {
     return oldTensor;
   }
 
   auto [newShape, reblockMap] = ttmlir::utils::calculateReblockMapForGrid(
       oldTensor.getShape(), newGridShape, oldTensor.getContext());
+  fprintf(stderr, "---- reblockTensor: reblockMap "); reblockMap.dump();
 
   ttcore::MetalLayoutAttr newLayout = oldLayout.withIndexAffineMap(reblockMap);
   return RankedTensorType::get(newShape, oldTensor.getElementType(), newLayout);

@@ -921,7 +921,7 @@ class Run:
 
                                 if self["--print-input-output-tensors"] or golden_fail:
                                     torch.set_printoptions(
-                                        threshold=100, edgeitems=3, linewidth=120
+                                        threshold=8192, edgeitems=3, linewidth=8192
                                     )
                                     for j, golden_input_tensor_torch in enumerate(
                                         program.input_tensors
