@@ -28,7 +28,12 @@ class TTNNPrettifyForCodegen
     : public impl::TTNNPrettifyForCodegenBase<TTNNPrettifyForCodegen> {
 
 private:
+  // This structure is used to store the location information of an operation in
+  // a more user-friendly format.
+  //
   struct PyLoc {
+    // This structure is used to store the original module information.
+    //
     struct Module {
       std::string moduleClass;
       std::string moduleName;
@@ -38,6 +43,8 @@ private:
       }
     };
 
+    // Op location is parsed into these fields.
+    //
     int opIndex;
     llvm::SmallVector<Module> modules;
     std::string funcPath;
@@ -63,27 +70,18 @@ private:
         return;
       }
 
-      // Allow NameLocs only
+      // Allow NameLocs only.
       if (!isa<NameLoc>(op->getLoc())) {
         // TODO (svuckovic): should we fail the pass for this?
         this->isValid = false;
         return;
       }
 
-      // Simplify the location - remove nested locations.
-      // std::cout << "Simplifying loc: " << "\n";
-      // op->getLoc().print(llvm::outs());
-      // std::cout << "\n";
-      mlir::Location simplifiedLoc = simplifyNameLoc(op->getLoc());
-      // std::cout << "Simplified loc: " << "\n";
-      // simplifiedLoc.print(llvm::outs());
-      // std::cout << "\n";
-
       // Get location without "loc(" and ")" characters.
-      std::string locStr = locationToStr(simplifiedLoc);
+      std::string locStr = locationToStr(op->getLoc());
 
-      // op->dump();
-      // std::cout << "Parsing loc: " << locStr << "\n";
+      TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "Parsing loc: {}",
+                   locStr);
 
       // Split locStr by "|" character.
       // For example, given:
@@ -91,26 +89,26 @@ private:
       // Return:
       //   ["7", "Tail[tail]", "ReLU[tail.relu]", "/localdev/.../test.py:106",
       //   "forward", "107", "aten__relu"]
-      llvm::SmallVector<llvm::StringRef, 5> locParts;
+      llvm::SmallVector<llvm::StringRef> locParts;
       llvm::StringRef(locStr).split(locParts, "|", -1, false);
 
       this->opIndex = std::stoi(locParts[0].str());
 
       // Validate that we have at least 4 parts (funcPath, funcName, opLineNum,
       // opName)
-      size_t n = locParts.size();
-      // if (n < 4) {
-      //   this->isValid = false;
-      //   return;
-      // }
+      size_t numParts = locParts.size();
+      if (numParts < 4) {
+        this->isValid = false;
+        return;
+      }
 
       // Fill in fields from back of locParts.
-      this->opName = locParts[n - 1].str();
-      this->opLineNum = std::stoi(locParts[n - 2].str());
-      this->funcName = locParts[n - 3].str();
-      this->funcPath = locParts[n - 4].str();
+      this->opName = locParts[numParts - 1].str();
+      this->opLineNum = std::stoi(locParts[numParts - 2].str());
+      this->funcName = locParts[numParts - 3].str();
+      this->funcPath = locParts[numParts - 4].str();
       this->modules = llvm::SmallVector<Module>();
-      for (size_t i = 1; i < n - 4; i++) {
+      for (size_t i = 1; i < numParts - 4; i++) {
         // Split each module into class and name.
         // For example, given:
         //   "Tail[tail]"
@@ -118,7 +116,6 @@ private:
         //   ["Tail", "tail"]
         llvm::SmallVector<llvm::StringRef, 2> moduleParts;
         locParts[i].split(moduleParts, "[", -1, false);
-        // std::cout << locStr << "\n";
         this->modules.push_back(
             Module{/* moduleClass= */ moduleParts[0].str(),
                    // Remove trailing "]" from module name.
@@ -130,15 +127,19 @@ private:
   };
 
   void printFnInfo(func::FuncOp funcOp) {
-    llvm::outs() << "Fn: " << funcOp.getName() << "\n";
-    std::cout << "  Inputs count: "
-              << funcOp.getFunctionType().getInputs().size() << "\n";
-    llvm::outs() << "  Results count: "
-                 << funcOp.getFunctionType().getResults().size() << "\n";
-    llvm::outs() << "  Is private: " << funcOp.isPrivate() << "\n";
-    llvm::outs() << "  Is const-eval: "
-                 << ttmlir::utils::isConstEvalFunc(funcOp) << "\n";
-    llvm::outs() << "  Is candidate: " << isCandidateFn(funcOp) << "\n";
+    TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "Fn: {}",
+                 funcOp.getName());
+    TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "\tInputs count: {}",
+                 funcOp.getFunctionType().getInputs().size());
+    TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+                 "\tResults count: {}",
+                 funcOp.getFunctionType().getResults().size());
+    TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "\tIs private: {}",
+                 funcOp.isPrivate());
+    TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+                 "\tIs const-eval: {}", ttmlir::utils::isConstEvalFunc(funcOp));
+    TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "\tIs candidate: {}",
+                 isCandidateFn(funcOp));
   }
 
   bool isCandidateFn(func::FuncOp funcOp) {
@@ -149,17 +150,6 @@ private:
   bool isCandidateOp(Operation *op) {
     // Check if ttnn op
     return isa<ttnn::TTNNDialect>(op->getDialect());
-  }
-
-  static mlir::Location simplifyNameLoc(mlir::Location loc) {
-    if (auto nameLoc = mlir::dyn_cast<mlir::NameLoc>(loc)) {
-      // Get the name string and create a new NameLoc without nested location
-      return mlir::NameLoc::get(
-          nameLoc.getName()
-          // Omitting the second parameter uses UnknownLoc by default
-      );
-    }
-    return loc;
   }
 
   static std::string locationToStr(const mlir::Location &loc) {
@@ -180,8 +170,11 @@ private:
   SmallVector<func::FuncOp> findCandidateFns(ModuleOp moduleOp) {
     SmallVector<func::FuncOp, 1> candidateFns;
     moduleOp->walk([&](func::FuncOp funcOp) {
-      // printFnInfo(funcOp);
+      printFnInfo(funcOp);
+
       if (isCandidateFn(funcOp)) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+                     "Adding candidate fn: {}", funcOp.getName());
         candidateFns.push_back(funcOp);
       }
     });
@@ -261,12 +254,20 @@ private:
     return "";
   }
 
+  // This structure is used to store the operation, its PyLoc information, and
+  // other metadata relevant for the "prettification" algorithm.
+  //
   struct OpPyLoc {
     Operation *op;
     PyLoc pyLoc;
     int distanceFromRoot;
   };
 
+  // This comparator is used to compare two OpPyLoc objects and determine which
+  // one should be "worked on" next. Using it helps provide a topological sort
+  // that is useful in handling forked paths in graph such that ops chosen first
+  // are more likely to belong to the original module.
+  //
   struct CompareOpPyLoc {
     std::string *currentFuncName;
 
@@ -274,22 +275,28 @@ private:
         : currentFuncName(currentFuncName) {}
 
     bool operator()(const OpPyLoc &a, const OpPyLoc &b) const {
-      bool debug = false;
+      bool comparatorDebug = false;
 
       bool isASameGroup = a.pyLoc.funcPath == *currentFuncName;
       bool isBSameGroup = b.pyLoc.funcPath == *currentFuncName;
 
-      if (debug) {
-        llvm::outs() << "Comparing " << a.op->getName() << " and "
-                     << b.op->getName() << "\n";
-        llvm::outs() << "  a.pyLoc.funcPath: " << a.pyLoc.funcPath << "\n";
-        llvm::outs() << "  b.pyLoc.funcPath: " << b.pyLoc.funcPath << "\n";
-        llvm::outs() << "  *currentFuncName: " << *currentFuncName << "\n";
-        llvm::outs() << "  a.distanceFromRoot: " << a.distanceFromRoot << "\n";
-        llvm::outs() << "  b.distanceFromRoot: " << b.distanceFromRoot << "\n";
-
-        llvm::outs() << "  isASameGroup: " << isASameGroup << "\n";
-        llvm::outs() << "  isBSameGroup: " << isBSameGroup << "\n";
+      if (comparatorDebug) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+                     "Comparing {} and {}", a.op->getName(), b.op->getName());
+        TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+                     "\ta.pyLoc.funcPath: {}", a.pyLoc.funcPath);
+        TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+                     "\tb.pyLoc.funcPath: {}", b.pyLoc.funcPath);
+        TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+                     "\t*currentFuncName: {}", *currentFuncName);
+        TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+                     "\ta.distanceFromRoot: {}", a.distanceFromRoot);
+        TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+                     "\tb.distanceFromRoot: {}", b.distanceFromRoot);
+        TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+                     "\tisASameGroup: {}", isASameGroup);
+        TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+                     "\tisBSameGroup: {}", isBSameGroup);
       }
 
       bool result;
@@ -318,7 +325,7 @@ private:
           result = false;
           reason = "b is deallocate, a is not (a has higher priority)";
         } else {
-          // Now break by distance
+          // Now break by distance to root
           result = a.distanceFromRoot > b.distanceFromRoot;
           reason = result ? "a has greater distance (b wins)"
                           : "b has greater distance (a wins)";
@@ -326,82 +333,62 @@ private:
       } else {
         // This should never happen
         llvm::errs()
-            << "Both ops are in the same group and are not deallocate ops"
-            << "\n";
+            << "Both ops are in the same group and are not ttnn.deallocate ops";
         exit(1);
       }
 
-      // if (isASameGroup && isBSameGroup) {
-      //   result = a.distanceFromRoot >
-      //            b.distanceFromRoot; // `b` wins if `a` distance is greater
-      //   reason = result ? "a has greater distance (b wins)"
-      //                   : "b has greater distance (a wins)";
-      // } else if (isASameGroup && !isBSameGroup) {
-      //   result = false; // a wins
-      //   reason = "a is same group, b is different (a has higher priority)";
-      // } else if (!isASameGroup && isBSameGroup) {
-      //   result = true; // b wins
-      //   reason = "b is same group, a is different (b has higher priority)";
-      // } else {
-      //   // Deallocate ops should always go last.
-      //   bool aIsDeallocate = isa<ttnn::DeallocateOp>(a.op);
-      //   bool bIsDeallocate = isa<ttnn::DeallocateOp>(b.op);
-      //   if (aIsDeallocate && !bIsDeallocate) {
-      //     result = true;
-      //     reason = "a is deallocate, b is not (b has higher priority)";
-      //   } else if (!aIsDeallocate && bIsDeallocate) {
-      //     result = false;
-      //     reason = "b is deallocate, a is not (a has higher priority)";
-      //   } else {
-      //     // This arbitrarily chooses the next op when there's a tie.
-      //     result = a.pyLoc.funcPath < b.pyLoc.funcPath;
-      //     reason = result ? "a.funcPath < b.funcPath (a has higher priority)"
-      //                     : "b.funcPath < a.funcPath (b has higher
-      //                     priority)";
-      //   }
-      // }
-
-      if (debug) {
-        llvm::outs() << "  Winner (closer to front): "
-                     << (result ? b.op->getName() : a.op->getName()) << " ("
-                     << reason << ")\n";
+      if (comparatorDebug) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+                     "\tWinner (closer to front): {} ({})",
+                     (result ? b.op->getName() : a.op->getName()), reason);
       }
 
       return result;
     }
   };
 
+  // This structure is used to store the operations and their PyLocs in a group
+  // of operations that belong to the same module/function.
+  //
   struct FuncGroup {
-    // What the function will be named in the new IR
+    // What the function will be named in the new IR.
+    //
     std::string funcName;
 
     int index = -1;
 
-    // The operations and their PyLocs in the group
+    // The operations and their PyLocs in the group.
+    //
     SmallVector<OpPyLoc> opPyLocs;
 
-    // Generate name based on modules of the ops in the group
+    // Generate name based on modules of the ops in the group.
+    //
     void generateFuncName() {
-      // If we were to list module classes for each op, like this:
-      //   - modules: ResNetModel ResNetEncoder ResNetStage ResNetBasicLayer
-      //   Sequential ResNetConvLayer Conv2d
-      //   - modules: ResNetModel ResNetEncoder ResNetStage ResNetBasicLayer
-      //   Sequential ResNetConvLayer BatchNorm2d
-      //   - modules: ResNetModel ResNetEncoder ResNetStage ResNetBasicLayer
-      //   Sequential ResNetConvLayer ReLU
-      // we want to find the LCA of them, which in this case is ResNetConvLayer
+      // clang-format off
       //
-
-      bool debug = false;
-      if (debug) {
-        llvm::outs() << "Group asdf: " << funcName << "\n";
-        for (const OpPyLoc &opPyLoc : opPyLocs) {
-          llvm::outs() << "  - " << "modules: ";
-          for (const PyLoc::Module &module : opPyLoc.pyLoc.modules) {
-            llvm::outs() << module.moduleClass << " ";
-          }
-          llvm::outs() << "\n";
+      // If we were to list module classes for each op, like this:
+      //   - modules: ResNetModel ResNetEncoder ResNetStage ResNetBasicLayer Sequential ResNetConvLayer Conv2d
+      //   - modules: ResNetModel ResNetEncoder ResNetStage ResNetBasicLayer Sequential ResNetConvLayer BatchNorm2d
+      //   - modules: ResNetModel ResNetEncoder ResNetStage ResNetBasicLayer Sequential ResNetConvLayer ReLU
+      // we want to find the LCA of them, which in this case is "ResNetConvLayer"
+      //
+      // clang-format on
+      //
+      TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "Func name: {}",
+                   funcName);
+      for ([[maybe_unused]] const OpPyLoc &opPyLoc : opPyLocs) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+                     "\t- modules: {}",
+                     llvm::join(llvm::map_range(
+                                    opPyLoc.pyLoc.modules,
+                                    [](const auto &m) { return m.toString(); }),
+                                ", "));
+        for ([[maybe_unused]] const PyLoc::Module &module :
+             opPyLoc.pyLoc.modules) {
+          TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "\t\t- {}",
+                       module.moduleClass);
         }
+        TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "\n");
       }
 
       if (opPyLocs.empty()) {
@@ -412,7 +399,7 @@ private:
         return;
       }
 
-      // First find the smalles length module class list
+      // First find the smallest length module class list
       size_t minLength = std::numeric_limits<size_t>::max();
       for (const OpPyLoc &opPyLoc : opPyLocs) {
         if (opPyLoc.pyLoc.modules.size() < minLength) {
@@ -440,20 +427,11 @@ private:
           return;
         }
       }
-
-      // llvm::SmallVector<std::string> intersectionModuleClasses;
-      // for (const OpPyLoc &opPyLoc : opPyLocs) {
-      //   for (const PyLoc::Module &module : opPyLoc.pyLoc.modules) {
-      //     intersectionModuleClasses.push_back(module.moduleClass);
-      //   }
-      // }
-      // join the module classes with underscores
-      // funcName = llvm::join(intersectionModuleClasses, "_");
     }
   };
 
   // Group operations by their funcPath.
-  // Returns a map: funcPath -> (funcName, vector of PyLocs)
+  // Returns a map: funcPath -> (funcName, FuncGroup)
   llvm::StringMap<FuncGroup> groupOperationsByFunction(
       func::FuncOp &candidateFn,
       const llvm::DenseMap<Operation *, PyLoc> &opToLocation) {
@@ -471,7 +449,7 @@ private:
     // Track which operations are in the priority queue (to avoid duplicates)
     llvm::DenseSet<Operation *> inQueue;
 
-    // map op -> oppyloc
+    // Map: Op -> OpPyLoc.
     llvm::DenseMap<Operation *, OpPyLoc> opToOpPyLoc;
 
     // Keep track of operations that are available to be added to the current
@@ -481,16 +459,21 @@ private:
         availableOps(comparator);
 
     // Initialize availableOps with root operations in the function.
-    // Root operations are those that have no dependencies within opToLocation
+    // Root operations are those that have no dependencies within opToLocation.
+    //
     for (const auto &entry : opToLocation) {
       Operation *op = entry.first;
       const PyLoc &pyLoc = entry.second;
 
-      // If deallocate op, skip
+      // If deallocate op, skip.
+      //
       if (isa<ttnn::DeallocateOp>(op)) {
         continue;
       }
 
+      // Check if the operation has internal dependencies (i.e. in current MLIR
+      // module).
+      //
       bool hasInternalDeps = false;
       for (Value operand : op->getOperands()) {
         Operation *definingOp = operand.getDefiningOp();
@@ -501,14 +484,16 @@ private:
       }
 
       if (!hasInternalDeps) {
-        // Root operation - add to priority queue with distance 0
+        // Root operation - add to priority queue with distance 0.
+        //
         availableOps.push({op, pyLoc, 0});
         inQueue.insert(op);
         opToOpPyLoc.insert({op, {op, pyLoc, 0}});
       }
     }
 
-    // Print all ops in queue
+    // Print all ops in queue.
+    //
     TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
                  "Root ops in queue: {}", inQueue.size());
     for ([[maybe_unused]] Operation *op : inQueue) {
@@ -518,7 +503,7 @@ private:
 
     for (Operation *op : inQueue) {
       auto it = opToOpPyLoc.find(op);
-      assert(it != opToOpPyLoc.end() && "DIDNT FIND OP IN OPTOOPPYLOC");
+      assert(it != opToOpPyLoc.end() && "DIDN'T FIND OP IN OPTOOPPYLOC");
 
       [[maybe_unused]] const OpPyLoc &opPyLoc = it->second;
       TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "\t- {} - {} - {}",
@@ -532,7 +517,8 @@ private:
       inQueue.erase(opPyLoc.op);
       opToOpPyLoc.erase(opPyLoc.op);
 
-      // Skip if already processed (can happen with duplicates in queue)
+      // Skip if already processed (can happen with duplicates in queue).
+      //
       if (processedOps.count(opPyLoc.op)) {
         continue;
       }
@@ -540,8 +526,10 @@ private:
       const PyLoc &pyLoc = opPyLoc.pyLoc;
 
       // Check if funcPath changed (make a "cut")
+      //
       if (!prevFuncPath.empty() && pyLoc.funcPath != prevFuncPath) {
-        // Print current group
+        // Print current group.
+        //
         TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
                      "Current group: {}", currentGroup.opPyLocs.size());
         TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
@@ -562,6 +550,8 @@ private:
                      "\t\t- {} - {} - {}", opPyLoc.op->getName(),
                      opPyLoc.distanceFromRoot, opPyLoc.pyLoc.funcPath);
 
+        // If op is not in opToOpPyLoc, signal pass failure.
+        //
         for (Operation *op : inQueue) {
           auto it = opToOpPyLoc.find(op);
           if (it == opToOpPyLoc.end()) {
@@ -576,7 +566,8 @@ private:
                        opPyLoc.distanceFromRoot, opPyLoc.pyLoc.funcPath);
         }
 
-        // Save the current group with a unique key
+        // Set default group name, then try to generate one using location data.
+        //
         currentGroup.funcName = "forward_" + std::to_string(groupCounter);
         currentGroup.index = groupCounter;
         currentGroup.generateFuncName();
@@ -589,30 +580,35 @@ private:
         currentGroup = FuncGroup();
       }
 
-      // Add current op to the group
+      // Add current op to the group.
+      //
       currentGroup.opPyLocs.push_back(opPyLoc);
       processedOps.insert(opPyLoc.op);
       prevFuncPath = pyLoc.funcPath;
       currentFuncName = pyLoc.funcName;
 
-      // Add dependent operations to the priority queue
-      // (operations that use results of this operation)
+      // Add dependent operations to the priority queue.
+      //
       for (Value result : opPyLoc.op->getResults()) {
         for (Operation *userOp : result.getUsers()) {
-          // Skip if already processed or in queue
+          // Skip if already processed or in queue.
+          //
           if (processedOps.count(userOp) || inQueue.count(userOp)) {
             continue;
           }
 
-          // Only add if it's in our operation set
+          // Only add if it's in our operation set.
+          //
           auto userLocIt = opToLocation.find(userOp);
           if (userLocIt != opToLocation.end()) {
-            // Check if all dependencies are now satisfied
+            // Check if all dependencies are now satisfied.
+            //
             bool allDepsSatisfied = true;
             for (Value operand : userOp->getOperands()) {
               Operation *definingOp = operand.getDefiningOp();
               if (definingOp && opToLocation.count(definingOp)) {
-                // Check if this dependency has been processed
+                // Check if this dependency has been processed.
+                //
                 if (!processedOps.count(definingOp)) {
                   allDepsSatisfied = false;
                   break;
@@ -621,9 +617,10 @@ private:
             }
 
             if (allDepsSatisfied) {
-              // Add to priority queue with incremented distance
+              // Add to priority queue with incremented distance.
               // TODO (svuckovic): what if there's multiple paths to the same
-              // op, how should we calculate the distance?
+              // op, how should we calculate the distance? Needs more thought.
+              //
               availableOps.push(
                   {userOp, userLocIt->second, opPyLoc.distanceFromRoot + 1});
               inQueue.insert(userOp);
@@ -636,7 +633,8 @@ private:
       }
     }
 
-    // Don't forget to save the last group
+    // Save the last group.
+    //
     if (!currentGroup.opPyLocs.empty()) {
       currentGroup.funcName = "forward_" + std::to_string(groupCounter);
       currentGroup.index = groupCounter;
@@ -644,42 +642,54 @@ private:
       std::string uniqueKey =
           prevFuncPath + "_group_" + std::to_string(groupCounter++);
       funcGroups[uniqueKey] = currentGroup;
-    }
 
+      TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+                   "Saving last group: {}, unique key: {}",
+                   currentGroup.funcName, uniqueKey);
+    }
     return funcGroups;
   }
 
   void printFunctionGroups(const llvm::StringMap<FuncGroup> &funcGroups) {
-    llvm::outs() << "\n=== Function Groups ===\n";
-    for (const auto &[funcPath, funcGroup] : funcGroups) {
-      llvm::outs() << "\nFunction: " << funcGroup.funcName << "\n";
-      llvm::outs() << "  Path: " << funcPath << "\n";
-      llvm::outs() << "  Operations: " << funcGroup.opPyLocs.size() << "\n";
-      for (const OpPyLoc &opPyLoc : funcGroup.opPyLocs) {
-        llvm::outs() << "    - " << opPyLoc.op->getName() << " (line "
-                     << opPyLoc.pyLoc.opLineNum << ")\n";
+    TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+                 "=== Function Groups ===");
+    for ([[maybe_unused]] const auto &[funcPath, funcGroup] : funcGroups) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "Function: {}",
+                   funcGroup.funcName);
+      TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "\tPath: {}",
+                   funcPath);
+      TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "\tOperations: {}",
+                   funcGroup.opPyLocs.size());
+      for ([[maybe_unused]] const OpPyLoc &opPyLoc : funcGroup.opPyLocs) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+                     "\t\t- {} (line {})", opPyLoc.op->getName(),
+                     opPyLoc.pyLoc.opLineNum);
       }
     }
-    llvm::outs() << "\n";
   }
 
-  // Information about data flow for a function group
+  // Information about data flow for a function group.
+  //
   struct FunctionBoundaryInfo {
     std::string funcName;
     std::string funcPath;
     SmallVector<OpPyLoc> opPyLocs;
 
-    // Values that flow INTO this function (used but not defined here)
+    // Values that flow INTO this function (used but not defined here).
+    //
     SmallVector<Value> inputValues;
 
-    // Values that flow OUT of this function (defined here, used elsewhere)
+    // Values that flow OUT of this function (defined here, used elsewhere).
+    //
     SmallVector<Value> outputValues;
 
-    // Values that are internal (defined and used only within this function)
+    // Values that are internal (defined and used only within this function).
+    //
     SmallVector<Value> internalValues;
   };
 
-  // Analyze data flow for each function group
+  // Analyze data flow for each function group.
+  //
   llvm::StringMap<FunctionBoundaryInfo>
   analyzeFunctionBoundaries(const llvm::StringMap<FuncGroup> &funcGroups) {
     llvm::StringMap<FunctionBoundaryInfo> boundaryInfos;
@@ -690,13 +700,15 @@ private:
       info.funcPath = funcPath;
       info.opPyLocs = funcGroup.opPyLocs;
 
-      // Build a set of operations in this group for fast lookup
+      // Build a set of operations in this group for fast lookup.
+      //
       llvm::DenseSet<Operation *> opsInGroup;
       for (const OpPyLoc &opPyLoc : funcGroup.opPyLocs) {
         opsInGroup.insert(opPyLoc.op);
       }
 
-      // Track all values defined within this group
+      // Track all values defined within this group.
+      //
       llvm::DenseSet<Value> valuesDefinedInGroup;
       for (const OpPyLoc &opPyLoc : funcGroup.opPyLocs) {
         for (Value result : opPyLoc.op->getResults()) {
@@ -704,26 +716,31 @@ private:
         }
       }
 
-      // Analyze each operation's operands and results
+      // Analyze each operation's operands and results.
+      //
       llvm::DenseSet<Value> inputValuesSet;
       llvm::DenseSet<Value> outputValuesSet;
       llvm::DenseSet<Value> internalValuesSet;
 
       for (const OpPyLoc &opPyLoc : funcGroup.opPyLocs) {
-        // Check operands (inputs to the op)
+        // Check operands (inputs to the op).
+        //
         for (Value operand : opPyLoc.op->getOperands()) {
-          // If this value is not defined in this group, it's an input
+          // If this value is not defined in this group, it's an input.
+          //
           if (!valuesDefinedInGroup.contains(operand)) {
             inputValuesSet.insert(operand);
           }
         }
 
-        // Check results (outputs from the op)
+        // Check results (outputs from the op).
+        //
         for (Value result : opPyLoc.op->getResults()) {
           bool usedOutside = false;
           bool usedInside = false;
 
-          // Check if this result is used outside this group
+          // Check if this result is used outside this group.
+          //
           for (Operation *user : result.getUsers()) {
             if (opsInGroup.contains(user)) {
               usedInside = true;
@@ -737,11 +754,10 @@ private:
           } else if (usedInside) {
             internalValuesSet.insert(result);
           }
-          // Note: if a value is not used at all, we don't track it
+          // Note: if a value is not used at all, we don't track it.
         }
       }
 
-      // Convert sets to vectors
       info.inputValues.assign(inputValuesSet.begin(), inputValuesSet.end());
       info.outputValues.assign(outputValuesSet.begin(), outputValuesSet.end());
       info.internalValues.assign(internalValuesSet.begin(),
@@ -755,68 +771,80 @@ private:
 
   void printFunctionBoundaries(
       const llvm::StringMap<FunctionBoundaryInfo> &boundaryInfos) {
-    llvm::outs() << "\n=== Function Boundary Analysis ===\n";
-    for (const auto &[funcPath, info] : boundaryInfos) {
-      llvm::outs() << "\nFunction: " << info.funcName << "\n";
-      llvm::outs() << "  Path: " << info.funcPath << "\n";
-      llvm::outs() << "  Input values: " << info.inputValues.size() << "\n";
-      for (Value input : info.inputValues) {
-        llvm::outs() << "    - " << input << " (type: " << input.getType()
-                     << ")\n";
+    TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+                 "=== Function Boundary Analysis ===");
+    for ([[maybe_unused]] const auto &[funcPath, info] : boundaryInfos) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "Function: {}",
+                   info.funcName);
+      TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "\tPath: {}",
+                   info.funcPath);
+      TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+                   "\tInput values: {}", info.inputValues.size());
+      for ([[maybe_unused]] const Value &input : info.inputValues) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+                     "\t\t- {} (type: {})", input, input.getType());
       }
-      llvm::outs() << "  Output values: " << info.outputValues.size() << "\n";
-      for (Value output : info.outputValues) {
-        llvm::outs() << "    - " << output << " (type: " << output.getType()
-                     << ")\n";
+      TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+                   "\tOutput values: {}", info.outputValues.size());
+      for ([[maybe_unused]] const Value &output : info.outputValues) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+                     "\t\t- {} (type: {})", output, output.getType());
       }
-      llvm::outs() << "  Internal values: " << info.internalValues.size()
-                   << "\n";
     }
-    llvm::outs() << "\n";
   }
 
-  // Create new function declarations based on boundary information
+  // Create new function declarations based on boundary information.
+  //
   llvm::StringMap<func::FuncOp> createNewFunctions(
       IRRewriter &rewriter, func::FuncOp candidateFn,
       const llvm::StringMap<FunctionBoundaryInfo> &boundaryInfos) {
     llvm::StringMap<func::FuncOp> newFunctions;
 
-    // Track function name counts to generate unique names
+    // Track function name counts to generate unique names.
+    //
     llvm::StringMap<unsigned> funcNameCounts;
 
     for (const auto &[funcPath, info] : boundaryInfos) {
-      // Generate unique function name with suffix
+      // Generate unique function name with suffix.
+      //
       unsigned count = funcNameCounts[info.funcName]++;
       std::string uniqueName = info.funcName + "_" + std::to_string(count);
 
-      // Collect input types from input values
+      // Collect input types from input values.
+      //
       SmallVector<Type> inputTypes;
       for (Value input : info.inputValues) {
         inputTypes.push_back(input.getType());
       }
 
-      // Collect output types from output values
+      // Collect output types from output values.
+      //
       SmallVector<Type> outputTypes;
       for (Value output : info.outputValues) {
         outputTypes.push_back(output.getType());
       }
 
-      // Create function type
+      // Create function type.
+      //
       FunctionType funcType =
           FunctionType::get(rewriter.getContext(), inputTypes, outputTypes);
 
       // Set insertion point to after the candidate function in the same parent
-      // module
+      // module.
+      //
       rewriter.setInsertionPointAfter(candidateFn);
 
-      // Create the new function
+      // Create the new function.
+      //
       func::FuncOp newFunc = rewriter.create<func::FuncOp>(
           candidateFn.getLoc(), uniqueName, funcType);
 
-      // Mark as private for now (we'll make the entry point public later)
+      // Mark as private for now.
+      //
       newFunc.setPrivate();
 
-      // Store the function
+      // Store the function in the map.
+      //
       newFunctions[funcPath] = newFunc;
     }
 
@@ -824,29 +852,39 @@ private:
   }
 
   void printNewFunctions(const llvm::StringMap<func::FuncOp> &newFunctions) {
-    llvm::outs() << "\n=== Created Functions ===\n";
+    TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+                 "=== Created Functions ===");
     for (const auto &entry : newFunctions) {
-      llvm::StringRef funcPath = entry.getKey();
-      func::FuncOp funcOp = entry.getValue();
+      [[maybe_unused]] llvm::StringRef funcPath = entry.getKey();
+      [[maybe_unused]] func::FuncOp funcOp = entry.getValue();
 
-      llvm::outs() << "\nFunction: " << funcOp.getName() << "\n";
-      llvm::outs() << "  Path: " << funcPath << "\n";
-      llvm::outs() << "  Signature: " << funcOp.getFunctionType() << "\n";
-      llvm::outs() << "  Input types: "
-                   << funcOp.getFunctionType().getInputs().size() << "\n";
-      for (Type inputType : funcOp.getFunctionType().getInputs()) {
-        llvm::outs() << "    - " << inputType << "\n";
+      TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "Function: {}",
+                   funcOp.getName());
+      TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "\tPath: {}",
+                   funcPath);
+      TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "\tSignature: {}",
+                   funcOp.getFunctionType());
+      TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+                   "\tInput types: {}",
+                   funcOp.getFunctionType().getInputs().size());
+      for ([[maybe_unused]] const Type &inputType :
+           funcOp.getFunctionType().getInputs()) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "\t\t- {}",
+                     inputType);
       }
-      llvm::outs() << "  Output types: "
-                   << funcOp.getFunctionType().getResults().size() << "\n";
-      for (Type outputType : funcOp.getFunctionType().getResults()) {
-        llvm::outs() << "    - " << outputType << "\n";
+      TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+                   "\tOutput types: {}",
+                   funcOp.getFunctionType().getResults().size());
+      for ([[maybe_unused]] const Type &outputType :
+           funcOp.getFunctionType().getResults()) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "\t\t- {}",
+                     outputType);
       }
     }
-    llvm::outs() << "\n";
   }
 
-  // Populate function bodies by cloning operations from the original function
+  // Populate function bodies by cloning operations from the original function.
+  //
   void populateFunctionBodies(
       IRRewriter &rewriter,
       const llvm::StringMap<FunctionBoundaryInfo> &boundaryInfos,
@@ -857,54 +895,63 @@ private:
     // 2. Clone operations in order
     // 3. Map old values to new values
     // 4. Add return statement
-
+    //
     for (const auto &entry : newFunctions) {
       llvm::StringRef funcPath = entry.getKey();
       func::FuncOp funcOp = entry.getValue();
       const FunctionBoundaryInfo &info = boundaryInfos.lookup(funcPath);
 
-      // Create entry block
+      // Create entry block.
+      //
       Block *entryBlock = funcOp.addEntryBlock();
       rewriter.setInsertionPointToStart(entryBlock);
 
-      // Create value mapping: old values -> new values
+      // Create value mapping: old values -> new values.
+      //
       IRMapping valueMapping;
 
-      // Map input values to block arguments
+      // Map input values to block arguments.
+      //
       for (size_t i = 0; i < info.inputValues.size(); i++) {
         valueMapping.map(info.inputValues[i], entryBlock->getArgument(i));
       }
 
-      // Clone operations in order
+      // Clone operations in order.
+      //
       for (const OpPyLoc &opPyLoc : info.opPyLocs) {
         Operation *oldOp = opPyLoc.op;
         Operation *newOp = rewriter.clone(*oldOp, valueMapping);
 
-        // Update the value mapping with the results of the cloned operation
+        // Update the value mapping with the results of the cloned operation.
+        //
         for (size_t i = 0; i < oldOp->getNumResults(); i++) {
           valueMapping.map(oldOp->getResult(i), newOp->getResult(i));
         }
       }
 
-      // Collect output values (now mapped to new function's values)
+      // Collect output values (now mapped to new function's values).
+      //
       SmallVector<Value> returnValues;
       for (Value oldOutput : info.outputValues) {
         Value newOutput = valueMapping.lookup(oldOutput);
         returnValues.push_back(newOutput);
       }
 
-      // Add return statement
+      // Add return statement.
+      //
       rewriter.create<func::ReturnOp>(funcOp.getLoc(), returnValues);
     }
   }
 
-  // Replace operations in the original function with calls to new functions
+  // Replace operations in the original function with calls to new functions.
+  //
   void replaceWithFunctionCalls(
       IRRewriter &rewriter, func::FuncOp candidateFn,
       const llvm::StringMap<FunctionBoundaryInfo> &boundaryInfos,
       const llvm::StringMap<func::FuncOp> &newFunctions) {
 
-    // Build a map from operations to their function info
+    // Build a map from operations to their function info.
+    //
     llvm::DenseMap<Operation *,
                    std::pair<llvm::StringRef, const FunctionBoundaryInfo *>>
         opToFuncInfo;
@@ -918,6 +965,8 @@ private:
     }
 
     // Walk through the original function in order and collect all operations
+    // that need to be replaced.
+    //
     SmallVector<Operation *> opsToReplace;
     candidateFn.walk([&](Operation *op) {
       if (opToFuncInfo.count(op)) {
@@ -925,7 +974,8 @@ private:
       }
     });
 
-    // Collect all operations by funcPath (not just consecutive ones)
+    // Collect all operations by funcPath (not just consecutive ones).
+    //
     llvm::StringMap<SmallVector<Operation *>> opsByFunction;
 
     for (Operation *op : opsToReplace) {
@@ -934,11 +984,13 @@ private:
     }
 
     // Build dependency graph: funcA -> funcB means funcB depends on funcA
-    // (funcB uses values produced by funcA)
+    // (funcB uses values produced by funcA).
+    //
     llvm::StringMap<llvm::DenseSet<llvm::StringRef>> dependencies;
     llvm::StringMap<llvm::DenseSet<Operation *>> opsInFunctionSet;
 
-    // First, build sets of operations for each function for fast lookup
+    // First, build sets of operations for each function.
+    //
     for (const auto &entry : opsByFunction) {
       llvm::StringRef funcPath = entry.getKey();
       for (Operation *op : entry.getValue()) {
@@ -952,16 +1004,19 @@ private:
       llvm::StringRef funcPath = entry.getKey();
       llvm::DenseSet<llvm::StringRef> &deps = dependencies[funcPath];
 
-      // Check all operations in this function
+      // Check all operations in this function.
+      //
       for (Operation *op : entry.getValue()) {
-        // Check all operands of this operation
+        // Check all operands of this operation.
+        //
         for (Value operand : op->getOperands()) {
           Operation *definingOp = operand.getDefiningOp();
           if (!definingOp) {
             continue; // Block argument, not from another function
           }
 
-          // Find which function this operand comes from
+          // Find which function this operand comes from.
+          //
           for (const auto &otherEntry : opsByFunction) {
             llvm::StringRef otherFuncPath = otherEntry.getKey();
             if (otherFuncPath == funcPath) {
@@ -969,7 +1024,8 @@ private:
             }
 
             if (opsInFunctionSet[otherFuncPath].contains(definingOp)) {
-              // This function depends on otherFuncPath
+              // This function depends on otherFuncPath.
+              //
               deps.insert(otherFuncPath);
               break;
             }
@@ -978,11 +1034,14 @@ private:
       }
     }
 
-    // Topological sort to determine function order
+    // Topological sort to determine function order.
+    //
     SmallVector<llvm::StringRef> functionOrder;
     llvm::DenseSet<llvm::StringRef> visited;
     llvm::DenseSet<llvm::StringRef> inProgress;
 
+    // Visit function.
+    //
     std::function<bool(llvm::StringRef)> visit =
         [&](llvm::StringRef funcPath) -> bool {
       if (visited.contains(funcPath)) {
@@ -1012,34 +1071,44 @@ private:
       return true;
     };
 
-    // Visit all functions
+    // Visit all functions.
+    //
     for (const auto &entry : opsByFunction) {
       if (!visit(entry.getKey())) {
-        // Error: cycle in dependencies
+        // Error: cycle in dependencies.
+        //
+        llvm::errs() << "Cycle detected in function dependencies at: "
+                     << entry.getKey() << "\n";
         return;
       }
     }
 
-    // Mapping from old values to new values (call results)
+    // Mapping from old values to new values (call results).
+    //
     IRMapping valueMapping;
 
-    // Track the last call we created for sequential insertion
+    // Track the last call we created for sequential insertion.
+    //
     Operation *lastCallOp = nullptr;
 
-    // Track which operations have been processed
+    // Track which operations have been processed.
+    //
     llvm::DenseSet<Operation *> processedOps;
 
-    // Process each unique function in the order they first appear
+    // Process each unique function in the order they first appear.
+    //
     for (llvm::StringRef funcPath : functionOrder) {
       const FunctionBoundaryInfo *info =
           opToFuncInfo[opsByFunction[funcPath].front()].second;
       func::FuncOp targetFunc = newFunctions.lookup(funcPath);
       SmallVector<Operation *> &opsInFunction = opsByFunction[funcPath];
 
-      // Prepare operands for the call (input values)
+      // Prepare operands for the call (input values).
+      //
       SmallVector<Value> callOperands;
       for (Value inputValue : info->inputValues) {
-        // If this input was produced by a previous call, use the mapped value
+        // If this input was produced by a previous call, use the mapped value.
+        //
         if (valueMapping.contains(inputValue)) {
           callOperands.push_back(valueMapping.lookup(inputValue));
         } else {
@@ -1048,7 +1117,8 @@ private:
       }
 
       // Insert the call after the last call we created (or before first op if
-      // this is the first call)
+      // this is the first call).
+      //
       if (lastCallOp) {
         rewriter.setInsertionPointAfter(lastCallOp);
       } else {
@@ -1056,27 +1126,32 @@ private:
         rewriter.setInsertionPoint(firstOp);
       }
 
-      // Create the call
+      // Create the call.
+      //
       Operation *lastOp = opsInFunction.back();
       func::CallOp callOp = rewriter.create<func::CallOp>(
           lastOp->getLoc(), targetFunc, callOperands);
 
-      // Track this call for the next insertion
+      // Track this call for the next insertion.
+      //
       lastCallOp = callOp;
 
-      // Map output values to call results
+      // Map output values to call results.
+      //
       for (size_t i = 0; i < info->outputValues.size(); i++) {
         valueMapping.map(info->outputValues[i], callOp.getResult(i));
       }
 
-      // Replace uses of output values with call results
+      // Replace uses of output values with call results.
+      //
       FunctionBoundaryInfo &mutableInfo =
           const_cast<FunctionBoundaryInfo &>(*info);
       for (size_t i = 0; i < mutableInfo.outputValues.size(); i++) {
         mutableInfo.outputValues[i].replaceAllUsesWith(callOp.getResult(i));
       }
 
-      // Mark operations for deletion
+      // Mark operations for deletion.
+      //
       for (Operation *op : opsInFunction) {
         processedOps.insert(op);
       }
@@ -1098,19 +1173,8 @@ public:
     ModuleOp moduleOp = getOperation();
     IRRewriter rewriter(&getContext());
 
-    // Architecture of the pass:
-    // 1. Find candidate fns
-    // 2. Parse and gather IR locations (remember ops)
-    // -----
-    // 3. Build functree
-    // 4. Analyze functree
-    // 5. Move from original IR to functree-aligned IR
-
-    // Open questions:
-    // - What do we do with const-eval fns?
-    // - What makes a fn a candidate fn?
-
-    // For simplicity, supporting only one for now, but can support multiple.
+    // For simplicity, supporting only one for now, but could support multiple.
+    //
     SmallVector<func::FuncOp> candidateFns = findCandidateFns(moduleOp);
     if (candidateFns.size() != 1) {
       TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
@@ -1131,7 +1195,8 @@ public:
 
     logPyLocs(candidateFn, opToLocation);
 
-    // Validate locations
+    // Validate locations.
+    //
     std::string errorMessage = validateLocations(opToLocation);
     if (!errorMessage.empty()) {
       TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
@@ -1139,23 +1204,28 @@ public:
       signalPassFailure();
     }
 
-    // Group operations by function
+    // Group operations by function.
+    //
     auto funcGroups = groupOperationsByFunction(candidateFn, opToLocation);
-    // printFunctionGroups(funcGroups);
+    printFunctionGroups(funcGroups);
 
-    // Analyze function boundaries and data flow
+    // Analyze function boundaries and data flow.
+    //
     auto boundaryInfos = analyzeFunctionBoundaries(funcGroups);
-    // printFunctionBoundaries(boundaryInfos);
+    printFunctionBoundaries(boundaryInfos);
 
-    // Create new functions based on boundary information
+    // Create new functions based on boundary information.
+    //
     auto newFunctions =
         createNewFunctions(rewriter, candidateFn, boundaryInfos);
-    // printNewFunctions(newFunctions);
+    printNewFunctions(newFunctions);
 
-    // Populate function bodies with operations
+    // Populate function bodies with operations.
+    //
     populateFunctionBodies(rewriter, boundaryInfos, newFunctions);
 
-    // Replace operations in original function with calls to new functions
+    // Replace operations in original function with calls to new functions.
+    //
     replaceWithFunctionCalls(rewriter, candidateFn, boundaryInfos,
                              newFunctions);
   }
@@ -1174,11 +1244,11 @@ private:
 
     auto nameLoc = mlir::dyn_cast<mlir::NameLoc>(loc);
 
-    // Get the name string and create a new NameLoc without nested location
+    // Get the name string and create a new NameLoc without nested location.
+    //
     return mlir::NameLoc::get(
-        nameLoc.getName()
         // Omitting the second parameter uses UnknownLoc by default
-    );
+        nameLoc.getName());
   }
 
 public:
@@ -1188,19 +1258,23 @@ public:
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
 
-    // Walk through all operations in the module
+    // Walk through all operations in the module.
+    //
     moduleOp.walk([&](Operation *op) {
-      // Skip UnknownLocs
+      // Skip UnknownLocs.
+      //
       if (isa<UnknownLoc>(op->getLoc())) {
         return WalkResult::advance();
       }
 
-      // Only process TTNN dialect ops
+      // Only process TTNN dialect ops.
+      //
       if (!isa<ttnn::TTNNDialect>(op->getDialect())) {
         return WalkResult::advance();
       }
 
-      // Simplify the location
+      // Simplify the location.
+      //
       mlir::Location simplifiedLoc = simplifyNameLoc(op->getLoc());
       op->setLoc(simplifiedLoc);
 
@@ -1218,13 +1292,15 @@ public:
   void runOnOperation() override {
     ModuleOp moduleOp = getOperation();
 
-    // Collect all deallocate operations
-    SmallVector<Operation *> deallocOps;
+    // Collect all deallocate operations.
+    //
+    llvm::SmallVector<Operation *> deallocOps;
     moduleOp.walk([&](ttnn::DeallocateOp deallocOp) {
       deallocOps.push_back(deallocOp.getOperation());
     });
 
-    // Erase all deallocate operations
+    // Erase all deallocate operations.
+    //
     for (Operation *op : deallocOps) {
       op->erase();
     }

@@ -319,12 +319,12 @@ void createPrettifyXLATorchPipeline(
   //
   pm.addPass(createTTNNPrettifyForCodegen());
 
-  // TODO (svuckovic): This is a temporary workaround - deallocs aren't placed
-  // in prettification pass yet. They are often called before a tensor is last
+  // TODO (#6297): This is a temporary workaround - deallocs aren't placed in
+  // prettification pass yet. They are often called before a tensor is last
   // used. A good approach today is to leave deallocs in the IR and (re)move
   // them with an LLM later, by asking it to move deallocs to after last use.
   //
-  // pm.addPass(createTTNNRemoveDeallocs());
+  pm.addPass(createTTNNRemoveDeallocs());
 }
 
 void createTTNNBackendToEmitCPipeline(
