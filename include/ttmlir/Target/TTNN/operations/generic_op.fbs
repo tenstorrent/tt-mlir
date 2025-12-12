@@ -117,6 +117,7 @@ table KernelDescriptor {
 }
 
 table SemaphoreDescriptor {
+  id: uint32;
   core_type: CoreType;
   core_ranges: tt.target.ttnn.CoreRangeSet;
   initial_value: uint32;
