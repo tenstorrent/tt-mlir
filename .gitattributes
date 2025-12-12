@@ -1,0 +1,17 @@
+mlp_sanity_inputs/10.pt filter=lfs diff=lfs merge=lfs -text
+mlp_sanity_inputs/12.pt filter=lfs diff=lfs merge=lfs -text
+mlp_sanity_inputs/13.pt filter=lfs diff=lfs merge=lfs -text
+mlp_sanity_inputs/14.pt filter=lfs diff=lfs merge=lfs -text
+mlp_sanity_inputs/15.pt filter=lfs diff=lfs merge=lfs -text
+mlp_sanity_inputs/2.pt filter=lfs diff=lfs merge=lfs -text
+mlp_sanity_inputs/4.pt filter=lfs diff=lfs merge=lfs -text
+mlp_sanity_inputs/8.pt filter=lfs diff=lfs merge=lfs -text
+mlp_sanity_inputs/9.pt filter=lfs diff=lfs merge=lfs -text
+mlp_sanity_inputs/5.pt filter=lfs diff=lfs merge=lfs -text
+mlp_sanity_inputs/6.pt filter=lfs diff=lfs merge=lfs -text
+mlp_sanity_inputs/7.pt filter=lfs diff=lfs merge=lfs -text
+irs/mlp_mixer_sanity_ttir.mlir filter=lfs diff=lfs merge=lfs -text
+mlp_sanity_inputs/0.pt filter=lfs diff=lfs merge=lfs -text
+mlp_sanity_inputs/1.pt filter=lfs diff=lfs merge=lfs -text
+mlp_sanity_inputs/11.pt filter=lfs diff=lfs merge=lfs -text
+mlp_sanity_inputs/3.pt filter=lfs diff=lfs merge=lfs -text
