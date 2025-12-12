@@ -43,7 +43,7 @@ def test_math_fidelity(device, math_fidelity):
             shape=(128, 128),
             max_grid=(0, 0),
             dtype=torch.bfloat16,
-            memory_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED,
+            shard_strategy=ttnn.ShardStrategy.BLOCK,
         )
         golden_op = _get_ttnn_op(abs)
 
@@ -69,6 +69,5 @@ def test_math_fidelity(device, math_fidelity):
             op=abs,
             num_inputs=1,
             buffer_type=ttnn.BufferType.L1,
-            memory_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED,
             math_fidelity=math_fidelity,
         )
