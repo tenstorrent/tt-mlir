@@ -155,6 +155,13 @@ jobs:
         python_interpreter_location=$(which python)
 
         sed -i "s|python3|$python_interpreter_location|g" $exalens_install_script
+        echo "printing out exalens script"
+        cat $exalens_install_script
+
+        echo "printing libs"
+        PATH="/usr/bin:$PATH" which clang_tidy
+        PATH="/usr/bin:$PATH" which cmake
+
         PATH="/usr/bin:$PATH" $exalens_install_script
 
         pip install -r tools/triage/requirements.txt
