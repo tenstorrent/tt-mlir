@@ -156,6 +156,7 @@ jobs:
         python_interpreter_location="$(which python)3"
 
         sed -i "s|python3|$python_interpreter_location|g" $exalens_install_script
+        sed -i "s|LD_LIBRARY_PATH=|PATH="/usr/bin:$PATH" LD_LIBRARY_PATH=|g" $exalens_install_script
         echo "printing out exalens script"
         cat $exalens_install_script
 
