@@ -114,11 +114,11 @@ module {
     return %2 :tensor<1x30x30x64xbf16>
   }
 
-  // Test that we cannot fuse Conv2d and Sigmoid because Conv2d only allows ReLU activation.
+  // Test fusion of Conv2d with Sigmoid activation.
   // CHECK-LABEL: func.func @conv2d_with_sigmoid
   func.func @conv2d_with_sigmoid(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x30x30x64xbf16> {
-    // CHECK: %{{.*}} = "ttnn.conv2d"
-    // CHECK: activation ={{.*}}sigmoid
+    // CHECK: %[[CONV:.*]] = "ttnn.conv2d"
+    // CHECK-SAME: activation ={{.*}}sigmoid
     %0 = "ttir.conv2d"(%arg0, %arg1, %arg2)
             <{
               stride = 1: i32,
@@ -127,11 +127,59 @@ module {
               groups = 1: i32
             }> : (tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>) -> tensor<1x30x30x64xbf16>
 
-    // CHECK-NOT: %[[SIGMOID:.*]] = "ttnn.sigmoid"
-
-    // Sigmoid cannot be fused with conv2d.
+    // CHECK-NOT: ttnn.sigmoid
     %1 = "ttir.sigmoid"(%0) : (tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
 
+    // This reshape is comming from flattening sliding window.
+    // CHECK: %[[RESHAPE:.*]] = "ttnn.reshape"(%[[CONV]])
+
+    // CHECK: return %[[RESHAPE]]
+    return %1 : tensor<1x30x30x64xbf16>
+  }
+
+  // Test fusion of Conv2d with Hardsigmoid activation.
+  // CHECK-LABEL: func.func @conv2d_with_hardsigmoid
+  func.func @conv2d_with_hardsigmoid(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x30x30x64xbf16> {
+    // CHECK: %[[CONV:.*]] = "ttnn.conv2d"
+    // CHECK-SAME: activation ={{.*}}hardsigmoid
+    %0 = "ttir.conv2d"(%arg0, %arg1, %arg2)
+            <{
+              stride = 1: i32,
+              padding = 0: i32,
+              dilation = 1: i32,
+              groups = 1: i32
+            }> : (tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>) -> tensor<1x30x30x64xbf16>
+
+    // CHECK-NOT: ttnn.hardsigmoid
+    %1 = "ttir.hardsigmoid"(%0) : (tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
+
+    // This reshape is comming from flattening sliding window.
+    // CHECK: %[[RESHAPE:.*]] = "ttnn.reshape"(%[[CONV]])
+
+    // CHECK: return %[[RESHAPE]]
+    return %1 : tensor<1x30x30x64xbf16>
+  }
+
+  // Test fusion of Conv2d with Mish activation.
+  // CHECK-LABEL: func.func @conv2d_with_mish
+  func.func @conv2d_with_mish(%arg0: tensor<1x32x32x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %arg2: tensor<1x1x1x64xbf16>) -> tensor<1x30x30x64xbf16> {
+    // CHECK: %[[CONV:.*]] = "ttnn.conv2d"
+    // CHECK-SAME: activation ={{.*}}mish
+    %0 = "ttir.conv2d"(%arg0, %arg1, %arg2)
+            <{
+              stride = 1: i32,
+              padding = 0: i32,
+              dilation = 1: i32,
+              groups = 1: i32
+            }> : (tensor<1x32x32x64xbf16>, tensor<64x64x3x3xbf16>, tensor<1x1x1x64xbf16>) -> tensor<1x30x30x64xbf16>
+
+    // CHECK-NOT: ttnn.mish
+    %1 = "ttir.mish"(%0) : (tensor<1x30x30x64xbf16>) -> tensor<1x30x30x64xbf16>
+
+    // This reshape is comming from flattening sliding window.
+    // CHECK: %[[RESHAPE:.*]] = "ttnn.reshape"(%[[CONV]])
+
+    // CHECK: return %[[RESHAPE]]
     return %1 : tensor<1x30x30x64xbf16>
   }
 
