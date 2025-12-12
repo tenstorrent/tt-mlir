@@ -862,30 +862,12 @@ module {
       return
     }
 
-    // CHECK-LABEL: func @ceil_tile_float32
-    func.func @ceil_tile_float32() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
-      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
-      %dst0_index = arith.constant 1 : i32
-      // CHECK: emitc.call_opaque "ceil_tile_float32"(%[[DST0_INDEX]])
-      "ttkernel.ceil_tile_float32"(%dst0_index) : (i32) -> ()
-      return
-    }
-
     // CHECK-LABEL: func @floor_tile
     func.func @floor_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
       %dst0_index = arith.constant 1 : i32
       // CHECK: emitc.call_opaque "floor_tile"(%[[DST0_INDEX]])
       "ttkernel.floor_tile"(%dst0_index) : (i32) -> ()
-      return
-    }
-
-    // CHECK-LABEL: func @floor_tile_float32
-    func.func @floor_tile_float32() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
-      // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
-      %dst0_index = arith.constant 1 : i32
-      // CHECK: emitc.call_opaque "floor_tile_float32"(%[[DST0_INDEX]])
-      "ttkernel.floor_tile_float32"(%dst0_index) : (i32) -> ()
       return
     }
 

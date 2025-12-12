@@ -776,7 +776,7 @@ module {
         // CHECK: ttkernel.copy_tile_init(%[[CB0:.+]]) :
         // CHECK-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
         // CHECK: ttkernel.rounding_op_tile_init
-        // CHECK: ttkernel.ceil_tile_float32
+        // CHECK: ttkernel.ceil_tile
         %0 = "d2m.tile_ceil"(%arg0) : (!ttype_f32) -> !ttype_f32
         // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
@@ -824,7 +824,7 @@ module {
         // CHECK: ttkernel.copy_tile_init(%[[CB0:.+]]) :
         // CHECK-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
         // CHECK: ttkernel.rounding_op_tile_init
-        // CHECK: ttkernel.floor_tile_float32
+        // CHECK: ttkernel.floor_tile
         %0 = "d2m.tile_floor"(%arg0) : (!ttype_f32) -> !ttype_f32
         // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
