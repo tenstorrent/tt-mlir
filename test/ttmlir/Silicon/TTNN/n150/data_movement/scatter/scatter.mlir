@@ -8,7 +8,7 @@
 
 func.func @scatter_simple_1(%arg0: tensor<1x3x320x320xf32>, %arg1: tensor<1x3x32x32xi32>, %arg2: tensor<1x3x32x32xf32>) -> tensor<1x3x320x320xf32> {
   %0 = "ttir.scatter"(%arg0, %arg1, %arg2) <{dim = 0 : i32, scatter_reduce_type = #ttcore.reduce_type<invalid>}> : (tensor<1x3x320x320xf32>, tensor<1x3x32x32xi32>, tensor<1x3x32x32xf32>) -> tensor<1x3x320x320xf32>
-  // CHECK: "ttnn.scatter"({{.*}}) <{dim = 0 : i32}>
+  // CHECK: "ttnn.scatter"({{.*}}) <{dim = 0 : i32, scatter_reduce_type = #ttcore.reduce_type<invalid>}>
   // CHECK-SAME: (tensor<1x3x320x320xf32, {{.*}}>, tensor<1x3x32x32xsi32, {{.*}}>, tensor<1x3x32x32xf32, {{.*}}>) -> tensor<1x3x320x320xf32, {{.*}}>
   return %0 : tensor<1x3x320x320xf32>
 }
@@ -16,7 +16,7 @@ func.func @scatter_simple_1(%arg0: tensor<1x3x320x320xf32>, %arg1: tensor<1x3x32
 func.func @scatter_simple_2(%arg0: tensor<32x32xi32>, %arg1: tensor<16x32xi32>, %arg2: tensor<16x32xi32>) -> tensor<32x32xi32> {
   %0 = "ttir.scatter"(%arg0, %arg1, %arg2) <{dim = 0 : i32, scatter_reduce_type = #ttcore.reduce_type<invalid>}> : (tensor<32x32xi32>, tensor<16x32xi32>, tensor<16x32xi32>) -> tensor<32x32xi32>
   // CHECK-LABEL: func.func @scatter_simple_2
-  // CHECK: "ttnn.scatter"({{.*}}) <{dim = 0 : i32}>
+  // CHECK: "ttnn.scatter"({{.*}}) <{dim = 0 : i32, scatter_reduce_type = #ttcore.reduce_type<invalid>}>
   // CHECK-SAME: (tensor<32x32xsi32, {{.*}}>, tensor<16x32xsi32, {{.*}}>, tensor<16x32xsi32, {{.*}}>) -> tensor<32x32xsi32, {{.*}}>
   return %0 : tensor<32x32xi32>
 }
@@ -49,8 +49,8 @@ func.func @scatter_simple_3(%arg0: tensor<71x32xbf16>, %arg1: tensor<71x4x2xi64>
   // flatten updates:
   // CHECK: "ttnn.reshape"({{.*}}) <{shape = [284 : i32]}>
   // Scatter is broken into chunks where index_shape[dim] < 256.
-  // CHECK: "ttnn.scatter"({{.*}}) <{dim = 0 : i32}> : (tensor<2272xbf16, {{.*}}>, tensor<256xsi32, {{.*}}>, tensor<256xbf16, {{.*}}>) -> tensor<2272xbf16, {{.*}}>
-  // CHECK: "ttnn.scatter"({{.*}}) <{dim = 0 : i32}> : (tensor<2272xbf16, {{.*}}>, tensor<28xsi32, {{.*}}>, tensor<28xbf16, {{.*}}>) -> tensor<2272xbf16, {{.*}}>
+  // CHECK: "ttnn.scatter"({{.*}}) <{dim = 0 : i32, scatter_reduce_type = #ttcore.reduce_type<invalid>}> : (tensor<2272xbf16, {{.*}}>, tensor<256xsi32, {{.*}}>, tensor<256xbf16, {{.*}}>) -> tensor<2272xbf16, {{.*}}>
+  // CHECK: "ttnn.scatter"({{.*}}) <{dim = 0 : i32, scatter_reduce_type = #ttcore.reduce_type<invalid>}> : (tensor<2272xbf16, {{.*}}>, tensor<28xsi32, {{.*}}>, tensor<28xbf16, {{.*}}>) -> tensor<2272xbf16, {{.*}}>
   // reshape flattened output to expected output shape
   // CHECK: "ttnn.reshape"({{.*}}) <{shape = [71 : i32, 32 : i32]}>
 }
@@ -60,7 +60,7 @@ func.func @scatter_simple_4(%arg0: tensor<1000x32xf32>, %arg1: tensor<10x32xi64>
   // CHECK-LABEL: func.func @scatter_simple_4
   // CHECK: "ttnn.to_layout"({{.*}}) <{layout = #ttnn.layout<row_major>}>
   // CHECK: "ttnn.to_layout"({{.*}}) <{layout = #ttnn.layout<row_major>}>
-  // CHECK: "ttnn.scatter"({{.*}}) <{dim = 0 : i32}> : (tensor<1000x32xf32, {{.*}}>, tensor<10x32xsi32, {{.*}}>, tensor<10x32xf32, {{.*}}>) -> tensor<1000x32xf32, {{.*}}>
+  // CHECK: "ttnn.scatter"({{.*}}) <{dim = 0 : i32, scatter_reduce_type = #ttcore.reduce_type<invalid>}> : (tensor<1000x32xf32, {{.*}}>, tensor<10x32xsi32, {{.*}}>, tensor<10x32xf32, {{.*}}>) -> tensor<1000x32xf32, {{.*}}>
   // CHECK: "ttnn.to_layout"({{.*}}) <{layout = #ttnn.layout<tile>}>
   %0 = "ttir.scatter"(%arg0, %arg1, %arg2) <{dim = 0 : i32, scatter_reduce_type = #ttcore.reduce_type<invalid>}> : (tensor<1000x32xf32>, tensor<10x32xi64>, tensor<10x32xf32>) -> tensor<1000x32xf32>
   return %0 : tensor<1000x32xf32>
