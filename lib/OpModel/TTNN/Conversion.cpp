@@ -708,6 +708,8 @@ getSDPAProgramConfig(
 
 std::optional<std::string> getScatterReductionType(
     const std::optional<ttcore::ReduceTypeAttr> &reduceTypeAttr) {
+  assert(reduceTypeAttr && *reduceTypeAttr &&
+         "reduceTypeAttr doesn't contain value");
   switch (reduceTypeAttr.value().getValue()) {
   case ttcore::ReduceType::Sum:
     return "add";
