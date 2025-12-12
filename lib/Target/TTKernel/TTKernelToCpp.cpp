@@ -6,6 +6,7 @@
 
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 
+#include "ttmlir/Target/TTKernel/LLKs/experimental_coord_translation_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_dataflow_api_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_invoke_sfpi_llks_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_matmul_llks_generated.h"
@@ -247,6 +248,14 @@ void dprint(Arg &&arg, ArgV&&... argv) {
           StringRef(experimental_dataflow_api_generated,
                     experimental_dataflow_api_generated_len);
       builder->create<emitc::VerbatimOp>(loc, experimentalDataflowLLKs);
+    }
+
+    if (hasCall("experimental::convert_logical_x_to_translated") ||
+        hasCall("experimental::convert_logical_y_to_translated")) {
+      auto experimentalCoordTranslationLLKs =
+          StringRef(experimental_coord_translation_generated,
+                    experimental_coord_translation_generated_len);
+      builder->create<emitc::VerbatimOp>(loc, experimentalCoordTranslationLLKs);
     }
 
     if (hasCall("experimental::matmul_block")) {

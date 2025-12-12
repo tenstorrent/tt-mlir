@@ -2575,32 +2575,60 @@ def TTKernel_InterleavedAddrGenFastGetNocAddrOp : TTKernel_Op<"interleaved_addr_
     }];
 }
 
-def TTKernel_MyXOp : TTKernel_Op<"my_x", [Pure]> {
-    let summary = "MyX";
+def TTKernel_MyLogicalXOp : TTKernel_Op<"my_logical_x_", [Pure]> {
+    let summary = "MyLogicalX";
     let description = [{
-      Lowers to the tt-metal supported MY_X macro. This represents the virtual X coordinate of the current core.
+      Lowers to the tt-metal supported my_logical_x_ global. This represents the logical X coordinate of the current core.
     }];
 
-    let arguments = (ins Optional<I8>:$noc);
+    let arguments = (ins);
     let results = (outs Index:$x);
 
     let assemblyFormat = [{
-      `(` ($noc^)? `)` attr-dict `:` functional-type(operands, results)
+      attr-dict `:` functional-type(operands, results)
     }];
 }
 
-def TTKernel_MyYOp : TTKernel_Op<"my_y", [Pure]> {
-    let summary = "MyY";
+def TTKernel_MyLogicalYOp : TTKernel_Op<"my_logical_y_", [Pure]> {
+    let summary = "MyLogicalY";
     let description = [{
-      Lowers to the tt-metal supported MY_Y macro. This represents the virtual Y coordinate of the current core.
+      Lowers to the tt-metal supported my_logical_y_ global. This represents the logical Y coordinate of the current core.
     }];
 
-    let arguments = (ins Optional<I8>:$noc);
+    let arguments = (ins);
     let results = (outs Index:$y);
 
     let assemblyFormat = [{
-      `(` ($noc^)? `)` attr-dict `:` functional-type(operands, results)
+      attr-dict `:` functional-type(operands, results)
     }];
+}
+
+def TTKernel_ConvertLogicalXToTranslatedOp : TTKernel_Op<"experimental::convert_logical_x_to_translated"> {
+  let summary = "ConvertLogicalToTranslatedX";
+  let description = [{
+    this converts the x coordinate from the LOGICAL coordinate system to TRANSLATED
+  }];
+
+  let arguments = (ins IndexLike:$logical_x);
+  let results = (outs IndexLike:$virtual_x);
+
+  let assemblyFormat = [{
+    `(` $logical_x `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+def TTKernel_ConvertLogicalYToTranslatedOp : TTKernel_Op<"experimental::convert_logical_y_to_translated"> {
+  let summary = "ConvertLogicalToTranslatedY";
+  let description = [{
+    this converts the y coordinate from the LOGICAL coordinate system to TRANSLATED
+  }];
+
+  let arguments = (ins IndexLike:$logical_y);
+  let results = (outs IndexLike:$virtual_y);
+
+  let assemblyFormat = [{
+    `(` $logical_y `)` attr-dict `:` functional-type(operands, results)
+  }];
 }
 
 //===----------------------------------------------------------------------===//

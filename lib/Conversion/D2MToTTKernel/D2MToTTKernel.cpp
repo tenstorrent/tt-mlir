@@ -48,21 +48,17 @@ static std::pair<Value, Value>
 getVirtualCoordsFromLogicalCoords(OpBuilder &rewriter, Location loc,
                                   ttcore::ChipDescAttr chipDesc,
                                   ValueRange dstCoreIndex) {
-  auto offset = chipDesc.getCoordTranslationOffsets();
-
-  return {rewriter
-              .create<arith::AddIOp>(dstCoreIndex[0].getLoc(), dstCoreIndex[0],
-                                     index(rewriter, loc, offset[0]))
-              .getResult(),
-          rewriter
-              .create<arith::AddIOp>(dstCoreIndex[1].getLoc(), dstCoreIndex[1],
-                                     index(rewriter, loc, offset[1]))
-              .getResult()};
+  Value virtY = rewriter.create<ttkernel::ConvertLogicalYToTranslatedOp>(
+      dstCoreIndex[0].getLoc(), dstCoreIndex[0].getType(), dstCoreIndex[0]);
+  Value virtX = rewriter.create<ttkernel::ConvertLogicalXToTranslatedOp>(
+      dstCoreIndex[1].getLoc(), dstCoreIndex[1].getType(), dstCoreIndex[1]);
+  return {virtY, virtX};
 }
 
 static std::pair<Value, Value> getMcastEndCoords(PatternRewriter &rewriter,
-                                                 Location loc, Value &nocStartY,
-                                                 Value &nocStartX,
+                                                 Location loc,
+                                                 const Value &nocStartY,
+                                                 const Value &nocStartX,
                                                  OperandRange mcastShape) {
   return {rewriter.create<arith::SubIOp>(
               nocStartY.getLoc(),
@@ -1170,18 +1166,21 @@ public:
         // Get virtual start coordinates from DMA op logical coordinates
         auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
             rewriter, op.getLoc(), chipDesc, op.getMcastStartIndex());
-        // Get the multicast end coordinates from the virtual start coordinates
-        // and mcast shape
-        auto [mcastEndY, mcastEndX] = getMcastEndCoords(
-            rewriter, op.getLoc(), virtY, virtX, op.getMcastShape());
+        // Get the logical multicast end coordinates from the logical start
+        // coordinates and mcast shape then convert to virtual coordinates
+        auto [mcastEndY, mcastEndX] =
+            getMcastEndCoords(rewriter, op.getLoc(), op.getMcastStartIndex()[0],
+                              op.getMcastStartIndex()[1], op.getMcastShape());
+        auto [virtMcastEndY, virtMcastEndX] = getVirtualCoordsFromLogicalCoords(
+            rewriter, op.getLoc(), chipDesc, {mcastEndY, mcastEndX});
         auto numDestsIdx = rewriter.create<arith::MulIOp>(
             op.getLoc(), op.getMcastShape()[0], op.getMcastShape()[1]);
         auto numDests = rewriter.create<arith::IndexCastOp>(
             op.getLoc(), rewriter.getI32Type(), numDestsIdx);
         auto mcastAddr =
             rewriter.create<ttkernel::ExperimentalGetNocMulticastAddrOp>(
-                op.getLoc(), virtX, virtY, mcastEndX, mcastEndY, dstL1Start,
-                nullptr);
+                op.getLoc(), virtX, virtY, virtMcastEndX, virtMcastEndY,
+                dstL1Start, nullptr);
         if (adaptor.getSrc() == adaptor.getDst()) {
           // If src and dst refer to the same memref, we do not loopback mcast
           // Dests are one less because the sender core is not included
@@ -1252,25 +1251,15 @@ public:
   matchAndRewrite(d2m::CoreIndexOp op, d2m::CoreIndexOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
 
-    auto chipDesc = ttcore::getOpChipDescAttr(op);
-
     assert(op.getDim() == 0 ||
            op.getDim() == 1 &&
                "Expected core index dim to be in range 0-1, failing.");
     if (op.getDim()) {
-      auto coreIndex = rewriter.create<ttkernel::MyXOp>(op.getLoc(), nullptr);
-      auto normalizedCoreIndex = rewriter.create<arith::SubIOp>(
-          op.getLoc(), coreIndex,
-          index(rewriter, op->getLoc(),
-                chipDesc.getCoordTranslationOffsets()[1]));
-      rewriter.replaceOp(op, normalizedCoreIndex);
+      auto coreIndex = rewriter.create<ttkernel::MyLogicalXOp>(op.getLoc());
+      rewriter.replaceOp(op, coreIndex);
     } else {
-      auto coreIndex = rewriter.create<ttkernel::MyYOp>(op.getLoc(), nullptr);
-      auto normalizedCoreIndex = rewriter.create<arith::SubIOp>(
-          op.getLoc(), coreIndex,
-          index(rewriter, op->getLoc(),
-                chipDesc.getCoordTranslationOffsets()[0]));
-      rewriter.replaceOp(op, normalizedCoreIndex);
+      auto coreIndex = rewriter.create<ttkernel::MyLogicalYOp>(op.getLoc());
+      rewriter.replaceOp(op, coreIndex);
     }
     return success();
   }
@@ -1523,16 +1512,21 @@ public:
 
       auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
           rewriter, op.getLoc(), chipDesc, op.getDstCoreIndex());
-      auto [mcastEndY, mcastEndX] = getMcastEndCoords(
-          rewriter, op.getLoc(), virtY, virtX, op.getMcastShape());
+      // Get the logical multicast end coordinates from the logical start
+      // coordinates and mcast shape then convert to virtual coordinates
+      auto [mcastEndY, mcastEndX] =
+          getMcastEndCoords(rewriter, op.getLoc(), op.getDstCoreIndex()[0],
+                            op.getDstCoreIndex()[1], op.getMcastShape());
+      auto [virtMcastEndY, virtMcastEndX] = getVirtualCoordsFromLogicalCoords(
+          rewriter, op.getLoc(), chipDesc, {mcastEndY, mcastEndX});
       Value numDestsIdx = rewriter.create<arith::MulIOp>(
           op.getLoc(), op.getMcastShape()[0], op.getMcastShape()[1]);
       Value numDests = rewriter.create<arith::IndexCastOp>(
           op.getLoc(), rewriter.getI32Type(), numDestsIdx);
       auto mcastAddr =
           rewriter.create<ttkernel::ExperimentalGetNocMulticastAddrOp>(
-              op.getLoc(), virtX, virtY, mcastEndX, mcastEndY, semaphoreAddr,
-              nullptr);
+              op.getLoc(), virtX, virtY, virtMcastEndX, virtMcastEndY,
+              semaphoreAddr, nullptr);
 
       auto semaphorePtr =
           rewriter.create<ttkernel::CastToL1PtrOp>(op.getLoc(), semaphoreAddr);
