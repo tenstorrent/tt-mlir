@@ -300,7 +300,8 @@ public:
     SymbolTable opSymTable(op->getParentOfType<ModuleOp>());
     llvm::SmallVector<mlir::Attribute> kernelDescriptors =
         createKernelDescriptors(rewriter, op.getThreads(), coreRangeSet,
-                                opSymTable, this->mathFidelity, op->getOperands());
+                                opSymTable, this->mathFidelity,
+                                op->getOperands());
 
     // Extract semaphore descriptors from kernel functions.
     llvm::SmallVector<ttnn::KernelSemaphoreAttr> semaphoreDescriptors =
