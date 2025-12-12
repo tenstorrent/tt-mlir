@@ -50,13 +50,10 @@ def cosh(input_tensor):
   nr_term = ttnn.add(e_pos_x, e_neg_x)
   return ttnn.multiply(nr_term, 0.5)
 
-def model():
-    # Create tensors as usual
-    input_tensor = ...
-    x = ttnn.square(input_tensor)
-    y = cosh(x)     # will run the 5 TTNN ops in the cosh subgraph
-    z = ttnn.log(y)
-    return z
+def model(input_0, input_1):
+  x = cosh(input_0)
+  y = ttnn.exp(input_1)
+  return ttnn.matmul(x, y)
 ```
 
 Simply decorate with `@ttnn_jit.jit()` to JIT compile through D2M. In this example, `cosh` will be compiled into a single fused kernel.
@@ -68,14 +65,13 @@ def cosh(input_tensor):
   nr_term = ttnn.add(e_pos_x, e_neg_x)
   return ttnn.multiply(nr_term, 0.5)
 
-def model():
-    # Create tensors as usual
-    input_tensor = ...
-    x = ttnn.square(input_tensor)
-    y = cosh(x)     # invoke the JIT'ed subgraph: will run one fused cosh kernel.
-    z = ttnn.log(y)
-    return z
+def model(input_0, input_1):
+  x = cosh(input_0)
+  y = ttnn.exp(input_1)
+  return ttnn.matmul(x, y)
 ```
+
+This demo is available [here](../../test/ttnn-jit/test_jit_demos.py).
 
 ### JIT Flags
 
@@ -90,11 +86,15 @@ def model():
 ## Current Support
 
 ### Supported Operations
+The following major categories of operations are supported:
 - Unary Elementwise
 - Binary Elementwise
 - Unary Bitwise
 - Binary Bitwise
 - Matrix Multiplication: only supported in `graph_capture = False` mode
+- Reductions: only supported in `graph_capture = True` mode
+
+The full list of supported operations is available at...
 
 ### Supported Tensor Layouts
 - Unary Elementwise and Bitwise
@@ -106,6 +106,9 @@ def model():
 - Matrix Multiplication:
   - Block sharded tensors in L1 and DRAM interleaved.
   - The output will always be block sharded in L1. DRAM outputs are not supported.
+- Reductions:
+  - Height, width, and block sharded tensors in L1.
+  - DRAM tensors are not supported
 
 ### Supported Datatypes
 | Operation Category | Supported Datatypes |
@@ -115,6 +118,7 @@ def model():
 | Unary Bitwise | `int32` |
 | Binary Bitwise | `int32` |
 | Matrix Multiplication | `f32`, `bf16`, `bfp8` |
+| Reductions | `f32`, `bf16` |
 
 ### Notes
 - The output layout of a JIT graph cannot be selected. The `memory_config` arguments on JIT ops are ignored.
