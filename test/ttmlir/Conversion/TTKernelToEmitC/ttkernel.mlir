@@ -1224,6 +1224,43 @@ module {
       "ttkernel.bitwise_xor_binary_tile"(%dst0_index, %dst1_index, %odst_index) : (i32, i32, i32) -> ()
       return
     }
+
+    // CHECK-LABEL: func @where_tile_init
+    func.func @where_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "where_tile_init"()
+      "ttkernel.where_tile_init"() : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @where_tile
+    func.func @where_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[COND_INDEX:.*]] = "emitc.constant"
+      %cond_index = arith.constant 0 : index
+      // CHECK: %[[TRUE_INDEX:.*]] = "emitc.constant"
+      %true_index = arith.constant 1 : index
+      // CHECK: %[[FALSE_INDEX:.*]] = "emitc.constant"
+      %false_index = arith.constant 2 : index
+      // CHECK: %[[ODST_INDEX:.*]] = "emitc.constant"
+      %odst_index = arith.constant 3 : index
+      // CHECK: emitc.call_opaque "where_tile"(%[[COND_INDEX]], %[[TRUE_INDEX]], %[[FALSE_INDEX]], %[[ODST_INDEX]])
+      "ttkernel.where_tile"(%cond_index, %true_index, %false_index, %odst_index) : (index, index, index, index) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @where_fp32_tile
+    func.func @where_fp32_tile() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[COND_INDEX:.*]] = "emitc.constant"
+      %cond_index = arith.constant 0 : index
+      // CHECK: %[[TRUE_INDEX:.*]] = "emitc.constant"
+      %true_index = arith.constant 1 : index
+      // CHECK: %[[FALSE_INDEX:.*]] = "emitc.constant"
+      %false_index = arith.constant 2 : index
+      // CHECK: %[[ODST_INDEX:.*]] = "emitc.constant"
+      %odst_index = arith.constant 3 : index
+      // CHECK: emitc.call_opaque "where_fp32_tile"(%[[COND_INDEX]], %[[TRUE_INDEX]], %[[FALSE_INDEX]], %[[ODST_INDEX]])
+      "ttkernel.where_fp32_tile"(%cond_index, %true_index, %false_index, %odst_index) : (index, index, index, index) -> ()
+      return
+    }
   } // module
 
   //===----------------------------------------------------------------------===//
