@@ -378,6 +378,7 @@ getOutShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
 // 1) func.func entry-block arg attrs
 // 2) sdy.manual_computation region arg per-value attrs
 // 3) OpResult per-value attrs
+// 4) OpResult owner's out_shardings (if owner is ManualComputationOp)
 // Falls back to full replicate if none found.
 mlir::sdy::TensorShardingAttr
 getOperandShardingAttr(const mlir::OpOperand &operand,
@@ -405,20 +406,41 @@ getOperandShardingAttr(const mlir::OpOperand &operand,
           result = shardings[argNo];
         }
       }
+      // First check per-value attrs on the operation
     }
   } else if (auto opRes = mlir::dyn_cast<mlir::OpResult>(val)) {
     mlir::Operation *owner = opRes.getOwner();
     unsigned resNo = opRes.getResultNumber();
-    if (auto spv = owner->getAttrOfType<mlir::sdy::TensorShardingPerValueAttr>(
-            mlir::sdy::TensorShardingAttr::name)) {
+
+    // First check per-value attrs on the operation
+    mlir::sdy::TensorShardingPerValueAttr spv =
+        owner->getAttrOfType<mlir::sdy::TensorShardingPerValueAttr>(
+            mlir::sdy::TensorShardingAttr::name);
+    if (spv) {
       auto shardings = spv.getShardings();
       if (!shardings.empty()) {
         unsigned i = (resNo < shardings.size()) ? resNo : 0u; // broadcast-safe
         result = shardings[i];
       }
+    } else {
+      // First try TensorShardingPerValueAttr (for ops with multiple results)
+      if (auto outShardingsAttr =
+              owner->getAttrOfType<mlir::sdy::TensorShardingPerValueAttr>(
+                  "out_shardings")) {
+        auto shardings = outShardingsAttr.getShardings();
+        if (!shardings.empty() && resNo < shardings.size()) {
+          result = shardings[resNo];
+        }
+      } else if (auto outShardingAttr =
+                     owner->getAttrOfType<mlir::sdy::TensorShardingAttr>(
+                         "out_sharding")) {
+        // If TensorShardingPerValueAttr not found, check out_sharding attribute
+        if (resNo == 0) {
+          result = outShardingAttr;
+        }
+      }
     }
   }
-
   return result;
 }
 
