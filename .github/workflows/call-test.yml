@@ -150,6 +150,7 @@ jobs:
 
         git clone https://github.com/tenstorrent/tt-metal.git
         cd tt-metal
+        git checkout 22354129c5a22a539e26eb4ba58411444298df8d
 
         exalens_install_script=scripts/install_debugger.sh
         python_interpreter_location=$(which python)
@@ -157,10 +158,6 @@ jobs:
         sed -i "s|python3|$python_interpreter_location|g" $exalens_install_script
         echo "printing out exalens script"
         cat $exalens_install_script
-
-        echo "printing libs"
-        PATH="/usr/bin:$PATH" which clang_tidy
-        PATH="/usr/bin:$PATH" which cmake
 
         PATH="/usr/bin:$PATH" $exalens_install_script
 
