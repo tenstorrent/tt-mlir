@@ -7,13 +7,13 @@
 - [Getting Started](#getting-started)
 - [How to use ttnn.jit](#how-to-use-ttnnjit)
   - [JIT Flags](#jit-flags)
+- [Current Support](#current-support)
 - [How It Works](#how-it-works)
   - [Level 1: Python Decorator](#level-1-python-decorator)
   - [Level 2: D2M Compilation Pipeline](#level-2-d2m-compilation-pipeline)
   - [Level 3: Runtime Execution](#level-3-runtime-execution)
   - [JIT Caching](#jit-caching)
   - [Op Fusion](#op-fusion)
-- [Limitations & Constraints](#limitations--constraints)
 - [Debugging FAQ](#debugging-faq)
   - [AssertionError: Function ___ not supported](#assertionerror-function-___-not-supported)
   - [Failed to run pass manager](#failed-to-run-pass-manager)
@@ -81,15 +81,43 @@ def model():
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
+| `enable_cache` | `bool` | `False` | Turn on the JitCache for ttnn.jit (This will also turn on TTNN ProgramCache). |
+| `graph_capture` | `bool` | `True` | Selects the ttnn.jit frontend for processing a TTNN graph. Op support varies by backend. |
+| `math_fidelity` | `ttnn.MathFidelity` | `ttnn.MathFidelity.HiFi4` | Sets the math fidelity setting for the JIT graph. |
 | `debug` | `bool` | `False` | Enable debug prints during compilation and execution. |
 | `compile_only` | `bool` | `False` | Only compile runtime without execution. The resulting flatbuffer will be dumped to `generated/jit`. |
-| `enable_cache` | `bool` | `False` | Turn on the JitCache for ttnn.jit (This will also turn on TTNN ProgramCache). |
-| `graph_capture` | `bool` | `True` | Use TTNN graph trace to emit MLIR from Python. Fallback to Python AST traversal when false. |
 
-## Current Limitations
-- Only select eltwise unary and binary operations.
-- Only L1 block sharded and DRAM interleaved tensors.
-- No control flow allowed.
+## Current Support
+
+### Supported Operations
+- Unary Elementwise
+- Binary Elementwise
+- Unary Bitwise
+- Binary Bitwise
+- Matrix Multiplication: only supported in `graph_capture = False` mode
+
+### Supported Tensor Layouts
+- Unary Elementwise and Bitwise
+  - Height, width, and block sharded tensors in L1 as well as DRAM interleaved.
+- Binary Elementwise and Bitwise
+  - Height, width, and block sharded tensors in L1 as well as DRAM interleaved.
+  - If both operands are sharded, they must have identical shard specs.
+  - The output will match the layout of the first operand.
+- Matrix Multiplication:
+  - Block sharded tensors in L1 and DRAM interleaved.
+  - The output will always be block sharded in L1. DRAM outputs are not supported.
+
+### Supported Datatypes
+| Operation Category | Supported Datatypes |
+|------|------------|
+| Unary Elementwise | `f32`, `bf16`, `bfp8` |
+| Binary Elementwise | `f32`, `bf16`, `bfp8` |
+| Unary Bitwise | `int32` |
+| Binary Bitwise | `int32` |
+| Matrix Multiplication | `f32`, `bf16`, `bfp8` |
+
+### Notes
+- The output layout of a JIT graph cannot be selected. The `memory_config` arguments on JIT ops are ignored.
 
 See the current [test suite](../../test/ttnn-jit/) for what is guaranteed to be working.
 
