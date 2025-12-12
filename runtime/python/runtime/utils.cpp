@@ -47,8 +47,8 @@ void registerRuntimeUtilsBindings(nb::module_ &m) {
       [](tt::runtime::Tensor tensor) -> nb::object {
         ::ttnn::Tensor &ttnn_tensor =
             ::tt::runtime::ttnn::utils::getTTNNTensorFromRuntimeTensor(tensor);
-        py::object py_tensor =
-            py::cast(ttnn_tensor, py::return_value_policy::copy);
+        py::object py_tensor = py::cast(std::move(ttnn_tensor),
+                                        py::return_value_policy::reference);
         return nb::borrow(py_tensor.ptr());
       },
       "Get a TTNN tensor from a tt::runtime tensor");
