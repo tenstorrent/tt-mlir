@@ -462,6 +462,159 @@ def test_eltwise_fuse_binary_reduction_tree(
 
 
 ### ----------------------------------------------------------------------- ###
+# # Test: Where (Ternary) Fusion
+### ----------------------------------------------------------------------- ###
+
+
+@pytest.mark.parametrize("grid", gridParams)
+@pytest.mark.parametrize("shape", [(128, 128)])
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_eltwise_fuse_where_simple(
+    grid: str, shape: Shape, dtype: torch.dtype, target: str, request, device
+):
+    """Test simple where with unary ops on true/false branches."""
+
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape, shape], [dtype, dtype, dtype])
+        def where_simple(
+            cond: Operand,
+            true_val: Operand,
+            false_val: Operand,
+            builder: TTIRBuilder,
+        ):
+            # Condition must be strictly 0s or 1s
+            condition_tensor = torch.randint(0, 2, shape).to(dtype)
+            builder.set_goldens(inputs={cond: condition_tensor})
+
+            # Apply unary ops to true and false branches before where
+            true_branch = builder.abs(true_val)
+            false_branch = builder.neg(false_val)
+
+            return builder.where(cond, true_branch, false_branch)
+
+    options = [grid]
+
+    compile_and_execute_ttir(
+        module,
+        target=target,
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        test_base=request.node.name,
+        module_dump=True,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        print_ir=enablePrintIR,
+        device=device,
+    )
+
+
+##--##-------------------------------------------------------------------##--##
+
+
+@pytest.mark.parametrize("grid", gridParams)
+@pytest.mark.parametrize("shape", [(128, 128)])
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_eltwise_fuse_where_with_unary_chains(
+    grid: str, shape: Shape, dtype: torch.dtype, target: str, request, device
+):
+    """Test where with longer unary chains on inputs and output."""
+
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape, shape], [dtype, dtype, dtype])
+        def where_with_unary_chains(
+            cond: Operand,
+            true_val: Operand,
+            false_val: Operand,
+            builder: TTIRBuilder,
+        ):
+            # Condition must be strictly 0s or 1s
+            condition_tensor = torch.randint(0, 2, shape).to(dtype)
+            builder.set_goldens(inputs={cond: condition_tensor})
+
+            # Unary chain on true branch
+            true_0 = builder.abs(true_val)
+            true_1 = builder.exp(true_0)
+
+            # Unary chain on false branch
+            false_0 = builder.neg(false_val)
+            false_1 = builder.sin(false_0)
+
+            # Where operation
+            result = builder.where(cond, true_1, false_1)
+
+            # Unary chain on output
+            out_0 = builder.abs(result)
+            out_1 = builder.neg(out_0)
+
+            return out_1
+
+    options = [grid]
+
+    compile_and_execute_ttir(
+        module,
+        target=target,
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        test_base=request.node.name,
+        module_dump=True,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        print_ir=enablePrintIR,
+        device=device,
+    )
+
+
+##--##-------------------------------------------------------------------##--##
+
+
+@pytest.mark.parametrize("grid", gridParams)
+@pytest.mark.parametrize("shape", [(128, 128)])
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_eltwise_fuse_where_with_binary_inputs(
+    grid: str, shape: Shape, dtype: torch.dtype, target: str, request, device
+):
+    """Test where with binary ops feeding into the true/false branches."""
+
+    def module(builder: TTIRBuilder):
+        @builder.func(
+            [shape, shape, shape, shape, shape],
+            [dtype, dtype, dtype, dtype, dtype],
+        )
+        def where_with_binary_inputs(
+            cond: Operand,
+            in0: Operand,
+            in1: Operand,
+            in2: Operand,
+            in3: Operand,
+            builder: TTIRBuilder,
+        ):
+            # Condition must be strictly 0s or 1s
+            condition_tensor = torch.randint(0, 2, shape).to(dtype)
+            builder.set_goldens(inputs={cond: condition_tensor})
+
+            # Binary ops for true and false branches
+            true_branch = builder.add(in0, in1)
+            false_branch = builder.multiply(in2, in3)
+
+            return builder.where(cond, true_branch, false_branch)
+
+    options = [grid]
+
+    compile_and_execute_ttir(
+        module,
+        target=target,
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        test_base=request.node.name,
+        module_dump=True,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        print_ir=enablePrintIR,
+        device=device,
+    )
+
+
+### ----------------------------------------------------------------------- ###
 # # Diamond Fork and Join Patterns
 ### ----------------------------------------------------------------------- ###
 

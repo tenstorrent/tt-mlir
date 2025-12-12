@@ -351,6 +351,10 @@ using ComputeOpMap = OpMap<
   std::pair<d2m::TileMatmulOp,      std::pair<ttkernel::MatmulInitOp,              ttkernel::MatmulTilesOp>>,
   std::pair<d2m::TileMatmulBlockOp, std::pair<ttkernel::MatmulBlockInitOp,         ttkernel::ExperimentalMatmulBlockOp>>,
 
+  // Reductions FPU
+  std::pair<d2m::TileReduceSumOp,   std::pair<ttkernel::ComputeKernelHWStartupOp,  ttkernel::ReduceTileOp>>,
+  std::pair<d2m::TileReduceMaxOp,   std::pair<ttkernel::ComputeKernelHWStartupOp,  ttkernel::ReduceTileOp>>,
+
   // Elementwise SFPU Unary.
   std::pair<d2m::TileAbsOp,         std::pair<ttkernel::AbsTileInitOp,             ttkernel::AbsTileOp>>,
   std::pair<d2m::TileBitwiseNotOp,  std::pair<ttkernel::BitwiseNotTileInitOp,      ttkernel::BitwiseNotTileOp>>,
@@ -395,9 +399,8 @@ using ComputeOpMap = OpMap<
   std::pair<d2m::TilePowOp,         std::pair<ttkernel::PowBinaryTilesInitOp,      ttkernel::PowBinaryTilesOp>>,
   std::pair<d2m::TileSubOp,         std::pair<ttkernel::SubBinaryTilesInitOp,      ttkernel::SubBinaryTilesOp>>,
 
-  // Reductions FPU
-  std::pair<d2m::TileReduceSumOp,   std::pair<ttkernel::ComputeKernelHWStartupOp, ttkernel::ReduceTileOp>>,
-  std::pair<d2m::TileReduceMaxOp,   std::pair<ttkernel::ComputeKernelHWStartupOp, ttkernel::ReduceTileOp>>
+  // Elementwise SFPU Ternary.
+  std::pair<d2m::TileWhereOp,       std::pair<ttkernel::WhereTileInitOp,           ttkernel::WhereTileOp>>
 >;
 // clang-format on
 
@@ -472,7 +475,7 @@ public:
                                                    transpose);
       rewriter.create<ttkernel::MatmulTilesOp>(op->getLoc(), cbA, cbB,
                                                adaptor.getA(), adaptor.getB(),
-                                               adaptor.getC(), transpose);
+                                               adaptor.getC());
     } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileMatmulBlockOp>) {
       auto insertionPoint = rewriter.getInsertionPoint();
       auto cbA = getCB(rewriter, op.getA());
@@ -624,9 +627,6 @@ public:
 
   static constexpr int arity = SFPUOp::arity;
 
-  static_assert(arity == 1 || arity == 2,
-                "Only unary and binary SFPUOps are supported");
-
   LogicalResult
   matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
@@ -747,7 +747,7 @@ public:
           op->getLoc(), adaptor.getInput(), inDtype, outDtype);
     } else if constexpr (arity == 1) {
       rewriter.create<SFPUOp>(op->getLoc(), adaptor.getInput());
-    } else {
+    } else if constexpr (arity == 2) {
       // Check if rhs is a scalar (float or integer) at runtime
       auto rhsType = adaptor.getRhs().getType();
       bool isScalarRhs = rhsType.isIntOrFloat();
@@ -790,6 +790,30 @@ public:
             /*allowHoisting*/ false);
         rewriter.create<SFPUOp>(op->getLoc(), adaptor.getLhs(),
                                 adaptor.getRhs(), dstIdx);
+      }
+    } else {
+      // Ternary tile operation (arity == 3)
+      OpBuilder::InsertionGuard guard(rewriter);
+      const auto dstIdx = getDstIdxFromResult(op.getResult());
+      setInsertionPointAfterOperands(rewriter,
+                                     {adaptor.getCondition(),
+                                      adaptor.getTrueValue(),
+                                      adaptor.getFalseValue(), dstIdx},
+                                     /*allowHoisting*/ false);
+      const auto elemType =
+          mlir::cast<ttcore::TileType>(op.getTrueValue().getType())
+              .getElementType();
+      const bool isCBF32 = llvm::isa<Float32Type>(elemType);
+      if (isCBF32) {
+        if (std::is_same_v<ConcreteOp, d2m::TileWhereOp>) {
+          rewriter.create<ttkernel::WhereTileF32Op>(
+              op->getLoc(), adaptor.getCondition(), adaptor.getTrueValue(),
+              adaptor.getFalseValue(), dstIdx);
+        }
+      } else {
+        rewriter.create<SFPUOp>(op->getLoc(), adaptor.getCondition(),
+                                adaptor.getTrueValue(), adaptor.getFalseValue(),
+                                dstIdx);
       }
     }
 
@@ -1638,6 +1662,9 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MSFPUOpsRewriter<d2m::TileMulOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TilePowOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileSubOp>,
+
+               // Elementwise SFPU Ternary.
+               ttkernel::D2MSFPUOpsRewriter<d2m::TileWhereOp>,
 
                ttkernel::D2MTilizeUntilizeRewriter<d2m::TileTilizeBlockOp, ttkernel::ExperimentalTilizeBlockOp>,
                ttkernel::D2MTilizeUntilizeRewriter<d2m::TileUntilizeBlockOp, ttkernel::ExperimentalUntilizeBlockOp>,

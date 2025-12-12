@@ -9,7 +9,7 @@ from typing import Callable, List, Optional, Tuple
 from builder.base.builder_utils import Operand, Shape, TypeInfo
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
 from builder.base.builder_apis import compile_and_execute_shlo
-from test_utils import shape_str, shapes_list_str
+from test_utils import shape_str, shapes_list_str, Marks
 
 pytestmark = pytest.mark.frontend("shlo")
 
@@ -113,6 +113,55 @@ def module_sqrt(builder: StableHLOBuilder):
         return builder.sqrt(in0, unit_attrs=unit_attrs)
 
 
+def module_tan(builder: StableHLOBuilder):
+    @builder.func([(128, 128)], [torch.float32])
+    def tan(
+        in0: Operand, builder: StableHLOBuilder, unit_attrs: Optional[List[str]] = None
+    ):
+        import math
+
+        if str(in0.type.element_type) not in ["bf16", "f32"]:
+            raise ValueError("tan op only supports bf16 and f32 data types")
+        dtype = torch.bfloat16 if in0.type.element_type == "bf16" else torch.float32
+        randn_tensor = torch.randn(in0.type.shape, dtype=dtype)
+        input_golden = randn_tensor.uniform_(
+            (-math.pi / 2 + 0.05), (math.pi / 2 - 0.05)
+        )
+        builder.set_goldens({in0: input_golden})
+        builder.set_graph_level_check(True)
+        return builder.tan(in0, unit_attrs=unit_attrs)
+
+
+def module_tanh(builder: StableHLOBuilder):
+    @builder.func([(128, 128)], [torch.float32])
+    def tanh(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.tanh(in0, unit_attrs=unit_attrs)
+
+
+def module_log1p(builder: StableHLOBuilder):
+    @builder.func([(128, 128)], [torch.float32])
+    def log1p(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        if str(in0.type.element_type) not in ["bf16", "f32"]:
+            raise ValueError("log1p op only supports bf16 and f32 data types")
+        dtype = torch.bfloat16 if in0.type.element_type == "bf16" else torch.float32
+        randn_tensor = torch.randn(in0.type.shape, dtype=dtype)
+        abs_tensor = torch.abs(randn_tensor)
+        error_margin = torch.full(randn_tensor.shape, -0.99)
+        input_golden = torch.add(abs_tensor, error_margin)
+        builder.set_goldens({in0: input_golden})
+        builder.set_graph_level_check(True)
+        return builder.log1p(in0, unit_attrs=unit_attrs)
+
+
 def module_logistic(builder: StableHLOBuilder):
     @builder.func([(128, 128)], [torch.float32])
     def logistic(
@@ -122,6 +171,49 @@ def module_logistic(builder: StableHLOBuilder):
     ):
         builder.set_graph_level_check(True)
         return builder.logistic(in0, unit_attrs=unit_attrs)
+
+
+def module_shift_right_logical(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.int32, torch.int32])
+    def shift_right_logical(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.shift_right_logical(in0, in1, unit_attrs=unit_attrs)
+
+
+def module_clamp(builder: StableHLOBuilder):
+    @builder.func(
+        [(128, 128), (128, 128), (128, 128)],
+        [torch.float32, torch.float32, torch.float32],
+    )
+    def clamp(
+        in0: Operand,
+        in1: Operand,
+        in2: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.clamp(in0, in1, in2, unit_attrs=unit_attrs)
+
+
+def module_select(builder: StableHLOBuilder):
+    @builder.func(
+        [(32, 32), (32, 32), (32, 32)], [torch.bool, torch.float32, torch.float32]
+    )
+    def select(
+        pred: Operand,
+        on_true: Operand,
+        on_false: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.select(pred, on_true, on_false, unit_attrs=unit_attrs)
 
 
 def module_log(builder: StableHLOBuilder):
@@ -207,49 +299,115 @@ def module_xor_bool(builder: StableHLOBuilder):
         return builder.xor(in0, in1, unit_attrs=unit_attrs)
 
 
-def slice(
-    in0: Operand,
-    start_indices: List[int],
-    limit_indices: List[int],
-    strides: Optional[List[int]],
-    builder: StableHLOBuilder,
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.slice(
-        in0,
-        start_indices=start_indices,
-        limit_indices=limit_indices,
-        strides=strides,
-        unit_attrs=unit_attrs,
-    )
+def module_add(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
+    def add(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.add(in0, in1)
 
 
-def transpose(
-    in0: Operand,
-    builder: StableHLOBuilder,
-    permutation: List[int],
-    unit_attrs: Optional[List[str]] = None,
-):
-    builder.set_graph_level_check(True)
-    return builder.transpose(in0, permutation, unit_attrs=unit_attrs)
+def module_max(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
+    def max(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.max(in0, in1, unit_attrs=unit_attrs)
+
+
+def module_min(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
+    def minimum(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.min(in0, in1, unit_attrs=unit_attrs)
+
+
+def module_mul(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
+    def multiply(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.mul(in0, in1, unit_attrs=unit_attrs)
+
+
+def module_pow(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
+    def pow(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        randn_base_tensor = builder._get_golden_tensor(in0)
+        randn_exponent_tensor = builder._get_golden_tensor(in1)
+        randn_base_tensor = randn_base_tensor.apply_shardwise(
+            lambda shard: (
+                shard.abs() if torch.is_floating_point(randn_exponent_tensor) else shard
+            )
+        )
+        if torch.is_floating_point(randn_exponent_tensor):
+            randn_base_tensor = torch.abs(randn_base_tensor)
+        builder.set_goldens_from_builder_tensor(
+            {in0: randn_base_tensor, in1: randn_exponent_tensor}
+        )
+        builder.set_graph_level_check(True)
+        return builder.pow(in0, in1, unit_attrs=unit_attrs)
+
+
+def module_subtract(builder: StableHLOBuilder):
+    @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
+    def subtract(
+        in0: Operand,
+        in1: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.subtract(in0, in1, unit_attrs=unit_attrs)
 
 
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_binary_ops(target: str, request, device):
-    def module(builder: StableHLOBuilder):
-        @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
-        def add(
-            in0: Operand,
-            in1: Operand,
-            builder: StableHLOBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            builder.set_graph_level_check(True)
-            return builder.add(in0, in1)
-
+@pytest.mark.parametrize(
+    "test_fn",
+    [
+        module_add,
+        module_max
+        | Marks(
+            pytest.mark.skip_config(
+                ["ttmetal"], reason="https://github.com/tenstorrent/tt-mlir/issues/5016"
+            )
+        ),
+        module_min | Marks(pytest.mark.skip_config(["ttmetal"])),
+        module_mul,
+        module_pow
+        | Marks(
+            pytest.mark.skip_config(
+                ["ttnn"], reason="https://github.com/tenstorrent/tt-metal/pull/33904"
+            )
+        ),
+        module_subtract,
+    ],
+)
+def test_binary_ops(test_fn: Callable, target: str, request, device):
     compile_and_execute_shlo(
-        module,
+        test_fn,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -270,11 +428,14 @@ def test_binary_ops(target: str, request, device):
         module_exp,
         module_floor,
         module_log,
+        module_log1p,
         module_logistic,
         module_neg,
         module_rsqrt,
         module_sine,
         module_sqrt,
+        module_tan,
+        module_tanh,
     ],
 )
 def test_unary_ops(
@@ -355,6 +516,25 @@ def test_reshape(
     )
 
 
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize(
+    "test_fn",
+    [
+        module_select,
+        module_clamp,
+    ],
+)
+def test_ternary_ops(test_fn: Callable, target: str, request, device):
+    compile_and_execute_shlo(
+        test_fn,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_reshape_mismatch_raises(target, request, device):
     """
@@ -426,66 +606,6 @@ def test_dot_general(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target="ttnn",
-        device=device,
-    )
-
-
-# Special handling for tan PCC checks. Due to the vertical asymptote on the tan graph, small changes in input values result in large changes in output values at multiples of pi/2, so both graph and golden tensors must be constrained accordingly.
-@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
-def test_tan(shape: Shape, dtype: torch.dtype, target: str, request, device):
-    def module(builder: StableHLOBuilder):
-        @builder.func([shape], [dtype])
-        def tan(
-            in0: Operand,
-            builder: StableHLOBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            import math
-
-            randn_tensor = torch.randn(shape, dtype=dtype)
-            input_golden = randn_tensor.uniform_(
-                (-math.pi / 2 + 0.05), (math.pi / 2 - 0.05)
-            )
-            output_golden = torch.tan(input_golden)
-            tan_0 = builder.tan(in0, unit_attrs=unit_attrs)
-            builder.set_goldens({in0: input_golden}, {tan_0: output_golden})
-            builder.set_graph_level_check(True)
-            return tan_0
-
-    compile_and_execute_shlo(
-        module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        target=target,
-        device=device,
-    )
-
-
-@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn"])
-def test_ternary_ops(shape: Shape, dtype: torch.dtype, target: str, request, device):
-    def module(builder: StableHLOBuilder):
-        @builder.func([shape, shape, shape], [dtype, dtype, dtype])
-        def clamp(
-            in0: Operand,
-            in1: Operand,
-            in2: Operand,
-            builder: StableHLOBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            builder.set_graph_level_check(True)
-            return builder.clamp(in0, in1, in2, unit_attrs=unit_attrs)
-
-    compile_and_execute_shlo(
-        module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        target=target,
         device=device,
     )
 
@@ -616,6 +736,7 @@ def test_stablehlo_multi_return_support(
         module_and_bool,
         module_or_bool,
         module_xor_bool,
+        module_shift_right_logical,
     ],
 )
 def test_logical_binary_ops(
@@ -683,8 +804,9 @@ def test_slice(
 ):
     def module(builder: StableHLOBuilder):
         @builder.func([shape], [dtype])
-        def slice_fn(in0: Operand, builder: StableHLOBuilder):
-            return slice(in0, start_indices, limit_indices, strides, builder)
+        def slice(in0: Operand, builder: StableHLOBuilder):
+            builder.set_graph_level_check(True)
+            return builder.slice(in0, start_indices, limit_indices, strides)
 
     compile_and_execute_shlo(
         module,
@@ -983,6 +1105,43 @@ def test_avg_pool_2d(
 
     compile_and_execute_shlo(
         module,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes, dtype, dimensions",
+    [
+        ([(2, 3, 4)], torch.float32, [1]),
+        ([(2, 3, 4)], torch.float32, [0, 1]),
+    ],
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_reverse(shapes, dtype, dimensions, target: str, request, device):
+    def module(builder: StableHLOBuilder):
+        @builder.func(shapes, [dtype])
+        def reverse(in0: Operand, builder: StableHLOBuilder):
+            builder.set_graph_level_check(True)
+            return builder.reverse(in0, dimensions)
+
+    compile_and_execute_shlo(
+        module,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_select(target: str, request, device):
+    compile_and_execute_shlo(
+        module_select,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
