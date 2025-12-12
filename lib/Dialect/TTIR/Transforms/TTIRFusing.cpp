@@ -3557,7 +3557,6 @@ private:
   }
 };
 
-// RMS (Root Mean Square) Normalization Fusion Pattern
 // Fuses: (x * rsqrt(mean(x^2) + epsilon)) * gamma -> RMSNormOp
 class RMSNormFusionPattern : public mlir::OpRewritePattern<MultiplyOp> {
   using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
@@ -3566,7 +3565,6 @@ public:
   mlir::LogicalResult
   matchAndRewrite(MultiplyOp outerMul,
                   mlir::PatternRewriter &rewriter) const final {
-    // Match inner multiply.
     MultiplyOp innerMul =
         utils::findOpThrough<MultiplyOp, TypecastOp>(outerMul.getLhs());
     mlir::Value gammaRaw = outerMul.getRhs();
@@ -3579,7 +3577,6 @@ public:
       return mlir::failure();
     }
 
-    // Match rsqrt on either side of inner multiply.
     RsqrtOp rsqrtOp = utils::findOpThroughLayoutOps<RsqrtOp>(innerMul.getLhs());
     mlir::Value xRaw = innerMul.getRhs();
     if (!rsqrtOp) {
@@ -3590,7 +3587,6 @@ public:
       return mlir::failure();
     }
 
-    // Match mean + epsilon.
     auto addOp = utils::findOpThroughLayoutOps<AddOp>(rsqrtOp.getInput());
     if (!addOp) {
       return mlir::failure();
@@ -3635,7 +3631,6 @@ public:
       return mlir::failure();
     }
 
-    // Match epsilon value.
     auto epsFull = epsilon.getDefiningOp<FullOp>();
     if (!epsFull) {
       return mlir::failure();
@@ -3645,18 +3640,53 @@ public:
       return mlir::failure();
     }
 
-    // Match gamma.
     mlir::Value gamma = utils::lookThroughLayoutOps(gammaRaw);
-
     auto inputType = mlir::cast<RankedTensorType>(x.getType());
     llvm::SmallVector<int64_t> normalizedShape{inputType.getShape().back()};
 
-    auto rmsNorm = rewriter.create<RMSNormOp>(
-        outerMul.getLoc(), outerMul.getType(), x, gamma,
+    rewriter.replaceOpWithNewOp<RMSNormOp>(
+        outerMul, outerMul.getType(), x, gamma,
         /*bias=*/nullptr, rewriter.getDenseI64ArrayAttr(normalizedShape),
         rewriter.getF32FloatAttr(epsAttr.getValue().convertToFloat()));
+    return mlir::success();
+  }
+};
 
-    rewriter.replaceOp(outerMul, rmsNorm.getResult());
+// Folds reshape pairs around RMSNormOp: reshape -> rms_norm -> reshape.
+class RMSNormReshapeFoldPattern : public mlir::OpRewritePattern<RMSNormOp> {
+  using mlir::OpRewritePattern<RMSNormOp>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(RMSNormOp op, mlir::PatternRewriter &rewriter) const final {
+    auto inputReshape = op.getInput().getDefiningOp<ReshapeOp>();
+    if (!inputReshape || !op->hasOneUse()) {
+      return mlir::failure();
+    }
+
+    auto outputReshape = mlir::dyn_cast<ReshapeOp>(*op->getUsers().begin());
+    if (!outputReshape) {
+      return mlir::failure();
+    }
+
+    auto originalInputType =
+        mlir::cast<RankedTensorType>(inputReshape.getInput().getType());
+    auto outputReshapeType =
+        mlir::cast<RankedTensorType>(outputReshape.getType());
+
+    if (originalInputType.getShape() != outputReshapeType.getShape()) {
+      return mlir::failure();
+    }
+
+    llvm::SmallVector<int64_t> normalizedShape{
+        originalInputType.getShape().back()};
+
+    auto newRmsNorm = rewriter.create<RMSNormOp>(
+        op.getLoc(), outputReshapeType, inputReshape.getInput(), op.getWeight(),
+        op.getBias(), rewriter.getDenseI64ArrayAttr(normalizedShape),
+        op.getEpsilonAttr());
+
+    rewriter.replaceOp(outputReshape, newRmsNorm.getResult());
     return mlir::success();
   }
 };
@@ -3799,6 +3829,7 @@ public:
       patterns.add<MatmulWithBiasFusionPattern>(&getContext());
       patterns.add<SDPAFusing>(&getContext());
       patterns.add<RMSNormFusionPattern>(&getContext());
+      patterns.add<RMSNormReshapeFoldPattern>(&getContext());
 
       patterns.add<GeluFusionPattern>(&getContext());
       patterns.add<Relu6FusionPattern>(&getContext());
