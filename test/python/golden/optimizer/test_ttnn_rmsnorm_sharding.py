@@ -14,7 +14,9 @@ from builder.ttnn.ttnn_builder import TTNNBuilder
 # Temporarily disabled: RMSNorm with sharded input causes crash in metal.
 pytestmark = [
     pytest.mark.frontend("ttnn"),
-    pytest.mark.skip(reason="Temporarily disabled: RMSNorm sharding causes crash in metal"),
+    pytest.mark.skip(
+        reason="Temporarily disabled: RMSNorm sharding causes crash in metal"
+    ),
 ]
 
 

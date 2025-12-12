@@ -15,7 +15,9 @@ from builder.ttir.ttir_builder import TTIRBuilder
 # Temporarily disabled: RMSNorm with sharded input causes crash in metal.
 pytestmark = [
     pytest.mark.frontend("ttir"),
-    pytest.mark.skip(reason="Temporarily disabled: RMSNorm sharding causes crash in metal"),
+    pytest.mark.skip(
+        reason="Temporarily disabled: RMSNorm sharding causes crash in metal"
+    ),
 ]
 
 
