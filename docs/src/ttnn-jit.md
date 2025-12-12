@@ -77,10 +77,10 @@ This demo is available [here](../../test/ttnn-jit/test_jit_demos.py).
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `enable_cache` | `bool` | `False` | Turn on the JitCache for ttnn.jit (This will also turn on TTNN ProgramCache). |
+| `enable_cache` | `bool` | `False` | Enables caching for compiled JIT graphs. |
 | `graph_capture` | `bool` | `True` | Selects the ttnn.jit frontend for processing a TTNN graph. Op support varies by backend. |
 | `math_fidelity` | `ttnn.MathFidelity` | `ttnn.MathFidelity.HiFi4` | Sets the math fidelity setting for the JIT graph. |
-| `debug` | `bool` | `False` | Enable debug prints during compilation and execution. |
+| `debug` | `bool` | `False` | Enables debug prints during compilation and execution. |
 | `compile_only` | `bool` | `False` | Only compile runtime without execution. The resulting flatbuffer will be dumped to `generated/jit`. |
 
 ## Current Support
