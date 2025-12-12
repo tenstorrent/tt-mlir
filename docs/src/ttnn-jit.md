@@ -118,8 +118,7 @@ def model():
 
 ### Notes
 - The output layout of a JIT graph cannot be selected. The `memory_config` arguments on JIT ops are ignored.
-
-See the current [test suite](../../test/ttnn-jit/) for what is guaranteed to be working.
+- See the current [test suite](../../test/ttnn-jit/) for what is guaranteed to be working.
 
 ## How It Works
 
