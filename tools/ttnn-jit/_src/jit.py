@@ -10,6 +10,7 @@ from ttmlir.passes import (
     ttnn_to_flatbuffer_file,
     ttnn_to_flatbuffer_bin,
     ttnn_to_ttmetal_pipeline,
+    ttkernel_to_cpp_file,
 )
 
 from ttnn_jit._src.utils import cleanup_source_code, get_dispatch_core_type
@@ -38,7 +39,7 @@ class JitFunction:
         self.compile_only = compile_only
         self.debug = debug
         self.graph_capture = graph_capture
-        self.out_dir = os.path.join("generated", "ttnn-jit")
+        self.out_dir = os.path.join("generated", "ttnn-jit", func.__name__)
         os.makedirs(self.out_dir, exist_ok=True)
 
         self.system_desc_path = os.getenv("SYSTEM_DESC_PATH")
@@ -123,8 +124,13 @@ class JitFunction:
             if self.debug:
                 print("---- IR Dump after ttnn_to_ttmetal_pipeline ----")
                 print(ir)
-            flatbuffer_bin = os.path.join(self.out_dir, self.func.__name__ + ".ttn")
-            ttnn_to_flatbuffer_file(ir, flatbuffer_bin, {}, [])
+
+            # Dump kernels to C++ files in generated/ttnn-jit
+            ttkernel_to_cpp_file(ir, self.out_dir)
+
+            # Generate and dump flatbuffer in generated/ttnn-jit
+            flatbuffer_file = os.path.join(self.out_dir, self.func.__name__ + ".ttn")
+            ttnn_to_flatbuffer_file(ir, flatbuffer_file, {}, [])
             return ir
 
         if self.cache:

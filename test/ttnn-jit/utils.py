@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
+import math
 import ttnn
 import ttnn_jit
 import torch
@@ -24,6 +25,47 @@ def memory_configs_equal(memory_config1, memory_config2):
     )
 
 
+# ----- Input transforms for ops that need constrained inputs -----
+
+
+def _transform_reciprocal(t: torch.Tensor) -> torch.Tensor:
+    """Avoid zeros: abs() then replace exact zeros with 1e-6."""
+    t = torch.abs(t)
+    return torch.where(t == 0, torch.tensor(1e-6, dtype=t.dtype), t)
+
+
+def _transform_digamma(t: torch.Tensor) -> torch.Tensor:
+    t = t * 1e5
+    t = torch.clamp(t, min=1)
+    return t
+
+
+def _transform_sqrt(t: torch.Tensor) -> torch.Tensor:
+    """Ensure non-negative values."""
+    return torch.abs(t)
+
+
+def _transform_tan(t: torch.Tensor) -> torch.Tensor:
+    """Uniform in [-pi/2 + 0.05, pi/2 - 0.05]."""
+    return t.uniform_(-math.pi / 2 + 0.05, math.pi / 2 - 0.05)
+
+
+# Map op names to their input transforms
+_INPUT_TRANSFORMS: Dict[str, Callable[[torch.Tensor], torch.Tensor]] = {
+    "reciprocal": _transform_reciprocal,
+    "digamma_func": _transform_digamma,
+    "sqrt": _transform_sqrt,
+    "tan": _transform_tan,
+}
+
+
+def _get_input_transform(
+    op: Callable,
+) -> Optional[Callable[[torch.Tensor], torch.Tensor]]:
+    """Get the appropriate input transform for an op based on its name."""
+    return _INPUT_TRANSFORMS.get(op.__name__)
+
+
 def get_block_sharding_grid(shape):
     """Infer a TTNN grid/end coord for block sharding the given logical tensor shape"""
     assert len(shape) == 2, f"Only 2D shapes are supported"
@@ -37,16 +79,16 @@ def get_block_sharding_grid(shape):
     return list(reversed(grid))
 
 
-def all_close_check(result, golden_result, atol=1e-1, rtol=1e-1, debug=True):
-    if debug:
-        print("--------------------------------")
-        print("Result:")
-        print(result)
-        print("--------------------------------")
-        print("Golden result:")
-        print(golden_result)
-        print("--------------------------------")
+def pcc_check(result, golden_result, threshold=0.99):
+    """Check PCC between result and golden using ttnn.pearson_correlation_coefficient."""
+    result_torch = result.cpu().to_torch()
+    golden_torch = golden_result.cpu().to_torch()
+    pcc = ttnn.pearson_correlation_coefficient(golden_torch, result_torch)
+    print(f"PCC: {pcc} (threshold: {threshold})")
+    return pcc >= threshold, pcc
 
+
+def all_close_check(result, golden_result, atol=1e-1, rtol=1e-1, debug=True):
     all_close = torch.allclose(
         result.cpu().to_torch(),
         golden_result.cpu().to_torch(),
@@ -77,8 +119,12 @@ def create_sharded_tile_tensor(
     dtype,
     shard_strategy=ttnn.ShardStrategy.BLOCK,
     ttnn_dtype=None,
+    input_transform=None,
 ):
     torch_tensor = create_torch_tensor(shape, dtype)
+    if input_transform is not None:
+        torch_tensor = input_transform(torch_tensor)
+
     # IMPORTANT: TTNN grids are (Width, Height), while tensor shapes are (Height, Width).
     # We add 1 to the grid dimensions to account for the zero-based indexing.
     memory_config = ttnn.create_sharded_memory_config(
@@ -96,8 +142,17 @@ def create_sharded_tile_tensor(
     )
 
 
-def create_dram_tensor(device, shape, dtype, ttnn_dtype=None, mesh_mapper=None):
+def create_dram_tensor(
+    device,
+    shape,
+    dtype,
+    ttnn_dtype=None,
+    mesh_mapper=None,
+    input_transform=None,
+):
     torch_tensor = create_torch_tensor(shape, dtype)
+    if input_transform is not None:
+        torch_tensor = input_transform(torch_tensor)
     return ttnn.from_torch(
         torch_tensor,
         dtype=ttnn_dtype,
@@ -121,6 +176,9 @@ def run_op_test(
     shard_strategy=ttnn.ShardStrategy.BLOCK,
     ttnn_dtype=None,
     compile_only=False,
+    check_pcc=True,
+    check_allclose=False,
+    pcc_threshold=0.99,
 ):
     """
     Common test runner for JIT operations.
@@ -136,19 +194,35 @@ def run_op_test(
         graph_capture: Whether to use graph capture compiler (default: True)
         enable_cache: Whether to enable cache for the JIT-compiled function (default: False)
         ttnn_dtype: Optional ttnn.DataType override (e.g., ttnn.DataType.BFLOAT8_B)
+        check_pcc: Whether to check PCC (default: True)
+        check_allclose: Whether to check allclose (default: False)
+        pcc_threshold: PCC threshold for comparison (default: 0.99)
     """
+    # Auto-select input transform based on op name
+    input_transform = _get_input_transform(op)
+
+    # Create inputs (same tensors used for both JIT and golden)
     if buffer_type == ttnn.BufferType.L1:
         inputs = [
             create_sharded_tile_tensor(
-                device, shape, max_grid, dtype, shard_strategy, ttnn_dtype
+                device,
+                shape,
+                max_grid,
+                dtype,
+                shard_strategy,
+                ttnn_dtype,
+                input_transform=input_transform,
             )
             for _ in range(num_inputs)
         ]
     else:
         inputs = [
-            create_dram_tensor(device, shape, dtype, ttnn_dtype)
+            create_dram_tensor(
+                device, shape, dtype, ttnn_dtype, input_transform=input_transform
+            )
             for _ in range(num_inputs)
         ]
+
     golden_op = _get_ttnn_op(op)
 
     op_jit = ttnn_jit.jit(
@@ -157,6 +231,7 @@ def run_op_test(
         enable_cache=enable_cache,
         graph_capture=graph_capture,
     )(op)
+
     output_tensor = op_jit(*inputs)
     golden_tensor = (golden_op or op)(*inputs)
 
@@ -165,4 +240,15 @@ def run_op_test(
         assert memory_configs_equal(
             output_tensor.memory_config(), golden_tensor.memory_config()
         )
-        assert all_close_check(output_tensor, golden_tensor)
+        print("--------------------------------")
+        print("Output:")
+        print(output_tensor)
+        print("--------------------------------")
+        print("Golden:")
+        print(golden_tensor)
+        print("--------------------------------")
+        if check_pcc:
+            passed, pcc = pcc_check(output_tensor, golden_tensor, pcc_threshold)
+            assert passed, f"PCC check failed: {pcc} < {pcc_threshold}"
+        if check_allclose:
+            assert all_close_check(output_tensor, golden_tensor)

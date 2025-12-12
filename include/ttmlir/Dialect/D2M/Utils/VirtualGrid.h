@@ -57,7 +57,6 @@ createCoreVirtMaps(mlir::MLIRContext *context,
   AffineExpr d2 = getAffineDimExpr(2, context);
   AffineExpr d3 = getAffineDimExpr(3, context);
   AffineExpr zero = getAffineConstantExpr(0, context);
-  AffineExpr gridRowStride = getAffineConstantExpr(targetGrid[0], context);
   AffineExpr gridColStride = getAffineConstantExpr(targetGrid[1], context);
 
   if (is2DWidthSharded) {
@@ -65,8 +64,8 @@ createCoreVirtMaps(mlir::MLIRContext *context,
     // note: inverse map results are (deviceIndex, gridY, gridX)
     inverseMapExprs = {zero, zero, d0 * gridColStride + d1};
   } else if (is2DHeightSharded) {
-    forwardMapExprs = {d0 % gridRowStride, d0.floorDiv(gridRowStride), d2, d3};
-    inverseMapExprs = {zero, d1 * gridRowStride + d0, zero};
+    forwardMapExprs = {d0.floorDiv(gridColStride), d0 % gridColStride, d2, d3};
+    inverseMapExprs = {zero, d0 * gridColStride + d1, zero};
   }
   auto forward = mlir::AffineMap::get(2 * rank, 0, forwardMapExprs, context);
   auto inverse = mlir::AffineMap::get(rank, 0, inverseMapExprs, context);

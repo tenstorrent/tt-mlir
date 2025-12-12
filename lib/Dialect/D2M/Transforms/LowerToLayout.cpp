@@ -103,33 +103,37 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
     }
 
     // Create a device tensor type from a system tensor type.
-    RankedTensorType createDeviceType(RankedTensorType systemType,
-                                      ttcore::MetalLayoutAttr referenceLayout,
-                                      RankedTensorType referenceType,
-                                      ttcore::MemorySpace memSpace,
-                                      ArrayRef<int64_t> targetGridShape) {
+    RankedTensorType createDeviceType(
+        RankedTensorType systemType, ttcore::MetalLayoutAttr referenceLayout,
+        RankedTensorType referenceType, ttcore::MemorySpace memSpace,
+        ArrayRef<int64_t> targetGridShape,
+        bool stripIndexMapIfTargetIsVirtualGrid = false) {
       SmallVector<int64_t> tensorGridShape =
           llvm::to_vector(referenceLayout.getGridShape(referenceType));
+      bool exceedsPhysicalBounds = (tensorGridShape[0] > targetGridShape[0]) ||
+                                   (tensorGridShape[1] > targetGridShape[1]);
       if (auto metalLayout = mlir::dyn_cast_or_null<ttcore::MetalLayoutAttr>(
               referenceType.getEncoding());
           metalLayout && !metalLayout.getIndexAffineMap().isEmpty()) {
-        bool exceedsPhysicalBounds =
-            (tensorGridShape[0] > targetGridShape[0]) ||
-            (tensorGridShape[1] > targetGridShape[1]);
         if (exceedsPhysicalBounds) {
           tensorGridShape =
               computeVirtualGridBounceShape(tensorGridShape, targetGridShape);
         }
       }
 
-      // Preserve the reference layout's index_map so GenericOps can properly
-      // map virtual grids to physical cores.
+      // DO NOT copy the index map if the target shape appears to be a virtual
+      // grid. The bounce tensor layout does not share the virtual grid inverse
+      // mapping.
+      AffineMap indexMap =
+          (stripIndexMapIfTargetIsVirtualGrid && exceedsPhysicalBounds)
+              ? AffineMap::get(ctx)
+              : referenceLayout.getIndexAffineMap();
+
       auto layout = ttcore::MetalLayoutAttr::get(
           ctx, referenceLayout.getLogicalShape(),
           referenceLayout.getDimAlignments(),
           referenceLayout.getCollapsedIntervals(), referenceLayout.getOobVal(),
-          memSpace, referenceLayout.getMemoryLayout(),
-          referenceLayout.getIndexAffineMap());
+          memSpace, referenceLayout.getMemoryLayout(), indexMap);
 
       ArrayRef<int64_t> tileShape;
       if (ttcore::isTiled(systemType)) {
@@ -571,9 +575,13 @@ public:
       // System transfer can ONLY change memory space, not element type.
       // Create L1 intermediate with scalar element type (same as system input).
       Type scalarElemType = getScalarType(currentInfo.type.getElementType());
+      // Always strip the target's index map if creating a bounce shape
+      // here for a target with a virtual grid.
+      constexpr bool stripIndexMapIfTargetIsVirtualGrid = true;
       auto l1Type = typeBuilder.createDeviceType(
           currentInfo.type, *targetInfo.layout, targetInfo.type,
-          ttcore::MemorySpace::DeviceL1, targetGridShape);
+          ttcore::MemorySpace::DeviceL1, targetGridShape,
+          stripIndexMapIfTargetIsVirtualGrid);
 
       // Force scalar element type for the L1 intermediate.
       auto l1Layout = mlir::cast<ttcore::MetalLayoutAttr>(l1Type.getEncoding());

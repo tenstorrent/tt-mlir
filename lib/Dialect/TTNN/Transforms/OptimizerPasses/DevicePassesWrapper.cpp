@@ -12,6 +12,8 @@
 #include "mlir/Pass/PassManager.h"
 #include "llvm/ADT/ScopeExit.h"
 
+#include <cstdlib>
+
 namespace mlir::tt::ttnn {
 
 namespace {
@@ -42,6 +44,9 @@ public:
   }
 
   void runOnOperation() override {
+    // Disable tt-metal backtrace generation.
+    setenv("TT_METAL_DISABLE_BACKTRACE", "1", 1);
+
     // Open device if not externally provided.
     if (externalDevice) {
       op_model::SingletonDeviceContext::setExternalDevice(externalDevice);
@@ -60,9 +65,11 @@ public:
     OpPassManager nestedPm(getOperation()->getName());
     populatePipeline(nestedPm);
 
-    // Ensure closeInstance() gets called always.
-    auto guard = llvm::make_scope_exit(
-        []() noexcept { op_model::SingletonDeviceContext::closeInstance(); });
+    // Ensure closeInstance() gets called and backtrace env is unset.
+    auto guard = llvm::make_scope_exit([]() noexcept {
+      op_model::SingletonDeviceContext::closeInstance();
+      unsetenv("TT_METAL_DISABLE_BACKTRACE");
+    });
 
     // Run the nested pipeline
     if (failed(runPipeline(nestedPm, getOperation()))) {

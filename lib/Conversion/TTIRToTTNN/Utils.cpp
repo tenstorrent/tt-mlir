@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
@@ -57,6 +58,28 @@ ttnn::PermuteOp generatePermute(mlir::TypedValue<mlir::RankedTensorType> input,
       /* memory_config */ nullptr, /* pad_value */ mlir::FloatAttr());
 }
 
+ttnn::PadOp generatePad(mlir::TypedValue<mlir::RankedTensorType> input,
+                        ArrayRef<int32_t> padding, PatternRewriter &rewriter,
+                        mlir::Location newLoc) {
+  RankedTensorType inputType = input.getType();
+  llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+
+  assert(padding.size() == inputShape.size() * 2 &&
+         "Padding must have 2 values per dimension");
+  auto indices = llvm::seq<size_t>(0, inputShape.size());
+  llvm::SmallVector<int64_t> outputShape =
+      llvm::to_vector(llvm::map_range(indices, [&](size_t i) {
+        return inputShape[i] + padding[2 * i] + padding[2 * i + 1];
+      }));
+
+  RankedTensorType outputType =
+      ttnn::utils::RankedTensorTypeFactory::create(inputType, outputShape);
+
+  return rewriter.create<ttnn::PadOp>(
+      newLoc, outputType, input, rewriter.getDenseI32ArrayAttr(padding),
+      rewriter.getF32FloatAttr(0.0f), rewriter.getBoolAttr(true),
+      /*memory_config=*/nullptr);
+}
 } // namespace ttir_to_ttnn::utils
 } // namespace tt
 } // namespace mlir

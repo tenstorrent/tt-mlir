@@ -676,6 +676,29 @@ bool HostLayoutAttr::isPadded() const {
   return getHostVolume() > ttmlir::utils::volume(getLogicalShape());
 }
 
+bool MetalLayoutAttr::hasNonTrivialCollapsedDims(
+    ArrayRef<int64_t> deviceShape) {
+
+  auto numDims = deviceShape.size();
+  auto normalizedIntervals = getNormalizedIntervals();
+  for (size_t i = 0; i < normalizedIntervals.size() / 2; i += 2) {
+    int64_t start = normalizedIntervals[i * 2];
+    int64_t end = normalizedIntervals[i * 2 + 1];
+
+    if (start < 0) {
+      start = numDims + start;
+    }
+    if (end < 0) {
+      end = numDims + end;
+    }
+
+    if (end - start > 1) {
+      return true;
+    }
+  }
+  return false;
+}
+
 //
 // This function creates an affine map that represents collapsing the tensor
 // dims onto an n-dimensional grid. E.g. (Where <> is some join operator)
