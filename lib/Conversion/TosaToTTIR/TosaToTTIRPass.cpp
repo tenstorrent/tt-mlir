@@ -45,10 +45,12 @@ struct ConvertTosaToTTIRPass
     target.addLegalOp<mlir::func::ReturnOp>();
 
     // For now keep the same type assuming tosa ops operate on builtin tensor.
+    // Keep also shapeType as legal since tosa.const_shape and tosa.reshape use
+    // it.
     TypeConverter typeConverter;
     typeConverter.addConversion([](Type type) {
-      assert(isa<RankedTensorType>(type) &&
-             "only ranked tensor type supported");
+      assert((isa<RankedTensorType>(type) || isa<tosa::shapeType>(type)) &&
+             "only ranked tensor type and tosa::shapeType supported");
       return type;
     });
     RewritePatternSet patterns(&getContext());

@@ -10,19 +10,17 @@ from ttmlir.dialects import (
     ttir,
     func,
     ttnn,
-    tensor,
     ttcore,
 )
 
-from .tensor_translator import create_tensor_layout, create_output_tensor
+from ttnn_jit._src.tensor_translator import create_tensor_layout, create_output_tensor
 
-from .utils import (
+from ttnn_jit._src.utils import (
     discover_dialect_ops,
     get_num_pos_args,
 )
-from .conversions import (
+from ttnn_jit._src.conversions import (
     mlir_dtype_from_ttnn_dtype,
-    ttcore_dtype_from_ttnn_dtype,
     ttcore_dtype_from_mlir_dtype,
 )
 
@@ -249,7 +247,7 @@ class TTIRCompiler(ast.NodeVisitor):
             layout=layout_attr,
         )
         op.attributes["ttnn.hoist_generic_via_d2m"] = UnitAttr.get(self.ctx)
-        return op
+        return op.result
 
     def visit(self, node: ast.AST, **kwargs):
         if any(

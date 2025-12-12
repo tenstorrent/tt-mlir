@@ -24,11 +24,20 @@ def TTIRImplicitBroadcastFold: Pass<"ttir-implicit-broadcast-fold", "::mlir::Mod
   }];
 }
 
-def TTIRHoistTransform: Pass<"ttir-cpu-hoist-transform", "::mlir::ModuleOp">
+def CPUHoistTransform: Pass<"cpu-hoist-transform", "::mlir::ModuleOp">
 {
   let summary = "Transform to perform hoist mechanics on any ops marked to be hoisted for CPU lowering";
   let description = [{
-    Transform pass which runs an analysis pass to find ops which should be hoisted, and then hoists those ops.  Currently we only have a manual analysis which requires a commandline list of named locs to hoist--in the future, we will have an automatic analysis as well.
+    Transform pass which runs an analysis pass to find ops which should be hoisted, and then hoists those ops.
+    The analysis behaviour can be customized when instantiating the pass.
+
+    Each of the ops / sets of ops which are hoisted are moved into their own function in a CPU module.
+    A function declaration is created in the device module, and the original ops are replaced with a
+    call to that function declaration.
+
+    The hoisted functions return their results via return values, and do not use destination passing style.
+    For targets which require void functions with output destination arguments, the ConvertCPUHoistedFunctionsToDPS
+    pass can be run after this pass to convert the hoisted functions into DPS style.
 
     Example:
     input:
@@ -63,6 +72,8 @@ def TTIRHoistTransform: Pass<"ttir-cpu-hoist-transform", "::mlir::ModuleOp">
   }];
 
   let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect"];
+
+  let constructor = "createCPUHoistManuallyTaggedOpsTransform()";
 }
 
 def ElementTypeNormalization: Pass<"ttir-element-type-normalization", "::mlir::ModuleOp">

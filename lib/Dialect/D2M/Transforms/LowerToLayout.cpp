@@ -103,33 +103,37 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
     }
 
     // Create a device tensor type from a system tensor type.
-    RankedTensorType createDeviceType(RankedTensorType systemType,
-                                      ttcore::MetalLayoutAttr referenceLayout,
-                                      RankedTensorType referenceType,
-                                      ttcore::MemorySpace memSpace,
-                                      ArrayRef<int64_t> targetGridShape) {
+    RankedTensorType createDeviceType(
+        RankedTensorType systemType, ttcore::MetalLayoutAttr referenceLayout,
+        RankedTensorType referenceType, ttcore::MemorySpace memSpace,
+        ArrayRef<int64_t> targetGridShape,
+        bool stripIndexMapIfTargetIsVirtualGrid = false) {
       SmallVector<int64_t> tensorGridShape =
           llvm::to_vector(referenceLayout.getGridShape(referenceType));
+      bool exceedsPhysicalBounds = (tensorGridShape[0] > targetGridShape[0]) ||
+                                   (tensorGridShape[1] > targetGridShape[1]);
       if (auto metalLayout = mlir::dyn_cast_or_null<ttcore::MetalLayoutAttr>(
               referenceType.getEncoding());
           metalLayout && !metalLayout.getIndexAffineMap().isEmpty()) {
-        bool exceedsPhysicalBounds =
-            (tensorGridShape[0] > targetGridShape[0]) ||
-            (tensorGridShape[1] > targetGridShape[1]);
         if (exceedsPhysicalBounds) {
           tensorGridShape =
               computeVirtualGridBounceShape(tensorGridShape, targetGridShape);
         }
       }
 
-      // Preserve the reference layout's index_map so GenericOps can properly
-      // map virtual grids to physical cores.
+      // DO NOT copy the index map if the target shape appears to be a virtual
+      // grid. The bounce tensor layout does not share the virtual grid inverse
+      // mapping.
+      AffineMap indexMap =
+          (stripIndexMapIfTargetIsVirtualGrid && exceedsPhysicalBounds)
+              ? AffineMap::get(ctx)
+              : referenceLayout.getIndexAffineMap();
+
       auto layout = ttcore::MetalLayoutAttr::get(
           ctx, referenceLayout.getLogicalShape(),
           referenceLayout.getDimAlignments(),
           referenceLayout.getCollapsedIntervals(), referenceLayout.getOobVal(),
-          memSpace, referenceLayout.getMemoryLayout(),
-          referenceLayout.getIndexAffineMap());
+          memSpace, referenceLayout.getMemoryLayout(), indexMap);
 
       ArrayRef<int64_t> tileShape;
       if (ttcore::isTiled(systemType)) {
@@ -368,8 +372,14 @@ public:
     // (similar to MaterializeViewReturns pass). For now, we allow it and let
     // downstream passes handle it.
 
-    // Create the final ToLayoutOp with layout attribute set
-    return rewriter.create<ToLayoutOp>(loc, input, output, *deviceLayout)
+    // Emit dedicated host transfer ops based on direction.
+    if (inputInfo.isSystem()) {
+      // Host → Device: use ToDeviceOp.
+      return rewriter.create<ToDeviceOp>(loc, input, output, *deviceLayout)
+          .getResult(0);
+    }
+    // Device → Host: use ToHostOp.
+    return rewriter.create<ToHostOp>(loc, input, output, *deviceLayout)
         .getResult(0);
   }
 
@@ -530,11 +540,6 @@ public:
 
   LogicalResult matchAndRewrite(ToLayoutOp op,
                                 PatternRewriter &rewriter) const final {
-    // Skip ToLayoutOps that are already lowered (have layout attribute set)
-    if (op.getLayout()) {
-      return failure();
-    }
-
     // Use producer-first ordering to ensure dependencies are lowered first.
     if (producerMustBeLoweredFirst(op)) {
       return failure();
@@ -547,8 +552,8 @@ public:
     BounceTypeBuilder typeBuilder(rewriter.getContext());
 
     // === TRANSFORMATION PIPELINE ===
-    // Apply transformations in priority order
-    // Each step emits lowered ops and updates currentValue/currentInfo
+    // Apply transformations in priority order.
+    // Each step emits lowered ops and updates currentValue/currentInfo.
 
     // Helper to create empty ops for intermediate types. If the type matches
     // the final target, reuse the original output.
@@ -565,14 +570,18 @@ public:
           .getResult();
     };
 
-    // 1. SYSTEM→DEVICE: Transfer to L1 with same element type as input
+    // 1. SYSTEM→DEVICE: Transfer to L1 with same element type as input.
     if (!currentInfo.hasLayout() && targetInfo.hasLayout()) {
-      // System transfer can ONLY change memory space, not element type
-      // Create L1 intermediate with scalar element type (same as system input)
+      // System transfer can ONLY change memory space, not element type.
+      // Create L1 intermediate with scalar element type (same as system input).
       Type scalarElemType = getScalarType(currentInfo.type.getElementType());
+      // Always strip the target's index map if creating a bounce shape
+      // here for a target with a virtual grid.
+      constexpr bool stripIndexMapIfTargetIsVirtualGrid = true;
       auto l1Type = typeBuilder.createDeviceType(
           currentInfo.type, *targetInfo.layout, targetInfo.type,
-          ttcore::MemorySpace::DeviceL1, targetGridShape);
+          ttcore::MemorySpace::DeviceL1, targetGridShape,
+          stripIndexMapIfTargetIsVirtualGrid);
 
       // Force scalar element type for the L1 intermediate.
       auto l1Layout = mlir::cast<ttcore::MetalLayoutAttr>(l1Type.getEncoding());
@@ -585,7 +594,7 @@ public:
       currentInfo = TensorInfo::from(currentValue);
     }
 
-    // 2. DRAM→L1: Must happen before other device ops
+    // 2. DRAM→L1: Must happen before other device ops.
     // Use target's layout characteristics.
     if (currentInfo.hasLayout() && currentInfo.isDRAM() &&
         targetInfo.hasLayout() && !targetInfo.isDRAM()) {

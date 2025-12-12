@@ -206,66 +206,100 @@ void createTTIRToTTNNBackendPipeline(
   decompOptions.decompConfig = DecompMode::CPUFallback;
   pm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass(decompOptions));
 
-  // Create DeviceModule to wrap all ops.
+  // Create device module, if not already present.
   pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
-  // Create CPUModuleOp to wrap hoisted ops (if any).
-  pm.addPass(ttir::createTTIRHoistTransform());
 
-  OpPassManager &devicePm =
-      pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
+  // Hoist manually tagged ops to CPU module.
+  pm.addPass(ttir::createCPUHoistManuallyTaggedOpsTransform());
 
-  // Element type normalization should be the first pass in the pipeline.
-  // This pass should be applied only to the ops in the Device
-  // Module, since we aren't restricted with element types on CPU.
-  ttir::ElementTypeNormalizationOptions elementTypeNormalizationOptions;
-  elementTypeNormalizationOptions.enableBfp8Conversion =
-      options.enableBfp8Conversion;
-  devicePm.addPass(
-      ttir::createElementTypeNormalization(elementTypeNormalizationOptions));
+  // Device module passes before const-eval CPU hoisting.
+  {
+    auto &devicePm = pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
 
-  // Run regular TTIR to TTNN pipeline on DeviceModule.
-  createTTNNPipelineTTIRPasses(devicePm, options);
+    // Element type normalization should be applied only to the ops in the
+    // Device Module, since we aren't restricted with element types on CPU.
+    ttir::ElementTypeNormalizationOptions elementTypeNormalizationOptions;
+    elementTypeNormalizationOptions.enableBfp8Conversion =
+        options.enableBfp8Conversion;
+    devicePm.addPass(
+        ttir::createElementTypeNormalization(elementTypeNormalizationOptions));
 
-  ttir::TTIRQuantDataTypeConversionPassOptions quantOptions;
-  quantOptions.targetBitWidth = options.quantBitWidth;
-  devicePm.addPass(ttir::createTTIRQuantDataTypeConversionPass(quantOptions));
+    createTTNNPipelineTTIRPasses(devicePm, options);
 
-  createTTNNPipelineLoweringPasses(devicePm, options);
-  createTTNNFusingPass(devicePm, options);
+    ttir::TTIRQuantDataTypeConversionPassOptions quantOptions;
+    quantOptions.targetBitWidth = options.quantBitWidth;
+    devicePm.addPass(ttir::createTTIRQuantDataTypeConversionPass(quantOptions));
 
-  createTTNNPipelineWorkaroundPass(devicePm, options);
-  if (options.enableConstEval) {
-    devicePm.addPass(transforms::createConstEvalHoistTransform());
+    // Const-eval hoisting pass.
+    if (options.enableConstEval) {
+      // Hoist const-eval subgraphs into separate functions in Device module.
+      devicePm.addPass(transforms::createConstEvalHoistTransform());
+    }
   }
-  // Add BFP8 weight conversion pass before analysis passes.
-  // Analysis passes need to know data formats to decide on shardings.
-  if (options.experimentalBfp8Weights) {
-    devicePm.addPass(createTTNNWeightBFP8Conversion());
-  }
-  createTTNNPipelineAnalysisPasses(devicePm, options);
-  // We need to re-run const-eval to pick up const prepare conv2d weight ops
-  // split during the analysis passes.
-  if (options.enableConstEval) {
-    devicePm.addPass(transforms::createConstEvalHoistTransform());
-  }
-  createTTNNPipelineLayoutDecompositionPass(devicePm, options);
-  if (options.enableTrace) {
-    devicePm.addPass(tt::ttnn::createTTNNTraceHoistTransform());
-  }
-  // Fold ttcore.optimization_barrier ops before deallocation
-  devicePm.addPass(ttcore::createTTCoreOptimizationBarrierFold());
 
-  createTTNNPipelineDeallocPass(devicePm, options);
+  // CPU-hoisting pass for const-eval subgraphs.
+  if (options.enableCPUHoistedConstEval) {
+    pm.addPass(ttir::createCPUHoistConstEvalTransform());
+  }
 
-  // Run lowering to LLVM pass on hoisted funcs in CPUModule.
-  ttir::LinalgToLLVMPipelineOptions linalgToLLVMOptions;
-  ttir::createTTIRToCPUPipeline(pm, linalgToLLVMOptions);
+  // Device module passes after const-eval CPU hoisting.
+  {
+    auto &devicePm = pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
 
-  ttnn::TTNNCollectPerfMetricsOptions metricsOptions{
-      options.ttnnPerfMetricsOutputFile,
-      options.ttnnPerfMetricsVerboseOutputEnabled, options.enableTrace};
+    // Enable DPS semantics for hoisted functions in Device module.
+    devicePm.addPass(transforms::createConvertCPUHoistedFunctionsToDPS());
+
+    // Run TTNN lowering passes on Device module.
+    createTTNNPipelineLoweringPasses(devicePm, options);
+    createTTNNFusingPass(devicePm, options);
+
+    createTTNNPipelineWorkaroundPass(devicePm, options);
+    // Add BFP8 weight conversion pass before analysis passes.
+    // Analysis passes need to know data formats to decide on shardings.
+    if (options.experimentalBfp8Weights) {
+      devicePm.addPass(createTTNNWeightBFP8Conversion());
+    }
+    createTTNNPipelineAnalysisPasses(devicePm, options);
+    // We need to re-run const-eval to pick up const prepare conv2d weight ops
+    // split during the analysis passes.
+    if (options.enableConstEval) {
+      devicePm.addPass(transforms::createConstEvalHoistTransform());
+
+      // Now that all const-eval passes have run, we can force the const-eval
+      // function inputs to system memory.
+      if (options.enableConstEvalInputsToSystemMemory) {
+        devicePm.addPass(createTTNNConstEvalInputsToSystemMemory());
+
+        // Clean up any redundant to_layout ops that may have been introduced
+        // previously.
+        devicePm.addPass(mlir::createCanonicalizerPass());
+      }
+    }
+    createTTNNPipelineLayoutDecompositionPass(devicePm, options);
+    if (options.enableTrace) {
+      devicePm.addPass(tt::ttnn::createTTNNTraceHoistTransform());
+    }
+    // Fold ttcore.optimization_barrier ops before deallocation.
+    devicePm.addPass(ttcore::createTTCoreOptimizationBarrierFold());
+
+    createTTNNPipelineDeallocPass(devicePm, options);
+  }
+
+  // Run lowering to LLVM pass on hoisted funcs.
+  {
+    auto &cpuPm = pm.nest<ttcore::CPUModuleOp>().nest<mlir::ModuleOp>();
+
+    ttir::LinalgToLLVMPipelineOptions linalgToLLVMOptions;
+    ttir::createTTIRToCPUPipeline(cpuPm, linalgToLLVMOptions);
+  }
 
   if (options.ttnnPerfMetricsEnabled) {
+    auto &devicePm = pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
+
+    ttnn::TTNNCollectPerfMetricsOptions metricsOptions{
+        options.ttnnPerfMetricsOutputFile,
+        options.ttnnPerfMetricsVerboseOutputEnabled, options.enableTrace};
+
     devicePm.addPass(
         mlir::tt::ttnn::createTTNNCollectPerfMetrics(metricsOptions));
   }

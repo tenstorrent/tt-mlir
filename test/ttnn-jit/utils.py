@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
+import math
 import ttnn
 import ttnn_jit
 import torch
@@ -16,16 +17,6 @@ def _get_ttnn_op(func: Callable) -> Optional[Callable]:
     return attr if callable(attr) else None
 
 
-def _build_golden_map(ops: Iterable[Callable]) -> Dict[Callable, Callable]:
-    # Build a func ->ttnn op map for provided ops
-    result: Dict[Callable, Callable] = {}
-    for op in ops:
-        ttnn_op = _get_ttnn_op(op)
-        if ttnn_op is not None:
-            result[op] = ttnn_op
-    return result
-
-
 def memory_configs_equal(memory_config1, memory_config2):
     return (
         memory_config1.memory_layout == memory_config2.memory_layout
@@ -34,30 +25,45 @@ def memory_configs_equal(memory_config1, memory_config2):
     )
 
 
-def create_dram_tensor(
-    device, shape, dtype, int_max=0, mesh_mapper=None, ttnn_dtype=None
-):
-    if not (dtype.is_floating_point or dtype.is_complex):
-        # recreate spatial coverage of fp [0,1] in randn and give some overflow headroom
-        high_val = int_max if int_max else torch.iinfo(dtype).max // 2
-        torch_tensor = torch.randint(high_val, shape, dtype=dtype)
-    else:
-        if int_max:
-            print("Warning: int_max provided for floating point tensor, ignoring.")
-        torch_tensor = torch.randn(shape, dtype=dtype)
+# ----- Input transforms for ops that need constrained inputs -----
 
-    memory_config = ttnn.MemoryConfig(
-        memory_layout=ttnn.TensorMemoryLayout.INTERLEAVED,
-        buffer_type=ttnn.BufferType.DRAM,
-    )
-    return ttnn.from_torch(
-        torch_tensor,
-        dtype=ttnn_dtype,
-        layout=ttnn.TILE_LAYOUT,
-        device=device,
-        memory_config=memory_config,
-        mesh_mapper=mesh_mapper,
-    )
+
+def _transform_reciprocal(t: torch.Tensor) -> torch.Tensor:
+    """Avoid zeros: abs() then replace exact zeros with 1e-6."""
+    t = torch.abs(t)
+    return torch.where(t == 0, torch.tensor(1e-6, dtype=t.dtype), t)
+
+
+def _transform_digamma(t: torch.Tensor) -> torch.Tensor:
+    t = t * 1e5
+    t = torch.clamp(t, min=1)
+    return t
+
+
+def _transform_sqrt(t: torch.Tensor) -> torch.Tensor:
+    """Ensure non-negative values."""
+    return torch.abs(t)
+
+
+def _transform_tan(t: torch.Tensor) -> torch.Tensor:
+    """Uniform in [-pi/2 + 0.05, pi/2 - 0.05]."""
+    return t.uniform_(-math.pi / 2 + 0.05, math.pi / 2 - 0.05)
+
+
+# Map op names to their input transforms
+_INPUT_TRANSFORMS: Dict[str, Callable[[torch.Tensor], torch.Tensor]] = {
+    "reciprocal": _transform_reciprocal,
+    "digamma_func": _transform_digamma,
+    "sqrt": _transform_sqrt,
+    "tan": _transform_tan,
+}
+
+
+def _get_input_transform(
+    op: Callable,
+) -> Optional[Callable[[torch.Tensor], torch.Tensor]]:
+    """Get the appropriate input transform for an op based on its name."""
+    return _INPUT_TRANSFORMS.get(op.__name__)
 
 
 def get_block_sharding_grid(shape):
@@ -73,86 +79,16 @@ def get_block_sharding_grid(shape):
     return list(reversed(grid))
 
 
-def get_shard_shape(collapsed_shape, max_grid, memory_layout):
-    h, w = collapsed_shape
-    # IMPORTANT: TTNN grids are (Width, Height), while tensor shapes are (Height, Width).
-    if memory_layout == ttnn.TensorMemoryLayout.BLOCK_SHARDED:
-        shard_shape_x = h if max_grid[1] == 0 else h // (max_grid[1] + 1)
-        shard_shape_y = w if max_grid[0] == 0 else w // (max_grid[0] + 1)
-        return shard_shape_x, shard_shape_y
-    elif memory_layout == ttnn.TensorMemoryLayout.HEIGHT_SHARDED:
-        grid_size = (max_grid[0] + 1) * (max_grid[1] + 1)
-        shard_shape_x = h // grid_size
-        return shard_shape_x, w
-    elif memory_layout == ttnn.TensorMemoryLayout.WIDTH_SHARDED:
-        grid_size = (max_grid[0] + 1) * (max_grid[1] + 1)
-        shard_shape_y = w // grid_size
-        return h, shard_shape_y
-    else:
-        raise ValueError(f"Invalid memory layout: {memory_layout}")
-
-
-def create_sharded_tile_tensor(
-    device,
-    shape,
-    max_grid,
-    dtype,
-    int_max=0,
-    memory_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED,
-    ttnn_dtype=None,
-):
-    if not (dtype.is_floating_point or dtype.is_complex):
-        # recreate spatial coverage of fp [0,1] in randn and give some overflow headroom
-        high_val = int_max if int_max else torch.iinfo(dtype).max // 2
-        torch_tensor = torch.randint(high_val, shape, dtype=dtype)
-    else:
-        if int_max:
-            print("Warning: int_max provided for floating point tensor, ignoring.")
-        torch_tensor = torch.randn(shape, dtype=dtype)
-
-    start_coord = ttnn.CoreCoord(0, 0)
-    end_coord = ttnn.CoreCoord(max_grid[0], max_grid[1])
-    core_range = ttnn.CoreRange(start_coord, end_coord)
-    core_range_set = ttnn.CoreRangeSet([core_range])
-
-    w = shape[-1]
-    h = 1
-    for dim in shape[:-1]:
-        h *= dim
-
-    shard_shape_x, shard_shape_y = get_shard_shape((h, w), max_grid, memory_layout)
-
-    shard_spec = ttnn.ShardSpec(
-        grid=core_range_set,
-        shard_shape=[shard_shape_x, shard_shape_y],
-        shard_orientation=ttnn.ShardOrientation.ROW_MAJOR,
-    )
-
-    memory_config = ttnn.MemoryConfig(
-        memory_layout=memory_layout,
-        buffer_type=ttnn.BufferType.L1,
-        shard_spec=shard_spec,
-    )
-
-    return ttnn.from_torch(
-        torch_tensor,
-        dtype=ttnn_dtype,
-        layout=ttnn.TILE_LAYOUT,
-        device=device,
-        memory_config=memory_config,
-    )
+def pcc_check(result, golden_result, threshold=0.99):
+    """Check PCC between result and golden using ttnn.pearson_correlation_coefficient."""
+    result_torch = result.cpu().to_torch()
+    golden_torch = golden_result.cpu().to_torch()
+    pcc = ttnn.pearson_correlation_coefficient(golden_torch, result_torch)
+    print(f"PCC: {pcc} (threshold: {threshold})")
+    return pcc >= threshold, pcc
 
 
 def all_close_check(result, golden_result, atol=1e-1, rtol=1e-1, debug=True):
-    if debug:
-        print("--------------------------------")
-        print("Result:")
-        print(result)
-        print("--------------------------------")
-        print("Golden result:")
-        print(golden_result)
-        print("--------------------------------")
-
     all_close = torch.allclose(
         result.cpu().to_torch(),
         golden_result.cpu().to_torch(),
@@ -166,6 +102,67 @@ def all_close_check(result, golden_result, atol=1e-1, rtol=1e-1, debug=True):
     return all_close
 
 
+def create_torch_tensor(shape, dtype):
+    if not (dtype.is_floating_point or dtype.is_complex):
+        # recreate spatial coverage of fp [0,1] in randn and give some overflow headroom
+        high_val = torch.iinfo(dtype).max // 2
+        torch_tensor = torch.randint(high_val, shape, dtype=dtype)
+    else:
+        torch_tensor = torch.randn(shape, dtype=dtype)
+    return torch_tensor
+
+
+def create_sharded_tile_tensor(
+    device,
+    shape,
+    max_grid,
+    dtype,
+    shard_strategy=ttnn.ShardStrategy.BLOCK,
+    ttnn_dtype=None,
+    input_transform=None,
+):
+    torch_tensor = create_torch_tensor(shape, dtype)
+    if input_transform is not None:
+        torch_tensor = input_transform(torch_tensor)
+
+    # IMPORTANT: TTNN grids are (Width, Height), while tensor shapes are (Height, Width).
+    # We add 1 to the grid dimensions to account for the zero-based indexing.
+    memory_config = ttnn.create_sharded_memory_config(
+        shape=shape,
+        core_grid=ttnn.CoreGrid(x=max_grid[0] + 1, y=max_grid[1] + 1),
+        strategy=shard_strategy,
+        use_height_and_width_as_shard_shape=False,
+    )
+    return ttnn.from_torch(
+        torch_tensor,
+        dtype=ttnn_dtype,
+        layout=ttnn.TILE_LAYOUT,
+        device=device,
+        memory_config=memory_config,
+    )
+
+
+def create_dram_tensor(
+    device,
+    shape,
+    dtype,
+    ttnn_dtype=None,
+    mesh_mapper=None,
+    input_transform=None,
+):
+    torch_tensor = create_torch_tensor(shape, dtype)
+    if input_transform is not None:
+        torch_tensor = input_transform(torch_tensor)
+    return ttnn.from_torch(
+        torch_tensor,
+        dtype=ttnn_dtype,
+        layout=ttnn.TILE_LAYOUT,
+        device=device,
+        memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        mesh_mapper=mesh_mapper,
+    )
+
+
 def run_op_test(
     device,
     shape,
@@ -176,8 +173,13 @@ def run_op_test(
     buffer_type=ttnn.BufferType.L1,
     graph_capture=True,
     enable_cache=False,
-    memory_layout=ttnn.TensorMemoryLayout.BLOCK_SHARDED,
+    shard_strategy=ttnn.ShardStrategy.BLOCK,
     ttnn_dtype=None,
+    compile_only=False,
+    check_pcc=True,
+    check_allclose=False,
+    pcc_threshold=0.99,
+    math_fidelity=ttnn.MathFidelity.HiFi4,
 ):
     """
     Common test runner for JIT operations.
@@ -193,7 +195,14 @@ def run_op_test(
         graph_capture: Whether to use graph capture compiler (default: True)
         enable_cache: Whether to enable cache for the JIT-compiled function (default: False)
         ttnn_dtype: Optional ttnn.DataType override (e.g., ttnn.DataType.BFLOAT8_B)
+        check_pcc: Whether to check PCC (default: True)
+        check_allclose: Whether to check allclose (default: False)
+        pcc_threshold: PCC threshold for comparison (default: 0.99)
     """
+    # Auto-select input transform based on op name
+    input_transform = _get_input_transform(op)
+
+    # Create inputs (same tensors used for both JIT and golden)
     if buffer_type == ttnn.BufferType.L1:
         inputs = [
             create_sharded_tile_tensor(
@@ -201,28 +210,47 @@ def run_op_test(
                 shape,
                 max_grid,
                 dtype,
-                memory_layout=memory_layout,
-                ttnn_dtype=ttnn_dtype,
+                shard_strategy,
+                ttnn_dtype,
+                input_transform=input_transform,
             )
             for _ in range(num_inputs)
         ]
     else:
         inputs = [
-            create_dram_tensor(device, shape, dtype, ttnn_dtype=ttnn_dtype)
+            create_dram_tensor(
+                device, shape, dtype, ttnn_dtype, input_transform=input_transform
+            )
             for _ in range(num_inputs)
         ]
+
     golden_op = _get_ttnn_op(op)
 
     op_jit = ttnn_jit.jit(
+        compile_only=compile_only,
         debug=True,
         enable_cache=enable_cache,
         graph_capture=graph_capture,
+        math_fidelity=math_fidelity,
     )(op)
+
     output_tensor = op_jit(*inputs)
     golden_tensor = (golden_op or op)(*inputs)
 
     print("created inputs:\n", inputs)
-    assert memory_configs_equal(
-        output_tensor.memory_config(), golden_tensor.memory_config()
-    )
-    assert all_close_check(output_tensor, golden_tensor)
+    if not compile_only:
+        assert memory_configs_equal(
+            output_tensor.memory_config(), golden_tensor.memory_config()
+        )
+        print("--------------------------------")
+        print("Output:")
+        print(output_tensor)
+        print("--------------------------------")
+        print("Golden:")
+        print(golden_tensor)
+        print("--------------------------------")
+        if check_pcc:
+            passed, pcc = pcc_check(output_tensor, golden_tensor, pcc_threshold)
+            assert passed, f"PCC check failed: {pcc} < {pcc_threshold}"
+        if check_allclose:
+            assert all_close_check(output_tensor, golden_tensor)

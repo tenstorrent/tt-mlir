@@ -1930,6 +1930,37 @@ public:
 };
 } // namespace
 
+// ScatterOp
+//
+namespace {
+class ScatterOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::ScatterOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::ScatterOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::ScatterOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::ScatterOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput(), "input"),
+        emitter.emit(srcOp.getDim(), "dim"),
+        emitter.emit(srcOp.getIndex(), "index"),
+        emitter.emit(srcOp.getSource(), "src"),
+        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // Sort op conversion pattern
 //
 namespace {
@@ -2775,6 +2806,10 @@ public:
 
 // MeshShardOp conversion pattern
 //
+// NOTE: This legacy mesh_shard path only handles the "identity" type.
+// All non-identity behavior has been split out to distribute_tensor /
+// aggregate_tensor. It remains because current TTIR lowering still generates
+// identity mesh_shard for shape tracking.
 namespace {
 class MeshShardOpConversionPattern
     : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::MeshShardOp> {
@@ -2786,21 +2821,156 @@ public:
   matchAndRewrite(mlir::tt::ttnn::MeshShardOp srcOp,
                   mlir::tt::ttnn::MeshShardOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    // Identity mesh_shard has no backend behavior, so we just forward the input
+    // tensor to the output without generating any function call.
+    assert(adaptor.getShardType() ==
+               mlir::tt::ttcore::MeshShardType::Identity &&
+           "ttnn.mesh_shard op with non-identity shard type is not supported");
+    rewriter.replaceOp(srcOp, adaptor.getInput());
 
-    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::MeshShardOp> emitter(
-        srcOp, adaptor, rewriter);
+    return success();
+  }
+};
+} // namespace
+
+// DistributeTensorOp conversion pattern
+//
+namespace {
+class DistributeTensorOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::DistributeTensorOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::DistributeTensorOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::DistributeTensorOp srcOp,
+                  mlir::tt::ttnn::DistributeTensorOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::DistributeTensorOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    auto mapperConfigAttr = srcOp.getMapperConfig();
+
+    std::string placementsCode = "[";
+    llvm::raw_string_ostream os(placementsCode);
+    auto placements = mapperConfigAttr.getPlacements();
+    llvm::interleave(
+        placements.begin(), placements.end(),
+        [&](const mlir::tt::ttnn::PlacementAttr &placement) {
+          if (placement.getType() == mlir::tt::ttnn::PlacementType::Replicate) {
+            os << "ttnn.PlacementReplicate()";
+          } else if (placement.getType() ==
+                     mlir::tt::ttnn::PlacementType::Shard) {
+            if (auto dimAttr = placement.getDim()) {
+              os << "ttnn.PlacementShard(" << dimAttr.getValue().getSExtValue()
+                 << ")";
+            }
+          }
+        },
+        [&] { os << ", "; });
+    os << "]";
+
+    std::string meshShapeCode =
+        emitter.emitMeshShape(mapperConfigAttr.getMeshShapeOverride());
+
+    llvm::SmallVector<mlir::Attribute> configArgs{
+        rewriter.getAttr<emitpy::OpaqueAttr>(placementsCode)};
+    llvm::SmallVector<mlir::Attribute> configKeywordArgs{
+        rewriter.getStringAttr("")};
+    if (!meshShapeCode.empty()) {
+      configArgs.push_back(rewriter.getAttr<emitpy::OpaqueAttr>(meshShapeCode));
+      configKeywordArgs.push_back(rewriter.getStringAttr(""));
+    }
+
+    auto mapperConfigOp = rewriter.create<emitpy::CallOpaqueOp>(
+        srcOp.getLoc(),
+        emitpy::OpaqueType::get(rewriter.getContext(), "ttnn.MeshMapperConfig"),
+        "ttnn.MeshMapperConfig", llvm::SmallVector<mlir::Value>{},
+        rewriter.getArrayAttr(configArgs),
+        rewriter.getArrayAttr(configKeywordArgs));
+
+    auto meshMapperType =
+        emitpy::OpaqueType::get(rewriter.getContext(), "ttnn.TensorToMesh");
+    auto createMapperOp = rewriter.create<emitpy::CallOpaqueOp>(
+        srcOp.getLoc(), meshMapperType, "ttnn.create_mesh_mapper",
+        llvm::SmallVector<mlir::Value>{adaptor.getMeshDevice(),
+                                       mapperConfigOp.getResult(0)});
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
-        emitter.emit(srcOp.getDevice()),
-        emitter.emit(srcOp.getShardDirection()),
-        emitter.emit(srcOp.getShardType()),
-        emitter.emit(srcOp.getShardShape()),
-        emitter.emit(srcOp.getShardDims()),
-    };
+        emitter.emit(createMapperOp.getResult(0), "mapper", 1)};
 
     emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
 
+// AggregateTensorOp conversion pattern
+//
+namespace {
+class AggregateTensorOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::AggregateTensorOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::AggregateTensorOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::AggregateTensorOp srcOp,
+                  mlir::tt::ttnn::AggregateTensorOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::AggregateTensorOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    auto composerConfigAttr = srcOp.getComposerConfig();
+
+    std::string dimsCode = "[";
+    llvm::raw_string_ostream os(dimsCode);
+    auto dims = composerConfigAttr.getDims();
+    llvm::interleave(
+        dims.begin(), dims.end(),
+        [&](const mlir::IntegerAttr &dimAttr) {
+          os << dimAttr.getValue().getSExtValue();
+        },
+        [&] { os << ", "; });
+    os << "]";
+
+    std::string meshShapeCode =
+        emitter.emitMeshShape(composerConfigAttr.getMeshShapeOverride());
+
+    llvm::SmallVector<mlir::Attribute> configArgs{
+        rewriter.getAttr<emitpy::OpaqueAttr>(dimsCode)};
+    llvm::SmallVector<mlir::Attribute> configKeywordArgs{
+        rewriter.getStringAttr("")};
+    if (!meshShapeCode.empty()) {
+      configArgs.push_back(rewriter.getAttr<emitpy::OpaqueAttr>(meshShapeCode));
+      configKeywordArgs.push_back(rewriter.getStringAttr(""));
+    }
+
+    auto composerConfigOp = rewriter.create<emitpy::CallOpaqueOp>(
+        srcOp.getLoc(),
+        emitpy::OpaqueType::get(rewriter.getContext(),
+                                "ttnn.MeshComposerConfig"),
+        "ttnn.MeshComposerConfig", llvm::SmallVector<mlir::Value>{},
+        rewriter.getArrayAttr(configArgs),
+        rewriter.getArrayAttr(configKeywordArgs));
+
+    auto meshComposerType =
+        emitpy::OpaqueType::get(rewriter.getContext(), "ttnn.MeshToTensor");
+    auto createComposerOp = rewriter.create<emitpy::CallOpaqueOp>(
+        srcOp.getLoc(), meshComposerType, "ttnn.create_mesh_composer",
+        llvm::SmallVector<mlir::Value>{adaptor.getMeshDevice(),
+                                       composerConfigOp.getResult(0)});
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(createComposerOp.getResult(0), "composer", 1)};
+
+    emitter.replaceOp(*this, args);
     return success();
   }
 };
@@ -3466,6 +3636,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                ReshapeOpConversionPattern,
                RepeatInterleaveOpConversionPattern,
                RepeatOpConversionPattern,
+               ScatterOpConversionPattern,
                SliceDynamicOpConversionPattern,
                SliceStaticOpConversionPattern,
                SortOpConversionPattern,
@@ -3548,7 +3719,9 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                ReduceScatterOpConversionPattern,
                AllReduceOpConversionPattern,
                PointToPointOpConversionPattern,
-               MeshShardOpConversionPattern
+               MeshShardOpConversionPattern,
+               DistributeTensorOpConversionPattern,
+               AggregateTensorOpConversionPattern
               >(typeConverter, ctx);
   // clang-format on
 

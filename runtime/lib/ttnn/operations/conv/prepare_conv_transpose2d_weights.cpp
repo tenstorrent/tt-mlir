@@ -55,7 +55,7 @@ void run(const ::tt::target::ttnn::PrepareConvTranspose2dWeightsOp *op,
         ::tt::runtime::ttnn::utils::toTTNNDataType(*(op->output_dtype()));
   }
 
-  std::optional<::ttnn::operations::conv::Conv2dConfig> conv2dConfig;
+  std::optional<::ttnn::operations::conv::conv2d::Conv2dConfig> conv2dConfig;
   if (op->conv2d_config()) {
     conv2dConfig = utils::createConv2dConfig(op->conv2d_config());
   }
@@ -76,7 +76,7 @@ void run(const ::tt::target::ttnn::PrepareConvTranspose2dWeightsOp *op,
           op->batch_size(), op->input_height(), op->input_width(), kernelSize,
           stride, padding, dilation, op->has_bias(), op->groups(),
           &targetDevice, inputDtype, outputDtype, conv2dConfig, computeConfig,
-          op->mirror_kernel());
+          std::nullopt, op->mirror_kernel());
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

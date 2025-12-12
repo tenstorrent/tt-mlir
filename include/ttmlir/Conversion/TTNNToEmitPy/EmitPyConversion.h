@@ -1000,47 +1000,24 @@ struct EmitPyTypeConverter<mlir::ElementsAttr> {
             [](mlir::DenseIntElementsAttr denseIntAttr)
                 -> std::optional<std::string> {
               // Determine the element type and delegate to appropriate
-              // converter
+              // converter. If it's a bool, convert to a vector of bools,
+              // otherwise convert to a vector of int64_t (as the widest
+              // standard integer type in C++).
               auto elementType = denseIntAttr.getElementType();
               if (elementType.isInteger(1)) {
                 return EmitPyTypeConverter<std::vector<bool>>::convert(
                     denseIntAttr);
               }
-              if (elementType.isInteger(8)) {
-                return EmitPyTypeConverter<std::vector<int8_t>>::convert(
-                    denseIntAttr);
-              }
-              if (elementType.isInteger(16)) {
-                return EmitPyTypeConverter<std::vector<int16_t>>::convert(
-                    denseIntAttr);
-              }
-              if (elementType.isInteger(32)) {
-                return EmitPyTypeConverter<std::vector<int32_t>>::convert(
-                    denseIntAttr);
-              }
-              if (elementType.isInteger(64)) {
-                return EmitPyTypeConverter<std::vector<int64_t>>::convert(
-                    denseIntAttr);
-              }
-              return {};
+              return EmitPyTypeConverter<std::vector<int64_t>>::convert(
+                  denseIntAttr);
             })
         .Case<mlir::DenseFPElementsAttr>(
             [](mlir::DenseFPElementsAttr denseFPAttr)
                 -> std::optional<std::string> {
-              // Determine the element type and delegate to appropriate
-              // converter
-              auto elementType = denseFPAttr.getElementType();
-              if (elementType.isF32()) {
-                // Note: Python's builtin float has 64-bit precision by default
-                // so we convert to double here
-                return EmitPyTypeConverter<std::vector<double>>::convert(
-                    denseFPAttr);
-              }
-              if (elementType.isF64()) {
-                return EmitPyTypeConverter<std::vector<double>>::convert(
-                    denseFPAttr);
-              }
-              return {};
+              // Convert to a vector of doubles (as the widest standard floating
+              // point type in C++).
+              return EmitPyTypeConverter<std::vector<double>>::convert(
+                  denseFPAttr);
             })
         .Default([](auto) { return std::optional<std::string>{}; });
   }
@@ -1672,6 +1649,24 @@ public:
 
     addKeywordArgument(attrName);
     return rewriter.getAttr<emitpy::OpaqueAttr>(code);
+  }
+
+  // Emits Python code for ttnn.MeshShape from an array of IntegerAttr.
+  // Returns empty string if meshShape is empty.
+  std::string
+  emitMeshShape(const mlir::ArrayRef<mlir::IntegerAttr> &meshShape) {
+    if (meshShape.empty()) {
+      return "";
+    }
+    std::string code = "ttnn.MeshShape([";
+    llvm::raw_string_ostream rso(code);
+    llvm::SmallVector<uint32_t> dims;
+    for (const auto &intAttr : meshShape) {
+      dims.push_back(intAttr.getValue().getZExtValue());
+    }
+    llvm::interleaveComma(dims, rso);
+    rso << "])";
+    return rso.str();
   }
 
   // Handles the case when a source type is convertible to `mlir::Attribute` and

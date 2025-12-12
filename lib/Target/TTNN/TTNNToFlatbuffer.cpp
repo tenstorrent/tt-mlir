@@ -304,16 +304,16 @@ createCpuOp(FlatbufferObjectCache &cache, func::CallOp op, uint32_t dylib_id) {
         getOperandThroughDPSOps(input)));
   }
 
-  // For now, assume we will get exactly 1 result tensor from our call -- this
-  // is hardcoded assumption for all ops AFAICT.
-  auto output =
-      cache.getOrCreate(*op.getResults().begin(), tensorValueToFlatbuffer);
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> outs;
+  for (auto output : op.getResults()) {
+    outs.push_back(cache.getOrCreate(output, tensorValueToFlatbuffer));
+  }
 
   llvm::SmallString<24> funcName =
       tt::utils::convertDylibFuncName(op.getCallee());
 
   return ::tt::target::ttnn::CreateCpuOp(
-      *cache.fbb, cache.fbb->CreateVector(ins), output,
+      *cache.fbb, cache.fbb->CreateVector(ins), cache.fbb->CreateVector(outs),
       cache.fbb->CreateString(funcName.c_str()), dylib_id);
 }
 
@@ -954,6 +954,10 @@ createOp(FlatbufferObjectCache &cache, CollectivePermuteOp op) {
       cache.fbb->CreateVector<int64_t>(sourceTargetPairsVec));
 }
 
+// NOTE: This legacy mesh_shard path only handles the "identity" variant.
+// All non-identity behavior has been split out to distribute_tensor /
+// aggregate_tensor. It remains because current TTIR lowering still generates
+// identity mesh_shard for shape tracking.
 ::flatbuffers::Offset<::tt::target::ttnn::MeshShardOp>
 createOp(FlatbufferObjectCache &cache, MeshShardOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
@@ -976,16 +980,10 @@ createOp(FlatbufferObjectCache &cache, MeshShardOp op) {
     llvm_unreachable("unhandled mesh_shard direction");
   }
 
-  ::tt::target::MeshShardType meshShardType;
-  if (shardType == mlir::tt::ttcore::MeshShardType::Replicate) {
-    meshShardType = ::tt::target::MeshShardType::Replicate;
-  } else if (shardType == mlir::tt::ttcore::MeshShardType::Devices) {
-    meshShardType = ::tt::target::MeshShardType::Devices;
-  } else if (shardType == mlir::tt::ttcore::MeshShardType::Identity) {
-    meshShardType = ::tt::target::MeshShardType::Identity;
-  } else {
-    llvm_unreachable("unhandled mesh_shard type");
-  }
+  assert(shardType == mlir::tt::ttcore::MeshShardType::Identity &&
+         "mesh_shard type must be Identity");
+  ::tt::target::MeshShardType meshShardType =
+      ::tt::target::MeshShardType::Identity;
 
   return ::tt::target::ttnn::CreateMeshShardOp(
       *cache.fbb, input, output, cache.at<::tt::target::DeviceRef>(device),
@@ -2703,6 +2701,85 @@ createOp(FlatbufferObjectCache &cache, LoadTensorOp op) {
                                                 output);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::DistributeTensorOp>
+createOp(FlatbufferObjectCache &cache, DistributeTensorOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+  auto device = getOperandThroughDPSOps(op.getMeshDevice());
+
+  // Build MeshMapperConfig
+  auto mapperAttr = op.getMapperConfig();
+
+  // Placements
+  std::vector<::tt::target::ttnn::Placement> placements;
+  placements.reserve(mapperAttr.getPlacements().size());
+  for (auto placementAttr : mapperAttr.getPlacements()) {
+    ::tt::target::ttnn::PlacementType fbType =
+        (placementAttr.getType() == ::mlir::tt::ttnn::PlacementType::Replicate)
+            ? ::tt::target::ttnn::PlacementType::Replicate
+            : ::tt::target::ttnn::PlacementType::Shard;
+    int32_t dimVal = -1;
+    if (auto dimAttr = placementAttr.getDim()) {
+      dimVal = static_cast<int32_t>(dimAttr.getValue().getSExtValue());
+    }
+    placements.emplace_back(::tt::target::ttnn::Placement(fbType, dimVal));
+  }
+
+  auto fbPlacements = cache.fbb->CreateVectorOfStructs(placements);
+
+  // Optional mesh_shape_override via helper
+  ::flatbuffers::Offset<flatbuffers::Vector<uint32_t>> fbMeshShapeOverride = 0;
+  auto meshShapeOverrideRef = mapperAttr.getMeshShapeOverride();
+  if (!meshShapeOverrideRef.empty()) {
+    llvm::SmallVector<mlir::Attribute> asAttrs(meshShapeOverrideRef.begin(),
+                                               meshShapeOverrideRef.end());
+    auto arr = mlir::ArrayAttr::get(mapperAttr.getContext(), asAttrs);
+    fbMeshShapeOverride =
+        arrayAttrToFlatbuffer<IntegerAttr, uint32_t>(cache, arr);
+  }
+
+  auto mapperConfig = ::tt::target::ttnn::CreateMeshMapperConfig(
+      *cache.fbb, fbPlacements, fbMeshShapeOverride);
+
+  return ::tt::target::ttnn::CreateDistributeTensorOp(
+      *cache.fbb, input, output, mapperConfig,
+      cache.at<::tt::target::DeviceRef>(device), op.getCqId());
+}
+::flatbuffers::Offset<::tt::target::ttnn::AggregateTensorOp>
+createOp(FlatbufferObjectCache &cache, AggregateTensorOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+  auto device = getOperandThroughDPSOps(op.getMeshDevice());
+
+  auto composerConfigAttr = op.getComposerConfig();
+  auto dimsRef = composerConfigAttr.getDims();
+  llvm::SmallVector<mlir::Attribute> dimsAsAttrs(dimsRef.begin(),
+                                                 dimsRef.end());
+  auto dimsArr =
+      mlir::ArrayAttr::get(composerConfigAttr.getContext(), dimsAsAttrs);
+  auto dimsFb = arrayAttrToFlatbuffer<IntegerAttr, int32_t>(cache, dimsArr);
+  ::flatbuffers::Offset<flatbuffers::Vector<uint32_t>> meshShapeOverrideFb = 0;
+  auto meshShapeOverrideRef = composerConfigAttr.getMeshShapeOverride();
+  if (!meshShapeOverrideRef.empty()) {
+    llvm::SmallVector<mlir::Attribute> msAsAttrs(meshShapeOverrideRef.begin(),
+                                                 meshShapeOverrideRef.end());
+    auto msArr =
+        mlir::ArrayAttr::get(composerConfigAttr.getContext(), msAsAttrs);
+    meshShapeOverrideFb =
+        arrayAttrToFlatbuffer<IntegerAttr, uint32_t>(cache, msArr);
+  }
+
+  // Create the MeshComposerConfig FlatBuffer object
+  auto composerConfig = ::tt::target::ttnn::CreateMeshComposerConfig(
+      *cache.fbb, dimsFb, meshShapeOverrideFb);
+
+  return ::tt::target::ttnn::CreateAggregateTensorOp(
+      *cache.fbb, input, output, composerConfig,
+      cache.at<::tt::target::DeviceRef>(device));
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                   const llvm::StringMap<uint32_t> &programIndexMap,
@@ -3356,6 +3433,12 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
       scaledDotProductAttentionOp) {
     return createOperation(cache, createOp(cache, scaledDotProductAttentionOp),
                            debugString, locInfo);
+  }
+  if (auto dtOp = dyn_cast<DistributeTensorOp>(op); dtOp) {
+    return createOperation(cache, createOp(cache, dtOp), debugString, locInfo);
+  }
+  if (auto atOp = dyn_cast<AggregateTensorOp>(op); atOp) {
+    return createOperation(cache, createOp(cache, atOp), debugString, locInfo);
   }
 
   if (auto assignOp = dyn_cast<AssignOp>(op); assignOp) {

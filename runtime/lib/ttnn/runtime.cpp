@@ -1188,10 +1188,6 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_UpsampleOp()->out();
     break;
   }
-  case ::tt::target::ttnn::OpType::CpuOp: {
-    tensorRef = opContext.type_as_CpuOp()->out();
-    break;
-  }
   case ::tt::target::ttnn::OpType::ConstantOp: {
     tensorRef = opContext.type_as_ConstantOp()->out();
     break;
@@ -1257,6 +1253,7 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_NLPConcatHeadsDecodeOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::CpuOp:
   case ::tt::target::ttnn::OpType::BatchNormTrainingOp:
   case ::tt::target::ttnn::OpType::MaxPool2dWithIndicesOp:
   case ::tt::target::ttnn::OpType::SortOp:
@@ -1279,6 +1276,14 @@ getOpOutputRef(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::GenericOp: {
     auto size = opContext.type_as_GenericOp()->io_tensors()->size();
     tensorRef = opContext.type_as_GenericOp()->io_tensors()->Get(size - 1);
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AggregateTensorOp: {
+    tensorRef = opContext.type_as_AggregateTensorOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::DistributeTensorOp: {
+    tensorRef = opContext.type_as_DistributeTensorOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::NONE: {
@@ -1720,6 +1725,14 @@ getOpInputRefs(OpContext opContextHandle,
     break;
   }
   case ::tt::target::ttnn::OpType::LoadTensorOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AggregateTensorOp: {
+    tensorRefs = {opContext.type_as_AggregateTensorOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::DistributeTensorOp: {
+    tensorRefs = {opContext.type_as_DistributeTensorOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::NONE: {

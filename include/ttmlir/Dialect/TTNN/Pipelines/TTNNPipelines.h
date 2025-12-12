@@ -204,7 +204,7 @@ struct TTIRToTTNNBackendPipelineOptions
       *this, OptionNames::maxLegalLayouts,
       llvm::cl::desc("Override maximum number of sharded layouts for legal "
                      "layout analysis."),
-      llvm::cl::init(64)};
+      llvm::cl::init(8)};
 
   ListOption<int64_t> meshShape{
       *this, OptionNames::meshShape,
@@ -308,6 +308,18 @@ struct TTIRToTTNNBackendPipelineOptions
   Option<bool> enableConstEval{
       *this, "enable-const-eval",
       llvm::cl::desc("Enable const-eval optimization pass."),
+      llvm::cl::init(true)};
+
+  // Enable CPU-hoisting for const-eval subgraphs.
+  Option<bool> enableCPUHoistedConstEval{
+      *this, "enable-cpu-hoisted-const-eval",
+      llvm::cl::desc("Enable hoisting const-eval ops to CPU module."),
+      llvm::cl::init(false)};
+
+  // Force const-eval function inputs to system memory.
+  Option<bool> enableConstEvalInputsToSystemMemory{
+      *this, "enable-const-eval-inputs-to-system-memory",
+      llvm::cl::desc("Force const-eval function inputs to system memory."),
       llvm::cl::init(true)};
 
   Option<bool> enableTrace{*this, "enable-trace",

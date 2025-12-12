@@ -13,9 +13,9 @@ import operator
 from conftest import x86_only
 
 from ttmlir.dialects import ttir, ttcore
-from builder.base.builder import Operand, Shape, TypeInfo
+from builder.base.builder_utils import Operand, Shape, TypeInfo
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import (
+from builder.base.builder_apis import (
     compile_ttir_to_flatbuffer,
     compile_and_execute_ttir,
 )
@@ -54,23 +54,23 @@ def create_tileid_debug_tensor(shape: Shape, dtype: torch.dtype):
 def test_virtual_grid_eltwise(
     shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
-    def eltwise_wrapper(
-        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        input_tensor = create_tileid_debug_tensor(shape, dtype)
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def eltwise_wrapper(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            input_tensor = create_tileid_debug_tensor(shape, dtype)
 
-        # abs is an identity function for positive integers, so use it for debugging ease
-        result = builder.abs(in0, unit_attrs=unit_attrs)
+            # abs is an identity function for positive integers, so use it for debugging ease
+            result = builder.abs(in0, unit_attrs=unit_attrs)
 
-        golden_output_tensor = torch.abs(input_tensor).to(dtype)
-        builder.set_goldens({in0: input_tensor}, {result: golden_output_tensor})
+            golden_output_tensor = torch.abs(input_tensor).to(dtype)
+            builder.set_goldens({in0: input_tensor}, {result: golden_output_tensor})
 
-        return result
+            return result
 
     compile_and_execute_ttir(
-        eltwise_wrapper,
-        [shape],
-        [dtype],
+        module,
         device=device,
         test_base=request.node.name,
         print_ir="test_logical_not_ir",

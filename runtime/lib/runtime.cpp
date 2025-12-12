@@ -502,7 +502,7 @@ TensorDesc getTensorDesc(Tensor t) {
       [&]() -> RetType { return ::tt::runtime::ttnn::getTensorDesc(t); },
       [&]() -> RetType { return ::tt::runtime::ttmetal::getTensorDesc(t); },
       [&]() -> RetType {
-        detail::fatalNotImplemented("getTensorDesc", HostRuntime::Distributed);
+        return ::tt::runtime::distributed::getTensorDesc(t);
       });
 }
 
@@ -670,8 +670,7 @@ bool isProgramCacheEnabled(Device meshDevice) {
         return ::tt::runtime::ttmetal::isProgramCacheEnabled(meshDevice);
       },
       [&]() -> RetType {
-        detail::fatalNotImplemented("isProgramCacheEnabled",
-                                    HostRuntime::Distributed);
+        return ::tt::runtime::distributed::isProgramCacheEnabled(meshDevice);
       });
 }
 
@@ -680,10 +679,7 @@ void clearProgramCache(Device meshDevice) {
   DISPATCH_TO_CURRENT_RUNTIME(
       RetType, [&]() { ::tt::runtime::ttnn::clearProgramCache(meshDevice); },
       [&]() { ::tt::runtime::ttmetal::clearProgramCache(meshDevice); },
-      [&]() {
-        detail::fatalNotImplemented("clearProgramCache",
-                                    HostRuntime::Distributed);
-      });
+      [&]() { ::tt::runtime::distributed::clearProgramCache(meshDevice); });
 }
 
 size_t getL1SmallSize(Device meshDevice) {
@@ -918,7 +914,7 @@ bool hasLayout(Tensor tensor, Layout layout) {
         detail::fatalNotImplemented("hasLayout", DeviceRuntime::TTMetal);
       },
       [&]() -> RetType {
-        detail::fatalNotImplemented("hasLayout", HostRuntime::Distributed);
+        return ::tt::runtime::distributed::hasLayout(tensor, layout);
       });
 }
 

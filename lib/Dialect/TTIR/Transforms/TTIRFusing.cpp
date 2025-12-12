@@ -2127,7 +2127,7 @@ class SplitQueryKeyValueAndSplitHeadsUpdatePattern
   };
   enum MHAExpectedOutputDimensions {
     O_BATCH_SIZE = 0,
-    O_NUM_KV_HEADS = 1,
+    O_NUM_HEADS = 1,
     O_SEQUENCE_LENGTH = 2,
     O_HEAD_SIZE = 3,
   };
@@ -2136,6 +2136,11 @@ class SplitQueryKeyValueAndSplitHeadsUpdatePattern
     K_NUM_KV_HEADS = 1,
     K_HEAD_SIZE = 2,
     K_SEQUENCE_LENGTH = 3,
+  };
+  enum AttentionType {
+    MHA = 0,  // Multi-Head Attention
+    GQA = 1,  // Grouped Query Attention
+    NONE = 2, // Not an attention pattern
   };
 
   llvm::SmallVector<int64_t> expectedPermute = {0, 2, 1, 3};
@@ -2150,9 +2155,9 @@ public:
     llvm::SmallVector<MatMulOpType> matmulOps = {};
     llvm::SmallVector<PermuteOp> permuteOps = {};
 
-    // Currently, only supporting Multi-Head Attention.
-    // TODO(@ddilbazTT): Extend to support Grouped Query Attention.
-    if (!isMHA(reshapeOp, matmulOps, permuteOps)) {
+    AttentionType attentionType =
+        findAttentionType(reshapeOp, matmulOps, permuteOps);
+    if (attentionType == AttentionType::NONE) {
       return failure();
     }
 
@@ -2161,9 +2166,156 @@ public:
     // ensures all preprocessing for query, key, and value happens before the
     // fused op, and any uses of their results remain correctly ordered after
     // the fused op.
-    hoistPreprocessingOps(permuteOps);
-    rewriter.setInsertionPointAfter(permuteOps.front());
 
+    PermuteOp firstPermuteOp = permuteOps[0];
+    for (size_t i = 1; i < permuteOps.size(); ++i) {
+      if (permuteOps[i]->isBeforeInBlock(firstPermuteOp)) {
+        firstPermuteOp = permuteOps[i];
+      }
+    }
+    hoistPreprocessingOps(permuteOps);
+    rewriter.setInsertionPointAfter(firstPermuteOp);
+
+    if (attentionType == AttentionType::MHA) {
+      return fuseMHA(rewriter, reshapeOp, matmulOps, permuteOps);
+    }
+    if (attentionType == AttentionType::GQA) {
+      return fuseGQA(rewriter, reshapeOp, matmulOps, permuteOps);
+    }
+    return mlir::failure();
+  }
+
+private:
+  mlir::LogicalResult fuseGQA(mlir::PatternRewriter &rewriter,
+                              ReshapeOp reshapeOp,
+                              llvm::SmallVector<MatMulOpType> &matmulOps,
+                              llvm::SmallVector<PermuteOp> &permuteOps) const {
+
+    // Extract dimensions from reshape op and matmul ops.
+    Value reshapeOutput = reshapeOp.getResult();
+    MatMulOpType queryMatmulOp = matmulOps[0];
+    MatMulOpType keyMatmulOp = matmulOps[1];
+
+    // Concatenate key and value weights along dimension determined by
+    // transposeB attribute.
+    TypedValue<RankedTensorType> keyWeightMatrix = matmulOps[1].getB();
+    TypedValue<RankedTensorType> valueWeightMatrix = matmulOps[2].getB();
+
+    std::size_t dimToConcatWeights = keyMatmulOp.getTransposeB() ? 0 : 1;
+
+    // Assert that keyMatmulOp A and B have rank 2.
+    TT_assertv((keyMatmulOp.getA().getType().getRank() == 2 &&
+                keyMatmulOp.getB().getType().getRank() == 2),
+               "Expected rank 2 for MatMulOp operands A and B");
+
+    ttir::ConcatOp concatenatedWeightMatrix = concatenateAlongDim(
+        rewriter, valueWeightMatrix.getLoc(),
+        ValueRange{keyWeightMatrix, valueWeightMatrix}, dimToConcatWeights);
+
+    Value concatenatedBias = nullptr;
+    if constexpr (std::is_same_v<LinearOp, MatMulOpType>) {
+      Value keyBias = matmulOps[1].getBias();
+      Value valueBias = matmulOps[2].getBias();
+      std::size_t concatDim = matmulOps[1].getBias().getType().getRank() - 1;
+      concatenatedBias =
+          concatenateAlongDim(rewriter, valueBias.getLoc(),
+                              ValueRange{keyBias, valueBias}, concatDim);
+    }
+
+    // Get the original output shape from one of the original linear ops.
+    ArrayRef<int64_t> originalLinearOutputShape =
+        keyMatmulOp.getType().getShape();
+    llvm::SmallVector<int64_t> linearOutputShape(
+        originalLinearOutputShape.begin(), originalLinearOutputShape.end());
+
+    // Multiply the last dimension by 2 (since we're concatenating K, V).
+    linearOutputShape.back() = originalLinearOutputShape.back() * 2;
+
+    // Create linear operation with concatenated weights and bias.
+    RankedTensorType linearOutputType = RankedTensorType::get(
+        linearOutputShape, keyMatmulOp.getType().getElementType());
+
+    SmallVector<Value> inputs;
+    if (concatenatedBias) {
+      inputs = {reshapeOutput, concatenatedWeightMatrix, concatenatedBias};
+    } else {
+      inputs = {reshapeOutput, concatenatedWeightMatrix};
+    }
+
+    MatMulOpType matrixMultOp = rewriter.create<MatMulOpType>(
+        keyMatmulOp.getLoc(), TypeRange{linearOutputType}, inputs,
+        keyMatmulOp->getAttrs());
+
+    TT_assertv(matrixMultOp, "Expected valid matrix multiplication operation");
+
+    // Reshape query matmul / linear op from [batch_size * sequence_size,
+    // query_hidden_size] to [batch_size, sequence_size, query_hidden_size].
+    // Reshape kv matmul / linear op from [batch_size * sequence_size,
+    // 2 * kv_hidden_size] to [batch_size, sequence_size, 2 * kv_hidden_size].
+
+    ArrayRef<int64_t> inputShape = reshapeOp.getInput().getType().getShape();
+    int32_t batchSize = inputShape[I_BATCH_SIZE];
+    int32_t sequenceLength = inputShape[I_SEQUENCE_LENGTH];
+
+    auto queryType = permuteOps[0].getType();
+    auto keyType = permuteOps[1].getType();
+    auto valueType = permuteOps[2].getType();
+
+    auto queryShape = queryType.getShape();
+    auto keyShape = keyType.getShape();
+    auto valueShape = valueType.getShape();
+
+    int32_t headSize = keyShape[O_HEAD_SIZE];           // 128
+    int32_t numQueryHeads = queryShape[O_NUM_HEADS];    // 24
+    int numKVHeads = keyShape[O_NUM_HEADS];             // 8
+    int32_t KVHiddenSize = headSize * numKVHeads;       // 1024
+    int32_t queryHiddenSize = headSize * numQueryHeads; // 3072
+
+    SmallVector<int64_t> queryReshapeShape = {batchSize, sequenceLength,
+                                              queryHiddenSize};
+    auto queryReshapeElementType = queryMatmulOp.getType().getElementType();
+    auto queryReshapeEncoding = queryMatmulOp.getType().getEncoding();
+    SmallVector<int32_t> queryReshapeShapeI32(queryReshapeShape.begin(),
+                                              queryReshapeShape.end());
+    RankedTensorType queryReshapeTy = RankedTensorType::get(
+        queryReshapeShape, queryReshapeElementType, queryReshapeEncoding);
+    ReshapeOp queryReshapeOp = rewriter.create<ReshapeOp>(
+        matrixMultOp.getLoc(), queryReshapeTy, queryMatmulOp.getResult(),
+        rewriter.getI32ArrayAttr(queryReshapeShapeI32));
+
+    SmallVector<int64_t> kvReshapeShape = {batchSize, sequenceLength,
+                                           KVHiddenSize * 2};
+    auto kvReshapeElementType = keyMatmulOp.getType().getElementType();
+    auto kvReshapeEncoding = keyMatmulOp.getType().getEncoding();
+    SmallVector<int32_t> kvReshapeShapeI32(kvReshapeShape.begin(),
+                                           kvReshapeShape.end());
+    RankedTensorType kvReshapeTy = RankedTensorType::get(
+        kvReshapeShape, kvReshapeElementType, kvReshapeEncoding);
+    ReshapeOp kvReshapeOp = rewriter.create<ReshapeOp>(
+        matrixMultOp.getLoc(), kvReshapeTy, matrixMultOp.getResult(),
+        rewriter.getI32ArrayAttr(kvReshapeShapeI32));
+
+    // Create split qkv op.
+    // Determine if need to transpose key based on key and value.
+    bool transposeKey = isKeyTransposed(keyShape, valueShape);
+    auto splitOp = rewriter.create<SplitQueryKeyValueAndSplitHeadsOp>(
+        matrixMultOp->getLoc(), ArrayRef<Type>{queryType, keyType, valueType},
+        queryReshapeOp.getResult(), kvReshapeOp.getResult(),
+        rewriter.getUI32IntegerAttr(numQueryHeads),
+        rewriter.getUI32IntegerAttr(numKVHeads),
+        rewriter.getBoolAttr(transposeKey) /*transpose_key*/);
+
+    rewriter.replaceOp(permuteOps[0], splitOp.getQuery());
+    rewriter.replaceOp(permuteOps[1], splitOp.getKey());
+    rewriter.replaceOp(permuteOps[2], splitOp.getValue());
+
+    return mlir::success();
+  }
+
+  mlir::LogicalResult fuseMHA(mlir::PatternRewriter &rewriter,
+                              ReshapeOp reshapeOp,
+                              llvm::SmallVector<MatMulOpType> &matmulOps,
+                              llvm::SmallVector<PermuteOp> &permuteOps) const {
     // Extract dimensions from reshape op and permute ops.
     Value reshapeOutput = reshapeOp.getResult();
     ArrayRef<int64_t> inputShape = reshapeOp.getInput().getType().getShape();
@@ -2236,7 +2388,7 @@ public:
 
     auto keyShape = keyType.getShape();
     auto valueShape = valueType.getShape();
-    int32_t numHeads = queryType.getShape()[O_NUM_KV_HEADS];
+    int32_t numHeads = queryType.getShape()[O_NUM_HEADS];
     int32_t hiddenSize = queryType.getShape()[O_HEAD_SIZE] * numHeads;
 
     SmallVector<int64_t> reshapeToSplitShape = {batchSize, sequenceLength,
@@ -2267,18 +2419,92 @@ public:
     return mlir::success();
   }
 
-private:
-  bool isMHA(ReshapeOp reshapeOp, llvm::SmallVector<MatMulOpType> &matmulOps,
-             llvm::SmallVector<PermuteOp> &permuteOps) const {
+  AttentionType
+  findAttentionType(ReshapeOp reshapeOp,
+                    llvm::SmallVector<MatMulOpType> &matmulOps,
+                    llvm::SmallVector<PermuteOp> &permuteOps) const {
     populateMatmulOps(reshapeOp, matmulOps);
     if (!matmulOps.empty() && validateMatmulOrLinearOps(reshapeOp, matmulOps)) {
       populatePermuteOps(matmulOps, permuteOps);
-      if (validatePermuteOps(reshapeOp, permuteOps)) {
-        return true;
+      if (validatePermuteOps(reshapeOp, matmulOps, permuteOps)) {
+        if (isMHA(matmulOps, permuteOps)) {
+          return AttentionType::MHA;
+        }
+        if (isGQA(matmulOps, permuteOps)) {
+          return AttentionType::GQA;
+        }
       }
     }
 
-    return false;
+    return AttentionType::NONE;
+  }
+
+  bool isMHA(llvm::SmallVector<MatMulOpType> matmulOps,
+             llvm::SmallVector<PermuteOp> permuteOps) const {
+    // This function checks if the pattern is Multi-Head Attention (MHA):
+    // - Matmul/ Linear B shape must be equal.
+    // - Linear op bias must be equal.
+    // - Permute op number of kv_heads must be equal.
+
+    auto queryBShape = matmulOps[0].getB().getType().getShape();
+    auto keyBShape = matmulOps[1].getB().getType().getShape();
+    auto valueBShape = matmulOps[2].getB().getType().getShape();
+    if (queryBShape != keyBShape || queryBShape != valueBShape) {
+      return false;
+    }
+    if constexpr (std::is_same_v<LinearOp, MatMulOpType>) {
+      auto queryBias = matmulOps[0].getBias();
+      auto keyBias = matmulOps[1].getBias();
+      auto valueBias = matmulOps[2].getBias();
+      if (queryBias.getType() != keyBias.getType() ||
+          queryBias.getType() != valueBias.getType()) {
+        return false;
+      }
+    }
+    int32_t queryNumHeads = permuteOps[0].getType().getShape()[O_NUM_HEADS];
+    int32_t keyNumHeads = permuteOps[1].getType().getShape()[O_NUM_HEADS];
+    int32_t valueNumHeads = permuteOps[2].getType().getShape()[O_NUM_HEADS];
+    if (queryNumHeads != keyNumHeads || queryNumHeads != valueNumHeads) {
+      return false;
+    }
+    return true;
+  }
+
+  bool isGQA(llvm::SmallVector<MatMulOpType> matmulOps,
+             llvm::SmallVector<PermuteOp> permuteOps) const {
+    // This function checks if the pattern is Grouped Query Attention (GQA):
+    // - Matmul / linear b shape outer dim for query should be divisible by
+    //   key / value b shape outer dim and have the same multiplier.
+    // - Permute op number of heads should reflect the multiplier.
+    //  i.e. query_num_heads = key_num_heads * multiplier
+    //      query_num_heads = value_num_heads * multiplier
+    // TODO(@ddilbazTT): Extend to support bias checks for linear op.
+
+    // If there is transpose B, check index 0, else check index 1.
+    int32_t indexToCheck = matmulOps[0].getTransposeB() ? 0 : 1;
+
+    auto queryBShape = matmulOps[0].getB().getType().getShape();
+    auto keyBShape = matmulOps[1].getB().getType().getShape();
+    auto valueBShape = matmulOps[2].getB().getType().getShape();
+    if (queryBShape[indexToCheck] % keyBShape[indexToCheck] != 0 ||
+        queryBShape[indexToCheck] % valueBShape[indexToCheck] != 0) {
+      return false;
+    }
+
+    auto multiplier = queryBShape[indexToCheck] / keyBShape[indexToCheck];
+    if (multiplier != queryBShape[indexToCheck] / valueBShape[indexToCheck]) {
+      return false;
+    }
+
+    int32_t queryNumHeads = permuteOps[0].getType().getShape()[O_NUM_HEADS];
+    int32_t keyNumHeads = permuteOps[1].getType().getShape()[O_NUM_HEADS];
+    int32_t valueNumHeads = permuteOps[2].getType().getShape()[O_NUM_HEADS];
+
+    if (queryNumHeads != keyNumHeads * multiplier ||
+        queryNumHeads != valueNumHeads * multiplier) {
+      return false;
+    }
+    return true;
   }
 
   // Helper function to concatenate tensors along given dimension.
@@ -2313,23 +2539,28 @@ private:
   }
 
   void hoistPreprocessingOps(llvm::SmallVector<PermuteOp> permuteOps) const {
-    PermuteOp queryPermuteOp = permuteOps[0];
-
-    // Collect all values that need to be hoisted (from Key and Value operands).
-    llvm::SetVector<mlir::Value> allValues;
-
-    // Collect use-def chains for Key PermuteOp operands.
-    for (Value operand : permuteOps[1]->getOperands()) {
-      llvm::SetVector<mlir::Value> udChain =
-          ttmlir::utils::getUseDefChain(operand);
-      allValues.insert(udChain.begin(), udChain.end());
+    // Find the topologically first PermuteOp
+    PermuteOp firstPermuteOp = permuteOps[0];
+    for (size_t i = 1; i < permuteOps.size(); ++i) {
+      if (permuteOps[i]->isBeforeInBlock(firstPermuteOp)) {
+        firstPermuteOp = permuteOps[i];
+      }
     }
 
-    // Collect use-def chains for Value PermuteOp operands.
-    for (Value operand : permuteOps[2]->getOperands()) {
-      llvm::SetVector<mlir::Value> udChain =
-          ttmlir::utils::getUseDefChain(operand);
-      allValues.insert(udChain.begin(), udChain.end());
+    // Collect all values that need to be hoisted (from all non-first operands).
+    llvm::SetVector<mlir::Value> allValues;
+
+    // Collect use-def chains for all PermuteOps except the first one
+    for (size_t i = 0; i < permuteOps.size(); ++i) {
+      if (permuteOps[i] == firstPermuteOp) {
+        continue; // Skip the topologically first one
+      }
+
+      for (Value operand : permuteOps[i]->getOperands()) {
+        llvm::SetVector<mlir::Value> udChain =
+            ttmlir::utils::getUseDefChain(operand);
+        allValues.insert(udChain.begin(), udChain.end());
+      }
     }
 
     // Filter to get operations.
@@ -2339,13 +2570,12 @@ private:
     // Topologically sort to maintain dependencies.
     llvm::SetVector<mlir::Operation *> sortedOps = topologicalSort(opsToMove);
 
-    // Move only operations that appear after queryPermuteOp.
-
+    // Move only operations that appear after firstPermuteOp.
     for (mlir::Operation *op : sortedOps) {
-      TT_assertv(op->getBlock() == queryPermuteOp->getBlock(),
+      TT_assertv(op->getBlock() == firstPermuteOp->getBlock(),
                  "Expected all ops to be in the same block.");
-      if (!op->isBeforeInBlock(queryPermuteOp)) {
-        op->moveBefore(queryPermuteOp);
+      if (!op->isBeforeInBlock(firstPermuteOp)) {
+        op->moveBefore(firstPermuteOp);
       }
     }
   }
@@ -2405,7 +2635,133 @@ private:
             keyShape[K_SEQUENCE_LENGTH] == queryShape[O_SEQUENCE_LENGTH]);
   }
 
+  std::optional<std::array<size_t, 3>>
+  returnQKVIndices(llvm::SmallVector<MatMulOpType> &matrixOps,
+                   llvm::SmallVector<PermuteOp> &permuteOps) const {
+    // Return indices of Q, K, V in permuteOps.
+    // If not found, return std::nullopt.
+    if (permuteOps.size() != 3) {
+      return std::nullopt;
+    }
+
+    size_t queryIndex = 0;
+    size_t keyIndex = 1;
+    size_t valueIndex = 2;
+
+    bool foundQuery = false;
+    bool foundKey = false;
+
+    // Query has the greatest number of heads in GQA, same for MHA.
+    int32_t maxHeads = -1;
+    for (size_t i = 0; i < 3; ++i) {
+      // Each of Q, K, V heads must be 4D.
+      if (permuteOps[i].getType().getShape().size() != 4) {
+        return std::nullopt;
+      }
+      int32_t numHeads = permuteOps[i].getType().getShape()[O_NUM_HEADS];
+      if (numHeads > maxHeads) {
+        maxHeads = numHeads;
+        queryIndex = i;
+        foundQuery = true;
+      }
+    }
+
+    for (size_t i = 0; i < 3; ++i) {
+      // If permutation attribute is equal to expectedTransposedPermute, that is
+      // Key. Key can still have expectedPermute.
+      llvm::ArrayRef<int64_t> permutation = permuteOps[i].getPermutation();
+      if (llvm::equal(permutation, expectedTransposedPermute)) {
+        keyIndex = i;
+        foundKey = true;
+      }
+    }
+
+    // Query and Key indices could or could not be found. We should still be
+    // able to order.
+    if (foundQuery && foundKey && queryIndex == keyIndex) {
+      return std::nullopt;
+    }
+
+    if (foundQuery && foundKey) {
+      // Both Query and Key indices found.
+      // Assign remaining index to Value.
+      for (size_t i = 0; i < 3; ++i) {
+        if (i != keyIndex && i != queryIndex) {
+          valueIndex = i;
+          break;
+        }
+      }
+    } else if (foundQuery && !foundKey) {
+      // Query Index found, Key index not found.
+      // Assign remaining indices to Key and Value, respectively.
+      bool assignedKey = false;
+      for (size_t i = 0; i < 3; ++i) {
+        if (i != queryIndex) {
+          if (!assignedKey) {
+            keyIndex = i;
+            assignedKey = true;
+          } else {
+            valueIndex = i;
+          }
+        }
+      }
+    } else if (foundKey && !foundQuery) {
+      // Key Index found, Query index not found.
+      // Assign remaining indices to Query and Value, respectively.
+      bool assignedQuery = false;
+      for (size_t i = 0; i < 3; ++i) {
+        if (i != keyIndex) {
+          if (!assignedQuery) {
+            queryIndex = i;
+            assignedQuery = true;
+          } else {
+            valueIndex = i;
+          }
+        }
+      }
+    }
+    // else: neither found, use defaults 0, 1, 2
+
+    // Check that key and value B shape are equal.
+    auto keyBShape = matrixOps[keyIndex].getB().getType().getShape();
+    auto valueBShape = matrixOps[valueIndex].getB().getType().getShape();
+    if (keyBShape != valueBShape) {
+      return std::nullopt;
+    }
+
+    // If matrix op is linear, check that key and value bias are equal shape.
+    if constexpr (std::is_same_v<LinearOp, MatMulOpType>) {
+      auto keyBias = matrixOps[keyIndex].getBias();
+      auto valueBias = matrixOps[valueIndex].getBias();
+      auto keyBiasShape = keyBias.getType().getShape();
+      auto valueBiasShape = valueBias.getType().getShape();
+      if (keyBiasShape != valueBiasShape) {
+        return std::nullopt;
+      }
+    }
+
+    return std::array<size_t, 3>{queryIndex, keyIndex, valueIndex};
+  }
+
+  void reorderToQKV(llvm::SmallVector<MatMulOpType> &matmulOps,
+                    llvm::SmallVector<PermuteOp> &permuteOps,
+                    const std::array<size_t, 3> &indices) const {
+
+    auto [qIdx, kIdx, vIdx] = indices;
+
+    // Create reordered copies
+    llvm::SmallVector<MatMulOpType> orderedMatmuls = {
+        matmulOps[qIdx], matmulOps[kIdx], matmulOps[vIdx]};
+    llvm::SmallVector<PermuteOp> orderedPermutes = {
+        permuteOps[qIdx], permuteOps[kIdx], permuteOps[vIdx]};
+
+    // Replace original vectors
+    matmulOps = std::move(orderedMatmuls);
+    permuteOps = std::move(orderedPermutes);
+  }
+
   bool validatePermuteOps(ReshapeOp reshapeOp,
+                          llvm::SmallVector<MatMulOpType> &matrixOps,
                           llvm::SmallVector<PermuteOp> &permuteOps) const {
 
     // Output of permute ops are the query, key, value heads respectively.
@@ -2418,23 +2774,18 @@ private:
     // Expected permutation for key is either [0, 2, 1, 3] or [0, 2, 3, 1]
     // (transposed).
 
-    // Size must be 3 for Q, K, V.
-    if (permuteOps.size() != 3) {
+    auto indices = returnQKVIndices(matrixOps, permuteOps);
+    if (!indices) {
       return false;
     }
+    auto [qIdx, kIdx, vIdx] = *indices;
 
-    TypedValue<RankedTensorType> queryTensor = permuteOps[0].getResult();
-    TypedValue<RankedTensorType> keyTensor = permuteOps[1].getResult();
-    TypedValue<RankedTensorType> valueTensor = permuteOps[2].getResult();
+    TypedValue<RankedTensorType> queryTensor = permuteOps[qIdx].getResult();
+    TypedValue<RankedTensorType> keyTensor = permuteOps[kIdx].getResult();
+    TypedValue<RankedTensorType> valueTensor = permuteOps[vIdx].getResult();
     ArrayRef<int64_t> queryShape = queryTensor.getType().getShape();
     ArrayRef<int64_t> keyShape = keyTensor.getType().getShape();
     ArrayRef<int64_t> valueShape = valueTensor.getType().getShape();
-
-    // Each of Q, K, V heads must be 4D.
-    if (queryShape.size() != 4 || keyShape.size() != 4 ||
-        valueShape.size() != 4) {
-      return false;
-    }
 
     if (queryShape[O_BATCH_SIZE] != keyShape[O_BATCH_SIZE] ||
         queryShape[O_BATCH_SIZE] != valueShape[O_BATCH_SIZE]) {
@@ -2442,9 +2793,9 @@ private:
       return false;
     }
 
-    if (queryShape[O_NUM_KV_HEADS] != keyShape[O_NUM_KV_HEADS] ||
-        queryShape[O_NUM_KV_HEADS] != valueShape[O_NUM_KV_HEADS]) {
-      // Number of kv heads must match.
+    // Key and Value must have the same number of kv heads.
+    // Query can have a different number of heads in GQA.
+    if (keyShape[O_NUM_HEADS] != valueShape[O_NUM_HEADS]) {
       return false;
     }
 
@@ -2490,7 +2841,8 @@ private:
         return false;
       }
     }
-
+    // Order matrixOps and permuteOps to Q, K, V.
+    reorderToQKV(matrixOps, permuteOps, *indices);
     return true;
   }
 
@@ -2523,7 +2875,6 @@ private:
       return false;
     }
 
-    ArrayRef<int64_t> firstBShape = matrixOps[0].getB().getType().getShape();
     for (MatMulOpType matrixOp : matrixOps) {
       // Each op must have the same input as the reshape op output.
       if (matrixOp.getA() != reshapeOp.getResult()) {
@@ -2534,10 +2885,17 @@ private:
       if (bShape.size() != 2) {
         return false;
       }
-      // Check that B shape is the same for all ops.
-      if (bShape != firstBShape) {
-        return false;
-      }
+    }
+
+    // Check that B shape is the same for at least two of the ops.
+    auto firstBShape = matrixOps[0].getB().getType().getShape();
+    auto secondBShape = matrixOps[1].getB().getType().getShape();
+    auto thirdBShape = matrixOps[2].getB().getType().getShape();
+    bool atLeastTwoBMatch = (firstBShape == secondBShape) ||
+                            (firstBShape == thirdBShape) ||
+                            (secondBShape == thirdBShape);
+    if (!atLeastTwoBMatch) {
+      return false;
     }
 
     // Check transpose A is false for all ops.
@@ -2552,19 +2910,24 @@ private:
       return false;
     }
 
-    // If matrix op is Linear Op, check that bias is present and has the same
-    // shape.
+    // If matrix op is Linear Op, check that bias is present.
+    // At least two matrix ops must have the same bias shape.
     if constexpr (std::is_same_v<LinearOp, MatMulOpType>) {
-      TypedValue<RankedTensorType> queryBias = matrixOps[0].getBias();
-      TypedValue<RankedTensorType> keyBias = matrixOps[1].getBias();
-      TypedValue<RankedTensorType> valueBias = matrixOps[2].getBias();
-      if (!queryBias || !keyBias || !valueBias) {
+      TypedValue<RankedTensorType> firstBias = matrixOps[0].getBias();
+      TypedValue<RankedTensorType> secondBias = matrixOps[1].getBias();
+      TypedValue<RankedTensorType> thirdBias = matrixOps[2].getBias();
+      if (!firstBias || !secondBias || !thirdBias) {
         return false;
       }
-      auto queryBiasShape = queryBias.getType().getShape();
-      auto keyBiasShape = keyBias.getType().getShape();
-      auto valueBiasShape = valueBias.getType().getShape();
-      if (queryBiasShape != keyBiasShape || queryBiasShape != valueBiasShape) {
+      auto firstBiasShape = firstBias.getType().getShape();
+      auto secondBiasShape = secondBias.getType().getShape();
+      auto thirdBiasShape = thirdBias.getType().getShape();
+      // Check if at least two bias shapes match.
+      bool atLeastTwoBiasMatch = (firstBiasShape == secondBiasShape) ||
+                                 (firstBiasShape == thirdBiasShape) ||
+                                 (secondBiasShape == thirdBiasShape);
+
+      if (!atLeastTwoBiasMatch) {
         return false;
       }
     }
