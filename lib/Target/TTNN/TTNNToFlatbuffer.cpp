@@ -42,6 +42,7 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
+#include <llvm/ADT/StringMap.h>
 
 namespace mlir::tt::ttnn {
 
@@ -2166,9 +2167,60 @@ createDeallocateOp(FlatbufferObjectCache &cache, DeallocateOp op) {
   return ::tt::target::ttnn::CreateDeallocateOp(*cache.fbb, in, force);
 }
 
+llvm::StringMap<std::string>
+calculateConstEvalFuncHashes(mlir::ModuleOp module) {
+  llvm::StringMap<std::string> constEvalHashes;
+
+  module->walk([&](func::FuncOp func) {
+    if (!ttmlir::utils::isConstEvalFunc(func)) {
+      return;
+    }
+
+    llvm::hash_code funcHash{0};
+
+    // Hash the function signature.
+    funcHash =
+        llvm::hash_combine(funcHash, func.getFunctionType().getNumInputs(),
+                           func.getFunctionType().getNumResults());
+
+    for (auto argType : func.getFunctionType().getInputs()) {
+      funcHash = llvm::hash_combine(funcHash, argType);
+    }
+
+    func->walk([&](Operation *op) {
+      funcHash = llvm::hash_combine(funcHash, op->getName().getStringRef());
+
+      // Hash operand types.
+      for (auto operand : op->getOperands()) {
+        funcHash = llvm::hash_combine(funcHash, operand.getType());
+      }
+
+      // Hash result types.
+      for (auto result : op->getResults()) {
+        funcHash = llvm::hash_combine(funcHash, result.getType());
+      }
+
+      // Hash attributes.
+      for (auto attr : op->getAttrs()) {
+        funcHash = llvm::hash_combine(funcHash, attr.getName());
+        funcHash = llvm::hash_combine(funcHash, attr.getValue());
+      }
+    });
+
+    // Convert hash to hex string
+    llvm::SmallString<32> hexStr;
+    llvm::raw_svector_ostream os(hexStr);
+    os << llvm::format_hex_no_prefix(static_cast<uint64_t>(funcHash), 16);
+    constEvalHashes[func.getSymName().str()] = hexStr.str();
+  });
+
+  return constEvalHashes;
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::LoadCachedOp>
 createOp(FlatbufferObjectCache &cache, ttcore::LoadCachedOp op,
-         const llvm::StringMap<uint32_t> &programIndexMap) {
+         const llvm::StringMap<uint32_t> &programIndexMap,
+         const llvm::StringMap<std::string> &constEvalFuncHashes) {
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> ins;
   for (auto input : op.getInputs()) {
     ins.push_back(cache.at<::tt::target::ttnn::TensorRef>(
@@ -2186,9 +2238,15 @@ createOp(FlatbufferObjectCache &cache, ttcore::LoadCachedOp op,
          "Program name not found in program index map!");
   const uint32_t programIdx = it->second;
 
+  auto itHash = constEvalFuncHashes.find(op.getCallee().str());
+  assert(itHash != constEvalFuncHashes.end() &&
+         "Const-eval function hash not found in const-eval function hash map!");
+  const std::string &funcHash = itHash->second;
+
   // Create the LoadCachedOp with indices instead of inputs
   return ::tt::target::ttnn::CreateLoadCachedOpDirect(
-      *cache.fbb, &ins, op.getCallee().str().c_str(), programIdx, &outputs);
+      *cache.fbb, &ins, op.getCallee().str().c_str(), programIdx, &outputs,
+      funcHash.c_str());
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::AssignOp>
@@ -2706,7 +2764,8 @@ createOp(FlatbufferObjectCache &cache, LoadTensorOp op) {
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                   const llvm::StringMap<uint32_t> &programIndexMap,
-                  const std::string &debugString, const std::string &locInfo) {
+                  const std::string &debugString, const std::string &locInfo,
+                  const llvm::StringMap<std::string> &constEvalFuncHashes) {
   if (auto getDeviceOp = dyn_cast<GetDeviceOp>(op); getDeviceOp) {
     return createOperation(cache, createOp(cache, getDeviceOp), debugString,
                            locInfo);
@@ -3257,9 +3316,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                            locInfo);
   }
   if (auto loadCachedOp = dyn_cast<ttcore::LoadCachedOp>(op); loadCachedOp) {
-    return createOperation(cache,
-                           createOp(cache, loadCachedOp, programIndexMap),
-                           debugString, locInfo);
+    return createOperation(
+        cache,
+        createOp(cache, loadCachedOp, programIndexMap, constEvalFuncHashes),
+        debugString, locInfo);
   }
   if (auto pointToPointOp = dyn_cast<PointToPointOp>(op); pointToPointOp) {
     return createOperation(cache, createOp(cache, pointToPointOp), debugString,
@@ -3454,6 +3514,8 @@ std::shared_ptr<void> ttnnToFlatbuffer(
 
   std::vector<::flatbuffers::Offset<::tt::target::ttnn::Program>> programs;
 
+  auto constEvalFuncHashes = calculateConstEvalFuncHashes(module);
+
   auto generatePrograms = [&](std::function<bool(func::FuncOp)> shouldSkip,
                               bool isPrivate) -> void {
     module->walk([&](func::FuncOp func) {
@@ -3463,7 +3525,7 @@ std::shared_ptr<void> ttnnToFlatbuffer(
       Program<::tt::target::ttnn::Operation> program =
           funcOpToProgram<::tt::target::ttnn::Operation>(
               cache, func, emitTTNNOperation, tensorValueToFlatbuffer,
-              programIdxMap);
+              programIdxMap, constEvalFuncHashes);
 
       ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(func);
 

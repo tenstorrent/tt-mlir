@@ -21,11 +21,13 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
   std::shared_ptr<TensorCache> cache = context.getConstEvalTensorCache();
   LOG_ASSERT(cache, "Cache must be enabled to support const-eval ops.");
 
+
   // Get the device ID from the parent mesh
   const int deviceId = context.getMeshDevice().id();
   const std::string cacheKey =
       generateCacheOuterKey(deviceId, context.getProgramIndex());
   const std::string &constEvalFuncname = op->callee_name()->str();
+  LOG_INFO("Running LoadCachedOp for function ", constEvalFuncname, " with hash: ", op->program_hash());
 
   std::vector<uint64_t> inputVersions;
   inputVersions.reserve(op->inputs()->size());
