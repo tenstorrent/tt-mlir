@@ -43,6 +43,8 @@ public:
 
     builder->create<emitc::IncludeOp>(loc, "tools/profiler/kernel_profiler.hpp",
                                       /*isStandard=*/false);
+    builder->create<emitc::IncludeOp>(loc, "firmware_common.h",
+                                      /*isStandard=*/false);
 
     if (threadType == ThreadType::Noc) {
 

@@ -930,6 +930,10 @@ public:
     patterns.add<TTKernelInvokeSFPIOpRewriter>(typeConverter,
                                                funcOp.getContext());
 
+    patterns.add<TTKernelConstantRewriter<ttkernel::MyXOp>>(
+        typeConverter, funcOp.getContext(), "my_x[noc_index]");
+    patterns.add<TTKernelConstantRewriter<ttkernel::MyYOp>>(
+        typeConverter, funcOp.getContext(), "my_y[noc_index]");
     patterns.add<TTKernelConstantRewriter<ttkernel::MyLogicalXOp>>(
         typeConverter, funcOp.getContext(), "get_absolute_logical_x()");
     patterns.add<TTKernelConstantRewriter<ttkernel::MyLogicalYOp>>(

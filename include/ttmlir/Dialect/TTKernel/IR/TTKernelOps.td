@@ -2575,6 +2575,34 @@ def TTKernel_InterleavedAddrGenFastGetNocAddrOp : TTKernel_Op<"interleaved_addr_
     }];
 }
 
+def TTKernel_MyXOp : TTKernel_Op<"my_x", [Pure]> {
+    let summary = "MyX";
+    let description = [{
+      Lowers to the tt-metal supported MY_X macro. This represents the virtual X coordinate of the current core.
+    }];
+
+    let arguments = (ins Optional<I8>:$noc);
+    let results = (outs Index:$x);
+
+    let assemblyFormat = [{
+      `(` ($noc^)? `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_MyYOp : TTKernel_Op<"my_y", [Pure]> {
+    let summary = "MyY";
+    let description = [{
+      Lowers to the tt-metal supported MY_Y macro. This represents the virtual Y coordinate of the current core.
+    }];
+
+    let arguments = (ins Optional<I8>:$noc);
+    let results = (outs Index:$y);
+
+    let assemblyFormat = [{
+      `(` ($noc^)? `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_MyLogicalXOp : TTKernel_Op<"my_logical_x_", [Pure]> {
     let summary = "MyLogicalX";
     let description = [{
