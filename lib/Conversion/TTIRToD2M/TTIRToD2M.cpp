@@ -1370,7 +1370,13 @@ static AffineMap reshapeDeviceMap(ttir::ReshapeOp op, OpBuilder &builder) {
     reshapeExprs.push_back(builder.getAffineConstantExpr(0));
   }
   for (int32_t i = 0; i < 2; ++i) {
-    reshapeExprs.push_back(builder.getAffineDimExpr(outputLogicalRank - 2 + i));
+    int32_t outputDimIdx = outputLogicalRank - 2 + i;
+    if (outputDimIdx >= 0) {
+      reshapeExprs.push_back(builder.getAffineDimExpr(outputDimIdx));
+    } else {
+      // Output has fewer than 2 dimensions; use constant 0 for missing dims
+      reshapeExprs.push_back(builder.getAffineConstantExpr(0));
+    }
   }
 
   // Input shard dimensions: delinearize flat index to input coordinates

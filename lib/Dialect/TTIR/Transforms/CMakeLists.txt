@@ -5,6 +5,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         FlattenSlidingWindow.cpp
         HoistCPUOps.cpp
         ElementTypeNormalization.cpp
+        Promote1DTensors.cpp
         Quantization.cpp
         QuantDequantConversion.cpp
         Transforms.cpp

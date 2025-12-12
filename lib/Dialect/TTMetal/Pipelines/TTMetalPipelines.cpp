@@ -89,6 +89,8 @@ void createTTIRToTTMetalFrontendPipeline(
     { globalFormatOptions.targetFormat = options.globalDataFormatTarget; }
     pm.addPass(d2m::createD2MGlobalDataFormatConversion(globalFormatOptions));
   }
+  // Promote 1D tensors to 2D for D2M compatibility.
+  pm.addPass(ttir::createTTIRPromote1DTensors());
   tt::TTIRToD2MOptions toD2MOptions;
   {
     toD2MOptions.defaultInputMemSpace = options.defaultInputMemSpace;

@@ -235,4 +235,33 @@ def TTIRMultiDeviceTensorAnnotation: Pass<"ttir-multi-device-tensor-annotation",
   let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
 }
 
+def TTIRPromote1DTensors: Pass<"ttir-promote-1d-tensors", "::mlir::ModuleOp">
+{
+  let summary = "Promote 1D tensors to 2D for D2M compatibility.";
+  let description = [{
+    The D2M dialect and MetalLayoutAttr require tensors to have at least rank 2.
+    This pass promotes 1D tensors to 2D by:
+    1. Transforming function signatures (1D args/results become 2D with leading dim 1)
+    2. Inserting unsqueeze/squeeze reshapes at function boundaries
+    3. Transforming reshape ops that involve 1D tensors
+
+    Example:
+      Before:
+        func.func @reshape(%arg0: tensor<77xf32>) -> tensor<7x11xf32> {
+          %0 = "ttir.reshape"(%arg0) <{shape = [7 : i32, 11 : i32]}> : (tensor<77xf32>) -> tensor<7x11xf32>
+          return %0 : tensor<7x11xf32>
+        }
+
+      After:
+        func.func @reshape(%arg0: tensor<1x77xf32>) -> tensor<7x11xf32> {
+          %0 = "ttir.reshape"(%arg0) <{shape = [77 : i32]}> : (tensor<1x77xf32>) -> tensor<77xf32>
+          %1 = "ttir.reshape"(%0) <{shape = [1 : i32, 77 : i32]}> : (tensor<77xf32>) -> tensor<1x77xf32>
+          %2 = "ttir.reshape"(%1) <{shape = [7 : i32, 11 : i32]}> : (tensor<1x77xf32>) -> tensor<7x11xf32>
+          return %2 : tensor<7x11xf32>
+        }
+  }];
+
+  let dependentDialects = ["::mlir::func::FuncDialect", "::mlir::tt::ttir::TTIRDialect"];
+}
+
 #endif
