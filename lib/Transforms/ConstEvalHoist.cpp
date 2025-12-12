@@ -113,9 +113,9 @@ public:
   }
 
   ConstEvalAnalysisResults getAnalysisResults() {
-    llvm::DenseMap<mlir::Value, std::size_t> rootToId;
-    llvm::DenseMap<std::size_t, ConstEvalSubgraph> idToSubgraph;
-    std::size_t currentId = 0;
+    llvm::DenseMap<mlir::Value, size_t> rootToId;
+    llvm::DenseMap<size_t, ConstEvalSubgraph> idToSubgraph;
+    size_t currentId = 0;
     for (auto &block : funcOp.getBlocks()) {
       for (auto &op : block.getOperations()) {
         // Not const-eval-able op.
@@ -132,7 +132,7 @@ public:
         }
 
         // Add op to the corresponding subgraph.
-        std::size_t id = rootToId[root];
+        size_t id = rootToId[root];
         auto &subgraph = idToSubgraph[id];
         subgraph.ops.push_back(&op);
 
