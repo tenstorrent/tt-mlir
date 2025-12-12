@@ -86,6 +86,10 @@ class Builder(metaclass=BuilderMeta):
 
         self._mesh_shape = tuple(mesh_dict[0].values())
 
+        # Internal values to keep track of
+        self._root_module = None
+        self._current_func = None
+
     # ----- Class helper methods -----
 
     @classmethod
@@ -674,6 +678,7 @@ class Builder(metaclass=BuilderMeta):
         self, parsed_root_module: Module, golden_inputs: List[torch.tensor]
     ):
         new_root_module = Module.create()
+        self._root_module = new_root_module
 
         with InsertionPoint(new_root_module.body):
             for entry in parsed_root_module.body.operations:
@@ -766,6 +771,42 @@ class Builder(metaclass=BuilderMeta):
 
     # ----- Helper decorator functions ----
 
+    def call(self, nested_func: Callable, original_inputs: List[Operand], builder: Builder):
+        fn_input_types = []
+        for operand in original_inputs:
+            fn_input_types.append(operand.type)
+
+        with InsertionPoint(self._root_module.body):
+            @func.func(*fn_input_types, name=nested_func.__name__)
+            def decorated_func(*inputs):
+                input_goldens: Dict[Operand, GoldenMapTensor] = {}
+                for index, (new_operand, original_operand) in enumerate(zip(inputs, original_inputs)):
+                    input_goldens[new_operand] = self._get_golden_tensor(original_operand)
+
+                builder._set_goldens(input_goldens)
+                builder._set_input_ordering(inputs)
+
+                result = nested_func(*inputs, builder)
+
+                outputs = result if hasattr(result, "__iter__") else [result]
+                output_goldens: Dict[Operand, GoldenMapTensor] = {}
+                for op in outputs:
+                    output_goldens[op] = builder._get_golden_tensor(op)
+                builder._set_goldens(output_goldens)
+                builder._set_output_ordering(outputs)
+
+                return process_multi_return_result(result)
+
+        taps_result = func.CallOp(decorated_func.func_op, original_inputs).results[0]
+
+        for op in builder._ordered_outputs:
+            
+            self._set_golden_tensor(
+                taps_result, builder._get_golden_tensor(op)
+            )
+        
+        return taps_result
+
     def func(self, input_shapes: List[List[int]], input_types: List[torch.dtype]):
         def wrapper(fn):
             encoding_fn = self.create_tensor_encoding
@@ -799,6 +840,8 @@ class Builder(metaclass=BuilderMeta):
 
                 return process_multi_return_result(result)
 
+            self._current_func = decorated_func.func_op
+
         return wrapper
 
     def device_module(self, root_func: Callable):
@@ -807,6 +850,7 @@ class Builder(metaclass=BuilderMeta):
             region = device_module_op.regions[0]
             block = Block.create_at_start(region)
             new_module = Module.create()
+            self._root_module = new_module
 
             with InsertionPoint(new_module.body):
                 root_func(self)

@@ -140,6 +140,7 @@ def _save_golden_report(builder, golden_report, report_path):
 
 def _compile(root_func: Callable, builder: Builder, mesh_name: str = "mesh"):
     new_module = Module.create()
+    builder._root_module = new_module
 
     if isinstance(builder, StableHLOBuilder):
         new_module.body.append(builder._get_mesh())
@@ -1407,6 +1408,7 @@ def experimental_build_stablehlo_module(
 
         # Wrap everything in a mlir module.
         module = Module.create()
+        builder._root_module = module
 
         with InsertionPoint(module.body):
             # Wrap everything in a mlir function.

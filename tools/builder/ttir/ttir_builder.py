@@ -160,6 +160,122 @@ class TTIRBuilder(Builder):
 
     # ----- Public Op Generators ----
 
+    ############### ttir.ToLayoutOp ###############
+
+    @tag(ttir.ToLayoutOp)
+    def to_layout(
+        self,
+        in0: Operand,
+        output_type: [torch.dtype],
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.to_layout)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+    
+        result = self._create_ranked_tensor_type(self.get_shape(in0), mlir_output_type)
+        output = self._get_empty_op(result)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            [result],
+            in0,
+            output,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(input0, mlir_output_type)
+            self._set_golden_tensor(op.result, golden_output)
+
+        return op.result
+
+    @parse(ttir.ToLayoutOp)
+    def to_layout_parser(
+        self,
+        old_op: ttir.ToLayoutOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.to_layout_parser)
+
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+        output = global_dict[old_op.output]
+
+        new_op = ttir_op(
+            result,
+            in0,
+            output,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(input0, result.element_type)
+            self._set_golden_tensor(new_op.result, golden_output)
+        
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op.result
+        return new_op, op_map_dictionary
+
+    @split(ttir.ToLayoutOp)
+    def to_layout_split(
+        self,
+        old_op: ttir.ToLayoutOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.to_layout_split)
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+
+        with old_ctx, old_loc:
+            to_layout_module = Module.create()
+            to_layout_builder = TTIRBuilder(old_ctx, old_loc)
+            op_input_types = [old_op.input.type]
+
+            with InsertionPoint(to_layout_module.body):
+                @func.func(*op_input_types, name="to_layout_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+                    output = old_op.output
+
+                    new_op = ttir_op(
+                        result,
+                        in0,
+                        output,
+                        loc=old_op.location,
+                    )
+
+                    if not self._disable_golden_check:
+                        input0 = self._get_golden_tensor(old_op.input)
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_output = op_golden_function(input0, result.element_type)
+                        to_layout_builder._set_golden_tensor(new_op.result, golden_output)
+                        to_layout_builder._set_output_ordering([new_op.result])
+                        to_layout_builder._set_golden_tensor(in0, input0)
+                        to_layout_builder._set_input_ordering([in0])
+
+                    return new_op
+
+        return to_layout_module, to_layout_builder
+
+
+
     ############### ttir.ArangeOp ###############
 
     @tag(ttir.ArangeOp)
@@ -9901,61 +10017,6 @@ class TTIRBuilder(Builder):
                 dtype=dtype, scale=scale, zero_point=zero_point
             ),
             unit_attrs=unit_attrs,
-        )
-
-    def to_layout(
-        self,
-        in0: Operand,
-        output_type: RankedTensorType,
-        unit_attrs: Optional[List[str]] = None,
-        **kwargs,
-    ) -> OpView:
-        """
-        Creates ``ttir.to_layout``.
-
-        *Layout operation.*
-
-        ToLayout operation, transition tensors from one layout to another. Some examples include:
-        - Transitioning between different memory spaces, e.g. DRAM to L1.
-        - Transitioning between different data types, e.g. f32 to f16.
-        - Transitioning between different tile sizes, e.g. 1x16 to 32x32
-        - Transitioning between different tensor sharding
-        - Some combination of the above
-
-        .. code-block:: mlir
-
-            #layout = #ttcore.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #system>>
-            #layout1 = #ttcore.metal_layout<8192x128x1, undef, <1x1>, memref<64x128xf32, #l1_>>
-            %1 = "ttir.to_layout"(%arg0, %0) : (tensor<64x128xf32, #layout>, tensor<64x128xf32, #layout1>) -> tensor<64x128xf32, #layout1>
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor to be transformed
-        output_type : RankedTensorType
-            Target type specifying the desired layout
-        unit_attrs : *Optional[List[str]]*
-            Optional list of unit attributes
-        **kwargs : dict
-            Additional keyword arguments for layout transformation
-
-        Returns
-        -------
-        (*OpView*)
-            The tensor with transformed layout
-        """
-        return self._op_proxy(
-            ttir.ToLayoutOp,
-            [in0],
-            output_type=output_type,
-            output_create_fn=self._create_empty_from_tensor_type,
-            organize_ttir_args=lambda i, o: (
-                [self._get_type(o)],
-                i[0],
-                o,
-            ),
-            unit_attrs=unit_attrs,
-            **kwargs,
         )
 
     def tilize(
