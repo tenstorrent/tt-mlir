@@ -406,18 +406,24 @@ private:
     SmallVector<SmallVector<mlir::AffineExpr>> inputExprs(
         numInputs, SmallVector<mlir::AffineExpr>(outRank));
 
+    // Deduce output shape and build affine indexing maps for broadcasting.
+    // We iterate right-to-left (innermost to outermost) to align dimensions
+    // per NumPy semantics. Lower-rank inputs are implicitly unsqueezed with
+    // leading 1s. For each dim, we validate compatibility and mark inputs
+    // needing broadcast with constant-0 affine exprs (locked index).
     SmallVector<int64_t> deducedShape(outRank, -1);
     for (int i = -1; i >= -outRank; i--) {
       const int outDim = outRank + i;
 
-      // Gather dim sizes for all inputs (-1 for non-existent dims).
+      // Gather dim sizes for all inputs (-1 for missing dims in lower-rank
+      // tensors).
       SmallVector<int64_t> dimSizes;
       for (size_t j = 0; j < numInputs; ++j) {
         const int inputDim = inputRanks[j] + i;
         dimSizes.push_back((inputDim >= 0) ? inputShapes[j][inputDim] : -1);
       }
 
-      // Find the max dim size (excluding -1) for broadcast validation.
+      // NumPy broadcasting: dims of 1 or -1 can broadcast, others must match.
       int64_t maxDimSize = -1;
       for (int64_t dimSize : dimSizes) {
         if (dimSize != -1 && dimSize != 1) {
@@ -429,12 +435,11 @@ private:
           }
         }
       }
-      // If all dims are 1 or -1, use 1 as max.
       if (maxDimSize == -1) {
         maxDimSize = 1;
       }
 
-      // Determine which inputs need broadcast and set affine exprs.
+      // Set affine expr: constant 0 for broadcast dims, dim expr otherwise.
       for (size_t j = 0; j < numInputs; ++j) {
         const int inputDim = inputRanks[j] + i;
         const bool needsBcast =
