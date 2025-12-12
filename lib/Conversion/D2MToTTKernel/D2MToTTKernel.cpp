@@ -658,27 +658,9 @@ public:
     } else {
       rewriter.create<InitOp>(op->getLoc());
     }
-    if constexpr (std::is_same_v<SFPUOp, ttkernel::CeilTileOp> ||
-                  std::is_same_v<SFPUOp, ttkernel::FloorTileOp>) {
-      const auto elemType =
-          mlir::cast<ttcore::TileType>(op.getInput().getType())
-              .getElementType();
-      const bool isCBF32 = llvm::isa<Float32Type>(elemType);
-      if (isCBF32) {
-        if (std::is_same_v<SFPUOp, ttkernel::CeilTileOp>) {
-          rewriter.create<ttkernel::CeilTileF32Op>(op->getLoc(),
-                                                   adaptor.getInput());
-        } else {
-          rewriter.create<ttkernel::FloorTileF32Op>(op->getLoc(),
-                                                    adaptor.getInput());
-        }
-      } else {
-        rewriter.create<SFPUOp>(op->getLoc(), adaptor.getInput());
-      }
-    } else if constexpr (std::is_same_v<SFPUOp, ttkernel::AbsTileOp> ||
-                         std::is_same_v<SFPUOp,
-                                        ttkernel::LogicalNotUnaryTileOp> ||
-                         std::is_same_v<SFPUOp, ttkernel::ReluTileOp>) {
+    if constexpr (std::is_same_v<SFPUOp, ttkernel::AbsTileOp> ||
+                  std::is_same_v<SFPUOp, ttkernel::LogicalNotUnaryTileOp> ||
+                  std::is_same_v<SFPUOp, ttkernel::ReluTileOp>) {
       const auto elemType =
           mlir::cast<ttcore::TileType>(op.getInput().getType())
               .getElementType();
