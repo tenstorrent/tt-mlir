@@ -2347,13 +2347,17 @@ getReduceTypeFromRegion(Region &region) {
   for (Operation &op : block) {
     if (isa<mlir::stablehlo::AddOp>(op)) {
       return ttcore::ReduceType::Sum;
-    } else if (isa<mlir::stablehlo::MulOp>(op)) {
+    }
+    if (isa<mlir::stablehlo::MulOp>(op)) {
       return ttcore::ReduceType::Prod;
-    } else if (isa<mlir::stablehlo::MaxOp>(op)) {
+    }
+    if (isa<mlir::stablehlo::MaxOp>(op)) {
       return ttcore::ReduceType::Max;
-    } else if (isa<mlir::stablehlo::MinOp>(op)) {
+    }
+    if (isa<mlir::stablehlo::MinOp>(op)) {
       return ttcore::ReduceType::Min;
-    } else if (isa<mlir::stablehlo::ReturnOp>(op)) {
+    }
+    if (isa<mlir::stablehlo::ReturnOp>(op)) {
       return ttcore::ReduceType::Invalid;
     }
   }
