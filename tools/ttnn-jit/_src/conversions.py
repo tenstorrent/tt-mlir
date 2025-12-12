@@ -70,6 +70,8 @@ def ttcore_dtype_from_ttnn_dtype(dtype):
             return ttcore.DataType.Int32
         case "DataType.BFP_BFloat8":
             return ttcore.DataType.BFP_BFloat8
+        case "DataType.BFLOAT8_B":
+            return ttcore.DataType.BFP_BFloat8
         case _:
             raise ValueError(f"Unsupported TTNN dtype string: {dtype}")
 
@@ -135,3 +137,26 @@ def memory_layout_from_string(memory_layout_str: str):
         return ttnn.TensorMemoryLayout.WidthSharded
     else:
         return ttnn.TensorMemoryLayout.Interleaved
+
+
+def mlir_memory_layout_from_ttnn_memory_layout(memory_layout):
+    """
+    Convert TTNN memory layout string representation to TTNN TensorMemoryLayout enum.
+
+    Args:
+        memory_layout: TTNN memory layout as string (e.g., "TensorMemoryLayout.INTERLEAVED")
+
+    Returns:
+        TTNN TensorMemoryLayout enum
+    """
+    match str(memory_layout):
+        case "TensorMemoryLayout.INTERLEAVED":
+            return ttnn.TensorMemoryLayout.Interleaved
+        case "TensorMemoryLayout.HEIGHT_SHARDED":
+            return ttnn.TensorMemoryLayout.HeightSharded
+        case "TensorMemoryLayout.WIDTH_SHARDED":
+            return ttnn.TensorMemoryLayout.WidthSharded
+        case "TensorMemoryLayout.BLOCK_SHARDED":
+            return ttnn.TensorMemoryLayout.BlockSharded
+        case _:
+            raise ValueError(f"Unsupported memory layout: {memory_layout}")

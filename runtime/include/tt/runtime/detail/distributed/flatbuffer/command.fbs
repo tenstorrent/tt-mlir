@@ -149,6 +149,19 @@ table GetTensorDescCommand{
   tensor_global_id: uint64;
 }
 
+table HasLayoutCommand{
+  tensor_global_id: uint64;
+  layout_global_id: uint64;
+}
+
+table IsProgramCacheEnabledCommand{
+  device: tt.target.DeviceRef;
+}
+
+table ClearProgramCacheCommand{
+  device: tt.target.DeviceRef;
+}
+
 union CommandType {
   ConfigureRuntimeContextCommand,
   SetMemoryLogLevelCommand,
@@ -175,6 +188,9 @@ union CommandType {
   DeallocateTensorCommand,
   ShutdownCommand,
   GetTensorDescCommand,
+  HasLayoutCommand,
+  IsProgramCacheEnabledCommand,
+  ClearProgramCacheCommand,
 }
 
 table Command {

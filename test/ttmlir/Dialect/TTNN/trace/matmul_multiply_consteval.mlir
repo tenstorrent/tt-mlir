@@ -3,6 +3,9 @@
 
 module {
   // CHECK-LABEL: func.func private @matmul_with_multiply_const_eval_0
+  // Both arguments are expected to be in system memory.
+  // CHECK: "ttnn.to_device"(%arg1, %{{.*}})
+  // CHECK: "ttnn.to_device"(%arg0, %{{.*}})
   // CHECK: "ttnn.matmul"
 
   // CHECK-LABEL: func.func private @trace_0_matmul_with_multiply

@@ -103,13 +103,49 @@ module {
       %13 = linalg.generic {indexing_maps = [#map, #map, #map], iterator_types = ["parallel", "parallel"]} ins(%10, %11 : tensor<4x4x!ttype_f32>, tensor<4x4x!ttype_f32>) outs(%12 : tensor<4x4x!ttype_f32>) {
       ^bb0(%in: !ttype_f32, %in_0: !ttype_f32, %out: !ttype_f32):
         // Use an operation that doesn't support scalars (e.g., maximum)
-        // CHECK: "d2m.tile_maximum"(%{{.*}}, %{{.*}}) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>)
         // CHECK-NOT: arith.constant
+        // CHECK: "d2m.tile_maximum"(%{{.*}}, %{{.*}}) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>)
         %14 = "d2m.tile_maximum"(%in, %in_0) : (!ttype_f32, !ttype_f32) -> !ttype_f32
         linalg.yield %14 : !ttype_f32
       } -> tensor<4x4x!ttype_f32>
       d2m.yield %13 : (tensor<4x4x!ttype_f32>)
     } : tensor<1x1x4x4x!ttype_f32, #layout>
     return %3 : tensor<1x1x4x4x!ttype_f32, #layout>
+  }
+
+  // CHECK-LABEL: func.func @test_scalarize_through_cast_and_view
+  func.func @test_scalarize_through_cast_and_view(%arg0: tensor<256x256xbf16, #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x8>, memref<1x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>, exactGrid = true>>) -> tensor<256x256xbf16, #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x8>, memref<1x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>, exactGrid = true>> {
+    %0 = d2m.full {fill_value = 5.000000e-01 : f32, shape = array<i32: 256, 256>} : tensor<256x256xbf16, #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x8>, memref<1x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>, exactGrid = true>>
+    %1 = d2m.empty() : tensor<256x256xbf16, #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x8>, memref<1x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>, exactGrid = true>>
+    %cast = ttir.ttnn_metal_layout_cast %arg0 : tensor<256x256xbf16, #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x8>, memref<1x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>, exactGrid = true>> -> tensor<8x8x1x1x!ttcore.tile<32x32, bf16>, #ttcore.metal_layout<logical_shape = 256x256, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1, sharded, index_map = map(0)>>
+    %view = d2m.view_layout %cast : tensor<8x8x1x1x!ttcore.tile<32x32, bf16>, #ttcore.metal_layout<logical_shape = 256x256, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1, sharded, index_map = map(0)>> -> tensor<1x1x8x8x!ttcore.tile<32x32, bf16>, #ttcore.metal_layout<logical_shape = 256x256, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3) -> (d0 * 8 + d2, d1 * 8 + d3, 0, 0)>>
+    %cast_0 = ttir.ttnn_metal_layout_cast %0 : tensor<256x256xbf16, #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x8>, memref<1x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>, exactGrid = true>> -> tensor<8x8x1x1x!ttcore.tile<32x32, bf16>, #ttcore.metal_layout<logical_shape = 256x256, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1, sharded, index_map = map(0)>>
+    %view_0 = d2m.view_layout %cast_0 : tensor<8x8x1x1x!ttcore.tile<32x32, bf16>, #ttcore.metal_layout<logical_shape = 256x256, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1, sharded, index_map = map(0)>> -> tensor<1x1x8x8x!ttcore.tile<32x32, bf16>, #ttcore.metal_layout<logical_shape = 256x256, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3) -> (d0 * 8 + d2, d1 * 8 + d3, 0, 0)>>
+    %cast_1 = ttir.ttnn_metal_layout_cast %1 : tensor<256x256xbf16, #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x8>, memref<1x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>, exactGrid = true>> -> tensor<8x8x1x1x!ttcore.tile<32x32, bf16>, #ttcore.metal_layout<logical_shape = 256x256, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1, sharded, index_map = map(0)>>
+    %view_1 = d2m.view_layout %cast_1 : tensor<8x8x1x1x!ttcore.tile<32x32, bf16>, #ttcore.metal_layout<logical_shape = 256x256, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1, sharded, index_map = map(0)>> -> tensor<1x1x8x8x!ttcore.tile<32x32, bf16>, #ttcore.metal_layout<logical_shape = 256x256, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3) -> (d0 * 8 + d2, d1 * 8 + d3, 0, 0)>>
+    // CHECK-NOT: d2m.full
+    // CHECK: d2m.generic
+    %2 = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>], threads = [#d2m.thread<compute>]}
+        ins(%view, %view_0 : tensor<1x1x8x8x!ttcore.tile<32x32, bf16>, #ttcore.metal_layout<logical_shape = 256x256, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3) -> (d0 * 8 + d2, d1 * 8 + d3, 0, 0)>>, tensor<1x1x8x8x!ttcore.tile<32x32, bf16>, #ttcore.metal_layout<logical_shape = 256x256, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3) -> (d0 * 8 + d2, d1 * 8 + d3, 0, 0)>>)
+        outs(%view_1 : tensor<1x1x8x8x!ttcore.tile<32x32, bf16>, #ttcore.metal_layout<logical_shape = 256x256, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3) -> (d0 * 8 + d2, d1 * 8 + d3, 0, 0)>>)  {
+    // CHECK: ^compute0(%cb0: !d2m.cb<tensor<8x8x!ttcore.tile<32x32, bf16>>>, %cb1: !d2m.cb<tensor<8x8x!ttcore.tile<32x32, bf16>>>)
+    ^compute0(%cb0: !d2m.cb<tensor<8x8x!ttcore.tile<32x32, bf16>>>, %cb1: !d2m.cb<tensor<8x8x!ttcore.tile<32x32, bf16>>>, %cb2: !d2m.cb<tensor<8x8x!ttcore.tile<32x32, bf16>>>):
+      // CHECK: %[[SCALAR:.*]] = arith.constant 5.000000e-01 : f32
+      // CHECK: d2m.wait %cb0
+      // CHECK-NOT: d2m.wait
+      %3 = d2m.wait %cb0 : <tensor<8x8x!ttcore.tile<32x32, bf16>>> -> tensor<8x8x!ttcore.tile<32x32, bf16>>
+      %4 = d2m.wait %cb1 : <tensor<8x8x!ttcore.tile<32x32, bf16>>> -> tensor<8x8x!ttcore.tile<32x32, bf16>>
+      %5 = d2m.reserve %cb2 : <tensor<8x8x!ttcore.tile<32x32, bf16>>> -> tensor<8x8x!ttcore.tile<32x32, bf16>>
+      %6 = linalg.generic {indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = ["parallel", "parallel"]} ins(%3, %4 : tensor<8x8x!ttcore.tile<32x32, bf16>>, tensor<8x8x!ttcore.tile<32x32, bf16>>) outs(%5 : tensor<8x8x!ttcore.tile<32x32, bf16>>) {
+      // CHECK: ^bb0(%[[IN:.*]]: !ttcore.tile<32x32, bf16>, %out: !ttcore.tile<32x32, bf16>):
+      ^bb0(%in: !ttcore.tile<32x32, bf16>, %in_171: !ttcore.tile<32x32, bf16>, %out: !ttcore.tile<32x32, bf16>):
+        // CHECK: "d2m.tile_mul"(%[[IN]], %[[SCALAR]]) : (!ttcore.tile<32x32, bf16>, f32) -> !ttcore.tile<32x32, bf16>
+        %7 = "d2m.tile_mul"(%in, %in_171) : (!ttcore.tile<32x32, bf16>, !ttcore.tile<32x32, bf16>) -> !ttcore.tile<32x32, bf16>
+        linalg.yield %7 : !ttcore.tile<32x32, bf16>
+      } -> tensor<8x8x!ttcore.tile<32x32, bf16>>
+      d2m.yield %6 : (tensor<8x8x!ttcore.tile<32x32, bf16>>)
+    } : tensor<1x1x8x8x!ttcore.tile<32x32, bf16>, #ttcore.metal_layout<logical_shape = 256x256, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3) -> (d0 * 8 + d2, d1 * 8 + d3, 0, 0)>>
+    %cast_2 = ttir.ttnn_metal_layout_cast %2 : tensor<1x1x8x8x!ttcore.tile<32x32, bf16>, #ttcore.metal_layout<logical_shape = 256x256, dim_alignments = 32x32, collapsed_intervals = dense<[[0, -1]]> : tensor<1x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3) -> (d0 * 8 + d2, d1 * 8 + d3, 0, 0)>> -> tensor<256x256xbf16, #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x8>, memref<1x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>, exactGrid = true>>
+    return %cast_2 : tensor<256x256xbf16, #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <8x8>, memref<1x1x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<l1>>, <block_sharded>, exactGrid = true>>
   }
 }

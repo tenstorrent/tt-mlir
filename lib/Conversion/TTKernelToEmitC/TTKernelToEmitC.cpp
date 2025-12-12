@@ -894,6 +894,9 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::TypecastTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::UnaryBcastInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::UnaryBcastTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::WhereTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::WhereTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::WhereTileF32Op>,
 
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocAddrOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncReadOp>,

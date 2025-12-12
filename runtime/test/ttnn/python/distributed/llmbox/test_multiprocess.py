@@ -266,7 +266,7 @@ def test_flatbuffer_execution(request, num_loops, mesh_shape):
     launch_distributed_runtime()
 
     with DeviceContext(mesh_shape=mesh_shape_list) as device:
-        inputs_runtime_with_layout, golden = test_runner.get_inputs_and_golden(
+        inputs_runtime_with_layout, golden, _ = test_runner.get_inputs_and_golden(
             device, borrow=False
         )
         for i in range(num_loops):
@@ -332,10 +332,12 @@ def test_flatbuffer_execution_dp(request, num_loops):
         (
             inputs_runtime_with_layout_submesh1,
             golden1,
+            _,
         ) = test_runner.get_inputs_and_golden(submesh1, borrow=False)
         (
             inputs_runtime_with_layout_submesh2,
             golden2,
+            _,
         ) = test_runner.get_inputs_and_golden(submesh2, borrow=False)
 
         # Synchronous back to back execution
@@ -412,3 +414,54 @@ def test_getTensorDesc(shape, dtype):
     assert tensor_desc.physical_volume == 0
 
     shutdown_distributed_runtime()
+
+
+@pytest.mark.parametrize("enable_program_cache", [True, False])
+def test_isProgramCacheEnabled(enable_program_cache):
+    launch_distributed_runtime()
+
+    with DeviceContext(
+        mesh_shape=[1, 8], enable_program_cache=enable_program_cache
+    ) as device:
+        assert device.is_program_cache_enabled() == enable_program_cache
+        # It is currently not possible to inspect the contents of program cache from tt-mlir runtime
+        # so this test just checks that this function doesn't throw
+        device.clear_program_cache()
+
+    shutdown_distributed_runtime()
+
+
+layout_funcs = [
+    ttrt.runtime.test.get_dram_interleaved_tile_layout,
+    ttrt.runtime.test.get_dram_interleaved_row_major_layout,
+    ttrt.runtime.test.get_host_row_major_layout,
+]
+
+
+@pytest.mark.parametrize(
+    "shape,dtype",
+    [
+        ((177, 211), torch.float32),
+        ((32, 64), torch.bfloat16),
+    ],
+)
+@pytest.mark.parametrize("layout_func", layout_funcs)
+def test_hasLayout(shape, dtype, layout_func):
+    reference_torch_tensor = torch.zeros(shape, dtype=dtype)
+
+    tensor = get_runtime_tensor_from_torch(
+        reference_torch_tensor, storage=Storage.Owned
+    )
+    runtime_dtype = Binary.Program.to_data_type(dtype)
+
+    device_layout = layout_func(runtime_dtype)
+    wrong_layout_funcs = [f for f in layout_funcs if f is not layout_func]
+    wrong_layouts = [
+        wrong_layout_func(runtime_dtype) for wrong_layout_func in wrong_layout_funcs
+    ]
+
+    with DeviceContext(mesh_shape=[1, 1]) as device:
+        device_tensor = ttrt.runtime.to_layout(tensor, device, device_layout)
+        assert device_tensor.has_layout(device_layout)
+        for wrong_layout in wrong_layouts:
+            assert not device_tensor.has_layout(wrong_layout)

@@ -316,6 +316,12 @@ struct TTIRToTTNNBackendPipelineOptions
       llvm::cl::desc("Enable hoisting const-eval ops to CPU module."),
       llvm::cl::init(false)};
 
+  // Force const-eval function inputs to system memory.
+  Option<bool> enableConstEvalInputsToSystemMemory{
+      *this, "enable-const-eval-inputs-to-system-memory",
+      llvm::cl::desc("Force const-eval function inputs to system memory."),
+      llvm::cl::init(true)};
+
   Option<bool> enableTrace{*this, "enable-trace",
                            llvm::cl::desc("Enable trace optimization pass."),
                            llvm::cl::init(false)};

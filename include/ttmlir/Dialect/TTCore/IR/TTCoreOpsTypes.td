@@ -504,6 +504,9 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
       return getIndexAffineMap();
     }
 
+    // Returns true if this layout has two or more dims collapsed into a single dim
+    bool hasNonTrivialCollapsedDims(ArrayRef<int64_t> deviceShape);
+
     bool isView() { return false; }
   }];
 
