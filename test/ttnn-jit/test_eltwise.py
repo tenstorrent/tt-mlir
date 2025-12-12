@@ -234,8 +234,6 @@ def hardsigmoid(input_tensor):
 )
 @pytest.mark.parametrize("graph_capture", [True, False])
 def test_unary_op_dram(device, shape, dtype, ttnn_dtype, op, graph_capture):
-    if op in [log, ceil, floor, logical_not] and dtype == torch.float32:
-        pytest.xfail("failing allclose for some shapes for float32")
 
     max_grid = (0, 0)
     run_op_test(
@@ -291,9 +289,6 @@ def test_unary_op_dram(device, shape, dtype, ttnn_dtype, op, graph_capture):
 def test_unary_op_l1(
     device, shape, max_grid, shard_strategy, dtype, ttnn_dtype, op, graph_capture
 ):
-    if op in [log, ceil, floor, rsqrt, logical_not] and dtype == torch.float32:
-        pytest.xfail("failing allclose for some shapes for float32")
-
     if op == reciprocal and ttnn_dtype == ttnn.DataType.BFLOAT8_B:
         pytest.xfail("reciprocal not supported for bfp8")
 
@@ -586,7 +581,7 @@ def test_binary_ops(device, shape, max_grid, shard_strategy, dtype, op, graph_ca
     compile_only = False
     if op == div:
         compile_only = True
-    if op in [pow, eq, ne, gt, ge, lt, le] and dtype == torch.float32:
+    if op in [eq, ne] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes")
 
     run_op_test(
@@ -634,7 +629,7 @@ def test_binary_ops_dram(device, shape, dtype, op):
     compile_only = False
     if op == div:
         compile_only = True
-    if op in [pow, eq, ne, gt, ge, lt, le] and dtype == torch.float32:
+    if op in [eq, ne] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes")
 
     run_op_test(
