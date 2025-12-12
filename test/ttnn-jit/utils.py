@@ -179,6 +179,7 @@ def run_op_test(
     check_pcc=True,
     check_allclose=False,
     pcc_threshold=0.99,
+    math_fidelity=ttnn.MathFidelity.HiFi4,
 ):
     """
     Common test runner for JIT operations.
@@ -230,6 +231,7 @@ def run_op_test(
         debug=True,
         enable_cache=enable_cache,
         graph_capture=graph_capture,
+        math_fidelity=math_fidelity,
     )(op)
 
     output_tensor = op_jit(*inputs)

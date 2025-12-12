@@ -36,7 +36,7 @@ def run_binary(bin, input_tensors):
 
     runtime_tensors = []
     for input_tensor in input_tensors:
-        tensor = create_runtime_tensor_from_ttnn(input_tensor)
+        tensor = create_runtime_tensor_from_ttnn(input_tensor, retain=True)
         runtime_tensors.append(tensor)
 
     program_name = bin.get_program_name(0)
