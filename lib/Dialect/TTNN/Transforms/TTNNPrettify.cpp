@@ -237,7 +237,7 @@ private:
                    pyLoc.opName);
       TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "\t\tModules: {}",
                    pyLoc.modules.size());
-      for (const PyLoc::Module &module : pyLoc.modules) {
+      for ([[maybe_unused]] const PyLoc::Module &module : pyLoc.modules) {
         TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
                      "\t\t\t\tModule class: {}", module.moduleClass);
         TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
@@ -511,7 +511,7 @@ private:
     // Print all ops in queue
     TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
                  "Root ops in queue: {}", inQueue.size());
-    for (Operation *op : inQueue) {
+    for ([[maybe_unused]] Operation *op : inQueue) {
       TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "\t- {}",
                    op->getName());
     }
@@ -520,7 +520,7 @@ private:
       auto it = opToOpPyLoc.find(op);
       assert(it != opToOpPyLoc.end() && "DIDNT FIND OP IN OPTOOPPYLOC");
 
-      const OpPyLoc &opPyLoc = it->second;
+      [[maybe_unused]] const OpPyLoc &opPyLoc = it->second;
       TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "\t- {} - {} - {}",
                    opPyLoc.op->getName(), opPyLoc.distanceFromRoot,
                    opPyLoc.pyLoc.funcPath);
@@ -546,7 +546,7 @@ private:
                      "Current group: {}", currentGroup.opPyLocs.size());
         TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
                      "\tFunc path: {}", prevFuncPath);
-        for (const OpPyLoc &opPyLoc : currentGroup.opPyLocs) {
+        for ([[maybe_unused]] const OpPyLoc &opPyLoc : currentGroup.opPyLocs) {
           // Print pyloc op name and modules
           TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
                        "\t- {} (modules: {})", opPyLoc.op->getName(),
@@ -570,7 +570,7 @@ private:
             signalPassFailure();
           }
 
-          const OpPyLoc &opPyLoc = it->second;
+          [[maybe_unused]] const OpPyLoc &opPyLoc = it->second;
           TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
                        "\t\t- {} - {} - {}", opPyLoc.op->getName(),
                        opPyLoc.distanceFromRoot, opPyLoc.pyLoc.funcPath);
