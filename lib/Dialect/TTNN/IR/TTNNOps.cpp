@@ -523,7 +523,8 @@ static bool isDefinedByOp(mlir::Value value) {
   Conv2dParams params = *expectedParams;
 
   // Check if weight is from PrepareConv2dWeightsOp, LoadCachedOp, or already in
-  // prepared format Prepared weights have shape [1, 1, K*K*C_in, C_out] instead
+  // prepared format.
+  // Prepared weights have shape [1, 1, K*K*C_in, C_out] instead
   // of [C_out, C_in, K, K]
   bool isWeightPrepared =
       isDefinedByOp<mlir::tt::ttnn::PrepareConv2dWeightsOp>(getWeight()) ||

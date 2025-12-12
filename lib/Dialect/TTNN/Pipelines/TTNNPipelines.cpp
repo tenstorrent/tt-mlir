@@ -308,13 +308,22 @@ void createTTIRToTTNNBackendPipeline(
 void createPrettifyXLATorchPipeline(
     OpPassManager &pm, const PrettifyXLATorchPipelineOptions &options) {
   // Simplify locations to remove nested location information
+  //
+  // The nested locations appear for parameters, and describe original parameter
+  // names, among other info, and will be useful for naming variables in the
+  // generated code.
+  //
   pm.addPass(createTTNNSimplifyLocsForCodegen());
 
   // Prettify IR by splitting into multiple functions based on source locations
+  //
   pm.addPass(createTTNNPrettifyForCodegen());
 
-  // TODO (svuckovic): This is a temporary workaround - deallocs aren't properly
-  // modeled in prettification pass yet.
+  // TODO (svuckovic): This is a temporary workaround - deallocs aren't placed
+  // in prettification pass yet. They are often called before a tensor is last
+  // used. A good approach today is to leave deallocs in the IR and (re)move
+  // them with an LLM later, by asking it to move deallocs to after last use.
+  //
   // pm.addPass(createTTNNRemoveDeallocs());
 }
 
@@ -358,7 +367,9 @@ void createTTNNBackendToEmitPyPipeline(
 
   pm.addPass(createTTNNAdjustDeallocs());
 
-  createPrettifyXLATorchPipeline(pm, PrettifyXLATorchPipelineOptions());
+  if (options.enablePrettify) {
+    createPrettifyXLATorchPipeline(pm, PrettifyXLATorchPipelineOptions());
+  }
 
   pm.addPass(ttcore::createTTCoreUnwrapDeviceModulePass());
 
@@ -378,7 +389,7 @@ void createTTNNBackendToEmitPyPipeline(
 
   pm.addPass(createConvertTTNNToEmitPyPass());
 
-  // pm.addPass(createEmitPyNameVarsPass());
+  pm.addPass(createEmitPyNameVarsPass());
 }
 
 void createTTIRToEmitCPipeline(OpPassManager &pm,

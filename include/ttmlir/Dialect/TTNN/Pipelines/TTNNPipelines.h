@@ -447,6 +447,12 @@ struct TTNNBackendToEmitPyPipelineOptions
   Option<std::string> tensorLoadFilePrefix{
       *this, "tensor-load-file-prefix",
       llvm::cl::desc("Prefix for input tensor files"), llvm::cl::init("arg")};
+
+  Option<bool> enablePrettify{
+      *this, "enable-prettify",
+      llvm::cl::desc("Enable pipelines and passes that \"prettify\" the IR for "
+                     "code generation."),
+      llvm::cl::init(false)};
 };
 
 // TTIR to EmitC pipeline options.
