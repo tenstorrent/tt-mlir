@@ -838,7 +838,7 @@ def D2M_DMAOp : D2M_GenericRegionDatamovementOp<"dma",
 
     let arguments = (ins AnyRankedTensorOrMemRef:$src, OptionalAttr<AffineMapAttr>:$srcAffineMap, Variadic<Index>:$srcIndices,
                          AnyRankedTensorOrMemRef:$dst, OptionalAttr<AffineMapAttr>:$dstAffineMap, Variadic<Index>:$dstIndices,
-                         OptionalAttr<I64Attr>:$optNumElems, Variadic<Index>:$mcastStartIndex, Variadic<Index>:$mcastShape);
+                         OptionalAttr<I64Attr>:$optNumElems, Variadic<Index>:$mcastStartIndex, Variadic<Index>:$mcastShape, DefaultValuedAttr<BoolAttr, "false">:$isLoopback);
     let results = (outs D2M_MemTx:$result);
 
     let builders =
@@ -901,11 +901,15 @@ def D2M_DMAOp : D2M_GenericRegionDatamovementOp<"dma",
       // %tx = d2m.dma %src[%c0, %c1], %dst[%c2, %c3] core[%c4, %c5] mcast[%c6, %c7], <4>
       OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape, "size_t": $numElems),
       [{
-        build($_builder, $_state, $_builder.getType<MemTxType>(), src, nullptr, srcIndices, dst, nullptr, dstIndices, $_builder.getI64IntegerAttr(numElems), mcastStartIndex, mcastShape);
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, nullptr, srcIndices, dst, nullptr, dstIndices, $_builder.getI64IntegerAttr(numElems), mcastStartIndex, mcastShape, nullptr);
+      }]>,
+      OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape, "size_t": $numElems, "BoolAttr": $isLoopback),
+      [{
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, nullptr, srcIndices, dst, nullptr, dstIndices, $_builder.getI64IntegerAttr(numElems), mcastStartIndex, mcastShape, isLoopback);
       }]>,
     ];
 
-    let assemblyFormat = [{ $src (`<` $srcAffineMap^ `>`)? (`[` $srcIndices^ `]`)? `,` $dst (`<` $dstAffineMap^ `>`)? (`[` $dstIndices^ `]`)? (`core` `[` $mcastStartIndex^ `]` `mcast` `[` $mcastShape `]`)? (`,` `<` $optNumElems^ `>`)? attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
+    let assemblyFormat = [{ $src (`<` $srcAffineMap^ `>`)? (`[` $srcIndices^ `]`)? `,` $dst (`<` $dstAffineMap^ `>`)? (`[` $dstIndices^ `]`)? (`core` `[` $mcastStartIndex^ `]` `mcast` `[` $mcastShape `]`)? (`,` $isLoopback^)? (`,` `<` $optNumElems^ `>`)? attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
 
     let hasVerifier = 1;
 
@@ -960,7 +964,7 @@ def D2M_DMAWriteOp : D2M_GenericRegionDatamovementOp<"dma_write",
     let arguments = (ins AnyRankedTensorOrMemRef:$src, Variadic<Index>:$srcIndices,
                          AnyRankedTensorOrMemRef:$dst, Variadic<Index>:$dstIndices,
                          I64Attr:$numElems,
-                         Variadic<Index>:$mcastStartIndex, Variadic<Index>:$mcastShape);
+                         Variadic<Index>:$mcastStartIndex, Variadic<Index>:$mcastShape, DefaultValuedAttr<BoolAttr, "false">:$isLoopback);
     let results = (outs D2M_MemTx:$result);
 
     let builders =
@@ -968,13 +972,17 @@ def D2M_DMAWriteOp : D2M_GenericRegionDatamovementOp<"dma_write",
       // Unicast - multicast args are defaulted
       OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "size_t": $numElems),
       [{
-        build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), ValueRange(), ValueRange());
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), ValueRange(), ValueRange(), nullptr);
       }]>,
 
       // Multicast - multicast args must be provided
       OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape, "size_t": $numElems),
       [{
-        build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), mcastStartIndex, mcastShape);
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), mcastStartIndex, mcastShape, nullptr);
+      }]>,
+      OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape, "size_t": $numElems, "BoolAttr": $isLoopback),
+      [{
+        build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), mcastStartIndex, mcastShape, isLoopback);
       }]>,
     ];
 
@@ -1108,20 +1116,20 @@ class D2M_SemaphoreUpdateOp<string mnemonic> : D2M_GenericRegionOp<mnemonic,
     }];
 
     let arguments = (ins D2M_Semaphore:$semaphore, Index:$value,
-                         Variadic<Index>:$dstCoreIndex, Variadic<Index>:$mcastShape);
+                         Variadic<Index>:$dstCoreIndex, Variadic<Index>:$mcastShape, DefaultValuedAttr<BoolAttr, "false">:$isLoopback);
 
-    let assemblyFormat = [{ $semaphore `,` $value (`,` `core` `[` $dstCoreIndex^ `]`)? (`mcast` `[` $mcastShape^ `]`)? attr-dict }];
+    let assemblyFormat = [{ $semaphore `,` $value (`,` `core` `[` $dstCoreIndex^ `]`)? (`mcast` `[` $mcastShape^ `]`)? (`,` $isLoopback^)? attr-dict }];
 
     let builders =
     [
       OpBuilder<(ins "Value":$semaphore, "Value":$value),
       [{
-        build($_builder, $_state, semaphore, value, ValueRange(), ValueRange());
+        build($_builder, $_state, semaphore, value, ValueRange(), ValueRange(), nullptr);
       }]>,
       OpBuilder<(ins "Value":$semaphore, "Value":$value, "ValueRange":$dstCoreIndex),
       [{
-        build($_builder, $_state, semaphore, value, dstCoreIndex, ValueRange());
-      }]>,
+        build($_builder, $_state, semaphore, value, dstCoreIndex, ValueRange(), nullptr);
+      }]>
     ];
 }
 
