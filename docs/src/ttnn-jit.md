@@ -81,7 +81,7 @@ This demo is available [here](../../test/ttnn-jit/test_jit_demos.py).
 | `graph_capture` | `bool` | `True` | Selects the ttnn.jit frontend for processing a TTNN graph. Op support varies by backend. |
 | `math_fidelity` | `ttnn.MathFidelity` | `ttnn.MathFidelity.HiFi4` | Sets the math fidelity setting for the JIT graph. |
 | `debug` | `bool` | `False` | Enables debug prints during compilation and execution. |
-| `compile_only` | `bool` | `False` | Only compile runtime without execution. The resulting flatbuffer will be dumped to `generated/jit`. |
+| `compile_only` | `bool` | `False` | Only compile runtime without execution. The resulting flatbuffer and kernel source files will be dumped to `generated/jit`. |
 
 ## Current Support
 
