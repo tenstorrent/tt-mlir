@@ -328,26 +328,18 @@ def test_nested_composite_dram(device, shape, dtype):
 
 # Chain can be made arbitrarily long when using JIT (as long as the
 # instructions fit on the tensix I-SRAM) and executed as one compute
-# kernel. With a sufficiently long chain and large enough input size,
-# regular ttnn will run out of memory while ttnn.jit will not.
+# kernel.
 def long_unary_chain(input_tensor_a):
     res_0 = ttnn.abs(input_tensor_a)
     res_1 = ttnn.sin(res_0)
     res_2 = ttnn.neg(res_1)
     res_3 = ttnn.exp(res_2)
-
-    # res_4 = ttnn.abs(res_3)
-    # res_5 = ttnn.cos(res_4)
-
-    return res_3
-    # replace the above return with the code below
-    # to see shapes/grids where ttnn runs out of memory
-    # but ttnn.jit, through fusion, does not.
-
-    # res_6 = ttnn.neg(res_5)
-    # res_7 = ttnn.exp(res_6)
-    # res_8 = ttnn.neg(res_7)
-    # return res_8
+    res_4 = ttnn.abs(res_3)
+    res_5 = ttnn.cos(res_4)
+    res_6 = ttnn.neg(res_5)
+    res_7 = ttnn.exp(res_6)
+    res_8 = ttnn.neg(res_7)
+    return res_8
 
 
 @pytest.mark.parametrize(
@@ -691,16 +683,11 @@ def binary_ladder_31(
     res_0 = ttnn.add(in0, in1)
     res_1 = ttnn.subtract(res_0, in2)
     res_2 = ttnn.multiply(res_1, in3)
-
-    # TODO(mbagherbeikTT) update for DIV support
-    # change to DIV once support is added
     res_3 = ttnn.subtract(res_2, in4)
 
     res_4 = ttnn.add(in5, res_3)
     res_5 = ttnn.subtract(in6, res_4)
     res_6 = ttnn.multiply(in7, res_5)
-
-    # change to DIV once support is added
     res_7 = ttnn.subtract(in8, res_6)
 
     res_8 = ttnn.add(res_7, in9)
@@ -718,7 +705,6 @@ def binary_ladder_31(
     res_18 = ttnn.multiply(res_17, in19)
     res_19 = ttnn.multiply(in20, res_18)
 
-    # change to DIV once support is added
     res_20 = ttnn.subtract(res_19, in21)
     res_21 = ttnn.subtract(in22, res_20)
     res_22 = ttnn.subtract(res_21, in23)
