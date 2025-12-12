@@ -797,15 +797,14 @@ class Builder(metaclass=BuilderMeta):
 
                 return process_multi_return_result(result)
 
-        taps_result = func.CallOp(decorated_func.func_op, original_inputs).results[0]
+        call_op = func.CallOp(decorated_func.func_op, original_inputs)
 
-        for op in builder._ordered_outputs:
-            
+        for index, output in enumerate(builder._ordered_outputs):
             self._set_golden_tensor(
-                taps_result, builder._get_golden_tensor(op)
+                call_op.results[index], builder._get_golden_tensor(output)
             )
         
-        return taps_result
+        return call_op.results[0] if len(call_op.results) == 1 else tuple(call_op.results)
 
     def func(self, input_shapes: List[List[int]], input_types: List[torch.dtype]):
         def wrapper(fn):
