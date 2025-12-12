@@ -125,12 +125,13 @@ class CMakeBuild(build_ext):
                 "-DTTMLIR_ENABLE_TTRT=OFF",
                 "-DTTMLIR_ENABLE_OPMODEL=OFF",
                 "-DTTMLIR_ENABLE_TESTS=OFF",
+                "-DTTMLIR_ENABLE_ALCHEMIST=OFF",
             ]
             cmake_args.extend(["-S", str(source_dir)])
             print(f"Running CMake configure: {' '.join(cmake_args)}")
             subprocess.check_call(cmake_args, env=build_env)
 
-            build_cmd = ["cmake", "--build", str(build_dir), "--", "ttnn-jit"]
+            build_cmd = ["cmake", "--build", str(build_dir), "--", "ttnn-jit-deps"]
             print(f"Running CMake build: {' '.join(build_cmd)}")
             subprocess.check_call(build_cmd, env=build_env)
             print("CMake build completed successfully")
