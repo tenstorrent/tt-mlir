@@ -1930,6 +1930,37 @@ public:
 };
 } // namespace
 
+// ScatterOp
+//
+namespace {
+class ScatterOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::ScatterOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::ScatterOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::ScatterOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::ScatterOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput(), "input"),
+        emitter.emit(srcOp.getDim(), "dim"),
+        emitter.emit(srcOp.getIndex(), "index"),
+        emitter.emit(srcOp.getSource(), "src"),
+        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // Sort op conversion pattern
 //
 namespace {
@@ -3605,6 +3636,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                ReshapeOpConversionPattern,
                RepeatInterleaveOpConversionPattern,
                RepeatOpConversionPattern,
+               ScatterOpConversionPattern,
                SliceDynamicOpConversionPattern,
                SliceStaticOpConversionPattern,
                SortOpConversionPattern,
