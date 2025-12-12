@@ -7,13 +7,13 @@
 - [Getting Started](#getting-started)
 - [How to use ttnn.jit](#how-to-use-ttnnjit)
   - [JIT Flags](#jit-flags)
+- [Current Support](#current-support)
 - [How It Works](#how-it-works)
   - [Level 1: Python Decorator](#level-1-python-decorator)
   - [Level 2: D2M Compilation Pipeline](#level-2-d2m-compilation-pipeline)
   - [Level 3: Runtime Execution](#level-3-runtime-execution)
   - [JIT Caching](#jit-caching)
   - [Op Fusion](#op-fusion)
-- [Limitations & Constraints](#limitations--constraints)
 - [Debugging FAQ](#debugging-faq)
   - [AssertionError: Function ___ not supported](#assertionerror-function-___-not-supported)
   - [Failed to run pass manager](#failed-to-run-pass-manager)
@@ -50,13 +50,10 @@ def cosh(input_tensor):
   nr_term = ttnn.add(e_pos_x, e_neg_x)
   return ttnn.multiply(nr_term, 0.5)
 
-def model():
-    # Create tensors as usual
-    input_tensor = ...
-    x = ttnn.square(input_tensor)
-    y = cosh(x)     # will run the 5 TTNN ops in the cosh subgraph
-    z = ttnn.log(y)
-    return z
+def model(input_0, input_1):
+  x = cosh(input_0)
+  y = ttnn.exp(input_1)
+  return ttnn.matmul(x, y)
 ```
 
 Simply decorate with `@ttnn_jit.jit()` to JIT compile through D2M. In this example, `cosh` will be compiled into a single fused kernel.
@@ -68,30 +65,64 @@ def cosh(input_tensor):
   nr_term = ttnn.add(e_pos_x, e_neg_x)
   return ttnn.multiply(nr_term, 0.5)
 
-def model():
-    # Create tensors as usual
-    input_tensor = ...
-    x = ttnn.square(input_tensor)
-    y = cosh(x)     # invoke the JIT'ed subgraph: will run one fused cosh kernel.
-    z = ttnn.log(y)
-    return z
+def model(input_0, input_1):
+  x = cosh(input_0)
+  y = ttnn.exp(input_1)
+  return ttnn.matmul(x, y)
 ```
+
+This demo is available [here](../../test/ttnn-jit/test_jit_demos.py).
 
 ### JIT Flags
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `debug` | `bool` | `False` | Enable debug prints during compilation and execution. |
-| `compile_only` | `bool` | `False` | Only compile runtime without execution. The resulting flatbuffer will be dumped to `generated/jit`. |
-| `enable_cache` | `bool` | `False` | Turn on the JitCache for ttnn.jit (This will also turn on TTNN ProgramCache). |
-| `graph_capture` | `bool` | `True` | Use TTNN graph trace to emit MLIR from Python. Fallback to Python AST traversal when false. |
+| `enable_cache` | `bool` | `False` | Enables caching for compiled JIT graphs. |
+| `graph_capture` | `bool` | `True` | Selects the ttnn.jit frontend for processing a TTNN graph. Op support varies by backend. |
+| `math_fidelity` | `ttnn.MathFidelity` | `ttnn.MathFidelity.HiFi4` | Sets the math fidelity setting for the JIT graph. |
+| `debug` | `bool` | `False` | Enables debug prints during compilation and execution. |
+| `compile_only` | `bool` | `False` | Only compile runtime without execution. The resulting flatbuffer and kernel source files will be dumped to `generated/jit`. |
 
-## Current Limitations
-- Only select eltwise unary and binary operations.
-- Only L1 block sharded and DRAM interleaved tensors.
-- No control flow allowed.
+## Current Support
 
-See the current [test suite](../../test/ttnn-jit/) for what is guaranteed to be working.
+### Supported Operations
+The following major categories of operations are supported:
+- Unary Elementwise
+- Binary Elementwise
+- Unary Bitwise
+- Binary Bitwise
+- Matrix Multiplication: only supported in `graph_capture = False` mode
+- Reductions: only supported in `graph_capture = True` mode
+
+Not every operation is supported within the above categories.
+
+### Supported Tensor Layouts
+- Unary Elementwise and Bitwise
+  - Height, width, and block sharded tensors in L1 as well as DRAM interleaved.
+- Binary Elementwise and Bitwise
+  - Height, width, and block sharded tensors in L1 as well as DRAM interleaved.
+  - If both operands are sharded, they must have identical shard specs.
+  - The output will match the layout of the first operand.
+- Matrix Multiplication:
+  - Block sharded tensors in L1 and DRAM interleaved.
+  - The output will always be block sharded in L1. DRAM outputs are not supported.
+- Reductions:
+  - Height, width, and block sharded tensors in L1.
+  - DRAM tensors are not supported.
+
+### Supported Datatypes
+| Operation Category | Supported Datatypes |
+|------|------------|
+| Unary Elementwise | `f32`, `bf16`, `bfp8` |
+| Binary Elementwise | `f32`, `bf16`, `bfp8` |
+| Unary Bitwise | `int32` |
+| Binary Bitwise | `int32` |
+| Matrix Multiplication | `f32`, `bf16`, `bfp8` |
+| Reductions | `f32`, `bf16` |
+
+### Notes
+- The output layout of a JIT graph cannot be selected. The `memory_config` arguments on JIT ops are ignored.
+- See the current [test suite](../../test/ttnn-jit/) for what is guaranteed to be working.
 
 ## How It Works
 
@@ -101,9 +132,9 @@ The `ttnn.jit` decorator implements a three-step compilation and execution pipel
 
 When you decorate a function with `@ttnn_jit.jit()`, the decorator wraps it in a `JitFunction` object. On the first call:
 
-- The Python source code is extracted and parsed into MLIR using Python's AST module.
+- The Python source code is extracted and parsed into MLIR.
 - Each TTNN operation (eg: `ttnn.exp`, `ttnn.add`) is converted to its corresponding MLIR operation in the TTNN dialect.
-- All operations are tagged with the `ttnn.hoist_generic_via_d2m` attirbute, marking them for D2M compilation
+- All operations are tagged with the `ttnn.hoist_generic_via_d2m` attribute, marking them for D2M compilation
 
 The output of the AST should be a valid MLIR module in the TTNN dialect. The previous `cosh` [example](#how-to-use-ttnnjit) will be parsed into:
 
@@ -129,17 +160,17 @@ The resulting MLIR module is then passed to the compiler:
 - **TTNN → TTIR Conversion**: The `createConvertTTNNToTTIRPass()` lowers TTNN dialect ops to the TTIR.
 - **D2M Compilation**: The `ttir-to-ttmetal-pipeline` runs with `ttnn-mode`
   - **Generates** custom kernels with techniques such as destination fusion and loop tiling.
-  - Wraps the generated kernels in **`ttnn.generic`** operations that contains the necessary host side program setup.
+  - Wraps the generated kernels in **`ttnn.generic`** operations that contain the necessary host side program setup.
 - **Flatbuffer Serialization**: The compiled IR is serialized to a FlatBuffer binary format via `ttnnToFlatbuffer()`
   - This flatbuffer is returned to the decorator and cached as a `Binary` object.
 
 Each `ttnn.generic` op requires a `ProgramDescriptor` that contains everything needed to construct a TT-Metal `Program`.
 - Circular buffer and Semaphore config.
-- Kernel source code and runtime + compile-time argument setup.
+- Kernel source code, common runtime, and compile-time argument setup.
 
 ### Step 3: Runtime Execution
 
-The decorator leverages with same MLIR runtime as [ttrt](./ttrt.md). For our purposes, it is essentially just TTNN with additional machinery to execute the serialized `ttnn.generic` operations that wrap the custom D2M-generated kernels.
+The decorator leverages the same MLIR runtime as [ttrt](./ttrt.md). For our purposes, it is essentially just TTNN with additional machinery to execute the serialized `ttnn.generic` operations that wrap the custom D2M-generated kernels.
 
 As shown in [previously](#how-to-use-ttnnjit), interop with TTNN is seamless, allowing users to switch freely between JIT'ed and non-JIT'ed subgraphs of ttnn ops.
 
@@ -149,13 +180,13 @@ The first invocation of a JIT'ed subgraph will compile and cache the resulting f
 
 Each `JitFunction` maintains its own `JitCache`, so different JIT [configurations](#jit-flags) will have independent cache entries.
 
-Constructing a `ProgramDescriptor` from a flatbuffer at runtime is expensive. To mitigate this, `ProgramDescriptor` instances are cached in a `ProgramDescCache` owned by the flatbuffer `Binary` object. The same cache key is also stored in the `ProgramDescriptor` as a `custom_program_hash` and passed to the TTNN runtime, allowing the `ttnn.generic` to reuse for its `ProgramCache`.
+Constructing a `ProgramDescriptor` from a flatbuffer at runtime is expensive. To mitigate this, `ProgramDescriptor` instances are cached in a `ProgramDescCache` owned by the flatbuffer `Binary` object. The same cache key is also stored in the `ProgramDescriptor` as a `custom_program_hash` and passed to the TTNN runtime, allowing the `ttnn.generic` to reuse it for its `ProgramCache`.
 
 See [test_program_cache.py](../../test/ttnn-jit/test_program_cache.py) for a detailed example demonstrating cache hit/miss behavior.
 
 ### Op Fusion
 
-Fusion is a key optimization in the D2M compilation pipeline that can combine multiple D2M generic operations into a single op --> generating fewer kernels, reducing overhead, and improving performance. This feature is currently always enabled and runs under-the-hood with no additional input/guidance required from the user.
+Fusion is a key optimization in the D2M compilation pipeline that can combine multiple D2M generic operations into a single op, generating fewer kernels, reducing overhead, and improving performance. This feature is currently always enabled and runs under-the-hood with no additional input/guidance required from the user.
 
 #### At a Glance
 
@@ -498,7 +529,7 @@ This indicates the decorated TTNN op is not supported yet in the TTNN dialect. O
 
 To start, check whether the desired TTNN op is supported in the [tablegen](../../include/ttmlir/Dialect/TTNN/IR/TTNNOps.td). If not, please file an issue.
 
-Note: as mentioned in [Current Limitations](#current-limitations), only *select* unary and binary operations are supported.
+Note: as mentioned in [Current Limitations](#current-support), only *select* unary and binary operations are supported.
 
 ### `Failed to run pass manager`
 This means the [compilation pipeline](#step-2-d2m-compilation-pipeline) failed at a certain stage. The easiest way to debug is to copy the IR output from the AST traversal, and manaully run each individual pipeline:
