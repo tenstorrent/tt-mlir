@@ -153,7 +153,7 @@ jobs:
         git checkout 22354129c5a22a539e26eb4ba58411444298df8d
 
         exalens_install_script=scripts/install_debugger.sh
-        python_interpreter_location=$(which python)
+        python_interpreter_location="$(which python)3"
 
         sed -i "s|python3|$python_interpreter_location|g" $exalens_install_script
         echo "printing out exalens script"
