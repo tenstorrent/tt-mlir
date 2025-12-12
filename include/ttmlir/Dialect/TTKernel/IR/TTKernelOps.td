@@ -2652,6 +2652,62 @@ def TTKernel_MyYOp : TTKernel_Op<"my_y", [Pure]> {
     }];
 }
 
+def TTKernel_MyLogicalXOp : TTKernel_Op<"my_logical_x_", [Pure]> {
+    let summary = "MyLogicalX";
+    let description = [{
+      Lowers to the tt-metal supported my_logical_x_ global. This represents the logical X coordinate of the current core.
+    }];
+
+    let arguments = (ins);
+    let results = (outs Index:$x);
+
+    let assemblyFormat = [{
+      attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_MyLogicalYOp : TTKernel_Op<"my_logical_y_", [Pure]> {
+    let summary = "MyLogicalY";
+    let description = [{
+      Lowers to the tt-metal supported my_logical_y_ global. This represents the logical Y coordinate of the current core.
+    }];
+
+    let arguments = (ins);
+    let results = (outs Index:$y);
+
+    let assemblyFormat = [{
+      attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_ConvertLogicalXToTranslatedOp : TTKernel_Op<"experimental::convert_logical_x_to_translated"> {
+  let summary = "ConvertLogicalToTranslatedX";
+  let description = [{
+    this converts the x coordinate from the LOGICAL coordinate system to TRANSLATED
+  }];
+
+  let arguments = (ins IndexLike:$logical_x);
+  let results = (outs IndexLike:$virtual_x);
+
+  let assemblyFormat = [{
+    `(` $logical_x `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+def TTKernel_ConvertLogicalYToTranslatedOp : TTKernel_Op<"experimental::convert_logical_y_to_translated"> {
+  let summary = "ConvertLogicalToTranslatedY";
+  let description = [{
+    this converts the y coordinate from the LOGICAL coordinate system to TRANSLATED
+  }];
+
+  let arguments = (ins IndexLike:$logical_y);
+  let results = (outs IndexLike:$virtual_y);
+
+  let assemblyFormat = [{
+    `(` $logical_y `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
 //===----------------------------------------------------------------------===//
 // TTKernel Multicast NoC operations
 //===----------------------------------------------------------------------===//

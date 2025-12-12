@@ -917,6 +917,8 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteMulticastOp>,
         TTKernelToEmitCOpaqueRewriter<
             ttkernel::NocAsyncWriteMulticastLoopbackSrcOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::ConvertLogicalXToTranslatedOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::ConvertLogicalYToTranslatedOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetWritePtrOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetReadPtrOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetTileSizeOp>,
@@ -935,6 +937,10 @@ public:
         typeConverter, funcOp.getContext(), "my_x[noc_index]");
     patterns.add<TTKernelConstantRewriter<ttkernel::MyYOp>>(
         typeConverter, funcOp.getContext(), "my_y[noc_index]");
+    patterns.add<TTKernelConstantRewriter<ttkernel::MyLogicalXOp>>(
+        typeConverter, funcOp.getContext(), "get_absolute_logical_x()");
+    patterns.add<TTKernelConstantRewriter<ttkernel::MyLogicalYOp>>(
+        typeConverter, funcOp.getContext(), "get_absolute_logical_y()");
 
     patterns.add<TTKernelStoreToL1OpToEmitCOpRewriter>(typeConverter,
                                                        funcOp.getContext());
