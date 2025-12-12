@@ -117,6 +117,7 @@ MCQExecutor::MCQExecutor(
                      LOG_ASSERT(inserted);
                    },
                    [&](const MeshBuffer &meshBuffer) {
+                     fprintf(stderr, "!! Inserting meshBuffer\n");
                      auto [_, inserted] =
                          meshBuffers.try_emplace(ref->global_id(), meshBuffer);
                      LOG_ASSERT(inserted);
@@ -290,6 +291,7 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
   ZoneScopedN("EnqueueProgramCommand");
   tt_metal::Program program = tt_metal::CreateProgram();
 
+  fprintf(stderr, "-- Exec::Enqueue: Kernel[%u] CB[%u] Blocking? %d\n", command->program()->kernels()->size(), command->cbs()->size(), blockingCQ);
   for (const target::metal::KernelConfig *kernelConfig :
        *command->program()->kernels()) {
     const target::metal::KernelSource *kernelSource =
@@ -375,6 +377,8 @@ void MCQExecutor::execute(
   auto meshBuffer = meshBuffers.at(command->dst()->global_id());
   tt::runtime::ttmetal::checkHostTensorSizeMatchWithMeshBufferSize(input,
                                                                    meshBuffer);
+  fprintf(stderr, "-- Exec::IO(Write) ID %u Addr %lu Sz %lu PageSz %u nPages %u DevLocSz %lu PhysShardH %zu PhysShardW %zu\n",
+          command->dst()->global_id(), meshBuffer->address(), meshBuffer->size(), meshBuffer->page_size(), meshBuffer->num_pages(), meshBuffer->device_local_size(), meshBuffer->physical_shard_shape().height(), meshBuffer->physical_shard_shape().width());
   tt::runtime::ttmetal::writeHostTensorToMeshBuffer(mcq, input, meshBuffer,
                                                     blockingCQ);
 }
@@ -387,15 +391,21 @@ void MCQExecutor::execute(
   auto output = hostBuffers.at(command->dst()->global_id());
   tt::runtime::ttmetal::checkHostTensorSizeMatchWithMeshBufferSize(output,
                                                                    meshBuffer);
+  fprintf(stderr, "-- Exec::IO(Read) ID %u Addr %lu Sz %lu PageSz %u nPages %u DevLocSz %lu PhysShardH %zu PhysShardW %zu\n",
+          command->dst()->global_id(), meshBuffer->address(), meshBuffer->size(), meshBuffer->page_size(), meshBuffer->num_pages(), meshBuffer->device_local_size(), meshBuffer->physical_shard_shape().height(), meshBuffer->physical_shard_shape().width());
   tt::runtime::ttmetal::readHostTensorFromMeshBuffer(mcq, meshBuffer, output,
                                                      blockingCQ);
 }
 
 void MCQExecutor::execute(const target::metal::CreateBufferCommand *command) {
   ZoneScopedN("CreateBufferCommand");
+  fflush(stdout); fflush(stderr); usleep(50000); fprintf(stderr, "\n\n");
   if (meshBuffers.find(command->ref()->global_id()) == meshBuffers.end()) {
+    fprintf(stderr, "-- Exec::CreateBuffer(mesh) %u\n", command->ref()->global_id());
     meshBuffers[command->ref()->global_id()] = createMeshBufferFromBufferRef(
         meshDevice, command->ref(), deviceAddressValidator);
+  } else {
+    fprintf(stderr, "!! Exec::CreateBuffer ;)\n");
   }
 }
 
@@ -406,6 +416,8 @@ void MCQExecutor::execute(
   LOG_ASSERT(meshBufferIter != meshBuffers.end(), "Buffer not allocated");
   LOG_ASSERT(meshBufferIter->second != nullptr, "Buffer already deallocated");
   auto meshBuffer = meshBufferIter->second;
+  fprintf(stderr, "-- Exec::Dealloc: ID %u Addr %lu\n", command->ref()->global_id(), meshBuffer->address());
+  fflush(stdout); fflush(stderr); usleep(50000); fprintf(stderr, "\n");
   meshBuffer->deallocate();
   meshBuffers.erase(meshBufferIter);
 }

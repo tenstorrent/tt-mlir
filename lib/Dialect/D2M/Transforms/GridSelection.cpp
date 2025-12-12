@@ -24,6 +24,8 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Debug.h"
 
+#include <dbg.h>
+
 namespace mlir::tt::d2m {
 
 // Compute dimension alignments for a MetalLayoutAttr that align to the worker
@@ -58,6 +60,8 @@ static llvm::SmallVector<int64_t>
 computeGridAwareDimAlignments(ArrayRef<int64_t> logicalShape,
                               ArrayRef<int64_t> deviceGridShape,
                               ArrayRef<int64_t> normalizedIntervals) {
+  fprintf(stderr, "------ computeGridAwareDimAlignments: logicalShape "); dbg(logicalShape);
+  fprintf(stderr, "------ computeGridAwareDimAlignments: normalizedIntervals "); dbg(normalizedIntervals);
   constexpr std::array<int64_t, 2> tileShape =
       ttcore::TileType::getDefaultShape();
 
@@ -266,6 +270,7 @@ computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
 static llvm::SmallVector<int64_t> computePhysicalShape(
     ttcore::MetalLayoutAttr layout, mlir::RankedTensorType tensorType,
     ArrayRef<int64_t> targetSquareGridShape, OpBuilder &builder) {
+  fprintf(stderr, "---- computePhysicalShape: tensorType "); tensorType.dump();
   llvm::SmallVector<int64_t> tileShape;
   if (auto tileType =
           mlir::dyn_cast<ttcore::TileType>(tensorType.getElementType())) {
@@ -279,6 +284,7 @@ static llvm::SmallVector<int64_t> computePhysicalShape(
   llvm::SmallVector<int64_t> alignments = computeGridAwareDimAlignments(
       layout.getLogicalShape(), targetSquareGridShape,
       layout.getNormalizedIntervals());
+  fprintf(stderr, "---- computePhysicalShape: alignments "); dbg(alignments);
 
   auto tempLayout = ttcore::MetalLayoutAttr::get(
       builder.getContext(), layout.getLogicalShape(), layout.getOobVal(),
@@ -362,9 +368,11 @@ computeOptimalGrid(RankedTensorType tensorType, ArrayRef<int64_t> physicalShape,
                    ArrayRef<int64_t> targetSquareGridShape) {
   if (shouldImplementAsVirtualGrid(tensorType, physicalShape,
                                    targetSquareGridShape)) {
+    fprintf(stderr, "---- computeOptimalGrid: Virtual Grid Path\n");
     return {computeOptimalVirtualGrid(physicalShape, targetSquareGridShape),
             true};
   }
+  fprintf(stderr, "---- computeOptimalGrid: non-Virtual Grid Path\n");
   return {computeOptimalBlockShardedGrid(physicalShape, targetSquareGridShape),
           false};
 }
@@ -437,6 +445,11 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
                                  ArrayRef<int64_t> targetSquareGridShape,
                                  ArrayRef<int64_t> optimalGrid,
                                  bool isVirtualGrid, OpBuilder &builder) {
+  fprintf(stderr, "\n-- optimizeToLayoutGrid: toLayoutOp "); toLayoutOp.dump();
+  fprintf(stderr, "-- optimizeToLayoutGrid: optimalGrid "); dbg(optimalGrid);
+  if (isVirtualGrid) {
+    fprintf(stderr, "!! optimizeToLayoutGrid: isVirtualGrid\n");
+  }
   auto emptyOp = toLayoutOp.getOutput().getDefiningOp<d2m::EmptyOp>();
   if (!emptyOp) {
     return;
@@ -449,6 +462,7 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
   }
 
   auto outputType = mlir::cast<mlir::RankedTensorType>(toLayoutOp.getType(0));
+  fprintf(stderr, "-- optimizeToLayoutGrid: outputType "); outputType.dump();
   auto oldLayout =
       mlir::dyn_cast<ttcore::MetalLayoutAttr>(outputType.getEncoding());
   if (!oldLayout) {
@@ -470,6 +484,7 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
   RankedTensorType newTensorType =
       tensorWithOptimalGrid(outputType, targetGridShape, targetSquareGridShape,
                             optimalGrid, isVirtualGrid, builder);
+  fprintf(stderr, "-- optimizeToLayoutGrid: newTensorType "); newTensorType.dump();
   builder.setInsertionPoint(emptyOp);
   auto newEmptyOp =
       builder.create<d2m::EmptyOp>(emptyOp.getLoc(), newTensorType);
@@ -481,6 +496,7 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
   // Reblock it back to original shape to preserve IR correctness.
   auto viewOutputType =
       utils::reblockTensor(newTensorType, oldLayout.getGridShape(outputType));
+  fprintf(stderr, "-- optimizeToLayoutGrid: viewOutputType "); viewOutputType.dump();
   auto view = builder.create<d2m::ViewLayoutOp>(
       toLayoutOp.getLoc(), viewOutputType, newToLayoutOp.getResult(0));
 
@@ -531,6 +547,7 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
   llvm::SmallVector<EmptyUpdateInfo> emptyOpsToUpdate;
 
   for (Value operand : genericOp.getOperands()) {
+    fprintf(stderr, "\n-- analyzeOperandsAndComputeGrids: operand "); operand.dump();
     auto operandType = mlir::cast<mlir::RankedTensorType>(operand.getType());
     auto operandLayout =
         mlir::dyn_cast<ttcore::MetalLayoutAttr>(operandType.getEncoding());
@@ -542,9 +559,11 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
     // it.
     llvm::SmallVector<int64_t> physShape = computePhysicalShape(
         operandLayout, operandType, targetSquareGridShape, builder);
+    fprintf(stderr, "-- analyzeOperandsAndComputeGrids: physShape "); dbg(physShape);
 
     auto [optimalGrid, isVirtualGrid] =
         computeOptimalGrid(operandType, physShape, targetSquareGridShape);
+    fprintf(stderr, "-- analyzeOperandsAndComputeGrids: "); dbg(optimalGrid, isVirtualGrid);
 
     optimalOperandGrids.push_back(optimalGrid);
 
@@ -559,6 +578,7 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
               streamLayout.getInput().getDefiningOp<d2m::ToLayoutOp>()) {
         if (!toLayoutOp.getInput()
                  .getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
+          fprintf(stderr, "-- analyzeOperandsAndComputeGrids: found to_layout -> stream_layout input\n");
           // Compute the input's grid independently based on its own shape.
           auto inputType = mlir::cast<mlir::RankedTensorType>(
               streamLayout.getInput().getType());
@@ -569,6 +589,7 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
               inputLayout, inputType, targetSquareGridShape, builder);
           auto [inputOptimalGrid, isVirtualGrid] = computeOptimalGrid(
               inputType, inputPhysShape, targetSquareGridShape);
+          fprintf(stderr, "-- analyzeOperandsAndComputeGrids: computeOptimalGrid(streamLayout) "); dbg(inputOptimalGrid, isVirtualGrid);
 
           toLayoutsToUpdate.push_back(
               {toLayoutOp, inputOptimalGrid, isVirtualGrid});
@@ -623,6 +644,8 @@ updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
     if (!storageEmpty) {
       continue;
     }
+    fprintf(stderr, "\n-- updateStreamLayoutOps: streamLayout "); streamLayout.dump();
+    fprintf(stderr, "-- updateStreamLayoutOps: w/ optimalGrid "); dbg(optimalGrid);
 
     auto storageType =
         mlir::cast<mlir::RankedTensorType>(storageEmpty.getType());
@@ -663,6 +686,7 @@ updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
         mlir::cast<ttcore::MetalLayoutAttr>(outputStreamType.getEncoding());
     mlir::AffineMap reblockMap = ttmlir::utils::calculateReblockMap(
         outputStreamType.getShape(), newStorageShape, builder.getContext());
+    fprintf(stderr, "-- updateStreamLayoutOps: reblockMap(storage old->opt) "); reblockMap.dump();
     auto newOutputIndexMap =
         outputLayout.getIndexAffineMapOrIdentity(outputStreamType.getRank())
             .compose(reblockMap);

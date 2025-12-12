@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import pytest
 import torch
+import math
 from typing import List, Optional
 from conftest import x86_only
 from builder.base.builder_utils import Operand, Shape
@@ -340,10 +341,13 @@ def test_cpu_hoistable_reshape_op(
         ((64, 64), [0, 0], [32, 32], None),
         ((64, 64), [10, 20], [50, 60], [1, 1]),
         ((64, 64, 64), [10, 20, 30], [50, 60, 64], [2, 2, 1]),
+        ((2, 32, 32), [0, 0, 0], [1, 32, 32], None),
+        ((2, 32, 64), [0, 0, 0], [1, 32, 64], None),
+        ((2, 64, 32), [0, 0, 0], [1, 64, 32], None),
     ],
-    ids=["basic_slice", "explicit_step", "3d_slice"],
+    ids=["basic_slice", "explicit_step", "3d_slice", "3d-slice-dbg-0", "3d-slice-dbg-1", "3d-slice-dbg-2"],
 )
-@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_slice(
     shape: Shape,
     begins: List[int],
@@ -354,10 +358,25 @@ def test_slice(
     device,
 ):
     def module(builder: TTIRBuilder):
-        @builder.func([shape], [torch.float32])
+        @builder.func([shape], [torch.bfloat16])
         def slice_wrapper(
             in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
         ):
+            n_elems = math.prod(shape)
+
+            ### arange
+            # in_0 = torch.arange(n_elems, dtype=torch.bfloat16).reshape(shape)
+
+            ### custom strides
+            in_0 = torch.zeros(shape, dtype=torch.bfloat16)
+            flat_view = in_0.view(-1)
+            stride = shape[-1] * 1
+            for i in range(n_elems // stride):
+                start = i * stride
+                end = start + stride
+                flat_view[start:end] = i + 1
+
+            builder.set_goldens({in0: in_0})
             return builder.slice(in0, begins, ends, step, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(

@@ -14,6 +14,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 
 #include <cstdint>
+#include <dbg.h>
 
 namespace mlir::tt::ttmetal {
 
@@ -48,11 +49,13 @@ public:
       Builder &builder, mlir::ValueRange operands, ArrayAttr threads,
       ArrayRef<int64_t> physicalGridShape, const SymbolTable &symbolTable,
       ttmetal::MathFidelity mathFidelity) {
+    fprintf(stderr, "-- convertThreadsToKernelConfigs: physicalGridShape "); dbg(physicalGridShape);
     SmallVector<Attribute> kernelConfigs;
     uint32_t nocIndex = 0;
 
     auto coreRange = ttmetal::CoreRangeAttr::getPhysicalCoreRange(
         builder.getContext(), physicalGridShape);
+    fprintf(stderr, "-- convertThreadsToKernelConfigs: coreRange "); coreRange.dump();
 
     for (Attribute threadAttr : threads) {
       d2m::ThreadAttr thread = mlir::cast<d2m::ThreadAttr>(threadAttr);
@@ -108,8 +111,10 @@ public:
       if (auto stream = mlir::dyn_cast_if_present<d2m::StreamLayoutOp>(
               operand.getDefiningOp());
           stream) {
+        fprintf(stderr, "-- D2MGenericRewriter: add stream buffer "); stream.getInput().dump();
         buffers.push_back(stream.getInput());
         remappedBuffers.push_back(rewriter.getRemappedValue(stream.getInput()));
+        fprintf(stderr, "-- D2MGenericRewriter: add stream CB "); stream.getStorage().dump();
         cbs.push_back(stream.getStorage());
       } else if (auto view = mlir::dyn_cast_if_present<d2m::ViewLayoutOp>(
                      operand.getDefiningOp());
@@ -206,6 +211,8 @@ public:
     }
     MemRefType inputTy = mlir::cast<MemRefType>(input.getType());
     MemRefType outputTy = mlir::cast<MemRefType>(output.getType());
+    fprintf(stderr, "-- D2MToLayoutRewriter: inputTy "); inputTy.dump();
+    fprintf(stderr, "-- D2MToLayoutRewriter: outputTy "); outputTy.dump();
     ttcore::MemorySpaceAttr inputMemorySpace =
         mlir::dyn_cast_if_present<ttcore::MemorySpaceAttr>(
             inputTy.getMemorySpace());

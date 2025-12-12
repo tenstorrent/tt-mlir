@@ -26,6 +26,7 @@
 #include "llvm/Support/LogicalResult.h"
 
 #include <array>
+#include <dbg.h>
 
 namespace mlir::tt {
 
@@ -163,12 +164,15 @@ protected:
     }
 
     ttcore::MetalLayoutAttr layout;
+    fprintf(stderr, "-- createOptimalLayoutOp: collapseTensors %d\n", collapseTensors);
     if (!collapseTensors || noCollapse) {
       auto emptyIntervalType = RankedTensorType::get(
           {0, 2}, IntegerType::get(rewriter.getContext(), 64));
+      fprintf(stderr, "---- emptyIntervalType "); emptyIntervalType.dump();
 
       DenseIntElementsAttr emptyCollapseIntervals =
           DenseIntElementsAttr::get(emptyIntervalType, ArrayRef<int64_t>{});
+      fprintf(stderr, "---- emptyCollapseIntervals "); emptyCollapseIntervals.dump();
 
       // For ND uncollapsed shapes, instantiate a core virtual grid map that
       // collapses the default ND unit grid to a 2D unit grid. These mappings
@@ -1266,6 +1270,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     AffineMap deviceMap =
         projectLogicalMapToUnitDeviceSpace(rewriter, LogicalAffineMapFn(op));
+    fprintf(stderr, "-- TMRewriter: deviceMap "); deviceMap.dump();
 
     auto origInputs = adaptor.getOperands();
     auto origOutputs =
@@ -1287,8 +1292,10 @@ public:
 
     auto storage =
         rewriter.create<d2m::EmptyOp>(op.getLoc(), outputs[0].getType());
+    fprintf(stderr, "-- TMRewriter: storage "); storage.dump();
     auto view = rewriter.create<d2m::StreamLayoutOp>(
         op.getLoc(), newOutTy, inputs[0], storage.getResult());
+    fprintf(stderr, "-- TMRewriter: view_layout "); view.dump();
 
     rewriter.replaceOp(op, unLayoutResult(rewriter, view->getResult(0),
                                           op->getResult(0).getType()));
@@ -1333,6 +1340,28 @@ static AffineMap rearrangeLogicalMap(ttir::RearrangeOp op) {
   mlir::FailureOr<AffineMap> maybeMap = op.getInvPatternMap();
   assert(succeeded(maybeMap));
   return *maybeMap;
+}
+
+static AffineMap sliceLogicalMap(ttir::SliceStaticOp op) {
+  MLIRContext *ctx = op.getContext();
+  SmallVector<int32_t> begins = extractFromIntegerArrayAttr<int32_t>(op.getBegins());
+  SmallVector<int32_t> ends = extractFromIntegerArrayAttr<int32_t>(op.getEnds());
+  SmallVector<int32_t> step = extractFromIntegerArrayAttr<int32_t>(op.getStep());
+  fprintf(stderr, "-- sliceLogicalMap: begins "); dbg(begins);
+  fprintf(stderr, "-- sliceLogicalMap: ends "); dbg(ends);
+  fprintf(stderr, "-- sliceLogicalMap: step "); dbg(step);
+  assert(begins.size() == ends.size());
+  assert(begins.size() == step.size());
+  assert(begins.size() == static_cast<size_t>(op.getInput().getType().getRank()));
+  assert(begins.size() == static_cast<size_t>(op.getResult().getType().getRank()));
+
+  SmallVector<AffineExpr> exprs;
+  for (size_t d = 0; d < begins.size(); d++) {
+      exprs.push_back(getAffineDimExpr(d, ctx) * step[d] + begins[d]);
+  }
+  auto sliceMap = AffineMap::get(exprs.size(), 0, exprs, ctx);
+  fprintf(stderr, "-- sliceLogicalMap: "); sliceMap.dump();
+  return sliceMap;
 }
 
 } // namespace mlir::tt
@@ -1395,6 +1424,7 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MNamedElementwiseRewriter<ttir::TypecastOp,     d2m::TileTypecastOp>,
     // View ops.
     D2MTensorManipulationOpRewriter<ttir::RearrangeOp, rearrangeLogicalMap>,
+    D2MTensorManipulationOpRewriter<ttir::SliceStaticOp, sliceLogicalMap>,
     // Permute (handles tranpose ops, since they're canonicalized into permutes).
     D2MPermuteRewriter
   >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, ttnnMode, collapseTensors);

@@ -137,6 +137,7 @@ public:
               Operation *inputDefiningOp = toLayoutInput.getDefiningOp();
 
               if (isViewOp(inputDefiningOp)) {
+                fprintf(stderr, "-- Materializing D2H input "); inputDefiningOp->dump();
                 // Materialize the view before the device-to-host transfer.
                 builder.setInsertionPoint(toLayoutOp);
                 Value materialized = materializeView(
