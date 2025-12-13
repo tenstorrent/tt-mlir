@@ -444,7 +444,9 @@ public:
         TTNNConv2dWithActivation<ReluOp>, TTNNConv2dWithActivation<Relu6Op>,
         TTNNConv2dWithActivation<SiluOp>, TTNNConv2dWithActivation<SigmoidOp>,
         TTNNMatmulAndLinearWithActivation<MatmulOp, SigmoidOp>,
-        TTNNMatmulAndLinearWithActivation<LinearOp, SigmoidOp>>(&getContext());
+        TTNNMatmulAndLinearWithActivation<LinearOp, SigmoidOp>,
+        TTNNMatmulAndLinearWithActivation<MatmulOp, SiluOp>,
+        TTNNMatmulAndLinearWithActivation<LinearOp, SiluOp>>(&getContext());
 
 #ifdef TTMLIR_ENABLE_OPMODEL
     if (enableOpConstraints) {
