@@ -10,7 +10,10 @@
 
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
+#include "mlir/IR/Attributes.h"
 #include "stablehlo/dialect/StablehloOps.h"
+#include "llvm/ADT/StringRef.h"
+#include <shardy/dialect/sdy/ir/dialect.h>
 
 namespace mlir::tt::stablehlo {
 #define GEN_PASS_DEF_UPDATEGLOBALTOLOCALSHAPESPASS
@@ -264,25 +267,41 @@ static mlir::LogicalResult updateManualAxes(MLIRContext *context,
   return mlir::failure(result.wasInterrupted());
 }
 
-// Update all shapes in the module based on their sdy tensor sharding attribute.
+// Update all shapes in the module based on their sdy tensor sharding attribute,
+// and out_sharding attribute (for sdy CCL ops).
 static mlir::LogicalResult updateShapes(MLIRContext *context,
                                         mlir::OpBuilder &builder,
                                         mlir::sdy::MeshOp &globalMeshOp,
                                         func::FuncOp &funcOp) {
   mlir::WalkResult result = funcOp.getBody().walk([&](mlir::Operation *op) {
+    llvm::StringLiteral outShardingAttrName = "out_sharding";
     for (auto namedAttr : op->getAttrs()) {
-      if (namedAttr.getName() != mlir::sdy::TensorShardingAttr::name) {
+      if (namedAttr.getName() != mlir::sdy::TensorShardingAttr::name &&
+          namedAttr.getName() != outShardingAttrName) {
         continue;
       }
+      FailureOr<llvm::SmallVector<mlir::RankedTensorType>> newTypes;
+      llvm::SmallVector<mlir::sdy::TensorShardingAttr> tensorShardings;
 
-      // Get tensor sharding annotation for this op.
-      mlir::sdy::TensorShardingPerValueAttr tensorShardingPerValueAttr =
-          mlir::cast<mlir::sdy::TensorShardingPerValueAttr>(
-              op->getAttr(mlir::sdy::TensorShardingAttr::name));
-      llvm::ArrayRef<mlir::sdy::TensorShardingAttr> tensorShardings =
-          tensorShardingPerValueAttr.getShardings();
-      FailureOr<llvm::SmallVector<mlir::RankedTensorType>> newTypes =
-          shardy_utils::getNewResultTypes(op, globalMeshOp, tensorShardings);
+      if (namedAttr.getName() == outShardingAttrName) {
+        // For sdy CCL ops, we need to update the output shapes based on the
+        // out_sharding
+        mlir::sdy::TensorShardingAttr tensorShardingAttr =
+            mlir::cast<mlir::sdy::TensorShardingAttr>(namedAttr.getValue());
+        tensorShardings.assign({tensorShardingAttr});
+        newTypes =
+            shardy_utils::getNewResultTypes(op, globalMeshOp, tensorShardings);
+      } else {
+        // Get tensor sharding annotation for this op.
+        mlir::sdy::TensorShardingPerValueAttr tensorShardingPerValueAttr =
+            mlir::cast<mlir::sdy::TensorShardingPerValueAttr>(
+                op->getAttr(mlir::sdy::TensorShardingAttr::name));
+        tensorShardings.assign(
+            tensorShardingPerValueAttr.getShardings().begin(),
+            tensorShardingPerValueAttr.getShardings().end());
+        newTypes =
+            shardy_utils::getNewResultTypes(op, globalMeshOp, tensorShardings);
+      }
 
       if (failed(newTypes)) {
         op->emitError("Could not apply propagated tensor shardings to "
@@ -320,8 +339,6 @@ static mlir::LogicalResult updateShapes(MLIRContext *context,
   });
 
   return result.wasInterrupted() ? mlir::failure() : mlir::success();
-
-  return mlir::success();
 }
 
 // Convert all sdy ccl ops into stablehlo ccl ops.
