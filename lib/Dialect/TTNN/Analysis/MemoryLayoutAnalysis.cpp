@@ -108,8 +108,18 @@ void MemoryLayoutAnalysis::analysisImplementation() {
         l1ChainConfig.getMemReconfigEntryMap().begin(),
         l1ChainConfig.getMemReconfigEntryMap().end());
 
-    if (l1ChainConfig.spillEndToDRAM) {
+    // Handle spill location for chain output
+    switch (l1ChainConfig.spillLocation) {
+    case SpillLocation::DRAM:
       analysisResult.spillToDramOps.push_back(l1ChainConfig.getLastOp());
+      break;
+    case SpillLocation::L1Interleaved:
+      analysisResult.spillToL1InterleavedOps.push_back(
+          l1ChainConfig.getLastOp());
+      break;
+    case SpillLocation::None:
+      // No spill needed - chain output consumed directly by next chain
+      break;
     }
   }
 }
