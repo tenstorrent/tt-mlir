@@ -2940,9 +2940,7 @@ def test_reduce_scatter(
 @pytest.mark.parametrize(
     "mesh_shape, source_target_pairs",
     [
-        pytest.param(
-            (1, 2), [(0, 1)], marks=pytest.mark.xfail(reason="Fails Golden")
-        ),  # https://github.com/tenstorrent/tt-mlir/issues/4323
+        ((1, 2), [(0, 1)]),
         ((1, 2), [(0, 1), (1, 0)]),
         ((2, 4), [(0, 1), (1, 2), (2, 3), (3, 0)]),
         ((2, 4), [(0, 1), (1, 2), (2, 3), (3, 0), (4, 5), (5, 6), (6, 7), (7, 4)]),
@@ -2950,13 +2948,7 @@ def test_reduce_scatter(
         ((2, 4), [(0, 4), (1, 5), (2, 6), (3, 7), (4, 0), (5, 1), (6, 2), (7, 3)]),
         ((2, 4), [(0, 2), (1, 3), (4, 6), (5, 7), (2, 0), (3, 1), (6, 4), (7, 5)]),
         ((2, 4), [(0, 7), (1, 6), (2, 5), (3, 4), (4, 3), (5, 2), (6, 1), (7, 0)]),
-        pytest.param(
-            (2, 4),
-            [(0, 1), (2, 3), (4, 5), (6, 7)],
-            marks=pytest.mark.xfail(
-                reason="https://github.com/tenstorrent/tt-mlir/issues/4323"
-            ),
-        ),
+        ((2, 4), [(0, 1), (2, 3), (4, 5), (6, 7)]),
         ((1, 8), [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (6, 7), (7, 0)]),
         ((1, 32), [(i, (i + 1) % 32) for i in range(32)]),
         (
@@ -2998,10 +2990,6 @@ def test_collective_permute(
     request,
     device,
 ):
-    max_id = reduce(operator.mul, mesh_shape, 1)
-    if not all(pair[0] < max_id and pair[1] < max_id for pair in source_target_pairs):
-        pytest.skip("Source and target pairs are out of range")
-
     rank_in = len(test_shape)
     rank_mesh = len(mesh_shape)
 
