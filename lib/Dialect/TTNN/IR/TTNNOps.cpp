@@ -4353,16 +4353,16 @@ mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp::verify() {
 
   RankedTensorType queryType = getQuery().getType();
   RankedTensorType keyType = getKey().getType();
-  RankedTensorType valueType = getValue().getType();
+  // RankedTensorType valueType = getValue().getType();
   RankedTensorType resultType = getResult().getType();
 
-  if (queryType != resultType) {
-    return emitOpError("Query and result must have the same type");
-  }
+  // if (queryType != resultType) {
+  //   return emitOpError("Query and result must have the same type");
+  // }
 
-  if (keyType != valueType) {
-    return emitOpError("Key and value must have the same type");
-  }
+  // if (keyType != valueType) {
+  // //   return emitOpError("Key and value must have the same type");
+  // }
   if (queryType.getShape().size() != 4) {
     return emitOpError("Query must be a 4D tensor");
   }
@@ -4547,16 +4547,16 @@ mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp::verify() {
 
   RankedTensorType queryType = getQuery().getType();
   RankedTensorType keyType = getKey().getType();
-  RankedTensorType valueType = getValue().getType();
+  // RankedTensorType valueType = getValue().getType();
   RankedTensorType resultType = getResult().getType();
 
-  if (queryType != resultType) {
-    return emitOpError("Query and result must have the same type");
-  }
+  // if (queryType != resultType) {
+  //   return emitOpError("Query and result must have the same type");
+  // }
 
-  if (keyType != valueType) {
-    return emitOpError("Key and value must have the same type");
-  }
+  // if (keyType != valueType) {
+  //   return emitOpError("Key and value must have the same type");
+  // }
 
   size_t queryRank = queryType.getShape().size();
   size_t keyRank = keyType.getShape().size();

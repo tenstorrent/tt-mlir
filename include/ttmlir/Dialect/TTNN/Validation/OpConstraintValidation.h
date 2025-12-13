@@ -84,6 +84,11 @@ struct ValidationResult {
 // op: Operation to validate.
 // inputLayouts: Input tensor layouts for the operation.
 // config: Operation configuration to test.
+// additionalL1Usage: Additional L1 memory usage (in bytes) that must be
+//                    accounted for during validation. This is used when
+//                    validating ops that execute while other tensors occupy L1
+//                    (e.g., during chain merging where Chain A's output stays
+//                    in L1 while Chain B executes).
 // Returns: ValidationResult where status indicates the outcome:
 //   - status == Success: Operation validated successfully
 //   - status == NotSupported: Operation not supported for validation (expected
@@ -94,7 +99,8 @@ struct ValidationResult {
 // "NotSupported" is not an error - it indicates expected limitations.
 ValidationResult validateOperation(Operation *op,
                                    llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
-                                   const OpConfig &config);
+                                   const OpConfig &config,
+                                   uint64_t additionalL1Usage = 0);
 
 // Test multiple attributes with all layouts.
 // op: Operation to validate.

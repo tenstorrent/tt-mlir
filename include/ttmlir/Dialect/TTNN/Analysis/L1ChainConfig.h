@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/Support/Logger.h"
 
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/Support/raw_ostream.h"
@@ -109,8 +110,7 @@ inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
   os << "\n\tState: " << config.getStateString();
   for (const auto &opL1MemSpec : config.getOpL1MemSpecs()) {
     os << "\n\t";
-    opL1MemSpec.op->print(os);
-    os << "@ loc: " << utils::getOpLocName(opL1MemSpec.op);
+    os << ttmlir::opToString(opL1MemSpec.op);
     os << "\n\t\t outputLayout: " << opL1MemSpec.config.outputLayout;
   }
   return os;

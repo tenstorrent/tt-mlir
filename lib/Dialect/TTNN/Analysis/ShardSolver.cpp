@@ -490,6 +490,15 @@ bool ShardSolver::insertReshard(const Edge &edge) {
 
   const std::vector<OpConfig> &consumerConfigs = getLegalConfigs(consumerOp);
 
+  TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+               "insertReshard: consumerConfigs for {} (count: {})",
+               consumerOp->getName(), consumerConfigs.size());
+  for (size_t i = 0; i < consumerConfigs.size(); ++i) {
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                 "  consumerConfig[{}]: {}", i,
+                 consumerConfigs[i].outputLayout);
+  }
+
   auto inputTensor = mlir::cast<RankedTensorType>(
       consumerOp->getOperand(edge.operandIndex).getType());
 
