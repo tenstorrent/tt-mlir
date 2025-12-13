@@ -516,6 +516,11 @@ getConv2dConfig(const std::optional<Conv2dConfigAttr> &conv2dConfig) {
         conv2dConfig->getEnableKernelStrideFolding().getValue();
   }
 
+  if (conv2dConfig->getConfigTensorsInDram()) {
+    config.config_tensors_in_dram =
+        conv2dConfig->getConfigTensorsInDram().getValue();
+  }
+
   return config;
 }
 

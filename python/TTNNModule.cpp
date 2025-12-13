@@ -206,7 +206,7 @@ void populateTTNNModule(nb::module_ &m) {
              tt::ttnn::CoreRangeSetAttr coreGrid, BoolAttr transposeShards,
              std::optional<tt::ttnn::Layout> outputLayout,
              BoolAttr enableActDoubleBuffer, BoolAttr enableWeightsDoubleBuffer,
-             BoolAttr enableKernelStrideFolding) {
+             BoolAttr enableKernelStrideFolding, BoolAttr configTensorsInDram) {
             MLIRContext *context = unwrap(ctx);
 
             return wrap(tt::ttnn::Conv2dConfigAttr::get(
@@ -214,7 +214,8 @@ void populateTTNNModule(nb::module_ &m) {
                 reallocateHaloOutput, actBlockHOverride, actBlockWDiv,
                 reshardIfNotOptimal, overrideShardingConfig, shardLayout,
                 coreGrid, transposeShards, outputLayout, enableActDoubleBuffer,
-                enableWeightsDoubleBuffer, enableKernelStrideFolding));
+                enableWeightsDoubleBuffer, enableKernelStrideFolding,
+                configTensorsInDram));
           })
       .def_prop_ro("weights_dtype_as_int",
                    [](tt::ttnn::Conv2dConfigAttr self)

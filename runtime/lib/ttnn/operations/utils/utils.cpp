@@ -299,6 +299,10 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
         *config->enable_kernel_stride_folding();
   }
 
+  if (config->config_tensors_in_dram()) {
+    conv2dConfig.config_tensors_in_dram = *config->config_tensors_in_dram();
+  }
+
   return conv2dConfig;
 }
 

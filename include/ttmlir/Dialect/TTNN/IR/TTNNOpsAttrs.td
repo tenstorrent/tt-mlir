@@ -548,7 +548,8 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
                         OptionalParameter<"std::optional<Layout>">:$output_layout,
                         OptionalParameter<"BoolAttr">:$enable_act_double_buffer,
                         OptionalParameter<"BoolAttr">:$enable_weights_double_buffer,
-                        OptionalParameter<"BoolAttr">:$enable_kernel_stride_folding);
+                        OptionalParameter<"BoolAttr">:$enable_kernel_stride_folding,
+                        OptionalParameter<"BoolAttr">:$config_tensors_in_dram);
 
   let builders = [
     AttrBuilder<(ins )>
@@ -572,6 +573,7 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
     Conv2dConfigAttr withEnableActDoubleBuffer(bool value) const;
     Conv2dConfigAttr withEnableWeightsDoubleBuffer(bool value) const;
     Conv2dConfigAttr withEnableKernelStrideFolding(bool value) const;
+    Conv2dConfigAttr withConfigTensorsInDram(bool value) const;
     bool hasActivation() const;
     bool hasWeightsDtype() const;
     bool hasDeallocateActivation() const;
@@ -589,6 +591,7 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
     bool hasEnableActDoubleBuffer() const;
     bool hasEnableWeightsDoubleBuffer() const;
     bool hasEnableKernelStrideFolding() const;
+    bool hasConfigTensorsInDram() const;
   }];
 
   let assemblyFormat = "`<` struct(params) `>`";
