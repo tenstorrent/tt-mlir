@@ -139,7 +139,7 @@ struct TTIRToTTIRDecompositionPass
 
     RewritePatternSet patterns(&getContext());
     populateTTIRToTTIRDecompositionPatterns(&getContext(), patterns,
-                                            typeConverter);
+                                            typeConverter, decompConfig);
 
     // Apply partial conversion
     //
