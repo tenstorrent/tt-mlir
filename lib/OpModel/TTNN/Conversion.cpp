@@ -706,6 +706,29 @@ getSDPAProgramConfig(
   return sdpaConfig;
 }
 
+std::optional<std::string> getScatterReductionType(
+    const std::optional<ttcore::ReduceTypeAttr> &reduceTypeAttr) {
+  assert(reduceTypeAttr && *reduceTypeAttr &&
+         "reduceTypeAttr doesn't contain value");
+  switch (reduceTypeAttr.value().getValue()) {
+  case ttcore::ReduceType::Sum:
+    return "add";
+  case ttcore::ReduceType::Max:
+    return "amax";
+  case ttcore::ReduceType::Min:
+    return "amin";
+  case ttcore::ReduceType::Prod:
+    return "multiply";
+  case ttcore::ReduceType::Invalid:
+    return std::nullopt;
+  case ttcore::ReduceType::Mean:
+  case ttcore::ReduceType::Std:
+  case ttcore::ReduceType::Var:
+    // These reduction types are not supported by scatter operation
+    llvm_unreachable("Unsupported reduction type");
+  }
+}
+
 } // namespace conversion
 } // namespace mlir::tt::ttnn::op_model
 #endif // TTMLIR_ENABLE_OPMODEL
