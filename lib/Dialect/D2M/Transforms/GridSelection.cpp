@@ -880,7 +880,7 @@ computeTTNNGenericGridShapes(GenericOp genericOp,
       auto metalTensorType =
           mlir::cast<mlir::RankedTensorType>(operand.getType());
       auto baseMetalLayout =
-          mlir::cast<ttcore::MetalLayoutAttr>(metalTensor.getEncoding());
+          mlir::cast<ttcore::MetalLayoutAttr>(metalTensorType.getEncoding());
       auto constrainedDims = getConstrainedDims(operandIdx);
 
       // Compute constrained target grid shape as min of targetSquareGridShape
@@ -897,10 +897,11 @@ computeTTNNGenericGridShapes(GenericOp genericOp,
         }
       }
 
-      auto physicalShape = computePhysicalShape(
-          baseMetalLayout, metalTensor, constrainedTargetGridShape, builder);
+      auto physicalShape =
+          computePhysicalShape(baseMetalLayout, metalTensorType,
+                               constrainedTargetGridShape, builder);
       optimalOperandGrids[operandIdx] =
-          computeOptimalGrid(metalTensor, physicalShape,
+          computeOptimalGrid(metalTensorType, physicalShape,
                              constrainedTargetGridShape)
               .first;
     }
