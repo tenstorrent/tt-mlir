@@ -138,9 +138,9 @@ def _save_golden_report(builder, golden_report, report_path):
         json.dump(report, f, indent=2)
 
 
-def _compile(root_func: Callable, builder: Builder, mesh_name: str = "mesh"):
+def _compile(root_func: Callable, builder: Builder):
     new_module = Module.create()
-    builder._root_module = new_module
+    builder._root_module_insertion_point = new_module
 
     if isinstance(builder, StableHLOBuilder):
         new_module.body.append(builder._get_mesh())
@@ -185,7 +185,7 @@ def build_module(
     mlir_suffix = "_" + builder_type + ".mlir"
 
     with ctx, loc:
-        new_module = _compile(mod, builder, mesh_name)
+        new_module = _compile(mod, builder)
 
         print(f"`{mod.__name__}` successfully transformed into a MLIR module.")
         base = mod.__name__ if base is None else base
@@ -1408,7 +1408,7 @@ def experimental_build_stablehlo_module(
 
         # Wrap everything in a mlir module.
         module = Module.create()
-        builder._root_module = module
+        builder._root_module_insertion_point = module.body
 
         with InsertionPoint(module.body):
             # Wrap everything in a mlir function.
