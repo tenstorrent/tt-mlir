@@ -160,6 +160,8 @@ jobs:
         echo "printing out exalens script"
         cat $exalens_install_script
 
+        apt install clang-tidy
+
         PATH="/usr/bin:$PATH" $exalens_install_script
 
         pip install -r tools/triage/requirements.txt
