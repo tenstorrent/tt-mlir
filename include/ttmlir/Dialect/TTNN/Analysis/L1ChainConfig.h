@@ -101,7 +101,20 @@ public:
     return opL1MemSpecs.back().op;
   }
 
+  void fail() { state = L1ChainState::Failed; }
+
   bool spillEndToDRAM = false;
+
+  // True if this chain contains only a ConcatOp and requires special handling.
+  // Concat chains are resolved separately without ShardSolver, by validating
+  // that all incoming L1-sharded inputs can be consumed directly.
+  bool isConcatChain = false;
+
+  // Preferred memory layout for the last op's output when this chain feeds
+  // into an op with sharding constraints (e.g., concat). Set by pre-pass
+  // after chain building, used by pickOpShardConfigs to prefer compatible
+  // layouts.
+  std::optional<TensorMemoryLayout> preferredOutputMemLayout = std::nullopt;
 };
 
 inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
