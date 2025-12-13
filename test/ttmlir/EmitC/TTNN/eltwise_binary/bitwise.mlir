@@ -4,19 +4,16 @@
 // RUN: ttmlir-translate --mlir-to-cpp -o %basename_t.cpp %t2.mlir
 
   func.func @bitwise_and(%arg0: tensor<64x128xi32>, %arg1: tensor<64x128xi32>) -> tensor<64x128xi32> {
-    %0 = ttir.empty() : tensor<64x128xi32>
-    %1 = "ttir.bitwise_and"(%arg0, %arg1, %0) : (tensor<64x128xi32>, tensor<64x128xi32>, tensor<64x128xi32>) -> tensor<64x128xi32>
+    %1 = "ttir.bitwise_and"(%arg0, %arg1) : (tensor<64x128xi32>, tensor<64x128xi32>) -> tensor<64x128xi32>
     return %1 : tensor<64x128xi32>
   }
 
   func.func @bitwise_or(%arg0: tensor<64x128xi32>, %arg1: tensor<64x128xi32>) -> tensor<64x128xi32> {
-    %0 = ttir.empty() : tensor<64x128xi32>
-    %1 = "ttir.bitwise_or"(%arg0, %arg1, %0) : (tensor<64x128xi32>, tensor<64x128xi32>, tensor<64x128xi32>) -> tensor<64x128xi32>
+    %1 = "ttir.bitwise_or"(%arg0, %arg1) : (tensor<64x128xi32>, tensor<64x128xi32>) -> tensor<64x128xi32>
     return %1 : tensor<64x128xi32>
   }
 
   func.func @bitwise_xor(%arg0: tensor<64x128xi32>, %arg1: tensor<64x128xi32>) -> tensor<64x128xi32> {
-    %0 = ttir.empty() : tensor<64x128xi32>
-    %1 = "ttir.bitwise_xor"(%arg0, %arg1, %0) : (tensor<64x128xi32>, tensor<64x128xi32>, tensor<64x128xi32>) -> tensor<64x128xi32>
+    %1 = "ttir.bitwise_xor"(%arg0, %arg1) : (tensor<64x128xi32>, tensor<64x128xi32>) -> tensor<64x128xi32>
     return %1 : tensor<64x128xi32>
   }

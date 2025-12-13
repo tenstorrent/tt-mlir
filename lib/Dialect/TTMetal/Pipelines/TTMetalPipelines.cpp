@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTKernel/Transforms/Passes.h"
+#include "ttmlir/Transforms/Passes.h"
 
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Dialect/Affine/Passes.h"
@@ -96,11 +97,13 @@ void createTTIRToTTMetalFrontendPipeline(
     toD2MOptions.collapseTensorsTo2D = options.collapseTensors;
   }
   pm.addPass(tt::createTTIRToD2MPass(toD2MOptions));
+  pm.addPass(d2m::createD2MScalarizeConstTensors());
   d2m::D2MGridSelectionOptions gridOptOptions;
   {
     gridOptOptions.overrideDeviceShape =
         llvm::to_vector(options.overrideDeviceShape);
   }
+  pm.addPass(d2m::createD2MMaterializeViewReturns());
   pm.addPass(d2m::createD2MGridSelection(gridOptOptions));
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(d2m::createD2MLowerToLayout());
@@ -150,6 +153,17 @@ void createTTIRToTTMetalMiddleendPipeline(
     linalgToAffineOptions.markRootLoops = true;
   }
   pm.addPass(d2m::createD2MLinalgToAffine(linalgToAffineOptions));
+
+  d2m::D2MOpSchedulerOptions opSchedulerOptions;
+  {
+    // TODO(mbagherbeikTT)
+    // Has to be hard enabled for now until DST allocation is made fully
+    // consistent with elementwise fusion
+    opSchedulerOptions.enableOpScheduler = true; /* options.enableOpScheduler */
+    ;
+  }
+  pm.addPass(d2m::createD2MOpScheduler(opSchedulerOptions));
+
   d2m::D2MInsertDstRegisterAccessOptions insertDstRegisterAccessOptions;
   {
     insertDstRegisterAccessOptions.useTileMatmul = options.useTileMatmul;
@@ -186,8 +200,9 @@ void createTTIRToTTMetalBackendPipeline(
   pm.addPass(ttkernel::createTTKernelControlDstSection());
   createOptimizationPasses(pm, options);
   if (options.ttnnMode) {
-    // TODO(#5075): set MathFidelity of ttnn generic op.
-    pm.addPass(tt::createConvertD2MToTTNNPass());
+    d2m::ConvertD2MToTTNNOptions d2mToTTNNOptions;
+    { d2mToTTNNOptions.mathFidelity = options.mathFidelity; }
+    pm.addPass(tt::createConvertD2MToTTNNPass(d2mToTTNNOptions));
   } else {
     d2m::ConvertD2MToTTMetalOptions d2mToTTMetalOptions;
     { d2mToTTMetalOptions.mathFidelity = options.mathFidelity; }
@@ -208,19 +223,26 @@ void createTTIRToTTMetalPipeline(OpPassManager &pm,
                                  const TTIRToTTMetalPipelineOptions &options) {
   // Create DeviceModule to wrap all ops.
   pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
-  // Create CPUModuleOp to wrap hoisted ops (if any).
-  pm.addPass(ttir::createTTIRHoistTransform());
 
-  // Run regular ttir to ttmetal pipelines on IR in DeviceModule.
+  // Hoist manually-tagged ops to CPU module.
+  pm.addPass(ttir::createCPUHoistManuallyTaggedOpsTransform());
+
   OpPassManager &devicePm =
       pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
+
+  // Enable DPS semantics in CPU-hoisted functions in DeviceModule.
+  devicePm.addPass(transforms::createConvertCPUHoistedFunctionsToDPS());
+
+  // Run regular ttir to ttmetal pipelines on IR in DeviceModule.
   createTTIRToTTMetalFrontendPipeline(devicePm, options);
   createTTIRToTTMetalMiddleendPipeline(devicePm, options);
   createTTIRToTTMetalBackendPipeline(devicePm, options);
 
   // Run lowering to LLVM pass on hoisted funcs in CPUModule.
+  auto &cpuPm = pm.nest<ttcore::CPUModuleOp>().nest<mlir::ModuleOp>();
+
   ttir::LinalgToLLVMPipelineOptions linalgToLLVMOptions;
-  ttir::createTTIRToCPUPipeline(pm, linalgToLLVMOptions);
+  ttir::createTTIRToCPUPipeline(cpuPm, linalgToLLVMOptions);
 }
 
 //===----------------------------------------------------------------------===//

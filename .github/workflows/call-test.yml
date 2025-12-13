@@ -16,6 +16,10 @@ on:
         required: false
         type: number
         default: 60
+    outputs:
+      failed-test-summary:
+        description: 'Failed test summary'
+        value: ${{ jobs.test-summary.outputs.failed-test-summary }}
 
 permissions:
   checks: write
@@ -91,7 +95,7 @@ jobs:
       run: |
         source env/activate
         pip show ttrt && pip uninstall -y ttrt
-        pip install ttrt-${{ env.version }}*.whl --upgrade
+        pip install ttrt*.whl --upgrade
 
     - name: Download Build Artifacts
       uses: tenstorrent/tt-forge/.github/actions/download-artifact@main
@@ -110,6 +114,23 @@ jobs:
         else
           ttrt query --save-artifacts
         fi
+
+    - name: Run Lit Tests
+      shell: bash
+      run: |
+        echo "Running lit tests..."
+        source env/activate
+        export TT_METAL_RUNTIME_ROOT="${{ steps.strings.outputs.install-output-dir }}/tt-metal"
+        export TT_METAL_HOME="$WORK_DIR/third_party/tt-metal/src/tt-metal"
+        export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
+        export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
+        ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
+        rm -rf test_reports || true
+        mkdir -p test_reports
+        rm -rf ttrt_results || true
+        mkdir -p ttrt_results
+        llvm-lit --filter-out="optimizer" --xunit-xml-output ${{ steps.strings.outputs.work-dir }}/test_reports/report_lit_${{matrix.build.runs-on}}_${{ matrix.build.image }}_${{strategy.job-index}}_${{steps.fetch-job-id.outputs.job_id}}.xml \
+          ${{ steps.strings.outputs.build-output-dir }}/test
 
     - name: Run Tests
       shell: bash
@@ -132,22 +153,12 @@ jobs:
         export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
         export SYSTEM_DESC_PATH="${GITHUB_WORKSPACE}/ttrt-artifacts/system_desc.ttsys"
         export TT_METAL_RUNTIME_ROOT="${{ steps.strings.outputs.install-output-dir }}/tt-metal"
+        export TT_METAL_HOME="$WORK_DIR/third_party/tt-metal/src/tt-metal"
         export RUNS_ON="${{ matrix.build.runs-on }}"
         export IMAGE_NAME="${{ matrix.build.image }}"
         export RUN_ID="${{ github.run_id }}"
         export PATH="$WORK_DIR/.github/test_scripts:$PATH"
-        ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
-        rm -rf test_reports || true
-        mkdir -p test_reports
-        rm -rf ttrt_results || true
-        mkdir -p ttrt_results
 
-        echo "Running lit tests..."
-        llvm-lit --filter-out="optimizer" --xunit-xml-output ${{ steps.strings.outputs.work-dir }}/test_reports/report_${{matrix.build.runs-on}}_${{ matrix.build.image }}_${{strategy.job-index}}_${{steps.fetch-job-id.outputs.job_id}}.xml \
-          ${{ steps.strings.outputs.build-output-dir }}/test
-
-        echo
-        echo
         echo "Running tests on ${{ matrix.build.runs-on }} with image ${{ matrix.build.image }}"
         cat << 'EOF' > _test_to_run.json
           ${{ toJson(matrix.build.tests) }}
@@ -161,9 +172,11 @@ jobs:
       id: run-tests
       shell: bash
       run: |
-        summary_content=$(cat _test_summary | tr '\n' '\r' | sed 's/\r/<br \/>/g')
-        echo "summary=$summary_content" >> $GITHUB_OUTPUT
-        mv _test_summary ${{ steps.strings.outputs.work-dir }}/test_reports/summary_${{ matrix.build.runs-on }}_${{ matrix.build.image }}_${{ strategy.job-index }}_${{ steps.fetch-job-id.outputs.job_id }}.md
+        if [ -f "_test_summary" ]; then
+          summary_content=$(cat _test_summary | tr '\n' '\r' | sed 's/\r/<br \/>/g')
+          echo "summary=$summary_content" >> $GITHUB_OUTPUT
+          mv _test_summary ${{ steps.strings.outputs.work-dir }}/test_reports/summary_${{ matrix.build.runs-on }}_${{ matrix.build.image }}_${{ strategy.job-index }}_${{ steps.fetch-job-id.outputs.job_id }}.md
+        fi
 
     - name: Upload Test Durations
       if: success()
@@ -204,9 +217,12 @@ jobs:
     runs-on: ubuntu-latest
     needs: run-tests
     if: success() || failure()
+    outputs:
+      failed-test-summary: ${{ steps.test-summary.outputs.failed-test-summary }}
     steps:
       - uses: actions/checkout@v4
       - name: Process test summary
+        id: test-summary
         continue-on-error: true
         shell: bash
         env:
@@ -214,6 +230,7 @@ jobs:
         run: |
           .github/scripts/bash/get_test_summary.sh ${{ github.run_id }} true
           cat _summary.md >> $GITHUB_STEP_SUMMARY
+          echo "failed-test-summary=$(cat _failed_summary.md | jq -Rs .)" >> $GITHUB_OUTPUT
           find test_reports -name "report_*.xml" -type f -exec mv {} test_reports/ \;
 
       - name: Show consolidated test report

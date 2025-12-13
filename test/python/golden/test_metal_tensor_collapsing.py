@@ -21,66 +21,87 @@ import pytest
 import torch
 from typing import List
 
-from builder.base.builder import Operand, Shape
+from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import compile_and_execute_ttir
+from builder.base.builder_apis import compile_and_execute_ttir
 from test_utils import shape_str, Marks
 
 pytestmark = pytest.mark.frontend("ttir")
 
 
-def elementwise_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
-    """Element-wise addition operation."""
-    return builder.add(in0, in1)
+def module_elementwise_add_3d_add(builder: TTIRBuilder):
+    @builder.func([(3, 32, 64), (3, 32, 64)], [torch.float32, torch.float32])
+    def elementwise_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
+        """Element-wise addition operation."""
+        return builder.add(in0, in1)
 
 
-def batch_matmul(in0: Operand, in1: Operand, builder: TTIRBuilder):
-    """Batch matrix multiplication operation."""
-    return builder.matmul(in0, in1)
+def module_elementwise_add_4d_add(builder: TTIRBuilder):
+    @builder.func([(2, 3, 64, 32), (2, 3, 64, 32)], [torch.float32, torch.float32])
+    def elementwise_add(in0: Operand, in1: Operand, builder: TTIRBuilder):
+        """Element-wise addition operation."""
+        return builder.add(in0, in1)
 
 
-def elementwise_multiply(in0: Operand, in1: Operand, builder: TTIRBuilder):
-    """Element-wise multiplication operation."""
-    return builder.multiply(in0, in1)
+def module_batch_matmul(builder: TTIRBuilder):
+    @builder.func([(2, 32, 64), (2, 64, 32)], [torch.float32, torch.float32])
+    def batch_matmul(in0: Operand, in1: Operand, builder: TTIRBuilder):
+        """Batch matrix multiplication operation."""
+        return builder.matmul(in0, in1)
 
 
-def unary_exp(in0: Operand, builder: TTIRBuilder):
-    """Unary exponential operation."""
-    return builder.exp(in0)
+def module_elementwise_multiply_3d_multiply(builder: TTIRBuilder):
+    @builder.func([(3, 32, 64), (3, 32, 64)], [torch.float32, torch.float32])
+    def elementwise_multiply(in0: Operand, in1: Operand, builder: TTIRBuilder):
+        """Element-wise multiplication operation."""
+        return builder.multiply(in0, in1)
 
 
-def transpose_inner_dims(in0: Operand, builder: TTIRBuilder):
-    """Transpose operation on inner dimensions (last two dims)."""
-    return builder.transpose(in0, 1, 2)
+def module_unary_exp_2d_exp(builder: TTIRBuilder):
+    @builder.func([(3, 32, 64)], [torch.float32])
+    def unary_exp(in0: Operand, builder: TTIRBuilder):
+        """Unary exponential operation."""
+        return builder.exp(in0)
+
+
+def module_unary_exp_4d_exp(builder: TTIRBuilder):
+    @builder.func([(1, 2, 32, 32)], [torch.float32])
+    def unary_exp(in0: Operand, builder: TTIRBuilder):
+        """Unary exponential operation."""
+        return builder.exp(in0)
+
+
+def module_transpose_inner_dims(builder: TTIRBuilder):
+    @builder.func([(3, 32, 64)], [torch.float32])
+    def transpose_inner_dims(in0: Operand, builder: TTIRBuilder):
+        """Transpose operation on inner dimensions (last two dims)."""
+        return builder.transpose(in0, 1, 2)
 
 
 @pytest.mark.parametrize(
-    "shapes,test_func,test_name",
+    "test_func,test_name",
     [
         # 3D element-wise operations (working with non-collapsed tensors)
-        ([(3, 32, 64), (3, 32, 64)], elementwise_add, "3d_add"),
-        ([(3, 32, 64), (3, 32, 64)], elementwise_multiply, "3d_multiply"),
-        ([(3, 32, 64)], unary_exp, "3d_exp"),
+        (module_elementwise_add_3d_add, "3d_add"),
+        (module_elementwise_multiply_3d_multiply, "3d_multiply"),
+        (module_unary_exp_2d_exp, "3d_exp"),
         # 4D element-wise operations (working with non-collapsed tensors)
         pytest.param(
-            [(2, 3, 64, 32), (2, 3, 64, 32)],
-            elementwise_add,
+            module_elementwise_add_4d_add,
             "4d_add",
             marks=pytest.mark.xfail(reason="Golden failure"),
         ),
-        ([(1, 2, 32, 32)], unary_exp, "4d_exp"),
+        (module_unary_exp_4d_exp, "4d_exp"),
         # Operations with known issues (marked as skip)
         pytest.param(
-            [(2, 32, 64), (2, 64, 32)],
-            batch_matmul,
+            module_batch_matmul,
             "matmul",
             marks=pytest.mark.skip(
                 reason="Hardcoded rank==2 assertions in matmul rewriter cause core dump"
             ),
         ),
         pytest.param(
-            [(3, 32, 64)],
-            transpose_inner_dims,
+            module_transpose_inner_dims,
             "transpose",
             marks=pytest.mark.skip(
                 reason="Hardcoded rank==2 assertions in permute rewriter cause core dump"
@@ -94,7 +115,6 @@ def transpose_inner_dims(in0: Operand, builder: TTIRBuilder):
 )
 @pytest.mark.parametrize("target", ["ttmetal"], ids=["ttmetal"])
 def test_uncollapsed_tensors(
-    shapes: List[Shape],
     test_func,
     test_name: str,
     collapse_tensors: bool,
@@ -109,11 +129,10 @@ def test_uncollapsed_tensors(
 
     compile_and_execute_ttir(
         test_func,
-        shapes,
         target=target,
         custom_pipeline=pipeline,
         test_base=f"{request.node.name}_{test_name}_{'collapsed' if collapse_tensors else 'non_collapsed'}",
-        print_ir="ir_dump",
+        print_ir=True,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         device=device,

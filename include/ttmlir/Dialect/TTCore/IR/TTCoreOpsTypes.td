@@ -463,6 +463,9 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
                                      mlir::AffineMap indexAffineMap
                                      );
 
+    MetalLayoutAttr compose(mlir::AffineMap indexAffineMap) const;
+    MetalLayoutAttr withIndexAffineMap(mlir::AffineMap indexAffineMap) const;
+
     // Derive the physical tensor shape from logical shape and grid.
     llvm::SmallVector<int64_t> getPhysicalShape(ArrayRef<int64_t> tileShape) const;
 
@@ -501,8 +504,13 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
       return getIndexAffineMap();
     }
 
+    // Returns true if this layout has two or more dims collapsed into a single dim
+    bool hasNonTrivialCollapsedDims(ArrayRef<int64_t> deviceShape);
+
     bool isView() { return false; }
   }];
+
+  let genVerifyDecl = 1;
 }
 
 def TTCore_DeviceAttr : TTCore_Attr<"Device", "device", []> {

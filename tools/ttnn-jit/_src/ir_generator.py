@@ -5,7 +5,13 @@
 import ast
 from ttnn_jit._src.ttir_ast import TTIRCompiler
 from ttnn_jit._src.graph_trace_compiler import GraphToIRTranslator
-from ttnn._ttnn.graph import RunMode, begin_graph_capture, end_graph_capture
+from ttnn_jit._src.return_modifier import create_modified_function
+
+from ttnn._ttnn.graph import (
+    RunMode,
+    begin_graph_capture,
+    end_graph_capture,
+)
 from ttnn.graph import visualize
 
 
@@ -20,7 +26,6 @@ def generate_ir_from_ast(source_code, debug, *args, **kwargs):
     # Parse and compile
     m = ast.parse(source_code)
     if debug:
-        print("---- IR Dump after AST traversal ----")
         print(ast.dump(m, indent=2) + "\n")
 
     # TODO (#5043): emit ttnn IR instead of TTIR, TTIR should be fallback.
@@ -34,18 +39,18 @@ def generate_ir_from_ast(source_code, debug, *args, **kwargs):
 
 
 def generate_ir_from_graph(f, debug, *args, **kwargs):
+    # Create a modified version of f with ttnn.identity calls before returns
+    g = create_modified_function(f)
+
     begin_graph_capture(RunMode.NO_DISPATCH)
-    f(*args)
+    g(*args)
     captured_graph = end_graph_capture()
     # visualize(captured_graph, file_name=f.__name__ + "_graph.svg")
 
     # Extract tensor args for the compiler
     tensor_args = kwargs.get("_tensor_args", {})
-    max_grid = kwargs.get("_max_grid", (0, 0))
 
-    graph_compiler = GraphToIRTranslator(
-        captured_graph, f.__name__, tensor_args, max_grid
-    )
+    graph_compiler = GraphToIRTranslator(captured_graph, f.__name__, tensor_args)
     ir = graph_compiler.compile()
 
     print_and_verify_ir(ir, "GraphToIRTranslator (Graph-based)", debug)

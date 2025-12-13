@@ -65,8 +65,8 @@ public:
       }
     }
 
-    ttir::utils::replaceOpWithNewDPSOp<TargetOp>(
-        rewriter, srcOp, outputType, adaptor.getOperands(), namedAttrs);
+    rewriter.replaceOpWithNewOp<TargetOp>(srcOp, outputType,
+                                          adaptor.getOperands(), namedAttrs);
     return success();
   }
 
@@ -196,18 +196,18 @@ public:
     size_t numOperands = adaptor.getOperands().size();
     SmallVector<int32_t> segmentSizes;
     if (numOperands == 3) { // input, weight, bias
-      segmentSizes = {1, 1, 1, 1};
+      segmentSizes = {1, 1, 1};
     } else if (numOperands == 2) { // input, weight
-      segmentSizes = {1, 1, 0, 1};
+      segmentSizes = {1, 1, 0};
     } else { // input
-      segmentSizes = {1, 0, 0, 1};
+      segmentSizes = {1, 0, 0};
     }
 
     namedAttrs.push_back(rewriter.getNamedAttr(
         "operandSegmentSizes", rewriter.getDenseI32ArrayAttr(segmentSizes)));
 
-    ttir::utils::replaceOpWithNewDPSOp<ttir::RMSNormOp>(
-        rewriter, srcOp, outputType, adaptor.getOperands(), namedAttrs);
+    rewriter.replaceOpWithNewOp<ttir::RMSNormOp>(
+        srcOp, outputType, adaptor.getOperands(), namedAttrs);
     return success();
   }
 };

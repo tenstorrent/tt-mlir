@@ -27,6 +27,11 @@ enum FabricConfig: uint32 {
   CUSTOM,
 }
 
+enum MemoryLogLevel: uint32 (bit_flags) {
+  Program,
+  Operation,
+}
+
 table MeshDeviceOptions {
   mesh_offset: [uint32];
   device_ids: [int];

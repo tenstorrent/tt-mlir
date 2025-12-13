@@ -5,6 +5,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/PatternMatch.h"
+#include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
@@ -12,130 +13,143 @@
 
 namespace mlir::tt::ttir {
 
-// This pattern fuses the sequence: Permute -> Reshape -> Permute into a single
-// reshape op.
+// This pattern fuses the sequence: PermuteOp -> ReshapeOp -> PermuteOp into a
+// single ReshapeOp when the following conditions are met:
+// Original shape: [A_1, A_2,.., A_k]
+// permute(p_1, p_2,..., p_k)    -> [A_1', A_2',.., A_k']
+// reshape([A_1', A_2',.., A_k']) -> [B_1, B_2,.., B_k]
+// permute(p_1', p_2',..., p_k') -> [B_1', B_2',.., B_k']
 //
-// It is hard to express all pairs of permutations and reshapes that can
-// commute, so for now we only support the cases we need:
+// where:
+// - k is the rank of the input tensor;
+// - (p_1, p_2,..., p_k) and (p_1', p_2',..., p_k') are
+//   permutations of {0, 1, ..., k-1};
+// - B_i = (A_r', A_r+1',..., A_r+l') where 1 <= r <= k, l >= 0 and r + l <= k,
+//   for each 1 <= i <= k;
+// - flatten([B_1', B_2',.., B_k']) = [A_1, A_2,.., A_k].
 //
-// Case 1:
-// Original shape: [N, H, W, C]
-// permute(0, 3, 1, 2): [N, C, H, W]
-// reshape (N, C, H, W) -> (N, 1, C, H*W)
-// permute(0, 1, 3, 2): [N, 1, H*W, C]
+// The result of this sequence is identical to the following reshape:
+// reshape([A_1, A_2,.., A_k]) -> [B_1', B_2',.., B_k']
 //
-// Case 2:
-// Original shape: [N, H, W, C]
-// permute(0, 3, 1, 2): [N, C, H, W]
-// reshape (N, C, H, W) -> (N, C, 1, H*W)
-// permute(0, 2, 3, 1): [N, 1, H*W, C]
-//
-// Both cases result in the same final shape. The result of either sequence is
-// identical to the following reshape:
-// reshape (N, H, W, C) -> (N, 1, H*W, C)
-
-// Reshape: n c h w -> n 1 c h*w
-static SmallVector<int64_t> computeCase1Reshape(ArrayRef<int64_t> inputShape) {
-  assert(inputShape.size() == 4 &&
-         "Expected 4D input tensor as output of 4D permutation");
-  return SmallVector<int64_t>{inputShape[0], 1, inputShape[1],
-                              inputShape[2] * inputShape[3]};
-}
-
-// Reshape: n c h w -> n c 1 h*w
-static SmallVector<int64_t> computeCase2Reshape(ArrayRef<int64_t> inputShape) {
-  assert(inputShape.size() == 4 &&
-         "Expected 4D input tensor as output of 4D permutation");
-  return SmallVector<int64_t>{inputShape[0], inputShape[1], 1,
-                              inputShape[2] * inputShape[3]};
-}
-
-struct PermuteReshapePermutePatternSpec {
-  SmallVector<int64_t> firstPermutation;
-  SmallVector<int64_t> secondPermutation;
-  SmallVector<int64_t> (*computeReshapeShape)(ArrayRef<int64_t>);
-};
-
-static const PermuteReshapePermutePatternSpec supportedPatterns[] = {
-    {{0, 3, 1, 2}, {0, 1, 3, 2}, computeCase1Reshape},
-    {{0, 3, 1, 2}, {0, 2, 3, 1}, computeCase2Reshape},
-};
-
 class PermuteReshapePermuteFusionPattern
     : public mlir::OpRewritePattern<PermuteOp> {
 public:
   using mlir::OpRewritePattern<PermuteOp>::OpRewritePattern;
 
   LogicalResult
-  matchAndRewrite(PermuteOp op,
+  matchAndRewrite(PermuteOp finalPermuteOp,
                   mlir::PatternRewriter &rewriter) const override {
-    // Find matching case based on the second permutation.
-    ArrayRef<int64_t> secondPermutation = op.getPermutation();
-    const PermuteReshapePermutePatternSpec *matchedPattern =
-        findMatchingPattern(secondPermutation);
-    if (!matchedPattern) {
+
+    // Check if the final PermuteOp is preceded by a ReshapeOp.
+    auto reshapeOp = finalPermuteOp.getInput().getDefiningOp<ReshapeOp>();
+    if (!reshapeOp) {
       return failure();
     }
 
-    // Verify the pattern structure: Permute -> Reshape -> Permute.
-    ReshapeOp reshapeOp = op.getInput().getDefiningOp<ReshapeOp>();
-    if (!reshapeOp || !reshapeOp->hasOneUse()) {
+    // Check if the ReshapeOp is preceded by a PermuteOp.
+    auto originalPermuteOp = reshapeOp.getInput().getDefiningOp<PermuteOp>();
+    if (!originalPermuteOp) {
       return failure();
     }
 
-    PermuteOp firstPermuteOp = reshapeOp.getInput().getDefiningOp<PermuteOp>();
-    if (!firstPermuteOp || !firstPermuteOp->hasOneUse()) {
+    // If all three ops have multiple uses, the pattern is not favorable.
+    if (!originalPermuteOp->hasOneUse() && !reshapeOp->hasOneUse() &&
+        !finalPermuteOp->hasOneUse()) {
       return failure();
     }
 
-    // Verify the first permutation matches the expected pattern.
-    if (!llvm::equal(firstPermuteOp.getPermutation(),
-                     matchedPattern->firstPermutation)) {
+    // PermuteOp can't change the rank of the tensor; check if the ReshapeOp
+    // changes the rank.
+    auto reshapeInputShape = reshapeOp.getInput().getType().getShape();
+    auto reshapeOutputShape = reshapeOp.getType().getShape();
+    if (reshapeInputShape.size() != reshapeOutputShape.size()) {
+      return failure();
+    }
+    const int64_t rank = reshapeInputShape.size();
+
+    // Group the axes of the ReshapeOp into groups of consecutive axes that are
+    // either:
+    // - equal to the original axes;
+    // - or a multiple of the original axes.
+    auto axesGroups = groupAxes(reshapeInputShape, reshapeOutputShape,
+                                originalPermuteOp.getPermutation());
+    // If the axes cannot be grouped, the pattern is not applicable.
+    if (!axesGroups) {
       return failure();
     }
 
-    // Verify the reshape shape matches the expected pattern for this case.
-    ArrayRef<int64_t> inputShape = firstPermuteOp.getType().getShape();
-    ArrayRef<int64_t> reshapeOutputShape = reshapeOp.getType().getShape();
-    SmallVector<int64_t> expectedReshapeShape =
-        matchedPattern->computeReshapeShape(inputShape);
+    // Apply final permutation to the axes groups.
+    auto permutedAxesGroups = ttmlir::utils::applyPermutation(
+        llvm::ArrayRef(*axesGroups), finalPermuteOp.getPermutation());
 
-    if (!llvm::equal(reshapeOutputShape, expectedReshapeShape)) {
+    // Check if the flattened axes groups are the same as the original axes.
+    if (!llvm::equal(ttmlir::utils::flatten(permutedAxesGroups),
+                     llvm::seq(rank))) {
       return failure();
     }
 
-    // Calculate the final reshape shape by applying the second permutation
-    // to the intermediate reshape output shape.
-    SmallVector<int64_t> finalReshapeShape =
-        ttmlir::utils::applyPermutation(reshapeOutputShape, secondPermutation);
+    // Pattern is applicable; replace the final PermuteOp with a ReshapeOp.
+    llvm::SmallVector<int32_t> resultShape(
+        finalPermuteOp.getType().getShape().begin(),
+        finalPermuteOp.getType().getShape().end());
+    auto resultShapeAttr = rewriter.getI32ArrayAttr(resultShape);
 
-    // Verify the calculated shape matches the final output shape.
-    ArrayRef<int64_t> finalOutputShape = op.getType().getShape();
-    if (!llvm::equal(finalReshapeShape, finalOutputShape)) {
-      llvm_unreachable(
-          "The computed reshape shape must match the final output shape.");
-    }
-
-    // Replace the entire sequence with a single reshape operation.
-    RankedTensorType newReshapeType = RankedTensorType::get(
-        finalReshapeShape, firstPermuteOp.getType().getElementType());
-    ArrayAttr newShapeAttr = rewriter.getI32ArrayAttr(SmallVector<int32_t>(
-        finalReshapeShape.begin(), finalReshapeShape.end()));
-    utils::replaceOpWithNewDPSOp<ReshapeOp>(
-        rewriter, op, newReshapeType, firstPermuteOp.getInput(), newShapeAttr);
+    rewriter.replaceOpWithNewOp<ttir::ReshapeOp>(
+        finalPermuteOp, finalPermuteOp.getType(), originalPermuteOp.getInput(),
+        resultShapeAttr);
 
     return success();
   }
 
 private:
-  static const PermuteReshapePermutePatternSpec *
-  findMatchingPattern(ArrayRef<int64_t> permutation) {
-    for (const auto &pattern : supportedPatterns) {
-      if (llvm::equal(permutation, pattern.secondPermutation)) {
-        return &pattern;
+  // Group the axes of the tensor into groups of consecutive axes that are
+  // either:
+  // - equal to the original axes;
+  // - or a multiple of the consecutive original axes (possibly none).
+  //
+  // Returns the groups of axes (identified by the axes IDs), or std::nullopt if
+  // the axes cannot be grouped.
+  std::optional<llvm::SmallVector<llvm::SmallVector<int64_t>>>
+  groupAxes(ArrayRef<int64_t> inputShape, ArrayRef<int64_t> outputShape,
+            ArrayRef<int64_t> axesIds) const {
+    TT_assertv(inputShape.size() == outputShape.size(),
+               "input and output shapes must have the same rank; "
+               "inputShape={}, outputShape={}",
+               inputShape.size(), outputShape.size());
+
+    llvm::SmallVector<llvm::SmallVector<int64_t>> axesGroups;
+    const int64_t rank = inputShape.size();
+    int64_t inputIndex = 0;
+    for (int64_t outputIndex = 0; outputIndex < rank; ++outputIndex) {
+      if (inputIndex < rank &&
+          inputShape[inputIndex] == outputShape[outputIndex]) {
+        axesGroups.emplace_back(1, axesIds[inputIndex]);
+        ++inputIndex;
+      } else if (outputShape[outputIndex] == 1) {
+        axesGroups.emplace_back();
+      } else {
+        llvm::SmallVector<int64_t> group;
+        int64_t consumed = 1;
+        while (inputIndex < rank &&
+               outputShape[outputIndex] % (consumed * inputShape[inputIndex]) ==
+                   0) {
+          group.push_back(axesIds[inputIndex]);
+          consumed *= inputShape[inputIndex];
+          ++inputIndex;
+        }
+
+        if (consumed != outputShape[outputIndex]) {
+          return {};
+        }
+
+        axesGroups.push_back(std::move(group));
       }
     }
-    return nullptr;
+    TT_assertv(inputIndex == rank,
+               "input is not fully consumed: input_index{}, rank={}",
+               inputIndex, rank);
+
+    return axesGroups;
   }
 };
 

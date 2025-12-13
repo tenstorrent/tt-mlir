@@ -126,6 +126,23 @@ void setMetalHome(std::string_view metalHome) {
   LOG_FATAL("runtime is not enabled");
 }
 
+void setMemoryLogLevel(const MemoryLogLevel &logLevel) {
+  using RetType = void;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::RuntimeContext::instance().setMemoryLogLevel(
+            logLevel);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::RuntimeContext::instance().setMemoryLogLevel(
+            logLevel);
+      },
+      [&]() -> RetType {
+        return ::tt::runtime::distributed::setMemoryLogLevel(logLevel);
+      });
+}
+
 std::vector<DeviceRuntime> getAvailableDeviceRuntimes() {
   std::vector<DeviceRuntime> runtimes;
 #if defined(TT_RUNTIME_ENABLE_TTNN) && (TT_RUNTIME_ENABLE_TTNN == 1)
@@ -485,7 +502,7 @@ TensorDesc getTensorDesc(Tensor t) {
       [&]() -> RetType { return ::tt::runtime::ttnn::getTensorDesc(t); },
       [&]() -> RetType { return ::tt::runtime::ttmetal::getTensorDesc(t); },
       [&]() -> RetType {
-        detail::fatalNotImplemented("getTensorDesc", HostRuntime::Distributed);
+        return ::tt::runtime::distributed::getTensorDesc(t);
       });
 }
 
@@ -653,9 +670,16 @@ bool isProgramCacheEnabled(Device meshDevice) {
         return ::tt::runtime::ttmetal::isProgramCacheEnabled(meshDevice);
       },
       [&]() -> RetType {
-        detail::fatalNotImplemented("isProgramCacheEnabled",
-                                    HostRuntime::Distributed);
+        return ::tt::runtime::distributed::isProgramCacheEnabled(meshDevice);
       });
+}
+
+void clearProgramCache(Device meshDevice) {
+  using RetType = void;
+  DISPATCH_TO_CURRENT_RUNTIME(
+      RetType, [&]() { ::tt::runtime::ttnn::clearProgramCache(meshDevice); },
+      [&]() { ::tt::runtime::ttmetal::clearProgramCache(meshDevice); },
+      [&]() { ::tt::runtime::distributed::clearProgramCache(meshDevice); });
 }
 
 size_t getL1SmallSize(Device meshDevice) {
@@ -890,7 +914,7 @@ bool hasLayout(Tensor tensor, Layout layout) {
         detail::fatalNotImplemented("hasLayout", DeviceRuntime::TTMetal);
       },
       [&]() -> RetType {
-        detail::fatalNotImplemented("hasLayout", HostRuntime::Distributed);
+        return ::tt::runtime::distributed::hasLayout(tensor, layout);
       });
 }
 

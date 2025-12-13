@@ -14,17 +14,17 @@ from ttnn_jit._src import (
 )
 
 
-def _run_binary_from_path(binary_path, input_tensors):
+def run_binary_from_path(binary_path, input_tensors):
     bin = load_binary_from_path(binary_path)
-    return _run_binary(bin, input_tensors)
+    return run_binary(bin, input_tensors)
 
 
-def _run_binary_from_capsule(binary_capsule, input_tensors):
+def run_binary_from_capsule(binary_capsule, input_tensors):
     bin = load_binary_from_capsule(binary_capsule)
-    return _run_binary(bin, input_tensors)
+    return run_binary(bin, input_tensors)
 
 
-def _run_binary(bin, input_tensors):
+def run_binary(bin, input_tensors):
     set_compatible_device_runtime(bin)
 
     num_programs = bin.get_num_programs()
@@ -36,7 +36,7 @@ def _run_binary(bin, input_tensors):
 
     runtime_tensors = []
     for input_tensor in input_tensors:
-        tensor = create_runtime_tensor_from_ttnn(input_tensor)
+        tensor = create_runtime_tensor_from_ttnn(input_tensor, retain=True)
         runtime_tensors.append(tensor)
 
     program_name = bin.get_program_name(0)

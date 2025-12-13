@@ -24,11 +24,20 @@ def TTIRImplicitBroadcastFold: Pass<"ttir-implicit-broadcast-fold", "::mlir::Mod
   }];
 }
 
-def TTIRHoistTransform: Pass<"ttir-cpu-hoist-transform", "::mlir::ModuleOp">
+def CPUHoistTransform: Pass<"cpu-hoist-transform", "::mlir::ModuleOp">
 {
   let summary = "Transform to perform hoist mechanics on any ops marked to be hoisted for CPU lowering";
   let description = [{
-    Transform pass which runs an analysis pass to find ops which should be hoisted, and then hoists those ops.  Currently we only have a manual analysis which requires a commandline list of named locs to hoist--in the future, we will have an automatic analysis as well.
+    Transform pass which runs an analysis pass to find ops which should be hoisted, and then hoists those ops.
+    The analysis behaviour can be customized when instantiating the pass.
+
+    Each of the ops / sets of ops which are hoisted are moved into their own function in a CPU module.
+    A function declaration is created in the device module, and the original ops are replaced with a
+    call to that function declaration.
+
+    The hoisted functions return their results via return values, and do not use destination passing style.
+    For targets which require void functions with output destination arguments, the ConvertCPUHoistedFunctionsToDPS
+    pass can be run after this pass to convert the hoisted functions into DPS style.
 
     Example:
     input:
@@ -63,6 +72,8 @@ def TTIRHoistTransform: Pass<"ttir-cpu-hoist-transform", "::mlir::ModuleOp">
   }];
 
   let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect"];
+
+  let constructor = "createCPUHoistManuallyTaggedOpsTransform()";
 }
 
 def ElementTypeNormalization: Pass<"ttir-element-type-normalization", "::mlir::ModuleOp">
@@ -131,7 +142,8 @@ def TTIREraseInverseOps: Pass<"ttir-erase-inverse-ops", "::mlir::ModuleOp">
   list<Option> options = [
     Option<"enableCommuteUpwards", "enable-commute-upwards", "bool", "true", "Enable commuting upwards. This should only be false for testing purposes (i.e you want to test a commute downwards pattern)">,
     Option<"enableCommuteDownwards", "enable-commute-downwards", "bool", "true", "Enable commuting downwards. This should only be false for testing purposes (i.e you want to test a commute upwards pattern)">,
-    Option<"maxIterations", "max-iterations", "uint64_t", "100", "Maximum number of iterations to perform commuting. The number of TMs is expected to converge before this limit is reached.">
+    Option<"maxIterations", "max-iterations", "uint64_t", "100", "Maximum number of iterations to perform commuting. The number of TMs is expected to converge before this limit is reached.">,
+    Option<"force", "force", "bool", "true", "Force the pass to run even if we don't expect any inverse TMs (no operations have TTIR_FlattenedCompatInfoAttr). When false, the pass only runs on funcOps containing at least one operation with the flattened_compat_info attribute.">
   ];
 }
 
@@ -189,6 +201,10 @@ def TTIRFusing: Pass<"ttir-fusing", "::mlir::ModuleOp">
              "ttnn-enable-conv2d-with-multiply-pattern",
              "bool", /*default=*/"false",
              "Controls if we should enable the Conv2dWithMultiply pattern">,
+      Option<"permuteMatmulEnabled",
+             "enable-permute-matmul-fusion",
+             "bool", /*default=*/"true",
+             "Fuse permute ops into matmul/linear transpose attributes">,
   ];
 }
 

@@ -33,6 +33,7 @@ void registerRuntimeBindings(nb::module_ &m) {
       .def("get_device_ids", &tt::runtime::getDeviceIds)
       .def("get_num_hw_cqs", &tt::runtime::getNumHwCqs)
       .def("is_program_cache_enabled", &tt::runtime::isProgramCacheEnabled)
+      .def("clear_program_cache", &tt::runtime::clearProgramCache)
       .def("get_l1_small_size", &tt::runtime::getL1SmallSize)
       .def("get_trace_region_size", &tt::runtime::getTraceRegionSize)
       .def("get_num_dram_channels", &tt::runtime::getNumDramChannels)
@@ -222,7 +223,11 @@ void registerRuntimeBindings(nb::module_ &m) {
             return nb::bytearray(reinterpret_cast<const char *>(vec.data()),
                                  vec.size());
           },
-          nb::rv_policy::take_ownership);
+          nb::rv_policy::take_ownership)
+      .def("has_layout",
+           [](tt::runtime::Tensor self, tt::runtime::Layout layout) {
+             return tt::runtime::hasLayout(self, layout);
+           });
 
   nb::class_<tt::runtime::TensorRef>(m, "TensorRef");
   nb::class_<tt::runtime::Layout>(m, "Layout");
@@ -292,10 +297,18 @@ void registerRuntimeBindings(nb::module_ &m) {
       .value("WORMHOLE_B0", ::tt::target::Arch::Wormhole_b0)
       .value("BLACKHOLE", ::tt::target::Arch::Blackhole);
 
+  nb::enum_<::tt::runtime::MemoryLogLevel>(m, "MemoryLogLevel", nb::is_flag())
+      .value("NONE", ::tt::runtime::MemoryLogLevel::NONE)
+      .value("PROGRAM", ::tt::runtime::MemoryLogLevel::Program)
+      .value("OPERATION", ::tt::runtime::MemoryLogLevel::Operation)
+      .value("ANY", ::tt::runtime::MemoryLogLevel::ANY);
+
   m.def("set_mlir_home", &tt::runtime::setMlirHome, nb::arg("mlir_home"),
         "Set the MLIR home directory");
   m.def("set_metal_home", &tt::runtime::setMetalHome, nb::arg("metal_home"),
         "Set the Metal home directory");
+  m.def("set_memory_log_level", &tt::runtime::setMemoryLogLevel,
+        nb::arg("log_level"), "Set the memory log level");
   m.def("get_current_device_runtime", &tt::runtime::getCurrentDeviceRuntime,
         "Get the backend device runtime type");
   m.def("get_available_device_runtimes",
@@ -642,8 +655,5 @@ void registerRuntimeBindings(nb::module_ &m) {
 
   m.def("unregister_hooks",
         []() { ::tt::runtime::debug::Hooks::get().unregisterHooks(); });
-
-  m.def("log_memory_state", &::tt::runtime::debug::logMemoryState,
-        nb::arg("memory_state"), nb::arg("prefix") = "");
 }
 } // namespace tt::runtime::python

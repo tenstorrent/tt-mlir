@@ -13,6 +13,8 @@ if (NOT DEFINED ENV{TTMLIR_ENV_ACTIVATED})
   message(FATAL_ERROR "tt-mlir environment not activated. Please run 'source env/activate'.")
 endif()
 
+set(NB_USE_SUBMODULE_DEPS ON CACHE BOOL "Use nanobind bundled dependencies")
+
 option(TT_RUNTIME_ENABLE_PERF_TRACE "Enable performance mode" OFF)
 option(TTMLIR_ENABLE_RUNTIME "Enable runtime" OFF)
 option(TTMLIR_ENABLE_PYKERNEL "Enable python kernels" OFF)
@@ -24,8 +26,9 @@ option(TTMLIR_ENABLE_OPMODEL "Enable OpModel support" OFF)
 option(TTMLIR_ENABLE_OPMODEL_TESTS "Enable OpModel tests" ON)
 option(TTMLIR_ENABLE_SHARED_LIB "Enable Shared lib building" ON)
 option(TTMLIR_ENABLE_EXPLORER "Enable cloning and building the explorer tool" ON)
-option(TTMLIR_ENABLE_ALCHEMIST "Enable tt-alchemist tool" ON)
 option(TTMLIR_ENABLE_TESTS "Enable building all tests" ON)
+option(TTMLIR_ENABLE_ALCHEMIST "Enable tt-alchemist lib" ON)
+option(TTMLIR_ENABLE_ALCHEMIST_WHEEL "Enable tt-alchemist wheel" OFF)  # Expensive to build
 option(CODE_COVERAGE "Enable coverage reporting" OFF)
 
 if (TTMLIR_ENABLE_RUNTIME)

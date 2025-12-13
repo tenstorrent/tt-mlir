@@ -128,15 +128,24 @@ private:
     }
   };
 
-  // TODO (jnie): Add support for fp32, currently there's some precision loss
-  // which causes some FE tests to fail.
-  // Tracking here: https://github.com/tenstorrent/tt-metal/issues/21023
   bool canTilizeDataTypeOnDevice(const ttcore::DataType &dataType) const {
-    return dataType == ttcore::DataType::BFloat16;
+    // tt-metal tilize supports: bfloat16, float32, uint32, int32, uint16
+    // See: ttnn/operations/data_movement/tilize/device/tilize_op.cpp
+    return dataType == ttcore::DataType::BFloat16 ||
+           dataType == ttcore::DataType::Float32 ||
+           dataType == ttcore::DataType::UInt32 ||
+           dataType == ttcore::DataType::UInt16 ||
+           dataType == ttcore::DataType::Int32;
   }
 
   bool canUntilizeDataTypeOnDevice(const ttcore::DataType &dataType) const {
-    return dataType == ttcore::DataType::BFloat16;
+    // tt-metal untilize supports: bfloat16, float32, uint32, int32
+    // (requires use_pack_untilize for uint32/int32)
+    // See: ttnn/operations/data_movement/untilize/device/untilize_op.cpp
+    return dataType == ttcore::DataType::BFloat16 ||
+           dataType == ttcore::DataType::Float32 ||
+           dataType == ttcore::DataType::UInt32 ||
+           dataType == ttcore::DataType::Int32;
   }
 
   std::pair<LayoutInfo, LayoutInfo>

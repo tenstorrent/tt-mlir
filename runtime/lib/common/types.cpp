@@ -5,12 +5,28 @@
 #include "tt/runtime/types.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/common/runtime_context.h"
+#include "tt/runtime/utils.h"
 
 #include <atomic>
 #include <iomanip>
 #include <sstream>
 
 namespace tt::runtime {
+
+TensorDesc::TensorDesc(const std::vector<uint32_t> &shape,
+                       const ::tt::target::DataType dataType,
+                       const std::optional<uint32_t> itemsize,
+                       const std::optional<std::vector<uint32_t>> &stride,
+                       const std::optional<uint64_t> physicalVolume)
+    : shape(shape), dataType(dataType) {
+  this->itemsize = itemsize.value_or(utils::dataTypeElementSize(dataType));
+  this->stride = stride.value_or(utils::calculateStride(shape));
+  this->physicalVolume = physicalVolume.value_or(volume());
+}
+
+size_t TensorDesc::volume() const {
+  return utils::product(shape.cbegin(), shape.cend());
+}
 
 std::string MemoryView::toString() const {
   constexpr size_t MB = 1024 * 1024;

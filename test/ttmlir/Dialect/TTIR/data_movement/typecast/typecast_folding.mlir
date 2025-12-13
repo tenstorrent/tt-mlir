@@ -7,8 +7,7 @@ module attributes {} {
     func.func @typecast_folding_identity(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
         // Verify that we fold the typecast when we try to cast to the same data type.
         // CHECK: return %arg0 : tensor<64x128xf32>
-        %0 = "ttir.empty"() : () -> tensor<64x128xf32>
-        %1 = "ttir.typecast"(%arg0, %0) : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
+        %1 = "ttir.typecast"(%arg0) : (tensor<64x128xf32>) -> tensor<64x128xf32>
         return %1 : tensor<64x128xf32>
     }
 
@@ -19,10 +18,8 @@ module attributes {} {
         // CHECK: ttir.typecast
         // CHECK-SAME: -> tensor<64x128xi32>
         // CHECK-NOT: ttir.typecast
-        %0 = "ttir.empty"() : () -> tensor<64x128xbf16>
-        %1 = "ttir.typecast"(%arg0, %0) : (tensor<64x128xf32>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
-        %2 = "ttir.empty"() : () -> tensor<64x128xi32>
-        %3 = "ttir.typecast"(%1, %2) : (tensor<64x128xbf16>, tensor<64x128xi32>) -> tensor<64x128xi32>
+        %1 = "ttir.typecast"(%arg0) : (tensor<64x128xf32>) -> tensor<64x128xbf16>
+        %3 = "ttir.typecast"(%1) : (tensor<64x128xbf16>) -> tensor<64x128xi32>
         return %3 : tensor<64x128xi32>
     }
 
@@ -33,10 +30,8 @@ module attributes {} {
         // CHECK: ttir.typecast
         // CHECK-SAME: -> tensor<64x128xf32>
         // CHECK-NOT: ttir.typecast
-        %0 = "ttir.empty"() : () -> tensor<64x128xbf16>
-        %1 = "ttir.typecast"(%arg0, %0) : (tensor<64x128xi8>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
-        %2 = "ttir.empty"() : () -> tensor<64x128xf32>
-        %3 = "ttir.typecast"(%1, %2) : (tensor<64x128xbf16>, tensor<64x128xf32>) -> tensor<64x128xf32>
+        %1 = "ttir.typecast"(%arg0) : (tensor<64x128xi8>) -> tensor<64x128xbf16>
+        %3 = "ttir.typecast"(%1) : (tensor<64x128xbf16>) -> tensor<64x128xf32>
         return %3 : tensor<64x128xf32>
     }
 
@@ -47,10 +42,8 @@ module attributes {} {
         // CHECK: ttir.typecast
         // CHECK-SAME: -> tensor<64x128xf16>
         // CHECK-NOT: ttir.typecast
-        %0 = "ttir.empty"() : () -> tensor<64x128xf32>
-        %1 = "ttir.typecast"(%arg0, %0) : (tensor<64x128xbf16>, tensor<64x128xf32>) -> tensor<64x128xf32>
-        %2 = "ttir.empty"() : () -> tensor<64x128xf16>
-        %3 = "ttir.typecast"(%1, %2) : (tensor<64x128xf32>, tensor<64x128xf16>) -> tensor<64x128xf16>
+        %1 = "ttir.typecast"(%arg0) : (tensor<64x128xbf16>) -> tensor<64x128xf32>
+        %3 = "ttir.typecast"(%1) : (tensor<64x128xf32>) -> tensor<64x128xf16>
         return %3 : tensor<64x128xf16>
     }
 
@@ -60,10 +53,8 @@ module attributes {} {
         // CHECK: ttir.typecast
         // CHECK-SAME: -> tensor<64x128xf32>
         // CHECK-NOT: ttir.typecast
-        %0 = "ttir.empty"() : () -> tensor<64x128xi32>
-        %1 = "ttir.typecast"(%arg0, %0) : (tensor<64x128xbf16>, tensor<64x128xi32>) -> tensor<64x128xi32>
-        %2 = "ttir.empty"() : () -> tensor<64x128xf32>
-        %3 = "ttir.typecast"(%1, %2) : (tensor<64x128xi32>, tensor<64x128xf32>) -> tensor<64x128xf32>
+        %1 = "ttir.typecast"(%arg0) : (tensor<64x128xbf16>) -> tensor<64x128xi32>
+        %3 = "ttir.typecast"(%1) : (tensor<64x128xi32>) -> tensor<64x128xf32>
         return %3 : tensor<64x128xf32>
     }
 
@@ -73,10 +64,8 @@ module attributes {} {
         // CHECK: ttir.typecast
         // CHECK-SAME: -> tensor<64x128xf32>
         // CHECK-NOT: ttir.typecast
-        %0 = "ttir.empty"() : () -> tensor<64x128xbf16>
-        %1 = "ttir.typecast"(%arg0, %0) : (tensor<64x128xf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
-        %2 = "ttir.empty"() : () -> tensor<64x128xf32>
-        %3 = "ttir.typecast"(%1, %2) : (tensor<64x128xbf16>, tensor<64x128xf32>) -> tensor<64x128xf32>
+        %1 = "ttir.typecast"(%arg0) : (tensor<64x128xf16>) -> tensor<64x128xbf16>
+        %3 = "ttir.typecast"(%1) : (tensor<64x128xbf16>) -> tensor<64x128xf32>
         return %3 : tensor<64x128xf32>
     }
 
@@ -87,10 +76,8 @@ module attributes {} {
         // CHECK-SAME: -> tensor<64x128xi32>
         // CHECK: ttir.typecast
         // CHECK-SAME: -> tensor<64x128xf32>
-        %0 = "ttir.empty"() : () -> tensor<64x128xi32>
-        %1 = "ttir.typecast"(%arg0, %0) <{conservative_folding = true}> : (tensor<64x128xbf16>, tensor<64x128xi32>) -> tensor<64x128xi32>
-        %2 = "ttir.empty"() : () -> tensor<64x128xf32>
-        %3 = "ttir.typecast"(%1, %2) : (tensor<64x128xi32>, tensor<64x128xf32>) -> tensor<64x128xf32>
+        %1 = "ttir.typecast"(%arg0) <{conservative_folding = true}> : (tensor<64x128xbf16>) -> tensor<64x128xi32>
+        %3 = "ttir.typecast"(%1) : (tensor<64x128xi32>) -> tensor<64x128xf32>
         return %3 : tensor<64x128xf32>
     }
 
@@ -101,10 +88,8 @@ module attributes {} {
         // CHECK-SAME: -> tensor<64x128xbf16>
         // CHECK: ttir.typecast
         // CHECK-SAME: -> tensor<64x128xf32>
-        %0 = "ttir.empty"() : () -> tensor<64x128xbf16>
-        %1 = "ttir.typecast"(%arg0, %0) : (tensor<64x128xf16>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
-        %2 = "ttir.empty"() : () -> tensor<64x128xf32>
-        %3 = "ttir.typecast"(%1, %2) <{conservative_folding = true}> : (tensor<64x128xbf16>, tensor<64x128xf32>) -> tensor<64x128xf32>
+        %1 = "ttir.typecast"(%arg0) : (tensor<64x128xf16>) -> tensor<64x128xbf16>
+        %3 = "ttir.typecast"(%1) <{conservative_folding = true}> : (tensor<64x128xbf16>) -> tensor<64x128xf32>
         return %3 : tensor<64x128xf32>
     }
 
@@ -114,10 +99,8 @@ module attributes {} {
         // CHECK: ttir.typecast
         // CHECK-SAME: -> tensor<64x128xui8>
         // CHECK-NOT: ttir.typecast
-        %0 = "ttir.empty"() : () -> tensor<64x128xui16>
-        %1 = "ttir.typecast"(%arg0, %0) <{conservative_folding = true}> : (tensor<64x128xui32>, tensor<64x128xui16>) -> tensor<64x128xui16>
-        %2 = "ttir.empty"() : () -> tensor<64x128xui8>
-        %3 = "ttir.typecast"(%1, %2) : (tensor<64x128xui16>, tensor<64x128xui8>) -> tensor<64x128xui8>
+        %1 = "ttir.typecast"(%arg0) <{conservative_folding = true}> : (tensor<64x128xui32>) -> tensor<64x128xui16>
+        %3 = "ttir.typecast"(%1) : (tensor<64x128xui16>) -> tensor<64x128xui8>
         return %3 : tensor<64x128xui8>
     }
 
@@ -127,10 +110,8 @@ module attributes {} {
         // CHECK: ttir.typecast
         // CHECK-SAME: -> tensor<64x128xi32>
         // CHECK-NOT: ttir.typecast
-        %0 = "ttir.empty"() : () -> tensor<64x128xui16>
-        %1 = "ttir.typecast"(%arg0, %0) : (tensor<64x128xui8>, tensor<64x128xui16>) -> tensor<64x128xui16>
-        %2 = "ttir.empty"() : () -> tensor<64x128xi32>
-        %3 = "ttir.typecast"(%1, %2) <{conservative_folding = true}> : (tensor<64x128xui16>, tensor<64x128xi32>) -> tensor<64x128xi32>
+        %1 = "ttir.typecast"(%arg0) : (tensor<64x128xui8>) -> tensor<64x128xui16>
+        %3 = "ttir.typecast"(%1) <{conservative_folding = true}> : (tensor<64x128xui16>) -> tensor<64x128xi32>
         return %3 : tensor<64x128xi32>
     }
 
@@ -140,10 +121,9 @@ module attributes {} {
         // CHECK: ttir.typecast
         // CHECK-SAME: -> tensor<64x128xui8>
         // CHECK-NOT: ttir.typecast
-        %0 = "ttir.empty"() : () -> tensor<64x128xi32>
-        %1 = "ttir.typecast"(%arg0, %0) <{conservative_folding = true}> : (tensor<64x128xui16>, tensor<64x128xi32>) -> tensor<64x128xi32>
-        %2 = "ttir.empty"() : () -> tensor<64x128xui8>
-        %3 = "ttir.typecast"(%1, %2) : (tensor<64x128xi32>, tensor<64x128xui8>) -> tensor<64x128xui8>
+
+        %1 = "ttir.typecast"(%arg0) <{conservative_folding = true}> : (tensor<64x128xui16>) -> tensor<64x128xi32>
+        %3 = "ttir.typecast"(%1) : (tensor<64x128xi32>) -> tensor<64x128xui8>
         return %3 : tensor<64x128xui8>
     }
 
@@ -154,10 +134,8 @@ module attributes {} {
         // CHECK-SAME: <{conservative_folding = true}>
         // CHECK-SAME: -> tensor<64x128xf32>
         // CHECK-NOT: ttir.typecast
-        %0 = "ttir.empty"() : () -> tensor<64x128xf16>
-        %1 = "ttir.typecast"(%arg0, %0) <{conservative_folding = true}> : (tensor<64x128xui8>, tensor<64x128xf16>) -> tensor<64x128xf16>
-        %2 = "ttir.empty"() : () -> tensor<64x128xf32>
-        %3 = "ttir.typecast"(%1, %2) <{conservative_folding = true}> : (tensor<64x128xf16>, tensor<64x128xf32>) -> tensor<64x128xf32>
+        %1 = "ttir.typecast"(%arg0) <{conservative_folding = true}> : (tensor<64x128xui8>) -> tensor<64x128xf16>
+        %3 = "ttir.typecast"(%1) <{conservative_folding = true}> : (tensor<64x128xf16>) -> tensor<64x128xf32>
         return %3 : tensor<64x128xf32>
     }
 
@@ -168,10 +146,8 @@ module attributes {} {
         // CHECK-SAME: <{conservative_folding = false}>
         // CHECK-SAME: -> tensor<64x128xui16>
         // CHECK-NOT: ttir.typecast
-        %0 = "ttir.empty"() : () -> tensor<64x128xbf16>
-        %1 = "ttir.typecast"(%arg0, %0) <{conservative_folding = true}> : (tensor<64x128xf32>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
-        %2 = "ttir.empty"() : () -> tensor<64x128xui16>
-        %3 = "ttir.typecast"(%1, %2) <{conservative_folding = false}> : (tensor<64x128xbf16>, tensor<64x128xui16>) -> tensor<64x128xui16>
+        %1 = "ttir.typecast"(%arg0) <{conservative_folding = true}> : (tensor<64x128xf32>) -> tensor<64x128xbf16>
+        %3 = "ttir.typecast"(%1) <{conservative_folding = false}> : (tensor<64x128xbf16>) -> tensor<64x128xui16>
         return %3 : tensor<64x128xui16>
     }
 
@@ -182,10 +158,8 @@ module attributes {} {
         // CHECK-SAME: <{conservative_folding = false}>
         // CHECK-SAME: -> tensor<64x128xui16>
         // CHECK-NOT: ttir.typecast
-        %0 = "ttir.empty"() : () -> tensor<64x128xi32>
-        %1 = "ttir.typecast"(%arg0, %0) <{conservative_folding = false}> : (tensor<64x128xf32>, tensor<64x128xi32>) -> tensor<64x128xi32>
-        %2 = "ttir.empty"() : () -> tensor<64x128xui16>
-        %3 = "ttir.typecast"(%1, %2) <{conservative_folding = true}> : (tensor<64x128xi32>, tensor<64x128xui16>) -> tensor<64x128xui16>
+        %1 = "ttir.typecast"(%arg0) <{conservative_folding = false}> : (tensor<64x128xf32>) -> tensor<64x128xi32>
+        %3 = "ttir.typecast"(%1) <{conservative_folding = true}> : (tensor<64x128xi32>) -> tensor<64x128xui16>
         return %3 : tensor<64x128xui16>
     }
 
@@ -196,10 +170,8 @@ module attributes {} {
         // CHECK-SAME: <{conservative_folding = true}>
         // CHECK-SAME: -> tensor<64x128xui8>
         // CHECK-NOT: ttir.typecast
-        %0 = "ttir.empty"() : () -> tensor<64x128xf16>
-        %1 = "ttir.typecast"(%arg0, %0) <{conservative_folding = true}> : (tensor<64x128xbf16>, tensor<64x128xf16>) -> tensor<64x128xf16>
-        %2 = "ttir.empty"() : () -> tensor<64x128xui8>
-        %3 = "ttir.typecast"(%1, %2) <{conservative_folding = true}> : (tensor<64x128xf16>, tensor<64x128xui8>) -> tensor<64x128xui8>
+        %1 = "ttir.typecast"(%arg0) <{conservative_folding = true}> : (tensor<64x128xbf16>) -> tensor<64x128xf16>
+        %3 = "ttir.typecast"(%1) <{conservative_folding = true}> : (tensor<64x128xf16>) -> tensor<64x128xui8>
         return %3 : tensor<64x128xui8>
     }
 
@@ -209,12 +181,9 @@ module attributes {} {
         // Verify that both typecasts exists.
         // CHECK: ttir.typecast
         // CHECK: ttir.typecast
-        %0 = "ttir.empty"() : () -> tensor<64x128xi32>
-        %1 = "ttir.typecast"(%arg0, %0) : (tensor<64x128xf32>, tensor<64x128xi32>) -> tensor<64x128xi32>
-        %2 = "ttir.empty"() : () -> tensor<64x128xbf16>
-        %3 = "ttir.typecast"(%0, %2) : (tensor<64x128xi32>, tensor<64x128xbf16>) -> tensor<64x128xbf16>
-        %4 = "ttir.empty"() : () -> tensor<64x128xi32>
-        %5 = "ttir.add"(%1, %1, %4) : (tensor<64x128xi32>, tensor<64x128xi32>, tensor<64x128xi32>) -> tensor<64x128xi32>
+        %1 = "ttir.typecast"(%arg0) : (tensor<64x128xf32>) -> tensor<64x128xi32>
+        %3 = "ttir.typecast"(%1) : (tensor<64x128xi32>) -> tensor<64x128xbf16>
+        %5 = "ttir.add"(%1, %1) : (tensor<64x128xi32>, tensor<64x128xi32>) -> tensor<64x128xi32>
         return %3, %5 : tensor<64x128xbf16>, tensor<64x128xi32>
     }
 }

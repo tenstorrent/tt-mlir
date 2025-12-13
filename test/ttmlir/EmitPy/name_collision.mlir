@@ -23,8 +23,7 @@ func.func @const0_0(%arg0: tensor<64x64xbf16>) -> tensor<64x64xbf16> {
 }
 
 func.func @ttnn_add_0(%arg0: tensor<64x64xbf16>, %arg1: tensor<64x64xbf16>) -> tensor<64x64xbf16> {
-  %0 = ttir.empty() : tensor<64x64xbf16>
-  %1 = "ttir.add"(%arg0, %arg1, %0) : (tensor<64x64xbf16>, tensor<64x64xbf16>, tensor<64x64xbf16>) -> tensor<64x64xbf16>
+  %1 = "ttir.add"(%arg0, %arg1) : (tensor<64x64xbf16>, tensor<64x64xbf16>) -> tensor<64x64xbf16>
   return %1 : tensor<64x64xbf16>
 }
 

@@ -5,9 +5,11 @@ endif()
 
 set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/cache/load_cached.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/ccl/aggregate_tensor.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_gather.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_reduce.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/collective_permute.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/ccl/distribute_tensor.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/mesh_shard.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/point_to_point.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/reduce_scatter.cpp
@@ -16,6 +18,9 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/conv/conv_transpose2d.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/conv/prepare_conv2d_weights.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/conv/prepare_conv2d_bias.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/conv/prepare_conv_transpose2d_weights.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/conv/prepare_conv_transpose2d_bias.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/conv/conv3d.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/cpu/cpu.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/arange.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/creation/constant.cpp
@@ -43,6 +48,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/eltwise/unary/unary_composite.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/embedding/embedding.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/embedding/embedding_backward.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/experimental/gelu_bw.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/generic/generic_op.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/kv_cache/fill_cache.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/kv_cache/update_cache.cpp

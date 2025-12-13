@@ -5,9 +5,9 @@ import pytest
 import torch
 from typing import List, Optional
 from conftest import x86_only
-from builder.base.builder import Operand, Shape
+from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import compile_and_execute_ttir
+from builder.base.builder_apis import compile_and_execute_ttir
 from test_utils import (
     shapes_list_str,
     shape_str,
@@ -30,21 +30,19 @@ pytestmark = pytest.mark.frontend("ttir")
 @pytest.mark.parametrize("dim", [0])
 @pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 def test_concat(shapes: List[Shape], dim: int, target: str, request, device):
-    def concat_wrapper(
-        in0: Operand,
-        in1: Operand,
-        in2: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return builder.concat([in0, in1, in2], dim, unit_attrs)
-
-    # Set the name for better test identification.
-    concat_wrapper.__name__ = "concat"
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [torch.float32, torch.float32, torch.float32])
+        def concat_wrapper(
+            in0: Operand,
+            in1: Operand,
+            in2: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.concat([in0, in1, in2], dim, unit_attrs)
 
     compile_and_execute_ttir(
-        concat_wrapper,
-        shapes,
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
@@ -75,21 +73,22 @@ def test_cpu_hoistable_concat_op(
     target: str,
     device,
 ):
-    def hoisted_concat_wrapper(
-        in0: Operand,
-        in1: Operand,
-        in2: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return builder.concat([in0, in1, in2], dim, unit_attrs=["ttir.should_hoist"])
-
-    hoisted_concat_wrapper.__name__ = "hoisted_concat"
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [torch.float32, torch.float32, torch.float32])
+        def hoisted_concat_wrapper(
+            in0: Operand,
+            in1: Operand,
+            in2: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.concat(
+                [in0, in1, in2], dim, unit_attrs=["ttir.should_hoist"]
+            )
 
     """Test unary ops that support CPU hoisting"""
     compile_and_execute_ttir(
-        hoisted_concat_wrapper,
-        inputs_shapes=shapes,
+        module,
         test_base=f"{request.node.name}",
         target=target,
         device=device,
@@ -106,18 +105,17 @@ def test_cpu_hoistable_concat_op(
 def test_pad(
     shape: Shape, padding: List[int], value: int, target: str, request, device
 ):
-    def pad_wrapper(
-        in0: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return builder.pad(in0, padding=padding, value=value)
-
-    pad_wrapper.__name__ = "pad"
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.float32])
+        def pad_wrapper(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.pad(in0, padding=padding, value=value)
 
     compile_and_execute_ttir(
-        pad_wrapper,
-        inputs_shapes=[shape],
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
@@ -133,21 +131,20 @@ def test_pad(
 def test_permute(
     shapes: List[Shape], permutation: List[int], target: str, request, device
 ):
-    def permute_wrapper(
-        in0: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return builder.permute(
-            in0,
-            permutation=permutation,
-        )
-
-    permute_wrapper.__name__ = "permute"
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [torch.float32])
+        def permute_wrapper(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.permute(
+                in0,
+                permutation=permutation,
+            )
 
     compile_and_execute_ttir(
-        permute_wrapper,
-        shapes,
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
@@ -159,12 +156,7 @@ def test_permute(
 # RepeatInterleave tests
 @pytest.mark.parametrize(
     "shapes",
-    [
-        [
-            (1, 8, 1, 12, 64),
-            (1, 8, 1, 12, 64),
-        ]
-    ],
+    [[(1, 8, 1, 12, 64)]],
     ids=shapes_list_str,
 )
 @pytest.mark.parametrize("dim", [0])
@@ -173,21 +165,19 @@ def test_permute(
 def test_repeat_interleave(
     shapes: List[Shape], repeats: int, dim: int, target: str, request, device
 ):
-    def repeat_interleave_wrapper(
-        in0: Operand,
-        in1: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return builder.repeat_interleave(
-            in0, in1, repeats=repeats, dim=dim, unit_attrs=unit_attrs
-        )
-
-    repeat_interleave_wrapper.__name__ = "repeat_interleave"
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [torch.float32])
+        def repeat_interleave_wrapper(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.repeat_interleave(
+                in0, repeats=repeats, dim=dim, unit_attrs=unit_attrs
+            )
 
     compile_and_execute_ttir(
-        repeat_interleave_wrapper,
-        shapes,
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
@@ -202,17 +192,15 @@ def test_repeat_interleave(
 @pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
 @pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 def test_repeat(shape: Shape, dims: List[int], dtype, target: str, request, device):
-    def repeat_wrapper(
-        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        return builder.repeat(in0, dims=dims, unit_attrs=unit_attrs)
-
-    repeat_wrapper.__name__ = "repeat"
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def repeat_wrapper(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            return builder.repeat(in0, dims=dims, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
-        repeat_wrapper,
-        [shape],
-        [dtype],
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
@@ -248,15 +236,22 @@ def test_repeat(shape: Shape, dims: List[int], dtype, target: str, request, devi
 def test_reshape(shapes, dtype: torch.dtype, target: str, request, device):
     input_shape, output_shape = shapes
 
-    def reshape_wrapper(in0: Operand, builder: TTIRBuilder):
-        return builder.reshape(in0, output_shape)
+    # Large tensor reshape with int types fails due to tt-metal untilize issue
+    # for tensors wider than MAX_PACK_UNTILIZE_WIDTH (8 tiles).
+    # See: https://github.com/tenstorrent/tt-metal/issues/34072
+    if dtype in [torch.int32, torch.int64]:
+        pytest.xfail(
+            "Large tensor reshape with int types fails due to tt-metal untilize issue. "
+            "See: https://github.com/tenstorrent/tt-metal/issues/34072"
+        )
 
-    reshape_wrapper.__name__ = "reshape"
+    def module(builder: TTIRBuilder):
+        @builder.func([input_shape], [dtype])
+        def reshape_wrapper(in0: Operand, builder: TTIRBuilder):
+            return builder.reshape(in0, output_shape)
 
     compile_and_execute_ttir(
-        reshape_wrapper,
-        [input_shape],
-        [dtype],
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
@@ -269,16 +264,15 @@ def test_reshape(shapes, dtype: torch.dtype, target: str, request, device):
 @pytest.mark.parametrize("dim", [0])
 @pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 def test_squeeze(shape: Shape, dim: int, target: str, request, device):
-    def squeeze_wrapper(
-        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        return builder.squeeze(in0, dim, unit_attrs=unit_attrs)
-
-    squeeze_wrapper.__name__ = "squeeze"
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.float32])
+        def squeeze_wrapper(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            return builder.squeeze(in0, dim, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
-        squeeze_wrapper,
-        [shape],
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
@@ -291,16 +285,15 @@ def test_squeeze(shape: Shape, dim: int, target: str, request, device):
 @pytest.mark.parametrize("dim", [0])
 @pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 def test_unsqueeze(shape: Shape, dim: int, target: str, request, device):
-    def unsqueeze_wrapper(
-        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        return builder.unsqueeze(in0, dim, unit_attrs=unit_attrs)
-
-    unsqueeze_wrapper.__name__ = "unsqueeze"
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.float32])
+        def unsqueeze_wrapper(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            return builder.unsqueeze(in0, dim, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
-        unsqueeze_wrapper,
-        [shape],
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
@@ -320,19 +313,18 @@ def test_cpu_hoistable_reshape_op(
 ):
     input_shape, output_shape = shapes
 
-    def hoisted_reshape_wrapper(
-        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        return builder.reshape(
-            in0, shape=output_shape, unit_attrs=["ttir.should_hoist"]
-        )
-
-    hoisted_reshape_wrapper.__name__ = "hoisted_reshape"
+    def module(builder: TTIRBuilder):
+        @builder.func([input_shape], [torch.float32])
+        def hoisted_reshape_wrapper(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            return builder.reshape(
+                in0, shape=output_shape, unit_attrs=["ttir.should_hoist"]
+            )
 
     """Test unary ops that support CPU hoisting"""
     compile_and_execute_ttir(
-        hoisted_reshape_wrapper,
-        inputs_shapes=[input_shape],
+        module,
         test_base=f"{request.node.name}",
         target=target,
         device=device,
@@ -361,16 +353,15 @@ def test_slice(
     request,
     device,
 ):
-    def slice_wrapper(
-        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        return builder.slice(in0, begins, ends, step, unit_attrs=unit_attrs)
-
-    slice_wrapper.__name__ = "slice"
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.float32])
+        def slice_wrapper(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            return builder.slice(in0, begins, ends, step, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
-        slice_wrapper,
-        [shape],
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
@@ -401,30 +392,23 @@ def test_sort(
             "Sorting along batch dimension is not supported: https://github.com/tenstorrent/tt-metal/issues/31187"
         )
 
-    def sort_wrapper(
-        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        sort_0 = builder.sort(
-            in0, dim=dim, descending=descending, stable=stable, unit_attrs=unit_attrs
-        )
-        # Calculate golden for values and indices
-        in0_golden = builder._get_golden_tensor(in0)
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def sort_wrapper(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            sort_0_values, sort_0_indices = builder.sort(
+                in0,
+                dim=dim,
+                descending=descending,
+                stable=stable,
+                unit_attrs=unit_attrs,
+            )
 
-        values, indicies = torch.sort(
-            in0_golden, dim=dim, descending=descending, stable=stable
-        )
-        builder.set_goldens_from_builder_tensor(
-            {in0: in0_golden}, {sort_0.values: values}
-        )
-
-        return sort_0.values  # Return only sorted values for testing
-
-    sort_wrapper.__name__ = "sort"
+            return sort_0_values  # Return only sorted values for testing
 
     compile_and_execute_ttir(
-        sort_wrapper,
-        [shape],
-        [dtype],
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
@@ -440,18 +424,20 @@ def test_sort(
 def test_transpose(
     shape: Shape, transpose_dims: List[int], target: str, request, device
 ):
-    def transpose_wrapper(
-        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        return builder.transpose(
-            in0, dim0=transpose_dims[0], dim1=transpose_dims[1], unit_attrs=unit_attrs
-        )
-
-    transpose_wrapper.__name__ = "transpose"
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.float32])
+        def transpose_wrapper(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            return builder.transpose(
+                in0,
+                dim0=transpose_dims[0],
+                dim1=transpose_dims[1],
+                unit_attrs=unit_attrs,
+            )
 
     compile_and_execute_ttir(
-        transpose_wrapper,
-        [shape],
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
@@ -471,22 +457,21 @@ def test_cpu_hoistable_transpose_op(
     target: str,
     device,
 ):
-    def hoisted_transpose_wrapper(
-        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        return builder.transpose(
-            in0,
-            dim0=transpose_dims[0],
-            dim1=transpose_dims[1],
-            unit_attrs=["ttir.should_hoist"],
-        )
-
-    hoisted_transpose_wrapper.__name__ = "hoisted_transpose"
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.float32])
+        def hoisted_transpose_wrapper(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            return builder.transpose(
+                in0,
+                dim0=transpose_dims[0],
+                dim1=transpose_dims[1],
+                unit_attrs=["ttir.should_hoist"],
+            )
 
     """Test unary ops that support CPU hoisting"""
     compile_and_execute_ttir(
-        hoisted_transpose_wrapper,
-        inputs_shapes=[shape],
+        module,
         test_base=f"{request.node.name}",
         target=target,
         device=device,
@@ -519,18 +504,26 @@ def test_typecast(
     if from_type == torch.float32 and to_type == torch.int32 and target == "ttmetal":
         pytest.xfail("ttmetal does not support int32 to float32 typecast")
 
-    def typecast(
-        in0: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        return builder.typecast(in0, output_type=to_type, unit_attrs=unit_attrs)
+    # i32->f32 typecast fails due to tt-metal untilize issue.
+    # See: https://github.com/tenstorrent/tt-metal/pull/33904
+    if from_type == torch.int32 and to_type == torch.float32 and target == "ttnn":
+        pytest.xfail(
+            "i32->f32 typecast fails due to tt-metal untilize issue. "
+            "See: https://github.com/tenstorrent/tt-metal/pull/33904"
+        )
+
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [to_type])
+        def typecast(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.typecast(in0, output_type=to_type, unit_attrs=unit_attrs)
 
     pipeline_options = []
     compile_and_execute_ttir(
-        typecast,
-        [shape],
-        [from_type],
+        module,
         test_base=request.node.name,
         device=device,
         system_desc_path=request.config.getoption("--sys-desc"),

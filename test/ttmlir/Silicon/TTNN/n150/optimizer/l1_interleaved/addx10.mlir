@@ -16,47 +16,38 @@ module @L1InterleavedAddx10 attributes {} {
                     %arg9: tensor<32x4096xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "param9"} loc("SimpleAddModel":0:0),
                     %arg10: tensor<32x4096xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttir.name = "param10"} loc("SimpleAddModel":0:0)) -> (tensor<32x4096xbf16> {ttir.name = "SimpleAddModel.output"}) {
 
+    // CHECK-DAG: #[[DRAM_RM_LAYOUT:.*]] = #ttnn.ttnn_layout<{{.*}}memref<{{.*}}#dram>{{.*}}
     // CHECK-DAG: #[[L1_LAYOUT:.*]] = #ttnn.ttnn_layout<{{.*}}memref<{{.*}}#l1>{{.*}}<interleaved>>
     // CHECK-DAG: #[[DRAM_LAYOUT:.*]] = #ttnn.ttnn_layout<{{.*}}memref<{{.*}}#dram>{{.*}}<interleaved>>
 
     // Add operations should be upgraded to L1 interleaved when beneficial
-    %0 = ttir.empty() : tensor<32x4096xbf16>
     // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<32x4096xbf16, #[[L1_LAYOUT]]>
-    %1 = "ttir.add"(%arg0, %arg1, %0) : (tensor<32x4096xbf16>, tensor<32x4096xbf16>, tensor<32x4096xbf16>) -> tensor<32x4096xbf16>
+    %0 = "ttir.add"(%arg0, %arg1) : (tensor<32x4096xbf16>, tensor<32x4096xbf16>) -> tensor<32x4096xbf16>
 
-    %2 = ttir.empty() : tensor<32x4096xbf16>
     // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<32x4096xbf16, #[[L1_LAYOUT]]>
-    %3 = "ttir.add"(%1, %arg2, %2) : (tensor<32x4096xbf16>, tensor<32x4096xbf16>, tensor<32x4096xbf16>) -> tensor<32x4096xbf16>
+    %1 = "ttir.add"(%0, %arg2) : (tensor<32x4096xbf16>, tensor<32x4096xbf16>) -> tensor<32x4096xbf16>
 
-    %4 = ttir.empty() : tensor<32x4096xbf16>
     // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<32x4096xbf16, #[[L1_LAYOUT]]>
-    %5 = "ttir.add"(%3, %arg3, %4) : (tensor<32x4096xbf16>, tensor<32x4096xbf16>, tensor<32x4096xbf16>) -> tensor<32x4096xbf16>
-    %6 = ttir.empty() : tensor<32x4096xbf16>
+    %2 = "ttir.add"(%1, %arg3) : (tensor<32x4096xbf16>, tensor<32x4096xbf16>) -> tensor<32x4096xbf16>
     // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<32x4096xbf16, #[[L1_LAYOUT]]>
-    %7 = "ttir.add"(%5, %arg4, %6) : (tensor<32x4096xbf16>, tensor<32x4096xbf16>, tensor<32x4096xbf16>) -> tensor<32x4096xbf16>
+    %3 = "ttir.add"(%2, %arg4) : (tensor<32x4096xbf16>, tensor<32x4096xbf16>) -> tensor<32x4096xbf16>
 
-    %8 = ttir.empty() : tensor<32x4096xbf16>
     // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<32x4096xbf16, #[[L1_LAYOUT]]>
-    %9 = "ttir.add"(%7, %arg5, %8) : (tensor<32x4096xbf16>, tensor<32x4096xbf16>, tensor<32x4096xbf16>) -> tensor<32x4096xbf16>
-    %10 = ttir.empty() : tensor<32x4096xbf16>
+    %4 = "ttir.add"(%3, %arg5) : (tensor<32x4096xbf16>, tensor<32x4096xbf16>) -> tensor<32x4096xbf16>
     // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<32x4096xbf16, #[[L1_LAYOUT]]>
-    %11 = "ttir.add"(%9, %arg6, %10) : (tensor<32x4096xbf16>, tensor<32x4096xbf16>, tensor<32x4096xbf16>) -> tensor<32x4096xbf16>
+    %5 = "ttir.add"(%4, %arg6) : (tensor<32x4096xbf16>, tensor<32x4096xbf16>) -> tensor<32x4096xbf16>
 
-    %12 = ttir.empty() : tensor<32x4096xbf16>
     // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<32x4096xbf16, #[[L1_LAYOUT]]>
-    %13 = "ttir.add"(%11, %arg7, %12) : (tensor<32x4096xbf16>, tensor<32x4096xbf16>, tensor<32x4096xbf16>) -> tensor<32x4096xbf16>
-    %14 = ttir.empty() : tensor<32x4096xbf16>
+    %6 = "ttir.add"(%5, %arg7) : (tensor<32x4096xbf16>, tensor<32x4096xbf16>) -> tensor<32x4096xbf16>
     // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<32x4096xbf16, #[[L1_LAYOUT]]>
-    %15 = "ttir.add"(%13, %arg8, %14) : (tensor<32x4096xbf16>, tensor<32x4096xbf16>, tensor<32x4096xbf16>) -> tensor<32x4096xbf16>
+    %7 = "ttir.add"(%6, %arg8) : (tensor<32x4096xbf16>, tensor<32x4096xbf16>) -> tensor<32x4096xbf16>
 
-    %16 = ttir.empty() : tensor<32x4096xbf16>
     // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<32x4096xbf16, #[[L1_LAYOUT]]>
-    %17 = "ttir.add"(%15, %arg9, %16) : (tensor<32x4096xbf16>, tensor<32x4096xbf16>, tensor<32x4096xbf16>) -> tensor<32x4096xbf16>
+    %8 = "ttir.add"(%7, %arg9) : (tensor<32x4096xbf16>, tensor<32x4096xbf16>) -> tensor<32x4096xbf16>
 
-    %18 = ttir.empty() : tensor<32x4096xbf16>
     // As output is the return value, not beneficial to move to L1, will always stay in DRAM.
     // CHECK: %{{.*}} = "ttnn.add"{{.*}} -> tensor<32x4096xbf16, #[[DRAM_LAYOUT]]>
-    %19 = "ttir.add"(%17, %arg10, %18) : (tensor<32x4096xbf16>, tensor<32x4096xbf16>, tensor<32x4096xbf16>) -> tensor<32x4096xbf16>
-    return %19 : tensor<32x4096xbf16>
+    %9 = "ttir.add"(%8, %arg10) : (tensor<32x4096xbf16>, tensor<32x4096xbf16>) -> tensor<32x4096xbf16>
+    return %9 : tensor<32x4096xbf16>
   }
 }

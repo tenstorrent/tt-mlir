@@ -133,6 +133,9 @@ void *getRawHostDataPtr(const ::ttnn::Tensor &tensor);
     const ::ttnn::Layout &layout = ::ttnn::Layout::ROW_MAJOR,
     const ::ttnn::MemoryConfig &memoryConfig = ::ttnn::DRAM_MEMORY_CONFIG);
 
+std::unordered_map<::tt::runtime::MemoryBufferType, ::tt::runtime::MemoryView>
+getMemoryView(Device deviceHandle);
+
 template <typename T>
 inline ::ttnn::Tensor createTTNNTensor(
     const void *rawData, const ::ttnn::Shape &shape,

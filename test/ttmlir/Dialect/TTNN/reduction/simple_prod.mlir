@@ -10,7 +10,7 @@ module attributes {} {
     // CHECK-SAME: keep_dim = false
     // CHECK-SAME: (tensor<128x10x32x4xbf16,
     // CHECK-SAME: -> tensor<128x32x4xbf16,
-    %1 = "ttir.prod"(%arg0, %0) <{dim_arg = [1: i32], keep_dim = false}> : (tensor<128x10x32x4xf32>, tensor<128x32x4xf32>) -> tensor<128x32x4xf32>
+    %1 = "ttir.prod"(%arg0) <{dim_arg = [1: i32], keep_dim = false}> : (tensor<128x10x32x4xf32>) -> tensor<128x32x4xf32>
     return %1 : tensor<128x32x4xf32>
   }
 
@@ -22,7 +22,7 @@ module attributes {} {
     // CHECK-SAME: keep_dim = false
     // CHECK-SAME: (tensor<128x10x32x4xbf16,
     // CHECK-SAME: -> tensor<bf16,
-    %1 = "ttir.prod"(%arg0, %0) <{dim_arg = [0 : i32, 1 : i32, 2 : i32, 3 : i32], keep_dim = false}> : (tensor<128x10x32x4xbf16>, tensor<bf16>) -> tensor<bf16>
+    %1 = "ttir.prod"(%arg0) <{dim_arg = [0 : i32, 1 : i32, 2 : i32, 3 : i32], keep_dim = false}> : (tensor<128x10x32x4xbf16>) -> tensor<bf16>
     return %1 : tensor<bf16>
   }
 
@@ -34,7 +34,7 @@ module attributes {} {
     // CHECK-SAME: keep_dim = false
     // CHECK-SAME: (tensor<128x10x4xbf16,
     // CHECK-SAME: -> tensor<128x4xbf16,
-    %1 = "ttir.prod"(%arg0, %0) <{dim_arg = [1: i32], keep_dim = false}> : (tensor<128x10x4xf32>, tensor<128x4xf32>) -> tensor<128x4xf32>
+    %1 = "ttir.prod"(%arg0) <{dim_arg = [1: i32], keep_dim = false}> : (tensor<128x10x4xf32>) -> tensor<128x4xf32>
     return %1 : tensor<128x4xf32>
   }
 
@@ -46,7 +46,7 @@ module attributes {} {
     // CHECK-SAME: keep_dim = false
     // CHECK-SAME: (tensor<128x10x4xbf16,
     // CHECK-SAME: -> tensor<bf16,
-    %1 = "ttir.prod"(%arg0, %0) <{dim_arg = [0 : i32, 1 : i32, 2 : i32], keep_dim = false}> : (tensor<128x10x4xbf16>, tensor<bf16>) -> tensor<bf16>
+    %1 = "ttir.prod"(%arg0) <{dim_arg = [0 : i32, 1 : i32, 2 : i32], keep_dim = false}> : (tensor<128x10x4xbf16>) -> tensor<bf16>
     return %1 : tensor<bf16>
   }
 
@@ -58,7 +58,7 @@ module attributes {} {
     // CHECK-SAME: keep_dim = false
     // CHECK-SAME: (tensor<128xbf16,
     // CHECK-SAME: -> tensor<bf16,
-    %1 = "ttir.prod"(%arg0, %0) <{dim_arg = [0 : i32], keep_dim = false}> : (tensor<128xbf16>, tensor<bf16>) -> tensor<bf16>
+    %1 = "ttir.prod"(%arg0) <{dim_arg = [0 : i32], keep_dim = false}> : (tensor<128xbf16>) -> tensor<bf16>
     return %1 : tensor<bf16>
   }
 
@@ -70,7 +70,7 @@ module attributes {} {
     // CHECK-SAME: keep_dim = false
     // CHECK-SAME: (tensor<128x10x4xbf16,
     // CHECK-SAME: -> tensor<bf16,
-    %1 = "ttir.prod"(%arg0, %0) <{keep_dim = false}> : (tensor<128x10x4xbf16>, tensor<bf16>) -> tensor<bf16>
+    %1 = "ttir.prod"(%arg0) <{keep_dim = false}> : (tensor<128x10x4xbf16>) -> tensor<bf16>
     return %1 : tensor<bf16>
   }
 }

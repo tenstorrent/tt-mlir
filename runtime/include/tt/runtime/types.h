@@ -12,8 +12,6 @@
 #include <optional>
 #include <vector>
 
-#include "tt/runtime/utils.h"
-
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wcovered-switch-default"
 #include "ttmlir/Target/Common/debug_info_generated.h"
@@ -29,6 +27,7 @@ using ::tt::runtime::flatbuffer::DeviceRuntime;
 using ::tt::runtime::flatbuffer::DispatchCoreType;
 using ::tt::runtime::flatbuffer::FabricConfig;
 using ::tt::runtime::flatbuffer::HostRuntime;
+using ::tt::runtime::flatbuffer::MemoryLogLevel;
 
 /*
 MemoryBlockTable is a list of memory blocks in the following format:
@@ -180,14 +179,9 @@ struct TensorDesc {
              const ::tt::target::DataType dataType,
              const std::optional<uint32_t> itemsize = {},
              const std::optional<std::vector<uint32_t>> &stride = {},
-             const std::optional<uint64_t> physicalVolume = {})
-      : shape(shape), dataType(dataType) {
-    this->itemsize = itemsize.value_or(utils::dataTypeElementSize(dataType));
-    this->stride = stride.value_or(utils::calculateStride(shape));
-    this->physicalVolume = physicalVolume.value_or(volume());
-  }
+             const std::optional<uint64_t> physicalVolume = {});
 
-  size_t volume() const { return utils::product(shape.cbegin(), shape.cend()); }
+  size_t volume() const;
 
   size_t sizeBytes() const { return physicalVolume * itemsize; }
 
