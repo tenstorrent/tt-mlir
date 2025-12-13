@@ -16,7 +16,7 @@ module attributes {} {
     // Check that the data type of the weight operand is transformed in bf16.
     // CHECK-NEXT: %[[TO_LAYOUT_WEIGHTS:.*]] = "ttnn.to_layout"
     // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
-    // CHECK-SAME: layout = #ttnn.layout<tile>
+    // CHECK-SAME: layout = #ttnn.layout<row_major>
     // CHECK-SAME: memory_config = #ttnn.memory_config<#dram, <interleaved>>
     // CHECK-SAME: -> tensor<512x128xbf16
     %0 = "ttnn.embedding"(%arg0, %arg1) : (tensor<32x32xf32, #ttnn_layout>, tensor<512x128xf32, #ttnn_layout1>) -> tensor<32x32x128xf32, #ttnn_layout2>
