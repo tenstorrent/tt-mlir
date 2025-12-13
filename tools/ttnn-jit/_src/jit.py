@@ -41,7 +41,7 @@ class JitFunction:
         self.func = func
         self.source_code = cleanup_source_code(func)
         self.compile_only = compile_only
-        self.debug = debug
+        self.debug = debug | compile_only
         self.graph_capture = graph_capture
         self.out_dir = os.path.join("generated", "ttnn-jit", func.__name__)
         self.math_fidelity = math_fidelity
@@ -130,9 +130,8 @@ class JitFunction:
         options = f"system-desc-path={self.system_desc_path} ttnn-mode=true set-math-fidelity={self.math_fidelity.name}"
         if self.compile_only:
             ttnn_to_ttmetal_pipeline(ir, options)
-            if self.debug:
-                print("---- IR Dump after ttnn_to_ttmetal_pipeline ----")
-                print(ir)
+            print("---- IR Dump after ttnn_to_ttmetal_pipeline ----")
+            print(ir)
 
             # Dump kernels to C++ files in generated/ttnn-jit
             ttkernel_to_cpp_file(ir, self.out_dir)

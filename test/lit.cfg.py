@@ -64,10 +64,6 @@ if os.path.exists("/opt/tenstorrent/sfpi/compiler/bin/riscv32-tt-elf-g++"):
 # system_desc_path: The system desc that is to be used to generate the binary files.
 config.system_desc_path = os.getenv("SYSTEM_DESC_PATH", "")
 
-# Save original TT_METAL_RUNTIME_ROOT before importing ttrt, which overwrites it
-tt_metal_runtime_root = os.environ.get("TT_METAL_RUNTIME_ROOT")
-tt_metal_home = os.environ.get("TT_METAL_HOME")
-
 # set features based on system
 system_desc = None
 if config.system_desc_path:
@@ -78,10 +74,6 @@ if config.system_desc_path:
             ttrt.binary.load_system_desc_from_path(config.system_desc_path)
         )["system_desc"]
         config.available_features.add(system_desc["chip_descs"][0]["arch"])
-
-        # Restore original TT_METAL_RUNTIME_ROOT after ttrt import
-        os.environ["TT_METAL_RUNTIME_ROOT"] = tt_metal_runtime_root
-        os.environ["TT_METAL_HOME"] = tt_metal_home
     except ImportError:
         print(
             "ttrt not found. Please install ttrt to use have system desc driven test requirements set.",
