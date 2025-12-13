@@ -31,32 +31,45 @@ pytestmark = pytest.mark.frontend("ttir")
 
 
 def create_tileid_debug_tensor(shape: Shape, dtype: torch.dtype):
-    """Create a debug tensor where each value in a 32x32 tile equals its row-major tile ID.
+    """Create a debug tensor where each value in a 32x32 tile equals its multi-dimensional tile ID.
 
-    The tile grid is computed over the last two dimensions; any leading dimensions
-    are broadcast so that all slices share the same 2D tile ID pattern.
+    The tile grid is computed over the last two dimensions (32x32 tiles); outer dimensions get unique
+    tile coordinates but tile extent is only 32x32 in the inner dimensions. The scalar tile ID uses
+    row-major ordering across the full multi-dimensional tile grid.
     """
     TILE_DIM_SIZE = int(32)
     assert len(shape) >= 2, "Shape must have at least 2 dimensions."
-    height, width = int(shape[-2]), int(shape[-1])
-    # Number of tiles per row in the last dimension.
-    row_stride_tiles = width // TILE_DIM_SIZE
+    shape = tuple(int(d) for d in shape)
+    ndim = len(shape)
 
-    y_coords, x_coords = torch.meshgrid(
-        torch.arange(height), torch.arange(width), indexing="ij"
-    )
-    tile_y = y_coords // TILE_DIM_SIZE
-    tile_x = x_coords // TILE_DIM_SIZE
-    base_2d = (tile_y * row_stride_tiles + tile_x).to(dtype)
+    # Compute number of tiles along each dimension (ceil division for partial tiles)
+    num_tiles_per_dim = [(dim + TILE_DIM_SIZE - 1) // TILE_DIM_SIZE for dim in shape]
 
-    # Broadcast across any leading dimensions.
-    if len(shape) == 2:
-        return base_2d
-    expand_shape = tuple(int(d) for d in shape[:-2]) + (height, width)
-    base_nd = base_2d
-    for _ in range(len(shape) - 2):
-        base_nd = base_nd.unsqueeze(0)
-    return base_nd.expand(expand_shape)
+    # Generate meshgrids for tile coordinates across all dimensions
+    tile_coords_list = []
+    for i in range(ndim):
+        dim_indices = torch.arange(shape[i])
+        # For outer dims (i < ndim-2), use full dimension indexing as "tile coords"
+        # For inner two dims (i >= ndim-2), use 32-sized tile indexing
+        if i >= ndim - 2:
+            tile_coord = dim_indices // TILE_DIM_SIZE
+        else:
+            tile_coord = (
+                dim_indices  # Each element in outer dim is its own "tile coord"
+            )
+        tile_coords_list.append(tile_coord)
+
+    # Compute the meshgrid of tile coordinates across all dimensions
+    tile_coords = torch.meshgrid(*tile_coords_list, indexing="ij")
+
+    # Compute the scalar tile ID using row-major ordering across the full grid
+    tile_id = torch.zeros_like(tile_coords[0])
+    stride = 1
+    for i in reversed(range(ndim)):
+        tile_id += tile_coords[i] * stride
+        stride *= num_tiles_per_dim[i]
+
+    return tile_id.to(dtype)
 
 
 @pytest.mark.skip_config(["p150"], ["p300"], reason="See issue #6248")
@@ -111,7 +124,8 @@ def test_virtual_grid_eltwise(
         def eltwise_wrapper(
             in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
         ):
-            input_tensor = create_tileid_debug_tensor(shape, dtype)
+            # input_tensor = create_tileid_debug_tensor(shape, dtype)
+            input_tensor = torch.randint(0, 1001, shape, dtype=dtype)
 
             # abs is an identity function for positive integers, so use it for debugging ease
             result = builder.abs(in0, unit_attrs=unit_attrs)
