@@ -480,6 +480,13 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
     static llvm::SmallVector<int64_t> normalizeAndFlattenIntervals(DenseIntElementsAttr inputIntervals,
                                    size_t inputRank);
 
+    static DenseIntElementsAttr computeDefaultCollapsedIntervals(MLIRContext* context, int rank);
+
+    static llvm::SmallVector<int64_t> computeGridAwareDimAlignments(
+      ArrayRef<int64_t> logicalShape,
+      ArrayRef<int64_t> deviceGridShape,
+      ArrayRef<int64_t> normalizedIntervals);
+
     llvm::SmallVector<int64_t> getDeviceShape(ArrayRef<int64_t> gridShape, ArrayRef<int64_t> tileShape) const;
 
     // Get the corresponding memref type (essentially just drops grid dimensions).

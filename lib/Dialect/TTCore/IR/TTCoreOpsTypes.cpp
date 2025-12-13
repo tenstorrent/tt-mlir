@@ -1011,6 +1011,135 @@ MetalLayoutAttr::computeTileAlignments(ArrayRef<int64_t> logicalShape,
   return alignments;
 }
 
+// Compute dimension alignments for a MetalLayoutAttr that align to the worker
+// grid shape for a given operation. This extends basic tile alignment (32x32)
+// with grid-aware strategies to maximize worker utilization.
+//
+// For example, tensor<4x43x7> with grid<8x8> and tile<32x32>:
+// - Basic tile alignments: 1x32x32
+// - Tile-aligned logical shape: 4x64x32
+// - Collapsed physical shape: 256x32
+// - Grid & shard: 256x32 / 32x32 = 8x1
+// - Result: 8 workers, each with a 1x1 tile shard
+// This achieves good worker utilization with padding at tensor buffer ends,
+// minimizing memory access stride issues.
+//
+// However, consider tensor<9x43x7> with the same grid and tile:
+// - Collapsed physical shape: 576x32
+// - Without grid alignment: 576x32 with 8x8 grid gives uneven distribution
+// - With grid alignment (256x32x32): forces shape to 768x32
+// - Grid & shard: 768x32 / 32x32 = 24x1
+// - Result: More even distribution, though creates 'unnatural' shards
+//
+// For a collapsed shape of 31x33x447 with grid<8x8>:
+// - Basic alignments: 1x32x32 (from TTIRToD2M)
+// - Last dim exceeds tile*grid threshold (32*8=256)
+// - Grid-aware alignments: 1x32x256
+// - Forces shape: 31x64x512 to saturate the 8x8 worker grid
+//
+// This strategy trades some padding overhead for better worker utilization and
+// more predictable NoC traffic patterns.
+llvm::SmallVector<int64_t> MetalLayoutAttr::computeGridAwareDimAlignments(
+    ArrayRef<int64_t> logicalShape, ArrayRef<int64_t> deviceGridShape,
+    ArrayRef<int64_t> normalizedIntervals) {
+  constexpr std::array<int64_t, 2> tileShape =
+      ttcore::TileType::getDefaultShape();
+
+  const int64_t logicalRank = logicalShape.size();
+  const int64_t deviceGridRank = deviceGridShape.size();
+  const int64_t tensorGridRank = normalizedIntervals.size() / 2;
+
+  assert(logicalRank >= 2);
+  assert(deviceGridRank == 2);
+  assert(normalizedIntervals.size() % 2 == 0);
+  assert(deviceGridRank <= tensorGridRank);
+
+  llvm::SmallVector<int64_t> alignments(logicalRank, 1);
+
+  // Process the last two intervals (which map to the 2D tile shape) and apply
+  // grid-aware alignments to saturate the worker grid when possible.
+  for (int64_t idx = -1; idx >= -2; idx--) {
+    const int64_t tileIdx = tileShape.size() + idx;
+    const int64_t tileDim = tileShape[tileIdx];
+
+    const int64_t gridIdx = deviceGridRank + idx;
+    const int64_t gridDim = deviceGridShape[gridIdx];
+
+    const int64_t intvIdx = tensorGridRank + idx;
+
+    const int64_t gridAlignmentThreshold = gridDim * tileDim;
+
+    const int64_t intervalStart = normalizedIntervals[intvIdx * 2];
+    const int64_t intervalEnd = normalizedIntervals[intvIdx * 2 + 1] - 1;
+
+    // Calculate the collapsed size for this interval by multiplying dimensions
+    // within the interval, applying tile alignment to the last two logical
+    // dims.
+    int64_t collapsedSize = 1;
+    for (int64_t i = intervalEnd; i >= intervalStart; i--) {
+      if (i >= logicalRank - 2) {
+        collapsedSize *= ttmlir::utils::alignUp(logicalShape[i], tileDim);
+      } else {
+        collapsedSize *= logicalShape[i];
+      }
+    }
+
+    // If the collapsed size exceeds the grid threshold, align to the grid
+    // boundary to distribute work evenly across cores; otherwise just align
+    // to tile boundaries.
+    const bool alignToGrid = collapsedSize > gridAlignmentThreshold;
+    const int64_t alignment = alignToGrid ? gridAlignmentThreshold : tileDim;
+
+    // Apply the alignment to the appropriate dimension(s) in the interval.
+    // Assumes collapsed intervals are always <[[0, N-2], [N-1, N]]>.
+    if (intervalStart == intervalEnd) {
+      alignments[intervalEnd] = alignment;
+    } else {
+      assert(idx == -2);
+      assert(intervalEnd == logicalRank - 2);
+      alignments[intervalEnd] = tileDim;
+      // For multi-dimension intervals, apply grid alignment to the leading
+      // dimension to avoid redundant alignments (e.g., [32x32]x32 ->
+      // [1x32]x32).
+      if (alignToGrid) {
+        alignments[intervalStart] = alignment;
+      }
+    }
+  }
+  assert(alignments[logicalRank - 1] % tileShape[1] == 0);
+  assert(alignments[logicalRank - 2] % tileShape[0] == 0);
+  return alignments;
+}
+
+DenseIntElementsAttr
+MetalLayoutAttr::computeDefaultCollapsedIntervals(MLIRContext *context,
+                                                  int rank) {
+  constexpr size_t kGridRank = 2;
+
+  // Create collapse intervals.
+  int64_t numDimsToCollapse = rank - kGridRank + 1;
+  llvm::SmallVector<int64_t> flattenedIntervals;
+
+  // First interval will be [0, numDimsToCollapse).
+  flattenedIntervals.push_back(0);
+  flattenedIntervals.push_back(numDimsToCollapse);
+  for (int64_t i = 1; i < static_cast<int64_t>(kGridRank); ++i) {
+    // Last gridRank - 1 intervals will be [i, i + 1).
+    flattenedIntervals.push_back(numDimsToCollapse + i - 1);
+    flattenedIntervals.push_back(numDimsToCollapse + i);
+  }
+
+  auto intervalType = RankedTensorType::get(
+      {static_cast<int64_t>(kGridRank), 2}, IntegerType::get(context, 64));
+  DenseIntElementsAttr collapsedIntervals =
+      DenseIntElementsAttr::get(intervalType, flattenedIntervals);
+
+  assert(collapsedIntervals.getType().getRank() == 2 &&
+         "Collapse intervals must be a 2D array");
+
+  return collapsedIntervals;
+}
+
 static inline std::pair<DenseIntElementsAttr, llvm::SmallVector<int64_t>>
 createDefaultCollapsedIntervalsAndAlignments(::mlir::MLIRContext *context,
                                              ArrayRef<int64_t> logicalShape) {

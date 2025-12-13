@@ -1083,6 +1083,7 @@ void d2m::GenericOp::build(mlir::OpBuilder &builder,
         // reblocking, transpose), derive the grid inverse map from the
         // output's index_map to ensure roundtrip consistency.
         auto indexMap = metalLayout.getIndexAffineMap();
+        TT_assertv(false, "should not get here");
         auto invMap = ttmlir::utils::createGridInverseMapFromIndexMap(
             indexMap, gridShape.size(), builder.getContext());
         grid = builder.getAttr<ttcore::GridAttr>(gridShape, invMap);

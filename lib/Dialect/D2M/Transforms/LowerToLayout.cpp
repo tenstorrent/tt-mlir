@@ -109,6 +109,22 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
       return bounceShape;
     }
 
+    std::pair<DenseIntElementsAttr, llvm::SmallVector<int64_t>>
+    computeGridAwareCollapsedIntervalsAndDimAlignments(
+        ttcore::MetalLayoutAttr referenceLayout,
+        ArrayRef<int64_t> targetGridShape) {
+      auto logicalShape = referenceLayout.getLogicalShape();
+      auto collapsedIntervals =
+          referenceLayout.computeDefaultCollapsedIntervals(ctx,
+                                                           logicalShape.size());
+      auto dimAlignments =
+          ttcore::MetalLayoutAttr::computeGridAwareDimAlignments(
+              logicalShape, targetGridShape,
+              ttcore::MetalLayoutAttr::normalizeAndFlattenIntervals(
+                  collapsedIntervals, logicalShape.size()));
+      return {collapsedIntervals, dimAlignments};
+    }
+
     // Create a device tensor type from a system tensor type.
     RankedTensorType createDeviceType(
         RankedTensorType systemType, ttcore::MetalLayoutAttr referenceLayout,
@@ -134,9 +150,19 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
 
       ttcore::MetalLayoutAttr layout;
       if (hasNonTrivialIndexMap && virtualBounceNeeded) {
+        auto [collapsedIntervals, dimAlignments] =
+            computeGridAwareCollapsedIntervalsAndDimAlignments(referenceLayout,
+                                                               targetGridShape);
+        llvm::dbgs() << "[createDeviceType] collapsedIntervals: "
+                     << collapsedIntervals << "\n";
+        llvm::dbgs() << "[createDeviceType] dimAlignments: "
+                     << ttmlir::utils::formatIterable(dimAlignments, ", ")
+                     << "\n";
+
         layout = ttcore::MetalLayoutAttr::get(
-            ctx, referenceLayout.getLogicalShape(), referenceLayout.getOobVal(),
-            memSpace, referenceLayout.getMemoryLayout(), newIndexMap);
+            ctx, referenceLayout.getLogicalShape(), dimAlignments,
+            collapsedIntervals, referenceLayout.getOobVal(), memSpace,
+            referenceLayout.getMemoryLayout(), newIndexMap);
 
       } else {
         layout = ttcore::MetalLayoutAttr::get(
@@ -198,9 +224,18 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
       if (hasVirtualGrid && reblockVirtualGridShapes) {
         // Recompute default collapsed intervals and dim alignments if virtual
         // grid shape is being reblocked.
-        layout = ttcore::MetalLayoutAttr::get(ctx, baseLayout.getLogicalShape(),
-                                              baseLayout.getOobVal(), memSpace,
-                                              baseLayout.getMemoryLayout());
+        auto [collapsedIntervals, dimAlignments] =
+            computeGridAwareCollapsedIntervalsAndDimAlignments(baseLayout,
+                                                               targetGridShape);
+        llvm::dbgs() << "[modifyDeviceType] collapsedIntervals: "
+                     << collapsedIntervals << "\n";
+        llvm::dbgs() << "[modifyDeviceType] dimAlignments: "
+                     << ttmlir::utils::formatIterable(dimAlignments, ", ")
+                     << "\n";
+        layout = ttcore::MetalLayoutAttr::get(
+            ctx, baseLayout.getLogicalShape(), dimAlignments,
+            collapsedIntervals, baseLayout.getOobVal(), memSpace,
+            baseLayout.getMemoryLayout(), AffineMap::get(ctx));
       } else {
         // Otherwise, preserve dim alignments and collapsed intervals.
         layout = ttcore::MetalLayoutAttr::get(
@@ -339,6 +374,7 @@ public:
           // If the operand has index_map but doesn't exceed physical grid
           // (e.g., reblocking, transpose), derive the grid inverse map from
           // the output's index_map to ensure roundtrip consistency.
+          TT_assertv(false, "should not get here");
           auto indexMap = outputLayout.getIndexAffineMap();
           auto invMap = ttmlir::utils::createGridInverseMapFromIndexMap(
               indexMap, gridShape.size(), rewriter.getContext());
@@ -796,7 +832,7 @@ public:
     // 7. VIRTUAL GRID COLLAPSE: If current has virtual grid but target doesn't
     // need it. This should happen BEFORE any system transfer or whenever grid
     // needs to shrink.
-    if (currentInfo.hasLayout()) {
+    if (currentInfo.hasLayout() && targetInfo.isSystem()) {
       auto currentGridShape = currentInfo.getGridShape();
       auto targetGridShape_layout =
           targetInfo.hasLayout() ? targetInfo.getGridShape() : targetGridShape;
