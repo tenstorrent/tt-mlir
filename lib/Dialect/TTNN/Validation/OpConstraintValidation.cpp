@@ -43,8 +43,8 @@ validateWithMultipleAttributes(Operation *op,
   std::vector<ValidationResult> results;
   for (const auto &testConfig : opConfigs) {
     // 1. Call core constraint checking.
-    ValidationResult constraintResult =
-        validateConstraints(op, inputLayouts, testConfig, /*additionalL1Usage=*/0);
+    ValidationResult constraintResult = validateConstraints(
+        op, inputLayouts, testConfig, /*additionalL1Usage=*/0);
 
     // If not supported, backend error, or validation error - add to results
     // and continue (don't fail early, collect all results)
@@ -161,13 +161,13 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
   uint64_t totalL1Usage = overallPeakL1Usage + additionalL1Usage;
 
   if (totalL1Usage > effectiveL1Limit) {
-    TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
-                 "Not enough L1 memory. OpModel constraints failed for op {}\n"
-                 "totalL1Usage: {} [overallPeakL1Usage={}, additionalL1Usage={}]"
-                 " [cbPeakUsage={}, l1BuffersPeakUsage={}] limit: {}",
-                 ttmlir::opToString(op), totalL1Usage, overallPeakL1Usage,
-                 additionalL1Usage, cbPeakUsage, l1BuffersPeakUsage,
-                 effectiveL1Limit);
+    TTMLIR_DEBUG(
+        ttmlir::LogComponent::OpValidation,
+        "Not enough L1 memory. OpModel constraints failed for op {}\n"
+        "totalL1Usage: {} [overallPeakL1Usage={}, additionalL1Usage={}]"
+        " [cbPeakUsage={}, l1BuffersPeakUsage={}] limit: {}",
+        ttmlir::opToString(op), totalL1Usage, overallPeakL1Usage,
+        additionalL1Usage, cbPeakUsage, l1BuffersPeakUsage, effectiveL1Limit);
     return ValidationResult::outOfMemoryError("Not enough L1 memory");
   }
 

@@ -276,9 +276,8 @@ static bool validateChainWithPredecessorInL1(
 
     // Validate the operation with total additional L1 usage.
     op_constraint_validation::ValidationResult result =
-        op_constraint_validation::validateOperation(op, inputLayouts,
-                                                    spec.config,
-                                                    totalAdditionalL1);
+        op_constraint_validation::validateOperation(
+            op, inputLayouts, spec.config, totalAdditionalL1);
 
     if (!result.isSuccess()) {
       TTMLIR_DEBUG(
@@ -726,8 +725,8 @@ static void resolveConcatChains(
         // in L1
         const L1ChainConfig &chainI = l1ChainConfigs[inputChainIndices[i]];
         if (!validateChainWithPredecessorInL1(chainI, accumulatedL1,
-                                                kEmptySchedulePositionMap,
-                                                kEmptyL1Reservations)) {
+                                              kEmptySchedulePositionMap,
+                                              kEmptyL1Reservations)) {
           TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
                        "Concat chain {}: N-way merge failed - chain {} cannot "
                        "execute with {} bytes of predecessor output in L1",
@@ -864,8 +863,8 @@ static void applyChainMerges(std::vector<L1ChainConfig> &l1ChainConfigs,
           l1ChainConfigs[operand1Candidate->chainAIdx];
 
       if (validateChainWithPredecessorInL1(
-              chainC, operand0Candidate->chainAOutputSize,
-              schedulePositionMap, l1Reservations)) {
+              chainC, operand0Candidate->chainAOutputSize, schedulePositionMap,
+              l1Reservations)) {
         // 3-way merge is valid! Apply both merges.
         L1ChainConfig &chainA = l1ChainConfigs[operand0Candidate->chainAIdx];
         L1ChainConfig &chainCMut = l1ChainConfigs[operand1Candidate->chainAIdx];
@@ -958,10 +957,10 @@ static void applyChainMerges(std::vector<L1ChainConfig> &l1ChainConfigs,
 // across multiple consumer chains. Used for forked ops like reshape that
 // benefit from staying in L1 interleaved instead of spilling to DRAM.
 struct L1Reservation {
-  Operation *sourceOp;  // The op whose output is reserved in L1
-  int64_t startPos;     // Schedule position where reservation starts
-  int64_t endPos;       // Schedule position where reservation ends (last user)
-  uint64_t sizeBytes;   // L1 size reserved in bytes
+  Operation *sourceOp; // The op whose output is reserved in L1
+  int64_t startPos;    // Schedule position where reservation starts
+  int64_t endPos;      // Schedule position where reservation ends (last user)
+  uint64_t sizeBytes;  // L1 size reserved in bytes
 };
 
 // Compute total L1 reserved at a given schedule position.
@@ -978,12 +977,9 @@ getActiveL1Reservations(int64_t schedulePos,
   return total;
 }
 
-// Try to get an L1 interleaved config for an operation and validate it.
-// Constructs an L1 interleaved config from the op's current DRAM layout.
-// Returns the L1 size in bytes if successful, 0 otherwise.
+// Validate an op with L1 interleaved config.
+// Returns the L1 size in bytes if valid, 0 otherwise.
 static uint64_t tryGetL1InterleavedSize(Operation *op) {
-
-  // Get the output type and its current layout
   if (op->getNumResults() == 0) {
     return 0;
   }
@@ -996,47 +992,29 @@ static uint64_t tryGetL1InterleavedSize(Operation *op) {
 
   auto currentLayout =
       mlir::dyn_cast_or_null<TTNNLayoutAttr>(outputType.getEncoding());
-  if (!currentLayout) {
+  if (!currentLayout || currentLayout.hasL1BufferType()) {
     return 0;
   }
 
-  // Skip if already L1
-  if (currentLayout.hasL1BufferType()) {
-    return 0;
-  }
-
-  // Create L1 interleaved layout from current DRAM layout
   TTNNLayoutAttr l1Layout =
       currentLayout.withBufferType(BufferType::L1)
           .withMemoryLayout(TensorMemoryLayout::Interleaved);
 
-  // Extract input layouts from IR and convert to L1 interleaved
-  // This validates that reshape can work with L1 interleaved inputs
-  // (which is what we'll provide via spill-to-L1-interleaved)
+  // Convert input layouts to L1 interleaved for validation
   std::vector<TTNNLayoutAttr> inputLayouts = utils::extractInputLayouts(op);
   for (auto &inputLayout : inputLayouts) {
     inputLayout = inputLayout.withBufferType(BufferType::L1)
                       .withMemoryLayout(TensorMemoryLayout::Interleaved);
   }
 
-  // Create config with L1 interleaved output
   OpConfig l1Config;
   l1Config.outputLayout = l1Layout;
 
-  // Validate with backend using L1 interleaved inputs
   op_constraint_validation::ValidationResult result =
       op_constraint_validation::validateOperation(op, inputLayouts, l1Config,
                                                   0);
 
-  if (!result.isSuccess()) {
-    TTMLIR_TRACE(ttmlir::LogComponent::DFShardingPolicy,
-                 "L1 interleaved validation failed for {}: {}",
-                 op->getName(), result.errorMessage);
-    return 0;
-  }
-
-  // Return L1 size from validation result
-  return result.outputL1Usage;
+  return result.isSuccess() ? result.outputL1Usage : 0;
 }
 
 // Validate that all chains in the active range [startPos, endPos] can execute
@@ -1044,8 +1022,8 @@ static uint64_t tryGetL1InterleavedSize(Operation *op) {
 static bool validateChainsWithReservation(
     const std::vector<L1ChainConfig> &l1ChainConfigs,
     const llvm::DenseMap<Operation *, int64_t> &schedulePositionMap,
-    const std::vector<L1Reservation> &existingReservations,
-    int64_t startPos, int64_t endPos, uint64_t additionalL1) {
+    const std::vector<L1Reservation> &existingReservations, int64_t startPos,
+    int64_t endPos, uint64_t additionalL1) {
 
   for (const auto &chain : l1ChainConfigs) {
     if (chain.getState() != L1ChainState::Completed) {
@@ -1088,7 +1066,8 @@ static bool validateChainsWithReservation(
       }
 
       // Get existing reservations at this position
-      uint64_t existingL1 = getActiveL1Reservations(opPos, existingReservations);
+      uint64_t existingL1 =
+          getActiveL1Reservations(opPos, existingReservations);
 
       // Build input layouts
       auto inputLayoutsOpt = buildInputLayoutsFromResolvedConfigs(
@@ -1115,16 +1094,11 @@ static bool validateChainsWithReservation(
   return true;
 }
 
-// Detect forked reshape ops and try to keep them in L1 interleaved.
-// For each forked reshape:
-// 1. Validate reshape can use L1 interleaved config and get L1 size
-// 2. Find all users and their schedule positions
-// 3. Validate all chains in the active range can execute with the reservation
-// 4. If valid, add to reservations
-// Check if an operation is the last op in a chain and the chain spills to DRAM.
+// Check if an operation is the last op in a chain that spills to DRAM.
 // Returns the chain index if found, -1 otherwise.
-static int64_t findSpilledChainForOp(
-    Operation *op, const std::vector<L1ChainConfig> &l1ChainConfigs) {
+static int64_t
+findSpilledChainForOp(Operation *op,
+                      const std::vector<L1ChainConfig> &l1ChainConfigs) {
   for (size_t chainIdx = 0; chainIdx < l1ChainConfigs.size(); ++chainIdx) {
     const auto &chain = l1ChainConfigs[chainIdx];
     if (chain.getState() != L1ChainState::Completed) {
@@ -1147,10 +1121,6 @@ static void applyL1ReservationsForReshapes(
     const llvm::DenseMap<Operation *, int64_t> &schedulePositionMap,
     std::vector<L1Reservation> &l1Reservations) {
 
-  // Find reshape ops that are not in any chain (i.e., currently in DRAM)
-  // Both forked (multiple users) and non-forked reshapes benefit from L1:
-  // - Forked: avoids multiple DRAM reads
-  // - Non-forked: shorter L1 window, deallocated right after single user
   for (Operation *op : schedule) {
     if (!isa<ttnn::ReshapeOp>(op)) {
       continue;
@@ -1164,56 +1134,28 @@ static void applyL1ReservationsForReshapes(
     int64_t reshapePos = posIt->second;
 
     // Check if reshape's input comes from a chain that spills to DRAM.
-    // If so, and reshape is the only user, we can avoid the DRAM spill entirely.
+    // If so and reshape is the only user, avoid the DRAM spill.
     Value reshapeInput = op->getOperand(0);
     Operation *inputDefOp = reshapeInput.getDefiningOp();
-    int64_t spilledChainIdx = -1;
-
-    TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
-                 "L1 reservation: checking reshape {} (pos {}) - input def op: "
-                 "{}, hasOneUse: {}",
-                 ttmlir::opToString(op), reshapePos,
-                 inputDefOp ? inputDefOp->getName().getStringRef().str()
-                            : "nullptr",
-                 reshapeInput.hasOneUse());
 
     if (inputDefOp && reshapeInput.hasOneUse()) {
-      spilledChainIdx = findSpilledChainForOp(inputDefOp, l1ChainConfigs);
-
-      TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
-                   "L1 reservation: findSpilledChainForOp returned {} for op {}",
-                   spilledChainIdx,
-                   inputDefOp->getName().getStringRef().str());
+      int64_t spilledChainIdx =
+          findSpilledChainForOp(inputDefOp, l1ChainConfigs);
 
       if (spilledChainIdx >= 0) {
-        // Check that reshape immediately follows the chain (no ops in between)
         auto inputPosIt = schedulePositionMap.find(inputDefOp);
         if (inputPosIt != schedulePositionMap.end()) {
           int64_t inputPos = inputPosIt->second;
 
-          TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
-                       "L1 reservation: reshape pos {}, input pos {}, "
-                       "immediate? {}",
-                       reshapePos, inputPos, reshapePos == inputPos + 1);
-
-          // Reshape should be the immediate next scheduled op after the chain's
-          // last op
+          // Reshape must immediately follow the chain's last op
           if (reshapePos == inputPos + 1) {
-            // Avoid DRAM spill - chain output stays in L1, reshape reads from
-            // L1. Set to L1Interleaved so optimizer converts the L1 sharded
-            // output to L1 interleaved for reshape consumption.
             L1ChainConfig &chain =
                 l1ChainConfigs[static_cast<size_t>(spilledChainIdx)];
             chain.spillLocation = SpillLocation::L1Interleaved;
 
-            TTMLIR_DEBUG(
-                ttmlir::LogComponent::DFShardingPolicy,
-                "L1 reservation: avoiding DRAM spill for chain {} feeding "
-                "reshape {} - chain output stays in L1 (last op: {})",
-                spilledChainIdx, ttmlir::opToString(op),
-                ttmlir::opToString(chain.getLastOp()));
-
-            // Still need to create L1ChainConfig for reshape output
+            TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                         "Avoiding DRAM spill for chain {} feeding reshape {}",
+                         spilledChainIdx, ttmlir::opToString(op));
           }
         }
       }
@@ -1222,10 +1164,6 @@ static void applyL1ReservationsForReshapes(
     // Try to get L1 interleaved size via backend validation
     uint64_t l1Size = tryGetL1InterleavedSize(op);
     if (l1Size == 0) {
-      TTMLIR_TRACE(ttmlir::LogComponent::DFShardingPolicy,
-                   "L1 reservation: reshape {} has no valid L1 interleaved "
-                   "config",
-                   ttmlir::opToString(op));
       continue;
     }
 
@@ -1238,73 +1176,40 @@ static void applyL1ReservationsForReshapes(
       }
     }
 
-    TTMLIR_TRACE(ttmlir::LogComponent::DFShardingPolicy,
-                 "L1 reservation candidate: reshape {} at pos {}, "
-                 "last user at pos {}, size {} bytes",
-                 ttmlir::opToString(op), reshapePos, lastUserPos, l1Size);
-
-    // Validate all chains in the range [reshapePos, lastUserPos]
+    // Validate all chains in the range can execute with this reservation
     if (!validateChainsWithReservation(l1ChainConfigs, schedulePositionMap,
                                        l1Reservations, reshapePos, lastUserPos,
                                        l1Size)) {
-      TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
-                   "L1 reservation rejected for reshape {}: validation failed",
-                   ttmlir::opToString(op));
       continue;
     }
 
-    // Add the reservation
     l1Reservations.push_back({op, reshapePos, lastUserPos, l1Size});
 
-    // Create an L1ChainConfig for this reserved reshape so the optimizer
-    // updates its output layout to L1 interleaved
+    // Create L1ChainConfig for reshape so optimizer updates its layout
+    auto outputType = mlir::cast<RankedTensorType>(op->getResult(0).getType());
+    auto currentLayout = mlir::cast<TTNNLayoutAttr>(outputType.getEncoding());
+    TTNNLayoutAttr l1Layout = currentLayout.withBufferType(BufferType::L1);
+
     L1ChainConfig reshapeChain;
     OpL1MemSpec reshapeSpec;
     reshapeSpec.op = op;
     reshapeSpec.tensorSplitFactor = 1;
-
-    // Get output type and create L1 interleaved layout
-    auto outputType =
-        mlir::cast<RankedTensorType>(op->getResult(0).getType());
-    auto currentLayout =
-        mlir::cast<TTNNLayoutAttr>(outputType.getEncoding());
-    TTNNLayoutAttr l1Layout = currentLayout.withBufferType(BufferType::L1);
     reshapeSpec.config.outputLayout = l1Layout;
-
     reshapeChain.addOpL1MemSpec(std::move(reshapeSpec));
     reshapeChain.build();
     reshapeChain.resolve();
 
-    // Complete with the L1 interleaved config
     llvm::DenseMap<Operation *, OpConfig> selectedConfigs;
-    OpConfig l1Config;
-    l1Config.outputLayout = l1Layout;
-    selectedConfigs[op] = l1Config;
+    selectedConfigs[op] = OpConfig{l1Layout};
     llvm::DenseMap<Edge, MemReconfigEntry> emptyReconfigMap;
     reshapeChain.complete(selectedConfigs, emptyReconfigMap);
-
-    // Output stays in L1 (no spill needed)
     reshapeChain.spillLocation = SpillLocation::None;
 
     l1ChainConfigs.push_back(std::move(reshapeChain));
 
     TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
-                 "L1 reservation applied: reshape {} stays in L1 "
-                 "(pos [{}, {}], {} bytes)",
+                 "L1 reservation: reshape {} in L1 (pos [{}, {}], {} bytes)",
                  ttmlir::opToString(op), reshapePos, lastUserPos, l1Size);
-  }
-
-  // Summary of chain spill states after L1 reservations
-  TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
-               "=== L1 Reservation Summary: Chain spill states ===");
-  for (size_t i = 0; i < l1ChainConfigs.size(); ++i) {
-    const auto &chain = l1ChainConfigs[i];
-    if (chain.getState() == L1ChainState::Completed) {
-      TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
-                   "Chain {}: spillLocation={}, lastOp={}", i,
-                   static_cast<int>(chain.spillLocation),
-                   ttmlir::opToString(chain.getLastOp()));
-    }
   }
 }
 
@@ -1371,7 +1276,7 @@ void DFShardingPolicy::run() {
                     ttnn::TypecastOp, ttnn::SiluOp, ttnn::MatmulOp,
                     ttnn::LinearOp, ttnn::MinimumOp, ttnn::RMSNormOp,
                     ttnn::GeluOp, ttnn::NegOp, ttnn::RsqrtOp, ttnn::ConcatOp,
-                    ttnn::PowScalarOp, ttnn::MeanOp, ttnn::SliceStaticOp,
+                    ttnn::PowScalarOp, ttnn::SliceStaticOp,
                     ttnn::RotaryEmbeddingOp>(currentOp) &&
           legalConfigs.lookup(currentOp).size() > 0;
 

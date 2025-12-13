@@ -494,8 +494,7 @@ bool ShardSolver::insertReshard(const Edge &edge) {
                "insertReshard: consumerConfigs for {} (count: {})",
                consumerOp->getName(), consumerConfigs.size());
   for (size_t i = 0; i < consumerConfigs.size(); ++i) {
-    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
-                 "  consumerConfig[{}]: {}", i,
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer, "  consumerConfig[{}]: {}", i,
                  consumerConfigs[i].outputLayout);
   }
 
