@@ -1371,7 +1371,7 @@ void DFShardingPolicy::run() {
                     ttnn::TypecastOp, ttnn::SiluOp, ttnn::MatmulOp,
                     ttnn::LinearOp, ttnn::MinimumOp, ttnn::RMSNormOp,
                     ttnn::GeluOp, ttnn::NegOp, ttnn::RsqrtOp, ttnn::ConcatOp,
-                    ttnn::PowScalarOp, ttnn::MeanOp, ttnn::SliceStaticOp,
+                    ttnn::PowScalarOp, ttnn::SliceStaticOp,
                     ttnn::RotaryEmbeddingOp>(currentOp) &&
           legalConfigs.lookup(currentOp).size() > 0;
 
