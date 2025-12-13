@@ -480,6 +480,7 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
     static llvm::SmallVector<int64_t> normalizeAndFlattenIntervals(DenseIntElementsAttr inputIntervals,
                                    size_t inputRank);
 
+    // computes collapsed intervals for an ND to 2D collapse (leading dims are collapsed)
     static DenseIntElementsAttr computeDefaultCollapsedIntervals(MLIRContext* context, int rank);
 
     static llvm::SmallVector<int64_t> computeGridAwareDimAlignments(

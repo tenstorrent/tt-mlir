@@ -109,6 +109,10 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
       return bounceShape;
     }
 
+    // Creates conventional ND -> 2D collapsed intervals and dim alignments for
+    // a given reference layout and target grid shape. This pads out the dim
+    // alignments to work well with the physical device grid and be consistent
+    // with alignments used by the D2MGridSelection pass.
     std::pair<DenseIntElementsAttr, llvm::SmallVector<int64_t>>
     computeGridAwareCollapsedIntervalsAndDimAlignments(
         ttcore::MetalLayoutAttr referenceLayout,
@@ -153,12 +157,6 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
         auto [collapsedIntervals, dimAlignments] =
             computeGridAwareCollapsedIntervalsAndDimAlignments(referenceLayout,
                                                                targetGridShape);
-        llvm::dbgs() << "[createDeviceType] collapsedIntervals: "
-                     << collapsedIntervals << "\n";
-        llvm::dbgs() << "[createDeviceType] dimAlignments: "
-                     << ttmlir::utils::formatIterable(dimAlignments, ", ")
-                     << "\n";
-
         layout = ttcore::MetalLayoutAttr::get(
             ctx, referenceLayout.getLogicalShape(), dimAlignments,
             collapsedIntervals, referenceLayout.getOobVal(), memSpace,
@@ -227,11 +225,6 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
         auto [collapsedIntervals, dimAlignments] =
             computeGridAwareCollapsedIntervalsAndDimAlignments(baseLayout,
                                                                targetGridShape);
-        llvm::dbgs() << "[modifyDeviceType] collapsedIntervals: "
-                     << collapsedIntervals << "\n";
-        llvm::dbgs() << "[modifyDeviceType] dimAlignments: "
-                     << ttmlir::utils::formatIterable(dimAlignments, ", ")
-                     << "\n";
         layout = ttcore::MetalLayoutAttr::get(
             ctx, baseLayout.getLogicalShape(), dimAlignments,
             collapsedIntervals, baseLayout.getOobVal(), memSpace,
@@ -374,7 +367,6 @@ public:
           // If the operand has index_map but doesn't exceed physical grid
           // (e.g., reblocking, transpose), derive the grid inverse map from
           // the output's index_map to ensure roundtrip consistency.
-          TT_assertv(false, "should not get here");
           auto indexMap = outputLayout.getIndexAffineMap();
           auto invMap = ttmlir::utils::createGridInverseMapFromIndexMap(
               indexMap, gridShape.size(), rewriter.getContext());

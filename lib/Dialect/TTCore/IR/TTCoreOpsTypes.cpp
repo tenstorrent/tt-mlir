@@ -1111,9 +1111,9 @@ llvm::SmallVector<int64_t> MetalLayoutAttr::computeGridAwareDimAlignments(
   return alignments;
 }
 
-DenseIntElementsAttr
-MetalLayoutAttr::computeDefaultCollapsedIntervals(MLIRContext *context,
-                                                  int rank) {
+static llvm::SmallVector<int64_t>
+computeDefaultFlattenedIntervals(MLIRContext *context, int rank) {
+
   constexpr size_t kGridRank = 2;
 
   // Create collapse intervals.
@@ -1128,6 +1128,15 @@ MetalLayoutAttr::computeDefaultCollapsedIntervals(MLIRContext *context,
     flattenedIntervals.push_back(numDimsToCollapse + i - 1);
     flattenedIntervals.push_back(numDimsToCollapse + i);
   }
+  return flattenedIntervals;
+}
+
+DenseIntElementsAttr
+MetalLayoutAttr::computeDefaultCollapsedIntervals(MLIRContext *context,
+                                                  int rank) {
+  constexpr size_t kGridRank = 2;
+
+  auto flattenedIntervals = computeDefaultFlattenedIntervals(context, rank);
 
   auto intervalType = RankedTensorType::get(
       {static_cast<int64_t>(kGridRank), 2}, IntegerType::get(context, 64));
@@ -1143,28 +1152,11 @@ MetalLayoutAttr::computeDefaultCollapsedIntervals(MLIRContext *context,
 static inline std::pair<DenseIntElementsAttr, llvm::SmallVector<int64_t>>
 createDefaultCollapsedIntervalsAndAlignments(::mlir::MLIRContext *context,
                                              ArrayRef<int64_t> logicalShape) {
-  constexpr size_t kGridRank = 2;
 
-  // Create collapse intervals.
-  int64_t numDimsToCollapse = logicalShape.size() - kGridRank + 1;
-  llvm::SmallVector<int64_t> flattenedIntervals;
-
-  // First interval will be [0, numDimsToCollapse).
-  flattenedIntervals.push_back(0);
-  flattenedIntervals.push_back(numDimsToCollapse);
-  for (int64_t i = 1; i < static_cast<int64_t>(kGridRank); ++i) {
-    // Last gridRank - 1 intervals will be [i, i + 1).
-    flattenedIntervals.push_back(numDimsToCollapse + i - 1);
-    flattenedIntervals.push_back(numDimsToCollapse + i);
-  }
-
-  auto intervalType = RankedTensorType::get(
-      {static_cast<int64_t>(kGridRank), 2}, IntegerType::get(context, 64));
-  DenseIntElementsAttr collapsedIntervals =
-      DenseIntElementsAttr::get(intervalType, flattenedIntervals);
-
-  assert(collapsedIntervals.getType().getRank() == 2 &&
-         "Collapse intervals must be a 2D array");
+  auto flattenedIntervals =
+      computeDefaultFlattenedIntervals(context, logicalShape.size());
+  auto collapsedIntervals = MetalLayoutAttr::computeDefaultCollapsedIntervals(
+      context, logicalShape.size());
 
   // Set alignments based on the flattened intervals.
   llvm::SmallVector<int64_t> dimAlignmentsVec =
