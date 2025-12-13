@@ -66,6 +66,10 @@ inline bool isConstOrParamArg(mlir::BlockArgument blockArg,
 // Filters out the constant parameters from the function signature.
 inline llvm::SmallPtrSet<mlir::BlockArgument, 4>
 getConstsAndParams(mlir::func::FuncOp funcOp) {
+  if (funcOp.isDeclaration()) {
+    return {};
+  }
+
   llvm::SmallPtrSet<mlir::BlockArgument, 4> constsAndParams;
 
   for (auto arg : funcOp.getArguments()) {
