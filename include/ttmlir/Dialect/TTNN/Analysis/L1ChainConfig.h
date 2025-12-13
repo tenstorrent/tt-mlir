@@ -43,6 +43,12 @@ struct OpL1MemSpec {
 //
 enum class L1ChainState { InBuild, Built, Resolved, Completed, Failed };
 
+// Enum to specify where chain output should be spilled after execution.
+// None: No spill needed (output stays in current layout)
+// L1Interleaved: Spill to L1 interleaved (for ops that need interleaved input)
+// DRAM: Spill to DRAM interleaved (default for chain outputs)
+enum class SpillLocation { None, L1Interleaved, DRAM };
+
 class L1ChainConfig {
 private:
   std::vector<OpL1MemSpec> opL1MemSpecs;
@@ -103,7 +109,8 @@ public:
 
   void fail() { state = L1ChainState::Failed; }
 
-  bool spillEndToDRAM = false;
+  // Where to spill the chain's output after execution
+  SpillLocation spillLocation = SpillLocation::None;
 
   // True if this chain contains only a ConcatOp and requires special handling.
   // Concat chains are resolved separately without ShardSolver, by validating

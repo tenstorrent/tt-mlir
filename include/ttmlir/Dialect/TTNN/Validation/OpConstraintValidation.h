@@ -35,18 +35,25 @@ struct ValidationResult {
   // What the backend actually returned (only valid if status == Success).
   TTNNLayoutAttr actualOutputLayout;
 
+  // L1 memory usage for the output tensor in bytes (only valid if status ==
+  // Success). This is the per-core L1 footprint of the output tensor.
+  uint64_t outputL1Usage = 0;
+
   // Error message if status != Success.
   std::string errorMessage;
 
   ValidationResult() = default;
 
   explicit ValidationResult(size_t configIndex,
-                            TTNNLayoutAttr actualOutputLayout)
-      : configIndex(configIndex), actualOutputLayout(actualOutputLayout) {}
+                            TTNNLayoutAttr actualOutputLayout,
+                            uint64_t outputL1Usage = 0)
+      : configIndex(configIndex), actualOutputLayout(actualOutputLayout),
+        outputL1Usage(outputL1Usage) {}
 
   static ValidationResult success(size_t configIndex,
-                                  TTNNLayoutAttr actualOutputLayout) {
-    return ValidationResult(configIndex, actualOutputLayout);
+                                  TTNNLayoutAttr actualOutputLayout,
+                                  uint64_t outputL1Usage = 0) {
+    return ValidationResult(configIndex, actualOutputLayout, outputL1Usage);
   }
 
   static ValidationResult error(ValidationStatus status, std::string message) {

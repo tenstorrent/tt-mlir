@@ -332,6 +332,7 @@ public:
     llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> opSchedule;
     llvm::DenseMap<Edge, MemReconfigEntry> memReconfigEntryMap;
     std::vector<Operation *> spillToDramOps;
+    std::vector<Operation *> spillToL1InterleavedOps;
 
     // Extract override resharding edges
     //
@@ -354,6 +355,24 @@ public:
       memReconfigEntryMap =
           memoryLayoutAnalysis.getResult().memReconfigEntryMap;
       spillToDramOps = memoryLayoutAnalysis.getResult().spillToDramOps;
+      spillToL1InterleavedOps =
+          memoryLayoutAnalysis.getResult().spillToL1InterleavedOps;
+
+      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                   "=== Spill to DRAM ops ({}) ===", spillToDramOps.size());
+      for (Operation *op : spillToDramOps) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer, "  Spill op: {}",
+                     ttmlir::opToString(op));
+      }
+
+      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                   "=== Spill to L1 Interleaved ops ({}) ===",
+                   spillToL1InterleavedOps.size());
+      for (Operation *op : spillToL1InterleavedOps) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                     "  Spill to L1 Interleaved op: {}",
+                     ttmlir::opToString(op));
+      }
     }
 
     // Manually overriden resharding edges should be added to the
@@ -557,6 +576,7 @@ public:
       }
 
       processSpillOps(spillToDramOps, deviceGrid, insertedMemoryReconfigOps);
+      processSpillToL1InterleavedOps(spillToL1InterleavedOps, deviceGrid);
 
       // Try finding ops that can be upgraded from DRAM to L1 interleaved
       // layout.
@@ -685,9 +705,14 @@ private:
     // Insert memory reconfig ops here based on results of memory layout
     // analysis.
     //
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                 "=== Mem reconfig edges ({}) ===", memReconfigEntryMap.size());
     for (const auto &[edge, memReconfigEntry] : memReconfigEntryMap) {
-      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
-                   "Processing mem reconfig edge: {}", edge);
+      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+                   "Processing mem reconfig edge: producer={}, consumer={}",
+                   edge.producerOp ? ttmlir::opToString(edge.producerOp)
+                                   : "nullptr",
+                   ttmlir::opToString(edge.consumerOp));
 
       Operation *producerOp = edge.producerOp;
       Operation *consumerOp = edge.consumerOp;
@@ -911,6 +936,66 @@ private:
               memoryReconfigOp, ttmlir::opToString(spilledOp));
           memoryReconfigOp->setOperand(0, spilledOp->getResult(0));
         }
+      }
+    }
+  }
+
+  // Process ops that need spilling to L1 interleaved (instead of DRAM).
+  // This is used when chain output is L1 sharded but the consumer (like reshape)
+  // needs L1 interleaved input. Keeping the data in L1 avoids a DRAM round-trip.
+  void processSpillToL1InterleavedOps(
+      const std::vector<Operation *> &spillToL1InterleavedOps,
+      ttcore::GridAttr deviceGrid) {
+
+    for (Operation *spilledOp : spillToL1InterleavedOps) {
+      TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                   "Processing spill to L1 interleaved op: {} @{}",
+                   ttmlir::opToString(spilledOp), spilledOp->getLoc());
+
+      RankedTensorType tensorType =
+          mlir::cast<RankedTensorType>(spilledOp->getResult(0).getType());
+      llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
+      TTNNLayoutAttr layoutAttr =
+          mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
+
+      // Create a new tensor type with L1 interleaved layout.
+      TTNNLayoutAttr l1InterleavedLayout =
+          layoutAttr.withBufferType(BufferType::L1)
+              .withMemoryLayout(TensorMemoryLayout::Interleaved);
+      RankedTensorType newTensorType = RankedTensorType::get(
+          tensorShape, tensorType.getElementType(), l1InterleavedLayout);
+
+      // Create a ToLayoutOp with the new L1 interleaved layout.
+      OpBuilder builder(spilledOp->getContext());
+      ttcore::DataTypeAttr dataType = ttcore::DataTypeAttr::get(
+          spilledOp->getContext(), l1InterleavedLayout.getDataType());
+      LayoutAttr newLayout = LayoutAttr::get(spilledOp->getContext(),
+                                             l1InterleavedLayout.getLayout());
+
+      MemoryConfigAttr memConfigAttr = MemoryConfigAttr::get(
+          spilledOp->getContext(), l1InterleavedLayout.getMemLayout(),
+          BufferTypeAttr::get(spilledOp->getContext(), BufferType::L1),
+          utils::createShardSpecIfNeeded(l1InterleavedLayout, deviceGrid));
+
+      builder.setInsertionPointAfter(spilledOp);
+      Location loc = ttmlir::utils::appendLocationSuffix(spilledOp->getLoc(),
+                                                         "_spill_l1_interleaved");
+
+      // Step 1: Save all uses as (Operation*, operand index).
+      llvm::SmallVector<std::pair<Operation *, unsigned>> uses;
+      for (auto &use : spilledOp->getResult(0).getUses()) {
+        uses.emplace_back(use.getOwner(), use.getOperandNumber());
+      }
+
+      // Step 2: Insert spilling to L1 interleaved.
+      Operation *spillToL1InterleavedOp = builder.create<ToLayoutOp>(
+          loc, newTensorType, spilledOp->getResult(0), newLayout, dataType,
+          memConfigAttr);
+
+      // Step 3: Reconnect uses.
+      for (auto &use : uses) {
+        Operation *useOp = use.first;
+        useOp->setOperand(use.second, spillToL1InterleavedOp->getResult(0));
       }
     }
   }

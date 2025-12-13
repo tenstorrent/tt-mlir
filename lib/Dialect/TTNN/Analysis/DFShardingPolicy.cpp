@@ -156,14 +156,26 @@ buildInputLayoutsFromResolvedConfigs(
   return inputLayouts;
 }
 
+// Forward declaration for L1Reservation (defined later in the file).
+struct L1Reservation;
+static uint64_t
+getActiveL1Reservations(int64_t schedulePos,
+                        const std::vector<L1Reservation> &reservations);
+
+// Static empty containers for validation calls that don't need reservations.
+static const llvm::DenseMap<Operation *, int64_t> kEmptySchedulePositionMap;
+static const std::vector<L1Reservation> kEmptyL1Reservations;
+
 // Validate that Chain B can execute with Chain A's output in L1.
 // This validates each op in Chain B (up to and including joinOp) with
 // Chain A's output as additional L1 usage. At the join op, we also
 // validate with Chain A's output layout as the RHS input.
+// Also accounts for any active L1 reservations at each op's position.
 static bool validateChainBWithMergedInput(
     const L1ChainConfig &chainB, Operation *joinOp, TTNNLayoutAttr rhsLayout,
     size_t rhsOperandIndex, uint64_t chainAOutputSize,
-    const llvm::DenseMap<Operation *, int64_t> &schedulePositionMap) {
+    const llvm::DenseMap<Operation *, int64_t> &schedulePositionMap,
+    const std::vector<L1Reservation> &l1Reservations) {
 
   auto joinOpPosIt = schedulePositionMap.find(joinOp);
   if (joinOpPosIt == schedulePositionMap.end()) {
@@ -201,10 +213,14 @@ static bool validateChainBWithMergedInput(
       inputLayouts[rhsOperandIndex] = rhsLayout;
     }
 
-    // Validate the operation with Chain A's output as additional L1 usage.
+    // Calculate total additional L1: chain merge + active reservations
+    uint64_t reservedL1 = getActiveL1Reservations(opPos, l1Reservations);
+    uint64_t totalAdditionalL1 = chainAOutputSize + reservedL1;
+
+    // Validate the operation with total additional L1 usage.
     op_constraint_validation::ValidationResult result =
         op_constraint_validation::validateOperation(
-            op, inputLayouts, spec.config, chainAOutputSize);
+            op, inputLayouts, spec.config, totalAdditionalL1);
 
     if (!result.isSuccess()) {
       TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
@@ -226,8 +242,11 @@ static bool validateChainBWithMergedInput(
 // Chain A (operand 0 producer) executes first, then Chain C executes while
 // Chain A's output stays in L1. This is needed for 3-way merges where both
 // Chain A and Chain C feed into Chain B.
-static bool validateChainWithPredecessorInL1(const L1ChainConfig &chainC,
-                                             uint64_t predecessorOutputSize) {
+// Also accounts for any active L1 reservations at each op's position.
+static bool validateChainWithPredecessorInL1(
+    const L1ChainConfig &chainC, uint64_t predecessorOutputSize,
+    const llvm::DenseMap<Operation *, int64_t> &schedulePositionMap,
+    const std::vector<L1Reservation> &l1Reservations) {
 
   // Build a map of resolved output layouts for ops in Chain C.
   llvm::DenseMap<Operation *, TTNNLayoutAttr> resolvedLayoutMap =
@@ -247,10 +266,19 @@ static bool validateChainWithPredecessorInL1(const L1ChainConfig &chainC,
     }
     std::vector<TTNNLayoutAttr> inputLayouts = std::move(*inputLayoutsOpt);
 
-    // Validate the operation with predecessor's output as additional L1 usage.
+    // Calculate total additional L1: predecessor + active reservations
+    uint64_t reservedL1 = 0;
+    auto posIt = schedulePositionMap.find(op);
+    if (posIt != schedulePositionMap.end()) {
+      reservedL1 = getActiveL1Reservations(posIt->second, l1Reservations);
+    }
+    uint64_t totalAdditionalL1 = predecessorOutputSize + reservedL1;
+
+    // Validate the operation with total additional L1 usage.
     op_constraint_validation::ValidationResult result =
-        op_constraint_validation::validateOperation(
-            op, inputLayouts, spec.config, predecessorOutputSize);
+        op_constraint_validation::validateOperation(op, inputLayouts,
+                                                    spec.config,
+                                                    totalAdditionalL1);
 
     if (!result.isSuccess()) {
       TTMLIR_DEBUG(
@@ -555,7 +583,7 @@ setConcatChainPreferences(std::vector<L1ChainConfig> &l1ChainConfigs) {
 // 3. Validate concat can consume all L1 inputs by querying the backend
 // 4. Validate N-way merge: each subsequent input chain can execute while
 //    previous chains' outputs stay in L1
-// 5. If successful, mark input chains with spillEndToDRAM = false and
+// 5. If successful, mark input chains with spillLocation = None and
 //    complete the concat chain with the backend-determined output layout
 //
 static void resolveConcatChains(
@@ -697,7 +725,9 @@ static void resolveConcatChains(
         // Validate chain[i] can execute while previous chains' outputs stay
         // in L1
         const L1ChainConfig &chainI = l1ChainConfigs[inputChainIndices[i]];
-        if (!validateChainWithPredecessorInL1(chainI, accumulatedL1)) {
+        if (!validateChainWithPredecessorInL1(chainI, accumulatedL1,
+                                                kEmptySchedulePositionMap,
+                                                kEmptyL1Reservations)) {
           TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
                        "Concat chain {}: N-way merge failed - chain {} cannot "
                        "execute with {} bytes of predecessor output in L1",
@@ -715,12 +745,12 @@ static void resolveConcatChains(
       continue;
     }
 
-    // Success! Mark input chains as spillEndToDRAM = false
+    // Success! Mark input chains as spillLocation = None (no spill needed)
     for (size_t idx : inputChainIndices) {
-      l1ChainConfigs[idx].spillEndToDRAM = false;
+      l1ChainConfigs[idx].spillLocation = SpillLocation::None;
       TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
-                   "Concat chain {}: marking input chain {} spillEndToDRAM = "
-                   "false",
+                   "Concat chain {}: marking input chain {} spillLocation = "
+                   "None",
                    concatChainIdx, idx);
     }
 
@@ -739,9 +769,9 @@ static void resolveConcatChains(
     concatChain.resolve();
     concatChain.complete(selectedConfigs, emptyReconfigMap);
 
-    // Set spillEndToDRAM based on output layout
+    // Set spillLocation based on output layout
     if (!selectedConfig.outputLayout.hasDRAMBufferType()) {
-      concatChain.spillEndToDRAM = true;
+      concatChain.spillLocation = SpillLocation::DRAM;
     }
 
     TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
@@ -774,7 +804,8 @@ static void resolveConcatChains(
 //   Validate: Chain C can execute with Chain A's output in L1
 //
 static void applyChainMerges(std::vector<L1ChainConfig> &l1ChainConfigs,
-                             const llvm::SmallVector<Operation *> &schedule) {
+                             const llvm::SmallVector<Operation *> &schedule,
+                             const std::vector<L1Reservation> &l1Reservations) {
   // Build lookup maps for O(1) access.
   llvm::DenseMap<Operation *, int64_t> schedulePositionMap =
       buildSchedulePositionMap(schedule);
@@ -833,13 +864,14 @@ static void applyChainMerges(std::vector<L1ChainConfig> &l1ChainConfigs,
           l1ChainConfigs[operand1Candidate->chainAIdx];
 
       if (validateChainWithPredecessorInL1(
-              chainC, operand0Candidate->chainAOutputSize)) {
+              chainC, operand0Candidate->chainAOutputSize,
+              schedulePositionMap, l1Reservations)) {
         // 3-way merge is valid! Apply both merges.
         L1ChainConfig &chainA = l1ChainConfigs[operand0Candidate->chainAIdx];
         L1ChainConfig &chainCMut = l1ChainConfigs[operand1Candidate->chainAIdx];
 
-        chainA.spillEndToDRAM = false;
-        chainCMut.spillEndToDRAM = false;
+        chainA.spillLocation = SpillLocation::None;
+        chainCMut.spillLocation = SpillLocation::None;
         mergedIntoChains.insert(chainBIdx);
 
         TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
@@ -883,7 +915,7 @@ static void applyChainMerges(std::vector<L1ChainConfig> &l1ChainConfigs,
       if (!validateChainBWithMergedInput(
               chainB, candidate.joinOp, candidate.chainAOutputLayout,
               candidate.operandIdx, candidate.chainAOutputSize,
-              schedulePositionMap)) {
+              schedulePositionMap, l1Reservations)) {
         TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
                      "Chain merge candidate rejected: validation failed for "
                      "merging chain {} into chain {} at op {}",
@@ -905,7 +937,7 @@ static void applyChainMerges(std::vector<L1ChainConfig> &l1ChainConfigs,
 
     // Apply the merge.
     L1ChainConfig &chainToMerge = l1ChainConfigs[bestCandidate->chainAIdx];
-    chainToMerge.spillEndToDRAM = false;
+    chainToMerge.spillLocation = SpillLocation::None;
     mergedIntoChains.insert(chainBIdx);
 
     TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
@@ -915,6 +947,364 @@ static void applyChainMerges(std::vector<L1ChainConfig> &l1ChainConfigs,
                  bestCandidate->chainAIdx, chainBIdx,
                  bestCandidate->joinOp->getName(), bestCandidate->operandIdx,
                  bestCandidate->chainAOutputSize);
+  }
+}
+
+//===----------------------------------------------------------------------===//
+// L1 Reservation Timeline
+//===----------------------------------------------------------------------===//
+
+// Represents a reservation of L1 memory for an op's output that stays in L1
+// across multiple consumer chains. Used for forked ops like reshape that
+// benefit from staying in L1 interleaved instead of spilling to DRAM.
+struct L1Reservation {
+  Operation *sourceOp;  // The op whose output is reserved in L1
+  int64_t startPos;     // Schedule position where reservation starts
+  int64_t endPos;       // Schedule position where reservation ends (last user)
+  uint64_t sizeBytes;   // L1 size reserved in bytes
+};
+
+// Compute total L1 reserved at a given schedule position.
+// This is O(n) for now; can be optimized with Fenwick tree later.
+static uint64_t
+getActiveL1Reservations(int64_t schedulePos,
+                        const std::vector<L1Reservation> &reservations) {
+  uint64_t total = 0;
+  for (const auto &res : reservations) {
+    if (schedulePos >= res.startPos && schedulePos <= res.endPos) {
+      total += res.sizeBytes;
+    }
+  }
+  return total;
+}
+
+// Try to get an L1 interleaved config for an operation and validate it.
+// Constructs an L1 interleaved config from the op's current DRAM layout.
+// Returns the L1 size in bytes if successful, 0 otherwise.
+static uint64_t tryGetL1InterleavedSize(Operation *op) {
+
+  // Get the output type and its current layout
+  if (op->getNumResults() == 0) {
+    return 0;
+  }
+
+  auto outputType =
+      mlir::dyn_cast<RankedTensorType>(op->getResult(0).getType());
+  if (!outputType) {
+    return 0;
+  }
+
+  auto currentLayout =
+      mlir::dyn_cast_or_null<TTNNLayoutAttr>(outputType.getEncoding());
+  if (!currentLayout) {
+    return 0;
+  }
+
+  // Skip if already L1
+  if (currentLayout.hasL1BufferType()) {
+    return 0;
+  }
+
+  // Create L1 interleaved layout from current DRAM layout
+  TTNNLayoutAttr l1Layout =
+      currentLayout.withBufferType(BufferType::L1)
+          .withMemoryLayout(TensorMemoryLayout::Interleaved);
+
+  // Extract input layouts from IR and convert to L1 interleaved
+  // This validates that reshape can work with L1 interleaved inputs
+  // (which is what we'll provide via spill-to-L1-interleaved)
+  std::vector<TTNNLayoutAttr> inputLayouts = utils::extractInputLayouts(op);
+  for (auto &inputLayout : inputLayouts) {
+    inputLayout = inputLayout.withBufferType(BufferType::L1)
+                      .withMemoryLayout(TensorMemoryLayout::Interleaved);
+  }
+
+  // Create config with L1 interleaved output
+  OpConfig l1Config;
+  l1Config.outputLayout = l1Layout;
+
+  // Validate with backend using L1 interleaved inputs
+  op_constraint_validation::ValidationResult result =
+      op_constraint_validation::validateOperation(op, inputLayouts, l1Config,
+                                                  0);
+
+  if (!result.isSuccess()) {
+    TTMLIR_TRACE(ttmlir::LogComponent::DFShardingPolicy,
+                 "L1 interleaved validation failed for {}: {}",
+                 op->getName(), result.errorMessage);
+    return 0;
+  }
+
+  // Return L1 size from validation result
+  return result.outputL1Usage;
+}
+
+// Validate that all chains in the active range [startPos, endPos] can execute
+// with the given additional L1 reservation.
+static bool validateChainsWithReservation(
+    const std::vector<L1ChainConfig> &l1ChainConfigs,
+    const llvm::DenseMap<Operation *, int64_t> &schedulePositionMap,
+    const std::vector<L1Reservation> &existingReservations,
+    int64_t startPos, int64_t endPos, uint64_t additionalL1) {
+
+  for (const auto &chain : l1ChainConfigs) {
+    if (chain.getState() != L1ChainState::Completed) {
+      continue;
+    }
+
+    // Check if this chain overlaps with the reservation range
+    bool overlaps = false;
+    for (const auto &spec : chain.getOpL1MemSpecs()) {
+      auto posIt = schedulePositionMap.find(spec.op);
+      if (posIt == schedulePositionMap.end()) {
+        continue;
+      }
+      int64_t opPos = posIt->second;
+      if (opPos >= startPos && opPos <= endPos) {
+        overlaps = true;
+        break;
+      }
+    }
+
+    if (!overlaps) {
+      continue;
+    }
+
+    // Validate each op in the overlapping chain
+    llvm::DenseMap<Operation *, TTNNLayoutAttr> resolvedLayoutMap =
+        buildResolvedLayoutMap(chain);
+    const auto &memReconfigEntryMap = chain.getMemReconfigEntryMap();
+
+    for (const auto &spec : chain.getOpL1MemSpecs()) {
+      auto posIt = schedulePositionMap.find(spec.op);
+      if (posIt == schedulePositionMap.end()) {
+        continue;
+      }
+      int64_t opPos = posIt->second;
+
+      // Only validate ops within the reservation range
+      if (opPos < startPos || opPos > endPos) {
+        continue;
+      }
+
+      // Get existing reservations at this position
+      uint64_t existingL1 = getActiveL1Reservations(opPos, existingReservations);
+
+      // Build input layouts
+      auto inputLayoutsOpt = buildInputLayoutsFromResolvedConfigs(
+          spec.op, resolvedLayoutMap, memReconfigEntryMap);
+      if (!inputLayoutsOpt) {
+        return false;
+      }
+
+      // Validate with both existing and new reservation
+      op_constraint_validation::ValidationResult result =
+          op_constraint_validation::validateOperation(
+              spec.op, *inputLayoutsOpt, spec.config,
+              existingL1 + additionalL1);
+
+      if (!result.isSuccess()) {
+        TTMLIR_TRACE(ttmlir::LogComponent::DFShardingPolicy,
+                     "L1 reservation validation failed at op {}: {}",
+                     spec.op->getName(), result.errorMessage);
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
+// Detect forked reshape ops and try to keep them in L1 interleaved.
+// For each forked reshape:
+// 1. Validate reshape can use L1 interleaved config and get L1 size
+// 2. Find all users and their schedule positions
+// 3. Validate all chains in the active range can execute with the reservation
+// 4. If valid, add to reservations
+// Check if an operation is the last op in a chain and the chain spills to DRAM.
+// Returns the chain index if found, -1 otherwise.
+static int64_t findSpilledChainForOp(
+    Operation *op, const std::vector<L1ChainConfig> &l1ChainConfigs) {
+  for (size_t chainIdx = 0; chainIdx < l1ChainConfigs.size(); ++chainIdx) {
+    const auto &chain = l1ChainConfigs[chainIdx];
+    if (chain.getState() != L1ChainState::Completed) {
+      continue;
+    }
+    if (chain.spillLocation != SpillLocation::DRAM) {
+      continue;
+    }
+    const auto &specs = chain.getOpL1MemSpecs();
+    if (!specs.empty() && specs.back().op == op) {
+      return static_cast<int64_t>(chainIdx);
+    }
+  }
+  return -1;
+}
+
+static void applyL1ReservationsForReshapes(
+    std::vector<L1ChainConfig> &l1ChainConfigs,
+    const llvm::SmallVector<Operation *> &schedule,
+    const llvm::DenseMap<Operation *, int64_t> &schedulePositionMap,
+    std::vector<L1Reservation> &l1Reservations) {
+
+  // Find reshape ops that are not in any chain (i.e., currently in DRAM)
+  // Both forked (multiple users) and non-forked reshapes benefit from L1:
+  // - Forked: avoids multiple DRAM reads
+  // - Non-forked: shorter L1 window, deallocated right after single user
+  for (Operation *op : schedule) {
+    if (!isa<ttnn::ReshapeOp>(op)) {
+      continue;
+    }
+
+    // Get schedule position
+    auto posIt = schedulePositionMap.find(op);
+    if (posIt == schedulePositionMap.end()) {
+      continue;
+    }
+    int64_t reshapePos = posIt->second;
+
+    // Check if reshape's input comes from a chain that spills to DRAM.
+    // If so, and reshape is the only user, we can avoid the DRAM spill entirely.
+    Value reshapeInput = op->getOperand(0);
+    Operation *inputDefOp = reshapeInput.getDefiningOp();
+    int64_t spilledChainIdx = -1;
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                 "L1 reservation: checking reshape {} (pos {}) - input def op: "
+                 "{}, hasOneUse: {}",
+                 ttmlir::opToString(op), reshapePos,
+                 inputDefOp ? inputDefOp->getName().getStringRef().str()
+                            : "nullptr",
+                 reshapeInput.hasOneUse());
+
+    if (inputDefOp && reshapeInput.hasOneUse()) {
+      spilledChainIdx = findSpilledChainForOp(inputDefOp, l1ChainConfigs);
+
+      TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                   "L1 reservation: findSpilledChainForOp returned {} for op {}",
+                   spilledChainIdx,
+                   inputDefOp->getName().getStringRef().str());
+
+      if (spilledChainIdx >= 0) {
+        // Check that reshape immediately follows the chain (no ops in between)
+        auto inputPosIt = schedulePositionMap.find(inputDefOp);
+        if (inputPosIt != schedulePositionMap.end()) {
+          int64_t inputPos = inputPosIt->second;
+
+          TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                       "L1 reservation: reshape pos {}, input pos {}, "
+                       "immediate? {}",
+                       reshapePos, inputPos, reshapePos == inputPos + 1);
+
+          // Reshape should be the immediate next scheduled op after the chain's
+          // last op
+          if (reshapePos == inputPos + 1) {
+            // Avoid DRAM spill - chain output stays in L1, reshape reads from
+            // L1. Set to L1Interleaved so optimizer converts the L1 sharded
+            // output to L1 interleaved for reshape consumption.
+            L1ChainConfig &chain =
+                l1ChainConfigs[static_cast<size_t>(spilledChainIdx)];
+            chain.spillLocation = SpillLocation::L1Interleaved;
+
+            TTMLIR_DEBUG(
+                ttmlir::LogComponent::DFShardingPolicy,
+                "L1 reservation: avoiding DRAM spill for chain {} feeding "
+                "reshape {} - chain output stays in L1 (last op: {})",
+                spilledChainIdx, ttmlir::opToString(op),
+                ttmlir::opToString(chain.getLastOp()));
+
+            // Still need to create L1ChainConfig for reshape output
+          }
+        }
+      }
+    }
+
+    // Try to get L1 interleaved size via backend validation
+    uint64_t l1Size = tryGetL1InterleavedSize(op);
+    if (l1Size == 0) {
+      TTMLIR_TRACE(ttmlir::LogComponent::DFShardingPolicy,
+                   "L1 reservation: reshape {} has no valid L1 interleaved "
+                   "config",
+                   ttmlir::opToString(op));
+      continue;
+    }
+
+    // Find last user position
+    int64_t lastUserPos = reshapePos;
+    for (Operation *user : op->getUsers()) {
+      auto userPosIt = schedulePositionMap.find(user);
+      if (userPosIt != schedulePositionMap.end()) {
+        lastUserPos = std::max(lastUserPos, userPosIt->second);
+      }
+    }
+
+    TTMLIR_TRACE(ttmlir::LogComponent::DFShardingPolicy,
+                 "L1 reservation candidate: reshape {} at pos {}, "
+                 "last user at pos {}, size {} bytes",
+                 ttmlir::opToString(op), reshapePos, lastUserPos, l1Size);
+
+    // Validate all chains in the range [reshapePos, lastUserPos]
+    if (!validateChainsWithReservation(l1ChainConfigs, schedulePositionMap,
+                                       l1Reservations, reshapePos, lastUserPos,
+                                       l1Size)) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                   "L1 reservation rejected for reshape {}: validation failed",
+                   ttmlir::opToString(op));
+      continue;
+    }
+
+    // Add the reservation
+    l1Reservations.push_back({op, reshapePos, lastUserPos, l1Size});
+
+    // Create an L1ChainConfig for this reserved reshape so the optimizer
+    // updates its output layout to L1 interleaved
+    L1ChainConfig reshapeChain;
+    OpL1MemSpec reshapeSpec;
+    reshapeSpec.op = op;
+    reshapeSpec.tensorSplitFactor = 1;
+
+    // Get output type and create L1 interleaved layout
+    auto outputType =
+        mlir::cast<RankedTensorType>(op->getResult(0).getType());
+    auto currentLayout =
+        mlir::cast<TTNNLayoutAttr>(outputType.getEncoding());
+    TTNNLayoutAttr l1Layout = currentLayout.withBufferType(BufferType::L1);
+    reshapeSpec.config.outputLayout = l1Layout;
+
+    reshapeChain.addOpL1MemSpec(std::move(reshapeSpec));
+    reshapeChain.build();
+    reshapeChain.resolve();
+
+    // Complete with the L1 interleaved config
+    llvm::DenseMap<Operation *, OpConfig> selectedConfigs;
+    OpConfig l1Config;
+    l1Config.outputLayout = l1Layout;
+    selectedConfigs[op] = l1Config;
+    llvm::DenseMap<Edge, MemReconfigEntry> emptyReconfigMap;
+    reshapeChain.complete(selectedConfigs, emptyReconfigMap);
+
+    // Output stays in L1 (no spill needed)
+    reshapeChain.spillLocation = SpillLocation::None;
+
+    l1ChainConfigs.push_back(std::move(reshapeChain));
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                 "L1 reservation applied: reshape {} stays in L1 "
+                 "(pos [{}, {}], {} bytes)",
+                 ttmlir::opToString(op), reshapePos, lastUserPos, l1Size);
+  }
+
+  // Summary of chain spill states after L1 reservations
+  TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+               "=== L1 Reservation Summary: Chain spill states ===");
+  for (size_t i = 0; i < l1ChainConfigs.size(); ++i) {
+    const auto &chain = l1ChainConfigs[i];
+    if (chain.getState() == L1ChainState::Completed) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                   "Chain {}: spillLocation={}, lastOp={}", i,
+                   static_cast<int>(chain.spillLocation),
+                   ttmlir::opToString(chain.getLastOp()));
+    }
   }
 }
 
@@ -1139,7 +1529,7 @@ void DFShardingPolicy::run() {
     // TODO(odjuricic): Add constraint check if op can write to dram.
     if (!resolvedShardSolution.selectedOpConfig[l1ChainConfig.getLastOp()]
              .outputLayout.hasDRAMBufferType()) {
-      l1ChainConfig.spillEndToDRAM = true;
+      l1ChainConfig.spillLocation = SpillLocation::DRAM;
     }
 
     TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
@@ -1156,10 +1546,19 @@ void DFShardingPolicy::run() {
   // This allows us to check if concat's input chains are L1-sharded.
   resolveConcatChains(*l1ChainConfigs, opToChainMap, legalConfigs);
 
-  // Post-processing: attempt to merge chains where Chain A's output can stay
-  // in L1 and be consumed as RHS by a join op in Chain B.
+  // Post-processing: apply L1 reservations for forked ops (like reshape)
+  // BEFORE chain merges so merges account for reserved L1 memory.
+  std::vector<L1Reservation> l1Reservations;
   if (funcToProcess) {
-    applyChainMerges(*l1ChainConfigs, (*schedule)[funcToProcess]);
+    llvm::DenseMap<Operation *, int64_t> schedulePositionMap =
+        buildSchedulePositionMap((*schedule)[funcToProcess]);
+    applyL1ReservationsForReshapes(*l1ChainConfigs, (*schedule)[funcToProcess],
+                                   schedulePositionMap, l1Reservations);
+
+    // Attempt to merge chains where Chain A's output can stay in L1 and be
+    // consumed as RHS by a join op in Chain B.
+    applyChainMerges(*l1ChainConfigs, (*schedule)[funcToProcess],
+                     l1Reservations);
   }
 
   progressTracker.finishAnalysis(funcToProcess);

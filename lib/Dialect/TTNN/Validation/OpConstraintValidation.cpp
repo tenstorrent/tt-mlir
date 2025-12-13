@@ -178,7 +178,7 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
                ttmlir::opToString(op), outputLayout, overallPeakL1Usage,
                cbPeakUsage, l1BuffersPeakUsage, outputTensorUsagePerCore);
 
-  return ValidationResult::success(0, outputLayout);
+  return ValidationResult::success(0, outputLayout, outputTensorUsagePerCore);
 }
 
 } // namespace op_constraint_validation
