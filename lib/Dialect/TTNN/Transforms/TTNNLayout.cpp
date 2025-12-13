@@ -596,7 +596,9 @@ private:
 
   bool shouldForceInputRowMajor(BlockArgument arg) const {
     for (Operation *user : arg.getUsers()) {
-      if (mlir::isa<ttir::MeshShardOp>(user)) {
+      // MeshShardOp/UpdateCacheOp/PagedUpdateCacheOp inputs should be tiled.
+      if (mlir::isa<ttir::MeshShardOp, ttir::UpdateCacheOp,
+                    ttir::PagedUpdateCacheOp>(user)) {
         return false;
       }
     }
