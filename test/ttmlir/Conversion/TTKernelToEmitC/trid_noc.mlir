@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --convert-ttkernel-to-emitc %s | FileCheck %s
+// RUN: ttmlir-opt --convert-ttkernel-to-emitc --split-input-file %s | FileCheck %s
 
 // -----
 
