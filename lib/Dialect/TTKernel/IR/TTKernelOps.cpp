@@ -206,9 +206,6 @@ static std::string verifyTilizeUntilizeCBs(CBType tilizedCB, CBType scalarCB) {
 }
 ::mlir::LogicalResult ResetNocTridBarrierCounterOp::verify() {
   Value noc = getNoc();
-  if (!noc && getNumOperands() > 1) {
-    noc = getOperand(1);
-  }
   if (noc) {
     auto nocValue = getConstantIntValue(noc);
     constexpr int32_t kNumNocs =

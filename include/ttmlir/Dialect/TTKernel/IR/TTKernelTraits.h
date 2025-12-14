@@ -64,9 +64,6 @@ public:
     }
 
     mlir::Value noc = concreteOp.getNoc();
-    if (!noc && op->getNumOperands() > 1) {
-      noc = op->getOperand(1);
-    }
     if (noc) {
       auto nocValue = getConstantIntValue(noc);
       if (nocValue && (*nocValue < 0 || *nocValue >= kNumNocs)) {

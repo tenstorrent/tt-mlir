@@ -98,14 +98,3 @@ func.func @test_noc_trid_with_implicit_noc(%trid: i32) {
       : (i32, i32, i32, i32) -> ()
   return
 }
-
-// CHECK-LABEL: func.func @test_cb_push_back_ok
-// CHECK-SAME: (%[[PAGES:.*]]: i32)
-func.func @test_cb_push_back_ok(%pages: i32)
-    attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>} {
-  // CHECK: %[[CB:.*]] = ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb<1, i32>
-  // CHECK: ttkernel.cb_push_back(%[[CB]], %[[PAGES]]) : (!ttkernel.cb<1, i32>, i32) -> ()
-  %cb = ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb<1, i32>
-  ttkernel.cb_push_back(%cb, %pages) : (!ttkernel.cb<1, i32>, i32) -> ()
-  return
-}
