@@ -1977,7 +1977,7 @@ class TTIRBuilder(Builder):
         index: Operand,
         source: Operand,
         dim: int,
-        scatter_reduce_type: ttcore.ReduceType,
+        scatter_reduce_type: Attribute,
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
