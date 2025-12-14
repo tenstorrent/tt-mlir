@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2024-2025 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -201,6 +201,21 @@ static std::string verifyTilizeUntilizeCBs(CBType tilizedCB, CBType scalarCB) {
   if (numFormatSpecifiers != getOperands().size()) {
     return emitOpError("number of format specifiers must match number of "
                        "operands");
+  }
+  return success();
+}
+::mlir::LogicalResult ResetNocTridBarrierCounterOp::verify() {
+  Value noc = getNoc();
+  if (!noc && getNumOperands() > 1) {
+    noc = getOperand(1);
+  }
+  if (noc) {
+    auto nocValue = getConstantIntValue(noc);
+    constexpr int32_t kNumNocs =
+        TTKernelTridNocOpTrait<ResetNocTridBarrierCounterOp>::kNumNocs;
+    if (nocValue && (*nocValue < 0 || *nocValue >= kNumNocs)) {
+      return emitOpError() << "noc must be in [0, " << (kNumNocs - 1) << "].";
+    }
   }
   return success();
 }

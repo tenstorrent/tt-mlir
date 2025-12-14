@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2024-2025 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -2326,6 +2326,45 @@ def TTKernel_NocAsyncReadOnePacketWithStateOp : TTKernel_Op<"noc_async_read_one_
     }];
 }
 
+def TTKernel_NocAsyncReadSetTridOp : TTKernel_Op<"noc_async_read_set_trid", [TTKernel_TridNocOpTrait]> {
+    let summary = "NocAsyncReadSetTrid";
+    let description = [{
+      Sets the transaction ID for subsequent NOC reads. TRID is 0-15, NOC is 0 or 1.
+
+      Example:
+      ```
+      // Set TRID 1 on NOC 0 before issuing reads.
+      noc_async_read_set_trid(1, 0);
+      ```
+    }];
+
+    let arguments = (ins I32:$trid, Optional<I8>:$noc);
+
+    let assemblyFormat = [{
+      `(` $trid (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_NocAsyncReadOnePacketWithStateWithTridOp : TTKernel_Op<"noc_async_read_one_packet_with_state_with_trid", [TTKernel_TridNocOpTrait]> {
+    let summary = "NocAsyncReadOnePacketWithStateWithTrid";
+    let description = [{
+      Issues a one-packet NOC read with a specific transaction ID. TRID is 0-15, NOC is 0 or 1.
+
+      Example:
+      ```
+      noc_async_read_set_trid(2, 0);
+      noc_async_read_one_packet_with_state_with_trid(src_base, src, dst_l1, 2, 0);
+      noc_async_read_barrier_with_trid(2, 0);
+      ```
+    }];
+
+    let arguments = (ins I32:$srcBaseAddr, I32:$srcAddr, AnyTypeOf<[I32, TTKernel_L1Addr]>:$dstLocalL1Addr, I32:$trid, Optional<I8>:$noc);
+
+    let assemblyFormat = [{
+      `(` $srcBaseAddr `,` $srcAddr `,` $dstLocalL1Addr `,` $trid (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_NocAsyncReadBarrierOp : TTKernel_Op<"noc_async_read_barrier", [TTKernel_DeviceZoneOpTrait]> {
     let summary = "NocAsyncReadBarrier";
     let description = [{
@@ -2334,6 +2373,24 @@ def TTKernel_NocAsyncReadBarrierOp : TTKernel_Op<"noc_async_read_barrier", [TTKe
 
     let assemblyFormat = [{
       `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_NocAsyncReadBarrierWithTridOp : TTKernel_Op<"noc_async_read_barrier_with_trid", [TTKernel_DeviceZoneOpTrait, TTKernel_TridNocOpTrait]> {
+    let summary = "NocAsyncReadBarrierWithTrid";
+    let description = [{
+      Waits for outstanding read transactions matching a transaction ID. TRID is 0-15, NOC is 0 or 1.
+
+      Example:
+      ```
+      noc_async_read_barrier_with_trid(2, 0);
+      ```
+    }];
+
+    let arguments = (ins I32:$trid, Optional<I8>:$noc);
+
+    let assemblyFormat = [{
+      `(` $trid (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -2365,6 +2422,44 @@ def TTKernel_NocAsyncWriteTileOp : TTKernel_Op<"noc_async_write_tile"> {
     }];
 }
 
+def TTKernel_NocAsyncWriteSetTridOp : TTKernel_Op<"noc_async_write_set_trid", [TTKernel_TridNocOpTrait]> {
+    let summary = "NocAsyncWriteSetTrid";
+    let description = [{
+      Sets the transaction ID for subsequent NOC writes. TRID is 0-15, NOC is 0 or 1.
+
+      Example:
+      ```
+      noc_async_write_set_trid(3, 0);
+      ```
+    }];
+
+    let arguments = (ins I32:$trid, Optional<I8>:$noc);
+
+    let assemblyFormat = [{
+      `(` $trid (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_NocAsyncWriteOnePacketWithTridOp : TTKernel_Op<"noc_async_write_one_packet_with_trid", [TTKernel_TridNocOpTrait]> {
+    let summary = "NocAsyncWriteOnePacketWithTrid";
+    let description = [{
+      Issues a one-packet NOC write with a specific transaction ID. TRID is 0-15, NOC is 0 or 1.
+
+      Example:
+      ```
+      noc_async_write_set_trid(3, 0);
+      noc_async_write_one_packet_with_trid(l1_src, dst_noc, size, 3, 0);
+      noc_async_write_barrier_with_trid(3, 0);
+      ```
+    }];
+
+    let arguments = (ins I32:$srcLocalL1Addr, TTKernel_NocAddr:$dstNocAddr, I32:$size, I32:$trid, Optional<I8>:$noc);
+
+    let assemblyFormat = [{
+      `(` $srcLocalL1Addr `,` $dstNocAddr `,` $size `,` $trid (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_NocAsyncWriteBarrierOp : TTKernel_Op<"noc_async_write_barrier", [TTKernel_DeviceZoneOpTrait]> {
     let summary = "NocAsyncWriteBarrier";
     let description = [{
@@ -2373,6 +2468,45 @@ def TTKernel_NocAsyncWriteBarrierOp : TTKernel_Op<"noc_async_write_barrier", [TT
 
     let assemblyFormat = [{
       `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_NocAsyncWriteBarrierWithTridOp : TTKernel_Op<"noc_async_write_barrier_with_trid", [TTKernel_DeviceZoneOpTrait, TTKernel_TridNocOpTrait]> {
+    let summary = "NocAsyncWriteBarrierWithTrid";
+    let description = [{
+      Waits for outstanding write transactions matching a transaction ID. TRID is 0-15, NOC is 0 or 1.
+
+      Example:
+      ```
+      noc_async_write_barrier_with_trid(3, 0);
+      ```
+    }];
+
+    let arguments = (ins I32:$trid, Optional<I8>:$noc);
+
+    let assemblyFormat = [{
+      `(` $trid (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_ResetNocTridBarrierCounterOp : TTKernel_Op<"reset_noc_trid_barrier_counter"> {
+    let summary = "ResetNocTridBarrierCounter";
+    let description = [{
+      Resets the barrier counters for a set of transaction IDs on a given NOC. Mask bits correspond to TRIDs 0-15; NOC is 0 or 1.
+
+      Example:
+      ```
+      // Clear counters for TRIDs 0-3 on NOC 0.
+      reset_noc_trid_barrier_counter(0xF, 0);
+      ```
+    }];
+
+    let arguments = (ins I32:$idMask, Optional<I8>:$noc);
+
+    let hasVerifier = 1;
+
+    let assemblyFormat = [{
+      `(` $idMask (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
