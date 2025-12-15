@@ -16,11 +16,14 @@ namespace mlir::tt::ttnn {
 class OpModelTest : public OpModelFixture {};
 
 // Test that RMS norm with width-sharded input causes a crash in metal.
-// This test verifies the workaround is still needed.
+// This test verifies the workaround in DFShardingPolicy.cpp is still needed.
+// We are waiting for the following metal fix to be uplifted:
+// https://github.com/tenstorrent/tt-metal/pull/34335
 //
-// IMPORTANT: If this test FAILS (code doesn't crash), it means the metal issue
-// is fixed and uplifted. In that case, remove the workaround in
-// RMSNormOp::getOpConstraints that rejects sharded inputs.
+// IMPORTANT: If this test FAILS (code doesn't crash), it means the metal fix
+// has been uplifted. In that case:
+// 1. Add RMSNormOp back to validForSharding in DFShardingPolicy.cpp
+// 2. Remove this test
 TEST_F(OpModelTest, RMSNormWidthShardedInputCrashTest) {
   constexpr int64_t h = 32;
   constexpr int64_t w = 2048;
