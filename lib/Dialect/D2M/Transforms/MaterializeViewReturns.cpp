@@ -132,7 +132,7 @@ public:
           // device-to-host transfer.
           auto toLayoutOp =
               mlir::dyn_cast_if_present<d2m::ToLayoutOp>(definingOp);
-          bool isToHostOp = mlir::isa<d2m::ToHostOp>(definingOp) ||
+          bool isToHostOp = mlir::isa_and_nonnull<d2m::ToHostOp>(definingOp) ||
                             (toLayoutOp && toLayoutOp.isDeviceToHost());
           if (isToHostOp) {
             Value toHostInput = definingOp->getOperand(0);
