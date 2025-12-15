@@ -165,6 +165,11 @@ private:
     if (op->hasTrait<mlir::OpTrait::IsTerminator>()) {
       return;
     }
+    // Skip mesh_shard ops. Identity mesh_shard ops are just forwarding their
+    // input, so they don't need to be included in const-eval subgraphs.
+    if (isa<mlir::tt::ttnn::MeshShardOp>(op)) {
+      return;
+    }
 
     // Handle cacheable creation ops as standalone const-eval subgraphs.
     // These are creation ops that produce constant outputs and can be cached.

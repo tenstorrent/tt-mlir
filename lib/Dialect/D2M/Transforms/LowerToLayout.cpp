@@ -85,51 +85,91 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
     llvm::SmallVector<int64_t>
     computeVirtualGridBounceShape(ArrayRef<int64_t> virtualGridShape,
                                   ArrayRef<int64_t> deviceGridShape) const {
-      // TODO(bgrady-tt): Generalize to N dimensions.
-      assert(virtualGridShape.size() == 2);
-      assert(virtualGridShape[0] > deviceGridShape[0] ^
-             virtualGridShape[1] > deviceGridShape[1]);
 
-      llvm::SmallVector<int64_t> ret;
-      if (virtualGridShape[0] > deviceGridShape[0]) {
-        int64_t divisor = std::gcd(virtualGridShape[0], deviceGridShape[0]);
-        ret = {divisor, virtualGridShape[1]};
-      } else {
-        int64_t divisor = std::gcd(virtualGridShape[1], deviceGridShape[1]);
-        ret = {virtualGridShape[0], divisor};
+      TT_assert(virtualGridShape.size() >= 2u);
+      // Collapse all leading dimensions into the first dimension of a 2D shape.
+      llvm::SmallVector<int64_t> collapsedVirtualGridShape(2);
+      collapsedVirtualGridShape[0] = virtualGridShape[0];
+      for (int64_t i = 1; i < static_cast<int64_t>(virtualGridShape.size()) - 1;
+           ++i) {
+        collapsedVirtualGridShape[0] *= virtualGridShape[i];
       }
-      assert(ret.size());
-      return ret;
+      collapsedVirtualGridShape[1] = virtualGridShape.back();
+
+      llvm::SmallVector<int64_t> bounceShape;
+      for (size_t i = 0; i < collapsedVirtualGridShape.size(); i++) {
+        auto dim =
+            (collapsedVirtualGridShape[i] > deviceGridShape[i])
+                ? std::gcd(collapsedVirtualGridShape[i], deviceGridShape[i])
+                : collapsedVirtualGridShape[i];
+        bounceShape.push_back(dim);
+      }
+      TT_assert(bounceShape.size() == 2u);
+
+      return bounceShape;
+    }
+
+    // Creates conventional ND -> 2D collapsed intervals and dim alignments for
+    // a given reference layout and target grid shape. This pads out the dim
+    // alignments to work well with the physical device grid and be consistent
+    // with alignments used by the D2MGridSelection pass.
+    std::pair<DenseIntElementsAttr, llvm::SmallVector<int64_t>>
+    computeGridAwareCollapsedIntervalsAndDimAlignments(
+        ttcore::MetalLayoutAttr referenceLayout,
+        ArrayRef<int64_t> targetGridShape) {
+      auto logicalShape = referenceLayout.getLogicalShape();
+      auto collapsedIntervals =
+          referenceLayout.computeDefaultCollapsedIntervals(ctx,
+                                                           logicalShape.size());
+      auto dimAlignments =
+          ttcore::MetalLayoutAttr::computeGridAwareDimAlignments(
+              logicalShape, targetGridShape,
+              ttcore::MetalLayoutAttr::normalizeAndFlattenIntervals(
+                  collapsedIntervals, logicalShape.size()));
+      return {collapsedIntervals, dimAlignments};
     }
 
     // Create a device tensor type from a system tensor type.
-    RankedTensorType createDeviceType(RankedTensorType systemType,
-                                      ttcore::MetalLayoutAttr referenceLayout,
-                                      RankedTensorType referenceType,
-                                      ttcore::MemorySpace memSpace,
-                                      ArrayRef<int64_t> targetGridShape) {
+    RankedTensorType createDeviceType(
+        RankedTensorType systemType, ttcore::MetalLayoutAttr referenceLayout,
+        RankedTensorType referenceType, ttcore::MemorySpace memSpace,
+        ArrayRef<int64_t> targetGridShape,
+        bool stripIndexMapIfTargetIsVirtualGrid = false) {
       SmallVector<int64_t> tensorGridShape =
           llvm::to_vector(referenceLayout.getGridShape(referenceType));
-      if (auto metalLayout = mlir::dyn_cast_or_null<ttcore::MetalLayoutAttr>(
-              referenceType.getEncoding());
-          metalLayout && !metalLayout.getIndexAffineMap().isEmpty()) {
-        bool exceedsPhysicalBounds =
-            (tensorGridShape[0] > targetGridShape[0]) ||
-            (tensorGridShape[1] > targetGridShape[1]);
-        if (exceedsPhysicalBounds) {
-          tensorGridShape =
-              computeVirtualGridBounceShape(tensorGridShape, targetGridShape);
-        }
+
+      bool virtualBounceNeeded = tensorGridShape.size() > 2 ||
+                                 ((tensorGridShape[0] > targetGridShape[0]) ||
+                                  (tensorGridShape[1] > targetGridShape[1]));
+      auto newIndexMap = referenceLayout.getIndexAffineMap();
+      bool hasNonTrivialIndexMap =
+          !newIndexMap.isEmpty() && !newIndexMap.isIdentity();
+      if (hasNonTrivialIndexMap && virtualBounceNeeded) {
+        // If the reference layout has a virtual grid, the bounce shape should
+        // not copy its index map.
+        newIndexMap = AffineMap::get(ctx);
+        tensorGridShape =
+            computeVirtualGridBounceShape(tensorGridShape, targetGridShape);
       }
 
-      // Preserve the reference layout's index_map so GenericOps can properly
-      // map virtual grids to physical cores.
-      auto layout = ttcore::MetalLayoutAttr::get(
-          ctx, referenceLayout.getLogicalShape(),
-          referenceLayout.getDimAlignments(),
-          referenceLayout.getCollapsedIntervals(), referenceLayout.getOobVal(),
-          memSpace, referenceLayout.getMemoryLayout(),
-          referenceLayout.getIndexAffineMap());
+      ttcore::MetalLayoutAttr layout;
+      if (hasNonTrivialIndexMap && virtualBounceNeeded) {
+        auto [collapsedIntervals, dimAlignments] =
+            computeGridAwareCollapsedIntervalsAndDimAlignments(referenceLayout,
+                                                               targetGridShape);
+        layout = ttcore::MetalLayoutAttr::get(
+            ctx, referenceLayout.getLogicalShape(), dimAlignments,
+            collapsedIntervals, referenceLayout.getOobVal(), memSpace,
+            referenceLayout.getMemoryLayout(), newIndexMap);
+
+      } else {
+        layout = ttcore::MetalLayoutAttr::get(
+            ctx, referenceLayout.getLogicalShape(),
+            referenceLayout.getDimAlignments(),
+            referenceLayout.getCollapsedIntervals(),
+            referenceLayout.getOobVal(), memSpace,
+            referenceLayout.getMemoryLayout(), newIndexMap);
+      }
 
       ArrayRef<int64_t> tileShape;
       if (ttcore::isTiled(systemType)) {
@@ -156,32 +196,46 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
       auto memSpace = newMemSpace.value_or(baseLayout.getMemorySpace());
       auto elementType = newElementType.value_or(baseType.getElementType());
 
+      // Do not consider a tensor with a identity index map as having a virtual
+      // grid.
+      bool hasVirtualGrid = !baseLayout.getIndexAffineMap().isEmpty() &&
+                            !baseLayout.getIndexAffineMap().isIdentity();
       SmallVector<int64_t> tensorGrid;
-      bool didReblockVirtualGrid = false;
       if (newTensorGrid.has_value()) {
         tensorGrid.assign(newTensorGrid->begin(), newTensorGrid->end());
       } else {
         auto currentGrid = llvm::to_vector(baseLayout.getGridShape(baseType));
         tensorGrid = currentGrid;
-        bool hasVirtualGrid = !baseLayout.getIndexAffineMap().isEmpty();
         if (hasVirtualGrid && reblockVirtualGridShapes) {
           tensorGrid =
-              computeVirtualGridBounceShape(currentGrid, targetGridShape);
-          didReblockVirtualGrid = true;
+              computeVirtualGridBounceShape(tensorGrid, targetGridShape);
         }
       }
 
-      AffineMap indexMap = AffineMap::get(ctx);
+      AffineMap newIndexMap = AffineMap::get(ctx);
       if (memSpace == ttcore::MemorySpace::DeviceL1 &&
-          baseLayout.getMemorySpace() == ttcore::MemorySpace::DeviceL1 &&
-          !didReblockVirtualGrid) {
-        indexMap = baseLayout.getIndexAffineMap();
+          baseLayout.getMemorySpace() == ttcore::MemorySpace::DeviceL1) {
+        newIndexMap = baseLayout.getIndexAffineMap();
       }
 
-      auto layout = ttcore::MetalLayoutAttr::get(
-          ctx, baseLayout.getLogicalShape(), baseLayout.getDimAlignments(),
-          baseLayout.getCollapsedIntervals(), baseLayout.getOobVal(), memSpace,
-          baseLayout.getMemoryLayout(), indexMap);
+      ttcore::MetalLayoutAttr layout;
+      if (hasVirtualGrid && reblockVirtualGridShapes) {
+        // Recompute default collapsed intervals and dim alignments if virtual
+        // grid shape is being reblocked.
+        auto [collapsedIntervals, dimAlignments] =
+            computeGridAwareCollapsedIntervalsAndDimAlignments(baseLayout,
+                                                               targetGridShape);
+        layout = ttcore::MetalLayoutAttr::get(
+            ctx, baseLayout.getLogicalShape(), dimAlignments,
+            collapsedIntervals, baseLayout.getOobVal(), memSpace,
+            baseLayout.getMemoryLayout(), AffineMap::get(ctx));
+      } else {
+        // Otherwise, preserve dim alignments and collapsed intervals.
+        layout = ttcore::MetalLayoutAttr::get(
+            ctx, baseLayout.getLogicalShape(), baseLayout.getDimAlignments(),
+            baseLayout.getCollapsedIntervals(), baseLayout.getOobVal(),
+            memSpace, baseLayout.getMemoryLayout(), newIndexMap);
+      }
 
       ArrayRef<int64_t> tileShape;
       if (mlir::isa<ttcore::TileType>(elementType)) {
@@ -296,14 +350,17 @@ public:
       if (outputHasVirtualGrid) {
         // Check if this is actually a virtual grid (grid shape exceeds physical
         // bounds)
-        bool isVirtualGrid = gridShape[0] > targetGridShape[0] ||
-                             gridShape[1] > targetGridShape[1];
+        bool isVirtualGrid =
+            (gridShape.size() > 2) || (gridShape[0] > targetGridShape[0] ||
+                                       gridShape[1] > targetGridShape[1]);
 
         if (isVirtualGrid) {
           // Create the virtual grid coordinate maps and use the inverse map
           // for the grid's coordinate translation.
+          auto physicalGridShape =
+              outputInfo.layout->getPhysicalGridShape(outputInfo.type);
           auto [fwdMap, invMap] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
-              rewriter.getContext(), gridShape, targetGridShape);
+              rewriter.getContext(), gridShape, physicalGridShape);
           grid =
               ttcore::GridAttr::get(rewriter.getContext(), gridShape, invMap);
         } else {
@@ -571,9 +628,13 @@ public:
       // System transfer can ONLY change memory space, not element type.
       // Create L1 intermediate with scalar element type (same as system input).
       Type scalarElemType = getScalarType(currentInfo.type.getElementType());
+      // Always strip the target's index map if creating a bounce shape
+      // here for a target with a virtual grid.
+      constexpr bool stripIndexMapIfTargetIsVirtualGrid = true;
       auto l1Type = typeBuilder.createDeviceType(
           currentInfo.type, *targetInfo.layout, targetInfo.type,
-          ttcore::MemorySpace::DeviceL1, targetGridShape);
+          ttcore::MemorySpace::DeviceL1, targetGridShape,
+          stripIndexMapIfTargetIsVirtualGrid);
 
       // Force scalar element type for the L1 intermediate.
       auto l1Layout = mlir::cast<ttcore::MetalLayoutAttr>(l1Type.getEncoding());
@@ -656,11 +717,15 @@ public:
           // untilize → map in scalar space → tilize back.
 
           // 4a. Untilize to scalar space (preserve current layout properties).
+          // Reblock virtual grid shape here to align with earlier splitting
+          // phases that use reblocked intermediates to bounce virtual grid
+          // shapes from host to device.
           Type scalarType = getScalarType(currentInfo.type.getElementType());
           auto untilizedType = typeBuilder.modifyDeviceType(
               currentInfo.type, *currentInfo.layout, targetGridShape,
               ttcore::MemorySpace::DeviceL1,
-              /*newTensorGrid=*/{}, scalarType);
+              /*newTensorGrid=*/{}, scalarType,
+              /* reblockVirtualGridShapes */ true);
           auto untilizedEmpty = createEmpty(untilizedType);
           currentValue = lowerFormatConversionGeneric(
               rewriter, currentValue, untilizedEmpty, op.getLoc());
@@ -736,10 +801,12 @@ public:
         ttcore::isTiled(currentInfo.type) && !ttcore::isTiled(targetInfo.type);
     if (needsUntilize) {
       Type scalarType = getScalarType(currentInfo.type.getElementType());
+      // Avoid reblocking virtual grid shapes here. Output type here retains
+      // input's virtul grid shape; only transformation is to scalar dtype..
       auto scalarType_ranked = typeBuilder.modifyDeviceType(
           currentInfo.type, *currentInfo.layout, targetGridShape,
           /*memSpace=*/{}, /*newTensorGrid=*/{}, scalarType,
-          /*newTileShape=*/std::nullopt);
+          /*newTileShape=*/std::nullopt, /*reblockVirtualGridShapes=*/false);
       auto scalarEmpty = createEmpty(scalarType_ranked);
       currentValue = lowerFormatConversionGeneric(rewriter, currentValue,
                                                   scalarEmpty, op.getLoc());
@@ -757,13 +824,14 @@ public:
     // 7. VIRTUAL GRID COLLAPSE: If current has virtual grid but target doesn't
     // need it. This should happen BEFORE any system transfer or whenever grid
     // needs to shrink.
-    if (currentInfo.hasLayout()) {
+    if (currentInfo.hasLayout() && targetInfo.isSystem()) {
       auto currentGridShape = currentInfo.getGridShape();
       auto targetGridShape_layout =
           targetInfo.hasLayout() ? targetInfo.getGridShape() : targetGridShape;
 
       // Check if we need to collapse a virtual grid.
       bool needsVirtualGridCollapse =
+          currentGridShape.size() > 2 ||
           (currentGridShape[0] > targetGridShape_layout[0]) ||
           (currentGridShape[1] > targetGridShape_layout[1]);
 

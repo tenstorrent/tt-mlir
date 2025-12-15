@@ -6,6 +6,7 @@
 
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 
+#include "ttmlir/Target/TTKernel/LLKs/experimental_coord_translation_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_dataflow_api_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_invoke_sfpi_llks_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_matmul_llks_generated.h"
@@ -41,6 +42,8 @@ public:
                                       /*isStandard=*/true);
 
     builder->create<emitc::IncludeOp>(loc, "tools/profiler/kernel_profiler.hpp",
+                                      /*isStandard=*/false);
+    builder->create<emitc::IncludeOp>(loc, "firmware_common.h",
                                       /*isStandard=*/false);
 
     if (threadType == ThreadType::Noc) {
@@ -142,6 +145,9 @@ public:
           /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(
           loc, "compute_kernel_api/eltwise_unary/binop_with_scalar.h",
+          /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(
+          loc, "compute_kernel_api/eltwise_unary/where.h",
           /*isStandard=*/false);
       // Must define macros REDUCE_OP and REDUCE_DIM before including reduce.h
       // because they are default template parameters values in reduce api.
@@ -247,6 +253,14 @@ void dprint(Arg &&arg, ArgV&&... argv) {
           StringRef(experimental_dataflow_api_generated,
                     experimental_dataflow_api_generated_len);
       builder->create<emitc::VerbatimOp>(loc, experimentalDataflowLLKs);
+    }
+
+    if (hasCall("experimental::convert_logical_x_to_translated") ||
+        hasCall("experimental::convert_logical_y_to_translated")) {
+      auto experimentalCoordTranslationLLKs =
+          StringRef(experimental_coord_translation_generated,
+                    experimental_coord_translation_generated_len);
+      builder->create<emitc::VerbatimOp>(loc, experimentalCoordTranslationLLKs);
     }
 
     if (hasCall("experimental::matmul_block")) {

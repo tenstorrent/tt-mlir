@@ -257,11 +257,10 @@ def TTKernel_MatmulTilesOp : TTKernel_FPUOp<"matmul_tiles", [TTKernel_TernaryOpT
                          TTKernel_CB:$in1_cb_id,
                          IndexLike:$in0_tile_idx,
                          IndexLike:$in1_tile_idx,
-                         IndexLike:$dst_tile_idx,
-                         I32:$transpose);
+                         IndexLike:$dst_tile_idx);
 
     let assemblyFormat = [{
-      `(` $in0_cb_id `,` $in1_cb_id `,` $in0_tile_idx `,` $in1_tile_idx `,` $dst_tile_idx `,` $transpose `)` attr-dict `:` functional-type(operands, results)
+      `(` $in0_cb_id `,` $in1_cb_id `,` $in0_tile_idx `,` $in1_tile_idx `,` $dst_tile_idx `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -598,6 +597,55 @@ def TTKernel_BinaryMinTileOp : TTKernel_SFPUOp<"binary_min_tile", [TTKernel_Bina
       `(` $dst0_index `,` $dst1_index `,` $odst_index `)` attr-dict `:` functional-type(operands, results)
     }];
 }
+
+def TTKernel_WhereTileInitOp : TTKernel_InitOp<"where_tile_init"> {
+    let summary = "Short init function";
+    let description = [{
+      Must be run before where_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_WhereTileOp : TTKernel_SFPUOp<"where_tile", [TTKernel_TernaryOpTrait]> {
+    let summary = "Conditional selection operation";
+    let description = [{
+      Performs element-wise conditional selection
+      DST[odst_index] <- condition ? DST[dst_true_index] : DST[dst_false_index]
+      For each element, if condition is non-zero, selects from dst_true_index,
+      otherwise selects from dst_false_index.
+      The DST register buffer must be in acquired state via *acquire_dst* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst_cond_index, IndexLike:$dst_true_index, IndexLike:$dst_false_index, IndexLike:$odst_index);
+
+    let assemblyFormat = [{
+      `(` $dst_cond_index `,` $dst_true_index `,` $dst_false_index `,` $odst_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_WhereTileF32Op : TTKernel_SFPUOp<"where_fp32_tile", [TTKernel_TernaryOpTrait]> {
+    let summary = "Conditional selection operation";
+    let description = [{
+      Performs element-wise conditional selection
+      DST[odst_index] <- condition ? DST[dst_true_index] : DST[dst_false_index]
+      For each element, if condition is non-zero, selects from dst_true_index,
+      otherwise selects from dst_false_index.
+      The DST register buffer must be in acquired state via *acquire_dst* call.
+    }];
+
+    let arguments = (ins IndexLike:$dst_cond_index, IndexLike:$dst_true_index, IndexLike:$dst_false_index, IndexLike:$odst_index);
+
+    let assemblyFormat = [{
+      `(` $dst_cond_index `,` $dst_true_index `,` $dst_false_index `,` $odst_index `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+
 
 def TTKernel_AddBinaryTilesInitOp : TTKernel_InitOp<"add_binary_tile_init"> {
     let summary = "Short init function";
@@ -2602,6 +2650,62 @@ def TTKernel_MyYOp : TTKernel_Op<"my_y", [Pure]> {
     let assemblyFormat = [{
       `(` ($noc^)? `)` attr-dict `:` functional-type(operands, results)
     }];
+}
+
+def TTKernel_MyLogicalXOp : TTKernel_Op<"my_logical_x_", [Pure]> {
+    let summary = "MyLogicalX";
+    let description = [{
+      Lowers to the tt-metal supported my_logical_x_ global. This represents the logical X coordinate of the current core.
+    }];
+
+    let arguments = (ins);
+    let results = (outs Index:$x);
+
+    let assemblyFormat = [{
+      attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_MyLogicalYOp : TTKernel_Op<"my_logical_y_", [Pure]> {
+    let summary = "MyLogicalY";
+    let description = [{
+      Lowers to the tt-metal supported my_logical_y_ global. This represents the logical Y coordinate of the current core.
+    }];
+
+    let arguments = (ins);
+    let results = (outs Index:$y);
+
+    let assemblyFormat = [{
+      attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_ConvertLogicalXToTranslatedOp : TTKernel_Op<"experimental::convert_logical_x_to_translated"> {
+  let summary = "ConvertLogicalToTranslatedX";
+  let description = [{
+    this converts the x coordinate from the LOGICAL coordinate system to TRANSLATED
+  }];
+
+  let arguments = (ins IndexLike:$logical_x);
+  let results = (outs IndexLike:$virtual_x);
+
+  let assemblyFormat = [{
+    `(` $logical_x `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+def TTKernel_ConvertLogicalYToTranslatedOp : TTKernel_Op<"experimental::convert_logical_y_to_translated"> {
+  let summary = "ConvertLogicalToTranslatedY";
+  let description = [{
+    this converts the y coordinate from the LOGICAL coordinate system to TRANSLATED
+  }];
+
+  let arguments = (ins IndexLike:$logical_y);
+  let results = (outs IndexLike:$virtual_y);
+
+  let assemblyFormat = [{
+    `(` $logical_y `)` attr-dict `:` functional-type(operands, results)
+  }];
 }
 
 //===----------------------------------------------------------------------===//
