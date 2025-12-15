@@ -3395,9 +3395,11 @@ private:
     Value value;
     Value mask; // Can be null for maskless attention
     float scale = 1.0f;
-    MatmulOp qkMatmul;
+    MatmulOp qkMatmul;    // Can be null if using LinearOp path
+    Value qkLinearResult; // Set when using LinearOp instead of MatmulOp
     MatmulOp attentionMatmul;
     SoftmaxOp softmax;
+    bool isNaNSafe = false; // True when using NaN-safe pattern with WhereOp
   };
 
   bool matchAttentionPattern(Operation *anchor,
@@ -3410,11 +3412,37 @@ private:
     components.attentionMatmul = matmul;
 
     // Check if this matmul has softmax feeding into it (attention scores @ V)
-    SoftmaxOp softmax = findOpThroughLayoutOps<SoftmaxOp>(matmul.getA());
+    // The softmax output may be wrapped in a WhereOp for NaN-safe attention
+    // (handles all-masked rows by replacing NaN with zeros)
+    Value softmaxCandidate = matmul.getA();
+
+    // Skip through layout ops to find either SoftmaxOp or WhereOp
+    SoftmaxOp softmax = findOpThroughLayoutOps<SoftmaxOp>(softmaxCandidate);
+    if (!softmax) {
+      // Check for NaN-safe attention pattern: where(mask, zeros, softmax)
+      if (auto whereOp = findOpThroughLayoutOps<WhereOp>(softmaxCandidate)) {
+        // In NaN-safe pattern, softmax result is in the third operand (false
+        // branch) Pattern: where(all_masked_row_mask, zeros, softmax_result)
+        // where(first=condition, second=true_value, third=false_value)
+        softmax = findOpThroughLayoutOps<SoftmaxOp>(whereOp.getThird());
+        if (!softmax) {
+          // Try the true branch (second operand) as well
+          softmax = findOpThroughLayoutOps<SoftmaxOp>(whereOp.getSecond());
+        }
+        if (softmax) {
+          components.isNaNSafe = true;
+        }
+      }
+    }
+
     if (!softmax) {
       return false;
     }
     components.softmax = softmax;
+    // V extraction depends on the path:
+    // - MatmulOp path: trace back to get original V (consistent with K tracing)
+    // - LinearOp path: use direct value (handled below)
+    // For now, use traceToSourceTensor; LinearOp path will override if needed
     components.value = traceToSourceTensor(matmul.getB());
 
     // Look for optional mask addition
@@ -3435,13 +3463,71 @@ private:
     }
 
     // Look for Q@K matmul (required)
+    // Can be either MatmulOp or LinearOp (when Q@K and mask add were fused)
     auto qkMatmul = findOpThroughLayoutOps<MatmulOp>(cursor);
-    if (!qkMatmul) {
+    if (qkMatmul) {
+      components.qkMatmul = qkMatmul;
+      components.query = traceToSourceTensor(components.qkMatmul.getA());
+      components.key = traceToSourceTensor(components.qkMatmul.getB());
+    } else if (auto linearOp = findOpThroughLayoutOps<LinearOp>(cursor)) {
+      // LinearOp combines matmul + bias add: linear(Q, K^T, mask)
+      // The bias is the attention mask
+      components.qkMatmul = nullptr; // Mark as using LinearOp path
+
+      // For Q: check for pre-matmul scaling (new llama pattern)
+      // Pattern: Q -> typecast -> multiply(scale) -> linearOp
+      Value qVal = linearOp.getA();
+      float qScale = 1.0f;
+      if (auto qMulOp = qVal.getDefiningOp<MultiplyOp>()) {
+        if (auto scaleResult = tryExtractScale(qMulOp)) {
+          qScale = scaleResult->first;
+          qVal = scaleResult->second;
+        }
+      }
+      components.query = qVal;
+
+      // For K: need to trace back through transpose to get K before transpose
+      // The SDPA op expects K in shape [batch, heads, seq, head_dim], not K^T
+      // LinearOp.getB() is K^T which went through: K -> typecast -> permute ->
+      // scale We need to trace back to get K (after typecast but before
+      // permute) Also extract pre-matmul scale if present
+      Value kTransposed = linearOp.getB();
+      float kScale = 1.0f;
+      if (auto mulOp = kTransposed.getDefiningOp<MultiplyOp>()) {
+        // Extract and skip through the scale multiply
+        if (auto scaleResult = tryExtractScale(mulOp)) {
+          kScale = scaleResult->first;
+          kTransposed = scaleResult->second;
+        }
+      }
+      if (auto permuteOp = kTransposed.getDefiningOp<PermuteOp>()) {
+        // Found the transpose, get K before transpose
+        components.key = permuteOp.getInput();
+      } else {
+        // No permute found, use K^T directly (might fail validation)
+        components.key = linearOp.getB();
+      }
+
+      // Combined scale = Q_scale * K_scale
+      // For new llama: sqrt(0.125) * sqrt(0.125) = 0.125
+      components.scale = qScale * kScale;
+
+      if (linearOp.getBias()) {
+        // For the mask, we need to trace back through broadcasts to get the
+        // mask with shape [batch, 1, q_seq, k_seq] before head broadcast
+        components.mask = traceToSourceTensor(linearOp.getBias());
+      }
+      // Store the linear op result for single-use validation
+      components.qkLinearResult = linearOp.getResult();
+
+      // Override V for LinearOp path: don't trace back, use direct value
+      // K is traced back through permute (to get non-transposed form, but keeps
+      // head expansion), so V should also not be traced back (to keep head
+      // expansion consistent)
+      components.value = matmul.getB();
+    } else {
       return false;
     }
-    components.qkMatmul = qkMatmul;
-    components.query = traceToSourceTensor(components.qkMatmul.getA());
-    components.key = traceToSourceTensor(components.qkMatmul.getB());
 
     return true;
   }
@@ -3452,8 +3538,12 @@ private:
     auto kType = mlir::cast<RankedTensorType>(components.key.getType());
     auto maskType = mlir::cast<RankedTensorType>(components.mask.getType());
 
-    llvm::SmallVector<int64_t> targetMaskShape = {
-        qType.getShape()[0], 1, qType.getShape()[2], kType.getShape()[2]};
+    // K is non-transposed with shape [batch, heads, k_seq_len, head_dim]
+    // k_seq_len is at index 2
+    int64_t kSeqLen = kType.getShape()[2];
+
+    llvm::SmallVector<int64_t> targetMaskShape = {qType.getShape()[0], 1,
+                                                  qType.getShape()[2], kSeqLen};
 
     if (!llvm::equal(maskType.getShape(), targetMaskShape)) {
       auto targetMaskType = RankedTensorType::get(
@@ -3469,17 +3559,26 @@ private:
 
   // Validate that the extracted components form valid attention
   bool validateAttentionSemantics(AttentionComponents &components) const {
+    // Must have Q, K, V, softmax, and attention matmul
+    // Either qkMatmul or qkLinearResult must be set (mutually exclusive paths)
     if (!components.query || !components.key || !components.value ||
-        !components.qkMatmul || !components.attentionMatmul ||
-        !components.softmax) {
+        !components.attentionMatmul || !components.softmax) {
+      return false;
+    }
+    if (!components.qkMatmul && !components.qkLinearResult) {
       return false;
     }
 
-    // Verify that intermediate operations have single uses.
-    // If any intermediate result (like attention weights) is used elsewhere
-    // (e.g., returned as output), we cannot safely fuse without duplicating
-    // computation.
-    if (!components.qkMatmul.getResult().hasOneUse()) {
+    // Verify that intermediate operations have appropriate use counts.
+    // For standard attention: Q@K result should have single use (the softmax).
+    // For NaN-safe attention: Q@K result may have 2 uses (softmax + NaN
+    // detection).
+    Value qkResult = components.qkMatmul ? components.qkMatmul.getResult()
+                                         : components.qkLinearResult;
+    size_t qkUseCount =
+        std::distance(qkResult.getUses().begin(), qkResult.getUses().end());
+    size_t maxAllowedUses = components.isNaNSafe ? 2 : 1;
+    if (qkUseCount > maxAllowedUses) {
       return false;
     }
 
@@ -3503,8 +3602,10 @@ private:
       return false;
     }
 
-    // Head dimension should match between Q and K (last dim of Q, last dim of
-    // K)
+    // Head dimension should match between Q and K.
+    // Q shape: [batch, heads, q_seq, head_dim] -> head_dim at index -1
+    // K shape: [batch, heads, k_seq, head_dim] -> head_dim at index -1
+    // (K should be non-transposed at this point)
     int64_t qHeadDim = qType.getShape()[qType.getRank() - 1];
     int64_t kHeadDim = kType.getShape()[kType.getRank() - 1];
     if (qHeadDim != kHeadDim) {
@@ -3589,6 +3690,24 @@ private:
 
       if (defOp == end) {
         return true;
+      }
+
+      // For WhereOp in NaN-safe attention pattern, follow the softmax branch
+      // (third operand) instead of the default first operand
+      if (auto whereOp = dyn_cast<WhereOp>(defOp)) {
+        // Try third operand (false branch - typically contains softmax)
+        Value thirdOperand = whereOp.getThird();
+        if (thirdOperand.getDefiningOp() == end ||
+            chainHasSingleUses(thirdOperand, end)) {
+          return true;
+        }
+        // Try second operand (true branch) as fallback
+        Value secondOperand = whereOp.getSecond();
+        if (secondOperand.getDefiningOp() == end ||
+            chainHasSingleUses(secondOperand, end)) {
+          return true;
+        }
+        return false;
       }
 
       current = defOp->getOperand(0);
