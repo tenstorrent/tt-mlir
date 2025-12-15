@@ -3652,7 +3652,7 @@ public:
   }
 };
 
-// Folds reshape pairs around RMSNormOp: reshape -> rms_norm -> reshape.
+// Folds reshape pairs around RMSNormOp when the last dim is unchanged.
 class RMSNormReshapeFoldPattern : public mlir::OpRewritePattern<RMSNormOp> {
   using mlir::OpRewritePattern<RMSNormOp>::OpRewritePattern;
 
