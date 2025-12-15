@@ -177,17 +177,7 @@ func.func @sigmoid(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
   return %1 : tensor<64x128xf32>
 }
 
-func.func @ceil(%arg0: tensor<64x128xbf16>) -> tensor<64x128xbf16> {
-  // CHECK: emitc.call_opaque "init_sfpu"
-  // CHECK: emitc.call_opaque "copy_tile_init"(%[[CB0:.+]]) :
-  // CHECK-NEXT: emitc.call_opaque "copy_tile"(%[[CB0]], %{{.+}}, %{{.+}})
-  // CHECK: emitc.call_opaque "rounding_op_tile_init"
-  // CHECK-NEXT: emitc.call_opaque "ceil_tile"
-  %1 = "ttir.ceil"(%arg0) : (tensor<64x128xbf16>) -> tensor<64x128xbf16>
-  return %1 : tensor<64x128xbf16>
-}
-
-func.func @ceil_f32(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
+func.func @ceil(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
   // CHECK: emitc.call_opaque "init_sfpu"
   // CHECK: emitc.call_opaque "copy_tile_init"(%[[CB0:.+]]) :
   // CHECK-NEXT: emitc.call_opaque "copy_tile"(%[[CB0]], %{{.+}}, %{{.+}})
@@ -197,17 +187,7 @@ func.func @ceil_f32(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
   return %1 : tensor<64x128xf32>
 }
 
-func.func @floor(%arg0: tensor<64x128xbf16>) -> tensor<64x128xbf16> {
-  // CHECK: emitc.call_opaque "init_sfpu"
-  // CHECK: emitc.call_opaque "copy_tile_init"(%[[CB0:.+]]) :
-  // CHECK-NEXT: emitc.call_opaque "copy_tile"(%[[CB0]], %{{.+}}, %{{.+}})
-  // CHECK: emitc.call_opaque "rounding_op_tile_init"
-  // CHECK-NEXT: emitc.call_opaque "floor_tile"
-  %1 = "ttir.floor"(%arg0) : (tensor<64x128xbf16>) -> tensor<64x128xbf16>
-  return %1 : tensor<64x128xbf16>
-}
-
-func.func @floor_f32(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
+func.func @floor(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
   // CHECK: emitc.call_opaque "init_sfpu"
   // CHECK: emitc.call_opaque "copy_tile_init"(%[[CB0:.+]]) :
   // CHECK-NEXT: emitc.call_opaque "copy_tile"(%[[CB0]], %{{.+}}, %{{.+}})
