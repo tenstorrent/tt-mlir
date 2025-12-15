@@ -266,8 +266,10 @@ TEST_F(OpConstraintValidationTest, ValidationStatusNotImplemented) {
 
   auto scatterOp = builder.create<ScatterOp>(
       builder.getUnknownLoc(), tensorType, input.getResult(),
-      indices.getResult(), input.getResult(),
-      /*dim=*/0, /*memory_config=*/nullptr);
+      indices.getResult(), input.getResult(), builder.getI32IntegerAttr(0),
+      mlir::tt::ttcore::ReduceTypeAttr::get(
+          &context, mlir::tt::ttcore::ReduceType::Invalid),
+      /*memory_config=*/nullptr);
 
   auto layouts = ttnn::utils::extractInputLayouts(scatterOp);
   OpConfig config = createTestConfig();

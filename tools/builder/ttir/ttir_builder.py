@@ -1977,6 +1977,7 @@ class TTIRBuilder(Builder):
         index: Operand,
         source: Operand,
         dim: int,
+        scatter_reduce_type: Attribute,
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
@@ -1989,12 +1990,18 @@ class TTIRBuilder(Builder):
             mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         dim_attr = IntegerAttr.get(IntegerType.get_signless(32), dim)
+        scatter_reduce_type_attr = ttcore.ReduceTypeAttr.get(scatter_reduce_type)
         input0 = self._get_golden_tensor(in0)
         input_index = self._get_golden_tensor(index)
         input_source = self._get_golden_tensor(source)
         op_golden_function = get_golden_function(ttir_op)
         golden_output = op_golden_function(
-            input0, input_index, input_source, dim_attr, mlir_output_type
+            input0,
+            input_index,
+            input_source,
+            dim_attr,
+            scatter_reduce_type_attr,
+            mlir_output_type,
         )
         result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
@@ -2009,6 +2016,7 @@ class TTIRBuilder(Builder):
             index,
             source,
             dim_attr,
+            scatter_reduce_type_attr,
             loc=loc,
         )
 
@@ -2034,6 +2042,7 @@ class TTIRBuilder(Builder):
         source = global_dict[old_op.source]
         result = old_op.result.type
         dim_attr = old_op.dim
+        scatter_reduce_type_attr = old_op.scatter_reduce_type
 
         new_op = ttir_op(
             result,
@@ -2041,6 +2050,7 @@ class TTIRBuilder(Builder):
             index,
             source,
             dim_attr,
+            scatter_reduce_type_attr,
             loc=old_op.location,
         )
 
@@ -2050,7 +2060,12 @@ class TTIRBuilder(Builder):
             input_source = self._get_golden_tensor(source)
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(
-                input0, input_index, input_source, dim_attr, result.element_type
+                input0,
+                input_index,
+                input_source,
+                dim_attr,
+                scatter_reduce_type_attr,
+                result.element_type,
             )
             self._set_golden_tensor(new_op.result, golden_output)
 
@@ -2081,13 +2096,14 @@ class TTIRBuilder(Builder):
                     source = inputs[2]
                     result = old_op.result.type
                     dim_attr = old_op.dim
-
+                    scatter_reduce_type_attr = old_op.scatter_reduce_type
                     new_op = ttir_op(
                         result,
                         in0,
                         index,
                         source,
                         dim_attr,
+                        scatter_reduce_type_attr,
                         loc=old_op.location,
                     )
 
@@ -2101,6 +2117,7 @@ class TTIRBuilder(Builder):
                             input_index,
                             input_source,
                             dim_attr,
+                            scatter_reduce_type_attr,
                             result.element_type,
                         )
                         scatter_builder._set_golden_tensor(new_op.result, golden_output)

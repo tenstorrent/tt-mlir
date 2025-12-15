@@ -8,7 +8,7 @@ import torch
 from loguru import logger
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="function")
 def device():
     # Only care about single device, multi-device will use mesh_device fixture
     if ttnn.cluster.get_cluster_type() == ttnn.cluster.ClusterType.P150:
