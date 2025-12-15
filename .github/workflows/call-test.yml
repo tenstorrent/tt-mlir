@@ -166,7 +166,7 @@ jobs:
         echo "TT_METAL_DISPATCH_TIMEOUT_COMMAND_TO_EXECUTE=$python_interpreter_location $(pwd)/tools/tt-triage.py 1>&2" >> $GITHUB_ENV
         echo "TT_METAL_OPERATION_TIMEOUT_SECONDS=1" >> $GITHUB_ENV
 
-        cd ..
+        cd ../..
 
         MACHINE_IP=$(hostname -I | awk '{print $1}')
         export no_proxy="${no_proxy:+$no_proxy,}localhost,${MACHINE_IP}"
