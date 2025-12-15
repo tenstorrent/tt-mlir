@@ -15,7 +15,7 @@ from ttmlir.dialects import tensor, quant, func, ttir, ttcore, stablehlo, ttnn
 from ttmlir.passes import GoldenTensor, DataType
 from golden import GoldenMapTensor, get_golden_function
 
-from builder.base.builder_utils import process_multi_return_result, TypeInfo
+from builder.base.builder_utils import *
 
 
 class BuilderMeta(type):
@@ -652,6 +652,9 @@ class Builder(metaclass=BuilderMeta):
         parsed_op: Operation,
         global_dict: Dict[Operand, Operand],
     ) -> Tuple[Operation, Dict[Operand, GoldenMapTensor]]:
+        if isinstance(parsed_op, func.CallOp):
+            return self.parse_call_op(parsed_op, global_dict)
+
         parsed_function = self.get_parser_from_opview(type(parsed_op))
         return parsed_function(self, parsed_op, global_dict)
 
@@ -877,3 +880,14 @@ class Builder(metaclass=BuilderMeta):
             return cpu_module_op
 
         return wrapper(self)
+
+    def parse_call_op(
+        self,
+        parsed_op: func.CallOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[Operand, GoldenMapTensor]]:
+        for attr in parsed_op.attributes:
+            if attr.name == "ttir.cpu_hoisted_call":
+                hoisted_func_name = parsed_op.callee.value
+                hoisted_func_name_clean = hoisted_func_name.removesuffix("_decl")
+                print(hoisted_func_name_clean)

@@ -217,7 +217,7 @@ class TTIRBuilder(Builder):
         output = global_dict[old_op.output]
 
         new_op = ttir_op(
-            result,
+            [result],
             in0,
             output,
             loc=old_op.location,
@@ -255,7 +255,7 @@ class TTIRBuilder(Builder):
                     output = old_op.output
 
                     new_op = ttir_op(
-                        result,
+                        [result],
                         in0,
                         output,
                         loc=old_op.location,
