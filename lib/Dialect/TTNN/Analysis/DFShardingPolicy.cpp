@@ -11,6 +11,8 @@
 #include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Types/Types.h"
+#include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
 #include "ttmlir/Scheduler/Scheduler.h"
@@ -314,6 +316,11 @@ static llvm::SmallVector<MergeCandidate> findAllMergeCandidates(
 
   llvm::SmallVector<MergeCandidate> candidates;
   const L1ChainConfig &chainB = l1ChainConfigs[chainBIndex];
+
+  // Skip chains with no ops (e.g., chains created only for memReconfigEntryMap)
+  if (chainB.getOpL1MemSpecs().empty()) {
+    return candidates;
+  }
 
   TTMLIR_TRACE(ttmlir::LogComponent::DFShardingPolicy,
                "findAllMergeCandidates: chainBIndex={}, chainB has {} ops, "
@@ -822,6 +829,11 @@ static void applyChainMerges(std::vector<L1ChainConfig> &l1ChainConfigs,
       continue;
     }
 
+    // Skip chains with no ops (e.g., chains created only for memReconfigEntryMap)
+    if (chainB.getOpL1MemSpecs().empty()) {
+      continue;
+    }
+
     // One-level limit: skip if Chain B already received a merge.
     if (mergedIntoChains.contains(chainBIdx)) {
       continue;
@@ -1213,6 +1225,298 @@ static void applyL1ReservationsForReshapes(
   }
 }
 
+// Find the schedule position of the last user of a value.
+static int64_t findLastUserPosition(
+    Value output,
+    const llvm::DenseMap<Operation *, int64_t> &schedulePositionMap) {
+  int64_t lastPos = -1;
+  for (Operation *user : output.getUsers()) {
+    auto posIt = schedulePositionMap.find(user);
+    if (posIt != schedulePositionMap.end()) {
+      lastPos = std::max(lastPos, posIt->second);
+    }
+  }
+  return lastPos;
+}
+
+// Find which operand index of a consumer corresponds to a given value.
+static std::optional<size_t> findOperandIndex(Operation *consumer,
+                                               Value forkOutput) {
+  for (size_t i = 0; i < consumer->getNumOperands(); ++i) {
+    if (consumer->getOperand(i) == forkOutput) {
+      return i;
+    }
+  }
+  return std::nullopt;
+}
+
+// Check if a sharded layout would cause inefficient in0_block_w for matmul.
+// For WIDTH_SHARDED and BLOCK_SHARDED, metal computes:
+//   in0_block_w = gcd(shard_shape[1] / TILE_SIZE, K)
+// When shard_width <= TILE_WIDTH (32), in0_block_w will be forced to 1,
+// resulting in poor DRAM bandwidth utilization.
+// HEIGHT_SHARDED is optimal as it uses in0_block_w = K.
+// Returns true if this layout would be inefficient for the given matmul
+// consumer.
+static bool wouldCauseInefficientMatmulInput(Operation *consumer,
+                                              size_t operandIndex,
+                                              TTNNLayoutAttr layout) {
+  // Only check for matmul/linear ops with input A (operand 0)
+  if (!mlir::isa<ttnn::MatmulOp, ttnn::LinearOp>(consumer)) {
+    return false;
+  }
+  if (operandIndex != 0) {
+    return false; // Only input A affects in0_block_w
+  }
+
+  auto memLayoutOpt = layout.getMemLayoutOpt();
+  if (!memLayoutOpt) {
+    return false;
+  }
+
+  // WIDTH_SHARDED and BLOCK_SHARDED both use gcd(shard_width/TILE, K) formula
+  // HEIGHT_SHARDED uses in0_block_w = K (optimal), so skip it
+  if (*memLayoutOpt != TensorMemoryLayout::WidthSharded &&
+      *memLayoutOpt != TensorMemoryLayout::BlockSharded) {
+    return false;
+  }
+
+  // Get scalar shard shape - [height, width] in elements (not tiles)
+  llvm::SmallVector<int64_t> shardShape = layout.getScalarShardShape();
+  if (shardShape.size() < 2) {
+    return false;
+  }
+
+  // If shard width <= TILE_WIDTH (32 elements), in0_block_w will be 1 (inefficient)
+  int64_t shardWidth = shardShape.back();
+  if (shardWidth <= static_cast<int64_t>(TILE_WIDTH)) {
+    TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                 "  Matmul {} would have in0_block_w=1 with sharded "
+                 "input (shard_width={} <= {})",
+                 ttmlir::opToString(consumer), shardWidth, TILE_WIDTH);
+    return true;
+  }
+
+  return false;
+}
+
+// Get the selected OpConfig for an operation.
+// If the op is in a chain, returns the config from opL1MemSpecs.
+// Otherwise, creates a config from the IR's output layout.
+static std::optional<OpConfig>
+getSelectedConfig(Operation *op,
+                  const llvm::DenseMap<Operation *, size_t> &opToChainMap,
+                  const std::vector<L1ChainConfig> &l1ChainConfigs) {
+  auto chainIt = opToChainMap.find(op);
+  if (chainIt != opToChainMap.end()) {
+    // Op is in a chain - find its config in opL1MemSpecs
+    const auto &specs = l1ChainConfigs[chainIt->second].getOpL1MemSpecs();
+    for (const auto &spec : specs) {
+      if (spec.op == op) {
+        return spec.config;
+      }
+    }
+  }
+
+  // Op not in chain - get layout from IR
+  if (op->getNumResults() == 0) {
+    return std::nullopt;
+  }
+  auto resultType =
+      mlir::dyn_cast<RankedTensorType>(op->getResult(0).getType());
+  if (!resultType || !resultType.getEncoding()) {
+    return std::nullopt;
+  }
+  TTNNLayoutAttr layout = utils::getLayoutAttrFromTensor(resultType);
+  return OpConfig(layout, OpConfig::OpSpecificAttrs{});
+}
+
+// Apply L1 reservations for fork ops (ops with multiple users).
+// This tries to keep forked tensors in L1 instead of spilling to DRAM,
+// avoiding redundant DRAM reads by multiple consumers.
+//
+// Algorithm:
+// 1. For each chain that spills to DRAM and has a forked output (multiple users)
+// 2. Try passing the chain's sharded output layout to all consumers
+// 3. If that fails, try L1 interleaved as fallback
+// 4. Validate memory pressure across all chains in the fork span
+// 5. If valid, update spill location and create L1 reservation
+static void applyL1ReservationsForForkOps(
+    std::vector<L1ChainConfig> &l1ChainConfigs,
+    const llvm::SmallVector<Operation *> &schedule,
+    const llvm::DenseMap<Operation *, int64_t> &schedulePositionMap,
+    std::vector<L1Reservation> &l1Reservations) {
+
+  // Build op to chain map for looking up selected configs
+  llvm::DenseMap<Operation *, size_t> opToChainMap =
+      buildOpToChainMap(l1ChainConfigs);
+
+  for (auto &chain : l1ChainConfigs) {
+    if (chain.getState() != L1ChainState::Completed) {
+      continue;
+    }
+    if (chain.spillLocation != SpillLocation::DRAM) {
+      continue;
+    }
+
+    Operation *lastOp = chain.getLastOp();
+    if (lastOp->getNumResults() == 0) {
+      continue;
+    }
+
+    Value forkOutput = lastOp->getResult(0);
+
+    // Step 1: Check if this is a fork (multiple users)
+    if (forkOutput.hasOneUse()) {
+      continue;
+    }
+
+    // Get fork op's resolved sharded layout
+    const auto &specs = chain.getOpL1MemSpecs();
+    if (specs.empty()) {
+      continue;
+    }
+    TTNNLayoutAttr shardedLayout = specs.back().config.outputLayout;
+    if (!shardedLayout) {
+      continue;
+    }
+
+    // Get schedule position
+    auto forkPosIt = schedulePositionMap.find(lastOp);
+    if (forkPosIt == schedulePositionMap.end()) {
+      continue;
+    }
+    int64_t forkPos = forkPosIt->second;
+
+    // Find last user position
+    int64_t lastUserPos = findLastUserPosition(forkOutput, schedulePositionMap);
+    if (lastUserPos < 0) {
+      continue;
+    }
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                 "Fork op {} has {} users, span [{}, {}]",
+                 ttmlir::opToString(lastOp),
+                 std::distance(forkOutput.getUsers().begin(),
+                               forkOutput.getUsers().end()),
+                 forkPos, lastUserPos);
+
+    // Step 2: Try passing sharded layout to all consumers
+    bool allConsumersValidWithSharded = true;
+    for (Operation *user : forkOutput.getUsers()) {
+      auto operandIdx = findOperandIndex(user, forkOutput);
+      if (!operandIdx) {
+        allConsumersValidWithSharded = false;
+        break;
+      }
+      // Check if this would cause inefficient in0_block_w for matmul
+      if (wouldCauseInefficientMatmulInput(user, *operandIdx, shardedLayout)) {
+        allConsumersValidWithSharded = false;
+        break;
+      }
+      // Get consumer's selected config and validate with fork input
+      auto selectedConfig =
+          getSelectedConfig(user, opToChainMap, l1ChainConfigs);
+      if (!selectedConfig ||
+          !optimizer_utils::validateOpWithInputLayout(
+              user, *operandIdx, shardedLayout, *selectedConfig)) {
+        allConsumersValidWithSharded = false;
+        TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                     "  Consumer {} cannot accept sharded input",
+                     ttmlir::opToString(user));
+        break;
+      }
+    }
+
+    if (allConsumersValidWithSharded) {
+      // Validate memory pressure with sharded layout
+      uint64_t l1Size = shardedLayout.getShardSizeInBytes();
+      if (validateChainsWithReservation(l1ChainConfigs, schedulePositionMap,
+                                        l1Reservations, forkPos, lastUserPos,
+                                        l1Size)) {
+        // SUCCESS: Keep sharded, no spill needed
+        chain.spillLocation = SpillLocation::None;
+        l1Reservations.push_back({lastOp, forkPos, lastUserPos, l1Size});
+        TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                     "Fork op {}: keeping sharded in L1 ({} bytes)",
+                     ttmlir::opToString(lastOp), l1Size);
+        continue;
+      }
+    }
+
+    // Step 3: Try resharding to fewer cores for better matmul in0_block_w
+    // NOTE: This optimization is disabled because resharding the matmul input
+    // also changes the matmul output layout (TTNN derives output grid from
+    // input grid). This requires:
+    // 1. Re-validating the matmul with new input to get correct output layout
+    // 2. Updating the matmul's selected OpConfig with the new output layout
+    // 3. Checking all downstream consumers if the matmul is part of their chain
+    // The validation complexity makes this not worth pursuing for now.
+    // Fall through to L1 interleaved which is simpler and correct.
+
+    // Step 4: Try L1 interleaved fallback
+    // Use tryGetL1InterleavedSize to validate and get L1 size
+    uint64_t l1InterleavedSize = tryGetL1InterleavedSize(lastOp);
+    if (l1InterleavedSize == 0) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                   "Fork op {}: L1 interleaved validation failed for op itself",
+                   ttmlir::opToString(lastOp));
+      continue;
+    }
+
+    TTNNLayoutAttr l1InterleavedLayout =
+        shardedLayout.withBufferType(BufferType::L1)
+            .withMemoryLayout(TensorMemoryLayout::Interleaved);
+
+    bool allConsumersValidWithL1Interleaved = true;
+    for (Operation *user : forkOutput.getUsers()) {
+      auto operandIdx = findOperandIndex(user, forkOutput);
+      if (!operandIdx) {
+        allConsumersValidWithL1Interleaved = false;
+        break;
+      }
+      // Get consumer's selected config and validate with L1 interleaved input
+      auto selectedConfig =
+          getSelectedConfig(user, opToChainMap, l1ChainConfigs);
+      if (!selectedConfig ||
+          !optimizer_utils::validateOpWithInputLayout(
+              user, *operandIdx, l1InterleavedLayout, *selectedConfig)) {
+        allConsumersValidWithL1Interleaved = false;
+        TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                     "  Consumer {} cannot accept L1 interleaved input",
+                     ttmlir::opToString(user));
+        break;
+      }
+    }
+
+    if (!allConsumersValidWithL1Interleaved) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                   "Fork op {}: consumers cannot accept L1 interleaved, "
+                   "keeping DRAM spill",
+                   ttmlir::opToString(lastOp));
+      continue;
+    }
+
+    // Step 4: Validate memory pressure with L1 interleaved
+    if (!validateChainsWithReservation(l1ChainConfigs, schedulePositionMap,
+                                       l1Reservations, forkPos, lastUserPos,
+                                       l1InterleavedSize)) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                   "Fork op {}: L1 interleaved fails memory validation, "
+                   "keeping DRAM spill",
+                   ttmlir::opToString(lastOp));
+      continue;
+    }
+
+    // SUCCESS: Use L1 interleaved
+    chain.spillLocation = SpillLocation::L1Interleaved;
+    l1Reservations.push_back({lastOp, forkPos, lastUserPos, l1InterleavedSize});
+    TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                 "Fork op {}: using L1 interleaved ({} bytes)",
+                 ttmlir::opToString(lastOp), l1InterleavedSize);
+  }
+}
+
 void DFShardingPolicy::run() {
   func::FuncOp funcToProcess = nullptr;
 
@@ -1459,6 +1763,10 @@ void DFShardingPolicy::run() {
         buildSchedulePositionMap((*schedule)[funcToProcess]);
     applyL1ReservationsForReshapes(*l1ChainConfigs, (*schedule)[funcToProcess],
                                    schedulePositionMap, l1Reservations);
+
+    // Apply L1 reservations for fork ops (ops with multiple users)
+    applyL1ReservationsForForkOps(*l1ChainConfigs, (*schedule)[funcToProcess],
+                                  schedulePositionMap, l1Reservations);
 
     // Attempt to merge chains where Chain A's output can stay in L1 and be
     // consumed as RHS by a join op in Chain B.

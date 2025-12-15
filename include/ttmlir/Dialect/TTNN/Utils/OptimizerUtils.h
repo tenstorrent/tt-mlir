@@ -56,6 +56,14 @@ llvm::SmallVector<mlir::tt::ttnn::OpConfig> getUniqueTestConfigs(
     const std::vector<mlir::tt::ttnn::OpConfig> &consumerConfigs,
     bool isMatmulOrLinear);
 
+// Validate that an op can accept a specific input layout and produce its
+// expected output layout. For matmul/linear ops, uses withIgnorePhysicalLayout
+// during validation. Returns true only if validation succeeds AND the actual
+// output layout matches the config's expected output layout.
+bool validateOpWithInputLayout(Operation *op, size_t inputOperandIndex,
+                               TTNNLayoutAttr inputLayout,
+                               const mlir::tt::ttnn::OpConfig &config);
+
 } // namespace mlir::tt::ttnn::optimizer_utils
 
 #endif // TTMLIR_DIALECT_TTNN_UTILS_OPTIMIZERUTILS_H
