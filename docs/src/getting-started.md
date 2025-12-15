@@ -86,7 +86,8 @@ sudo chown -R "${USER}" "${TTMLIR_TOOLCHAIN_DIR}"
 3. Please ensure that you do not already have an environment (venv) activated before running the following commands:
 
 ```bash
-{{#include ../../../.github/Dockerfile.ci:environment_build}}
+cmake -B env/build env
+cmake --build env/build
 source env/activate
 ```
 
