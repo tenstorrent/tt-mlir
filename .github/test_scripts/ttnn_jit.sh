@@ -35,7 +35,7 @@ else
         pytest -v $WORK_DIR/test/ttnn-jit/test_mesh_tensor_eltwise.py $WORK_DIR/test/ttnn-jit/test_matmul_smoketest.py --junit-xml=$TEST_REPORT_PATH
     else
         # Only run tests in the top level directory. These are always run.
-        llvm-lit -v --xunit-xml-output $TEST_REPORT_PATH $WORK_DIR/test/ttnn-jit/lit
+        llvm-lit -v --xunit-xml-output $TEST_REPORT_PATH $BUILD_DIR/test/ttnn-jit/lit
         pytest -v $WORK_DIR/test/ttnn-jit/*.py --junit-xml=$TEST_REPORT_PATH
     fi
 fi
