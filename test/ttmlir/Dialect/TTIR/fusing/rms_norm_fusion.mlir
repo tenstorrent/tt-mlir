@@ -3,8 +3,12 @@
 
 module {
     // First RMS norm from llama - input comes from reshape (32x2048 -> 32x1x2048)
+    // Reshape pairs around rms_norm should be folded away.
     // CHECK-LABEL: func.func @rms_norm_fusion_1
-    func.func @rms_norm_fusion_1(%arg0: tensor<32x2048xbf16>, %arg1: tensor<2048xbf16>) -> tensor<32x1x2048xbf16> {
+    func.func @rms_norm_fusion_1(%arg0: tensor<32x2048xbf16>, %arg1: tensor<2048xbf16>) -> tensor<32x2048xbf16> {
+        // CHECK: %[[RESULT:.*]] = "ttir.rms_norm"(%arg0, %arg1)
+        // CHECK-SAME: (tensor<32x2048xbf16>, tensor<2048xbf16>) -> tensor<32x2048xbf16>
+        // CHECK: return %[[RESULT]]
         %3 = "ttir.constant"() <{value = dense<9.99999974E-6> : tensor<32x1x1xf32>}> : () -> tensor<32x1x1xf32>
         %4 = "ttir.constant"() <{value = dense<4.8828125E-4> : tensor<32x1xf32>}> : () -> tensor<32x1xf32>
         %5 = "ttir.constant"() <{value = dense<2.000000e+00> : tensor<32x1x2048xf32>}> : () -> tensor<32x1x2048xf32>
@@ -26,14 +30,16 @@ module {
         %37 = "ttir.multiply"(%27, %36) : (tensor<32x1x2048xf32>, tensor<32x1x2048xf32>) -> tensor<32x1x2048xf32>
         %38 = "ttir.typecast"(%37) <{conservative_folding = false}> : (tensor<32x1x2048xf32>) -> tensor<32x1x2048xbf16>
         %39 = "ttir.multiply"(%19, %38) : (tensor<32x1x2048xbf16>, tensor<32x1x2048xbf16>) -> tensor<32x1x2048xbf16>
-        // CHECK: "ttir.rms_norm"
-        // CHECK-SAME: (tensor<32x1x2048xbf16>, tensor<2048xbf16>) -> tensor<32x1x2048xbf16>
-        return %39 : tensor<32x1x2048xbf16>
+        %40 = "ttir.reshape"(%39) <{shape = [32 : i32, 2048 : i32]}> : (tensor<32x1x2048xbf16>) -> tensor<32x2048xbf16>
+        return %40 : tensor<32x2048xbf16>
     }
 
     // Second RMS norm from llama - input is directly 32x1x2048xbf16 (no reshape before typecast)
     // CHECK-LABEL: func.func @rms_norm_fusion_2
     func.func @rms_norm_fusion_2(%arg0: tensor<32x1x2048xbf16>, %arg1: tensor<2048xbf16>) -> tensor<32x1x2048xbf16> {
+        // CHECK: %[[RESULT:.*]] = "ttir.rms_norm"(%arg0, %arg1)
+        // CHECK-SAME: (tensor<32x1x2048xbf16>, tensor<2048xbf16>) -> tensor<32x1x2048xbf16>
+        // CHECK: return %[[RESULT]]
         %3 = "ttir.constant"() <{value = dense<9.99999974E-6> : tensor<32x1x1xf32>}> : () -> tensor<32x1x1xf32>
         %4 = "ttir.constant"() <{value = dense<4.8828125E-4> : tensor<32x1xf32>}> : () -> tensor<32x1xf32>
         %5 = "ttir.constant"() <{value = dense<2.000000e+00> : tensor<32x1x2048xf32>}> : () -> tensor<32x1x2048xf32>
@@ -54,14 +60,16 @@ module {
         %154 = "ttir.multiply"(%144, %153) : (tensor<32x1x2048xf32>, tensor<32x1x2048xf32>) -> tensor<32x1x2048xf32>
         %155 = "ttir.typecast"(%154) <{conservative_folding = false}> : (tensor<32x1x2048xf32>) -> tensor<32x1x2048xbf16>
         %156 = "ttir.multiply"(%143, %155) : (tensor<32x1x2048xbf16>, tensor<32x1x2048xbf16>) -> tensor<32x1x2048xbf16>
-        // CHECK: "ttir.rms_norm"
-        // CHECK-SAME: (tensor<32x1x2048xbf16>, tensor<2048xbf16>) -> tensor<32x1x2048xbf16>
         return %156 : tensor<32x1x2048xbf16>
     }
 
     // Third RMS norm from llama - input comes from add (residual connection)
     // CHECK-LABEL: func.func @rms_norm_fusion_3
     func.func @rms_norm_fusion_3(%arg0: tensor<32x1x2048xbf16>, %arg1: tensor<32x1x2048xbf16>, %arg2: tensor<2048xbf16>) -> tensor<32x1x2048xbf16> {
+        // CHECK: %[[ADD:.*]] = "ttir.add"(%arg0, %arg1)
+        // CHECK: %[[RESULT:.*]] = "ttir.rms_norm"(%[[ADD]], %arg2)
+        // CHECK-SAME: (tensor<32x1x2048xbf16>, tensor<2048xbf16>) -> tensor<32x1x2048xbf16>
+        // CHECK: return %[[RESULT]]
         %3 = "ttir.constant"() <{value = dense<9.99999974E-6> : tensor<32x1x1xf32>}> : () -> tensor<32x1x1xf32>
         %4 = "ttir.constant"() <{value = dense<4.8828125E-4> : tensor<32x1xf32>}> : () -> tensor<32x1xf32>
         %5 = "ttir.constant"() <{value = dense<2.000000e+00> : tensor<32x1x2048xf32>}> : () -> tensor<32x1x2048xf32>
@@ -83,8 +91,20 @@ module {
         %187 = "ttir.multiply"(%177, %186) : (tensor<32x1x2048xf32>, tensor<32x1x2048xf32>) -> tensor<32x1x2048xf32>
         %188 = "ttir.typecast"(%187) <{conservative_folding = false}> : (tensor<32x1x2048xf32>) -> tensor<32x1x2048xbf16>
         %189 = "ttir.multiply"(%83, %188) : (tensor<32x1x2048xbf16>, tensor<32x1x2048xbf16>) -> tensor<32x1x2048xbf16>
-        // CHECK: "ttir.rms_norm"
-        // CHECK-SAME: (tensor<32x1x2048xbf16>, tensor<2048xbf16>) -> tensor<32x1x2048xbf16>
         return %189 : tensor<32x1x2048xbf16>
+    }
+
+    // Negative test: reshape changes the last dimension (64 -> 2048 -> 64).
+    // The reshape fold pattern should not apply because normalization dim changes.
+    // CHECK-LABEL: func.func @rms_norm_no_reshape_fold
+    func.func @rms_norm_no_reshape_fold(%arg0: tensor<1x32x64xbf16>, %arg1: tensor<2048xbf16>) -> tensor<1x32x64xbf16> {
+        // CHECK: "ttir.reshape"
+        // CHECK: "ttir.rms_norm"
+        // CHECK-SAME: tensor<1x2048xbf16>
+        // CHECK: "ttir.reshape"
+        %0 = "ttir.reshape"(%arg0) <{shape = [1 : i32, 2048 : i32]}> : (tensor<1x32x64xbf16>) -> tensor<1x2048xbf16>
+        %1 = "ttir.rms_norm"(%0, %arg1) <{epsilon = 9.99999974E-6 : f32, normalized_shape = array<i64: 2048>, operandSegmentSizes = array<i32: 1, 1, 0>}> : (tensor<1x2048xbf16>, tensor<2048xbf16>) -> tensor<1x2048xbf16>
+        %2 = "ttir.reshape"(%1) <{shape = [1 : i32, 32 : i32, 64 : i32]}> : (tensor<1x2048xbf16>) -> tensor<1x32x64xbf16>
+        return %2 : tensor<1x32x64xbf16>
     }
 }

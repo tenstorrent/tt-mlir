@@ -3671,10 +3671,18 @@ public:
 
     auto originalInputType =
         mlir::cast<RankedTensorType>(inputReshape.getInput().getType());
+    auto reshapedInputType =
+        mlir::cast<RankedTensorType>(inputReshape.getType());
     auto outputReshapeType =
         mlir::cast<RankedTensorType>(outputReshape.getType());
 
     if (originalInputType.getShape() != outputReshapeType.getShape()) {
+      return mlir::failure();
+    }
+
+    // RMSNorm normalizes along the last dim, so it must be unchanged.
+    if (originalInputType.getShape().back() !=
+        reshapedInputType.getShape().back()) {
       return mlir::failure();
     }
 
