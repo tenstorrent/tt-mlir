@@ -1068,7 +1068,7 @@ public:
 
     const int64_t permuteSize = static_cast<int64_t>(permutation.size());
     // Transpose pattern on inner dims.
-    if (permuteSize == 2 || permutation[permuteSize - 2] == permuteSize - 1 ||
+    if (permutation[permuteSize - 2] == permuteSize - 1 ||
         permutation[permuteSize - 1] == permuteSize - 2) {
       return permuteInnerDims(op, adaptor, rewriter);
     }
@@ -1081,9 +1081,6 @@ public:
   permuteInnerDims(ttir::PermuteOp op, typename ConcreteOp::Adaptor adaptor,
                    mlir::ConversionPatternRewriter &rewriter) const {
     auto permutation = op.getPermutation();
-    assert(permutation.size() == 2 && permutation[0] == 1 &&
-           permutation[1] == 0 && "Only 2D transpose supported");
-
     mlir::MLIRContext *ctx = rewriter.getContext();
     mlir::Location loc = op->getLoc();
 
@@ -1095,9 +1092,9 @@ public:
         toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
                                    /*tiled*/ true);
 
-    auto inputTensorType =
+    const auto inputTensorType =
         mlir::cast<mlir::RankedTensorType>(inputs[0].getType());
-    auto inputShape = inputTensorType.getShape();
+    const ArrayRef<int64_t> inputShape = inputTensorType.getShape();
     const unsigned deviceRank = static_cast<unsigned>(inputShape.size());
     auto inputLayout =
         mlir::cast<ttcore::MetalLayoutAttr>(inputTensorType.getEncoding());
@@ -1108,35 +1105,32 @@ public:
         inputLayout.getLogicalShape(), inputLayout.getDimAlignments());
 
     // Create the result layout by composing with input layout.
-    AffineMap composedMap = permuted.transposeMap.compose(
-        inputLayout.getIndexAffineMapOrIdentity(deviceRank));
-
     auto resultLayout = ttcore::MetalLayoutAttr::get(
         ctx, permuted.logicalShape, permuted.dimAlignments,
         inputLayout.getCollapsedIntervals(), inputLayout.getOobVal(),
         inputLayout.getMemorySpace(), inputLayout.getMemoryLayout(),
-        composedMap);
+        permuted.transposeMap);
 
     auto viewType = mlir::RankedTensorType::get(
         permuted.physicalShape, inputTensorType.getElementType(), resultLayout);
 
-    // For inner permute, we need as streamLayout to do reblocking.
+    // For inner permute, we need a streamLayout to do reblocking.
     auto storage = rewriter.create<d2m::EmptyOp>(
         loc, permuted.physicalShape, inputTensorType.getElementType(),
         resultLayout);
     auto stream =
         rewriter.create<d2m::StreamLayoutOp>(loc, viewType, inputs[0], storage);
     inputs[0] = stream.getResult();
-
+    auto logicalRank = deviceRank / 2;
     // For inner permute, we alse need a GenericOp to transpose each individual
     // tile.
     auto generic = rewriter.create<d2m::GenericOp>(
         loc, inputs, outputs,
         [&](OpBuilder &builder, Location bodyLoc, ValueRange blockArgs) {
           assert(blockArgs.size() == 2);
-          auto identityMap = builder.getMultiDimIdentityMap(2);
+          auto identityMap = builder.getMultiDimIdentityMap(logicalRank);
           SmallVector<mlir::utils::IteratorType> linalgIteratorTypes(
-              2, mlir::utils::IteratorType::parallel);
+            logicalRank, mlir::utils::IteratorType::parallel);
 
           auto input =
               builder.create<d2m::WaitOp>(bodyLoc, blockArgs[0]).getResult();
