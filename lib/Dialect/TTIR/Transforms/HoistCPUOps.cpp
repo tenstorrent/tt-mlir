@@ -546,11 +546,31 @@ CPUHoistAnalyzerType constEvalHoistAnalyzer() {
         return WalkResult::interrupt();
       }
 
+      if (auto meshShardOp =
+              mlir::dyn_cast<mlir::tt::ttir::MeshShardOp>(nestedOp)) {
+        // If there is a non-identity TTIR MeshShardOp, skip CPU hoisting
+        // altogether.
+        if (meshShardOp.getShardType() != ttcore::MeshShardType::Identity) {
+          return WalkResult::interrupt();
+        }
+        // Otherwise, we should skip hoisting identity MeshShardOps, since these
+        // are no-ops.
+        return WalkResult::skip();
+      }
+
       descriptor.operations.push_back(nestedOp);
       return WalkResult::advance();
     });
 
-    if (!walkResult.wasInterrupted() && !descriptor.operations.empty()) {
+    // If the const-eval consists only of creation ops, we skip it,
+    // since it does not add any meaningful value to hoist them.
+    bool onlyCreationOps =
+        llvm::all_of(descriptor.operations, [](mlir::Operation *op) {
+          return op->hasTrait<ttcore::Trait::TTCoreCreationOpTrait>();
+        });
+
+    if (!onlyCreationOps && !walkResult.wasInterrupted() &&
+        !descriptor.operations.empty()) {
       hoistedOpsDescriptors.push_back(std::move(descriptor));
     }
 
