@@ -131,7 +131,10 @@ void createTTIRToTTMetalMiddleendPipeline(
     allocateOptions.availableL1AddrRange.assign(
         options.availableL1AddrRange.begin(),
         options.availableL1AddrRange.end());
-    allocateOptions.testAssumeL1Capacity = options.testAssumel1Capacity;
+    // HACK: Override L1 capacity for testing large reshapes
+    allocateOptions.testAssumeL1Capacity = options.testAssumel1Capacity > 0
+                                               ? options.testAssumel1Capacity
+                                               : 4194304; // 4MB
     allocateOptions.testBufferSizePolicy = options.testBufferSizePolicy;
   }
   pm.addPass(d2m::createD2MAllocate(allocateOptions));

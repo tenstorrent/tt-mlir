@@ -125,13 +125,13 @@ RESHAPE_SHAPES: List[Tuple[Tuple[int, ...], Tuple[int, ...]]] = [
     # ((32, 8, 128, 128), (32, 8, 1, 128, 128)),
     # ((32, 8, 3, 128, 128), (32, 24, 128, 128)),
     # ((32, 8, 3, 128, 128), (768, 128, 128)),
-    # ((576, 1024), (32, 18, 8, 128)),
+    ((576, 1024), (32, 18, 8, 128)),
     # ((576, 128256), (32, 18, 128256)),
     # ((576, 3072), (32, 18, 24, 128)),
     # ((576, 3072), (32, 18, 3072)),
     # ((576, 8192), (32, 18, 8192)),
     # ((64,), (1, 1, 64)),
-    ((768, 18, 128), (32, 24, 18, 128)),
+    # ((768, 18, 128), (32, 24, 18, 128)),
     # ((8192, 3072), (1, 8192, 3072)),
 ]
 
@@ -147,6 +147,7 @@ def shapes_to_id(shapes: Tuple[Tuple[int, ...], Tuple[int, ...]]) -> str:
 @pytest.mark.parametrize(
     "shapes", RESHAPE_SHAPES, ids=[shapes_to_id(s) for s in RESHAPE_SHAPES]
 )
+# @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_reshape(
