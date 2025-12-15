@@ -314,7 +314,7 @@ struct TTIRToTTNNBackendPipelineOptions
   Option<bool> enableCPUHoistedConstEval{
       *this, "enable-cpu-hoisted-const-eval",
       llvm::cl::desc("Enable hoisting const-eval ops to CPU module."),
-      llvm::cl::init(false)};
+      llvm::cl::init(true)};
 
   // Force const-eval function inputs to system memory.
   Option<bool> enableConstEvalInputsToSystemMemory{

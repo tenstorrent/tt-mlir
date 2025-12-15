@@ -465,7 +465,15 @@ CPUHoistAnalyzerType constEvalHoistAnalyzer() {
       return WalkResult::advance();
     });
 
-    if (!walkResult.wasInterrupted() && !descriptor.operations.empty()) {
+    // If the const-eval consists only of creation ops, we skip it,
+    // since it does not add any meaningful value to hoist them.
+    bool onlyCreationOps =
+        llvm::all_of(descriptor.operations, [](mlir::Operation *op) {
+          return op->hasTrait<ttcore::Trait::TTCoreCreationOpTrait>();
+        });
+
+    if (!onlyCreationOps && !walkResult.wasInterrupted() &&
+        !descriptor.operations.empty()) {
       hoistedOpsDescriptors.push_back(std::move(descriptor));
     }
 

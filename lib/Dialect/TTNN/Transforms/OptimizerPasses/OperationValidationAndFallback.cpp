@@ -17,6 +17,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Types.h"
 #include "mlir/Support/WalkResult.h"
+#include "ttmlir/Utils.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/TypeSwitch.h"
 
@@ -150,6 +151,10 @@ public:
     size_t operationsFixed = 0;
 
     moduleOp->walk([&](func::FuncOp func) {
+      if (func.isDeclaration() || ttmlir::utils::isConstEvalFunc(func)) {
+        return;
+      }
+
       func.walk([&](Operation *operation) -> WalkResult {
         if (auto toLayoutOp = mlir::dyn_cast<ttnn::ToLayoutOp>(operation)) {
           // Skip ToLayout operations - they will be decomposed later, so there
@@ -172,6 +177,19 @@ public:
         // Extract input layouts from the operation
         std::vector<TTNNLayoutAttr> inputLayouts =
             utils::extractInputLayouts(operation);
+
+        // If the input resides in SystemMemory, skip validation.
+        bool anyInputInSystemMemory =
+            llvm::any_of(inputLayouts, [](TTNNLayoutAttr layout) {
+              return layout.getBufferType() == BufferType::SystemMemory;
+            });
+        if (anyInputInSystemMemory) {
+          TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+                       "Skipping validation for operation {} at {} as one or "
+                       "more inputs are in SystemMemory",
+                       operation->getName(), operation->getLoc());
+          return WalkResult::skip();
+        }
 
         TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
                      "Validating operation {} at {} with {} input layouts, {} "
