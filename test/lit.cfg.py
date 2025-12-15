@@ -145,10 +145,6 @@ if config.enable_ttnn_jit:
         append_path=True,
     )
 
-    # WORKAROUND: Enable TT_METAL_WATCHER to add 5ms sleep in device polling loop.
-    # If not, ttnn.open_device will fail device firmware init..
-    llvm_config.with_environment("TT_METAL_WATCHER", "1")
-
 # Tweak the PATH to include the tools dir.
 llvm_config.with_environment("PATH", config.llvm_tools_dir, append_path=True)
 

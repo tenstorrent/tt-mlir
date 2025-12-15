@@ -41,7 +41,7 @@ class JitFunction:
         self.func = func
         self.source_code = cleanup_source_code(func)
         self.compile_only = compile_only
-        self.debug = debug | compile_only
+        self.debug = debug or compile_only
         self.graph_capture = graph_capture
         self.out_dir = os.path.join("generated", "ttnn-jit", func.__name__)
         self.math_fidelity = math_fidelity

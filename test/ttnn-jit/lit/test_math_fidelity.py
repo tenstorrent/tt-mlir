@@ -43,31 +43,31 @@ if __name__ == "__main__":
         device, (128, 128), (0, 0), torch.bfloat16
     )
 
-    # CHECK: ---- IR Dump after ttnn_to_ttmetal_pipeline (TTNN to TTMetal) ----
+    # CHECK: ---- IR Dump after ttnn_to_ttmetal_pipeline ----
     # CHECK: func.func @abs_hifi4_graph
     # CHECK: "ttnn.generic"
     # CHECK-SAME: math_fidelity = hifi4
     abs_hifi4_graph(input_tensor)
 
-    # CHECK: ---- IR Dump after ttnn_to_ttmetal_pipeline (TTNN to TTMetal) ----
+    # CHECK: ---- IR Dump after ttnn_to_ttmetal_pipeline ----
     # CHECK: func.func @abs_hifi4
     # CHECK: "ttnn.generic"
     # CHECK-SAME: math_fidelity = hifi4
     abs_hifi4(input_tensor)
 
-    # CHECK: ---- IR Dump after ttnn_to_ttmetal_pipeline (TTNN to TTMetal) ----
+    # CHECK: ---- IR Dump after ttnn_to_ttmetal_pipeline ----
     # CHECK: func.func @abs_hifi3
     # CHECK: "ttnn.generic"
     # CHECK-SAME: math_fidelity = hifi3
     abs_hifi3(input_tensor)
 
-    # CHECK: ---- IR Dump after ttnn_to_ttmetal_pipeline (TTNN to TTMetal) ----
+    # CHECK: ---- IR Dump after ttnn_to_ttmetal_pipeline ----
     # CHECK: func.func @abs_hifi2
     # CHECK: "ttnn.generic"
     # CHECK-SAME: math_fidelity = hifi2
     abs_hifi2(input_tensor)
 
-    # CHECK: ---- IR Dump after ttnn_to_ttmetal_pipeline (TTNN to TTMetal) ----
+    # CHECK: ---- IR Dump after ttnn_to_ttmetal_pipeline ----
     # CHECK: func.func @abs_lofi
     # CHECK: "ttnn.generic"
     # CHECK-SAME: math_fidelity = lofi

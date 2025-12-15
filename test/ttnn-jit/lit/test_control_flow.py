@@ -12,7 +12,7 @@ import torch
 from utils import create_sharded_tile_tensor
 
 
-@ttnn_jit.jit(debug=True, compile_only=True, graph_capture=True)
+@ttnn_jit.jit(compile_only=True, graph_capture=True)
 def if_else_branch(input_tensor, use_exp=True):
     """Test basic if/else branching."""
     if use_exp:
@@ -22,7 +22,7 @@ def if_else_branch(input_tensor, use_exp=True):
     return output
 
 
-@ttnn_jit.jit(debug=True, compile_only=True, graph_capture=True)
+@ttnn_jit.jit(compile_only=True, graph_capture=True)
 def nested_if(input_tensor, mode=0):
     """Test nested if statements."""
     if mode == 0:
@@ -35,7 +35,7 @@ def nested_if(input_tensor, mode=0):
     return output
 
 
-@ttnn_jit.jit(debug=True, compile_only=True, graph_capture=True)
+@ttnn_jit.jit(compile_only=True, graph_capture=True)
 def if_with_ops_before_after(input_tensor, apply_exp=True):
     """Test if statement with operations before and after."""
     temp = ttnn.abs(input_tensor)
@@ -49,7 +49,7 @@ def if_with_ops_before_after(input_tensor, apply_exp=True):
     return output
 
 
-@ttnn_jit.jit(debug=True, compile_only=True, graph_capture=True)
+@ttnn_jit.jit(compile_only=True, graph_capture=True)
 def multiple_sequential_ifs(input_tensor, apply_exp=False, apply_cos=False):
     """Test multiple sequential if statements."""
     output = input_tensor
@@ -63,7 +63,7 @@ def multiple_sequential_ifs(input_tensor, apply_exp=False, apply_cos=False):
     return output
 
 
-@ttnn_jit.jit(debug=True, compile_only=True, graph_capture=True)
+@ttnn_jit.jit(compile_only=True, graph_capture=True)
 def for_loop_simple(input_tensor, iterations=3):
     """Test simple for loop."""
     output = input_tensor
@@ -72,7 +72,7 @@ def for_loop_simple(input_tensor, iterations=3):
     return output
 
 
-@ttnn_jit.jit(debug=True, compile_only=True, graph_capture=True)
+@ttnn_jit.jit(compile_only=True, graph_capture=True)
 def for_loop_with_index(input_tensor, iterations=3):
     """Test for loop with index variable."""
     output = input_tensor
@@ -84,7 +84,7 @@ def for_loop_with_index(input_tensor, iterations=3):
     return output
 
 
-@ttnn_jit.jit(debug=True, compile_only=True, graph_capture=True)
+@ttnn_jit.jit(compile_only=True, graph_capture=True)
 def nested_for_loops(input_tensor, outer=2, inner=2):
     """Test nested for loops."""
     output = input_tensor
@@ -94,7 +94,7 @@ def nested_for_loops(input_tensor, outer=2, inner=2):
     return output
 
 
-@ttnn_jit.jit(debug=True, compile_only=True, graph_capture=True)
+@ttnn_jit.jit(compile_only=True, graph_capture=True)
 def for_loop_with_if(input_tensor, iterations=4):
     """Test for loop with if statement inside."""
     output = input_tensor
@@ -106,7 +106,7 @@ def for_loop_with_if(input_tensor, iterations=4):
     return output
 
 
-@ttnn_jit.jit(debug=True, compile_only=True, graph_capture=True)
+@ttnn_jit.jit(compile_only=True, graph_capture=True)
 def if_inside_for_multiple_branches(input_tensor, iterations=3):
     """Test for loop with multiple if branches inside."""
     output = input_tensor
