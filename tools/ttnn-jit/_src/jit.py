@@ -134,7 +134,7 @@ class JitFunction:
             ttkernel_to_cpp_file(ir, self.out_dir)
 
             # Generate and dump flatbuffer in generated/ttnn-jit
-            flatbuffer_file = os.path.join(self.out_dir, self.func.__name__ + ".ttn")
+            flatbuffer_file = os.path.join(self.out_dir, self.func.__name__ + ".ttnn")
             ttnn_to_flatbuffer_file(ir, flatbuffer_file, {}, [])
             return ir
 
