@@ -781,7 +781,8 @@ def TTNN_KernelSemaphoreAttr: TTNN_Attr<"KernelSemaphore", "kernel_semaphore"> {
     Kernel semaphore descriptor for TTNN generic operation.
   }];
 
-  let parameters = (ins "KernelCoreType":$core_type,
+  let parameters = (ins "uint32_t":$id,
+                        "KernelCoreType":$core_type,
                         TTNN_CoreRangeSetAttr:$core_ranges,
                         "uint32_t":$initial_value);
   let assemblyFormat = "`<` struct(params) `>`";

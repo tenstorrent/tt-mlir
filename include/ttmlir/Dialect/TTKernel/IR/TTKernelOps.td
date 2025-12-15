@@ -1279,40 +1279,8 @@ def TTKernel_CeilTileOp : TTKernel_SFPUOp<"ceil_tile", [TTKernel_UnaryOpTrait]> 
     }];
 }
 
-def TTKernel_CeilTileF32Op : TTKernel_SFPUOp<"ceil_tile_float32", [TTKernel_UnaryOpTrait]> {
-    let summary = "Ceil f32 tile in the DST at specified index.";
-    let description = [{
-      Performs element-wise computation of ceil operation
-      DST[dst0_index] <- ceil(DST[dst0_index])
-      on DST register operands. The DST register buffer must be in
-      acquired state via *tile_regs_acquire* call.
-    }];
-
-    let arguments = (ins IndexLike:$dst0_index);
-
-    let assemblyFormat = [{
-      `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
-    }];
-}
-
 def TTKernel_FloorTileOp : TTKernel_SFPUOp<"floor_tile", [TTKernel_UnaryOpTrait]> {
     let summary = "Floor tile in the DST at specified index.";
-    let description = [{
-      Performs element-wise computation of floor operation
-      DST[dst0_index] <- floor(DST[dst0_index])
-      on DST register operands. The DST register buffer must be in
-      acquired state via *tile_regs_acquire* call.
-    }];
-
-    let arguments = (ins IndexLike:$dst0_index);
-
-    let assemblyFormat = [{
-      `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
-    }];
-}
-
-def TTKernel_FloorTileF32Op : TTKernel_SFPUOp<"floor_tile_float32", [TTKernel_UnaryOpTrait]> {
-    let summary = "Floor f32 tile in the DST at specified index.";
     let description = [{
       Performs element-wise computation of floor operation
       DST[dst0_index] <- floor(DST[dst0_index])

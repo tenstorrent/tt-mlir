@@ -2572,7 +2572,8 @@ createOp(FlatbufferObjectCache &cache, GenericOp op) {
 
   for (auto semaphoresAttr : programAttr.getSemaphores()) {
     semaphores.push_back(::tt::target::ttnn::CreateSemaphoreDescriptor(
-        *cache.fbb, toFlatbuffer(cache, semaphoresAttr.getCoreType()),
+        *cache.fbb, semaphoresAttr.getId(),
+        toFlatbuffer(cache, semaphoresAttr.getCoreType()),
         toFlatbuffer(cache, llvm::cast<ttnn::CoreRangeSetAttr>(
                                 semaphoresAttr.getCoreRanges())),
         semaphoresAttr.getInitialValue()));
