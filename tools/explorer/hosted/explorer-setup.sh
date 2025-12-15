@@ -14,14 +14,14 @@ if [ -d "tt-mlir" ]; then
 else
   git clone https://github.com/tenstorrent/tt-mlir.git tt-mlir
 fi
-cronexist=$(crontab -l | grep explorer-setup.sh || true)
+cronexist=$(crontab -l 2>/dev/null | grep explorer-setup.sh || true)
 if [ -z "$cronexist" ]; then
   echo "Setting up cron job for daily Explorer setup..."
-  (crontab -l ; echo "0 5 * * * /bin/bash /srv/tt-mlir/tools/explorer/hosted/explorer-setup.sh >> /var/log/explorer-setup.log 2>&1") | crontab -
+  (crontab -l  2>/dev/null; echo "0 5 * * * /bin/bash /srv/tt-mlir/tools/explorer/hosted/explorer-setup.sh >> /var/log/explorer-setup.log 2>&1") | crontab -
 else
   echo "Cron job for Explorer setup already exists."
 fi
-cd tt-mlir/tools/explorer/hosted
+cd /srv/tt-mlir/tools/explorer/hosted
 echo "Building Explorer dockers..."
 make build-full
 echo "(Re)Starting Explorer services..."
