@@ -153,12 +153,9 @@ jobs:
         git checkout 22354129c5a22a539e26eb4ba58411444298df8d
 
         exalens_install_script=scripts/install_debugger.sh
-        python_interpreter_location="$(which python)3"
+        python_interpreter_location="$(which python)"
 
         sed -i "s|python3|$python_interpreter_location|g" $exalens_install_script
-        sed -i "s|LD_LIBRARY_PATH=|PATH="/usr/bin:$PATH" LD_LIBRARY_PATH=|g" $exalens_install_script
-        echo "printing out exalens script"
-        cat $exalens_install_script
 
         apt install clang-tidy -y -q
 
@@ -168,6 +165,8 @@ jobs:
 
         echo "TT_METAL_DISPATCH_TIMEOUT_COMMAND_TO_EXECUTE=$python_interpreter_location $(pwd)/tools/tt-triage.py 1>&2" >> $GITHUB_ENV
         echo "TT_METAL_OPERATION_TIMEOUT_SECONDS=1" >> $GITHUB_ENV
+
+        cd ..
 
         MACHINE_IP=$(hostname -I | awk '{print $1}')
         export no_proxy="${no_proxy:+$no_proxy,}localhost,${MACHINE_IP}"
