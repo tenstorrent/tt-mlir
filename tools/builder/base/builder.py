@@ -89,6 +89,7 @@ class Builder(metaclass=BuilderMeta):
         # Internal values to keep track of
         self._root_module_insertion_point = None
         self._current_module_insertion_point = None
+        self._hoisted_cpu_functions: Dict[str, func.FuncOp] = {}
 
     # ----- Class helper methods -----
 
@@ -680,6 +681,13 @@ class Builder(metaclass=BuilderMeta):
     def parse_root_module(
         self, parsed_root_module: Module, golden_inputs: List[torch.tensor]
     ):
+        for entry in parsed_root_module.body.operations:
+            if isinstance(entry, ttcore.CPUModuleOp):
+                builtin_module = entry.regions[0].blocks[0].operations[0]
+                for op in builtin_module.regions[0].blocks[0].operations:
+                    if isinstance(op, func.FuncOp):
+                        self._hoisted_cpu_functions[op.name.value] = op
+
         new_root_module = Module.create()
         self._root_module_insertion_point = new_root_module.body
 
@@ -881,6 +889,51 @@ class Builder(metaclass=BuilderMeta):
 
         return wrapper(self)
 
+    def parse_taps(self, parsed_func: func.FuncOp, golden_inputs: List[GoldenMapTensor]):
+        fn_input_types = self.get_input_types(parsed_func)
+
+        @func.func(*fn_input_types, name=parsed_func.name.value)
+        def decorated_func(*inputs):
+            input_goldens = {}
+            for operand, golden_map_tensor in zip(inputs, golden_inputs):
+                input_goldens[operand] = golden_map_tensor
+
+            self._set_goldens(input_goldens)
+            self._set_input_ordering(inputs)
+
+            global_dict = {}
+            for i, arg in enumerate(parsed_func.arguments):
+                global_dict[arg] = inputs[i]
+
+            global_result = None
+            for block in parsed_func.body:
+                for op in block.operations:
+                    if isinstance(op, func.ReturnOp):
+                        global_result = tuple(
+                            global_dict[operand] for operand in op.operands
+                        )
+                    else:
+                        (
+                            parsed_op,
+                            op_golden_dictionary,
+                        ) = self._build_op_from_parsed_op(op, global_dict)
+                        global_dict.update(op_golden_dictionary)
+
+            outputs = (
+                global_result
+                if hasattr(global_result, "__iter__")
+                else (global_result,)
+            )
+            output_goldens: Dict[Operand, GoldenMapTensor] = {}
+            for op in outputs:
+                output_goldens[op] = self._get_golden_tensor(op)
+            self._set_goldens(output_goldens)
+            self._set_output_ordering(list(outputs))
+
+            return process_multi_return_result(global_result)
+
+        return decorated_func.func_op
+
     def parse_call_op(
         self,
         parsed_op: func.CallOp,
@@ -890,4 +943,19 @@ class Builder(metaclass=BuilderMeta):
             if attr.name == "ttir.cpu_hoisted_call":
                 hoisted_func_name = parsed_op.callee.value
                 hoisted_func_name_clean = hoisted_func_name.removesuffix("_decl")
-                print(hoisted_func_name_clean)
+                hoisted_func = self._hoisted_cpu_functions.get(hoisted_func_name_clean)
+
+                new_golden_inputs = []
+                for operand in parsed_op.operands:
+                    new_golden_inputs.append(self._get_golden_tensor(operand))
+
+                new_func_op = self.parse_taps(hoisted_func, new_golden_inputs)
+
+                for index, result in enumerate(parsed_op.results):
+                    self._set_golden_tensor(
+                        new_func_op.results[index], self._get_golden_tensor(new_func_op.results[index])
+                    )
+
+                    op_map_dictionary = {}
+                    op_map_dictionary[result] = new_func_op.results[index]
+                    return new_func_op, op_map_dictionary
