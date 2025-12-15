@@ -1153,7 +1153,12 @@ def test_select(target: str, request, device):
 @pytest.mark.parametrize(
     "shapes, dimensions, reduction_type",
     [
-        ([(1, 2, 3)], [1], "add"),  # Add along first dimension
+        ([(3, 4, 5), ()], [0], "add"),  # Add along first dimension
+        # ([(3, 4, 5)], [1], "add"),  # Add along middle dimension
+        # ([(3, 4, 5)], [2], "add"),  # Add along last dimension
+        # ([(3, 4, 5)], [0, 1], "add"),  # Add along multiple dimensions
+        # ([(3, 4, 5)], [0], "max"),  # Max along first dimension
+        # ([(3, 4, 5)], [1], "max"),  # Max along middle dimension
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
@@ -1168,33 +1173,10 @@ def test_reduce(
     device,
 ):
     def module(builder: StableHLOBuilder):
-        @builder.func(shapes, [dtype])
-        def reduce_wrapper(in0: Operand, builder: StableHLOBuilder):
-            if hasattr(builder, "set_graph_level_check"):
-                builder.set_graph_level_check(True)
-
-            # Create appropriate init value based on reduction type
-            if reduction_type == "add":
-                init_value = builder._create_const_tensor_from_value(0, dtype)
-            elif reduction_type == "max":
-                # For max reduction, init with negative infinity
-                import math
-
-                init_value = builder._create_const_tensor_from_value(-math.inf, dtype)
-            elif reduction_type == "min":
-                # For min reduction, init with positive infinity
-                import math
-
-                init_value = builder._create_const_tensor_from_value(math.inf, dtype)
-            else:
-                raise ValueError(f"Unsupported reduction type: {reduction_type}")
-
-            return builder.reduce(
-                inputs=[in0],
-                init_values=[init_value],
-                dimensions=dimensions,
-                reduction_type=reduction_type,
-            )
+        @builder.func(shapes, [dtype, dtype])
+        def reduce_wrapper(in0: Operand, in1: Operand, builder: StableHLOBuilder):
+            builder.set_graph_level_check(True)
+            return builder.reduce(in0, in1, dimensions, reduction_type)
 
     compile_and_execute_shlo(
         module,

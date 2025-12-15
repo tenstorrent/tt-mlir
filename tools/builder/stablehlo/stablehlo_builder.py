@@ -3550,29 +3550,15 @@ class StableHLOBuilder(Builder):
         if not isinstance(init_values, list):
             init_values = [init_values]
 
-        if len(inputs) != len(init_values):
-            raise ValueError("Number of inputs must match number of init_values")
-
-        # Calculate output types
-        input_types = [RankedTensorType(inp.type) for inp in inputs]
-        element_types = [inp_type.element_type for inp_type in input_types]
-
-        # Calculate output shapes by removing reduced dimensions
-        dimensions_set = set(dimensions)
-        output_shapes = []
-        for inp_type in input_types:
-            input_shape = list(inp_type.shape)
-            output_shape = [
-                input_shape[i]
-                for i in range(len(input_shape))
-                if i not in dimensions_set
-            ]
-            output_shapes.append(output_shape)
-
-        output_types = [
-            RankedTensorType.get(shape, elem_type)
-            for shape, elem_type in zip(output_shapes, element_types)
-        ]
+        input_goldens = [self._get_golden_tensor(inp) for inp in inputs]
+        init_goldens = [self._get_golden_tensor(init) for init in init_values]
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(
+            input_goldens, init_goldens, dimensions, reduction_type
+        )
+        result = self._create_ranked_tensor_type(
+            golden_output.shape, self.get_type(inputs[0])
+        )
 
         if loc is None:
             loc = self._get_location()
@@ -3580,7 +3566,7 @@ class StableHLOBuilder(Builder):
             loc = Location.name(loc)
 
         op = stablehlo_op(
-            output_types,
+            [result],
             inputs,
             init_values,
             dimensions,
@@ -3594,30 +3580,19 @@ class StableHLOBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        # Create the reduction function body based on reduction_type
-        reduction_types = [
-            RankedTensorType.get([], elem_type) for elem_type in element_types
-        ]
-        block_arg_types = reduction_types + reduction_types  # lhs args + rhs args
-
-        block = Block.create_at_start(op.regions[0], block_arg_types)
+        reduction_type = RankedTensorType.get([], self.get_type(inputs[0]))
+        block = Block.create_at_start(op.regions[0], [reduction_type, reduction_type])
 
         with InsertionPoint(block):
             reduction_result = reduction_op(*block.arguments, loc=loc)
             stablehlo.ReturnOp([reduction_result], loc=loc)
 
         if not self._disable_golden_check:
-            input_goldens = [self._get_golden_tensor(inp) for inp in inputs]
-            init_goldens = [self._get_golden_tensor(init) for init in init_values]
-            op_golden_function = get_golden_function(stablehlo_op)
-            output_golden = op_golden_function(
-                [input_golden], [init_golden], dimensions, reduction_type
-            )
-            self._set_golden_tensor(op.result, output_golden)
+            self._set_golden_tensor(op.result, golden_output)
 
         return op.result
 
-    def copy_op_body(
+    def copy_op_body2(
         self,
         old_op: Operation,
         new_op: Operation,
@@ -3626,9 +3601,32 @@ class StableHLOBuilder(Builder):
         old_block = old_op.body.blocks[0]
         new_block = Block.create_at_start(new_op.regions[0])
 
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+
+            with InsertionPoint(new_block):
+                op = old_block.operations[0]
+                print(op)
+                print(op.operands[0])
+                result = type(op)(*op.operands, loc=old_op.location)
+                stablehlo.ReturnOp([result], loc=old_op.location)
+
+        return new_op
+
+    def copy_op_body(
+        self,
+        old_op: Operation,
+        new_op: Operation,
+    ):
+        # Create new block with same argument types as old block
+        old_block = old_op.body.blocks[0]
+        old_arg_types = [arg.type for arg in old_block.arguments]
+        new_block = Block.create_at_start(new_op.regions[0], old_arg_types)
+
         with InsertionPoint(new_block):
             op = old_block.operations[0]
-            result = type(op)(*op.operands, loc=old_op.location)
+            result = type(op)(*new_block.arguments, loc=old_op.location)
             stablehlo.ReturnOp([result], loc=old_op.location)
 
         return new_op
@@ -3645,18 +3643,14 @@ class StableHLOBuilder(Builder):
         init_values = [global_dict[init] for init in old_op.init_values]
         dimensions = old_op.dimensions
         result = old_op.result.type
-        print("huh")
-        print(old_op.result)
-        print(x for x in old_op.results)
 
         new_op = stablehlo_op(
-            result,
+            [result],
             inputs,
             init_values,
             dimensions,
             loc=old_op.location,
         )
-
         new_op = self.copy_op_body(old_op, new_op)
         reduction_type = old_op.body.blocks[0].operations[0].name.split(".")[-1]
 
@@ -3667,6 +3661,7 @@ class StableHLOBuilder(Builder):
             golden_output = op_golden_function(
                 input_goldens, init_values, dimensions, reduction_type
             )
+            self._set_golden_tensor(new_op.result, golden_output)
 
         op_map_dictionary = {}
         for old_result, new_result in zip(old_op.results, new_op.results):
@@ -3711,7 +3706,7 @@ class StableHLOBuilder(Builder):
                     # Copy the reduction body
                     # new_op.regions[0].blocks.clear()
                     for block in old_op.body.blocks:
-                        new_block = block.clone()
+                        new_block = block.clone
                         new_op.regions[0].blocks.append(new_block)
 
                     if len(new_op.results) == 1:
@@ -4217,6 +4212,7 @@ class StableHLOBuilder(Builder):
     def from_module(
         ctx: Context, mlir_text: str, golden_inputs: List[torch.tensor] = None
     ) -> Tuple(Module, StableHLOBuilder):
+        print("3.1")
         if golden_inputs is None:
             golden_inputs = []
 
@@ -4225,7 +4221,8 @@ class StableHLOBuilder(Builder):
         with ctx, loc:
             stablehlo_builder = StableHLOBuilder(ctx, loc)
             new_module = stablehlo_builder.parse_root_module(root_module, golden_inputs)
-
+        print("3.2")
+        print(new_module, stablehlo_builder)
         return new_module, stablehlo_builder
 
     # ----- Split stablehlo module ----
