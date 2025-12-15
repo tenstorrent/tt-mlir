@@ -5,6 +5,8 @@
 
 set -e
 
+echo "Setting up Tenstorrent Explorer Hosted App..."
+echo "Date: $(date)"
 mkdir -p /srv
 cd /srv
 if [ -d "tt-mlir" ]; then
@@ -17,7 +19,7 @@ fi
 cronexist=$(crontab -l 2>/dev/null | grep explorer-setup.sh || true)
 if [ -z "$cronexist" ]; then
   echo "Setting up cron job for daily Explorer setup..."
-  (crontab -l  2>/dev/null; echo "0 5 * * * /bin/bash /srv/tt-mlir/tools/explorer/hosted/explorer-setup.sh >> /var/log/explorer-setup.log 2>&1") | crontab -
+  (crontab -l  2>/dev/null; echo "0 9 * * * /bin/bash /srv/tt-mlir/tools/explorer/hosted/explorer-setup.sh >> /var/log/explorer-setup.log 2>&1") | crontab -
 else
   echo "Cron job for Explorer setup already exists."
 fi
