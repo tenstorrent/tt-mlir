@@ -23,6 +23,7 @@ class OpModelTest : public OpModelFixture {};
 // IMPORTANT: If this test FAILS (code doesn't crash), it means the metal fix
 // has been uplifted. In that case:
 // 1. Add RMSNormOp back to validForSharding in DFShardingPolicy.cpp
+//    (removed in https://github.com/tenstorrent/tt-mlir/pull/6326)
 // 2. Remove this test
 TEST_F(OpModelTest, RMSNormWidthShardedInputCrashTest) {
   constexpr int64_t h = 32;
