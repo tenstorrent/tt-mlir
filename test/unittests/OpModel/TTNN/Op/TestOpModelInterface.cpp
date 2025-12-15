@@ -1261,12 +1261,13 @@ TEST_F(OpModelBase, ScatterOpInterface) {
       createEmptyTensor(tensorShapeB, builder.getI32Type(), indexLayout);
   auto source = createEmptyTensor(tensorShapeB);
   auto output = createEmptyTensor(tensorShapeA);
-
+  auto reduceType = ttcore::ReduceTypeAttr::get(builder.getContext(),
+                                                ttcore::ReduceType::Sum);
   const int32_t dim = 0;
 
   auto scatter = builder.create<ScatterOp>(
       builder.getUnknownLoc(), output.getType(), input, index, source,
-      builder.getI32IntegerAttr(dim), nullptr);
+      builder.getI32IntegerAttr(dim), reduceType, nullptr);
 
   // test ScatterOp interface
   auto constraintsExp = getOpConstraints(scatter.getOperation());

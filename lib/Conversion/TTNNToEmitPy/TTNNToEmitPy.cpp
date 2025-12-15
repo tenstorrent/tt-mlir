@@ -2104,9 +2104,20 @@ public:
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::EmbeddingOp> emitter(
         embeddingOp, adaptor, rewriter);
 
+    mlir::RankedTensorType resultType =
+        mlir::cast<mlir::RankedTensorType>(embeddingOp.getResult().getType());
+    auto resultLayoutAttr =
+        mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(resultType.getEncoding());
+    mlir::tt::ttnn::LayoutAttr layoutAttr = mlir::tt::ttnn::LayoutAttr::get(
+        embeddingOp.getContext(), resultLayoutAttr.isTiled()
+                                      ? mlir::tt::ttnn::Layout::Tile
+                                      : mlir::tt::ttnn::Layout::RowMajor);
+
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(embeddingOp.getInput()),
         emitter.emit(embeddingOp.getWeight()),
+        emitter.emit(std::nullopt),
+        emitter.emit(layoutAttr),
     };
 
     emitter.replaceOp(*this, args);

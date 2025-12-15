@@ -666,6 +666,8 @@ TEST_F(OpModelTest, Scatter) {
   const llvm::SmallVector<int64_t> inputShape = {256, 1024};
   const llvm::SmallVector<int64_t> indexSourceShape = {128, 1024};
   const int32_t dim = 0;
+  const ttcore::ReduceTypeAttr reduceTypeAttr =
+      ttcore::ReduceTypeAttr::get(&context, ttcore::ReduceType::Invalid);
 
   const auto workerGrid = CreateWorkerGrid(gridShapeHwN300);
   const TTNNLayoutAttr inputLayoutDRAM = CreateTiledLayout(
@@ -687,7 +689,7 @@ TEST_F(OpModelTest, Scatter) {
   // DRAM layouts
   auto constraintsExp = OpModel<ScatterOp>::getOpConstraints(
       CreateWorkerGrid(), inputShape, inputLayoutDRAM, indexSourceShape,
-      indexLayoutDRAM, indexSourceShape, sourceLayoutDRAM, dim,
+      indexLayoutDRAM, indexSourceShape, sourceLayoutDRAM, dim, reduceTypeAttr,
       inputLayoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
@@ -698,14 +700,15 @@ TEST_F(OpModelTest, Scatter) {
 
   auto runtimeExp = OpModel<ScatterOp>::getOpRuntime(
       inputShape, inputLayoutDRAM, indexSourceShape, indexLayoutDRAM,
-      indexSourceShape, sourceLayoutDRAM, dim, inputLayoutDRAM);
+      indexSourceShape, sourceLayoutDRAM, dim, reduceTypeAttr, inputLayoutDRAM);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 
   // L1 layouts
   constraintsExp = OpModel<ScatterOp>::getOpConstraints(
       CreateWorkerGrid(), inputShape, inputLayoutL1, indexSourceShape,
-      indexLayoutL1, indexSourceShape, sourceLayoutL1, dim, inputLayoutL1);
+      indexLayoutL1, indexSourceShape, sourceLayoutL1, dim, reduceTypeAttr,
+      inputLayoutL1);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
@@ -715,7 +718,7 @@ TEST_F(OpModelTest, Scatter) {
 
   runtimeExp = OpModel<ScatterOp>::getOpRuntime(
       inputShape, inputLayoutL1, indexSourceShape, indexLayoutL1,
-      indexSourceShape, sourceLayoutL1, dim, inputLayoutL1);
+      indexSourceShape, sourceLayoutL1, dim, reduceTypeAttr, inputLayoutL1);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 }
