@@ -422,6 +422,8 @@ bool ShardSolver::preprocessFirstOp() {
     TTNNLayoutAttr firstOpLayout = firstOpConfigs[i].outputLayout;
     assert(firstOpLayout.hasShardedL1TensorMemoryLayout());
 
+    TTNNLayoutAttr layoutForComparison = firstOpLayout;
+
     if (mlir::isa<ttnn::MatmulOp, ttnn::LinearOp>(firstOp)) {
       firstOpLayout = firstOpLayout.withIgnorePhysicalLayout(true);
     }
@@ -448,7 +450,7 @@ bool ShardSolver::preprocessFirstOp() {
     }
 
     TTNNLayoutAttr actualLayout = result.get();
-    if (actualLayout == firstOpLayout) {
+    if (actualLayout == layoutForComparison) {
       TTMLIR_TRACE(
           ttmlir::LogComponent::Optimizer,
           "[preprocessing first op {}] Backend actual layout matches "
@@ -458,8 +460,9 @@ bool ShardSolver::preprocessFirstOp() {
     } else {
       TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                    "[preprocessing first op {}] Backend actual layout does not "
-                   "match given output config layout {}",
-                   firstOp->getName(), firstOpLayout);
+                   "match given output config layout\n\t actual layout: {}\n\t "
+                   "expected layout: {}",
+                   firstOp->getName(), actualLayout, layoutForComparison);
     }
   }
 
