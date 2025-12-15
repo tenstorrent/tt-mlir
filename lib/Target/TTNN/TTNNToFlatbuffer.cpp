@@ -74,18 +74,19 @@ getMemoryConfigAttr(::mlir::tt::ttnn::TTNNLayoutAttr layoutAttr,
   return memoryConfigAttr;
 }
 
-static ttnn::MemoryConfigAttr
-getMemoryConfigAttr(::mlir::tt::ttnn::TTNNNDLayoutAttr layoutAttr,
-                    ttcore::GridAttr deviceGrid) {
-  MLIRContext *ctx = layoutAttr.getContext();
-  ttnn::BufferTypeAttr bufferTypeAttr =
-      ttnn::BufferTypeAttr::get(ctx, layoutAttr.getBufferType());
+// static ttnn::MemoryConfigAttr
+// getMemoryConfigAttr(::mlir::tt::ttnn::TTNNNDLayoutAttr layoutAttr,
+//                     ttcore::GridAttr deviceGrid) {
+//   MLIRContext *ctx = layoutAttr.getContext();
+//   ttnn::BufferTypeAttr bufferTypeAttr =
+//       ttnn::BufferTypeAttr::get(ctx, layoutAttr.getBufferType());
 
-  ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
-      ctx, layoutAttr.getMemLayout(), bufferTypeAttr,
-      utils::createNDShardSpecIfNeeded(layoutAttr));
-  return memoryConfigAttr;
-}
+//   ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
+//       ctx, layoutAttr.getMemLayout(), bufferTypeAttr,
+//       /*shardSpec=*/std::nullopt,
+//       utils::createNDShardSpecIfNeeded(layoutAttr));
+//   return memoryConfigAttr;
+// }
 
 static ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig>
 getMemoryConfigFromTensorTypeIfNeeded(FlatbufferObjectCache &cache,

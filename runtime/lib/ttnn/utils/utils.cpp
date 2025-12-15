@@ -475,7 +475,11 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg) {
       ttnnShardOrientation,
       ttnnShardDistributionStrategy);
     
-    return std::make_optional(::ttnn::MemoryConfig{ttnnBufferType, metalNDShardSpec});
+    
+    auto memoryConfig = ::ttnn::MemoryConfig{ttnnBufferType, metalNDShardSpec};
+    std::cout<<"memoryConfig: "<<memoryConfig<<std::endl;
+    std::cout<<"memoryLayout == height_sharded: "<<(memoryConfig.memory_layout() == ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED)<<std::endl;
+    return std::make_optional(memoryConfig);
   }
 
   if (memcfg->shard_spec() != nullptr) {
