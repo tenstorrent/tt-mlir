@@ -153,6 +153,14 @@ tools = ["mlir-opt", "ttmlir-opt", "ttmlir-translate"]
 
 llvm_config.add_tool_substitutions(tools, tool_dirs)
 
+llvm_config.with_environment(
+    "PYTHONPATH",
+    [
+        os.path.join(config.mlir_obj_dir, "python_packages"),
+    ],
+    append_path=True,
+)
+
 # Add `TT_MLIR_HOME` to lit environment.
 if "TT_MLIR_HOME" in os.environ:
     llvm_config.with_environment("TT_MLIR_HOME", os.environ["TT_MLIR_HOME"])
