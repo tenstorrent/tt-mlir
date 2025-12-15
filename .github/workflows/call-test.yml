@@ -165,8 +165,8 @@ jobs:
 
         cd ../..
 
-        echo "TT_METAL_DISPATCH_TIMEOUT_COMMAND_TO_EXECUTE=$python_interpreter_location $(pwd)/temp/tt-metal/tools/tt-triage.py 1>&2" >> $GITHUB_ENV
-        echo "TT_METAL_OPERATION_TIMEOUT_SECONDS=1" >> $GITHUB_ENV
+        export TT_METAL_DISPATCH_TIMEOUT_COMMAND_TO_EXECUTE="$python_interpreter_location $(pwd)/temp/tt-metal/tools/tt-triage.py 1>&2"
+        export TT_METAL_OPERATION_TIMEOUT_SECONDS=1
 
         echo "validate env vars"
         echo "$TT_METAL_DISPATCH_TIMEOUT_COMMAND_TO_EXECUTE"
