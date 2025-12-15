@@ -324,12 +324,11 @@ def test_disable_execution(start_server_no_execution):
         {"optimizationPolicy": "Optimizer Disabled"},
     )
 
-    print(result)
-
     assert result.ok
     if "error" in result.json():
-        print(result.json())
         assert True
+    else:
+        assert False
 
 
 def test_preload_ir_dump_directory(start_server):
