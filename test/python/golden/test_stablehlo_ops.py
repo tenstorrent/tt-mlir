@@ -1148,3 +1148,59 @@ def test_select(target: str, request, device):
         target=target,
         device=device,
     )
+
+
+@pytest.mark.parametrize(
+    "shapes, dimensions, reduction_type",
+    [
+        ([(1, 2, 3)], [1], "add"),  # Add along first dimension
+    ],
+)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_reduce(
+    shapes: List[Shape],
+    dimensions: List[int],
+    reduction_type: str,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: StableHLOBuilder):
+        @builder.func(shapes, [dtype])
+        def reduce_wrapper(in0: Operand, builder: StableHLOBuilder):
+            if hasattr(builder, "set_graph_level_check"):
+                builder.set_graph_level_check(True)
+
+            # Create appropriate init value based on reduction type
+            if reduction_type == "add":
+                init_value = builder._create_const_tensor_from_value(0, dtype)
+            elif reduction_type == "max":
+                # For max reduction, init with negative infinity
+                import math
+
+                init_value = builder._create_const_tensor_from_value(-math.inf, dtype)
+            elif reduction_type == "min":
+                # For min reduction, init with positive infinity
+                import math
+
+                init_value = builder._create_const_tensor_from_value(math.inf, dtype)
+            else:
+                raise ValueError(f"Unsupported reduction type: {reduction_type}")
+
+            return builder.reduce(
+                inputs=[in0],
+                init_values=[init_value],
+                dimensions=dimensions,
+                reduction_type=reduction_type,
+            )
+
+    compile_and_execute_shlo(
+        module,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )

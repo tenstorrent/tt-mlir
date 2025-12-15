@@ -3899,6 +3899,28 @@ def stablehlo_minimum_golden(
     return torch.minimum(input_tensor, other_tensor).to(output_dtype)
 
 
+def stablehlo_reduce_golden(
+    inputs: List[GoldenMapTensor],
+    init_values: List[GoldenMapTensor],
+    dimensions_attr: DenseI64ArrayAttr,
+    reduction_type,
+    **kwargs,
+) -> Union[GoldenMapTensor, List[GoldenMapTensor]]:
+    input_tensor = inputs[0]
+    dimensions = unpack_mlir_attr(dimensions_attr)
+
+    if reduction_type == "add":
+        result = torch.sum(input_tensor, dim=dimensions, keepdim=False)
+    elif reduction_type == "max":
+        result = torch.amax(input_tensor, dim=dimensions, keepdim=False)
+    elif reduction_type == "min":
+        result = torch.amin(input_tensor, dim=dimensions, keepdim=False)
+    else:
+        raise ValueError(f"Unsupported reduction type: {reduction_type}")
+
+    return result
+
+
 def stablehlo_multiply_golden(
     input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -4108,6 +4130,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.SliceOp: stablehlo_slice_golden,
     stablehlo.MaxOp: stablehlo_maximum_golden,
     stablehlo.MinOp: stablehlo_minimum_golden,
+    stablehlo.ReduceOp: stablehlo_reduce_golden,
     stablehlo.MulOp: stablehlo_multiply_golden,
     stablehlo.SubtractOp: stablehlo_subtract_golden,
     stablehlo.PowOp: stablehlo_pow_golden,

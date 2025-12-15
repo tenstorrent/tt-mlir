@@ -332,6 +332,9 @@ class StableHLOBuilder(Builder):
         old_op: stablehlo.AddOp,
         global_dict: Dict[Operand, Operand],
     ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        print("dddd")
+        print(old_op)
+        print(global_dict, old_op.lhs)
         stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.add_parser)
         lhs = global_dict[old_op.lhs]
         rhs = global_dict[old_op.rhs]
@@ -3525,6 +3528,199 @@ class StableHLOBuilder(Builder):
 
         return result
 
+    @tag(stablehlo.ReduceOp)
+    def reduce(
+        self,
+        inputs: Union[Operand, List[Operand]],
+        init_values: Union[Operand, List[Operand]],
+        dimensions: List[int],
+        reduction_type: str = "add",
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> Union[OpResult, List[OpResult]]:
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.reduce)
+        reduction_op = self.get_opview_from_method(
+            getattr(StableHLOBuilder, reduction_type)
+        )
+
+        # Normalize inputs to lists
+        if not isinstance(inputs, list):
+            inputs = [inputs]
+        if not isinstance(init_values, list):
+            init_values = [init_values]
+
+        if len(inputs) != len(init_values):
+            raise ValueError("Number of inputs must match number of init_values")
+
+        # Calculate output types
+        input_types = [RankedTensorType(inp.type) for inp in inputs]
+        element_types = [inp_type.element_type for inp_type in input_types]
+
+        # Calculate output shapes by removing reduced dimensions
+        dimensions_set = set(dimensions)
+        output_shapes = []
+        for inp_type in input_types:
+            input_shape = list(inp_type.shape)
+            output_shape = [
+                input_shape[i]
+                for i in range(len(input_shape))
+                if i not in dimensions_set
+            ]
+            output_shapes.append(output_shape)
+
+        output_types = [
+            RankedTensorType.get(shape, elem_type)
+            for shape, elem_type in zip(output_shapes, element_types)
+        ]
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = stablehlo_op(
+            output_types,
+            inputs,
+            init_values,
+            dimensions,
+            loc=loc,
+        )
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        # Create the reduction function body based on reduction_type
+        reduction_types = [
+            RankedTensorType.get([], elem_type) for elem_type in element_types
+        ]
+        block_arg_types = reduction_types + reduction_types  # lhs args + rhs args
+
+        block = Block.create_at_start(op.regions[0], block_arg_types)
+
+        with InsertionPoint(block):
+            reduction_result = reduction_op(*block.arguments, loc=loc)
+            stablehlo.ReturnOp([reduction_result], loc=loc)
+
+        if not self._disable_golden_check:
+            input_goldens = [self._get_golden_tensor(inp) for inp in inputs]
+            init_goldens = [self._get_golden_tensor(init) for init in init_values]
+            op_golden_function = get_golden_function(stablehlo_op)
+            output_golden = op_golden_function(
+                [input_golden], [init_golden], dimensions, reduction_type
+            )
+            self._set_golden_tensor(op.result, output_golden)
+
+        return op.result
+
+    def copy_op_body(
+        self,
+        old_op: Operation,
+        new_op: Operation,
+    ):
+        # There should be only one block in the old operation's body
+        old_block = old_op.body.blocks[0]
+        new_block = Block.create_at_start(new_op.regions[0])
+
+        with InsertionPoint(new_block):
+            op = old_block.operations[0]
+            result = type(op)(*op.operands, loc=old_op.location)
+            stablehlo.ReturnOp([result], loc=old_op.location)
+
+        return new_op
+
+    @parse(stablehlo.ReduceOp)
+    def reduce_parser(
+        self,
+        old_op: stablehlo.ReduceOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.reduce_parser)
+
+        inputs = [global_dict[inp] for inp in old_op.inputs]
+        init_values = [global_dict[init] for init in old_op.init_values]
+        dimensions = old_op.dimensions
+        result = old_op.result.type
+        print("huh")
+        print(old_op.result)
+        print(x for x in old_op.results)
+
+        new_op = stablehlo_op(
+            result,
+            inputs,
+            init_values,
+            dimensions,
+            loc=old_op.location,
+        )
+
+        new_op = self.copy_op_body(old_op, new_op)
+        reduction_type = old_op.body.blocks[0].operations[0].name.split(".")[-1]
+
+        input_goldens = []
+        if not self._disable_golden_check:
+            input_goldens = [self._get_golden_tensor(inp) for inp in inputs]
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(
+                input_goldens, init_values, dimensions, reduction_type
+            )
+
+        op_map_dictionary = {}
+        for old_result, new_result in zip(old_op.results, new_op.results):
+            op_map_dictionary[old_result] = new_result
+
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.ReduceOp)
+    def reduce_split(
+        self,
+        old_op: stablehlo.ReduceOp,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        stablehlo_op = self.get_opview_from_split(StableHLOBuilder.reduce_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            reduce_module = Module.create()
+            reduce_builder = StableHLOBuilder(old_ctx, old_loc)
+
+            input_types = [inp.type for inp in old_op.inputs]
+            init_types = [init.type for init in old_op.init_values]
+            op_input_types = input_types + init_types
+
+            with InsertionPoint(reduce_module.body):
+
+                @func.func(*op_input_types, name="reduce_module")
+                def decorated_func(*inputs):
+                    num_inputs = len(input_types)
+                    inp_operands = list(inputs[:num_inputs])
+                    init_operands = list(inputs[num_inputs:])
+                    dimensions = old_op.dimensions
+
+                    new_op = stablehlo_op(
+                        [res.type for res in old_op.results],
+                        inp_operands,
+                        init_operands,
+                        dimensions,
+                        loc=old_op.location,
+                    )
+
+                    # Copy the reduction body
+                    # new_op.regions[0].blocks.clear()
+                    for block in old_op.body.blocks:
+                        new_block = block.clone()
+                        new_op.regions[0].blocks.append(new_block)
+
+                    if len(new_op.results) == 1:
+                        return new_op.results[0]
+                    else:
+                        return new_op.results
+
+        return reduce_module, reduce_builder
+
     def pool_2d(
         self,
         in0: Operand,
@@ -3755,6 +3951,34 @@ class StableHLOBuilder(Builder):
                 RankedTensorType.get([], element_type),
                 FloatAttr.get(element_type, math.inf),
             )
+
+    def _create_const_tensor_from_value(
+        self, value: Union[int, float], dtype: torch.dtype
+    ) -> Operand:
+        """Create a scalar constant tensor with the given value and dtype."""
+        element_type = self._get_type_from_torch_dtype(dtype)
+
+        if IntegerType.isinstance(element_type):
+            attr = DenseElementsAttr.get_splat(
+                RankedTensorType.get([], element_type),
+                IntegerAttr.get(element_type, int(value)),
+            )
+        else:
+            attr = DenseElementsAttr.get_splat(
+                RankedTensorType.get([], element_type),
+                FloatAttr.get(element_type, float(value)),
+            )
+
+        with self._ctx, self._loc:
+            loc = self._get_location()
+            const_op = stablehlo.ConstantOp(attr, loc=loc)
+
+            # Set golden tensor if golden checking is enabled
+            if not self._disable_golden_check:
+                golden_tensor = torch.tensor(value, dtype=dtype)
+                self._set_golden_tensor(const_op.result, golden_tensor)
+
+            return const_op.result
 
     # ----- Public Shardy Attribute Generators ----
 
