@@ -1130,7 +1130,7 @@ public:
           assert(blockArgs.size() == 2);
           auto identityMap = builder.getMultiDimIdentityMap(logicalRank);
           SmallVector<mlir::utils::IteratorType> linalgIteratorTypes(
-            logicalRank, mlir::utils::IteratorType::parallel);
+              logicalRank, mlir::utils::IteratorType::parallel);
 
           auto input =
               builder.create<d2m::WaitOp>(bodyLoc, blockArgs[0]).getResult();
