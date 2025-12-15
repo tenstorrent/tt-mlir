@@ -925,6 +925,27 @@ createOp(FlatbufferObjectCache &cache, ReduceScatterOp op) {
       subDeviceId, memoryConfig, numLinks, topology);
 }
 
+// Convert ttcore::ReduceType to tt::target::ttnn::ScatterReduceType
+// Sum, Max, Min, Prod - applied reduction type to source tensor
+// Invalid - copy source to output tensor
+static ::tt::target::ttnn::ScatterReduceType
+toFlatbuffer(ttcore::ReduceType reduceType) {
+  switch (reduceType) {
+  case ttcore::ReduceType::Sum:
+    return ::tt::target::ttnn::ScatterReduceType::Sum;
+  case ttcore::ReduceType::Max:
+    return ::tt::target::ttnn::ScatterReduceType::Max;
+  case ttcore::ReduceType::Min:
+    return ::tt::target::ttnn::ScatterReduceType::Min;
+  case ttcore::ReduceType::Prod:
+    return ::tt::target::ttnn::ScatterReduceType::Prod;
+  case ttcore::ReduceType::Invalid:
+    return ::tt::target::ttnn::ScatterReduceType::Invalid;
+  default:
+    llvm_unreachable("Unhandled reduce type");
+  }
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::ScatterOp>
 createOp(FlatbufferObjectCache &cache, ScatterOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
@@ -935,9 +956,9 @@ createOp(FlatbufferObjectCache &cache, ScatterOp op) {
       getOperandThroughDPSOps(op.getSource()));
   auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
   auto memoryConfig = getMemoryConfigIfNeeded(cache, op);
-  return ::tt::target::ttnn::CreateScatterOp(*cache.fbb, input, output, index,
-                                             sourceTensor, op.getDim(),
-                                             memoryConfig);
+  return ::tt::target::ttnn::CreateScatterOp(
+      *cache.fbb, input, output, index, sourceTensor, op.getDim(), memoryConfig,
+      toFlatbuffer(op.getScatterReduceType()));
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::CollectivePermuteOp>
@@ -2551,7 +2572,8 @@ createOp(FlatbufferObjectCache &cache, GenericOp op) {
 
   for (auto semaphoresAttr : programAttr.getSemaphores()) {
     semaphores.push_back(::tt::target::ttnn::CreateSemaphoreDescriptor(
-        *cache.fbb, toFlatbuffer(cache, semaphoresAttr.getCoreType()),
+        *cache.fbb, semaphoresAttr.getId(),
+        toFlatbuffer(cache, semaphoresAttr.getCoreType()),
         toFlatbuffer(cache, llvm::cast<ttnn::CoreRangeSetAttr>(
                                 semaphoresAttr.getCoreRanges())),
         semaphoresAttr.getInitialValue()));

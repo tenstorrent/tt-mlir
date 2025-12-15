@@ -31,16 +31,15 @@ public:
   JitCache &operator=(const JitCache &) = delete;
   JitCache &operator=(JitCache &&) = delete;
 
-  bool contains(const std::vector<::ttnn::Tensor> &tensor_args) const;
-  JitCacheEntry get(const std::vector<::ttnn::Tensor> &tensor_args) const;
-  JitCacheEntry
-  compile_and_insert(Operation *op,
-                     const std::vector<::ttnn::Tensor> &tensor_args,
-                     std::string options = "");
-  std::size_t num_entries() const { return this->cache.size(); }
+  bool contains(const std::vector<::ttnn::Tensor> &tensorArgs) const;
+  JitCacheEntry get(const std::vector<::ttnn::Tensor> &tensorArgs) const;
+  JitCacheEntry compileAndInsert(Operation *op,
+                                 const std::vector<::ttnn::Tensor> &tensorArgs,
+                                 std::string options = "");
+  std::size_t numEntries() const { return this->cache.size(); }
 
 private:
-  std::size_t hash_key(const std::vector<::ttnn::Tensor> &tensor_args) const;
+  std::size_t hashKey(const std::vector<::ttnn::Tensor> &tensorArgs) const;
   void compile(Operation *op, std::string options);
   llvm::DenseMap<std::size_t, JitCacheEntry> cache;
   mlir::DialectRegistry registry;

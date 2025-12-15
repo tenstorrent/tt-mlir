@@ -43,14 +43,14 @@ void JitCache::compile(Operation *op, std::string options) {
   }
 }
 
-bool JitCache::contains(const std::vector<::ttnn::Tensor> &tensor_args) const {
-  std::size_t hash = hash_key(tensor_args);
+bool JitCache::contains(const std::vector<::ttnn::Tensor> &tensorArgs) const {
+  std::size_t hash = hashKey(tensorArgs);
   return cache.contains(hash);
 }
 
 JitCacheEntry
-JitCache::get(const std::vector<::ttnn::Tensor> &tensor_args) const {
-  std::size_t hash = hash_key(tensor_args);
+JitCache::get(const std::vector<::ttnn::Tensor> &tensorArgs) const {
+  std::size_t hash = hashKey(tensorArgs);
   auto it = cache.find(hash);
   if (it != cache.end()) {
     return it->second;
@@ -59,24 +59,24 @@ JitCache::get(const std::vector<::ttnn::Tensor> &tensor_args) const {
 }
 
 JitCacheEntry
-JitCache::compile_and_insert(Operation *op,
-                             const std::vector<::ttnn::Tensor> &tensor_args,
-                             std::string options) {
-  std::size_t hash = hash_key(tensor_args);
-  if (contains(tensor_args)) {
-    return get(tensor_args);
+JitCache::compileAndInsert(Operation *op,
+                           const std::vector<::ttnn::Tensor> &tensorArgs,
+                           std::string options) {
+  std::size_t hash = hashKey(tensorArgs);
+  if (contains(tensorArgs)) {
+    return get(tensorArgs);
   }
   compile(op, options);
-  std::shared_ptr<void> flatbuffer_bytes = ttnnToFlatbuffer(op);
+  std::shared_ptr<void> flatbufferBytes = ttnnToFlatbuffer(op);
   JitCacheEntry binary = std::make_shared<::tt::runtime::Binary>(
-      ::tt::runtime::Flatbuffer(flatbuffer_bytes));
+      ::tt::runtime::Flatbuffer(flatbufferBytes));
   cache.try_emplace(hash, binary);
   return binary;
 }
 
 std::size_t
-JitCache::hash_key(const std::vector<::ttnn::Tensor> &tensor_args) const {
-  return ttsl::hash::hash_objects_with_default_seed(tensor_args);
+JitCache::hashKey(const std::vector<::ttnn::Tensor> &tensorArgs) const {
+  return ttsl::hash::hash_objects_with_default_seed(tensorArgs);
 }
 
 } // namespace mlir::tt::ttnn::jit

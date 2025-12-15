@@ -1279,40 +1279,8 @@ def TTKernel_CeilTileOp : TTKernel_SFPUOp<"ceil_tile", [TTKernel_UnaryOpTrait]> 
     }];
 }
 
-def TTKernel_CeilTileF32Op : TTKernel_SFPUOp<"ceil_tile_float32", [TTKernel_UnaryOpTrait]> {
-    let summary = "Ceil f32 tile in the DST at specified index.";
-    let description = [{
-      Performs element-wise computation of ceil operation
-      DST[dst0_index] <- ceil(DST[dst0_index])
-      on DST register operands. The DST register buffer must be in
-      acquired state via *tile_regs_acquire* call.
-    }];
-
-    let arguments = (ins IndexLike:$dst0_index);
-
-    let assemblyFormat = [{
-      `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
-    }];
-}
-
 def TTKernel_FloorTileOp : TTKernel_SFPUOp<"floor_tile", [TTKernel_UnaryOpTrait]> {
     let summary = "Floor tile in the DST at specified index.";
-    let description = [{
-      Performs element-wise computation of floor operation
-      DST[dst0_index] <- floor(DST[dst0_index])
-      on DST register operands. The DST register buffer must be in
-      acquired state via *tile_regs_acquire* call.
-    }];
-
-    let arguments = (ins IndexLike:$dst0_index);
-
-    let assemblyFormat = [{
-      `(` $dst0_index `)` attr-dict `:` functional-type(operands, results)
-    }];
-}
-
-def TTKernel_FloorTileF32Op : TTKernel_SFPUOp<"floor_tile_float32", [TTKernel_UnaryOpTrait]> {
-    let summary = "Floor f32 tile in the DST at specified index.";
     let description = [{
       Performs element-wise computation of floor operation
       DST[dst0_index] <- floor(DST[dst0_index])
@@ -2650,6 +2618,62 @@ def TTKernel_MyYOp : TTKernel_Op<"my_y", [Pure]> {
     let assemblyFormat = [{
       `(` ($noc^)? `)` attr-dict `:` functional-type(operands, results)
     }];
+}
+
+def TTKernel_MyLogicalXOp : TTKernel_Op<"my_logical_x_", [Pure]> {
+    let summary = "MyLogicalX";
+    let description = [{
+      Lowers to the tt-metal supported my_logical_x_ global. This represents the logical X coordinate of the current core.
+    }];
+
+    let arguments = (ins);
+    let results = (outs Index:$x);
+
+    let assemblyFormat = [{
+      attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_MyLogicalYOp : TTKernel_Op<"my_logical_y_", [Pure]> {
+    let summary = "MyLogicalY";
+    let description = [{
+      Lowers to the tt-metal supported my_logical_y_ global. This represents the logical Y coordinate of the current core.
+    }];
+
+    let arguments = (ins);
+    let results = (outs Index:$y);
+
+    let assemblyFormat = [{
+      attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_ConvertLogicalXToTranslatedOp : TTKernel_Op<"experimental::convert_logical_x_to_translated"> {
+  let summary = "ConvertLogicalToTranslatedX";
+  let description = [{
+    this converts the x coordinate from the LOGICAL coordinate system to TRANSLATED
+  }];
+
+  let arguments = (ins IndexLike:$logical_x);
+  let results = (outs IndexLike:$virtual_x);
+
+  let assemblyFormat = [{
+    `(` $logical_x `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+def TTKernel_ConvertLogicalYToTranslatedOp : TTKernel_Op<"experimental::convert_logical_y_to_translated"> {
+  let summary = "ConvertLogicalToTranslatedY";
+  let description = [{
+    this converts the y coordinate from the LOGICAL coordinate system to TRANSLATED
+  }];
+
+  let arguments = (ins IndexLike:$logical_y);
+  let results = (outs IndexLike:$virtual_y);
+
+  let assemblyFormat = [{
+    `(` $logical_y `)` attr-dict `:` functional-type(operands, results)
+  }];
 }
 
 //===----------------------------------------------------------------------===//

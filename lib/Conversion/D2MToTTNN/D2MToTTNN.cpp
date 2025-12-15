@@ -104,7 +104,8 @@ public:
     SmallVector<ttnn::KernelSemaphoreAttr> semaphoreDescriptors(numSemaphores);
     for (size_t i = 0; i < numSemaphores; ++i) {
       semaphoreDescriptors[i] = builder.getAttr<ttnn::KernelSemaphoreAttr>(
-          ttnn::KernelCoreType::Worker, coreRangeSet, /*initial_value=*/0);
+          /*id=*/i, ttnn::KernelCoreType::Worker, coreRangeSet,
+          /*initial_value=*/0);
     }
 
     return semaphoreDescriptors;

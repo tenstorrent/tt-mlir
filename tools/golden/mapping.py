@@ -17,7 +17,7 @@ import itertools
 import operator
 import torch
 import torch.nn.functional
-from ttmlir.dialects import ttir, stablehlo, d2m, ttnn
+from ttmlir.dialects import ttir, stablehlo, d2m, ttnn, ttcore
 from ttmlir.ir import *
 
 
@@ -3594,13 +3594,39 @@ def ttir_scatter_golden(
     index: GoldenMapTensor,
     source: GoldenMapTensor,
     dim: IntegerAttr,
+    scatter_reduce_type_attr: ReduceTypeAttr,
     output_type_mlir: Type,
 ) -> GoldenMapTensor:
     dim_value = unpack_mlir_attr(dim)
+    scatter_reduce_type = ttcore.ir.ReduceTypeAttr.maybe_downcast(
+        scatter_reduce_type_attr
+    ).value
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     index_copy = index.clone()
     index_copy = index_copy.to(torch.int64)
-    return torch.scatter(input_tensor, dim_value, index_copy, source).to(output_dtype)
+
+    if scatter_reduce_type == ttcore.ir.ReduceType.Sum:
+        out_tensor = torch.scatter_reduce(
+            input_tensor, dim_value, index_copy, source, reduce="sum"
+        )
+    elif scatter_reduce_type == ttcore.ir.ReduceType.Prod:
+        out_tensor = torch.scatter_reduce(
+            input_tensor, dim_value, index_copy, source, reduce="prod"
+        )
+    elif scatter_reduce_type == ttcore.ir.ReduceType.Max:
+        out_tensor = torch.scatter_reduce(
+            input_tensor, dim_value, index_copy, source, reduce="amax"
+        )
+    elif scatter_reduce_type == ttcore.ir.ReduceType.Min:
+        out_tensor = torch.scatter_reduce(
+            input_tensor, dim_value, index_copy, source, reduce="amin"
+        )
+    elif scatter_reduce_type == ttcore.ir.ReduceType.Invalid:
+        out_tensor = torch.scatter(input_tensor, dim_value, index_copy, source)
+    else:
+        raise ValueError(f"Unsupported scatter reduce type: {scatter_reduce_type}")
+
+    return out_tensor.to(output_dtype)
 
 
 def ttir_reverse_golden(
