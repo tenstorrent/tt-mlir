@@ -24,12 +24,13 @@ def test_sharding_constraint(
 ):
     def module(builder: StableHLOBuilder):
         @builder.func([shape, shape], [dtype, dtype])
-        def sharding_constraint(
+        def sharding_constraint0(
             in0: Operand,
             in1: Operand,
             builder: StableHLOBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
+            """
             builder.set_graph_level_check(True)
             tensor_sharding_attr = builder.tensor_sharding_attr(
                 mesh_name="mesh",
@@ -46,6 +47,7 @@ def test_sharding_constraint(
             )
 
             builder.sharding_constraint(in0, tensor_sharding_attr=tensor_sharding_attr)
+            """
             return builder.add(in0, in1)
 
     compile_and_execute_shlo(

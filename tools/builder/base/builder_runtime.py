@@ -425,9 +425,9 @@ def post_op_get_callback_fn(callback_runtime_config):
     return partial(post_op_callback, callback_runtime_config)
 
 
-def convert_golden_to_torch_tensors(
-    goldens: Dict[Operand, GoldenMapTensor]
-) -> Dict[Operand, Dict[int, torch.Tensor]]:
+def convert_golden_intermediates_to_torch(
+    goldens: Dict[str, Dict[int, GoldenMapTensor]],
+) -> Dict[str, Dict[int, torch.Tensor]]:
     golden_torch_tensors = {}
 
     for loc, golden in goldens.items():
@@ -436,9 +436,25 @@ def convert_golden_to_torch_tensors(
     return golden_torch_tensors
 
 
+def convert_golden_input_output_to_torch(
+    goldens: Dict[int, Dict[str, Dict[int, GoldenMapTensor]]],
+) -> Dict[int, Dict[str, Dict[int, torch.Tensor]]]:
+    golden_torch_tensors = {}
+
+    for program_index, loc_map in goldens.items():
+        golden_torch_tensors[program_index] = {}
+        for loc, golden in loc_map.items():
+            golden_torch_tensors[program_index][
+                loc
+            ] = golden.golden_map_tensor_as_torch_tensors()
+
+    return golden_torch_tensors
+
+
 def execute_fb(
     fb_path: str,
-    goldens: Dict[str, Dict[int, GoldenMapTensor]],
+    input_output_goldens: Dict[int, Dict[str, Dict[int, GoldenMapTensor]]],
+    intermediate_goldens: Dict[str, Dict[int, GoldenMapTensor]],
     pcc: float = 0.99,
     atol: float = 1e-08,
     rtol: float = 1e-05,
@@ -451,7 +467,12 @@ def execute_fb(
 ):
     fbb = tt_runtime.binary.load_binary_from_path(fb_path)
     program_indices = range(fbb.get_num_programs())
-    golden_torch_tensors = convert_golden_to_torch_tensors(goldens)
+    golden_input_output_tensors = convert_golden_input_output_to_torch(
+        input_output_goldens
+    )
+    golden_intermediate_torch_tensors = convert_golden_intermediates_to_torch(
+        intermediate_goldens
+    )
     if bypass_ops is None:
         bypass_ops = []
 
@@ -462,7 +483,7 @@ def execute_fb(
         rtol=rtol,
         check_atol=check_atol,
         check_rtol=check_rtol,
-        goldens=golden_torch_tensors,
+        goldens=golden_intermediate_torch_tensors,
         bypass_ops=bypass_ops,
     )
 
@@ -473,7 +494,6 @@ def execute_fb(
         )
 
     for program_index in program_indices:
-        # Skip private programs (e.g. subgraphs created by const-eval)
         if fbb.is_program_private(program_index):
             continue
 
@@ -483,7 +503,9 @@ def execute_fb(
         golden_inputs_torch = []
         for i, i_dict in enumerate(input_dict):
             if not disable_golden:
-                golden_inputs_torch.append(golden_torch_tensors[f"input_{i}"][0])
+                golden_inputs_torch.append(
+                    golden_input_output_tensors[program_index][f"input_{i}"][0]
+                )
             else:
                 torch_tensor = torch.randn(
                     i_dict["desc"]["shape"],
@@ -497,7 +519,9 @@ def execute_fb(
         outputs_torch = []
         for i, o_dict in enumerate(output_dict):
             if not disable_golden:
-                golden_outputs_torch.append(golden_torch_tensors[f"output_{i}"][0])
+                golden_outputs_torch.append(
+                    golden_input_output_tensors[program_index][f"output_{i}"][0]
+                )
 
             torch_tensor = torch.zeros(
                 o_dict["desc"]["shape"],
