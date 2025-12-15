@@ -31,7 +31,7 @@ for filename in os.listdir(ttir_snippets_dir_path):
 
 stablehlo_mlir_snippets = {}
 stablehlo_snippets_dir_path = os.path.join(
-    os.path.dirname(__file__), "mlir_snippets/stablehlo"
+    os.path.dirname(__file__), "mlir_snippets/stablehlo2"
 )
 for filename in os.listdir(stablehlo_snippets_dir_path):
     if filename.endswith(".mlir"):

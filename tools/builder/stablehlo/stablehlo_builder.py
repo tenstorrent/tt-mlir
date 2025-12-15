@@ -282,6 +282,23 @@ class StableHLOBuilder(Builder):
         lineno = caller_frame.lineno
         return Location.name(f"{filename}:{lineno}")
 
+    def _copy_op_body(
+        self,
+        old_op: Operation,
+        new_op: Operation,
+    ):
+        # Create new block with same argument types as old block
+        old_block = old_op.body.blocks[0]
+        old_arg_types = [arg.type for arg in old_block.arguments]
+        new_block = Block.create_at_start(new_op.regions[0], old_arg_types)
+
+        with InsertionPoint(new_block):
+            op = old_block.operations[0]
+            result = type(op)(*new_block.arguments, loc=old_op.location)
+            stablehlo.ReturnOp([result], loc=old_op.location)
+
+        return new_op
+
     # ----- Public StableHLO Op Generators ----
 
     ############### stablehlo.AddOp ###############
@@ -3592,45 +3609,6 @@ class StableHLOBuilder(Builder):
 
         return op.result
 
-    def copy_op_body2(
-        self,
-        old_op: Operation,
-        new_op: Operation,
-    ):
-        # There should be only one block in the old operation's body
-        old_block = old_op.body.blocks[0]
-        new_block = Block.create_at_start(new_op.regions[0])
-
-        old_ctx = old_op.context
-        old_loc = Location.unknown(old_ctx)
-        with old_ctx, old_loc:
-
-            with InsertionPoint(new_block):
-                op = old_block.operations[0]
-                print(op)
-                print(op.operands[0])
-                result = type(op)(*op.operands, loc=old_op.location)
-                stablehlo.ReturnOp([result], loc=old_op.location)
-
-        return new_op
-
-    def copy_op_body(
-        self,
-        old_op: Operation,
-        new_op: Operation,
-    ):
-        # Create new block with same argument types as old block
-        old_block = old_op.body.blocks[0]
-        old_arg_types = [arg.type for arg in old_block.arguments]
-        new_block = Block.create_at_start(new_op.regions[0], old_arg_types)
-
-        with InsertionPoint(new_block):
-            op = old_block.operations[0]
-            result = type(op)(*new_block.arguments, loc=old_op.location)
-            stablehlo.ReturnOp([result], loc=old_op.location)
-
-        return new_op
-
     @parse(stablehlo.ReduceOp)
     def reduce_parser(
         self,
@@ -3651,7 +3629,7 @@ class StableHLOBuilder(Builder):
             dimensions,
             loc=old_op.location,
         )
-        new_op = self.copy_op_body(old_op, new_op)
+        new_op = self._copy_op_body(old_op, new_op)
         reduction_type = old_op.body.blocks[0].operations[0].name.split(".")[-1]
 
         input_goldens = []
@@ -3691,28 +3669,42 @@ class StableHLOBuilder(Builder):
                 @func.func(*op_input_types, name="reduce_module")
                 def decorated_func(*inputs):
                     num_inputs = len(input_types)
-                    inp_operands = list(inputs[:num_inputs])
-                    init_operands = list(inputs[num_inputs:])
-                    dimensions = old_op.dimensions
+                    inputs = list(inputs[:num_inputs])
+                    init_values = list(inputs[num_inputs:])
+                    dimensions_attr = old_op.dimensions
 
                     new_op = stablehlo_op(
                         [res.type for res in old_op.results],
-                        inp_operands,
-                        init_operands,
-                        dimensions,
+                        inputs,
+                        init_values,
+                        dimensions_attr,
                         loc=old_op.location,
                     )
 
-                    # Copy the reduction body
-                    # new_op.regions[0].blocks.clear()
-                    for block in old_op.body.blocks:
-                        new_block = block.clone
-                        new_op.regions[0].blocks.append(new_block)
+                    new_op = self._copy_op_body(old_op, new_op)
 
-                    if len(new_op.results) == 1:
-                        return new_op.results[0]
-                    else:
-                        return new_op.results
+                    if not self._disable_golden_check:
+                        input_goldens = [self._get_golden_tensor(inp) for inp in inputs]
+                        init_goldens = [
+                            self._get_golden_tensor(init) for init in init_values
+                        ]
+                        reduction_type = (
+                            old_op.body.blocks[0].operations[0].name.split(".")[-1]
+                        )
+                        op_golden_function = get_golden_function(stablehlo_op)
+                        golden_output = op_golden_function(
+                            input_goldens, init_values, dimensions_attr, reduction_type
+                        )
+                        reduce_builder._set_golden_tensor(new_op.result, golden_output)
+                        reduce_builder._set_output_ordering([new_op.result])
+                        for in0, input0 in zip(inputs, input_types):
+                            reduce_builder._set_golden_tensor(in0, input0)
+                            reduce_builder._set_input_ordering([in0])
+                        for init0, init_type0 in zip(init_values, init_types):
+                            reduce_builder._set_golden_tensor(init0, init_type0)
+                            reduce_builder._set_input_ordering([init0])
+
+                    return new_op.results
 
         return reduce_module, reduce_builder
 
@@ -4212,7 +4204,6 @@ class StableHLOBuilder(Builder):
     def from_module(
         ctx: Context, mlir_text: str, golden_inputs: List[torch.tensor] = None
     ) -> Tuple(Module, StableHLOBuilder):
-        print("3.1")
         if golden_inputs is None:
             golden_inputs = []
 
@@ -4221,8 +4212,6 @@ class StableHLOBuilder(Builder):
         with ctx, loc:
             stablehlo_builder = StableHLOBuilder(ctx, loc)
             new_module = stablehlo_builder.parse_root_module(root_module, golden_inputs)
-        print("3.2")
-        print(new_module, stablehlo_builder)
         return new_module, stablehlo_builder
 
     # ----- Split stablehlo module ----
