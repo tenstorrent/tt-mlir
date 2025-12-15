@@ -336,6 +336,11 @@ def test_preload_ir_dump_directory(start_server):
     assert "graphPaths" in result["graphs"][0]
 
 
+def test_preload_ir_dump(start_server):
+    result = preload_command_and_assert_no_errors()
+    assert "graphPaths" in result["graphs"][0]
+
+
 # TODO(ctr-mcampos): Once the IR dump dir is configurable, enable this test.
 @pytest.mark.skip("Implementation missing for loading ir dumps from a custom location.")
 def test_preload_ir_dump_contents(start_server):
