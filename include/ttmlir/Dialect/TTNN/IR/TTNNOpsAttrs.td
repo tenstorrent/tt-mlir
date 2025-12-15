@@ -230,6 +230,8 @@ def TTNN_TTNNNDLayoutAttr: TTNN_Attr<"TTNNNDLayout", "ttnn_nd_layout"> {
    BufferType getBufferType() const;
    bool isTiled() const;
    llvm::SmallVector<int64_t> getScalarShardShape() const;
+   Layout getLayout() const;
+   ttcore::DataType getDataType() const;
 
    // Determine if an ND sharding layout is the same as a legacy sharding mode
    bool isLegacyBlockSharded(ArrayRef<int64_t> tensorShape) const;

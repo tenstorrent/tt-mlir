@@ -961,14 +961,18 @@ ShardSpecAttr::getCoreRangeSet(mlir::MLIRContext *context,
   return CoreRangeSetAttr::get(context, coreRangeSet);
 }
 
-NDShardSpecAttr NDShardSpecAttr::get(::mlir::MLIRContext *context, TTNNNDLayoutAttr layout) {
+NDShardSpecAttr NDShardSpecAttr::get(::mlir::MLIRContext *context,
+                                     TTNNNDLayoutAttr layout) {
   auto shardGrid = layout.getGrid();
   auto coreRangeSetAttr = CoreRangeSetAttr::get(
-    context, CoreRangeAttr::get(
-             context, CoreCoordAttr::get(context, 0, 0),
-             CoreCoordAttr::get(context, shardGrid.getShape()[1] - 1,
-                                shardGrid.getShape()[0] - 1)));
-  return NDShardSpecAttr::get(context, coreRangeSetAttr, ShapeAttr::get(context, layout.getScalarShardShape()),  layout.getShardOrientation(),  layout.getShardDistributionStrategy());
+      context, CoreRangeAttr::get(
+                   context, CoreCoordAttr::get(context, 0, 0),
+                   CoreCoordAttr::get(context, shardGrid.getShape()[1] - 1,
+                                      shardGrid.getShape()[0] - 1)));
+  return NDShardSpecAttr::get(
+      context, coreRangeSetAttr,
+      ShapeAttr::get(context, layout.getScalarShardShape()),
+      layout.getShardOrientation(), layout.getShardDistributionStrategy());
 }
 struct DeviceComputeKernelConfigAttrParams {
   std::optional<mlir::tt::ttnn::MathFidelity> mathFidelity;
@@ -1172,11 +1176,27 @@ llvm::SmallVector<int64_t> TTNNNDLayoutAttr::getScalarShardShape() const {
 }
 
 bool TTNNNDLayoutAttr::isTiled() const {
-  return ::mlir::isa<::mlir::tt::ttcore::TileType>(getMemref().getElementType());
+  return ::mlir::isa<::mlir::tt::ttcore::TileType>(
+      getMemref().getElementType());
 }
 
 BufferType TTNNNDLayoutAttr::getBufferType() const {
   return mlir::cast<BufferTypeAttr>(getMemref().getMemorySpace()).getValue();
+}
+
+Layout TTNNNDLayoutAttr::getLayout() const {
+  return isTiled() ? Layout::Tile : Layout::RowMajor;
+}
+
+mlir::tt::ttcore::DataType TTNNNDLayoutAttr::getDataType() const {
+  Type elementType = getMemref().getElementType();
+  if (isTiled()) {
+    mlir::tt::ttcore::TileType tileType =
+        mlir::cast<mlir::tt::ttcore::TileType>(elementType);
+    return tileType.getDataType();
+  }
+
+  return mlir::tt::ttcore::elementTypeToDataType(elementType);
 }
 
 bool TTNNNDLayoutAttr::isInterleaved() const {
