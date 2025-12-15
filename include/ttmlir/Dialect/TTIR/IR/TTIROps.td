@@ -2954,6 +2954,8 @@ def TTIR_RepeatOp : TTIR_NamedOp<"repeat"> {
   let results = (outs AnyRankedTensor:$result);
 
   let hasVerifier = 1;
+
+  let hasFolder = 1;
 }
 
 def TTIR_RepeatInterleaveOp : TTIR_NamedOp<"repeat_interleave"> {

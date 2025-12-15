@@ -3426,6 +3426,53 @@ void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
   return success();
 }
 
+// back to back producer-consumer RepeatOp can be folded
+// into a single RepeatOp.
+static mlir::OpFoldResult
+foldConsecutiveRepeat(mlir::tt::ttir::RepeatOp consumerOp) {
+
+  if (auto producerOp =
+          consumerOp.getInput().getDefiningOp<mlir::tt::ttir::RepeatOp>()) {
+
+    // If producerOp has multiple uses, do not fold
+    if (!producerOp->hasOneUse()) {
+      return nullptr;
+    }
+
+    mlir::RankedTensorType inputType = producerOp.getInput().getType();
+    size_t inputRank = static_cast<size_t>(inputType.getRank());
+
+    // Producer repeat dimensions
+    llvm::ArrayRef<int64_t> producerRepeatDims =
+        producerOp.getRepeatDimensions();
+
+    // Consumer repeat dimensions
+    llvm::ArrayRef<int64_t> consumerRepeatDims =
+        consumerOp.getRepeatDimensions();
+
+    llvm::SmallVector<int64_t> mergedRepeatDimensions(inputRank);
+    for (size_t i = 0; i < inputRank; ++i) {
+      mergedRepeatDimensions[i] = producerRepeatDims[i] * consumerRepeatDims[i];
+    }
+    llvm::ArrayRef<int64_t> mergedRepeatDimsRef(mergedRepeatDimensions);
+    consumerOp.setRepeatDimensions(mergedRepeatDimsRef);
+    consumerOp->setOperand(0, producerOp.getInput());
+    return consumerOp.getResult();
+  }
+
+  return nullptr;
+}
+
+// RepeatOp Folder
+mlir::OpFoldResult mlir::tt::ttir::RepeatOp::fold(FoldAdaptor fold) {
+
+  if (auto foldResult = foldConsecutiveRepeat(*this)) {
+    return foldResult;
+  }
+
+  return nullptr;
+}
+
 //===----------------------------------------------------------------------===//
 // RepeatInterleaveOp
 //===----------------------------------------------------------------------===//
