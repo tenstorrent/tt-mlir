@@ -3571,13 +3571,44 @@ def ttir_scatter_golden(
     index: GoldenMapTensor,
     source: GoldenMapTensor,
     dim: IntegerAttr,
+    scatter_reduce_type: Attribute,
     output_type_mlir: Type,
 ) -> GoldenMapTensor:
     dim_value = unpack_mlir_attr(dim)
+    # TODO(tapspatel): Scatter reduce type is shown as basic MLIR Attribute, should be properly handled as ReduceType attribute
+    scatter_string = str(scatter_reduce_type)
+    possible_strings = {
+        f"#ttcore.reduce_type<{s}>": s for s in ["sum", "prod", "max", "min", "invalid"]
+    }
+    if scatter_string not in possible_strings:
+        raise ValueError(f"Invalid scatter reduce type: {scatter_string}")
+    scatter_reduce_type = possible_strings[scatter_string]
+
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     index_copy = index.clone()
     index_copy = index_copy.to(torch.int64)
-    return torch.scatter(input_tensor, dim_value, index_copy, source).to(output_dtype)
+    if scatter_reduce_type == "sum":
+        out_tensor = torch.scatter_reduce(
+            input_tensor, dim_value, index_copy, source, reduce="sum"
+        )
+    elif scatter_reduce_type == "prod":
+        out_tensor = torch.scatter_reduce(
+            input_tensor, dim_value, index_copy, source, reduce="prod"
+        )
+    elif scatter_reduce_type == "max":
+        out_tensor = torch.scatter_reduce(
+            input_tensor, dim_value, index_copy, source, reduce="amax"
+        )
+    elif scatter_reduce_type == "min":
+        out_tensor = torch.scatter_reduce(
+            input_tensor, dim_value, index_copy, source, reduce="amin"
+        )
+    elif scatter_reduce_type == "invalid":
+        out_tensor = torch.scatter(input_tensor, dim_value, index_copy, source)
+    else:
+        raise ValueError(f"Invalid scatter reduce type: {scatter_reduce_type}")
+
+    return out_tensor.to(output_dtype)
 
 
 def ttir_reverse_golden(
