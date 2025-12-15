@@ -266,7 +266,7 @@ def test_flatbuffer_execution(request, num_loops, mesh_shape):
     launch_distributed_runtime()
 
     with DeviceContext(mesh_shape=mesh_shape_list) as device:
-        inputs_runtime_with_layout, golden = test_runner.get_inputs_and_golden(
+        inputs_runtime_with_layout, golden, _ = test_runner.get_inputs_and_golden(
             device, borrow=False
         )
         for i in range(num_loops):
@@ -332,10 +332,12 @@ def test_flatbuffer_execution_dp(request, num_loops):
         (
             inputs_runtime_with_layout_submesh1,
             golden1,
+            _,
         ) = test_runner.get_inputs_and_golden(submesh1, borrow=False)
         (
             inputs_runtime_with_layout_submesh2,
             golden2,
+            _,
         ) = test_runner.get_inputs_and_golden(submesh2, borrow=False)
 
         # Synchronous back to back execution

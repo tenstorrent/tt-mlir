@@ -6,6 +6,7 @@
 
 #include "mlir/Pass/PassManager.h"
 #include "ttmlir/Conversion/Passes.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/RegisterAll.h"
 #include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
 #include "ttnn/tensor/tensor.hpp"
@@ -36,6 +37,7 @@ void JitCache::compile(Operation *op, std::string options) {
   if (mlir::failed(pipeline->addToPipeline(pm, options, errHandler))) {
     throw std::runtime_error("Failed to add pipeline to pass manager");
   }
+  pm.addPass(tt::ttnn::createTTNNDeallocate());
   if (mlir::failed(pm.run(op))) {
     throw std::runtime_error("Failed to run pass manager");
   }

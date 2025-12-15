@@ -303,6 +303,67 @@ public:
 };
 } // namespace
 
+namespace {
+class TosaToTTIRConstShapeOpConversionPattern
+    : public OpConversionPattern<tosa::ConstShapeOp> {
+  using OpConversionPattern<tosa::ConstShapeOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(tosa::ConstShapeOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto valuesAttr = srcOp.getValues();
+
+    SmallVector<int64_t> values;
+    for (auto val : valuesAttr.getValues<APInt>()) {
+      values.push_back(val.getSExtValue());
+    }
+
+    auto tensorType = RankedTensorType::get(
+        {static_cast<int64_t>(values.size())}, rewriter.getI64Type());
+    auto newAttr = DenseIntElementsAttr::get(tensorType, values);
+    rewriter.replaceOpWithNewOp<ttir::ConstantOp>(srcOp, tensorType, newAttr);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class TosaToTTIRReshapeOpConversionPattern
+    : public OpConversionPattern<tosa::ReshapeOp> {
+  using OpConversionPattern<tosa::ReshapeOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(tosa::ReshapeOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // The main difference here is that TOSA takes shape as a tensor input,
+    // while TTIR takes shape as an attribute.
+    auto srcShape = adaptor.getShape();
+
+    // Can tosa.reshape's shape input be non-constant?
+    // I looked into llvm-project/mlir/test/Dialect/Tosa/ops.mlir
+    // and all reshape ops have constant shape inputs.
+    DenseElementsAttr shapeAttr;
+    if (!matchPattern(srcShape, m_Constant(&shapeAttr))) {
+      return srcOp.emitOpError(
+          "conversion expects shape input to be a constant tensor");
+    }
+
+    SmallVector<int32_t> shapeDimensions;
+    for (const auto &val : shapeAttr.getValues<APInt>()) {
+      shapeDimensions.push_back(val.getSExtValue());
+    }
+
+    rewriter.replaceOpWithNewOp<ttir::ReshapeOp>(
+        srcOp, getTypeConverter()->convertType(srcOp.getResult().getType()),
+        adaptor.getInput1(), rewriter.getI32ArrayAttr(shapeDimensions));
+
+    return success();
+  }
+};
+} // namespace
+
 static void
 addElementwiseUnaryOpsConversionPatterns(MLIRContext *ctx,
                                          RewritePatternSet &patterns,
@@ -428,6 +489,18 @@ static void addPoolingOpsConversionPatterns(MLIRContext *ctx,
   patterns.add<TosaToTTIRMaxPool2DOpConversionPattern>(typeConverter, ctx);
 }
 
+static void addReshapeOpConversionPatterns(MLIRContext *ctx,
+                                           RewritePatternSet &patterns,
+                                           TypeConverter &typeConverter) {
+  patterns.add<TosaToTTIRReshapeOpConversionPattern>(typeConverter, ctx);
+}
+
+static void addConstShapeOpConversionPatterns(MLIRContext *ctx,
+                                              RewritePatternSet &patterns,
+                                              TypeConverter &typeConverter) {
+  patterns.add<TosaToTTIRConstShapeOpConversionPattern>(typeConverter, ctx);
+}
+
 namespace mlir::tt {
 
 void populateTosaToTTIRPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
@@ -441,6 +514,8 @@ void populateTosaToTTIRPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   addMatmulOpsConversionPatterns(ctx, patterns, typeConverter);
   addReductionOpsConversionPatterns(ctx, patterns, typeConverter);
   addPoolingOpsConversionPatterns(ctx, patterns, typeConverter);
+  addReshapeOpConversionPatterns(ctx, patterns, typeConverter);
+  addConstShapeOpConversionPatterns(ctx, patterns, typeConverter);
 
   patterns.add<TosaToTTIRClampOpConversionPattern,
                TosaToTTIRConcatOpConversionPattern,

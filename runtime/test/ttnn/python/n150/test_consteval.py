@@ -41,7 +41,9 @@ def test_consteval_add_mul_subtract(helper: Helper, request, num_loops):
     debug_stats = ttrt.runtime.DebugStats.get()
 
     with DeviceContext(mesh_shape=[1, 1]) as device:
-        inputs_runtime_with_layout, golden = test_runner.get_inputs_and_golden(device)
+        inputs_runtime_with_layout, golden, _ = test_runner.get_inputs_and_golden(
+            device
+        )
         for i in range(num_loops):
             # First execute should be a consteval cache miss
             # Subsequent executes should be consteval cache hit
@@ -53,7 +55,9 @@ def test_consteval_add_mul_subtract(helper: Helper, request, num_loops):
 
         ttrt.runtime.DebugStats.get().clear()
 
-        inputs_runtime_with_layout, golden = test_runner.get_inputs_and_golden(device)
+        inputs_runtime_with_layout, golden, _ = test_runner.get_inputs_and_golden(
+            device
+        )
 
         for i in range(num_loops):
             # First execute should be a consteval cache miss because we've updated the inputs

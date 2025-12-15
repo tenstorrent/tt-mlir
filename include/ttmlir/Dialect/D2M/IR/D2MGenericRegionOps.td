@@ -100,6 +100,17 @@ class D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<string mnemonic, list<
   }];
 }
 
+class D2M_GenericRegionComputeTernaryDstOp<string mnemonic, list<Trait> traits = []> :
+    D2M_GenericRegionComputeOp<mnemonic, traits> {
+
+  let extraClassDeclaration = [{
+    mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
+      // All three operands are tiles, load all from DST
+      return {0, 1, 2};
+    }
+  }];
+}
+
 class D2M_GenericRegionDatamovementOp<string mnemonic, list<Trait> traits = []> :
     D2M_GenericRegionOp<mnemonic, [D2M_GenericRegionDatamovementOpTrait] # traits> {}
 
@@ -520,6 +531,22 @@ def D2M_TileMinimumOp : D2M_GenericRegionComputeBinaryDstOp<"tile_minimum", D2M_
     }];
 
     let arguments = (ins TTCore_Tile:$lhs, TTCore_Tile:$rhs);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileWhereOp : D2M_GenericRegionComputeTernaryDstOp<"tile_where", D2M_TileComputeOpTraitBundle>{
+    let summary = "D2M Tile Where Op";
+    let description = [{
+        The `tile_where` operation performs element-wise conditional selection.
+        For each element position, it selects between two values based on a boolean
+        condition in the first tensor:
+        - If the condition is true (non-zero), it selects the corresponding element
+          from the second tensor (true_value)
+        - If the condition is false (zero), it selects the corresponding element
+          from the third tensor (false_value)
+    }];
+
+    let arguments = (ins TTCore_Tile:$condition, TTCore_Tile:$true_value, TTCore_Tile:$false_value);
     let results = (outs TTCore_Tile:$result);
 }
 

@@ -1278,6 +1278,14 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_GenericOp()->io_tensors()->Get(size - 1);
     break;
   }
+  case ::tt::target::ttnn::OpType::AggregateTensorOp: {
+    tensorRef = opContext.type_as_AggregateTensorOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::DistributeTensorOp: {
+    tensorRef = opContext.type_as_DistributeTensorOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::NONE: {
     LOG_FATAL("Invalid op type");
     break;
@@ -1717,6 +1725,14 @@ getOpInputRefs(OpContext opContextHandle,
     break;
   }
   case ::tt::target::ttnn::OpType::LoadTensorOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AggregateTensorOp: {
+    tensorRefs = {opContext.type_as_AggregateTensorOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::DistributeTensorOp: {
+    tensorRefs = {opContext.type_as_DistributeTensorOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::NONE: {

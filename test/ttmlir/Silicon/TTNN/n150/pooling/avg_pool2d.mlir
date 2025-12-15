@@ -69,4 +69,21 @@ module {
     }> : (tensor<1x32x32x64xbf16>) -> tensor<1x17x17x64xbf16>
     return %1 : tensor<1x17x17x64xbf16>
   }
+
+  // Test 6: AvgPool2dOp with padding that exceeds half kernel size
+  func.func @avg_pool2d_padding_exceeds_half_kernel_size(%arg0: tensor<1x1x1x1536xbf16>) -> tensor<1x1x64x1536xbf16> {
+    // CHECK: ttnn.reshape
+    // CHECK: ttnn.pad
+    // CHECK: ttnn.reshape
+    // CHECK: ttnn.avg_pool2d
+    %0 = "ttir.avg_pool2d"(%arg0) <{
+      ceil_mode = false,
+      count_include_pad = true,
+      dilation = array<i32: 1, 1>,
+      flattened_compat_info = #ttir<flattened_compat batch_size = 1, input_height = 1, input_width = 1>, kernel = array<i32: 8, 8>,
+      padding = array<i32: 7, 7, 7, 7>,
+      stride = array<i32: 1, 1>
+    }> : (tensor<1x1x1x1536xbf16>) -> tensor<1x1x64x1536xbf16>
+    return %0 : tensor<1x1x64x1536xbf16>
+  }
 }
