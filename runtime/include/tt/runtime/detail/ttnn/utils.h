@@ -27,6 +27,9 @@ bool isSharded(
 
 bool canTilizeDataTypeOnDevice(const ::ttnn::DataType &dataType);
 
+bool canTilizeMemoryLayoutOnDevice(
+    const std::optional<::ttnn::MemoryConfig> &memoryConfig);
+
 bool canUntilizeDataTypeOnDevice(const ::ttnn::DataType &dataType);
 
 const ::tt::target::ttnn::TTNNBinary *
