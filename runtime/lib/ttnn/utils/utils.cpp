@@ -83,6 +83,18 @@ bool canTilizeDataTypeOnDevice(const ::ttnn::DataType &dataType) {
          dataType == ::ttnn::DataType::INT32;
 }
 
+// tt-metal tilize on device requires INTERLEAVED or HEIGHT_SHARDED memory.
+// See: https://github.com/tenstorrent/tt-mlir/issues/6247
+bool canTilizeMemoryLayoutOnDevice(
+    const std::optional<::ttnn::MemoryConfig> &memoryConfig) {
+  if (!memoryConfig.has_value()) {
+    return true; // Default memory config is INTERLEAVED
+  }
+  const auto &memLayout = memoryConfig->memory_layout();
+  return memLayout == ::ttnn::TensorMemoryLayout::INTERLEAVED ||
+         memLayout == ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED;
+}
+
 // tt-metal untilize supports: bfloat16, float32, uint32, int32
 // (requires use_pack_untilize for uint32/int32)
 // See: ttnn/operations/data_movement/untilize/device/untilize_op.cpp
