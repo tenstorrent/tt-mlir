@@ -5,8 +5,10 @@
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
 // RUN: FileCheck --input-file=%t.mlir %s
 module attributes {} {
+  // CHECK-LABEL: func.func private @forward_const_eval_0
+
+  // CHECK-LABEL: func.func @forward
   func.func @forward(%arg0: tensor<1x1x32x128xbf16>) -> tensor<1x1x32x128xbf16> {
-    // CHECK: ttnn.arange
     %0 = "stablehlo.iota"() {iota_dimension = 3: i64} : () -> tensor<1x1x32x128xbf16>
     %2 = "stablehlo.multiply"(%arg0, %0) : (tensor<1x1x32x128xbf16>, tensor<1x1x32x128xbf16>) -> tensor<1x1x32x128xbf16>
     return %2 : tensor<1x1x32x128xbf16>

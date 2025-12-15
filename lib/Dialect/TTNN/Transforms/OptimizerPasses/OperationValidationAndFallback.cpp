@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/TTNN/Utils/Conv2dConfigParams.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
+#include "ttmlir/FunctionTypes.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #include "ttmlir/Support/Logger.h"
 
@@ -153,6 +154,10 @@ public:
     bool validationFailed = false;
 
     moduleOp->walk([&](func::FuncOp func) {
+      if (!ttmlir::utils::isForwardDeviceFunc(func)) {
+        return;
+      }
+
       func.walk([&](Operation *operation) -> WalkResult {
         if (auto toLayoutOp = mlir::dyn_cast<ttnn::ToLayoutOp>(operation)) {
           // Skip ToLayout operations - they will be decomposed later, so there
