@@ -17,6 +17,7 @@ from ttmlir.passes import GoldenTensor, DataType
 
 from builder.base.builder import *
 from builder.base.builder_utils import *
+from builder.base.builder_enums import *
 
 from golden import *
 
@@ -1977,7 +1978,7 @@ class TTIRBuilder(Builder):
         index: Operand,
         source: Operand,
         dim: int,
-        scatter_reduce_type: Attribute,
+        scatter_reduce_type: ReduceType = ReduceType.Invalid,
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
@@ -1990,7 +1991,9 @@ class TTIRBuilder(Builder):
             mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         dim_attr = IntegerAttr.get(IntegerType.get_signless(32), dim)
-        scatter_reduce_type_attr = ttcore.ReduceTypeAttr.get(scatter_reduce_type)
+        scatter_reduce_type_attr = ttcore.ir.ReduceTypeAttr.get(
+            self._ctx, scatter_reduce_type.value
+        )
         input0 = self._get_golden_tensor(in0)
         input_index = self._get_golden_tensor(index)
         input_source = self._get_golden_tensor(source)
