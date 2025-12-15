@@ -829,7 +829,8 @@ static void applyChainMerges(std::vector<L1ChainConfig> &l1ChainConfigs,
       continue;
     }
 
-    // Skip chains with no ops (e.g., chains created only for memReconfigEntryMap)
+    // Skip chains with no ops (e.g., chains created only for
+    // memReconfigEntryMap)
     if (chainB.getOpL1MemSpecs().empty()) {
       continue;
     }
@@ -1241,7 +1242,7 @@ static int64_t findLastUserPosition(
 
 // Find which operand index of a consumer corresponds to a given value.
 static std::optional<size_t> findOperandIndex(Operation *consumer,
-                                               Value forkOutput) {
+                                              Value forkOutput) {
   for (size_t i = 0; i < consumer->getNumOperands(); ++i) {
     if (consumer->getOperand(i) == forkOutput) {
       return i;
@@ -1259,8 +1260,8 @@ static std::optional<size_t> findOperandIndex(Operation *consumer,
 // Returns true if this layout would be inefficient for the given matmul
 // consumer.
 static bool wouldCauseInefficientMatmulInput(Operation *consumer,
-                                              size_t operandIndex,
-                                              TTNNLayoutAttr layout) {
+                                             size_t operandIndex,
+                                             TTNNLayoutAttr layout) {
   // Only check for matmul/linear ops with input A (operand 0)
   if (!mlir::isa<ttnn::MatmulOp, ttnn::LinearOp>(consumer)) {
     return false;
@@ -1287,7 +1288,8 @@ static bool wouldCauseInefficientMatmulInput(Operation *consumer,
     return false;
   }
 
-  // If shard width <= TILE_WIDTH (32 elements), in0_block_w will be 1 (inefficient)
+  // If shard width <= TILE_WIDTH (32 elements), in0_block_w will be 1
+  // (inefficient)
   int64_t shardWidth = shardShape.back();
   if (shardWidth <= static_cast<int64_t>(TILE_WIDTH)) {
     TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
@@ -1298,6 +1300,51 @@ static bool wouldCauseInefficientMatmulInput(Operation *consumer,
   }
 
   return false;
+}
+
+// Validate that an op can accept a specific input layout and produce its
+// expected output layout. For matmul/linear ops, uses withIgnorePhysicalLayout
+// during validation. Returns true only if validation succeeds AND the actual
+// output layout matches the config's expected output layout.
+static bool validateOpWithInputLayout(Operation *op, size_t inputOperandIndex,
+                                      TTNNLayoutAttr inputLayout,
+                                      const OpConfig &config) {
+  // Build input layouts - use provided layout for the specified operand,
+  // extract current layouts for other operands
+  std::vector<TTNNLayoutAttr> inputLayouts = utils::extractInputLayouts(op);
+  if (inputOperandIndex >= inputLayouts.size()) {
+    return false;
+  }
+  inputLayouts[inputOperandIndex] = inputLayout;
+
+  bool isMatmulOrLinear = mlir::isa<ttnn::MatmulOp, ttnn::LinearOp>(op);
+
+  // For matmul/linear ops, use withIgnorePhysicalLayout to avoid
+  // strict grid matching during validation (similar to preprocessFirstOp)
+  OpConfig testConfig = config;
+  TTNNLayoutAttr expectedLayout = config.outputLayout;
+  if (isMatmulOrLinear && testConfig.outputLayout) {
+    testConfig.outputLayout =
+        testConfig.outputLayout.withIgnorePhysicalLayout(true);
+  }
+
+  op_constraint_validation::ValidationResult result =
+      op_constraint_validation::validateOperation(op, inputLayouts, testConfig,
+                                                  0);
+  if (!result.isSuccess()) {
+    return false;
+  }
+
+  // Verify the actual output layout matches the expected config layout.
+  // This ensures the op will produce the layout we planned for.
+  if (result.actualOutputLayout != expectedLayout) {
+    TTMLIR_TRACE(ttmlir::LogComponent::DFShardingPolicy,
+                 "  Op actual output {} != expected {}",
+                 result.actualOutputLayout, expectedLayout);
+    return false;
+  }
+
+  return true;
 }
 
 // Get the selected OpConfig for an operation.
@@ -1336,7 +1383,8 @@ getSelectedConfig(Operation *op,
 // avoiding redundant DRAM reads by multiple consumers.
 //
 // Algorithm:
-// 1. For each chain that spills to DRAM and has a forked output (multiple users)
+// 1. For each chain that spills to DRAM and has a forked output (multiple
+// users)
 // 2. Try passing the chain's sharded output layout to all consumers
 // 3. If that fails, try L1 interleaved as fallback
 // 4. Validate memory pressure across all chains in the fork span
@@ -1418,8 +1466,8 @@ static void applyL1ReservationsForForkOps(
       auto selectedConfig =
           getSelectedConfig(user, opToChainMap, l1ChainConfigs);
       if (!selectedConfig ||
-          !optimizer_utils::validateOpWithInputLayout(
-              user, *operandIdx, shardedLayout, *selectedConfig)) {
+          !validateOpWithInputLayout(user, *operandIdx, shardedLayout,
+                                     *selectedConfig)) {
         allConsumersValidWithSharded = false;
         TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
                      "  Consumer {} cannot accept sharded input",
@@ -1479,8 +1527,8 @@ static void applyL1ReservationsForForkOps(
       auto selectedConfig =
           getSelectedConfig(user, opToChainMap, l1ChainConfigs);
       if (!selectedConfig ||
-          !optimizer_utils::validateOpWithInputLayout(
-              user, *operandIdx, l1InterleavedLayout, *selectedConfig)) {
+          !validateOpWithInputLayout(user, *operandIdx, l1InterleavedLayout,
+                                     *selectedConfig)) {
         allConsumersValidWithL1Interleaved = false;
         TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
                      "  Consumer {} cannot accept L1 interleaved input",

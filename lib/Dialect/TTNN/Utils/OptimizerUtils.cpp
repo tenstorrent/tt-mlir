@@ -5,11 +5,7 @@
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
-#include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
-#include "ttmlir/Support/Logger.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/MLIRContext.h"
@@ -148,48 +144,6 @@ getUniqueTestConfigs(const std::vector<OpConfig> &consumerConfigs,
     testConfigs.push_back(OpConfig(/*outputLayout=*/nullptr, attrs));
   }
   return testConfigs;
-}
-
-bool validateOpWithInputLayout(Operation *op, size_t inputOperandIndex,
-                               TTNNLayoutAttr inputLayout,
-                               const OpConfig &config) {
-
-  // Build input layouts - use provided layout for the specified operand,
-  // extract current layouts for other operands
-  std::vector<TTNNLayoutAttr> inputLayouts = utils::extractInputLayouts(op);
-  if (inputOperandIndex >= inputLayouts.size()) {
-    return false;
-  }
-  inputLayouts[inputOperandIndex] = inputLayout;
-
-  bool isMatmulOrLinear = mlir::isa<ttnn::MatmulOp, ttnn::LinearOp>(op);
-
-  // For matmul/linear ops, use withIgnorePhysicalLayout to avoid
-  // strict grid matching during validation (similar to preprocessFirstOp)
-  OpConfig testConfig = config;
-  TTNNLayoutAttr expectedLayout = config.outputLayout;
-  if (isMatmulOrLinear && testConfig.outputLayout) {
-    testConfig.outputLayout =
-        testConfig.outputLayout.withIgnorePhysicalLayout(true);
-  }
-
-  op_constraint_validation::ValidationResult result =
-      op_constraint_validation::validateOperation(op, inputLayouts, testConfig,
-                                                  0);
-  if (!result.isSuccess()) {
-    return false;
-  }
-
-  // Verify the actual output layout matches the expected config layout.
-  // This ensures the op will produce the layout we planned for.
-  if (result.actualOutputLayout != expectedLayout) {
-    TTMLIR_TRACE(ttmlir::LogComponent::DFShardingPolicy,
-                 "  Op actual output {} != expected {}", result.actualOutputLayout,
-                 expectedLayout);
-    return false;
-  }
-
-  return true;
 }
 
 } // namespace mlir::tt::ttnn::optimizer_utils
