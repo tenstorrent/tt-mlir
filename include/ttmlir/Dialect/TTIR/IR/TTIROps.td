@@ -3898,6 +3898,57 @@ def TTIR_ReshapeOp: TTIR_NamedOp<"reshape", [TTIR_TensorManipulation]> {
 def TTIR_RearrangeOp : TTIR_NamedOp<"rearrange", [TTIR_TensorManipulation]> {
     let summary = "Tensor rearrange operation.";
     let description = [{
+      The `rearrange` operation reshapes, transposes, and reorganizes tensor dimensions using an
+      intuitive notation inspired by Einstein notation. This operation takes an input tensor and
+      transforms it according to a pattern string that describes how dimensions should be rearranged.
+      The pattern uses named axes and supports splitting, merging, and reordering dimensions in a
+      single operation. This operation is commonly used in neural networks for dimension manipulation,
+      such as converting between different data layouts, splitting/merging dimensions, or transposing
+      axes.
+
+      Example:
+      ```mlir
+      // Transpose a 2D tensor (equivalent to transpose)
+      %input = ... : tensor<2x3xf32>  // Input tensor with shape [2,3]
+      %result = ttir.rearrange(%input) {pattern = "h w -> w h"} : (tensor<2x3xf32>) -> tensor<3x2xf32>
+
+      // Flatten spatial dimensions of a 4D tensor (batch, channel, height, width)
+      %input = ... : tensor<1x3x4x4xf32>  // Input tensor with shape [1,3,4,4]
+      %result = ttir.rearrange(%input) {pattern = "b c h w -> b c (h w)"} :
+                (tensor<1x3x4x4xf32>) -> tensor<1x3x16xf32>
+
+      // Split a dimension into two dimensions
+      %input = ... : tensor<2x12xf32>  // Input tensor with shape [2,12]
+      %result = ttir.rearrange(%input) {pattern = "b (h w) -> b h w", axes_lengths = {h = 3, w = 4}} :
+                (tensor<2x12xf32>) -> tensor<2x3x4xf32>
+
+      // Rearrange image patches (batch, height, width, channels) to sequence format
+      %input = ... : tensor<8x16x16x3xf32>  // Input tensor with shape [8,16,16,3]
+      %result = ttir.rearrange(%input) {pattern = "b h w c -> b (h w) c"} :
+                (tensor<8x16x16x3xf32>) -> tensor<8x256x3xf32>
+      ```
+
+      Inputs:
+      - `input` (Tensor): The input tensor to rearrange.
+
+      Attributes:
+      - `pattern` (String): A string describing the rearrangement pattern. The pattern consists of
+        two parts separated by "->": the left side describes the input axes and the right side
+        describes the output axes. Named axes can be reordered, merged using parentheses "()",
+        or split using parentheses with known dimensions. Examples: "b c h w -> b (c h w)",
+        "b (h w) -> b h w", "h w c -> c h w".
+      - `axes_lengths` (UNSUPPORTED #6339): A mapping of axis names to their lengths when splitting
+        dimensions. Required when decomposing a dimension into multiple dimensions. Example:
+        {h = 3, w = 4} when splitting a dimension of size 12 into h and w.
+
+      Output:
+      - `result` (Tensor): The rearranged tensor.
+
+      Note: The total number of elements in the input tensor must equal the total number of elements
+      in the output tensor. When merging dimensions, their sizes are multiplied. When splitting
+      dimensions, the product of the split dimensions must equal the original dimension size. All
+      axis names in the pattern must be unique within each side of the arrow, and axes can be
+      reordered freely between input and output patterns.
     }];
 
     let arguments = (ins AnyRankedTensor:$input, Builtin_StringAttr:$pattern);

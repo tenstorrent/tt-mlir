@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
+#include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
@@ -1770,29 +1771,21 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
     return emitOpError() << "pattern must contain exactly one '->' separator.";
   }
 
-  mlir::FailureOr<AffineMap> failureOrMap = getInvPatternMap();
-  if (failed(failureOrMap)) {
+  mlir::FailureOr<AffineMap> failureOrInvMap = getInvPatternMap();
+  if (failed(failureOrInvMap)) {
     return emitOpError() << "failed to parse pattern " << patternStr << ".";
   }
 
-  auto map = *failureOrMap;
-  if (getInput().getType().getRank() != map.getNumResults()) {
+  auto invMap = *failureOrInvMap;
+  if (getInput().getType().getRank() != invMap.getNumResults()) {
     return emitOpError() << "number of dimensions in the pattern's input ("
-                         << map.getNumResults()
+                         << invMap.getNumResults()
                          << ") must match the rank of the input tensor ("
                          << getInput().getType().getRank() << ").";
   }
 
-  SmallVector<int64_t> lastOutputIndex;
-  for (int64_t dim : getResult().getType().getShape()) {
-    lastOutputIndex.push_back(dim - 1);
-  }
-  SmallVector<int64_t> lastInputIndex = map.compose(lastOutputIndex);
-  SmallVector<int64_t> expectedInputShape;
-  for (int64_t i = 0; i < map.getNumResults(); i++) {
-    expectedInputShape.push_back(lastInputIndex[i] + 1);
-  }
-
+  SmallVector<int64_t> expectedInputShape =
+      ttmlir::utils::evalShape(invMap, getResult().getType().getShape());
   if (getInput().getType().getShape() !=
       ArrayRef<int64_t>(expectedInputShape)) {
     return emitOpError() << "input tensor shape ("
@@ -1849,7 +1842,7 @@ mlir::tt::ttir::RearrangeOp::getInvPatternMap(mlir::MLIRContext *context,
   llvm::StringRef inputPattern = parts[0].trim();
   llvm::StringRef outputPattern = parts[1].trim();
 
-  // Helper lambda to parse dimension names from a pattern
+  // Helper lambda to parse dimension names from a pattern.
   auto parseDims = [](llvm::StringRef pattern)
       -> llvm::SmallVector<llvm::SmallVector<llvm::StringRef>> {
     llvm::SmallVector<llvm::SmallVector<llvm::StringRef>> result;
@@ -1888,7 +1881,7 @@ mlir::tt::ttir::RearrangeOp::getInvPatternMap(mlir::MLIRContext *context,
         continue;
       }
 
-      // Parse dimension name
+      // Parse dimension name.
       size_t start = i;
       while (i < pattern.size() && pattern[i] != ' ' && pattern[i] != ')' &&
              pattern[i] != '(') {
@@ -1910,12 +1903,12 @@ mlir::tt::ttir::RearrangeOp::getInvPatternMap(mlir::MLIRContext *context,
   auto inputDims = parseDims(inputPattern);
   auto outputDims = parseDims(outputPattern);
 
-  // Build a map from dimension name to input position
+  // Build a map from dimension name to input position.
   llvm::DenseMap<llvm::StringRef, unsigned> dimToInputPos;
   unsigned pos = 0;
   for (const auto &group : inputDims) {
     if (group.size() > 1) {
-      // Unsupported input groups.
+      // Input groups are currently unsupported.
       return failure();
     }
 
@@ -1931,22 +1924,19 @@ mlir::tt::ttir::RearrangeOp::getInvPatternMap(mlir::MLIRContext *context,
     pos++;
   }
 
-  // Build the affine expressions for the output
+  // Build the affine expressions for the output.
   llvm::SmallVector<mlir::AffineExpr> exprs;
   exprs.resize(inputDims.size(), nullptr);
   for (const auto [groupPos, group] : llvm::enumerate(outputDims)) {
     assert(!group.empty());
     // For flattening like b h -> (b h)@d, we create inverse map: (d / h_size, d
     // % h_size).
-    bool needsMod =
-        group.size() > 1; // mod only required for collapsed groups, we elide it
-                          // otherwise to reduce clutter.
     int64_t stride = 1;
     mlir::AffineExpr expr = mlir::getAffineConstantExpr(0, context);
     for (int64_t i = static_cast<int64_t>(group.size()) - 1; i >= 0; --i) {
       unsigned dimPos = dimToInputPos[group[i]];
       expr = mlir::getAffineDimExpr(groupPos, context).floorDiv(stride);
-      if (needsMod) {
+      if (i > 0) {
         expr = expr % shape[dimPos];
       }
       stride *= shape[dimPos];

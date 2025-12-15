@@ -93,6 +93,11 @@ def D2M_ToLayoutOp : D2M_Op<"to_layout", [
       }]>,
     ];
 
+    let extraClassDeclaration = [{
+      bool isHostToDevice();
+      bool isDeviceToHost();
+    }];
+
     let hasVerifier = 1;
     let hasFolder = 1;
     let hasCanonicalizer = 1;

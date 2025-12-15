@@ -25,7 +25,7 @@ def _test_pattern_map(pattern, shape, pattern_map):
     output = torch.zeros(golden.shape)
     for pos in itertools.product(*[range(dim) for dim in output.shape]):
         p = ttir.ir.affine_map_compose(pattern_map, pos)
-        output[*pos] = t[*p]
+        output[slice(*pos)] = t[slice(*p)]
     assert torch.allclose(output, golden)
 
 
@@ -80,8 +80,8 @@ def test_rearrange(
         device=device,
         custom_pipeline=f"ttir-to-ttmetal-pipeline",
         test_base=request.node.name,
-        module_dump=False,
-        print_ir=False,
+        module_dump=True,
+        print_ir=True,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )

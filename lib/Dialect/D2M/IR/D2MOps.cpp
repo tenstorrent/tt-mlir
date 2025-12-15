@@ -422,6 +422,38 @@ ToLayoutOp::getBufferType(mlir::Value value,
   return ttcore::getBufferType(value.getType(), /*isView=*/false);
 }
 
+bool ToLayoutOp::isHostToDevice() {
+  const bool hostInput =
+      mlir::cast<mlir::RankedTensorType>(getInput().getType()).getEncoding() ==
+          nullptr ||
+      mlir::isa<mlir::tt::ttcore::TensorMeshAttr>(
+          mlir::cast<mlir::RankedTensorType>(getInput().getType())
+              .getEncoding());
+  const bool hostOutput =
+      mlir::cast<mlir::RankedTensorType>(getOutput().getType()).getEncoding() ==
+          nullptr ||
+      mlir::isa<mlir::tt::ttcore::TensorMeshAttr>(
+          mlir::cast<mlir::RankedTensorType>(getOutput().getType())
+              .getEncoding());
+  return hostInput && !hostOutput;
+}
+
+bool ToLayoutOp::isDeviceToHost() {
+  const bool hostInput =
+      mlir::cast<mlir::RankedTensorType>(getInput().getType()).getEncoding() ==
+          nullptr ||
+      mlir::isa<mlir::tt::ttcore::TensorMeshAttr>(
+          mlir::cast<mlir::RankedTensorType>(getInput().getType())
+              .getEncoding());
+  const bool hostOutput =
+      mlir::cast<mlir::RankedTensorType>(getOutput().getType()).getEncoding() ==
+          nullptr ||
+      mlir::isa<mlir::tt::ttcore::TensorMeshAttr>(
+          mlir::cast<mlir::RankedTensorType>(getOutput().getType())
+              .getEncoding());
+  return !hostInput && hostOutput;
+}
+
 //===----------------------------------------------------------------------===//
 // ToDeviceOp
 //===----------------------------------------------------------------------===//
