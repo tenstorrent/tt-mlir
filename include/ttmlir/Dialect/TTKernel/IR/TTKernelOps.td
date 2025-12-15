@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2024-2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -2301,8 +2301,7 @@ def TTKernel_NocAsyncReadSetTridOp : TTKernel_Op<"noc_async_read_set_trid", [TTK
 
       Example:
       ```
-      // Set TRID 1 on NOC 0 before issuing reads.
-      noc_async_read_set_trid(1, 0);
+      ttkernel.noc_async_read_set_trid(%trid, %noc_idx) : (i32, i8) -> ()
       ```
     }];
 
@@ -2320,9 +2319,11 @@ def TTKernel_NocAsyncReadOnePacketWithStateWithTridOp : TTKernel_Op<"noc_async_r
 
       Example:
       ```
-      noc_async_read_set_trid(2, 0);
-      noc_async_read_one_packet_with_state_with_trid(src_base, src, dst_l1, 2, 0);
-      noc_async_read_barrier_with_trid(2, 0);
+      // Must set TRID before calling.
+      // ttkernel.noc_async_read_set_trid(%trid, %noc_idx) : (i32, i8) -> ()
+      ttkernel.noc_async_read_one_packet_with_state_with_trid(%src_base, %src_addr, %dst_l1, %trid, %noc_idx) : (i32, i32, i32, i32, i8) -> ()
+      // TRID-specific barrier should follow.
+      // ttkernel.noc_async_read_barrier_with_trid(%trid, %noc_idx) : (i32, i8) -> ()
       ```
     }];
 
@@ -2351,7 +2352,7 @@ def TTKernel_NocAsyncReadBarrierWithTridOp : TTKernel_Op<"noc_async_read_barrier
 
       Example:
       ```
-      noc_async_read_barrier_with_trid(2, 0);
+      ttkernel.noc_async_read_barrier_with_trid(%trid, %noc_idx) : (i32, i8) -> ()
       ```
     }];
 
@@ -2397,7 +2398,7 @@ def TTKernel_NocAsyncWriteSetTridOp : TTKernel_Op<"noc_async_write_set_trid", [T
 
       Example:
       ```
-      noc_async_write_set_trid(3, 0);
+      ttkernel.noc_async_write_set_trid(%trid, %noc_idx) : (i32, i8) -> ()
       ```
     }];
 
@@ -2415,9 +2416,11 @@ def TTKernel_NocAsyncWriteOnePacketWithTridOp : TTKernel_Op<"noc_async_write_one
 
       Example:
       ```
-      noc_async_write_set_trid(3, 0);
-      noc_async_write_one_packet_with_trid(l1_src, dst_noc, size, 3, 0);
-      noc_async_write_barrier_with_trid(3, 0);
+      // Must set TRID before calling.
+      // ttkernel.noc_async_write_set_trid(%trid, %noc_idx) : (i32, i8) -> ()
+      ttkernel.noc_async_write_one_packet_with_trid(%l1_src, %dst_noc, %size, %trid, %noc_idx) : (i32, !ttkernel.noc_addr, i32, i32, i8) -> ()
+      // TRID-specific barrier should follow.
+      // ttkernel.noc_async_write_barrier_with_trid(%trid, %noc_idx) : (i32, i8) -> ()
       ```
     }];
 
@@ -2446,7 +2449,7 @@ def TTKernel_NocAsyncWriteBarrierWithTridOp : TTKernel_Op<"noc_async_write_barri
 
       Example:
       ```
-      noc_async_write_barrier_with_trid(3, 0);
+      ttkernel.noc_async_write_barrier_with_trid(%trid, %noc_idx) : (i32, i8) -> ()
       ```
     }];
 
@@ -2464,8 +2467,7 @@ def TTKernel_ResetNocTridBarrierCounterOp : TTKernel_Op<"reset_noc_trid_barrier_
 
       Example:
       ```
-      // Clear counters for TRIDs 0-3 on NOC 0.
-      reset_noc_trid_barrier_counter(0xF, 0);
+      ttkernel.reset_noc_trid_barrier_counter(%mask, %noc_idx) : (i32, i8) -> ()
       ```
     }];
 
@@ -3128,7 +3130,7 @@ def TTKernel_DPrintOp : TTKernel_Op<"dprint", [MemoryEffects<[MemRead, MemWrite]
       rewriter.create<ttkernel::DPrintOp>(loc, "nocY={} nocX={} addr={}\\n",
                                         nocY, nocX, addr);
       ```
-      ```mlir
+      ```
       ttkernel.dprint("virtY {} virtX {} addr {}\\n", %14, %15, %13) : (index, index, i32)
       ```
       Notes:
