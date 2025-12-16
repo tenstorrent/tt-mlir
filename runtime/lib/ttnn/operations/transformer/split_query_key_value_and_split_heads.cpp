@@ -14,7 +14,11 @@ static void runSplitQueryKeyValueAndSplitHeadsOp(
     const ::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOp *op,
     ProgramTensorPool &tensorPool) {
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
+      op->memcfg()
+          ? ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg())
+          : ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+                ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(
+                    op->q_out()));
   uint32_t numHeads = op->num_heads();
   std::optional<uint32_t> numKVHeads;
   if (op->num_kv_heads()) {

@@ -517,9 +517,7 @@ setConcatChainPreferences(std::vector<L1ChainConfig> &l1ChainConfigs) {
 
     TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
                  "Concat {} prefers {} inputs", ttmlir::opToString(concatOp),
-                 *requiredMemLayout == TensorMemoryLayout::HeightSharded
-                     ? "height_sharded"
-                     : "width_sharded");
+                 stringifyTensorMemoryLayout(*requiredMemLayout));
 
     // Set preference for input chains (producers of concat's operands)
     for (size_t i = 0; i < concatOp->getNumOperands(); ++i) {
@@ -541,9 +539,7 @@ setConcatChainPreferences(std::vector<L1ChainConfig> &l1ChainConfigs) {
       TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
                    "  Input chain {}: set preferredOutputMemLayout to {}",
                    inputChainIdx,
-                   *requiredMemLayout == TensorMemoryLayout::HeightSharded
-                       ? "height_sharded"
-                       : "width_sharded");
+                   stringifyTensorMemoryLayout(*requiredMemLayout));
     }
 
     // Set preference for output chain (consumer of concat's result)
@@ -566,9 +562,7 @@ setConcatChainPreferences(std::vector<L1ChainConfig> &l1ChainConfigs) {
               ttmlir::LogComponent::DFShardingPolicy,
               "  Consumer chain {}: set preferredOutputMemLayout to {}",
               consumerChainIdx,
-              *requiredMemLayout == TensorMemoryLayout::HeightSharded
-                  ? "height_sharded"
-                  : "width_sharded");
+              stringifyTensorMemoryLayout(*requiredMemLayout));
         }
       }
     }
@@ -1492,17 +1486,7 @@ static void applyL1ReservationsForForkOps(
       }
     }
 
-    // Step 3: Try resharding to fewer cores for better matmul in0_block_w
-    // NOTE: This optimization is disabled because resharding the matmul input
-    // also changes the matmul output layout (TTNN derives output grid from
-    // input grid). This requires:
-    // 1. Re-validating the matmul with new input to get correct output layout
-    // 2. Updating the matmul's selected OpConfig with the new output layout
-    // 3. Checking all downstream consumers if the matmul is part of their chain
-    // The validation complexity makes this not worth pursuing for now.
-    // Fall through to L1 interleaved which is simpler and correct.
-
-    // Step 4: Try L1 interleaved fallback
+    // Step 3: Try L1 interleaved fallback
     // Use tryGetL1InterleavedSize to validate and get L1 size
     uint64_t l1InterleavedSize = tryGetL1InterleavedSize(lastOp);
     if (l1InterleavedSize == 0) {
@@ -1545,7 +1529,7 @@ static void applyL1ReservationsForForkOps(
       continue;
     }
 
-    // Step 4: Validate memory pressure with L1 interleaved
+    // Step 4: Validate memory pressure with L1 interleaved reservation
     if (!validateChainsWithReservation(l1ChainConfigs, schedulePositionMap,
                                        l1Reservations, forkPos, lastUserPos,
                                        l1InterleavedSize)) {
@@ -1849,9 +1833,7 @@ void DFShardingPolicy::pickOpShardConfigs(ShardSolver &shardSolver,
     TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
                  "Last op {}: looking for preferred {} layout among {} configs",
                  lastOp->getName(),
-                 *preferredMemLayout == TensorMemoryLayout::HeightSharded
-                     ? "height_sharded"
-                     : "width_sharded",
+                 stringifyTensorMemoryLayout(*preferredMemLayout),
                  validConfigs.size());
 
     for (auto configIterator = validConfigs.begin();
@@ -1865,12 +1847,7 @@ void DFShardingPolicy::pickOpShardConfigs(ShardSolver &shardSolver,
 
       TTMLIR_TRACE(ttmlir::LogComponent::DFShardingPolicy,
                    "  Config {}: {} (coreUsage={})", configIterator.index(),
-                   currentMemLayout == TensorMemoryLayout::HeightSharded
-                       ? "height_sharded"
-                   : currentMemLayout == TensorMemoryLayout::WidthSharded
-                       ? "width_sharded"
-                       : "block_sharded",
-                   coreUsage);
+                   stringifyTensorMemoryLayout(currentMemLayout), coreUsage);
 
       if (currentMemLayout == *preferredMemLayout) {
         // Config matches preferred layout - pick highest core usage among these
@@ -1886,18 +1863,14 @@ void DFShardingPolicy::pickOpShardConfigs(ShardSolver &shardSolver,
       TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
                    "Last op {}: selected preferred {} layout",
                    lastOp->getName(),
-                   *preferredMemLayout == TensorMemoryLayout::HeightSharded
-                       ? "height_sharded"
-                       : "width_sharded");
+                   stringifyTensorMemoryLayout(*preferredMemLayout));
       shardSolver.set(lastOp, *preferredConfig);
       lastOpProcessed = true;
     } else {
       TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
                    "Last op {}: preferred {} layout NOT found in valid configs",
                    lastOp->getName(),
-                   *preferredMemLayout == TensorMemoryLayout::HeightSharded
-                       ? "height_sharded"
-                       : "width_sharded");
+                   stringifyTensorMemoryLayout(*preferredMemLayout));
     }
   }
 
