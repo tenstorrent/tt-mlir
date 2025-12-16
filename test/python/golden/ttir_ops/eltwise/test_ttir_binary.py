@@ -295,7 +295,7 @@ scalar_binary_ops = [
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize(
-    "test_fn,scalar",
+    "test_fn,scalar_value",
     scalar_binary_ops,
     ids=[
         "add_scalar",
@@ -307,7 +307,7 @@ scalar_binary_ops = [
 )
 def test_scalar_binary_ops(
     test_fn: Callable,
-    scalar: float,
+    scalar_value: float,
     shape: Shape,
     dtype: torch.dtype,
     target: str,
