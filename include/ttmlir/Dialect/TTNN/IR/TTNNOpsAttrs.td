@@ -141,6 +141,10 @@ def TTNN_ShardOrientationAttr : EnumAttr<TTNN_Dialect, TTNN_ShardOrientation, "s
   let assemblyFormat = "`<` $value `>`";
 }
 
+def TTNN_ShardDistributionStrategyAttr : EnumAttr<TTNN_Dialect, TTNN_ShardDistributionStrategy, "shard_distribution_strategy"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
 def TTNN_ShardSpecAttr : TTNN_Attr<"ShardSpec", "shard_spec"> {
   let summary = "TTNN ShardSpec attribute";
   let description = [{
@@ -191,6 +195,52 @@ def TTNN_ShardSpecAttr : TTNN_Attr<"ShardSpec", "shard_spec"> {
   }];
 }
 
+def TTNN_NDShardSpecAttr : TTNN_Attr<"NDShardSpec", "nd_shard_spec"> {
+  let summary = "TTNN ShardSpec attribute";
+  let description = [{
+
+  }];
+
+  let parameters = (ins "CoreRangeSetAttr": $coreRangeSet,
+                    "ShapeAttr":$shape,
+                    "ShardOrientationAttr":$shardOrientation,
+                    "ShardDistributionStrategyAttr":$shardDistributionStrategy);
+  let extraClassDeclaration = [{
+    static NDShardSpecAttr get(::mlir::MLIRContext *context, TTNNNDLayoutAttr layout);
+  }];
+  let assemblyFormat = "`<` params `>`";
+}
+
+def TTNN_TTNNNDLayoutAttr: TTNN_Attr<"TTNNNDLayout", "ttnn_nd_layout"> {
+ let summary = "Tensor encoding attribute used for types in ttnn";
+ let description = [{
+ }];
+
+ let parameters = (ins
+    AttrParameter<"ttcore::GridAttr", "The grid shape that this tensor is divided onto.">:$grid,
+    AttrParameter<"MemRefType", "A memref that describes the physical footprint allocation of the shard">:$memref,
+    AttrParameter<"TensorMemoryLayoutAttr", "TTNN tensor memory layout">:$mem_layout,
+    AttrParameter<"ShardOrientationAttr", "The orientation of the sharding">:$shard_orientation,
+    AttrParameter<"ShardDistributionStrategyAttr", "The distribution strategy of the sharding">:$shard_distribution_strategy);
+
+  let assemblyFormat = "`<` $grid`,` $memref `,` $mem_layout `,` $shard_orientation `,` $shard_distribution_strategy `>`";
+  let extraClassDeclaration = [{
+   bool isInterleaved() const;
+   bool isSharded() const;
+   BufferType getBufferType() const;
+   bool isTiled() const;
+   llvm::SmallVector<int64_t> getScalarShardShape() const;
+   Layout getLayout() const;
+   ttcore::DataType getDataType() const;
+
+   // Determine if an ND sharding layout is the same as a legacy sharding mode
+   bool isLegacyBlockSharded(ArrayRef<int64_t> tensorShape) const;
+   bool isLegacyWidthSharded(ArrayRef<int64_t> tensorShape) const;
+   bool isLegacyHeightSharded(ArrayRef<int64_t> tensorShape) const;
+
+ }];
+}
+
 def TTNN_MemoryConfigAttr : TTNN_Attr<"MemoryConfig", "memory_config"> {
   let summary = "TTNN MemoryConfig attribute";
   let description = [{
@@ -213,12 +263,14 @@ def TTNN_MemoryConfigAttr : TTNN_Attr<"MemoryConfig", "memory_config"> {
 
   let parameters = (ins OptionalParameter<"TensorMemoryLayoutAttr">:$tensorMemoryLayout,
                     "BufferTypeAttr":$bufferType,
-                    OptionalParameter<"std::optional<ShardSpecAttr>">:$shardSpec);
+                    OptionalParameter<"std::optional<ShardSpecAttr>">:$shardSpec,
+                    OptionalParameter<"std::optional<NDShardSpecAttr>">:$ndShardSpec);
 
-  let assemblyFormat = "`<` $bufferType (`,` $tensorMemoryLayout^ )? (`,` $shardSpec^ )? `>`";
+  let assemblyFormat = "`<` $bufferType (`,` $tensorMemoryLayout^ )? (`,` $shardSpec^ )? (`,` $ndShardSpec^ )? `>`";
 
   let extraClassDeclaration = [{
     class Builder;
+    static MemoryConfigAttr get(::mlir::MLIRContext *context, TensorMemoryLayoutAttr tensorMemoryLayout, BufferTypeAttr bufferType, std::optional<ShardSpecAttr> shardSpec);
     static MemoryConfigAttr get(ttnn::TTNNLayoutAttr layout, ttcore::GridAttr deviceGrid);
     llvm::ArrayRef<int64_t> getShardShape(bool convertTileToScalar = true) const;
   }];
