@@ -697,27 +697,17 @@ def execute_py(
                 ):
                     # Use the layout and device from the template_input
                     golden_input = golden_input_dict[0]
-                    target_layout = template_input.layout
-                    target_device = template_input.device()
-                    # target_device = template_input.device()
                     corrected_inputs.append(
                         ttnn.as_tensor(
                             golden_input,
                             dtype=template_input.dtype,
-                            layout=target_layout,
-                            device=target_device,
-                            memory_config=ttnn.MemoryConfig(
-                                ttnn.TensorMemoryLayout.INTERLEAVED,
-                                ttnn.BufferType.DRAM,
-                                None,
-                            )
-                            if target_device is not None
-                            else None,
+                            layout=template_input.layout,
+                            device=template_input.device(),
+                            memory_config=template_input.memory_config(),
                         )
                     )
                     # Deallocate template_input tensor
-                    if target_device is not None:
-                        ttnn.deallocate(template_input)
+                    ttnn.deallocate(template_input)
                 inputs = corrected_inputs
 
             program_func = getattr(module, program_name)
