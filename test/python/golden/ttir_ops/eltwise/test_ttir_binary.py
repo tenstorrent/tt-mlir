@@ -315,6 +315,7 @@ def test_scalar_binary_ops(
     device,
 ):
     """Test binary operations with scalar operands on ttmetal"""
+
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
         def scalar_op_wrapper(
