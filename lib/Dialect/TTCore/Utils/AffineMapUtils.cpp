@@ -326,12 +326,6 @@ mlir::AffineMap buildLayoutTransformMap(MetalLayoutAttr fromLayout,
   // Compose: OUTPUT device → OUTPUT physical → logical.
   auto toDeviceToLogical = toPhysicalToLogical.compose(toDeviceToToPhysical);
 
-  // Account for existing index map on OUTPUT.
-  auto toExistingIndexMap = toLayout.getIndexAffineMap();
-  if (toExistingIndexMap && !toExistingIndexMap.isEmpty()) {
-    toDeviceToLogical = toDeviceToLogical.compose(toExistingIndexMap);
-  }
-
   // Build logical → INPUT device map.
   // logical → INPUT physical (collapse).
   auto fromAlignments = fromLayout.getDimAlignments();

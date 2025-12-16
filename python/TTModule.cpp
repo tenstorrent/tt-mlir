@@ -463,5 +463,25 @@ void populateTTModule(nb::module_ &m) {
       .def_prop_ro("shape", [](const tt::ttcore::TileType &tile) {
         return std::vector<int64_t>({tile.getHeight(), tile.getWidth()});
       });
+
+  nb::enum_<tt::ttcore::ReduceType>(m, "ReduceType")
+      .value("Sum", tt::ttcore::ReduceType::Sum)
+      .value("Mean", tt::ttcore::ReduceType::Mean)
+      .value("Max", tt::ttcore::ReduceType::Max)
+      .value("Min", tt::ttcore::ReduceType::Min)
+      .value("Std", tt::ttcore::ReduceType::Std)
+      .value("Var", tt::ttcore::ReduceType::Var)
+      .value("Prod", tt::ttcore::ReduceType::Prod)
+      .value("Invalid", tt::ttcore::ReduceType::Invalid);
+
+  tt_attribute_class<tt::ttcore::ReduceTypeAttr>(m, "ReduceTypeAttr")
+      .def_static("get",
+                  [](MlirContext ctx, tt::ttcore::ReduceType reduceType) {
+                    return wrap(tt::ttcore::ReduceTypeAttr::get(unwrap(ctx),
+                                                                reduceType));
+                  })
+      .def_prop_ro("value", [](tt::ttcore::ReduceTypeAttr self) {
+        return self.getValue();
+      });
 }
 } // namespace mlir::ttmlir::python

@@ -1923,7 +1923,7 @@ def TTIR_GeluBackwardOp : TTIR_ElementwiseBinaryOp<"gelu_bw"> {
   let hasVerifier = 1;
 }
 
-def TTIR_BatchNormInferenceOp : TTIR_Op<"batch_norm_inference"> {
+def TTIR_BatchNormInferenceOp : TTIR_NamedOp<"batch_norm_inference"> {
   let summary = "BatchNormInference operation";
   let description = [{
     Performs batch normalization inference on the input tensor. Normalizes the `operand` tensor
@@ -1970,7 +1970,7 @@ def TTIR_BatchNormInferenceOp : TTIR_Op<"batch_norm_inference"> {
   let hasVerifier = 1;
 }
 
-def TTIR_BatchNormTrainingOp : TTIR_Op<"batch_norm_training"> {
+def TTIR_BatchNormTrainingOp : TTIR_NamedOp<"batch_norm_training"> {
   let summary = "BatchNormTraining operation";
   let description = [{
     Performs batch normalization during training on the input tensor. Normalizes the `operand` tensor
@@ -2030,7 +2030,7 @@ def TTIR_BatchNormTrainingOp : TTIR_Op<"batch_norm_training"> {
   let hasVerifier = 1;
 }
 
-def TTIR_RMSNormOp : TTIR_Op<"rms_norm", [AttrSizedOperandSegments]> {
+def TTIR_RMSNormOp : TTIR_NamedOp<"rms_norm", [AttrSizedOperandSegments]> {
   let summary = "RMS normalization operation";
   let description = [{
     Performs RMS (Root Mean Square) normalization on the input tensor. This operation
@@ -4008,6 +4008,8 @@ def TTIR_SliceStaticOp: TTIR_NamedOp<"slice_static"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+
+    let hasFolder = 1;
 }
 
 def TTIR_SliceDynamicOp: TTIR_NamedOp<"slice_dynamic"> {
@@ -4683,8 +4685,9 @@ def TTIR_ScatterOp : TTIR_NamedOp<"scatter"> {
       - `input` (Tensor): The tensor being updated.
       - `index` (Tensor): Indices where values will be written to.
       - `source` (Tensor): The values to scatter into the input tensor.
-      - `output` (Tensor): The output tensor shape.
       - `dim` (int32_t): The dimension along which to scatter.
+      - `scatter_reduce_type` (Enum): The scatter reduce type to use (SUM, PROD, MIN, MAX, INVALID).
+
 
     Example:
     ```mlir
@@ -4692,16 +4695,18 @@ def TTIR_ScatterOp : TTIR_NamedOp<"scatter"> {
     %input = ... : tensor<8xf32>        // Input tensor
     %indices = ... : tensor<3xi32>      // Indices tensor
     %source = ... : tensor<3xf32>       // Source values to scatter
-    %result = ttir.scatter(%input, %indices, %source) <{
-        dim = 0
-    }> : (tensor<8xf32>, tensor<3xi32>, tensor<3xf32>) -> tensor<8xf32>
+    %result = ttir.scatter_in_dim(%input, %indices, %source) {
+        dim = 0, scatter_reduce_type = "SUM"
+    } : tensor<8xf32>, tensor<3xi32>, tensor<3xf32> -> tensor<8xf32>
     ```
   }];
 
   let arguments = (ins AnyRankedTensor:$input,
                        AnyRankedTensor:$index,
                        AnyRankedTensor:$source,
-                       I32Attr:$dim);
+                       I32Attr:$dim,
+                       TTCore_ReduceTypeAttr:$scatter_reduce_type
+                       );
 
   let results = (outs AnyRankedTensor:$result);
 

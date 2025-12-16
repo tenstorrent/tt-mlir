@@ -766,31 +766,7 @@ module {
     return
   }
 
-  func.func @test_ceil_lowering(%in0: memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048, 1>, #l1_>,
-                                %out: memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048, 1>, #l1_>) {
-    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0 : memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048, 1>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048, 1>, #l1_>)  {
-    ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_bf16, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_bf16, #l1_>>):
-      %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_bf16, #l1_>> -> memref<1x1x!ttype_bf16, #l1_>
-      %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_bf16, #l1_>> -> memref<1x1x!ttype_bf16, #l1_>
-      linalg.generic {indexing_maps = [#map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0 : memref<1x1x!ttype_bf16, #l1_>) outs(%cb1 : memref<1x1x!ttype_bf16, #l1_>) {
-      ^bb0(%arg0: !ttype_bf16, %arg1: !ttype_bf16):
-        // CHECK-NOT: d2m.tile_ceil
-        // CHECK: ttkernel.init_sfpu
-        // CHECK: ttkernel.copy_tile_init(%[[CB0:.+]]) :
-        // CHECK-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
-        // CHECK: ttkernel.rounding_op_tile_init
-        // CHECK: ttkernel.ceil_tile
-        %0 = "d2m.tile_ceil"(%arg0) : (!ttype_bf16) -> !ttype_bf16
-        // CHECK: ttkernel.pack_tile
-        linalg.yield %0 : !ttype_bf16
-      }
-    }
-    return
-  }
-
-  func.func @test_ceil_lowering_f32(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+  func.func @test_ceil_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
                                     %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
         ins(%in0 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)
@@ -805,7 +781,7 @@ module {
         // CHECK: ttkernel.copy_tile_init(%[[CB0:.+]]) :
         // CHECK-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
         // CHECK: ttkernel.rounding_op_tile_init
-        // CHECK: ttkernel.ceil_tile_float32
+        // CHECK: ttkernel.ceil_tile
         %0 = "d2m.tile_ceil"(%arg0) : (!ttype_f32) -> !ttype_f32
         // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
@@ -814,31 +790,7 @@ module {
     return
   }
 
-  func.func @test_floor_lowering(%in0: memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048, 1>, #l1_>,
-                                 %out: memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048, 1>, #l1_>) {
-    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
-        ins(%in0 : memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048, 1>, #l1_>)
-        outs(%out : memref<1x1x1x1x!ttype_bf16, #ttcore.shard<2048x2048, 1>, #l1_>)  {
-    ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_bf16, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_bf16, #l1_>>):
-      %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_bf16, #l1_>> -> memref<1x1x!ttype_bf16, #l1_>
-      %cb1 = d2m.reserve %arg1_cb : !d2m.cb<memref<1x1x!ttype_bf16, #l1_>> -> memref<1x1x!ttype_bf16, #l1_>
-      linalg.generic {indexing_maps = [#map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0 : memref<1x1x!ttype_bf16, #l1_>) outs(%cb1 : memref<1x1x!ttype_bf16, #l1_>) {
-      ^bb0(%arg0: !ttype_bf16, %arg1: !ttype_bf16):
-        // CHECK-NOT: d2m.tile_floor
-        // CHECK: ttkernel.init_sfpu
-        // CHECK: ttkernel.copy_tile_init(%[[CB0:.+]]) :
-        // CHECK-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
-        // CHECK: ttkernel.rounding_op_tile_init
-        // CHECK: ttkernel.floor_tile
-        %0 = "d2m.tile_floor"(%arg0) : (!ttype_bf16) -> !ttype_bf16
-        // CHECK: ttkernel.pack_tile
-        linalg.yield %0 : !ttype_bf16
-      }
-    }
-    return
-  }
-
-  func.func @test_floor_lowering_f32(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+  func.func @test_floor_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
                                      %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>) {
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
         ins(%in0 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)
@@ -853,7 +805,7 @@ module {
         // CHECK: ttkernel.copy_tile_init(%[[CB0:.+]]) :
         // CHECK-NEXT: ttkernel.copy_tile(%[[CB0]], %{{.+}}, %{{.+}}) :
         // CHECK: ttkernel.rounding_op_tile_init
-        // CHECK: ttkernel.floor_tile_float32
+        // CHECK: ttkernel.floor_tile
         %0 = "d2m.tile_floor"(%arg0) : (!ttype_f32) -> !ttype_f32
         // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_f32
@@ -1471,6 +1423,63 @@ module {
         %0 = "d2m.tile_bitwise_xor"(%arg0, %arg1) : (!ttype_si32, !ttype_si32) -> !ttype_si32
         // CHECK: ttkernel.pack_tile
         linalg.yield %0 : !ttype_si32
+      }
+    }
+    return
+  }
+
+  //===----------------------------------------------------------------------===//
+  // TTIR Where (Ternary) operations
+  //===----------------------------------------------------------------------===//
+
+  func.func @test_where_f32_lowering(%in0: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                     %in1: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                     %in2: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                     %out: memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>) {
+    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_, #map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
+        ins(%in0, %in1, %in2 : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>, memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>, memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_f32, #ttcore.shard<4096x4096, 1>, #l1_>)  {
+    ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg2_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>, %arg3_cb: !d2m.cb<memref<1x1x!ttype_f32, #l1_>>):
+      %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
+      %cb1 = d2m.wait %arg1_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
+      %cb2 = d2m.wait %arg2_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
+      %cb3 = d2m.reserve %arg3_cb : !d2m.cb<memref<1x1x!ttype_f32, #l1_>> -> memref<1x1x!ttype_f32, #l1_>
+      linalg.generic {indexing_maps = [#map_, #map_, #map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0, %cb1, %cb2 : memref<1x1x!ttype_f32, #l1_>, memref<1x1x!ttype_f32, #l1_>, memref<1x1x!ttype_f32, #l1_>) outs(%cb3 : memref<1x1x!ttype_f32, #l1_>) {
+      ^bb0(%arg0: !ttype_f32, %arg1: !ttype_f32, %arg2: !ttype_f32, %arg3: !ttype_f32):
+        // CHECK-NOT: d2m.tile_where
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.where_tile_init
+        // CHECK: ttkernel.where_fp32_tile
+        %0 = "d2m.tile_where"(%arg0, %arg1, %arg2) : (!ttype_f32, !ttype_f32, !ttype_f32) -> !ttype_f32
+        // CHECK: ttkernel.pack_tile
+        linalg.yield %0 : !ttype_f32
+      }
+    }
+    return
+  }
+
+  func.func @test_where_bf16_lowering(%in0: memref<1x1x1x1x!ttype_bf16, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                      %in1: memref<1x1x1x1x!ttype_bf16, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                      %in2: memref<1x1x1x1x!ttype_bf16, #ttcore.shard<4096x4096, 1>, #l1_>,
+                                      %out: memref<1x1x1x1x!ttype_bf16, #ttcore.shard<4096x4096, 1>, #l1_>) {
+    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map_, #map_, #map_, #map_], iterator_types = [#parallel_, #parallel_], threads = [#d2m.thread<compute>]}
+        ins(%in0, %in1, %in2 : memref<1x1x1x1x!ttype_bf16, #ttcore.shard<4096x4096, 1>, #l1_>, memref<1x1x1x1x!ttype_bf16, #ttcore.shard<4096x4096, 1>, #l1_>, memref<1x1x1x1x!ttype_bf16, #ttcore.shard<4096x4096, 1>, #l1_>)
+        outs(%out : memref<1x1x1x1x!ttype_bf16, #ttcore.shard<4096x4096, 1>, #l1_>)  {
+    ^compute0(%arg0_cb: !d2m.cb<memref<1x1x!ttype_bf16, #l1_>>, %arg1_cb: !d2m.cb<memref<1x1x!ttype_bf16, #l1_>>, %arg2_cb: !d2m.cb<memref<1x1x!ttype_bf16, #l1_>>, %arg3_cb: !d2m.cb<memref<1x1x!ttype_bf16, #l1_>>):
+      %cb0 = d2m.wait %arg0_cb : !d2m.cb<memref<1x1x!ttype_bf16, #l1_>> -> memref<1x1x!ttype_bf16, #l1_>
+      %cb1 = d2m.wait %arg1_cb : !d2m.cb<memref<1x1x!ttype_bf16, #l1_>> -> memref<1x1x!ttype_bf16, #l1_>
+      %cb2 = d2m.wait %arg2_cb : !d2m.cb<memref<1x1x!ttype_bf16, #l1_>> -> memref<1x1x!ttype_bf16, #l1_>
+      %cb3 = d2m.reserve %arg3_cb : !d2m.cb<memref<1x1x!ttype_bf16, #l1_>> -> memref<1x1x!ttype_bf16, #l1_>
+      linalg.generic {indexing_maps = [#map_, #map_, #map_, #map_], iterator_types = ["parallel", "parallel"]} ins(%cb0, %cb1, %cb2 : memref<1x1x!ttype_bf16, #l1_>, memref<1x1x!ttype_bf16, #l1_>, memref<1x1x!ttype_bf16, #l1_>) outs(%cb3 : memref<1x1x!ttype_bf16, #l1_>) {
+      ^bb0(%arg0: !ttype_bf16, %arg1: !ttype_bf16, %arg2: !ttype_bf16, %arg3: !ttype_bf16):
+        // CHECK-NOT: d2m.tile_where
+        // CHECK: ttkernel.init_sfpu
+        // CHECK: ttkernel.where_tile_init
+        // CHECK: ttkernel.where_tile
+        // CHECK-NOT: ttkernel.where_fp32_tile
+        %0 = "d2m.tile_where"(%arg0, %arg1, %arg2) : (!ttype_bf16, !ttype_bf16, !ttype_bf16) -> !ttype_bf16
+        // CHECK: ttkernel.pack_tile
+        linalg.yield %0 : !ttype_bf16
       }
     }
     return

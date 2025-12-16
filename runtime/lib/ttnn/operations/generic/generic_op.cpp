@@ -17,6 +17,7 @@ namespace tt::runtime::ttnn::operations::generic_op {
 static ::tt::tt_metal::SemaphoreDescriptor createSemaphoreDescriptor(
     const ::tt::target::ttnn::SemaphoreDescriptor &kernelSemaphoreDescriptor) {
   return ::tt::tt_metal::SemaphoreDescriptor{
+      .id = kernelSemaphoreDescriptor.id(),
       .core_type = tt::runtime::ttnn::utils::toCoreType(
           kernelSemaphoreDescriptor.core_type()),
       .core_ranges = tt::runtime::ttnn::utils::toTTNNCoreRangeSet(
@@ -32,7 +33,8 @@ static ::tt::tt_metal::SemaphoreDescriptor createSemaphoreDescriptor(
   tt::tt_metal::CBFormatDescriptor cbFormatDescriptor = {
       .buffer_index = bufferIndex,
       .data_format = dataFormat,
-      .page_size = pageSize};
+      .page_size = pageSize,
+      .tile = std::nullopt};
   return cbFormatDescriptor;
 }
 
@@ -208,6 +210,7 @@ createKernelDescriptor(const ::tt::target::ttnn::KernelDescriptor &kernelDesc,
       .source_type = convertSourceType(kernelDesc.source_type()),
       .core_ranges = coreRanges,
       .compile_time_args = compileTimeArgs,
+      .named_compile_time_args = {},
       .defines = {},
       .runtime_args = runtimeArgs,
       .common_runtime_args = commonRuntimeArgs,

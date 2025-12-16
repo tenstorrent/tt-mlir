@@ -26,9 +26,27 @@
 namespace mlir::tt {
 
 namespace {
+
+static ttnn::ComputeKernelMathFidelity
+convertMathFidelity(ttmetal::MathFidelity fidelity) {
+  switch (fidelity) {
+  case ttmetal::MathFidelity::LoFi:
+    return ttnn::ComputeKernelMathFidelity::LoFi;
+  case ttmetal::MathFidelity::HiFi2:
+    return ttnn::ComputeKernelMathFidelity::HiFi2;
+  case ttmetal::MathFidelity::HiFi3:
+    return ttnn::ComputeKernelMathFidelity::HiFi3;
+  case ttmetal::MathFidelity::HiFi4:
+    return ttnn::ComputeKernelMathFidelity::HiFi4;
+  }
+  llvm_unreachable("Invalid MathFidelity");
+}
+
 class D2MGenericRewriter : public OpConversionPattern<d2m::GenericOp> {
 public:
-  using OpConversionPattern<d2m::GenericOp>::OpConversionPattern;
+  D2MGenericRewriter(MLIRContext *context, ttmetal::MathFidelity mathFidelity)
+      : OpConversionPattern<d2m::GenericOp>(context),
+        mathFidelity(mathFidelity) {}
 
   static mlir::Attribute convertKernelArg(Builder &builder,
                                           const ttkernel::ArgAttr &arg) {
@@ -86,7 +104,8 @@ public:
     SmallVector<ttnn::KernelSemaphoreAttr> semaphoreDescriptors(numSemaphores);
     for (size_t i = 0; i < numSemaphores; ++i) {
       semaphoreDescriptors[i] = builder.getAttr<ttnn::KernelSemaphoreAttr>(
-          ttnn::KernelCoreType::Worker, coreRangeSet, /*initial_value=*/0);
+          /*id=*/i, ttnn::KernelCoreType::Worker, coreRangeSet,
+          /*initial_value=*/0);
     }
 
     return semaphoreDescriptors;
@@ -95,7 +114,8 @@ public:
   static SmallVector<mlir::Attribute>
   createKernelDescriptors(Builder &builder, const ArrayAttr &threads,
                           const ttnn::CoreRangeSetAttr &coreRangeSet,
-                          const SymbolTable &symbolTable) {
+                          const SymbolTable &symbolTable,
+                          ttmetal::MathFidelity mathFidelity) {
     SmallVector<mlir::Attribute> kernelConfigs(threads.size());
     int nocIndex = 0;
     for (const auto [i, thread] : llvm::enumerate(threads)) {
@@ -129,7 +149,7 @@ public:
         // TODO (vtangTT) #5032: support lowering to different compute configs.
         kernelConfigs[i] = builder.getAttr<ttnn::ComputeKernelAttr>(
             kernelSymbol, coreRangeSet,
-            /*math_fidelity*/ ttnn::ComputeKernelMathFidelity::HiFi4,
+            /*math_fidelity*/ convertMathFidelity(mathFidelity),
             /*fp32DestAccum*/ false,
             /*dst_full_sync_en*/ false,
             /*unpack_to_dest_mode*/
@@ -270,7 +290,7 @@ public:
     SymbolTable opSymTable(op->getParentOfType<ModuleOp>());
     llvm::SmallVector<mlir::Attribute> kernelDescriptors =
         createKernelDescriptors(rewriter, op.getThreads(), coreRangeSet,
-                                opSymTable);
+                                opSymTable, this->mathFidelity);
 
     // Extract semaphore descriptors from kernel functions.
     llvm::SmallVector<ttnn::KernelSemaphoreAttr> semaphoreDescriptors =
@@ -284,6 +304,9 @@ public:
                                                  ttnn::MemoryConfigAttr());
     return success();
   };
+
+private:
+  ttmetal::MathFidelity mathFidelity;
 };
 } // namespace
 
@@ -390,12 +413,11 @@ public:
 };
 } // namespace
 
-} // namespace mlir::tt
-namespace mlir::tt {
 void populateD2MToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
-                               TypeConverter &typeConverter) {
-  patterns.add<D2MGenericRewriter, TTNNMetalLayoutCastRewriter,
-               D2MEmptyRewriter, D2MFullRewriter, StreamLayoutRewriter>(ctx);
+                               TypeConverter &typeConverter,
+                               ttmetal::MathFidelity mathFidelity) {
+  patterns.add<D2MGenericRewriter>(ctx, mathFidelity);
+  patterns.add<TTNNMetalLayoutCastRewriter, D2MEmptyRewriter, D2MFullRewriter,
+               StreamLayoutRewriter>(ctx);
 }
-
 } // namespace mlir::tt

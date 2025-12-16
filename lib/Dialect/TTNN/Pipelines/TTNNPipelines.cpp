@@ -264,6 +264,16 @@ void createTTIRToTTNNBackendPipeline(
     // split during the analysis passes.
     if (options.enableConstEval) {
       devicePm.addPass(transforms::createConstEvalHoistTransform());
+
+      // Now that all const-eval passes have run, we can force the const-eval
+      // function inputs to system memory.
+      if (options.enableConstEvalInputsToSystemMemory) {
+        devicePm.addPass(createTTNNConstEvalInputsToSystemMemory());
+
+        // Clean up any redundant to_layout ops that may have been introduced
+        // previously.
+        devicePm.addPass(mlir::createCanonicalizerPass());
+      }
     }
     createTTNNPipelineLayoutDecompositionPass(devicePm, options);
     if (options.enableTrace) {
@@ -340,15 +350,29 @@ void createTTNNBackendToEmitPyPipeline(
   // Apply EmitPy-specific workarounds before conversion
   pm.addPass(createTTNNEmitPyWorkarounds());
 
-  pm.addPass(createTTNNTuplifyTensors());
-
-  if (options.loadInputTensorsFromDisk) {
-    TTNNLoadInputTensorsOptions loadOptions;
-    loadOptions.tensorLoadDirectory = options.tensorLoadDirectory;
-    loadOptions.tensorLoadFilePrefix = options.tensorLoadFilePrefix;
-    pm.addPass(createTTNNLoadInputTensors(loadOptions));
+  if (options.targetModule) {
+    // In module path, run tuplification with forced settings and add device
+    // argument. This ensures tensor inputs are always tuplified even when the
+    // input is empty, which is necessary for proper module interface
+    // generation.
+    //
+    TTNNTuplifyTensorsOptions tuplifyOptions;
+    tuplifyOptions.tuplifyInputIfEmpty = true;
+    pm.addPass(createTTNNTuplifyTensors(tuplifyOptions));
+    pm.addPass(createTTNNPrepareModuleForExport());
   } else {
-    pm.addPass(createTTNNCreateInputGenerators());
+    // In canonical path, run tuplification + input generation/loading.
+    //
+    pm.addPass(createTTNNTuplifyTensors());
+
+    if (options.loadInputTensorsFromDisk) {
+      TTNNLoadInputTensorsOptions loadOptions;
+      loadOptions.tensorLoadDirectory = options.tensorLoadDirectory;
+      loadOptions.tensorLoadFilePrefix = options.tensorLoadFilePrefix;
+      pm.addPass(createTTNNLoadInputTensors(loadOptions));
+    } else {
+      pm.addPass(createTTNNCreateInputGenerators());
+    }
   }
 
   pm.addPass(createConvertTTNNToEmitPyPass());

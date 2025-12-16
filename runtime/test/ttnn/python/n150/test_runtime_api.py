@@ -312,7 +312,7 @@ def test_memory_logging(helper, request, capfd, log_level):
     test_runner = ProgramTestRunner(test_config, helper.binary, 0)
 
     with DeviceContext(mesh_shape=[1, 1]) as device:
-        inputs_runtime_with_layout, _ = test_runner.get_inputs_and_golden(device)
+        inputs_runtime_with_layout, _, _ = test_runner.get_inputs_and_golden(device)
         test_runner.run_program(device, inputs_runtime_with_layout)
 
     program_log_str = [

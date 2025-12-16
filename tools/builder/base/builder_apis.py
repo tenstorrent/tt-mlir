@@ -1325,17 +1325,17 @@ def load_mlir_file(
     ctx = Context()
 
     if target == "ttir":
-        builder, module = TTIRBuilder.from_module(ctx, mlir_text, golden_inputs)
+        module, builder = TTIRBuilder.from_module(ctx, mlir_text, golden_inputs)
     elif target == "stablehlo":
-        builder, module = StableHLOBuilder.from_module(ctx, mlir_text, golden_inputs)
+        module, builder = StableHLOBuilder.from_module(ctx, mlir_text, golden_inputs)
     elif target == "ttnn":
-        builder, module = TTNNBuilder.from_module(ctx, mlir_text, golden_inputs)
+        module, builder = TTNNBuilder.from_module(ctx, mlir_text, golden_inputs)
     else:
         raise NotImplementedError(
             "Loading MLIR files is only supported for ttir, stablehlo and ttnn currently."
         )
 
-    return builder, module
+    return module, builder
 
 
 def split_mlir_file(

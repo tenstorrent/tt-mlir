@@ -36,8 +36,8 @@ public:
   D2MOpSchedulerRewriter(mlir::MLIRContext *ctx)
       : OpRewritePattern<GenericOp>(ctx) {};
 
-  // OpTreeNode for building binary trees for register allocation using
-  // Sethi-Ullman algorithm.
+  // OpTreeNode for building trees for register allocation using
+  // Sethi-Ullman algorithm. Supports unary, binary, and ternary operations.
   class OpTreeNode {
   public:
     Operation *op = nullptr;
@@ -45,6 +45,7 @@ public:
     bool isBlockArg = false;
     unsigned int weight = 0;
     OpTreeNode *left = nullptr;
+    OpTreeNode *middle = nullptr;
     OpTreeNode *right = nullptr;
     OpTreeNode *parent = nullptr;
 
@@ -53,6 +54,7 @@ public:
     OpTreeNode(BlockArgument blockArg) : blockArg(blockArg), isBlockArg(true) {}
     ~OpTreeNode() {
       delete left;
+      delete middle;
       delete right;
     }
   };
@@ -146,6 +148,14 @@ public:
       node->right = children[1].release();
       node->left->parent = node.get();
       node->right->parent = node.get();
+    } else if (children.size() == 3) {
+      // Ternary operation.
+      node->left = children[0].release();
+      node->middle = children[1].release();
+      node->right = children[2].release();
+      node->left->parent = node.get();
+      node->middle->parent = node.get();
+      node->right->parent = node.get();
     }
 
     return node;
@@ -160,17 +170,18 @@ public:
 
     // Post-order: process children first.
     markNodeWeights(node->left);
+    markNodeWeights(node->middle);
     markNodeWeights(node->right);
 
     // Calculate weight for this node.
-    if (!node->left && !node->right) {
+    if (!node->left && !node->middle && !node->right) {
       // Leaf node (block argument).
       node->weight = 1;
-    } else if (node->right == nullptr) {
+    } else if (node->middle == nullptr && node->right == nullptr) {
       // Unary operation.
       assert(node->left && "Unary operation must have left child");
       node->weight = node->left->weight;
-    } else {
+    } else if (node->middle == nullptr) {
       // Binary operation.
       assert(node->left && "Binary operation must have left child");
       assert(node->right && "Binary operation must have right child");
@@ -182,6 +193,25 @@ public:
       } else {
         node->weight = std::max(leftWeight, rightWeight);
       }
+    } else {
+      // Ternary operation.
+      assert(node->left && "Ternary operation must have left child");
+      assert(node->middle && "Ternary operation must have middle child");
+      assert(node->right && "Ternary operation must have right child");
+      unsigned leftWeight = node->left->weight;
+      unsigned middleWeight = node->middle->weight;
+      unsigned rightWeight = node->right->weight;
+
+      // Sort weights in descending order for optimal evaluation order.
+      SmallVector<unsigned, 3> weights = {leftWeight, middleWeight,
+                                          rightWeight};
+      llvm::sort(weights, std::greater<unsigned>());
+
+      // Sethi-Ullman formula: max(w[0], 1 + max(w[1], 1 + w[2]))
+      // Models: evaluate heaviest first, store (1 reg), evaluate next (while
+      // holding 1), store (2 regs), evaluate lightest (while holding 2).
+      unsigned innerMax = std::max(weights[1], 1 + weights[2]);
+      node->weight = std::max(weights[0], 1 + innerMax);
     }
   }
 
@@ -210,10 +240,14 @@ public:
     }
 
     // Print children with appropriate labels.
-    if (node->left || node->right) {
+    if (node->left || node->middle || node->right) {
       if (node->left) {
         LDBG() << indent << "  Left:";
         printOpTree(node->left, depth + 1);
+      }
+      if (node->middle) {
+        LDBG() << indent << "  Middle:";
+        printOpTree(node->middle, depth + 1);
       }
       if (node->right) {
         LDBG() << indent << "  Right:";
@@ -232,33 +266,26 @@ public:
       return;
     }
 
-    // Determine traversal order based on child weights.
-    // Higher weight branch is visited first. If weights are equal, left is
-    // default.
-    OpTreeNode *firstChild = nullptr;
-    OpTreeNode *secondChild = nullptr;
-
-    if (node->left && node->right) {
-      // Binary operation: choose based on weight.
-      if (node->right->weight > node->left->weight) {
-        firstChild = node->right;
-        secondChild = node->left;
-      } else {
-        // Left child first if weights are equal or left is heavier.
-        firstChild = node->left;
-        secondChild = node->right;
-      }
-    } else if (node->left) {
-      // Unary operation: only left child.
-      firstChild = node->left;
-    } // right child is not used unless op is binary
-
-    // Recursively process children depth-first.
-    if (firstChild) {
-      applySeethiUllmanOrdering(rewriter, firstChild, movedOps);
+    // Collect all children and sort by weight (highest first).
+    SmallVector<OpTreeNode *> children;
+    if (node->left) {
+      children.push_back(node->left);
     }
-    if (secondChild) {
-      applySeethiUllmanOrdering(rewriter, secondChild, movedOps);
+    if (node->middle) {
+      children.push_back(node->middle);
+    }
+    if (node->right) {
+      children.push_back(node->right);
+    }
+
+    // Sort children by weight in descending order (higher weight first).
+    llvm::sort(children, [](OpTreeNode *a, OpTreeNode *b) {
+      return a->weight > b->weight;
+    });
+
+    // Recursively process children depth-first in weight order.
+    for (OpTreeNode *child : children) {
+      applySeethiUllmanOrdering(rewriter, child, movedOps);
     }
 
     // Check if this is a leaf node (affine.load).
@@ -268,6 +295,9 @@ public:
     bool allChildrenMoved = true;
     if (node->left && node->left->op) {
       allChildrenMoved &= movedOps.contains(node->left->op);
+    }
+    if (node->middle && node->middle->op) {
+      allChildrenMoved &= movedOps.contains(node->middle->op);
     }
     if (node->right && node->right->op) {
       allChildrenMoved &= movedOps.contains(node->right->op);

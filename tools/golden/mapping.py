@@ -17,7 +17,7 @@ import itertools
 import operator
 import torch
 import torch.nn.functional
-from ttmlir.dialects import ttir, stablehlo, d2m, ttnn
+from ttmlir.dialects import ttir, stablehlo, d2m, ttnn, ttcore
 from ttmlir.ir import *
 
 
@@ -1776,27 +1776,6 @@ def mean_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     return torch.mean(input_tensor, dim=dim_arg, keepdim=keep_dim)
 
 
-def reduce_and_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
-    """
-    Golden function for reduce_and operation with TTIR parameter names.
-
-    Parameters
-    ----------
-    input_tensor : GoldenMapTensor
-        Input tensor to reduce
-    **kwargs : dict
-        Keyword arguments including 'dim_arg' and 'keep_dim'
-
-    Returns
-    -------
-    GoldenMapTensor
-        Reduced tensor
-    """
-    dim_arg = kwargs.get("dim_arg", [0])
-    keep_dim = kwargs.get("keep_dim", True)
-    return torch.all(input_tensor, dim=tuple(dim_arg), keepdim=keep_dim)
-
-
 def transpose_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for transpose operation with TTIR parameter names.
@@ -2130,47 +2109,6 @@ def index_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
 
     indices = torch.arange(begin, end, step, device=input_tensor.device)
     return torch.index_select(input_tensor, dim, indices)
-
-
-def slice_golden_stablehlo(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
-    """
-    Golden function for StableHLO slice operation.
-    Parameters
-    ----------
-    input_tensor : GoldenMapTensor
-        Input tensor
-    **kwargs : dict
-        Keyword arguments including:
-        - start_indices: Starting indices for each dimension
-        - limit_indices: Ending indices (exclusive) for each dimension
-        - strides: Strides for each dimension
-    Returns
-    -------
-    GoldenMapTensor
-        Sliced tensor
-    """
-    start_indices = kwargs.get("start_indices", [0])
-    limit_indices = kwargs.get("limit_indices", None)
-    strides = kwargs.get("strides", None)
-
-    if strides is None:
-        strides = [1] * len(start_indices)
-
-    if limit_indices is None:
-        limit_indices = [input_tensor.size(i) for i in range(len(start_indices))]
-
-    slices = []
-    for i in range(len(start_indices)):
-        start = start_indices[i] if i < len(start_indices) else 0
-        end = limit_indices[i] if i < len(limit_indices) else input_tensor.size(i)
-        stride = strides[i] if i < len(strides) else 1
-        slices.append(slice(start, end, stride))
-
-    shard_map = {}
-    for device_id, shard in input_tensor.shard_map.items():
-        shard_map[device_id] = shard[tuple(slices)]
-
-    return GoldenMapTensor(shard_map, input_tensor.mesh_shape)
 
 
 def repeat_interleave_golden(
@@ -2630,6 +2568,30 @@ def stablehlo_not_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTe
 
 
 ################ TTIR Op Golden Functions ###############
+
+
+def ttir_reduce_and_golden(
+    input_tensor: GoldenMapTensor,
+    dim_arg: ArrayAttr,
+    keep_dim: BoolAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    dim_arg = unpack_mlir_attr(dim_arg)
+    keep_dim = unpack_mlir_attr(keep_dim)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.all(input_tensor, dim=tuple(dim_arg), keepdim=keep_dim).to(
+        output_dtype
+    )
+
+
+def ttir_repeat_golden(
+    input: GoldenMapTensor,
+    repeat_dimensions_attr: DenseI64ArrayAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    repeat_dimensions = unpack_mlir_attr(repeat_dimensions_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return input.repeat(repeats=repeat_dimensions).to(output_dtype)
 
 
 def ttir_arange_golden(
@@ -3612,13 +3574,39 @@ def ttir_scatter_golden(
     index: GoldenMapTensor,
     source: GoldenMapTensor,
     dim: IntegerAttr,
+    scatter_reduce_type_attr: ReduceTypeAttr,
     output_type_mlir: Type,
 ) -> GoldenMapTensor:
     dim_value = unpack_mlir_attr(dim)
+    scatter_reduce_type = ttcore.ir.ReduceTypeAttr.maybe_downcast(
+        scatter_reduce_type_attr
+    ).value
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     index_copy = index.clone()
     index_copy = index_copy.to(torch.int64)
-    return torch.scatter(input_tensor, dim_value, index_copy, source).to(output_dtype)
+
+    if scatter_reduce_type == ttcore.ir.ReduceType.Sum:
+        out_tensor = torch.scatter_reduce(
+            input_tensor, dim_value, index_copy, source, reduce="sum"
+        )
+    elif scatter_reduce_type == ttcore.ir.ReduceType.Prod:
+        out_tensor = torch.scatter_reduce(
+            input_tensor, dim_value, index_copy, source, reduce="prod"
+        )
+    elif scatter_reduce_type == ttcore.ir.ReduceType.Max:
+        out_tensor = torch.scatter_reduce(
+            input_tensor, dim_value, index_copy, source, reduce="amax"
+        )
+    elif scatter_reduce_type == ttcore.ir.ReduceType.Min:
+        out_tensor = torch.scatter_reduce(
+            input_tensor, dim_value, index_copy, source, reduce="amin"
+        )
+    elif scatter_reduce_type == ttcore.ir.ReduceType.Invalid:
+        out_tensor = torch.scatter(input_tensor, dim_value, index_copy, source)
+    else:
+        raise ValueError(f"Unsupported scatter reduce type: {scatter_reduce_type}")
+
+    return out_tensor.to(output_dtype)
 
 
 def ttir_reverse_golden(
@@ -3797,6 +3785,178 @@ def stablehlo_add_golden(
     return torch.add(input_tensor, other_tensor).to(output_dtype)
 
 
+def stablehlo_log_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.log(input_tensor).to(output_dtype)
+
+
+def stablehlo_log1p_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.log1p(input_tensor).to(output_dtype)
+
+
+def stablehlo_logistic_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.sigmoid(input_tensor).to(output_dtype)
+
+
+def stablehlo_neg_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.neg(input_tensor).to(output_dtype)
+
+
+def stablehlo_reshape_golden(
+    input_tensor: GoldenMapTensor, shape_attr: ArrayAttr, output_type_mlir: Type
+) -> GoldenMapTensor:
+    shape = unpack_mlir_attr(shape_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.reshape(input_tensor, shape).clone().to(output_dtype)
+
+
+def stablehlo_rsqrt_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.rsqrt(input_tensor).to(output_dtype)
+
+
+def stablehlo_slice_golden(
+    input_tensor: GoldenMapTensor,
+    start_indices_attr: DenseI64ArrayAttr,
+    limit_indices_attr: DenseI64ArrayAttr,
+    strides_attr: DenseI64ArrayAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    start_indices = unpack_mlir_attr(start_indices_attr)
+    limit_indices = unpack_mlir_attr(limit_indices_attr)
+    strides = unpack_mlir_attr(strides_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    slices = []
+    for i in range(len(start_indices)):
+        start = start_indices[i] if i < len(start_indices) else 0
+        end = limit_indices[i] if i < len(limit_indices) else input_tensor.size(i)
+        stride = strides[i] if i < len(strides) else 1
+        slices.append(slice(start, end, stride))
+
+    shard_map = {}
+    for device_id, shard in input_tensor.shard_map.items():
+        shard_map[device_id] = shard[tuple(slices)]
+        shard_map[device_id] = shard_map[device_id].to(output_dtype)
+
+    return GoldenMapTensor(shard_map, input_tensor.mesh_shape)
+
+
+def stablehlo_sine_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.sin(input_tensor).to(output_dtype)
+
+
+def stablehlo_sqrt_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.sqrt(input_tensor).to(output_dtype)
+
+
+def stablehlo_tan_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.tan(input_tensor).to(output_dtype)
+
+
+def stablehlo_tanh_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.tanh(input_tensor).to(output_dtype)
+
+
+def stablehlo_transpose_golden(
+    input_tensor: GoldenMapTensor,
+    permutation: DenseI64ArrayAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    permutation = unpack_mlir_attr(permutation)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.permute(input_tensor, tuple(permutation)).to(output_dtype)
+
+
+def stablehlo_select_golden(
+    pred_tensor: GoldenMapTensor,
+    on_true_tensor: GoldenMapTensor,
+    on_false_tensor: GoldenMapTensor,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    pred_bool = pred_tensor.to(torch.bool)
+    return torch.where(pred_bool, on_true_tensor, on_false_tensor).to(output_dtype)
+
+
+def stablehlo_reverse_golden(
+    input_tensor: GoldenMapTensor,
+    dimensions_attr: DenseI64ArrayAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    dims = unpack_mlir_attr(dimensions_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.flip(input_tensor, dims).to(output_dtype)
+
+
+def stablehlo_maximum_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.maximum(input_tensor, other_tensor).to(output_dtype)
+
+
+def stablehlo_minimum_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.minimum(input_tensor, other_tensor).to(output_dtype)
+
+
+def stablehlo_multiply_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.multiply(input_tensor, other_tensor).to(output_dtype)
+
+
+def stablehlo_pow_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.pow(input_tensor, other_tensor).to(output_dtype)
+
+
+def stablehlo_subtract_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.subtract(input_tensor, other_tensor).to(output_dtype)
+
+
+def stablehlo_shift_right_logical_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    shifted = logical_right_shift_golden(input_tensor, other_tensor)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return shifted.to(output_dtype)
+
+
 ################ TTNN Op Golden Functions ###############
 
 
@@ -3876,13 +4036,13 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.MaxOp: ttir_max_golden,
     ttir.MinOp: min_golden,
     ttir.ProdOp: prod_golden,
-    ttir.ReduceAndOp: reduce_and_golden,
+    ttir.ReduceAndOp: ttir_reduce_and_golden,
     ttir.ReduceOrOp: ttir_reduce_or_golden,
     # Tensor manipulation
     ttir.SortOp: ttir_sort_golden,
     ttir.TransposeOp: transpose_golden,
     ttir.ConcatOp: ttir_concat_golden,
-    ttir.RepeatOp: repeat_golden,
+    ttir.RepeatOp: ttir_repeat_golden,
     ttir.RepeatInterleaveOp: repeat_interleave_golden,
     ttir.ReshapeOp: ttir_reshape_golden,
     ttir.SqueezeOp: squeeze_golden,
@@ -3960,22 +4120,34 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.CosineOp: torch.cos,
     stablehlo.ExpOp: torch.exp,
     stablehlo.FloorOp: torch.floor,
-    stablehlo.LogOp: torch.log,
-    stablehlo.LogisticOp: torch.sigmoid,
-    stablehlo.NegOp: torch.neg,
-    stablehlo.ReshapeOp: reshape_golden,
-    stablehlo.RsqrtOp: torch.rsqrt,
-    stablehlo.SineOp: torch.sin,
-    stablehlo.SqrtOp: torch.sqrt,
-    stablehlo.TanOp: torch.tan,
+    stablehlo.LogOp: stablehlo_log_golden,
+    stablehlo.Log1pOp: stablehlo_log1p_golden,
+    stablehlo.LogisticOp: stablehlo_logistic_golden,
+    stablehlo.NegOp: stablehlo_neg_golden,
+    stablehlo.ReshapeOp: stablehlo_reshape_golden,
+    stablehlo.RsqrtOp: stablehlo_rsqrt_golden,
+    stablehlo.SineOp: stablehlo_sine_golden,
+    stablehlo.SqrtOp: stablehlo_sqrt_golden,
+    stablehlo.TanOp: stablehlo_tan_golden,
+    stablehlo.TanhOp: stablehlo_tanh_golden,
     stablehlo.AndOp: stablehlo_and_golden,
     stablehlo.OrOp: stablehlo_or_golden,
     stablehlo.XorOp: stablehlo_xor_golden,
     stablehlo.NotOp: stablehlo_not_golden,
-    stablehlo.SliceOp: slice_golden_stablehlo,
+    stablehlo.SliceOp: stablehlo_slice_golden,
+    stablehlo.MaxOp: stablehlo_maximum_golden,
+    stablehlo.MinOp: stablehlo_minimum_golden,
+    stablehlo.MulOp: stablehlo_multiply_golden,
+    stablehlo.SubtractOp: stablehlo_subtract_golden,
+    stablehlo.PowOp: stablehlo_pow_golden,
+    stablehlo.ShiftRightLogicalOp: stablehlo_shift_right_logical_golden,
+    stablehlo.ReverseOp: stablehlo_reverse_golden,
     # stablehlo complex operations
     stablehlo.DotGeneralOp: dot_general_golden,
     stablehlo.ConcatenateOp: concat_golden,
+    # StableHLO tensor manipulation operations
+    stablehlo.TransposeOp: stablehlo_transpose_golden,
+    stablehlo.SelectOp: stablehlo_select_golden,
     # ----- TTNN OPS -----
     # Elementwise unary operations
     ttnn.AbsOp: torch.abs,
@@ -4005,8 +4177,6 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.Expm1Op: torch.expm1,
     ttnn.ExpOp: torch.exp,
     ttnn.LeakyReluOp: leaky_relu_golden,
-    # StableHLO tensor manipulation operations
-    stablehlo.TransposeOp: permute_golden,
     # TTNN elementwise operations
     ttnn.MultiplyOp: torch.multiply,
     ttnn.MishOp: torch.nn.functional.mish,

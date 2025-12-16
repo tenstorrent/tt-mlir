@@ -1054,7 +1054,7 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
 }
 
 ::llvm::LogicalResult KernelSemaphoreAttr::verify(
-    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError, uint32_t id,
     KernelCoreType coreType, ::mlir::tt::ttnn::CoreRangeSetAttr coreRanges,
     uint32_t initialValue) {
   return ::llvm::success();

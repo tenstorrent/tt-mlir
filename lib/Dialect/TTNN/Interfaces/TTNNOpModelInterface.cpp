@@ -1071,10 +1071,17 @@ ScatterOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   ttcore::GridAttr deviceGrid =
       ttcore::lookupDevice(getOperation()).getWorkerGrid();
 
+  std::optional<ttcore::ReduceTypeAttr> reduceType =
+      ttcore::ReduceTypeAttr::get(getContext(), ttcore::ReduceType::Invalid);
+  if (getScatterReduceType() != ttcore::ReduceType::Invalid) {
+    reduceType =
+        ttcore::ReduceTypeAttr::get(getContext(), getScatterReduceType());
+  }
+
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<ScatterOp>::getOpConstraints, *this, deviceGrid,
       inputShape, inputs[0], indexShape, inputs[1], sourceShape, inputs[2],
-      getDim(), opConfig.outputLayout);
+      getDim(), reduceType, opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -1091,9 +1098,16 @@ ScatterOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
     return check.takeError();
   }
 
+  std::optional<ttcore::ReduceTypeAttr> reduceType =
+      ttcore::ReduceTypeAttr::get(getContext(), ttcore::ReduceType::Invalid);
+  if (getScatterReduceType() != ttcore::ReduceType::Invalid) {
+    reduceType =
+        ttcore::ReduceTypeAttr::get(getContext(), getScatterReduceType());
+  }
+
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<ScatterOp>::getOpRuntime, *this, inputShape, inputs[0],
-      indexShape, inputs[1], sourceShape, inputs[2], getDim(),
+      indexShape, inputs[1], sourceShape, inputs[2], getDim(), reduceType,
       opConfig.outputLayout);
 }
 
@@ -4527,6 +4541,42 @@ AssignOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<mlir::tt::ttnn::AssignOp>::getOpRuntime, *this,
       inputShape, inputs[0], getMemoryConfig(), getDtype());
+}
+
+//===----------------------------------------------------------------------===//
+// DistributeTensorOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+DistributeTensorOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                     const OpConfig &opConfig) {
+  return issueErrorForGetOpConstraints(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+}
+
+llvm::Expected<size_t>
+DistributeTensorOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                 const OpConfig &opConfig) {
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+}
+
+//===----------------------------------------------------------------------===//
+// AggregateTensorOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+AggregateTensorOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                    const OpConfig &opConfig) {
+  return issueErrorForGetOpConstraints(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+}
+
+llvm::Expected<size_t>
+AggregateTensorOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                const OpConfig &opConfig) {
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
 }
 
 } // namespace mlir::tt::ttnn

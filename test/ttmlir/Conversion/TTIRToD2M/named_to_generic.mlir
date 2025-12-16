@@ -277,4 +277,14 @@ module {
     %0 = "ttir.add"(%in0, %in1) : (!ttype, !ttype_scalar) -> (!ttype)
     return %0 : !ttype
   }
+
+  // CHECK-LABEL: func @named_ternary_where
+  func.func @named_ternary_where(%cond: !ttype, %true_val: !ttype, %false_val: !ttype) -> (!ttype) {
+    // named ternary op, where:
+    // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: d2m.tile_where
+    %0 = "ttir.where"(%cond, %true_val, %false_val) : (!ttype, !ttype, !ttype) -> !ttype
+    return %0 : !ttype
+  }
 }

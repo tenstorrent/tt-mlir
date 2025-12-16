@@ -170,9 +170,21 @@ protected:
       DenseIntElementsAttr emptyCollapseIntervals =
           DenseIntElementsAttr::get(emptyIntervalType, ArrayRef<int64_t>{});
 
+      // For ND uncollapsed shapes, instantiate a core virtual grid map that
+      // collapses the default ND unit grid to a 2D unit grid. These mappings
+      // will be replaced if the layout is optimized in GridSelection.
+      AffineMap coreVirtMap = AffineMap::get(rewriter.getContext());
+      if (logicalShape.size() > 2) {
+        llvm::SmallVector<int64_t> unitGrid(logicalShape.size(), 1);
+        coreVirtMap = ttmlir::d2m::utils::grids::createCoreVirtMaps(
+                          rewriter.getContext(), unitGrid, {1, 1})
+                          .first;
+      }
+
       layout = ttcore::MetalLayoutAttr::get(
           rewriter.getContext(), logicalShape, ttcore::OOBVal::Undef, memSpace,
-          ttcore::TensorMemoryLayout::Sharded, emptyCollapseIntervals);
+          ttcore::TensorMemoryLayout::Sharded, emptyCollapseIntervals,
+          coreVirtMap);
 
     } else {
       layout = ttcore::MetalLayoutAttr::get(
@@ -369,65 +381,86 @@ private:
       std::is_same_v<TileOp, d2m::TileLezOp>;
 
   static std::pair<SmallVector<mlir::AffineMap>,
-                   std::pair<d2m::TileBcastType, d2m::TileBcastType>>
+                   SmallVector<d2m::TileBcastType>>
   getImplicitBcastInfo(mlir::OpBuilder &builder, ArrayRef<Value> inputs,
                        ArrayRef<Value> outputs) {
-    if (inputs.size() != 2 || outputs.size() != 1) {
-      return {{}, {d2m::TileBcastType::None, d2m::TileBcastType::None}};
+    const size_t numInputs = inputs.size();
+    // Support binary (2 inputs) and ternary (3 inputs) ops.
+    if ((numInputs != 2 && numInputs != 3) || outputs.size() != 1) {
+      return {
+          {},
+          SmallVector<d2m::TileBcastType>(numInputs, d2m::TileBcastType::None)};
     }
 
-    const auto lhsType =
-        mlir::cast<mlir::RankedTensorType>(inputs[0].getType());
-    const auto rhsType =
-        mlir::cast<mlir::RankedTensorType>(inputs[1].getType());
     const auto outType =
         mlir::cast<mlir::RankedTensorType>(outputs[0].getType());
-
-    const int lhsRank = static_cast<int>(lhsType.getRank());
-    const int rhsRank = static_cast<int>(rhsType.getRank());
     const int outRank = static_cast<int>(outType.getRank());
     TT_assert(outRank >= 2);
-    TT_assert(outRank == std::max(lhsRank, rhsRank));
+    const auto outShape = outType.getShape();
+
+    // Gather input types, ranks, and shapes.
+    SmallVector<mlir::RankedTensorType> inputTypes;
+    SmallVector<int> inputRanks;
+    SmallVector<ArrayRef<int64_t>> inputShapes;
+    int maxInputRank = 0;
+    for (Value input : inputs) {
+      auto type = mlir::cast<mlir::RankedTensorType>(input.getType());
+      inputTypes.push_back(type);
+      int rank = static_cast<int>(type.getRank());
+      inputRanks.push_back(rank);
+      inputShapes.push_back(type.getShape());
+      maxInputRank = std::max(maxInputRank, rank);
+    }
+    TT_assert(outRank == maxInputRank);
 
     // Collapsing is disabled for implicit bcast, affine maps for both
     // d2m.generic and linalg.generic are derived from the logical shape.
-    const auto lhsShape = lhsType.getShape();
-    const auto rhsShape = rhsType.getShape();
-    const auto outShape = outType.getShape();
+    SmallVector<SmallVector<mlir::AffineExpr>> inputExprs(
+        numInputs, SmallVector<mlir::AffineExpr>(outRank));
 
-    SmallVector<mlir::AffineExpr> lhsExprs(outRank);
-    SmallVector<mlir::AffineExpr> rhsExprs(outRank);
-
+    // Deduce output shape and build affine indexing maps for broadcasting.
+    // We iterate right-to-left (innermost to outermost) to align dimensions
+    // per NumPy semantics. Lower-rank inputs are implicitly unsqueezed with
+    // leading 1s. For each dim, we validate compatibility and mark inputs
+    // needing broadcast with constant-0 affine exprs (locked index).
     SmallVector<int64_t> deducedShape(outRank, -1);
     for (int i = -1; i >= -outRank; i--) {
-      const int lhsDim = lhsRank + i;
-      const int rhsDim = rhsRank + i;
       const int outDim = outRank + i;
 
-      // Non-existent dim is represented as -1.
-      const int64_t lhsDimSize = (lhsDim >= 0) ? lhsShape[lhsDim] : -1;
-      const int64_t rhsDimSize = (rhsDim >= 0) ? rhsShape[rhsDim] : -1;
+      // Gather dim sizes for all inputs (-1 for missing dims in lower-rank
+      // tensors).
+      SmallVector<int64_t> dimSizes;
+      for (size_t j = 0; j < numInputs; ++j) {
+        const int inputDim = inputRanks[j] + i;
+        dimSizes.push_back((inputDim >= 0) ? inputShapes[j][inputDim] : -1);
+      }
 
-      // Validate broadcasting compatibility: if both dimensions exist, then
-      // they must either be equal, or at least one of them is 1.
-      TT_assertv(!((lhsDimSize != -1) && (rhsDimSize != -1) &&
-                   (lhsDimSize != rhsDimSize) && (lhsDimSize != 1) &&
-                   (rhsDimSize != 1)),
-                 "Incompatible bcast dims {} & {}.", lhsDimSize, rhsDimSize);
+      // NumPy broadcasting: dims of 1 or -1 can broadcast, others must match.
+      int64_t maxDimSize = -1;
+      for (int64_t dimSize : dimSizes) {
+        if (dimSize != -1 && dimSize != 1) {
+          if (maxDimSize == -1) {
+            maxDimSize = dimSize;
+          } else {
+            TT_assertv(dimSize == maxDimSize,
+                       "Incompatible bcast dims {} & {}.", dimSize, maxDimSize);
+          }
+        }
+      }
+      if (maxDimSize == -1) {
+        maxDimSize = 1;
+      }
 
-      const bool lhsBcast = (lhsDimSize != rhsDimSize) &&
-                            ((lhsDimSize == -1) || (lhsDimSize == 1));
-      const bool rhsBcast = (lhsDimSize != rhsDimSize) &&
-                            ((rhsDimSize == -1) || (rhsDimSize == 1));
-      TT_assertv(!(lhsBcast && rhsBcast),
-                 "Ill-formed broadcast, needs unsqueeze.");
+      // Set affine expr: constant 0 for broadcast dims, dim expr otherwise.
+      for (size_t j = 0; j < numInputs; ++j) {
+        const int inputDim = inputRanks[j] + i;
+        const bool needsBcast =
+            (dimSizes[j] == -1) || (dimSizes[j] == 1 && maxDimSize != 1);
+        inputExprs[j][outDim] = needsBcast ? builder.getAffineConstantExpr(0)
+                                           : builder.getAffineDimExpr(inputDim);
+      }
 
-      lhsExprs[outDim] = lhsBcast ? builder.getAffineConstantExpr(0)
-                                  : builder.getAffineDimExpr(lhsDim);
-      rhsExprs[outDim] = rhsBcast ? builder.getAffineConstantExpr(0)
-                                  : builder.getAffineDimExpr(rhsDim);
-
-      deducedShape[outDim] = std::max(lhsDimSize, rhsDimSize);
+      deducedShape[outDim] = maxDimSize;
     }
 
     TT_assert(llvm::equal(deducedShape, outShape));
@@ -452,33 +485,33 @@ private:
       return d2m::TileBcastType::None;
     };
 
-    const std::pair<d2m::TileBcastType, d2m::TileBcastType> tileBcastTypes = {
-        getTileBcastType(lhsExprs), getTileBcastType(rhsExprs)};
+    SmallVector<d2m::TileBcastType> tileBcastTypes;
+    SmallVector<mlir::AffineMap> indexingMaps;
+    for (size_t j = 0; j < numInputs; ++j) {
+      tileBcastTypes.push_back(getTileBcastType(inputExprs[j]));
+      indexingMaps.push_back(
+          AffineMap::get(outRank, 0, inputExprs[j], builder.getContext()));
+    }
+    indexingMaps.push_back(builder.getMultiDimIdentityMap(outRank));
 
-    return {{AffineMap::get(outRank, 0, lhsExprs, builder.getContext()),
-             AffineMap::get(outRank, 0, rhsExprs, builder.getContext()),
-             builder.getMultiDimIdentityMap(outRank)},
-            tileBcastTypes};
+    return {indexingMaps, tileBcastTypes};
   }
 
-  void createComputeRegion(
-      mlir::OpBuilder &bbBuilder, mlir::Location bbLoc, mlir::ValueRange bbArgs,
-      mlir::ConversionPatternRewriter &rewriter, mlir::Location loc,
-      const size_t numInputs, const size_t numOutputs,
-      const std::pair<d2m::TileBcastType, d2m::TileBcastType> &tileBcastTypes)
-      const {
+  void createComputeRegion(mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
+                           mlir::ValueRange bbArgs,
+                           mlir::ConversionPatternRewriter &rewriter,
+                           mlir::Location loc, const size_t numInputs,
+                           const size_t numOutputs,
+                           ArrayRef<d2m::TileBcastType> tileBcastTypes) const {
     auto operands = llvm::to_vector(bbArgs.take_front(numInputs));
     mlir::TypeRange resultTypes = bbArgs.take_back(numOutputs);
 
-    const auto lhsTileBcastType = std::get<0>(tileBcastTypes);
-    if (lhsTileBcastType != d2m::TileBcastType::None) {
-      operands[0] = bbBuilder.create<d2m::TileBcastOp>(
-          loc, resultTypes, operands[0], lhsTileBcastType);
-    }
-    const auto rhsTileBcastType = std::get<1>(tileBcastTypes);
-    if (rhsTileBcastType != d2m::TileBcastType::None) {
-      operands[1] = bbBuilder.create<d2m::TileBcastOp>(
-          loc, resultTypes, operands[1], rhsTileBcastType);
+    // Apply broadcast to all operands that need it.
+    for (size_t i = 0; i < numInputs && i < tileBcastTypes.size(); ++i) {
+      if (tileBcastTypes[i] != d2m::TileBcastType::None) {
+        operands[i] = bbBuilder.create<d2m::TileBcastOp>(
+            loc, resultTypes, operands[i], tileBcastTypes[i]);
+      }
     }
 
     mlir::Value yield;
@@ -503,13 +536,13 @@ private:
     SmallVector<Value> origInputs = adaptor.getOperands();
 
     SmallVector<mlir::AffineMap> bcastIndexingMaps;
-    std::pair<d2m::TileBcastType, d2m::TileBcastType> tileBcastTypes;
+    SmallVector<d2m::TileBcastType> tileBcastTypes;
     std::tie(bcastIndexingMaps, tileBcastTypes) =
         getImplicitBcastInfo(rewriter, origInputs, origOutputs);
 
-    const bool isImplicitBcast =
-        std::get<0>(tileBcastTypes) != d2m::TileBcastType::None ||
-        std::get<1>(tileBcastTypes) != d2m::TileBcastType::None;
+    const bool isImplicitBcast = llvm::any_of(tileBcastTypes, [](auto type) {
+      return type != d2m::TileBcastType::None;
+    });
 
     auto [inputs, outputs] =
         toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
@@ -1289,6 +1322,7 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MNamedElementwiseRewriter<ttir::SubtractOp,    d2m::TileSubOp>,
     D2MNamedElementwiseRewriter<ttir::TanOp,         d2m::TileTanOp>,
     D2MNamedElementwiseRewriter<ttir::TanhOp,        d2m::TileTanhOp>,
+    D2MNamedElementwiseRewriter<ttir::WhereOp,       d2m::TileWhereOp>,
 
     // Comparison.
     D2MNamedElementwiseRewriter<ttir::EqualOp,        d2m::TileEqzOp>,

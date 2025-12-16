@@ -828,6 +828,12 @@ struct EmitCTypeConverter<ttcore::ReduceType> {
     case ttcore::ReduceType::Var:
       rso << "VAR";
       return buf;
+    case ttcore::ReduceType::Prod:
+      rso << "PROD";
+      return buf;
+    case ttcore::ReduceType::Invalid:
+      rso << "INVALID";
+      return buf;
     }
 
     llvm_unreachable("Unknown ttcore::ReduceType");
@@ -2122,6 +2128,58 @@ public:
                                              deviceAttr.getWorkerGrid()));
 
     return emit(memoryConfigAttr);
+  }
+
+  // Creates MeshShape code from integer attributes.
+  std::string
+  createMeshShapeCode(llvm::ArrayRef<mlir::IntegerAttr> meshShapeOverride) {
+    if (meshShapeOverride.empty()) {
+      return "";
+    }
+    std::string meshShapeCode = std::string("::ttnn::distributed::MeshShape({");
+    llvm::raw_string_ostream os(meshShapeCode);
+    llvm::SmallVector<uint32_t> dims;
+    for (const auto &intAttr : meshShapeOverride) {
+      dims.push_back(intAttr.getValue().getZExtValue());
+    }
+    llvm::interleaveComma(dims, os);
+    os << "})";
+    return os.str();
+  }
+
+  // Converts raw pointer to reference. Only works for raw pointers, not smart
+  // pointers.
+  mlir::Value dereferenceToRef(mlir::Value ptrValue,
+                               const std::string &refTypeName) {
+    return rewriter
+        .create<emitc::ApplyOp>(
+            op.getLoc(),
+            emitc::OpaqueType::get(rewriter.getContext(), refTypeName), "*",
+            ptrValue)
+        .getResult();
+  }
+
+  // Converts unique_ptr<T> to T&. Uses VerbatimOp since ApplyOp doesn't support
+  // unique_ptr.
+  mlir::Value dereferenceUniquePtr(mlir::Value uniquePtrValue,
+                                   const std::string &refTypeName) {
+    // Generate variable name
+    std::string ssaName;
+    llvm::raw_string_ostream os(ssaName);
+    mlir::OpPrintingFlags flags;
+    uniquePtrValue.printAsOperand(os, flags);
+    os.flush();
+    std::string varName = "ref_" + ssaName.substr(1);
+
+    // Create reference variable
+    auto refType = emitc::OpaqueType::get(rewriter.getContext(), refTypeName);
+    std::string verbatimCode = "auto& " + varName + " = *{};";
+    rewriter.create<emitc::VerbatimOp>(
+        op.getLoc(), rewriter.getStringAttr(verbatimCode),
+        llvm::SmallVector<mlir::Value>{uniquePtrValue});
+
+    return rewriter.create<emitc::LiteralOp>(op.getLoc(), refType, varName)
+        .getResult();
   }
 
 private:

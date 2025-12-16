@@ -23,6 +23,9 @@ import ttnn_jit._src.supported_ops as supported_ops
 from ttnn_jit._src.tensor_translator import (
     _get_collapsed_linear_affine_map,
     create_tensor_layout,
+    _calculate_tile_shape,
+    TILE_WIDTH,
+    TILE_HEIGHT,
 )
 from ttnn_jit._src.levelized_graph import LevelizedGraph, LevelizedGraphVertex
 from ttnn_jit._src.op_registry import get_registry
@@ -238,35 +241,26 @@ class GraphToIRTranslator:
         if memory_config["shard_shape"]:
             # Use shard shape for sharded tensors
             shard_h, shard_w = memory_config["shard_shape"]
-            tiles_h = math.ceil(shard_h / 32)
-            tiles_w = math.ceil(shard_w / 32)
+            tiles_h = math.ceil(shard_h / TILE_HEIGHT)
+            tiles_w = math.ceil(shard_w / TILE_WIDTH)
             memref_shape = [tiles_h, tiles_w]
             affine_map = _get_collapsed_linear_affine_map(
                 self.ctx, shape, memory_config["grid"]
             )
-        elif len(shape) == 1:
-            # 1D tensor: use 1D memref and affine map
-            dim_w = shape[0]
-            tiles_w = math.ceil(dim_w / 32)
-            memref_shape = [tiles_w]  # 1D memref
-            affine_map = _get_collapsed_linear_affine_map(self.ctx, shape, (0, 0))
-        elif len(shape) == 0:
-            # Scalar: use 1x1 tile memref
-            memref_shape = [1, 1]
-            affine_map = _get_collapsed_linear_affine_map(self.ctx, [1, 1], (0, 0))
         else:
-            # 2D or higher: use last 2 dimensions for tile layout
-            dim_h = shape[-2]
-            dim_w = shape[-1]
-            tiles_h = math.ceil(dim_h / 32)
-            tiles_w = math.ceil(dim_w / 32)
-            memref_shape = [tiles_h, tiles_w]
-            affine_map = _get_collapsed_linear_affine_map(self.ctx, shape, (0, 0))
+            memref_shape = _calculate_tile_shape(shape)
+            affine_shape = shape if len(shape) > 0 else [1, 1]
+            affine_map = _get_collapsed_linear_affine_map(
+                self.ctx, affine_shape, (0, 0)
+            )
 
         return memref_shape, affine_map
 
     def _get_output_type_from_vertex(
-        self, vertex: "LevelizedGraphVertex", default_type
+        self,
+        vertex: "LevelizedGraphVertex",
+        default_type,
+        parent_output_info: Optional[List[str]] = None,
     ) -> Any:
         """
         Extract MLIR output type from vertex output_shape and output_info.
@@ -281,6 +275,8 @@ class GraphToIRTranslator:
         Args:
             vertex: The vertex containing output information
             default_type: Fallback type to inherit dtype and layout properties from
+            parent_output_info: Optional parent composite op's output_info to inherit
+                              when vertex.output_info is empty (for internal ops)
 
         Returns:
             MLIR tensor type with correct shape and memory configuration
@@ -301,14 +297,23 @@ class GraphToIRTranslator:
                 "shard_shape": None,
                 "grid": [1, 1],
             }
+            # Use vertex's output_info if available, otherwise fall back to parent's output_info
+            output_info_to_use = None
             if vertex.output_info and len(vertex.output_info) > 0:
+                output_info_to_use = vertex.output_info[0]
+            elif parent_output_info and len(parent_output_info) > 0:
+                output_info_to_use = parent_output_info[0]
+
+            if output_info_to_use:
                 memory_config = self._parse_memory_config_from_output_info(
-                    vertex.output_info[0]
+                    output_info_to_use
                 )
 
             # Create tile type
             data_type_ttcore = ttcore_dtype_from_mlir_dtype(dtype)
-            tile_type = ttcore.ir.TileType.get(self.ctx, 32, 32, data_type_ttcore)
+            tile_type = ttcore.ir.TileType.get(
+                self.ctx, TILE_WIDTH, TILE_HEIGHT, data_type_ttcore
+            )
 
             # Map buffer type and memory layout to enums
             buffer_type_enum = buffer_type_from_string(memory_config["buffer_type"])
@@ -487,6 +492,9 @@ class GraphToIRTranslator:
                 f"Composite operation {vertex.name} has no internals to expand"
             )
 
+        # Parse parent composite vertex's output_info once to inherit for internal ops
+        parent_output_info = vertex.output_info if vertex.output_info else None
+
         # Process each internal operation in order
         for internal_id in vertex.internals:
             internal_vertex = self.levelized_graph_ir.get_vertex(internal_id)
@@ -498,9 +506,10 @@ class GraphToIRTranslator:
                 continue
 
             # For internal operations, infer the result type from the vertex's output shape
-            # Use the parent's result_type as a fallback
+            # Use the parent's result_type as a fallback, and inherit parent's output_info
+            # if the internal op doesn't have its own output_info
             internal_result_type = self._get_output_type_from_vertex(
-                internal_vertex, result_type
+                internal_vertex, result_type, parent_output_info=parent_output_info
             )
 
             # Recursively process internal vertex

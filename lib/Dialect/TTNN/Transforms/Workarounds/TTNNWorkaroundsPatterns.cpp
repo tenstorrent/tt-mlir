@@ -494,6 +494,10 @@ private:
       return op.emitOpError() << "std is not supported";
     case ttcore::ReduceType::Var:
       return op.emitOpError() << "var is not supported";
+    case ttcore::ReduceType::Prod:
+      return op.emitOpError() << "prod is not supported";
+    case ttcore::ReduceType::Invalid:
+      return op.emitOpError() << "invalid is not supported";
     }
     return success();
   }
@@ -638,6 +642,7 @@ private:
 
 const std::set<mlir::StringRef>
     TTNNWorkarounds::TTNNWorkarounds::enabledOpsForWorkaroundWithOptimizer = {
-        ttnn::WhereOp::getOperationName(), ttnn::FullOp::getOperationName()};
+        ttnn::WhereOp::getOperationName(), ttnn::FullOp::getOperationName(),
+        ttnn::EmbeddingOp::getOperationName()};
 
 } // namespace mlir::tt::ttnn

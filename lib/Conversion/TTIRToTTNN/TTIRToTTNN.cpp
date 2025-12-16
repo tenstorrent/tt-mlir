@@ -1658,6 +1658,54 @@ public:
     int32_t paddingBottom = std::get<2>(*paddingQuad);
     int32_t paddingRight = std::get<3>(*paddingQuad);
 
+    auto batchSize = adaptor.getFlattenedCompatInfo().getBatchSize();
+    auto inputHeight = adaptor.getFlattenedCompatInfo().getInputHeight();
+    auto inputWidth = adaptor.getFlattenedCompatInfo().getInputWidth();
+    constexpr unsigned int CHANNEL_DIM = 3;
+    auto channels = op.getInput().getType().getDimSize(CHANNEL_DIM);
+
+    // Check if padding exceeds half kernel size (tt-metal constraint).
+    int32_t maxPadH = kernelSizeAttr.asArrayRef()[0] / 2;
+    int32_t maxPadW = kernelSizeAttr.asArrayRef()[1] / 2;
+
+    Value input = adaptor.getInput();
+    if (paddingTop > maxPadH || paddingLeft > maxPadW ||
+        paddingBottom > maxPadH || paddingRight > maxPadW) {
+      // Unflatten (1, 1, N*H*W, C) -> (N, H, W, C).
+
+      llvm::SmallVector<int64_t> nhwcShape = {batchSize, inputHeight,
+                                              inputWidth, channels};
+      auto unflattenedInput = ttir_to_ttnn::utils::generateReshape(
+          mlir::cast<mlir::TypedValue<mlir::RankedTensorType>>(input),
+          nhwcShape, rewriter, op.getLoc());
+
+      // Apply padding to NHWC tensor.
+      llvm::SmallVector<int32_t> nhwcPadding = {
+          0, 0, paddingTop, paddingBottom, paddingLeft, paddingRight, 0, 0};
+      auto paddedInput = ttir_to_ttnn::utils::generatePad(
+          mlir::cast<mlir::TypedValue<mlir::RankedTensorType>>(
+              unflattenedInput.getResult()),
+          nhwcPadding, rewriter, op.getLoc());
+
+      // Flatten back to (1, 1, N*H'*W', C).
+      int64_t paddedHeight = inputHeight + paddingTop + paddingBottom;
+      int64_t paddedWidth = inputWidth + paddingLeft + paddingRight;
+      auto flattenedPaddedInput = ttir_to_ttnn::utils::generateNHWFlatten(
+          mlir::cast<mlir::TypedValue<mlir::RankedTensorType>>(
+              paddedInput.getResult()),
+          rewriter, op.getLoc());
+
+      input = flattenedPaddedInput.getResult();
+
+      inputHeight = paddedHeight;
+      inputWidth = paddedWidth;
+
+      paddingTop = 0;
+      paddingLeft = 0;
+      paddingBottom = 0;
+      paddingRight = 0;
+    }
+
     DenseI32ArrayAttr paddingAttr;
     // If padding is symmetric along both spatial dimensions, we can use the
     // {height, width} definition of padding.
@@ -1668,27 +1716,19 @@ public:
       paddingAttr = rewriter.getDenseI32ArrayAttr(
           {paddingTop, paddingLeft, paddingBottom, paddingRight});
     }
-
-    auto batchSize = adaptor.getFlattenedCompatInfo().getBatchSize();
-    constexpr unsigned int CHANNEL_DIM = 3;
-    auto channels = op.getInput().getType().getDimSize(CHANNEL_DIM);
     if constexpr (std::is_same_v<TTIROpTy, ttir::AvgPool2dOp>) {
       rewriter.replaceOpWithNewOp<TTNNOpTy>(
           op, this->getTypeConverter()->convertType(op.getResult().getType()),
-          adaptor.getInput(), batchSize,
-          adaptor.getFlattenedCompatInfo().getInputHeight(),
-          adaptor.getFlattenedCompatInfo().getInputWidth(), channels,
-          kernelSizeAttr, strideAttr, paddingAttr, dilationAttr,
+          input, batchSize, inputHeight, inputWidth, channels, kernelSizeAttr,
+          strideAttr, paddingAttr, dilationAttr,
           /*memory_config=*/nullptr,
           /* applied_shard_scheme=*/nullptr, adaptor.getCeilMode(),
           /* in_place_halo=*/false, adaptor.getCountIncludePad());
     } else if constexpr (std::is_same_v<TTIROpTy, ttir::MaxPool2dOp>) {
       rewriter.replaceOpWithNewOp<TTNNOpTy>(
           op, this->getTypeConverter()->convertType(op.getResult().getType()),
-          adaptor.getInput(), batchSize,
-          adaptor.getFlattenedCompatInfo().getInputHeight(),
-          adaptor.getFlattenedCompatInfo().getInputWidth(), channels,
-          kernelSizeAttr, strideAttr, paddingAttr, dilationAttr,
+          input, batchSize, inputHeight, inputWidth, channels, kernelSizeAttr,
+          strideAttr, paddingAttr, dilationAttr,
           /*memory_config=*/nullptr,
           /* applied_shard_scheme=*/nullptr, adaptor.getCeilMode(),
           /* in_place_halo=*/false);
@@ -1703,9 +1743,7 @@ public:
       }
 
       rewriter.replaceOpWithNewOp<ttnn::MaxPool2dWithIndicesOp>(
-          op, resultTypes, adaptor.getInput(), batchSize,
-          adaptor.getFlattenedCompatInfo().getInputHeight(),
-          adaptor.getFlattenedCompatInfo().getInputWidth(), channels,
+          op, resultTypes, input, batchSize, inputHeight, inputWidth, channels,
           kernelSizeAttr, strideAttr, paddingAttr, dilationAttr,
           /*memory_config=*/nullptr,
           /* applied_shard_scheme=*/nullptr, adaptor.getCeilMode(),
@@ -1853,14 +1891,143 @@ public:
   LogicalResult
   matchAndRewrite(ttir::MeshShardOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (adaptor.getShardType() == ttcore::MeshShardType::Identity) {
+      // Use ttnn.mesh_shard op for now. This is a temporary workaround until we
+      // have a proper way to handle identity shard type.
+      auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+      rewriter.replaceOpWithNewOp<ttnn::MeshShardOp>(
+          op, this->getTypeConverter()->convertType(op.getType()),
+          adaptor.getInput(), device, adaptor.getShardDirection(),
+          adaptor.getShardType(), adaptor.getShardShape(),
+          adaptor.getShardDims());
+      return success();
+    }
 
-    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
-    rewriter.replaceOpWithNewOp<ttnn::MeshShardOp>(
+    switch (adaptor.getShardDirection()) {
+    case ttcore::MeshShardDirection::FullToShard:
+      return rewriteFullToShard(op, adaptor, rewriter);
+    case ttcore::MeshShardDirection::ShardToFull:
+      return rewriteShardToFull(op, adaptor, rewriter);
+    }
+    return failure();
+  }
+
+  LogicalResult rewriteFullToShard(ttir::MeshShardOp op, OpAdaptor adaptor,
+                                   ConversionPatternRewriter &rewriter) const {
+    auto meshDevice = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+
+    auto srcMeshShapeAttr = meshDevice.getMeshShapeAttr();
+    if (!srcMeshShapeAttr) {
+      op.emitError("Mesh shape is not available");
+      return failure();
+    }
+    // TODO(hkwonTT): Support N-Dimensional mesh shape
+    SmallVector<uint32_t, 2> meshShape;
+    meshShape.push_back(srcMeshShapeAttr.getY());
+    meshShape.push_back(srcMeshShapeAttr.getX());
+
+    mlir::MLIRContext *context = op.getContext();
+    SmallVector<ttnn::PlacementAttr, 2> placements;
+    if (adaptor.getShardType() == ttcore::MeshShardType::Replicate) {
+      placements.resize(
+          meshShape.size(),
+          ttnn::PlacementAttr::get(
+              context, ttnn::PlacementType::Replicate,
+              IntegerAttr::get(IntegerType::get(context, 32), -1)));
+    } else if (adaptor.getShardType() == ttcore::MeshShardType::Devices) {
+      auto shardDims = adaptor.getShardDims();
+      for (int64_t dim : shardDims) {
+        placements.push_back(ttnn::PlacementAttr::get(
+            context,
+            dim >= 0 ? ttnn::PlacementType::Shard
+                     : ttnn::PlacementType::Replicate,
+            IntegerAttr::get(IntegerType::get(context, 32), dim)));
+      }
+    } else {
+      op.emitError("Unsupported shard type: " +
+                   stringifyMeshShardType(adaptor.getShardType()));
+      return failure();
+    }
+
+    SmallVector<mlir::IntegerAttr, 2> meshShapeAttr;
+    for (uint32_t dim : meshShape) {
+      meshShapeAttr.push_back(rewriter.getUI32IntegerAttr(dim));
+    }
+    rewriter.replaceOpWithNewOp<ttnn::DistributeTensorOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), device, adaptor.getShardDirection(),
-        adaptor.getShardType(), adaptor.getShardShape(),
-        adaptor.getShardDims());
+        adaptor.getInput(),
+        ttnn::MeshMapperConfigAttr::get(context, placements, meshShapeAttr),
+        meshDevice, nullptr);
+    return success();
+  }
 
+  LogicalResult rewriteShardToFull(ttir::MeshShardOp op, OpAdaptor adaptor,
+                                   ConversionPatternRewriter &rewriter) const {
+
+    auto meshDevice = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+
+    auto meshShapeAttr = meshDevice.getMeshShapeAttr();
+    if (!meshShapeAttr) {
+      op.emitError("Mesh shape is not available");
+      return failure();
+    }
+    // TODO(hkwonTT): Support N-Dimensional mesh shape
+    SmallVector<uint32_t, 2> fullMeshShape = {
+        static_cast<uint32_t>(meshShapeAttr.getY()),
+        static_cast<uint32_t>(meshShapeAttr.getX())};
+
+    SmallVector<int32_t, 2> composerDims;
+    SmallVector<uint32_t, 2> targetSubMeshShape;
+    if (adaptor.getShardType() == ttcore::MeshShardType::Replicate) {
+      composerDims.push_back(0);
+      targetSubMeshShape.push_back(1);
+    } else if (adaptor.getShardType() == ttcore::MeshShardType::Devices) {
+      auto shardDims = adaptor.getShardDims();
+      auto inputRank =
+          mlir::cast<RankedTensorType>(adaptor.getInput().getType()).getRank();
+
+      auto getNonOverlappingDim = [&]() -> int {
+        const auto &dims = composerDims;
+        for (int d = inputRank - 1; d >= 0; --d) {
+          if (!llvm::is_contained(shardDims, d) &&
+              !llvm::is_contained(dims, d)) {
+            return d;
+          }
+        }
+        return -1;
+      };
+      for (size_t dimIdx = 0; dimIdx < shardDims.size(); ++dimIdx) {
+        auto dim = shardDims[dimIdx];
+        if (dim >= 0) {
+          composerDims.push_back(static_cast<int>(dim));
+          targetSubMeshShape.push_back(fullMeshShape[dimIdx]);
+        } else {
+          composerDims.push_back(getNonOverlappingDim());
+          targetSubMeshShape.push_back(1);
+        }
+      }
+
+    } else {
+      op.emitError("Unsupported shard type: " +
+                   stringifyMeshShardType(adaptor.getShardType()));
+      return failure();
+    }
+    SmallVector<mlir::IntegerAttr, 2> targetMeshShapeAttr;
+    for (int32_t shape : targetSubMeshShape) {
+      targetMeshShapeAttr.push_back(rewriter.getUI32IntegerAttr(shape));
+    }
+
+    SmallVector<mlir::IntegerAttr, 2> composerDimsAttr;
+    for (int32_t dim : composerDims) {
+      composerDimsAttr.push_back(rewriter.getI32IntegerAttr(dim));
+    }
+
+    auto meshComposerConfig = ttnn::MeshComposerConfigAttr::get(
+        op.getContext(), composerDimsAttr, targetMeshShapeAttr);
+
+    rewriter.replaceOpWithNewOp<ttnn::AggregateTensorOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), meshComposerConfig, meshDevice);
     return success();
   }
 };
@@ -2019,7 +2186,8 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::ScatterOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getIndex(), adaptor.getSource(),
-        rewriter.getI32IntegerAttr(op.getDim()), nullptr);
+        rewriter.getI32IntegerAttr(op.getDim()),
+        adaptor.getScatterReduceTypeAttr(), /*memory_config=*/nullptr);
     return success();
   }
 };
