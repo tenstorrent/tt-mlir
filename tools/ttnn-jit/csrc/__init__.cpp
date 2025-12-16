@@ -22,18 +22,18 @@ namespace py = pybind11;
 
 namespace mlir::tt::ttnn::jit {
 
-std::vector<::ttnn::Tensor> convert_args_to_tensors(nb::args args) {
-  std::vector<::ttnn::Tensor> tensor_args;
+std::vector<::ttnn::Tensor> convertArgsToTensors(nb::args args) {
+  std::vector<::ttnn::Tensor> tensorArgs;
   for (auto arg : args) {
-    py::handle arg_pybind_obj(arg.ptr());
-    if (py::isinstance<::ttnn::Tensor>(arg_pybind_obj)) {
-      tensor_args.push_back(py::cast<::ttnn::Tensor>(arg_pybind_obj));
+    py::handle argPybindObj(arg.ptr());
+    if (py::isinstance<::ttnn::Tensor>(argPybindObj)) {
+      tensorArgs.push_back(py::cast<::ttnn::Tensor>(argPybindObj));
     } else {
       throw std::runtime_error(
           "Unsupported argument type: expected ttnn.Tensor");
     }
   }
-  return tensor_args;
+  return tensorArgs;
 }
 
 // NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
@@ -46,19 +46,19 @@ NB_MODULE(_ttnn_jit, m) {
       .def(nb::init<std::size_t>(), nb::rv_policy::take_ownership)
       .def("contains",
            [](JitCache *self, nb::args args) {
-             std::vector<::ttnn::Tensor> tensor_args =
-                 convert_args_to_tensors(args);
-             return self->contains(tensor_args);
+             std::vector<::ttnn::Tensor> tensorArgs =
+                 convertArgsToTensors(args);
+             return self->contains(tensorArgs);
            })
       .def("get",
            [](JitCache *self, nb::args args) {
              // Note: Along with tensors, we should allow any other params to be
              // passed into a jit'ed function
-             std::vector<::ttnn::Tensor> tensor_args =
-                 convert_args_to_tensors(args);
+             std::vector<::ttnn::Tensor> tensorArgs =
+                 convertArgsToTensors(args);
 
              std::shared_ptr<::tt::runtime::Binary> binary =
-                 self->get(tensor_args);
+                 self->get(tensorArgs);
 
              return *binary;
            })
@@ -69,11 +69,11 @@ NB_MODULE(_ttnn_jit, m) {
              // from python, without using MLIR cmake macros for python
              // bindings.
              MlirContext ctx = mlirContextCreate();
-             mlir::MLIRContext *ctx_ptr = unwrap(ctx);
+             mlir::MLIRContext *ctxPtr = unwrap(ctx);
              mlir::DialectRegistry registry;
              mlir::tt::registerAllDialects(registry);
              mlir::registerAllToLLVMIRTranslations(registry);
-             ctx_ptr->appendDialectRegistry(registry);
+             ctxPtr->appendDialectRegistry(registry);
              MlirModule module = mlirModuleCreateParse(
                  ctx, mlirStringRefCreate(ir.c_str(), ir.size()));
              if (mlirModuleIsNull(module)) {
@@ -81,12 +81,12 @@ NB_MODULE(_ttnn_jit, m) {
                mlirContextDestroy(ctx);
                throw std::runtime_error("Failed to parse IR string");
              }
-             std::vector<::ttnn::Tensor> tensor_args =
-                 convert_args_to_tensors(args);
+             std::vector<::ttnn::Tensor> tensorArgs =
+                 convertArgsToTensors(args);
 
              mlir::Operation *op = unwrap(mlirModuleGetOperation(module));
              JitCacheEntry binary =
-                 self->compile_and_insert(op, tensor_args, options);
+                 self->compileAndInsert(op, tensorArgs, options);
 
              if (debug) {
                op->dumpPretty();
@@ -96,7 +96,7 @@ NB_MODULE(_ttnn_jit, m) {
              mlirContextDestroy(ctx);
              return *binary;
            })
-      .def("num_entries", &JitCache::num_entries);
+      .def("num_entries", &JitCache::numEntries);
 }
 // NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
 } // namespace mlir::tt::ttnn::jit

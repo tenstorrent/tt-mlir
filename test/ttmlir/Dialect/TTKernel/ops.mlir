@@ -79,3 +79,22 @@ func.func @test_copy_dest_values() -> () {
   // CHECK: ttkernel.copy_dest_values(%{{.*}}, %{{.*}}) : (index, index) -> ()
   return
 }
+
+// CHECK-LABEL: func.func @test_noc_trid_and_noc_nonconst
+// CHECK-SAME: (%[[TRID:.*]]: i32, %[[NOC:.*]]: i8)
+func.func @test_noc_trid_and_noc_nonconst(%trid: i32, %noc: i8) {
+  // CHECK: ttkernel.noc_async_read_set_trid(%[[TRID]], %[[NOC]]) : (i32, i8) -> ()
+  ttkernel.noc_async_read_set_trid(%trid, %noc) : (i32, i8) -> ()
+  return
+}
+
+// CHECK-LABEL: func.func @test_noc_trid_with_implicit_noc
+// CHECK-SAME: (%[[TRID:.*]]: i32)
+func.func @test_noc_trid_with_implicit_noc(%trid: i32) {
+  // CHECK: %[[C0:.*]] = arith.constant 0 : i32
+  // CHECK: ttkernel.noc_async_read_one_packet_with_state_with_trid(%[[C0]], %[[C0]], %[[C0]], %[[TRID]]) : (i32, i32, i32, i32) -> ()
+  %c0 = arith.constant 0 : i32
+  "ttkernel.noc_async_read_one_packet_with_state_with_trid"(%c0, %c0, %c0, %trid)
+      : (i32, i32, i32, i32) -> ()
+  return
+}

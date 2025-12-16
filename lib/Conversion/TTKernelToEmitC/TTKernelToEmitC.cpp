@@ -803,7 +803,6 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::SignTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SignTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::CeilTileOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::CeilTileF32Op>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::CopyDestValuesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::CopyDestValuesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::CosTileInitOp>,
@@ -821,7 +820,6 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExpTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExpTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FloorTileOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::FloorTileF32Op>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FillTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FillTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GeluTileInitOp>,
@@ -905,10 +903,19 @@ public:
             ttkernel::NocAsyncReadOnePacketSetStateOp>,
         TTKernelToEmitCOpaqueRewriter<
             ttkernel::NocAsyncReadOnePacketWithStateOp>,
+        TTKernelToEmitCOpaqueRewriter<
+            ttkernel::NocAsyncReadOnePacketWithStateWithTridOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncReadSetTridOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncReadBarrierOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncReadBarrierWithTridOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteSetTridOp>,
+        TTKernelToEmitCOpaqueRewriter<
+            ttkernel::NocAsyncWriteOnePacketWithTridOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteBarrierOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteBarrierWithTridOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::ResetNocTridBarrierCounterOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocMulticastAddrOp>,
         TTKernelToEmitCOpaqueRewriter<
             ttkernel::ExperimentalGetNocMulticastAddrOp>,

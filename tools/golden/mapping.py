@@ -17,7 +17,7 @@ import itertools
 import operator
 import torch
 import torch.nn.functional
-from ttmlir.dialects import ttir, stablehlo, d2m, ttnn
+from ttmlir.dialects import ttir, stablehlo, d2m, ttnn, ttcore
 from ttmlir.ir import *
 
 
@@ -1776,27 +1776,6 @@ def mean_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     return torch.mean(input_tensor, dim=dim_arg, keepdim=keep_dim)
 
 
-def reduce_and_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
-    """
-    Golden function for reduce_and operation with TTIR parameter names.
-
-    Parameters
-    ----------
-    input_tensor : GoldenMapTensor
-        Input tensor to reduce
-    **kwargs : dict
-        Keyword arguments including 'dim_arg' and 'keep_dim'
-
-    Returns
-    -------
-    GoldenMapTensor
-        Reduced tensor
-    """
-    dim_arg = kwargs.get("dim_arg", [0])
-    keep_dim = kwargs.get("keep_dim", True)
-    return torch.all(input_tensor, dim=tuple(dim_arg), keepdim=keep_dim)
-
-
 def transpose_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for transpose operation with TTIR parameter names.
@@ -2589,6 +2568,30 @@ def stablehlo_not_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTe
 
 
 ################ TTIR Op Golden Functions ###############
+
+
+def ttir_reduce_and_golden(
+    input_tensor: GoldenMapTensor,
+    dim_arg: ArrayAttr,
+    keep_dim: BoolAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    dim_arg = unpack_mlir_attr(dim_arg)
+    keep_dim = unpack_mlir_attr(keep_dim)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.all(input_tensor, dim=tuple(dim_arg), keepdim=keep_dim).to(
+        output_dtype
+    )
+
+
+def ttir_repeat_golden(
+    input: GoldenMapTensor,
+    repeat_dimensions_attr: DenseI64ArrayAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    repeat_dimensions = unpack_mlir_attr(repeat_dimensions_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return input.repeat(repeats=repeat_dimensions).to(output_dtype)
 
 
 def ttir_arange_golden(
@@ -3571,13 +3574,39 @@ def ttir_scatter_golden(
     index: GoldenMapTensor,
     source: GoldenMapTensor,
     dim: IntegerAttr,
+    scatter_reduce_type_attr: ReduceTypeAttr,
     output_type_mlir: Type,
 ) -> GoldenMapTensor:
     dim_value = unpack_mlir_attr(dim)
+    scatter_reduce_type = ttcore.ir.ReduceTypeAttr.maybe_downcast(
+        scatter_reduce_type_attr
+    ).value
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     index_copy = index.clone()
     index_copy = index_copy.to(torch.int64)
-    return torch.scatter(input_tensor, dim_value, index_copy, source).to(output_dtype)
+
+    if scatter_reduce_type == ttcore.ir.ReduceType.Sum:
+        out_tensor = torch.scatter_reduce(
+            input_tensor, dim_value, index_copy, source, reduce="sum"
+        )
+    elif scatter_reduce_type == ttcore.ir.ReduceType.Prod:
+        out_tensor = torch.scatter_reduce(
+            input_tensor, dim_value, index_copy, source, reduce="prod"
+        )
+    elif scatter_reduce_type == ttcore.ir.ReduceType.Max:
+        out_tensor = torch.scatter_reduce(
+            input_tensor, dim_value, index_copy, source, reduce="amax"
+        )
+    elif scatter_reduce_type == ttcore.ir.ReduceType.Min:
+        out_tensor = torch.scatter_reduce(
+            input_tensor, dim_value, index_copy, source, reduce="amin"
+        )
+    elif scatter_reduce_type == ttcore.ir.ReduceType.Invalid:
+        out_tensor = torch.scatter(input_tensor, dim_value, index_copy, source)
+    else:
+        raise ValueError(f"Unsupported scatter reduce type: {scatter_reduce_type}")
+
+    return out_tensor.to(output_dtype)
 
 
 def ttir_reverse_golden(
@@ -4007,13 +4036,13 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.MaxOp: ttir_max_golden,
     ttir.MinOp: min_golden,
     ttir.ProdOp: prod_golden,
-    ttir.ReduceAndOp: reduce_and_golden,
+    ttir.ReduceAndOp: ttir_reduce_and_golden,
     ttir.ReduceOrOp: ttir_reduce_or_golden,
     # Tensor manipulation
     ttir.SortOp: ttir_sort_golden,
     ttir.TransposeOp: transpose_golden,
     ttir.ConcatOp: ttir_concat_golden,
-    ttir.RepeatOp: repeat_golden,
+    ttir.RepeatOp: ttir_repeat_golden,
     ttir.RepeatInterleaveOp: repeat_interleave_golden,
     ttir.ReshapeOp: ttir_reshape_golden,
     ttir.SqueezeOp: squeeze_golden,

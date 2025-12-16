@@ -197,7 +197,7 @@ def test_repeat(shape: Shape, dims: List[int], dtype, target: str, request, devi
         def repeat_wrapper(
             in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
         ):
-            return builder.repeat(in0, dims=dims, unit_attrs=unit_attrs)
+            return builder.repeat(in0, repeat_dimensions=dims, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
         module,

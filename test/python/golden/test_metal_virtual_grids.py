@@ -31,22 +31,87 @@ pytestmark = pytest.mark.frontend("ttir")
 
 
 def create_tileid_debug_tensor(shape: Shape, dtype: torch.dtype):
-    """Create a debug tensor where each value in a tile is the row-major tile ID"""
-    # where value = (pos[1] / 32) * shape[0] + (pos[0] / 32)
+    """Create a debug tensor where each value in a 32x32 tile equals its multi-dimensional tile ID.
+
+    The tile grid is computed over the last two dimensions (32x32 tiles); outer dimensions get unique
+    tile coordinates but tile extent is only 32x32 in the inner dimensions. The scalar tile ID uses
+    row-major ordering across the full multi-dimensional tile grid.
+    """
     TILE_DIM_SIZE = int(32)
-    ROW_STRIDE = shape[1] // TILE_DIM_SIZE
-    y_coords, x_coords = torch.meshgrid(
-        torch.arange(shape[0]), torch.arange(shape[1]), indexing="ij"
-    )
-    tile_y = y_coords // TILE_DIM_SIZE
-    tile_x = x_coords // TILE_DIM_SIZE
-    input_tensor = (tile_y * ROW_STRIDE + tile_x).float()
-    return input_tensor.to(dtype)
+    assert len(shape) >= 2, "Shape must have at least 2 dimensions."
+    shape = tuple(int(d) for d in shape)
+    ndim = len(shape)
+
+    # Compute number of tiles along each dimension (ceil division for partial tiles)
+    num_tiles_per_dim = [(dim + TILE_DIM_SIZE - 1) // TILE_DIM_SIZE for dim in shape]
+
+    # Generate meshgrids for tile coordinates across all dimensions
+    tile_coords_list = []
+    for i in range(ndim):
+        dim_indices = torch.arange(shape[i])
+        # For outer dims (i < ndim-2), use full dimension indexing as "tile coords"
+        # For inner two dims (i >= ndim-2), use 32-sized tile indexing
+        if i >= ndim - 2:
+            tile_coord = dim_indices // TILE_DIM_SIZE
+        else:
+            tile_coord = (
+                dim_indices  # Each element in outer dim is its own "tile coord"
+            )
+        tile_coords_list.append(tile_coord)
+
+    # Compute the meshgrid of tile coordinates across all dimensions
+    tile_coords = torch.meshgrid(*tile_coords_list, indexing="ij")
+
+    # Compute the scalar tile ID using row-major ordering across the full grid
+    tile_id = torch.zeros_like(tile_coords[0])
+    stride = 1
+    for i in reversed(range(ndim)):
+        tile_id += tile_coords[i] * stride
+        stride *= num_tiles_per_dim[i]
+
+    return tile_id.to(dtype)
 
 
+@pytest.mark.skip_config(["p150"], ["p300"], reason="See issue #6248")
 @pytest.mark.parametrize(
     "shape",
-    [(64, 4096), (8192, 32), (128, 4096), (256, 8192)],
+    [
+        (32, 4096),
+        (4096, 32),
+        (2048, 32),
+        (1, 1, 1, 1, 128, 128),
+        (1, 1, 1, 1, 2, 32, 512),
+        (1, 1, 1, 1, 32, 32),
+        (1, 1, 1, 4, 128, 256),
+        (1, 1, 2, 1, 1, 512, 64),
+        (1, 1, 32, 128),
+        (1, 1, 32, 32),
+        (1, 1, 64, 32),
+        (1, 2, 1, 1, 1, 128, 32),
+        (1, 2, 1, 1, 2, 1024, 32),
+        (1, 2, 1, 4, 128, 32),
+        (1, 2, 1, 4, 32, 64),
+        (1, 2, 256, 128),
+        (1, 4, 2, 1, 128, 32),
+        (1, 512, 32),
+        (2, 1, 1, 1, 1, 256, 256),
+        (2, 1, 2, 1, 512, 32),
+        (2, 1, 2, 256, 32),
+        (2, 1, 256, 256),
+        (2, 1, 4, 64, 64),
+        (2, 2, 1, 2, 128, 64),
+        (2, 32, 64),
+        (2, 4, 4, 1, 2, 1, 32, 32),
+        (32, 32, 128),
+        (32, 32, 32),
+        (4, 1, 2, 2, 1, 64, 128),
+        (4, 2, 1, 2, 1, 64, 32),
+        (4, 2, 32, 512),
+        (4, 256, 128),
+        (4, 32, 32),
+        (4, 64, 64),
+        (8, 1, 512, 32),
+    ],  # (64, 4096), (8192, 32), (128, 4096), (256, 8192)],
     ids=shape_str,
 )
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
@@ -59,7 +124,8 @@ def test_virtual_grid_eltwise(
         def eltwise_wrapper(
             in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
         ):
-            input_tensor = create_tileid_debug_tensor(shape, dtype)
+            # input_tensor = create_tileid_debug_tensor(shape, dtype)
+            input_tensor = torch.randint(0, 1001, shape, dtype=dtype)
 
             # abs is an identity function for positive integers, so use it for debugging ease
             result = builder.abs(in0, unit_attrs=unit_attrs)
@@ -69,11 +135,15 @@ def test_virtual_grid_eltwise(
 
             return result
 
+    # device shape override is needed so that shapes are equivalently divisible
+    # on both WH and BH.
+    options = [f"collapse-tensors-2d=0", "override-device-shape=8,8"]
+
     compile_and_execute_ttir(
         module,
         device=device,
         test_base=request.node.name,
-        print_ir="test_logical_not_ir",
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}} ",
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,

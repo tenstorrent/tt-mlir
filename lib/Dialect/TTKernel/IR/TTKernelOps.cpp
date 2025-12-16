@@ -204,5 +204,17 @@ static std::string verifyTilizeUntilizeCBs(CBType tilizedCB, CBType scalarCB) {
   }
   return success();
 }
+::mlir::LogicalResult ResetNocTridBarrierCounterOp::verify() {
+  Value noc = getNoc();
+  if (noc) {
+    auto nocValue = getConstantIntValue(noc);
+    constexpr int32_t kNumNocs =
+        TTKernelTridNocOpTrait<ResetNocTridBarrierCounterOp>::kNumNocs;
+    if (nocValue && (*nocValue < 0 || *nocValue >= kNumNocs)) {
+      return emitOpError() << "noc must be in [0, " << (kNumNocs - 1) << "].";
+    }
+  }
+  return success();
+}
 
 } // namespace mlir::tt::ttkernel
