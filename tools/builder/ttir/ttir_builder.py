@@ -161,6 +161,255 @@ class TTIRBuilder(Builder):
 
     # ----- Public Op Generators ----
 
+    ############### ttir.ReduceAndOp ###############
+
+    @tag(ttir.ReduceAndOp)
+    def reduce_and(
+        self,
+        in0: Operand,
+        keep_dim: bool,
+        dim_arg: List[int] = None,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.reduce_and)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        if dim_arg is None:
+            dim_arg = list(range(len(self.get_shape(in0))))
+        dim_arg_attr = ArrayAttr.get(
+            [IntegerAttr.get(IntegerType.get_signless(32), d) for d in dim_arg]
+        )
+        keep_dim_attr = BoolAttr.get(keep_dim, self._ctx)
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            input0, dim_arg_attr, keep_dim_attr, mlir_output_type
+        )
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            in0,
+            keep_dim_attr,
+            dim_arg=dim_arg_attr,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op.result, golden_output)
+
+        return op.result
+
+    @parse(ttir.ReduceAndOp)
+    def reduce_and_parser(
+        self,
+        old_op: ttir.ReduceAndOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.reduce_and_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+        keep_dim_attr = old_op.keep_dim
+        dim_arg_attr = old_op.dim_arg
+
+        new_op = ttir_op(
+            result,
+            in0,
+            keep_dim_attr,
+            dim_arg=dim_arg_attr,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(
+                input0, dim_arg_attr, keep_dim_attr, old_op.result.type.element_type
+            )
+            self._set_golden_tensor(new_op.result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op.result
+        return new_op, op_map_dictionary
+
+    @split(ttir.ReduceAndOp)
+    def reduce_and_split(
+        self,
+        old_op: ttir.ReduceAndOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.reduce_and_split)
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+
+        with old_ctx, old_loc:
+            reduce_module = Module.create()
+            reduce_builder = TTIRBuilder(old_ctx, old_loc)
+            op_input_types = [old_op.input.type]
+
+            with InsertionPoint(reduce_module.body):
+
+                @func.func(*op_input_types, name="reduce_and_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+                    new_op = ttir_op(
+                        result,
+                        in0,
+                        old_op.keep_dim,
+                        dim_arg=old_op.dim_arg,
+                        loc=old_op.location,
+                    )
+
+                    if not self._disable_golden_check:
+                        input0 = self._get_golden_tensor(old_op.input)
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_output = op_golden_function(
+                            input0, old_op.dim_arg, old_op.keep_dim, result.element_type
+                        )
+                        reduce_builder._set_golden_tensor(new_op.result, golden_output)
+                        reduce_builder._set_output_ordering([new_op.result])
+                        reduce_builder._set_golden_tensor(in0, input0)
+                        reduce_builder._set_input_ordering([in0])
+
+                    return new_op
+
+        return reduce_module, reduce_builder
+
+    ############### ttir.RepeatOp ###############
+
+    @tag(ttir.RepeatOp)
+    def repeat(
+        self,
+        in0: Operand,
+        repeat_dimensions: List[int],
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.repeat)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(in0)
+        repeat_dimensions_attr = DenseI64ArrayAttr.get(repeat_dimensions)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            input0, repeat_dimensions_attr, mlir_output_type
+        )
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            in0,
+            repeat_dimensions_attr,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op.result, golden_output)
+
+        return op.result
+
+    @parse(ttir.RepeatOp)
+    def repeat_parser(
+        self,
+        old_op: ttir.RepeatOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.repeat_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+        repeat_dimensions_attr = old_op.repeat_dimensions
+
+        new_op = ttir_op(
+            result,
+            in0,
+            repeat_dimensions_attr,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(
+                input0, repeat_dimensions_attr, old_op.result.type.element_type
+            )
+            self._set_golden_tensor(new_op.result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op.result
+        return new_op, op_map_dictionary
+
+    @split(ttir.RepeatOp)
+    def repeat_split(
+        self,
+        old_op: ttir.RepeatOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.repeat_split)
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+
+        with old_ctx, old_loc:
+            repeat_module = Module.create()
+            repeat_builder = TTIRBuilder(old_ctx, old_loc)
+            op_input_types = [old_op.input.type]
+
+            with InsertionPoint(repeat_module.body):
+
+                @func.func(*op_input_types, name="repeat_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+                    new_op = ttir_op(
+                        result,
+                        in0,
+                        old_op.repeat_dimensions,
+                        loc=old_op.location,
+                    )
+
+                    if not self._disable_golden_check:
+                        input0 = self._get_golden_tensor(old_op.input)
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_output = op_golden_function(
+                            input0, old_op.repeat_dimensions, result.element_type
+                        )
+                        repeat_builder._set_golden_tensor(new_op.result, golden_output)
+                        repeat_builder._set_output_ordering([new_op.result])
+                        repeat_builder._set_golden_tensor(in0, input0)
+                        repeat_builder._set_input_ordering([in0])
+
+                    return new_op
+
+        return repeat_module, repeat_builder
+
     ############### ttir.ArangeOp ###############
 
     @tag(ttir.ArangeOp)
@@ -8678,44 +8927,6 @@ class TTIRBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
-    # NOTE: Not useable. Boolean tensors are not supported by the runtime. Issue #1775
-    def reduce_and(
-        self,
-        in0: Operand,
-        dim_arg: List[int] = None,
-        keep_dim: bool = True,
-        unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
-        """
-        Creates ``ttir.reduce_and``.
-
-        *Logical AND reduction operation.*
-
-        Computes the logical AND of elements along specified dimensions.
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        keep_dim : bool, optional
-            If True, retains reduced dimensions with length 1 (default: True)
-        dim_args : Optional[List], optional
-            Dimensions to reduce over (default: None, reduces over all dimensions)
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            Tensor with logical AND values
-        """
-        return self._op_proxy(
-            ttir.ReduceAndOp,
-            [in0],
-            ttir_kwargs={"dim_arg": dim_arg, "keep_dim": keep_dim},
-            unit_attrs=unit_attrs,
-        )
-
     def prod(
         self,
         in0: Operand,
@@ -8885,37 +9096,6 @@ class TTIRBuilder(Builder):
             ttir.TransposeOp,
             [in0],
             ttir_kwargs=kwargs,
-            unit_attrs=unit_attrs,
-        )
-
-    def repeat(
-        self, in0: Operand, dims: List[int], unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
-        """
-        Creates ``ttir.repeat``.
-
-        *Tensor repeat operation.*
-
-        Repeats the tensor along each dimension the number of times given by dims.
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        dims : *List[int]*
-            Number of repetitions for each dimension
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            Tensor with repeated elements
-        """
-        return self._op_proxy(
-            ttir.RepeatOp,
-            [in0],
-            ttir_kwargs={"repeat_dimensions": dims},
             unit_attrs=unit_attrs,
         )
 
