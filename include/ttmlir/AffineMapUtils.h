@@ -373,6 +373,219 @@ buildPhysicalToDeviceMap(mlir::ArrayRef<int64_t> physicalShape,
   return mlir::AffineMap::get(rank, 0, deviceExprs, context);
 }
 
+inline std::optional<int64_t> getSumOfModuli(mlir::AffineExpr expr) {
+  if (auto binOp = llvm::dyn_cast<mlir::AffineBinaryOpExpr>(expr)) {
+    if (binOp.getKind() == mlir::AffineExprKind::Add) {
+      auto lhs = getSumOfModuli(binOp.getLHS());
+      auto rhs = getSumOfModuli(binOp.getRHS());
+      if (lhs.has_value() && rhs.has_value()) {
+        return (lhs.value() + rhs.value());
+      }
+    } else if (binOp.getKind() == mlir::AffineExprKind::Mod) {
+      if (auto rhsConst =
+              llvm::dyn_cast<mlir::AffineConstantExpr>(binOp.getRHS())) {
+        // We need to subtract 1, as the max value of the modulo op is one less
+        // than the modulus value.
+        return (rhsConst.getValue() - 1);
+      }
+    } else if (binOp.getKind() == mlir::AffineExprKind::Mul) {
+      if (auto rhsConst =
+              llvm::dyn_cast<mlir::AffineConstantExpr>(binOp.getRHS())) {
+        auto lhs = getSumOfModuli(binOp.getLHS());
+        if (lhs.has_value()) {
+          return lhs.value() * rhsConst.getValue();
+        }
+      }
+      if (auto lhsConst =
+              llvm::dyn_cast<mlir::AffineConstantExpr>(binOp.getLHS())) {
+        auto rhs = getSumOfModuli(binOp.getRHS());
+        if (rhs.has_value()) {
+          return rhs.value() * lhsConst.getValue();
+        }
+      }
+    }
+  }
+  return std::nullopt;
+}
+
+inline mlir::AffineExpr simplifyZeroFloorDivExpr(mlir::AffineExpr expr) {
+  if (auto binOp = llvm::dyn_cast<mlir::AffineBinaryOpExpr>(expr)) {
+    auto lhs = simplifyZeroFloorDivExpr(binOp.getLHS());
+    auto rhs = simplifyZeroFloorDivExpr(binOp.getRHS());
+
+    if (binOp.getKind() == mlir::AffineExprKind::FloorDiv) {
+      if (auto rhsConst = llvm::dyn_cast<mlir::AffineConstantExpr>(rhs)) {
+        int64_t divisor = rhsConst.getValue();
+        auto modSum = getSumOfModuli(lhs);
+        if (modSum.has_value() && modSum.value() < divisor) {
+          return mlir::getAffineConstantExpr(0, expr.getContext());
+        }
+      }
+    }
+
+    switch (binOp.getKind()) {
+    case mlir::AffineExprKind::Add:
+      return lhs + rhs;
+    case mlir::AffineExprKind::Mul:
+      return lhs * rhs;
+    case mlir::AffineExprKind::Mod:
+      return lhs % rhs;
+    case mlir::AffineExprKind::FloorDiv:
+      return lhs.floorDiv(rhs);
+    case mlir::AffineExprKind::CeilDiv:
+      return lhs.ceilDiv(rhs);
+    default:
+      return expr;
+    }
+  }
+  return expr;
+}
+
+/// Simplifies the affine map by finding sub expressions in results that always
+/// evaluate to zero.
+/// Specifically, it looks for: ((dim0 mod M) + (dim1 mod N) ... ) floorDiv Q.
+/// If sum(M, N, ...) <= Q, the expression is replaced with 0.
+inline mlir::AffineMap simplifyZeroFloorDiv(mlir::AffineMap map) {
+  mlir::SmallVector<mlir::AffineExpr> newResults;
+  for (auto result : map.getResults()) {
+    newResults.push_back(simplifyZeroFloorDivExpr(result));
+  }
+  return mlir::AffineMap::get(map.getNumDims(), map.getNumSymbols(), newResults,
+                              map.getContext());
+}
+
+inline std::optional<int64_t>
+getExprUpperBound(mlir::AffineExpr expr, mlir::ArrayRef<int64_t> dimBounds) {
+
+  if (auto dimExpr = llvm::dyn_cast<mlir::AffineDimExpr>(expr)) {
+    if (dimExpr.getPosition() < dimBounds.size()) {
+      return dimBounds[dimExpr.getPosition()] - 1;
+    }
+    return std::nullopt;
+  }
+  if (auto constExpr = llvm::dyn_cast<mlir::AffineConstantExpr>(expr)) {
+    // We conservatively return nullopt for negative constants to avoid
+    // handling sign issues in Mul/Div for upper bound calculation.
+    if (constExpr.getValue() < 0) {
+      return std::nullopt;
+    }
+    return constExpr.getValue();
+  }
+  if (auto binOp = llvm::dyn_cast<mlir::AffineBinaryOpExpr>(expr)) {
+
+    auto lhs = getExprUpperBound(binOp.getLHS(), dimBounds);
+
+    // Quick check for Mod with constant RHS
+    if (binOp.getKind() == mlir::AffineExprKind::Mod) {
+
+      auto lhs = getExprUpperBound(binOp.getLHS(), dimBounds);
+      if (auto rhsConst =
+              llvm::dyn_cast<mlir::AffineConstantExpr>(binOp.getRHS())) {
+        int64_t rhsVal = rhsConst.getValue();
+        if (rhsVal <= 0) {
+          return std::nullopt;
+        }
+        if (lhs.has_value()) {
+          auto r = std::min(lhs.value(), rhsVal - 1);
+          return r;
+        }
+        return rhsVal - 1;
+      }
+      return std::nullopt;
+    }
+
+    if (binOp.getKind() == mlir::AffineExprKind::FloorDiv) {
+      if (auto rhsConst =
+              llvm::dyn_cast<mlir::AffineConstantExpr>(binOp.getRHS())) {
+        int64_t rhsVal = rhsConst.getValue();
+        if (rhsVal <= 0) {
+          return std::nullopt;
+        }
+        if (lhs.has_value()) {
+          return lhs.value() / rhsVal;
+        }
+      }
+      return std::nullopt;
+    }
+
+    auto rhs = getExprUpperBound(binOp.getRHS(), dimBounds);
+
+    if (lhs.has_value() && rhs.has_value()) {
+      switch (binOp.getKind()) {
+      case mlir::AffineExprKind::Add: {
+        return lhs.value() + rhs.value();
+      }
+      case mlir::AffineExprKind::Mul: {
+        return lhs.value() * rhs.value();
+      }
+      default:
+        return std::nullopt;
+      }
+    }
+  }
+  return std::nullopt;
+}
+
+inline mlir::AffineExpr
+simplifyRedundantModExpr(mlir::AffineExpr expr,
+                         mlir::ArrayRef<int64_t> dimBounds) {
+  if (auto binOp = llvm::dyn_cast<mlir::AffineBinaryOpExpr>(expr)) {
+    auto lhs = simplifyRedundantModExpr(binOp.getLHS(), dimBounds);
+    auto rhs = simplifyRedundantModExpr(binOp.getRHS(), dimBounds);
+
+    if (binOp.getKind() == mlir::AffineExprKind::Mod) {
+      if (auto rhsConst = llvm::dyn_cast<mlir::AffineConstantExpr>(rhs)) {
+        auto lhsUB = getExprUpperBound(lhs, dimBounds);
+        if (lhsUB.has_value() && lhsUB.value() < rhsConst.getValue()) {
+          return lhs;
+        }
+      }
+      return lhs % rhs;
+    }
+    if (binOp.getKind() == mlir::AffineExprKind::FloorDiv) {
+      if (auto rhsConst = llvm::dyn_cast<mlir::AffineConstantExpr>(rhs)) {
+        auto lhsUB = getExprUpperBound(lhs, dimBounds);
+        if (lhsUB.has_value() && lhsUB.value() < rhsConst.getValue()) {
+          return mlir::getAffineConstantExpr(0, expr.getContext());
+        }
+      }
+      return lhs.floorDiv(rhs);
+    }
+
+    switch (binOp.getKind()) {
+    case mlir::AffineExprKind::Add:
+      return lhs + rhs;
+    case mlir::AffineExprKind::Mul:
+      return lhs * rhs;
+    case mlir::AffineExprKind::FloorDiv:
+      return lhs.floorDiv(rhs);
+    case mlir::AffineExprKind::CeilDiv:
+      return lhs.ceilDiv(rhs);
+    default:
+      return expr;
+    }
+  }
+  return expr;
+}
+
+inline mlir::AffineMap simplifyRedundantMod(mlir::AffineMap map,
+                                            mlir::ArrayRef<int64_t> dimBounds) {
+  TT_assertv(map.getNumDims() == dimBounds.size(),
+             "Number of dimension bounds must match number of map dimensions");
+  mlir::SmallVector<mlir::AffineExpr> newResults;
+  for (auto result : map.getResults()) {
+    newResults.push_back(simplifyRedundantModExpr(result, dimBounds));
+  }
+  return mlir::AffineMap::get(map.getNumDims(), map.getNumSymbols(), newResults,
+                              map.getContext());
+}
+
+inline mlir::AffineMap
+simplifyAffineMapWithRangeAnalysis(mlir::AffineMap map,
+                                   mlir::ArrayRef<int64_t> dimBounds) {
+  return simplifyRedundantMod(simplifyZeroFloorDiv(map), dimBounds);
+}
+
 } // namespace ttmlir::utils
 
 #endif // TTMLIR_AFFINEMAPUTILS_H
