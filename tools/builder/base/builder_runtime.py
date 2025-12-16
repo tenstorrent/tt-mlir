@@ -426,41 +426,15 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
             return
 
         try:
-            cal_atol, cal_rtol, cal_pcc = get_atol_rtol_pcc(
-                golden_tensor_torch,
-                output_tensor_torch,
+            results = check_golden_outputs(
+                [golden_tensor_torch],
+                [output_tensor_torch],
+                callback_runtime_config.pcc,
                 callback_runtime_config.atol,
                 callback_runtime_config.rtol,
-            )
-
-            result = "pass"
-            if cal_pcc < callback_runtime_config.pcc:
-                result = "fail"
-            if (
-                callback_runtime_config.check_atol
-                and cal_atol > callback_runtime_config.atol
-            ):
-                result = "fail"
-            if (
-                callback_runtime_config.check_rtol
-                and cal_rtol > callback_runtime_config.rtol
-            ):
-                result = "fail"
-
-            results = {}
-            results["result"] = result
-            results["expected_pcc"] = callback_runtime_config.pcc
-            results["actual_pcc"] = cal_pcc
-            results["expected_atol"] = callback_runtime_config.atol
-            results["actual_atol"] = cal_atol
-            results["expected_rtol"] = callback_runtime_config.rtol
-            results["actual_rtol"] = cal_rtol
-            results["allclose"] = torch.allclose(
-                golden_tensor_torch,
-                output_tensor_torch,
-                atol=callback_runtime_config.atol,
-                rtol=callback_runtime_config.rtol,
-            )
+                callback_runtime_config.check_atol,
+                callback_runtime_config.check_rtol,
+            )["output_0"][device_id]
             if (
                 golden_tensor_torch.dtype != torch.uint16
                 and golden_tensor_torch.dtype != torch.uint32
@@ -754,12 +728,7 @@ def execute_py(
     if not disable_golden:
         golden_outputs_torch = []
         for i in range(len(outputs)):
-            output_key = f"output_{i}"
-            if output_key in golden_torch_tensors:
-                golden_outputs_torch.append(golden_torch_tensors[output_key][0])
-            else:
-                print(f"Warning: No golden found for {output_key}, skipping check")
-                continue
+            golden_outputs_torch.append(golden_torch_tensors[f"output_{i}"][0])
 
         # Convert program outputs to torch tensors
         output_tensors_torch = []
