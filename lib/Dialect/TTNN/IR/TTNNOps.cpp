@@ -1093,26 +1093,16 @@ verifyPoolingOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
                 mlir::RankedTensorType inputType,
                 llvm::ArrayRef<int32_t> kernelSize, int32_t inputHeight,
                 int32_t inputWidth, int32_t batchSize, int32_t channels,
-                llvm::ArrayRef<int32_t> padding, llvm::StringRef opName) {
+                llvm::StringRef opName) {
   ::llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
 
-  if (padding.size() != 4 && padding.size() != 2) {
-    return emitOpError() << "Padding must have 2 or 4 elements. Received "
-                         << padding.size() << " elements.";
-  }
-
-  int32_t paddingHeight =
-      padding.size() == 4 ? padding[0] + padding[2] : 2 * padding[0];
-  int32_t paddingWidth =
-      padding.size() == 4 ? padding[1] + padding[3] : 2 * padding[1];
-
-  if (kernelSize[0] > inputHeight + paddingHeight) {
+  if (kernelSize[0] > inputHeight) {
     return emitOpError() << "Kernel height " << kernelSize[0]
                          << " is greater than input height " << inputHeight
                          << ". This " << opName << " configuration is invalid.";
   }
 
-  if (kernelSize[1] > inputWidth + paddingWidth) {
+  if (kernelSize[1] > inputWidth) {
     return emitOpError() << "Kernel width " << kernelSize[1]
                          << " is greater than input width " << inputWidth
                          << ". This " << opName << " configuration is invalid.";
@@ -1160,8 +1150,7 @@ verifyPoolingOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 ::mlir::LogicalResult mlir::tt::ttnn::AvgPool2dOp::verify() {
   return verifyPoolingOp([&]() { return emitOpError(); }, getInput().getType(),
                          getKernelSize(), getInputHeight(), getInputWidth(),
-                         getBatchSize(), getChannels(), getPadding(),
-                         getOperationName());
+                         getBatchSize(), getChannels(), getOperationName());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1172,8 +1161,7 @@ verifyPoolingOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 ::mlir::LogicalResult mlir::tt::ttnn::MaxPool2dOp::verify() {
   return verifyPoolingOp([&]() { return emitOpError(); }, getInput().getType(),
                          getKernelSize(), getInputHeight(), getInputWidth(),
-                         getBatchSize(), getChannels(), getPadding(),
-                         getOperationName());
+                         getBatchSize(), getChannels(), getOperationName());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1184,8 +1172,7 @@ verifyPoolingOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 ::mlir::LogicalResult mlir::tt::ttnn::MaxPool2dWithIndicesOp::verify() {
   return verifyPoolingOp([&]() { return emitOpError(); }, getInput().getType(),
                          getKernelSize(), getInputHeight(), getInputWidth(),
-                         getBatchSize(), getChannels(), getPadding(),
-                         getOperationName());
+                         getBatchSize(), getChannels(), getOperationName());
 }
 
 //===----------------------------------------------------------------------===//
