@@ -3687,6 +3687,11 @@ class TTIRBuilder(Builder):
 
     ############### ttir.PoolingOp ###############
 
+    # NOTE: We assume NCHW format (spatial dims at positions 2,3 for 4D tensors).
+    # This matches the assumption in the TTIRToTTIRDecomposition pass which defaults
+    # to NCHW when spatial dimensions cannot be determined from window_dimensions.
+    # For NCHW format, window_dimensions/strides should be [1, 1, H, W].
+    # TODO(dloke, tpatel): Follow up on this with fe teams to discuss how to handle nhwc format.
     @tag(ttir.PoolingOp)
     def pooling(
         self,

@@ -1010,33 +1010,35 @@ def test_batch_norm_training(
     "pooling_method,window_dims,window_strides,padding,window_dilations",
     [
         # ResNet-style max pooling: 3x3 window, stride 2 (NCHW format)
+        # window_dims/strides: [batch, channel, height, width] - spatial at positions 2,3
         (
             "Max",
-            [1, 3, 3, 1],
-            [1, 2, 2, 1],
+            [1, 1, 3, 3],
+            [1, 1, 2, 2],
             [0, 0, 0, 0, 0, 0, 0, 0],
             [1, 1, 1, 1],
         ),
         # Average pooling: 2x2 window, stride 2 (NCHW format)
         (
             "Average",
-            [1, 2, 2, 1],
-            [1, 2, 2, 1],
+            [1, 1, 2, 2],
+            [1, 1, 2, 2],
             [0, 0, 0, 0, 0, 0, 0, 0],
             [1, 1, 1, 1],
         ),
         # Sum pooling: 2x2 window, stride 2 (NCHW format)
         (
             "Sum",
-            [1, 2, 2, 1],
-            [1, 2, 2, 1],
+            [1, 1, 2, 2],
+            [1, 1, 2, 2],
             [0, 0, 0, 0, 0, 0, 0, 0],
             [1, 1, 1, 1],
         ),
         # Max pooling with padding (NCHW format)
+        # padding: [batch_lo, batch_hi, channel_lo, channel_hi, height_lo, height_hi, width_lo, width_hi]
         (
             "Max",
-            [1, 3, 3, 1],
+            [1, 1, 3, 3],
             [1, 1, 1, 1],
             [0, 0, 0, 0, 1, 1, 1, 1],
             [1, 1, 1, 1],
