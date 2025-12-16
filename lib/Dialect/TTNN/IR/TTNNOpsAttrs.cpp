@@ -684,11 +684,21 @@ MemoryConfigAttr MemoryConfigAttr::get(TTNNLayoutAttr layoutAttr,
       utils::createShardSpecIfNeeded(layoutAttr, deviceGrid));
 }
 
+MemoryConfigAttr MemoryConfigAttr::get(
+    ::mlir::MLIRContext *context, TensorMemoryLayoutAttr tensorMemoryLayout,
+    BufferTypeAttr bufferType, std::optional<ShardSpecAttr> shardSpec) {
+  return MemoryConfigAttr::get(context, tensorMemoryLayout, bufferType,
+                               shardSpec, /*ndShardSpec=*/std::nullopt);
+}
+
 // Verify memory config attribute
 ::llvm::LogicalResult MemoryConfigAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
     TensorMemoryLayoutAttr tensorMemoryLayout, BufferTypeAttr bufferType,
-    std::optional<ShardSpecAttr> shardSpec) {
+    std::optional<ShardSpecAttr> shardSpec,
+    std::optional<NDShardSpecAttr> ndShardSpec) {
+
+  (void)ndShardSpec;
   // Verify buffer type, memory layout and sharding
   return ::llvm::success(verifyBufferAndMemoryLayout(emitError,
                                                      bufferType.getValue(),
@@ -962,6 +972,20 @@ ShardSpecAttr::getCoreRangeSet(mlir::MLIRContext *context,
   return CoreRangeSetAttr::get(context, coreRangeSet);
 }
 
+NDShardSpecAttr NDShardSpecAttr::get(::mlir::MLIRContext *context,
+                                     TTNNNDLayoutAttr layout) {
+  auto shardGrid = layout.getGrid();
+  auto coreRangeSetAttr = CoreRangeSetAttr::get(
+      context, CoreRangeAttr::get(
+                   context, CoreCoordAttr::get(context, 0, 0),
+                   CoreCoordAttr::get(context, shardGrid.getShape()[1] - 1,
+                                      shardGrid.getShape()[0] - 1)));
+  return NDShardSpecAttr::get(
+      context, coreRangeSetAttr,
+      ShapeAttr::get(context, layout.getScalarShardShape()),
+      layout.getShardOrientation(), layout.getShardDistributionStrategy());
+}
+
 struct DeviceComputeKernelConfigAttrParams {
   std::optional<mlir::tt::ttnn::MathFidelity> mathFidelity;
   mlir::BoolAttr mathApproxMode;
@@ -1142,4 +1166,70 @@ TTNNLayoutAttr TTNNLayoutAttr::withLayout(Layout layout,
   assert(layout == Layout::RowMajor || layout == Layout::Tile);
   Type elementType = utils::getElementType(getContext(), layout, getDataType());
   return withElementType(elementType, tensorShape);
+}
+
+// Get scalar shard shape
+//
+// If the element type is TileType, this function returns the scalar shape of
+// the shard.
+// Example: memref<2x2x!ttcore.tile<32x32xf32>> -> { 64, 64 }
+// Example: memref<128x128xf32> -> { 128, 128 }
+// Example: memref<2x3!ttcore.tile<32x32xf32>> -> { 64, 96 }
+//
+// return The scalar shape of the shard.
+llvm::SmallVector<int64_t> TTNNNDLayoutAttr::getScalarShardShape() const {
+  SmallVector<int64_t> shardShape(getMemref().getShape());
+  if (isTiled()) {
+    return mlir::cast<mlir::tt::ttcore::TileType>(getMemref().getElementType())
+        .getScalarShape(shardShape);
+  }
+
+  return shardShape;
+}
+
+bool TTNNNDLayoutAttr::isTiled() const {
+  return ::mlir::isa<::mlir::tt::ttcore::TileType>(
+      getMemref().getElementType());
+}
+
+BufferType TTNNNDLayoutAttr::getBufferType() const {
+  return mlir::cast<BufferTypeAttr>(getMemref().getMemorySpace()).getValue();
+}
+
+Layout TTNNNDLayoutAttr::getLayout() const {
+  return isTiled() ? Layout::Tile : Layout::RowMajor;
+}
+
+mlir::tt::ttcore::DataType TTNNNDLayoutAttr::getDataType() const {
+  Type elementType = getMemref().getElementType();
+  if (isTiled()) {
+    mlir::tt::ttcore::TileType tileType =
+        mlir::cast<mlir::tt::ttcore::TileType>(elementType);
+    return tileType.getDataType();
+  }
+
+  return mlir::tt::ttcore::elementTypeToDataType(elementType);
+}
+
+bool TTNNNDLayoutAttr::isInterleaved() const {
+  return getMemLayout().getValue() == TensorMemoryLayout::Interleaved;
+}
+
+bool TTNNNDLayoutAttr::isSharded() const {
+  return getMemLayout().getValue() != TensorMemoryLayout::Interleaved;
+}
+
+bool TTNNNDLayoutAttr::isLegacyBlockSharded(
+    ArrayRef<int64_t> tensorShape) const {
+  return getMemLayout().getValue() == TensorMemoryLayout::BlockSharded;
+}
+
+bool TTNNNDLayoutAttr::isLegacyWidthSharded(
+    ArrayRef<int64_t> tensorShape) const {
+  return getMemLayout().getValue() == TensorMemoryLayout::WidthSharded;
+}
+
+bool TTNNNDLayoutAttr::isLegacyHeightSharded(
+    ArrayRef<int64_t> tensorShape) const {
+  return getMemLayout().getValue() == TensorMemoryLayout::HeightSharded;
 }

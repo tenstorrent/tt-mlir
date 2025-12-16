@@ -23,6 +23,7 @@
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
 #include "mlir/IR/BuiltinTypes.h"
+#include "llvm/ADT/TypeSwitch.h"
 #include <cstdint>
 #include <numeric>
 #include <optional>
@@ -1091,26 +1092,16 @@ verifyPoolingOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
                 mlir::RankedTensorType inputType,
                 llvm::ArrayRef<int32_t> kernelSize, int32_t inputHeight,
                 int32_t inputWidth, int32_t batchSize, int32_t channels,
-                llvm::ArrayRef<int32_t> padding, llvm::StringRef opName) {
+                llvm::StringRef opName) {
   ::llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
 
-  if (padding.size() != 4 && padding.size() != 2) {
-    return emitOpError() << "Padding must have 2 or 4 elements. Received "
-                         << padding.size() << " elements.";
-  }
-
-  int32_t paddingHeight =
-      padding.size() == 4 ? padding[0] + padding[2] : 2 * padding[0];
-  int32_t paddingWidth =
-      padding.size() == 4 ? padding[1] + padding[3] : 2 * padding[1];
-
-  if (kernelSize[0] > inputHeight + paddingHeight) {
+  if (kernelSize[0] > inputHeight) {
     return emitOpError() << "Kernel height " << kernelSize[0]
                          << " is greater than input height " << inputHeight
                          << ". This " << opName << " configuration is invalid.";
   }
 
-  if (kernelSize[1] > inputWidth + paddingWidth) {
+  if (kernelSize[1] > inputWidth) {
     return emitOpError() << "Kernel width " << kernelSize[1]
                          << " is greater than input width " << inputWidth
                          << ". This " << opName << " configuration is invalid.";
@@ -1158,8 +1149,7 @@ verifyPoolingOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 ::mlir::LogicalResult mlir::tt::ttnn::AvgPool2dOp::verify() {
   return verifyPoolingOp([&]() { return emitOpError(); }, getInput().getType(),
                          getKernelSize(), getInputHeight(), getInputWidth(),
-                         getBatchSize(), getChannels(), getPadding(),
-                         getOperationName());
+                         getBatchSize(), getChannels(), getOperationName());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1170,8 +1160,7 @@ verifyPoolingOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 ::mlir::LogicalResult mlir::tt::ttnn::MaxPool2dOp::verify() {
   return verifyPoolingOp([&]() { return emitOpError(); }, getInput().getType(),
                          getKernelSize(), getInputHeight(), getInputWidth(),
-                         getBatchSize(), getChannels(), getPadding(),
-                         getOperationName());
+                         getBatchSize(), getChannels(), getOperationName());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1182,8 +1171,7 @@ verifyPoolingOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 ::mlir::LogicalResult mlir::tt::ttnn::MaxPool2dWithIndicesOp::verify() {
   return verifyPoolingOp([&]() { return emitOpError(); }, getInput().getType(),
                          getKernelSize(), getInputHeight(), getInputWidth(),
-                         getBatchSize(), getChannels(), getPadding(),
-                         getOperationName());
+                         getBatchSize(), getChannels(), getOperationName());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1279,8 +1267,7 @@ void mlir::tt::ttnn::FullOp::build(mlir::OpBuilder &builder,
   // tensor type.
   //
   RankedTensorType output = getResult().getType();
-
-  TTNNLayoutAttr layoutAttr = mlir::cast<TTNNLayoutAttr>(output.getEncoding());
+  mlir::Attribute encoding = output.getEncoding();
 
   // Shape
   //
@@ -1290,28 +1277,44 @@ void mlir::tt::ttnn::FullOp::build(mlir::OpBuilder &builder,
                          << output.getShape();
   }
 
-  // DataType and Layout
-  //
-  if (getLayout() != layoutAttr.getLayout()) {
-    return emitOpError("Layout mismatch between op and layoutAttr.");
-  }
-  if (getDtype() != layoutAttr.getDataType()) {
-    return emitOpError("Data type mismatch between op and layoutAttr.");
-  }
+  // Helper lambda to verify layout attributes generically
+  auto verifyLayoutAttr = [&](auto layoutAttr) -> LogicalResult {
+    // DataType and Layout
+    //
+    if (getLayout() != layoutAttr.getLayout()) {
+      return emitOpError("Layout mismatch between op and layoutAttr.");
+    }
+    if (getDtype() != layoutAttr.getDataType()) {
+      return emitOpError("Data type mismatch between op and layoutAttr.");
+    }
 
-  // MemoryConfig
-  // Compare internal attrs with output tensor attrs.
-  //
-  if (getMemoryConfig().getBufferType().getValue() !=
-      layoutAttr.getBufferType()) {
-    return emitOpError("Buffer type mismatch between op and layoutAttr.");
-  }
-  if (getMemoryConfig().getTensorMemoryLayout() != layoutAttr.getMemLayout()) {
-    return emitOpError(
-        "Tensor memory layout mismatch between op and layoutAttr.");
-  }
+    // MemoryConfig
+    // Compare internal attrs with output tensor attrs.
+    //
+    if (getMemoryConfig().getBufferType().getValue() !=
+        layoutAttr.getBufferType()) {
+      return emitOpError("Buffer type mismatch between op and layoutAttr.");
+    }
+    if (getMemoryConfig().getTensorMemoryLayout() !=
+        layoutAttr.getMemLayout()) {
+      return emitOpError(
+          "Tensor memory layout mismatch between op and layoutAttr.");
+    }
 
-  return success();
+    return success();
+  };
+
+  // Use TypeSwitch to handle both TTNNLayoutAttr and TTNNNDLayoutAttr
+  return llvm::TypeSwitch<mlir::Attribute, mlir::LogicalResult>(encoding)
+      .Case<TTNNLayoutAttr>([&](TTNNLayoutAttr layoutAttr) {
+        return verifyLayoutAttr(layoutAttr);
+      })
+      .template Case<TTNNNDLayoutAttr>([&](TTNNNDLayoutAttr layoutAttr) {
+        return verifyLayoutAttr(layoutAttr);
+      })
+      .Default([&](mlir::Attribute) {
+        return emitOpError() << "Unsupported layout encoding type";
+      });
 }
 
 //===----------------------------------------------------------------------===//
@@ -2854,16 +2857,36 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
 //===----------------------------------------------------------------------===//
 // MeshShardOp
 //===----------------------------------------------------------------------===//
-// NOTE: This legacy mesh_shard path only handles the "identity" variant.
-// All non-identity behavior has been split out to distribute_tensor /
-// aggregate_tensor. It remains because current TTIR lowering still generates
-// identity mesh_shard for shape tracking.
+
 ::mlir::LogicalResult MeshShardOp::verify() {
+  llvm::ArrayRef<int64_t> inputShape = getInput().getType().getShape();
+  llvm::ArrayRef<int64_t> shardShape = getShardShape();
   ::mlir::tt::ttcore::MeshShardType shardType = getShardType();
 
-  if (shardType != ::mlir::tt::ttcore::MeshShardType::Identity) {
-    return emitOpError(
-        "We only support identity shard_type for mesh_shard op.");
+  // Check shard_type is not maximal.
+  if (shardType == ::mlir::tt::ttcore::MeshShardType::Maximal) {
+    return emitOpError("Invalid shard_type (maximal) for mesh_shard op.");
+  }
+
+  if (shardType == ::mlir::tt::ttcore::MeshShardType::Devices) {
+    // Check if rank(shardShape) is eqaul to rank(input).
+    if (shardShape.size() != inputShape.size()) {
+      return emitOpError("Invalid rank(shard_shape) != rank(input) for "
+                         "mesh_shard op with devices partition.");
+    }
+
+    // Check if overall partition is eqaul to or greater than two.
+    int64_t overallPartition = 1;
+    for (auto partition : shardShape) {
+      // Each partition value is limited to one of the dimensions of hardware
+      // mesh. Thus, overallPartition remains lower than or equal to the number
+      // of multi-chips.
+      overallPartition *= partition;
+    }
+    if (overallPartition < 2) {
+      return emitOpError("Invalid overall partition (<2) for mesh_shard op "
+                         "with devices partition.");
+    }
   }
 
   return success();
