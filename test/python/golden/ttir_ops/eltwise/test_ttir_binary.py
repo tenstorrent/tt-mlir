@@ -295,7 +295,7 @@ scalar_binary_ops = [
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize(
-    "test_fn_and_scalar",
+    "test_fn,scalar",
     scalar_binary_ops,
     ids=[
         "add_scalar",
@@ -306,7 +306,8 @@ scalar_binary_ops = [
     ],
 )
 def test_scalar_binary_ops(
-    test_fn_and_scalar: Tuple[Callable, float],
+    test_fn: Callable,
+    scalar: float,
     shape: Shape,
     dtype: torch.dtype,
     target: str,
@@ -314,8 +315,6 @@ def test_scalar_binary_ops(
     device,
 ):
     """Test binary operations with scalar operands on ttmetal"""
-    test_fn, scalar_value = test_fn_and_scalar
-
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
         def scalar_op_wrapper(
