@@ -24,7 +24,7 @@ SHAPES = [
 ]
 
 
-@ttnn_jit.jit(debug=False, enable_cache=True, graph_capture=False)
+@ttnn_jit.jit(debug=True, enable_cache=True, graph_capture=False)
 def matmul(input_tensor_a, input_tensor_b):
     return ttnn.matmul(input_tensor_a, input_tensor_b)
 
@@ -49,7 +49,6 @@ def test_matmul_block_sharded_trace(m, k, n):
     torch_input_a = create_torch_tensor(shape_a, dtype=dtype)
     torch_input_b = create_torch_tensor(shape_b, dtype=dtype)
 
-    # Use helper to get a valid grid size
     grid_list_a = get_block_sharding_grid(shape_a)
     grid_list_b = get_block_sharding_grid(shape_b)
 
@@ -58,8 +57,6 @@ def test_matmul_block_sharded_trace(m, k, n):
 
     print(f"Using core grid A: {grid_a}, core grid B: {grid_b}")
 
-    # Create MemoryConfig using the modern, strategy-based helper
-    # This is the method used by the smoketest's helpers.
     memory_config_a = ttnn.create_sharded_memory_config(
         shape=shape_a,
         core_grid=grid_a,
