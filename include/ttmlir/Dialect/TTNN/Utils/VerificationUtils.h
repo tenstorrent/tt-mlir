@@ -8,7 +8,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
 namespace mlir::tt::ttnn::utils::verification_utils {
-namespace conv2d_verification {
+namespace conv2d {
 // Input and output tensors are always flattened
 enum InputOutputDim : unsigned { FLATTENED_DIM = 2, INPUT_OUTPUT_CHANNEL = 3 };
 
@@ -97,207 +97,127 @@ struct Conv2dParams {
   int64_t groups;
 };
 
-mlir::LogicalResult verifyTensorRanks(mlir::tt::ttnn::Conv2dOp *op) {
-  if (op->getInput().getType().getRank() != 4) {
-    return op->emitOpError("Input must be a 4D tensor");
-  }
-
-  if (op->getWeight().getType().getRank() != 4) {
-    return op->emitOpError("Weight must be a 4D tensor");
-  }
-
-  if (op->getBias() && op->getBias().getType().getRank() != 4) {
-    return op->emitOpError("Bias must be a 4D tensor");
-  }
-
-  if (op->getResult().getType().getRank() != 4) {
-    return op->emitOpError("Output must be a 4D tensor");
-  }
-
-  return mlir::success();
-}
+mlir::LogicalResult verifyTensorRanks(mlir::tt::ttnn::Conv2dOp *op);
 
 std::tuple<InputTensorDims, WeightTensorDims, std::optional<BiasTensorDims>>
-getConv2dInputDims(mlir::tt::ttnn::Conv2dOp *op) {
-  InputTensorDims inputDims = {
-      op->getBatchSize(), op->getInputHeight(), op->getInputWidth(),
-      op->getInput().getType().getDimSize(INPUT_OUTPUT_CHANNEL)};
+getConv2dInputDims(mlir::tt::ttnn::Conv2dOp *op);
 
-  WeightTensorDims weightDims = {
-      op->getOutChannels(), op->getInChannels() / op->getGroups(),
-      op->getKernelSize()[0], op->getKernelSize()[1]};
-
-  std::optional<BiasTensorDims> biasDims;
-  if (op->getBias()) {
-    biasDims = {op->getBias().getType().getDimSize(BIAS_OUT_CHANNEL)};
-  }
-
-  return {inputDims, weightDims, biasDims};
-}
-
-OutputTensorDims getConv2dOutputDims(mlir::tt::ttnn::Conv2dOp *op) {
-  return {op->getResult().getType().getDimSize(FLATTENED_DIM),
-          op->getResult().getType().getDimSize(INPUT_OUTPUT_CHANNEL)};
-}
+OutputTensorDims getConv2dOutputDims(mlir::tt::ttnn::Conv2dOp *op);
 
 llvm::Expected<Conv2dParams>
-getAndVerifyConv2dParams(mlir::tt::ttnn::Conv2dOp *op) {
-  auto formatAttr = [](llvm::ArrayRef<int32_t> vals) {
-    llvm::SmallVector<std::string, 4> strings;
-    for (int32_t v : vals) {
-      strings.push_back(std::to_string(v));
-    }
-    return "(" + llvm::join(strings, ", ") + ")";
-  };
-
-  llvm::ArrayRef<int32_t> kernelSize = op->getKernelSize();
-  if (kernelSize.size() != 2) {
-    return llvm::createStringError(
-        "Kernel size attribute must have two values, got: " +
-        std::to_string(kernelSize.size()));
-  }
-
-  llvm::ArrayRef<int32_t> stride = op->getStride();
-  if (stride.size() != 2) {
-    return llvm::createStringError(
-        "Stride attribute must have two values, got: " +
-        std::to_string(stride.size()));
-  }
-  if (!llvm::all_of(stride, [](int32_t value) { return value >= 1; })) {
-    return llvm::createStringError(
-        "Stride attribute values must be greater than 0, got: " +
-        formatAttr(stride));
-  }
-
-  llvm::ArrayRef<int32_t> padding = op->getPadding();
-  if (padding.size() != 2 && padding.size() != 4) {
-    return llvm::createStringError(
-        "Padding attribute must have two or four values, got: " +
-        std::to_string(padding.size()));
-  }
-  if (!llvm::all_of(padding, [](int32_t value) { return value >= 0; })) {
-    return llvm::createStringError(
-        "Padding attribute values must be greater than or equal to 0, got: " +
-        formatAttr(padding));
-  }
-
-  llvm::ArrayRef<int32_t> dilation = op->getDilation();
-  if (dilation.size() != 2) {
-    return llvm::createStringError(
-        "Dilation attribute must have two values, got: " +
-        std::to_string(dilation.size()));
-  }
-  if (!llvm::all_of(dilation, [](int32_t value) { return value >= 1; })) {
-    return llvm::createStringError(
-        "Dilation attribute values must be greater than 0, got: " +
-        formatAttr(dilation));
-  }
-
-  return Conv2dParams{Spatial2DParam(kernelSize), Spatial2DParam(stride),
-                      Spatial4DParam(padding), Spatial2DParam(dilation),
-                      op->getGroups()};
-}
+getAndVerifyConv2dParams(mlir::tt::ttnn::Conv2dOp *op);
 
 ::mlir::LogicalResult verifyConv2dInputDims(
     mlir::tt::ttnn::Conv2dOp *op, const InputTensorDims &inputDims,
     const WeightTensorDims &weightDims,
-    const std::optional<BiasTensorDims> &biasDims, const Conv2dParams &params) {
-
-  if (inputDims.inputChannels % params.groups != 0) {
-    return op->emitOpError()
-           << "The number of input channels from the input tensor ("
-           << inputDims.inputChannels
-           << ") is not divisible by the number of groups (" << params.groups
-           << ").";
-  }
-
-  if (weightDims.outputChannels % params.groups != 0) {
-    return op->emitOpError()
-           << "The number of output channels from the weight tensor ("
-           << weightDims.outputChannels
-           << ") is not divisible by the number of groups (" << params.groups
-           << ").";
-  }
-
-  if (inputDims.inputChannels / params.groups != weightDims.inChannPerGroup) {
-    return op->emitOpError()
-           << "The number of input channels per group ("
-           << inputDims.inputChannels
-           << ") must match the number of input channels in the weight tensor ("
-           << weightDims.inChannPerGroup << ").";
-  }
-
-  if (biasDims && biasDims->outputChannels != weightDims.outputChannels) {
-    return op->emitOpError()
-           << "The number of output channels from the weight tensor ("
-           << weightDims.outputChannels
-           << ") must match the number of output channels in the bias tensor ("
-           << biasDims->outputChannels << ").";
-  }
-
-  llvm::SmallVector<uint32_t, 2> paddedInputSize = inputDims.getPaddedInputSize(
-      params.padding.getVertical(), params.padding.getHorizontal());
-  llvm::SmallVector<uint32_t, 2> effectiveKernelSize =
-      weightDims.getEffectiveKernelSize(params.dilation.vertical,
-                                        params.dilation.horizontal);
-  if (paddedInputSize[0] < effectiveKernelSize[0] ||
-      paddedInputSize[1] < effectiveKernelSize[1]) {
-    return op->emitOpError()
-           << "The effective kernel size (" << effectiveKernelSize[0] << ", "
-           << effectiveKernelSize[1]
-           << ") cannot be greater than the padded input size per channel ("
-           << paddedInputSize[0] << ", " << paddedInputSize[1] << ").";
-  }
-
-  return mlir::success();
-}
+    const std::optional<BiasTensorDims> &biasDims, const Conv2dParams &params);
 
 ::mlir::LogicalResult verifyOutputDimensions(
     mlir::tt::ttnn::Conv2dOp *op, const InputTensorDims &inputDims,
     const WeightTensorDims &weightDims,
     const std::optional<BiasTensorDims> &biasDims,
-    const OutputTensorDims &outputDims, const Conv2dParams &params) {
+    const OutputTensorDims &outputDims, const Conv2dParams &params);
 
-  llvm::SmallVector<uint32_t, 2> paddedInputSize = inputDims.getPaddedInputSize(
-      params.padding.getVertical(), params.padding.getHorizontal());
-  llvm::SmallVector<uint32_t, 2> effectiveKernelSize =
-      weightDims.getEffectiveKernelSize(params.dilation.vertical,
-                                        params.dilation.horizontal);
+} // namespace conv2d
 
-  int32_t calculatedHOut =
-      (paddedInputSize[0] - effectiveKernelSize[0]) / params.stride.vertical +
-      1;
-  int32_t calculatedWOut =
-      (paddedInputSize[1] - effectiveKernelSize[1]) / params.stride.horizontal +
-      1;
+namespace conv3d {
+// Conv3d input/output tensors use 5D shapes, weight/bias use 2D shapes
+enum InputDim : unsigned {
+  INPUT_BATCH = 0,
+  INPUT_DEPTH = 1,
+  INPUT_HEIGHT = 2,
+  INPUT_WIDTH = 3,
+  INPUT_CHANNEL = 4
+};
 
-  // Validate only the flattened dim of the output tensor since it is always
-  // flattened
-  if (calculatedHOut * calculatedWOut * inputDims.batchSize !=
-      outputDims.flattenedDim) {
-    return op->emitOpError()
-           << "The output tensor's flattened dimension ("
-           << outputDims.flattenedDim
-           << ") does not match the product of batch_size * output_height * "
-              "output_width ("
-           << inputDims.batchSize << " * " << calculatedHOut << " * "
-           << calculatedWOut << " = "
-           << inputDims.batchSize * calculatedHOut * calculatedWOut << ").";
-  }
+enum OutputDim : unsigned {
+  OUTPUT_BATCH = 0,
+  OUTPUT_DEPTH = 1,
+  OUTPUT_HEIGHT = 2,
+  OUTPUT_WIDTH = 3,
+  OUTPUT_CHANNEL = 4
+};
 
-  if (outputDims.outputChannels != weightDims.outputChannels) {
-    return op->emitOpError()
-           << "The number of output channels from the output tensor ("
-           << outputDims.outputChannels
-           << ") must match the number of output channels in the weight tensor "
-              "("
-           << weightDims.outputChannels << "). ";
-  }
+// Weight is 2D: [kD*kH*kW*C_in, O]
+enum WeightDim : unsigned {
+  WEIGHT_FLATTENED = 0,  // kD*kH*kW*C_in/groups (patch_size)
+  WEIGHT_OUT_CHANNEL = 1 // O (output channels)
+};
 
-  return mlir::success();
-}
+// Bias is 2D: [1, O]
+enum BiasDim : unsigned {
+  BIAS_FIRST_DIM = 0,  // Must be 1
+  BIAS_OUT_CHANNEL = 1 // Must be O (output channels)
+};
 
-} // namespace conv2d_verification
+struct InputTensorDims3d {
+  int64_t batchSize;
+  int64_t inputDepth;
+  int64_t inputHeight;
+  int64_t inputWidth;
+  int64_t inputChannels;
+};
+
+struct WeightTensorDims3d {
+  int64_t outputChannels;
+  int64_t flattenedKernelChannels; // kD*kH*kW*C_in/groups
+  int64_t kernelDepth;
+  int64_t kernelHeight;
+  int64_t kernelWidth;
+};
+
+struct BiasTensorDims3d {
+  int64_t firstDim;
+  int64_t outputChannels;
+};
+
+struct OutputTensorDims3d {
+  int64_t batchSize;
+  int64_t outputDepth;
+  int64_t outputHeight;
+  int64_t outputWidth;
+  int64_t outputChannels;
+};
+
+struct Spatial3DParam {
+  int64_t depth, vertical, horizontal;
+
+  Spatial3DParam(llvm::ArrayRef<int32_t> p)
+      : depth(p[0]), vertical(p[1]), horizontal(p[2]) {}
+};
+
+struct Conv3dParams {
+  Spatial3DParam kernelSize;
+  Spatial3DParam stride;
+  Spatial3DParam padding;
+  int64_t groups;
+  llvm::StringRef padding_mode;
+};
+
+mlir::LogicalResult verifyTensorRanks(mlir::tt::ttnn::Conv3dOp *op);
+
+std::tuple<InputTensorDims3d, WeightTensorDims3d,
+           std::optional<BiasTensorDims3d>>
+getConv3dInputDims(mlir::tt::ttnn::Conv3dOp *op);
+
+OutputTensorDims3d getConv3dOutputDims(mlir::tt::ttnn::Conv3dOp *op);
+
+llvm::Expected<Conv3dParams>
+getAndVerifyConv3dParams(mlir::tt::ttnn::Conv3dOp *op);
+
+::mlir::LogicalResult
+verifyConv3dInputDims(mlir::tt::ttnn::Conv3dOp *op,
+                      const InputTensorDims3d &inputDims,
+                      const WeightTensorDims3d &weightDims,
+                      const std::optional<BiasTensorDims3d> &biasDims,
+                      const Conv3dParams &params);
+
+::mlir::LogicalResult verifyConv3dOutputDims(
+    mlir::tt::ttnn::Conv3dOp *op, const InputTensorDims3d &inputDims,
+    const WeightTensorDims3d &weightDims, const OutputTensorDims3d &outputDims,
+    const Conv3dParams &params);
+
+} // namespace conv3d
 
 } // namespace mlir::tt::ttnn::utils::verification_utils
 

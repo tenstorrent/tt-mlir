@@ -67,10 +67,17 @@ void populateTTNNModule(nb::module_ &m) {
       .def_static(
           "get",
           [](MlirContext ctx, MlirAttribute tensorMemoryLayoutAttr,
-             MlirAttribute bufferTypeAttr, MlirAttribute shardSpecAttr) {
+             MlirAttribute bufferTypeAttr,
+             std::optional<MlirAttribute> shardSpec = std::nullopt) {
+            MlirAttribute shardSpecAttr = {nullptr};
+            if (shardSpec.has_value()) {
+              shardSpecAttr = shardSpec.value();
+            }
             return ttmlirTTNNMemoryConfigAttrGet(ctx, tensorMemoryLayoutAttr,
                                                  bufferTypeAttr, shardSpecAttr);
-          })
+          },
+          nb::arg("ctx"), nb::arg("tensorMemoryLayoutAttr"),
+          nb::arg("bufferTypeAttr"), nb::arg("shardSpec") = nb::none())
       .def_prop_ro("buffer_type", &tt::ttnn::MemoryConfigAttr::getBufferType)
       .def_prop_ro("tensor_memory_layout",
                    &tt::ttnn::MemoryConfigAttr::getTensorMemoryLayout)
@@ -199,7 +206,7 @@ void populateTTNNModule(nb::module_ &m) {
              tt::ttnn::CoreRangeSetAttr coreGrid, BoolAttr transposeShards,
              std::optional<tt::ttnn::Layout> outputLayout,
              BoolAttr enableActDoubleBuffer, BoolAttr enableWeightsDoubleBuffer,
-             BoolAttr inPlace, BoolAttr enableKernelStrideFolding) {
+             BoolAttr enableKernelStrideFolding) {
             MLIRContext *context = unwrap(ctx);
 
             return wrap(tt::ttnn::Conv2dConfigAttr::get(
@@ -207,7 +214,7 @@ void populateTTNNModule(nb::module_ &m) {
                 reallocateHaloOutput, actBlockHOverride, actBlockWDiv,
                 reshardIfNotOptimal, overrideShardingConfig, shardLayout,
                 coreGrid, transposeShards, outputLayout, enableActDoubleBuffer,
-                enableWeightsDoubleBuffer, inPlace, enableKernelStrideFolding));
+                enableWeightsDoubleBuffer, enableKernelStrideFolding));
           })
       .def_prop_ro("weights_dtype_as_int",
                    [](tt::ttnn::Conv2dConfigAttr self)
@@ -316,14 +323,6 @@ void populateTTNNModule(nb::module_ &m) {
                        return nb::none();
                      }
                      return self.getEnableWeightsDoubleBuffer().getValue();
-                   })
-      .def_prop_ro("in_place",
-                   [](tt::ttnn::Conv2dConfigAttr self)
-                       -> std::variant<nb::object, bool> {
-                     if (!self.getInPlace()) {
-                       return nb::none();
-                     }
-                     return self.getInPlace().getValue();
                    });
 
   tt_attribute_class<tt::ttnn::CoreRangeAttr>(m, "CoreRangeAttr")

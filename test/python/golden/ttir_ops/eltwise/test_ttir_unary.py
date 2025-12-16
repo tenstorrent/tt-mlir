@@ -6,9 +6,9 @@ import pytest
 import torch
 from typing import Callable, List, Optional
 from conftest import x86_only
-from builder.base.builder import Operand, Shape
+from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import (
+from builder.base.builder_apis import (
     compile_and_execute_ttir,
 )
 from test_utils import (
@@ -160,6 +160,12 @@ def sigmoid(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] 
     return builder.sigmoid(in0, unit_attrs=unit_attrs)
 
 
+def hardsigmoid(
+    in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+):
+    return builder.hardsigmoid(in0, unit_attrs=unit_attrs)
+
+
 def sign(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None):
     return builder.sign(in0, unit_attrs=unit_attrs)
 
@@ -214,8 +220,8 @@ unary_ops = [
     cbrt | Marks(pytest.mark.skip_config(["ttmetal"])),
     ceil | Marks(pytest.mark.skip_config(["ttmetal"])),
     cos,
-    erf | Marks(pytest.mark.skip_config(["ttmetal"])),
-    erfc | Marks(pytest.mark.skip_config(["ttmetal"])),
+    erf,
+    erfc,
     exp,
     expm1 | Marks(pytest.mark.skip_config(["ttmetal"])),
     floor,
@@ -231,12 +237,13 @@ unary_ops = [
     relu6 | Marks(pytest.mark.skip_config(["ttmetal"])),
     rsqrt,
     sigmoid,
-    sign | Marks(pytest.mark.skip_config(["ttmetal"])),
+    sign,
+    hardsigmoid | Marks(pytest.mark.skip_config(["emitpy"])),
     silu,
     sin,
     sqrt,
     tan,
-    tanh | Marks(pytest.mark.skip_config(["ttmetal"])),
+    tanh,
 ]
 
 
@@ -260,11 +267,18 @@ def test_unary_ops(
     ]:
         pytest.skip("int32 unary op is not supported yet for this operation")
 
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def unary_op(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return test_fn(in0, builder, unit_attrs=unit_attrs)
+
     pipeline_options = []
     compile_and_execute_ttir(
-        test_fn,
-        inputs_shapes=[shape],
-        inputs_types=[dtype],
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -293,10 +307,18 @@ def test_bitwise_unary_ops(
 ):
     if target == "ttmetal":
         pytest.xfail(reason="i32 unary ops not supported on ttmetal yet")
+
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def bitwise_unary_ops(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return test_fn(in0, builder, unit_attrs=unit_attrs)
+
     compile_and_execute_ttir(
-        test_fn,
-        inputs_shapes=[shape],
-        inputs_types=[dtype],
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -318,7 +340,7 @@ def leaky_relu(
 unary_ops_with_float_param = [leaky_relu | Marks(pytest.mark.skip_config(["ttmetal"]))]
 
 
-@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
+@pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitc", "emitpy"])
 @pytest.mark.parametrize("test_fn", unary_ops_with_float_param)
@@ -332,16 +354,18 @@ def test_unary_ops_with_float_param(
     request,
     device,
 ):
-    def wrapper_func(
-        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        return test_fn(in0, parameter, builder, unit_attrs=unit_attrs)
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def unary_ops_with_float_param(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return test_fn(in0, parameter, builder, unit_attrs=unit_attrs)
 
     pipeline_options = []
     compile_and_execute_ttir(
-        wrapper_func,
-        inputs_shapes=[shape],
-        inputs_types=[dtype],
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -373,16 +397,18 @@ def test_get_dimension_size(
     request,
     device,
 ):
-    def wrapper_func(
-        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        return get_dimension_size(in0, dimension, builder, unit_attrs=unit_attrs)
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def wrapper_func(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return get_dimension_size(in0, dimension, builder, unit_attrs=unit_attrs)
 
     pipeline_options = []
     compile_and_execute_ttir(
-        wrapper_func,
-        inputs_shapes=[shape],
-        inputs_types=[dtype],
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -428,10 +454,17 @@ unaligned_shapes = [
 def test_unaligned_shapes_neg(
     shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def wrapper(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return neg(in0, builder, unit_attrs=unit_attrs)
+
     compile_and_execute_ttir(
-        neg,
-        [shape],
-        [dtype],
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
@@ -456,17 +489,17 @@ def create_hoisted_unary_op(op_func, name):
 
 
 hoisted_unary_ops = [
-    create_hoisted_unary_op(exp, "exp"),
-    create_hoisted_unary_op(abs, "abs"),
-    create_hoisted_unary_op(ceil, "ceil"),
-    create_hoisted_unary_op(floor, "floor"),
-    create_hoisted_unary_op(tanh, "tanh"),
-    create_hoisted_unary_op(reciprocal, "reciprocal"),
-    create_hoisted_unary_op(neg, "neg"),
-    create_hoisted_unary_op(sigmoid, "sigmoid"),
-    create_hoisted_unary_op(sin, "sin"),
-    create_hoisted_unary_op(cos, "cos"),
-    create_hoisted_unary_op(relu, "relu"),
+    exp,
+    abs,
+    ceil,
+    floor,
+    tanh,
+    reciprocal,
+    neg,
+    sigmoid,
+    sin,
+    cos,
+    relu,
 ]
 
 
@@ -482,11 +515,17 @@ def test_cpu_hoistable_unary_ops(
     device,
     dtype: torch.dtype = torch.float32,
 ):
-    """Test unary ops that support CPU hoisting"""
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def wrapper_func(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return test_fn(in0, builder, unit_attrs=["ttir.should_hoist"])
+
     compile_and_execute_ttir(
-        test_fn,
-        inputs_shapes=[shape],
-        inputs_types=[dtype],
+        module,
         test_base=f"{request.node.name}",
         target=target,
         device=device,

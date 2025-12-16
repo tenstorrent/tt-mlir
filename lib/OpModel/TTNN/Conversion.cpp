@@ -511,10 +511,6 @@ getConv2dConfig(const std::optional<Conv2dConfigAttr> &conv2dConfig) {
         conv2dConfig->getEnableWeightsDoubleBuffer().getValue();
   }
 
-  if (conv2dConfig->getInPlace()) {
-    config.in_place = conv2dConfig->getInPlace().getValue();
-  }
-
   if (conv2dConfig->getEnableKernelStrideFolding()) {
     config.enable_kernel_stride_folding =
         conv2dConfig->getEnableKernelStrideFolding().getValue();
@@ -675,6 +671,62 @@ TTNNLayoutAttr getLayoutAttrFromTensorSpec(MLIRContext *context,
 
   return TTNNLayoutAttr::get(context, shape, elementType, bufferType, gridAttr,
                              memoryLayoutAttr);
+}
+
+std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
+getSDPAProgramConfig(
+    const std::optional<SDPAProgramConfigAttr> &sdpaProgramConfig) {
+  if (!sdpaProgramConfig.has_value()) {
+    return std::nullopt;
+  }
+
+  const SDPAProgramConfigAttr &config = sdpaProgramConfig.value();
+  ::ttnn::operations::transformer::SDPAProgramConfig sdpaConfig;
+
+  CoreCoordAttr gridSize = config.getComputeWithStorageGridSize();
+  sdpaConfig.compute_with_storage_grid_size =
+      ::tt::tt_metal::CoreCoord{gridSize.getX(), gridSize.getY()};
+
+  if (config.getSubCoreGrids()) {
+    sdpaConfig.sub_core_grids = getCoreRangeSet(config.getSubCoreGrids());
+  }
+
+  sdpaConfig.q_chunk_size = config.getQChunkSize();
+  sdpaConfig.k_chunk_size = config.getKChunkSize();
+
+  if (config.getExpApproxMode()) {
+    sdpaConfig.exp_approx_mode = config.getExpApproxMode().getValue();
+  }
+
+  if (config.getMaxCoresPerHeadBatch().has_value()) {
+    sdpaConfig.max_cores_per_head_batch =
+        config.getMaxCoresPerHeadBatch().value();
+  }
+
+  return sdpaConfig;
+}
+
+std::optional<std::string> getScatterReductionType(
+    const std::optional<ttcore::ReduceTypeAttr> &reduceTypeAttr) {
+  assert(reduceTypeAttr && *reduceTypeAttr &&
+         "reduceTypeAttr doesn't contain value");
+  switch (reduceTypeAttr.value().getValue()) {
+  case ttcore::ReduceType::Sum:
+    return "add";
+  case ttcore::ReduceType::Max:
+    return "amax";
+  case ttcore::ReduceType::Min:
+    return "amin";
+  case ttcore::ReduceType::Prod:
+    return "multiply";
+  case ttcore::ReduceType::Invalid:
+    return std::nullopt;
+  case ttcore::ReduceType::Mean:
+  case ttcore::ReduceType::Std:
+  case ttcore::ReduceType::Var:
+    // These reduction types are not supported by scatter operation
+    llvm_unreachable("Unsupported reduction type");
+  }
 }
 
 } // namespace conversion

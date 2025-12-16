@@ -23,6 +23,20 @@ generateReshape(mlir::TypedValue<mlir::RankedTensorType> input,
 mlir::tt::ttnn::ReshapeOp
 generateNHWFlatten(mlir::TypedValue<mlir::RankedTensorType> input,
                    mlir::PatternRewriter &rewriter, mlir::Location newLoc);
+
+// Generates a permute operation for the given input tensor with the specified
+// permutation pattern.
+mlir::tt::ttnn::PermuteOp
+generatePermute(mlir::TypedValue<mlir::RankedTensorType> input,
+                llvm::ArrayRef<int64_t> permutation,
+                mlir::PatternRewriter &rewriter, mlir::Location newLoc);
+
+// Generates a pad operation for the given input tensor with the specified
+// padding values.
+mlir::tt::ttnn::PadOp
+generatePad(mlir::TypedValue<mlir::RankedTensorType> input,
+            llvm::ArrayRef<int32_t> padding, mlir::PatternRewriter &rewriter,
+            mlir::Location newLoc);
 } // namespace mlir::tt::ttir_to_ttnn::utils
 
 #endif

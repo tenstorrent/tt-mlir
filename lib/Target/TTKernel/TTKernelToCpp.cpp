@@ -6,6 +6,7 @@
 
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 
+#include "ttmlir/Target/TTKernel/LLKs/experimental_coord_translation_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_dataflow_api_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_invoke_sfpi_llks_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_matmul_llks_generated.h"
@@ -42,6 +43,8 @@ public:
 
     builder->create<emitc::IncludeOp>(loc, "tools/profiler/kernel_profiler.hpp",
                                       /*isStandard=*/false);
+    builder->create<emitc::IncludeOp>(loc, "firmware_common.h",
+                                      /*isStandard=*/false);
 
     if (threadType == ThreadType::Noc) {
 
@@ -52,6 +55,9 @@ public:
     }
     if (threadType == ThreadType::Compute) {
       builder->create<emitc::IncludeOp>(loc, "llk_defs.h",
+                                        /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(loc,
+                                        "compute_kernel_api/binary_max_min.h",
                                         /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(loc, "compute_kernel_api/common.h",
                                         /*isStandard=*/false);
@@ -77,6 +83,9 @@ public:
       builder->create<emitc::IncludeOp>(loc,
                                         "compute_kernel_api/tile_move_copy.h",
                                         /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(
+          loc, "compute_kernel_api/eltwise_unary/activations.h",
+          /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(
           loc, "compute_kernel_api/eltwise_unary/eltwise_unary.h",
           /*isStandard=*/false);
@@ -111,6 +120,9 @@ public:
           loc, "compute_kernel_api/eltwise_unary/gelu.h",
           /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(
+          loc, "compute_kernel_api/eltwise_unary/erf_erfc.h",
+          /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(
           loc, "compute_kernel_api/eltwise_unary/logical_not_noti.h",
           /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(
@@ -123,6 +135,9 @@ public:
           loc, "compute_kernel_api/eltwise_unary/typecast.h",
           /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(
+          loc, "compute_kernel_api/binary_bitwise_sfpu.h",
+          /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(
           loc, "compute_kernel_api/eltwise_unary/bitwise_not.h",
           /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(
@@ -130,6 +145,9 @@ public:
           /*isStandard=*/false);
       builder->create<emitc::IncludeOp>(
           loc, "compute_kernel_api/eltwise_unary/binop_with_scalar.h",
+          /*isStandard=*/false);
+      builder->create<emitc::IncludeOp>(
+          loc, "compute_kernel_api/eltwise_unary/where.h",
           /*isStandard=*/false);
       // Must define macros REDUCE_OP and REDUCE_DIM before including reduce.h
       // because they are default template parameters values in reduce api.
@@ -166,10 +184,6 @@ public:
 
     builder->create<emitc::IncludeOp>(loc, "debug/dprint.h",
                                       /*isStandard=*/false);
-
-    builder->create<emitc::VerbatimOp>(
-        loc, "template <> uint8_t DebugPrintTypeToId<size_t>() { return "
-             "DPrintUINT32; }");
 
     builder->create<emitc::VerbatimOp>(loc, R""""(
 namespace ttmlir {
@@ -239,6 +253,14 @@ void dprint(Arg &&arg, ArgV&&... argv) {
           StringRef(experimental_dataflow_api_generated,
                     experimental_dataflow_api_generated_len);
       builder->create<emitc::VerbatimOp>(loc, experimentalDataflowLLKs);
+    }
+
+    if (hasCall("experimental::convert_logical_x_to_translated") ||
+        hasCall("experimental::convert_logical_y_to_translated")) {
+      auto experimentalCoordTranslationLLKs =
+          StringRef(experimental_coord_translation_generated,
+                    experimental_coord_translation_generated_len);
+      builder->create<emitc::VerbatimOp>(loc, experimentalCoordTranslationLLKs);
     }
 
     if (hasCall("experimental::matmul_block")) {

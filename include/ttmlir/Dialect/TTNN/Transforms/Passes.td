@@ -179,6 +179,45 @@ def TTNNTuplifyTensors: Pass<"ttnn-tuplify-tensors", "::mlir::ModuleOp"> {
   ];
 }
 
+def TTNNPrepareModuleForExport : Pass<"ttnn-prepare-module-for-export", "::mlir::ModuleOp"> {
+  let summary = "Prepare module for Python module export.";
+  let description = [{
+    This pass prepares the module for export as a Python module by:
+    1. Renaming the first public (non-private, non-const-eval) function to "forward"
+    2. Adding a device argument to the function signature
+    3. Replacing all ttnn.get_device ops with the device function argument
+
+    Given a forward function like this:
+
+    ```mlir
+    func.func @add(%arg0: tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>) -> tuple<tensor<32x32xbf16>> {
+      %0 = ttcore.get_tuple_element %arg0[0] : (tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>) -> tensor<32x32xbf16>
+      %1 = ttcore.get_tuple_element %arg0[1] : (tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>) -> tensor<32x32xbf16>
+      %2 = "ttnn.get_device"() : () -> !ttnn.device
+      %3 = "ttnn.to_device"(%0, %2) : (tensor<32x32xbf16, !ttnn.device) -> tensor<32x32xbf16>
+      %4 = "ttnn.to_device"(%1, %2) : (tensor<32x32xbf16, !ttnn.device) -> tensor<32x32xbf16>
+      %5 = "ttnn.add"(%3, %4) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+      %6 = ttcore.tuple %5 : tuple<tensor<32x32xbf16>>
+      return %6 : tuple<tensor<32x32xbf16>>
+    }
+    ```
+
+    The pass will return:
+
+    ```mlir
+    func.func @forward(%arg0: tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>, %arg1: !ttnn.device) -> tuple<tensor<32x32xbf16>> {
+      %0 = ttcore.get_tuple_element %arg0[0] : (tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>) -> tensor<32x32xbf16>
+      %1 = ttcore.get_tuple_element %arg0[1] : (tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>) -> tensor<32x32xbf16>
+      %2 = "ttnn.to_device"(%0, %arg1) : (tensor<32x32xbf16, !ttnn.device) -> tensor<32x32xbf16>
+      %3 = "ttnn.to_device"(%1, %arg1) : (tensor<32x32xbf16, !ttnn.device) -> tensor<32x32xbf16>
+      %4 = "ttnn.add"(%2, %3) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+      %5 = ttcore.tuple %4 : tuple<tensor<32x32xbf16>>
+      return %5 : tuple<tensor<32x32xbf16>>
+    }
+    ```
+  }];
+}
+
 def TTNNPrepareConv2dWeightsAndBias : Pass<"ttnn-prepare-conv2d-weights-and-bias", "::mlir::ModuleOp"> {
   let summary = "Optimize Conv2d ops by inserting PrepareConv2dWeights and PrepareConv2dBias ops before them.";
   let description = [{
@@ -192,6 +231,13 @@ def TTNNFusing: Pass<"ttnn-fusing", "::mlir::ModuleOp">
 {
   let summary = "TTNN fusing pass.";
   let description = "This pass tries to fuse operations together with goal to reduce the number of operations in the graph.";
+
+  let options = [
+    Option<"enableOpConstraints",
+            "enable-op-constraints",
+            "bool", /*default=*/"false",
+            "When enabled fusing pass includes patterns which check for op constraints.">
+  ];
 }
 
 def TTNNTraceHoistTransform : Pass<"ttnn-trace-hoist-transform", "::mlir::ModuleOp"> {
@@ -277,6 +323,28 @@ def TTNNOperationValidationAndFallback: Pass<"ttnn-operation-validation-and-fall
   ];
 }
 
+def TTNNRowMajorLayoutPropagation : Pass<"ttnn-rm-layout-propagation", "::mlir::ModuleOp"> {
+  let summary = "Propagate Row-Major layout from inputs through ops";
+  let description = [{
+    This pass tracks tensors from input arguments through the dataflow graph
+    and attempts to maintain Row-Major layout until an operation explicitly
+    requires Tile layout. This optimization reduces unnecessary layout conversions.
+
+    The pass starts from function input arguments and follows the tensor dataflow
+    through operations. It marks operations to use Row-Major layout when possible,
+    stopping propagation at operations that require Tile layout (e.g., matmul, conv).
+
+    This pass should run before the optimizer to provide better initial layout hints.
+  }];
+
+  let options = [
+    Option<"tensorL1UsageCap",
+           "tensor-l1-usage-cap",
+           "float", /*default=*/"1.0",
+           "Limit L1 memory usage to this fraction of available space (0.0-1.0)">
+  ];
+}
+
 def TTNNEmitPyWorkarounds: Pass<"ttnn-emitpy-workarounds", "::mlir::ModuleOp"> {
   let summary = "Apply TTNN workarounds specific to EmitPy pipeline.";
   let description = [{
@@ -303,6 +371,23 @@ def TTNNWeightBFP8Conversion: Pass<"ttnn-weight-bfp8-conversion", "::mlir::Modul
       - Inserts ttnn.typecast operations to convert weights to BFP8
       - Only converts weights that trace back to constant/parameter arguments
       - Keeps activation inputs and outputs in their original precision
+  }];
+}
+
+def TTNNConstEvalInputsToSystemMemory : Pass<"ttnn-force-const-eval-to-system-memory", "::mlir::ModuleOp"> {
+  let summary = "Force const-eval function inputs to system memory.";
+  let description = [{
+    This pass forces all inputs of const-eval functions to be in system memory.
+
+    The pass rewrites const-eval function signatures to change the memory configuration
+    of all input tensor arguments to system memory, inserting necessary layout conversion
+    ops to transfer the inputs to device memory if needed.
+
+    This pass also modifies the forward functions' arguments that correspond to const-eval
+    function inputs, forcing them to system memory as well.
+
+    Note: only the arguments whose sole user is the ttcore.load_cached op are forced to system memory,
+    in order to avoid unnecessary to_device transfers for other users.
   }];
 }
 

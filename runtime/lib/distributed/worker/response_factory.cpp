@@ -48,6 +48,14 @@ void ResponseFactory::buildErrorResponse(::flatbuffers::FlatBufferBuilder &fbb,
   BUILD_RESPONSE_DIRECT(Error, fbb, commandId, errorMessage.c_str());
 }
 
+void ResponseFactory::buildSetMemoryLogLevelResponse(
+    ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId) {
+
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  BUILD_RESPONSE(SetMemoryLogLevel, fbb, commandId);
+}
+
 void ResponseFactory::buildConfigureRuntimeContextResponse(
     ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId) {
 
@@ -230,6 +238,44 @@ void ResponseFactory::buildShutdownResponse(
   LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
 
   BUILD_RESPONSE(Shutdown, fbb, commandId);
+}
+
+void ResponseFactory::buildGetTensorDescResponse(
+    ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId,
+    const ::tt::runtime::TensorDesc &tensorDesc) {
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  // Create FlatBuffer vectors for shape and stride
+  auto shapeOffset = fbb.CreateVector(tensorDesc.shape);
+  auto strideOffset = fbb.CreateVector(tensorDesc.stride);
+
+  // Create TensorDescFlat FlatBuffer object
+  auto tensorDescFlatOffset = fb::CreateTensorDescFlat(
+      fbb, shapeOffset, tensorDesc.dataType, tensorDesc.itemsize, strideOffset,
+      tensorDesc.physicalVolume);
+
+  BUILD_RESPONSE(GetTensorDesc, fbb, commandId, tensorDescFlatOffset);
+}
+
+void ResponseFactory::buildHasLayoutResponse(
+    ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId, bool hasLayout) {
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  BUILD_RESPONSE(HasLayout, fbb, commandId, hasLayout);
+}
+
+void ResponseFactory::buildIsProgramCacheEnabledResponse(
+    ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId, bool isEnabled) {
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  BUILD_RESPONSE(IsProgramCacheEnabled, fbb, commandId, isEnabled);
+}
+
+void ResponseFactory::buildClearProgramCacheResponse(
+    ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId) {
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  BUILD_RESPONSE(ClearProgramCache, fbb, commandId);
 }
 
 #undef BUILD_RESPONSE_IMPL

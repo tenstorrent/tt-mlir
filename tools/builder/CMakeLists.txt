@@ -7,6 +7,9 @@ declare_mlir_python_sources(BuilderSources
     base/__init__.py
     base/builder.py
     base/builder_utils.py
+    base/builder_runtime.py
+    base/builder_apis.py
+    base/builder_enums.py
 
     # ttir subpackage files
     ttir/__init__.py

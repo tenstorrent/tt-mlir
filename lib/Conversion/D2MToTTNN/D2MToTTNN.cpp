@@ -26,9 +26,27 @@
 namespace mlir::tt {
 
 namespace {
+
+static ttnn::ComputeKernelMathFidelity
+convertMathFidelity(ttmetal::MathFidelity fidelity) {
+  switch (fidelity) {
+  case ttmetal::MathFidelity::LoFi:
+    return ttnn::ComputeKernelMathFidelity::LoFi;
+  case ttmetal::MathFidelity::HiFi2:
+    return ttnn::ComputeKernelMathFidelity::HiFi2;
+  case ttmetal::MathFidelity::HiFi3:
+    return ttnn::ComputeKernelMathFidelity::HiFi3;
+  case ttmetal::MathFidelity::HiFi4:
+    return ttnn::ComputeKernelMathFidelity::HiFi4;
+  }
+  llvm_unreachable("Invalid MathFidelity");
+}
+
 class D2MGenericRewriter : public OpConversionPattern<d2m::GenericOp> {
 public:
-  using OpConversionPattern<d2m::GenericOp>::OpConversionPattern;
+  D2MGenericRewriter(MLIRContext *context, ttmetal::MathFidelity mathFidelity)
+      : OpConversionPattern<d2m::GenericOp>(context),
+        mathFidelity(mathFidelity) {}
 
   static mlir::Attribute convertKernelArg(Builder &builder,
                                           const ttkernel::ArgAttr &arg) {
@@ -48,10 +66,56 @@ public:
     }
   }
 
+  static SmallVector<ttnn::KernelSemaphoreAttr>
+  createSemaphoreDescriptors(Builder &builder, const ArrayAttr &threads,
+                             const ttnn::CoreRangeSetAttr &coreRangeSet,
+                             const SymbolTable &symbolTable) {
+    llvm::DenseSet<size_t> seenSemaphoreIndices;
+
+    for (Attribute threadAttr : threads) {
+      auto thread = mlir::cast<d2m::ThreadAttr>(threadAttr);
+      auto kernelFunc = symbolTable.lookup<func::FuncOp>(
+          thread.getKernelSymbol().getRootReference());
+      if (!kernelFunc) {
+        continue;
+      }
+
+      auto kernelSpec = kernelFunc->getAttrOfType<ttkernel::ArgSpecAttr>(
+          ttkernel::ArgSpecAttr::name);
+      if (!kernelSpec) {
+        continue;
+      }
+
+      for (auto ctArg : kernelSpec.getCtArgs()) {
+        if (ctArg.getArgType() == ttkernel::ArgType::Semaphore) {
+          seenSemaphoreIndices.insert(ctArg.getOperandIndex());
+        }
+      }
+    }
+    size_t numSemaphores = seenSemaphoreIndices.size();
+    if (numSemaphores > 0) {
+      // Semaphore indices are assigned sequentially in D2MToTTKernel, so they
+      // should be dense.
+      size_t minIndex = *llvm::min_element(seenSemaphoreIndices);
+      size_t maxIndex = *llvm::max_element(seenSemaphoreIndices);
+      TT_assertv((minIndex == 0u && maxIndex == numSemaphores - 1),
+                 "Semaphore indices must be dense (0, 1, 2, ..., n-1)");
+    }
+    SmallVector<ttnn::KernelSemaphoreAttr> semaphoreDescriptors(numSemaphores);
+    for (size_t i = 0; i < numSemaphores; ++i) {
+      semaphoreDescriptors[i] = builder.getAttr<ttnn::KernelSemaphoreAttr>(
+          /*id=*/i, ttnn::KernelCoreType::Worker, coreRangeSet,
+          /*initial_value=*/0);
+    }
+
+    return semaphoreDescriptors;
+  }
+
   static SmallVector<mlir::Attribute>
-  convertThreadsToKernelConfigs(Builder &builder, const ArrayAttr &threads,
-                                const ttnn::CoreRangeSetAttr &coreRangeSet,
-                                const SymbolTable &symbolTable) {
+  createKernelDescriptors(Builder &builder, const ArrayAttr &threads,
+                          const ttnn::CoreRangeSetAttr &coreRangeSet,
+                          const SymbolTable &symbolTable,
+                          ttmetal::MathFidelity mathFidelity) {
     SmallVector<mlir::Attribute> kernelConfigs(threads.size());
     int nocIndex = 0;
     for (const auto [i, thread] : llvm::enumerate(threads)) {
@@ -63,12 +127,17 @@ public:
           kernelSymbol.getRootReference());
       auto kernelSpec = kernelFunc->getAttrOfType<ttkernel::ArgSpecAttr>(
           ttkernel::ArgSpecAttr::name);
-      auto rtArgs = kernelSpec.getRtArgs();
+
+      // Note: D2MToTTKernel will only populate kernelSpec with rtargs in the
+      // ttnn-mode, however despite the name, they are actually common runtime
+      // args. TTKernel ArgSpec does not have crt field, and the normal tt-metal
+      // path doesn't use rt args at all.
+      auto crtArgs = kernelSpec.getRtArgs();
       auto ctArgs = kernelSpec.getCtArgs();
       llvm::SmallVector<mlir::Attribute> kernelCTArgs(ctArgs.size());
-      llvm::SmallVector<mlir::Attribute> kernelRTArgs(rtArgs.size());
-      for (const auto [i, arg] : llvm::enumerate(rtArgs)) {
-        kernelRTArgs[i] = convertKernelArg(builder, arg);
+      llvm::SmallVector<mlir::Attribute> kernelCRTArgs(crtArgs.size());
+      for (const auto [i, arg] : llvm::enumerate(crtArgs)) {
+        kernelCRTArgs[i] = convertKernelArg(builder, arg);
       }
       for (const auto [i, arg] : llvm::enumerate(ctArgs)) {
         kernelCTArgs[i] = convertKernelArg(builder, arg);
@@ -80,14 +149,14 @@ public:
         // TODO (vtangTT) #5032: support lowering to different compute configs.
         kernelConfigs[i] = builder.getAttr<ttnn::ComputeKernelAttr>(
             kernelSymbol, coreRangeSet,
-            /*math_fidelity*/ ttnn::ComputeKernelMathFidelity::HiFi4,
+            /*math_fidelity*/ convertMathFidelity(mathFidelity),
             /*fp32DestAccum*/ false,
             /*dst_full_sync_en*/ false,
             /*unpack_to_dest_mode*/
             ArrayRef<ttnn::ComputeKernelUnpackToDestMode>{
                 ttnn::ComputeKernelUnpackToDestMode::Default},
             /*bfp8_pack_precise*/ false,
-            /*math_approx_mode*/ false, kernelRTArgs, kernelCTArgs);
+            /*math_approx_mode*/ false, kernelCRTArgs, kernelCTArgs);
         break;
       }
       // TODO (vtangTT) #5033: fix this assumption that order is
@@ -96,10 +165,10 @@ public:
         TT_assert(nocIndex < 2);
         if (nocIndex == 0) {
           kernelConfigs[i] = builder.getAttr<ttnn::ReadKernelAttr>(
-              kernelSymbol, coreRangeSet, kernelRTArgs, kernelCTArgs);
+              kernelSymbol, coreRangeSet, kernelCRTArgs, kernelCTArgs);
         } else {
           kernelConfigs[i] = builder.getAttr<ttnn::WriteKernelAttr>(
-              kernelSymbol, coreRangeSet, kernelRTArgs, kernelCTArgs);
+              kernelSymbol, coreRangeSet, kernelCRTArgs, kernelCTArgs);
         }
         nocIndex++;
         break;
@@ -107,6 +176,47 @@ public:
       }
     }
     return kernelConfigs;
+  }
+
+  static SmallVector<ttnn::KernelCBAttr>
+  createCBDescriptors(Builder &builder, const llvm::SmallVector<Value> &cbs,
+                      const ttcore::DeviceAttr &device,
+                      const ttnn::CoreRangeSetAttr &coreRangeSet) {
+    if (cbs.empty()) {
+      llvm_unreachable("Expected circular buffers.");
+    }
+
+    MLIRContext *ctx = builder.getContext();
+    llvm::SmallVector<ttnn::KernelCBAttr> cbDescriptors(cbs.size());
+
+    for (auto [i, cb] : llvm::enumerate(cbs)) {
+      auto cb_memref = dyn_cast<MemRefType>(cb.getType());
+      TT_assertv(mlir::isa<ttcore::TileType>(cb_memref.getElementType()),
+                 "Only TileType supported.");
+      ttcore::DataType dtype =
+          ttcore::elementTypeToDataType(cb_memref.getElementType());
+      size_t pageSize = device.getMemrefCBPageSizeBytes(cb_memref);
+      size_t numPages = device.getMemrefCBNumPages(cb_memref);
+
+      ttnn::KernelCBFormatAttr cbFormat =
+          ttnn::KernelCBFormatAttr::get(ctx, i, dtype, pageSize);
+
+      ttnn::KernelCBGlobalBufferAddressOfTensorAttr globalCBIndexOfTensor;
+      if (auto castOp = mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
+              cb.getDefiningOp())) {
+        // Input is not streamed, thus buffer must be aliased.
+        TT_assertv(ttcore::getMemorySpace(cb_memref) ==
+                       ttcore::MemorySpace::DeviceL1,
+                   "Can only alias L1 buffers.");
+        globalCBIndexOfTensor =
+            ttnn::KernelCBGlobalBufferAddressOfTensorAttr::get(ctx, i);
+      }
+      cbDescriptors[i] =
+          ttnn::KernelCBAttr::get(ctx, numPages * pageSize, coreRangeSet,
+                                  {cbFormat}, globalCBIndexOfTensor);
+    }
+
+    return cbDescriptors;
   }
 
   LogicalResult
@@ -147,8 +257,6 @@ public:
 
     llvm::SmallVector<Value> ios(size);
     llvm::SmallVector<Value> cbs(size);
-    llvm::SmallVector<int64_t> cbPorts(size);
-    int64_t cbPort = 0;
     for (auto [i, operand] : llvm::enumerate(op->getOperands())) {
       if (auto streamLayoutOp = mlir::dyn_cast_if_present<d2m::StreamLayoutOp>(
               operand.getDefiningOp());
@@ -172,51 +280,22 @@ public:
       } else {
         llvm_unreachable("Expected stream_layout or cast op as operand.");
       }
-      cbPorts[i] = cbPort++;
     }
 
-    llvm::SmallVector<ttnn::KernelCBAttr> cbDescriptors(cbPort);
-    if (cbs.empty()) {
-      llvm_unreachable("Expected circular buffers.");
-    }
-
-    // Create CBDescriptor.
-    ttnn::KernelCBAttr cbDescriptor;
-    for (auto [i, cb] : llvm::enumerate(cbs)) {
-      auto cb_memref = dyn_cast<MemRefType>(cb.getType());
-      TT_assertv(mlir::isa<ttcore::TileType>(cb_memref.getElementType()),
-                 "Only TileType supported.");
-      ttcore::DataType dtype =
-          ttcore::elementTypeToDataType(cb_memref.getElementType());
-      size_t pageSize = device.getMemrefCBPageSizeBytes(cb_memref);
-      size_t numPages = device.getMemrefCBNumPages(cb_memref);
-
-      ttnn::KernelCBFormatAttr cbFormat =
-          ttnn::KernelCBFormatAttr::get(ctx, i, dtype, pageSize);
-
-      ttnn::KernelCBGlobalBufferAddressOfTensorAttr globalCBIndexOfTensor;
-      if (auto castOp = mlir::dyn_cast_if_present<ttir::TTNNMetalLayoutCastOp>(
-              cb.getDefiningOp())) {
-        // Input is not streamed, thus buffer must be aliased.
-        TT_assertv(ttcore::getMemorySpace(cb_memref) ==
-                       ttcore::MemorySpace::DeviceL1,
-                   "Can only alias L1 buffers.");
-        globalCBIndexOfTensor =
-            ttnn::KernelCBGlobalBufferAddressOfTensorAttr::get(ctx, i);
-      }
-      cbDescriptor =
-          ttnn::KernelCBAttr::get(ctx, numPages * pageSize, coreRangeSet,
-                                  {cbFormat}, globalCBIndexOfTensor);
-      cbDescriptors[i] = cbDescriptor;
-    }
+    // Create CB descriptors.
+    llvm::SmallVector<ttnn::KernelCBAttr> cbDescriptors =
+        createCBDescriptors(rewriter, cbs, device, coreRangeSet);
 
     // Create KernelDescriptors.
     SymbolTable opSymTable(op->getParentOfType<ModuleOp>());
     llvm::SmallVector<mlir::Attribute> kernelDescriptors =
-        convertThreadsToKernelConfigs(rewriter, op.getThreads(), coreRangeSet,
-                                      opSymTable);
+        createKernelDescriptors(rewriter, op.getThreads(), coreRangeSet,
+                                opSymTable, this->mathFidelity);
 
-    llvm::SmallVector<ttnn::KernelSemaphoreAttr> semaphoreDescriptors;
+    // Extract semaphore descriptors from kernel functions.
+    llvm::SmallVector<ttnn::KernelSemaphoreAttr> semaphoreDescriptors =
+        createSemaphoreDescriptors(rewriter, op.getThreads(), coreRangeSet,
+                                   opSymTable);
 
     ttnn::ProgramAttr program = ttnn::ProgramAttr::get(
         ctx, kernelDescriptors, cbDescriptors, semaphoreDescriptors);
@@ -225,6 +304,9 @@ public:
                                                  ttnn::MemoryConfigAttr());
     return success();
   };
+
+private:
+  ttmetal::MathFidelity mathFidelity;
 };
 } // namespace
 
@@ -297,12 +379,45 @@ public:
 };
 } // namespace
 
-} // namespace mlir::tt
-namespace mlir::tt {
-void populateD2MToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
-                               TypeConverter &typeConverter) {
-  patterns.add<D2MGenericRewriter, TTNNMetalLayoutCastRewriter,
-               D2MEmptyRewriter, StreamLayoutRewriter>(ctx);
-}
+namespace {
+class D2MFullRewriter : public OpConversionPattern<d2m::FullOp> {
+public:
+  using OpConversionPattern<d2m::FullOp>::OpConversionPattern;
 
+  LogicalResult
+  matchAndRewrite(d2m::FullOp op, d2m::FullOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    MLIRContext *ctx = rewriter.getContext();
+    auto tensorType = cast<RankedTensorType>(op.getResult().getType());
+    auto layoutAttr = cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
+
+    // Convert DenseI32ArrayAttr shape to ttnn::ShapeAttr
+    auto shapeI32 = adaptor.getShape();
+    SmallVector<int64_t> shapeI64(shapeI32.begin(), shapeI32.end());
+    auto shape = ttnn::ShapeAttr::get(ctx, shapeI64);
+
+    auto dtype = ttcore::DataTypeAttr::get(ctx, layoutAttr.getDataType());
+    auto layout = ttnn::LayoutAttr::get(ctx, layoutAttr.getLayout());
+
+    // Reuses the existing ttnn.get_device op if present, else create one.
+    auto device = ttnn::utils::getOrInsertDevice(rewriter, op);
+    auto deviceAttr = ttcore::lookupDevice(op);
+    auto memcfg =
+        ttnn::MemoryConfigAttr::get(layoutAttr, deviceAttr.getWorkerGrid());
+
+    rewriter.replaceOpWithNewOp<ttnn::FullOp>(op, tensorType, device, shape,
+                                              adaptor.getFillValue(), dtype,
+                                              layout, memcfg);
+    return success();
+  };
+};
+} // namespace
+
+void populateD2MToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
+                               TypeConverter &typeConverter,
+                               ttmetal::MathFidelity mathFidelity) {
+  patterns.add<D2MGenericRewriter>(ctx, mathFidelity);
+  patterns.add<TTNNMetalLayoutCastRewriter, D2MEmptyRewriter, D2MFullRewriter,
+               StreamLayoutRewriter>(ctx);
+}
 } // namespace mlir::tt

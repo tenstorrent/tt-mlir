@@ -8,7 +8,9 @@
 
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
 #include "ttmlir/Conversion/Passes.h"
+#include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTKernel/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/RegisterAll.h"
 #include "ttmlir/Target/Python/PythonEmitter.h"
 #include "ttmlir/Target/Python/Utils.h"
@@ -142,6 +144,8 @@ void populatePassesModule(nb::module_ &m) {
         if (mlir::failed(pipeline->addToPipeline(pm, options, err_handler))) {
           throw std::runtime_error("Failed to add pipeline to pass manager");
         }
+
+        pm.addPass(tt::ttnn::createTTNNDeallocate());
 
         if (mlir::failed(pm.run(moduleOp))) {
           throw std::runtime_error("Failed to run pass manager");
@@ -349,6 +353,36 @@ void populatePassesModule(nb::module_ &m) {
         return output;
       },
       nb::arg("module"));
+
+  m.def(
+      "ttkernel_to_cpp_file",
+      [](MlirModule module, const std::string &filepath) {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+
+        // Convert to EmitC
+        mlir::PassManager pm(moduleOp->getName());
+        pm.addPass(mlir::tt::createConvertTTKernelToEmitC());
+        if (mlir::failed(pm.run(moduleOp))) {
+          throw std::runtime_error("Failed to run pass manager");
+        }
+
+        // Translate each kernel to C++ and dump to file
+        moduleOp->walk([&](func::FuncOp entry) {
+          if (!entry->hasAttr((mlir::tt::ttkernel::ThreadTypeAttr::name))) {
+            return;
+          }
+
+          std::string out_path =
+              filepath + "/" + std::string(entry.getName()) + ".cpp";
+          std::error_code fileError;
+          llvm::raw_fd_ostream out_file(out_path, fileError);
+          if (fileError || failed(mlir::tt::ttkernel::translateKernelFuncToCpp(
+                               entry, out_file))) {
+            throw std::runtime_error("Failed to generate cpp files");
+          }
+        });
+      },
+      nb::arg("module"), nb::arg("filepath"));
 
   m.def(
       "pykernel_compile_pipeline",

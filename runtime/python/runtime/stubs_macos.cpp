@@ -8,7 +8,6 @@
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wunused-private-field"
 
-#include "tt/runtime/debug.h"
 #include "tt/runtime/perf.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/types.h"
@@ -104,6 +103,7 @@ void Env::setProgramMetadata(const std::string &programMetadata) {
 
 namespace debug {
 
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
 // Stub for debug::Env::get
 const Env &Env::get(bool dumpKernelsToDisk, bool loadKernelsFromDisk,
                     bool useLocForKernelName, std::string kernelSourceDir,
@@ -131,6 +131,7 @@ void Stats::removeStat(const std::string &stat) { __builtin_trap(); }
 void Stats::clear() { __builtin_trap(); }
 
 std::string Stats::toString() const { __builtin_trap(); }
+#endif
 
 } // namespace debug
 
@@ -225,6 +226,7 @@ std::vector<std::uint32_t> getTensorStride(Tensor tensor) { __builtin_trap(); }
 std::uint32_t getTensorVolume(Tensor tensor) { __builtin_trap(); }
 size_t getTraceRegionSize(Device meshDevice) { __builtin_trap(); }
 bool isProgramCacheEnabled(Device meshDevice) { __builtin_trap(); }
+void clearProgramCache(Device meshDevice) { __builtin_trap(); }
 bool isTensorAllocated(Tensor tensor) { __builtin_trap(); }
 void launchDistributedRuntime(const DistributedOptions &options) {
   __builtin_trap();

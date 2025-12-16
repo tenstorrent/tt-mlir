@@ -5,9 +5,9 @@ import pytest
 import torch
 from typing import Callable, List, Optional
 from conftest import x86_only
-from builder.base.builder import Operand, Shape
+from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import compile_and_execute_ttir
+from builder.base.builder_apis import compile_and_execute_ttir
 from test_utils import (
     Marks,
     shapes_list_str,
@@ -70,6 +70,14 @@ def test_reduction_ops(
             )
         )
 
+    # FP32 prod reduction fails due to tt-metal untilize NaN handling.
+    # See: https://github.com/tenstorrent/tt-metal/pull/33904
+    if reduction_op_name == "prod" and dtype == torch.float32 and target == "ttnn":
+        pytest.xfail(
+            "FP32 prod reduction fails due to tt-metal untilize NaN handling. "
+            "See: https://github.com/tenstorrent/tt-metal/pull/33904"
+        )
+
     if reduction_op_name == "argmax" and dim_arg is not None and len(dim_arg) > 1:
         request.node.add_marker(
             pytest.xfail(
@@ -84,30 +92,28 @@ def test_reduction_ops(
             )
         )
 
-    def reduction_op_wrapper(
-        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        reduction_op_builder_map = {
-            "argmax": builder.argmax,
-            "max": builder.max,
-            "mean": builder.mean,
-            "min": builder.min,
-            "prod": builder.prod,
-            "reduce_and": builder.reduce_and,
-            "reduce_or": builder.reduce_or,
-            "sum": builder.sum,
-        }
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [dtype])
+        def reduction_op_wrapper(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            reduction_op_builder_map = {
+                "argmax": builder.argmax,
+                "max": builder.max,
+                "mean": builder.mean,
+                "min": builder.min,
+                "prod": builder.prod,
+                "reduce_and": builder.reduce_and,
+                "reduce_or": builder.reduce_or,
+                "sum": builder.sum,
+            }
 
-        reduction_func = reduction_op_builder_map.get(reduction_op_name)
+            reduction_func = reduction_op_builder_map.get(reduction_op_name)
 
-        return reduction_func(in0, dim_arg=dim_arg, keep_dim=keep_dim)
-
-    reduction_op_wrapper.__name__ = f"{reduction_op_name}"
+            return reduction_func(in0, dim_arg=dim_arg, keep_dim=keep_dim)
 
     compile_and_execute_ttir(
-        reduction_op_wrapper,
-        inputs_shapes=shapes,
-        inputs_types=[dtype],
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),
@@ -173,32 +179,33 @@ def test_reduction_cpu_hoisted_ops(
             pytest.xfail(reason="Not supported in CPU hoisted mode, see issue #5812")
         )
 
-    def reduction_op_cpu_hoisted_wrapper(
-        in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
-    ):
-        reduction_op_builder_map = {
-            "argmax": builder.argmax,
-            "max": builder.max,
-            "mean": builder.mean,
-            "min": builder.min,
-            "prod": builder.prod,
-            "reduce_and": builder.reduce_and,
-            "reduce_or": builder.reduce_or,
-            "sum": builder.sum,
-        }
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [dtype])
+        def reduction_op_cpu_hoisted_wrapper(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            reduction_op_builder_map = {
+                "argmax": builder.argmax,
+                "max": builder.max,
+                "mean": builder.mean,
+                "min": builder.min,
+                "prod": builder.prod,
+                "reduce_and": builder.reduce_and,
+                "reduce_or": builder.reduce_or,
+                "sum": builder.sum,
+            }
 
-        reduction_func = reduction_op_builder_map.get(reduction_op_name)
+            reduction_func = reduction_op_builder_map.get(reduction_op_name)
 
-        return reduction_func(
-            in0, dim_arg=dim_arg, keep_dim=keep_dim, unit_attrs=["ttir.should_hoist"]
-        )
-
-    reduction_op_cpu_hoisted_wrapper.__name__ = f"{reduction_op_name}_cpu_hoisted"
+            return reduction_func(
+                in0,
+                dim_arg=dim_arg,
+                keep_dim=keep_dim,
+                unit_attrs=["ttir.should_hoist"],
+            )
 
     compile_and_execute_ttir(
-        reduction_op_cpu_hoisted_wrapper,
-        inputs_shapes=shapes,
-        inputs_types=[dtype],
+        module,
         test_base=request.node.name,
         device=device,
         output_root=request.config.getoption("--path"),

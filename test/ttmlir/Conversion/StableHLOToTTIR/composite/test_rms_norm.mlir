@@ -6,7 +6,7 @@ module @jit__rms_norm attributes {mhlo.num_partitions = 1 : i32, mhlo.num_replic
   sdy.mesh @empty_mesh = <["default_updated"=1, "default"=1]>
 
   // CHECK-LABEL: func.func public @test_rms_norm_no_weight
-  // CHECK: "ttir.rms_norm"(%{{.*}}, %{{.*}})
+  // CHECK: "ttir.rms_norm"(%{{.*}})
 
   func.func public @test_rms_norm_no_weight(%arg0: tensor<4x32xf32> {ttcore.argument_type = #ttcore.argument_type<input>, ttcore.shard_status = #ttcore.shard_status<unsharded>, ttir.name = "args_0"}) -> (tensor<4x32xf32> {ttcore.shard_status = #ttcore.shard_status<unsharded>}) {
     %0 = stablehlo.reshape %arg0 : (tensor<4x32xf32>) -> tensor<1x4x32xf32>

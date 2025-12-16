@@ -37,6 +37,17 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *memcfg);
 ::ttnn::operations::conv::conv2d::Conv2dSliceConfig
 createConv2dSliceConfig(const ::tt::target::ttnn::Conv2dSliceConfig *config);
 
+::ttnn::operations::experimental::conv3d::Conv3dConfig createConv3dConfig(
+    const ::tt::target::ttnn::Conv3dConfig *config, uint32_t outChannels,
+    const std::array<uint32_t, 3> &kernelSize,
+    const std::array<uint32_t, 3> &stride,
+    const std::array<uint32_t, 3> &padding, const std::string &paddingMode,
+    uint32_t groups, const std::optional<::ttnn::DataType> &outputDtype,
+    ::ttnn::MeshDevice &targetDevice);
+
+::ttnn::operations::transformer::SDPAProgramConfig
+createSDPAProgramConfig(const ::tt::target::ttnn::SDPAConfig *config);
+
 ::ttnn::DeviceComputeKernelConfig createDeviceComputeKernelConfig(
     const ::tt::target::ttnn::DeviceComputeKernelConfig *config);
 

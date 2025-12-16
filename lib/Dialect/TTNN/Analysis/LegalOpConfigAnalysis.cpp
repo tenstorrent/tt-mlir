@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfigAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Support/Logger.h"
 
 #include "llvm/ADT/TypeSwitch.h"
@@ -200,8 +201,7 @@ void LegalOpConfigAnalysis::fillOpSpecificAttrs() {
           //
           return (config.hasReshardIfNotOptimal() &&
                   config.getReshardIfNotOptimal().getValue() &&
-                  !config.hasShardLayout()) ||
-                 (config.getActBlockHOverride().value_or(0) < 64);
+                  !config.hasShardLayout());
         };
 
         Conv2dConfigGenerator configGenerator(&convOp, conv2dConfigAttrBase,

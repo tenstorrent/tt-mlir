@@ -46,13 +46,13 @@ public:
 
   static ArrayAttr convertThreadsToKernelConfigs(
       Builder &builder, mlir::ValueRange operands, ArrayAttr threads,
-      ttcore::GridAttr opGrid, ArrayRef<int64_t> deviceGridShape,
-      const SymbolTable &symbolTable, ttmetal::MathFidelity mathFidelity) {
+      ArrayRef<int64_t> physicalGridShape, const SymbolTable &symbolTable,
+      ttmetal::MathFidelity mathFidelity) {
     SmallVector<Attribute> kernelConfigs;
     uint32_t nocIndex = 0;
 
-    auto coreRange =
-        ttmetal::CoreRangeAttr::getPhysicalCoreRange(opGrid, deviceGridShape);
+    auto coreRange = ttmetal::CoreRangeAttr::getPhysicalCoreRange(
+        builder.getContext(), physicalGridShape);
 
     for (Attribute threadAttr : threads) {
       d2m::ThreadAttr thread = mlir::cast<d2m::ThreadAttr>(threadAttr);
@@ -125,14 +125,11 @@ public:
       cbPorts.push_back(cbPort++);
     }
 
-    ttcore::DeviceAttr device = ttcore::lookupDevice(op);
-    auto deviceGridShape = device.getWorkerGrid().getShape();
-
     ArrayAttr threads = op.getThreads();
-    ttcore::GridAttr opGrid = op.getGrid();
+    auto physicalGridShape = op.getPhysicalGridShape();
     SymbolTable symbolTable(op->getParentOfType<ModuleOp>());
     auto kernelConfigs = convertThreadsToKernelConfigs(
-        rewriter, adaptor.getOperands(), threads, opGrid, deviceGridShape,
+        rewriter, adaptor.getOperands(), threads, physicalGridShape,
         symbolTable, mathFidelity_);
     rewriter.replaceOpWithNewOp<ttmetal::EnqueueProgramOp>(
         op, buffers, cbs, cbPorts, kernelConfigs);
@@ -185,13 +182,18 @@ public:
 };
 } // namespace
 
+//===----------------------------------------------------------------------===//
+// Host Transfer Ops: ToDeviceOp -> EnqueueWriteBuffer, ToHostOp ->
+// EnqueueReadBuffer
+//===----------------------------------------------------------------------===//
+
 namespace {
-class D2MToLayoutRewriter : public OpConversionPattern<d2m::ToLayoutOp> {
+class D2MToDeviceRewriter : public OpConversionPattern<d2m::ToDeviceOp> {
 public:
-  using OpConversionPattern<d2m::ToLayoutOp>::OpConversionPattern;
+  using OpConversionPattern<d2m::ToDeviceOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(d2m::ToLayoutOp op, d2m::ToLayoutOpAdaptor adaptor,
+  matchAndRewrite(d2m::ToDeviceOp op, d2m::ToDeviceOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     Value input;
     if (auto view = mlir::dyn_cast_if_present<d2m::ViewLayoutOp>(
@@ -207,34 +209,54 @@ public:
     } else {
       output = adaptor.getOutput();
     }
-    MemRefType inputTy = mlir::cast<MemRefType>(input.getType());
-    MemRefType outputTy = mlir::cast<MemRefType>(output.getType());
-    ttcore::MemorySpaceAttr inputMemorySpace =
-        mlir::dyn_cast_if_present<ttcore::MemorySpaceAttr>(
-            inputTy.getMemorySpace());
-    ttcore::MemorySpaceAttr outputMemorySpace =
-        mlir::dyn_cast_if_present<ttcore::MemorySpaceAttr>(
-            outputTy.getMemorySpace());
-    bool inputMemorySpaceSet = inputMemorySpace != nullptr;
-    bool outputMemorySpaceSet = outputMemorySpace != nullptr;
-    assert((inputMemorySpaceSet != outputMemorySpaceSet) &&
-           "expected either input or output to have memory space");
 
-    // No memoryspace implicitly means host.
-    if (inputMemorySpace) {
-      assert(!mlir::dyn_cast_if_present<ttcore::HostLayoutAttr>(
-          inputTy.getLayout()));
-      rewriter.replaceOpWithNewOp<ttmetal::EnqueueReadBufferOp>(op, input,
-                                                                output);
-      // Insert global barrier to ensure the read completes before subsequent
-      // ops use it.
-      rewriter.create<ttmetal::FinishOp>(op->getLoc());
+    [[maybe_unused]] MemRefType outputTy =
+        mlir::cast<MemRefType>(output.getType());
+    assert(!mlir::dyn_cast_if_present<ttcore::HostLayoutAttr>(
+               outputTy.getLayout()) &&
+           "output should be device memory");
+
+    rewriter.replaceOpWithNewOp<ttmetal::EnqueueWriteBufferOp>(op, input,
+                                                               output);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class D2MToHostRewriter : public OpConversionPattern<d2m::ToHostOp> {
+public:
+  using OpConversionPattern<d2m::ToHostOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::ToHostOp op, d2m::ToHostOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Value input;
+    if (auto view = mlir::dyn_cast_if_present<d2m::ViewLayoutOp>(
+            adaptor.getInput().getDefiningOp())) {
+      input = view.getInput();
     } else {
-      assert(!mlir::dyn_cast_if_present<ttcore::HostLayoutAttr>(
-          outputTy.getLayout()));
-      rewriter.replaceOpWithNewOp<ttmetal::EnqueueWriteBufferOp>(op, input,
-                                                                 output);
+      input = adaptor.getInput();
     }
+    Value output;
+    if (auto view = mlir::dyn_cast_if_present<d2m::ViewLayoutOp>(
+            adaptor.getOutput().getDefiningOp())) {
+      output = view.getInput();
+    } else {
+      output = adaptor.getOutput();
+    }
+
+    [[maybe_unused]] MemRefType inputTy =
+        mlir::cast<MemRefType>(input.getType());
+    assert(!mlir::dyn_cast_if_present<ttcore::HostLayoutAttr>(
+               inputTy.getLayout()) &&
+           "input should be device memory");
+
+    rewriter.replaceOpWithNewOp<ttmetal::EnqueueReadBufferOp>(op, input,
+                                                              output);
+    // Insert global barrier to ensure the read completes before subsequent
+    // ops use it.
+    rewriter.create<ttmetal::FinishOp>(op->getLoc());
     return success();
   }
 };
@@ -274,8 +296,8 @@ void populateD2MToTTMetalPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                   TypeConverter & /*typeConverter*/,
                                   ttmetal::MathFidelity mathFidelity) {
   patterns.add<ttmetal::MemrefAllocRewriter, ttmetal::MemrefDeallocRewriter,
-               ttmetal::D2MToLayoutRewriter, ttmetal::D2MMeshShardRewriter>(
-      ctx);
+               ttmetal::D2MToDeviceRewriter, ttmetal::D2MToHostRewriter,
+               ttmetal::D2MMeshShardRewriter>(ctx);
   patterns.add<ttmetal::D2MGenericRewriter>(ctx, mathFidelity);
 }
 

@@ -40,7 +40,7 @@ jobs:
       fail-fast: false
       matrix:
         build: [
-          { enable_op_model: "ON", enable_emitc: "ON", name: "speedy" },
+          { enable_op_model: "ON", enable_emitc: "ON", enable_alchemist_whl: "ON", name: "speedy" },
           { enable_op_model: "ON", enable_perf: "ON", enable_runtime_debug: "ON", enable_explorer: "ON", enable_pykernel: "ON", enable_ttnn_jit: "ON", name: "tracy" }
         ]
 
@@ -118,6 +118,7 @@ jobs:
           -DTTMLIR_ENABLE_TTNN_JIT=${{ matrix.build.enable_ttnn_jit }} \
           -DTTMLIR_ENABLE_STABLEHLO=ON \
           -DTTMLIR_ENABLE_OPMODEL=${{ matrix.build.enable_op_model }} \
+          -DTTMLIR_ENABLE_ALCHEMIST_WHEEL=${{ matrix.build.enable_alchemist_whl }} \
           -DTT_RUNTIME_DEBUG=${{ matrix.build.enable_runtime_debug }} \
           -S ${{ steps.strings.outputs.work-dir }}
 

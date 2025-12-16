@@ -26,7 +26,9 @@
 #include "operations/eltwise/unary/unary_composite.hpp"
 #include "operations/embedding/embedding.hpp"
 #include "operations/embedding_backward/embedding_backward.hpp"
+#include "operations/experimental/conv3d/conv3d.hpp"
 #include "operations/experimental/transformer/nlp_concat_heads/nlp_concat_heads.hpp"
+#include "operations/experimental/unary_backward/gelu_backward/gelu_backward.hpp"
 #include "operations/kv_cache/kv_cache.hpp"
 #include "operations/matmul/matmul.hpp"
 #include "operations/moreh/moreh_cumsum/moreh_cumsum.hpp"
@@ -185,6 +187,24 @@ uint32_t getScalarFromTensor(const ttnn::Tensor &tensor) {
   }
 
   return loadedTensor;
+}
+
+// Wrapper for nlp_create_qkv_heads_decode that handles the non-const lvalue
+// reference parameter. The tt-metal API takes optional_output_tensors as a
+// non-const lvalue reference, which can't be passed as a temporary. This
+// wrapper creates a local variable internally.
+inline std::tuple<::ttnn::Tensor, ::ttnn::Tensor, ::ttnn::Tensor>
+nlp_create_qkv_heads_decode_wrapper(
+    const ::ttnn::Tensor &input_tensor, uint32_t num_heads,
+    std::optional<const uint32_t> num_kv_heads,
+    std::optional<const bool> overlap_qk_coregrid = true,
+    const std::optional<const ::ttnn::Tensor> &batch_offset = std::nullopt,
+    std::optional<const uint32_t> slice_size = std::nullopt,
+    const std::optional<::ttnn::MemoryConfig> &memory_config = std::nullopt) {
+  std::optional<std::array<::ttnn::Tensor, 3>> optional_output_tensors;
+  return ::ttnn::experimental::nlp_create_qkv_heads_decode(
+      input_tensor, num_heads, num_kv_heads, optional_output_tensors,
+      overlap_qk_coregrid, batch_offset, slice_size, memory_config);
 }
 
 } // namespace ttnn

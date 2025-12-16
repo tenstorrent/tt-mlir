@@ -100,6 +100,17 @@ class D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<string mnemonic, list<
   }];
 }
 
+class D2M_GenericRegionComputeTernaryDstOp<string mnemonic, list<Trait> traits = []> :
+    D2M_GenericRegionComputeOp<mnemonic, traits> {
+
+  let extraClassDeclaration = [{
+    mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
+      // All three operands are tiles, load all from DST
+      return {0, 1, 2};
+    }
+  }];
+}
+
 class D2M_GenericRegionDatamovementOp<string mnemonic, list<Trait> traits = []> :
     D2M_GenericRegionOp<mnemonic, [D2M_GenericRegionDatamovementOpTrait] # traits> {}
 
@@ -239,6 +250,16 @@ def D2M_TileTanOp : D2M_GenericRegionComputeUnaryDstOp<"tile_tan", D2M_TileCompu
     let results = (outs TTCore_Tile:$result);
 }
 
+def D2M_TileTanhOp : D2M_GenericRegionComputeUnaryDstOp<"tile_tanh", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Tanh Op";
+    let description = [{
+        The `tile_tanh` operation computes the hyperbolic tangent function of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
 def D2M_TileSqrtOp : D2M_GenericRegionComputeUnaryDstOp<"tile_sqrt", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Sqrt Op";
     let description = [{
@@ -279,6 +300,16 @@ def D2M_TileSigmoidOp : D2M_GenericRegionComputeUnaryDstOp<"tile_sigmoid", D2M_T
     let results = (outs TTCore_Tile:$result);
 }
 
+def D2M_TileHardsigmoidOp : D2M_GenericRegionComputeUnaryDstOp<"tile_hardsigmoid", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Sigmoid Op";
+    let description = [{
+        The `tile_hardsigmoid` operation computes the hardsigmoid of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
 def D2M_TileSiluOp : D2M_GenericRegionComputeUnaryDstOp<"tile_silu", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Sliu Op";
     let description = [{
@@ -303,6 +334,37 @@ def D2M_TileGeluOp : D2M_GenericRegionComputeUnaryDstOp<"tile_gelu", D2M_TileCom
     let summary = "D2M Tile GELU Op";
     let description = [{
         The `tile_gelu` operation computes the GELU (Gaussian Error Linear Unit) of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileErfOp : D2M_GenericRegionComputeUnaryDstOp<"tile_erf", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Erf Op";
+    let description = [{
+        The `tile_erf` operation computes the error function (erf) of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileErfcOp : D2M_GenericRegionComputeUnaryDstOp<"tile_erfc", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Erfc Op";
+    let description = [{
+        The `tile_erfc` operation computes the complementary error function (erfc) of each element in the input tile.
+    }];
+
+    let arguments = (ins TTCore_Tile:$input);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileSignOp : D2M_GenericRegionComputeUnaryDstOp<"tile_sign", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Sign Op";
+    let description = [{
+        The `tile_sign` operation computes the sign of each element in the input tile.
+        Returns 1 for positive values, -1 for negative values, and 0 for zero.
     }];
 
     let arguments = (ins TTCore_Tile:$input);
@@ -349,6 +411,39 @@ def D2M_TileBitwiseNotOp : D2M_GenericRegionComputeUnaryDstOp<"tile_bitwise_not"
     let results = (outs TTCore_Tile:$result);
 }
 
+def D2M_TileBitwiseAndOp : D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<"tile_bitwise_and", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Bitwise And Op";
+    let description = [{
+        The `tile_bitwise_and` operation computes bitwise AND between two tiles.
+    }];
+
+    let arguments = (ins TileOrScalar:$lhs,
+                         TileOrScalar:$rhs);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileBitwiseOrOp : D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<"tile_bitwise_or", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Bitwise Or Op";
+    let description = [{
+        The `tile_bitwise_or` operation computes bitwise OR between two tiles.
+    }];
+
+    let arguments = (ins TileOrScalar:$lhs,
+                         TileOrScalar:$rhs);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileBitwiseXorOp : D2M_GenericRegionComputeBinaryWithScalarOptionDstOp<"tile_bitwise_xor", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Tile Bitwise Xor Op";
+    let description = [{
+        The `tile_bitwise_xor` operation computes bitwise XOR between two tiles.
+    }];
+
+    let arguments = (ins TileOrScalar:$lhs,
+                         TileOrScalar:$rhs);
+    let results = (outs TTCore_Tile:$result);
+}
+
 def D2M_TileLogicalNotOp : D2M_GenericRegionComputeUnaryDstOp<"tile_logical_not", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Logical Not Op";
     let description = [{
@@ -359,7 +454,7 @@ def D2M_TileLogicalNotOp : D2M_GenericRegionComputeUnaryDstOp<"tile_logical_not"
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileEqzOp : D2M_GenericRegionComputeUnaryDstOp<"tile_eqz"> {
+def D2M_TileEqzOp : D2M_GenericRegionComputeUnaryDstOp<"tile_eqz", D2M_TileComputeOpTraitBundle> {
     let summary = "D2M Tile Eqz Op";
     let description = [{
         The `tile_eqz` operation checks if each element in the input tile == 0
@@ -429,7 +524,33 @@ def D2M_TileMaximumOp : D2M_GenericRegionComputeBinaryDstOp<"tile_maximum", D2M_
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileReduceSumOp : D2M_GenericRegionComputeOp<"tile_reduce_sum"> {
+def D2M_TileMinimumOp : D2M_GenericRegionComputeBinaryDstOp<"tile_minimum", D2M_TileComputeOpTraitBundle>{
+    let summary = "D2M Tile Minimum Op";
+    let description = [{
+        The `tile_minimum` operation calculates the minimum of two tensors element-wise.
+    }];
+
+    let arguments = (ins TTCore_Tile:$lhs, TTCore_Tile:$rhs);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileWhereOp : D2M_GenericRegionComputeTernaryDstOp<"tile_where", D2M_TileComputeOpTraitBundle>{
+    let summary = "D2M Tile Where Op";
+    let description = [{
+        The `tile_where` operation performs element-wise conditional selection.
+        For each element position, it selects between two values based on a boolean
+        condition in the first tensor:
+        - If the condition is true (non-zero), it selects the corresponding element
+          from the second tensor (true_value)
+        - If the condition is false (zero), it selects the corresponding element
+          from the third tensor (false_value)
+    }];
+
+    let arguments = (ins TTCore_Tile:$condition, TTCore_Tile:$true_value, TTCore_Tile:$false_value);
+    let results = (outs TTCore_Tile:$result);
+}
+
+def D2M_TileReduceSumOp : D2M_GenericRegionComputeOp<"tile_reduce_sum", D2M_TileComputeOpTraitBundle> {
   let summary = "D2M Tile Reduce Sum Op";
   let description = [{
         The `tile_reduce_sum` operation computes the sum of all elements in the input A element-wise multiplied by B and input C over the specified reduction dim(s): result <- sum<dims>(A * B, C)
@@ -451,7 +572,7 @@ def D2M_TileReduceSumOp : D2M_GenericRegionComputeOp<"tile_reduce_sum"> {
   }];
 }
 
-def D2M_TileReduceMaxOp : D2M_GenericRegionComputeOp<"tile_reduce_max"> {
+def D2M_TileReduceMaxOp : D2M_GenericRegionComputeOp<"tile_reduce_max", D2M_TileComputeOpTraitBundle> {
   let summary = "D2M Tile Reduce Max Op";
   let description = [{
         The `tile_reduce_max` operation computes the max of all elements in the input A element-wise multiplied by B and input C over the specified reduction dim(s): result <- max<dims>(A * B, C)
@@ -471,6 +592,18 @@ def D2M_TileReduceMaxOp : D2M_GenericRegionComputeOp<"tile_reduce_max"> {
       return true;
     }
   }];
+}
+
+// TODO(#5968): fusion w/ implicit bcast causes multiple failure scenarios.
+def D2M_TileBcastOp : D2M_GenericRegionComputeOp<"tile_bcast", [Pure, D2M_SkipOpEltwiseFusionTrait]> {
+  let summary = "D2M Tile Broadcast Op";
+  let description = [{
+    The `tile_bcast` operation broadcasts a row/col/scalar tile into a full tile.
+  }];
+
+  let arguments = (ins TTCore_Tile:$input,
+                       D2M_TileBcastTypeAttr:$bcast_type);
+  let results = (outs TTCore_Tile:$result);
 }
 
 def D2M_PackerMaskResetOp : D2M_GenericRegionComputeOp<"packer_mask_reset"> {

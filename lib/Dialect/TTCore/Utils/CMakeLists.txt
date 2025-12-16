@@ -1,4 +1,5 @@
 add_mlir_dialect_library(MLIRTTUtils
+        AffineMapUtils.cpp
         PopulateArgumentTypes.cpp
 
         ADDITIONAL_HEADER_DIRS

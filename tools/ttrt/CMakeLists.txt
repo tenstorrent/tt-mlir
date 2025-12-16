@@ -17,12 +17,14 @@ add_custom_command(
           TTMLIR_ENABLE_RUNTIME_TESTS=${TTMLIR_ENABLE_RUNTIME_TESTS}
           TT_RUNTIME_ENABLE_PERF_TRACE=${TT_RUNTIME_ENABLE_PERF_TRACE}
           TT_RUNTIME_DEBUG=${TT_RUNTIME_DEBUG}
+          TT_METAL_RUNTIME_ROOT=${TTMLIR_SOURCE_DIR}/third_party/tt-metal/src/tt-metal
           TTMLIR_BINARY_DIR=${TTMLIR_BINARY_DIR}
           TTMLIR_VERSION_MAJOR=${TTMLIR_VERSION_MAJOR}
           TTMLIR_VERSION_MINOR=${TTMLIR_VERSION_MINOR}
           TTMLIR_VERSION_PATCH=${TTMLIR_VERSION_PATCH}
           CMAKE_SYSTEM_PROCESSOR=${CMAKE_SYSTEM_PROCESSOR}
           SOURCE_ROOT=${TTMLIR_SOURCE_DIR}
+          TTMETAL_BUILD_DIR=${TTMETAL_BUILD_DIR}
           python -m pip wheel . --wheel-dir build
   COMMAND python -m pip install build/*.whl --force-reinstall
   COMMAND touch ${CMAKE_CURRENT_BINARY_DIR}/build/.installed

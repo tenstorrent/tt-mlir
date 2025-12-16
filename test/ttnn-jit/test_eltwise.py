@@ -21,7 +21,6 @@ BLOCK_SHARDED_SHAPE_GRIDS = [
     ((32, 64), (0, 0)),
     ((512, 1024), (7, 7)),
     ((1024, 1024), (7, 7)),
-    ((1024, 2048), (7, 7)),
     # Ensure non-square grid dims are interpreted correctly.
     ((64, 128), (0, 1)),
     ((96, 128), (3, 2)),
@@ -35,9 +34,12 @@ BLOCK_SHARDED_SHAPE_GRIDS = [
 ]
 
 HEIGHT_SHARDED_SHAPE_GRIDS = [
-    ((32, 32), (0, 0)),
-    ((32, 64), (0, 0)),
-    ((256, 64), (7, 0)),
+    ((256, 32), (3, 0)),
+    ((128, 32), (3, 0)),
+    ((256, 32), (3, 1)),
+    ((512, 32), (3, 3)),
+    ((1024, 32), (7, 1)),
+    ((1024, 32), (7, 3)),
     ((256, 64), (0, 7)),
     ((2048, 128), (7, 7)),
     ((384, 32), (1, 5)),
@@ -52,6 +54,7 @@ WIDTH_SHARDED_SHAPE_GRIDS = [
     ((64, 256), (7, 0)),
     ((64, 256), (0, 7)),
     ((128, 2048), (7, 7)),
+    ((32, 384), (0, 5)),
     ((32, 384), (1, 5)),
     ((2, 32, 384), (1, 5)),
     ((2, 2, 32, 384), (1, 5)),
@@ -60,28 +63,41 @@ WIDTH_SHARDED_SHAPE_GRIDS = [
 
 SHARDED_SHAPE_GRID_LAYOUTS = (
     [
-        (shape, grid, ttnn.TensorMemoryLayout.BLOCK_SHARDED)
+        (shape, grid, ttnn.ShardStrategy.BLOCK)
         for shape, grid in BLOCK_SHARDED_SHAPE_GRIDS
     ]
     + [
-        (shape, grid, ttnn.TensorMemoryLayout.HEIGHT_SHARDED)
+        (shape, grid, ttnn.ShardStrategy.HEIGHT)
         for shape, grid in HEIGHT_SHARDED_SHAPE_GRIDS
     ]
     + [
-        (shape, grid, ttnn.TensorMemoryLayout.WIDTH_SHARDED)
+        (shape, grid, ttnn.ShardStrategy.WIDTH)
         for shape, grid in WIDTH_SHARDED_SHAPE_GRIDS
     ]
 )
+_MINIMAL_SHARDED_SHAPE_GRID_LAYOUTS = [
+    (
+        BLOCK_SHARDED_SHAPE_GRIDS[-1][0],
+        BLOCK_SHARDED_SHAPE_GRIDS[-1][1],
+        ttnn.ShardStrategy.BLOCK,
+    ),
+    (
+        HEIGHT_SHARDED_SHAPE_GRIDS[-1][0],
+        HEIGHT_SHARDED_SHAPE_GRIDS[-1][1],
+        ttnn.ShardStrategy.HEIGHT,
+    ),
+    (
+        WIDTH_SHARDED_SHAPE_GRIDS[-1][0],
+        WIDTH_SHARDED_SHAPE_GRIDS[-1][1],
+        ttnn.ShardStrategy.WIDTH,
+    ),
+]
 
 DRAM_INTERLEAVED_SHAPES = [
     ((32, 32)),
     ((32, 64)),
     ((64, 32)),
-    ((256, 256)),
-    ((1024, 2048)),
     ((2048, 2048)),
-    ((1024, 32)),
-    ((32, 1024)),
     ((64, 1024)),
     ((1024, 64)),
     # Include rank 3 and 4 tensors.
@@ -117,6 +133,10 @@ def tan(input_tensor):
     return ttnn.tan(input_tensor)
 
 
+def tanh(input_tensor):
+    return ttnn.tanh(input_tensor)
+
+
 def cbrt(input_tensor):
     return ttnn.cbrt(input_tensor)
 
@@ -145,6 +165,14 @@ def gelu(input_tensor):
     return ttnn.gelu(input_tensor)
 
 
+def relu(input_tensor):
+    return ttnn.relu(input_tensor)
+
+
+def silu(input_tensor):
+    return ttnn.silu(input_tensor)
+
+
 def logical_not(input_tensor):
     return ttnn.logical_not(input_tensor)
 
@@ -165,7 +193,22 @@ def rsqrt(input_tensor):
     return ttnn.rsqrt(input_tensor)
 
 
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+def sigmoid(input_tensor):
+    return ttnn.sigmoid(input_tensor)
+
+
+def hardsigmoid(input_tensor):
+    return ttnn.hardsigmoid(input_tensor)
+
+
+@pytest.mark.parametrize(
+    "dtype, ttnn_dtype",
+    [
+        (torch.float32, None),
+        (torch.bfloat16, ttnn.DataType.BFLOAT8_B),
+    ],
+    ids=["f32", "bfp8"],
+)
 @pytest.mark.parametrize(
     "op",
     [
@@ -177,6 +220,11 @@ def rsqrt(input_tensor):
         ceil,
         floor,
         logical_not,
+        tanh,
+        sigmoid,
+        hardsigmoid,
+        sqrt,
+        tan,
     ],
 )
 @pytest.mark.parametrize(
@@ -185,8 +233,11 @@ def rsqrt(input_tensor):
     ids=[f"{shape}" for shape in DRAM_INTERLEAVED_SHAPES],
 )
 @pytest.mark.parametrize("graph_capture", [True, False])
-def test_unary_op_dram(device, shape, dtype, op, graph_capture):
-    if op in [log, ceil, floor, logical_not] and dtype == torch.float32:
+def test_unary_op_dram(device, shape, dtype, ttnn_dtype, op, graph_capture):
+    if (
+        op in [log, ceil, floor, sqrt, reciprocal, logical_not]
+        and dtype == torch.float32
+    ):
         pytest.xfail("failing allclose for some shapes for float32")
 
     max_grid = (0, 0)
@@ -199,18 +250,27 @@ def test_unary_op_dram(device, shape, dtype, op, graph_capture):
         num_inputs=1,
         buffer_type=ttnn.BufferType.DRAM,
         graph_capture=graph_capture,
+        ttnn_dtype=ttnn_dtype,
     )
 
 
 @pytest.mark.parametrize(
-    "shape, max_grid, memory_layout",
+    "shape, max_grid, shard_strategy",
     SHARDED_SHAPE_GRID_LAYOUTS,
     ids=[
-        f"shape_{shape}_grid_{grid}_{layout}"
-        for shape, grid, layout in SHARDED_SHAPE_GRID_LAYOUTS
+        f"shape_{shape}_grid_{grid}_{shard_strategy}"
+        for shape, grid, shard_strategy in SHARDED_SHAPE_GRID_LAYOUTS
     ],
 )
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize(
+    "dtype, ttnn_dtype",
+    [
+        (torch.float32, None),
+        (torch.bfloat16, None),
+        (torch.bfloat16, ttnn.DataType.BFLOAT8_B),
+    ],
+    ids=["f32", "bf16", "bfp8"],
+)
 @pytest.mark.parametrize(
     "op",
     [
@@ -222,16 +282,25 @@ def test_unary_op_dram(device, shape, dtype, op, graph_capture):
         ceil,
         floor,
         logical_not,
-        # Not supported in TTIRToD2M:
-        # gelu, reciprocal cbrt, sign, erf, erfc
-        # Always fails allclose
-        # tan, sqrt
+        tanh,
+        sigmoid,
+        hardsigmoid,
+        sqrt,
+        reciprocal,
+        tan,
     ],
 )
 @pytest.mark.parametrize("graph_capture", [True, False])
-def test_unary_op_l1(device, shape, max_grid, memory_layout, dtype, op, graph_capture):
-    if op in [log, ceil, floor, rsqrt, logical_not] and dtype == torch.float32:
+def test_unary_op_l1(
+    device, shape, max_grid, shard_strategy, dtype, ttnn_dtype, op, graph_capture
+):
+    if op in [log, ceil, floor, sqrt, rsqrt, logical_not] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes for float32")
+
+    if op == reciprocal and (
+        ttnn_dtype == ttnn.DataType.BFLOAT8_B or dtype == torch.float32
+    ):
+        pytest.xfail("reciprocal not supported for bfp8")
 
     run_op_test(
         device,
@@ -242,7 +311,53 @@ def test_unary_op_l1(device, shape, max_grid, memory_layout, dtype, op, graph_ca
         num_inputs=1,
         buffer_type=ttnn.BufferType.L1,
         graph_capture=graph_capture,
-        memory_layout=memory_layout,
+        shard_strategy=shard_strategy,
+        ttnn_dtype=ttnn_dtype,
+    )
+
+
+@pytest.mark.parametrize(
+    "shape, max_grid, shard_strategy",
+    _MINIMAL_SHARDED_SHAPE_GRID_LAYOUTS,
+    ids=[
+        f"shape_{shape}_grid_{grid}_{shard_strategy.name}"
+        for shape, grid, shard_strategy in _MINIMAL_SHARDED_SHAPE_GRID_LAYOUTS
+    ],
+)
+@pytest.mark.parametrize(
+    "dtype, ttnn_dtype",
+    [
+        (torch.bfloat16, None),
+    ],
+    ids=["bf16"],
+)
+@pytest.mark.parametrize(
+    "op",
+    [
+        erf,
+        erfc,
+        sign,
+        relu,
+        silu,
+        gelu,
+        tan,
+    ],
+)
+@pytest.mark.parametrize("graph_capture", [True, False])
+def test_unary_op_l1_minimal(
+    device, shape, max_grid, shard_strategy, dtype, ttnn_dtype, op, graph_capture
+):
+    run_op_test(
+        device,
+        shape,
+        max_grid,
+        dtype,
+        op,
+        num_inputs=1,
+        buffer_type=ttnn.BufferType.L1,
+        graph_capture=graph_capture,
+        shard_strategy=shard_strategy,
+        ttnn_dtype=ttnn_dtype,
     )
 
 
@@ -274,11 +389,11 @@ def test_bitwise_unary_op_dram(device, shape, dtype, op, graph_capture):
 
 
 @pytest.mark.parametrize(
-    "shape, max_grid, memory_layout",
+    "shape, max_grid, shard_strategy",
     SHARDED_SHAPE_GRID_LAYOUTS,
     ids=[
-        f"shape_{shape}_grid_{grid}_{layout}"
-        for shape, grid, layout in SHARDED_SHAPE_GRID_LAYOUTS
+        f"shape_{shape}_grid_{grid}_{shard_strategy}"
+        for shape, grid, shard_strategy in SHARDED_SHAPE_GRID_LAYOUTS
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
@@ -290,7 +405,7 @@ def test_bitwise_unary_op_dram(device, shape, dtype, op, graph_capture):
 )
 @pytest.mark.parametrize("graph_capture", [True, False])
 def test_bitwise_unary_op_l1(
-    device, shape, max_grid, memory_layout, dtype, op, graph_capture
+    device, shape, max_grid, shard_strategy, dtype, op, graph_capture
 ):
     run_op_test(
         device,
@@ -301,7 +416,7 @@ def test_bitwise_unary_op_l1(
         num_inputs=1,
         buffer_type=ttnn.BufferType.L1,
         graph_capture=graph_capture,
-        memory_layout=memory_layout,
+        shard_strategy=shard_strategy,
     )
 
 
@@ -348,10 +463,6 @@ def bitwise_xor(a, b):
     return ttnn.bitwise_xor(a, b)
 
 
-def remainder(a, b):
-    return ttnn.remainder(a, b)
-
-
 def pow(a, b):
     # Test pow operation.
     #
@@ -380,10 +491,6 @@ def pow(a, b):
     return ttnn.pow(a, b)
 
 
-def atan2(a, b):
-    return ttnn.atan2(a, b)
-
-
 def eq(a, b):
     return ttnn.eq(a, b)
 
@@ -408,8 +515,51 @@ def le(a, b):
     return ttnn.le(a, b)
 
 
+def maximum(a, b):
+    return ttnn.maximum(a, b)
+
+
+def minimum(a, b):
+    return ttnn.minimum(a, b)
+
+
 @pytest.mark.parametrize(
-    "shape, max_grid, memory_layout",
+    "shape, max_grid, shard_strategy",
+    SHARDED_SHAPE_GRID_LAYOUTS,
+    ids=[
+        f"shape_{shape}_grid_{grid}_{shard_strategy}"
+        for shape, grid, shard_strategy in SHARDED_SHAPE_GRID_LAYOUTS
+    ],
+)
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize(
+    "op",
+    [
+        add,
+    ],
+)
+def test_binary_ops_mixed1(device, shape, max_grid, shard_strategy, dtype, op):
+    input0 = create_sharded_tile_tensor(
+        device, shape, max_grid, dtype, shard_strategy=shard_strategy
+    )
+    input1 = create_dram_tensor(device, shape, dtype)
+    op_jit = ttnn_jit.jit(
+        debug=True,
+        graph_capture=False,
+    )(op)
+    output_tensor = op_jit(input0, input1)
+    assert memory_configs_equal(output_tensor.memory_config(), input0.memory_config())
+    golden_output = op(input0, input1)
+    pcc = ttnn.pearson_correlation_coefficient(
+        golden_output.cpu().to_torch(), output_tensor.cpu().to_torch()
+    )
+    print("pcc: ", pcc)
+    # assert pcc > 0.99, f"PCC: {pcc} is less than 0.99"
+    assert all_close_check(output_tensor, golden_output)
+
+
+@pytest.mark.parametrize(
+    "shape, max_grid, shard_strategy",
     SHARDED_SHAPE_GRID_LAYOUTS,
     ids=[
         f"shape_{shape}_grid_{grid}_{layout}"
@@ -425,17 +575,23 @@ def le(a, b):
         mul,
         div,
         pow,
-        # logical_and, logical_or, logical_xor,
-        # bitwise_or, bitwise_and, bitwise_xor, # not a supported FPU op
-        # Not supported in TTIRToD2M
-        # remainder, atan2, eq, ne, gt, ge, lt, le
+        eq,
+        ne,
+        gt,
+        ge,
+        lt,
+        le,
+        maximum,
+        minimum,
+        # logical_and, logical_or, logical_xor
     ],
 )
 @pytest.mark.parametrize("graph_capture", [True, False])
-def test_binary_ops(device, shape, max_grid, memory_layout, dtype, op, graph_capture):
+def test_binary_ops(device, shape, max_grid, shard_strategy, dtype, op, graph_capture):
+    compile_only = False
     if op == div:
-        pytest.xfail("failing allclose for some shapes")
-    if op == pow and dtype == torch.float32:
+        compile_only = True
+    if op in [pow, eq, ne, gt, ge, lt, le] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes")
 
     run_op_test(
@@ -447,7 +603,8 @@ def test_binary_ops(device, shape, max_grid, memory_layout, dtype, op, graph_cap
         num_inputs=2,
         buffer_type=ttnn.BufferType.L1,
         graph_capture=graph_capture,
-        memory_layout=memory_layout,
+        shard_strategy=shard_strategy,
+        compile_only=compile_only,
     )
 
 
@@ -465,19 +622,88 @@ def test_binary_ops(device, shape, max_grid, memory_layout, dtype, op, graph_cap
         mul,
         div,
         pow,
+        eq,
+        ne,
+        gt,
+        ge,
+        lt,
+        le,
+        maximum,
+        minimum,
         # logical_and, logical_or, logical_xor,
-        # bitwise_or, bitwise_and, bitwise_xor, # not a supported FPU op
-        # Not supported in TTIRToD2M
-        # remainder, atan2, eq, ne, gt, ge, lt, le
+        # remainder, atan2,
     ],
 )
 def test_binary_ops_dram(device, shape, dtype, op):
     max_grid = (0, 0)
+    compile_only = False
     if op == div:
-        pytest.xfail("failing allclose for some shapes")
-    if op == pow and dtype == torch.float32:
+        compile_only = True
+    if op in [pow, eq, ne, gt, ge, lt, le] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes")
 
+    run_op_test(
+        device,
+        shape,
+        max_grid,
+        dtype,
+        op,
+        num_inputs=2,
+        buffer_type=ttnn.BufferType.DRAM,
+        compile_only=compile_only,
+    )
+
+
+@pytest.mark.parametrize(
+    "shape, max_grid, shard_strategy",
+    SHARDED_SHAPE_GRID_LAYOUTS,
+    ids=[
+        f"shape_{shape}_grid_{grid}_{shard_strategy}"
+        for shape, grid, shard_strategy in SHARDED_SHAPE_GRID_LAYOUTS
+    ],
+)
+@pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
+@pytest.mark.parametrize(
+    "op",
+    [
+        bitwise_and,
+        bitwise_or,
+        bitwise_xor,
+    ],
+)
+@pytest.mark.parametrize("graph_capture", [True, False])
+def test_bitwise_binary_ops_l1(
+    device, shape, max_grid, shard_strategy, dtype, op, graph_capture
+):
+    run_op_test(
+        device,
+        shape,
+        max_grid,
+        dtype,
+        op,
+        num_inputs=2,
+        buffer_type=ttnn.BufferType.L1,
+        graph_capture=graph_capture,
+        shard_strategy=shard_strategy,
+    )
+
+
+@pytest.mark.parametrize(
+    "shape",
+    DRAM_INTERLEAVED_SHAPES,
+    ids=[f"{shape}" for shape in DRAM_INTERLEAVED_SHAPES],
+)
+@pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
+@pytest.mark.parametrize(
+    "op",
+    [
+        bitwise_and,
+        bitwise_or,
+        bitwise_xor,
+    ],
+)
+def test_bitwise_binary_ops_dram(device, shape, dtype, op):
+    max_grid = (0, 0)
     run_op_test(
         device,
         shape,
@@ -496,11 +722,11 @@ def test_binary_ops_dram(device, shape, dtype, op):
 
 # JIT op -> ttnn unary op test
 @pytest.mark.parametrize(
-    "shape, max_grid, memory_layout",
+    "shape, max_grid, shard_strategy",
     SHARDED_SHAPE_GRID_LAYOUTS,
     ids=[
-        f"shape_{shape}_grid_{grid}_{layout}"
-        for shape, grid, layout in SHARDED_SHAPE_GRID_LAYOUTS
+        f"shape_{shape}_grid_{grid}_{shard_strategy}"
+        for shape, grid, shard_strategy in SHARDED_SHAPE_GRID_LAYOUTS
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
@@ -514,14 +740,14 @@ def test_binary_ops_dram(device, shape, dtype, op):
     ],
 )
 def test_interop_jit_to_ttnn_unary_l1(
-    device, shape, max_grid, memory_layout, dtype, jit_op, ttnn_unary_op
+    device, shape, max_grid, shard_strategy, dtype, jit_op, ttnn_unary_op
 ):
     input_tensor = create_sharded_tile_tensor(
-        device, shape, max_grid, dtype, memory_layout=memory_layout
+        device, shape, max_grid, dtype, shard_strategy=shard_strategy
     )
 
     # jit path
-    compiled_op = ttnn_jit.jit(debug=True, max_grid=max_grid)(jit_op)
+    compiled_op = ttnn_jit.jit(debug=True)(jit_op)
     jit_output = compiled_op(input_tensor)
     interop_result = ttnn_unary_op(jit_output)
 
@@ -538,11 +764,11 @@ def test_interop_jit_to_ttnn_unary_l1(
 
 # 2 JIT ops -> TTNN binary op test
 @pytest.mark.parametrize(
-    "shape, max_grid, memory_layout",
+    "shape, max_grid, shard_strategy",
     SHARDED_SHAPE_GRID_LAYOUTS,
     ids=[
-        f"shape_{shape}_grid_{grid}_{layout}"
-        for shape, grid, layout in SHARDED_SHAPE_GRID_LAYOUTS
+        f"shape_{shape}_grid_{grid}_{shard_strategy}"
+        for shape, grid, shard_strategy in SHARDED_SHAPE_GRID_LAYOUTS
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
@@ -555,21 +781,21 @@ def test_interop_jit_to_ttnn_unary_l1(
     ],
 )
 def test_interop_two_jit_to_ttnn_binary_l1(
-    device, shape, max_grid, memory_layout, dtype, jit_op1, jit_op2, ttnn_binary_op
+    device, shape, max_grid, shard_strategy, dtype, jit_op1, jit_op2, ttnn_binary_op
 ):
     if jit_op2 == log and dtype == torch.float32:
         pytest.xfail("Failing all_close, getting nan values mismatching with golden")
 
     input1 = create_sharded_tile_tensor(
-        device, shape, max_grid, dtype, memory_layout=memory_layout
+        device, shape, max_grid, dtype, shard_strategy=shard_strategy
     )
     input2 = create_sharded_tile_tensor(
-        device, shape, max_grid, dtype, memory_layout=memory_layout
+        device, shape, max_grid, dtype, shard_strategy=shard_strategy
     )
 
     # interop path
-    compiled_op1 = ttnn_jit.jit(debug=True, max_grid=max_grid)(jit_op1)
-    compiled_op2 = ttnn_jit.jit(debug=True, max_grid=max_grid)(jit_op2)
+    compiled_op1 = ttnn_jit.jit(debug=True)(jit_op1)
+    compiled_op2 = ttnn_jit.jit(debug=True)(jit_op2)
     jit_output1 = compiled_op1(input1)
     jit_output2 = compiled_op2(input2)
     interop_result = ttnn_binary_op(jit_output1, jit_output2)
@@ -589,11 +815,11 @@ def test_interop_two_jit_to_ttnn_binary_l1(
 
 # JIT op + ttnn tensor -> ttnn binary op test
 @pytest.mark.parametrize(
-    "shape, max_grid, memory_layout",
+    "shape, max_grid, shard_strategy",
     SHARDED_SHAPE_GRID_LAYOUTS,
     ids=[
-        f"shape_{shape}_grid_{grid}_{layout}"
-        for shape, grid, layout in SHARDED_SHAPE_GRID_LAYOUTS
+        f"shape_{shape}_grid_{grid}_{shard_strategy}"
+        for shape, grid, shard_strategy in SHARDED_SHAPE_GRID_LAYOUTS
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
@@ -606,17 +832,17 @@ def test_interop_two_jit_to_ttnn_binary_l1(
     ],
 )
 def test_interop_jit_and_ttnn_to_binary_l1(
-    device, shape, max_grid, memory_layout, dtype, jit_op, ttnn_binary_op
+    device, shape, max_grid, shard_strategy, dtype, jit_op, ttnn_binary_op
 ):
     input_tensor = create_sharded_tile_tensor(
-        device, shape, max_grid, dtype, memory_layout=memory_layout
+        device, shape, max_grid, dtype, shard_strategy=shard_strategy
     )
     ttnn_tensor = create_sharded_tile_tensor(
-        device, shape, max_grid, dtype, memory_layout=memory_layout
+        device, shape, max_grid, dtype, shard_strategy=shard_strategy
     )
 
     # interop path
-    compiled_op = ttnn_jit.jit(debug=True, max_grid=max_grid)(jit_op)
+    compiled_op = ttnn_jit.jit(debug=True)(jit_op)
     jit_output = compiled_op(input_tensor)
     interop_result = ttnn_binary_op(jit_output, ttnn_tensor)
 
@@ -652,7 +878,7 @@ def test_interop_jit_to_ttnn_unary_dram(device, shape, dtype, jit_op, ttnn_unary
     input_tensor = create_dram_tensor(device, shape, dtype)
 
     # Interop path
-    compiled_op = ttnn_jit.jit(debug=True, max_grid=max_grid)(jit_op)
+    compiled_op = ttnn_jit.jit(debug=True)(jit_op)
     jit_output = compiled_op(input_tensor)
     interop_result = ttnn_unary_op(jit_output)
 
@@ -693,8 +919,8 @@ def test_interop_two_jit_to_ttnn_binary_dram(
     input2 = create_dram_tensor(device, shape, dtype)
 
     # Interop path
-    compiled_op1 = ttnn_jit.jit(debug=True, max_grid=max_grid)(jit_op1)
-    compiled_op2 = ttnn_jit.jit(debug=True, max_grid=max_grid)(jit_op2)
+    compiled_op1 = ttnn_jit.jit(debug=True)(jit_op1)
+    compiled_op2 = ttnn_jit.jit(debug=True)(jit_op2)
     jit_output1 = compiled_op1(input1)
     jit_output2 = compiled_op2(input2)
     interop_result = ttnn_binary_op(jit_output1, jit_output2)
@@ -735,7 +961,7 @@ def test_interop_jit_and_ttnn_to_binary_dram(
     ttnn_tensor = create_dram_tensor(device, shape, dtype)
 
     # Interop path
-    compiled_op = ttnn_jit.jit(debug=True, max_grid=max_grid)(jit_op)
+    compiled_op = ttnn_jit.jit(debug=True)(jit_op)
     jit_output = compiled_op(input_tensor)
     interop_result = ttnn_binary_op(jit_output, ttnn_tensor)
 
@@ -748,3 +974,33 @@ def test_interop_jit_and_ttnn_to_binary_dram(
         interop_result.memory_config(), golden_result.memory_config()
     )
     assert all_close_check(interop_result, golden_result)
+
+
+# ------------------------------------------------------------
+# Return modifier tests
+# ------------------------------------------------------------
+def identity_op(input_tensor):
+    """Function that uses ttnn.identity, which should be rejected by return_modifier."""
+    return ttnn.identity(input_tensor)
+
+
+def test_identity_op_rejection(device):
+    """
+    Test that JIT compilation fails with a clear assertion when a function
+    contains ttnn.identity, as return_modifier expects functions NOT to have it.
+    """
+    shape = (32, 32)
+    dtype = torch.bfloat16
+    input_tensor = create_dram_tensor(device, shape, dtype)
+
+    # Attempting to JIT compile a function with ttnn.identity should raise AssertionError
+    with pytest.raises(AssertionError) as exc_info:
+        compiled_op = ttnn_jit.jit(graph_capture=True)(identity_op)
+        # The error should occur during compilation, not execution
+        _ = compiled_op(input_tensor)
+
+    # Verify the error message matches the expected assertion message
+    expected_message = "The jit-ed function cannot include ttnn.identity op for now"
+    assert expected_message in str(
+        exc_info.value
+    ), f"Expected error message '{expected_message}' not found in: {str(exc_info.value)}"

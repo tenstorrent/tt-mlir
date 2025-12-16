@@ -10,15 +10,18 @@ from ttmlir.dialects import (
     ttir,
     func,
     ttnn,
-    tensor,
     ttcore,
 )
 
-from .tensor_translator import create_tensor_layout
+from ttnn_jit._src.tensor_translator import create_tensor_layout, create_output_tensor
 
-from .utils import (
-    _discover_dialect_ops,
-    _get_num_pos_args,
+from ttnn_jit._src.utils import (
+    discover_dialect_ops,
+    get_num_pos_args,
+)
+from ttnn_jit._src.conversions import (
+    mlir_dtype_from_ttnn_dtype,
+    ttcore_dtype_from_mlir_dtype,
 )
 
 
@@ -45,35 +48,9 @@ class TTIRCompiler(ast.NodeVisitor):
         self.func_entry = None
         self.symbol_tables = []
         self.tensor_args = kwargs.get("_tensor_args", {})
-        self.max_grid = kwargs.get("_max_grid")
-        self._fn_map = _discover_dialect_ops("ttnn")
+        self._fn_map = discover_dialect_ops("ttnn")
         self.supported_nodes = self.common_nodes
-
-    def _mlir_dtype_from_ttnn_dtype(self, dtype):
-        match int(dtype):
-            case 0:
-                return BF16Type.get(self.ctx)
-            case 1:
-                return F32Type.get(self.ctx)
-            case 2:
-                return IntegerType.get_unsigned(32, self.ctx)
-            case 5:
-                return IntegerType.get_unsigned(8, self.ctx)
-            case 6:
-                return IntegerType.get_unsigned(16, self.ctx)
-            case 7:
-                return IntegerType.get_signless(32, self.ctx)
-            case _:
-                raise ValueError(f"Unsupported dtype: {dtype}")
-
-    def _ttcore_dtype_from_mlir_dtype(self, dtype):
-        match str(dtype):
-            case "f32":
-                return ttcore.DataType.Float32
-            case "bf16":
-                return ttcore.DataType.BFloat16
-            case _:
-                raise ValueError(f"Unsupported dtype: {dtype}")
+        self.return_type = None
 
     def _var_exists(self, var_name):
         for sym_table in reversed(self.symbol_tables):
@@ -98,6 +75,7 @@ class TTIRCompiler(ast.NodeVisitor):
             # Visit the return value and return it
             return_value = self.visit(node.value)
             func.ReturnOp([return_value])
+            self.return_type = return_value.type
         else:
             # Empty return
             func.ReturnOp([])
@@ -113,12 +91,12 @@ class TTIRCompiler(ast.NodeVisitor):
             if name in self.tensor_args:
                 tensor_arg = self.tensor_args[name]
                 shape = list(tensor_arg.shape)
-                layout = create_tensor_layout(self.ctx, tensor_arg, self.max_grid)
-                dtype = self._mlir_dtype_from_ttnn_dtype(tensor_arg.dtype)
+                layout = create_tensor_layout(self.ctx, tensor_arg)
+                dtype = mlir_dtype_from_ttnn_dtype(tensor_arg.dtype, self.ctx)
                 tensor_type = RankedTensorType.get(shape, dtype, layout)
                 input_types.append(tensor_type)
 
-        # TODO: how to dynamically figure out output shape?
+        # Dummy output type until we process the function body
         output_types = [input_types[0]]
 
         self.func_entry = func.FuncOp(name=node.name, type=(input_types, output_types))
@@ -135,6 +113,23 @@ class TTIRCompiler(ast.NodeVisitor):
                 self.visit(target)
 
         self.symbol_tables.pop()
+        # Create a new function type with the actual output type. Move the body from the old function to the new one.
+        if self.return_type is not None:
+            # Get the old block before creating new function
+            old_block = self.func_entry.regions[0].blocks[0]
+
+            # Create new function with correct return type
+            new_func_entry = func.FuncOp(
+                name=node.name, type=(input_types, [self.return_type])
+            )
+
+            # The new function's region is empty (no blocks), so directly append the old block to it
+            new_region = new_func_entry.regions[0]
+            old_block.append_to(new_region)
+
+            # Erase the old function
+            self.func_entry.erase()
+            self.func_entry = new_func_entry
 
     def visit_Call(self, node):
         # If function is an attribute, it's a ttnn op call (eg: ttnn.exp(tensor))
@@ -172,21 +167,25 @@ class TTIRCompiler(ast.NodeVisitor):
         ), "First argument cannot be a constant"
 
         tensor_arg = self.visit(args[0])
-        result_type = tensor_arg.type
 
-        func_args = [result_type, tensor_arg]
+        func_args = [tensor_arg]
         for func_arg in args[1:]:
             arg = self.visit(func_arg, tensor=tensor_arg)
             func_args.append(arg)
-
+        result_type = create_output_tensor(
+            self.ctx,
+            attr_name,
+            [RankedTensorType.maybe_downcast(tensor.type) for tensor in func_args],
+        )
+        func_args = [result_type] + func_args
         func = self._fn_map[attr_name]
         op = func(*func_args)
         op.owner.attributes["ttnn.hoist_generic_via_d2m"] = UnitAttr.get(self.ctx)
 
         # Binary ops have 3 pos args: [result_type, lhs, rhs].
-        if _get_num_pos_args(func) == 3:
+        if get_num_pos_args(func) == 3:
             dtype = ttcore.ir.DataTypeAttr.get(
-                self.ctx, self._ttcore_dtype_from_mlir_dtype(result_type.element_type)
+                self.ctx, ttcore_dtype_from_mlir_dtype(result_type.element_type)
             )
             op.owner.attributes["dtype"] = dtype
         return op
@@ -229,7 +228,7 @@ class TTIRCompiler(ast.NodeVisitor):
             )
 
         dtype = ttcore.ir.DataTypeAttr.get(
-            self.ctx, self._ttcore_dtype_from_mlir_dtype(element_type)
+            self.ctx, ttcore_dtype_from_mlir_dtype(element_type)
         )
         shape = ttnn.ir.ShapeAttr.get(self.ctx, tensor.type.shape)
 
@@ -239,7 +238,7 @@ class TTIRCompiler(ast.NodeVisitor):
             layout = ttnn.ir.TTNNLayoutAttr.maybe_downcast(tensor.type.encoding)
             layout_attr = ttnn.ir.LayoutAttr.get(self.ctx, layout.memory_layout_as_int)
 
-        return ttnn.FullOp(
+        op = ttnn.FullOp(
             tensor.type,
             shape,
             type_attr,
@@ -247,6 +246,8 @@ class TTIRCompiler(ast.NodeVisitor):
             dtype=dtype,
             layout=layout_attr,
         )
+        op.attributes["ttnn.hoist_generic_via_d2m"] = UnitAttr.get(self.ctx)
+        return op.result
 
     def visit(self, node: ast.AST, **kwargs):
         if any(
