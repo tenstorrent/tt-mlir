@@ -34,6 +34,7 @@ namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNDEALLOCATE
 #define GEN_PASS_DEF_TTNNTUPLIFYTENSORS
 #define GEN_PASS_DEF_TTNNEMPYWORKAROUNDS
+#define GEN_PASS_DEF_TTNNPREPAREMODULEFOREXPORT
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
 class TTNNDeallocate : public impl::TTNNDeallocateBase<TTNNDeallocate> {
@@ -676,6 +677,89 @@ public:
               returnOp.getOperandsMutable().assign(tupleOp);
             });
           });
+    }
+  }
+};
+
+class TTNNPrepareModuleForExport
+    : public impl::TTNNPrepareModuleForExportBase<TTNNPrepareModuleForExport> {
+
+public:
+  using impl::TTNNPrepareModuleForExportBase<
+      TTNNPrepareModuleForExport>::TTNNPrepareModuleForExportBase;
+
+  void runOnOperation() final {
+    ModuleOp moduleOp = getOperation();
+    IRRewriter rewriter(&getContext());
+
+    // Ensure that the module has a single region and a single block within that
+    // region.
+    //
+    assert(moduleOp->getRegions().size() == 1);
+    assert(moduleOp->getRegion(0).getBlocks().size() == 1);
+
+    Block *block = moduleOp.getBody(0);
+
+    // Find the first public (non-private, non-const-eval) function.
+    //
+    func::FuncOp targetFuncOp = nullptr;
+    block->walk([&](func::FuncOp funcOp) {
+      if (funcOp.isDeclaration() || funcOp.isPrivate() ||
+          ttmlir::utils::isConstEvalFunc(funcOp)) {
+        return mlir::WalkResult::skip();
+      }
+      targetFuncOp = funcOp;
+      return mlir::WalkResult::interrupt();
+    });
+
+    if (!targetFuncOp) {
+      return;
+    }
+
+    // Rename the function to "forward".
+    //
+    rewriter.modifyOpInPlace(targetFuncOp,
+                             [&]() { targetFuncOp.setSymName("forward"); });
+
+    // Add device argument to the function signature.
+    //
+    DeviceType deviceType = DeviceType::get(&getContext());
+    Block &entryBlock = targetFuncOp.getBlocks().front();
+    BlockArgument deviceArg =
+        entryBlock.addArgument(deviceType, targetFuncOp.getLoc());
+
+    // Update function type to include device argument.
+    //
+    mlir::FunctionType originalFuncType = targetFuncOp.getFunctionType();
+    SmallVector<Type> newInputTypes(originalFuncType.getInputs().begin(),
+                                    originalFuncType.getInputs().end());
+    newInputTypes.push_back(deviceType);
+    FunctionType newFuncType = FunctionType::get(&getContext(), newInputTypes,
+                                                 originalFuncType.getResults());
+
+    rewriter.modifyOpInPlace(targetFuncOp,
+                             [&]() { targetFuncOp.setType(newFuncType); });
+
+    // Set the emitpy.name attribute for the input tuple and device arguments.
+    // The input tuple should be named "input" and the device should be named
+    // "device".
+    //
+    if (!newInputTypes.empty()) {
+      targetFuncOp.setArgAttr(0, "emitpy.name",
+                              rewriter.getStringAttr("input"));
+    }
+    targetFuncOp.setArgAttr(newInputTypes.size() - 1, "emitpy.name",
+                            rewriter.getStringAttr("device"));
+
+    // Find all GetDeviceOp operations and replace their uses with the device
+    // argument.
+    //
+    SmallVector<ttnn::GetDeviceOp> getDeviceOps;
+    targetFuncOp.walk(
+        [&](ttnn::GetDeviceOp op) { getDeviceOps.push_back(op); });
+
+    for (ttnn::GetDeviceOp getDeviceOp : getDeviceOps) {
+      rewriter.replaceOp(getDeviceOp, deviceArg);
     }
   }
 };

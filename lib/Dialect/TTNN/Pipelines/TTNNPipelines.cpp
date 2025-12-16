@@ -350,15 +350,29 @@ void createTTNNBackendToEmitPyPipeline(
   // Apply EmitPy-specific workarounds before conversion
   pm.addPass(createTTNNEmitPyWorkarounds());
 
-  pm.addPass(createTTNNTuplifyTensors());
-
-  if (options.loadInputTensorsFromDisk) {
-    TTNNLoadInputTensorsOptions loadOptions;
-    loadOptions.tensorLoadDirectory = options.tensorLoadDirectory;
-    loadOptions.tensorLoadFilePrefix = options.tensorLoadFilePrefix;
-    pm.addPass(createTTNNLoadInputTensors(loadOptions));
+  if (options.targetModule) {
+    // In module path, run tuplification with forced settings and add device
+    // argument. This ensures tensor inputs are always tuplified even when the
+    // input is empty, which is necessary for proper module interface
+    // generation.
+    //
+    TTNNTuplifyTensorsOptions tuplifyOptions;
+    tuplifyOptions.tuplifyInputIfEmpty = true;
+    pm.addPass(createTTNNTuplifyTensors(tuplifyOptions));
+    pm.addPass(createTTNNPrepareModuleForExport());
   } else {
-    pm.addPass(createTTNNCreateInputGenerators());
+    // In canonical path, run tuplification + input generation/loading.
+    //
+    pm.addPass(createTTNNTuplifyTensors());
+
+    if (options.loadInputTensorsFromDisk) {
+      TTNNLoadInputTensorsOptions loadOptions;
+      loadOptions.tensorLoadDirectory = options.tensorLoadDirectory;
+      loadOptions.tensorLoadFilePrefix = options.tensorLoadFilePrefix;
+      pm.addPass(createTTNNLoadInputTensors(loadOptions));
+    } else {
+      pm.addPass(createTTNNCreateInputGenerators());
+    }
   }
 
   pm.addPass(createConvertTTNNToEmitPyPass());

@@ -429,9 +429,12 @@ struct TTNNBackendToEmitCPipelineOptions
 //
 struct TTNNBackendToEmitPyPipelineOptions
     : public PassPipelineOptions<TTNNBackendToEmitPyPipelineOptions> {
-  // TTNNToEmitC pipeline options contain "target-dylib" and
-  // "tuplify-input-if-empty" options. There's no dylib (or equivalent) path in
-  // EmitPy yet, so these options are removed.
+  Option<bool> targetModule{
+      *this, "target-module",
+      llvm::cl::desc("Tailor passes for Python module target. When enabled, "
+                     "the entry function is named 'forward' with tuple of "
+                     "tensors and device as inputs."),
+      llvm::cl::init(false)};
 
   Option<bool> loadInputTensorsFromDisk{
       *this, "load-input-tensors-from-disk",
