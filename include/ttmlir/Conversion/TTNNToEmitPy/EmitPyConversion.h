@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/IR/Attributes.h"
@@ -1567,8 +1568,10 @@ public:
   using OpAdaptor = typename TTNNOp::Adaptor;
 
   EmitPyTTNNEmitter(TTNNOp op, OpAdaptor adaptor,
-                    mlir::ConversionPatternRewriter &rewriter)
-      : op{op}, adaptor{adaptor}, rewriter{rewriter} {}
+                    mlir::ConversionPatternRewriter &rewriter,
+                    bool enableGoldenMode)
+      : op{op}, adaptor{adaptor}, rewriter{rewriter},
+        enableGoldenMode{enableGoldenMode} {}
 
   EmitPyTTNNEmitter(const EmitPyTTNNEmitter &) = delete;
   EmitPyTTNNEmitter &operator=(const EmitPyTTNNEmitter &) = delete;
@@ -1741,6 +1744,13 @@ public:
   // the value of the MemoryConfigAttr is nullptr. This should be removed once
   // https://github.com/tenstorrent/tt-mlir/issues/2415 lands.
   ttnn::MemoryConfigAttr getMemoryConfig(mlir::Value val) {
+    auto deviceOp = ttcore::lookupDeviceOp(op);
+
+    if (!deviceOp) {
+      // We're inside a CPU module, so no memory config is needed.
+      return ttnn::MemoryConfigAttr{};
+    }
+
     auto layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
         mlir::cast<mlir::RankedTensorType>(val.getType()).getEncoding());
 
@@ -1748,12 +1758,10 @@ public:
         layoutAttr.getContext(), layoutAttr.getBufferType());
     ttnn::TensorMemoryLayoutAttr tensorMemoryLayout = layoutAttr.getMemLayout();
 
-    ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
-
     ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
         layoutAttr.getContext(), tensorMemoryLayout, bufferTypeAttr,
-        ttnn::utils::createShardSpecIfNeeded(layoutAttr,
-                                             deviceAttr.getWorkerGrid()));
+        ttnn::utils::createShardSpecIfNeeded(
+            layoutAttr, deviceOp.getDeviceAttr().getWorkerGrid()));
 
     return memoryConfigAttr;
   }
@@ -1766,14 +1774,15 @@ public:
           return opConversionPattern.getTypeConverter()->convertType(type);
         }));
 
-    auto opName = op.getOperationName();
-    if (opName == "ttnn.get_device") {
-      opName = "utils.DeviceGetter.get_device";
+    auto callee = opConversionPattern.convertOpName(op);
+
+    if (enableGoldenMode) {
+      callee += ".golden_function";
     }
 
     auto callOpaqueOp = rewriter.replaceOpWithNewOp<emitpy::CallOpaqueOp>(
-        op, resultTypes, opConversionPattern.convertOpName(op), operands,
-        rewriter.getArrayAttr(args), rewriter.getArrayAttr(keywordArgs));
+        op, resultTypes, callee, operands, rewriter.getArrayAttr(args),
+        rewriter.getArrayAttr(keywordArgs));
 
     if (callOpaqueOp.getNumResults() == 0) {
       return {};
@@ -1810,6 +1819,7 @@ private:
   ConversionPatternRewriter &rewriter;
   llvm::SmallVector<mlir::Value> operands;
   llvm::SmallVector<mlir::Attribute> keywordArgs;
+  bool enableGoldenMode;
 };
 
 // Helper function to secure memory config attribute.

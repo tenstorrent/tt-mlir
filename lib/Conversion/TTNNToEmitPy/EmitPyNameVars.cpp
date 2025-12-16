@@ -80,6 +80,10 @@ public:
 
     // Handle func::FuncOp operations:
     module.walk([&](func::FuncOp funcOp) {
+      if (funcOp.isDeclaration()) {
+        return;
+      }
+
       for (unsigned i = 0; i < funcOp.getNumArguments(); ++i) {
         std::string argName;
 
