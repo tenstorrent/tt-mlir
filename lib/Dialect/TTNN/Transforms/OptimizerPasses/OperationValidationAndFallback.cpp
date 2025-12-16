@@ -23,6 +23,7 @@
 #include <cassert>
 #include <cstddef>
 #include <optional>
+#include <unordered_set>
 #include <vector>
 
 namespace mlir::tt::ttnn {
@@ -400,7 +401,21 @@ createFallbackTransforms(TTNNLayoutAttr originalLayout,
   // TODO(rpavlovicTT): Expand to more combinations if needed in the future.
   //                    E.g. Bfp8. At the moment we don't create new
   //                    MemoryLayouts as Interleaved should always work.
-  std::vector<TTNNLayoutAttr> fallbackLayouts;
+  // Use unordered_set to automatically deduplicate during generation, for case
+  // a target configuration isn't viable e.g. bfp8 and row-major combination
+  // isn't possible
+  struct TTNNLayoutAttrHash {
+    size_t operator()(const TTNNLayoutAttr &attr) const {
+      return std::hash<const void *>()(attr.getAsOpaquePointer());
+    }
+  };
+  struct TTNNLayoutAttrEqual {
+    bool operator()(const TTNNLayoutAttr &a, const TTNNLayoutAttr &b) const {
+      return a == b;
+    }
+  };
+  std::unordered_set<TTNNLayoutAttr, TTNNLayoutAttrHash, TTNNLayoutAttrEqual>
+      fallbackLayoutsSet;
 
   // Define the 4 target data types for fallbacks
   std::vector<ttcore::DataType> targetDataTypes = {
@@ -414,6 +429,8 @@ createFallbackTransforms(TTNNLayoutAttr originalLayout,
   std::vector<BufferType> targetBufferTypes = {BufferType::DRAM,
                                                BufferType::SystemMemory};
 
+  // Variable optimized out in debug builds, but useful for logging
+  [[maybe_unused]] size_t attemptedInsertions = 0;
   for (Layout targetLayout : targetLayouts) {
     for (ttcore::DataType targetDataType : targetDataTypes) {
       for (BufferType targetBufferType : targetBufferTypes) {
@@ -443,12 +460,20 @@ createFallbackTransforms(TTNNLayoutAttr originalLayout,
           result = result.withBufferType(targetBufferType);
         }
 
-        fallbackLayouts.push_back(result);
+        attemptedInsertions++;
+        fallbackLayoutsSet.insert(result);
       }
     }
   }
 
-  return fallbackLayouts;
+  TTMLIR_TRACE(
+      ttmlir::LogComponent::OpValidation,
+      "Generated {} unique fallback layouts from {} target combinations",
+      fallbackLayoutsSet.size(), attemptedInsertions);
+
+  // Convert set to vector for return
+  return std::vector<TTNNLayoutAttr>(fallbackLayoutsSet.begin(),
+                                     fallbackLayoutsSet.end());
 }
 
 // Calculate distance between two data types (lower = more similar)
