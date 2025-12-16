@@ -10,18 +10,20 @@ import pytest
 from utils import all_close_check
 
 
+@ttnn_jit.jit(debug=True)
+def mul_add(input_tensor_a, input_tensor_b, input_tensor_c):
+    matmul_result = ttnn.multiply(input_tensor_b, input_tensor_c)
+    output = ttnn.add(matmul_result, input_tensor_a)
+    return output
+
+
+def mul_add_not_jit(input_tensor_a, input_tensor_b, input_tensor_c):
+    matmul_result = ttnn.multiply(input_tensor_b, input_tensor_c)
+    output = ttnn.add(matmul_result, input_tensor_a)
+    return output
+
+
 def test_mul_add_demo(device):
-    @ttnn_jit.jit(debug=True)
-    def mul_add(input_tensor_a, input_tensor_b, input_tensor_c):
-        matmul_result = ttnn.multiply(input_tensor_b, input_tensor_c)
-        output = ttnn.add(matmul_result, input_tensor_a)
-        return output
-
-    def mul_add_not_jit(input_tensor_a, input_tensor_b, input_tensor_c):
-        matmul_result = ttnn.multiply(input_tensor_b, input_tensor_c)
-        output = ttnn.add(matmul_result, input_tensor_a)
-        return output
-
     input_a_torch = torch.randn(512, 512, dtype=torch.bfloat16)
     input_b_torch = torch.randn(512, 512, dtype=torch.bfloat16)
     input_c_torch = torch.randn(512, 512, dtype=torch.bfloat16)
