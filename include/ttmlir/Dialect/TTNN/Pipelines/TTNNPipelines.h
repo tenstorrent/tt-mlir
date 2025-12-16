@@ -35,7 +35,7 @@ struct TTIRToTTNNBackendPipelineOptions
           "1=optimizer passes enabled except sharding (moderate compile), "
           "2=all optimizer passes including sharding enabled (longest "
           "compile)."),
-      llvm::cl::init(0)};
+      llvm::cl::init(1)};
 
   // Enable all optimizer passes.
   // If not explicitly set, determined by optimization_level.
