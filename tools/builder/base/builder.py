@@ -742,7 +742,7 @@ class Builder(metaclass=BuilderMeta):
                         global_result = tuple(
                             global_dict[operand] for operand in op.operands
                         )
-                    else:
+                    elif not isinstance(op, ttnn.DeallocateOp):
                         (
                             parsed_op,
                             op_golden_dictionary,
