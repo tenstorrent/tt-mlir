@@ -1,16 +1,12 @@
-// RUN: ttmlir-opt -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" -o %t.mlir %s
+// RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
+
 
 #l1 = #ttnn.buffer_type<l1>
 #layout = #ttnn.ttnn_nd_layout<<1x1>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <block_sharded>, <row_major>, <grid_2d>>
 #nd_shard_spec = #ttnn.nd_shard_spec<<[#ttnn.core_range<(0,0), (0,0)>]>, <32x32>, <row_major>, <grid_2d>>
 
 module {
-    func.func @test_initial(%arg0: tensor<32x32xf32, #layout>) -> tensor<32x32xf32, #layout> {
-        %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-        %1 = "ttnn.abs"(%arg0) {ttnn.hoist_generic_via_d2m} : (tensor<32x32xf32, #layout>) -> tensor<32x32xf32, #layout>
-        return %1 : tensor<32x32xf32, #layout>
-    }
-
     func.func @test_lowered(%arg0: tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout> {
         %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
         %1 = "ttnn.empty"(%0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#l1, <block_sharded>, #nd_shard_spec>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xbf16, #layout>
