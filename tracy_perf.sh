@@ -24,8 +24,8 @@ export PYTHONPATH="${PYTHONPATH}:${TT_METAL_HOME}/ttnn:${TT_METAL_HOME}:${TT_MET
 
 #matmul
 
-for test_params in "512-512-512" "512-1024-1024" "512-1024-2048" "1024-1024-1024" "1024-1024-2048" "1024-2048-2048" "2048-2048-2048"; do
-    python -m tracy -r -m pytest "test/ttnn-jit/test_matmul_trace.py::test_matmul_block_sharded_trace[$test_params]"
+for test_params in "512-512-512" "512-1024-1024" "512-1024-2048" "1024-1024-1024" "1024-1024-2048" "1024-2048-2048"; do
+    python -m tracy -r -m pytest "test/ttnn-jit/test_matmul_trace.py::test_matmul_block_sharded_trace[$test_params] -svv"
     python3 generated/extract_perf_columns.py -d $TT_METAL_PROFILER_DIR -o ${TT_METAL_PROFILER_DIR}/${test_params}_matmul_f32_clean.csv
     python3 generated/extract_total_durations.py ${TT_METAL_PROFILER_DIR}/${test_params}_matmul_f32_clean.csv -b 1
 done
