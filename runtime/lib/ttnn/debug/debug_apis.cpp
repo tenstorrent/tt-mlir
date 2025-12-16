@@ -55,9 +55,29 @@ void checkTensorRefMatchesTTNNTensor(
     ::ttnn::MemoryConfig expectedMemoryConfig =
         ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(memcfg).value();
     ::ttnn::MemoryConfig actualMemoryConfig = ttnnTensor.memory_config();
-    DEBUG_ASSERT(expectedMemoryConfig == actualMemoryConfig,
-                 "Memory config mismatch, expected ", expectedMemoryConfig,
-                 ", got ", actualMemoryConfig);
+    bool ndShardedTensor = expectedMemoryConfig.nd_shard_spec() != std::nullopt;
+    if (ndShardedTensor) {
+      // When a memory config uses ND shard spec, TTNN attempts to populate a
+      // legacy shard spec equivalent to the ND shard spec when creating the
+      // TensorSpec. If this succeeds, the memory config is rewritten as if this
+      // is a legacy sharded tensor, changing many fields while still
+      // representing the same physical layout. As a result, we cannot assert
+      // that the entire memory config matches.
+      DEBUG_ASSERT(expectedMemoryConfig.nd_shard_spec() ==
+                       actualMemoryConfig.nd_shard_spec(),
+                   "ND shard spec mismatch. Expected memory config ",
+                   expectedMemoryConfig, ", actual memory config ",
+                   actualMemoryConfig);
+      DEBUG_ASSERT(expectedMemoryConfig.buffer_type() ==
+                       actualMemoryConfig.buffer_type(),
+                   "Buffer type mismatch. Expected memory config ",
+                   expectedMemoryConfig, ", actual memory config ",
+                   actualMemoryConfig);
+    } else {
+      DEBUG_ASSERT(expectedMemoryConfig == actualMemoryConfig,
+                   "Memory config mismatch, expected ", expectedMemoryConfig,
+                   ", got ", actualMemoryConfig);
+    }
   }
 }
 

@@ -96,11 +96,8 @@ toTTNNShardOrientation(tt::target::ttnn::ShardOrientation orientation);
 ::tt::target::ttnn::ShardOrientation
 fromTTNNShardOrientation(::ttnn::ShardOrientation orientation);
 
-tt::tt_metal::ShardDistributionStrategy
-toTTNNShardDistributionStrategy(tt::target::ttnn::ShardDistributionStrategy distributionStrategy);
-
-// ::tt::target::ttnn::ShardDistributionStrategy
-// fromTTNNShardDistributionStrategy(::ttnn::ShardDistributionStrategy distributionStrategy);
+tt::tt_metal::ShardDistributionStrategy toTTNNShardDistributionStrategy(
+    tt::target::ttnn::ShardDistributionStrategy distributionStrategy);
 
 ::flatbuffers::Offset<::tt::target::ttnn::ShardSpec>
 fromTTNNShardSpec(::flatbuffers::FlatBufferBuilder &fbb,

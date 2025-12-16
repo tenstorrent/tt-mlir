@@ -386,8 +386,8 @@ fromTTNNShardOrientation(::ttnn::ShardOrientation orientation) {
   }
 }
 
-tt::tt_metal::ShardDistributionStrategy
-toTTNNShardDistributionStrategy(tt::target::ttnn::ShardDistributionStrategy distributionStrategy) {
+tt::tt_metal::ShardDistributionStrategy toTTNNShardDistributionStrategy(
+    tt::target::ttnn::ShardDistributionStrategy distributionStrategy) {
   switch (distributionStrategy) {
   case tt::target::ttnn::ShardDistributionStrategy::RoundRobin1D:
     return tt::tt_metal::ShardDistributionStrategy::ROUND_ROBIN_1D;
@@ -447,14 +447,16 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg) {
   ::ttnn::BufferType ttnnBufferType = toTTNNBufferType(targetBufferType);
 
   // Verify that shard spec is present only for sharded memory layouts
-  LOG_ASSERT(((memcfg->shard_spec() != nullptr) || (memcfg->nd_shard_spec() != nullptr)) ==
+  LOG_ASSERT(((memcfg->shard_spec() != nullptr) ||
+              (memcfg->nd_shard_spec() != nullptr)) ==
              isSharded(targetMemoryLayout));
   std::optional<::tt::tt_metal::ShardSpec> metalShardSpec = std::nullopt;
   std::optional<tt::tt_metal::NdShardSpec> metalNDShardSpec = std::nullopt;
 
   if (memcfg->nd_shard_spec() != nullptr) {
-    const ::flatbuffers::Vector<int32_t> *targetShardShape = memcfg->nd_shard_spec()->shape();
-    
+    const ::flatbuffers::Vector<int32_t> *targetShardShape =
+        memcfg->nd_shard_spec()->shape();
+
     std::vector<uint32_t> ttnnShardShape;
     ttnnShardShape.reserve(targetShardShape->size());
     std::copy(targetShardShape->begin(), targetShardShape->end(),
@@ -468,17 +470,14 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg) {
         toTTNNShardOrientation(memcfg->nd_shard_spec()->orientation());
 
     tt::tt_metal::ShardDistributionStrategy ttnnShardDistributionStrategy =
-        toTTNNShardDistributionStrategy(memcfg->nd_shard_spec()->distribution_strategy());
+        toTTNNShardDistributionStrategy(
+            memcfg->nd_shard_spec()->distribution_strategy());
     metalNDShardSpec = tt::tt_metal::NdShardSpec(
-      tt::tt_metal::Shape(ttsl::Span<const uint32_t>(ttnnShardShape)),
-      ttnnCoreRangeSet,
-      ttnnShardOrientation,
-      ttnnShardDistributionStrategy);
-    
-    
+        tt::tt_metal::Shape(ttsl::Span<const uint32_t>(ttnnShardShape)),
+        ttnnCoreRangeSet, ttnnShardOrientation, ttnnShardDistributionStrategy);
+
     auto memoryConfig = ::ttnn::MemoryConfig{ttnnBufferType, metalNDShardSpec};
-    std::cout<<"memoryConfig: "<<memoryConfig<<std::endl;
-    std::cout<<"memoryLayout == height_sharded: "<<(memoryConfig.memory_layout() == ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED)<<std::endl;
+    std::cout << "memoryConfig: " << memoryConfig << std::endl;
     return std::make_optional(memoryConfig);
   }
 
@@ -500,10 +499,11 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg) {
     metalShardSpec = ::tt::tt_metal::ShardSpec(ttnnCoreRangeSet, ttnnShardShape,
                                                ttnnShardOrientation);
     ::ttnn::MemoryConfig memoryConfig{ttnnMemLayout, ttnnBufferType,
-                                                metalShardSpec};
+                                      metalShardSpec};
     return std::make_optional(memoryConfig);
   }
-  return std::make_optional(::ttnn::MemoryConfig{ttnnMemLayout, ttnnBufferType});
+  return std::make_optional(
+      ::ttnn::MemoryConfig{ttnnMemLayout, ttnnBufferType});
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig>
