@@ -1311,13 +1311,22 @@ static bool validateOpWithInputLayout(Operation *op, size_t inputOperandIndex,
   }
   inputLayouts[inputOperandIndex] = inputLayout;
 
-  bool isMatmulOrLinear = mlir::isa<ttnn::MatmulOp, ttnn::LinearOp>(op);
+  // For matmul/linear ops without fused activation, use withIgnorePhysicalLayout
+  // to avoid strict grid matching during validation (similar to preprocessFirstOp).
+  // When activation is present, we need full layout because the internal unary op
+  // for activation cannot handle partial memory configs (crashes in validate_shard_spec).
+  // TODO(tt-metal#34500): Remove activation check once tt-metal handles partial
+  // memory configs in fused activations.
+  bool useIgnorePhysicalLayout = false;
+  if (auto matmulOp = mlir::dyn_cast<ttnn::MatmulOp>(op)) {
+    useIgnorePhysicalLayout = !matmulOp.getActivation().has_value();
+  } else if (auto linearOp = mlir::dyn_cast<ttnn::LinearOp>(op)) {
+    useIgnorePhysicalLayout = !linearOp.getActivation().has_value();
+  }
 
-  // For matmul/linear ops, use withIgnorePhysicalLayout to avoid
-  // strict grid matching during validation (similar to preprocessFirstOp)
   OpConfig testConfig = config;
   TTNNLayoutAttr expectedLayout = config.outputLayout;
-  if (isMatmulOrLinear && testConfig.outputLayout) {
+  if (useIgnorePhysicalLayout && testConfig.outputLayout) {
     testConfig.outputLayout =
         testConfig.outputLayout.withIgnorePhysicalLayout(true);
   }
@@ -1510,6 +1519,10 @@ static void applyL1ReservationsForForkOps(
       // Get consumer's selected config and validate with L1 interleaved input
       auto selectedConfig =
           getSelectedConfig(user, opToChainMap, l1ChainConfigs);
+      TTMLIR_TRACE(ttmlir::LogComponent::DFShardingPolicy,
+                   "  Validating consumer {} with L1 interleaved input and config {}",
+                  ttmlir::opToString(user), selectedConfig->outputLayout);
+
       if (!selectedConfig ||
           !validateOpWithInputLayout(user, *operandIdx, l1InterleavedLayout,
                                      *selectedConfig)) {

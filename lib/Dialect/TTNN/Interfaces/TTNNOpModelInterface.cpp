@@ -2880,10 +2880,15 @@ LinearOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   ttcore::GridAttr deviceGrid =
       ttcore::lookupDevice(getOperation()).getWorkerGrid();
 
+  // Convert activation attribute to optional StringRef
+  std::optional<llvm::StringRef> activation =
+      getActivation() ? std::make_optional(getActivation().value())
+                      : std::nullopt;
+
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<LinearOp>::getOpConstraints, *this, deviceGrid,
       inputShapeA, inputs[0], inputShapeB, inputs[1], biasShape, biasLayout,
-      opConfig.outputLayout, getTransposeA(), getTransposeB());
+      opConfig.outputLayout, getTransposeA(), getTransposeB(), activation);
 }
 
 llvm::Expected<size_t>
@@ -2945,10 +2950,15 @@ MatmulOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   ttcore::GridAttr deviceGrid =
       ttcore::lookupDevice(getOperation()).getWorkerGrid();
 
+  // Convert activation attribute to optional StringRef
+  std::optional<llvm::StringRef> activation =
+      getActivation() ? std::make_optional(getActivation().value())
+                      : std::nullopt;
+
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<MatmulOp>::getOpConstraints, *this, deviceGrid,
       inputShapeA, inputs[0], inputShapeB, inputs[1], opConfig.outputLayout,
-      getTransposeA(), getTransposeB());
+      getTransposeA(), getTransposeB(), activation);
 }
 
 llvm::Expected<size_t>

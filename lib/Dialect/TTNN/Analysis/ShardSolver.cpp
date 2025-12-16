@@ -38,6 +38,22 @@
 
 namespace mlir::tt::ttnn {
 
+// Helper to check if matmul/linear op should use IgnorePhysicalLayout.
+// When activation is present, we need full layout because the internal unary op
+// for activation cannot handle partial memory configs (crashes in
+// validate_shard_spec).
+// TODO(tt-metal#34500): Remove activation check once tt-metal handles partial
+// memory configs in fused activations.
+static bool shouldUseIgnorePhysicalLayout(Operation *op) {
+  if (auto matmulOp = mlir::dyn_cast<ttnn::MatmulOp>(op)) {
+    return !matmulOp.getActivation().has_value();
+  }
+  if (auto linearOp = mlir::dyn_cast<ttnn::LinearOp>(op)) {
+    return !linearOp.getActivation().has_value();
+  }
+  return false;
+}
+
 ShardSolver::Bitset ShardSolver::kBitsetAll = ~kBitsetNone;
 
 ShardSolver::ShardSolver(
@@ -161,8 +177,7 @@ bool ShardSolver::resolveStep() {
       } else {
         llvm::SmallVector<OpConfig> testConfigs =
             optimizer_utils::getUniqueTestConfigs(
-                consumerConfigs,
-                mlir::isa<ttnn::MatmulOp, ttnn::LinearOp>(consumerOp));
+                consumerConfigs, shouldUseIgnorePhysicalLayout(consumerOp));
 
         // Extract input layouts template once
         std::vector<TTNNLayoutAttr> inputLayouts =
@@ -424,7 +439,7 @@ bool ShardSolver::preprocessFirstOp() {
 
     TTNNLayoutAttr layoutForComparison = firstOpLayout;
 
-    if (mlir::isa<ttnn::MatmulOp, ttnn::LinearOp>(firstOp)) {
+    if (shouldUseIgnorePhysicalLayout(firstOp)) {
       firstOpLayout = firstOpLayout.withIgnorePhysicalLayout(true);
     }
 
@@ -520,8 +535,7 @@ bool ShardSolver::insertReshard(const Edge &edge) {
 
   llvm::SmallVector<OpConfig> testConfigs =
       optimizer_utils::getUniqueTestConfigs(
-          consumerConfigs,
-          mlir::isa<ttnn::MatmulOp, ttnn::LinearOp>(consumerOp));
+          consumerConfigs, shouldUseIgnorePhysicalLayout(consumerOp));
 
   // Extract and set input layouts for validation
   std::vector<TTNNLayoutAttr> consumerInputOperandLayouts =
