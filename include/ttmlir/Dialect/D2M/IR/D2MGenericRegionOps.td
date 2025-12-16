@@ -711,6 +711,47 @@ def D2M_TileTypecastOp : D2M_GenericRegionComputeUnaryDstOp<"tile_typecast", [D2
     let results = (outs TTCore_Tile:$result);
 }
 
+//===----------------------------------------------------------------------===//
+// D2M Masking Ops
+//===----------------------------------------------------------------------===//
+
+def D2M_TileMaskBoundaryOp : D2M_GenericRegionComputeOp<"tile_mask_boundary",
+  [D2M_SkipOpEltwiseFusionTrait]> {
+    let summary = "Mask tile elements outside logical bounds with fill value";
+    let description = [{
+        The `tile_mask_boundary` operation masks elements in a tile that fall outside
+        the logical tensor bounds, replacing them with a specified fill value.
+
+        This op is used when tensors are padded for tile alignment. Elements within
+        the logical bounds are preserved; elements in padding regions are filled with
+        the specified OOBVal (e.g., Zero for sum reductions, NegInf for max reductions).
+
+        The logical_shape specifies the original unpadded tensor dimensions. At
+        decomposition time, this op uses d2m.iter_index to determine the current tile's
+        position in the grid and computes which elements are within bounds.
+
+        This is a high-level op that gets decomposed in a later pass into primitive
+        tile arithmetic operations (comparisons, selects via mul/add).
+
+        Example:
+        ```mlir
+        %masked = d2m.tile_mask_boundary %input, [50, 50], <zero>
+            : !ttcore.tile<32x32, f32> -> !ttcore.tile<32x32, f32>
+        ```
+    }];
+
+    let arguments = (ins
+        TTCore_Tile:$input,
+        DenseI64ArrayAttr:$logical_shape,
+        TTCore_OOBValAttr:$fill_value);
+    let results = (outs TTCore_Tile:$result);
+
+    let assemblyFormat = [{
+        $input `,` $logical_shape `,` $fill_value attr-dict
+        `:` type($input) `->` type($result)
+    }];
+}
+
 def D2M_DstReinterpretCastOp : D2M_GenericRegionOp<"dst_reinterpret_cast"> {
     let summary = "D2M Destination Register Reinterpret Cast Op";
     let description = [{

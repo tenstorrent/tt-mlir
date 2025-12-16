@@ -680,6 +680,31 @@ public:
     return success();
   }
 };
+
+// Convert arith.bitcast to a call to float_to_bits helper.
+// This is needed for scalar tile ops that pass float values as integer params.
+// The helper function is defined in TTKernelToCpp.cpp during code generation.
+class ArithBitcastRewriter : public OpConversionPattern<arith::BitcastOp> {
+public:
+  using OpConversionPattern<arith::BitcastOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(arith::BitcastOp op, arith::BitcastOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Type resultType = getTypeConverter()->convertType(op.getResult().getType());
+    if (!resultType) {
+      return failure();
+    }
+
+    // Call the float_to_bits helper which uses union-based type punning.
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        op, resultType, "float_to_bits",
+        /*args=*/nullptr,
+        /*templateArgs=*/nullptr, adaptor.getOperands());
+
+    return success();
+  }
+};
 } // namespace
 
 namespace {
@@ -970,7 +995,8 @@ public:
             ttkernel::InterleavedAddrGenFastGetNocAddrOp>>(typeConverter,
                                                            funcOp.getContext());
 
-    patterns.add<ArithFloorDivRewriter>(typeConverter, funcOp.getContext());
+    patterns.add<ArithFloorDivRewriter, ArithBitcastRewriter>(typeConverter,
+                                                              funcOp.getContext());
 
     return applyFullConversion(funcOp, target, std::move(patterns));
   }

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/AffineMapUtils.h"
+#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
@@ -13,6 +14,7 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/ArrayRef.h"
 #include <algorithm>
@@ -70,6 +72,34 @@ static Type getScalarType(Type type) {
     return tileType.getElementType();
   }
   return type;
+}
+
+// Check if a layout requires masking due to non-trivial OOBVal and padding.
+static bool needsMasking(ttcore::MetalLayoutAttr layout,
+                         RankedTensorType tensorType) {
+  // Only mask if OOBVal is not Undef
+  if (layout.getOobVal() == ttcore::OOBVal::Undef) {
+    return false;
+  }
+
+  // Check if tensor is tiled - masking only applies to tiled tensors
+  if (!ttcore::isTiled(tensorType)) {
+    return false;
+  }
+
+  // Check if padding exists by comparing logical shape to aligned shape.
+  // If any logical dimension doesn't match its aligned size, there's padding.
+  ArrayRef<int64_t> logicalShape = layout.getLogicalShape();
+  ArrayRef<int64_t> dimAlignments = layout.getDimAlignments();
+
+  for (size_t i = 0; i < logicalShape.size(); ++i) {
+    int64_t aligned = ttmlir::utils::alignUp(logicalShape[i], dimAlignments[i]);
+    if (aligned != logicalShape[i]) {
+      return true; // Padding exists
+    }
+  }
+
+  return false;
 }
 
 } // namespace
@@ -572,6 +602,60 @@ public:
         .getResult(0);
   }
 
+  // Lower masking operation using a d2m.generic + linalg.generic structure.
+  // The TileMaskBoundaryOp is applied to each tile within the shards.
+  Value lowerMaskingGeneric(PatternRewriter &rewriter, Value input, Value output,
+                            Location loc, ArrayRef<int64_t> logicalShape,
+                            ttcore::OOBVal fillValue) const {
+    auto inputType = mlir::cast<RankedTensorType>(input.getType());
+    auto inputLayout =
+        mlir::cast<ttcore::MetalLayoutAttr>(inputType.getEncoding());
+
+    // Get the shard shape for linalg.generic iteration
+    auto shardShape = inputLayout.getShardShape(inputType);
+    size_t shardRank = shardShape.size();
+
+    // Build identity indexing maps for linalg.generic (input and output)
+    SmallVector<AffineMap> linalgIndexingMaps(
+        2, rewriter.getMultiDimIdentityMap(shardRank));
+    SmallVector<mlir::utils::IteratorType> linalgIteratorTypes(
+        shardRank, mlir::utils::IteratorType::parallel);
+
+    auto genericOp = rewriter.create<GenericOp>(
+        loc, input, output,
+        [&](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
+          Value src =
+              builder.create<WaitOp>(innerLoc, blockArgs[0]).getResult();
+          Value dst =
+              builder.create<ReserveOp>(innerLoc, blockArgs[1]).getResult();
+
+          // Create linalg.generic that iterates over tiles in the shard
+          auto linalgGeneric = builder.create<mlir::linalg::GenericOp>(
+              innerLoc,
+              /* result types */ dst.getType(),
+              /* inputs */ src,
+              /* outputs */ dst, linalgIndexingMaps, linalgIteratorTypes,
+              [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
+                  mlir::ValueRange bbArgs) {
+                // bbArgs[0] is the input tile, bbArgs[1] is the output tile
+                Value inputTile = bbArgs[0];
+                Type resultType = bbArgs[1].getType();
+
+                // Apply TileMaskBoundaryOp to the tile
+                Value maskedTile = bbBuilder.create<TileMaskBoundaryOp>(
+                    bbLoc, resultType, inputTile,
+                    rewriter.getDenseI64ArrayAttr(logicalShape), fillValue);
+
+                bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, maskedTile);
+              });
+
+          builder.create<YieldOp>(innerLoc, linalgGeneric.getResults());
+        },
+        ThreadType::Compute);
+
+    return genericOp.getResult(0);
+  }
+
   ToLayoutOp createToLayoutOp(PatternRewriter &rewriter, Location loc,
                               Value input, RankedTensorType desiredType) const {
     auto layout =
@@ -676,6 +760,20 @@ public:
       auto tiledEmpty = createEmpty(tiledType);
       currentValue = lowerFormatConversionGeneric(rewriter, currentValue,
                                                   tiledEmpty, op.getLoc());
+      currentInfo = TensorInfo::from(currentValue);
+    }
+
+    // 3b. MASKING: Apply boundary masking after tilization if needed.
+    // Insert TileMaskBoundaryOp when the target layout has non-Undef OOBVal
+    // and padding exists.
+    if (currentInfo.hasLayout() && ttcore::isTiled(currentInfo.type) &&
+        needsMasking(*currentInfo.layout, currentInfo.type)) {
+      // Create output with same type as input (masking is in-place semantics)
+      auto maskedEmpty = createEmpty(currentInfo.type);
+      currentValue = lowerMaskingGeneric(
+          rewriter, currentValue, maskedEmpty, op.getLoc(),
+          currentInfo.layout->getLogicalShape(),
+          currentInfo.layout->getOobVal());
       currentInfo = TensorInfo::from(currentValue);
     }
 

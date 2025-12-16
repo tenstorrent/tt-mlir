@@ -733,6 +733,52 @@ def D2MMaterializeViewReturns : Pass<"d2m-materialize-view-returns", "::mlir::Mo
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect", "::mlir::tt::ttcore::TTCoreDialect"];
 }
 
+def D2MDecomposeMasking : Pass<"d2m-decompose-masking", "::mlir::ModuleOp"> {
+  let summary = "Decompose tile_mask_boundary ops into primitive tile arithmetic";
+  let description = [{
+    This pass decomposes high-level `tile_mask_boundary` operations into primitive
+    tile arithmetic operations. The tile_mask_boundary op fills padded regions
+    (elements outside the logical tensor bounds) with a specified OOBVal.
+
+    The decomposition uses the following approach:
+    1. Generate row/col index tiles from memref globals
+    2. Offset indices by the current tile position (using iter_index)
+    3. Compare indices against logical bounds using tile_sub + tile_ltz
+    4. Combine masks using tile_mul (AND operation for 0/1 values)
+    5. Generate fill value tile from memref global
+    6. Blend using: mask * input + (1 - mask) * fill
+
+    Example transformation:
+    ```mlir
+    // Before:
+    %masked = d2m.tile_mask_boundary %input, [50, 50], <zero>
+        : !ttcore.tile<32x32, f32> -> !ttcore.tile<32x32, f32>
+
+    // After (conceptually):
+    %row_idx = <load row index tile>
+    %col_idx = <load col index tile>
+    %offset_row = d2m.tile_add %row_idx, <tile_row * 32>
+    %offset_col = d2m.tile_add %col_idx, <tile_col * 32>
+    %mask_h = d2m.tile_ltz(d2m.tile_sub(%offset_row, 50.0))
+    %mask_w = d2m.tile_ltz(d2m.tile_sub(%offset_col, 50.0))
+    %mask = d2m.tile_mul %mask_h, %mask_w
+    %fill = <load zero tile>
+    %inv_mask = d2m.tile_sub <one_tile>, %mask
+    %masked_data = d2m.tile_mul %mask, %input
+    %masked_fill = d2m.tile_mul %inv_mask, %fill
+    %result = d2m.tile_add %masked_data, %masked_fill
+    ```
+
+    This pass should run after LowerToLayout and before LinalgToAffine.
+  }];
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::memref::MemRefDialect",
+    "::mlir::arith::ArithDialect",
+    "::mlir::linalg::LinalgDialect"
+  ];
+}
+
 def D2MScalarizeConstTensors : Pass<"d2m-scalarize-const-tensors", "::mlir::ModuleOp"> {
   let summary = "Scalarize constant tensor inputs in d2m.generic operations";
   let description = [{

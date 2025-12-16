@@ -622,6 +622,10 @@ def TTCore_IteratorTypeAttr : EnumAttr<TTCore_Dialect, TTCore_IteratorType, "ite
   let assemblyFormat = "`<` $value `>`";
 }
 
+def TTCore_TensorMemoryLayoutAttr : EnumAttr<TTCore_Dialect, TTCore_TensorMemoryLayout, "tensor_memory_layout"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
 def TTCore_IteratorTypeArrayAttr : TypedArrayAttrBase<TTCore_IteratorTypeAttr, "">;
 
 def TTCore_ArgumentAllocationAttr : TTCore_Attr<"ArgumentAllocation", "arg_alloc", []> {

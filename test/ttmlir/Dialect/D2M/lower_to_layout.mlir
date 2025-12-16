@@ -159,6 +159,27 @@ func.func @compound_reblock_pad(%arg0: tensor<4x2x32x32xf32, #layout_src_compoun
   return %1 : tensor<2x4x64x32xf32, #layout_dst_compound>
 }
 
+// Test masking with non-undef OOBVal and padding
+// logical_shape = 50x50 doesn't align to dim_alignments = 32x32, so padding exists
+// OOBVal = zero (not undef) should trigger masking
+#layout_mask = #ttcore.metal_layout<logical_shape = 50x50, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, zero, l1, sharded, index_map = (d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+func.func @tilize_with_masking(%arg0: tensor<50x50xf32>) -> tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_mask> {
+  %0 = d2m.empty() : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_mask>
+
+  // CHECK-LABEL: @tilize_with_masking
+  // After tilization, masking should be applied due to non-undef OOBVal + padding
+  // CHECK: d2m.tile_tilize_block
+  // CHECK: d2m.tile_mask_boundary
+  // CHECK-SAME: [50, 50]
+  // CHECK-SAME: <zero>
+
+  %1 = d2m.to_layout %arg0, %0 : tensor<50x50xf32> into tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_mask>
+    -> tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_mask>
+
+  return %1 : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_mask>
+}
+
 // Test chained views with pre-existing index_map
 #layout_base_view = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #layout_with_view = #ttcore.metal_layout<logical_shape = 64x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3) -> (d1, d0, d2, d3)>

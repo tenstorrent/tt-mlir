@@ -149,6 +149,10 @@ public:
       builder->create<emitc::IncludeOp>(
           loc, "compute_kernel_api/eltwise_unary/where.h",
           /*isStandard=*/false);
+      // Helper for float-to-uint32 bit reinterpretation (used by scalar tile ops)
+      builder->create<emitc::VerbatimOp>(
+          loc, "inline uint32_t float_to_bits(float f) { "
+               "union { float f; uint32_t u; } u; u.f = f; return u.u; }");
       // Must define macros REDUCE_OP and REDUCE_DIM before including reduce.h
       // because they are default template parameters values in reduce api.
       builder->create<emitc::VerbatimOp>(loc,
