@@ -107,12 +107,13 @@ ToLayoutOp createToLayoutOp(OpBuilder &builder, Location loc,
 // Try fallback configurations for a failed operation
 bool tryFallbacks(Operation *operation,
                   const std::vector<TTNNLayoutAttr> &originalInputLayouts,
-                  const OpConfig &config);
+                  const OpConfig &config, uint32_t maxAttempts = 0);
 
 // Try config fallbacks for Conv2d-like operations
 bool tryConfigFallbacks(Operation *operation,
                         const std::vector<TTNNLayoutAttr> &originalInputLayouts,
-                        const OpConfig &originalConfig);
+                        const OpConfig &originalConfig,
+                        uint32_t maxAttempts = 0);
 
 void applyConfigChange(Operation *operation, Conv2dConfigAttr newConfig);
 } // namespace fallbacks
@@ -148,6 +149,7 @@ public:
 
     size_t totalOperationsChecked = 0;
     size_t operationsFixed = 0;
+    bool validationFailed = false;
 
     moduleOp->walk([&](func::FuncOp func) {
       func.walk([&](Operation *operation) -> WalkResult {
@@ -226,14 +228,15 @@ public:
                          "OOM error detected, trying config fallbacks first "
                          "for operation {} at {}",
                          operation->getName(), operation->getLoc());
-            fixed =
-                fallbacks::tryConfigFallbacks(operation, inputLayouts, config);
+            fixed = fallbacks::tryConfigFallbacks(operation, inputLayouts,
+                                                  config, maxFallbackAttempts);
           }
 
           // If config fallbacks didn't work or it wasn't an OOM error, try
           // layout fallbacks
           if (!fixed) {
-            fixed = fallbacks::tryFallbacks(operation, inputLayouts, config);
+            fixed = fallbacks::tryFallbacks(operation, inputLayouts, config,
+                                            maxFallbackAttempts);
           }
 
           if (fixed) {
@@ -245,6 +248,7 @@ public:
             operation->emitError()
                 << "OperationValidationAndFallback: Operation failed "
                    "validation and no fallback configuration worked";
+            validationFailed = true;
             signalPassFailure();
             return WalkResult::interrupt();
           }
@@ -254,10 +258,17 @@ public:
     });
 
     // Log validation summary
-    TTMLIR_DEBUG(
-        ttmlir::LogComponent::OpValidation,
-        "Operation validation complete: {} operations checked, {} fixed",
-        totalOperationsChecked, operationsFixed);
+    if (validationFailed) {
+      TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+                   "Operation validation FAILED: {} operations checked before "
+                   "failure, {} fixed",
+                   totalOperationsChecked, operationsFixed);
+    } else {
+      TTMLIR_DEBUG(
+          ttmlir::LogComponent::OpValidation,
+          "Operation validation complete: {} operations checked, {} fixed",
+          totalOperationsChecked, operationsFixed);
+    }
 #endif // TTMLIR_ENABLE_OPMODEL
   }
 
@@ -292,7 +303,7 @@ namespace fallbacks {
 
 bool tryFallbacks(Operation *operation,
                   const std::vector<TTNNLayoutAttr> &originalInputLayouts,
-                  const OpConfig &config) {
+                  const OpConfig &config, uint32_t maxAttempts) {
 
   // Extract tensor shapes for all input operands
   std::vector<llvm::ArrayRef<int64_t>> tensorShapes;
@@ -341,14 +352,28 @@ bool tryFallbacks(Operation *operation,
                "Generated {} combinations, testing by distance",
                allCombinations.size());
 
+  // Track failed attempts
+  size_t failedAttempts = 0;
+
   // Test combinations in order of increasing distance
   for (const auto &candidate : allCombinations) {
     auto result = testFallbackCombination(operation, config, candidate.layouts);
 
     if (!result.isSuccess()) {
+      failedAttempts++;
       TTMLIR_TRACE(ttmlir::LogComponent::OpValidation,
                    "Combination failed (status: {}): {}",
                    static_cast<int>(result.status), result.errorMessage);
+
+      // Check if we've exceeded the maximum attempts (if limit is set)
+      if (maxAttempts > 0 &&
+          failedAttempts >= static_cast<size_t>(maxAttempts)) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+                     "Reached maximum fallback attempts ({}) for operation {} "
+                     "at {}. Terminating early.",
+                     maxAttempts, operation->getName(), operation->getLoc());
+        return false;
+      }
       continue;
     }
 
@@ -356,8 +381,9 @@ bool tryFallbacks(Operation *operation,
     applyFallbackTransformations(operation, originalInputLayouts,
                                  candidate.layouts, result, config);
     TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
-                 "Found working fallback combination with {} operands",
-                 candidate.layouts.size());
+                 "Found working fallback combination with {} operands after {} "
+                 "failed attempts",
+                 candidate.layouts.size(), failedAttempts);
     return true;
   }
 
@@ -718,7 +744,7 @@ ToLayoutOp createToLayoutOp(OpBuilder &builder, Location loc,
 // Try config fallbacks for Conv2d-like operations
 bool tryConfigFallbacks(Operation *operation,
                         const std::vector<TTNNLayoutAttr> &originalInputLayouts,
-                        const OpConfig &originalConfig) {
+                        const OpConfig &originalConfig, uint32_t maxAttempts) {
   // Only applicable to operations with Conv2dAttrs
   if (!std::holds_alternative<Conv2dAttrs>(originalConfig.opSpecificAttrs)) {
     return false;
@@ -759,6 +785,9 @@ bool tryConfigFallbacks(Operation *operation,
   Conv2dConfigAttr workingConfig = nullptr;
   op_constraint_validation::ValidationResult workingResult;
 
+  // Track failed attempts
+  size_t failedAttempts = 0;
+
   // Use TypeSwitch to handle both Conv2dOp and ConvTranspose2dOp
   bool foundConfig =
       llvm::TypeSwitch<Operation *, bool>(operation)
@@ -781,14 +810,32 @@ bool tryConfigFallbacks(Operation *operation,
               if (result.isSuccess()) {
                 workingConfig = configAttr;
                 workingResult = result;
+                TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+                             "Found working config after {} failed attempts",
+                             failedAttempts);
                 return true;
               }
 
+              failedAttempts++;
               TTMLIR_TRACE(ttmlir::LogComponent::OpValidation,
                            "Config fallback failed (status: {}): {}",
                            static_cast<int>(result.status),
                            result.errorMessage);
+
+              // Check if we've exceeded the maximum attempts (if limit is set)
+              if (maxAttempts > 0 &&
+                  failedAttempts >= static_cast<size_t>(maxAttempts)) {
+                TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+                             "Reached maximum fallback attempts ({}) for "
+                             "operation {} at {}. Terminating early.",
+                             maxAttempts, operation->getName(),
+                             operation->getLoc());
+                return false;
+              }
             }
+            TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+                         "No working config found after {} failed attempts",
+                         failedAttempts);
             return false;
           })
           .Default([](Operation *) { return false; });
