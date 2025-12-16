@@ -1799,11 +1799,207 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
   return success();
 }
 
+namespace {
+
+/// Parser for rearrange patterns like "b h w c -> b c h w" or "(b h) w -> b h w"
+///
+/// Uses lexer-style tokenization for clean, maintainable parsing.
+/// Example patterns:
+///   - "b h w c -> b h w c"         (identity)
+///   - "b h w c -> b c h w"         (transpose)
+///   - "b h w c -> (b h) w c"       (merge dimensions)
+///   - "b (h1 h) (w1 w) c -> b h w (c h1 w1)" (split and merge)
+class RearrangePatternParser {
+public:
+  using DimGroup = llvm::SmallVector<llvm::StringRef>;
+  using DimGroups = llvm::SmallVector<DimGroup>;
+
+private:
+  enum class TokenKind {
+    Identifier, // dimension name: "b", "h", "w1", etc.
+    LParen,     // '('
+    RParen,     // ')'
+    Arrow,      // "->"
+    End,        // end of input
+    Error       // lexical error
+  };
+
+  struct Token {
+    TokenKind kind;
+    llvm::StringRef text;
+
+    bool is(TokenKind k) const { return kind == k; }
+    bool isNot(TokenKind k) const { return kind != k; }
+  };
+
+  llvm::StringRef input;
+  size_t pos = 0;
+  DimGroups lhs;
+  DimGroups rhs;
+
+  //===--------------------------------------------------------------------===//
+  // Lexer
+  //===--------------------------------------------------------------------===//
+
+  char peek() const { return pos < input.size() ? input[pos] : '\0'; }
+
+  char peekNext() const {
+    return pos + 1 < input.size() ? input[pos + 1] : '\0';
+  }
+
+  char advance() { return pos < input.size() ? input[pos++] : '\0'; }
+
+  void skipWhitespace() {
+    while (pos < input.size() && std::isspace(input[pos])) {
+      ++pos;
+    }
+  }
+
+  bool isIdentifierStart(char c) const { return std::isalpha(c) || c == '_'; }
+
+  bool isIdentifierContinue(char c) const {
+    return std::isalnum(c) || c == '_';
+  }
+
+  Token scanIdentifier() {
+    size_t start = pos;
+    while (pos < input.size() && isIdentifierContinue(input[pos])) {
+      ++pos;
+    }
+    return {TokenKind::Identifier, input.substr(start, pos - start)};
+  }
+
+  Token nextToken() {
+    skipWhitespace();
+
+    if (pos >= input.size()) {
+      return {TokenKind::End, {}};
+    }
+
+    char c = peek();
+
+    // Check for arrow "->"
+    if (c == '-' && peekNext() == '>') {
+      pos += 2;
+      return {TokenKind::Arrow, "->"};
+    }
+
+    // Single-character tokens
+    if (c == '(') {
+      advance();
+      return {TokenKind::LParen, "("};
+    }
+    if (c == ')') {
+      advance();
+      return {TokenKind::RParen, ")"};
+    }
+
+    // Identifiers
+    if (isIdentifierStart(c)) {
+      return scanIdentifier();
+    }
+
+    // Unknown character - error
+    advance();
+    return {TokenKind::Error, input.substr(pos - 1, 1)};
+  }
+
+  //===--------------------------------------------------------------------===//
+  // Parser
+  //===--------------------------------------------------------------------===//
+
+  /// Parse a sequence of dimension groups until we hit Arrow or End.
+  /// Grammar:
+  ///   groups := group*
+  ///   group  := identifier | '(' identifier+ ')'
+  bool parseGroups(DimGroups &groups, bool stopAtArrow) {
+    while (true) {
+      Token tok = nextToken();
+
+      if (tok.is(TokenKind::End)) {
+        return true;
+      }
+
+      if (tok.is(TokenKind::Arrow)) {
+        if (stopAtArrow) {
+          return true;
+        }
+        // Unexpected arrow on RHS
+        return false;
+      }
+
+      if (tok.is(TokenKind::Error)) {
+        return false;
+      }
+
+      if (tok.is(TokenKind::Identifier)) {
+        // Single dimension group
+        groups.push_back({tok.text});
+        continue;
+      }
+
+      if (tok.is(TokenKind::LParen)) {
+        // Grouped dimensions: (dim1 dim2 ...)
+        DimGroup group;
+        while (true) {
+          Token inner = nextToken();
+          if (inner.is(TokenKind::RParen)) {
+            break;
+          }
+          if (inner.is(TokenKind::Identifier)) {
+            group.push_back(inner.text);
+            continue;
+          }
+          // Unexpected token inside parens
+          return false;
+        }
+        if (group.empty()) {
+          // Empty parens not allowed
+          return false;
+        }
+        groups.push_back(std::move(group));
+        continue;
+      }
+
+      // Unexpected token (e.g., stray RParen)
+      return false;
+    }
+  }
+
+public:
+  explicit RearrangePatternParser(llvm::StringRef pattern) : input(pattern) {}
+
+  /// Parse the full pattern "lhs -> rhs".
+  /// Returns true on success, false on parse error.
+  bool parse() {
+    lhs.clear();
+    rhs.clear();
+    pos = 0;
+
+    // Parse LHS until we hit Arrow
+    if (!parseGroups(lhs, /*stopAtArrow=*/true)) {
+      return false;
+    }
+
+    // Parse RHS until end
+    if (!parseGroups(rhs, /*stopAtArrow=*/false)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  const DimGroups &getLHS() const { return lhs; }
+  const DimGroups &getRHS() const { return rhs; }
+};
+
+} // namespace
+
 mlir::FailureOr<::mlir::AffineMap>
 mlir::tt::ttir::RearrangeOp::getInvPatternMap(mlir::MLIRContext *context,
                                               StringRef pattern,
                                               ArrayRef<int64_t> shape) {
-  // We need to write a routine to convert the pattern string to an affine map.
+  // Parse the rearrange pattern string into dimension groups.
   // Example patterns:
   // >>> rearrange(images, 'b h w c -> b h w c').shape
   // (32, 30, 40, 3)
@@ -1833,75 +2029,13 @@ mlir::tt::ttir::RearrangeOp::getInvPatternMap(mlir::MLIRContext *context,
   // >>> rearrange(images, 'b (h h1) (w w1) c -> b h w (c h1 w1)', h1=2,
   // w1=2).shape (32, 15, 20, 12)
 
-  llvm::SmallVector<llvm::StringRef> parts;
-  pattern.split(parts, "->");
+  RearrangePatternParser parser(pattern);
+  if (!parser.parse()) {
+    return failure();
+  }
 
-  assert(parts.size() == 2 &&
-         "RearrangeOp pattern must contain exactly one '->' separator.");
-
-  llvm::StringRef inputPattern = parts[0].trim();
-  llvm::StringRef outputPattern = parts[1].trim();
-
-  // Helper lambda to parse dimension names from a pattern.
-  auto parseDims = [](llvm::StringRef pattern)
-      -> llvm::SmallVector<llvm::SmallVector<llvm::StringRef>> {
-    llvm::SmallVector<llvm::SmallVector<llvm::StringRef>> result;
-    llvm::SmallVector<llvm::StringRef> currentGroup;
-    bool inParens = false;
-    size_t i = 0;
-
-    while (i < pattern.size()) {
-      char c = pattern[i];
-
-      if (c == '(') {
-        inParens = true;
-        i++;
-        continue;
-      }
-
-      if (c == ')') {
-        if (!currentGroup.empty()) {
-          result.push_back(currentGroup);
-          currentGroup.clear();
-        }
-        inParens = false;
-        i++;
-        continue;
-      }
-
-      if (c == ' ' && !inParens && !currentGroup.empty()) {
-        result.push_back(currentGroup);
-        currentGroup.clear();
-        i++;
-        continue;
-      }
-
-      if (c == ' ') {
-        i++;
-        continue;
-      }
-
-      // Parse dimension name.
-      size_t start = i;
-      while (i < pattern.size() && pattern[i] != ' ' && pattern[i] != ')' &&
-             pattern[i] != '(') {
-        i++;
-      }
-
-      if (i > start) {
-        currentGroup.push_back(pattern.substr(start, i - start));
-      }
-    }
-
-    if (!currentGroup.empty()) {
-      result.push_back(currentGroup);
-    }
-
-    return result;
-  };
-
-  auto inputDims = parseDims(inputPattern);
-  auto outputDims = parseDims(outputPattern);
+  const auto &inputDims = parser.getLHS();
+  const auto &outputDims = parser.getRHS();
 
   // Build a map from dimension name to input position.
   llvm::DenseMap<llvm::StringRef, unsigned> dimToInputPos;
