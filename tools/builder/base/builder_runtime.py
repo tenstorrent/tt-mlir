@@ -651,6 +651,11 @@ def execute_py(
     check_rtol: bool = False,
 ):
     import importlib.util
+
+    spec = importlib.util.find_spec("_ttmlir_runtime")
+    package_path = os.path.dirname(spec.origin)
+    sys.path.append(f"{package_path}/runtime/ttnn")
+
     import ttnn
 
     # Add tt-alchemist utils.py to path for EmitPy tests

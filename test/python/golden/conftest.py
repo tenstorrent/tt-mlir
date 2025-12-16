@@ -68,7 +68,8 @@ def _get_device_for_target(target: str, mesh_shape: Tuple[int, int], pytestconfi
             _current_device_mesh_shape = None
 
     # Open new device for target
-    print(f"Opening device for {target} with mesh shape {mesh_shape}")
+    if target != "emitpy":
+        print(f"Opening device for {target} with mesh shape {mesh_shape}")
 
     mesh_options = tt_runtime.runtime.MeshDeviceOptions()
     system_desc = fbb_as_dict(
