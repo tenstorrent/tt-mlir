@@ -3,12 +3,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
-import inspect
+import ast
 import time
 import torch
 import numpy as np
 from functools import reduce
-import operator
+import sys
+from pathlib import Path
 from typing import Callable, List, Optional, Tuple, Union, Literal, Dict
 from collections import OrderedDict
 import json
@@ -271,6 +272,86 @@ def update_device_tensor(program_context, tensor_ref, dst_tensor, src_tensor):
         data_ptr, shape, stride, size, dtype
     )
     tt_runtime.runtime.update_tensor_in_pool(program_context, tensor_ref, tensor)
+
+
+def check_golden_outputs(
+    golden_outputs_torch: List[torch.Tensor],
+    output_tensors_torch: List[torch.Tensor],
+    pcc: float,
+    atol: float,
+    rtol: float,
+    check_atol: bool,
+    check_rtol: bool,
+) -> Dict[str, Dict[int, Dict]]:
+    golden_report = {}
+
+    for i in range(min(len(golden_outputs_torch), len(output_tensors_torch))):
+        cal_atol, cal_rtol, cal_pcc = get_atol_rtol_pcc(
+            golden_outputs_torch[i],
+            output_tensors_torch[i],
+            atol,
+            rtol,
+        )
+
+        output_key = f"output_{i}"
+        result = "pass"
+
+        # Check PCC
+        if cal_pcc < pcc:
+            result = "fail"
+            raise TTBuilderGoldenException(
+                f"Failed: program-level output golden comparison failed for {output_key}, "
+                f"actual_pcc={cal_pcc} < expected_pcc={pcc}"
+            )
+        else:
+            print(f"Program level golden for {output_key} matched. pcc={cal_pcc}")
+
+        # Check atol if enabled
+        if check_atol:
+            if cal_atol > atol:
+                result = "fail"
+                raise TTBuilderGoldenException(
+                    f"Failed: program-level output atol check failed for {output_key}, "
+                    f"actual_atol={cal_atol} > expected_atol={atol}"
+                )
+            else:
+                print(
+                    f"Program level atol check for {output_key} passed. atol={cal_atol}"
+                )
+
+        # Check rtol if enabled
+        if check_rtol:
+            if cal_rtol > rtol:
+                result = "fail"
+                raise TTBuilderGoldenException(
+                    f"Failed: program-level output rtol check failed for {output_key}, "
+                    f"actual_rtol={cal_rtol} > expected_rtol={rtol}"
+                )
+            else:
+                print(
+                    f"Program level rtol check for {output_key} passed. rtol={cal_rtol}"
+                )
+
+        # Add to golden report
+        golden_report[output_key] = {
+            0: {
+                "result": result,
+                "expected_pcc": pcc,
+                "actual_pcc": cal_pcc,
+                "expected_atol": atol,
+                "actual_atol": cal_atol,
+                "expected_rtol": rtol,
+                "actual_rtol": cal_rtol,
+                "allclose": torch.allclose(
+                    golden_outputs_torch[i],
+                    output_tensors_torch[i],
+                    atol=atol,
+                    rtol=rtol,
+                ),
+            }
+        }
+
+    return golden_report
 
 
 class CallbackRuntimeConfig:
@@ -536,6 +617,7 @@ def execute_fb(
 
         e2e_duration_nanoseconds_output = 0
 
+        output_tensors_torch = []
         for i, runtime_output_tensor in enumerate(runtime_outputs):
             start_get_output = time.perf_counter_ns()
             output_host = tt_runtime.runtime.to_host(
@@ -565,39 +647,135 @@ def execute_fb(
                     data_buffer,
                     dtype=runtime_dtype_to_torch_dtype(outputs[i].get_dtype()),
                 ).reshape(outputs[i].get_shape())
+            output_tensors_torch.append(output_tensor_torch)
 
-            cal_atol, cal_rtol, cal_pcc, = get_atol_rtol_pcc(
-                golden_outputs_torch[i],
-                output_tensor_torch,
+        # Check golden outputs if not disabled
+        if not disable_golden and len(output_tensors_torch) > 0:
+            program_golden_report = check_golden_outputs(
+                golden_outputs_torch,
+                output_tensors_torch,
+                pcc,
                 atol,
                 rtol,
+                check_atol,
+                check_rtol,
             )
-
-            if cal_pcc < pcc:
-                raise TTBuilderGoldenException(
-                    f"Failed: program-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={pcc}"
-                )
-            else:
-                print(f"Program level golden for output_{i} matched. pcc={cal_pcc}")
-
-            if check_atol:
-                if cal_atol > atol:
-                    raise TTBuilderGoldenException(
-                        f"Failed: program-level output atol check failed, actual_atol={cal_atol} > expected_atol={atol}"
-                    )
-                else:
-                    print(
-                        f"Program level atol check for output_{i} passed. atol={cal_atol}"
-                    )
-
-            if check_rtol:
-                if cal_rtol > rtol:
-                    raise TTBuilderGoldenException(
-                        f"Failed: program-level output rtol check failed, actual_rtol={cal_rtol} > expected_rtol={rtol}"
-                    )
-                else:
-                    print(
-                        f"Program level rtol check for output_{i} passed. rtol={cal_rtol}"
-                    )
+            # Merge program golden report into callback runtime config golden report
+            callback_runtime_config.golden_report.update(program_golden_report)
 
     return callback_runtime_config.golden_report
+
+
+def execute_py(
+    py_path: str,
+    goldens: Dict[str, Dict[int, GoldenMapTensor]],
+    pcc: float = 0.99,
+    atol: float = 1e-08,
+    rtol: float = 1e-05,
+    disable_golden: bool = False,
+    check_atol: bool = False,
+    check_rtol: bool = False,
+):
+    import importlib.util
+    import ttnn
+
+    # Add tt-alchemist utils.py to path for EmitPy tests
+    TT_MLIR_HOME = Path(os.environ.get("TT_MLIR_HOME", os.getcwd())).resolve()
+    utils_path = os.path.join(TT_MLIR_HOME, "tools/tt-alchemist/templates/python/local")
+    if utils_path not in sys.path:
+        sys.path.append(utils_path)
+
+    golden_torch_tensors = convert_golden_to_torch_tensors(goldens)
+
+    try:
+        module_name = os.path.splitext(os.path.basename(py_path))[0]
+        spec = importlib.util.spec_from_file_location(module_name, py_path)
+        module = importlib.util.module_from_spec(spec)
+
+        # Add the module to sys.modules so it can be imported by other modules
+        sys.modules[module_name] = module
+        spec.loader.exec_module(module)
+
+        # Parse the AST to find function names
+        with open(py_path, "r") as f:
+            source_code = f.read()
+
+        tree = ast.parse(source_code)
+        program_names = []
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.FunctionDef)
+                and node.name != "main"
+                and node.name[0:18] != "create_inputs_for_"
+                and not node.name.__contains__("_const_eval_")
+            ):
+                program_names.append(node.name)
+
+        for program_name in program_names:
+            create_program_inputs = "create_inputs_for_" + program_name
+            create_inputs_func = getattr(module, create_program_inputs)
+            inputs = create_inputs_func()
+
+            if not disable_golden:
+                corrected_inputs = []
+                for golden_input_dict, template_input in zip(
+                    golden_torch_tensors.values(), inputs
+                ):
+                    # Use the layout and device from the template_input
+                    golden_input = golden_input_dict[0]
+                    target_layout = template_input.layout
+                    target_device = template_input.device()
+                    # target_device = template_input.device()
+                    corrected_inputs.append(
+                        ttnn.as_tensor(
+                            golden_input,
+                            dtype=template_input.dtype,
+                            layout=target_layout,
+                            device=target_device,
+                            memory_config=ttnn.MemoryConfig(
+                                ttnn.TensorMemoryLayout.INTERLEAVED,
+                                ttnn.BufferType.DRAM,
+                                None,
+                            )
+                            if target_device is not None
+                            else None,
+                        )
+                    )
+                    # Deallocate template_input tensor
+                    if target_device is not None:
+                        ttnn.deallocate(template_input)
+                inputs = corrected_inputs
+
+            program_func = getattr(module, program_name)
+            outputs = program_func(inputs)
+    except Exception as e:
+        raise TTBuilderRuntimeException(e) from e
+
+    if not disable_golden:
+        golden_outputs_torch = []
+        for i in range(len(outputs)):
+            output_key = f"output_{i}"
+            if output_key in golden_torch_tensors:
+                golden_outputs_torch.append(golden_torch_tensors[output_key][0])
+            else:
+                print(f"Warning: No golden found for {output_key}, skipping check")
+                continue
+
+        # Convert program outputs to torch tensors
+        output_tensors_torch = []
+        for i, output in enumerate(outputs):
+            # Transfer from device to host and convert to torch
+            output_host = ttnn.from_device(output)
+            output_torch = output_host.to_torch()
+            output_tensors_torch.append(output_torch)
+
+        # Check golden outputs using common function
+        check_golden_outputs(
+            golden_outputs_torch,
+            output_tensors_torch,
+            pcc,
+            atol,
+            rtol,
+            check_atol,
+            check_rtol,
+        )

@@ -91,6 +91,9 @@ def _get_device_for_target(target: str, mesh_shape: Tuple[int, int], pytestconfi
         device_runtime_enum = tt_runtime.runtime.DeviceRuntime.TTNN
     elif target == "ttmetal":
         device_runtime_enum = tt_runtime.runtime.DeviceRuntime.TTMetal
+    elif target == "emitpy":
+        # Emitpy execution instantiates its own device internally
+        return None
     else:
         raise ValueError(f"Only TTNN and TTMetal devices are supported, got {target}")
 
@@ -161,7 +164,7 @@ def device(request, pytestconfig):
         target = request.node.callspec.params.get("target", "ttnn")
 
         # Support for other backends coming soon.
-        if target not in ["ttnn", "ttmetal"]:
+        if target not in ["ttnn", "ttmetal", "emitpy"]:
             return None
 
         mesh_shape = request.node.callspec.params.get("mesh_shape", (1, 1))
