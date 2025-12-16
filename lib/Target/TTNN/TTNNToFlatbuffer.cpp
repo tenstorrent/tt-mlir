@@ -121,6 +121,27 @@ createDeviceRef(FlatbufferObjectCache &cache, Value device) {
 }
 
 flatbuffers::Offset<::tt::target::ttnn::TensorDesc>
+getNDTensor(FlatbufferObjectCache &cache, RankedTensorType tensorType,
+            ttcore::DeviceAttr deviceAttr) {
+  TTNNNDLayoutAttr layoutAttr =
+      mlir::cast<ttnn::TTNNNDLayoutAttr>(tensorType.getEncoding());
+
+  auto shapeInt64 = tensorType.getShape();
+  std::vector<int32_t> shape;
+  shape.reserve(shapeInt64.size());
+  std::transform(
+      shapeInt64.begin(), shapeInt64.end(), std::back_inserter(shape),
+      [](int64_t val) -> int32_t { return static_cast<int32_t>(val); });
+
+  // Set meshShape to {1, 1} for single device tensor.
+  std::vector<int32_t> meshShape = {1, 1};
+
+  return ::tt::target::ttnn::CreateTensorDescDirect(
+      *cache.fbb, &shape, &meshShape,
+      cache.getOrCreate(layoutAttr, ttnnNDLayoutAttrToFlatbuffer));
+}
+
+flatbuffers::Offset<::tt::target::ttnn::TensorDesc>
 tensorTypeToFlatbuffer(FlatbufferObjectCache &cache, Type type,
                        ttcore::DeviceAttr deviceAttr) {
   auto tensorType = mlir::cast<RankedTensorType>(type);
@@ -139,6 +160,8 @@ tensorTypeToFlatbuffer(FlatbufferObjectCache &cache, Type type,
         ::mlir::IntegerType::get(ctx, bitWidth, IntegerType::Unsigned),
         bufferType, ttcore::GridAttr::get(ctx), /*memoryLayoutAttr=*/nullptr,
         /*tensorMeshAttr=*/nullptr);
+  } else if (mlir::isa<ttnn::TTNNNDLayoutAttr>(tensorType.getEncoding())) {
+    return getNDTensor(cache, tensorType, deviceAttr);
   } else {
     layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
   }

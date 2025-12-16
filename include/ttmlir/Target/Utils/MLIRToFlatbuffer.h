@@ -281,6 +281,17 @@ toFlatbuffer(FlatbufferObjectCache &, ttnn::ShardOrientation orientation) {
   }
 }
 
+inline ::tt::target::ttnn::ShardDistributionStrategy
+toFlatbuffer(FlatbufferObjectCache &,
+             ttnn::ShardDistributionStrategy shardDistributionStrategy) {
+  switch (shardDistributionStrategy) {
+  case ttnn::ShardDistributionStrategy::RoundRobin1D:
+    return ::tt::target::ttnn::ShardDistributionStrategy::RoundRobin1D;
+  case ttnn::ShardDistributionStrategy::Grid2D:
+    return ::tt::target::ttnn::ShardDistributionStrategy::Grid2D;
+  }
+}
+
 inline ::tt::target::Arch toFlatbuffer(FlatbufferObjectCache &,
                                        ttcore::ArchAttr arch) {
   switch (arch.getValue()) {
@@ -484,12 +495,8 @@ struct ArrayAttrToFlatbufferSerializer<IntegerAttr, ValueType> {
   impl(FlatbufferObjectCache &cache, const ::mlir::ArrayAttr &arrayAttr) {
     return cache.fbb->CreateVector<ValueType>(
         arrayAttr.size(), [&arrayAttr](size_t i) {
-          auto intAttr = mlir::cast<IntegerAttr>(arrayAttr[i]);
-          // Use getUInt() for unsigned integers, getInt() for signed integers
-          if (intAttr.getType().isUnsignedInteger()) {
-            return static_cast<ValueType>(intAttr.getUInt());
-          }
-          return static_cast<ValueType>(intAttr.getInt());
+          return static_cast<ValueType>(
+              mlir::cast<IntegerAttr>(arrayAttr[i]).getInt());
         });
   }
 };
@@ -870,6 +877,27 @@ toFlatbuffer(FlatbufferObjectCache &cache,
       *cache.fbb, coreRangeSet, &shardShape, shardOrientation);
 }
 
+inline ::flatbuffers::Offset<::tt::target::ttnn::NDShardSpec>
+toFlatbuffer(FlatbufferObjectCache &cache,
+             ::mlir::tt::ttnn::NDShardSpecAttr ndShardSpec) {
+  auto coreRangeSet = toFlatbuffer(cache, ndShardSpec.getCoreRangeSet());
+  llvm::ArrayRef<int64_t> shardShapeArr = ndShardSpec.getShape().getShape();
+  std::vector<int32_t> shardShape;
+  shardShape.reserve(shardShapeArr.size());
+  std::transform(shardShapeArr.begin(), shardShapeArr.end(),
+                 std::back_inserter(shardShape), [](int64_t val) -> int32_t {
+                   return static_cast<int32_t>(val);
+                 });
+  auto shardOrientation =
+      toFlatbuffer(cache, ndShardSpec.getShardOrientation().getValue());
+  auto shardDistributionStrategy = toFlatbuffer(
+      cache, ndShardSpec.getShardDistributionStrategy().getValue());
+
+  return ::tt::target::ttnn::CreateNDShardSpecDirect(
+      *cache.fbb, coreRangeSet, &shardShape, shardOrientation,
+      shardDistributionStrategy);
+}
+
 inline ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig>
 toFlatbuffer(FlatbufferObjectCache &cache,
              ::mlir::tt::ttnn::MemoryConfigAttr memoryConfigAttr) {
@@ -890,9 +918,13 @@ toFlatbuffer(FlatbufferObjectCache &cache,
                                          tensorMemoryLayoutAttr.getValue()));
     shardSpec = toFlatbuffer(cache, *memoryConfigAttr.getShardSpec());
   }
+  ::flatbuffers::Offset<::tt::target::ttnn::NDShardSpec> ndShardSpec = 0;
+  if (memoryConfigAttr.getNdShardSpec()) {
+    ndShardSpec = toFlatbuffer(cache, *memoryConfigAttr.getNdShardSpec());
+  }
 
-  return ::tt::target::ttnn::CreateMemoryConfig(*cache.fbb, tensorMemoryLayout,
-                                                bufferType, shardSpec);
+  return ::tt::target::ttnn::CreateMemoryConfig(
+      *cache.fbb, tensorMemoryLayout, bufferType, shardSpec, ndShardSpec);
 }
 
 inline flatbuffers::Offset<::tt::target::ttnn::MemoryDesc>
@@ -1000,6 +1032,75 @@ ttnnLayoutAttrToFlatbuffer(FlatbufferObjectCache &cache,
                    layoutAttr.getBufferType(), layoutAttr.getMemLayout(),
                    layoutAttr.getGrid(), deviceAttr.getWorkerGrid(),
                    layoutAttr.getExactGrid()));
+}
+
+inline flatbuffers::Offset<::tt::target::ttnn::MemoryDesc> toFlatbuffer(
+    FlatbufferObjectCache &cache, mlir::MemRefType memref,
+    ttnn::BufferType bufferType, ttnn::TensorMemoryLayoutAttr memLayoutAttr,
+    ttcore::GridAttr shardGrid, ttnn::ShardOrientationAttr shardOrientation,
+    ttnn::ShardDistributionStrategyAttr shardDistributionStrategy) {
+  auto shapeInt64 = memref.getShape();
+  std::vector<int32_t> shape(shapeInt64.begin(), shapeInt64.end());
+  ttcore::DataType dtype = ttcore::DataType::Float32;
+  ::tt::target::Dim2d tileShape(1, 1);
+  mlir::Type elementType = memref.getElementType();
+  if (mlir::isa<ttcore::TileType>(elementType)) {
+    auto tileType = mlir::cast<ttcore::TileType>(elementType);
+    dtype = tileType.getDataType();
+    tileShape = ::tt::target::Dim2d(tileType.getHeight(), tileType.getWidth());
+  } else {
+    dtype = ttcore::elementTypeToDataType(elementType);
+  }
+
+  ::tt::target::ttnn::StorageType storageType =
+      ::tt::target::ttnn::StorageType::Device;
+
+  ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig = 0;
+
+  ::mlir::MLIRContext *ctx = memref.getContext();
+  auto bufferTypeAttr = ttnn::BufferTypeAttr::get(ctx, bufferType);
+  mlir::tt::ttnn::NDShardSpecAttr ndShardSpecAttr;
+  llvm::SmallVector<int64_t> shardShape(memref.getShape().begin(),
+                                        memref.getShape().end());
+  assert(shardShape.size() >= 2);
+  shardShape[shardShape.size() - 2] *= tileShape.y();
+  shardShape[shardShape.size() - 1] *= tileShape.x();
+
+  ttnn::CoreRangeSetAttr coreRangeSetAttr;
+  // For TTNN JIT, the sharding core range has already been set by the user.
+  // This means that for height and width sharding, the grid in the
+  // TTNNLayoutAttr is not a virtual Mx1 or 1xN grid that would require
+  // collapsing. This is required to distinguish between 3x4 and 2x6 as
+  // sharding grids for height and width sharding.
+  // Note that the core coord is (X,Y) but the grid shape is (Y,X).
+  coreRangeSetAttr = ttnn::CoreRangeSetAttr::get(
+      ctx, ttnn::CoreRangeAttr::get(
+               ctx, ttnn::CoreCoordAttr::get(ctx, 0, 0),
+               ttnn::CoreCoordAttr::get(ctx, shardGrid.getShape()[1] - 1,
+                                        shardGrid.getShape()[0] - 1)));
+  ndShardSpecAttr = ttnn::NDShardSpecAttr::get(
+      ctx, coreRangeSetAttr, ttnn::ShapeAttr::get(ctx, shardShape),
+      shardOrientation, shardDistributionStrategy);
+
+  auto memoryConfigAttr = ::mlir::tt::ttnn::MemoryConfigAttr::get(
+      ctx, memLayoutAttr, bufferTypeAttr, std::nullopt, ndShardSpecAttr);
+
+  memoryConfig = toFlatbuffer(cache, memoryConfigAttr);
+
+  return ::tt::target::ttnn::CreateMemoryDesc(
+      *cache.fbb, storageType, &tileShape, toFlatbuffer(cache, dtype),
+      memoryConfig);
+}
+
+inline flatbuffers::Offset<::tt::target::ttnn::LayoutDesc>
+ttnnNDLayoutAttrToFlatbuffer(FlatbufferObjectCache &cache,
+                             ttnn::TTNNNDLayoutAttr layoutAttr) {
+  return ::tt::target::ttnn::CreateLayoutDesc(
+      *cache.fbb, toFlatbuffer(cache, ttcore::OOBVal::Undef),
+      toFlatbuffer(cache, layoutAttr.getMemref(), layoutAttr.getBufferType(),
+                   layoutAttr.getMemLayout(), layoutAttr.getGrid(),
+                   layoutAttr.getShardOrientation(),
+                   layoutAttr.getShardDistributionStrategy()));
 }
 
 inline ::tt::target::ttnn::CoreType
