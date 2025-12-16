@@ -34,30 +34,6 @@ module {
         return
     }
     func.func private @compute_kernel2() attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
-        %0 = emitc.expression  : () -> !emitc.size_t {
-            %4 = "emitc.constant"() <{value = 0 : index}> : () -> !emitc.size_t
-            yield %4 : !emitc.size_t
-        }
-        %1 = emitc.expression  : () -> i32 {
-            %4 = "emitc.constant"() <{value = 1 : i32}> : () -> i32
-            yield %4 : i32
-        }
-        %2 = emitc.literal "get_compile_time_arg_val(0)" : !emitc.opaque<"::tt::CB">
-        %3 = emitc.literal "get_compile_time_arg_val(1)" : !emitc.opaque<"::tt::CB">
-        emitc.call_opaque "init_sfpu"(%2, %3) : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
-        emitc.call_opaque "cb_wait_front"(%2, %1) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_reserve_back"(%3, %1) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "tile_regs_acquire"() : () -> ()
-        emitc.call_opaque "copy_tile_init"(%2) : (!emitc.opaque<"::tt::CB">) -> ()
-        emitc.call_opaque "copy_tile"(%2, %0, %0) : (!emitc.opaque<"::tt::CB">, !emitc.size_t, !emitc.size_t) -> ()
-        emitc.call_opaque "abs_tile_init"() : () -> ()
-        emitc.call_opaque "abs_tile"(%0) : (!emitc.size_t) -> ()
-        emitc.call_opaque "tile_regs_commit"() : () -> ()
-        emitc.call_opaque "tile_regs_wait"() : () -> ()
-        emitc.call_opaque "pack_tile"(%0, %3, %0) {template_args = [true]} : (!emitc.size_t, !emitc.opaque<"::tt::CB">, !emitc.size_t) -> ()
-        emitc.call_opaque "tile_regs_release"() : () -> ()
-        emitc.call_opaque "cb_pop_front"(%2, %1) : (!emitc.opaque<"::tt::CB">, i32) -> ()
-        emitc.call_opaque "cb_push_back"(%3, %1) : (!emitc.opaque<"::tt::CB">, i32) -> ()
         return
     }
 
