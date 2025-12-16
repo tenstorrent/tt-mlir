@@ -204,7 +204,8 @@ public:
       fullToShardResults.push_back(meshShardOp.getResult());
     }
 
-    // Add mesh_shard (ShardToFullShape) for outputs.
+    // Add mesh_shard (ShardToFullShape) for outputs that need to be gathered.
+    // Outputs with non-replicated sharding should remain sharded.
     rewriter.setInsertionPointAfter(srcOp);
     llvm::SmallVector<mlir::Value> shardToFullResults;
     mlir::Operation *sdyReturn = mlir::sdy::getBodyTerminator(srcOp);
@@ -212,6 +213,13 @@ public:
              sdyReturn->getOpOperands(), srcOp.getOutShardings().getShardings(),
              srcOp.getResults()))) {
       auto [returnOperand, outSharding, opResult] = args;
+
+      // Check if the output should remain sharded (non-replicated output).
+      // If the output sharding has axes (not fully replicated), the tensor
+      // should stay sharded - use Identity type to preserve sharding without
+      // gathering.
+      bool outputShouldRemainSharded =
+          !shardy_utils::isFullyReplicatedTensor(outSharding);
 
       // Once extracted, we can generate the ShardyMeshSharding object.
       llvm::Expected<mlir::tt::shardy_utils::ShardyMeshSharding>
@@ -225,12 +233,17 @@ public:
             srcOp, "Error trying to parse shardy annotation.");
       }
 
+      // For outputs that should remain sharded, override shard type to Identity
+      // to preserve the sharded tensor without gathering.
+      mlir::tt::ttcore::MeshShardType shardType =
+          outputShouldRemainSharded ? mlir::tt::ttcore::MeshShardType::Identity
+                                    : shardyMeshSharding->getShardType();
+
       // Create a new mesh shard op.
       auto outputType = mlir::cast<mlir::RankedTensorType>(
           getTypeConverter()->convertType(opResult.getType()));
       auto meshShardOp = rewriter.create<mlir::tt::ttir::MeshShardOp>(
-          loc, outputType, returnOperand.get(),
-          shardyMeshSharding->getShardType(),
+          loc, outputType, returnOperand.get(), shardType,
           shardyMeshSharding->getShardDirection(),
           shardyMeshSharding->getShardShape(),
           shardyMeshSharding->getShardDims());
