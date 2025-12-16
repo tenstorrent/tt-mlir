@@ -2116,7 +2116,6 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(embeddingOp.getInput()),
         emitter.emit(embeddingOp.getWeight()),
-        emitter.emit(std::nullopt, "padding_idx"),
         emitter.emit(layoutAttr, "layout"),
     };
 
