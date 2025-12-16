@@ -495,12 +495,8 @@ struct ArrayAttrToFlatbufferSerializer<IntegerAttr, ValueType> {
   impl(FlatbufferObjectCache &cache, const ::mlir::ArrayAttr &arrayAttr) {
     return cache.fbb->CreateVector<ValueType>(
         arrayAttr.size(), [&arrayAttr](size_t i) {
-          auto intAttr = mlir::cast<IntegerAttr>(arrayAttr[i]);
-          // Use getUInt() for unsigned integers, getInt() for signed integers
-          if (intAttr.getType().isUnsignedInteger()) {
-            return static_cast<ValueType>(intAttr.getUInt());
-          }
-          return static_cast<ValueType>(intAttr.getInt());
+          return static_cast<ValueType>(
+              mlir::cast<IntegerAttr>(arrayAttr[i]).getInt());
         });
   }
 };
