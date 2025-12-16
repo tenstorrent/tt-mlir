@@ -3267,11 +3267,6 @@ void mlir::tt::ttnn::PermuteOp::getCanonicalizationPatterns(
     auto inputType = op.getInput().getType();
     auto resultType = op.getResult().getType();
 
-    // Reshape cannot change layout/encoding, only the view.
-    if (inputType.getEncoding() != resultType.getEncoding()) {
-      return mlir::failure();
-    }
-
     auto inShape = inputType.getShape();
     auto outShape = resultType.getShape();
     auto permutation = op.getPermutation();
