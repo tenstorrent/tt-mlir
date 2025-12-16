@@ -1056,10 +1056,10 @@ public:
   D2MPermuteRewriter(const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
                      ttcore::MemorySpace defaultInputMemSpace,
                      ttcore::MemorySpace defaultOutputMemSpace, bool ttnnMode,
-                     bool collapseTensors)
+                     bool /*collapseTensors*/)
       : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
         D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
-                               ttnnMode, collapseTensors) {}
+                               ttnnMode, /*collapseTensors*/ false) {}
 
   LogicalResult
   matchAndRewrite(ttir::PermuteOp op, typename ConcreteOp::Adaptor adaptor,
@@ -1121,7 +1121,7 @@ public:
     auto stream =
         rewriter.create<d2m::StreamLayoutOp>(loc, viewType, inputs[0], storage);
     inputs[0] = stream.getResult();
-    auto logicalRank = deviceRank / 2;
+    unsigned logicalRank = deviceRank / 2;
     // For inner permute, we alse need a GenericOp to transpose each individual
     // tile.
     auto generic = rewriter.create<d2m::GenericOp>(

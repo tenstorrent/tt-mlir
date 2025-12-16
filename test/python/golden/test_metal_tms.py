@@ -57,8 +57,6 @@ def test_permute_abs(
             res = builder.abs(res)
             return res
 
-    options = ["collapse-tensors-2d=false"]
-
     compile_and_execute_ttir(
         permute_with_abs_module,
         target=target,
