@@ -89,47 +89,31 @@ public:
     }
 
     // Iterate through all the results of the manual computation op and
-    // determine the shard status of each result.
-    for (auto result : op.getResults()) {
+    // determine the shard status of each result based on outShardings.
+    // If the outSharding has non-trivial sharding (any dimension with sharding
+    // axes), mark it as Presharded so that the output uses Identity type
+    // instead of gathering with ShardToFull.
+    auto outShardings = op.getOutShardings().getShardings();
+    for (auto [result, outSharding] :
+         llvm::zip_equal(op.getResults(), outShardings)) {
       mlir::tt::ttcore::ShardStatus shardStatus =
           mlir::tt::ttcore::ShardStatus::Unsharded; // Default to unsharded.
 
-      // We find all the users of the manual computation op result.
-      // If the result is used in a return op, we can find the shard status
-      // from the result attributes of the return op.
-      for (mlir::Operation *user : result.getUsers()) {
-        if (!mlir::isa<mlir::func::ReturnOp>(user)) {
-          continue;
+      // Check if the outSharding has any dimension with sharding axes.
+      // If so, it's not fully replicated and should be marked as Presharded.
+      bool isFullyReplicated = true;
+      for (auto dimSharding : outSharding.getDimShardings()) {
+        if (!dimSharding.getAxes().empty()) {
+          isFullyReplicated = false;
+          break;
         }
-
-        // Find the operand index in the return
-        mlir::func::ReturnOp returnOp = mlir::cast<mlir::func::ReturnOp>(user);
-        for (auto [i, operand] : llvm::enumerate(returnOp.getOperands())) {
-          // Go up to the parent function
-          auto funcOp = returnOp->getParentOfType<mlir::FunctionOpInterface>();
-          if (!funcOp) {
-            continue;
-          }
-
-          // Get the result attributes for that return index
-          auto resultAttrs = mlir::DictionaryAttr::get(
-              op.getContext(), funcOp.getResultAttrs(i));
-          if (!resultAttrs) {
-            continue;
-          }
-
-          // Look for shard status
-          auto shardStatusAttr =
-              resultAttrs.get(mlir::tt::ttcore::ShardStatusAttr::name);
-          if (shardStatusAttr) {
-            shardStatus =
-                mlir::cast<mlir::tt::ttcore::ShardStatusAttr>(shardStatusAttr)
-                    .getValue();
-          }
-        }
-
-        shardStatusMap[result] = shardStatus;
       }
+
+      if (!isFullyReplicated) {
+        shardStatus = mlir::tt::ttcore::ShardStatus::Presharded;
+      }
+
+      shardStatusMap[result] = shardStatus;
     }
 
     return ManualComputationAnalysisCache(shardStatusMap);
