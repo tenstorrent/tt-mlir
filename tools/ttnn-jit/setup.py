@@ -85,6 +85,21 @@ class CMakeBuild(build_ext):
         """Get system architecture"""
         return os.environ.get("CMAKE_SYSTEM_PROCESSOR", DEFAULT_ARCH)
 
+    @staticmethod
+    def install_jit_libs(build_dir, install_dir, build_env):
+        subprocess.check_call(
+            [
+                "cmake",
+                "--install",
+                str(build_dir),
+                "--component",
+                "TTNNJITWheel",
+                "--prefix",
+                str(install_dir),
+            ],
+            env=build_env,
+        )
+
     def run(self) -> None:
         """Build tt-mlir with TTNN-JIT enabled and copy MLIR libraries into wheel"""
 
@@ -92,9 +107,6 @@ class CMakeBuild(build_ext):
         assert self.tt_metal_home, "TT_METAL_HOME is not set"
         self.dev_build = os.environ.get("TTMLIR_DEV_BUILD", "OFF") == "ON"
         self.python_version = self.get_python_version()
-        # Skip for editable installs (dev workflow)
-        if self.is_editable_install_():
-            raise Exception("Editable install not supported for ttnn-jit")
 
         build_env = CMakeBuild.get_build_env()
         source_dir = CMakeBuild.get_working_dir()
@@ -103,6 +115,13 @@ class CMakeBuild(build_ext):
         build_type = "Release"
         build_dir = source_dir / "build"
         self.install_dir = pathlib.Path(self.build_lib)
+
+        # Skip for editable installs (dev workflow)
+        if self.is_editable_install_():
+            CMakeBuild.install_jit_libs(
+                build_dir, build_dir / "python_packages", build_env
+            )
+            return
 
         if not self.dev_build:
             print("=" * 80)
@@ -142,18 +161,7 @@ class CMakeBuild(build_ext):
                 raise RuntimeError(f"Build directory not found: {build_dir}\n")
             print(f"Using existing build directory: {build_dir}")
 
-        subprocess.check_call(
-            [
-                "cmake",
-                "--install",
-                str(build_dir),
-                "--component",
-                "TTNNJITWheel",
-                "--prefix",
-                str(self.install_dir),
-            ],
-            env=build_env,
-        )
+        CMakeBuild.install_jit_libs(build_dir, self.install_dir, build_env)
 
         if not self.dev_build:
             self.write_build_metadata()
