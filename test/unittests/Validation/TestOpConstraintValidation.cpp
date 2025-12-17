@@ -93,18 +93,18 @@ public:
         mlir::RankedTensorType::get(inputShape, builder.getBF16Type(), layout);
 
     // Create two input tensors using OnesOp (simpler than EmptyOp)
-    auto input1 = builder.create<OnesOp>(
+    auto input1 = OnesOp::create(builder(
         builder.getUnknownLoc(), tensorType,
         /*device=*/nullptr, ShapeAttr::get(&context, inputShape),
         /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr);
 
-    auto input2 = builder.create<OnesOp>(
+    auto input2 = OnesOp::create(builder(
         builder.getUnknownLoc(), tensorType,
         /*device=*/nullptr, ShapeAttr::get(&context, inputShape),
         /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr);
 
     // Create AddOp
-    return builder.create<AddOp>(builder.getUnknownLoc(), tensorType,
+    return AddOp::create(builder(builder.getUnknownLoc(), tensorType,
                                  input1.getResult(), input2.getResult());
   }
 
@@ -172,7 +172,7 @@ TEST_F(OpConstraintValidationTest, UpdateCacheOpWithInvalidUpdateIndexType) {
                                        TensorMemoryLayout::Interleaved);
   auto cacheTensorType = mlir::RankedTensorType::get(
       cacheShape, builder.getBF16Type(), cacheLayout);
-  auto cacheOp = builder.create<OnesOp>(
+  auto cacheOp = OnesOp::create(builder(
       builder.getUnknownLoc(), cacheTensorType,
       /*device=*/nullptr, ShapeAttr::get(&context, cacheShape),
       /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr);
@@ -183,7 +183,7 @@ TEST_F(OpConstraintValidationTest, UpdateCacheOpWithInvalidUpdateIndexType) {
                                        TensorMemoryLayout::Interleaved);
   auto inputTensorType = mlir::RankedTensorType::get(
       inputShape, builder.getBF16Type(), inputLayout);
-  auto inputOp = builder.create<OnesOp>(
+  auto inputOp = OnesOp::create(builder(
       builder.getUnknownLoc(), inputTensorType,
       /*device=*/nullptr, ShapeAttr::get(&context, inputShape),
       /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr);
@@ -195,13 +195,13 @@ TEST_F(OpConstraintValidationTest, UpdateCacheOpWithInvalidUpdateIndexType) {
                                              TensorMemoryLayout::Interleaved);
   auto updateIndexTensorType = mlir::RankedTensorType::get(
       updateIndexShape, builder.getBF16Type(), updateIndexLayout);
-  auto updateIndexOp = builder.create<OnesOp>(
+  auto updateIndexOp = OnesOp::create(builder(
       builder.getUnknownLoc(), updateIndexTensorType,
       /*device=*/nullptr, ShapeAttr::get(&context, updateIndexShape),
       /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr);
 
   // Create UpdateCacheOp (inplace operation, no result type)
-  auto updateCacheOp = builder.create<ttnn::UpdateCacheOp>(
+  auto updateCacheOp = ttnn::UpdateCacheOp::create(builder(
       builder.getUnknownLoc(), cacheOp.getResult(), inputOp.getResult(),
       updateIndexOp.getResult(), /*batch_offset=*/0);
 
@@ -226,13 +226,13 @@ TEST_F(OpConstraintValidationTest, UpdateCacheOpWithInvalidUpdateIndexType) {
       TensorMemoryLayout::Interleaved);
   auto uint32UpdateIndexTensorType = mlir::RankedTensorType::get(
       updateIndexShape, uint32Type, uint32UpdateIndexLayout);
-  auto uint32UpdateIndexOp = builder.create<OnesOp>(
+  auto uint32UpdateIndexOp = OnesOp::create(builder(
       builder.getUnknownLoc(), uint32UpdateIndexTensorType,
       /*device=*/nullptr, ShapeAttr::get(&context, updateIndexShape),
       /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr);
 
   // Create UpdateCacheOp with correct uint32 type
-  auto validUpdateCacheOp = builder.create<ttnn::UpdateCacheOp>(
+  auto validUpdateCacheOp = ttnn::UpdateCacheOp::create(builder(
       builder.getUnknownLoc(), cacheOp.getResult(), inputOp.getResult(),
       uint32UpdateIndexOp.getResult(), /*batch_offset=*/0);
 
@@ -254,17 +254,17 @@ TEST_F(OpConstraintValidationTest, ValidationStatusNotImplemented) {
   auto tensorType =
       mlir::RankedTensorType::get(inputShape, builder.getBF16Type(), layout);
 
-  auto input = builder.create<OnesOp>(
+  auto input = OnesOp::create(builder(
       builder.getUnknownLoc(), tensorType,
       /*device=*/nullptr, ShapeAttr::get(&context, inputShape),
       /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr);
 
-  auto indices = builder.create<OnesOp>(
+  auto indices = OnesOp::create(builder(
       builder.getUnknownLoc(), tensorType,
       /*device=*/nullptr, ShapeAttr::get(&context, inputShape),
       /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr);
 
-  auto scatterOp = builder.create<ScatterOp>(
+  auto scatterOp = ScatterOp::create(builder(
       builder.getUnknownLoc(), tensorType, input.getResult(),
       indices.getResult(), input.getResult(), builder.getI32IntegerAttr(0),
       mlir::tt::ttcore::ReduceTypeAttr::get(
@@ -313,7 +313,7 @@ TEST_F(OpConstraintValidationTest, ValidationStatusMetalBackendError) {
   auto inputTensorType = mlir::RankedTensorType::get(
       tensorShape, builder.getBF16Type(), inputLayout);
 
-  auto input = builder.create<OnesOp>(
+  auto input = OnesOp::create(builder(
       builder.getUnknownLoc(), inputTensorType,
       /*device=*/nullptr, ShapeAttr::get(&context, tensorShape),
       /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr);
@@ -325,7 +325,7 @@ TEST_F(OpConstraintValidationTest, ValidationStatusMetalBackendError) {
       tensorShape, builder.getBF16Type(), outputLayout);
 
   // Create ToLayoutOp with incompatible input/output layouts
-  auto toLayoutOp = builder.create<ToLayoutOp>(
+  auto toLayoutOp = ToLayoutOp::create(builder(
       builder.getUnknownLoc(), outputTensorType, input.getResult(),
       LayoutAttr::get(&context, Layout::RowMajor),
       // ttcore::DataTypeAttr::get(&context, ttcore::DataType::BFloat16),
@@ -361,17 +361,17 @@ TEST_F(OpConstraintValidationTest, ValidationStatusOutOfMemoryError) {
   auto tensorType =
       mlir::RankedTensorType::get(largeShape, builder.getBF16Type(), layout);
 
-  auto input1 = builder.create<OnesOp>(
+  auto input1 = OnesOp::create(builder(
       builder.getUnknownLoc(), tensorType,
       /*device=*/nullptr, ShapeAttr::get(&context, largeShape),
       /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr);
 
-  auto input2 = builder.create<OnesOp>(
+  auto input2 = OnesOp::create(builder(
       builder.getUnknownLoc(), tensorType,
       /*device=*/nullptr, ShapeAttr::get(&context, largeShape),
       /*dtype=*/nullptr, /*layout=*/nullptr, /*memory_config=*/nullptr);
 
-  auto addOp = builder.create<AddOp>(builder.getUnknownLoc(), tensorType,
+  auto addOp = AddOp::create(builder(builder.getUnknownLoc(), tensorType,
                                      input1.getResult(), input2.getResult());
 
   auto layouts = ttnn::utils::extractInputLayouts(addOp);

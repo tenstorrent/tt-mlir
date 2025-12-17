@@ -149,7 +149,8 @@ LinearOpRewritePattern::matchAndRewrite(ttnn::LinearOp srcOp,
 
   // Step 1: Create MatMul operation.
 
-  MatmulOp matmulOp = rewriter.create<ttnn::MatmulOp>(
+  MatmulOp matmulOp = ttnn::MatmulOp::create(
+      rewriter,
       ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_decomp_matmul"),
       matmulOutputType, srcOp.getA(), srcOp.getB(), srcOp.getTransposeA(),
       srcOp.getTransposeB(),
@@ -157,7 +158,8 @@ LinearOpRewritePattern::matchAndRewrite(ttnn::LinearOp srcOp,
       /*activation=*/nullptr);
 
   // Step 2: Create Add operation with bias.
-  AddOp addOp = rewriter.create<ttnn::AddOp>(
+  AddOp addOp = ttnn::AddOp::create(
+      rewriter,
       ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_decomp_add"),
       outputType, matmulOp.getResult(), srcOp.getBias(),
       /*dtype=*/dataTypeAttr,

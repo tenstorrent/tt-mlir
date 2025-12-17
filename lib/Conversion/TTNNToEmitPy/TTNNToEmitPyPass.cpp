@@ -65,10 +65,10 @@ struct ConvertTTNNToEmitPyPass
 
     // Include headers
     //
-    builder.create<emitpy::ImportOp>(module->getLoc(), "ttnn", nullptr, nullptr,
-                                     nullptr, nullptr);
-    builder.create<emitpy::ImportOp>(module->getLoc(), "utils", nullptr,
-                                     nullptr, nullptr, nullptr);
+    emitpy::ImportOp::create(builder, module->getLoc(), "ttnn", nullptr,
+                             nullptr, nullptr, nullptr);
+    emitpy::ImportOp::create(builder, module->getLoc(), "utils", nullptr,
+                             nullptr, nullptr, nullptr);
 
     // TTNN -> EmitPy
     //

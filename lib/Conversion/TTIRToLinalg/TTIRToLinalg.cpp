@@ -51,11 +51,11 @@ static Value convertToBooleanTensor(Value input, Location loc,
   TypedAttr zeroAttr = rewriter.getF32FloatAttr(0.0f);
 
   // Create a constant scalar with the zero value
-  auto zeroValue = rewriter.create<arith::ConstantOp>(loc, zeroAttr);
+  auto zeroValue = arith::ConstantOp::create(rewriter, loc, zeroAttr);
 
   // Create a splat tensor with the zero value
   auto zeroSplat =
-      rewriter.create<tensor::SplatOp>(loc, inputType, zeroValue.getResult());
+      tensor::SplatOp::create(rewriter, loc, inputType, zeroValue.getResult());
 
   // For logical operations, non-zero means true
   // So we need: (input != 0) which we get by computing !(input == 0)
@@ -64,11 +64,11 @@ static Value convertToBooleanTensor(Value input, Location loc,
 
   // Check if input == 0
   auto equalZero =
-      rewriter.create<tosa::EqualOp>(loc, boolType, input, zeroSplat);
+      tosa::EqualOp::create(rewriter, loc, boolType, input, zeroSplat);
 
   // Then use LogicalNotOp to invert it, giving us (input != 0)
   auto notEqualZero =
-      rewriter.create<tosa::LogicalNotOp>(loc, boolType, equalZero);
+      tosa::LogicalNotOp::create(rewriter, loc, boolType, equalZero);
 
   return notEqualZero;
 }
@@ -95,11 +95,11 @@ convertToBooleanTensorComparison(Value input, Location loc,
   TypedAttr zeroAttr = rewriter.getF32FloatAttr(0.0f);
 
   // Create a constant scalar with the zero value
-  auto zeroValue = rewriter.create<arith::ConstantOp>(loc, zeroAttr);
+  auto zeroValue = arith::ConstantOp::create(rewriter, loc, zeroAttr);
 
   // Create a splat tensor with the zero value
   auto zeroSplat =
-      rewriter.create<tensor::SplatOp>(loc, inputType, zeroValue.getResult());
+      tensor::SplatOp::create(rewriter, loc, inputType, zeroValue.getResult());
 
   // For comparison semantics: positive values are true
   // So we need: (input > 0)
@@ -108,7 +108,7 @@ convertToBooleanTensorComparison(Value input, Location loc,
 
   // Check if input > 0
   auto greaterThanZero =
-      rewriter.create<tosa::GreaterOp>(loc, boolType, input, zeroSplat);
+      tosa::GreaterOp::create(rewriter, loc, boolType, input, zeroSplat);
 
   return greaterThanZero;
 }
@@ -123,15 +123,15 @@ createTrueAndFalseSplatConstants(RankedTensorType resultType, Location loc,
   TypedAttr falseAttr = rewriter.getF32FloatAttr(0.0f);
 
   // Create constant scalars with the true/false values
-  auto trueValue = rewriter.create<arith::ConstantOp>(loc, trueAttr);
-  auto falseValue = rewriter.create<arith::ConstantOp>(loc, falseAttr);
+  auto trueValue = arith::ConstantOp::create(rewriter, loc, trueAttr);
+  auto falseValue = arith::ConstantOp::create(rewriter, loc, falseAttr);
 
   // Create splat tensors with the true/false values
   auto trueValueSplat =
-      rewriter.create<tensor::SplatOp>(loc, resultType, trueValue.getResult());
+      tensor::SplatOp::create(rewriter, loc, resultType, trueValue.getResult());
 
-  auto falseValueSplat =
-      rewriter.create<tensor::SplatOp>(loc, resultType, falseValue.getResult());
+  auto falseValueSplat = tensor::SplatOp::create(rewriter, loc, resultType,
+                                                 falseValue.getResult());
 
   return {trueValueSplat, falseValueSplat};
 }
@@ -273,15 +273,16 @@ static Value createReductionOpChain(Value input, RankedTensorType resultType,
     opResultType = RankedTensorType::get(shape, inputType.getElementType());
 
     // Create the reduction operation
-    result = rewriter.create<ReductionOp>(loc, opResultType, result, axisAttr);
+    result = ReductionOp::create(rewriter, loc, opResultType, result, axisAttr);
   }
   if (!keepDim) {
     ArrayRef<int64_t> newShape = resultType.getShape();
     auto shapeType =
         tosa::shapeType::get(rewriter.getContext(), newShape.size());
     auto attr = rewriter.getIndexTensorAttr(newShape);
-    auto shapeOp = rewriter.create<tosa::ConstShapeOp>(loc, shapeType, attr);
-    result = rewriter.create<tosa::ReshapeOp>(loc, resultType, result, shapeOp);
+    auto shapeOp = tosa::ConstShapeOp::create(rewriter, loc, shapeType, attr);
+    result =
+        tosa::ReshapeOp::create(rewriter, loc, resultType, result, shapeOp);
   }
   return result;
 }
@@ -336,7 +337,7 @@ public:
         this->getTypeConverter()->convertType(op.getResult().getType()));
     assert(resultType && "Result type must be a ranked tensor type.");
 
-    auto result = rewriter.create<TosaOpTy>(op.getLoc(), resultType, input);
+    auto result = TosaOpTy::create(rewriter, op.getLoc(), resultType, input);
 
     rewriter.replaceOp(op, result);
     return success();
@@ -361,8 +362,8 @@ public:
         this->getTypeConverter()->convertType(op.getType()));
     assert(resultType && "Result type must be a ranked tensor type.");
 
-    auto result = rewriter.create<TosaOpTy>(op.getLoc(), resultType,
-                                            ValueRange{lhs, rhs});
+    auto result = TosaOpTy::create(rewriter, op.getLoc(), resultType,
+                                   ValueRange{lhs, rhs});
 
     rewriter.replaceOp(op, result);
     return success();
@@ -389,8 +390,8 @@ public:
     condition =
         convertToBooleanTensorComparison(condition, op.getLoc(), rewriter);
 
-    auto result = rewriter.create<tosa::SelectOp>(
-        op.getLoc(), resultType, condition, trueValue, falseValue);
+    auto result = tosa::SelectOp::create(rewriter, op.getLoc(), resultType,
+                                         condition, trueValue, falseValue);
 
     rewriter.replaceOp(op, result);
     return success();
@@ -416,15 +417,16 @@ public:
         tosa::shapeType::get(rewriter.getContext(), newShape.size());
     auto attr = rewriter.getIndexTensorAttr(newShapeValues);
     auto shapeOp =
-        rewriter.create<tosa::ConstShapeOp>(op.getLoc(), shapeType, attr);
+        tosa::ConstShapeOp::create(rewriter, op.getLoc(), shapeType, attr);
 
-    auto reshapeOp = rewriter.create<tosa::ReshapeOp>(
-        op.getLoc(), resultType, adaptor.getInput(), shapeOp);
+    auto reshapeOp = tosa::ReshapeOp::create(rewriter, op.getLoc(), resultType,
+                                             adaptor.getInput(), shapeOp);
 
-    auto output = rewriter.create<tensor::EmptyOp>(
-        op.getLoc(), resultType.getShape(), resultType.getElementType());
-    auto copyOp = rewriter.create<linalg::CopyOp>(
-        op.getLoc(), ValueRange{reshapeOp}, output.getResult());
+    auto output =
+        tensor::EmptyOp::create(rewriter, op.getLoc(), resultType.getShape(),
+                                resultType.getElementType());
+    auto copyOp = linalg::CopyOp::create(
+        rewriter, op.getLoc(), ValueRange{reshapeOp}, output.getResult());
     rewriter.replaceOp(op, copyOp.getResult(0));
 
     return success();
@@ -463,8 +465,8 @@ public:
     permutation[dim0] = static_cast<int32_t>(dim1);
 
     // Create TransposeOp directly with the permutation array
-    auto result = rewriter.create<tosa::TransposeOp>(op.getLoc(), resultType,
-                                                     input, permutation);
+    auto result = tosa::TransposeOp::create(rewriter, op.getLoc(), resultType,
+                                            input, permutation);
 
     rewriter.replaceOp(op, result);
     return success();
@@ -494,15 +496,15 @@ public:
     }
 
     // Start with the first two inputs.
-    Value result = rewriter.create<tosa::ConcatOp>(
-        op.getLoc(),
+    Value result = tosa::ConcatOp::create(
+        rewriter, op.getLoc(),
         RankedTensorType::get(resultType.getShape().take_front(inputs.size()),
                               resultType.getElementType()),
         ValueRange{inputs[0], inputs[1]}, dim);
     // Add remaining inputs one by one.
     for (size_t i = 2; i < inputs.size(); ++i) {
-      result = rewriter.create<tosa::ConcatOp>(
-          op.getLoc(),
+      result = tosa::ConcatOp::create(
+          rewriter, op.getLoc(),
           RankedTensorType::get(resultType.getShape().take_front(i + 1),
                                 resultType.getElementType()),
           ValueRange{result, inputs[i]}, dim);
@@ -536,15 +538,16 @@ public:
     auto boolType = RankedTensorType::get(resultType.getShape(),
                                           rewriter.getIntegerType(1));
     auto boolResult =
-        rewriter.create<TosaOpTy>(op.getLoc(), boolType, lhs, rhs);
+        TosaOpTy::create(rewriter, op.getLoc(), boolType, lhs, rhs);
 
     // Create true and false constants for the select operation
     auto [trueValueSplat, falseValueSplat] =
         createTrueAndFalseSplatConstants(resultType, op.getLoc(), rewriter);
 
     // Convert boolean result to original type using select
-    auto result = rewriter.create<tosa::SelectOp>(
-        op.getLoc(), resultType, boolResult, trueValueSplat, falseValueSplat);
+    auto result =
+        tosa::SelectOp::create(rewriter, op.getLoc(), resultType, boolResult,
+                               trueValueSplat, falseValueSplat);
 
     rewriter.replaceOp(op, result);
     return success();
@@ -573,15 +576,16 @@ public:
     auto boolType = RankedTensorType::get(resultType.getShape(),
                                           rewriter.getIntegerType(1));
     auto boolResult =
-        rewriter.create<TosaOpTy>(op.getLoc(), boolType, rhs, lhs);
+        TosaOpTy::create(rewriter, op.getLoc(), boolType, rhs, lhs);
 
     // Create true and false constants for the select operation
     auto [trueValueSplat, falseValueSplat] =
         createTrueAndFalseSplatConstants(resultType, op.getLoc(), rewriter);
 
     // Convert boolean result to original type using select
-    auto result = rewriter.create<tosa::SelectOp>(
-        op.getLoc(), resultType, boolResult, trueValueSplat, falseValueSplat);
+    auto result =
+        tosa::SelectOp::create(rewriter, op.getLoc(), resultType, boolResult,
+                               trueValueSplat, falseValueSplat);
 
     rewriter.replaceOp(op, result);
     return success();
@@ -610,19 +614,20 @@ public:
     auto boolType = RankedTensorType::get(resultType.getShape(),
                                           rewriter.getIntegerType(1));
     auto boolResult =
-        rewriter.create<TosaOpTy>(op.getLoc(), boolType, lhs, rhs);
+        TosaOpTy::create(rewriter, op.getLoc(), boolType, lhs, rhs);
 
     // Negate the boolean result
     auto notResult =
-        rewriter.create<tosa::LogicalNotOp>(op.getLoc(), boolType, boolResult);
+        tosa::LogicalNotOp::create(rewriter, op.getLoc(), boolType, boolResult);
 
     // Create true and false constants for the select operation
     auto [trueValueSplat, falseValueSplat] =
         createTrueAndFalseSplatConstants(resultType, op.getLoc(), rewriter);
 
     // Convert boolean result to original type using select
-    auto result = rewriter.create<tosa::SelectOp>(
-        op.getLoc(), resultType, notResult, trueValueSplat, falseValueSplat);
+    auto result =
+        tosa::SelectOp::create(rewriter, op.getLoc(), resultType, notResult,
+                               trueValueSplat, falseValueSplat);
 
     rewriter.replaceOp(op, result);
     return success();
@@ -655,11 +660,11 @@ public:
         DenseElementsAttr::get(resultType, ArrayRef<float>(0));
 
     auto zerosConst =
-        rewriter.create<tosa::ConstOp>(op.getLoc(), resultType, zerosAttr);
+        tosa::ConstOp::create(rewriter, op.getLoc(), resultType, zerosAttr);
 
     // Add by zeros to implicitly broadcast.
-    auto result = rewriter.create<tosa::AddOp>(op.getLoc(), resultType, input,
-                                               zerosConst);
+    auto result = tosa::AddOp::create(rewriter, op.getLoc(), resultType, input,
+                                      zerosConst);
 
     rewriter.replaceOp(op, result);
     return success();
@@ -681,7 +686,7 @@ public:
         this->getTypeConverter()->convertType(op.getResult().getType()));
     assert(resultType && "Result type must be a ranked tensor type.");
 
-    auto result = rewriter.create<tosa::SinOp>(op.getLoc(), resultType, input);
+    auto result = tosa::SinOp::create(rewriter, op.getLoc(), resultType, input);
 
     rewriter.replaceOp(op, result);
     return success();
@@ -706,22 +711,23 @@ public:
 
     // Create a scalar constant for π/2 using arith.constant
     auto elementType = resultType.getElementType();
-    auto piOver2 = rewriter.create<arith::ConstantOp>(
-        op.getLoc(), elementType, rewriter.getFloatAttr(elementType, M_PI_2));
+    auto piOver2 =
+        arith::ConstantOp::create(rewriter, op.getLoc(), elementType,
+                                  rewriter.getFloatAttr(elementType, M_PI_2));
 
     // Create a tensor with the same shape as input filled with π/2
     auto inputShape = cast<RankedTensorType>(input.getType()).getShape();
-    auto piOver2Tensor = rewriter.create<tensor::SplatOp>(
-        op.getLoc(), RankedTensorType::get(inputShape, elementType),
+    auto piOver2Tensor = tensor::SplatOp::create(
+        rewriter, op.getLoc(), RankedTensorType::get(inputShape, elementType),
         piOver2.getResult());
 
     // Add π/2 to the input
-    auto shifted = rewriter.create<tosa::AddOp>(op.getLoc(), resultType, input,
-                                                piOver2Tensor);
+    auto shifted = tosa::AddOp::create(rewriter, op.getLoc(), resultType, input,
+                                       piOver2Tensor);
 
     // Take the sin of the shifted input
     auto result =
-        rewriter.create<tosa::SinOp>(op.getLoc(), resultType, shifted);
+        tosa::SinOp::create(rewriter, op.getLoc(), resultType, shifted);
 
     rewriter.replaceOp(op, result);
     return success();
@@ -778,8 +784,8 @@ public:
         permutation.push_back(static_cast<int32_t>(lhsShape.size() - 2));
 
         // Create transpose op
-        lhs = rewriter.create<tosa::TransposeOp>(op.getLoc(), transposedType,
-                                                 lhs, permutation);
+        lhs = tosa::TransposeOp::create(rewriter, op.getLoc(), transposedType,
+                                        lhs, permutation);
         lhsType = transposedType;
       }
     }
@@ -808,8 +814,8 @@ public:
         permutation.push_back(static_cast<int32_t>(rhsShape.size() - 2));
 
         // Create transpose op
-        rhs = rewriter.create<tosa::TransposeOp>(op.getLoc(), transposedType,
-                                                 rhs, permutation);
+        rhs = tosa::TransposeOp::create(rewriter, op.getLoc(), transposedType,
+                                        rhs, permutation);
         rhsType = transposedType;
       }
     }
@@ -836,11 +842,11 @@ public:
                                           lhsType.getDimSize(1)};
       auto attr = rewriter.getIndexTensorAttr(shapeValues);
       auto shapeOp =
-          rewriter.create<tosa::ConstShapeOp>(op.getLoc(), shapeType, attr);
+          tosa::ConstShapeOp::create(rewriter, op.getLoc(), shapeType, attr);
 
       // Reshape LHS to 3D
-      lhs3D = rewriter.create<tosa::ReshapeOp>(op.getLoc(), newType, lhs,
-                                               shapeOp.getResult());
+      lhs3D = tosa::ReshapeOp::create(rewriter, op.getLoc(), newType, lhs,
+                                      shapeOp.getResult());
       lhs3DType = newType;
     } else if (lhsRank > 3) {
       // For tensors with rank > 3, collapse all but the last two dimensions
@@ -861,11 +867,11 @@ public:
                                           lhsType.getShape()[lhsRank - 1]};
       auto attr = rewriter.getIndexTensorAttr(shapeValues);
       auto shapeOp =
-          rewriter.create<tosa::ConstShapeOp>(op.getLoc(), shapeType, attr);
+          tosa::ConstShapeOp::create(rewriter, op.getLoc(), shapeType, attr);
 
       // Reshape LHS to 3D
-      lhs3D = rewriter.create<tosa::ReshapeOp>(op.getLoc(), newType, lhs,
-                                               shapeOp.getResult());
+      lhs3D = tosa::ReshapeOp::create(rewriter, op.getLoc(), newType, lhs,
+                                      shapeOp.getResult());
       lhs3DType = newType;
     }
 
@@ -881,11 +887,11 @@ public:
                                           rhsType.getDimSize(1)};
       auto attr = rewriter.getIndexTensorAttr(shapeValues);
       auto shapeOp =
-          rewriter.create<tosa::ConstShapeOp>(op.getLoc(), shapeType, attr);
+          tosa::ConstShapeOp::create(rewriter, op.getLoc(), shapeType, attr);
 
       // Reshape RHS to 3D
-      rhs3D = rewriter.create<tosa::ReshapeOp>(op.getLoc(), newType, rhs,
-                                               shapeOp.getResult());
+      rhs3D = tosa::ReshapeOp::create(rewriter, op.getLoc(), newType, rhs,
+                                      shapeOp.getResult());
       rhs3DType = newType;
     } else if (rhsRank > 3) {
       // For tensors with rank > 3, collapse all but the last two dimensions
@@ -906,11 +912,11 @@ public:
                                           rhsType.getShape()[rhsRank - 1]};
       auto attr = rewriter.getIndexTensorAttr(shapeValues);
       auto shapeOp =
-          rewriter.create<tosa::ConstShapeOp>(op.getLoc(), shapeType, attr);
+          tosa::ConstShapeOp::create(rewriter, op.getLoc(), shapeType, attr);
 
       // Reshape RHS to 3D
-      rhs3D = rewriter.create<tosa::ReshapeOp>(op.getLoc(), newType, rhs,
-                                               shapeOp.getResult());
+      rhs3D = tosa::ReshapeOp::create(rewriter, op.getLoc(), newType, rhs,
+                                      shapeOp.getResult());
       rhs3DType = newType;
     }
 
@@ -930,11 +936,11 @@ public:
         auto multiplesType = RankedTensorType::get({3}, rewriter.getI64Type());
         auto multiplesAttr =
             DenseIntElementsAttr::get(multiplesType, multiples);
-        auto multiplesOp = rewriter.create<tosa::ConstOp>(
-            op.getLoc(), multiplesType, multiplesAttr);
+        auto multiplesOp = tosa::ConstOp::create(rewriter, op.getLoc(),
+                                                 multiplesType, multiplesAttr);
 
-        lhs3D = rewriter.create<tosa::TileOp>(op.getLoc(), newType, lhs3D,
-                                              multiplesOp);
+        lhs3D = tosa::TileOp::create(rewriter, op.getLoc(), newType, lhs3D,
+                                     multiplesOp);
         lhs3DType = cast<RankedTensorType>(lhs3D.getType());
       } else if (rhs3DType.getShape()[0] == 1 && lhs3DType.getShape()[0] > 1) {
         // Use TOSA tile operation for broadcasting
@@ -948,11 +954,11 @@ public:
         auto multiplesType = RankedTensorType::get({3}, rewriter.getI64Type());
         auto multiplesAttr =
             DenseIntElementsAttr::get(multiplesType, multiples);
-        auto multiplesOp = rewriter.create<tosa::ConstOp>(
-            op.getLoc(), multiplesType, multiplesAttr);
+        auto multiplesOp = tosa::ConstOp::create(rewriter, op.getLoc(),
+                                                 multiplesType, multiplesAttr);
 
-        rhs3D = rewriter.create<tosa::TileOp>(op.getLoc(), newType, rhs3D,
-                                              multiplesOp);
+        rhs3D = tosa::TileOp::create(rewriter, op.getLoc(), newType, rhs3D,
+                                     multiplesOp);
         rhs3DType = cast<RankedTensorType>(rhs3D.getType());
       }
     }
@@ -964,8 +970,8 @@ public:
                               resultType.getElementType());
 
     // Perform matrix multiplication using tosa.matmul
-    Value matmulResult = rewriter.create<tosa::MatMulOp>(
-        op.getLoc(), matmulResultType, lhs3D, rhs3D);
+    Value matmulResult = tosa::MatMulOp::create(rewriter, op.getLoc(),
+                                                matmulResultType, lhs3D, rhs3D);
 
     // Reshape result back to original rank if needed
     if (resultType.getRank() != matmulResultType.getRank()) {
@@ -978,17 +984,18 @@ public:
       }
       auto attr = rewriter.getIndexTensorAttr(shapeValues);
       auto shapeOp =
-          rewriter.create<tosa::ConstShapeOp>(op.getLoc(), shapeType, attr);
+          tosa::ConstShapeOp::create(rewriter, op.getLoc(), shapeType, attr);
 
       // Reshape result
-      matmulResult = rewriter.create<tosa::ReshapeOp>(
-          op.getLoc(), resultType, matmulResult, shapeOp.getResult());
+      matmulResult = tosa::ReshapeOp::create(rewriter, op.getLoc(), resultType,
+                                             matmulResult, shapeOp.getResult());
     }
 
-    Value dest = rewriter.create<ttir::EmptyOp>(
-        op.getLoc(), op.getType().getShape(), op.getType().getElementType());
+    Value dest =
+        ttir::EmptyOp::create(rewriter, op.getLoc(), op.getType().getShape(),
+                              op.getType().getElementType());
     auto copyOp =
-        rewriter.create<linalg::CopyOp>(op.getLoc(), matmulResult, dest);
+        linalg::CopyOp::create(rewriter, op.getLoc(), matmulResult, dest);
     rewriter.replaceOp(op, copyOp.getResult(0));
     return success();
   }
@@ -1026,8 +1033,8 @@ public:
     auto transposedWeightType =
         RankedTensorType::get(transposedShape, weightType.getElementType());
 
-    auto transposedWeight = rewriter.create<tosa::TransposeOp>(
-        op.getLoc(), transposedWeightType, weight, permutation);
+    auto transposedWeight = tosa::TransposeOp::create(
+        rewriter, op.getLoc(), transposedWeightType, weight, permutation);
 
     // Reshape bias from 4D (1,1,1,B) to 1D (B) for TOSA.
     // If bias is not provided, create a zero bias tensor.
@@ -1043,13 +1050,13 @@ public:
           RankedTensorType::get(reshapedBiasShape, biasType.getElementType());
       auto shapeType = tosa::shapeType::get(rewriter.getContext(), 1);
       auto shapeAttr = rewriter.getIndexTensorAttr(reshapedBiasShape);
-      auto shapeOp = rewriter.create<tosa::ConstShapeOp>(op.getLoc(), shapeType,
-                                                         shapeAttr);
+      auto shapeOp = tosa::ConstShapeOp::create(rewriter, op.getLoc(),
+                                                shapeType, shapeAttr);
 
-      reshapedBias = rewriter
-                         .create<tosa::ReshapeOp>(op.getLoc(), reshapedBiasType,
-                                                  bias, shapeOp.getResult())
-                         .getResult();
+      reshapedBias =
+          tosa::ReshapeOp::create(rewriter, op.getLoc(), reshapedBiasType, bias,
+                                  shapeOp.getResult())
+              .getResult();
     } else {
       int64_t outputChannels = weightShape[0];
       auto biasElementType =
@@ -1069,8 +1076,8 @@ public:
       } else {
         return rewriter.notifyMatchFailure(op, "Unsupported bias element type");
       }
-      reshapedBias = rewriter.create<tosa::ConstOp>(
-          op.getLoc(), biasType, cast<DenseElementsAttr>(zeroAttr));
+      reshapedBias = tosa::ConstOp::create(rewriter, op.getLoc(), biasType,
+                                           cast<DenseElementsAttr>(zeroAttr));
     }
     // Expand stride if it contains only one element.
     auto stridesResult = ttmlir::utils::getPairOfInteger<int32_t>(strides);
@@ -1161,10 +1168,10 @@ public:
     auto actualResultType =
         RankedTensorType::get(resultShape, resultType.getElementType());
 
-    auto conv2dOp = rewriter.create<tosa::Conv2DOp>(
-        op.getLoc(), actualResultType, input, transposedWeight.getResult(),
-        reshapedBias, expandedPaddingAttr, expandedStridesAttr,
-        expandedDilationsAttr, TypeAttr::get(accType));
+    auto conv2dOp = tosa::Conv2DOp::create(
+        rewriter, op.getLoc(), actualResultType, input,
+        transposedWeight.getResult(), reshapedBias, expandedPaddingAttr,
+        expandedStridesAttr, expandedDilationsAttr, TypeAttr::get(accType));
 
     Value result = conv2dOp.getResult();
 
@@ -1178,15 +1185,16 @@ public:
         sizes.push_back(rewriter.getI64IntegerAttr(resultType.getShape()[i]));
         strides.push_back(rewriter.getI64IntegerAttr(1));
       }
-      result = rewriter.create<tensor::ExtractSliceOp>(
-          op.getLoc(), resultType, result, offsets, sizes, strides);
+      result = tensor::ExtractSliceOp::create(rewriter, op.getLoc(), resultType,
+                                              result, offsets, sizes, strides);
 
       // Since tensor::ExtractSliceOp doesn't support DPS, we need to copy
       // the result into the output buffer
-      Value dest = rewriter.create<ttir::EmptyOp>(
-          op.getLoc(), op.getType().getShape(), op.getType().getElementType());
+      Value dest =
+          ttir::EmptyOp::create(rewriter, op.getLoc(), op.getType().getShape(),
+                                op.getType().getElementType());
       auto copyResult =
-          rewriter.create<linalg::CopyOp>(op.getLoc(), result, dest);
+          linalg::CopyOp::create(rewriter, op.getLoc(), result, dest);
       rewriter.replaceOp(op, copyResult);
 
       return success();
@@ -1298,8 +1306,8 @@ public:
         RankedTensorType::get(resultShape, resultType.getElementType());
 
     // Create the max pool op.
-    auto maxPoolOp = rewriter.create<tosa::MaxPool2dOp>(
-        op.getLoc(), actualResultType, input, expandedKernelAttr,
+    auto maxPoolOp = tosa::MaxPool2dOp::create(
+        rewriter, op.getLoc(), actualResultType, input, expandedKernelAttr,
         expandedStridesAttr, expandedPaddingAttr);
 
     Value result = maxPoolOp.getResult();
@@ -1312,15 +1320,16 @@ public:
         sizes.push_back(rewriter.getI64IntegerAttr(resultType.getShape()[i]));
         strides.push_back(rewriter.getI64IntegerAttr(1));
       }
-      result = rewriter.create<tensor::ExtractSliceOp>(
-          op.getLoc(), resultType, result, offsets, sizes, strides);
+      result = tensor::ExtractSliceOp::create(rewriter, op.getLoc(), resultType,
+                                              result, offsets, sizes, strides);
 
       // Since tensor::ExtractSliceOp doesn't support DPS, we need to copy
       // the result into the output buffer
-      Value output = rewriter.create<ttir::EmptyOp>(
-          op.getLoc(), op.getType().getShape(), op.getType().getElementType());
+      Value output =
+          ttir::EmptyOp::create(rewriter, op.getLoc(), op.getType().getShape(),
+                                op.getType().getElementType());
       auto copyResult =
-          rewriter.create<linalg::CopyOp>(op.getLoc(), result, output);
+          linalg::CopyOp::create(rewriter, op.getLoc(), result, output);
       rewriter.replaceOp(op, copyResult);
 
       return success();
@@ -1361,8 +1370,8 @@ private:
     auto indexVectorDim = op.getIndexVectorDim();
 
     // Create initial tensor for result
-    Value initTensor = rewriter.create<tensor::EmptyOp>(
-        loc, resultType.getShape(), resultType.getElementType());
+    Value initTensor = tensor::EmptyOp::create(
+        rewriter, loc, resultType.getShape(), resultType.getElementType());
 
     // Build indexing maps for the generic op
     auto resultRank = resultType.getRank();
@@ -1381,15 +1390,16 @@ private:
         resultRank, utils::IteratorType::parallel);
 
     // Create the indexing logic using linalg.generic
-    auto genericOp = rewriter.create<linalg::GenericOp>(
-        loc, resultType, ValueRange{}, ValueRange{initTensor}, indexingMaps,
-        iteratorTypes, [&](OpBuilder &b, Location loc, ValueRange args) {
+    auto genericOp = linalg::GenericOp::create(
+        rewriter, loc, resultType, ValueRange{}, ValueRange{initTensor},
+        indexingMaps, iteratorTypes,
+        [&](OpBuilder &b, Location loc, ValueRange args) {
           // args[0] is the current value in the output tensor
 
           // Get the current output indices
           SmallVector<Value> outputIndices;
           for (int i = 0; i < resultRank; ++i) {
-            outputIndices.push_back(b.create<linalg::IndexOp>(loc, i));
+            outputIndices.push_back(linalg::IndexOp::create(b, loc, i));
           }
 
           // Build the input indices for the gather
@@ -1397,7 +1407,7 @@ private:
 
           // Initialize all indices to zero first to avoid null values
           for (int64_t i = 0; i < inputType.getRank(); ++i) {
-            inputIndices[i] = b.create<arith::ConstantIndexOp>(loc, 0);
+            inputIndices[i] = arith::ConstantIndexOp::create(b, loc, 0);
           }
 
           // Determine which output dimensions are batch dimensions
@@ -1433,7 +1443,7 @@ private:
                 if (d == indexVectorDim) {
                   // This is the index vector dimension
                   fullIndices.push_back(
-                      b.create<arith::ConstantIndexOp>(loc, i));
+                      arith::ConstantIndexOp::create(b, loc, i));
                 } else {
                   // This is a batch dimension
                   if (static_cast<size_t>(batchIdx) < batchDims.size()) {
@@ -1446,24 +1456,25 @@ private:
 
             // Extract the index value
             Value idxValue =
-                b.create<tensor::ExtractOp>(loc, startIndices, fullIndices);
+                tensor::ExtractOp::create(b, loc, startIndices, fullIndices);
 
             // Convert to index type if needed
             Value idx;
             if (idxValue.getType().isF32()) {
               // First convert f32 to i32
               Value i32Val =
-                  b.create<arith::FPToSIOp>(loc, b.getI32Type(), idxValue);
+                  arith::FPToSIOp::create(b, loc, b.getI32Type(), idxValue);
               // Then convert i32 to index
-              idx = b.create<arith::IndexCastOp>(loc, b.getIndexType(), i32Val);
+              idx =
+                  arith::IndexCastOp::create(b, loc, b.getIndexType(), i32Val);
             } else if (idxValue.getType().isInteger(32)) {
               // Direct cast from i32 to index
-              idx =
-                  b.create<arith::IndexCastOp>(loc, b.getIndexType(), idxValue);
+              idx = arith::IndexCastOp::create(b, loc, b.getIndexType(),
+                                               idxValue);
             } else if (idxValue.getType().isInteger(64)) {
               // Direct cast from i64 to index
-              idx =
-                  b.create<arith::IndexCastOp>(loc, b.getIndexType(), idxValue);
+              idx = arith::IndexCastOp::create(b, loc, b.getIndexType(),
+                                               idxValue);
             } else {
               // Already index type
               idx = idxValue;
@@ -1500,9 +1511,9 @@ private:
 
           // Extract the value from input tensor
           Value extracted =
-              b.create<tensor::ExtractOp>(loc, input, inputIndices);
+              tensor::ExtractOp::create(b, loc, input, inputIndices);
 
-          b.create<linalg::YieldOp>(loc, extracted);
+          linalg::YieldOp::create(b, loc, extracted);
         });
 
     rewriter.replaceOp(op, genericOp.getResult(0));
@@ -1535,15 +1546,16 @@ public:
 
     // Apply logical not to the boolean tensor
     auto notResult =
-        rewriter.create<tosa::LogicalNotOp>(op.getLoc(), boolType, boolInput);
+        tosa::LogicalNotOp::create(rewriter, op.getLoc(), boolType, boolInput);
 
     // Create true and false constants for the select operation
     auto [trueValueSplat, falseValueSplat] =
         createTrueAndFalseSplatConstants(resultType, op.getLoc(), rewriter);
 
     // Convert boolean result back to original type using select
-    auto result = rewriter.create<tosa::SelectOp>(
-        op.getLoc(), resultType, notResult, trueValueSplat, falseValueSplat);
+    auto result =
+        tosa::SelectOp::create(rewriter, op.getLoc(), resultType, notResult,
+                               trueValueSplat, falseValueSplat);
 
     rewriter.replaceOp(op, result);
     return success();
@@ -1708,13 +1720,15 @@ public:
         // size 1 we want to broadcast along.
         if (collapseDimGroups.size() !=
             inputRankedTensorType.getShape().size()) {
-          broadcastInput = rewriter.create<tensor::CollapseShapeOp>(
-              loc, input, collapseDimGroups);
+          broadcastInput = tensor::CollapseShapeOp::create(rewriter, loc, input,
+                                                           collapseDimGroups);
         }
-        auto initTensor = rewriter.create<ttir::EmptyOp>(
-            loc, broadcastedShape, inputRankedTensorType.getElementType());
-        auto broadcastOp = rewriter.create<linalg::BroadcastOp>(
-            loc, broadcastInput, initTensor.getResult(), broadcastDims);
+        auto initTensor =
+            ttir::EmptyOp::create(rewriter, loc, broadcastedShape,
+                                  inputRankedTensorType.getElementType());
+        auto broadcastOp =
+            linalg::BroadcastOp::create(rewriter, loc, broadcastInput,
+                                        initTensor.getResult(), broadcastDims);
         broadcastedInputs.push_back(broadcastOp.getResults().front());
       } else {
         broadcastedInputs.push_back(input);
@@ -1726,8 +1740,9 @@ public:
     auto resultType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getType()));
 
-    auto output = rewriter.create<tensor::EmptyOp>(
-        op.getLoc(), resultType.getShape(), resultType.getElementType());
+    auto output =
+        tensor::EmptyOp::create(rewriter, op.getLoc(), resultType.getShape(),
+                                resultType.getElementType());
     rewriter.replaceOpWithNewOp<LinalgOpTy>(op, resultType, broadcastedInputs,
                                             output.getResult());
     return success();
@@ -1752,8 +1767,8 @@ public:
         this->getTypeConverter()->convertType(op.getType()));
 
     auto inputs = adaptor.getOperands();
-    auto output = rewriter.create<tensor::EmptyOp>(loc, resultType.getShape(),
-                                                   resultType.getElementType());
+    auto output = tensor::EmptyOp::create(rewriter, loc, resultType.getShape(),
+                                          resultType.getElementType());
     rewriter.replaceOpWithNewOp<LinAlgOpTy>(op, resultType, inputs,
                                             output.getResult());
     return success();
@@ -1779,8 +1794,9 @@ public:
                                   ? op.getDimension() + inputSize
                                   : op.getDimension();
 
-    auto output = rewriter.create<tensor::EmptyOp>(
-        op.getLoc(), resultType.getShape(), resultType.getElementType());
+    auto output =
+        tensor::EmptyOp::create(rewriter, op.getLoc(), resultType.getShape(),
+                                resultType.getElementType());
     rewriter.replaceOpWithNewOp<linalg::SoftmaxOp>(
         op, this->getTypeConverter()->convertType(op.getType()), input,
         output.getResult(), dimension);
@@ -1812,10 +1828,11 @@ public:
     }
 
     auto zeroes =
-        rewriter.create<arith::ConstantOp>(op.getLoc(), resultType, zeroAttr);
+        arith::ConstantOp::create(rewriter, op.getLoc(), resultType, zeroAttr);
 
-    auto output = rewriter.create<tensor::EmptyOp>(
-        op.getLoc(), resultType.getShape(), resultType.getElementType());
+    auto output =
+        tensor::EmptyOp::create(rewriter, op.getLoc(), resultType.getShape(),
+                                resultType.getElementType());
     rewriter.replaceOpWithNewOp<linalg::MaxOp>(
         op, resultType, ValueRange{input, zeroes.getResult()},
         ValueRange{output});
@@ -1854,8 +1871,9 @@ public:
     Value input = adaptor.getInput();
     llvm::ArrayRef<int64_t> permutation = op.getPermutation();
 
-    auto output = rewriter.create<tensor::EmptyOp>(
-        op.getLoc(), resultType.getShape(), resultType.getElementType());
+    auto output =
+        tensor::EmptyOp::create(rewriter, op.getLoc(), resultType.getShape(),
+                                resultType.getElementType());
     rewriter.replaceOpWithNewOp<linalg::TransposeOp>(
         op, input, output.getResult(), permutation);
 
@@ -1909,15 +1927,16 @@ public:
     assert(resultType && "Result type must be a ranked tensor type.");
 
     // Create the extract_slice operation
-    Value extractedSlice = rewriter.create<tensor::ExtractSliceOp>(
-        op.getLoc(), resultType, input, offsets, sizes, strides);
+    Value extractedSlice = tensor::ExtractSliceOp::create(
+        rewriter, op.getLoc(), resultType, input, offsets, sizes, strides);
 
     // Since tensor::ExtractSliceOp doesn't support DPS, we need to copy
     // the result into the output buffer
-    auto output = rewriter.create<tensor::EmptyOp>(
-        op.getLoc(), resultType.getShape(), resultType.getElementType());
-    auto copyResult = rewriter.create<linalg::CopyOp>(
-        op.getLoc(), extractedSlice, output.getResult());
+    auto output =
+        tensor::EmptyOp::create(rewriter, op.getLoc(), resultType.getShape(),
+                                resultType.getElementType());
+    auto copyResult = linalg::CopyOp::create(
+        rewriter, op.getLoc(), extractedSlice, output.getResult());
     rewriter.replaceOp(op, copyResult);
 
     return success();
@@ -1962,7 +1981,7 @@ public:
 
       // Convert the input tensor to integer type
       input =
-          rewriter.create<arith::FPToSIOp>(op.getLoc(), newInputType, input);
+          arith::FPToSIOp::create(rewriter, op.getLoc(), newInputType, input);
 
       // Update inputType to reflect the new type
       inputType = dyn_cast<RankedTensorType>(input.getType());
@@ -1982,14 +2001,14 @@ public:
           RankedTensorType::get(newShape, inputType.getElementType());
 
       // Create a reshape operation to add the dimension
-      input = rewriter.create<tensor::ExpandShapeOp>(
-          op.getLoc(), reshapedType, input,
+      input = tensor::ExpandShapeOp::create(
+          rewriter, op.getLoc(), reshapedType, input,
           ArrayRef<ReassociationIndices>{{0, 1}});
     }
 
     // Create the tensor.gather operation
-    auto result = rewriter.create<tensor::GatherOp>(op.getLoc(), resultType,
-                                                    weight, input, dimsAttr);
+    auto result = tensor::GatherOp::create(rewriter, op.getLoc(), resultType,
+                                           weight, input, dimsAttr);
 
     rewriter.replaceOp(op, result);
     return success();
@@ -2014,7 +2033,7 @@ public:
     assert(resultType && "Result type must be a ranked tensor type.");
 
     auto newConstant =
-        rewriter.create<arith::ConstantOp>(op.getLoc(), resultType, value);
+        arith::ConstantOp::create(rewriter, op.getLoc(), resultType, value);
 
     rewriter.replaceOp(op, newConstant.getResult());
     return success();
@@ -2044,7 +2063,7 @@ public:
     }
 
     auto constOp =
-        rewriter.create<arith::ConstantOp>(op.getLoc(), resultType, fillAttr);
+        arith::ConstantOp::create(rewriter, op.getLoc(), resultType, fillAttr);
 
     rewriter.replaceOp(op, constOp.getResult());
     return success();
@@ -2133,13 +2152,15 @@ public:
     }
 
     auto divisor =
-        rewriter.create<tosa::ConstOp>(op.getLoc(), resultType, divisorAttr);
+        tosa::ConstOp::create(rewriter, op.getLoc(), resultType, divisorAttr);
 
-    auto output = rewriter.create<tensor::EmptyOp>(
-        op.getLoc(), resultType.getShape(), resultType.getElementType());
+    auto output =
+        tensor::EmptyOp::create(rewriter, op.getLoc(), resultType.getShape(),
+                                resultType.getElementType());
 
-    auto divOp = rewriter.create<linalg::DivOp>(
-        op.getLoc(), resultType, ValueRange{sum, divisor}, output.getResult());
+    auto divOp =
+        linalg::DivOp::create(rewriter, op.getLoc(), resultType,
+                              ValueRange{sum, divisor}, output.getResult());
 
     rewriter.replaceOp(op, divOp.getResult(0));
     return success();
@@ -2179,16 +2200,17 @@ public:
         tosa::shapeType::get(rewriter.getContext(), newShape.size());
     auto attr = rewriter.getIndexTensorAttr(newShape);
     auto shapeOp =
-        rewriter.create<tosa::ConstShapeOp>(op.getLoc(), shapeType, attr);
+        tosa::ConstShapeOp::create(rewriter, op.getLoc(), shapeType, attr);
 
-    auto reshapeOp = rewriter.create<tosa::ReshapeOp>(op.getLoc(), resultType,
-                                                      input, shapeOp);
+    auto reshapeOp = tosa::ReshapeOp::create(rewriter, op.getLoc(), resultType,
+                                             input, shapeOp);
 
     // Handle DPS semantics - directly copy to output.
-    ttir::EmptyOp output = rewriter.create<ttir::EmptyOp>(
-        op.getLoc(), resultType.getShape(), resultType.getElementType());
-    auto copyOp = rewriter.create<linalg::CopyOp>(
-        op.getLoc(), ValueRange{reshapeOp}, ValueRange{output});
+    ttir::EmptyOp output =
+        ttir::EmptyOp::create(rewriter, op.getLoc(), resultType.getShape(),
+                              resultType.getElementType());
+    auto copyOp = linalg::CopyOp::create(
+        rewriter, op.getLoc(), ValueRange{reshapeOp}, ValueRange{output});
     rewriter.replaceOp(op, copyOp.getResult(0));
 
     return success();

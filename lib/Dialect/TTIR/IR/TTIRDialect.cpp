@@ -122,7 +122,7 @@ void TTIRDialect::initialize() {
                                                     Attribute value, Type type,
                                                     Location loc) {
   if (auto elementsAttr = mlir::dyn_cast<mlir::ElementsAttr>(value)) {
-    return builder.create<ttir::ConstantOp>(loc, type, elementsAttr);
+    return ttir::ConstantOp::create(builder, loc, type, elementsAttr);
   }
   return {};
 }

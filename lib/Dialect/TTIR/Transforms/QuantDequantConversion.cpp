@@ -102,8 +102,8 @@ private:
         if (mlir::dyn_cast<mlir::quant::QuantizedType>(
                 newResultType.getElementType())) {
           // It's quantized, so insert a DequantizeOp.
-          auto newDequant = rewriter.create<mlir::tt::ttir::DequantizeOp>(
-              op->getLoc(), oldType, newResult);
+          auto newDequant = mlir::tt::ttir::DequantizeOp::create(
+              rewriter, op->getLoc(), oldType, newResult);
           newResults.push_back(newDequant);
         } else {
           // It's already floating-point or non-quantized.
@@ -130,12 +130,12 @@ private:
             originalType.getShape(), quantType, originalType.getEncoding());
         // Create quantize op.
         mlir::tt::ttir::QuantizeOp quantize =
-            rewriter.create<mlir::tt::ttir::QuantizeOp>(op->getLoc(),
-                                                        quantizeType, result);
+            mlir::tt::ttir::QuantizeOp::create(rewriter, op->getLoc(),
+                                               quantizeType, result);
         // Now dequantize op, effectively commuting the original dequantize.
         mlir::tt::ttir::DequantizeOp dequantize =
-            rewriter.create<mlir::tt::ttir::DequantizeOp>(
-                op->getLoc(), originalType, quantize);
+            mlir::tt::ttir::DequantizeOp::create(rewriter, op->getLoc(),
+                                                 originalType, quantize);
         newResults.push_back(dequantize);
       }
     }
@@ -157,9 +157,8 @@ struct RewriteDQToRequantize
     auto dequantizeOp = mlir::dyn_cast<mlir::tt::ttir::DequantizeOp>(
         op.getInput().getDefiningOp());
     if (dequantizeOp) {
-      ttir::RequantizeOp requantize =
-          rewriter.create<mlir::tt::ttir::RequantizeOp>(
-              op->getLoc(), op.getType(), dequantizeOp.getInput());
+      ttir::RequantizeOp requantize = mlir::tt::ttir::RequantizeOp::create(
+          rewriter, op->getLoc(), op.getType(), dequantizeOp.getInput());
       rewriter.replaceOp(op, requantize);
       return mlir::success();
     }

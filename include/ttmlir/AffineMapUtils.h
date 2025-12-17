@@ -113,8 +113,8 @@ fullyApplyAffineMap(mlir::OpBuilder &builder, mlir::Location loc,
                     mlir::AffineMap map, mlir::ValueRange inputs) {
   llvm::SmallVector<mlir::Value> results;
   for (unsigned i = 0; i < map.getNumResults(); i++) {
-    results.push_back(builder.create<mlir::affine::AffineApplyOp>(
-        loc, affineMapSelectOneOutput(map, i), inputs));
+    results.push_back(mlir::affine::AffineApplyOp::create(
+        builder, loc, affineMapSelectOneOutput(map, i), inputs));
   }
   return results;
 }

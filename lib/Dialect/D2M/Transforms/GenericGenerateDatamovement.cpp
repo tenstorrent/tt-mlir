@@ -114,10 +114,9 @@ public:
           mlir::cast<ShapedType>(dst.getType()).getNumElements());
     }
 
-    return builder
-        .create<d2m::DMAOp>(loc, src, srcIndexingMapAttr, ValueRange(), dst,
-                            dstIndexingMapAttr, ValueRange(), numElemsAttr,
-                            coreIndex, mcastShape)
+    return d2m::DMAOp::create(builder, loc, src, srcIndexingMapAttr,
+                              ValueRange(), dst, dstIndexingMapAttr,
+                              ValueRange(), numElemsAttr, coreIndex, mcastShape)
         .getResult();
   }
 
@@ -133,10 +132,10 @@ public:
   calculateGatherMcastArguments(PatternRewriter &rewriter, Location loc,
                                 ttcore::GridAttr grid,
                                 ArrayRef<ttcore::IteratorType> mcastIterators) {
-    Value zero = rewriter.create<arith::ConstantOp>(
-        loc, rewriter.getIndexType(), rewriter.getIndexAttr(0));
-    Value one = rewriter.create<arith::ConstantOp>(loc, rewriter.getIndexType(),
-                                                   rewriter.getIndexAttr(1));
+    Value zero = arith::ConstantOp::create(
+        rewriter, loc, rewriter.getIndexType(), rewriter.getIndexAttr(0));
+    Value one = arith::ConstantOp::create(
+        rewriter, loc, rewriter.getIndexType(), rewriter.getIndexAttr(1));
 
     McastArguments args;
     args.senderCoreIndex.reserve(grid.getShape().size());
@@ -144,25 +143,26 @@ public:
     args.mcastShape.reserve(grid.getShape().size());
 
     for (auto [dim, iteratorType] : llvm::enumerate(mcastIterators)) {
-      Value core = rewriter.create<CoreIndexOp>(
-          loc, rewriter.getIndexType(), rewriter.getI64IntegerAttr(dim));
+      Value core = CoreIndexOp::create(rewriter, loc, rewriter.getIndexType(),
+                                       rewriter.getI64IntegerAttr(dim));
       if (iteratorType == ttcore::IteratorType::Parallel) {
         args.senderCoreIndex.push_back(Value(core));
         args.mcastCoreIndex.push_back(Value(core));
         args.mcastShape.push_back(Value(one));
       } else {
         int64_t numDests = grid.getShape()[dim] - 1;
-        Value gridDimMinusOne = rewriter.create<arith::ConstantOp>(
-            loc, rewriter.getIndexType(), rewriter.getIndexAttr(numDests));
+        Value gridDimMinusOne =
+            arith::ConstantOp::create(rewriter, loc, rewriter.getIndexType(),
+                                      rewriter.getIndexAttr(numDests));
         assert(iteratorType == ttcore::IteratorType::Reduction);
         args.senderCoreIndex.push_back(zero);
         args.mcastCoreIndex.push_back(one);
         args.mcastShape.push_back(gridDimMinusOne);
         args.mcastVolume *= numDests;
 
-        Value condition = rewriter.create<arith::CmpIOp>(
-            loc, rewriter.getI1Type(), mlir::arith::CmpIPredicate::eq, core,
-            zero);
+        Value condition =
+            arith::CmpIOp::create(rewriter, loc, rewriter.getI1Type(),
+                                  mlir::arith::CmpIPredicate::eq, core, zero);
         args.conditions.push_back(condition);
       }
     }
@@ -181,43 +181,43 @@ public:
                        MutableArrayRef<Region> regions) {
     McastArguments mcastArgs =
         calculateGatherMcastArguments(builder, loc, grid, mcastIterators);
-    Value zero = builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
-                                                   builder.getIndexAttr(0));
-    Value one = builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
-                                                  builder.getIndexAttr(1));
+    Value zero = arith::ConstantOp::create(builder, loc, builder.getIndexType(),
+                                           builder.getIndexAttr(0));
+    Value one = arith::ConstantOp::create(builder, loc, builder.getIndexType(),
+                                          builder.getIndexAttr(1));
     assert(mcastArgs.mcastVolume > 0);
-    Value mcastVolumeVal = builder.create<arith::ConstantOp>(
-        loc, builder.getIndexType(),
-        builder.getIndexAttr(mcastArgs.mcastVolume));
+    Value mcastVolumeVal =
+        arith::ConstantOp::create(builder, loc, builder.getIndexType(),
+                                  builder.getIndexAttr(mcastArgs.mcastVolume));
     Value receiversReadySemaphore = createSemaphore(builder, loc, regions);
     Value senderFinishedSemaphore = createSemaphore(builder, loc, regions);
     assert(mcastArgs.mcastCoreIndex.size() == mcastArgs.mcastShape.size());
     assert(mcastArgs.conditions.size() == 1 &&
            "Exactly one condition supported");
-    builder.create<scf::IfOp>(
-        loc, mcastArgs.conditions[0],
+    scf::IfOp::create(
+        builder, loc, mcastArgs.conditions[0],
         [&](OpBuilder &builder, Location loc) {
           bool isOutput = false;
           Value gatherMemTx =
               createDMA(builder, loc, src, dst, operandIndexingMap, isOutput);
-          builder.create<d2m::DMAWaitOp>(loc, gatherMemTx);
-          builder.create<d2m::SemaphoreWaitOp>(loc, receiversReadySemaphore,
-                                               mcastVolumeVal, zero);
+          d2m::DMAWaitOp::create(builder, loc, gatherMemTx);
+          d2m::SemaphoreWaitOp::create(builder, loc, receiversReadySemaphore,
+                                       mcastVolumeVal, zero);
           Value mcastMemTx =
               createDMA(builder, loc, dst, dst, std::nullopt, isOutput,
                         mcastArgs.mcastCoreIndex, mcastArgs.mcastShape);
-          builder.create<d2m::DMAWaitOp>(loc, mcastMemTx);
-          builder.create<d2m::SemaphoreSetOp>(loc, senderFinishedSemaphore, one,
-                                              mcastArgs.mcastCoreIndex,
-                                              mcastArgs.mcastShape);
-          builder.create<scf::YieldOp>(loc);
+          d2m::DMAWaitOp::create(builder, loc, mcastMemTx);
+          d2m::SemaphoreSetOp::create(builder, loc, senderFinishedSemaphore,
+                                      one, mcastArgs.mcastCoreIndex,
+                                      mcastArgs.mcastShape);
+          scf::YieldOp::create(builder, loc);
         },
         [&](OpBuilder &builder, Location loc) {
-          builder.create<d2m::SemaphoreIncOp>(loc, receiversReadySemaphore, one,
-                                              mcastArgs.senderCoreIndex);
-          builder.create<d2m::SemaphoreWaitOp>(loc, senderFinishedSemaphore,
-                                               one, zero);
-          builder.create<scf::YieldOp>(loc);
+          d2m::SemaphoreIncOp::create(builder, loc, receiversReadySemaphore,
+                                      one, mcastArgs.senderCoreIndex);
+          d2m::SemaphoreWaitOp::create(builder, loc, senderFinishedSemaphore,
+                                       one, zero);
+          scf::YieldOp::create(builder, loc);
         });
   }
 
@@ -229,8 +229,8 @@ public:
                          bool isOutput, MutableArrayRef<Region> regions) {
     Value cb =
         isOutput
-            ? builder.create<d2m::WaitOp>(loc, blockOperand).getResult()
-            : builder.create<d2m::ReserveOp>(loc, blockOperand).getResult();
+            ? d2m::WaitOp::create(builder, loc, blockOperand).getResult()
+            : d2m::ReserveOp::create(builder, loc, blockOperand).getResult();
 
     if (isStream(genericOperand)) {
       Value src = isOutput ? cb : genericOperand;
@@ -245,7 +245,7 @@ public:
       } else {
         Value memTx =
             createDMA(builder, loc, src, dst, operandIndexingMap, isOutput);
-        builder.create<d2m::DMAWaitOp>(loc, memTx);
+        d2m::DMAWaitOp::create(builder, loc, memTx);
       }
     }
 
@@ -266,11 +266,12 @@ public:
         numDataMovementRegions,
         rewriter.getAttr<ThreadAttr>(ThreadType::Datamovement));
     threads.append(generic.getThreads().begin(), generic.getThreads().end());
-    auto newGeneric = rewriter.create<GenericOp>(
-        generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
-        generic.getOutputs(), generic.getGrid(), generic.getBlockFactors(),
-        generic.getIndexingMaps(), generic.getIteratorTypes(),
-        rewriter.getArrayAttr(threads), numTotalRegions);
+    auto newGeneric =
+        GenericOp::create(rewriter, generic->getLoc(), generic.getResultTypes(),
+                          generic.getInputs(), generic.getOutputs(),
+                          generic.getGrid(), generic.getBlockFactors(),
+                          generic.getIndexingMaps(), generic.getIteratorTypes(),
+                          rewriter.getArrayAttr(threads), numTotalRegions);
 
     // Preinitialize all regions so that we can modify their signatures on the
     // fly. i.e. adding semaphore arguments.

@@ -116,9 +116,9 @@ static void addReductionBlock(PatternRewriter &rewriter, SrcOp &srcOp,
   mlir::Block *block =
       rewriter.createBlock(&srcOp.getRegion(), /*insertPt*/ {},
                            {reductionType, reductionType}, {loc, loc});
-  ReductionOp reductionOp = rewriter.create<ReductionOp>(
-      loc, block->getArgument(0), block->getArgument(1));
-  rewriter.create<mlir::stablehlo::ReturnOp>(loc, reductionOp.getResult());
+  ReductionOp reductionOp = ReductionOp::create(
+      rewriter, loc, block->getArgument(0), block->getArgument(1));
+  mlir::stablehlo::ReturnOp::create(rewriter, loc, reductionOp.getResult());
 }
 
 // AllGatherOp
@@ -174,8 +174,8 @@ public:
 
       // Create new chained all gather ops depending on the number of shardings.
       mlir::stablehlo::AllGatherOp allGatherOp =
-          rewriter.create<mlir::stablehlo::AllGatherOp>(
-              srcOp.getLoc(), newOutputType, result, allGatherDim,
+          mlir::stablehlo::AllGatherOp::create(
+              rewriter, srcOp.getLoc(), newOutputType, result, allGatherDim,
               createDenseAttrFromReplicaGroups(
                   context, populateReplicaGroups(meshMap, meshAxis)),
               channelHandleAttr);
@@ -243,8 +243,8 @@ public:
       // Create new chained reduce scatter ops depending on the number of
       // shardings.
       mlir::stablehlo::ReduceScatterOp reduceScatterOp =
-          rewriter.create<mlir::stablehlo::ReduceScatterOp>(
-              srcOp.getLoc(), newOutputType, result, reduceScatterDim,
+          mlir::stablehlo::ReduceScatterOp::create(
+              rewriter, srcOp.getLoc(), newOutputType, result, reduceScatterDim,
               createDenseAttrFromReplicaGroups(
                   context, populateReplicaGroups(meshMap, meshAxis)),
               channelHandleAttr);
@@ -293,8 +293,8 @@ public:
       mlir::RankedTensorType newOutputType =
           mlir::cast<mlir::RankedTensorType>(result.getType());
       mlir::stablehlo::AllReduceOp allReduceOp =
-          rewriter.create<mlir::stablehlo::AllReduceOp>(
-              srcOp.getLoc(), newOutputType, result,
+          mlir::stablehlo::AllReduceOp::create(
+              rewriter, srcOp.getLoc(), newOutputType, result,
               createDenseAttrFromReplicaGroups(
                   context, populateReplicaGroups(meshMap, meshAxis)),
               channelHandleAttr);
@@ -366,9 +366,9 @@ public:
       mlir::RankedTensorType newOutputType = mlir::RankedTensorType::get(
           newShape, prevOutputType.getElementType());
       mlir::stablehlo::AllToAllOp allToAllOp =
-          rewriter.create<mlir::stablehlo::AllToAllOp>(
-              srcOp.getLoc(), newOutputType, result, sliceDim, concatDim,
-              meshMap[meshAxis.str()],
+          mlir::stablehlo::AllToAllOp::create(
+              rewriter, srcOp.getLoc(), newOutputType, result, sliceDim,
+              concatDim, meshMap[meshAxis.str()],
               createDenseAttrFromReplicaGroups(
                   context, populateReplicaGroups(meshMap, meshAxis)),
               channelHandleAttr);
@@ -459,8 +459,8 @@ public:
       }
       auto reshapedType =
           mlir::RankedTensorType::get(reshapeShape, prevType.getElementType());
-      auto reshaped = rewriter.create<mlir::stablehlo::ReshapeOp>(
-          srcOp.getLoc(), reshapedType, result);
+      auto reshaped = mlir::stablehlo::ReshapeOp::create(
+          rewriter, srcOp.getLoc(), reshapedType, result);
 
       // 2) Replica groups for the target mesh axis.
       auto groups = createDenseAttrFromReplicaGroups(
@@ -469,8 +469,8 @@ public:
       // 3) AllToAll along the inserted "parts" axis (split and concat on same
       // axis).
       int64_t partsDim = sliceDim; // "parts" axis is inserted at sliceDim
-      auto allToAll = rewriter.create<mlir::stablehlo::AllToAllOp>(
-          srcOp.getLoc(),
+      auto allToAll = mlir::stablehlo::AllToAllOp::create(
+          rewriter, srcOp.getLoc(),
           reshapedType, // result type is identical to input
           reshaped.getResult(),
           /*split_dimension=*/partsDim,
@@ -497,17 +497,17 @@ public:
           mlir::RankedTensorType::get(slicedShape, prevType.getElementType());
 
       mlir::Value allToAllOut = allToAll.getResult(0);
-      auto slice = rewriter.create<mlir::stablehlo::SliceOp>(
-          srcOp.getLoc(), slicedType, allToAllOut, startAttr, limitAttr,
-          stridesAttr);
+      auto slice = mlir::stablehlo::SliceOp::create(
+          rewriter, srcOp.getLoc(), slicedType, allToAllOut, startAttr,
+          limitAttr, stridesAttr);
 
       // 5) Remove the singleton "parts" axis → final shape with chunkLen at
       // sliceDim.
       shape[sliceDim] = chunkLen;
       auto finalType =
           mlir::RankedTensorType::get(shape, prevType.getElementType());
-      auto squeezed = rewriter.create<mlir::stablehlo::ReshapeOp>(
-          srcOp.getLoc(), finalType, slice.getResult());
+      auto squeezed = mlir::stablehlo::ReshapeOp::create(
+          rewriter, srcOp.getLoc(), finalType, slice.getResult());
 
       // Thread through for the next dimension (if any).
       result = squeezed.getResult();

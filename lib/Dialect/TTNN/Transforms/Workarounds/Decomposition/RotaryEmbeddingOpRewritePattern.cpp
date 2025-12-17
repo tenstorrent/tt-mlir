@@ -31,9 +31,9 @@ LogicalResult RotaryEmbeddingOpRewritePattern::matchAndRewrite(
   auto paddedType =
       utils::RankedTensorTypeFactory::create(resultType, paddedResultShape);
 
-  auto rope = rewriter.create<RotaryEmbeddingOp>(
-      srcOp.getLoc(), paddedType, srcOp.getInput(), srcOp.getCosCache(),
-      srcOp.getSinCache(), srcOp.getTokenIndexAttr(),
+  auto rope = RotaryEmbeddingOp::create(
+      rewriter, srcOp.getLoc(), paddedType, srcOp.getInput(),
+      srcOp.getCosCache(), srcOp.getSinCache(), srcOp.getTokenIndexAttr(),
       srcOp.getMemoryConfigAttr(), srcOp.getComputeConfigAttr());
 
   // Slice to original shape
@@ -42,8 +42,8 @@ LogicalResult RotaryEmbeddingOpRewritePattern::matchAndRewrite(
   SmallVector<int32_t> steps(resultShape.size(), 1);
   ends[ends.size() - 2] = originalSeqLen;
 
-  auto sliced = rewriter.create<ttnn::SliceStaticOp>(
-      srcOp.getLoc(), resultType, rope.getResult(),
+  auto sliced = ttnn::SliceStaticOp::create(
+      rewriter, srcOp.getLoc(), resultType, rope.getResult(),
       rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),
       rewriter.getI32ArrayAttr(steps));
 

@@ -63,7 +63,8 @@ LogicalResult UpsampleOpBilinearPaddingRewritePattern::matchAndRewrite(
       mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding())
           .withTensorShape(paddedShape));
 
-  auto padOp = rewriter.create<ttnn::PadOp>(
+  auto padOp = ttnn::PadOp::create(
+      rewriter,
       ttmlir::utils::appendLocationSuffix(srcOp.getInput().getLoc(), "pad"),
       paddedType, srcOp.getInput(), padding, /*pad_value=*/mlir::APFloat(0.0f),
       /*use_multicore=*/false,
@@ -78,18 +79,19 @@ LogicalResult UpsampleOpBilinearPaddingRewritePattern::matchAndRewrite(
       mlir::cast<ttnn::TTNNLayoutAttr>(outputType.getEncoding())
           .withTensorShape(upsamplePaddedShape));
 
-  auto paddedUpsampleOp = rewriter.create<ttnn::UpsampleOp>(
-      srcOp.getLoc(), upsampledPaddedType, padOp, srcOp.getScaleFactorAttr(),
-      srcOp.getModeAttr(), /*memory_config=*/nullptr);
+  auto paddedUpsampleOp =
+      ttnn::UpsampleOp::create(rewriter, srcOp.getLoc(), upsampledPaddedType,
+                               padOp, srcOp.getScaleFactorAttr(),
+                               srcOp.getModeAttr(), /*memory_config=*/nullptr);
 
   // Create SliceStaticOp to remove padding from the upsampled result.
   SmallVector<int32_t> begins(/*size=*/DIM_COUNT, /*value=*/0);
   SmallVector<int32_t> ends(outputType.getShape());
   SmallVector<int32_t> steps(/*size=*/DIM_COUNT, /*value=*/1);
 
-  auto sliceOp = rewriter.create<ttnn::SliceStaticOp>(
-      ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "slice"), outputType,
-      paddedUpsampleOp, rewriter.getI32ArrayAttr(begins),
+  auto sliceOp = ttnn::SliceStaticOp::create(
+      rewriter, ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "slice"),
+      outputType, paddedUpsampleOp, rewriter.getI32ArrayAttr(begins),
       rewriter.getI32ArrayAttr(ends), rewriter.getI32ArrayAttr(steps));
 
   rewriter.replaceOp(srcOp, sliceOp);

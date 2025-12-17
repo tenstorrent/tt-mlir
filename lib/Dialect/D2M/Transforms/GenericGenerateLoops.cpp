@@ -20,14 +20,14 @@ public:
   static std::tuple<SmallVector<Value>, SmallVector<Value>, SmallVector<Value>>
   buildLoopBounds(OpBuilder &builder, Location loc,
                   ArrayRef<int64_t> loopBounds) {
-    Value zero = builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
-                                                   builder.getIndexAttr(0));
-    Value one = builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
-                                                  builder.getIndexAttr(1));
+    Value zero = arith::ConstantOp::create(builder, loc, builder.getIndexType(),
+                                           builder.getIndexAttr(0));
+    Value one = arith::ConstantOp::create(builder, loc, builder.getIndexType(),
+                                          builder.getIndexAttr(1));
     SmallVector<Value> lbs(loopBounds.size(), zero);
     SmallVector<Value> ubs(llvm::map_range(loopBounds, [&](int64_t dim) {
-      return builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
-                                               builder.getIndexAttr(dim));
+      return arith::ConstantOp::create(builder, loc, builder.getIndexType(),
+                                       builder.getIndexAttr(dim));
     }));
     SmallVector<Value> step(loopBounds.size(), one);
     return std::make_tuple(lbs, ubs, step);
@@ -64,9 +64,9 @@ public:
       return failure();
     }
 
-    auto loopedGeneric = rewriter.create<GenericOp>(
-        generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
-        generic.getOutputs(), generic.getGrid(),
+    auto loopedGeneric = GenericOp::create(
+        rewriter, generic->getLoc(), generic.getResultTypes(),
+        generic.getInputs(), generic.getOutputs(), generic.getGrid(),
         /* block_factors */ rewriter.getArrayAttr({}),
         /* indexing_maps */ rewriter.getArrayAttr({}),
         /* iterator_types */ rewriter.getArrayAttr({}), generic.getThreads(),

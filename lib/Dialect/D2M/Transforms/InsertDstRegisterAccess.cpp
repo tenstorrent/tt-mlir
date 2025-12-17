@@ -437,7 +437,7 @@ public:
                         rewriter.getAttr<ttcore::MemorySpaceAttr>(
                             ttcore::MemorySpace::RegisterDst));
 
-    return rewriter.create<AcquireDstOp>(loc, dstType);
+    return AcquireDstOp::create(rewriter, loc, dstType);
   }
 
   // Walk all compute ops in the region and collect:
@@ -657,8 +657,8 @@ public:
     for (Operation *loopOp : llvm::reverse(linalgLoops.value())) {
       rewriter.eraseOp(loopOp);
     }
-    rewriter.create<d2m::TileMatmulBlockOp>(gOp.getLoc(), inputAMemref,
-                                            inputBMemref, outputCMemref);
+    d2m::TileMatmulBlockOp::create(rewriter, gOp.getLoc(), inputAMemref,
+                                   inputBMemref, outputCMemref);
     return true;
   }
 
@@ -687,8 +687,8 @@ public:
             if (guard) {
               rewriter.setInsertionPointToStart(&guard.getThenRegion().front());
             }
-            auto cbLoad = rewriter.create<affine::AffineLoadOp>(
-                loc, cb, l1AccessMap, l1AccessIndices);
+            auto cbLoad = affine::AffineLoadOp::create(
+                rewriter, loc, cb, l1AccessMap, l1AccessIndices);
             Value valueToStore = cbLoad.getResult();
 
             if (isBcastGuard) {
@@ -699,8 +699,8 @@ public:
               valueToStore = clonedBcast->getResult(0);
             }
 
-            rewriter.create<affine::AffineStoreOp>(
-                loc, valueToStore, dst, dstAccessMap, dstAccessIndices);
+            affine::AffineStoreOp::create(rewriter, loc, valueToStore, dst,
+                                          dstAccessMap, dstAccessIndices);
 
             if (guard) {
               rewriter.setInsertionPointAfter(guard);
@@ -712,8 +712,9 @@ public:
           [&](PatternRewriter &rewriter,
               LoadStoreRecord<affine::AffineLoadOp> record,
               AffineMap dstAccessMap, ValueRange dstAccessIndices) {
-            auto dstLoad = rewriter.create<affine::AffineLoadOp>(
-                record.loadStore.getLoc(), dst, dstAccessMap, dstAccessIndices);
+            auto dstLoad = affine::AffineLoadOp::create(
+                rewriter, record.loadStore.getLoc(), dst, dstAccessMap,
+                dstAccessIndices);
             if (record.bcast.has_value()) {
               // Keep the original load in case another bcastOp uses it.
               record.bcast->getResult().replaceAllUsesWith(dstLoad.getResult());
@@ -737,22 +738,22 @@ public:
               AffineMap dstAccessMap, ValueRange dstAccessIndices) {
             auto loc = record.loadStore.getLoc();
             Value cb = record.loadStore.getMemref();
-            auto dstLoad = rewriter.create<affine::AffineLoadOp>(
-                loc, dst, dstAccessMap, dstAccessIndices);
+            auto dstLoad = affine::AffineLoadOp::create(
+                rewriter, loc, dst, dstAccessMap, dstAccessIndices);
             Value valueToStore = dstLoad.getResult();
 
             // Insert DST reinterpret cast if destination CB type differs from
             // DST type.
             auto cbType = mlir::cast<MemRefType>(cb.getType());
             if (valueToStore.getType() != cbType.getElementType()) {
-              valueToStore = rewriter
-                                 .create<d2m::DstReinterpretCastOp>(
-                                     loc, cbType.getElementType(), valueToStore)
-                                 .getResult();
+              valueToStore =
+                  d2m::DstReinterpretCastOp::create(
+                      rewriter, loc, cbType.getElementType(), valueToStore)
+                      .getResult();
             }
 
-            rewriter.create<affine::AffineStoreOp>(
-                loc, valueToStore, cb, l1AccessMap, l1AccessIndices);
+            affine::AffineStoreOp::create(rewriter, loc, valueToStore, cb,
+                                          l1AccessMap, l1AccessIndices);
           };
 
       // Replace the original store with one to the DST.
@@ -764,10 +765,9 @@ public:
             // Insert DST reinterpret cast if value type differs from DST type.
             auto dstType = mlir::cast<MemRefType>(dst.getType());
             if (valueToStore.getType() != dstType.getElementType()) {
-              valueToStore = rewriter
-                                 .create<d2m::DstReinterpretCastOp>(
-                                     record.loadStore.getLoc(),
-                                     dstType.getElementType(), valueToStore)
+              valueToStore = d2m::DstReinterpretCastOp::create(
+                                 rewriter, record.loadStore.getLoc(),
+                                 dstType.getElementType(), valueToStore)
                                  .getResult();
             }
             rewriter.replaceOpWithNewOp<affine::AffineStoreOp>(
@@ -796,11 +796,9 @@ public:
     // Initial condition:
     // - Bcast: load-if-all, start with true and disable when false shows up.
     // - Accum: skip-unless-any, start with false and enable when true shows up.
-    Value guard =
-        rewriter
-            .create<arith::ConstantOp>(loc, rewriter.getI1Type(),
-                                       rewriter.getBoolAttr(isBcastGuard))
-            .getResult();
+    Value guard = arith::ConstantOp::create(rewriter, loc, rewriter.getI1Type(),
+                                            rewriter.getBoolAttr(isBcastGuard))
+                      .getResult();
 
     // Check:
     // - Bcast: IS 1st iter?
@@ -808,25 +806,25 @@ public:
     const auto cmpPredicate =
         isBcastGuard ? arith::CmpIPredicate::eq : arith::CmpIPredicate::ne;
 
-    auto zero = rewriter.create<arith::ConstantOp>(
-        loc, rewriter.getIndexType(),
+    auto zero = arith::ConstantOp::create(
+        rewriter, loc, rewriter.getIndexType(),
         rewriter.getIntegerAttr(rewriter.getIndexType(), 0));
 
     for (int64_t idx : guardDims) {
-      Value iterIdx = rewriter.create<d2m::IterIndexOp>(loc, idx);
+      Value iterIdx = d2m::IterIndexOp::create(rewriter, loc, idx);
       Value cmp =
-          rewriter.create<arith::CmpIOp>(loc, cmpPredicate, iterIdx, zero);
+          arith::CmpIOp::create(rewriter, loc, cmpPredicate, iterIdx, zero);
       // Aggregation:
       if (isBcastGuard) {
         // - Bcast: load if ALL(&&) bcast dims ARE at the 1st iter.
-        guard = rewriter.create<arith::AndIOp>(loc, guard, cmp).getResult();
+        guard = arith::AndIOp::create(rewriter, loc, guard, cmp).getResult();
       } else {
         // - Accum: reload if ANY(||) reduce dims is NOT at the 1st iter.
-        guard = rewriter.create<arith::OrIOp>(loc, guard, cmp).getResult();
+        guard = arith::OrIOp::create(rewriter, loc, guard, cmp).getResult();
       }
     }
 
-    return rewriter.create<scf::IfOp>(loc, guard);
+    return scf::IfOp::create(rewriter, loc, guard);
   }
 
   template <typename LoadOrStoreTy>
@@ -937,14 +935,15 @@ public:
       // Build store indices: [dstSlice, loop_vars..., 0, 0, ...] using loop
       // induction variables for the dimensions that correspond to loops.
       storeIndices.push_back(
-          rewriter.create<arith::ConstantIndexOp>(loc, dstSlice));
+          arith::ConstantIndexOp::create(rewriter, loc, dstSlice));
 
       // Use induction variables from the allocation.
       storeIndices.append(loopInductionVars);
 
       // Pad with zeros for remaining dimensions.
       while (storeIndices.size() < dstRank) {
-        storeIndices.push_back(rewriter.create<arith::ConstantIndexOp>(loc, 0));
+        storeIndices.push_back(
+            arith::ConstantIndexOp::create(rewriter, loc, 0));
       }
 
       // Ensure storeIndices matches the destination memref rank.
@@ -969,25 +968,25 @@ public:
       bool needsTypeCast = (originalType != dstType.getElementType());
 
       if (needsTypeCast) {
-        auto cast = rewriter.create<d2m::DstReinterpretCastOp>(
-            loc, dstType.getElementType(), valueToStore);
+        auto cast = d2m::DstReinterpretCastOp::create(
+            rewriter, loc, dstType.getElementType(), valueToStore);
         valueToStore = cast.getResult();
         castOp = cast.getOperation();
       }
 
-      auto storeOp = rewriter.create<affine::AffineStoreOp>(
-          loc, valueToStore, dst, storeMap, storeIndices);
+      auto storeOp = affine::AffineStoreOp::create(rewriter, loc, valueToStore,
+                                                   dst, storeMap, storeIndices);
 
-      auto loadedResult = rewriter.create<affine::AffineLoadOp>(
-          loc, dst, storeMap, storeIndices);
+      auto loadedResult = affine::AffineLoadOp::create(rewriter, loc, dst,
+                                                       storeMap, storeIndices);
 
       // If we cast for storage, we need to cast back to the original type
       // after loading, since downstream ops expect the original type.
       Value replacementValue = loadedResult.getResult();
       Operation *castBackOp = nullptr;
       if (needsTypeCast) {
-        auto castBack = rewriter.create<d2m::DstReinterpretCastOp>(
-            loc, originalType, replacementValue);
+        auto castBack = d2m::DstReinterpretCastOp::create(
+            rewriter, loc, originalType, replacementValue);
         replacementValue = castBack.getResult();
         castBackOp = castBack.getOperation();
       }
@@ -1261,10 +1260,10 @@ public:
           [&](PatternRewriter &rewriter, Location loc, Value cb,
               AffineMap l1AccessMap, ValueRange l1AccessIndices,
               AffineMap dstAccessMap, ValueRange dstAccessIndices) {
-            auto l1Load = rewriter.create<affine::AffineLoadOp>(
-                loc, cb, l1AccessMap, l1AccessIndices);
-            rewriter.create<affine::AffineStoreOp>(
-                loc, l1Load.getResult(), dst, dstAccessMap, dstAccessIndices);
+            auto l1Load = affine::AffineLoadOp::create(
+                rewriter, loc, cb, l1AccessMap, l1AccessIndices);
+            affine::AffineStoreOp::create(rewriter, loc, l1Load.getResult(),
+                                          dst, dstAccessMap, dstAccessIndices);
           },
           // Replacement of the original load with one from dst.
           [&](PatternRewriter &rewriter, affine::AffineLoadOp op,
@@ -1280,22 +1279,22 @@ public:
           [&](PatternRewriter &rewriter, Location loc, Value cb,
               AffineMap l1AccessMap, ValueRange l1AccessIndices,
               AffineMap dstAccessMap, ValueRange dstAccessIndices) {
-            auto dstLoad = rewriter.create<affine::AffineLoadOp>(
-                loc, dst, dstAccessMap, dstAccessIndices);
+            auto dstLoad = affine::AffineLoadOp::create(
+                rewriter, loc, dst, dstAccessMap, dstAccessIndices);
             Value valueToStore = dstLoad.getResult();
 
             // Insert dst reinterpret cast if destination CB type differs
             // from dst type
             auto cbType = mlir::cast<MemRefType>(cb.getType());
             if (valueToStore.getType() != cbType.getElementType()) {
-              valueToStore = rewriter
-                                 .create<d2m::DstReinterpretCastOp>(
-                                     loc, cbType.getElementType(), valueToStore)
-                                 .getResult();
+              valueToStore =
+                  d2m::DstReinterpretCastOp::create(
+                      rewriter, loc, cbType.getElementType(), valueToStore)
+                      .getResult();
             }
 
-            rewriter.create<affine::AffineStoreOp>(
-                loc, dstLoad.getResult(), cb, l1AccessMap, l1AccessIndices);
+            affine::AffineStoreOp::create(rewriter, loc, dstLoad.getResult(),
+                                          cb, l1AccessMap, l1AccessIndices);
           },
           // Replacement of the original store with one from dst.
           [&](PatternRewriter &rewriter, affine::AffineStoreOp op,
@@ -1305,11 +1304,10 @@ public:
             // type
             auto dstType = mlir::cast<MemRefType>(dst.getType());
             if (valueToStore.getType() != dstType.getElementType()) {
-              valueToStore =
-                  rewriter
-                      .create<d2m::DstReinterpretCastOp>(
-                          op.getLoc(), dstType.getElementType(), valueToStore)
-                      .getResult();
+              valueToStore = d2m::DstReinterpretCastOp::create(
+                                 rewriter, op.getLoc(),
+                                 dstType.getElementType(), valueToStore)
+                                 .getResult();
             }
 
             rewriter.replaceOpWithNewOp<affine::AffineStoreOp>(
@@ -1330,8 +1328,8 @@ public:
   using OpRewritePattern<TileReduceOp>::OpRewritePattern;
 
   Value index(OpBuilder &rewriter, Location loc, int64_t val) const {
-    return rewriter.create<arith::ConstantOp>(loc, rewriter.getIndexType(),
-                                              rewriter.getIndexAttr(val));
+    return arith::ConstantOp::create(rewriter, loc, rewriter.getIndexType(),
+                                     rewriter.getIndexAttr(val));
   }
 
   LogicalResult matchAndRewrite(TileReduceOp op,
@@ -1355,36 +1353,36 @@ public:
 
     scf::IfOp ifOp;
     if (reduceDim == ReduceDim::R) {
-      auto iterIndex = rewriter.create<d2m::IterIndexOp>(
-          op.getLoc(), static_cast<int64_t>(1));
-      auto condOp = rewriter.create<arith::CmpIOp>(
-          op.getLoc(), arith::CmpIPredicate::ne, iterIndex,
+      auto iterIndex = d2m::IterIndexOp::create(rewriter, op.getLoc(),
+                                                static_cast<int64_t>(1));
+      auto condOp = arith::CmpIOp::create(
+          rewriter, op.getLoc(), arith::CmpIPredicate::ne, iterIndex,
           index(rewriter, op.getLoc(), loopBounds[1] - 1));
-      ifOp = rewriter.create<scf::IfOp>(op.getLoc(), condOp);
+      ifOp = scf::IfOp::create(rewriter, op.getLoc(), condOp);
     } else if (reduceDim == ReduceDim::C) {
-      auto iterIndex = rewriter.create<d2m::IterIndexOp>(
-          op.getLoc(), static_cast<int64_t>(0));
-      auto condOp = rewriter.create<arith::CmpIOp>(
-          op.getLoc(), arith::CmpIPredicate::ne, iterIndex,
+      auto iterIndex = d2m::IterIndexOp::create(rewriter, op.getLoc(),
+                                                static_cast<int64_t>(0));
+      auto condOp = arith::CmpIOp::create(
+          rewriter, op.getLoc(), arith::CmpIPredicate::ne, iterIndex,
           index(rewriter, op.getLoc(), loopBounds[0] - 1));
-      ifOp = rewriter.create<scf::IfOp>(op.getLoc(), condOp);
+      ifOp = scf::IfOp::create(rewriter, op.getLoc(), condOp);
     } else if (reduceDim == ReduceDim::RC) {
-      auto iterIndexR = rewriter.create<d2m::IterIndexOp>(
-          op.getLoc(), static_cast<int64_t>(1));
-      auto iterIndexC = rewriter.create<d2m::IterIndexOp>(
-          op.getLoc(), static_cast<int64_t>(0));
-      auto condOp = rewriter.create<arith::CmpIOp>(
-          op.getLoc(), arith::CmpIPredicate::ne, iterIndexR,
+      auto iterIndexR = d2m::IterIndexOp::create(rewriter, op.getLoc(),
+                                                 static_cast<int64_t>(1));
+      auto iterIndexC = d2m::IterIndexOp::create(rewriter, op.getLoc(),
+                                                 static_cast<int64_t>(0));
+      auto condOp = arith::CmpIOp::create(
+          rewriter, op.getLoc(), arith::CmpIPredicate::ne, iterIndexR,
           index(rewriter, op.getLoc(), loopBounds[1] - 1));
-      auto condOp2 = rewriter.create<arith::CmpIOp>(
-          op.getLoc(), arith::CmpIPredicate::ne, iterIndexC,
+      auto condOp2 = arith::CmpIOp::create(
+          rewriter, op.getLoc(), arith::CmpIPredicate::ne, iterIndexC,
           index(rewriter, op.getLoc(), loopBounds[0] - 1));
       auto finalCondOp =
-          rewriter.create<arith::OrIOp>(op.getLoc(), condOp, condOp2);
-      ifOp = rewriter.create<scf::IfOp>(op.getLoc(), finalCondOp);
+          arith::OrIOp::create(rewriter, op.getLoc(), condOp, condOp2);
+      ifOp = scf::IfOp::create(rewriter, op.getLoc(), finalCondOp);
     }
     rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
-    rewriter.create<d2m::PackerMaskResetOp>(op.getLoc());
+    d2m::PackerMaskResetOp::create(rewriter, op.getLoc());
 
     return success();
   }

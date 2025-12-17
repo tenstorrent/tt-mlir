@@ -35,9 +35,9 @@ public:
     }
     RankedTensorType rankedTensorType =
         createRankedTensorType(tensorShape, elementType, layout);
-    return builder.create<OnesOp>(
-        builder.getUnknownLoc(), rankedTensorType, nullptr,
-        ShapeAttr::get(&context, tensorShape), nullptr, nullptr, nullptr);
+    return OnesOp::create(builder, builder.getUnknownLoc(), rankedTensorType,
+                          nullptr, ShapeAttr::get(&context, tensorShape),
+                          nullptr, nullptr, nullptr);
   }
 };
 
@@ -67,8 +67,8 @@ TEST_F(OpModelTest, MatmulBlockShardedInputWithPadding) {
   auto outputType =
       createRankedTensorType(outputShape, builder.getBF16Type(), nullptr);
 
-  auto matmul = builder.create<MatmulOp>(builder.getUnknownLoc(), outputType,
-                                         mlir::ValueRange{inputA, inputB});
+  auto matmul = MatmulOp::create(builder, builder.getUnknownLoc(), outputType,
+                                 mlir::ValueRange{inputA, inputB});
 
   auto deviceGrid = CreateWorkerGrid();
 

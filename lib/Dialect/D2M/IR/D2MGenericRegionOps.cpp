@@ -31,8 +31,8 @@ bufferizeCBOp(OpTy op, mlir::RewriterBase &rewriter,
       mlir::cast<bufferization::TensorLikeType>(op.getCbType())
           .getBufferType(options, [&]() { return op.emitOpError(); });
   assert(succeeded(cbBufferType));
-  auto toBuffer = rewriter.create<bufferization::ToBufferOp>(
-      op.getLoc(), *cbBufferType, op.getCb());
+  auto toBuffer = bufferization::ToBufferOp::create(rewriter, op.getLoc(),
+                                                    *cbBufferType, op.getCb());
   mlir::bufferization::replaceOpWithNewBufferizedOp<OpTy>(rewriter, op,
                                                           toBuffer.getResult());
   return mlir::success();
@@ -423,8 +423,8 @@ mlir::LogicalResult TileTilizeBlockOp::bufferize(
   }
 
   mlir::Operation *old = getOperation();
-  auto newOp =
-      rewriter.create<mlir::tt::d2m::TileTilizeBlockOp>(old->getLoc(), in, out);
+  auto newOp = mlir::tt::d2m::TileTilizeBlockOp::create(rewriter, old->getLoc(),
+                                                        in, out);
   rewriter.replaceOp(old, newOp->getResults());
   return mlir::success();
 }
@@ -506,8 +506,8 @@ mlir::LogicalResult TileUntilizeBlockOp::bufferize(
   }
 
   mlir::Operation *old = getOperation();
-  auto newOp = rewriter.create<mlir::tt::d2m::TileUntilizeBlockOp>(
-      old->getLoc(), in, out);
+  auto newOp = mlir::tt::d2m::TileUntilizeBlockOp::create(
+      rewriter, old->getLoc(), in, out);
   rewriter.replaceOp(old, newOp->getResults());
   return mlir::success();
 }

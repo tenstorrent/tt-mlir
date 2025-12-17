@@ -35,13 +35,15 @@ PointToPointOpRewritePattern::matchAndRewrite(ttnn::PointToPointOp srcOp,
                                                        receiverCoord[1]};
   ::llvm::ArrayRef<int64_t> intermediateCoord = intermediateCoordVec;
 
-  auto p2pOp1 = rewriter.create<ttnn::PointToPointOp>(
+  auto p2pOp1 = ttnn::PointToPointOp::create(
+      rewriter,
       ttmlir::utils::appendLocationSuffix(srcOp.getLoc(),
                                           "_p2p_to_intermediate"),
       srcOp.getResult().getType(), srcOp.getInput(), senderCoord,
       intermediateCoord, /*optional_output_tensor=*/nullptr);
   auto optionalOutputTensor = srcOp.getOptionalOutputTensor();
-  auto p2pOp2 = rewriter.create<ttnn::PointToPointOp>(
+  auto p2pOp2 = ttnn::PointToPointOp::create(
+      rewriter,
       ttmlir::utils::appendLocationSuffix(srcOp.getLoc(),
                                           "_p2p_from_intermediate"),
       srcOp.getResult().getType(), p2pOp1.getResult(), intermediateCoord,
