@@ -1116,9 +1116,13 @@ createOp(FlatbufferObjectCache &cache, RMSNormOp op) {
   ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig =
       getMemoryConfigIfNeeded(cache, op);
 
-  return ::tt::target::ttnn::CreateRMSNormOp(*cache.fbb, input, weight, bias,
-                                             op.getEpsilon().convertToFloat(),
-                                             memoryConfig, output);
+  std::optional<
+      ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
+      computeConfig = toFlatbuffer(cache, op.getComputeConfig());
+
+  return ::tt::target::ttnn::CreateRMSNormOp(
+      *cache.fbb, input, weight, bias, op.getEpsilon().convertToFloat(),
+      memoryConfig, output, computeConfig.value_or(0));
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::UpsampleOp>

@@ -1205,7 +1205,8 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::RMSNormOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getWeight(), adaptor.getBias(),
-        adaptor.getEpsilon(), /*memoryConfig*/ nullptr);
+        adaptor.getEpsilon(), /*memoryConfig*/ nullptr,
+        /*computeConfig*/ nullptr);
     return success();
   }
 };
