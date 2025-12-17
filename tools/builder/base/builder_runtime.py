@@ -697,20 +697,15 @@ def execute_py(
     import importlib.util
     import glob
 
-    print(os.environ["TT_METAL_HOME"])
-    print(sys.path)
-    print(os.listdir(f"{os.environ['TT_METAL_HOME']}"))
+    print("a")
     matches = glob.glob(f"{os.environ['TT_METAL_HOME']}/**/_ttnn.so", recursive=True)
     for match in matches:
         print(match)
-    sys.path.append(f"{os.environ['TT_METAL_HOME']}/ttnn")
-    package_name = "ttrt"
-    spec = importlib.util.find_spec(package_name)
-    package_path = os.path.dirname(spec.origin)
-    print("TTRT PACKAGE PATH: ", package_path)
-    files = os.listdir(f"{os.environ['TT_METAL_HOME']}/build/ttnn")
-    print(files)
-    sys.path.append(f"{os.environ['TT_METAL_HOME']}/build/ttnn")
+    for match in matches:
+        pkg_root = os.path.dirname(os.path.dirname(match))
+        if pkg_root not in sys.path:
+            sys.path.append(pkg_root)
+    print("b")
 
     import ttnn
 
