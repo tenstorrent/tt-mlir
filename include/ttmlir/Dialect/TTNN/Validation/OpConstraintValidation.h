@@ -35,18 +35,25 @@ struct ValidationResult {
   // What the backend actually returned (only valid if status == Success).
   TTNNLayoutAttr actualOutputLayout;
 
+  // L1 memory usage for the output tensor in bytes (only valid if status ==
+  // Success). This is the per-core L1 footprint of the output tensor.
+  uint64_t outputL1Usage = 0;
+
   // Error message if status != Success.
   std::string errorMessage;
 
   ValidationResult() = default;
 
   explicit ValidationResult(size_t configIndex,
-                            TTNNLayoutAttr actualOutputLayout)
-      : configIndex(configIndex), actualOutputLayout(actualOutputLayout) {}
+                            TTNNLayoutAttr actualOutputLayout,
+                            uint64_t outputL1Usage = 0)
+      : configIndex(configIndex), actualOutputLayout(actualOutputLayout),
+        outputL1Usage(outputL1Usage) {}
 
   static ValidationResult success(size_t configIndex,
-                                  TTNNLayoutAttr actualOutputLayout) {
-    return ValidationResult(configIndex, actualOutputLayout);
+                                  TTNNLayoutAttr actualOutputLayout,
+                                  uint64_t outputL1Usage = 0) {
+    return ValidationResult(configIndex, actualOutputLayout, outputL1Usage);
   }
 
   static ValidationResult error(ValidationStatus status, std::string message) {
@@ -84,6 +91,11 @@ struct ValidationResult {
 // op: Operation to validate.
 // inputLayouts: Input tensor layouts for the operation.
 // config: Operation configuration to test.
+// additionalL1Usage: Additional L1 memory usage (in bytes) that must be
+//                    accounted for during validation. This is used when
+//                    validating ops that execute while other tensors occupy L1
+//                    (e.g., during chain merging where Chain A's output stays
+//                    in L1 while Chain B executes).
 // Returns: ValidationResult where status indicates the outcome:
 //   - status == Success: Operation validated successfully
 //   - status == NotSupported: Operation not supported for validation (expected
@@ -94,7 +106,8 @@ struct ValidationResult {
 // "NotSupported" is not an error - it indicates expected limitations.
 ValidationResult validateOperation(Operation *op,
                                    llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
-                                   const OpConfig &config);
+                                   const OpConfig &config,
+                                   uint64_t additionalL1Usage = 0);
 
 // Test multiple attributes with all layouts.
 // op: Operation to validate.
