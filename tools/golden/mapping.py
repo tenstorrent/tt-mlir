@@ -356,6 +356,8 @@ def unpack_mlir_attr(attr):
         return attr
     if isinstance(attr, FloatAttr):
         return attr.value
+    if isinstance(attr, StringAttr):
+        return attr.value
     raise ValueError(f"Unexpected attribute type: {type(attr)}")
 
 
@@ -1911,35 +1913,6 @@ def reshape_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     return torch.reshape(input_tensor, shape_tuple)
 
 
-def rearrange_golden(
-    input_tensor: GoldenMapTensor, pattern: str, **kwargs
-) -> GoldenMapTensor:
-    """
-    Golden function for rearrange operation with TTIR parameter names.
-
-    Parameters
-    ----------
-    input_tensor : GoldenMapTensor
-        Input tensor
-    pattern : str
-        Pattern
-    **kwargs : dict
-        Keyword arguments including 'shape'
-
-    Returns
-    -------
-    GoldenMapTensor
-        Reshaped tensor
-    """
-    if isinstance(pattern, StringAttr):
-        pattern = pattern.value
-    torch_fn = lambda t: torch.tensor(einops.rearrange(t.numpy(), pattern))
-    result = GoldenMapTensor.__torch_function__(
-        torch_fn, (GoldenMapTensor,), args=(input_tensor,)
-    )
-    return result
-
-
 def squeeze_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for squeeze operation with TTIR parameter names.
@@ -2598,6 +2571,18 @@ def stablehlo_not_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTe
 
 
 ################ TTIR Op Golden Functions ###############
+
+
+def ttir_rearrange_golden(
+    input_tensor: GoldenMapTensor, pattern: StringAttr, output_type_mlir: Type
+) -> GoldenMapTensor:
+    pattern = unpack_mlir_attr(pattern)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    torch_fn = lambda t: torch.tensor(einops.rearrange(t.numpy(), pattern))
+    result = GoldenMapTensor.__torch_function__(
+        torch_fn, (GoldenMapTensor,), args=(input_tensor,)
+    )
+    return result.to(output_dtype)
 
 
 def ttir_reduce_and_golden(
@@ -4119,7 +4104,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.RepeatOp: ttir_repeat_golden,
     ttir.RepeatInterleaveOp: repeat_interleave_golden,
     ttir.ReshapeOp: ttir_reshape_golden,
-    ttir.RearrangeOp: rearrange_golden,
+    ttir.RearrangeOp: ttir_rearrange_golden,
     ttir.SqueezeOp: squeeze_golden,
     ttir.UnsqueezeOp: unsqueeze_golden,
     ttir.ReverseOp: ttir_reverse_golden,

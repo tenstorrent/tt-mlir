@@ -161,6 +161,126 @@ class TTIRBuilder(Builder):
 
     # ----- Public Op Generators ----
 
+    ############### ttir.RearrangeOp ###############
+
+    @tag(ttir.RearrangeOp)
+    def rearrange(
+        self,
+        in0: Operand,
+        pattern: str,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.rearrange)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(in0)
+        pattern_attr = StringAttr.get(pattern)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(input0, pattern_attr, mlir_output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            in0,
+            pattern_attr,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op.result, golden_output)
+
+        return op.result
+
+    @parse(ttir.RearrangeOp)
+    def rearrange_parser(
+        self,
+        old_op: ttir.RearrangeOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.rearrange_parser)
+
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+        pattern_attr = old_op.pattern
+
+        new_op = ttir_op(
+            result,
+            in0,
+            pattern_attr,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(
+                input0, pattern_attr, old_op.result.type.element_type
+            )
+            self._set_golden_tensor(new_op.result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op.result
+        return new_op, op_map_dictionary
+
+    @split(ttir.RearrangeOp)
+    def rearrange_split(
+        self,
+        old_op: ttir.RearrangeOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.rearrange_split)
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+
+        with old_ctx, old_loc:
+            rearrange_module = Module.create()
+            rearrange_builder = TTIRBuilder(old_ctx, old_loc)
+            op_input_types = [old_op.input.type]
+
+            with InsertionPoint(rearrange_module.body):
+
+                @func.func(*op_input_types, name="rearrange_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+                    new_op = ttir_op(
+                        result,
+                        in0,
+                        old_op.pattern,
+                        loc=old_op.location,
+                    )
+
+                    if not self._disable_golden_check:
+                        input0 = self._get_golden_tensor(old_op.input)
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_output = op_golden_function(
+                            input0, old_op.pattern, result.element_type
+                        )
+                        rearrange_builder._set_golden_tensor(
+                            new_op.result, golden_output
+                        )
+                        rearrange_builder._set_output_ordering([new_op.result])
+                        rearrange_builder._set_golden_tensor(in0, input0)
+                        rearrange_builder._set_input_ordering([in0])
+
+                    return new_op
+
+        return rearrange_module, rearrange_builder
+
     ############### ttir.ReduceAndOp ###############
 
     @tag(ttir.ReduceAndOp)
@@ -9275,17 +9395,6 @@ class TTIRBuilder(Builder):
                 self._get_golden_tensor(i[1]),
                 self._get_golden_tensor(i[2]),
             ),
-            unit_attrs=unit_attrs,
-        )
-
-    def rearrange(
-        self, in0: Operand, pattern: str, unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
-        kwargs = {"pattern": StringAttr.get(pattern)}
-        return self._op_proxy(
-            ttir.RearrangeOp,
-            [in0],
-            ttir_kwargs=kwargs,
             unit_attrs=unit_attrs,
         )
 
