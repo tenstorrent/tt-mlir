@@ -331,6 +331,181 @@ class TTNNBuilder(Builder):
 
         return add_module, add_builder
 
+    ############### ttnn.RandOp ###############
+
+    @tag(ttnn.RandOp)
+    def rand(
+        self,
+        size: List[int],
+        dtype: torch.dtype,
+        device: Optional[OpView] = None,
+        low: float = 0.0,
+        high: float = 1.0,
+        seed: int = 0,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.rand)
+        mlir_output_type = self._get_type_from_torch_dtype(dtype)
+        size_attr = ttnn.ir.ShapeAttr.get(self._ctx, size)
+        low_attr = FloatAttr.get_f32(low)
+        high_attr = FloatAttr.get_f32(high)
+        seed_attr = IntegerAttr.get(IntegerType.get_unsigned(32), seed)
+        # Create a TTNN-encoded result tensor so verifier can read TTNNLayoutAttr
+        result = self.create_ttnn_tensor(size, mlir_output_type)
+
+        tensor_memory_layout_attr = ttnn.ir.TensorMemoryLayoutAttr.get(
+            self._ctx, ttnn.TensorMemoryLayout.Interleaved
+        )
+        buffer_type_attr = ttnn.ir.BufferTypeAttr.get(self._ctx, ttnn.BufferType.DRAM)
+        memory_config_attr = ttnn.ir.MemoryConfigAttr.get(
+            self._ctx, tensor_memory_layout_attr, buffer_type_attr
+        )
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+        layout = ttnn.ir.LayoutAttr.get(self._ctx, ttnn.Layout.Tile)
+        # Derive dtype attr from the element type
+        dtype = ttcore.ir.DataTypeAttr.get(
+            self._ctx, util.element_type_to_data_type(mlir_output_type)
+        )
+        """
+        if device == None:
+            # Construct device using dialect helper; omit loc to avoid type conflicts.
+            mesh_shape = ttnn.ir.MeshShapeAttr.get(self._ctx, 1, 1)
+            mesh_offset = ttnn.ir.MeshOffsetAttr.get(self._ctx, 0, 0)
+            device = ttnn.get_device()#mesh_shape=mesh_shape, mesh_offset=mesh_offset)
+            zeros = ttnn.zeros(result, size_attr, dtype=dtype)
+
+            print(zeros)
+        print(dir(device))
+        """
+        # device = NoneType.get(self._ctx)
+        op = ttnn_op(
+            result,
+            device,
+            size_attr,
+            memory_config_attr,
+            low=low_attr,
+            high=high_attr,
+            seed=seed_attr,
+            dtype=dtype,
+            layout=layout,
+            loc=loc,
+        )
+        print(op)
+        print(dir(op))
+        # op.device = NoneType.get(self._ctx)
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            op_golden_function = get_golden_function(ttnn_op)
+            golden_output = op_golden_function(
+                size, low_attr, high_attr, seed_attr, mlir_output_type
+            )
+            self._set_golden_tensor(op.result, golden_output)
+
+        self.bypass(op.result)
+        return op.result
+
+    @parse(ttnn.RandOp)
+    def rand_parser(
+        self,
+        old_op: ttnn.RandOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Operation:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.rand_parser)
+
+        result = old_op.result.type
+        size_attr = old_op.size
+        dtype_attr = old_op.dtype
+        low_attr = old_op.low
+        high_attr = old_op.high
+        seed_attr = old_op.seed
+
+        new_op = ttnn_op(
+            result,
+            size_attr,
+            dtype_attr,
+            low=low_attr,
+            high=high_attr,
+            seed=seed_attr,
+            loc=old_op.location,
+        )
+
+        if not self._disable_golden_check:
+            op_golden_function = get_golden_function(ttnn_op)
+            golden_output = op_golden_function(
+                size,
+                low_attr,
+                high_attr,
+                seed_attr,
+                dtype_attr,
+            )
+            self._set_golden_tensor(new_op.result, golden_output)
+
+        self.bypass(new_op.result)
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op.result
+        return new_op, op_map_dictionary
+
+    @split(ttnn.RandOp)
+    def rand_split(
+        self,
+        old_op: ttnn.RandOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.rand_split)
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+
+        with old_ctx, old_loc:
+            rand_module = Module.create()
+            rand_builder = TTNNBuilder(old_ctx, old_loc)
+            op_input_types: List[Type] = []
+
+            with InsertionPoint(rand_module.body):
+
+                @func.func(*op_input_types, name="rand_module")
+                def decorated_func():
+                    result = old_op.result.type
+                    size_attr = old_op.size
+                    dtype_attr = old_op.dtype
+                    low_attr = old_op.low
+                    high_attr = old_op.high
+                    seed_attr = old_op.seed
+
+                    new_op = ttnn_op(
+                        result,
+                        size_attr,
+                        dtype_attr,
+                        low=low_attr,
+                        high=high_attr,
+                        seed=seed_attr,
+                        loc=old_op.location,
+                    )
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttnn_op)
+                        golden_output = op_golden_function(
+                            size_attr,
+                            low_attr,
+                            high_attr,
+                            seed_attr,
+                            dtype_attr,
+                        )
+                        rand_builder._set_golden_tensor(new_op.result, golden_output)
+                        rand_builder._set_output_ordering([new_op.result])
+
+                    rand_builder.bypass(new_op.result)
+                    return new_op
+
+        return rand_module, rand_builder
+
     def mish(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
         Creates ``ttnn.mish``.

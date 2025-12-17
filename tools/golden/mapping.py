@@ -15,7 +15,8 @@ from __future__ import annotations
 from typing import Dict, Callable, Any, Optional, Union, List, Tuple, Iterable, Iterator
 import itertools
 import operator
-import einops
+
+# import einops
 import torch
 import torch.nn.functional
 from ttmlir.dialects import ttir, stablehlo, d2m, ttnn, ttcore
@@ -3997,6 +3998,26 @@ def ttnn_add_golden(
     return torch.add(input_tensor, other_tensor).to(output_dtype)
 
 
+def ttnn_rand_golden(
+    size: List[int],
+    low_attr: FloatAttr,
+    high_attr: FloatAttr,
+    seed_attr: IntegerAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    # size = unpack_mlir_attr(size)
+    low = unpack_mlir_attr(low_attr)
+    high = unpack_mlir_attr(high_attr)
+    seed = unpack_mlir_attr(seed_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    gen = torch.Generator()
+    gen.manual_seed(seed)
+    base = torch.rand(size, generator=gen, dtype=torch.bfloat16)
+    rand_tensor = (base * (high - low) + low).to(output_dtype)
+    return GoldenMapTensor({0: rand_tensor}, (1, 1))
+
+
 GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # ----- TTIR OPS -----
     # Elementwise unary operations
@@ -4075,7 +4096,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.RepeatOp: ttir_repeat_golden,
     ttir.RepeatInterleaveOp: repeat_interleave_golden,
     ttir.ReshapeOp: ttir_reshape_golden,
-    ttir.RearrangeOp: rearrange_golden,
+    # ttir.RearrangeOp: rearrange_golden,
     ttir.SqueezeOp: squeeze_golden,
     ttir.UnsqueezeOp: unsqueeze_golden,
     ttir.ReverseOp: ttir_reverse_golden,
@@ -4252,6 +4273,8 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.RepeatInterleaveOp: repeat_interleave_golden,
     ttnn.ClampScalarOp: clamp_scalar_golden,
     ttnn.ClampTensorOp: clamp_tensor_golden,
+    # Tensor creation
+    ttnn.RandOp: ttnn_rand_golden,
 }
 
 

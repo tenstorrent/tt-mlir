@@ -126,6 +126,8 @@ def create_custom_ttir_pipeline_fn(
             register_device = f"{register_device}{{{device_register_options}}}"
 
         pipeline_str = f"builtin.module({','.join([register_device, pipeline])})"
+        if pipeline == "":
+            pipeline_str = f"builtin.module({register_device})"
         with module.context:
             pm = PassManager.parse(pipeline_str)
             pm.enable_verifier(verify)
