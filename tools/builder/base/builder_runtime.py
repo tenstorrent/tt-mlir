@@ -694,11 +694,13 @@ def execute_py(
     check_atol: bool = False,
     check_rtol: bool = False,
 ):
+    print("1")
     import importlib.util
 
-    spec = importlib.util.find_spec("_ttmlir_runtime")
-    package_path = os.path.dirname(spec.origin)
-    sys.path.append(f"{package_path}/runtime/ttnn")
+    print(os.environ["TT_METAL_HOME"])
+    sys.path.append(f"{os.environ['TT_METAL_HOME']}/ttnn")
+    files = os.listdir(f"{os.environ['TT_METAL_HOME']}/ttnn")
+    print(files)
 
     import ttnn
 
@@ -746,6 +748,8 @@ def execute_py(
                 ):
                     # Use the layout and device from the template_input
                     golden_input = golden_input_dict[0]
+                    print("a")
+                    print(template_input.memory_config())
                     corrected_inputs.append(
                         ttnn.as_tensor(
                             golden_input,
