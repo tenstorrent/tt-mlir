@@ -5,6 +5,7 @@
 #include "operations/data_movement/slice.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
+#include "tt/runtime/detail/ttnn/utils.h"
 
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttnn/operations/data_movement/slice/slice.hpp"
@@ -27,7 +28,12 @@ static void runSliceStaticOp(const ::tt::target::ttnn::SliceOp *op,
   ttsl::Span<const int32_t> endsSpan(ends.data(), ends.size());
   ttsl::Span<const int32_t> stepSpan(step.data(), step.size());
 
-  ::ttnn::Tensor out = ::ttnn::slice(in, beginsSpan, endsSpan, stepSpan);
+  std::optional<::ttnn::MemoryConfig> memoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));
+
+  ::ttnn::Tensor out =
+      ::ttnn::slice(in, beginsSpan, endsSpan, stepSpan, memoryConfig);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
@@ -49,7 +55,11 @@ static void runSliceDynamicOp(const ::tt::target::ttnn::SliceOp *op,
                    [](int32_t v) { return static_cast<uint32_t>(v); });
   }
 
-  ::ttnn::Tensor out = ::ttnn::slice(in, begins, ends, step);
+  std::optional<::ttnn::MemoryConfig> memoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));
+
+  ::ttnn::Tensor out = ::ttnn::slice(in, begins, ends, step, memoryConfig);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
