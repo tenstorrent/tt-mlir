@@ -10,11 +10,9 @@ from ttmlir.ir import *
 from ttmlir.passes import ttir_to_ttmetal_backend_pipeline
 from ttmlir.dialects import ttir
 
-from builder.base.builder import Operand, Shape, TypeInfo
+from builder.base.builder_utils import Operand, Shape, TypeInfo
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import (
-    compile_and_execute_ttir,
-)
+from builder.base.builder_apis import compile_and_execute_ttir
 
 from test_metal_matmul import create_matmul_constrained_inputs
 
@@ -25,38 +23,36 @@ from test_utils import (
 pytestmark = pytest.mark.frontend("ttir")
 
 
-@pytest.mark.parametrize("grid", ["global-data-format-target=bfp_bf8"])
 @pytest.mark.parametrize("shape", [(512, 512)])
 @pytest.mark.parametrize("target", ["ttmetal"])
-def test_triple_exp_f32(grid: str, shape: Shape, target: str, request, device):
-    options = [grid]
+def test_triple_exp_f32(shape: Shape, target: str, request, device):
+    pipeline_options = ["global-data-format-target=bfp_bf8"]
 
-    def triple_exp_f32(
-        in0: Operand,
-        builder: TTIRBuilder,
-    ):
-        shape = (512, 512)
-        input_0 = torch.rand(shape, dtype=torch.float32)
-        exp0 = builder.exp(in0)
-        tcast0 = builder.typecast(
-            exp0, torch.bfloat16, unit_attrs=["preserveDataFormat"]
-        )
-        exp1 = builder.exp(tcast0)
-        tcast1 = builder.typecast(
-            exp1, torch.float32, unit_attrs=["preserveDataFormat"]
-        )
-        exp2 = builder.exp(tcast1)
-        output_0 = torch.exp(torch.exp(torch.exp(input_0)))
-        builder.set_goldens({in0: input_0}, {exp2: output_0})
-        return exp2
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.float32])
+        def triple_exp_f32(
+            in0: Operand,
+            builder: TTIRBuilder,
+        ):
+            input_0 = torch.rand(shape, dtype=torch.float32)
+            exp0 = builder.exp(in0)
+            tcast0 = builder.typecast(
+                exp0, torch.bfloat16, unit_attrs=["preserveDataFormat"]
+            )
+            exp1 = builder.exp(tcast0)
+            tcast1 = builder.typecast(
+                exp1, torch.float32, unit_attrs=["preserveDataFormat"]
+            )
+            exp2 = builder.exp(tcast1)
+            output_0 = torch.exp(torch.exp(torch.exp(input_0)))
+            builder.set_goldens({in0: input_0}, {exp2: output_0})
+            return exp2
 
     compile_and_execute_ttir(
-        triple_exp_f32,
-        [shape],
-        [torch.float32],
+        module,
         target=target,
         device=device,
-        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        pipeline_options=pipeline_options,
         test_base=request.node.name,
         module_dump=True,
         output_root=request.config.getoption("--path"),
@@ -66,30 +62,28 @@ def test_triple_exp_f32(grid: str, shape: Shape, target: str, request, device):
     )
 
 
-@pytest.mark.parametrize("grid", ["global-data-format-target=bfp_bf8"])
 @pytest.mark.parametrize("shape", [(512, 512)])
 @pytest.mark.parametrize("target", ["ttmetal"])
-def test_exp_f32(grid: str, shape: Shape, target: str, request, device):
-    options = [grid]
+def test_exp_f32(shape: Shape, target: str, request, device):
+    pipeline_options = ["global-data-format-target=bfp_bf8"]
 
-    def exp_f32(
-        in0: Operand,
-        builder: TTIRBuilder,
-    ):
-        shape = (512, 512)
-        input_0 = torch.rand(shape, dtype=torch.float32)
-        result = builder.exp(in0)
-        output_0 = torch.exp(input_0)
-        builder.set_goldens({in0: input_0}, {result: output_0})
-        return result
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.float32])
+        def exp_f32(
+            in0: Operand,
+            builder: TTIRBuilder,
+        ):
+            input_0 = torch.rand(shape, dtype=torch.float32)
+            result = builder.exp(in0)
+            output_0 = torch.exp(input_0)
+            builder.set_goldens({in0: input_0}, {result: output_0})
+            return result
 
     compile_and_execute_ttir(
-        exp_f32,
-        [shape],
-        [torch.float32],
+        module,
         target=target,
         device=device,
-        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        pipeline_options=pipeline_options,
         test_base=request.node.name,
         module_dump=True,
         output_root=request.config.getoption("--path"),
@@ -98,30 +92,28 @@ def test_exp_f32(grid: str, shape: Shape, target: str, request, device):
     )
 
 
-@pytest.mark.parametrize("grid", ["global-data-format-target=bfp_bf8"])
 @pytest.mark.parametrize("shape", [(512, 512)])
 @pytest.mark.parametrize("target", ["ttmetal"])
-def test_cos_bf16(grid: str, shape: Shape, target: str, request, device):
-    options = [grid]
+def test_cos_bf16(shape: Shape, target: str, request, device):
+    pipeline_options = ["global-data-format-target=bfp_bf8"]
 
-    def cos_bf16(
-        in0: Operand,
-        builder: TTIRBuilder,
-    ):
-        shape = (512, 512)
-        input_0 = torch.rand(shape, dtype=torch.bfloat16)
-        result = builder.cos(in0)
-        output_0 = torch.cos(input_0).to(torch.bfloat16)
-        builder.set_goldens({in0: input_0}, {result: output_0})
-        return result
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.bfloat16])
+        def cos_bf16(
+            in0: Operand,
+            builder: TTIRBuilder,
+        ):
+            input_0 = torch.rand(shape, dtype=torch.bfloat16)
+            result = builder.cos(in0)
+            output_0 = torch.cos(input_0).to(torch.bfloat16)
+            builder.set_goldens({in0: input_0}, {result: output_0})
+            return result
 
     compile_and_execute_ttir(
-        cos_bf16,
-        [shape],
-        [torch.bfloat16],
+        module,
         target=target,
         device=device,
-        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        pipeline_options=pipeline_options,
         test_base=request.node.name,
         module_dump=True,
         output_root=request.config.getoption("--path"),
@@ -130,7 +122,6 @@ def test_cos_bf16(grid: str, shape: Shape, target: str, request, device):
     )
 
 
-@pytest.mark.skip_config(["ttmetal", "p150"], reason="See issue #5341")
 @pytest.mark.parametrize(
     "shape",
     [
@@ -167,7 +158,6 @@ def test_matmul_f32(
     ]
     compile_and_execute_ttir(
         create_matmul_constrained_inputs(lhs, rhs),
-        [lhs, rhs],
         target=target,
         device=device,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
