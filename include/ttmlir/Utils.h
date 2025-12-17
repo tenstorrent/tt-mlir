@@ -26,6 +26,7 @@
 namespace ttmlir::utils {
 
 constexpr inline llvm::StringLiteral g_constEvalAttrName = "const_eval";
+constexpr inline llvm::StringLiteral g_traceMainAttrName = "trace_main";
 constexpr inline llvm::StringLiteral g_conv2dWeightAttrName =
     "ttir.conv2d_weight";
 constexpr inline llvm::StringLiteral g_cpuHoistFuncCallAttrName =
@@ -126,6 +127,55 @@ std::string formatIterable(Range &&iterable, llvm::StringRef separator = ",") {
   return "(" + content + ")";
 }
 
+/// Returns all positive factors of `value`
+inline llvm::SmallVector<int64_t> getFactors(int64_t value) {
+  value = std::abs(value);
+  if (value == 1) {
+    return {1};
+  }
+  llvm::SmallVector<int64_t> lowFactors, highFactors;
+  int64_t limit = static_cast<int64_t>(std::floor(std::sqrt(value)));
+  for (int64_t i = limit; i >= 1; --i) {
+    if (value % i == 0) {
+      highFactors.push_back(value / i);
+      lowFactors.push_back(i);
+    }
+  }
+  return llvm::to_vector(
+      llvm::concat<int64_t>(llvm::reverse(lowFactors), highFactors));
+}
+
+// Computes all possible combinations of a single element chosen from each
+// 'choice vector' in input possibilities. Each choice vector in the input must
+// be uniquified (no duplicates).
+// Example:
+// computeCartesianProduct(possibilities = {{1, 2}, {3, 4, 5}})
+//   -> {{1, 3}, {1, 4}, {1, 5}, {2, 3}, {2, 4}, {2, 5}}
+template <typename T>
+std::vector<llvm::SmallVector<T>>
+computeCartesianProduct(llvm::ArrayRef<llvm::SmallVector<T>> possibilities) {
+  if (possibilities.empty()) {
+    return {};
+  }
+
+  // Recursively enumerate all combinations of the possibilities.
+  std::vector<llvm::SmallVector<T>> cartesianProduct;
+  llvm::SmallVector<T> currentCombination(possibilities.size(), T());
+  auto enumerateCombinations = [&](auto &&self, size_t dimIndex = 0ul) -> void {
+    if (dimIndex == possibilities.size()) {
+      cartesianProduct.push_back(currentCombination);
+      return;
+    }
+    for (const T &choice : possibilities[dimIndex]) {
+      currentCombination[dimIndex] = choice;
+      self(self, dimIndex + 1);
+    }
+  };
+  enumerateCombinations(enumerateCombinations);
+
+  return cartesianProduct;
+}
+
 // Prepacks `MlirAttribute`s stored in input array into a vector of
 // `mlir::Attribute`s and then wraps that vector in `MlirAttribute` and returns
 // it.
@@ -177,6 +227,65 @@ inline bool isRankedTensor(mlir::Value v) {
 template <typename T>
 inline T identity(T x) {
   return x;
+}
+
+// Used by ascendingStrideIter to implement ascending stride range wrapper.
+template <typename Container>
+class AscendingStrideAdaptor {
+  using ContainerType = std::remove_reference_t<Container>;
+  ContainerType *container;
+  llvm::SmallVector<int64_t> indices;
+
+  // Generates a set of indices that index a device shape (grid x shard) from
+  // the dim with smallest stride to the largest.
+  static llvm::SmallVector<int64_t> strideIterationOrder(int64_t rank) {
+    assert(rank % 2 == 0 && "Rank must be even");
+    int64_t halfRank = rank / 2;
+    llvm::SmallVector<int64_t> permutation;
+    for (int64_t i = rank - 1; i >= 0; --i) {
+      permutation.push_back((i % 2 * halfRank) + i / 2);
+    }
+    return permutation;
+  }
+
+public:
+  AscendingStrideAdaptor(Container &&container)
+      : container(&container),
+        indices(strideIterationOrder(this->container->size())) {}
+
+  class iterator {
+    const int64_t *indexPtr;
+    ContainerType *container;
+
+  public:
+    iterator(const int64_t *indexPtr, ContainerType *container)
+        : indexPtr(indexPtr), container(container) {}
+
+    bool operator!=(const iterator &other) const {
+      return indexPtr != other.indexPtr;
+    }
+
+    iterator &operator++() {
+      ++indexPtr;
+      return *this;
+    }
+
+    auto operator*() const {
+      return std::make_pair(*indexPtr, (*container)[*indexPtr]);
+    }
+  };
+
+  iterator begin() { return iterator(indices.begin(), container); }
+  iterator end() { return iterator(indices.end(), container); }
+};
+
+// Returns a range wrapper that allows iterating over a random access container
+// defining a grid x shard shape in order of ascending stride.
+// Usage: for (auto [idx, elem] : ascendingStrideIter(shape)) { ... }
+template <typename Container>
+inline AscendingStrideAdaptor<Container>
+iterateInAscendingStrideOrder(Container &&container) {
+  return AscendingStrideAdaptor<Container>(std::forward<Container>(container));
 }
 
 // Returns a vector of indices `permutation` such that input[permutation[i]] ==
@@ -306,6 +415,39 @@ getIntegerVector(mlir::ArrayAttr arrayAttr) {
   }
 
   return result;
+}
+
+/// Extracts a tuple of three integers from an mlir::Attribute.
+/// - If `attr` is an IntegerAttr, it is interpreted as (value(attr),
+/// value(attr), value(attr))
+/// - If `attr` is a DenseArrayAttr of size 3, it is returned as (attr[0],
+/// attr[1], attr[2])
+/// - Otherwise, returns an error.
+template <typename ScalarTy, typename VectorElementTy = ScalarTy,
+          typename ReturnTy = ScalarTy>
+inline llvm::Expected<std::tuple<ReturnTy, ReturnTy, ReturnTy>>
+getTripleOfInteger(mlir::Attribute attr) {
+  // If attr is IntegerAttr, interpret it as (attr, attr, attr)
+  if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
+    ReturnTy v = integerAs<ScalarTy>(intAttr.getValue());
+    return std::make_tuple(v, v, v);
+  }
+
+  // If attr is DenseArrayAttr, interpret it as a (attr[0], attr[1], attr[2])
+  // tuple given that it has size 3
+  auto arrayAttr =
+      mlir::dyn_cast<::mlir::detail::DenseArrayAttrImpl<VectorElementTy>>(attr);
+  if (!arrayAttr) {
+    return llvm::createStringError("Unexpected attribute type");
+  }
+
+  if (arrayAttr.size() == 3) {
+    return std::make_tuple(arrayAttr[0], arrayAttr[1], arrayAttr[2]);
+  }
+
+  return llvm::createStringError(
+      "Expected integer or array of size 3, but got array of size %lu",
+      arrayAttr.size());
 }
 
 /// Extracts a tuple of four integers from an mlir::Attribute.
@@ -465,6 +607,13 @@ inline size_t countUsers(mlir::Value value) {
 inline bool isConstEvalFunc(mlir::Operation *op) {
   if (auto funcOp = mlir::dyn_cast<mlir::func::FuncOp>(op)) {
     return funcOp->hasAttr(g_constEvalAttrName);
+  }
+  return false;
+}
+
+inline bool isTraceMainFunc(mlir::Operation *op) {
+  if (auto funcOp = mlir::dyn_cast<mlir::func::FuncOp>(op)) {
+    return funcOp->hasAttr(g_traceMainAttrName);
   }
   return false;
 }

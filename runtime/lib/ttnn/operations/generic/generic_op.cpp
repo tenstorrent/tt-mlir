@@ -17,6 +17,7 @@ namespace tt::runtime::ttnn::operations::generic_op {
 static ::tt::tt_metal::SemaphoreDescriptor createSemaphoreDescriptor(
     const ::tt::target::ttnn::SemaphoreDescriptor &kernelSemaphoreDescriptor) {
   return ::tt::tt_metal::SemaphoreDescriptor{
+      .id = kernelSemaphoreDescriptor.id(),
       .core_type = tt::runtime::ttnn::utils::toCoreType(
           kernelSemaphoreDescriptor.core_type()),
       .core_ranges = tt::runtime::ttnn::utils::toTTNNCoreRangeSet(
@@ -32,7 +33,8 @@ static ::tt::tt_metal::SemaphoreDescriptor createSemaphoreDescriptor(
   tt::tt_metal::CBFormatDescriptor cbFormatDescriptor = {
       .buffer_index = bufferIndex,
       .data_format = dataFormat,
-      .page_size = pageSize};
+      .page_size = pageSize,
+      .tile = std::nullopt};
   return cbFormatDescriptor;
 }
 
@@ -208,6 +210,7 @@ createKernelDescriptor(const ::tt::target::ttnn::KernelDescriptor &kernelDesc,
       .source_type = convertSourceType(kernelDesc.source_type()),
       .core_ranges = coreRanges,
       .compile_time_args = compileTimeArgs,
+      .named_compile_time_args = {},
       .defines = {},
       .runtime_args = runtimeArgs,
       .common_runtime_args = commonRuntimeArgs,
@@ -290,19 +293,8 @@ void run(const ::tt::target::ttnn::GenericOp *op, ProgramContext &context) {
 
   auto *programDesc = op->program();
 
-  // Note: need to hash tensor buffers: even if we override the arg here during
-  // ProgramDescriptor creation, once the Program is cached, in ttnn, it won't
-  // matter, unless we implement `override_runtime_arguments` in ttnn.generic
-  // op.
-  std::vector<void *> tensorBuffers(ioTensors.size());
-  std::vector<uint32_t> tensorBufferAddresses(ioTensors.size());
-  for (size_t i = 0; i < ioTensors.size(); ++i) {
-    tensorBuffers[i] = ioTensors[i].buffer();
-    tensorBufferAddresses[i] = ioTensors[i].buffer()->address();
-  }
   std::size_t hash = ttsl::hash::hash_objects_with_default_seed(
-      programDesc, programDescCache, ioTensors, tensorBuffers,
-      tensorBufferAddresses);
+      programDesc, programDescCache, ioTensors);
   std::shared_ptr<void> cachedPtr = programDescCache->get(hash);
 
   std::shared_ptr<::tt::tt_metal::ProgramDescriptor> programDescriptor;

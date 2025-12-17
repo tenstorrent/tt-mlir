@@ -67,10 +67,17 @@ void populateTTNNModule(nb::module_ &m) {
       .def_static(
           "get",
           [](MlirContext ctx, MlirAttribute tensorMemoryLayoutAttr,
-             MlirAttribute bufferTypeAttr, MlirAttribute shardSpecAttr) {
+             MlirAttribute bufferTypeAttr,
+             std::optional<MlirAttribute> shardSpec = std::nullopt) {
+            MlirAttribute shardSpecAttr = {nullptr};
+            if (shardSpec.has_value()) {
+              shardSpecAttr = shardSpec.value();
+            }
             return ttmlirTTNNMemoryConfigAttrGet(ctx, tensorMemoryLayoutAttr,
                                                  bufferTypeAttr, shardSpecAttr);
-          })
+          },
+          nb::arg("ctx"), nb::arg("tensorMemoryLayoutAttr"),
+          nb::arg("bufferTypeAttr"), nb::arg("shardSpec") = nb::none())
       .def_prop_ro("buffer_type", &tt::ttnn::MemoryConfigAttr::getBufferType)
       .def_prop_ro("tensor_memory_layout",
                    &tt::ttnn::MemoryConfigAttr::getTensorMemoryLayout)
@@ -110,7 +117,8 @@ void populateTTNNModule(nb::module_ &m) {
           [](MlirContext ctx, MlirAffineMap linear, MlirAttribute grid,
              MlirType memref, std::optional<unsigned> memLayout = std::nullopt,
              std::optional<tt::ttcore::TensorMeshAttr> tensorMesh =
-                 std::nullopt) {
+                 std::nullopt,
+             std::optional<bool> exactGrid = std::nullopt) {
             tt::ttnn::TensorMemoryLayoutAttr memLayoutAttr;
             if (memLayout.has_value()) {
               memLayoutAttr = tt::ttnn::TensorMemoryLayoutAttr::get(
@@ -125,10 +133,12 @@ void populateTTNNModule(nb::module_ &m) {
                 unwrap(ctx), mlir::cast<AffineMap>(unwrap(linear)),
                 mlir::cast<tt::ttcore::GridAttr>(unwrap(grid)),
                 mlir::cast<MemRefType>(unwrap(memref)), memLayoutAttr,
-                tensorMeshAttr));
+                tensorMeshAttr, /*ignorePhysicalLayout=*/false,
+                exactGrid.value_or(false)));
           },
           nb::arg("ctx"), nb::arg("linear"), nb::arg("grid"), nb::arg("memref"),
-          nb::arg("memLayout") = nb::none(), nb::arg("tensorMesh") = nb::none())
+          nb::arg("memLayout") = nb::none(), nb::arg("tensorMesh") = nb::none(),
+          nb::arg("exactGrid") = nb::none())
       .def_static(
           "get",
           [](MlirContext ctx, std::vector<std::int64_t> shape, MlirType type,
@@ -196,7 +206,7 @@ void populateTTNNModule(nb::module_ &m) {
              tt::ttnn::CoreRangeSetAttr coreGrid, BoolAttr transposeShards,
              std::optional<tt::ttnn::Layout> outputLayout,
              BoolAttr enableActDoubleBuffer, BoolAttr enableWeightsDoubleBuffer,
-             BoolAttr inPlace, BoolAttr enableKernelStrideFolding) {
+             BoolAttr enableKernelStrideFolding, BoolAttr configTensorsInDram) {
             MLIRContext *context = unwrap(ctx);
 
             return wrap(tt::ttnn::Conv2dConfigAttr::get(
@@ -204,7 +214,8 @@ void populateTTNNModule(nb::module_ &m) {
                 reallocateHaloOutput, actBlockHOverride, actBlockWDiv,
                 reshardIfNotOptimal, overrideShardingConfig, shardLayout,
                 coreGrid, transposeShards, outputLayout, enableActDoubleBuffer,
-                enableWeightsDoubleBuffer, inPlace, enableKernelStrideFolding));
+                enableWeightsDoubleBuffer, enableKernelStrideFolding,
+                configTensorsInDram));
           })
       .def_prop_ro("weights_dtype_as_int",
                    [](tt::ttnn::Conv2dConfigAttr self)
@@ -313,14 +324,6 @@ void populateTTNNModule(nb::module_ &m) {
                        return nb::none();
                      }
                      return self.getEnableWeightsDoubleBuffer().getValue();
-                   })
-      .def_prop_ro("in_place",
-                   [](tt::ttnn::Conv2dConfigAttr self)
-                       -> std::variant<nb::object, bool> {
-                     if (!self.getInPlace()) {
-                       return nb::none();
-                     }
-                     return self.getInPlace().getValue();
                    });
 
   tt_attribute_class<tt::ttnn::CoreRangeAttr>(m, "CoreRangeAttr")

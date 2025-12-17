@@ -94,22 +94,22 @@ struct ValidationResult {
 // "NotSupported" is not an error - it indicates expected limitations.
 ValidationResult validateOperation(Operation *op,
                                    llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
-                                   const OpConfig &config,
-                                   float tensorL1UsageCap);
+                                   const OpConfig &config);
 
 // Test multiple attributes with all layouts.
 // op: Operation to validate.
 // inputLayouts: All input tensor layouts for the operation.
-// opSpecificAttrs: List of op configs to test (they don't have to be full, i.e.
-//                  may contain only op-specific attrs).
+// opConfigs: List of op configs to test (they don't have to be full, i.e.
+//            may contain only op-specific attrs).
 // referenceConfigs: Reference configurations to search for matches. If empty,
 //                   only validation is performed without matching to reference.
 // Returns: Vector of ValidationResults, one per op config tested.
 // Each ValidationResult can have different status - check individually.
-std::vector<ValidationResult> validateWithMultipleAttributes(
-    Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
-    llvm::ArrayRef<OpConfig> opConfigs,
-    llvm::ArrayRef<OpConfig> referenceConfigs, float tensorL1UsageCap);
+std::vector<ValidationResult>
+validateWithMultipleAttributes(Operation *op,
+                               llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+                               llvm::ArrayRef<OpConfig> opConfigs,
+                               llvm::ArrayRef<OpConfig> referenceConfigs);
 
 } // namespace op_constraint_validation
 

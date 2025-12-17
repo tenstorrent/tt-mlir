@@ -150,12 +150,18 @@ TTNNOperandsWorkaroundsFactory::createEmbeddingOpOperandsWorkarounds() {
   inputRowMajorInt32Workaround.tensorLayoutWorkaround = Layout::RowMajor;
   inputRowMajorInt32Workaround.tensorDataTypeWorkaround =
       ttcore::DataType::UInt32;
-  TTNNOperandWorkarounds bf16Workaround =
-      TTNNOperandWorkarounds(ttcore::DataType::BFloat16);
+  TTNNOperandWorkarounds weightRowMajorBf16Workaround;
+  weightRowMajorBf16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+  weightRowMajorBf16Workaround.tensorDataTypeWorkaround =
+      ttcore::DataType::BFloat16;
+  TTNNOperandWorkarounds outputTiledBf16Workaround;
+  outputTiledBf16Workaround.tensorLayoutWorkaround = Layout::Tile;
+  outputTiledBf16Workaround.tensorDataTypeWorkaround =
+      ttcore::DataType::BFloat16;
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds(0, 0)
       .addInputOperandWorkaround(inputRowMajorInt32Workaround)
-      .addInputOperandWorkaround(bf16Workaround)
-      .addOutputOperandWorkaround(bf16Workaround);
+      .addInputOperandWorkaround(weightRowMajorBf16Workaround)
+      .addOutputOperandWorkaround(outputTiledBf16Workaround);
 }
 
 // Factory method to create a set of workarounds for embedding backward
@@ -202,7 +208,7 @@ TTNNOperandsWorkaroundsFactory::createUpsampleOpOperandsWorkarounds() {
 }
 
 // Factory method to create a set of workarounds for ScatterOp. The ScatterOp
-// expects the input to be in row-major layout if using f32.
+// expects the input to be in row-major layout if using f32, bf16, or int32.
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createScatterOpOperandsWorkarounds(
     mlir::Operation *op) {
@@ -218,8 +224,14 @@ TTNNOperandsWorkaroundsFactory::createScatterOpOperandsWorkarounds(
       mlir::cast<ttnn::TTNNLayoutAttr>(sourceType.getEncoding());
 
   bool isLayoutWorkaroundRequired =
-      (inputLayoutAttr.isTiled() && inputType.getElementType().isF32()) ||
-      (sourceLayoutAttr.isTiled() && sourceType.getElementType().isF32());
+      (inputLayoutAttr.isTiled() &&
+       (inputType.getElementType().isF32() ||
+        inputType.getElementType().isBF16() ||
+        inputType.getElementType().isInteger(32))) ||
+      (sourceLayoutAttr.isTiled() &&
+       (sourceType.getElementType().isF32() ||
+        sourceType.getElementType().isBF16() ||
+        sourceType.getElementType().isInteger(32)));
 
   TTNNOperandWorkarounds operandWorkaround;
 
@@ -447,7 +459,7 @@ TTNNOperandsWorkaroundsFactory::createUpdateCacheOpOperandsWorkarounds(
 
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createPagedUpdateCacheOpOperandsWorkarounds(
-    MLIRContext *context) {
+    Operation *op) {
   TTNNOperandWorkarounds nullWorkarounds;
   TTNNOperandWorkarounds
       inputWorkarounds; // Input sharding requires specific virtual grid. This
@@ -459,11 +471,17 @@ TTNNOperandsWorkaroundsFactory::createPagedUpdateCacheOpOperandsWorkarounds(
 
   pageTableWorkarounds.tensorLayoutWorkaround = Layout::RowMajor;
 
+  if (cast<ttnn::PagedUpdateCacheOp>(op).getPageTable()) {
+    return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+        .addInputOperandWorkaround(nullWorkarounds)
+        .addInputOperandWorkaround(inputWorkarounds)
+        .addInputOperandWorkaround(updateIndexWorkarounds)
+        .addInputOperandWorkaround(pageTableWorkarounds);
+  }
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(nullWorkarounds)
       .addInputOperandWorkaround(inputWorkarounds)
-      .addInputOperandWorkaround(updateIndexWorkarounds)
-      .addInputOperandWorkaround(pageTableWorkarounds);
+      .addInputOperandWorkaround(updateIndexWorkarounds);
 }
 
 TTNNOperandsWorkarounds
@@ -511,6 +529,15 @@ binaryOpDTypeWorkaround(mlir::Operation *op, mlir::Type elementType) {
       return mlir::tt::ttcore::DataType::UInt32;
     }
     return {};
+  }
+
+  // GeluBackwardOp requires bfloat16 data type.
+  // ttnn.experimental.gelu_bw only supports BFLOAT16.
+  if (isa<ttnn::GeluBackwardOp>(op)) {
+    if (dType == mlir::tt::ttcore::DataType::BFloat16) {
+      return {};
+    }
+    return mlir::tt::ttcore::DataType::BFloat16;
   }
 
   // All remaining binary ops.

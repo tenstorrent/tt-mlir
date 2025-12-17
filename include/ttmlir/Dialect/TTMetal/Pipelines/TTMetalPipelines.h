@@ -117,13 +117,27 @@ struct TTIRToTTMetalPipelineOptions
                      "(>=1). Default is 2."),
       llvm::cl::init(2)};
 
-  // The allocator will not consider generic outputs in L1 eligible for spilling
-  // unless this option is turned on. DRAM outputs are always spilled.
+  // The allocator will not consider generic outputs eligible for spilling
+  // unless this option is turned on.
   Option<bool> allowL1OutputSpilling{
       *this, "allow-l1-output-spilling",
       llvm::cl::desc(
           "Make generic outputs in L1 eligible for spilling to DRAM."),
       llvm::cl::init(false)};
+  // The allocator will attempt to have all generic operands use streams by
+  // default. Using 'infer' will restore the old behavior of trying to infer
+  // stream requirements from static generic structure (broadcast, reduction
+  // dims, etc).
+  Option<std::string> streamInsertPolicy{
+      *this, "stream-insert-policy",
+      llvm::cl::desc("Policy for deciding when to insert operand streams "
+                     "('always', 'infer')."),
+      llvm::cl::init("infer")};
+  // If a size-2 list given, the allocator will use it as the
+  // available L1 [base, max) address range.
+  ListOption<std::int64_t> availableL1AddrRange{
+      *this, "available-l1-addr-range",
+      llvm::cl::desc("Assume given L1 addressable range [base, max).")};
   // If a positive value given, the allocator will use it for L1 capacity
   // instead of reading from `ChipDescAttr`. Used for testing.
   Option<std::int64_t> testAssumel1Capacity{
@@ -148,6 +162,12 @@ struct TTIRToTTMetalPipelineOptions
       llvm::cl::desc("Target data format for global conversion: "
                      "f32, bf16, or bfp_bf8. Disabled by default."),
       llvm::cl::init("")};
+
+  // Option to enable/disable operation scheduling optimization.
+  Option<bool> enableOpScheduler{
+      *this, "enable-op-scheduler",
+      llvm::cl::desc("Enable operation scheduling optimization"),
+      llvm::cl::init(true)};
 };
 
 void createTTIRBufferizationPipeline(

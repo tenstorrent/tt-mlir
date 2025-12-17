@@ -1,5 +1,6 @@
 # Misc
 /env/ @nsmithtt @vwellsTT
+/env/patches/shardy* @tenstorrent/forge-developers-mlir-stablehlo
 *.fbs @jnie-TT @nsmithtt
 /.github/CODEOWNERS @vmilosevic @tapspatel @nsmithtt @sdjordjevicTT @tt-mpantic
 LICENSE @nsmithtt
@@ -156,7 +157,7 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 
 # Runtime
 /runtime/ @tenstorrent/forge-developers-mlir-runtime
-/runtime/tools/ @tapspatel @ctodTT
+/runtime/tools/ @tapspatel @ctodTT @jgrimTT @dlokeTT
 
 # PyKernel & ttnn-jit
 /tools/pykernel/ @xanderchin @vtangTT
@@ -165,10 +166,10 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /test/ttnn-jit/ @xanderchin @vtangTT @arminaleTT
 
 # TTIRBuilder
-/tools/builder @ctodTT @tapspatel @jgrimTT
+/tools/builder @ctodTT @tapspatel @jgrimTT @dlokeTT
 
 # ttrt
-/tools/ttrt @ctodTT @tapspatel @jgrimTT
+/tools/ttrt @ctodTT @tapspatel @jgrimTT @dlokeTT
 
 # tt-explorer
 /tools/explorer/ @tenstorrent/forge-developers-mlir-explorer

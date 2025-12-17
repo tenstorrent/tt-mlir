@@ -9,6 +9,7 @@
 #include <sstream>
 
 #include "tt/runtime/debug.h"
+#include "tt/runtime/detail/common/logger.h"
 
 namespace tt::runtime::debug {
 

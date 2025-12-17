@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
+#include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
@@ -57,8 +58,8 @@ bool mlir::tt::ttir::AddOp::isQuantizedRewriteFavorable(
 }
 
 mlir::Operation *mlir::tt::ttir::AddOp::rewriteWithQuantizedInputs(
-    mlir::PatternRewriter &rewriter, mlir::ArrayRef<mlir::Value> sourceOperands,
-    mlir::ValueRange outputOperands) {
+    mlir::PatternRewriter &rewriter,
+    mlir::ArrayRef<mlir::Value> sourceOperands) {
   // Two cases:
   // 1. One operand is quantized and the other is not: apply quantization and
   //    proceed to case two.
@@ -100,8 +101,8 @@ mlir::Operation *mlir::tt::ttir::AddOp::rewriteWithQuantizedInputs(
         mlir::cast<mlir::RankedTensorType>(dequantVal.getType()).getShape(),
         quantElemQ, quantType.getEncoding());
 
-    auto quantizedInput = ttir::utils::createDPSOp<ttir::QuantizeOp>(
-        rewriter, getLoc(), newType, dequantVal);
+    auto quantizedInput =
+        rewriter.create<ttir::QuantizeOp>(getLoc(), newType, dequantVal);
 
     // Update operands.
     if (lhsElemQ) {
@@ -112,14 +113,12 @@ mlir::Operation *mlir::tt::ttir::AddOp::rewriteWithQuantizedInputs(
     }
   }
   // Now both values are quantized (and are equivalent).
-  Value output = outputOperands.front();
-  RankedTensorType oldType = mlir::cast<RankedTensorType>(output.getType());
+  RankedTensorType oldType = mlir::cast<RankedTensorType>(getType());
   RankedTensorType newResultType = RankedTensorType::get(
       oldType.getShape(), lhsElemQ, oldType.getEncoding());
 
   // Emit new AddOp with quantized types.
-  auto newAdd = ttir::utils::createDPSOp<ttir::AddOp>(rewriter, getLoc(),
-                                                      newResultType, lhs, rhs);
+  auto newAdd = rewriter.create<ttir::AddOp>(getLoc(), newResultType, lhs, rhs);
   return newAdd.getOperation();
 }
 
@@ -212,9 +211,8 @@ void mlir::tt::ttir::ClampScalarOp::getCanonicalizationPatterns(
     auto newMax = std::min(producerMax, consumerMax);
 
     // Replace with a single ClampScalarOp with the new bounds
-    rewriter.replaceOpWithNewOp<ClampScalarOp>(op, op.getResult().getType(),
-                                               producerOp.getInput(),
-                                               op.getOutput(), newMin, newMax);
+    rewriter.replaceOpWithNewOp<ClampScalarOp>(
+        op, op.getResult().getType(), producerOp.getInput(), newMin, newMax);
     return mlir::success();
   });
 
@@ -226,7 +224,7 @@ void mlir::tt::ttir::ClampScalarOp::getCanonicalizationPatterns(
 
     if (minVal.convertToFloat() == 0.0f && maxVal.convertToFloat() == 6.0f) {
       rewriter.replaceOpWithNewOp<ttir::Relu6Op>(op, op.getResult().getType(),
-                                                 op.getInput(), op.getOutput());
+                                                 op.getInput());
       return mlir::success();
     }
 
@@ -374,8 +372,8 @@ void mlir::tt::ttir::ClampTensorOp::getCanonicalizationPatterns(
         FloatAttr minValue = getConstantValue(op.getMin());
         FloatAttr maxValue = getConstantValue(op.getMax());
         if (minValue && maxValue) {
-          ttir::utils::replaceOpWithNewDPSOp<ttir::ClampScalarOp>(
-              rewriter, op, outputType, op.getInput(), minValue, maxValue);
+          rewriter.replaceOpWithNewOp<ttir::ClampScalarOp>(
+              op, outputType, op.getInput(), minValue, maxValue);
 
           return success();
         }
@@ -400,8 +398,8 @@ void mlir::tt::ttir::ClampTensorOp::getCanonicalizationPatterns(
         assert(legalityResult.succeeded() &&
                "Max attribute cannot be broadcasted to provided dimensions.");
 
-        ttir::utils::replaceOpWithNewDPSOp<ttir::ClampTensorOp>(
-            rewriter, op, outputType, op.getInput(), minTensor, maxTensor);
+        rewriter.replaceOpWithNewOp<ttir::ClampTensorOp>(
+            op, outputType, op.getInput(), minTensor, maxTensor);
         return success();
       });
 }
@@ -597,26 +595,27 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
   }
 
   auto [inputDims, weightDims, biasDims] =
-      verification_utils::getConv2dInputDims(this);
+      verification_utils::conv2d::getConv2dInputDims(this);
   verification_utils::OutputTensorDims outputDims =
-      verification_utils::getConv2dOutputDims(this);
-  auto expectedParams = verification_utils::getConv2dParams(this);
+      verification_utils::conv2d::getConv2dOutputDims(this);
+  auto expectedParams = verification_utils::conv2d::getConv2dParams(this);
   if (auto error = expectedParams.takeError()) {
     return emitOpError() << llvm::toString(std::move(error));
   }
-  verification_utils::Conv2dParams params = *expectedParams;
+  verification_utils::conv2d::Conv2dParams params = *expectedParams;
 
-  if (verifyConv2dParams(this, params).failed()) {
+  if (verification_utils::conv2d::verifyConv2dParams(this, params).failed()) {
     return mlir::failure();
   }
 
-  if (verifyConv2dInputDims(this, inputDims, weightDims, biasDims, params)
+  if (verification_utils::conv2d::verifyConv2dInputDims(
+          this, inputDims, weightDims, biasDims, params)
           .failed()) {
     return mlir::failure();
   }
 
-  if (verifyOutputDimensions(this, inputDims, weightDims, biasDims, outputDims,
-                             params)
+  if (verification_utils::conv2d::verifyOutputDimensions(
+          this, inputDims, weightDims, biasDims, outputDims, params)
           .failed()) {
     return mlir::failure();
   }
@@ -634,6 +633,63 @@ int64_t mlir::tt::ttir::Conv2dOp::getOutputChannelSize() {
 bool mlir::tt::ttir::Conv2dOp::isBiasCompatible(llvm::ArrayRef<int64_t> bias) {
   return bias[0] == 1 && bias[1] == 1 && bias[2] == 1 &&
          bias[3] == getOutputChannelSize();
+}
+
+//===----------------------------------------------------------------------===//
+// Conv3dOp
+//===----------------------------------------------------------------------===//
+
+// Conv3dOp verification
+::mlir::LogicalResult mlir::tt::ttir::Conv3dOp::verify() {
+  // Verify tensor ranks
+  if (this->getInput().getType().getRank() != 5) {
+    return this->emitOpError("input must be a 5D tensor");
+  }
+
+  if (this->getWeight().getType().getRank() != 5) {
+    return this->emitOpError("weight must be a 5D tensor");
+  }
+
+  // Bias is optional
+  if (this->getBias() && this->getBias().getType().getRank() != 5) {
+    return this->emitOpError(
+        "bias must be a 5D tensor with shape (1,1,1,1,C_out)");
+  }
+
+  if (this->getResult().getType().getRank() != 5) {
+    return this->emitOpError("output must be a 5D tensor");
+  }
+
+  auto [inputDims, weightDims, biasDims] =
+      verification_utils::conv3d::getConv3dInputDims(this);
+
+  verification_utils::conv3d::OutputTensorDims3d outputDims =
+      verification_utils::conv3d::getConv3dOutputDims(this);
+
+  auto expectedParams = verification_utils::conv3d::getConv3dParams(this);
+
+  if (auto error = expectedParams.takeError()) {
+    return emitOpError() << llvm::toString(std::move(error));
+  }
+
+  verification_utils::conv3d::Conv3dParams params = *expectedParams;
+  if (verification_utils::conv3d::verifyConv3dParams(this, params).failed()) {
+    return mlir::failure();
+  }
+
+  if (verification_utils::conv3d::verifyConv3dInputDims(
+          this, inputDims, weightDims, biasDims, params)
+          .failed()) {
+    return mlir::failure();
+  }
+
+  if (verification_utils::conv3d::verifyOutputDimensions(
+          this, inputDims, weightDims, biasDims, outputDims, params)
+          .failed()) {
+    return mlir::failure();
+  }
+
+  return mlir::success();
 }
 
 //===----------------------------------------------------------------------===//
@@ -753,7 +809,7 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
   }
 
   return verifyQuantizeOpCommon([&]() { return emitOpError(); },
-                                getInput().getType(), getOutput().getType(),
+                                getInput().getType(), getType(),
                                 /*axis=*/std::nullopt, /*isUnrolled=*/false);
 }
 
@@ -776,8 +832,8 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
   }
 
   return verifyQuantizeOpCommon([&]() { return emitOpError(); },
-                                getInput().getType(), getOutput().getType(),
-                                getAxis(), /*isUnrolled=*/true);
+                                getInput().getType(), getType(), getAxis(),
+                                /*isUnrolled=*/true);
 }
 
 // DequantizeOp verification.
@@ -798,7 +854,7 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
   }
 
   return verifyQuantizeOpCommon([&]() { return emitOpError(); },
-                                getInput().getType(), getOutput().getType(),
+                                getInput().getType(), getType(),
                                 /*axis=*/std::nullopt, /*isUnrolled=*/false);
 }
 
@@ -830,7 +886,7 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
 // RequantizeOp folder for identity requantize.
 ::mlir::OpFoldResult mlir::tt::ttir::RequantizeOp::fold(FoldAdaptor adaptor) {
   // if types of input and output are equivalent, return input.
-  if (getInput().getType() == getOutput().getType()) {
+  if (getInput().getType() == getType()) {
     return getInput();
   }
   return nullptr;
@@ -856,7 +912,7 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
   }
 
   return verifyQuantizeOpCommon([&]() { return emitOpError(); },
-                                getInput().getType(), getOutput().getType(),
+                                getInput().getType(), getType(),
                                 /*axis=*/std::nullopt, /*isUnrolled=*/false);
 }
 
@@ -883,7 +939,7 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
   }
 
   return verifyQuantizeOpCommon([&]() { return emitOpError(); },
-                                getInput().getType(), getOutput().getType(),
+                                getInput().getType(), getType(),
                                 /*axis=*/getAxis(), /*isUnrolled=*/true);
 }
 
@@ -895,7 +951,7 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
 mlir::LogicalResult mlir::tt::ttir::ConvTranspose2dOp::verify() {
   mlir::RankedTensorType inputType = getInput().getType();
   mlir::RankedTensorType weightType = getWeight().getType();
-  mlir::RankedTensorType outputType = getOutput().getType();
+  mlir::RankedTensorType outputType = getType();
   std::optional<mlir::RankedTensorType> bias =
       getBias().getImpl() ? std::make_optional(getBias().getType())
                           : std::nullopt;
@@ -1102,8 +1158,7 @@ bool mlir::tt::ttir::ConvolutionOp::isQuantizedRewriteFavorable(
 }
 
 mlir::Operation *mlir::tt::ttir::ConvolutionOp::rewriteWithQuantizedInputs(
-    mlir::PatternRewriter &rewriter, mlir::ArrayRef<Value> sourceOperands,
-    mlir::ValueRange outputOperands) {
+    mlir::PatternRewriter &rewriter, mlir::ArrayRef<Value> sourceOperands) {
   // rewrite the convolution op to be quantized.
   // create the output quantized type, whose scale is input * weight and
   // storage type is i32.
@@ -1138,13 +1193,12 @@ mlir::Operation *mlir::tt::ttir::ConvolutionOp::rewriteWithQuantizedInputs(
   RankedTensorType newType =
       RankedTensorType::get(oldConvOutputType.getShape(), quantConvOutputType,
                             oldConvOutputType.getEncoding());
-  auto quantConv =
-      mlir::tt::ttir::utils::createDPSOp<mlir::tt::ttir::ConvolutionOp>(
-          rewriter, getLoc(), newType, sourceOperands[0], sourceOperands[1],
-          getBias(), getWindowStridesAttr(), getPaddingAttr(),
-          getInputDilationAttr(), getWeightDilationAttr(),
-          getWindowReversalAttr(), getConvolutionLayoutAttr(),
-          getFeatureGroupCountAttr(), getBatchGroupCountAttr());
+  auto quantConv = rewriter.create<mlir::tt::ttir::ConvolutionOp>(
+      getLoc(), newType, sourceOperands[0], sourceOperands[1], getBias(),
+      getWindowStridesAttr(), getPaddingAttr(), getInputDilationAttr(),
+      getWeightDilationAttr(), getWindowReversalAttr(),
+      getConvolutionLayoutAttr(), getFeatureGroupCountAttr(),
+      getBatchGroupCountAttr());
   return quantConv.getOperation();
 }
 
@@ -1181,7 +1235,7 @@ mlir::Operation *mlir::tt::ttir::ConvolutionOp::rewriteWithQuantizedInputs(
 
   if (biasType.has_value()) {
     // Check that bias has the same rank as the output tensor
-    auto outputType = mlir::cast<mlir::RankedTensorType>(getOutput().getType());
+    auto outputType = getType();
     if (biasType->getRank() != outputType.getRank()) {
       return emitOpError(
           "Bias tensor must have the same rank as the output tensor");
@@ -1300,7 +1354,7 @@ static bool isIdentityPooling(mlir::tt::ttir::PoolingOp op) {
                        "the rank of the input tensor.");
   }
 
-  if (getInputs().size() != getOutputs().size()) {
+  if (getInputs().size() != getResults().size()) {
     return emitOpError("Number of inputs and outputs must be the same.");
   }
 
@@ -1315,35 +1369,28 @@ static bool isIdentityPooling(mlir::tt::ttir::PoolingOp op) {
 // Returns:
 // - A pointer to the newly created quantized PoolingOp.
 mlir::Operation *mlir::tt::ttir::PoolingOp::rewriteWithQuantizedInputs(
-    mlir::PatternRewriter &rewriter, mlir::ArrayRef<mlir::Value> sourceOperands,
-    mlir::ValueRange outputOperands) {
+    mlir::PatternRewriter &rewriter,
+    mlir::ArrayRef<mlir::Value> sourceOperands) {
   // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
   // Can only commute if the pooling method is Max.
   if (this->getPoolingMethod() != PoolingMethod::Max) {
     return nullptr;
   }
-  SmallVector<Value> updatedOutputs;
   SmallVector<Type> resultTypes;
-  for (auto [in, out] : llvm::zip(sourceOperands, outputOperands)) {
+  for (auto [idx, in] : llvm::enumerate(sourceOperands)) {
     // Can only commute in the per tensor quantized case.
     if (auto perAxis = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(
             in.getType())) {
       return nullptr;
     }
     auto inType = mlir::cast<RankedTensorType>(in.getType());
-    auto outType = mlir::cast<RankedTensorType>(out.getType());
+    auto outType = mlir::cast<RankedTensorType>(getResult(idx).getType());
     auto newResultType = RankedTensorType::get(
         outType.getShape(), inType.getElementType(), outType.getEncoding());
     resultTypes.push_back(newResultType);
-    auto empty = out.getDefiningOp<ttir::EmptyOp>();
-    assert(empty && "Output must be an EmptyOp");
-    auto newEmpty = rewriter.create<ttir::EmptyOp>(
-        empty.getLoc(), newResultType.getShape(),
-        newResultType.getElementType(), newResultType.getEncoding());
-    updatedOutputs.push_back(newEmpty);
   }
   auto newOp = rewriter.create<mlir::tt::ttir::PoolingOp>(
-      getLoc(), resultTypes, sourceOperands, updatedOutputs, getPoolingMethod(),
+      getLoc(), resultTypes, sourceOperands, getPoolingMethod(),
       getWindowDimensions(), getWindowStrides(), getBaseDilations(),
       getWindowDilations(), getPadding());
   // NOLINTEND(clang-analyzer-core.StackAddressEscape)
@@ -1374,34 +1421,35 @@ static mlir::LogicalResult verifyPooling2dOp(PoolingOp *op) {
   }
 
   // Verify flattened compatibility info if present.
-  if (mlir::failed(verification_utils::verifyFlattenedCompatInfo(op))) {
+  if (mlir::failed(verification_utils::pool2d::verifyFlattenedCompatInfo(op))) {
     return mlir::failure();
   }
 
   // Get input and output dimensions with flattened support.
   verification_utils::InputTensorDims inputDims =
-      verification_utils::getPool2dInputDims(op);
+      verification_utils::pool2d::getPool2dInputDims(op);
   verification_utils::OutputTensorDims outputDims =
-      verification_utils::getPool2dOutputDims(op);
-  auto expectedParams = verification_utils::getPool2dParams(op);
+      verification_utils::pool2d::getPool2dOutputDims(op);
+  auto expectedParams = verification_utils::pool2d::getPool2dParams(op);
   if (auto error = expectedParams.takeError()) {
     return op->emitOpError() << llvm::toString(std::move(error));
   }
-  verification_utils::Pool2dParams params = *expectedParams;
+  verification_utils::pool2d::Pool2dParams params = *expectedParams;
 
   // Verify pooling parameters.
-  if (mlir::failed(verification_utils::verifyPool2dParams(op, params))) {
+  if (mlir::failed(
+          verification_utils::pool2d::verifyPool2dParams(op, params))) {
     return mlir::failure();
   }
 
   // Verify input dimensions constraints.
-  if (mlir::failed(
-          verification_utils::verifyPool2dInputDims(op, inputDims, params))) {
+  if (mlir::failed(verification_utils::pool2d::verifyPool2dInputDims(
+          op, inputDims, params))) {
     return mlir::failure();
   }
 
   // Verify output dimensions match expected calculations.
-  if (mlir::failed(verification_utils::verifyPool2dOutputDims(
+  if (mlir::failed(verification_utils::pool2d::verifyPool2dOutputDims(
           op, inputDims, outputDims, params))) {
     return mlir::failure();
   }
@@ -1492,6 +1540,7 @@ static mlir::LogicalResult verifyPooling2dOp(PoolingOp *op) {
   // Get the rank of the first input tensor
   // and check that all input tensors have the same rank
   // and that all dimensions except `dim` are the same.
+  int64_t dimSizeSum = firstTensor.getDimSize(dim);
   for (auto input : inputs.drop_front()) {
     auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
 
@@ -1502,12 +1551,24 @@ static mlir::LogicalResult verifyPooling2dOp(PoolingOp *op) {
 
     // Check that dimensions (except `dim`) are the same.
     for (int64_t i = 0; i < firstTensorRank; ++i) {
-      if (i != dim && inputType.getDimSize(i) != firstTensor.getDimSize(i)) {
+      if (i == dim) {
+        dimSizeSum += inputType.getDimSize(i);
+        continue;
+      }
+      if (inputType.getDimSize(i) != firstTensor.getDimSize(i)) {
         return emitOpError() << "All input tensors must have the same "
                                 "dimensions, except for dimension "
                              << dim << ".";
       }
     }
+  }
+
+  auto outputType = getType();
+  if (outputType.getDimSize(dim) != dimSizeSum) {
+    return emitOpError()
+           << "Output tensor dimension " << dim
+           << " does not match the sum of input tensor dimensions: "
+           << outputType.getDimSize(dim) << " vs. " << dimSizeSum << ".";
   }
 
   return success();
@@ -1613,7 +1674,7 @@ mlir::OpFoldResult mlir::tt::ttir::ConcatOp::fold(FoldAdaptor adaptor) {
 // ReshapeOp verification
 ::mlir::LogicalResult mlir::tt::ttir::ReshapeOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
+  ::mlir::RankedTensorType outputType = getType();
   auto shape = getShape();
   int64_t shapeSize = static_cast<int64_t>(shape.size());
 
@@ -1677,7 +1738,7 @@ static mlir::OpFoldResult foldIdentityReshape(mlir::tt::ttir::ReshapeOp op) {
 static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
   if (auto reshapeOperand =
           op.getInput().getDefiningOp<mlir::tt::ttir::ReshapeOp>()) {
-    op.setOperand(0, reshapeOperand.getInput());
+    op.getInputMutable().assign(reshapeOperand.getInput());
     return op.getResult();
   }
   return nullptr;
@@ -1697,13 +1758,210 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
 }
 
 //===----------------------------------------------------------------------===//
+// RearrangeOp
+//===----------------------------------------------------------------------===//
+
+// RearrangeOp verification
+::mlir::LogicalResult mlir::tt::ttir::RearrangeOp::verify() {
+  llvm::StringRef patternStr = getPattern();
+  llvm::SmallVector<llvm::StringRef> parts;
+  patternStr.split(parts, "->");
+
+  if (parts.size() != 2) {
+    return emitOpError() << "pattern must contain exactly one '->' separator.";
+  }
+
+  mlir::FailureOr<AffineMap> failureOrInvMap = getInvPatternMap();
+  if (failed(failureOrInvMap)) {
+    return emitOpError() << "failed to parse pattern " << patternStr << ".";
+  }
+
+  auto invMap = *failureOrInvMap;
+  if (getInput().getType().getRank() != invMap.getNumResults()) {
+    return emitOpError() << "number of dimensions in the pattern's input ("
+                         << invMap.getNumResults()
+                         << ") must match the rank of the input tensor ("
+                         << getInput().getType().getRank() << ").";
+  }
+
+  SmallVector<int64_t> expectedInputShape =
+      ttmlir::utils::evalShape(invMap, getResult().getType().getShape());
+  if (getInput().getType().getShape() !=
+      ArrayRef<int64_t>(expectedInputShape)) {
+    return emitOpError() << "input tensor shape ("
+                         << ttmlir::utils::join(
+                                getResult().getType().getShape(), ",")
+                         << ") does not match the expected shape ("
+                         << ttmlir::utils::join(expectedInputShape, ",")
+                         << ").";
+  }
+
+  return success();
+}
+
+mlir::FailureOr<::mlir::AffineMap>
+mlir::tt::ttir::RearrangeOp::getInvPatternMap(mlir::MLIRContext *context,
+                                              StringRef pattern,
+                                              ArrayRef<int64_t> shape) {
+  // We need to write a routine to convert the pattern string to an affine map.
+  // Example patterns:
+  // >>> rearrange(images, 'b h w c -> b h w c').shape
+  // (32, 30, 40, 3)
+  //
+  // # stacked and reordered axes to "b c h w" format
+  // >>> rearrange(images, 'b h w c -> b c h w').shape
+  // (32, 3, 30, 40)
+  //
+  // # concatenate images along height (vertical axis), 960 = 32 * 30
+  // >>> rearrange(images, 'b h w c -> (b h) w c').shape
+  // (960, 40, 3)
+  //
+  // # concatenated images along horizontal axis, 1280 = 32 * 40
+  // >>> rearrange(images, 'b h w c -> h (b w) c').shape
+  // (30, 1280, 3)
+  //
+  // # flattened each image into a vector, 3600 = 30 * 40 * 3
+  // >>> rearrange(images, 'b h w c -> b (c h w)').shape
+  // (32, 3600)
+  //
+  // # split each image into 4 smaller (top-left, top-right, bottom-left,
+  // bottom-right), 128 = 32 * 2 * 2
+  // >>> rearrange(images, 'b (h1 h) (w1 w) c -> (b h1 w1) h w c', h1=2,
+  // w1=2).shape (128, 15, 20, 3)
+  //
+  // # space-to-depth operation
+  // >>> rearrange(images, 'b (h h1) (w w1) c -> b h w (c h1 w1)', h1=2,
+  // w1=2).shape (32, 15, 20, 12)
+
+  llvm::SmallVector<llvm::StringRef> parts;
+  pattern.split(parts, "->");
+
+  assert(parts.size() == 2 &&
+         "RearrangeOp pattern must contain exactly one '->' separator.");
+
+  llvm::StringRef inputPattern = parts[0].trim();
+  llvm::StringRef outputPattern = parts[1].trim();
+
+  // Helper lambda to parse dimension names from a pattern.
+  auto parseDims = [](llvm::StringRef pattern)
+      -> llvm::SmallVector<llvm::SmallVector<llvm::StringRef>> {
+    llvm::SmallVector<llvm::SmallVector<llvm::StringRef>> result;
+    llvm::SmallVector<llvm::StringRef> currentGroup;
+    bool inParens = false;
+    size_t i = 0;
+
+    while (i < pattern.size()) {
+      char c = pattern[i];
+
+      if (c == '(') {
+        inParens = true;
+        i++;
+        continue;
+      }
+
+      if (c == ')') {
+        if (!currentGroup.empty()) {
+          result.push_back(currentGroup);
+          currentGroup.clear();
+        }
+        inParens = false;
+        i++;
+        continue;
+      }
+
+      if (c == ' ' && !inParens && !currentGroup.empty()) {
+        result.push_back(currentGroup);
+        currentGroup.clear();
+        i++;
+        continue;
+      }
+
+      if (c == ' ') {
+        i++;
+        continue;
+      }
+
+      // Parse dimension name.
+      size_t start = i;
+      while (i < pattern.size() && pattern[i] != ' ' && pattern[i] != ')' &&
+             pattern[i] != '(') {
+        i++;
+      }
+
+      if (i > start) {
+        currentGroup.push_back(pattern.substr(start, i - start));
+      }
+    }
+
+    if (!currentGroup.empty()) {
+      result.push_back(currentGroup);
+    }
+
+    return result;
+  };
+
+  auto inputDims = parseDims(inputPattern);
+  auto outputDims = parseDims(outputPattern);
+
+  // Build a map from dimension name to input position.
+  llvm::DenseMap<llvm::StringRef, unsigned> dimToInputPos;
+  unsigned pos = 0;
+  for (const auto &group : inputDims) {
+    if (group.size() > 1) {
+      // Input groups are currently unsupported.
+      return failure();
+    }
+
+    if (pos >= shape.size()) {
+      // OOB dimension position for provided shape.
+      return failure();
+    }
+
+    for (llvm::StringRef dim : group) {
+      dimToInputPos[dim] = pos;
+    }
+
+    pos++;
+  }
+
+  // Build the affine expressions for the output.
+  llvm::SmallVector<mlir::AffineExpr> exprs;
+  exprs.resize(inputDims.size(), nullptr);
+  for (const auto [groupPos, group] : llvm::enumerate(outputDims)) {
+    assert(!group.empty());
+    // For flattening like b h -> (b h)@d, we create inverse map: (d / h_size, d
+    // % h_size).
+    int64_t stride = 1;
+    mlir::AffineExpr expr = mlir::getAffineConstantExpr(0, context);
+    for (int64_t i = static_cast<int64_t>(group.size()) - 1; i >= 0; --i) {
+      unsigned dimPos = dimToInputPos[group[i]];
+      expr = mlir::getAffineDimExpr(groupPos, context).floorDiv(stride);
+      if (i > 0) {
+        expr = expr % shape[dimPos];
+      }
+      stride *= shape[dimPos];
+      exprs[dimPos] = expr;
+    }
+  }
+
+  return mlir::AffineMap::get(outputDims.size(), 0, exprs, context);
+}
+
+mlir::FailureOr<::mlir::AffineMap>
+mlir::tt::ttir::RearrangeOp::getInvPatternMap() {
+  return getInvPatternMap(
+      getContext(), getPattern(),
+      mlir::cast<ShapedType>(getInput().getType()).getShape());
+}
+
+//===----------------------------------------------------------------------===//
 // BroadcastOp
 //===----------------------------------------------------------------------===//
 
 // BroadcastOp verification
 ::mlir::LogicalResult mlir::tt::ttir::BroadcastOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
+  ::mlir::RankedTensorType outputType = getType();
 
   // Sanity check to make sure that input rank matches the rank of the output
   // tensor.
@@ -1760,7 +2018,7 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
   ::mlir::ArrayAttr begins = getBeginsAttr();
   ::mlir::ArrayAttr ends = getEndsAttr();
   ::mlir::ArrayAttr stepAttr = getStepAttr();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
+  ::mlir::RankedTensorType outputType = getType();
 
   // Verify that the input is at least 1D tensor
   if (inputType.getRank() < 1) {
@@ -1872,6 +2130,78 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
   return success();
 }
 
+// back to back producer-consumer SliceStaticOp can be folded
+// into a single SliceStaticOp.
+static mlir::OpFoldResult
+foldConsecutiveSliceStatic(mlir::tt::ttir::SliceStaticOp consumerOp) {
+
+  if (auto producerSliceOp =
+          consumerOp.getInput()
+              .getDefiningOp<mlir::tt::ttir::SliceStaticOp>()) {
+
+    // If producerOp has multiple uses, do not fold
+    if (!producerSliceOp->hasOneUse()) {
+      return nullptr;
+    }
+
+    mlir::RankedTensorType inputType = consumerOp.getInput().getType();
+    size_t input_rank = static_cast<size_t>(inputType.getRank());
+
+    // Producer begins and step arrays
+    mlir::ArrayAttr begins1 = producerSliceOp.getBeginsAttr();
+    mlir::ArrayAttr stepAttr1 = producerSliceOp.getStepAttr();
+
+    // Consumer begins, end and step arrays
+    mlir::ArrayAttr begins2 = consumerOp.getBeginsAttr();
+    mlir::ArrayAttr ends2 = consumerOp.getEndsAttr();
+    mlir::ArrayAttr stepAttr2 = consumerOp.getStepAttr();
+
+    llvm::SmallVector<mlir::Attribute> begins, ends, step;
+    mlir::MLIRContext *ctx = consumerOp->getContext();
+    auto i32Ty = mlir::IntegerType::get(ctx, 32);
+    for (size_t i = 0; i < input_rank; ++i) {
+      // ith dimension in Producer begins and step arrays
+      int32_t b1_i = mlir::cast<::mlir::IntegerAttr>(begins1[i]).getInt();
+      int32_t s1_i = mlir::cast<::mlir::IntegerAttr>(stepAttr1[i]).getInt();
+
+      // ith dimension in Consumer begins, end and step arrays
+      int32_t b2_i = mlir::cast<::mlir::IntegerAttr>(begins2[i]).getInt();
+      int32_t e2_i = mlir::cast<::mlir::IntegerAttr>(ends2[i]).getInt();
+      int32_t s2_i = mlir::cast<::mlir::IntegerAttr>(stepAttr2[i]).getInt();
+
+      int32_t b_i = b1_i + s1_i * b2_i;
+      int32_t e_i = b1_i + s1_i * (e2_i - 1) + 1;
+      int32_t s_i = s1_i * s2_i;
+
+      begins.push_back(mlir::IntegerAttr::get(i32Ty, b_i));
+      ends.push_back(mlir::IntegerAttr::get(i32Ty, e_i));
+      step.push_back(mlir::IntegerAttr::get(i32Ty, s_i));
+    }
+
+    mlir::ArrayAttr beginsArrayAttr = mlir::ArrayAttr::get(ctx, begins);
+    mlir::ArrayAttr endsArrayAttr = mlir::ArrayAttr::get(ctx, ends);
+    mlir::ArrayAttr stepArrayAttr = mlir::ArrayAttr::get(ctx, step);
+
+    consumerOp.setBeginsAttr(beginsArrayAttr);
+    consumerOp.setEndsAttr(endsArrayAttr);
+    consumerOp.setStepAttr(stepArrayAttr);
+    consumerOp->setOperand(0, producerSliceOp.getInput());
+    return consumerOp.getResult();
+  }
+
+  return nullptr;
+}
+
+// SliceStaticOp Folder
+mlir::OpFoldResult mlir::tt::ttir::SliceStaticOp::fold(FoldAdaptor adaptor) {
+
+  if (auto foldResult = foldConsecutiveSliceStatic(*this)) {
+    return foldResult;
+  }
+
+  return nullptr;
+}
+
 //===----------------------------------------------------------------------===//
 // SliceDynamicOp
 //===----------------------------------------------------------------------===//
@@ -1884,7 +2214,7 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
   ::mlir::RankedTensorType endsType = getEnds().getType();
   ::llvm::ArrayRef<int64_t> endsShape = endsType.getShape();
   ::mlir::ArrayAttr stepAttr = getStepAttr();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
+  ::mlir::RankedTensorType outputType = getType();
 
   // Verify that the input is at least 1D tensor.
   if (inputType.getRank() < 1) {
@@ -1944,7 +2274,7 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
 ::mlir::LogicalResult mlir::tt::ttir::IndexOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
+  ::mlir::RankedTensorType outputType = getType();
   int32_t dim = getDim();
   int32_t begin = getBegin();
   int32_t end = getEnd();
@@ -2058,7 +2388,7 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
 // IndexSelectOp verification
 ::mlir::LogicalResult mlir::tt::ttir::IndexSelectOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
+  ::mlir::RankedTensorType outputType = getType();
 
   if (inputType.getRank() != outputType.getRank()) {
     return emitOpError("Input and output tensors must have the same rank.");
@@ -2152,7 +2482,7 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
 // SqueezeOp verification
 ::mlir::LogicalResult mlir::tt::ttir::SqueezeOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
+  ::mlir::RankedTensorType outputType = getType();
   int32_t dim = getDim();
 
   if (dim < 0) {
@@ -2204,7 +2534,7 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
 // TransposeOp verification
 ::mlir::LogicalResult mlir::tt::ttir::TransposeOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
+  ::mlir::RankedTensorType outputType = getType();
   auto inputShape = inputType.getShape();
   auto outputShape = outputType.getShape();
   int32_t dim0 = getDim0();
@@ -2250,8 +2580,8 @@ void mlir::tt::ttir::TransposeOp::getCanonicalizationPatterns(
                        ? op.getDim1() + op.getInput().getType().getRank()
                        : op.getDim1();
     std::swap(permutation[dim0], permutation[dim1]);
-    ttir::utils::replaceOpWithNewDPSOp<PermuteOp>(rewriter, op, op.getType(),
-                                                  op.getInput(), permutation);
+    rewriter.replaceOpWithNewOp<PermuteOp>(op, op.getType(), op.getInput(),
+                                           permutation);
     return success();
   });
 }
@@ -2355,8 +2685,8 @@ mlir::tt::ttir::TypecastOp::canonicalize(mlir::tt::ttir::TypecastOp op,
   }
 
   // The resulting Op is conservative iff both typecast ops were conservative.
-  ttir::utils::replaceOpWithNewDPSOp<ttir::TypecastOp>(
-      rewriter, op, op.getType(), producerOp.getInput(),
+  rewriter.replaceOpWithNewOp<ttir::TypecastOp>(
+      op, op.getType(), producerOp.getInput(),
       op.getConservativeFolding() && producerOp.getConservativeFolding());
 
   return mlir::success();
@@ -2369,7 +2699,7 @@ mlir::tt::ttir::TypecastOp::canonicalize(mlir::tt::ttir::TypecastOp op,
 // UnsqueezeOp verification
 ::mlir::LogicalResult mlir::tt::ttir::UnsqueezeOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
+  ::mlir::RankedTensorType outputType = getType();
   int32_t dim = getDim();
 
   // Convert negative dim to its positive equivalent
@@ -2420,7 +2750,7 @@ mlir::tt::ttir::TypecastOp::canonicalize(mlir::tt::ttir::TypecastOp op,
 ::mlir::LogicalResult mlir::tt::ttir::EmbeddingOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::mlir::RankedTensorType weightType = getWeight().getType();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
+  ::mlir::RankedTensorType outputType = getType();
 
   // Input tensor must be at most 2D tensor.
   if (inputType.getRank() > 2) {
@@ -2463,7 +2793,7 @@ mlir::tt::ttir::TypecastOp::canonicalize(mlir::tt::ttir::TypecastOp op,
 ::mlir::LogicalResult mlir::tt::ttir::EmbeddingBackwardOp::verify() {
   ::mlir::RankedTensorType weightType = getWeight().getType();
   ::mlir::RankedTensorType inputGradType = getInGradient().getType();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
+  ::mlir::RankedTensorType outputType = getType();
 
   // weightType must have rank of 2: (dictionary_size, embedding_size).
   if (weightType.getRank() != 2) {
@@ -2851,7 +3181,7 @@ bool mlir::tt::ttir::TTNNMetalLayoutCastOp::bufferizesToMemoryWrite(
   ::mlir::RankedTensorType inputBType = getB().getType();
   std::optional<::mlir::RankedTensorType> biasType =
       getBias() ? std::make_optional(getBias().getType()) : std::nullopt;
-  ::mlir::RankedTensorType outputType = getOutput().getType();
+  ::mlir::RankedTensorType outputType = getType();
 
   llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
   llvm::SmallVector<int64_t> inputAShape(inputAType.getShape());
@@ -2993,37 +3323,6 @@ bool mlir::tt::ttir::TTNNMetalLayoutCastOp::bufferizesToMemoryWrite(
   return success();
 }
 
-// If value is defined by PermuteOp with permute dimensions
-// (..., rank - 2, rank - 1), return the input of the PermuteOp, otherwise
-// return std::nullopt. This is used for canonicalization of MatmulOp and
-// LinearOp.
-static std::optional<mlir::TypedValue<mlir::RankedTensorType>>
-getPermuteOpOperand(mlir::TypedValue<mlir::RankedTensorType> value) {
-  auto producerPermuteOp = value.getDefiningOp<mlir::tt::ttir::PermuteOp>();
-  if (!producerPermuteOp) {
-    return std::nullopt;
-  }
-
-  int64_t rank = value.getType().getRank();
-  // If the rank is less than two than it is impossible for this permute to be
-  // a transpose
-  bool rankIsLessThan2 = rank < 2;
-  // Ensure that the rightmost two dims are swapped by the permute
-  bool XYDimsTransposed =
-      producerPermuteOp.getPermutation()[rank - 2] == rank - 1 &&
-      producerPermuteOp.getPermutation()[rank - 1] == rank - 2;
-  // Ensure that the other dims are unchanged by the permute.
-  // Therefore this permute is equivalent to transpose(-1, -2)
-  bool otherDimsUnchanged =
-      std::is_sorted(producerPermuteOp.getPermutation().begin(),
-                     producerPermuteOp.getPermutation().end() - 2);
-  if (rankIsLessThan2 || !XYDimsTransposed || !otherDimsUnchanged) {
-    return std::nullopt;
-  }
-
-  return producerPermuteOp.getInput();
-}
-
 // LinearOp canonicalization
 void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
@@ -3031,42 +3330,12 @@ void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
   // If bias is not provided, linear operation is equivalent to matmul.
   patterns.add(+[](ttir::LinearOp op, mlir::PatternRewriter &rewriter) {
     if (!op.getBias()) {
-      rewriter.replaceOpWithNewOp<ttir::MatmulOp>(
-          op, op.getType(), op.getA(), op.getB(), op.getOutput(),
-          op.getTransposeA(), op.getTransposeB());
+      rewriter.replaceOpWithNewOp<ttir::MatmulOp>(op, op.getType(), op.getA(),
+                                                  op.getB(), op.getTransposeA(),
+                                                  op.getTransposeB());
       return mlir::success();
     }
     return mlir::failure();
-  });
-
-  // linear(transpose(a), b, bias transpose_a, transpose_b) ->
-  //   linear(a, b, bias, !transpose_a, transpose_b)
-  patterns.add(+[](ttir::LinearOp op, mlir::PatternRewriter &rewriter) {
-    auto inputACanonical = getPermuteOpOperand(op.getA());
-    if (!inputACanonical) {
-      return mlir::failure();
-    }
-
-    rewriter.replaceOpWithNewOp<ttir::LinearOp>(
-        op, op.getType(), *inputACanonical, op.getB(), op.getBias(),
-        op.getOutput(), !op.getTransposeA(), op.getTransposeB());
-
-    return mlir::success();
-  });
-
-  // linear(a, transpose(b), bias transpose_a, transpose_b) ->
-  //   linear(a, b, bias, transpose_a, !transpose_b)
-  patterns.add(+[](ttir::LinearOp op, mlir::PatternRewriter &rewriter) {
-    auto inputBCanonical = getPermuteOpOperand(op.getB());
-    if (!inputBCanonical) {
-      return mlir::failure();
-    }
-
-    rewriter.replaceOpWithNewOp<ttir::LinearOp>(
-        op, op.getType(), op.getA(), *inputBCanonical, op.getBias(),
-        op.getOutput(), op.getTransposeA(), !op.getTransposeB());
-
-    return mlir::success();
   });
   // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 }
@@ -3080,7 +3349,7 @@ void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
 ::mlir::LogicalResult mlir::tt::ttir::MatmulOp::verify() {
   ::mlir::RankedTensorType inputAType = getA().getType();
   ::mlir::RankedTensorType inputBType = getB().getType();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
+  ::mlir::RankedTensorType outputType = getType();
 
   llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
   llvm::SmallVector<int64_t> inputAShape(inputAType.getShape());
@@ -3203,42 +3472,6 @@ void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
 }
 // ANCHOR_END: adding_an_op_matmul_ttir_verify
 
-// MatmulOp canonicalization
-void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
-    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
-  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
-  // matmul(transpose(a), b, transpose_a, transpose_b) ->
-  //   matmul(a, b, !transpose_a, transpose_b)
-  patterns.add(+[](ttir::MatmulOp op, mlir::PatternRewriter &rewriter) {
-    auto inputACanonical = getPermuteOpOperand(op.getA());
-    if (!inputACanonical) {
-      return mlir::failure();
-    }
-
-    rewriter.replaceOpWithNewOp<ttir::MatmulOp>(
-        op, op.getType(), *inputACanonical, op.getB(), op.getOutput(),
-        !op.getTransposeA(), op.getTransposeB());
-
-    return mlir::success();
-  });
-
-  // matmul(a, transpose(b), transpose_a, transpose_b) ->
-  //   matmul(a, b, transpose_a, !transpose_b)
-  patterns.add(+[](ttir::MatmulOp op, mlir::PatternRewriter &rewriter) {
-    auto inputBCanonical = getPermuteOpOperand(op.getB());
-    if (!inputBCanonical) {
-      return mlir::failure();
-    }
-
-    rewriter.replaceOpWithNewOp<ttir::MatmulOp>(
-        op, op.getType(), op.getA(), *inputBCanonical, op.getOutput(),
-        op.getTransposeA(), !op.getTransposeB());
-
-    return mlir::success();
-  });
-  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
-}
-
 //===----------------------------------------------------------------------===//
 // UpsampleOp
 //===----------------------------------------------------------------------===//
@@ -3246,7 +3479,7 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
 // UpsampleOp verification
 ::mlir::LogicalResult mlir::tt::ttir::Upsample2dOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
+  ::mlir::RankedTensorType outputType = getType();
 
   // Input tensor is assumed to be 4D tensor.
   if (inputType.getRank() != 4) {
@@ -3348,7 +3581,7 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
 // RepeatOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::RepeatOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
+  ::mlir::RankedTensorType outputType = getType();
   llvm::ArrayRef<int64_t> repeatDimensions = getRepeatDimensions();
 
   // Input tensor and repeat dimension argument must have same rank.
@@ -3391,6 +3624,53 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
   return success();
 }
 
+// back to back producer-consumer RepeatOp can be folded
+// into a single RepeatOp.
+static mlir::OpFoldResult
+foldConsecutiveRepeat(mlir::tt::ttir::RepeatOp consumerOp) {
+
+  if (auto producerOp =
+          consumerOp.getInput().getDefiningOp<mlir::tt::ttir::RepeatOp>()) {
+
+    // If producerOp has multiple uses, do not fold
+    if (!producerOp->hasOneUse()) {
+      return nullptr;
+    }
+
+    mlir::RankedTensorType inputType = producerOp.getInput().getType();
+    size_t inputRank = static_cast<size_t>(inputType.getRank());
+
+    // Producer repeat dimensions
+    llvm::ArrayRef<int64_t> producerRepeatDims =
+        producerOp.getRepeatDimensions();
+
+    // Consumer repeat dimensions
+    llvm::ArrayRef<int64_t> consumerRepeatDims =
+        consumerOp.getRepeatDimensions();
+
+    llvm::SmallVector<int64_t> mergedRepeatDimensions(inputRank);
+    for (size_t i = 0; i < inputRank; ++i) {
+      mergedRepeatDimensions[i] = producerRepeatDims[i] * consumerRepeatDims[i];
+    }
+    llvm::ArrayRef<int64_t> mergedRepeatDimsRef(mergedRepeatDimensions);
+    consumerOp.setRepeatDimensions(mergedRepeatDimsRef);
+    consumerOp->setOperand(0, producerOp.getInput());
+    return consumerOp.getResult();
+  }
+
+  return nullptr;
+}
+
+// RepeatOp Folder
+mlir::OpFoldResult mlir::tt::ttir::RepeatOp::fold(FoldAdaptor fold) {
+
+  if (auto foldResult = foldConsecutiveRepeat(*this)) {
+    return foldResult;
+  }
+
+  return nullptr;
+}
+
 //===----------------------------------------------------------------------===//
 // RepeatInterleaveOp
 //===----------------------------------------------------------------------===//
@@ -3398,7 +3678,7 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
 // RepeatInterleaveOp verification
 ::mlir::LogicalResult mlir::tt::ttir::RepeatInterleaveOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
+  ::mlir::RankedTensorType outputType = getType();
   uint32_t repeats = getRepeats();
   int32_t dim = getDim();
 
@@ -3445,7 +3725,7 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
 // SoftmaxOp verification
 ::mlir::LogicalResult mlir::tt::ttir::SoftmaxOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
+  ::mlir::RankedTensorType outputType = getType();
 
   // Shapes of input and output of a softmax operation must be the same
   if (inputType.getShape() != outputType.getShape()) {
@@ -3520,10 +3800,8 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
 ::mlir::LogicalResult mlir::tt::ttir::AllReduceOp::verify() {
   ::mlir::tt::ttcore::ReduceType reduceType = getReduceType();
 
-  // Currently TTIR only supports the following reduce types.
-  if (reduceType != ::mlir::tt::ttcore::ReduceType::Sum &&
-      reduceType != ::mlir::tt::ttcore::ReduceType::Max &&
-      reduceType != ::mlir::tt::ttcore::ReduceType::Min) {
+  // Currently TTIR only supports the sum reduce types.
+  if (reduceType != ::mlir::tt::ttcore::ReduceType::Sum) {
     return emitOpError("Invalid reduction op for all reduce op.");
   }
 
@@ -3635,23 +3913,6 @@ mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
 //===----------------------------------------------------------------------===//
 
 ::mlir::LogicalResult mlir::tt::ttir::ScatterOp::verify() {
-
-  ArrayRef<int64_t> inputShape =
-      mlir::cast<RankedTensorType>(getInput().getType()).getShape();
-
-  if (getUpdateWindowDims().size() + getInsertedWindowDims().size() !=
-      inputShape.size()) {
-    return emitOpError("Batching currently not supported");
-  }
-
-  return success();
-}
-
-//===----------------------------------------------------------------------===//
-// ScatterInDimOp
-//===----------------------------------------------------------------------===//
-
-::mlir::LogicalResult mlir::tt::ttir::ScatterInDimOp::verify() {
   const ::mlir::RankedTensorType inputType = getInput().getType();
   const ::mlir::RankedTensorType indexType = getIndex().getType();
   const ::mlir::RankedTensorType sourceType = getSource().getType();
@@ -3734,6 +3995,52 @@ mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
   return success();
 }
 
+void mlir::tt::ttir::UpdateCacheOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  patterns.add(
+      +[](mlir::tt::ttir::UpdateCacheOp op, mlir::PatternRewriter &rewriter) {
+        auto cacheShape = op.getCache().getType().getShape();
+        auto inputShape = op.getInput().getType().getShape();
+        auto updateIndexShape = op.getUpdateIndex().getType().getShape();
+
+        auto numUsers = cacheShape[0];
+        auto numHeads = cacheShape[1];
+        auto headDim = cacheShape[3];
+
+        TypedValue<RankedTensorType> newInput = op.getInput();
+
+        // Permute input if in the format [1, num_heads, num_users, head_dim]
+        if (inputShape[2] == numUsers && inputShape[1] == numHeads) {
+          llvm::SmallVector<int64_t> newInputShape = {1, numUsers, numHeads,
+                                                      headDim};
+          auto newInputType = RankedTensorType::get(
+              newInputShape, newInput.getType().getElementType(),
+              newInput.getType().getEncoding());
+          newInput = rewriter.create<PermuteOp>(
+              op.getLoc(), newInputType, newInput,
+              rewriter.getDenseI64ArrayAttr({0, 2, 1, 3}));
+        }
+
+        // If the update index shape is [1] then repeat to num users
+        TypedValue<RankedTensorType> newUpdateIndex = op.getUpdateIndex();
+        if (updateIndexShape[0] == 1) {
+          auto newUpdateIndexShape = {numUsers};
+          auto newUpdateIndexType = RankedTensorType::get(
+              newUpdateIndexShape, newUpdateIndex.getType().getElementType(),
+              newUpdateIndex.getType().getEncoding());
+          auto repeatDims = rewriter.getDenseI64ArrayAttr({numUsers});
+          newUpdateIndex = rewriter.create<RepeatOp>(
+              op.getLoc(), newUpdateIndexType, newUpdateIndex, repeatDims);
+        }
+
+        rewriter.replaceOpWithNewOp<ttir::PagedUpdateCacheOp>(
+            op, op.getType(), op.getCache(), newInput, newUpdateIndex, false,
+            nullptr);
+
+        return mlir::success();
+      });
+}
+
 //===----------------------------------------------------------------------===//
 // PagedUpdateCacheOp
 //===----------------------------------------------------------------------===//
@@ -3742,12 +4049,12 @@ mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
   auto cacheType = getCache().getType();
   auto inputType = getInput().getType();
   auto updateIndexType = getUpdateIndex().getType();
-  auto pageTableType = getPageTable().getType();
 
   auto cacheShape = cacheType.getShape();
   auto inputShape = inputType.getShape();
   auto updateIndexShape = updateIndexType.getShape();
-  auto pageTableShape = pageTableType.getShape();
+
+  bool usingStaticCache = getPageTable() == nullptr;
 
   if (cacheShape.size() != 4) {
     return emitOpError("Cache tensor must be a 4D tensor");
@@ -3761,15 +4068,11 @@ mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
     return emitOpError("Update index tensor must be a 1D tensor");
   }
 
-  if (pageTableShape.size() != 2) {
-    return emitOpError("Page table tensor must be a 2D tensor");
-  }
-
   int64_t blockSize = cacheShape[2];
   int64_t headDim = cacheShape[3];
   int64_t numUsers = updateIndexShape[0];
 
-  if (blockSize % ttnn::TILE_HEIGHT != 0) {
+  if (!usingStaticCache && blockSize % ttnn::TILE_HEIGHT != 0) {
     return emitOpError("Block size must be divisible by 32, got " +
                        std::to_string(blockSize));
   }
@@ -3793,13 +4096,21 @@ mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
                        std::to_string(inputShape[3]));
   }
 
-  if (pageTableShape[0] != numUsers) {
-    return emitOpError("Page table tensor must have dim 0 be equal to the "
-                       "number of users (determined by update index shape): " +
-                       std::to_string(numUsers) + ", got " +
-                       std::to_string(pageTableShape[0]));
-  }
+  if (!usingStaticCache) {
+    auto pageTableType = getPageTable().getType();
+    auto pageTableShape = pageTableType.getShape();
+    if (pageTableShape.size() != 2) {
+      return emitOpError("Page table tensor must be a 2D tensor");
+    }
 
+    if (pageTableShape[0] != numUsers) {
+      return emitOpError(
+          "Page table tensor must have dim 0 be equal to the "
+          "number of users (determined by update index shape): " +
+          std::to_string(numUsers) + ", got " +
+          std::to_string(pageTableShape[0]));
+    }
+  }
   return success();
 }
 
@@ -4000,7 +4311,7 @@ void mlir::tt::ttir::ReverseOp::getCanonicalizationPatterns(
                   [&](int64_t i) { return reverseDimensions.test(i); });
 
     rewriter.replaceOpWithNewOp<ttir::ReverseOp>(
-        op, op.getType(), producerOp.getInput(), op.getOutput(), setIndices);
+        op, op.getType(), producerOp.getInput(), setIndices);
     return success();
   });
 
@@ -4402,18 +4713,12 @@ static ::mlir::LogicalResult verifyBatchNormOp(mlir::Operation *op,
 //===----------------------------------------------------------------------===//
 ::mlir::LogicalResult mlir::tt::ttir::CollectiveBroadcastOp::verify() {
   // Check input/output/result types are RankedTensorType
-  auto inputType = mlir::dyn_cast<RankedTensorType>(getInput().getType());
-  auto outputType = mlir::dyn_cast<RankedTensorType>(getOutput().getType());
-  auto resultType = mlir::dyn_cast<RankedTensorType>(getResult().getType());
+  auto inputType = getInput().getType();
+  auto resultType = getType();
 
   // Check input == output type
-  if (inputType != outputType) {
+  if (inputType != resultType) {
     return emitOpError("input and output must have the same type");
-  }
-
-  // Check output == result type
-  if (outputType != resultType) {
-    return emitOpError("output and result must have the same type");
   }
 
   ::mlir::DenseIntElementsAttr replicaGroups = getReplicaGroups();
@@ -4445,7 +4750,7 @@ mlir::tt::ttir::CollectiveBroadcastOp::fold(FoldAdaptor adaptor) {
 // ConcatenateHeadsOp verification
 ::mlir::LogicalResult mlir::tt::ttir::ConcatenateHeadsOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
-  ::mlir::RankedTensorType outputType = getOutput().getType();
+  ::mlir::RankedTensorType outputType = getType();
 
   // Input tensor must be 4D tensor
   if (inputType.getRank() != 4) {
@@ -4738,10 +5043,6 @@ mlir::tt::ttir::ScaledDotProductAttentionDecodeOp::verify() {
       return emitOpError("Attention mask sequence length must match key/value "
                          "sequence length");
     }
-  } else {
-    if (!getIsCausal()) {
-      return emitOpError("Attention mask is required when is_causal is false");
-    }
   }
 
   return success();
@@ -4880,13 +5181,6 @@ mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp::verify() {
   int64_t seqLen = queryType.getShape()[2];
   int64_t maxSeqLen = keyType.getShape()[2];
 
-  // NOTE: The q_chunk_size is 32 by default in ttnn. This is configurable via
-  // the program config. However, this is not modeled in the ttnn dialect.
-  if (seqLen % 32 != 0) {
-    return emitOpError(
-        "Sequence length must be divisible by q_chunk_size (32)");
-  }
-
   if (keyType.getShape()[0] != batchSize) {
     return emitOpError("Key/Value batch size must match query batch size");
   }
@@ -4923,10 +5217,6 @@ mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp::verify() {
     if (attentionMaskType.getShape()[3] != maxSeqLen) {
       return emitOpError("Attention mask at dim 3 must match key/value "
                          "sequence length (max sequence length)");
-    }
-  } else {
-    if (!getIsCausal()) {
-      return emitOpError("Attention mask is required when is_causal is false");
     }
   }
 
@@ -4974,6 +5264,48 @@ mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp::verify() {
   if (inputShape[rank - 1] != outputShape[rank - 1]) {
     return emitOpError(
         "channel dimension must remain the same between input and output");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// GeluBackwardOp
+//===----------------------------------------------------------------------===//
+
+// GeluBackwardOp verification
+::mlir::LogicalResult mlir::tt::ttir::GeluBackwardOp::verify() {
+  llvm::StringRef approximate = getApproximate();
+
+  if (approximate != "none" && approximate != "tanh") {
+    return emitOpError("approximate attribute must be either 'none' or 'tanh', "
+                       "but got '")
+           << approximate << "'";
+  }
+
+  RankedTensorType lhsType = getLhs().getType();
+  RankedTensorType rhsType = getRhs().getType();
+
+  int64_t lhsRank = lhsType.getRank();
+  int64_t rhsRank = rhsType.getRank();
+
+  if (lhsRank < 2 || lhsRank > 4) {
+    return emitOpError(
+               "gradient tensor (lhs) must have rank 2, 3, or 4, but got rank ")
+           << lhsRank;
+  }
+
+  if (rhsRank < 2 || rhsRank > 4) {
+    return emitOpError(
+               "input tensor (rhs) must have rank 2, 3, or 4, but got rank ")
+           << rhsRank;
+  }
+
+  if (lhsRank != rhsRank) {
+    return emitOpError("gradient tensor (lhs) and input tensor (rhs) must have "
+                       "the same rank, "
+                       "but got lhs rank ")
+           << lhsRank << " and rhs rank " << rhsRank;
   }
 
   return success();

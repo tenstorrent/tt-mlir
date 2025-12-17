@@ -1,6 +1,9 @@
 // RUN: ttmlir-opt --convert-ttnn-to-ttir --ttir-to-ttmetal-pipeline="system-desc-path=%system_desc_path% ttnn-mode=true" -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
+// Test uses BLOCK_SHARDED memory but tilize on device requires HEIGHT_SHARDED or INTERLEAVED.
+// See: https://github.com/tenstorrent/tt-mlir/issues/6247
+// UNSUPPORTED: true
 
 #dram = #ttnn.buffer_type<dram>
 #l1 = #ttnn.buffer_type<l1>
@@ -47,5 +50,21 @@ module {
     %4 = "ttnn.add"(%3, %2) {ttnn.hoist_generic_via_d2m, dtype = #ttcore.supportedDataTypes<f32>} : (tensor<128x128xf32, #l1_layout_0>, tensor<128x128xf32, #l1_layout_0>) -> tensor<128x128xf32, #l1_layout_0>
     %5 = "ttnn.to_memory_config"(%4) <{memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<128x128xf32, #l1_layout_0>) -> tensor<128x128xf32, #dram_layout_0>
     return %5 : tensor<128x128xf32, #dram_layout_0>
+  }
+  // CHECK-LABEL: func.func @test_scalarize
+  func.func @test_scalarize(%arg0: tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #l1_layout> {
+    %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
+    // CHECK-NOT: "ttnn.full"
+    %1 = "ttnn.full"(%0) <{dtype = #ttcore.supportedDataTypes<f32>, fill_value = 5.000000e-01 : f32, layout = #ttnn.layout<tile>, shape = #ttnn.shape<32x32>}> {ttnn.hoist_generic_via_d2m} : (!ttnn.device) -> tensor<32x32xf32, #l1_layout>
+    %2 = "ttnn.add"(%arg0, %1) {ttnn.hoist_generic_via_d2m, dtype = #ttcore.supportedDataTypes<f32>} : (tensor<32x32xf32, #l1_layout>, tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #l1_layout>
+    return %2 : tensor<32x32xf32, #l1_layout>
+  }
+  // CHECK-LABEL: func.func @test_no_scalarize
+  func.func @test_no_scalarize() -> tensor<32x32xf32, #l1_layout> {
+    %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
+    // CHECK: "ttnn.full"
+    %1 = "ttnn.full"(%0) <{dtype = #ttcore.supportedDataTypes<f32>, fill_value = 5.000000e-01 : f32, layout = #ttnn.layout<tile>, shape = #ttnn.shape<32x32>}> {ttnn.hoist_generic_via_d2m} : (!ttnn.device) -> tensor<32x32xf32, #l1_layout>
+    %2 = "ttnn.cos"(%1) {ttnn.hoist_generic_via_d2m} : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #l1_layout>
+    return %2 : tensor<32x32xf32, #l1_layout>
   }
 }

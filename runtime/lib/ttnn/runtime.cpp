@@ -4,7 +4,7 @@
 
 #include "Constants.h"
 
-#include "tt-metalium/fabric.hpp"
+#include "tt-metalium/experimental/fabric/fabric.hpp"
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/dylib.h"
@@ -37,19 +37,6 @@
 namespace tt::runtime::ttnn {
 
 using ::tt::runtime::DeviceRuntime;
-
-static tt::runtime::MemoryView
-createMemoryView(const tt::tt_metal::detail::MemoryView &memoryView) {
-  return tt::runtime::MemoryView{
-      .numBanks = memoryView.num_banks,
-      .totalBytesPerBank = memoryView.total_bytes_per_bank,
-      .totalBytesAllocatedPerBank = memoryView.total_bytes_allocated_per_bank,
-      .totalBytesFreePerBank = memoryView.total_bytes_free_per_bank,
-      .largestContiguousBytesFreePerBank =
-          memoryView.largest_contiguous_bytes_free_per_bank,
-      .blockTable = memoryView.block_table,
-  };
-}
 
 template <typename T>
 static ::ttnn::Tensor createBorrowedTTNNTensor(void *rawData,
@@ -610,6 +597,12 @@ bool isProgramCacheEnabled(Device meshDevice) {
   return ttnnMeshDevice.get_program_cache().is_enabled();
 }
 
+void clearProgramCache(Device meshDevice) {
+  ::ttnn::MeshDevice &ttnnMeshDevice =
+      meshDevice.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+  return ttnnMeshDevice.clear_program_cache();
+}
+
 size_t getL1SmallSize(Device meshDevice) {
   ::ttnn::MeshDevice &ttnnMeshDevice =
       meshDevice.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
@@ -679,29 +672,7 @@ void readDeviceProfilerResults(Device deviceHandle) {
 
 std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
 getMemoryView(Device deviceHandle) {
-  std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
-      memoryMap;
-  ::ttnn::MeshDevice &meshDevice =
-      deviceHandle.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
-
-  auto dramMemoryView = ::tt::tt_metal::detail::GetMemoryView(
-      &meshDevice, ::ttnn::BufferType::DRAM);
-  auto l1MemoryView = ::tt::tt_metal::detail::GetMemoryView(
-      &meshDevice, ::ttnn::BufferType::L1);
-  auto l1SmallMemoryView = ::tt::tt_metal::detail::GetMemoryView(
-      &meshDevice, ::ttnn::BufferType::L1_SMALL);
-  auto traceMemoryView = ::tt::tt_metal::detail::GetMemoryView(
-      &meshDevice, ::ttnn::BufferType::TRACE);
-
-  memoryMap[tt::runtime::MemoryBufferType::DRAM] =
-      createMemoryView(dramMemoryView);
-  memoryMap[tt::runtime::MemoryBufferType::L1] = createMemoryView(l1MemoryView);
-  memoryMap[tt::runtime::MemoryBufferType::L1_SMALL] =
-      createMemoryView(l1SmallMemoryView);
-  memoryMap[tt::runtime::MemoryBufferType::TRACE] =
-      createMemoryView(traceMemoryView);
-
-  return memoryMap;
+  return utils::getMemoryView(deviceHandle);
 }
 
 void setFabricConfig(tt::runtime::FabricConfig config) {
@@ -1045,6 +1016,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_EltwiseBinaryCompositeScalarOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::ExperimentalEltwiseBinaryBackwardOp: {
+    tensorRef = opContext.type_as_ExperimentalEltwiseBinaryBackwardOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::EltwiseTernaryWhereOp: {
     tensorRef = opContext.type_as_EltwiseTernaryWhereOp()->out();
     break;
@@ -1145,6 +1120,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_Conv2dOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::Conv3dOp: {
+    tensorRef = opContext.type_as_Conv3dOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::ConvTranspose2dOp: {
     tensorRef = opContext.type_as_ConvTranspose2dOp()->out();
     break;
@@ -1165,6 +1144,14 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_PrepareConv2dBiasOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::PrepareConvTranspose2dWeightsOp: {
+    tensorRef = opContext.type_as_PrepareConvTranspose2dWeightsOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PrepareConvTranspose2dBiasOp: {
+    tensorRef = opContext.type_as_PrepareConvTranspose2dBiasOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::BatchNormInferenceOp: {
     tensorRef = opContext.type_as_BatchNormInferenceOp()->out();
     break;
@@ -1175,6 +1162,10 @@ getOpOutputRef(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::AllGatherOp: {
     tensorRef = opContext.type_as_AllGatherOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AllReduceOp: {
+    tensorRef = opContext.type_as_AllReduceOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::ReduceScatterOp: {
@@ -1195,10 +1186,6 @@ getOpOutputRef(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::UpsampleOp: {
     tensorRef = opContext.type_as_UpsampleOp()->out();
-    break;
-  }
-  case ::tt::target::ttnn::OpType::CpuOp: {
-    tensorRef = opContext.type_as_CpuOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::ConstantOp: {
@@ -1266,6 +1253,7 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_NLPConcatHeadsDecodeOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::CpuOp:
   case ::tt::target::ttnn::OpType::BatchNormTrainingOp:
   case ::tt::target::ttnn::OpType::MaxPool2dWithIndicesOp:
   case ::tt::target::ttnn::OpType::SortOp:
@@ -1288,6 +1276,14 @@ getOpOutputRef(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::GenericOp: {
     auto size = opContext.type_as_GenericOp()->io_tensors()->size();
     tensorRef = opContext.type_as_GenericOp()->io_tensors()->Get(size - 1);
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AggregateTensorOp: {
+    tensorRef = opContext.type_as_AggregateTensorOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::DistributeTensorOp: {
+    tensorRef = opContext.type_as_DistributeTensorOp()->out();
     break;
   }
   case ::tt::target::ttnn::OpType::NONE: {
@@ -1367,6 +1363,12 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::EltwiseBinaryCompositeScalarOp: {
     tensorRefs = {opContext.type_as_EltwiseBinaryCompositeScalarOp()->lhs()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ExperimentalEltwiseBinaryBackwardOp: {
+    tensorRefs = {
+        opContext.type_as_ExperimentalEltwiseBinaryBackwardOp()->grad(),
+        opContext.type_as_ExperimentalEltwiseBinaryBackwardOp()->input()};
     break;
   }
   case ::tt::target::ttnn::OpType::EltwiseTernaryWhereOp: {
@@ -1474,6 +1476,10 @@ getOpInputRefs(OpContext opContextHandle,
     tensorRefs = {opContext.type_as_Conv2dOp()->input()};
     break;
   }
+  case ::tt::target::ttnn::OpType::Conv3dOp: {
+    tensorRefs = {opContext.type_as_Conv3dOp()->input()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::ConvTranspose2dOp: {
     tensorRefs = {opContext.type_as_ConvTranspose2dOp()->input()};
     break;
@@ -1496,6 +1502,16 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::PrepareConv2dBiasOp: {
     tensorRefs = {opContext.type_as_PrepareConv2dBiasOp()->bias_tensor()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PrepareConvTranspose2dWeightsOp: {
+    tensorRefs = {
+        opContext.type_as_PrepareConvTranspose2dWeightsOp()->weight_tensor()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PrepareConvTranspose2dBiasOp: {
+    tensorRefs = {
+        opContext.type_as_PrepareConvTranspose2dBiasOp()->bias_tensor()};
     break;
   }
   case ::tt::target::ttnn::OpType::BatchNormInferenceOp: {
@@ -1526,6 +1542,10 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::AllGatherOp: {
     tensorRefs = {opContext.type_as_AllGatherOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AllReduceOp: {
+    tensorRefs = {opContext.type_as_AllReduceOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::ReduceScatterOp: {
@@ -1707,6 +1727,14 @@ getOpInputRefs(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::LoadTensorOp: {
     break;
   }
+  case ::tt::target::ttnn::OpType::AggregateTensorOp: {
+    tensorRefs = {opContext.type_as_AggregateTensorOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::DistributeTensorOp: {
+    tensorRefs = {opContext.type_as_DistributeTensorOp()->in()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::NONE: {
     LOG_FATAL("Invalid op type");
     break;
@@ -1726,11 +1754,28 @@ std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
        std::vector<::tt::runtime::Tensor> &inputs) {
 
-  ProgramExecutor executor(deviceHandle, executableHandle, programIndex,
-                           inputs);
-  executor.execute();
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+  ::tt::runtime::utils::logMemoryStateIfNeeded(
+      ::tt::runtime::ttnn::utils::getMemoryView, deviceHandle,
+      ::tt::runtime::MemoryLogLevel::Program,
+      "Device memory state before submit");
+#endif
+
+  std::unique_ptr<ProgramExecutor> executor = std::make_unique<ProgramExecutor>(
+      deviceHandle, executableHandle, programIndex, inputs);
+
+  executor->execute();
   std::vector<::tt::runtime::Tensor> outputTensors =
-      executor.gatherOutputTensors();
+      executor->gatherOutputTensors();
+
+  executor.reset();
+
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+  ::tt::runtime::utils::logMemoryStateIfNeeded(
+      ::tt::runtime::ttnn::utils::getMemoryView, deviceHandle,
+      ::tt::runtime::MemoryLogLevel::Program,
+      "Device memory state after submit");
+#endif
 
   return outputTensors;
 }

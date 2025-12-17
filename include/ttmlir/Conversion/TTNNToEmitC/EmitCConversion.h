@@ -828,6 +828,12 @@ struct EmitCTypeConverter<ttcore::ReduceType> {
     case ttcore::ReduceType::Var:
       rso << "VAR";
       return buf;
+    case ttcore::ReduceType::Prod:
+      rso << "PROD";
+      return buf;
+    case ttcore::ReduceType::Invalid:
+      rso << "INVALID";
+      return buf;
     }
 
     llvm_unreachable("Unknown ttcore::ReduceType");
@@ -1417,6 +1423,11 @@ struct EmitCTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
           << EmitCTypeConverter<bool>::convert(attr.getReallocateHaloOutput());
       firstElement = false;
     }
+    if (attr.getConfigTensorsInDram()) {
+      rso << (firstElement ? "" : ", ") << ".config_tensors_in_dram = "
+          << EmitCTypeConverter<bool>::convert(attr.getConfigTensorsInDram());
+      firstElement = false;
+    }
     if (attr.getActBlockHOverride()) {
       rso << (firstElement ? "" : ", ") << ".act_block_h_override = "
           << EmitCTypeConverter<uint32_t>::convert(
@@ -1471,11 +1482,6 @@ struct EmitCTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
       rso << (firstElement ? "" : ", ") << ".enable_weights_double_buffer = "
           << EmitCTypeConverter<bool>::convert(
                  attr.getEnableWeightsDoubleBuffer());
-      firstElement = false;
-    }
-    if (attr.getInPlace()) {
-      rso << (firstElement ? "" : ", ") << ".in_place = "
-          << EmitCTypeConverter<bool>::convert(attr.getInPlace());
       firstElement = false;
     }
     if (attr.getEnableKernelStrideFolding()) {
@@ -1685,8 +1691,17 @@ public:
     }
   }
 
+  // Emits std::nullopt. If TargetTy is specified, emits a typed empty optional
+  // (e.g., `std::optional<T>{}`) instead of bare `std::nullopt`. This is
+  // necessary for tt-metal APIs that use C++20 concepts/constraints where
+  // template deduction fails with bare `std::nullopt_t`.
+  template <typename TargetTy = void>
   mlir::Attribute emit(std::nullopt_t) {
-    return rewriter.getType<emitc::OpaqueAttr>(TypeNameV<std::nullopt_t>);
+    if constexpr (std::is_void_v<TargetTy>) {
+      return rewriter.getType<emitc::OpaqueAttr>(TypeNameV<std::nullopt_t>);
+    } else {
+      return rewriter.getType<emitc::OpaqueAttr>(TypeNameV<TargetTy> + "{}");
+    }
   }
 
   // The `val` should be either an operand of the current source operation, in
@@ -1734,6 +1749,85 @@ public:
     llvm::raw_string_ostream rso(code);
     llvm::interleaveComma(coords, rso);
     rso << "})";
+
+    return rewriter.getAttr<emitc::OpaqueAttr>(rso.str());
+  }
+
+  mlir::Attribute emitSubDeviceId(std::optional<uint32_t> subDeviceId) {
+    if (!subDeviceId) {
+      return emit(std::nullopt);
+    }
+
+    std::string code = "std::make_optional<::tt::tt_metal::SubDeviceId>(";
+    code += std::to_string(*subDeviceId);
+    code += ")";
+
+    return rewriter.getAttr<emitc::OpaqueAttr>(code);
+  }
+
+  mlir::Attribute emitConv3dConfig(
+      uint32_t outChannels, llvm::ArrayRef<int32_t> kernelSize,
+      llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
+      llvm::StringRef paddingMode, uint32_t groups,
+      ttcore::DataType outputDtype,
+      std::optional<mlir::tt::ttnn::Conv3dConfigAttr> conv3dConfig =
+          std::nullopt) {
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+
+    // for some fields we need default values, so we create a default config and
+    // override the fields
+    rso << "[&]() { ";
+    rso << "auto config = "
+           "ttnn::operations::experimental::conv3d::Conv3dConfig(); ";
+    rso << "config.output_channels = " << outChannels << "; ";
+
+    rso << "config.kernel_size = {";
+    llvm::interleaveComma(kernelSize, rso);
+    rso << "}; ";
+
+    rso << "config.stride = {";
+    llvm::interleaveComma(stride, rso);
+    rso << "}; ";
+
+    rso << "config.padding = {";
+    llvm::interleaveComma(padding, rso);
+    rso << "}; ";
+
+    rso << "config.padding_mode = \"" << paddingMode << "\"; ";
+    rso << "config.groups = " << groups << "; ";
+
+    // Set output dtype
+    rso << "config.dtype = ";
+    rso << EmitCTypeConverter<::ttnn::DataType>::convert(outputDtype);
+    rso << "; ";
+
+    // Apply Conv3dConfigAttr overrides if provided
+    if (conv3dConfig.has_value()) {
+      if (conv3dConfig->getWeightsDtype()) {
+        rso << "config.weights_dtype = ";
+        rso << EmitCTypeConverter<::ttnn::DataType>::convert(
+            *conv3dConfig->getWeightsDtype());
+        rso << "; ";
+      }
+      if (conv3dConfig->getTOutBlock()) {
+        rso << "config.T_out_block = " << *conv3dConfig->getTOutBlock() << "; ";
+      }
+      if (conv3dConfig->getWOutBlock()) {
+        rso << "config.W_out_block = " << *conv3dConfig->getWOutBlock() << "; ";
+      }
+      if (conv3dConfig->getHOutBlock()) {
+        rso << "config.H_out_block = " << *conv3dConfig->getHOutBlock() << "; ";
+      }
+      if (conv3dConfig->getCOutBlock()) {
+        rso << "config.C_out_block = " << *conv3dConfig->getCOutBlock() << "; ";
+      }
+      if (conv3dConfig->getCInBlock()) {
+        rso << "config.C_in_block = " << *conv3dConfig->getCInBlock() << "; ";
+      }
+    }
+
+    rso << "return config; }()";
 
     return rewriter.getAttr<emitc::OpaqueAttr>(rso.str());
   }
@@ -2034,6 +2128,58 @@ public:
                                              deviceAttr.getWorkerGrid()));
 
     return emit(memoryConfigAttr);
+  }
+
+  // Creates MeshShape code from integer attributes.
+  std::string
+  createMeshShapeCode(llvm::ArrayRef<mlir::IntegerAttr> meshShapeOverride) {
+    if (meshShapeOverride.empty()) {
+      return "";
+    }
+    std::string meshShapeCode = std::string("::ttnn::distributed::MeshShape({");
+    llvm::raw_string_ostream os(meshShapeCode);
+    llvm::SmallVector<uint32_t> dims;
+    for (const auto &intAttr : meshShapeOverride) {
+      dims.push_back(intAttr.getValue().getZExtValue());
+    }
+    llvm::interleaveComma(dims, os);
+    os << "})";
+    return os.str();
+  }
+
+  // Converts raw pointer to reference. Only works for raw pointers, not smart
+  // pointers.
+  mlir::Value dereferenceToRef(mlir::Value ptrValue,
+                               const std::string &refTypeName) {
+    return rewriter
+        .create<emitc::ApplyOp>(
+            op.getLoc(),
+            emitc::OpaqueType::get(rewriter.getContext(), refTypeName), "*",
+            ptrValue)
+        .getResult();
+  }
+
+  // Converts unique_ptr<T> to T&. Uses VerbatimOp since ApplyOp doesn't support
+  // unique_ptr.
+  mlir::Value dereferenceUniquePtr(mlir::Value uniquePtrValue,
+                                   const std::string &refTypeName) {
+    // Generate variable name
+    std::string ssaName;
+    llvm::raw_string_ostream os(ssaName);
+    mlir::OpPrintingFlags flags;
+    uniquePtrValue.printAsOperand(os, flags);
+    os.flush();
+    std::string varName = "ref_" + ssaName.substr(1);
+
+    // Create reference variable
+    auto refType = emitc::OpaqueType::get(rewriter.getContext(), refTypeName);
+    std::string verbatimCode = "auto& " + varName + " = *{};";
+    rewriter.create<emitc::VerbatimOp>(
+        op.getLoc(), rewriter.getStringAttr(verbatimCode),
+        llvm::SmallVector<mlir::Value>{uniquePtrValue});
+
+    return rewriter.create<emitc::LiteralOp>(op.getLoc(), refType, varName)
+        .getResult();
   }
 
 private:

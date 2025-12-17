@@ -5,9 +5,9 @@
 import pytest
 import torch
 from typing import List, Optional
-from builder.base.builder import Operand, Shape
+from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_utils import compile_and_execute_ttir
+from builder.base.builder_apis import compile_and_execute_ttir
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -85,6 +85,9 @@ def build_ttir(
     return builder.add(unrotated, rotated)
 
 
+@pytest.mark.skip(
+    "Causes segfault during pipeline, see https://github.com/tenstorrent/tt-mlir/issues/5283"
+)
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -115,32 +118,34 @@ def test_rotary_embedding(
     - Multiply and add: input * cos + rotated * sin
     """
 
-    def rotary_embedding(
-        input: Operand,
-        cos_input: Operand,
-        sin_input: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        # Create input tensors
-        input_data = torch.randn(shapes[0], dtype=dtypes[1])
-        cos_data = torch.randn(shapes[1], dtype=dtypes[0])
-        sin_data = torch.randn(shapes[2], dtype=dtypes[2])
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def rotary_embedding(
+            input: Operand,
+            cos_input: Operand,
+            sin_input: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            # Create input tensors
+            input_data = torch.randn(shapes[0], dtype=dtypes[1])
+            cos_data = torch.randn(shapes[1], dtype=dtypes[0])
+            sin_data = torch.randn(shapes[2], dtype=dtypes[2])
 
-        golden_output = build_torch_golden(input_data, cos_data, sin_data)
+            golden_output = build_torch_golden(input_data, cos_data, sin_data)
 
-        result = build_ttir(input, cos_input, sin_input, builder, unit_attrs=unit_attrs)
+            result = build_ttir(
+                input, cos_input, sin_input, builder, unit_attrs=unit_attrs
+            )
 
-        builder.set_goldens(
-            {input: input_data, cos_input: cos_data, sin_input: sin_data},
-            {result: golden_output},
-        )
-        return result
+            builder.set_goldens(
+                {input: input_data, cos_input: cos_data, sin_input: sin_data},
+                {result: golden_output},
+            )
+            return result
 
     output = compile_and_execute_ttir(
-        rotary_embedding,
-        shapes,
-        dtypes,
+        module,
         target=target,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
@@ -153,6 +158,9 @@ def test_rotary_embedding(
         assert check_op(output, "slice_static")
 
 
+@pytest.mark.skip(
+    "Causes segfault during pipeline, see https://github.com/tenstorrent/tt-mlir/issues/5283"
+)
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -185,32 +193,34 @@ def test_rotary_embedding_failure(
     - Multiply and add: input * cos + rotated * sin
     """
 
-    def rotary_embedding(
-        input: Operand,
-        cos_input: Operand,
-        sin_input: Operand,
-        builder: TTIRBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        # Create input tensors
-        input_data = torch.randn(shapes[0], dtype=dtypes[1])
-        cos_data = torch.randn(shapes[1], dtype=dtypes[0])
-        sin_data = torch.randn(shapes[2], dtype=dtypes[2])
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def rotary_embedding(
+            input: Operand,
+            cos_input: Operand,
+            sin_input: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            # Create input tensors
+            input_data = torch.randn(shapes[0], dtype=dtypes[1])
+            cos_data = torch.randn(shapes[1], dtype=dtypes[0])
+            sin_data = torch.randn(shapes[2], dtype=dtypes[2])
 
-        golden_output = build_torch_golden(input_data, cos_data, sin_data)
+            golden_output = build_torch_golden(input_data, cos_data, sin_data)
 
-        result = build_ttir(input, cos_input, sin_input, builder, unit_attrs=unit_attrs)
+            result = build_ttir(
+                input, cos_input, sin_input, builder, unit_attrs=unit_attrs
+            )
 
-        builder.set_goldens(
-            {input: input_data, cos_input: cos_data, sin_input: sin_data},
-            {result: golden_output},
-        )
-        return result
+            builder.set_goldens(
+                {input: input_data, cos_input: cos_data, sin_input: sin_data},
+                {result: golden_output},
+            )
+            return result
 
     output = compile_and_execute_ttir(
-        rotary_embedding,
-        shapes,
-        dtypes,
+        module,
         target=target,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),

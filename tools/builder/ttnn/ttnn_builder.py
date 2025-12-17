@@ -9,13 +9,16 @@ import torch
 
 from ttmlir.ir import *
 from ttmlir import util
-from ttmlir.dialects import ttnn, ttcore
+from ttmlir.dialects import ttnn, ttcore, func
 
 from builder.base.builder import *
+from builder.base.builder_utils import *
+
 from golden import *
 
 
 class TTNNBuilder(Builder):
+
     # ----- Methods -----
 
     def __init__(
@@ -128,9 +131,9 @@ class TTNNBuilder(Builder):
                         golden_output = op_golden_function(
                             *(organize_golden_args(inputs)), **golden_kwargs
                         )
-                    self._set_golden_tensor(op, golden_output)
+                    self._set_golden_tensor(op.result, golden_output)
 
-            return op
+            return op.result
 
     def _get_data_type_attribute(self, operand: Operand) -> ttcore.ir.DataTypeAttr:
         with self._ctx, self._loc:
@@ -176,7 +179,157 @@ class TTNNBuilder(Builder):
             ttnn_layout_attr = self.create_tensor_encoding(shape, element_type)
             return RankedTensorType.get(shape, element_type, ttnn_layout_attr)
 
+    def create_l1_width_sharded_tiled_encoding(
+        self, shape: Shape, element_type: Type
+    ) -> ttnn.ir.TTNNLayoutAttr:
+        with self._ctx, self._loc:
+            data_type = util.element_type_to_data_type(element_type)
+            tile_element_type = ttcore.ir.TileType.get(self._ctx, 32, 32, data_type)
+            buffer_type = ttnn.BufferType.L1
+            grid_attr = ttcore.ir.GridAttr.get(self._ctx, [1, 1])
+            return ttnn.ir.TTNNLayoutAttr.get(
+                self._ctx,
+                shape,
+                tile_element_type,
+                buffer_type,
+                grid_attr,
+                ttnn.TensorMemoryLayout.WidthSharded,
+            )
+
+    def create_l1_width_sharded_tiled_ttnn_tensor(
+        self, shape: Shape, element_type: Type
+    ) -> RankedTensorType:
+        with self._ctx, self._loc:
+            ttnn_layout_attr = self.create_l1_width_sharded_tiled_encoding(
+                shape, element_type
+            )
+            return RankedTensorType.get(shape, element_type, ttnn_layout_attr)
+
+    def _get_location(self) -> Location:
+        stack = inspect.stack()
+        caller_frame = stack[2]
+        filename = caller_frame.filename
+        lineno = caller_frame.lineno
+        return Location.name(f"{filename}:{lineno}")
+
     # ----- Public TTNN Op Generators ----
+
+    ############### ttnn.AddOp ###############
+
+    @tag(ttnn.AddOp)
+    def add(
+        self,
+        in0: Operand,
+        in1: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.add)
+        dtype = self._get_data_type_attribute(in0)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(in0)
+        input1 = self._get_golden_tensor(in1)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, input1, mlir_output_type)
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            result,
+            in0,
+            in1,
+            loc=loc,
+            dtype=dtype,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op.result, golden_output)
+
+        return op.result
+
+    @parse(ttnn.AddOp)
+    def add_parser(
+        self,
+        old_op: ttnn.AddOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.add_parser)
+        lhs = global_dict[old_op.lhs]
+        rhs = global_dict[old_op.rhs]
+        result = old_op.result.type
+
+        new_op = ttnn_op(result, lhs, rhs, loc=old_op.location, dtype=old_op.dtype)
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(lhs)
+            input1 = self._get_golden_tensor(rhs)
+            op_golden_function = get_golden_function(ttnn_op)
+            golden_output = op_golden_function(input0, input1, result.element_type)
+            self._set_golden_tensor(new_op.result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op.result
+        return new_op, op_map_dictionary
+
+    @split(ttnn.AddOp)
+    def add_split(
+        self,
+        old_op: ttnn.AddOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.add_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            add_module = Module.create()
+            add_builder = TTNNBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.lhs.type,
+                old_op.rhs.type,
+            ]
+
+            with InsertionPoint(add_module.body):
+
+                @func.func(*op_input_types, name="add_module")
+                def decorated_func(*inputs):
+                    lhs = inputs[0]
+                    rhs = inputs[1]
+                    result = old_op.result.type
+
+                    new_op = ttnn_op(
+                        result, lhs, rhs, loc=old_op.location, dtype=old_op.dtype
+                    )
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttnn_op)
+                        input0 = self._get_golden_tensor(old_op.lhs)
+                        input1 = self._get_golden_tensor(old_op.rhs)
+                        golden_output = op_golden_function(
+                            input0, input1, result.element_type
+                        )
+                        add_builder._set_golden_tensor(new_op.result, golden_output)
+                        add_builder._set_output_ordering([new_op.result])
+                        add_builder._set_golden_tensor(lhs, input0)
+                        add_builder._set_golden_tensor(rhs, input1)
+                        add_builder._set_input_ordering([lhs, rhs])
+
+                    return new_op
+
+        return add_module, add_builder
 
     def mish(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
@@ -2125,54 +2278,6 @@ class TTNNBuilder(Builder):
 
     # class TTNN_GenericElementwiseBinaryOp
 
-    def add(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
-        """
-        Creates ``ttnn.add``.
-
-        *Elementwise addition operation.*
-
-        Performs elementwise addition between two tensors.
-        For each pair of corresponding elements, adds the element in the second
-        tensor to the element in the first tensor.
-
-        Mathematical definition: add(x, y) = x + y
-
-        .. code-block:: mlir
-
-            // Add corresponding elements
-            %result = ttnn.add(%lhs, %rhs, %output) : tensor<3xf32>, tensor<3xf32>, tensor<3xf32> -> tensor<3xf32>
-            // Input tensors:
-            // lhs: [3.5, 0.0, -1.2]
-            // rhs: [1.5, 2.0, -3.2]
-            // Output tensor:
-            // [5.0, 2.0, -4.4]
-
-        Parameters
-        ----------
-        in0 : Operand
-            First input tensor
-        in1 : Operand
-            Second input tensor
-        unit_attrs : *Optional[List[str]]*
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            A tensor containing the elementwise sum of the inputs
-        """
-        ttnn_kwargs = {
-            "dtype": self._get_data_type_attribute(in0),
-        }
-        return self._op_proxy(
-            ttnn.AddOp,
-            [in0, in1],
-            ttnn_kwargs=ttnn_kwargs,
-            unit_attrs=unit_attrs,
-        )
-
     def atan2(
         self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
     ) -> OpView:
@@ -2610,3 +2715,223 @@ class TTNNBuilder(Builder):
             ),
             unit_attrs=unit_attrs,
         )
+
+    def _op_proxy_l1_sharded_executed_op_with_dram_final_output(
+        self,
+        op_function: Callable,
+        inputs: List[Operand],
+        ttnn_kwargs: dict,
+        unit_attrs: Optional[List[str]] = None,
+        golden_kwargs: Optional[dict] = None,
+        skip_golden: bool = False,
+    ) -> OpView:
+        """
+        Helper method to create L1 width-sharded operations with DRAM output conversion.
+        """
+        with self._ctx, self._loc:
+            # Create L1 width-sharded output tensor
+            sharded_output_type = self.create_l1_width_sharded_tiled_ttnn_tensor(
+                shape=inputs[0].type.shape,
+                element_type=inputs[0].type.element_type,
+            )
+
+            # Prepare location for the operation
+            id = self._get_next_global_id()
+            loc = self._get_loc_of_extra_file_callee(id=id)
+
+            # Create the operation with L1 sharded output
+            op = op_function(
+                sharded_output_type,
+                *inputs,
+                loc=loc,
+                **ttnn_kwargs,
+            )
+
+            # Set unit attributes if provided
+            if unit_attrs is not None:
+                for attr_name in unit_attrs:
+                    op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+            # Convert L1 sharded output to DRAM, to match expected final output layout
+            final_output_type = self.create_ttnn_tensor(
+                shape=op.result.type.shape,
+                element_type=op.result.type.element_type,
+            )
+
+            tensor_memory_layout_attr = ttnn.ir.TensorMemoryLayoutAttr.get(
+                self._ctx, ttnn.TensorMemoryLayout.Interleaved
+            )
+            buffer_type_attr = ttnn.ir.BufferTypeAttr.get(
+                self._ctx, ttnn.BufferType.DRAM
+            )
+            memoryConfigAttr = ttnn.ir.MemoryConfigAttr.get(
+                self._ctx, tensor_memory_layout_attr, buffer_type_attr
+            )
+            data_type = self._get_data_type_attribute(op.result)
+
+            # Prepare location for the helper ToLayout operation
+            id = self._get_next_global_id()
+            loc = self._get_loc_of_extra_file_callee(id=id)
+
+            output_to_dram = ttnn.ToLayoutOp(
+                final_output_type,
+                op.result,
+                layout=ttnn.ir.LayoutAttr.get(self._ctx, ttnn.Layout.Tile),
+                memory_config=memoryConfigAttr,
+                loc=loc,
+                dtype=data_type,
+            )
+
+            if not skip_golden and not self._disable_golden_check:
+                golden_func = get_golden_function(op_function)
+                if golden_func:
+                    golden_args = self._organize_eltwise_golden(inputs)
+                    golden = golden_func(*golden_args, **golden_kwargs or {})
+                    self._set_golden_tensor(output_to_dram, golden)
+
+            return output_to_dram
+
+    def rms_norm(
+        self,
+        input_tensor: Operand,
+        weight: Optional[Operand] = None,
+        bias: Optional[Operand] = None,
+        epsilon: float = 1.0e-5,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``ttnn.rms_norm``.
+
+        *RMS Normalization operation.*
+
+        Applies Root Mean Square (RMS) normalization to the input tensor.
+        RMS normalization normalizes the input tensor based on the root mean square of its elements.
+
+        Mathematical definition: rms_norm(x) = (x / sqrt(mean(x^2) + epsilon)) * weight + bias
+
+        Parameters
+        ----------
+        input_tensor : Operand
+            Input tensor to be normalized
+        weight : Optional[Operand]
+            Optional weight tensor for scaling (default: None)
+        bias : Optional[Operand]
+            Optional bias tensor for shifting (default: None)
+        epsilon : float
+            Small constant to avoid division by zero (default is 1.0e-5)
+        unit_attrs : Optional[List[str]]
+            Optional list of unit attributes, here used to specify L1 width sharding
+
+        Returns
+        -------
+        OpView
+            A tensor containing the RMS normalized output
+        """
+        # Check if L1 width sharding is requested
+        l1_width_sharded = unit_attrs is not None and "l1_width_sharded" in unit_attrs
+        if l1_width_sharded:
+            # Remove the l1_width_sharded attribute for internal processing
+            unit_attrs = [attr for attr in unit_attrs if attr != "l1_width_sharded"]
+
+        # Build TTNN kwargs - only include non-None optional parameters
+        ttnn_kwargs = {"epsilon": epsilon}
+        if weight is not None:
+            ttnn_kwargs["weight"] = weight
+        if bias is not None:
+            ttnn_kwargs["bias"] = bias
+
+        # Determine normalized_shape from weight/bias tensor if available, otherwise use last input dimension
+        if weight is not None:
+            normalized_shape = list(weight.type.shape)
+        elif bias is not None:
+            normalized_shape = list(bias.type.shape)
+        else:
+            normalized_shape = [input_tensor.type.shape[-1]]
+
+        golden_kwargs = {"epsilon": epsilon, "normalized_shape": normalized_shape}
+        if weight is not None:
+            golden_kwargs["weight"] = self._get_golden_tensor(weight)
+        if bias is not None:
+            golden_kwargs["bias"] = self._get_golden_tensor(bias)
+
+        if l1_width_sharded:
+            return self._op_proxy_l1_sharded_executed_op_with_dram_final_output(
+                ttnn.RMSNormOp,
+                [input_tensor],
+                ttnn_kwargs=ttnn_kwargs,
+                unit_attrs=unit_attrs,
+                golden_kwargs=golden_kwargs,
+            )
+        else:
+            return self._op_proxy(
+                ttnn.RMSNormOp,
+                [input_tensor],
+                output_shape=input_tensor.type.shape,
+                output_type=input_tensor.type.element_type,
+                ttnn_kwargs=ttnn_kwargs,
+                unit_attrs=unit_attrs,
+                golden_kwargs=golden_kwargs,
+            )
+
+    # ----- Parse ttnn module ----
+
+    @staticmethod
+    def from_module(
+        ctx: Context, mlir_text: str, golden_inputs: List[torch.tensor] = None
+    ) -> Tuple(Module, TTNNBuilder):
+        if golden_inputs is None:
+            golden_inputs = []
+
+        root_module = Module.parse(mlir_text, ctx)
+        loc = Location.unknown(ctx)
+        with ctx, loc:
+            ttnn_builder = TTNNBuilder(ctx, loc)
+            new_module = ttnn_builder.parse_root_module(root_module, golden_inputs)
+
+        return new_module, ttnn_builder
+
+    # ----- Split ttnn module ----
+
+    def split_op(
+        self,
+        parsed_op: Operation,
+    ) -> Tuple[Module, TTNNBuilder]:
+        split_function = self.get_split_from_opview(type(parsed_op))
+        return split_function(self, parsed_op)
+
+    @staticmethod
+    def split_module(
+        module: Module,
+        builder: TTNNBuilder,
+    ) -> List[Tuple[Module, TTNNBuilder]]:
+        sub_modules_and_builders = []
+        old_ctx = module.context
+        old_loc = Location.unknown(old_ctx)
+
+        with old_ctx, old_loc:
+            for entry in module.body.operations:
+                if isinstance(entry, ttcore.DeviceModuleOp):
+                    for device_op_module in entry.regions[0].blocks[0].operations:
+                        for device_module_op in (
+                            device_op_module.regions[0].blocks[0].operations
+                        ):
+                            if isinstance(device_module_op, func.FuncOp):
+                                for block in device_module_op.body:
+                                    for op in block.operations:
+                                        if isinstance(op, func.ReturnOp):
+                                            continue
+                                        else:
+                                            sub_op_module_builder = builder.split_op(op)
+                                            sub_modules_and_builders.append(
+                                                sub_op_module_builder
+                                            )
+                elif isinstance(entry, func.FuncOp):
+                    for block in entry.body:
+                        for op in block.operations:
+                            if isinstance(op, func.ReturnOp):
+                                continue
+                            else:
+                                sub_op_module_builder = builder.split_op(op)
+                                sub_modules_and_builders.append(sub_op_module_builder)
+
+        return sub_modules_and_builders

@@ -65,7 +65,6 @@ def TTCore_GridAttr : TTCore_Attr<"Grid", "grid"> {
         }
         return cGridVolume;
       }
-      SmallVector<int64_t> getPhysicalGridShape(ArrayRef<int64_t> deviceGridShape);
 
       uint64_t getRank() const { return getShape().size(); }
   }];
@@ -294,6 +293,9 @@ def TTCore_ShardLayoutAttr : TTCore_Attr<"ShardLayout", "shard", [TTCore_DeviceL
     }
 
     unsigned getRank() const { return getStride().size(); }
+
+    // Computes the implied physical grid shape using the grid shape and index map (if present)
+    llvm::SmallVector<int64_t> getPhysicalGridShape(ShapedType tensorType) const;
   }];
 }
 
@@ -448,6 +450,12 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
                                      OOBVal oobVal, MemorySpace memorySpace,
                                      TensorMemoryLayout memoryLayout,
                                      DenseIntElementsAttr collapseIntervals,
+                                     mlir::AffineMap indexAffineMap);
+    static MetalLayoutAttr get(::mlir::MLIRContext *context,
+                                     ArrayRef<int64_t> logicalShape,
+                                     OOBVal oobVal, MemorySpace memorySpace,
+                                     TensorMemoryLayout memoryLayout,
+                                     DenseIntElementsAttr collapseIntervals,
                                      ArrayRef<int64_t> dimAlignments
                                      );
 
@@ -460,6 +468,9 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
                                      mlir::AffineMap indexAffineMap
                                      );
 
+    MetalLayoutAttr compose(mlir::AffineMap indexAffineMap) const;
+    MetalLayoutAttr withIndexAffineMap(mlir::AffineMap indexAffineMap) const;
+
     // Derive the physical tensor shape from logical shape and grid.
     llvm::SmallVector<int64_t> getPhysicalShape(ArrayRef<int64_t> tileShape) const;
 
@@ -468,6 +479,14 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
 
     static llvm::SmallVector<int64_t> normalizeAndFlattenIntervals(DenseIntElementsAttr inputIntervals,
                                    size_t inputRank);
+
+    // computes collapsed intervals for an ND to 2D collapse (leading dims are collapsed)
+    static DenseIntElementsAttr computeDefaultCollapsedIntervals(MLIRContext* context, int rank);
+
+    static llvm::SmallVector<int64_t> computeGridAwareDimAlignments(
+      ArrayRef<int64_t> logicalShape,
+      ArrayRef<int64_t> deviceGridShape,
+      ArrayRef<int64_t> normalizedIntervals);
 
     llvm::SmallVector<int64_t> getDeviceShape(ArrayRef<int64_t> gridShape, ArrayRef<int64_t> tileShape) const;
 
@@ -498,8 +517,13 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
       return getIndexAffineMap();
     }
 
+    // Returns true if this layout has two or more dims collapsed into a single dim
+    bool hasNonTrivialCollapsedDims(ArrayRef<int64_t> deviceShape);
+
     bool isView() { return false; }
   }];
+
+  let genVerifyDecl = 1;
 }
 
 def TTCore_DeviceAttr : TTCore_Attr<"Device", "device", []> {

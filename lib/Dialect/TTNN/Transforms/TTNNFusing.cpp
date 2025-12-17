@@ -7,6 +7,11 @@
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Utils.h"
 
+#ifdef TTMLIR_ENABLE_OPMODEL
+#include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
+#include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
+#endif
+
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir::tt::ttnn {
@@ -162,6 +167,8 @@ private:
   }
 };
 
+#ifdef TTMLIR_ENABLE_OPMODEL
+
 // This is rope fusing pattern. Given this formula:
 // (x * cos) + (rotate_half(x) * sin)
 // into ttnn rotary_embedding op from ttnn.
@@ -175,14 +182,12 @@ private:
 //
 // unrotatedProjection comes as following sequence of operations:
 // cos_unsqueezed = unsqueeze(cos) - where unsqueeze will be reshape which
-// prepends
-//  dimensions to cos to match x's rank.
+// prepends dimensions to cos to match x's rank.
 // unrotated_projection = multiply(x, cos_unsqueezed)
 //
 // rotatedProjections comes as following sequence of operations:
 // sin_unsqueezed = unsqueeze(sin) - where unsqueeze will be reshape which
-// prepends
-//  dimensions to sin to match x's rank.
+// prepends dimensions to sin to match x's rank.
 // rotated_second_half = slice(x, ..., start = last_dim/2, end = last_dim)
 // neg_rotated_second_half = negate(rotated_second_half)
 // rotated_first_half = slice(x, ..., start = 0, end = last_dim/2)
@@ -212,8 +217,8 @@ public:
   mlir::LogicalResult
   matchAndRewrite(AddOp srcOp, mlir::PatternRewriter &rewriter) const override {
     // Match the final add: add(unrotated_projection, rotated_projection)
-    Value lhs = srcOp.getOperand(0);
-    Value rhs = srcOp.getOperand(1);
+    Value lhs = srcOp.getLhs();
+    Value rhs = srcOp.getRhs();
 
     // Try to identify which operand is unrotated and which is rotated
     auto lhsMul = lhs.getDefiningOp<MultiplyOp>();
@@ -272,12 +277,27 @@ private:
       return failure();
     }
 
+    op_model::ScopedSingletonDeviceGuard deviceGuard;
+
     // Create rotary_embedding op
     auto resultType = srcOp.getType();
     auto ropeOp = rewriter.create<RotaryEmbeddingOp>(
         srcOp.getLoc(), resultType, xUnrotated, cos, sin,
         /*token_index=*/nullptr,
         /*memory_config=*/nullptr, /*compute_config=*/nullptr);
+
+    // Extract input layouts from the operation
+    std::vector<TTNNLayoutAttr> inputLayouts =
+        utils::extractInputLayouts(ropeOp.getOperation());
+
+    OpConfig config(mlir::cast<TTNNLayoutAttr>(resultType.getEncoding()));
+    auto result = op_constraint_validation::validateOperation(
+        ropeOp.getOperation(), inputLayouts, config);
+
+    if (!result.isSuccess()) {
+      rewriter.eraseOp(ropeOp);
+      return failure();
+    }
 
     rewriter.replaceOp(srcOp, ropeOp.getResult());
     return mlir::success();
@@ -410,6 +430,8 @@ private:
   }
 };
 
+#endif // TTMLIR_ENABLE_OPMODEL
+
 class TTNNFusingPass : public impl::TTNNFusingBase<TTNNFusingPass> {
 public:
   using impl::TTNNFusingBase<TTNNFusingPass>::TTNNFusingBase;
@@ -422,8 +444,15 @@ public:
         TTNNConv2dWithActivation<ReluOp>, TTNNConv2dWithActivation<Relu6Op>,
         TTNNConv2dWithActivation<SiluOp>, TTNNConv2dWithActivation<SigmoidOp>,
         TTNNMatmulAndLinearWithActivation<MatmulOp, SigmoidOp>,
-        TTNNMatmulAndLinearWithActivation<LinearOp, SigmoidOp>, RoPEFusing>(
-        &getContext());
+        TTNNMatmulAndLinearWithActivation<LinearOp, SigmoidOp>,
+        TTNNMatmulAndLinearWithActivation<MatmulOp, SiluOp>,
+        TTNNMatmulAndLinearWithActivation<LinearOp, SiluOp>>(&getContext());
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+    if (enableOpConstraints) {
+      patterns.add<RoPEFusing>(&getContext());
+    }
+#endif // TTMLIR_ENABLE_OPMODEL
 
     GreedyRewriteConfig config;
     config.setUseTopDownTraversal(true);

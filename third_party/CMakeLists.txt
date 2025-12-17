@@ -1,8 +1,9 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "a2b6b8a8e26fec361fa483e02bda14ee4d509273")
+set(TT_METAL_VERSION "f73be13bca1763be5e69d209e9d053fa7ec32abd")
 
-set(CMAKE_INSTALL_MESSAGE LAZY)  # suppress "Up-to-date:..." messages in incremental builds
+# Suppress install logs to avoid cluttering the build output
+set(CMAKE_INSTALL_MESSAGE NEVER)
 
 
 if (DEFINED ENV{CPM_SOURCE_CACHE})
@@ -11,6 +12,13 @@ else()
   set(CPM_SOURCE_CACHE "${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/.cpmcache")
 endif()
 message(STATUS "Setting tt-metal CPM cache to: ${CPM_SOURCE_CACHE}")
+
+if (CMAKE_BUILD_TYPE STREQUAL "Release")
+  set(TTMETAL_BUILD_DIR ${TTMLIR_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build)
+else()
+  set(TTMETAL_BUILD_DIR ${TTMLIR_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build_Debug)
+endif()
+set(TTMETAL_LIBRARY_DIR ${TTMETAL_BUILD_DIR}/lib)
 
 set(TRACY_INCLUDE_DIRS
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_metal/third_party/tracy/public
@@ -35,7 +43,7 @@ set(TTMETAL_INCLUDE_DIRS
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_stl
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_stl/tt_stl
   ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tt_eager
-  ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build/include
+  ${TTMETAL_BUILD_DIR}/include
   ${CPM_SOURCE_CACHE}/reflect/f93e77475670eaeacf332927dfe8b50e3f3812e0
   ${CPM_SOURCE_CACHE}/nanomsg/28cc32d5bdb6a858fe53b3ccf7e923957e53eada/include
   ${CPM_SOURCE_CACHE}/fmt/69912fb6b71fcb1f7e5deca191a2bb4748c4e7b6/include
@@ -49,9 +57,6 @@ set(TTMETAL_INCLUDE_DIRS
   ${CPM_SOURCE_CACHE}/xtensor-blas/0_22_0_patched/include
   PARENT_SCOPE
 )
-
-set(TTMETAL_BUILD_DIR ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build)
-set(TTMETAL_LIBRARY_DIR ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build/lib)
 
 set(TTNN_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/_ttnncpp.so)
 set(TTNN_PY_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/_ttnn.so)
@@ -92,16 +97,15 @@ else()
   set(ENABLE_DISTRIBUTED OFF)
 endif()
 
-set(METAL_BUILD_DIR ${TTMLIR_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build)
-set(METAL_INSTALL_PREFIX "${METAL_BUILD_DIR}")
+set(METAL_INSTALL_PREFIX "${TTMETAL_BUILD_DIR}")
 ExternalProject_Add(
   tt-metal
   PREFIX ${TTMLIR_SOURCE_DIR}/third_party/tt-metal
-  BINARY_DIR ${METAL_BUILD_DIR}
+  BINARY_DIR ${TTMETAL_BUILD_DIR}
   # This patch command creates the build dir that otherwise doesn't get created
-  PATCH_COMMAND ${CMAKE_COMMAND} -E make_directory ${METAL_BUILD_DIR}
+  PATCH_COMMAND ${CMAKE_COMMAND} -E make_directory ${TTMETAL_BUILD_DIR}
   CMAKE_ARGS
-    -DCMAKE_INSTALL_MESSAGE=LAZY
+    -DCMAKE_INSTALL_MESSAGE=NEVER
   CMAKE_GENERATOR Ninja
   CMAKE_ARGS
     -DCMAKE_BUILD_TYPE=${TTMETAL_BUILD_TYPE}

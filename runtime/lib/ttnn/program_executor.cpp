@@ -5,16 +5,22 @@
 #include "tt/runtime/detail/ttnn/program_executor.h"
 
 #include "operations/cache/load_cached.h"
+#include "operations/ccl/aggregate_tensor.h"
 #include "operations/ccl/all_gather.h"
+#include "operations/ccl/all_reduce.h"
 #include "operations/ccl/collective_permute.h"
+#include "operations/ccl/distribute_tensor.h"
 #include "operations/ccl/mesh_shard.h"
 #include "operations/ccl/point_to_point.h"
 #include "operations/ccl/reduce_scatter.h"
 #include "operations/context/get_device.h"
 #include "operations/conv/conv2d.h"
+#include "operations/conv/conv3d.h"
 #include "operations/conv/conv_transpose2d.h"
 #include "operations/conv/prepare_conv2d_bias.h"
 #include "operations/conv/prepare_conv2d_weights.h"
+#include "operations/conv/prepare_conv_transpose2d_bias.h"
+#include "operations/conv/prepare_conv_transpose2d_weights.h"
 #include "operations/cpu/cpu.h"
 #include "operations/creation/arange.h"
 #include "operations/creation/constant.h"
@@ -42,6 +48,7 @@
 #include "operations/eltwise/unary/unary_composite.h"
 #include "operations/embedding/embedding.h"
 #include "operations/embedding/embedding_backward.h"
+#include "operations/experimental/gelu_bw.h"
 #include "operations/generic/generic_op.h"
 #include "operations/kv_cache/fill_cache.h"
 #include "operations/kv_cache/paged_fill_cache.h"
@@ -164,6 +171,15 @@ std::vector<::tt::runtime::Tensor> ProgramExecutor::gatherOutputTensors() {
 }
 
 void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
+
+#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+  ::tt::runtime::utils::logMemoryStateIfNeeded(
+      ::tt::runtime::ttnn::utils::getMemoryView, getContext().getDeviceHandle(),
+      ::tt::runtime::MemoryLogLevel::Operation,
+      std::string("Device memory state before operation ") +
+          ::tt::target::ttnn::EnumNameOpType(op->type_type()));
+#endif
+
   switch (op->type_type()) {
   case ::tt::target::ttnn::OpType::GetDeviceOp: {
     return operations::context::run(op->type_as_GetDeviceOp(), getContext());
@@ -226,6 +242,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::LinearOp: {
     return operations::matmul::run(op->type_as_LinearOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::ExperimentalEltwiseBinaryBackwardOp: {
+    return operations::experimental::run(
+        op->type_as_ExperimentalEltwiseBinaryBackwardOp(), getContext());
   }
   // ANCHOR: adding_an_op_matmul_runtime_program
   case ::tt::target::ttnn::OpType::MatmulOp: {
@@ -344,8 +364,19 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::conv::run(op->type_as_PrepareConv2dBiasOp(),
                                  getContext());
   }
+  case ::tt::target::ttnn::OpType::PrepareConvTranspose2dWeightsOp: {
+    return operations::conv::run(op->type_as_PrepareConvTranspose2dWeightsOp(),
+                                 getContext());
+  }
+  case ::tt::target::ttnn::OpType::PrepareConvTranspose2dBiasOp: {
+    return operations::conv::run(op->type_as_PrepareConvTranspose2dBiasOp(),
+                                 getContext());
+  }
   case ::tt::target::ttnn::OpType::Conv2dOp: {
     return operations::conv::run(op->type_as_Conv2dOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::Conv3dOp: {
+    return operations::conv::run(op->type_as_Conv3dOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::ConvTranspose2dOp: {
     return operations::conv::run(op->type_as_ConvTranspose2dOp(), getContext());
@@ -365,6 +396,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::AllGatherOp: {
     return operations::ccl::run(op->type_as_AllGatherOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::AllReduceOp: {
+    return operations::ccl::run(op->type_as_AllReduceOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::ReduceScatterOp: {
     return operations::ccl::run(op->type_as_ReduceScatterOp(), getContext());
@@ -453,6 +487,12 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::ScaledDotProductAttentionOp: {
     return operations::transformer::run(
         op->type_as_ScaledDotProductAttentionOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::AggregateTensorOp: {
+    return operations::ccl::run(op->type_as_AggregateTensorOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::DistributeTensorOp: {
+    return operations::ccl::run(op->type_as_DistributeTensorOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::NONE: {
     LOG_FATAL("Unsupported operation type: ",

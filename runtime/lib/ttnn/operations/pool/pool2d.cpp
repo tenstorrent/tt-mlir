@@ -71,7 +71,7 @@ void runAvgPool2dOp(
              /*divisor_override=*/std::nullopt, outputMemoryConfig,
              appliedShardScheme, computeKernelConfig,
              /*deallocate_input=*/false,
-             /*reallocate_halo_output=*/!op->in_place_halo());
+             /*reallocate_halo_output=*/op->reallocate_halo_output());
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
@@ -124,7 +124,7 @@ void runMaxPool2dOp(
              op->channels(), kernelSize, stride, padding, dilation,
              op->ceil_mode(), outputMemoryConfig, appliedShardScheme,
              /*deallocate_input=*/false,
-             /*reallocate_halo_output=*/!op->in_place_halo(),
+             /*reallocate_halo_output=*/op->reallocate_halo_output(),
              /*return_indices=*/false);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), results[0]);
@@ -188,7 +188,7 @@ void run(const ::tt::target::ttnn::MaxPool2dWithIndicesOp *op,
       op->channels(), kernelSize, stride, padding, dilation, op->ceil_mode(),
       outputMemoryConfig, appliedShardScheme,
       /*deallocate_input=*/false,
-      /*reallocate_halo_output=*/!op->in_place_halo(),
+      /*reallocate_halo_output=*/op->reallocate_halo_output(),
       /*return_indices=*/true, ::ttnn::DataType::BFLOAT16,
       ::ttnn::Layout::ROW_MAJOR);
 

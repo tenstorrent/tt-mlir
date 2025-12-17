@@ -17,13 +17,16 @@ if(TTMLIR_ENABLE_BINDINGS_PYTHON AND MLIR_ENABLE_BINDINGS_PYTHON)
     add_subdirectory(explorer)
   endif()
 
-  add_subdirectory(ttrt)
+  if (TTMLIR_ENABLE_TTRT)
+    add_subdirectory(ttrt)
+  endif()
   add_subdirectory(op-by-op-infra)
 endif()
 
 add_subdirectory(ttmlir-translate)
 add_subdirectory(ttnn-standalone)
 
-if (TTMLIR_ENABLE_ALCHEMIST)
+# TTMLIR_ENABLE_RUNTIME is needed because tt-metal doesn't build without it => can't install TT-NN dependencies
+if (TTMLIR_ENABLE_ALCHEMIST AND TTMLIR_ENABLE_RUNTIME)
   add_subdirectory(tt-alchemist)
 endif()

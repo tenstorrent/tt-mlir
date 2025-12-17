@@ -449,7 +449,8 @@ TTNNLayoutAttr TTNNLayoutAttr::withDataType(ttcore::DataType dataType) {
       getContext(), getLinear(), getGrid(),
       ttcore::buildMemRef<BufferType, BufferTypeAttr>(
           getContext(), getScalarShardShape(), elementType, getBufferType()),
-      getMemLayout(), getTensorMesh(), getIgnorePhysicalLayout());
+      getMemLayout(), getTensorMesh(), getIgnorePhysicalLayout(),
+      getExactGrid());
 }
 
 // Construct a new TTNNLayoutAttr
@@ -492,7 +493,8 @@ TTNNLayoutAttr TTNNLayoutAttr::withBufferType(BufferType memorySpace) {
       getContext(), getLinear(), grid,
       mlir::tt::ttcore::buildMemRef<BufferType, BufferTypeAttr>(
           getContext(), getScalarShardShape(), getElementType(), memorySpace),
-      memLayoutAttr, getTensorMesh(), getIgnorePhysicalLayout());
+      memLayoutAttr, getTensorMesh(), getIgnorePhysicalLayout(),
+      getExactGrid());
 }
 
 // Construct a new TTNNLayoutAttr
@@ -510,7 +512,7 @@ TTNNLayoutAttr::withMemoryLayout(TensorMemoryLayoutAttr memLayoutAttr) {
                                  getContext(), getScalarShardShape(),
                                  getElementType(), getBufferType()),
                              memLayoutAttr, getTensorMesh(),
-                             getIgnorePhysicalLayout());
+                             getIgnorePhysicalLayout(), getExactGrid());
 }
 
 // Construct a new TTNNLayoutAttr
@@ -542,7 +544,8 @@ TTNNLayoutAttr::withShardShape(llvm::SmallVector<int64_t> shardShape) {
       getContext(), getLinear(), getGrid(),
       mlir::tt::ttcore::buildMemRef<BufferType, BufferTypeAttr>(
           getContext(), shardShape, getElementType(), getBufferType()),
-      getMemLayout(), getTensorMesh(), getIgnorePhysicalLayout());
+      getMemLayout(), getTensorMesh(), getIgnorePhysicalLayout(),
+      getExactGrid());
 }
 
 // Construct a new TTNNLayoutAttr
@@ -578,7 +581,7 @@ TTNNLayoutAttr
 TTNNLayoutAttr::withIgnorePhysicalLayout(bool ignorePhysicalLayout) {
   return TTNNLayoutAttr::get(getContext(), getLinear(), getGrid(), getMemref(),
                              getMemLayout(), getTensorMesh(),
-                             ignorePhysicalLayout);
+                             ignorePhysicalLayout, getExactGrid());
 };
 
 TTNNLayoutAttr TTNNLayoutAttr::get(::mlir::MLIRContext *context,
@@ -588,7 +591,8 @@ TTNNLayoutAttr TTNNLayoutAttr::get(::mlir::MLIRContext *context,
                                    ttcore::TensorMeshAttr tensor_mesh) {
   return TTNNLayoutAttr::get(context, linear, grid, memref, mem_layout,
                              tensor_mesh,
-                             /*ignorePhysicalLayout=*/false);
+                             /*ignorePhysicalLayout=*/false,
+                             /*exactGrid=*/false);
 }
 
 // Construct a new TTNNLayoutAttr
@@ -641,14 +645,15 @@ TTNNLayoutAttr TTNNLayoutAttr::get(
       mlir::tt::ttcore::buildMemRef<BufferType, BufferTypeAttr>(
           context, shardShape, elementType, bufferType);
   return get(context, linear, grid, memRefType, memLayoutAttr, tensorMesh,
-             ignorePhysicalLayout);
+             ignorePhysicalLayout, /*exactGrid=*/false);
 }
 
 llvm::LogicalResult TTNNLayoutAttr::verify(
     llvm::function_ref<::mlir::InFlightDiagnostic()> emitError, AffineMap,
     mlir::tt::ttcore::GridAttr grid, MemRefType memref,
     TensorMemoryLayoutAttr memLayout,
-    mlir::tt::ttcore::TensorMeshAttr tensorMesh, bool ignorePhysicalLayout) {
+    mlir::tt::ttcore::TensorMeshAttr tensorMesh, bool ignorePhysicalLayout,
+    bool exactGrid) {
   BufferType bufferType =
       mlir::cast<BufferTypeAttr>(memref.getMemorySpace()).getValue();
 
@@ -761,8 +766,8 @@ Conv2dConfigAttr Conv2dConfigAttr::get(::mlir::MLIRContext *context) {
                                /*outputLayout=*/std::nullopt,
                                /*enableActDoubleBuffer=*/nullptr,
                                /*enableWeightsDoubleBuffer=*/nullptr,
-                               /*inPlace=*/nullptr,
-                               /*enableKernelStrideFolding=*/nullptr);
+                               /*enableKernelStrideFolding=*/nullptr,
+                               /*configTensorsInDram=*/nullptr);
 }
 
 // Returns default configuration.
@@ -861,16 +866,16 @@ Conv2dConfigAttr::withEnableWeightsDoubleBuffer(bool value) const {
   return params.buildConv2dConfigAttr(getContext());
 }
 
-Conv2dConfigAttr Conv2dConfigAttr::withInPlace(bool value) const {
-  Conv2dConfigParams params(*this);
-  params.inPlace = value;
-  return params.buildConv2dConfigAttr(getContext());
-}
-
 Conv2dConfigAttr
 Conv2dConfigAttr::withEnableKernelStrideFolding(bool value) const {
   Conv2dConfigParams params(*this);
   params.enableKernelStrideFolding = value;
+  return params.buildConv2dConfigAttr(getContext());
+}
+
+Conv2dConfigAttr Conv2dConfigAttr::withConfigTensorsInDram(bool value) const {
+  Conv2dConfigParams params(*this);
+  params.configTensorsInDram = value;
   return params.buildConv2dConfigAttr(getContext());
 }
 
@@ -928,10 +933,12 @@ bool Conv2dConfigAttr::hasEnableWeightsDoubleBuffer() const {
   return getEnableWeightsDoubleBuffer() != nullptr;
 }
 
-bool Conv2dConfigAttr::hasInPlace() const { return getInPlace() != nullptr; }
-
 bool Conv2dConfigAttr::hasEnableKernelStrideFolding() const {
   return getEnableKernelStrideFolding() != nullptr;
+}
+
+bool Conv2dConfigAttr::hasConfigTensorsInDram() const {
+  return getConfigTensorsInDram() != nullptr;
 }
 
 CoreRangeSetAttr
@@ -1047,7 +1054,7 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
 }
 
 ::llvm::LogicalResult KernelSemaphoreAttr::verify(
-    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError, uint32_t id,
     KernelCoreType coreType, ::mlir::tt::ttnn::CoreRangeSetAttr coreRanges,
     uint32_t initialValue) {
   return ::llvm::success();

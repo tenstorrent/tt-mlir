@@ -1,4 +1,7 @@
-// RUN: ttmlir-opt %s --ttir-to-ttmetal-pipeline | FileCheck %s
+// RUN: ttmlir-opt %s --split-input-file --ttir-to-ttmetal-pipeline | FileCheck %s
+
+// Tests are mainly checking that the operation sequence over the main FUSED compute kernel
+// are correct when lowered all the way down to emitc and that the compiler doesn't fail.
 
 // Check for basic structure of the lowered IR
 // CHECK: #l1 = #ttcore.memory_space<l1>
@@ -36,16 +39,11 @@
 
 module {
   func.func @cosh(%arg0: tensor<128x128xbf16>, %arg1: tensor<128x128xbf16>) -> tensor<128x128xbf16> {
-    %0 = ttir.empty() : tensor<128x128xbf16>
-    %1 = "ttir.neg"(%arg0, %0) : (tensor<128x128xbf16>, tensor<128x128xbf16>) -> tensor<128x128xbf16>
-    %2 = ttir.empty() : tensor<128x128xbf16>
-    %3 = "ttir.exp"(%1, %2) : (tensor<128x128xbf16>, tensor<128x128xbf16>) -> tensor<128x128xbf16>
-    %4 = ttir.empty() : tensor<128x128xbf16>
-    %5 = "ttir.exp"(%arg0, %4) : (tensor<128x128xbf16>, tensor<128x128xbf16>) -> tensor<128x128xbf16>
-    %6 = ttir.empty() : tensor<128x128xbf16>
-    %7 = "ttir.add"(%5, %3, %6) : (tensor<128x128xbf16>, tensor<128x128xbf16>, tensor<128x128xbf16>) -> tensor<128x128xbf16>
-    %8 = ttir.empty() : tensor<128x128xbf16>
-    %9 = "ttir.multiply"(%7, %arg1, %8) : (tensor<128x128xbf16>, tensor<128x128xbf16>, tensor<128x128xbf16>) -> tensor<128x128xbf16>
+    %1 = "ttir.neg"(%arg0) : (tensor<128x128xbf16>) -> tensor<128x128xbf16>
+    %3 = "ttir.exp"(%1) : (tensor<128x128xbf16>) -> tensor<128x128xbf16>
+    %5 = "ttir.exp"(%arg0) : (tensor<128x128xbf16>) -> tensor<128x128xbf16>
+    %7 = "ttir.add"(%5, %3) : (tensor<128x128xbf16>, tensor<128x128xbf16>) -> tensor<128x128xbf16>
+    %9 = "ttir.multiply"(%7, %arg1) : (tensor<128x128xbf16>, tensor<128x128xbf16>) -> tensor<128x128xbf16>
     return %9 : tensor<128x128xbf16>
   }
 }

@@ -41,11 +41,19 @@ public:
     mlir::tt::ttcore::registerDevice(module.get());
     mlir::tt::ttnn::op_model::SingletonDeviceContext::getInstance()
         .openDevice();
+
+    // Set default L1 usage cap to 100% for all tests
+    setL1UsageCap(1.0f);
   }
 
   void TearDown() override {
     mlir::tt::ttnn::op_model::SingletonDeviceContext::getInstance()
         .closeInstance();
+  }
+
+  void setL1UsageCap(float cap) {
+    module->getOperation()->setAttr(utils::g_TensorL1UsageCapAttrName,
+                                    builder.getF32FloatAttr(cap));
   }
 
   TTNNLayoutAttr createTiledLayout(const llvm::ArrayRef<int64_t> &tensorShape,
@@ -113,10 +121,9 @@ TEST_F(OpConstraintValidationTest, ValidateOperationRealAddOp) {
   auto addOp = createMockAddOp();
   auto layouts = ttnn::utils::extractInputLayouts(addOp);
   OpConfig config = createTestConfig();
-  float tensorL1UsageCap = 1.0f;
 
-  auto result = op_constraint_validation::validateOperation(
-      addOp, layouts, config, tensorL1UsageCap);
+  auto result =
+      op_constraint_validation::validateOperation(addOp, layouts, config);
 
   // This should either succeed or fail gracefully (not crash)
   // The exact result depends on OpModel implementation
@@ -138,11 +145,10 @@ TEST_F(OpConstraintValidationTest, ValidateWithMultipleAttributesRealAddOp) {
 
   // Create 10 empty attributes
   std::vector<OpConfig> configs(10);
-  float tensorL1UsageCap = 1.0f;
 
   // Test with null reference configs (should succeed if validation passes)
   auto results = op_constraint_validation::validateWithMultipleAttributes(
-      addOp, layouts, configs, /*referenceConfigs=*/{}, tensorL1UsageCap);
+      addOp, layouts, configs, /*referenceConfigs=*/{});
 
   EXPECT_EQ(results.size(), 10);
   // Each result should have a valid status
@@ -202,11 +208,10 @@ TEST_F(OpConstraintValidationTest, UpdateCacheOpWithInvalidUpdateIndexType) {
   // Extract layouts and create config
   auto layouts = ttnn::utils::extractInputLayouts(updateCacheOp);
   OpConfig config = createTestConfig();
-  float tensorL1UsageCap = 1.0f;
 
   // Validate the operation
-  auto result = op_constraint_validation::validateOperation(
-      updateCacheOp, layouts, config, tensorL1UsageCap);
+  auto result = op_constraint_validation::validateOperation(updateCacheOp,
+                                                            layouts, config);
 
   // Should fail because update_index has wrong type (BF16 instead of uint32)
   EXPECT_TRUE(result.isError());
@@ -234,7 +239,7 @@ TEST_F(OpConstraintValidationTest, UpdateCacheOpWithInvalidUpdateIndexType) {
   // Extract layouts and validate
   auto validLayouts = ttnn::utils::extractInputLayouts(validUpdateCacheOp);
   auto validResult = op_constraint_validation::validateOperation(
-      validUpdateCacheOp, validLayouts, config, tensorL1UsageCap);
+      validUpdateCacheOp, validLayouts, config);
 
   // Should succeed with uint32 type
   EXPECT_TRUE(validResult.isSuccess());
@@ -261,15 +266,16 @@ TEST_F(OpConstraintValidationTest, ValidationStatusNotImplemented) {
 
   auto scatterOp = builder.create<ScatterOp>(
       builder.getUnknownLoc(), tensorType, input.getResult(),
-      indices.getResult(), input.getResult(),
-      /*dim=*/0, /*memory_config=*/nullptr);
+      indices.getResult(), input.getResult(), builder.getI32IntegerAttr(0),
+      mlir::tt::ttcore::ReduceTypeAttr::get(
+          &context, mlir::tt::ttcore::ReduceType::Invalid),
+      /*memory_config=*/nullptr);
 
   auto layouts = ttnn::utils::extractInputLayouts(scatterOp);
   OpConfig config = createTestConfig();
-  float tensorL1UsageCap = 1.0f;
 
-  auto result = op_constraint_validation::validateOperation(
-      scatterOp, layouts, config, tensorL1UsageCap);
+  auto result =
+      op_constraint_validation::validateOperation(scatterOp, layouts, config);
 
   // Should return NotImplemented
   EXPECT_TRUE(result.isNotImplemented());
@@ -328,15 +334,14 @@ TEST_F(OpConstraintValidationTest, ValidationStatusMetalBackendError) {
 
   auto layouts = ttnn::utils::extractInputLayouts(toLayoutOp);
   OpConfig config(outputLayout, OpConfig::OpSpecificAttrs{});
-  float tensorL1UsageCap = 1.0f;
 
   // Expected error message contains:
   // tt-metal/ttnn/core/tensor/layout/tensor_layout.cpp:111:
   // (physical_shard_shape.height() % tile_shape[0] == 0 &&
   // physical_shard_shape.width() % tile_shape[1] == 0)
   // info: Physical shard shape (1, 1024) must be tile {32, 32} sized!
-  auto result = op_constraint_validation::validateOperation(
-      toLayoutOp, layouts, config, tensorL1UsageCap);
+  auto result =
+      op_constraint_validation::validateOperation(toLayoutOp, layouts, config);
 
   // Should return MetalBackendError due to incompatible layouts
   EXPECT_EQ(result.status,
@@ -372,11 +377,11 @@ TEST_F(OpConstraintValidationTest, ValidationStatusOutOfMemoryError) {
   auto layouts = ttnn::utils::extractInputLayouts(addOp);
   OpConfig config(layout, OpConfig::OpSpecificAttrs{});
 
-  // Set very restrictive L1 usage cap (0.1% of L1)
-  float tensorL1UsageCap = 0.001f;
+  // Set very restrictive L1 usage cap (0.1% of L1) to trigger OOM
+  setL1UsageCap(0.001f);
 
-  auto result = op_constraint_validation::validateOperation(
-      addOp, layouts, config, tensorL1UsageCap);
+  auto result =
+      op_constraint_validation::validateOperation(addOp, layouts, config);
 
   // Should return OutOfMemoryError
   EXPECT_EQ(result.status,
@@ -406,10 +411,8 @@ TEST_F(OpConstraintValidationTest, ValidationStatusUnmatchedReferenceConfig) {
                                      TensorMemoryLayout::Interleaved);
   referenceConfigs.emplace_back(refLayout, OpConfig::OpSpecificAttrs{});
 
-  float tensorL1UsageCap = 1.0f;
-
   auto results = op_constraint_validation::validateWithMultipleAttributes(
-      addOp, layouts, testConfigs, referenceConfigs, tensorL1UsageCap);
+      addOp, layouts, testConfigs, referenceConfigs);
 
   // Should have one result
   ASSERT_EQ(results.size(), 1);

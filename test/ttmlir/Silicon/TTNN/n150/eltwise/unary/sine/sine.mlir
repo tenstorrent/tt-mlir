@@ -3,8 +3,7 @@
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
 
 func.func @sine(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
-  %0 = ttir.empty() : tensor<32x32xf32>
-  %1 = "ttir.sin"(%arg0, %0) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+  %1 = "ttir.sin"(%arg0) : (tensor<32x32xf32>) -> tensor<32x32xf32>
   // CHECK: "ttnn.sin"
   // CHECK-SAME: tensor<32x32xf32
   // CHECK-SAME: -> tensor<32x32xf32

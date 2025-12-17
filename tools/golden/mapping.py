@@ -15,9 +15,10 @@ from __future__ import annotations
 from typing import Dict, Callable, Any, Optional, Union, List, Tuple, Iterable, Iterator
 import itertools
 import operator
+import einops
 import torch
 import torch.nn.functional
-from ttmlir.dialects import ttir, stablehlo, d2m, ttnn
+from ttmlir.dialects import ttir, stablehlo, d2m, ttnn, ttcore
 from ttmlir.ir import *
 
 
@@ -98,6 +99,41 @@ class GoldenMapTensor:
 
         self._shard_map = shard_map
         self._mesh_shape = mesh_shape
+
+    def _get_runtime_compatible_torch_dtype(self, dtype: torch.dtype) -> torch.dtype:
+        compatible_dtypes = [
+            torch.float16,
+            torch.bfloat16,
+            torch.uint8,
+            torch.uint16,
+            torch.uint32,
+            torch.int32,
+            torch.float32,
+        ]
+
+        if dtype in compatible_dtypes:
+            return dtype
+        elif dtype in [torch.qint32, torch.int64]:
+            return torch.int32
+        else:
+            return torch.float32
+
+    def golden_map_tensor_as_torch_tensors(self) -> Dict[int, torch.Tensor]:
+        """
+        Return shard tensors as plain torch.Tensor per device, ensuring:
+          - each shard is contiguous in memory
+          - quantized tensors are converted to their integer representation (int_repr)
+          - int64 shards are downcast to int32 for compatibility with borrowed tensor creation.
+        """
+        torch_goldens: Dict[int, torch.Tensor] = dict(self.contiguous().shard_map)
+        for device_id, torch_golden in torch_goldens.items():
+            dtype = self._get_runtime_compatible_torch_dtype(torch_golden.dtype)
+            if getattr(torch_golden, "is_quantized", False):
+                # For quantized tensors, use the underlying integer representation
+                torch_goldens[device_id] = torch_golden.int_repr()
+            else:
+                torch_goldens[device_id] = torch_golden.to(dtype)
+        return torch_goldens
 
     # ----- Private static methods -----
     def __getitem__(self, key: int) -> GoldenMapTensor:
@@ -310,7 +346,7 @@ def unpack_mlir_attr(attr):
         return attr.value
     if isinstance(attr, BoolAttr):
         return attr.value
-    if isinstance(attr, (DenseI64ArrayAttr, DenseI32ArrayAttr)):
+    if isinstance(attr, (DenseI64ArrayAttr, DenseI32ArrayAttr, DenseBoolArrayAttr)):
         return list(attr)
     if isinstance(attr, ArrayAttr):
         return [unpack_mlir_attr(item) for item in attr]
@@ -321,6 +357,50 @@ def unpack_mlir_attr(attr):
     if isinstance(attr, FloatAttr):
         return attr.value
     raise ValueError(f"Unexpected attribute type: {type(attr)}")
+
+
+def mlir_type_to_torch_dtype(mlir_type: Type) -> torch.dtype:
+    type_str = str(mlir_type)
+
+    if isinstance(mlir_type, BF16Type) or type_str == "bf16":
+        return torch.bfloat16
+    elif isinstance(mlir_type, F16Type) or type_str == "f16":
+        return torch.float16
+    elif isinstance(mlir_type, F32Type) or type_str == "f32":
+        return torch.float32
+    elif isinstance(mlir_type, F64Type) or type_str == "f64":
+        return torch.float64
+    elif isinstance(mlir_type, IntegerType):
+        width = mlir_type.width
+        is_signed = mlir_type.is_signed
+        is_unsigned = mlir_type.is_unsigned
+
+        if width == 1:
+            return torch.bool
+        elif width == 8:
+            if is_unsigned:
+                return torch.uint8
+            else:
+                return torch.int8
+        elif width == 16:
+            if is_unsigned:
+                return torch.uint16
+            else:
+                return torch.int16
+        elif width == 32:
+            if is_unsigned:
+                return torch.uint32
+            else:
+                return torch.int32
+        elif width == 64:
+            if is_unsigned:
+                return torch.uint64
+            else:
+                return torch.int64
+        else:
+            raise TypeError(f"Unsupported integer width: {width}")
+    else:
+        raise TypeError(f"Unsupported MLIR type: {mlir_type}")
 
 
 def cbrt_golden(x: GoldenMapTensor) -> GoldenMapTensor:
@@ -472,7 +552,8 @@ def conv_transpose2d_golden(
     output_padding = unpack_mlir_attr(output_padding)
     dilation = unpack_mlir_attr(dilation)
     groups = unpack_mlir_attr(groups)
-    golden_bias = torch.rand((weight.size()[0]), dtype=input_tensor.dtype)
+    if bias is not None:
+        bias = bias.squeeze()
 
     # Reorganize input and output tensors, golden and ttir functions have different expected tensor shapes
     copied_input_tensor = input_tensor.clone()
@@ -480,7 +561,7 @@ def conv_transpose2d_golden(
     result = torch.nn.functional.conv_transpose2d(
         copied_input_tensor,
         weight,
-        bias=golden_bias,
+        bias=bias,
         stride=stride,
         padding=padding,
         output_padding=output_padding,
@@ -777,19 +858,19 @@ def argmax_golden(
 
 
 def matmul_golden(
-    a: BuilderGoldenTensor,
-    b: BuilderGoldenTensor,
+    a: GoldenMapTensor,
+    b: GoldenMapTensor,
     transpose_a=False,
     transpose_b=False,
-) -> BuilderGoldenTensor:
+) -> GoldenMapTensor:
     """
     Custom golden function for matrix multiplication.
 
     Parameters
     ----------
-    a : BuilderGoldenTensor
+    a : GoldenMapTensor
         First input tensor
-    b : BuilderGoldenTensor
+    b : GoldenMapTensor
         Second input tensor
     transpose_a : bool, optional
         Whether to transpose tensor a (default: False)
@@ -798,7 +879,7 @@ def matmul_golden(
 
     Returns
     -------
-    BuilderGoldenTensor
+    GoldenMapTensor
         Result of matrix multiplication
     """
     a = torch.transpose(a, -2, -1) if transpose_a else a
@@ -1001,6 +1082,7 @@ def equal_golden(
 ) -> GoldenMapTensor:
     """
     Golden function for equal (eq) operation.
+    Used by TTNN dialect.
 
     Elementwise equality comparison.
 
@@ -1073,6 +1155,7 @@ def greater_than_golden(
 ) -> GoldenMapTensor:
     """
     Golden function for greater_than (gt) operation.
+    Used by TTNN dialect.
 
     Elementwise greater-than comparison.
 
@@ -1284,49 +1367,6 @@ def logical_right_shift_golden(
     return result.to(input_tensor.dtype)
 
 
-def max_golden(
-    input_tensor: GoldenMapTensor, dim_arg=None, keep_dim=True
-) -> GoldenMapTensor:
-    """
-    Custom golden function for max operation with conditional logic.
-
-    Parameters
-    ----------
-    input_tensor : GoldenMapTensor
-        Input tensor to find maximum of
-    dim_arg : List[int], optional
-        List of dimensions to reduce over. If None, reduces over all dimensions (default: None)
-    keep_dim : bool, optional
-        Whether to keep the reduced dimension (default: True)
-
-    Returns
-    -------
-    GoldenMapTensor
-        Maximum values along specified dimension(s) or global maximum
-    """
-    if dim_arg is None:
-        # For all dimensions reduction
-        result = torch.max(input_tensor)
-        if keep_dim:
-            # Reshape to match expected output with all dims = 1
-            output_shape = [1] * input_tensor.dim()
-            return result.reshape(*output_shape)
-        else:
-            return result
-    elif len(dim_arg) == 1:
-        # Single dimension reduction
-        values, indices = torch.max(input_tensor, dim=dim_arg[0], keepdim=keep_dim)
-        return values
-    else:
-        # Multiple dimensions - reduce sequentially from highest to lowest
-        # Sort in descending order to maintain correct dimension indices
-        sorted_dims = sorted(dim_arg, reverse=True)
-        result = input_tensor
-        for dim in sorted_dims:
-            result, _ = torch.max(result, dim=dim, keepdim=keep_dim)
-        return result
-
-
 def min_golden(
     input_tensor: GoldenMapTensor, dim_arg=None, keep_dim=True
 ) -> GoldenMapTensor:
@@ -1497,180 +1537,6 @@ def index_golden(
         indices.append((begin + i) * step)
     index = torch.tensor(indices)
     return torch.index_select(input_tensor, dim=dim, index=index)
-
-
-def gather_golden(
-    input_tensor: GoldenMapTensor,
-    start_indices_tensor: GoldenMapTensor,
-    **kwargs,
-) -> GoldenMapTensor:
-    """
-    Golden function for gather operation with TTIR parameter names.
-
-    Parameters
-    ----------
-    input_tensor : GoldenMapTensor
-        Input tensor to gather from
-    start_indices_tensor : GoldenMapTensor
-        Tensor containing starting indices
-    **kwargs : dict
-        Keyword arguments including gather attributes as MLIR attributes
-
-    Returns
-    -------
-    GoldenMapTensor
-        Gathered tensor
-    """
-
-    # helpers
-    def _isGoldenMapTensor(x):
-        return isinstance(x, GoldenMapTensor)
-
-    def _first_shard(x):
-        return x.shard_at(0) if _isGoldenMapTensor(x) else x
-
-    def _assert_replicated(t):
-        ref = t.shard_at(0)
-        for device_id, shard in t.shard_map.items():
-            if not torch.equal(shard, ref):
-                raise ValueError("gather golden expects replicated tensors")
-
-    # ----- unpack attrs -----
-    offset_dims = unpack_mlir_attr(kwargs.get("offset_dims", []))
-    collapsed_slice_dims = unpack_mlir_attr(kwargs.get("collapsed_slice_dims", []))
-    operand_batching_dims = unpack_mlir_attr(kwargs.get("operand_batching_dims", []))
-    start_indices_batching_dims = unpack_mlir_attr(
-        kwargs.get("start_indices_batching_dims", [])
-    )
-    start_index_map = unpack_mlir_attr(kwargs.get("start_index_map", []))
-    index_vector_dim = unpack_mlir_attr(kwargs.get("index_vector_dim", 0))
-    slice_sizes = unpack_mlir_attr(kwargs.get("slice_sizes", []))
-    indices_are_sorted = unpack_mlir_attr(kwargs.get("indices_are_sorted", False))
-
-    x = input_tensor
-    idx = start_indices_tensor
-    device = x.device if hasattr(x, "device") else None
-
-    # validate/comute using shard-0 (torch), then slice the wrapper
-    if _isGoldenMapTensor(idx):
-        _assert_replicated(idx)
-    x0 = _first_shard(x)
-    idx0 = _first_shard(idx)
-
-    # ---- validate attrs ----
-    rank = x0.dim()
-    assert len(slice_sizes) == rank, "slice_sizes must match operand dimensions"
-    assert set(collapsed_slice_dims) == set(
-        start_index_map
-    ), "gathe golden assumes collapsed_slice_dims == start_index_map"
-    assert (
-        len(operand_batching_dims) == 0 and len(start_indices_batching_dims) == 0
-    ), "Batching dims not supported in this golden"
-    for d in collapsed_slice_dims:
-        assert slice_sizes[d] == 1, "collapsed dims must have slice size 1"
-
-    if idx0.dim() == 0:
-        idx0 = idx0.unsqueeze(0)
-    if len(start_index_map) == 1 and index_vector_dim == idx0.ndim:
-        pass
-    else:
-        # Expect the conventional "last dim holds the vector"
-        assert (
-            index_vector_dim == idx0.ndim - 1
-        ), "This golden expects index_vector_dim == last dimension for multi-d indices"
-
-    # Determine batch shape and flatten indices to [B, K]
-    if idx0.ndim == 1:  # simple path, K == 1
-        batch_shape = idx0.shape  # [N]
-        K = 1
-        idx_flat0 = idx0.reshape(-1, 1).long()
-    else:
-        K = idx0.shape[-1]
-        assert K == len(
-            start_index_map
-        ), "index vector length must match start_index_map"
-        batch_shape = idx0.shape[:-1]
-        idx_flat0 = idx0.reshape(-1, K).long()
-
-    # Bounds check (might help avoid segfaults)
-    for d in range(rank):
-        if d not in start_index_map:
-            assert slice_sizes[d] <= x0.size(d), "slice size too large for operand"
-    for k, d in enumerate(start_index_map):
-        valid_max = x0.size(d) - slice_sizes[d]
-        if torch.any(idx_flat0[:, k] < 0) or torch.any(idx_flat0[:, k] > valid_max):
-            print(d)
-            raise IndexError(
-                "gather start indices out of bounds for operand dim {}".format(d)
-            )
-
-    # Build the natural slice_shape (operand order, skipping collapsed dims)
-    slice_dims_natural = [d for d in range(rank) if d not in collapsed_slice_dims]
-    natural_slice_shape = [slice_sizes[d] for d in slice_dims_natural]
-
-    # Number of non-collapsed dims must match offset_dims count
-    assert len(slice_dims_natural) == len(
-        offset_dims
-    ), "offset_dims must have one entry per non-collapsed slice dim"
-
-    # For each batch vector of indices, slice x accordingly
-    B = int(torch.tensor(batch_shape).prod()) if len(batch_shape) > 0 else 1
-    slices = []
-    for b in range(B):
-        starts = [0] * rank
-        ends = [0] * rank
-        # Fill starts/ends from index vector for mapped dims
-        for k, d in enumerate(start_index_map):
-            starts[d] = int(idx_flat0[b, k].item())
-            ends[d] = starts[d] + slice_sizes[d]
-        # For the other dims, start at 0 (or clamp) and take slice_sizes[d]
-        for d in range(rank):
-            if d not in start_index_map:
-                starts[d] = 0
-                ends[d] = slice_sizes[d]
-
-        # Build the per-dim slice
-        slicer = tuple(slice(starts[d], ends[d]) for d in range(rank))
-        sub = x[slicer]  # shape equals slice_sizes in operand order
-
-        # Remove collapsed dims (size-1) to get natural slice shape
-        if len(collapsed_slice_dims) > 0:
-            sub = sub.squeeze(dim=tuple(sorted(collapsed_slice_dims)))
-
-        slices.append(sub)
-
-    # Stack over batch
-    if len(slices) == 1 and batch_shape == ():
-        gathered = slices[0]
-    else:
-        gathered = torch.stack(slices, dim=0).reshape(
-            *batch_shape, *natural_slice_shape
-        )
-
-    # position the slice dims inside the result according to offset_dims.
-    # Current order: [B0, B1, ..., Slice0, Slice1, ...]
-    batch_rank = len(batch_shape)
-    slice_rank = len(natural_slice_shape)
-    result_rank = batch_rank + slice_rank
-
-    remaining_positions = [p for p in range(result_rank) if p not in offset_dims]
-    assert (
-        len(remaining_positions) == batch_rank
-    ), "offset_dims inconsistent with batch rank"
-
-    desired_index_for_current = [None] * result_rank
-    # map batch dims
-    for b_i in range(batch_rank):
-        desired_index_for_current[b_i] = remaining_positions[b_i]
-    # map slice dims
-    for s_i in range(slice_rank):
-        desired_index_for_current[batch_rank + s_i] = offset_dims[s_i]
-
-    # Permute if needed
-    if desired_index_for_current != list(range(result_rank)):
-        gathered = gathered.permute(*desired_index_for_current)
-
-    return gathered.to(device=device)
 
 
 def tilize_golden(
@@ -1911,48 +1777,6 @@ def mean_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     return torch.mean(input_tensor, dim=dim_arg, keepdim=keep_dim)
 
 
-def reduce_and_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
-    """
-    Golden function for reduce_and operation with TTIR parameter names.
-
-    Parameters
-    ----------
-    input_tensor : GoldenMapTensor
-        Input tensor to reduce
-    **kwargs : dict
-        Keyword arguments including 'dim_arg' and 'keep_dim'
-
-    Returns
-    -------
-    GoldenMapTensor
-        Reduced tensor
-    """
-    dim_arg = kwargs.get("dim_arg", [0])
-    keep_dim = kwargs.get("keep_dim", True)
-    return torch.all(input_tensor, dim=tuple(dim_arg), keepdim=keep_dim)
-
-
-def reduce_or_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
-    """
-    Golden function for reduce_or operation with TTIR parameter names.
-
-    Parameters
-    ----------
-    input_tensor : GoldenMapTensor
-        Input tensor to reduce
-    **kwargs : dict
-        Keyword arguments including 'dim_arg' and 'keep_dim'
-
-    Returns
-    -------
-    GoldenMapTensor
-        Reduced tensor
-    """
-    dim_arg = kwargs.get("dim_arg", [0])
-    keep_dim = kwargs.get("keep_dim", True)
-    return torch.any(input_tensor, dim=tuple(dim_arg), keepdim=keep_dim)
-
-
 def transpose_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for transpose operation with TTIR parameter names.
@@ -1974,34 +1798,10 @@ def transpose_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor
     return torch.transpose(input_tensor, dim0, dim1)
 
 
-def sort_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
-    """
-    Golden function for sort operation with TTIR parameter names.
-
-    Parameters
-    ----------
-    input_tensor : GoldenMapTensor
-        Input tensor
-    **kwargs : dict
-        Keyword arguments including 'dim', 'descending', and 'stable'
-
-    Returns
-    -------
-    GoldenMapTensor
-        Sorted tensor (values only, indices are discarded)
-    """
-    dim = kwargs.get("dim", -1)
-    descending = kwargs.get("descending", False)
-    stable = kwargs.get("stable", False)
-    values, indices = torch.sort(
-        input_tensor, dim=dim, descending=descending, stable=stable
-    )
-    return values
-
-
 def concat_golden(input_tensors: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
-    Golden function for concat operation with TTIR parameter names.
+    Golden function for concat operation.
+    Used by StableHLO and TTNN dialects.
 
     Parameters
     ----------
@@ -2016,6 +1816,7 @@ def concat_golden(input_tensors: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
         Concatenated tensor
     """
     dim = kwargs.get("dim", 0)
+    dim = unpack_mlir_attr(dim)
     if isinstance(input_tensors, tuple):
         return torch.concat(input_tensors, dim=dim)
     else:
@@ -2108,6 +1909,35 @@ def reshape_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
         )
 
     return torch.reshape(input_tensor, shape_tuple)
+
+
+def rearrange_golden(
+    input_tensor: GoldenMapTensor, pattern: str, **kwargs
+) -> GoldenMapTensor:
+    """
+    Golden function for rearrange operation with TTIR parameter names.
+
+    Parameters
+    ----------
+    input_tensor : GoldenMapTensor
+        Input tensor
+    pattern : str
+        Pattern
+    **kwargs : dict
+        Keyword arguments including 'shape'
+
+    Returns
+    -------
+    GoldenMapTensor
+        Reshaped tensor
+    """
+    if isinstance(pattern, StringAttr):
+        pattern = pattern.value
+    torch_fn = lambda t: torch.tensor(einops.rearrange(t.numpy(), pattern))
+    result = GoldenMapTensor.__torch_function__(
+        torch_fn, (GoldenMapTensor,), args=(input_tensor,)
+    )
+    return result
 
 
 def squeeze_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
@@ -2309,185 +2139,6 @@ def index_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
 
     indices = torch.arange(begin, end, step, device=input_tensor.device)
     return torch.index_select(input_tensor, dim, indices)
-
-
-def slice_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
-    """
-    Golden function for slice operation with TTIR parameter names.
-
-    Parameters
-    ----------
-    input_tensor : GoldenMapTensor
-        Input tensor
-    **kwargs : dict
-        Keyword arguments including slice attributes as MLIR attributes
-
-    Returns
-    -------
-    GoldenMapTensor
-        Sliced tensor
-    """
-
-    # Unpack MLIR attributes from kwargs
-    begins = unpack_mlir_attr(kwargs.get("begins", [0]))
-    ends = unpack_mlir_attr(kwargs.get("ends", None))
-    step = unpack_mlir_attr(kwargs.get("step", [1]))
-
-    if ends is None:
-        ends = [input_tensor.size(i) for i in range(len(begins))]
-
-    # Build slice objects for each dimension
-    slices = []
-    for i in range(len(begins)):
-        start = begins[i] if i < len(begins) else 0
-        end = ends[i] if i < len(ends) else input_tensor.size(i)
-        step_val = step[i] if i < len(step) else 1
-        slices.append(slice(start, end, step_val))
-
-    shard_map = {}
-    for device_id, shard in input_tensor.shard_map.items():
-        shard_map[device_id] = shard[slices]
-
-    return GoldenMapTensor(shard_map, input_tensor.mesh_shape)
-
-
-def slice_golden_stablehlo(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
-    """
-    Golden function for StableHLO slice operation.
-    Parameters
-    ----------
-    input_tensor : GoldenMapTensor
-        Input tensor
-    **kwargs : dict
-        Keyword arguments including:
-        - start_indices: Starting indices for each dimension
-        - limit_indices: Ending indices (exclusive) for each dimension
-        - strides: Strides for each dimension
-    Returns
-    -------
-    GoldenMapTensor
-        Sliced tensor
-    """
-    start_indices = kwargs.get("start_indices", [0])
-    limit_indices = kwargs.get("limit_indices", None)
-    strides = kwargs.get("strides", None)
-
-    if strides is None:
-        strides = [1] * len(start_indices)
-
-    if limit_indices is None:
-        limit_indices = [input_tensor.size(i) for i in range(len(start_indices))]
-
-    slices = []
-    for i in range(len(start_indices)):
-        start = start_indices[i] if i < len(start_indices) else 0
-        end = limit_indices[i] if i < len(limit_indices) else input_tensor.size(i)
-        stride = strides[i] if i < len(strides) else 1
-        slices.append(slice(start, end, stride))
-
-    shard_map = {}
-    for device_id, shard in input_tensor.shard_map.items():
-        shard_map[device_id] = shard[tuple(slices)]
-
-    return GoldenMapTensor(shard_map, input_tensor.mesh_shape)
-
-
-def zeros_golden(**kwargs) -> GoldenMapTensor:
-    """
-    Golden function for zeros operation with TTIR parameter names.
-
-    Parameters
-    ----------
-    **kwargs : dict
-        Keyword arguments including 'size'
-
-    Returns
-    -------
-    GoldenMapTensor
-        Zero tensor
-    """
-    size = kwargs.get("shape", [1])
-    return GoldenMapTensor({0: torch.zeros(size)}, (1, 1))
-
-
-def ones_golden(**kwargs) -> GoldenMapTensor:
-    """
-    Golden function for ones operation with TTIR parameter names.
-
-    Parameters
-    ----------
-    **kwargs : dict
-        Keyword arguments including 'size'
-
-    Returns
-    -------
-    GoldenMapTensor
-        Ones tensor
-    """
-    size = kwargs.get("shape", [1])
-    return GoldenMapTensor({0: torch.ones(size)}, (1, 1))
-
-
-def reverse_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
-    """
-    Golden function for reverse operation with TTIR parameter names.
-
-    Parameters
-    ----------
-    input_tensor : GoldenMapTensor
-        Input tensor
-    **kwargs : dict
-        Keyword arguments including 'dims'
-
-    Returns
-    -------
-    GoldenMapTensor
-        Reversed tensor
-    """
-    dims = kwargs.get("dimensions", [0])
-    return torch.flip(input_tensor, dims)
-
-
-def arange_golden(single_dim_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
-    """
-    Golden function for arange operation using TTIR kwargs.
-
-    Expected kwargs from builder (ttir_kwargs):
-    - start: int
-    - end: int
-    - step: int
-    - arange_dimension: int (ignored here; layout handled by builder output shape)
-    """
-    start = kwargs.get("start", 0)
-    end = kwargs.get("end", 0)
-    step = kwargs.get("step", 1)
-    output_shards = {}
-    for device_id, shard in single_dim_tensor.shard_map.items():
-        output_shards[device_id] = torch.arange(
-            start=start, end=end, step=step, dtype=torch.float32
-        )
-    return GoldenMapTensor(output_shards, single_dim_tensor.mesh_shape)
-
-
-def cumsum_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
-    """
-    Golden function for cumsum operation with TTIR parameter names.
-
-    Parameters
-    ----------
-    input_tensor : GoldenMapTensor
-        Input tensor
-    **kwargs : dict
-        Keyword arguments containing:
-        - dim: int - Dimension along which to compute cumulative sum
-
-    Returns
-    -------
-    GoldenMapTensor
-        Cumulative sum of input tensor along specified dimension
-    """
-    dim = kwargs.get("dim", 0)  # Use the dim parameter from ttir_kwargs
-    return torch.cumsum(input_tensor, dim=dim)
 
 
 def repeat_interleave_golden(
@@ -2841,8 +2492,8 @@ def collective_broadcast_golden(
 
 
 def stablehlo_and_golden(
-    input_tensor: BuilderGoldenTensor, other_tensor: BuilderGoldenTensor, **kwargs
-) -> BuilderGoldenTensor:
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, **kwargs
+) -> GoldenMapTensor:
     """
     Golden function for StableHLO and operation.
 
@@ -2850,14 +2501,14 @@ def stablehlo_and_golden(
 
     Parameters
     ----------
-    input_tensor : BuilderGoldenTensor
+    input_tensor : GoldenMapTensor
         Left-hand side tensor.
-    other_tensor : BuilderGoldenTensor
+    other_tensor : GoldenMapTensor
         Right-hand side tensor.
 
     Returns
     -------
-    BuilderGoldenTensor
+    GoldenMapTensor
         Tensor containing the AND results.
     """
     if input_tensor.dtype == torch.bool:
@@ -2868,8 +2519,8 @@ def stablehlo_and_golden(
 
 
 def stablehlo_or_golden(
-    input_tensor: BuilderGoldenTensor, other_tensor: BuilderGoldenTensor, **kwargs
-) -> BuilderGoldenTensor:
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, **kwargs
+) -> GoldenMapTensor:
     """
     Golden function for StableHLO or operation.
 
@@ -2877,14 +2528,14 @@ def stablehlo_or_golden(
 
     Parameters
     ----------
-    input_tensor : BuilderGoldenTensor
+    input_tensor : GoldenMapTensor
         Left-hand side tensor.
-    other_tensor : BuilderGoldenTensor
+    other_tensor : GoldenMapTensor
         Right-hand side tensor.
 
     Returns
     -------
-    BuilderGoldenTensor
+    GoldenMapTensor
         Tensor containing the OR results.
     """
     if input_tensor.dtype == torch.bool:
@@ -2895,8 +2546,8 @@ def stablehlo_or_golden(
 
 
 def stablehlo_xor_golden(
-    input_tensor: BuilderGoldenTensor, other_tensor: BuilderGoldenTensor, **kwargs
-) -> BuilderGoldenTensor:
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, **kwargs
+) -> GoldenMapTensor:
     """
     Golden function for StableHLO xor operation.
 
@@ -2904,14 +2555,14 @@ def stablehlo_xor_golden(
 
     Parameters
     ----------
-    input_tensor : BuilderGoldenTensor
+    input_tensor : GoldenMapTensor
         Left-hand side tensor.
-    other_tensor : BuilderGoldenTensor
+    other_tensor : GoldenMapTensor
         Right-hand side tensor.
 
     Returns
     -------
-    BuilderGoldenTensor
+    GoldenMapTensor
         Tensor containing the XOR results.
     """
     if input_tensor.dtype == torch.bool:
@@ -2921,9 +2572,7 @@ def stablehlo_xor_golden(
         return torch.bitwise_xor(input_tensor, other_tensor)
 
 
-def stablehlo_not_golden(
-    input_tensor: BuilderGoldenTensor, **kwargs
-) -> BuilderGoldenTensor:
+def stablehlo_not_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for StableHLO not operation.
 
@@ -2931,14 +2580,14 @@ def stablehlo_not_golden(
 
     Parameters
     ----------
-    input_tensor : BuilderGoldenTensor
+    input_tensor : GoldenMapTensor
         Input tensor to invert.
     **kwargs : dict
         Keyword arguments (unused for this operation).
 
     Returns
     -------
-    BuilderGoldenTensor
+    GoldenMapTensor
         Tensor containing the NOT of input_tensor.
     """
     if input_tensor.dtype == torch.bool:
@@ -2948,37 +2597,389 @@ def stablehlo_not_golden(
         return torch.bitwise_not(input_tensor)
 
 
-def ttir_add_golden(lhs: GoldenMapTensor, rhs: GoldenMapTensor) -> GoldenMapTensor:
-    return torch.add(lhs, rhs)
+################ TTIR Op Golden Functions ###############
+
+
+def ttir_reduce_and_golden(
+    input_tensor: GoldenMapTensor,
+    dim_arg: ArrayAttr,
+    keep_dim: BoolAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    dim_arg = unpack_mlir_attr(dim_arg)
+    keep_dim = unpack_mlir_attr(keep_dim)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.all(input_tensor, dim=tuple(dim_arg), keepdim=keep_dim).to(
+        output_dtype
+    )
+
+
+def ttir_repeat_golden(
+    input: GoldenMapTensor,
+    repeat_dimensions_attr: DenseI64ArrayAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    repeat_dimensions = unpack_mlir_attr(repeat_dimensions_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return input.repeat(repeats=repeat_dimensions).to(output_dtype)
+
+
+def ttir_arange_golden(
+    shape: ArrayAttr,
+    start: IntegerAttr,
+    end: IntegerAttr,
+    step: IntegerAttr,
+    arange_dimension: IntegerAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    shape = unpack_mlir_attr(shape)
+    start = unpack_mlir_attr(start)
+    end = unpack_mlir_attr(end)
+    step = unpack_mlir_attr(step)
+    arange_dimension = unpack_mlir_attr(arange_dimension)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    result = torch.arange(start=start, end=end, step=step, dtype=torch.float32).to(
+        output_dtype
+    )
+    if len(shape) == 2 and arange_dimension == 1:
+        unsqueezed = torch.unsqueeze(result, dim=0)
+        result = torch.cat([unsqueezed] * shape[0], dim=0)
+    elif len(shape) == 2 and arange_dimension == 0:
+        unsqueezed = torch.unsqueeze(result, dim=1)
+        result = unsqueezed.expand(shape)
+
+    return GoldenMapTensor({0: result}, (1, 1))
+
+
+def ttir_cumsum_golden(
+    input_tensor: GoldenMapTensor, dim: IntegerAttr, output_type_mlir: Type
+) -> GoldenMapTensor:
+    dim = unpack_mlir_attr(dim)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.cumsum(input_tensor, dim=dim).to(output_dtype)
+
+
+def ttir_gather_golden(
+    input_tensor: GoldenMapTensor,
+    start_indices_tensor: GoldenMapTensor,
+    offset_dims: DenseI64ArrayAttr,
+    collapsed_slice_dims: DenseI64ArrayAttr,
+    operand_batching_dims: DenseI64ArrayAttr,
+    start_indices_batching_dims: DenseI64ArrayAttr,
+    start_index_map: DenseI64ArrayAttr,
+    index_vector_dim: IntegerAttr,
+    slice_sizes: DenseI64ArrayAttr,
+    indices_are_sorted: BoolAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+
+    # helpers
+    def _isGoldenMapTensor(x):
+        return isinstance(x, GoldenMapTensor)
+
+    def _first_shard(x):
+        return x.shard_at(0) if _isGoldenMapTensor(x) else x
+
+    def _assert_replicated(t):
+        ref = t.shard_at(0)
+        for device_id, shard in t.shard_map.items():
+            if not torch.equal(shard, ref):
+                raise ValueError("gather golden expects replicated tensors")
+
+    # ----- unpack attrs -----
+    offset_dims = unpack_mlir_attr(offset_dims)
+    collapsed_slice_dims = unpack_mlir_attr(collapsed_slice_dims)
+    operand_batching_dims = unpack_mlir_attr(operand_batching_dims)
+    start_indices_batching_dims = unpack_mlir_attr(start_indices_batching_dims)
+    start_index_map = unpack_mlir_attr(start_index_map)
+    index_vector_dim = unpack_mlir_attr(index_vector_dim)
+    slice_sizes = unpack_mlir_attr(slice_sizes)
+    indices_are_sorted = unpack_mlir_attr(indices_are_sorted)
+
+    x = input_tensor
+    idx = start_indices_tensor
+    device = x.device if hasattr(x, "device") else None
+
+    # validate/comute using shard-0 (torch), then slice the wrapper
+    if _isGoldenMapTensor(idx):
+        _assert_replicated(idx)
+    x0 = _first_shard(x)
+    idx0 = _first_shard(idx)
+
+    # ---- validate attrs ----
+    rank = x0.dim()
+    assert len(slice_sizes) == rank, "slice_sizes must match operand dimensions"
+    assert set(collapsed_slice_dims) == set(
+        start_index_map
+    ), "gathe golden assumes collapsed_slice_dims == start_index_map"
+    assert (
+        len(operand_batching_dims) == 0 and len(start_indices_batching_dims) == 0
+    ), "Batching dims not supported in this golden"
+    for d in collapsed_slice_dims:
+        assert slice_sizes[d] == 1, "collapsed dims must have slice size 1"
+
+    if idx0.dim() == 0:
+        idx0 = idx0.unsqueeze(0)
+    if len(start_index_map) == 1 and index_vector_dim == idx0.ndim:
+        pass
+    else:
+        # Expect the conventional "last dim holds the vector"
+        assert (
+            index_vector_dim == idx0.ndim - 1
+        ), "This golden expects index_vector_dim == last dimension for multi-d indices"
+
+    # Determine batch shape and flatten indices to [B, K]
+    if idx0.ndim == 1:  # simple path, K == 1
+        batch_shape = idx0.shape  # [N]
+        K = 1
+        idx_flat0 = idx0.reshape(-1, 1).long()
+    else:
+        K = idx0.shape[-1]
+        assert K == len(
+            start_index_map
+        ), "index vector length must match start_index_map"
+        batch_shape = idx0.shape[:-1]
+        idx_flat0 = idx0.reshape(-1, K).long()
+
+    # Bounds check (might help avoid segfaults)
+    for d in range(rank):
+        if d not in start_index_map:
+            assert slice_sizes[d] <= x0.size(d), "slice size too large for operand"
+    for k, d in enumerate(start_index_map):
+        valid_max = x0.size(d) - slice_sizes[d]
+        if torch.any(idx_flat0[:, k] < 0) or torch.any(idx_flat0[:, k] > valid_max):
+            print(d)
+            raise IndexError(
+                "gather start indices out of bounds for operand dim {}".format(d)
+            )
+
+    # Build the natural slice_shape (operand order, skipping collapsed dims)
+    slice_dims_natural = [d for d in range(rank) if d not in collapsed_slice_dims]
+    natural_slice_shape = [slice_sizes[d] for d in slice_dims_natural]
+
+    # Number of non-collapsed dims must match offset_dims count
+    assert len(slice_dims_natural) == len(
+        offset_dims
+    ), "offset_dims must have one entry per non-collapsed slice dim"
+
+    # For each batch vector of indices, slice x accordingly
+    B = int(torch.tensor(batch_shape).prod()) if len(batch_shape) > 0 else 1
+    slices = []
+    for b in range(B):
+        starts = [0] * rank
+        ends = [0] * rank
+        # Fill starts/ends from index vector for mapped dims
+        for k, d in enumerate(start_index_map):
+            starts[d] = int(idx_flat0[b, k].item())
+            ends[d] = starts[d] + slice_sizes[d]
+        # For the other dims, start at 0 (or clamp) and take slice_sizes[d]
+        for d in range(rank):
+            if d not in start_index_map:
+                starts[d] = 0
+                ends[d] = slice_sizes[d]
+
+        # Build the per-dim slice
+        slicer = tuple(slice(starts[d], ends[d]) for d in range(rank))
+        sub = x[slicer]  # shape equals slice_sizes in operand order
+
+        # Remove collapsed dims (size-1) to get natural slice shape
+        if len(collapsed_slice_dims) > 0:
+            sub = sub.squeeze(dim=tuple(sorted(collapsed_slice_dims)))
+
+        slices.append(sub)
+
+    # Stack over batch
+    if len(slices) == 1 and batch_shape == ():
+        gathered = slices[0]
+    else:
+        gathered = torch.stack(slices, dim=0).reshape(
+            *batch_shape, *natural_slice_shape
+        )
+
+    # position the slice dims inside the result according to offset_dims.
+    # Current order: [B0, B1, ..., Slice0, Slice1, ...]
+    batch_rank = len(batch_shape)
+    slice_rank = len(natural_slice_shape)
+    result_rank = batch_rank + slice_rank
+
+    remaining_positions = [p for p in range(result_rank) if p not in offset_dims]
+    assert (
+        len(remaining_positions) == batch_rank
+    ), "offset_dims inconsistent with batch rank"
+
+    desired_index_for_current = [None] * result_rank
+    # map batch dims
+    for b_i in range(batch_rank):
+        desired_index_for_current[b_i] = remaining_positions[b_i]
+    # map slice dims
+    for s_i in range(slice_rank):
+        desired_index_for_current[batch_rank + s_i] = offset_dims[s_i]
+
+    # Permute if needed
+    if desired_index_for_current != list(range(result_rank)):
+        gathered = gathered.permute(*desired_index_for_current)
+
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return gathered.to(output_dtype).to(device=device)
+
+
+def ttir_ones_golden(shape: ArrayAttr, output_type_mlir: Type) -> GoldenMapTensor:
+    size = unpack_mlir_attr(shape)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return GoldenMapTensor({0: torch.ones(size, dtype=output_dtype)}, (1, 1))
+
+
+def ttir_zeros_golden(shape: ArrayAttr, output_type_mlir: Type) -> GoldenMapTensor:
+    size = unpack_mlir_attr(shape)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return GoldenMapTensor({0: torch.zeros(size, dtype=output_dtype)}, (1, 1))
+
+
+def ttir_rand_golden(
+    size: ArrayAttr,
+    low: FloatAttr,
+    high: FloatAttr,
+    seed: IntegerAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    size = unpack_mlir_attr(size)
+    low = unpack_mlir_attr(low)
+    high = unpack_mlir_attr(high)
+    seed = unpack_mlir_attr(seed)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    gen = torch.Generator()
+    gen.manual_seed(seed)
+    base = torch.rand(size, generator=gen, dtype=torch.bfloat16)
+    rand_tensor = (base * (high - low) + low).to(output_dtype)
+    return GoldenMapTensor({0: rand_tensor}, (1, 1))
+
+
+def ttir_cos_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.cos(input_tensor).to(output_dtype)
+
+
+def ttir_sin_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.sin(input_tensor).to(output_dtype)
+
+
+def ttir_sqrt_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.sqrt(input_tensor).to(output_dtype)
+
+
+def ttir_pow_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.pow(input_tensor, other_tensor).to(output_dtype)
+
+
+def ttir_ge_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.ge(input_tensor, other_tensor).to(output_dtype)
+
+
+def ttir_lt_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.lt(input_tensor, other_tensor).to(output_dtype)
+
+
+def ttir_minimum_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.minimum(input_tensor, other_tensor).to(output_dtype)
+
+
+def ttir_logical_right_shift_golden(
+    input_tensor: GoldenMapTensor, shift_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    input_int64 = input_tensor.to(torch.int64)
+    shift_int64 = shift_tensor.to(torch.int64)
+    input_unsigned = torch.bitwise_and(input_int64, 0xFFFFFFFF)
+    result = torch.bitwise_right_shift(input_unsigned, shift_int64)
+    return torch.bitwise_and(result, 0xFFFFFFFF).to(output_dtype)
+
+
+def ttir_slice_golden(
+    input_tensor: GoldenMapTensor,
+    begins: ArrayAttr,
+    ends: ArrayAttr,
+    step: ArrayAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    # Unpack MLIR attributes
+    begins = unpack_mlir_attr(begins)
+    ends = unpack_mlir_attr(ends)
+    step = unpack_mlir_attr(step)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    if ends is None:
+        ends = [input_tensor.size(i) for i in range(len(begins))]
+
+    # Build slice objects for each dimension
+    slices = []
+    for i in range(len(begins)):
+        start = begins[i] if i < len(begins) else 0
+        end = ends[i] if i < len(ends) else input_tensor.size(i)
+        step_val = step[i] if i < len(step) else 1
+        slices.append(slice(start, end, step_val))
+
+    shard_map = {}
+    for device_id, shard in input_tensor.shard_map.items():
+        shard_map[device_id] = shard[slices]
+
+    return GoldenMapTensor(shard_map, input_tensor.mesh_shape).to(output_dtype)
+
+
+def ttir_div_golden(
+    lhs: GoldenMapTensor, rhs: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.div(lhs, rhs).to(lhs.dtype).to(output_dtype)
 
 
 def ttir_sum_golden(
-    input_tensor: GoldenMapTensor, dim_arg_attr: ArrayAttr, keep_dim_attr: BoolAttr
+    input_tensor: GoldenMapTensor,
+    dim_arg_attr: ArrayAttr,
+    keep_dim_attr: BoolAttr,
+    output_type_mlir: Type,
 ) -> GoldenMapTensor:
     dim_arg = unpack_mlir_attr(dim_arg_attr)
     keep_dim = unpack_mlir_attr(keep_dim_attr)
-    return torch.sum(input_tensor, dim=dim_arg, keepdim=keep_dim)
-
-
-def ttir_multiply_golden(lhs: GoldenMapTensor, rhs: GoldenMapTensor) -> GoldenMapTensor:
-    return torch.multiply(lhs, rhs)
-
-
-def ttir_maximum_golden(lhs: GoldenMapTensor, rhs: GoldenMapTensor) -> GoldenMapTensor:
-    return torch.maximum(lhs, rhs)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.sum(input_tensor, dim=dim_arg, keepdim=keep_dim).to(output_dtype)
 
 
 def ttir_reshape_golden(
-    input_tensor: GoldenMapTensor, shape_attr: ArrayAttr
+    input_tensor: GoldenMapTensor, shape_attr: ArrayAttr, output_type_mlir: Type
 ) -> GoldenMapTensor:
     new_shape = unpack_mlir_attr(shape_attr)
-    return torch.reshape(input_tensor, new_shape)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.reshape(input_tensor, new_shape).clone().to(output_dtype)
 
 
 def ttir_broadcast_golden(
-    input_tensor: GoldenMapTensor, broadcast_dimensions_attr: DenseI64ArrayAttr
+    input_tensor: GoldenMapTensor,
+    broadcast_dimensions_attr: DenseI64ArrayAttr,
+    output_type_mlir: Type,
 ) -> GoldenMapTensor:
     broadcast_dimensions = unpack_mlir_attr(broadcast_dimensions_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     input_shape = input_tensor.shape
 
     shape = []
@@ -2988,14 +2989,17 @@ def ttir_broadcast_golden(
         else:
             shape.append(input_shape[i])
 
-    return torch.broadcast_to(input_tensor, shape)
+    return torch.broadcast_to(input_tensor, shape).to(output_dtype)
 
 
 def ttir_permute_golden(
-    input_tensor: GoldenMapTensor, permutation_attr: DenseI64ArrayAttr
+    input_tensor: GoldenMapTensor,
+    permutation_attr: DenseI64ArrayAttr,
+    output_type_mlir: Type,
 ) -> GoldenMapTensor:
     permutation = unpack_mlir_attr(permutation_attr)
-    return torch.permute(input_tensor, permutation)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.permute(input_tensor, permutation).to(output_dtype)
 
 
 def ttir_dot_general_golden(
@@ -3005,11 +3009,13 @@ def ttir_dot_general_golden(
     contract_dims_lhs_attr: DenseI64ArrayAttr,
     batch_dims_rhs_attr: DenseI64ArrayAttr,
     contract_dims_rhs_attr: DenseI64ArrayAttr,
+    output_type_mlir: Type,
 ) -> GoldenMapTensor:
     batch_dims_lhs = unpack_mlir_attr(batch_dims_lhs_attr)
     contract_dims_lhs = unpack_mlir_attr(contract_dims_lhs_attr)
     batch_dims_rhs = unpack_mlir_attr(batch_dims_rhs_attr)
     contract_dims_rhs = unpack_mlir_attr(contract_dims_rhs_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
 
     non_batch_dims_lhs = [d for d in range(lhs.dim()) if d not in batch_dims_lhs]
     non_batch_dims_rhs = [d for d in range(rhs.dim()) if d not in batch_dims_rhs]
@@ -3049,14 +3055,18 @@ def ttir_dot_general_golden(
                 transposed_rhs_slice,
                 dims=(dot_dims_lhs, dot_dims_rhs),
             )
-    return result
+    return result.to(output_dtype)
 
 
 def ttir_pad_golden(
-    input_tensor: GoldenMapTensor, padding: DenseI32ArrayAttr, value: FloatAttr
+    input_tensor: GoldenMapTensor,
+    padding: DenseI32ArrayAttr,
+    value: FloatAttr,
+    output_type_mlir: Type,
 ) -> GoldenMapTensor:
     padding = unpack_mlir_attr(padding)
     value = unpack_mlir_attr(value)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
 
     golden_padding = []
     for i in range(len(padding) // 2):
@@ -3065,7 +3075,7 @@ def ttir_pad_golden(
 
     return torch.nn.functional.pad(
         input_tensor, pad=golden_padding, mode="constant", value=value
-    )
+    ).to(output_dtype)
 
 
 def ttir_constant_golden(value: DenseElementsAttr) -> GoldenMapTensor:
@@ -3098,76 +3108,84 @@ def ttir_constant_golden(value: DenseElementsAttr) -> GoldenMapTensor:
         value = value.get_splat_value()
         torch_tensor = torch.full(shape, value.value, dtype=dtype)
     else:
-        assert False, "Non-splat constants are not supported in golden functions."
+        flat_values = [elem for elem in value]
+        torch_tensor = torch.tensor(flat_values, dtype=dtype).reshape(shape)
 
     return GoldenMapTensor({0: torch_tensor.reshape(shape)}, (1, 1))
 
 
 def ttir_convolution_golden(
-    input_tensor: GoldenMapTensor,
-    weight: GoldenMapTensor,
+    lhs: GoldenMapTensor,
+    rhs: GoldenMapTensor,
     bias: Optional[GoldenMapTensor],
     window_strides_attr: DenseI64ArrayAttr,
     padding_attr: DenseI64ArrayAttr,
     input_dilation_attr: DenseI64ArrayAttr,
     weight_dilation_attr: DenseI64ArrayAttr,
     window_reversal_attr: DenseBoolArrayAttr,
-    convolution_layout_attr: Attribute,
+    convolution_layout_attr: ConvolutionLayoutAttr,
     feature_group_count_attr: IntegerAttr,
     batch_group_count_attr: IntegerAttr,
+    output_type_mlir: Type,
 ) -> GoldenMapTensor:
-    # Extract convolution-specific parameters
+    input_tensor = lhs.clone()
+    weight = rhs.clone()
     window_strides = unpack_mlir_attr(window_strides_attr)
     padding = unpack_mlir_attr(padding_attr)
     input_dilation = unpack_mlir_attr(input_dilation_attr)
     weight_dilation = unpack_mlir_attr(weight_dilation_attr)
+    window_reversal = unpack_mlir_attr(window_reversal_attr)
     feature_group_count = unpack_mlir_attr(feature_group_count_attr)
     batch_group_count = unpack_mlir_attr(batch_group_count_attr)
-    convolution_layout = None
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    convolution_layout = ttir.ir.ConvolutionLayoutAttr.maybe_downcast(
+        convolution_layout_attr
+    )
+    input_batch = convolution_layout.input_batch
+    input_feature = convolution_layout.input_feature
+    input_spatial_dimensions = convolution_layout.input_spatial_dimensions
+    output_batch = convolution_layout.output_batch
+    output_feature = convolution_layout.output_feature
+    output_spatial_dimensions = convolution_layout.output_spatial_dimensions
+    kernel_output_feature = convolution_layout.kernel_output_feature
+    kernel_input_feature = convolution_layout.kernel_input_feature
+    kernel_spatial_dimensions = convolution_layout.kernel_spatial_dimensions
 
-    # Note: For simplicity, we assume batch_group_count == 1 (not handling batch groups in golden)
-    if batch_group_count != 1:
-        raise ValueError(
-            f"Golden function does not support batch_group_count > 1, got {batch_group_count}"
-        )
+    # Current layout is defined by the positions
+    # We need to permute to NCHW: [batch, feature, spatial_0, spatial_1, ...]
+    current_layout = [None] * input_tensor.ndim
+    current_layout[input_batch] = 0  # batch goes to position 0
+    current_layout[input_feature] = 1  # feature goes to position 1
+    for i, spatial_dim in enumerate(input_spatial_dimensions):
+        current_layout[spatial_dim] = 2 + i  # spatial dims go to positions 2, 3, ...
 
-    # Handle layout transformation
-    # Parse convolution_layout to determine current tensor layout
-    # PyTorch expects input in NCHW format and weights in [O, I, H, W] format
-    if convolution_layout is not None:
-        # Get the layout dimensions from the attribute
-        # The attribute has methods like getInputBatchDimension(), getInputFeatureDimension(), etc.
-        input_batch_dim = convolution_layout.input_batch_dimension
-        input_feature_dim = convolution_layout.input_feature_dimension
-        input_spatial_dims = list(convolution_layout.input_spatial_dimensions)
+    # Check if we need to permute (i.e., if current_layout != [0, 1, 2, 3, ...])
+    if current_layout != list(range(input_tensor.ndim)):
+        # Create inverse permutation to go from current layout to NCHW
+        permutation = [current_layout.index(i) for i in range(input_tensor.ndim)]
+        input_tensor = input_tensor.permute(permutation)
 
-        # Current layout is defined by the positions
-        # We need to permute to NCHW: [batch, feature, spatial_0, spatial_1, ...]
-        current_layout = [None] * input_tensor.ndim
-        current_layout[input_batch_dim] = 0  # batch goes to position 0
-        current_layout[input_feature_dim] = 1  # feature goes to position 1
-        for i, spatial_dim in enumerate(input_spatial_dims):
-            current_layout[spatial_dim] = (
-                2 + i
-            )  # spatial dims go to positions 2, 3, ...
+    # Similarly for output, we need to know how to permute back
+    # Output permutation: from NCHW back to output layout
+    output_permutation = [None] * (len(output_spatial_dimensions) + 2)
+    output_permutation[output_batch] = 0
+    output_permutation[output_feature] = 1
+    for i, spatial_dim in enumerate(output_spatial_dimensions):
+        output_permutation[spatial_dim] = 2 + i
 
-        # Check if we need to permute (i.e., if current_layout != [0, 1, 2, 3, ...])
-        if current_layout != list(range(input_tensor.ndim)):
-            # Create inverse permutation to go from current layout to NCHW
-            permutation = [current_layout.index(i) for i in range(input_tensor.ndim)]
-            input_tensor = input_tensor.permute(permutation)
+    # Handle weight/kernel layout transformation
+    # PyTorch expects weights in [output_channels, input_channels, H, W] format
+    # Create layout for weight tensor: [output_feat, input_feat, spatial_0, spatial_1, ...]
+    weight_layout = [None] * weight.ndim
+    weight_layout[kernel_output_feature] = 0  # output feature goes to position 0
+    weight_layout[kernel_input_feature] = 1  # input feature goes to position 1
+    for i, spatial_dim in enumerate(kernel_spatial_dimensions):
+        weight_layout[spatial_dim] = 2 + i  # spatial dims go to positions 2, 3, ...
 
-        # Similarly for output, we need to know how to permute back
-        output_batch_dim = convolution_layout.output_batch_dimension
-        output_feature_dim = convolution_layout.output_feature_dimension
-        output_spatial_dims = list(convolution_layout.output_spatial_dimensions)
-
-        # Output permutation: from NCHW back to output layout
-        output_permutation = [None] * (len(output_spatial_dims) + 2)
-        output_permutation[output_batch_dim] = 0
-        output_permutation[output_feature_dim] = 1
-        for i, spatial_dim in enumerate(output_spatial_dims):
-            output_permutation[spatial_dim] = 2 + i
+    # Check if we need to permute weight
+    if weight_layout != list(range(weight.ndim)):
+        weight_permutation = [weight_layout.index(i) for i in range(weight.ndim)]
+        weight = weight.permute(weight_permutation)
 
     # Extract only spatial dimensions from strides and dilations
     # TTIR uses 4D strides/dilations [batch, channel, height, width]
@@ -3225,14 +3243,10 @@ def ttir_convolution_golden(
     )
 
     # Permute output back to the expected output layout if needed
-    if convolution_layout is not None and output_permutation != list(
-        range(result.ndim)
-    ):
-        # Create permutation from NCHW to output layout
-        inverse_output_perm = [output_permutation.index(i) for i in range(result.ndim)]
-        result = result.permute(inverse_output_perm)
+    if output_permutation != list(range(result.ndim)):
+        result = result.permute(output_permutation)
 
-    return result
+    return result.to(output_dtype)
 
 
 def ttir_pooling_golden(
@@ -3243,6 +3257,7 @@ def ttir_pooling_golden(
     base_dilations_attr: DenseI64ArrayAttr,
     window_dilations_attr: DenseI64ArrayAttr,
     padding_attr: DenseI64ArrayAttr,
+    output_type_mlir: Type,
 ) -> GoldenMapTensor:
     pooling_method = pooling_method_attr
     window_dimensions = unpack_mlir_attr(window_dimensions_attr)
@@ -3250,6 +3265,7 @@ def ttir_pooling_golden(
     base_dilations = unpack_mlir_attr(base_dilations_attr)
     window_dilations = unpack_mlir_attr(window_dilations_attr)
     padding = unpack_mlir_attr(padding_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
 
     # Find spatial dimensions (those with window_dimensions > 1)
     spatial_dim_indices = [i for i, dim in enumerate(window_dimensions) if dim > 1]
@@ -3285,7 +3301,7 @@ def ttir_pooling_golden(
 
     # Call the appropriate golden function based on pooling method
     if "Max" in pooling_method_str:
-        return max_pool2d_golden(
+        result = max_pool2d_golden(
             input_tensor,
             kernel=kernel,
             stride=stride,
@@ -3294,7 +3310,7 @@ def ttir_pooling_golden(
             ceil_mode=False,
         )
     elif "Average" in pooling_method_str:
-        return avg_pool2d_golden(
+        result = avg_pool2d_golden(
             input_tensor,
             kernel=kernel,
             stride=stride,
@@ -3315,9 +3331,11 @@ def ttir_pooling_golden(
             count_include_pad=True,
         )
         kernel_size = kernel[0] * kernel[1]
-        return torch.mul(result, kernel_size)
+        result = torch.mul(result, kernel_size)
     else:
         raise ValueError(f"Unknown pooling method: {pooling_method_str}")
+
+    return result.to(output_dtype)
 
 
 def ttir_batch_norm_inference_golden(
@@ -3328,14 +3346,17 @@ def ttir_batch_norm_inference_golden(
     variance: GoldenMapTensor,
     epsilon_attr: FloatAttr,
     dimension_attr: IntegerAttr,
+    output_type_mlir: Type,
 ) -> GoldenMapTensor:
     epsilon = unpack_mlir_attr(epsilon_attr)
     dim = unpack_mlir_attr(dimension_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     perm = list(range(input_tensor.ndim))
     perm[1], perm[dim] = perm[dim], perm[1]
-    input_tensor = input_tensor.permute(perm)
+    cloned_tensor = input_tensor.clone()
+    permuted_tensor = cloned_tensor.permute(perm)
     result = torch.nn.functional.batch_norm(
-        input_tensor,
+        permuted_tensor,
         running_mean=mean,
         running_var=variance,
         weight=scale,
@@ -3345,64 +3366,695 @@ def ttir_batch_norm_inference_golden(
     )
     inv_perm = [perm.index(i) for i in range(len(perm))]
     result = result.permute(inv_perm)
-    return result
+    return result.to(output_dtype)
+
+
+def ttir_batch_norm_training_golden(
+    input_tensor: GoldenMapTensor,
+    scale: GoldenMapTensor,
+    offset: GoldenMapTensor,
+    running_mean: GoldenMapTensor,
+    running_variance: GoldenMapTensor,
+    epsilon_attr: FloatAttr,
+    dimension_attr: IntegerAttr,
+    momentum_attr: FloatAttr,
+    output_type_mlir: Type,
+    mean_output_type_mlir: Type,
+    variance_output_type_mlir: Type,
+) -> Tuple[GoldenMapTensor, GoldenMapTensor, GoldenMapTensor]:
+    epsilon = unpack_mlir_attr(epsilon_attr)
+    dim = unpack_mlir_attr(dimension_attr)
+    momentum = unpack_mlir_attr(momentum_attr)
+    perm = list(range(input_tensor.ndim))
+    perm[1], perm[dim] = perm[dim], perm[1]
+    permuted_tensor = input_tensor.permute(perm)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    mean_output_type = mlir_type_to_torch_dtype(mean_output_type_mlir)
+    variance_output_type = mlir_type_to_torch_dtype(variance_output_type_mlir)
+
+    # Compute batch statistics
+    # PyTorch batch_norm uses biased variance (unbiased=False) during training
+    # Calculate mean and variance across all dimensions except the channel dimension (dim 1 after permute)
+    # For NCHW format: reduce over dims [0, 2, 3] (batch, height, width), keep dim 1 (channels)
+    if permuted_tensor.ndim == 4:
+        # NCHW format - compute mean step by step to ensure it works with GoldenMapTensor
+        # First reduce over spatial dimensions [2, 3] (H, W)
+        spatial_mean = torch.mean(permuted_tensor, dim=[2, 3])  # [N, C]
+        # Then reduce over batch dimension [0]
+        batch_mean = torch.mean(spatial_mean, dim=0)  # [C]
+
+        # For variance, use the same approach
+        spatial_var_sum = torch.sum(
+            torch.pow(
+                torch.sub(permuted_tensor, torch.reshape(batch_mean, [1, -1, 1, 1])), 2
+            ),
+            dim=[0, 2, 3],
+        )
+        batch_var = torch.div(
+            spatial_var_sum,
+            permuted_tensor.shape[0]
+            * permuted_tensor.shape[2]
+            * permuted_tensor.shape[3],
+        )
+    else:
+        # General case: reduce over all dims except channel dim (1)
+        reduce_dims = [0] + list(range(2, permuted_tensor.ndim))
+        batch_mean = torch.mean(permuted_tensor, dim=reduce_dims)
+        batch_var = torch.var(permuted_tensor, dim=reduce_dims, unbiased=False)
+
+    # Manually compute normalized output: (x - mean) / sqrt(var + eps) * scale + offset
+    # Reshape mean and var for broadcasting using torch.reshape
+    shape = [1, -1] + [1] * (permuted_tensor.ndim - 2)
+    batch_mean_reshaped = torch.reshape(batch_mean, shape)
+    batch_var_reshaped = torch.reshape(batch_var, shape)
+    scale_reshaped = torch.reshape(scale, shape)
+    offset_reshaped = torch.reshape(offset, shape)
+
+    # Normalize using torch functions (GoldenMapTensor requires torch.* functions)
+    centered = torch.sub(permuted_tensor, batch_mean_reshaped)
+    std = torch.sqrt(torch.add(batch_var_reshaped, epsilon))
+    normalized = torch.div(centered, std)
+    scaled = torch.mul(normalized, scale_reshaped)
+    result = torch.add(scaled, offset_reshaped)
+
+    # Permute result back to original dimension order
+    inv_perm = [perm.index(i) for i in range(len(perm))]
+    result = result.permute(inv_perm)
+
+    # Update running statistics using momentum
+    # running_mean = momentum * batch_mean + (1 - momentum) * running_mean
+    # running_variance = momentum * batch_variance + (1 - momentum) * running_variance
+    updated_running_mean = torch.add(
+        torch.mul(batch_mean, momentum), torch.mul(running_mean, 1 - momentum)
+    )
+    updated_running_var = torch.add(
+        torch.mul(batch_var, momentum), torch.mul(running_variance, 1 - momentum)
+    )
+
+    return (
+        result.to(output_dtype),
+        updated_running_mean.to(mean_output_type),
+        updated_running_var.to(variance_output_type),
+    )
+
+
+def ttir_ne_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    result_bool = torch.ne(input_tensor, other_tensor)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return result_bool.to(output_dtype)
+
+
+def ttir_logical_not_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    result_bool = torch.logical_not(input_tensor)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return result_bool.to(output_dtype)
+
+
+def ttir_max_golden(
+    input_tensor: GoldenMapTensor,
+    dim_arg_attr: ArrayAttr,
+    keep_dim_attr: BoolAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    dim_arg = unpack_mlir_attr(dim_arg_attr)
+    keep_dim = unpack_mlir_attr(keep_dim_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    if dim_arg is None:
+        # For all dimensions reduction
+        result = torch.max(input_tensor)
+        if keep_dim:
+            # Reshape to match expected output with all dims = 1
+            output_shape = [1] * input_tensor.dim()
+            return result.reshape(*output_shape).to(output_dtype)
+        else:
+            return result.to(output_dtype)
+    elif len(dim_arg) == 1:
+        # Single dimension reduction
+        values, indices = torch.max(input_tensor, dim=dim_arg[0], keepdim=keep_dim)
+        return values.to(output_dtype)
+    else:
+        # Multiple dimensions - reduce sequentially from highest to lowest
+        # Sort in descending order to maintain correct dimension indices
+        sorted_dims = sorted(dim_arg, reverse=True)
+        result = input_tensor
+        for dim in sorted_dims:
+            result, _ = torch.max(result, dim=dim, keepdim=keep_dim)
+        return result.to(output_dtype)
+
+
+def ttir_reduce_or_golden(
+    input_tensor: GoldenMapTensor,
+    dim_arg_attr: ArrayAttr,
+    keep_dim_attr: BoolAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    dim_arg = unpack_mlir_attr(dim_arg_attr)
+    keep_dim = unpack_mlir_attr(keep_dim_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.any(input_tensor, dim=tuple(dim_arg), keepdim=keep_dim).to(
+        output_dtype
+    )
+
+
+def ttir_clamp_tensor_golden(
+    input_tensor: GoldenMapTensor,
+    min_tensor: GoldenMapTensor,
+    max_tensor: GoldenMapTensor,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.min(torch.max(input_tensor, min_tensor), max_tensor).to(output_dtype)
+
+
+def ttir_full_golden(
+    shape_attr: DenseI32ArrayAttr,
+    fill_value_attr: Union[IntegerAttr, FloatAttr],
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    shape = unpack_mlir_attr(shape_attr)
+    fill_value = unpack_mlir_attr(fill_value_attr)
+    tensor = torch.full(shape, fill_value)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return GoldenMapTensor({0: tensor}, (1, 1)).to(output_dtype)
+
+
+def ttir_concat_golden(
+    input_tensors: List[GoldenMapTensor], dim_attr: IntegerAttr, output_type_mlir: Type
+) -> GoldenMapTensor:
+    dim = unpack_mlir_attr(dim_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    if isinstance(input_tensors, tuple):
+        return torch.concat(input_tensors, dim=dim).to(output_dtype)
+    else:
+        return torch.concat([input_tensors], dim=dim).to(output_dtype)
+
+
+def ttir_max_pool2d_with_indices(
+    input_tensor: GoldenMapTensor,
+    kernel_attr: DenseI32ArrayAttr,
+    stride_attr: DenseI32ArrayAttr,
+    padding_attr: DenseI32ArrayAttr,
+    dilation_attr: DenseI32ArrayAttr,
+    ceil_mode_attr: BoolAttr,
+    output_type_mlir: Type,
+) -> Tuple[GoldenMapTensor, GoldenMapTensor]:
+    kernel = unpack_mlir_attr(kernel_attr)
+    stride = unpack_mlir_attr(stride_attr)
+    padding = unpack_mlir_attr(padding_attr)
+    dilation = unpack_mlir_attr(dilation_attr)
+    ceil_mode = unpack_mlir_attr(ceil_mode_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    # Assert that padding padding top+bottom and left+right are equal for both dimensions
+    assert (
+        padding[0] == padding[2]
+    ), "Asymmetric padding not supported in height dimension"
+    assert (
+        padding[1] == padding[3]
+    ), "Asymmetric padding not supported in width dimension"
+
+    # TTMLIR uses NHWC format, but PyTorch expects NCHW format
+    # Transpose input from NHWC to NCHW
+    input_tensor_clone = input_tensor.clone()
+    input_tensor_nchw = input_tensor_clone.transpose(-1, -2).transpose(-2, -3)
+
+    output, indices = torch.nn.functional.max_pool2d(
+        input_tensor_nchw,
+        kernel_size=kernel,
+        stride=stride,
+        padding=((padding[0], padding[1])),
+        dilation=dilation,
+        ceil_mode=ceil_mode,
+        return_indices=True,
+    )
+
+    # Transpose output back from NCHW to NHWC
+    output_nhwc = output.transpose(-2, -3).transpose(-1, -2)
+    indices_nhwc = indices.transpose(-2, -3).transpose(-1, -2)
+    return output_nhwc.to(output_dtype), indices_nhwc.to(torch.int64)
+
+
+def ttir_scatter_golden(
+    input_tensor: GoldenMapTensor,
+    index: GoldenMapTensor,
+    source: GoldenMapTensor,
+    dim: IntegerAttr,
+    scatter_reduce_type_attr: ReduceTypeAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    dim_value = unpack_mlir_attr(dim)
+    scatter_reduce_type = ttcore.ir.ReduceTypeAttr.maybe_downcast(
+        scatter_reduce_type_attr
+    ).value
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    index_copy = index.clone()
+    index_copy = index_copy.to(torch.int64)
+
+    if scatter_reduce_type == ttcore.ir.ReduceType.Sum:
+        out_tensor = torch.scatter_reduce(
+            input_tensor, dim_value, index_copy, source, reduce="sum"
+        )
+    elif scatter_reduce_type == ttcore.ir.ReduceType.Prod:
+        out_tensor = torch.scatter_reduce(
+            input_tensor, dim_value, index_copy, source, reduce="prod"
+        )
+    elif scatter_reduce_type == ttcore.ir.ReduceType.Max:
+        out_tensor = torch.scatter_reduce(
+            input_tensor, dim_value, index_copy, source, reduce="amax"
+        )
+    elif scatter_reduce_type == ttcore.ir.ReduceType.Min:
+        out_tensor = torch.scatter_reduce(
+            input_tensor, dim_value, index_copy, source, reduce="amin"
+        )
+    elif scatter_reduce_type == ttcore.ir.ReduceType.Invalid:
+        out_tensor = torch.scatter(input_tensor, dim_value, index_copy, source)
+    else:
+        raise ValueError(f"Unsupported scatter reduce type: {scatter_reduce_type}")
+
+    return out_tensor.to(output_dtype)
+
+
+def ttir_reverse_golden(
+    input_tensor: GoldenMapTensor,
+    dimensions_attr: DenseI64ArrayAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    dimensions = unpack_mlir_attr(dimensions_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.flip(input_tensor, dimensions).to(output_dtype)
+
+
+def ttir_equal_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    result_bool = torch.eq(input_tensor, other_tensor)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return result_bool.to(output_dtype)
+
+
+def ttir_greater_than_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    result_bool = torch.gt(input_tensor, other_tensor)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return result_bool.to(output_dtype)
+
+
+def ttir_typecast_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return input_tensor.to(output_dtype)
+
+
+def ttir_log1p_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.log1p(input_tensor).to(output_dtype)
+
+
+def ttir_log_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.log(input_tensor).to(output_dtype)
+
+
+def ttir_maximum_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.maximum(input_tensor, other_tensor).to(output_dtype)
+
+
+def ttir_multiply_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.multiply(input_tensor, other_tensor).to(output_dtype)
+
+
+def ttir_add_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.add(input_tensor, other_tensor).to(output_dtype)
+
+
+def ttir_sigmoid_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.sigmoid(input_tensor).to(output_dtype)
+
+
+def ttir_hardsigmoid_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.nn.functional.hardsigmoid(input_tensor).to(output_dtype)
+
+
+def ttir_subtract_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.subtract(input_tensor, other_tensor).to(output_dtype)
+
+
+def ttir_tanh_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.tanh(input_tensor).to(output_dtype)
+
+
+def ttir_rsqrt_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.rsqrt(input_tensor).to(output_dtype)
+
+
+def ttir_neg_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.neg(input_tensor).to(output_dtype)
+
+
+def ttir_where_golden(
+    condition: GoldenMapTensor,
+    x: GoldenMapTensor,
+    y: GoldenMapTensor,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.where(condition, x, y).to(output_dtype)
+
+
+def ttir_abs_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.abs(input_tensor).to(output_dtype)
+
+
+def ttir_erf_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.erf(input_tensor).to(output_dtype)
+
+
+def ttir_floor_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.floor(input_tensor).to(output_dtype)
+
+
+def ttir_exp_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.exp(input_tensor).to(output_dtype)
+
+
+def ttir_sort_golden(
+    input_tensor: GoldenMapTensor,
+    dim_attr: IntegerAttr,
+    descending_attr: BoolAttr,
+    stable_attr: BoolAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    dim = unpack_mlir_attr(dim_attr)
+    descending = unpack_mlir_attr(descending_attr)
+    stable = unpack_mlir_attr(stable_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    values, indices = torch.sort(
+        input_tensor, dim=dim, descending=descending, stable=stable
+    )
+    return values.to(output_dtype), indices.to(torch.int64)
+
+
+################ StableHLO Op Golden Functions ###############
+
+
+def stablehlo_add_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.add(input_tensor, other_tensor).to(output_dtype)
+
+
+def stablehlo_log_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.log(input_tensor).to(output_dtype)
+
+
+def stablehlo_log1p_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.log1p(input_tensor).to(output_dtype)
+
+
+def stablehlo_logistic_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.sigmoid(input_tensor).to(output_dtype)
+
+
+def stablehlo_neg_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.neg(input_tensor).to(output_dtype)
+
+
+def stablehlo_reshape_golden(
+    input_tensor: GoldenMapTensor, shape_attr: ArrayAttr, output_type_mlir: Type
+) -> GoldenMapTensor:
+    shape = unpack_mlir_attr(shape_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.reshape(input_tensor, shape).clone().to(output_dtype)
+
+
+def stablehlo_rsqrt_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.rsqrt(input_tensor).to(output_dtype)
+
+
+def stablehlo_slice_golden(
+    input_tensor: GoldenMapTensor,
+    start_indices_attr: DenseI64ArrayAttr,
+    limit_indices_attr: DenseI64ArrayAttr,
+    strides_attr: DenseI64ArrayAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    start_indices = unpack_mlir_attr(start_indices_attr)
+    limit_indices = unpack_mlir_attr(limit_indices_attr)
+    strides = unpack_mlir_attr(strides_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    slices = []
+    for i in range(len(start_indices)):
+        start = start_indices[i] if i < len(start_indices) else 0
+        end = limit_indices[i] if i < len(limit_indices) else input_tensor.size(i)
+        stride = strides[i] if i < len(strides) else 1
+        slices.append(slice(start, end, stride))
+
+    shard_map = {}
+    for device_id, shard in input_tensor.shard_map.items():
+        shard_map[device_id] = shard[tuple(slices)]
+        shard_map[device_id] = shard_map[device_id].to(output_dtype)
+
+    return GoldenMapTensor(shard_map, input_tensor.mesh_shape)
+
+
+def stablehlo_sine_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.sin(input_tensor).to(output_dtype)
+
+
+def stablehlo_sqrt_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.sqrt(input_tensor).to(output_dtype)
+
+
+def stablehlo_tan_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.tan(input_tensor).to(output_dtype)
+
+
+def stablehlo_tanh_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.tanh(input_tensor).to(output_dtype)
+
+
+def stablehlo_transpose_golden(
+    input_tensor: GoldenMapTensor,
+    permutation: DenseI64ArrayAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    permutation = unpack_mlir_attr(permutation)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.permute(input_tensor, tuple(permutation)).to(output_dtype)
+
+
+def stablehlo_select_golden(
+    pred_tensor: GoldenMapTensor,
+    on_true_tensor: GoldenMapTensor,
+    on_false_tensor: GoldenMapTensor,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    pred_bool = pred_tensor.to(torch.bool)
+    return torch.where(pred_bool, on_true_tensor, on_false_tensor).to(output_dtype)
+
+
+def stablehlo_reverse_golden(
+    input_tensor: GoldenMapTensor,
+    dimensions_attr: DenseI64ArrayAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    dims = unpack_mlir_attr(dimensions_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.flip(input_tensor, dims).to(output_dtype)
+
+
+def stablehlo_maximum_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.maximum(input_tensor, other_tensor).to(output_dtype)
+
+
+def stablehlo_minimum_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.minimum(input_tensor, other_tensor).to(output_dtype)
+
+
+def stablehlo_multiply_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.multiply(input_tensor, other_tensor).to(output_dtype)
+
+
+def stablehlo_pow_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.pow(input_tensor, other_tensor).to(output_dtype)
+
+
+def stablehlo_subtract_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.subtract(input_tensor, other_tensor).to(output_dtype)
+
+
+def stablehlo_shift_right_logical_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    shifted = logical_right_shift_golden(input_tensor, other_tensor)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return shifted.to(output_dtype)
+
+
+################ TTNN Op Golden Functions ###############
+
+
+def ttnn_add_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.add(input_tensor, other_tensor).to(output_dtype)
 
 
 GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # ----- TTIR OPS -----
     # Elementwise unary operations
     ttir.GetDimensionSizeOp: get_dimension_size_golden,
-    ttir.AbsOp: torch.abs,
+    ttir.AbsOp: ttir_abs_golden,
     ttir.CeilOp: torch.ceil,
-    ttir.CosOp: torch.cos,
-    ttir.ErfOp: torch.erf,
+    ttir.CosOp: ttir_cos_golden,
+    ttir.ErfOp: ttir_erf_golden,
     ttir.ErfcOp: torch.erfc,
-    ttir.FloorOp: torch.floor,
+    ttir.FloorOp: ttir_floor_golden,
     ttir.GeluOp: torch.nn.functional.gelu,
+    ttir.GeluBackwardOp: torch.ops.aten.gelu_backward,
     ttir.IsFiniteOp: torch.isfinite,
-    ttir.NegOp: torch.neg,
+    ttir.MishOp: torch.nn.functional.mish,
+    ttir.NegOp: ttir_neg_golden,
     ttir.TanOp: torch.tan,
     ttir.AtanOp: torch.atan,
-    ttir.TanhOp: torch.tanh,
+    ttir.TanhOp: ttir_tanh_golden,
     ttir.ReciprocalOp: torch.reciprocal,
     ttir.ReluOp: torch.relu,
     ttir.Relu6Op: torch.nn.functional.relu6,
-    ttir.RsqrtOp: torch.rsqrt,
-    ttir.SigmoidOp: torch.sigmoid,
+    ttir.RsqrtOp: ttir_rsqrt_golden,
+    ttir.SigmoidOp: ttir_sigmoid_golden,
+    ttir.HardsigmoidOp: ttir_hardsigmoid_golden,
     ttir.SignOp: torch.sign,
     ttir.SiluOp: silu_golden,
-    ttir.SinOp: torch.sin,
-    ttir.SqrtOp: torch.sqrt,
-    ttir.LogOp: torch.log,
-    ttir.Log1pOp: torch.log1p,
+    ttir.SinOp: ttir_sin_golden,
+    ttir.SqrtOp: ttir_sqrt_golden,
+    ttir.LogOp: ttir_log_golden,
+    ttir.Log1pOp: ttir_log1p_golden,
     ttir.Expm1Op: torch.expm1,
-    ttir.ExpOp: torch.exp,
+    ttir.ExpOp: ttir_exp_golden,
     # Elementwise binary operations
     ttir.AddOp: ttir_add_golden,
     ttir.Atan2Op: torch.atan2,
     ttir.MultiplyOp: ttir_multiply_golden,
-    ttir.SubtractOp: torch.subtract,
-    ttir.DivOp: torch.div,
+    ttir.SubtractOp: ttir_subtract_golden,
+    ttir.DivOp: ttir_div_golden,
     ttir.MaximumOp: ttir_maximum_golden,
-    ttir.MinimumOp: torch.minimum,
+    ttir.MinimumOp: ttir_minimum_golden,
     ttir.RemainderOp: torch.remainder,
-    ttir.PowOp: torch.pow,
+    ttir.PowOp: ttir_pow_golden,
     # Comparison operations
-    ttir.EqualOp: equal_golden,
-    ttir.NotEqualOp: not_equal_golden,
-    ttir.GreaterEqualOp: greater_equal_golden,
-    ttir.GreaterThanOp: greater_than_golden,
+    ttir.EqualOp: ttir_equal_golden,
+    ttir.NotEqualOp: ttir_ne_golden,
+    ttir.GreaterEqualOp: ttir_ge_golden,
+    ttir.GreaterThanOp: ttir_greater_than_golden,
     ttir.LessEqualOp: less_equal_golden,
-    ttir.LessThanOp: less_than_golden,
+    ttir.LessThanOp: ttir_lt_golden,
     # Logical operations
     ttir.LogicalAndOp: logical_and_golden,
     ttir.LogicalLeftShiftOp: logical_left_shift_golden,
     ttir.LogicalOrOp: logical_or_golden,
-    ttir.LogicalRightShiftOp: logical_right_shift_golden,
+    ttir.LogicalRightShiftOp: ttir_logical_right_shift_golden,
     ttir.LogicalXorOp: logical_xor_golden,
-    ttir.LogicalNotOp: logical_not_golden,
+    ttir.LogicalNotOp: ttir_logical_not_golden,
     # Selection operations
-    ttir.WhereOp: torch.where,
+    ttir.WhereOp: ttir_where_golden,
     # Bitwise operations
     ttir.BitwiseAndOp: torch.bitwise_and,
     ttir.BitwiseOrOp: torch.bitwise_or,
@@ -3411,45 +4063,49 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # Reduction operations
     ttir.SumOp: ttir_sum_golden,
     ttir.MeanOp: mean_golden,
-    ttir.MaxOp: max_golden,
+    ttir.MaxOp: ttir_max_golden,
     ttir.MinOp: min_golden,
     ttir.ProdOp: prod_golden,
-    ttir.ReduceAndOp: reduce_and_golden,
-    ttir.ReduceOrOp: reduce_or_golden,
+    ttir.ReduceAndOp: ttir_reduce_and_golden,
+    ttir.ReduceOrOp: ttir_reduce_or_golden,
     # Tensor manipulation
-    ttir.SortOp: sort_golden,
+    ttir.SortOp: ttir_sort_golden,
     ttir.TransposeOp: transpose_golden,
-    ttir.ConcatOp: concat_golden,
-    ttir.RepeatOp: repeat_golden,
+    ttir.ConcatOp: ttir_concat_golden,
+    ttir.RepeatOp: ttir_repeat_golden,
     ttir.RepeatInterleaveOp: repeat_interleave_golden,
     ttir.ReshapeOp: ttir_reshape_golden,
+    ttir.RearrangeOp: rearrange_golden,
     ttir.SqueezeOp: squeeze_golden,
     ttir.UnsqueezeOp: unsqueeze_golden,
-    ttir.ReverseOp: reverse_golden,
+    ttir.ReverseOp: ttir_reverse_golden,
     ttir.PermuteOp: ttir_permute_golden,
     ttir.ClampScalarOp: clamp_scalar_golden,
-    ttir.ClampTensorOp: clamp_tensor_golden,
-    ttir.CumSumOp: cumsum_golden,
+    ttir.ClampTensorOp: ttir_clamp_tensor_golden,
+    ttir.CumSumOp: ttir_cumsum_golden,
     ttir.BroadcastOp: ttir_broadcast_golden,
     ttir.PadOp: ttir_pad_golden,
     ttir.IndexSelectOp: select_golden,
     ttir.IndexOp: index_golden,
-    ttir.SliceStaticOp: slice_golden,
-    ttir.GatherOp: gather_golden,
+    ttir.SliceStaticOp: ttir_slice_golden,
+    ttir.GatherOp: ttir_gather_golden,
     # Neural network operations
     ttir.SoftmaxOp: softmax_golden,
     ttir.MatmulOp: matmul_golden,
     ttir.EmbeddingOp: embedding_golden,
     ttir.Upsample2dOp: upsample2d_golden,
     ttir.BatchNormInferenceOp: ttir_batch_norm_inference_golden,
+    ttir.BatchNormTrainingOp: ttir_batch_norm_training_golden,
     ttir.RMSNormOp: rms_norm_golden,
     # Type operations
-    ttir.TypecastOp: typecast_golden,
+    ttir.TypecastOp: ttir_typecast_golden,
     # Tensor creation
-    ttir.ZerosOp: zeros_golden,
-    ttir.OnesOp: ones_golden,
+    ttir.ZerosOp: ttir_zeros_golden,
+    ttir.OnesOp: ttir_ones_golden,
     ttir.ConstantOp: ttir_constant_golden,
-    ttir.ArangeOp: arange_golden,
+    ttir.FullOp: ttir_full_golden,
+    ttir.ArangeOp: ttir_arange_golden,
+    ttir.RandOp: ttir_rand_golden,
     # Quantization operations
     ttir.QuantizeOp: quantize_golden,
     ttir.DequantizeOp: torch.dequantize,
@@ -3462,9 +4118,11 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.MaxPool2dOp: max_pool2d_golden,
     ttir.AvgPool2dOp: avg_pool2d_golden,
     ttir.PoolingOp: ttir_pooling_golden,
+    ttir.MaxPool2dWithIndicesOp: ttir_max_pool2d_with_indices,
     ttir.ArgMaxOp: argmax_golden,
     ttir.LinearOp: linear_golden,
     ttir.DotGeneralOp: ttir_dot_general_golden,
+    ttir.ScatterOp: ttir_scatter_golden,
     # Layout operations (identity functions) — accept and ignore extra kwargs like reinterpretLayout
     ttir.ToLayoutOp: (lambda x, **kwargs: x),
     # Cache operations
@@ -3486,29 +4144,41 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     d2m.ViewLayoutOp: (lambda x, **kwargs: x),
     # ----- STABLEHLO OPS -----
     # StableHLO elementwise operations
-    stablehlo.AddOp: torch.add,
+    stablehlo.AddOp: stablehlo_add_golden,
     stablehlo.AbsOp: torch.abs,
     stablehlo.CeilOp: torch.ceil,
     stablehlo.ClampOp: torch.clamp,
     stablehlo.CosineOp: torch.cos,
     stablehlo.ExpOp: torch.exp,
     stablehlo.FloorOp: torch.floor,
-    stablehlo.LogOp: torch.log,
-    stablehlo.LogisticOp: torch.sigmoid,
-    stablehlo.NegOp: torch.neg,
-    stablehlo.ReshapeOp: reshape_golden,
-    stablehlo.RsqrtOp: torch.rsqrt,
-    stablehlo.SineOp: torch.sin,
-    stablehlo.SqrtOp: torch.sqrt,
-    stablehlo.TanOp: torch.tan,
+    stablehlo.LogOp: stablehlo_log_golden,
+    stablehlo.Log1pOp: stablehlo_log1p_golden,
+    stablehlo.LogisticOp: stablehlo_logistic_golden,
+    stablehlo.NegOp: stablehlo_neg_golden,
+    stablehlo.ReshapeOp: stablehlo_reshape_golden,
+    stablehlo.RsqrtOp: stablehlo_rsqrt_golden,
+    stablehlo.SineOp: stablehlo_sine_golden,
+    stablehlo.SqrtOp: stablehlo_sqrt_golden,
+    stablehlo.TanOp: stablehlo_tan_golden,
+    stablehlo.TanhOp: stablehlo_tanh_golden,
     stablehlo.AndOp: stablehlo_and_golden,
     stablehlo.OrOp: stablehlo_or_golden,
     stablehlo.XorOp: stablehlo_xor_golden,
     stablehlo.NotOp: stablehlo_not_golden,
-    stablehlo.SliceOp: slice_golden_stablehlo,
+    stablehlo.SliceOp: stablehlo_slice_golden,
+    stablehlo.MaxOp: stablehlo_maximum_golden,
+    stablehlo.MinOp: stablehlo_minimum_golden,
+    stablehlo.MulOp: stablehlo_multiply_golden,
+    stablehlo.SubtractOp: stablehlo_subtract_golden,
+    stablehlo.PowOp: stablehlo_pow_golden,
+    stablehlo.ShiftRightLogicalOp: stablehlo_shift_right_logical_golden,
+    stablehlo.ReverseOp: stablehlo_reverse_golden,
     # stablehlo complex operations
     stablehlo.DotGeneralOp: dot_general_golden,
     stablehlo.ConcatenateOp: concat_golden,
+    # StableHLO tensor manipulation operations
+    stablehlo.TransposeOp: stablehlo_transpose_golden,
+    stablehlo.SelectOp: stablehlo_select_golden,
     # ----- TTNN OPS -----
     # Elementwise unary operations
     ttnn.AbsOp: torch.abs,
@@ -3538,13 +4208,11 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.Expm1Op: torch.expm1,
     ttnn.ExpOp: torch.exp,
     ttnn.LeakyReluOp: leaky_relu_golden,
-    # StableHLO tensor manipulation operations
-    stablehlo.TransposeOp: permute_golden,
     # TTNN elementwise operations
     ttnn.MultiplyOp: torch.multiply,
     ttnn.MishOp: torch.nn.functional.mish,
     # Elementwise binary operations
-    ttnn.AddOp: torch.add,
+    ttnn.AddOp: ttnn_add_golden,
     ttnn.Atan2Op: torch.atan2,
     ttnn.MultiplyOp: torch.multiply,
     ttnn.SubtractOp: torch.subtract,
@@ -3577,6 +4245,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # Complex operations
     ttnn.MatmulOp: matmul_golden,
     ttnn.LinearOp: linear_golden,
+    ttnn.RMSNormOp: rms_norm_golden,
     # Tensor manipulation
     ttnn.ConcatOp: concat_golden,
     ttnn.RepeatOp: repeat_golden,

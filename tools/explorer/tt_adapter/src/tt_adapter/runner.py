@@ -104,13 +104,18 @@ class ModelRunner:
             self._ttrt.API.initialize_apis()
 
             # Save the system descriptor.
-            self._ttrt.API.Query(
-                args={
-                    "--save-artifacts": True,
-                    "--artifact-dir": self._explorer_artifacts_dir,
-                    "--quiet": True,
-                }
-            )()
+            query_command = [
+                "ttrt",
+                "query",
+                "--save-artifacts",
+                f"--artifact-dir={self._explorer_artifacts_dir}",
+                "--quiet",
+            ]
+            query_process = self.run_in_subprocess(query_command)
+            if query_process.returncode != 0:
+                raise RuntimeError(
+                    "Failed to initialize system descriptor via ttrt query"
+                )
 
         logging.info("ModelRunner initialized.")
 

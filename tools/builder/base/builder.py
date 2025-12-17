@@ -4,46 +4,34 @@
 
 from __future__ import annotations
 import inspect
-from dataclasses import dataclass
 from typing import List, Optional, Union, Tuple, Callable, Dict, Any
 import torch
 from enum import Enum, auto
 import re
 from collections import OrderedDict
 
-from ttmlir.ir import (
-    Context,
-    Location,
-    Value,
-    OpView,
-    Operation,
-    RankedTensorType,
-    Type,
-    Attribute,
-    BF16Type,
-    F16Type,
-    F32Type,
-    F64Type,
-    IntegerType,
-)
-from ttmlir.dialects import tensor, quant
+from ttmlir.ir import *
+from ttmlir.dialects import tensor, quant, func, ttir, ttcore, stablehlo, ttnn
 from ttmlir.passes import GoldenTensor, DataType
 from golden import GoldenMapTensor, get_golden_function
 
-# ----- Public APIs -----
-
-Operand = Union[Value, OpView, Operation]
-Shape = Union[List[int], Tuple[int, ...]]
+from builder.base.builder_utils import process_multi_return_result, TypeInfo
 
 
-@dataclass
-class TypeInfo:
-    dtype: torch.dtype
-    scale: Optional[float] = None
-    zero_point: Optional[int] = None
+class BuilderMeta(type):
+    def __new__(mcls, name, bases, namespace):
+        cls = super().__new__(mcls, name, bases, namespace)
+        cls.build_opview_to_builder_map()
+        cls.build_opview_to_parser_map()
+        cls.build_opview_to_split(map)
+        return cls
 
 
-class Builder:
+class Builder(metaclass=BuilderMeta):
+    opview_to_builder_map: Dict[OpView, Callable] = {}
+    opview_to_parser_map: Dict[OpView, Callable] = {}
+    opview_to_split_map: Dict[OpView, Callable] = {}
+
     # ----- Methods -----
 
     def __init__(
@@ -75,6 +63,12 @@ class Builder:
         # Map from operand to its location string.
         self._operand_to_loc: Dict[Operand, str] = {}
 
+        # Map from location string to the operand at that location.
+        self._loc_to_operand: Dict[str, Operand] = {}
+
+        # List of op locations to bypass golden comparison.
+        self._bypass_ops: List[str] = []
+
         # Set torch seed for reproducibility.
         torch.manual_seed(0)
 
@@ -92,6 +86,59 @@ class Builder:
 
         self._mesh_shape = tuple(mesh_dict[0].values())
 
+    # ----- Class helper methods -----
+
+    @classmethod
+    def build_opview_to_builder_map(cls):
+        for attr_name in dir(cls):
+            attr = getattr(cls, attr_name)
+            func = attr
+
+            if callable(attr) and hasattr(func, "_tag"):
+                cls.opview_to_builder_map[func._tag] = attr
+
+    @classmethod
+    def build_opview_to_parser_map(cls):
+        for attr_name in dir(cls):
+            attr = getattr(cls, attr_name)
+            func = attr
+
+            if callable(attr) and hasattr(func, "_parse"):
+                cls.opview_to_parser_map[func._parse] = attr
+
+    @classmethod
+    def build_opview_to_split(cls, map):
+        for attr_name in dir(cls):
+            attr = getattr(cls, attr_name)
+            func = attr
+
+            if callable(attr) and hasattr(func, "_split"):
+                cls.opview_to_split_map[func._split] = attr
+
+    def get_opview_from_method(self, method: func) -> OpView:
+        return getattr(method, "_tag", None)
+
+    def get_opview_from_parser(self, parser: func) -> OpView:
+        return getattr(parser, "_parse", None)
+
+    def get_opview_from_split(self, split: func) -> OpView:
+        return getattr(split, "_split", None)
+
+    def get_builder_from_opview(self, opview: OpView) -> Callable:
+        if opview not in self.opview_to_builder_map:
+            assert False, f"No builder found for opview {opview}"
+        return self.opview_to_builder_map.get(opview)
+
+    def get_parser_from_opview(self, opview: OpView) -> Callable:
+        if opview not in self.opview_to_parser_map:
+            assert False, f"No parser found for opview {opview}"
+        return self.opview_to_parser_map.get(opview)
+
+    def get_split_from_opview(self, opview: OpView) -> Callable:
+        if opview not in self.opview_to_split_map:
+            assert False, f"No split function found for opview {opview}"
+        return self.opview_to_split_map.get(opview)
+
     # ----- Public methods -----
 
     @property
@@ -107,8 +154,8 @@ class Builder:
         return self._mesh_shape
 
     @property
-    def golden_map(self) -> Dict[str, Dict[int, GoldenTensor]]:
-        golden_info: Dict[str, Dict[int, GoldenTensor]] = {}
+    def golden_map(self) -> Dict[str, Dict[int, GoldenMapTensor]]:
+        golden_info: Dict[str, Dict[int, GoldenMapTensor]] = {}
 
         if self._disable_golden_check:
             return golden_info
@@ -120,9 +167,7 @@ class Builder:
         # Always store inputs into golden map.
         for index, input in enumerate(self._ordered_inputs):
             loc = f"input_{index}"
-            golden_info[loc] = self._generate_golden_device_tensor(
-                loc, self._get_golden_tensor(input)
-            )
+            golden_info[loc] = self._get_golden_tensor(input)
 
         # Store outputs into golden map if they are marked to be stored.
         for index, output in enumerate(self._ordered_outputs):
@@ -130,25 +175,22 @@ class Builder:
                 continue
 
             loc = f"output_{index}"
-            golden_info[loc] = self._generate_golden_device_tensor(
-                loc, self._get_golden_tensor(output)
-            )
+            golden_info[loc] = self._get_golden_tensor(output)
 
         if self._force_graph_level_check:
             return golden_info
 
         # Store other operands into golden map if they are marked to be stored.
-        for operand, builder_golden_tensor in self._goldens.items():
+        for operand, golden_map_tensor in self._goldens.items():
             if operand not in self._goldens_to_store:
                 continue
 
-            if not (isinstance(operand, OpView) or isinstance(operand, Operation)):
+            if not isinstance(operand, OpResult):
                 continue
 
             loc = self._operand_to_loc.get(operand, None)
-            golden_info[loc] = self._generate_golden_device_tensor(
-                loc, builder_golden_tensor
-            )
+            self._loc_to_operand[loc] = operand
+            golden_info[loc] = golden_map_tensor
 
         return golden_info
 
@@ -162,12 +204,14 @@ class Builder:
         self,
         inputs: Dict[Operand, Union[Callable, torch.tensor, Dict[int : torch.tensor]]],
         outputs: Dict[Operand, Union[torch.tensor, Dict[int : torch.tensor]]] = None,
+        set_all_outputs: bool = True,
     ):
         self._set_goldens(self._create_builder_golden_from_torch_tensor(inputs))
 
         if outputs != None:
-            self.set_goldens_to_check(outputs.keys())
             self._set_goldens(self._create_builder_golden_from_torch_tensor(outputs))
+            if set_all_outputs:
+                self.set_goldens_to_check(outputs.keys())
 
     def set_goldens_from_builder_tensor(
         self,
@@ -194,6 +238,13 @@ class Builder:
 
     def set_graph_level_check(self, check: bool):
         self._force_graph_level_check = check
+
+    def bypass(self, operand: Operand):
+        if isinstance(operand, BlockArgument):
+            raise TypeError("Cannot bypass BlockArgument")
+
+        loc = str(operand.owner.location)
+        self._bypass_ops.append(loc)
 
     # ----- Private methods -----
 
@@ -238,16 +289,7 @@ class Builder:
                 return DataType.Float32
 
     def _get_type(self, input: Operand) -> RankedTensorType:
-        if isinstance(input, Value):
-            typ = input.type
-        elif isinstance(input, OpView):
-            typ = input.operation.result.type
-        elif isinstance(input, Operation):
-            typ = input.result.type
-        else:
-            raise TypeError(f"Invalid input {type(input)}")
-
-        return typ
+        return input.type
 
     def _get_type_from_torch_dtype(
         self,
@@ -331,6 +373,59 @@ class Builder:
             case _:
                 raise TypeError(f"Invalid Type {dtype}")
 
+    def _get_torch_dtype_from_type(self, mlir_type: Type) -> torch.dtype:
+        """Convert MLIR Type to torch.dtype.
+        Parameters
+        ----------
+        mlir_type : Type
+            MLIR type to convert
+        Returns
+        -------
+        torch.dtype
+            Corresponding torch dtype
+        """
+        type_str = str(mlir_type)
+
+        if isinstance(mlir_type, BF16Type) or type_str == "bf16":
+            return torch.bfloat16
+        elif isinstance(mlir_type, F16Type) or type_str == "f16":
+            return torch.float16
+        elif isinstance(mlir_type, F32Type) or type_str == "f32":
+            return torch.float32
+        elif isinstance(mlir_type, F64Type) or type_str == "f64":
+            return torch.float64
+        elif isinstance(mlir_type, IntegerType):
+            width = mlir_type.width
+            is_signed = mlir_type.is_signed
+            is_unsigned = mlir_type.is_unsigned
+
+            if width == 1:
+                return torch.bool
+            elif width == 8:
+                if is_unsigned:
+                    return torch.uint8
+                else:
+                    return torch.int8
+            elif width == 16:
+                if is_unsigned:
+                    return torch.uint16
+                else:
+                    return torch.int16
+            elif width == 32:
+                if is_unsigned:
+                    return torch.uint32
+                else:
+                    return torch.int32
+            elif width == 64:
+                if is_unsigned:
+                    return torch.uint64
+                else:
+                    return torch.int64
+            else:
+                raise TypeError(f"Unsupported integer width: {width}")
+        else:
+            raise TypeError(f"Unsupported MLIR type: {mlir_type}")
+
     def _get_next_global_id(self) -> int:
         self._global_id += 1
         return self._global_id
@@ -360,11 +455,14 @@ class Builder:
     def _create_ranked_tensor_type(
         self,
         shape: Shape,
-        data_type: Optional[Type] = None,
+        data_type: Optional[Union[Type, torch.dtype]] = None,
         encoding: Optional[Attribute] = None,
     ) -> RankedTensorType:
         with self._ctx, self._loc:
-            dtype = data_type if data_type is not None else F32Type.get(self._ctx)
+            if isinstance(data_type, torch.dtype):
+                dtype = self._get_type_from_torch_dtype(data_type)
+            else:
+                dtype = data_type if data_type is not None else F32Type.get(self._ctx)
             return RankedTensorType.get(shape, dtype, encoding)
 
     def _organize_eltwise_golden(self, inputs: List[Operand]) -> List[GoldenMapTensor]:
@@ -399,10 +497,10 @@ class Builder:
         return GoldenMapTensor({0: random_tensor}, mesh_shape=self._mesh_shape)
 
     def _generate_golden_device_tensor(
-        self, loc: str, builder_golden_tensor: GoldenMapTensor
+        self, loc: str, golden_map_tensor: GoldenMapTensor
     ) -> Dict[int, GoldenTensor]:
         device_golden_info: Dict[int, GoldenTensor] = {}
-        contiguous_tensor = builder_golden_tensor.contiguous()
+        contiguous_tensor = golden_map_tensor.contiguous()
         for device_id, device_golden in contiguous_tensor.shard_map.items():
             data_type = self._get_datatype_from_torch_dtype(device_golden.dtype)
             device_golden_info[device_id] = GoldenTensor(
@@ -452,16 +550,10 @@ class Builder:
     def _set_golden_tensor(
         self,
         operand: Operand,
-        golden: GoldenMapTensor,
+        goldens: List[GoldenMapTensor],
     ):
-        self._goldens[operand] = golden
-
-        if isinstance(operand, OpView):
-            loc = str(operand.operation.location)
-            self._operand_to_loc[operand] = loc
-        elif isinstance(operand, Operation):
-            loc = str(operand.location)
-            self._operand_to_loc[operand] = loc
+        self._goldens[operand] = goldens
+        self._operand_to_loc[operand] = str(operand.location)
 
     def _set_goldens(
         self,
@@ -509,6 +601,11 @@ class Builder:
         """Get dialect-specific empty operation. Must be implemented by subclasses."""
         raise NotImplementedError("Subclasses must implement _get_empty_op")
 
+    def create_tensor_encoding(
+        self, shape: Shape, element_type: Union[torch.dtype, TypeInfo]
+    ) -> ttnn.ir.TTNNLayoutAttr:
+        raise NotImplementedError("Subclasses must implement create_tensor_encoding")
+
     # ----- Shared Metal Tensor Layout -----
 
     def get_metal_tensor_layout(
@@ -522,7 +619,7 @@ class Builder:
         memory_layout=None,  # Will default to ttcore.TensorMemoryLayout.Sharded in the utility
     ):
         """Create a metal tensor layout using the shared implementation."""
-        from builder.base.builder_utils import get_metal_tensor_layout
+        from builder.base.builder_apis import get_metal_tensor_layout
         from ttmlir.dialects import ttcore
 
         # Set defaults if not provided
@@ -543,3 +640,195 @@ class Builder:
             index_map,
             memory_layout,
         )
+
+    # ----- Parse module ----
+
+    def _build_op_from_parsed_op(
+        self,
+        parsed_op: Operation,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[Operand, GoldenMapTensor]]:
+        parsed_function = self.get_parser_from_opview(type(parsed_op))
+        return parsed_function(self, parsed_op, global_dict)
+
+    def get_input_types(self, func_op: func.FuncOp):
+        inputs_types = []
+        inputs_shapes = []
+        input_encodings = []
+        for arg in func_op.type.inputs:
+            if isinstance(arg, RankedTensorType):
+                inputs_types.append(arg.element_type)
+                inputs_shapes.append(arg.shape)
+                input_encodings.append(arg.encoding)
+            else:
+                raise ValueError("Only ranked tensor types are supported")
+
+        return [
+            self._create_ranked_tensor_type(shape, dtype, encoding)
+            for (shape, dtype, encoding) in zip(
+                inputs_shapes, inputs_types, input_encodings
+            )
+        ]
+
+    def parse_root_module(
+        self, parsed_root_module: Module, golden_inputs: List[torch.tensor]
+    ):
+        new_root_module = Module.create()
+
+        with InsertionPoint(new_root_module.body):
+            for entry in parsed_root_module.body.operations:
+                if isinstance(entry, ttcore.DeviceModuleOp):
+                    device_module_op = ttcore.DeviceModuleOp()
+                    region = device_module_op.regions[0]
+                    block = Block.create_at_start(region)
+                    new_builtin_module = self.parse_builtin_module(
+                        entry.regions[0].blocks[0].operations[0], golden_inputs
+                    )
+                    device_module_op.regions[0].blocks[0].append(
+                        new_builtin_module.operation
+                    )
+                elif isinstance(entry, func.FuncOp):
+                    self.parse_func(entry, golden_inputs)
+
+        return new_root_module
+
+    def parse_builtin_module(
+        self, parsed_builtin_module: Module, golden_inputs: List[torch.tensor]
+    ):
+        new_builtin_module = Module.create()
+        cloned_op = new_builtin_module.operation.clone()
+
+        for entry in parsed_builtin_module.regions[0].blocks[0].operations:
+            if isinstance(entry, func.FuncOp):
+                new_func = self.parse_func(entry, golden_inputs)
+                cloned_op.regions[0].blocks[0].append(new_func)
+
+        return cloned_op
+
+    def parse_func(self, parsed_func: func.FuncOp, golden_inputs: List[torch.tensor]):
+        fn_input_types = self.get_input_types(parsed_func)
+
+        if len(golden_inputs) == 0:
+            for ttype in fn_input_types:
+                shape = ttype.shape
+                dtype = self._get_datatype_from_torch_dtype(ttype.element_type)
+                # Handle scalar tensors (empty shape)
+                if len(shape) == 0:
+                    golden_input = torch.randn(1, dtype=dtype).squeeze()
+                else:
+                    golden_input = torch.randn(*shape, dtype=dtype)
+                golden_inputs.append(golden_input)
+
+        @func.func(*fn_input_types, name=parsed_func.name.value)
+        def decorated_func(*inputs):
+            golden_dict = {}
+            for operand, torch_golden in zip(inputs, golden_inputs):
+                golden_dict[operand] = torch_golden
+
+            input_goldens: Dict[
+                Operand, GoldenMapTensor
+            ] = self._create_builder_golden_from_torch_tensor(golden_dict)
+            self._set_goldens(input_goldens)
+            self._set_input_ordering(inputs)
+
+            global_dict = {}
+            for i, arg in enumerate(parsed_func.arguments):
+                global_dict[arg] = inputs[i]
+
+            global_result = None
+            for block in parsed_func.body:
+                for op in block.operations:
+                    if isinstance(op, func.ReturnOp):
+                        global_result = tuple(
+                            global_dict[operand] for operand in op.operands
+                        )
+                    else:
+                        (
+                            parsed_op,
+                            op_golden_dictionary,
+                        ) = self._build_op_from_parsed_op(op, global_dict)
+                        global_dict.update(op_golden_dictionary)
+
+            outputs = (
+                global_result
+                if hasattr(global_result, "__iter__")
+                else (global_result,)
+            )
+            output_goldens: Dict[Operand, GoldenMapTensor] = {}
+            for op in outputs:
+                output_goldens[op] = self._get_golden_tensor(op)
+            self._set_goldens(output_goldens)
+            self._set_output_ordering(list(outputs))
+
+            return process_multi_return_result(global_result)
+
+        return decorated_func.func_op
+
+    # ----- Helper decorator functions ----
+
+    def func(self, input_shapes: List[List[int]], input_types: List[torch.dtype]):
+        def wrapper(fn):
+            encoding_fn = self.create_tensor_encoding
+            fn_input_types = [
+                self._create_ranked_tensor_type(
+                    shape,
+                    self._get_type_from_torch_dtype(dtype),
+                    encoding_fn(shape, dtype) if encoding_fn else None,
+                )
+                for shape, dtype in zip(input_shapes, input_types)
+            ]
+
+            @func.func(*fn_input_types, name=fn.__name__)
+            def decorated_func(*inputs):
+                input_goldens: Dict[Operand, GoldenMapTensor] = {}
+                for index, (operand, dtype) in enumerate(zip(inputs, input_types)):
+                    input_goldens[operand] = self._generate_golden_tensor(
+                        operand, dtype
+                    )
+                self._set_goldens(input_goldens)
+                self._set_input_ordering(inputs)
+
+                result = fn(*inputs, self)
+
+                outputs = result if hasattr(result, "__iter__") else [result]
+                output_goldens: Dict[Operand, GoldenMapTensor] = {}
+                for op in outputs:
+                    output_goldens[op] = self._get_golden_tensor(op)
+                self._set_goldens(output_goldens)
+                self._set_output_ordering(outputs)
+
+                return process_multi_return_result(result)
+
+        return wrapper
+
+    def device_module(self, root_func: Callable):
+        def wrapper(self):
+            device_module_op = ttcore.DeviceModuleOp()
+            region = device_module_op.regions[0]
+            block = Block.create_at_start(region)
+            new_module = Module.create()
+
+            with InsertionPoint(new_module.body):
+                root_func(self)
+
+            cloned_op = new_module.operation.clone()
+            device_module_op.regions[0].blocks[0].append(cloned_op.operation)
+            return device_module_op
+
+        return wrapper(self)
+
+    def cpu_module(self, root_func: Callable):
+        def wrapper(self):
+            cpu_module_op = ttcore.CPUModuleOp()
+            region = cpu_module_op.regions[0]
+            block = Block.create_at_start(region)
+            new_module = Module.create()
+
+            with InsertionPoint(new_module.body):
+                root_func(self)
+
+            cloned_op = new_module.operation.clone()
+            cpu_module_op.regions[0].blocks[0].append(cloned_op.operation)
+            return cpu_module_op
+
+        return wrapper(self)

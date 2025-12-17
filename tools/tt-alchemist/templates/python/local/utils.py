@@ -7,11 +7,6 @@ import math
 
 
 # Monkey-patch ttnn with ttnn_supplemental objects
-ttnn.MeshShardDirection = ttnn_supplemental.MeshShardDirection
-ttnn.MeshShardType = ttnn_supplemental.MeshShardType
-ttnn.mesh_shard = ttnn_supplemental.mesh_shard
-ttnn.all_gather = ttnn_supplemental.all_gather
-ttnn.reduce_scatter = ttnn_supplemental.reduce_scatter
 ttnn.collective_permute = ttnn_supplemental.collective_permute
 
 

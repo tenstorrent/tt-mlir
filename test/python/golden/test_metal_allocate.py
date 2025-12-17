@@ -4,10 +4,15 @@
 
 import pytest
 
-from builder.base.builder_utils import compile_and_execute_ttir
+from builder.base.builder_apis import compile_and_execute_ttir
 
 # borrow currently constrained way to build matmul inputs:
 from test_metal_matmul import create_matmul_constrained_inputs as create_matmul_inputs
+
+# borrow currently constrained way to build reduction inputs:
+from test_metal_reductions import (
+    create_reductions_constrained_inputs as create_reduction_inputs,
+)
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -37,7 +42,39 @@ def test_allocate_matmul(m: int, k: int, n: int, target: str, request, device):
 
     compile_and_execute_ttir(
         create_matmul_inputs(lhs, rhs),
-        [lhs, rhs],
+        target=target,
+        device=device,
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        test_base=request.node.name,
+        print_ir=True,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
+@pytest.mark.skip_config(["p150"], ["p300"])
+@pytest.mark.parametrize("m", [8])
+@pytest.mark.parametrize("n", [8])
+@pytest.mark.parametrize("dim_arg", [[0], [1]])
+@pytest.mark.parametrize("keep_dim", [True])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_allocate_max(
+    m: int, n: int, dim_arg: int, keep_dim: bool, target: str, request, device
+):
+    tile_size = 32
+    shape = (
+        m * tile_size,
+        n * tile_size,
+    )
+
+    options = [
+        # request the allocator to attempt to minimize stream buffer sizes
+        # and reblock streams accordingly:
+        f"test-buffer-size-policy=min",
+    ]
+
+    compile_and_execute_ttir(
+        create_reduction_inputs(shape, "max", dim_arg, keep_dim),
         target=target,
         device=device,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",

@@ -13,64 +13,79 @@
 #include "mlir/IR/AsmState.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/Support/Casting.h"
 
 #include <tuple>
+
+#define DEBUG_TYPE "D2MElementwiseFusion"
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MELEMENTWISEFUSION
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 
-static int countBinaryOps(Operation *op) {
-  int count = 0;
+// Check that we're not exceeding physical limit of 32 CBs per d2m.generic
+static bool fitsInL1PostFusion(GenericOp producer, GenericOp consumer) {
 
-  for (Region &region : op->getRegions()) {
-    for (Operation &opInner : region.getOps()) {
-      if (opInner.hasTrait<D2MGenericRegionComputeOpTrait>()) {
-        if (opInner.getNumOperands() == 2) {
-          ++count;
-        }
-      }
-      count += countBinaryOps(&opInner);
-    }
-  }
-  return count;
-}
+  int cbLimit = 32;
 
-static bool fitsInDstPostFusion(GenericOp producer, GenericOp consumer,
-                                OpOperand *use, unsigned dstCapacity) {
-  auto tensorType = mlir::cast<RankedTensorType>(use->get().getType());
+  int cbRemaining = cbLimit;
 
-  auto shape = tensorType.getShape();
-  int blockSize = shape.back();
-  shape = shape.drop_back(1);
-  blockSize *= shape.back();
-
-  if (blockSize > static_cast<int>(dstCapacity)) {
-    blockSize = dstCapacity;
-  }
-
-  int dstTilesRemaining = dstCapacity;
-
-  // Account for number of tiles needed to store input operands after fusion.
-  // -2 accounts for removal of producer init/output operand and consumer
-  // input operand since we're fusing over them.
-  // -1 accounts for the final output tile which is only needed for binary
-  // ops, unaries do everything in place. Will be added back in next part of
-  // check.
+  // Account for number of CBs needed to store input/output operands after
+  // fusion. -2 accounts for removal of producer init (output) operand and
+  // consumer input operand since we're fusing over them.
   int numConsOperands = static_cast<int>(consumer.getNumOperands());
   int numProdOperands = static_cast<int>(producer.getNumOperands());
 
-  dstTilesRemaining -= blockSize * (numConsOperands + numProdOperands - 2 - 1);
+  cbRemaining -= numConsOperands + numProdOperands - 2;
 
-  if (dstTilesRemaining < 0) {
+  if (cbRemaining < 0) {
     return false;
   }
 
-  // Subtract # of intermediate tiles needed
-  dstTilesRemaining -=
-      blockSize * (countBinaryOps(consumer) + countBinaryOps(producer));
+  return true;
+}
 
-  if (dstTilesRemaining < 0) {
+// A fused op with 31 inputs and 1 output (all 16b) can be fully dst fused over
+// sub-blocks of size 1xTile. Hence, if a 16b fused op meets the CB limit, it
+// will automatically meet the dst limit as well (at least for now, when we're
+// forcing sub-blocks of size 1xTile). In the case where one or more operands
+// are >16b, we must be conservative for now and set a limit of 7 inputs (8
+// total operands, including output), as that is the largest number of inputs
+// that we can reduce down with a maximum of 4 DST tiles available. A lot of
+// ways to increase this limit or use the resources more intelligently but we'll
+// save that for later revisions.
+static bool fitsInDstPostFusion(GenericOp producer, GenericOp consumer) {
+  bool has32bit = false;
+
+  Type largestDstType =
+      utils::getRegionLargestDstElemType(producer.getRegion(0));
+  if (largestDstType.getIntOrFloatBitWidth() > 16) {
+    has32bit = true;
+  }
+
+  largestDstType = utils::getRegionLargestDstElemType(consumer.getRegion(0));
+  if (largestDstType.getIntOrFloatBitWidth() > 16) {
+    has32bit = true;
+  }
+
+  if (!has32bit) {
+    return true;
+  }
+
+  int operandLimit32b = 8;
+
+  int operandsRemaining = operandLimit32b;
+
+  // Account for number of CBs needed to store input/output operands after
+  // fusion. -2 accounts for removal of producer init (output) operand and
+  // consumer input operand since we're fusing over them.
+  int numConsOperands = static_cast<int>(consumer.getNumOperands());
+  int numProdOperands = static_cast<int>(producer.getNumOperands());
+
+  operandsRemaining -= numConsOperands + numProdOperands - 2;
+
+  if (operandsRemaining < 0) {
     return false;
   }
 
@@ -128,8 +143,11 @@ static bool isElementwiseFusable(OpOperand *fusionTargetOperand,
     return false;
   }
 
-  if (!fitsInDstPostFusion(producer, consumer, fusionTargetOperand,
-                           dstCapacity)) {
+  if (!fitsInL1PostFusion(producer, consumer)) {
+    return false;
+  }
+
+  if (!fitsInDstPostFusion(producer, consumer)) {
     return false;
   }
 
@@ -269,19 +287,49 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
 
   (void)fusedBlock.addArguments(fusedBlockArgTypes, fusedBlockArgLocs);
 
-  // Map original region block arguments to fused region block arguments.
+  // Map original region block arguments to their indices in the fused region
+  // block arguments.
   DenseMap<std::pair<Operation *, unsigned>, unsigned> sourceToFusedIdx;
   for (auto it : llvm::enumerate(argSources)) {
     sourceToFusedIdx[it.value()] = static_cast<unsigned>(it.index());
   }
-  auto mapRegionArgs = [&](Operation *op, Block &orig) {
+
+  // Map consumer args to fused args
+  auto mapConsRegionArgs = [&](Operation *op, Block &orig) {
     for (unsigned i = 0; i < op->getNumOperands(); ++i) {
       unsigned fusedIndex = sourceToFusedIdx[{op, i}];
       irMap.map(orig.getArgument(i), fusedBlock.getArgument(fusedIndex));
     }
   };
-  mapRegionArgs(producer.getOperation(), pb);
-  mapRegionArgs(consumer.getOperation(), cb);
+
+  // Map all of producer's args to fused args
+  auto mapProdRegionArgs = [&](Operation *op, Block &orig) {
+    // Map all input args and skip mapping the output arg for now
+    GenericOp prodGeneric = llvm::dyn_cast<GenericOp>(op);
+    unsigned prodInitArgNum =
+        prodGeneric.getDpsInitOperand(0)->getOperandNumber();
+    for (unsigned i = 0; i < op->getNumOperands(); ++i) {
+      if (i != prodInitArgNum) {
+        unsigned fusedIndex = sourceToFusedIdx[{op, i}];
+        irMap.map(orig.getArgument(i), fusedBlock.getArgument(fusedIndex));
+      }
+    }
+
+    // The producer's init block argument (output) is not part of the fused
+    // operands, but we need to ensure it's mapped so that any operations in the
+    // producer that reference it can be cloned properly. Map it to the
+    // consumer's first output block argument, since that's where the fused
+    // result/intermediate will go.
+    unsigned consumerFirstOutputArgNum =
+        consumer.getDpsInitOperand(0)->getOperandNumber();
+    unsigned consumerOutputFusedIdx =
+        sourceToFusedIdx[{consumer.getOperation(), consumerFirstOutputArgNum}];
+    irMap.map(orig.getArgument(prodInitArgNum),
+              fusedBlock.getArgument(consumerOutputFusedIdx));
+  };
+
+  mapProdRegionArgs(producer.getOperation(), pb);
+  mapConsRegionArgs(consumer.getOperation(), cb);
 
   /////////////////////////////////////////////////////////////////////////////
   // Build fused region: clone producer then consumer, map fused operand to
@@ -310,7 +358,12 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
   assert(prodYield);
 
   int prodResultNumber = cast<OpResult>(fusedOperand->get()).getResultNumber();
-  Value repl = irMap.lookupOrDefault(prodYield.getOperand(prodResultNumber));
+  Value prodYieldOperand = prodYield.getOperand(prodResultNumber);
+
+  // Now that all producer block arguments (including init) are properly mapped,
+  // we can safely look up the yielded value. It should either be a mapped
+  // operation result or a mapped block argument.
+  Value repl = irMap.lookupOrDefault(prodYieldOperand);
 
   // Map consumer arg corresponding to fused operand number to repl.
   // If `repl` is a tensor, and consumer block arg is tensor, direct map.
@@ -322,15 +375,80 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
   // Clone remaining consumer body ops (except terminator). Treat nested
   // operations opaquely; cloning preserves dominance as long as operands
   // are mapped.
-  for (Operation &op : cb.without_terminator()) {
-    // Special case, if there is a pop or reserve op in between the newly fused
-    // subgraph, we want to skip cloning them.
-    if (mlir::isa<d2m::WaitOp, d2m::ReserveOp>(&op) &&
-        !mlir::isa<BlockArgument>(irMap.lookup(op.getOperand(0)))) {
-      irMap.map(op.getResult(0), irMap.lookup(op.getOperand(0)));
-    } else {
-      rewriter.clone(op, irMap);
+  // Track which output buffers have been reserved to avoid multiple reserves
+  // on the same output buffer. We track by the mapped block argument (in the
+  // fused block) since that's what both producer and consumer reserves map to.
+  DenseMap<Value, Value> reservedOutputs;
+
+  // First, populate reservedOutputs with any reserves from the producer.
+  // This prevents duplicate reserves when the consumer also reserves the same
+  // output.
+  for (Operation &op : pb) {
+    if (auto reserveOp = dyn_cast<d2m::ReserveOp>(&op)) {
+      Value originalCB = reserveOp.getCb();
+      if (auto blockArg = dyn_cast<BlockArgument>(originalCB)) {
+        // This producer reserve was already cloned, find the cloned result
+        Value clonedResult = irMap.lookupOrDefault(reserveOp.getResult());
+        if (clonedResult) {
+          // The producer's CB block arg has been mapped to a fused block arg.
+          // Track using the mapped (fused) block arg as the key.
+          Value mappedCB = irMap.lookupOrDefault(originalCB);
+          if (mappedCB) {
+            reservedOutputs[mappedCB] = clonedResult;
+          }
+        }
+      }
     }
+  }
+  for (Operation &op : cb.without_terminator()) {
+    // Handle reserve operations specially to deduplicate reserves on the same
+    // output buffer
+    if (auto reserveOp = dyn_cast<d2m::ReserveOp>(&op)) {
+      Value originalCB = reserveOp.getCb();
+      // Check if this is a reserve on an output buffer (block argument)
+      if (auto blockArg = dyn_cast<BlockArgument>(originalCB)) {
+        // Look up what this CB is mapped to in the fused block
+        Value mappedCB = irMap.lookupOrDefault(originalCB);
+        // Check if we've already reserved this output buffer (from producer or
+        // earlier in consumer)
+        if (reservedOutputs.count(mappedCB)) {
+          // Reuse the previously reserved buffer
+          irMap.map(reserveOp.getResult(), reservedOutputs[mappedCB]);
+          continue;
+        }
+        // First reserve on this output buffer - clone it and track it
+        Operation *cloned = rewriter.clone(*reserveOp, irMap);
+        Value clonedResult = cloned->getResult(0);
+        reservedOutputs[mappedCB] = clonedResult;
+        // Explicitly map the original reserve's result to the cloned result
+        irMap.map(reserveOp.getResult(), clonedResult);
+        continue;
+      }
+
+      // If reserve is on a non-block-argument CB (intermediate), check if it's
+      // mapped
+      Value cbOperand = irMap.lookupOrDefault(originalCB);
+      if (cbOperand && !mlir::isa<BlockArgument>(cbOperand)) {
+        irMap.map(reserveOp.getResult(), cbOperand);
+        continue;
+      }
+
+      // Otherwise clone it normally
+      rewriter.clone(op, irMap);
+      continue;
+    }
+
+    // Handle wait operations - skip if waiting on intermediate values
+    if (auto waitOp = dyn_cast<d2m::WaitOp>(&op)) {
+      Value cbOperand = irMap.lookupOrDefault(waitOp.getCb());
+      if (cbOperand && !mlir::isa<BlockArgument>(cbOperand)) {
+        irMap.map(waitOp.getResult(), cbOperand);
+        continue;
+      }
+    }
+
+    // Clone all other operations
+    rewriter.clone(op, irMap);
   }
 
   // Build fused yield: kept producer yields then consumer yields

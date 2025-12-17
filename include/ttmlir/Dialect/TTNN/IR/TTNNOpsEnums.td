@@ -61,6 +61,8 @@ def TTNN_ReduceType_Max  : I32EnumAttrCase<"Max",  2, "max">;
 def TTNN_ReduceType_Min  : I32EnumAttrCase<"Min",  3, "min">;
 def TTNN_ReduceType_Std  : I32EnumAttrCase<"Std",  4, "std">;
 def TTNN_ReduceType_Var  : I32EnumAttrCase<"Var",  5, "var">;
+def TTNN_ReduceType_Prod  : I32EnumAttrCase<"Prod",  6, "prod">;
+def TTNN_ReduceType_Invalid  : I32EnumAttrCase<"Invalid",  7, "invalid">;
 
 def TTNN_ReduceType: I32EnumAttr<"ReduceType", "TTNN Reduce Operation Type",
                           [
@@ -70,6 +72,8 @@ def TTNN_ReduceType: I32EnumAttr<"ReduceType", "TTNN Reduce Operation Type",
                            TTNN_ReduceType_Min,
                            TTNN_ReduceType_Std,
                            TTNN_ReduceType_Var,
+                           TTNN_ReduceType_Prod,
+                           TTNN_ReduceType_Invalid,
                           ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttnn::operations::reduction";
@@ -316,6 +320,18 @@ def TTNN_Conv2dSliceType : I32EnumAttr<"Conv2dSliceType", "Conv2d slice type", [
   I32EnumAttrCase<"DramWidth", 1, "dram_width">,
   I32EnumAttrCase<"L1Full", 2, "l1_full">,
 ]> {
+  let cppNamespace = "::mlir::tt::ttnn";
+}
+
+def TTNN_PlacementType_Replicate : I32EnumAttrCase<"Replicate", 0, "replicate">;
+def TTNN_PlacementType_Shard : I32EnumAttrCase<"Shard", 1, "shard">;
+
+def TTNN_PlacementType : I32EnumAttr<"PlacementType", "TTNN Placement Type",
+                          [
+                           TTNN_PlacementType_Replicate,
+                           TTNN_PlacementType_Shard,
+                          ]> {
+  let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttnn";
 }
 

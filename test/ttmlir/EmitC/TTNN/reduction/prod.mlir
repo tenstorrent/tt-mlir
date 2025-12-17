@@ -4,7 +4,6 @@
 // RUN: ttmlir-translate --mlir-to-cpp -o %basename_t.cpp %t2.mlir
 
 func.func @forward(%arg0: tensor<128x10x32x4xbf16>) -> tensor<128x1x32x4xbf16> {
-  %0 = ttir.empty() : tensor<128x1x32x4xbf16>
-  %1 = "ttir.prod"(%arg0, %0) <{dim_arg = [1 : i32], keep_dim = true}> : (tensor<128x10x32x4xbf16>, tensor<128x1x32x4xbf16>) -> tensor<128x1x32x4xbf16>
-  return %1 : tensor<128x1x32x4xbf16>
+  %0 = "ttir.prod"(%arg0) <{dim_arg = [1 : i32], keep_dim = true}> : (tensor<128x10x32x4xbf16>) -> tensor<128x1x32x4xbf16>
+  return %0 : tensor<128x1x32x4xbf16>
 }

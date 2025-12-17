@@ -2,8 +2,7 @@
 // RUN: FileCheck %s --input-file=%t
 module attributes {} {
   func.func @forward(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
-    %0 = ttir.empty() : tensor<64x128xf32>
-    %1 = "ttir.sigmoid"(%arg0, %0) : (tensor<64x128xf32>, tensor<64x128xf32>) -> tensor<64x128xf32>
+    %1 = "ttir.sigmoid"(%arg0) : (tensor<64x128xf32>) -> tensor<64x128xf32>
     // CHECK: "ttnn.sigmoid"
     // CHECK-SAME: tensor<64x128xf32
     // CHECK-SAME: -> tensor<64x128xf32

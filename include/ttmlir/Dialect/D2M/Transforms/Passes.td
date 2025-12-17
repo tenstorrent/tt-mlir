@@ -28,6 +28,30 @@ def D2MElementwiseFusion : Pass<"d2m-elementwise-fusion", "::mlir::ModuleOp"> {
   ];
 }
 
+def D2MOpScheduler : Pass<"d2m-op-scheduler", "::mlir::ModuleOp"> {
+  let summary = "Performs op scheduling within each affine.for loop nest in the d2m.generic block to minimize total required register slices.";
+  let description = [{
+    This pass scans `d2m.generic` ops that are nontrivially fused (3+ input operands) to
+    find nested affine.for loop-nests with attribute "d2m.linalg_root" on the root loop.
+    It then builds an operation tree from the ops contained in the lowest level loop
+    under the root, and then uses a Sethi-Ullman scheduling algorithm in conjunction
+    with the tree to reorder the ops. This is done such that the final sequence of ops
+    requires the minimal number of dst register slices to execute. Adds tag "d2m.scheduled"
+    to the root loop for use by downstream D2MInsertDstRegisterAccess pass.
+  }];
+
+  list<Option> options = [
+    Option<"enableOpScheduler", "enable-op-scheduler", "bool", "true",
+           "Enable operation scheduling optimization (currently hard-wired to true internally)">,
+  ];
+
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::affine::AffineDialect",
+    "::mlir::func::FuncDialect"
+  ];
+}
+
 def D2MSFPUTileLoopFission : Pass<"d2m-sfpu-tile-loop-fission", "::mlir::ModuleOp"> {
   let summary = "Perform loop fission inside d2m.generic compute regions for load→compute→store triplets";
   let description = [{
@@ -54,6 +78,51 @@ def D2MGenericTileComputeLoops : Pass<"d2m-generic-tile-compute-loops", "::mlir:
   ];
 
   let dependentDialects = ["mlir::tt::d2m::D2MDialect"];
+}
+
+def D2MLinalgToAffine : Pass<"d2m-linalg-to-affine", "::mlir::ModuleOp"> {
+  let summary = "Convert linalg.generic operations to affine loops";
+  let description = [{
+    This pass converts all linalg.generic operations within d2m.generic
+    compute regions to affine loop nests. This is a prerequisite for
+    the DST register allocation passes which operates on affine IR.
+
+    The pass handles:
+    - Regular linalg.generic ops -> affine for loops
+    - Special tile matmul cases (when useTileMatmul=true)
+
+    Example transformation:
+    ```mlir
+    // Before:
+    linalg.generic {indexing_maps = [#map, #map],
+                    iterator_types = ["parallel", "parallel"]}
+        ins(%cb0 : memref<2x4x!ttcore.tile<32x32, f32>, #l1>)
+        outs(%cb0 : memref<2x4x!ttcore.tile<32x32, f32>, #l1>) {
+      ^bb0(%in: !ttcore.tile<32x32, f32>, %out: !ttcore.tile<32x32, f32>):
+        %0 = "d2m.tile_exp"(%in) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+        linalg.yield %0 : !ttcore.tile<32x32, f32>
+    }
+
+    // After:
+    affine.for %i = 0 to 2 {
+      affine.for %j = 0 to 4 {
+        %val = affine.load %cb0[%i, %j] : memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+        %result = "d2m.tile_exp"(%val) : (!ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+        affine.store %result, %cb0[%i, %j] : memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+      }
+    }
+    ```
+  }];
+  let dependentDialects = [
+    "::mlir::affine::AffineDialect",
+    "::mlir::linalg::LinalgDialect"
+  ];
+  let options = [
+    Option<"useTileMatmul", "use-tile-matmul", "bool", "false",
+           "Use tile_matmul instead of tile_matmul_block for matmul ops">,
+    Option<"markRootLoops", "mark-root-loops", "bool", "true",
+           "Mark root loops with d2m.linalg_root attribute for subsequent passes">
+  ];
 }
 
 def D2MInsertDstRegisterAccess : Pass<"d2m-insert-dst-register-access", "::mlir::ModuleOp"> {
@@ -365,9 +434,11 @@ def D2MLowerToLayout: Pass<"d2m-lower-to-layout", "::mlir::ModuleOp"> {
 
     A single to_layout op in d2m can simultaneously perform multiple layout transformations
     at once, including changing layout, format, memory space or memory layout. This pass splits each of
-    these transformation categories into separate to_layout ops and then lowers them to generic ops.
-    There is one exception to the generic lowering and that is to/from device memory, this case lowers
-    to a specialized flavor of to_layout that has the hostInfo attribute set.
+    these transformation categories into separate ops and then lowers them to generic ops.
+
+    Host transfers are lowered to dedicated ops:
+    - Host to device: d2m.to_device
+    - Device to host: d2m.to_host
 
     For example a compound to layout that goes from host to tilized 8x8 device grid might look like:
     ```
@@ -384,8 +455,8 @@ def D2MLowerToLayout: Pass<"d2m-lower-to-layout", "::mlir::ModuleOp"> {
     %0 = d2m.empty() : tensor<256x768xf32, #layout2>
     %1 = d2m.empty() : tensor<256x768xf32>
     %2 = d2m.empty() : tensor<256x768xf32, #layout>
-    // Move to device
-    %3 = d2m.to_layout %arg0, %2 : tensor<256x768xf32> into tensor<256x768xf32, #layout> hostInfo = #layout -> tensor<256x768xf32, #layout>
+    // Move to device using dedicated to_device op
+    %3 = d2m.to_device %arg0, %2 layout = #layout : tensor<256x768xf32> into tensor<256x768xf32, #layout> -> tensor<256x768xf32, #layout>
     %4 = d2m.empty() : tensor<256x768xf32, #layout1>
     // Tilize
     %5 = d2m.generic {grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<compute>]}
@@ -491,6 +562,14 @@ def D2MAllocate: Pass<"d2m-allocate", "::mlir::ModuleOp"> {
   }];
   let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect", "::mlir::memref::MemRefDialect"];
   let options = D2MStreamingOptions # [
+    Option<"streamInsertPolicy",
+          "stream-insert-policy",
+          "std::string", /*default=*/"\"infer\"",
+          "Policy for deciding when to insert operand streams ('always', 'infer').">,
+    ListOption<"availableL1AddrRange",
+          "available-l1-addr-range",
+          "std::int64_t",
+          "Assume given L1 addressable range [base, max).">,
     Option<"testAssumeL1Capacity",
           "test-assume-l1-capacity",
           "std::int64_t", /*default=*/"0",
@@ -652,5 +731,54 @@ def D2MMaterializeViewReturns : Pass<"d2m-materialize-view-returns", "::mlir::Mo
     This pass should run after layout lowering and before bufferization.
   }];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect", "::mlir::tt::ttcore::TTCoreDialect"];
+}
+
+def D2MScalarizeConstTensors : Pass<"d2m-scalarize-const-tensors", "::mlir::ModuleOp"> {
+  let summary = "Scalarize constant tensor inputs in d2m.generic operations";
+  let description = [{
+    This pass looks at d2m.generic operations and identifies constant tensor inputs
+    (created by d2m.full operations). When a constant tensor is used by operations
+    that support scalar operands (operations with supportsTileOrScalarRhs()), the
+    pass replaces the tensor block arguments in linalg.generic operations with
+    scalar constants.
+
+    This transformation can improve performance by:
+    1. Reducing memory usage (no need to store the constant tensor)
+    2. Enabling more efficient scalar operations in the compute kernel
+
+    Example transformation:
+    ```mlir
+    // Before:
+    %const = d2m.full {fill_value = 2.5 : f32, shape = array<i32: 128, 128>} : tensor<128x128xf32>
+    %const_layout = d2m.to_layout %const, ...
+    d2m.generic ins(%input, %const_layout : ...) {
+    ^compute0(%cb0: !d2m.cb<tensor<4x4x!ttcore.tile<...>>>, %cb1: !d2m.cb<tensor<4x4x!ttcore.tile<...>>>, ...):
+      %t0 = d2m.wait %cb0 : ...
+      %t1 = d2m.wait %cb1 : ...
+      %t2 = d2m.reserve %cb2 : ...
+      %result = linalg.generic ins(%t0, %t1 : ...) outs(%t2 : ...) {
+      ^bb0(%in: !ttcore.tile<...>, %in_const: !ttcore.tile<...>, %out: !ttcore.tile<...>):
+        %add = d2m.tile_add(%in, %in_const) : (!ttcore.tile<...>, !ttcore.tile<...>) -> !ttcore.tile<...>
+        linalg.yield %add : !ttcore.tile<...>
+      } -> ...
+    }
+
+    // After:
+    d2m.generic ins(%input : ...) {
+    ^compute0(%cb0: !d2m.cb<tensor<4x4x!ttcore.tile<...>>>, ...):
+      %t0 = d2m.wait %cb0 : ...
+      %t1 = d2m.reserve %cb1 : ...
+      %result = linalg.generic ins(%t0 : ...) outs(%t1 : ...) {
+      ^bb0(%in: !ttcore.tile<...>, %out: !ttcore.tile<...>):
+        %scalar = arith.constant 2.5 : f32
+        %add = d2m.tile_add(%in, %scalar) : (!ttcore.tile<...>, f32) -> !ttcore.tile<...>
+        linalg.yield %add : !ttcore.tile<...>
+      } -> ...
+    }
+    ```
+
+    This pass should run early in the D2M pipeline, before memory allocation.
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect", "::mlir::arith::ArithDialect"];
 }
 #endif

@@ -1,10 +1,10 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --d2m-grid-selection --split-input-file %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --d2m-grid-selection --canonicalize --split-input-file %s | FileCheck %s
 #any_device = #ttcore.device<workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
 module attributes {ttcore.device = #any_device} {
   func.func @test_grid_selection_row_major(%arg0: tensor<1x64x64x32xf32>) -> tensor<1x64x64x32xf32> {
     %0 = d2m.empty() : tensor<1x64x64x32xf32>
     // Verify D2MGridSelection optimizes to 1x1x2x1 grids (not 1x1x8x8)
-    // CHECK: d2m.generic {{{.*}}grid = #ttcore.grid<1x1x2x1>
+    // CHECK: d2m.generic {{.*}}grid = #ttcore.grid<1x32x2x1,
     %1 = d2m.empty() : tensor<1x1x1x1x1x64x64x32xf32, #ttcore.metal_layout<logical_shape = 1x64x64x32, dim_alignments = 1x1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded, index_map=map(0)>>
     %2 = d2m.to_layout %arg0, %1 : tensor<1x64x64x32xf32> into tensor<1x1x1x1x1x64x64x32xf32, #ttcore.metal_layout<logical_shape = 1x64x64x32, dim_alignments = 1x1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded, index_map=map(0)>> -> tensor<1x1x1x1x1x64x64x32xf32, #ttcore.metal_layout<logical_shape = 1x64x64x32, dim_alignments = 1x1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded, index_map=map(0)>>
     %3 = d2m.empty() : tensor<1x1x1x1x1x64x64x32xf32, #ttcore.metal_layout<logical_shape = 1x64x64x32, dim_alignments = 1x1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded, index_map=map(0)>>

@@ -93,9 +93,11 @@ void DFShardingPolicy::run() {
         // Consider sharding only if we found at least single legal config for
         // the current op.
         bool validForSharding =
-            llvm::isa<ttnn::Conv2dOp, ttnn::AddOp, ttnn::MultiplyOp,
-                      ttnn::ReluOp, ttnn::Relu6Op, ttnn::SiluOp,
-                      ttnn::TypecastOp, ttnn::MinimumOp>(currentOp) &&
+            llvm::isa<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp, ttnn::AddOp,
+                      ttnn::MultiplyOp, ttnn::ReluOp, ttnn::Relu6Op,
+                      ttnn::TypecastOp, ttnn::SiluOp, ttnn::MatmulOp,
+                      ttnn::LinearOp, ttnn::MinimumOp, ttnn::RMSNormOp,
+                      ttnn::RotaryEmbeddingOp, ttnn::GeluOp>(currentOp) &&
             legalConfigs.lookup(currentOp).size() > 0;
 
         if (validForSharding) {
@@ -114,7 +116,7 @@ void DFShardingPolicy::run() {
             if (nextOp->getOperand(0).getDefiningOp() != currentOp) {
               // Only continue chain if nextOp uses currentOp as first operand.
               // Here we break the chain if not.
-              TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+              TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
                            "Breaking L1 chain at op {} as it is not first "
                            "operand of next op {}",
                            currentOp->getName(), nextOp->getName());
@@ -143,7 +145,7 @@ void DFShardingPolicy::run() {
   }
 
   for ([[maybe_unused]] L1ChainConfig &l1ChainConfig : *l1ChainConfigs) {
-    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer, "L1 chain config {}",
+    TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy, "L1 chain config {}",
                  l1ChainConfig);
   }
 
@@ -166,7 +168,7 @@ void DFShardingPolicy::run() {
         overrideReshardEdges, overrideOutputLayout);
 
     if (l1ChainConfig.getState() == L1ChainState::Failed) {
-      TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+      TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
                    "Failed to resolve L1 chain config {}", l1ChainConfig);
       progressTracker.finishL1Chain(firstOp, chainIndex, false);
       continue;
@@ -184,8 +186,8 @@ void DFShardingPolicy::run() {
       l1ChainConfig.spillEndToDRAM = true;
     }
 
-    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer, "Resolved L1 chain config {}",
-                 l1ChainConfig);
+    TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                 "Resolved L1 chain config {}", l1ChainConfig);
 
     progressTracker.finishL1Chain(firstOp, chainIndex, true);
   }
@@ -216,7 +218,9 @@ void DFShardingPolicy::pickOpShardConfigs(ShardSolver &shardSolver,
         // If we have a tie, prefer layout that is not BlockSharded.
         //
         if (configIterator->outputLayout.getMemLayout().getValue() !=
-            ttnn::TensorMemoryLayout::BlockSharded) {
+                ttnn::TensorMemoryLayout::BlockSharded &&
+            selectedConfig->outputLayout.getMemLayout().getValue() ==
+                ttnn::TensorMemoryLayout::BlockSharded) {
           selectedConfig = configIterator.get();
         }
       }

@@ -8,7 +8,7 @@ from typing import Callable, List, Sequence
 
 from dataclasses import dataclass
 
-from builder.base.builder import Operand, Shape
+from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from ttmlir.ir import *
 
@@ -48,7 +48,9 @@ class Marks:
         pytest.param
             Marked test parameter
         """
-        return pytest.param(lhs, marks=self.marks)
+        if not isinstance(lhs, tuple):
+            lhs = (lhs,)
+        return pytest.param(*lhs, marks=self.marks)
 
 
 def shape_str(shape):

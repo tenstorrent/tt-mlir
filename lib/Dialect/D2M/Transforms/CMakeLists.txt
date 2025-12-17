@@ -12,11 +12,14 @@ add_mlir_dialect_library(MLIRD2MTransforms
         GridSelection.cpp
         InsertDstRegisterAccess.cpp
         InsertStreams.cpp
+        LinalgToAffine.cpp
         LowerToLayout.cpp
         MaterializeViewReturns.cpp
         ElementwiseFusion.cpp
+        OpScheduler.cpp
         SFPUTileLoopFission.cpp
         GlobalDataFormatConversion.cpp
+        ScalarizeConstTensors.cpp
 
         ADDITIONAL_HEADER_DIRS
         ${PROJECT_SOURCE_DIR}/include/ttmlir
@@ -29,4 +32,5 @@ add_mlir_dialect_library(MLIRD2MTransforms
         LINK_LIBS PUBLIC
         MLIRD2MAnalysis
         MLIRD2MUtils
+        MLIRTTUtils
         )
