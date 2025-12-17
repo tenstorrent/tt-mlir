@@ -289,6 +289,8 @@ TEST(AffineMapUtilsTest, CanDetermineCoalescingFactor) {
   [[maybe_unused]] AffineExpr d1 = getAffineDimExpr(1, &context);
   [[maybe_unused]] AffineExpr d2 = getAffineDimExpr(2, &context);
   [[maybe_unused]] AffineExpr d3 = getAffineDimExpr(3, &context);
+  [[maybe_unused]] AffineExpr d4 = getAffineDimExpr(4, &context);
+  [[maybe_unused]] AffineExpr d5 = getAffineDimExpr(5, &context);
 
   [[maybe_unused]] auto c = [&context](int64_t value) {
     return getAffineConstantExpr(value, &context);
@@ -300,22 +302,23 @@ TEST(AffineMapUtilsTest, CanDetermineCoalescingFactor) {
     return lhs.floorDiv(rhs);
   };
 
-  // reblock phys=2x2x128x128 to view=4x2x64x128
-  AffineMap initialMap = AffineMap::get(
-      4, 0, {d0, mod(d1, 2), mod((64 * d0) + d2, 128), mod(d3, 128)}, &context);
-  llvm::dbgs() << "[CanDetermineCoalescingFactor] initial map: " << initialMap
-               << "\n";
+  // reblock map example: (d0, d1, d2, d3, d4, d5) -> (0, d0 + d1 + d3 + d4
+  // floordiv 128, d2 + d5 floordiv 32, (d4 mod 128) * 128 + (d5 mod 32) * 4)
+  SmallVector<int64_t> shape = {16, 16, 64, 64};
+  TT_assertv(shape.size() % 2 == 0u, "Shape size must be even");
+  AffineMap initialMap = AffineMap::get(shape.size(), 0,
+                                        {
+                                            (8 * d0 + 2 * d2 + 4 * d3) % 16,
+                                        },
+                                        &context);
 
-  // STEP 1: simplify the map with range analysis
-  AffineMap simplifiedMap =
-      simplifyAffineMapWithRangeAnalysis(initialMap, {4, 2, 64, 128});
-  llvm::dbgs() << "[CanDetermineCoalescingFactor] simplified map: "
-               << simplifiedMap << "\n";
+  SmallVector<std::optional<int64_t>> contiguityConstraints =
+      analyzeShardDimContiguity(initialMap, shape);
 
-  // STEP 2: set all grid dims to their maximum values
-
-  // STEP 3: analyze each shard dim expr
-  // if its just *,+,- ops, then
+  for (size_t i = 0; i < contiguityConstraints.size(); ++i) {
+    llvm::dbgs() << "[TestCanDetermineCoalescingFactor] contiguity constraint "
+                    "for shard dim "
+                 << i << ": " << contiguityConstraints[i].value_or(-1) << "\n";
+  }
 }
-
 } // namespace ttmlir::utils
