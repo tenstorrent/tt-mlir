@@ -614,8 +614,6 @@ def execute_py(
     check_atol: bool = False,
     check_rtol: bool = False,
 ):
-    sys.path.append(f"{os.environ['TT_METAL_HOME']}/ttnn/ttnn")
-
     import importlib.util
 
     # Add tt-alchemist utils.py to path for EmitPy tests
