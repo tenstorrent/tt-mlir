@@ -624,9 +624,7 @@ def execute_py(
 
     # Add tt-metal ttnn package to path
     TT_METAL_HOME = Path(os.environ.get("TT_METAL_HOME", os.getcwd())).resolve()
-    ttnn_package_path = os.path.join(TT_METAL_HOME, "build/lib")
-    if ttnn_package_path not in sys.path:
-        sys.path.append(ttnn_package_path)
+    sys.path.append(os.path.join(TT_METAL_HOME, "build_Debug/lib"))
 
     import ttnn
 
