@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --canonicalize --ttir-fusing %s -o %t.mlir
+// RUN: ttmlir-opt --canonicalize --ttir-fusing --ttir-erase-inverse-ops="force=true" %s -o %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
 
 module {
