@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "operations/normalization/rms_norm.h"
+#include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 
 namespace tt::runtime::ttnn::operations::rms_norm {
@@ -29,14 +30,20 @@ void run(const ::tt::target::ttnn::RMSNormOp *op, ProgramContext &context) {
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
           op->memory_config());
 
+  // Handle optional compute config
+  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig;
+  if (op->compute_config()) {
+    computeConfig =
+        utils::createDeviceComputeKernelConfig(op->compute_config());
+  }
+
   // Call TTNN RMS norm operation
   ::ttnn::Tensor output = ::ttnn::rms_norm(
       input, epsilon, weight, bias,
       /*residual_input_tensor=*/std::nullopt, // Not used in our implementation
       memoryConfig,
-      /*program_config=*/std::nullopt,       // Use default
-      /*compute_kernel_config=*/std::nullopt // Use default
-  );
+      /*program_config=*/std::nullopt, // Use default
+      computeConfig);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
