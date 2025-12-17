@@ -217,7 +217,7 @@ static MemRefType getMemRefType(Type type, bool isView,
     layoutAttr = ViewLayoutAttr::get(ctx, map);
   } else {
     SmallVector<int64_t> shardStride = layout.getShardStride(tensorType);
-    if (layout.getMemoryLayout().getValue() == TensorMemoryLayout::Sharded) {
+    if (layout.getMemoryLayout() == TensorMemoryLayout::Sharded) {
       SmallVector<int64_t> shardStride = layout.getShardStride(tensorType);
 
       auto indexMap = layout.getIndexAffineMap();
@@ -229,8 +229,7 @@ static MemRefType getMemRefType(Type type, bool isView,
                                                   /*buffered=*/1, indexMap);
       }
 
-    } else if (layout.getMemoryLayout().getValue() ==
-               TensorMemoryLayout::Interleaved) {
+    } else if (layout.getMemoryLayout() == TensorMemoryLayout::Interleaved) {
       layoutAttr = InterleavedLayoutAttr::get(ctx, shardStride);
     } else {
       llvm_unreachable("Unsupported memory layout");

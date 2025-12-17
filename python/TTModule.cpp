@@ -134,7 +134,7 @@ void populateTTModule(nb::module_ &m) {
       .def_prop_ro("memory_layout",
                    &tt::ttcore::MetalLayoutAttr::getMemoryLayout)
       .def_prop_ro("memory_layout_as_int", [](tt::ttcore::MetalLayoutAttr la) {
-        return static_cast<uint32_t>(la.getMemoryLayout().getValue());
+        return static_cast<uint32_t>(la.getMemoryLayout());
       });
 
   tt_attribute_class<tt::ttcore::GridAttr>(m, "GridAttr")

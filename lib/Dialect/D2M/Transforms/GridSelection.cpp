@@ -182,7 +182,7 @@ static llvm::SmallVector<int64_t> computePhysicalShape(
 
   auto tempLayout = ttcore::MetalLayoutAttr::get(
       builder.getContext(), layout.getLogicalShape(), layout.getOobVal(),
-      layout.getMemorySpace(), layout.getMemoryLayout().getValue(),
+      layout.getMemorySpace(), layout.getMemoryLayout(),
       layout.getCollapsedIntervals(), alignments);
 
   return tempLayout.getPhysicalShape(
@@ -234,8 +234,7 @@ shouldImplementAsVirtualGrid(RankedTensorType tensorType,
 
   // For now, only non-collapsed 2D virtual grids on L1 are supported.
   if (layout.hasNonTrivialCollapsedDims(tensorType.getShape()) ||
-      layout.getMemoryLayout().getValue() ==
-          ttcore::TensorMemoryLayout::Interleaved) {
+      layout.getMemoryLayout() == ttcore::TensorMemoryLayout::Interleaved) {
     return false;
   }
   if (physicalShape.size() != 2) {
@@ -296,7 +295,7 @@ static ttcore::MetalLayoutAttr layoutWithOptimalGrid(
 
   return ttcore::MetalLayoutAttr::get(
       builder.getContext(), oldLayout.getLogicalShape(), oldLayout.getOobVal(),
-      oldLayout.getMemorySpace(), oldLayout.getMemoryLayout().getValue(),
+      oldLayout.getMemorySpace(), oldLayout.getMemoryLayout(),
       collapsedIntervals, newDimAlignments, indexAffineMap);
 }
 
