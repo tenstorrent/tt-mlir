@@ -529,11 +529,11 @@ getExprUpperBound(mlir::AffineExpr expr, mlir::ArrayRef<int64_t> dimBounds) {
 }
 
 inline mlir::AffineExpr
-simplifyRedundantModExpr(mlir::AffineExpr expr,
-                         mlir::ArrayRef<int64_t> dimBounds) {
+simplifyAffineExprWithRangeAnalysis(mlir::AffineExpr expr,
+                                    mlir::ArrayRef<int64_t> dimBounds) {
   if (auto binOp = llvm::dyn_cast<mlir::AffineBinaryOpExpr>(expr)) {
-    auto lhs = simplifyRedundantModExpr(binOp.getLHS(), dimBounds);
-    auto rhs = simplifyRedundantModExpr(binOp.getRHS(), dimBounds);
+    auto lhs = simplifyAffineExprWithRangeAnalysis(binOp.getLHS(), dimBounds);
+    auto rhs = simplifyAffineExprWithRangeAnalysis(binOp.getRHS(), dimBounds);
 
     if (binOp.getKind() == mlir::AffineExprKind::Mod) {
       if (auto rhsConst = llvm::dyn_cast<mlir::AffineConstantExpr>(rhs)) {
@@ -570,22 +570,40 @@ simplifyRedundantModExpr(mlir::AffineExpr expr,
   return expr;
 }
 
-inline mlir::AffineMap simplifyRedundantMod(mlir::AffineMap map,
-                                            mlir::ArrayRef<int64_t> dimBounds) {
+/// Simplifies an affine map by eliminating redundant mod/floordiv operations
+/// using range analysis. If the upper bound of an operand is less than the
+/// modulus, the mod is removed; if less than the divisor, floordiv becomes 0.
+/// When performEquivalenceCheck is true, samples the domain to verify the
+/// simplified map is equivalent; returns the original map if not.
+inline mlir::AffineMap
+simplifyAffineMapWithRangeAnalysis(mlir::AffineMap map,
+                                   mlir::ArrayRef<int64_t> dimBounds,
+                                   bool performEquivalenceCheck = true) {
   TT_assertv(map.getNumDims() == dimBounds.size(),
              "Number of dimension bounds must match number of map dimensions");
   mlir::SmallVector<mlir::AffineExpr> newResults;
   for (auto result : map.getResults()) {
-    newResults.push_back(simplifyRedundantModExpr(result, dimBounds));
+    newResults.push_back(
+        simplifyAffineExprWithRangeAnalysis(result, dimBounds));
   }
-  return mlir::AffineMap::get(map.getNumDims(), map.getNumSymbols(), newResults,
-                              map.getContext());
-}
+  auto simplifiedMap = mlir::AffineMap::get(
+      map.getNumDims(), map.getNumSymbols(), newResults, map.getContext());
 
-inline mlir::AffineMap
-simplifyAffineMapWithRangeAnalysis(mlir::AffineMap map,
-                                   mlir::ArrayRef<int64_t> dimBounds) {
-  return simplifyRedundantMod(simplifyZeroFloorDiv(map), dimBounds);
+  // Roundtrip equivalence check: sample both maps over the entire domain
+  // and verify they produce identical results at every point.
+  if (performEquivalenceCheck) {
+    bool equivalent = true;
+    sample(dimBounds, [&](llvm::ArrayRef<int64_t> point) {
+      if (map.compose(point) != simplifiedMap.compose(point)) {
+        equivalent = false;
+      }
+    });
+    if (!equivalent) {
+      return map;
+    }
+  }
+
+  return simplifiedMap;
 }
 
 inline mlir::AffineExpr isBinaryAdd(mlir::AffineExpr expr) {
@@ -820,55 +838,90 @@ inline mlir::AffineMap replaceDimExprsWithConstValues(
 /// all contiguous run lengths, representing the maximum number of elements that
 /// can be transferred in a single coalesced operation.
 ///
+/// When numGridDims > 0, the first numGridDims dimensions are treated as "grid"
+/// dimensions. For each grid coordinate, a shard coalescing factor is computed
+/// by sampling over the remaining "shard" dimensions. The combined coalescing
+/// factor is the GCD of all shard coalescing factors across all grid points.
+///
 /// This is useful for determining how to break up DMA transfers - a coalescing
-/// factor equal to the volume of the shape means fully contiguous access,
-/// while a factor of 1 means each element must be transferred individually.
+/// factor equal to the shard volume means fully contiguous access within
+/// shards, while a factor of 1 means each element must be transferred
+/// individually.
 ///
 /// Example: For a row-major 2D layout map (d0, d1) -> (d0 * 4 + d1)
-///          with shape [2, 4] and stride 1, returns 8 (fully contiguous)
-///          because consecutive elements produce addresses: 0,1,2,3,4,5,6,7.
+///          with shape [2, 4], stride 1, and numGridDims=0, returns 8
+///          (fully contiguous) because consecutive elements produce
+///          addresses: 0,1,2,3,4,5,6,7.
 ///
 /// Example: For a column-major map (d0, d1) -> (d1 * 2 + d0)
-///          with shape [2, 4] and stride 1, returns 1
+///          with shape [2, 4], stride 1, and numGridDims=0, returns 1
 ///          because consecutive row-major indices produce addresses:
 ///          0,2,4,6,1,3,5,7 (no consecutive runs longer than 1).
 inline size_t calculateCoalescingFactor(mlir::AffineMap map,
                                         mlir::ArrayRef<int64_t> shape,
-                                        int64_t stride) {
+                                        int64_t stride,
+                                        unsigned numGridDims = 0) {
   TT_assertv(map.getNumDims() == shape.size(),
              "Map dimensions must match shape size");
+  TT_assertv(numGridDims <= shape.size(),
+             "Number of grid dims cannot exceed shape size");
 
-  size_t coalescingFactor = volume(shape);
-  size_t currentRunLength = 0;
-  llvm::SmallVector<int64_t, 4> expectedAddress;
+  // Extract grid and shard shapes
+  mlir::ArrayRef<int64_t> gridShape = shape.take_front(numGridDims);
+  mlir::ArrayRef<int64_t> shardShape = shape.drop_front(numGridDims);
 
-  sample(shape, [&](llvm::ArrayRef<int64_t> index) {
-    // If coalescing factor reaches 1, it cannot decrease further - early exit.
-    if (coalescingFactor == 1) {
-      return;
+  // If no shard dims, trivially contiguous (volume is 1)
+  if (shardShape.empty()) {
+    return 1;
+  }
+
+  size_t shardVolume = volume(shardShape);
+  size_t combinedCoalescingFactor = shardVolume;
+
+  TT_assertv(!gridShape.empty(), "Grid shape cannot be empty");
+
+  sample(gridShape, [&](llvm::ArrayRef<int64_t> gridIndex) {
+    if (combinedCoalescingFactor == 1) {
+      return; // Can't decrease further
     }
 
-    llvm::SmallVector<int64_t, 4> address =
-        map.compose(llvm::SmallVector<int64_t>(index));
+    size_t shardCoalescingFactor = shardVolume;
+    size_t currentRunLength = 0;
+    llvm::SmallVector<int64_t, 4> expectedAddress;
 
-    if (expectedAddress.empty() || expectedAddress == address) {
-      // Address matches expected (or first iteration) - extend current run.
-      ++currentRunLength;
-    } else {
-      // Non-contiguous access - finalize current run and start new one.
-      coalescingFactor = std::gcd(coalescingFactor, currentRunLength);
-      currentRunLength = 1;
-    }
+    sample(shardShape, [&](llvm::ArrayRef<int64_t> shardIndex) {
+      if (shardCoalescingFactor == 1) {
+        return;
+      }
 
-    // Compute next expected address by incrementing the last result.
-    expectedAddress = address;
-    expectedAddress.back() += stride;
+      // Combine grid and shard indices
+      llvm::SmallVector<int64_t> fullIndex;
+      fullIndex.append(gridIndex.begin(), gridIndex.end());
+      fullIndex.append(shardIndex.begin(), shardIndex.end());
+
+      llvm::SmallVector<int64_t, 4> address = map.compose(fullIndex);
+
+      if (expectedAddress.empty() || expectedAddress == address) {
+        ++currentRunLength;
+      } else {
+        shardCoalescingFactor =
+            std::gcd(shardCoalescingFactor, currentRunLength);
+        currentRunLength = 1;
+      }
+
+      expectedAddress = address;
+      expectedAddress.back() += stride;
+    });
+
+    // Account for final run
+    shardCoalescingFactor = std::gcd(shardCoalescingFactor, currentRunLength);
+
+    // Merge into combined factor
+    combinedCoalescingFactor =
+        std::gcd(combinedCoalescingFactor, shardCoalescingFactor);
   });
 
-  // Don't forget to account for the final run.
-  coalescingFactor = std::gcd(coalescingFactor, currentRunLength);
-
-  return coalescingFactor;
+  return combinedCoalescingFactor;
 }
 
 /// Helper function to recursively analyze contiguity of an affine expression.
@@ -1162,10 +1215,10 @@ analyzeShardDimContiguity(mlir::AffineMap map, mlir::ArrayRef<int64_t> shape,
   // Accumulate the product of fully contiguous minor dims
   int64_t minorProduct = 1;
 
-  for (int shardDimIdx = numShardDims - 1; shardDimIdx >= 0; --shardDimIdx) {
-    unsigned dimPos = numGridDims + shardDimIdx;
+  for (int dimIdx = numShardDims - 1; dimIdx >= 0; --dimIdx) {
+    unsigned dimPos = numGridDims + dimIdx;
     int64_t dimExtent = shape[dimPos];
-    int64_t dimContiguity = *dimContiguities[shardDimIdx];
+    int64_t dimContiguity = *dimContiguities[dimIdx];
 
     if (dimContiguity < dimExtent) {
       // This dim is constrained - it's the largest contiguous dim

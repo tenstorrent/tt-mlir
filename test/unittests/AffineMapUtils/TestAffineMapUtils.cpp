@@ -135,7 +135,8 @@ bool testRedundantModSimplification(mlir::MLIRContext *context,
   TT_assert(moduli.size() == expectedPattern.size());
 
   mlir::AffineExpr expr = buildSumOfModsExpr(context, moduli);
-  mlir::AffineExpr simplified = simplifyRedundantModExpr(expr, dimBounds);
+  mlir::AffineExpr simplified =
+      simplifyAffineExprWithRangeAnalysis(expr, dimBounds);
 
   // Verify each dimension matches the expected pattern
   for (size_t i = 0; i < expectedPattern.size(); ++i) {
@@ -343,72 +344,169 @@ TEST(AffineMapUtilsTest, CanDetermineCoalescingFactor) {
   using namespace mlir;
   MLIRContext context;
 
+  // Test result codes
+  enum class TestResult { Success, Subset, Failed };
+
   auto printContiguityConstraints =
       [&](llvm::ArrayRef<int64_t> logicalShape,
           llvm::ArrayRef<int64_t> inputGridShape,
-          llvm::ArrayRef<int64_t> outputGridShape) {
-        auto [memoryMap, deviceShape] = getReblockMapAndDeviceShape(
-            logicalShape, inputGridShape, outputGridShape, &context);
+          llvm::ArrayRef<int64_t> outputGridShape) -> TestResult {
+    auto [memoryMap, deviceShape] = getReblockMapAndDeviceShape(
+        logicalShape, inputGridShape, outputGridShape, &context);
 
-        auto simpleMap = simplifyAffineMapWithRangeAnalysis(
-            simplifyZeroFloorDiv(memoryMap), deviceShape);
+    auto simpleMap = simplifyAffineMapWithRangeAnalysis(
+        simplifyZeroFloorDiv(memoryMap), deviceShape);
+    llvm::dbgs() << "[TestCanDetermineCoalescingFactor] simple map: "
+                 << simpleMap << "\n";
 
-        auto coalescingFactorAnalytical = analyzeShardDimContiguity(
-            memoryMap, deviceShape, memoryMap.getNumDims() / 2);
+    auto start_time = std::chrono::high_resolution_clock::now();
+    auto coalescingFactorAnalytical = analyzeShardDimContiguity(
+        memoryMap, deviceShape, memoryMap.getNumDims() / 2);
+    auto end_time = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
+        end_time - start_time);
 
-        // Also compute coalescing factor using the sampling-based approach
-        int64_t coalescingFactor =
-            calculateCoalescingFactor(memoryMap, deviceShape, 1);
+    // Also compute coalescing factor using the sampling-based approach
+    int64_t coalescingFactor = calculateCoalescingFactor(
+        memoryMap, deviceShape, 1, memoryMap.getNumDims() / 2);
 
-        if (coalescingFactor == coalescingFactorAnalytical.value_or(-1)) {
-          llvm::dbgs() << "[TestCanDetermineCoalescingFactor] logical shape: "
-                       << ttmlir::utils::formatIterable(logicalShape, "x")
-                       << " input grid: "
-                       << ttmlir::utils::formatIterable(inputGridShape, "x")
-                       << " output grid: "
-                       << ttmlir::utils::formatIterable(outputGridShape, "x")
-                       << " SUCCESS (coalescing factor: "
-                       << coalescingFactorAnalytical.value_or(-1) << ")\n";
-        } else if (coalescingFactorAnalytical.value_or(-1) < coalescingFactor &&
-                   coalescingFactor % coalescingFactorAnalytical.value_or(-1) ==
-                       0) {
-          llvm::dbgs() << "[TestCanDetermineCoalescingFactor] logical shape: "
-                       << ttmlir::utils::formatIterable(logicalShape, "x")
-                       << " input grid: "
-                       << ttmlir::utils::formatIterable(inputGridShape, "x")
-                       << " output grid: "
-                       << ttmlir::utils::formatIterable(outputGridShape, "x")
-                       << " SUBSET (analytical="
-                       << coalescingFactorAnalytical.value_or(-1)
-                       << " vs calculated=" << coalescingFactor << ")\n";
-        } else {
-          llvm::dbgs() << "[TestCanDetermineCoalescingFactor] logical shape: "
-                       << ttmlir::utils::formatIterable(logicalShape, "x")
-                       << " input grid: "
-                       << ttmlir::utils::formatIterable(inputGridShape, "x")
-                       << " output grid: "
-                       << ttmlir::utils::formatIterable(outputGridShape, "x")
-                       << " FAILED : analytical = "
-                       << coalescingFactorAnalytical.value_or(-1)
-                       << ", calculated = " << coalescingFactor << "\n";
-          llvm::dbgs() << "    map: " << simpleMap << "\n";
-        }
-      };
-
-  auto grid_examples = SmallVector<SmallVector<int64_t>>{
-      {1, 2}, {1, 3}, {1, 4}, {1, 5}, {1, 6}, {1, 8}, {2, 1}, {3, 1}, {4, 1},
-      {5, 1}, {6, 1}, {8, 1}, {2, 2}, {3, 3}, {4, 4}, {5, 5}, {6, 6}, {8, 8},
+    if (coalescingFactor == coalescingFactorAnalytical.value_or(-1)) {
+      llvm::dbgs() << "[TestCanDetermineCoalescingFactor] logical shape: "
+                   << ttmlir::utils::formatIterable(logicalShape, "x")
+                   << " input grid: "
+                   << ttmlir::utils::formatIterable(inputGridShape, "x")
+                   << " output grid: "
+                   << ttmlir::utils::formatIterable(outputGridShape, "x")
+                   << " SUCCESS (coalescing factor: "
+                   << coalescingFactorAnalytical.value_or(-1) << " in "
+                   << duration.count() << "us)\n";
+      return TestResult::Success;
+    } else if (coalescingFactorAnalytical.value_or(-1) < coalescingFactor &&
+               coalescingFactor % coalescingFactorAnalytical.value_or(-1) ==
+                   0) {
+      llvm::dbgs() << "[TestCanDetermineCoalescingFactor] logical shape: "
+                   << ttmlir::utils::formatIterable(logicalShape, "x")
+                   << " input grid: "
+                   << ttmlir::utils::formatIterable(inputGridShape, "x")
+                   << " output grid: "
+                   << ttmlir::utils::formatIterable(outputGridShape, "x")
+                   << " SUBSET (analytical="
+                   << coalescingFactorAnalytical.value_or(-1)
+                   << " vs calculated=" << coalescingFactor << " in "
+                   << duration.count() << "us)\n";
+      return TestResult::Subset;
+    } else {
+      llvm::dbgs() << "[TestCanDetermineCoalescingFactor] logical shape: "
+                   << ttmlir::utils::formatIterable(logicalShape, "x")
+                   << " input grid: "
+                   << ttmlir::utils::formatIterable(inputGridShape, "x")
+                   << " output grid: "
+                   << ttmlir::utils::formatIterable(outputGridShape, "x")
+                   << " FAILED : analytical = "
+                   << coalescingFactorAnalytical.value_or(-1)
+                   << ", calculated = " << coalescingFactor << "\n";
+      llvm::dbgs() << "    map: " << simpleMap << "\n";
+      return TestResult::Failed;
+    }
   };
 
-  for (SmallVector<int64_t> logicalShape :
-       SmallVector<SmallVector<int64_t>>{{120, 120}, {120, 240}, {240, 120}}) {
-    for (SmallVector<int64_t> inputGridShapeOrig : grid_examples) {
-      for (SmallVector<int64_t> outputGridShapeOrig : grid_examples) {
+  // Configuration for 3D and 4D test generation
+  constexpr int64_t maxVolume = 100000;
+  constexpr int numLogicalShapeExamples = 8;
+  constexpr int numGridPairsPerShape = 10;
+  constexpr int64_t maxGridDim = 8;
 
-        printContiguityConstraints(logicalShape, inputGridShapeOrig,
-                                   outputGridShapeOrig);
+  std::mt19937 rng(42); // deterministic seed for reproducibility
+
+  // Helper to get all divisors of n that are <= maxVal
+  auto getDivisors = [](int64_t n, int64_t maxVal) -> SmallVector<int64_t> {
+    SmallVector<int64_t> divisors;
+    for (int64_t d = 1; d <= std::min(n, maxVal); ++d) {
+      if (n % d == 0) {
+        divisors.push_back(d);
+      }
+    }
+    return divisors;
+  };
+
+  // Helper to generate random logical shape with given rank and max volume
+  auto generateLogicalShape = [&](int rank) -> SmallVector<int64_t> {
+    SmallVector<int64_t> shape(rank, 1);
+    int64_t volume = 1;
+
+    // Build up the shape by multiplying random dimensions by random factors
+    std::uniform_int_distribution<int> dimDist(0, rank - 1);
+    std::uniform_int_distribution<int64_t> factorDist(2, 8);
+
+    // Keep growing until we're close to target volume
+    while (volume < maxVolume / 8) {
+      int dim = dimDist(rng);
+      int64_t factor = factorDist(rng);
+      if (volume * factor <= maxVolume) {
+        shape[dim] *= factor;
+        volume *= factor;
+      }
+    }
+
+    return shape;
+  };
+
+  // Helper to generate a random valid grid shape for a given logical shape
+  auto generateGridShape =
+      [&](ArrayRef<int64_t> logicalShape) -> SmallVector<int64_t> {
+    SmallVector<int64_t> gridShape;
+    for (int64_t dim : logicalShape) {
+      auto divisors = getDivisors(dim, maxGridDim);
+      std::uniform_int_distribution<size_t> dist(0, divisors.size() - 1);
+      gridShape.push_back(divisors[dist(rng)]);
+    }
+    return gridShape;
+  };
+
+  // Track test result counts
+  int successCount = 0;
+  int subsetCount = 0;
+  int failedCount = 0;
+  int totalTests = 0;
+
+  // Generate test cases for 3D and 4D shapes
+  for (int rank = 3; rank <= 4; ++rank) {
+    for (int shapeIdx = 0; shapeIdx < numLogicalShapeExamples; ++shapeIdx) {
+      SmallVector<int64_t> logicalShape = generateLogicalShape(rank);
+
+      for (int gridPairIdx = 0; gridPairIdx < numGridPairsPerShape;
+           ++gridPairIdx) {
+        SmallVector<int64_t> inputGridShape = generateGridShape(logicalShape);
+        SmallVector<int64_t> outputGridShape = generateGridShape(logicalShape);
+
+        TestResult result = printContiguityConstraints(
+            logicalShape, inputGridShape, outputGridShape);
+
+        switch (result) {
+        case TestResult::Success:
+          ++successCount;
+          break;
+        case TestResult::Subset:
+          ++subsetCount;
+          break;
+        case TestResult::Failed:
+          ++failedCount;
+          break;
+        }
+
+        ++totalTests;
+        if (totalTests % 100 == 0) {
+          llvm::dbgs() << "[TestCanDetermineCoalescingFactor] Progress: "
+                       << totalTests << " tests run (" << successCount
+                       << " success, " << subsetCount << " subset, "
+                       << failedCount << " failed)\n";
+        }
       }
     }
   }
+
+  llvm::dbgs() << "[TestCanDetermineCoalescingFactor] Summary: " << successCount
+               << " success, " << subsetCount << " subset, " << failedCount
+               << " failed (total: " << totalTests << ")\n";
 }
 } // namespace ttmlir::utils
