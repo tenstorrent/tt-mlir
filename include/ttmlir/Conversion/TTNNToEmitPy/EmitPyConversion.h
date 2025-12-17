@@ -1339,6 +1339,11 @@ struct EmitPyTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
           << EmitPyTypeConverter<bool>::convert(attr.getReallocateHaloOutput());
       firstElement = false;
     }
+    if (attr.getConfigTensorsInDram()) {
+      rso << (firstElement ? "" : ", ") << "config_tensors_in_dram="
+          << EmitPyTypeConverter<bool>::convert(attr.getConfigTensorsInDram());
+      firstElement = false;
+    }
     if (attr.getActBlockHOverride()) {
       rso << (firstElement ? "" : ", ") << "act_block_h_override="
           << EmitPyTypeConverter<uint32_t>::convert(
