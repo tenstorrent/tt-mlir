@@ -3652,53 +3652,6 @@ public:
   }
 };
 
-// Folds reshape pairs around RMSNormOp when the last dim is unchanged.
-class RMSNormReshapeFoldPattern : public mlir::OpRewritePattern<RMSNormOp> {
-  using mlir::OpRewritePattern<RMSNormOp>::OpRewritePattern;
-
-public:
-  mlir::LogicalResult
-  matchAndRewrite(RMSNormOp op, mlir::PatternRewriter &rewriter) const final {
-    auto inputReshape = op.getInput().getDefiningOp<ReshapeOp>();
-    if (!inputReshape || !op->hasOneUse()) {
-      return mlir::failure();
-    }
-
-    auto outputReshape = mlir::dyn_cast<ReshapeOp>(*op->getUsers().begin());
-    if (!outputReshape) {
-      return mlir::failure();
-    }
-
-    auto originalInputType =
-        mlir::cast<RankedTensorType>(inputReshape.getInput().getType());
-    auto reshapedInputType =
-        mlir::cast<RankedTensorType>(inputReshape.getType());
-    auto outputReshapeType =
-        mlir::cast<RankedTensorType>(outputReshape.getType());
-
-    if (originalInputType.getShape() != outputReshapeType.getShape()) {
-      return mlir::failure();
-    }
-
-    // RMSNorm normalizes along the last dim, so it must be unchanged.
-    if (originalInputType.getShape().back() !=
-        reshapedInputType.getShape().back()) {
-      return mlir::failure();
-    }
-
-    llvm::SmallVector<int64_t> normalizedShape{
-        originalInputType.getShape().back()};
-
-    auto newRmsNorm = rewriter.create<RMSNormOp>(
-        op.getLoc(), outputReshapeType, inputReshape.getInput(), op.getWeight(),
-        op.getBias(), rewriter.getDenseI64ArrayAttr(normalizedShape),
-        op.getEpsilonAttr());
-
-    rewriter.replaceOp(outputReshape, newRmsNorm.getResult());
-    return mlir::success();
-  }
-};
-
 // If value is defined by PermuteOp with permute dimensions
 // (..., rank - 2, rank - 1), return the input of the PermuteOp, otherwise
 // return std::nullopt. This is used for fusing permute into MatmulOp and
@@ -3837,7 +3790,6 @@ public:
       patterns.add<MatmulWithBiasFusionPattern>(&getContext());
       patterns.add<SDPAFusing>(&getContext());
       patterns.add<RMSNormFusionPattern>(&getContext());
-      patterns.add<RMSNormReshapeFoldPattern>(&getContext());
 
       patterns.add<GeluFusionPattern>(&getContext());
       patterns.add<Relu6FusionPattern>(&getContext());
