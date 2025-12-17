@@ -17,6 +17,7 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/ArrayRef.h"
+
 #include <algorithm>
 #include <string>
 
@@ -95,7 +96,8 @@ static bool needsMasking(ttcore::MetalLayoutAttr layout,
   for (size_t i = 0; i < logicalShape.size(); ++i) {
     int64_t aligned = ttmlir::utils::alignUp(logicalShape[i], dimAlignments[i]);
     if (aligned != logicalShape[i]) {
-      return true; // Padding exists
+      // Padding found, masking is needed.
+      return true;
     }
   }
 
@@ -612,11 +614,11 @@ public:
     auto inputLayout =
         mlir::cast<ttcore::MetalLayoutAttr>(inputType.getEncoding());
 
-    // Get the shard shape for linalg.generic iteration
+    // Get the shard shape for linalg.generic iteration.
     auto shardShape = inputLayout.getShardShape(inputType);
     size_t shardRank = shardShape.size();
 
-    // Build identity indexing maps for linalg.generic (input and output)
+    // Build identity indexing maps for linalg.generic (input and output).
     SmallVector<AffineMap> linalgIndexingMaps(
         2, rewriter.getMultiDimIdentityMap(shardRank));
     SmallVector<mlir::utils::IteratorType> linalgIteratorTypes(
@@ -630,7 +632,7 @@ public:
           Value dst =
               builder.create<ReserveOp>(innerLoc, blockArgs[1]).getResult();
 
-          // Create linalg.generic that iterates over tiles in the shard
+          // Create linalg.generic that iterates over tiles in the shard.
           auto linalgGeneric = builder.create<mlir::linalg::GenericOp>(
               innerLoc,
               /* result types */ dst.getType(),
@@ -638,11 +640,11 @@ public:
               /* outputs */ dst, linalgIndexingMaps, linalgIteratorTypes,
               [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
                   mlir::ValueRange bbArgs) {
-                // bbArgs[0] is the input tile, bbArgs[1] is the output tile
+                // bbArgs[0] is the input tile, bbArgs[1] is the output tile.
                 Value inputTile = bbArgs[0];
                 Type resultType = bbArgs[1].getType();
 
-                // Apply TileMaskBoundaryOp to the tile
+                // Apply TileMaskBoundaryOp to the tile.
                 Value maskedTile = bbBuilder.create<TileMaskBoundaryOp>(
                     bbLoc, resultType, inputTile,
                     rewriter.getDenseI64ArrayAttr(logicalShape), fillValue);
@@ -764,7 +766,7 @@ public:
       currentInfo = TensorInfo::from(currentValue);
     }
 
-    // 3b. MASKING: Apply boundary masking after tilization if needed.
+    // 4. MASKING: Apply boundary masking after tilization if needed.
     // Insert TileMaskBoundaryOp when the target layout has non-Undef OOBVal
     // and padding exists.
     if (currentInfo.hasLayout() && ttcore::isTiled(currentInfo.type) &&
@@ -787,7 +789,7 @@ public:
       currentInfo = TensorInfo::from(currentValue);
     }
 
-    // 4. MAPPING CHANGE: Grid/index_map/logical_shape/dim_alignments (after
+    // 5. MAPPING CHANGE: Grid/index_map/logical_shape/dim_alignments (after
     // tilize). Includes all reblocking (both virtual and normal grids). Must
     // happen in L1 (can't reblock in DRAM). Only when element type formats
     // match (tilize/untilize should happen first).
@@ -824,7 +826,7 @@ public:
           // shapes don't divide evenly into tiles. Decompose via scalar space:
           // untilize → map in scalar space → tilize back.
 
-          // 4a. Untilize to scalar space (preserve current layout properties).
+          // 5a. Untilize to scalar space (preserve current layout properties).
           // Reblock virtual grid shape here to align with earlier splitting
           // phases that use reblocked intermediates to bounce virtual grid
           // shapes from host to device.
@@ -839,7 +841,7 @@ public:
               rewriter, currentValue, untilizedEmpty, op.getLoc());
           currentInfo = TensorInfo::from(currentValue);
 
-          // 4b. Apply complex mapping change in scalar space.
+          // 5b. Apply complex mapping change in scalar space.
           // Build scalar target with ALL target's layout properties.
           auto scalarTargetLayout = ttcore::MetalLayoutAttr::get(
               rewriter.getContext(), targetInfo.layout->getLogicalShape(),
@@ -862,7 +864,7 @@ public:
                                  op.getLoc(), targetGridShape);
           currentInfo = TensorInfo::from(currentValue);
 
-          // 4c. Tilize back to match target format.
+          // 5c. Tilize back to match target format.
           ArrayRef<int64_t> tileShape =
               ttcore::getTensorTileShape(targetInfo.type);
           auto tiledDeviceShape = targetInfo.layout->getDeviceShape(
@@ -904,7 +906,7 @@ public:
       }
     }
 
-    // 5. UNTILIZE: Before L1→DRAM or Device→System.
+    // 6. UNTILIZE: Before L1→DRAM or Device→System.
     bool needsUntilize =
         ttcore::isTiled(currentInfo.type) && !ttcore::isTiled(targetInfo.type);
     if (needsUntilize) {
@@ -921,7 +923,7 @@ public:
       currentInfo = TensorInfo::from(currentValue);
     }
 
-    // 6. L1→DRAM (lowerDatamovementGeneric handles grid mismatch via views).
+    // 7. L1→DRAM (lowerDatamovementGeneric handles grid mismatch via views).
     if (currentInfo.hasLayout() && !currentInfo.isDRAM() &&
         targetInfo.hasLayout() && targetInfo.isDRAM()) {
       currentValue = lowerDatamovementGeneric(rewriter, currentValue,
@@ -929,7 +931,7 @@ public:
       currentInfo = TensorInfo::from(currentValue);
     }
 
-    // 7. VIRTUAL GRID COLLAPSE: If current has virtual grid but target doesn't
+    // 8. VIRTUAL GRID COLLAPSE: If current has virtual grid but target doesn't
     // need it. This should happen BEFORE any system transfer or whenever grid
     // needs to shrink.
     if (currentInfo.hasLayout() && targetInfo.isSystem()) {
@@ -957,7 +959,7 @@ public:
       }
     }
 
-    // 8. DEVICE→SYSTEM: Creates final ToLayoutOp with layout attribute.
+    // 9. DEVICE→SYSTEM: Creates final ToLayoutOp with layout attribute.
     if (currentInfo.hasLayout() && !targetInfo.hasLayout()) {
       // Device→system creates a ToLayoutOp with layout attribute set.
       currentValue = lowerSystemLayoutChange(rewriter, currentValue,

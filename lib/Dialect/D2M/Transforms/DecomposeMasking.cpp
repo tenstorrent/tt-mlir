@@ -31,8 +31,7 @@ static double getOOBValAsFloat(ttcore::OOBVal oobVal) {
   case ttcore::OOBVal::NegInf:
     return -std::numeric_limits<double>::infinity();
   case ttcore::OOBVal::Undef:
-    // Undef shouldn't reach decomposition, but use 0 as fallback.
-    return 0.0;
+    llvm_unreachable("Undef OOBVal should not reach masking decomposition");
   }
   llvm_unreachable("Unknown OOBVal");
 }
@@ -89,7 +88,6 @@ public:
     // Get current tile indices using linalg.index.
     // The TileMaskBoundaryOp is inside a linalg.generic that iterates over
     // tiles in the shard. linalg.index gives us the iteration indices.
-    // Convention: index(0) = row (height), index(1) = column (width)
     Value tileRowIdx = rewriter.create<linalg::IndexOp>(loc, 0);
     Value tileColIdx = rewriter.create<linalg::IndexOp>(loc, 1);
 
@@ -107,9 +105,7 @@ public:
     Value logicalWIdx = rewriter.create<arith::ConstantIndexOp>(
         loc, logicalShape[logicalShape.size() - 1]);
 
-    // Check if tile is completely out of bounds:
-    // entireTileOOB = (globalRowStart >= logicalH) || (globalColStart >=
-    // logicalW)
+    // Check if tile is completely out of bounds.
     Value rowOOB = rewriter.create<arith::CmpIOp>(
         loc, arith::CmpIPredicate::sge, globalRowStart, logicalHIdx);
     Value colOOB = rewriter.create<arith::CmpIOp>(
@@ -123,25 +119,23 @@ public:
     Value one = createScalarConstant(rewriter, loc, 1.0, scalarType);
 
     // Blend using: result = input * mulFactor + addend
-    // Where mulFactor = select(oob, 0, 1) and addend = select(oob, fill, 0)
+    // Where mulFactor = select(oob, 0, 1) and addend = select(oob, fill, 0).
     //
-    // When NOT OOB: result = input * 1 + 0 = input
-    // When OOB:     result = input * 0 + fill = fill
-    //
-    // Note: D2M tile ops support (tile, scalar) order for broadcasting.
+    // When NOT OOB: result = input * 1 + 0 = input.
+    // When OOB:     result = input * 0 + fill = fill.
     Value mulFactor =
         rewriter.create<arith::SelectOp>(loc, entireTileOOB, zero, one);
     Value addend =
         rewriter.create<arith::SelectOp>(loc, entireTileOOB, fillConst, zero);
 
-    // inputScaled = input * mulFactor
-    Value inputScaled =
+    // Multiply output by select result, should be zero if OOB.
+    Value zeroPadded =
         rewriter.create<TileMulOp>(loc, resultType, input, mulFactor);
-    // result = inputScaled + addend
-    Value result =
-        rewriter.create<TileAddOp>(loc, resultType, inputScaled, addend);
+    // Add fill value if OOB.
+    Value filled =
+        rewriter.create<TileAddOp>(loc, resultType, zeroPadded, addend);
 
-    rewriter.replaceOp(op, result);
+    rewriter.replaceOp(op, filled);
     return success();
   }
 };

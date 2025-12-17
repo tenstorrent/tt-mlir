@@ -696,7 +696,7 @@ public:
       return failure();
     }
 
-    // Call the float_to_bits helper which uses union-based type punning.
+    // Call the float_to_bits helper which uses memcpy to bitcast float to int.
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
         op, resultType, "float_to_bits",
         /*args=*/nullptr,
@@ -743,11 +743,10 @@ public:
     Value scalarParam = operands[1];
 
     // Use verbatim to emit the volatile bounce directly.
-    // This works around EmitC's strict type checking and ensures the
-    // GCC toolchain doesn't optimize away the scalar computation.
+    // This works around EmitC's strict type checking, and avoid sfpi-gcc bug.
     //
     // Emits: { volatile int32_t __s = <scalar>; <op>(<idx>, __s); }
-    // Note: {{ produces { but } is not escaped (EmitC quirk).
+    // Note that apparently "{{" produces "{" but "}" is not escaped in EmitC.
     std::string code =
         "{{ volatile int32_t __s = {}; " + getOpName(op).str() + "({}, __s); }";
     rewriter.create<emitc::VerbatimOp>(op->getLoc(),
