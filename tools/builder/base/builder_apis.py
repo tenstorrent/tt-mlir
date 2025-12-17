@@ -150,8 +150,6 @@ def _compile(root_func: Callable, builder: Builder):
     with InsertionPoint(new_module.body):
         root_func(builder)
 
-    print(builder._func_ops_generated)
-
     return new_module
 
 
