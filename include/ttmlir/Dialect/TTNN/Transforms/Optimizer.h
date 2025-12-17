@@ -15,7 +15,7 @@ class MeshDevice;
 
 namespace mlir::tt::ttnn {
 
-struct TTIRToTTNNBackendPipelineOptions;
+struct TTIRToTTNNDevicePipelineOptions;
 
 //===----------------------------------------------------------------------===//
 // TTNNOptimizer
@@ -41,7 +41,7 @@ struct TTNNOptimizerOptions {
   TTNNOptimizerOptions() = default;
 
   explicit TTNNOptimizerOptions(
-      const TTIRToTTNNBackendPipelineOptions &pipelineOptions);
+      const TTIRToTTNNDevicePipelineOptions &pipelineOptions);
 };
 
 std::unique_ptr<::mlir::Pass> createTTNNOptimizer();
