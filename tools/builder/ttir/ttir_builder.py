@@ -9272,6 +9272,17 @@ class TTIRBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
+    def rearrange(
+        self, in0: Operand, pattern: str, unit_attrs: Optional[List[str]] = None
+    ) -> OpView:
+        kwargs = {"pattern": StringAttr.get(pattern)}
+        return self._op_proxy(
+            ttir.RearrangeOp,
+            [in0],
+            ttir_kwargs=kwargs,
+            unit_attrs=unit_attrs,
+        )
+
     def conv2d(
         self,
         in0: Operand,
