@@ -3849,6 +3849,12 @@ def ttir_sort_golden(
     return values.to(output_dtype), indices.to(torch.int64)
 
 
+def ttir_to_layout_golden(input_tensor: GoldenMapTensor, output_type_mlir: Type) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    output_tensor = input_tensor.clone()
+    return output_tensor.to(output_dtype)
+
+
 ################ StableHLO Op Golden Functions ###############
 
 
@@ -4168,7 +4174,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.DotGeneralOp: ttir_dot_general_golden,
     ttir.ScatterOp: ttir_scatter_golden,
     # Layout operations (identity functions) — accept and ignore extra kwargs like reinterpretLayout
-    ttir.ToLayoutOp: (lambda x, **kwargs: x),
+    ttir.ToLayoutOp: ttir_to_layout_golden,
     # Cache operations
     ttir.FillCacheOp: fill_cache_golden,
     ttir.UpdateCacheOp: update_cache_golden,
