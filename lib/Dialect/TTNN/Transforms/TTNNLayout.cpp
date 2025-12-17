@@ -324,9 +324,9 @@ public:
     func::FuncOp funcOp = dyn_cast<func::FuncOp>(
         SymbolTable::lookupNearestSymbolFrom(callOp, callOp.getCalleeAttr()));
     // Create the original CallOp with the new inputs on host.
-    auto newCallOp = rewriter.create<func::CallOp>(
-        callOp.getLoc(), callOp.getCallee(), funcOp.getResultTypes(),
-        fromDeviceOperands);
+    auto newCallOp =
+        func::CallOp::create(rewriter, callOp.getLoc(), callOp.getCallee(),
+                             funcOp.getResultTypes(), fromDeviceOperands);
 
     newCallOp->setAttr(ttmlir::utils::g_cpuHoistFuncCallAttrName,
                        mlir::UnitAttr::get(rewriter.getContext()));

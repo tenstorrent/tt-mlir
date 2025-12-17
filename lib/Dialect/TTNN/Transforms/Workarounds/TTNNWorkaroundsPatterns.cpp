@@ -420,11 +420,10 @@ public:
         ttnn::utils::RankedTensorTypeFactory::create(inputType, inputTypeShape);
 
     // Create a new reducer scatter op.
-    ttnn::ReduceScatterOp reduceScatterOp =
-        rewriter.create<ttnn::ReduceScatterOp>(
-            ttmlir::utils::appendLocationSuffix(loc, "_reduceScatter"),
-            scatteredInputType, op.getInput(), op.getReduceType(), dimension,
-            clusterAxis, nullptr, nullptr, nullptr, nullptr);
+    ttnn::ReduceScatterOp reduceScatterOp = ttnn::ReduceScatterOp::create(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_reduceScatter"),
+        scatteredInputType, op.getInput(), op.getReduceType(), dimension,
+        clusterAxis, nullptr, nullptr, nullptr, nullptr);
 
     // Replace all_reduce op with all_gather op.
     rewriter.replaceOpWithNewOp<ttnn::AllGatherOp>(
@@ -455,9 +454,9 @@ private:
         ttnn::utils::RankedTensorTypeFactory::create(inputType,
                                                      expandedInputShape);
 
-    ttnn::ReshapeOp leadingReshapeOp = rewriter.create<ttnn::ReshapeOp>(
-        ttmlir::utils::appendLocationSuffix(loc, "_reshape"), reshapedInputType,
-        op.getInput(), reshapedInputShapeAttr,
+    ttnn::ReshapeOp leadingReshapeOp = ttnn::ReshapeOp::create(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_reshape"),
+        reshapedInputType, op.getInput(), reshapedInputShapeAttr,
         /* memory_config */ nullptr);
 
     // Create a new all gather op.
@@ -465,8 +464,8 @@ private:
     RankedTensorType allGatherOutputType =
         ttnn::utils::RankedTensorTypeFactory::create(reshapedInputType,
                                                      expandedInputShape);
-    ttnn::AllGatherOp allGatherOp = rewriter.create<ttnn::AllGatherOp>(
-        ttmlir::utils::appendLocationSuffix(loc, "_allGather"),
+    ttnn::AllGatherOp allGatherOp = ttnn::AllGatherOp::create(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_allGather"),
         allGatherOutputType, leadingReshapeOp.getResult(), 0, clusterAxis,
         nullptr /*sub_device_id*/, nullptr /*memory_config*/,
         nullptr /*num_links*/, nullptr /*topology*/);

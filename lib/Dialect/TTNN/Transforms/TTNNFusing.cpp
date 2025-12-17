@@ -281,8 +281,8 @@ private:
 
     // Create rotary_embedding op
     auto resultType = srcOp.getType();
-    auto ropeOp = rewriter.create<RotaryEmbeddingOp>(
-        srcOp.getLoc(), resultType, xUnrotated, cos, sin,
+    auto ropeOp = RotaryEmbeddingOp::create(
+        rewriter, srcOp.getLoc(), resultType, xUnrotated, cos, sin,
         /*token_index=*/nullptr,
         /*memory_config=*/nullptr, /*compute_config=*/nullptr);
 

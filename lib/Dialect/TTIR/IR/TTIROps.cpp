@@ -101,7 +101,7 @@ mlir::Operation *mlir::tt::ttir::AddOp::rewriteWithQuantizedInputs(
         quantElemQ, quantType.getEncoding());
 
     auto quantizedInput =
-        rewriter.create<ttir::QuantizeOp>(getLoc(), newType, dequantVal);
+        ttir::QuantizeOp::create(rewriter, getLoc(), newType, dequantVal);
 
     // Update operands.
     if (lhsElemQ) {
@@ -117,7 +117,8 @@ mlir::Operation *mlir::tt::ttir::AddOp::rewriteWithQuantizedInputs(
       oldType.getShape(), lhsElemQ, oldType.getEncoding());
 
   // Emit new AddOp with quantized types.
-  auto newAdd = rewriter.create<ttir::AddOp>(getLoc(), newResultType, lhs, rhs);
+  auto newAdd =
+      ttir::AddOp::create(rewriter, getLoc(), newResultType, lhs, rhs);
   return newAdd.getOperation();
 }
 
@@ -1192,10 +1193,10 @@ mlir::Operation *mlir::tt::ttir::ConvolutionOp::rewriteWithQuantizedInputs(
   RankedTensorType newType =
       RankedTensorType::get(oldConvOutputType.getShape(), quantConvOutputType,
                             oldConvOutputType.getEncoding());
-  auto quantConv = rewriter.create<mlir::tt::ttir::ConvolutionOp>(
-      getLoc(), newType, sourceOperands[0], sourceOperands[1], getBias(),
-      getWindowStridesAttr(), getPaddingAttr(), getInputDilationAttr(),
-      getWeightDilationAttr(), getWindowReversalAttr(),
+  auto quantConv = mlir::tt::ttir::ConvolutionOp::create(
+      rewriter, getLoc(), newType, sourceOperands[0], sourceOperands[1],
+      getBias(), getWindowStridesAttr(), getPaddingAttr(),
+      getInputDilationAttr(), getWeightDilationAttr(), getWindowReversalAttr(),
       getConvolutionLayoutAttr(), getFeatureGroupCountAttr(),
       getBatchGroupCountAttr());
   return quantConv.getOperation();
@@ -1388,8 +1389,8 @@ mlir::Operation *mlir::tt::ttir::PoolingOp::rewriteWithQuantizedInputs(
         outType.getShape(), inType.getElementType(), outType.getEncoding());
     resultTypes.push_back(newResultType);
   }
-  auto newOp = rewriter.create<mlir::tt::ttir::PoolingOp>(
-      getLoc(), resultTypes, sourceOperands, getPoolingMethod(),
+  auto newOp = mlir::tt::ttir::PoolingOp::create(
+      rewriter, getLoc(), resultTypes, sourceOperands, getPoolingMethod(),
       getWindowDimensions(), getWindowStrides(), getBaseDilations(),
       getWindowDilations(), getPadding());
   // NOLINTEND(clang-analyzer-core.StackAddressEscape)
@@ -3771,9 +3772,9 @@ void mlir::tt::ttir::UpdateCacheOp::getCanonicalizationPatterns(
           auto newInputType = RankedTensorType::get(
               newInputShape, newInput.getType().getElementType(),
               newInput.getType().getEncoding());
-          newInput = rewriter.create<PermuteOp>(
-              op.getLoc(), newInputType, newInput,
-              rewriter.getDenseI64ArrayAttr({0, 2, 1, 3}));
+          newInput =
+              PermuteOp::create(rewriter, op.getLoc(), newInputType, newInput,
+                                rewriter.getDenseI64ArrayAttr({0, 2, 1, 3}));
         }
 
         // If the update index shape is [1] then repeat to num users
@@ -3784,8 +3785,9 @@ void mlir::tt::ttir::UpdateCacheOp::getCanonicalizationPatterns(
               newUpdateIndexShape, newUpdateIndex.getType().getElementType(),
               newUpdateIndex.getType().getEncoding());
           auto repeatDims = rewriter.getDenseI64ArrayAttr({numUsers});
-          newUpdateIndex = rewriter.create<RepeatOp>(
-              op.getLoc(), newUpdateIndexType, newUpdateIndex, repeatDims);
+          newUpdateIndex =
+              RepeatOp::create(rewriter, op.getLoc(), newUpdateIndexType,
+                               newUpdateIndex, repeatDims);
         }
 
         rewriter.replaceOpWithNewOp<ttir::PagedUpdateCacheOp>(

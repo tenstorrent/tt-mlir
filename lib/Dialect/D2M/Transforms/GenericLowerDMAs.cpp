@@ -26,14 +26,14 @@ namespace mlir::tt::d2m {
 
 static std::tuple<SmallVector<Value>, SmallVector<Value>, SmallVector<Value>>
 getLoopBounds(OpBuilder &builder, Location loc, ArrayRef<int64_t> shardShape) {
-  Value zero = builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
-                                                 builder.getIndexAttr(0));
-  Value one = builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
-                                                builder.getIndexAttr(1));
+  Value zero = arith::ConstantOp::create(builder, loc, builder.getIndexType(),
+                                         builder.getIndexAttr(0));
+  Value one = arith::ConstantOp::create(builder, loc, builder.getIndexType(),
+                                        builder.getIndexAttr(1));
   SmallVector<Value> lbs(shardShape.size(), zero);
   SmallVector<Value> ubs(llvm::map_range(shardShape, [&](int64_t dim) {
-    return builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
-                                             builder.getIndexAttr(dim));
+    return arith::ConstantOp::create(builder, loc, builder.getIndexType(),
+                                     builder.getIndexAttr(dim));
   }));
   SmallVector<Value> step(shardShape.size(), one);
   return std::make_tuple(lbs, ubs, step);
@@ -73,8 +73,9 @@ public:
         outputOperandIndexingMap.getNumResults());
     for (unsigned gridIndex = 0;
          gridIndex < outputOperandIndexingMap.getNumResults(); gridIndex++) {
-      physicalCoreIndices[gridIndex] = builder.create<CoreIndexOp>(
-          loc, builder.getIndexType(), builder.getI64IntegerAttr(gridIndex));
+      physicalCoreIndices[gridIndex] =
+          CoreIndexOp::create(builder, loc, builder.getIndexType(),
+                              builder.getI64IntegerAttr(gridIndex));
     }
     SmallVector<Value> virtualGridIndices;
     if (!coreVirtualizationMap.isEmpty()) {
@@ -104,8 +105,8 @@ public:
         // cases in the future where this isn't true.  Probably best
         // to have it as a canary when we hit this case tho
 
-        index = builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
-                                                  builder.getIndexAttr(0));
+        index = arith::ConstantOp::create(builder, loc, builder.getIndexType(),
+                                          builder.getIndexAttr(0));
       } else {
         unsigned dim = mlir::cast<AffineDimExpr>(dimOrConstant).getPosition();
         // Identify the corresponding grid dimension that participates in the
@@ -137,8 +138,9 @@ public:
           assert(!gridResult || *gridResult == result);
         }
         bool isGridDim = gridResult.has_value();
-        Value iterIndex = builder.create<IterIndexOp>(
-            loc, builder.getIndexType(), builder.getI64IntegerAttr(dim));
+        Value iterIndex =
+            IterIndexOp::create(builder, loc, builder.getIndexType(),
+                                builder.getI64IntegerAttr(dim));
 
         if (isGridDim) {
           // Consider the case where interchange moves k to the outermost loop.
@@ -148,16 +150,16 @@ public:
           const unsigned gridDim = gridResult.value();
 
           // gridI * blockFactorI + iterI = index in virtual space
-          Value blockFactor = builder.create<arith::ConstantOp>(
-              loc, builder.getIndexType(),
+          Value blockFactor = arith::ConstantOp::create(
+              builder, loc, builder.getIndexType(),
               builder.getIndexAttr(blockFactors[dim]));
 
           index = virtualGridIndices[gridDim];
 
-          index = builder.create<arith::MulIOp>(loc, builder.getIndexType(),
-                                                index, blockFactor);
-          index = builder.create<arith::AddIOp>(loc, builder.getIndexType(),
-                                                index, iterIndex);
+          index = arith::MulIOp::create(builder, loc, builder.getIndexType(),
+                                        index, blockFactor);
+          index = arith::AddIOp::create(builder, loc, builder.getIndexType(),
+                                        index, iterIndex);
         } else {
           index = iterIndex;
         }
@@ -234,7 +236,7 @@ public:
 
     auto [lbs, ubs, steps] = getLoopBounds(builder, loc, shardShape);
 
-    auto nullDmaTx = builder.create<d2m::NullTxOp>(dma.getLoc());
+    auto nullDmaTx = d2m::NullTxOp::create(builder, dma.getLoc());
     scf::LoopNest loopNest = scf::buildLoopNest(
         builder, loc, lbs, ubs, steps, ValueRange(nullDmaTx),
         [&](OpBuilder &builder, Location loc, ValueRange iters,
@@ -242,11 +244,11 @@ public:
           SmallVector<Value> remoteIndices =
               llvm::to_vector(llvm::concat<Value>(streamIndex, iters));
 
-          Value cfExpr = builder.create<arith::ConstantOp>(
-              dma.getLoc(), builder.getIndexType(),
+          Value cfExpr = arith::ConstantOp::create(
+              builder, dma.getLoc(), builder.getIndexType(),
               builder.getIndexAttr(coalescingFactor));
-          Value zero = builder.create<arith::ConstantOp>(
-              loc, builder.getIndexType(),
+          Value zero = arith::ConstantOp::create(
+              builder, loc, builder.getIndexType(),
               builder.getIntegerAttr(builder.getIndexType(), 0));
 
           // construct guard function
@@ -256,29 +258,29 @@ public:
           size_t currStride = 1;
           for (int i = iters.size() - 1; i >= 0; i--) {
 
-            Value currStrideExpr = builder.create<arith::ConstantOp>(
-                dma.getLoc(), builder.getIndexType(),
+            Value currStrideExpr = arith::ConstantOp::create(
+                builder, dma.getLoc(), builder.getIndexType(),
                 builder.getIndexAttr(currStride));
             auto scaledCount =
-                builder.create<arith::MulIOp>(loc, currStrideExpr, iters[i])
+                arith::MulIOp::create(builder, loc, currStrideExpr, iters[i])
                     .getResult();
             totalIterCount =
-                builder.create<arith::AddIOp>(loc, scaledCount, totalIterCount)
+                arith::AddIOp::create(builder, loc, scaledCount, totalIterCount)
                     .getResult();
 
             currStride *= shardShape[i];
           }
           auto moduloIterCount =
-              builder.create<arith::RemSIOp>(loc, totalIterCount, cfExpr)
+              arith::RemSIOp::create(builder, loc, totalIterCount, cfExpr)
                   .getResult();
-          auto predicate = builder.create<arith::CmpIOp>(
-              loc, arith::CmpIPredicate::eq, moduloIterCount, zero);
+          auto predicate = arith::CmpIOp::create(
+              builder, loc, arith::CmpIPredicate::eq, moduloIterCount, zero);
 
-          auto nulltx = builder.create<d2m::NullTxOp>(dma.getLoc());
+          auto nulltx = d2m::NullTxOp::create(builder, dma.getLoc());
 
           // build guarded expression
-          auto ifExpr = builder.create<scf::IfOp>(
-              loc, TypeRange(SmallVector<Value>{nulltx}), predicate,
+          auto ifExpr = scf::IfOp::create(
+              builder, loc, TypeRange(SmallVector<Value>{nulltx}), predicate,
               true /*addThenBlock*/, true /*addElseBlock*/);
 
           auto thenBuilder = ifExpr.getThenBodyBuilder();
@@ -287,13 +289,14 @@ public:
               dma.isSrcRemote() ? remoteIndices : llvm::to_vector(iters);
           auto dstIndices =
               dma.isDstRemote() ? remoteIndices : llvm::to_vector(iters);
-          auto dmaOp = thenBuilder.create<d2m::DMAOp>(
-              dma.getLoc(), dma.getSrc(), srcIndices, dma.getDst(), dstIndices,
-              dma.getMcastStartIndex(), dma.getMcastShape(), coalescingFactor);
-          thenBuilder.create<scf::YieldOp>(dma.getLoc(), dmaOp->getResult(0));
+          auto dmaOp = d2m::DMAOp::create(
+              thenBuilder, dma.getLoc(), dma.getSrc(), srcIndices, dma.getDst(),
+              dstIndices, dma.getMcastStartIndex(), dma.getMcastShape(),
+              coalescingFactor);
+          scf::YieldOp::create(thenBuilder, dma.getLoc(), dmaOp->getResult(0));
 
           auto elseBuilder = ifExpr.getElseBodyBuilder();
-          elseBuilder.create<scf::YieldOp>(dma.getLoc(), nulltx->getResult(0));
+          scf::YieldOp::create(elseBuilder, dma.getLoc(), nulltx->getResult(0));
 
           return SmallVector<Value>{ifExpr.getResult(0)};
         });
@@ -380,9 +383,10 @@ public:
           dma.isSrcRemote() ? streamIndices : SmallVector<Value>();
       auto dstIndices =
           dma.isDstRemote() ? streamIndices : SmallVector<Value>();
-      newDma = rewriter.create<d2m::DMAOp>(
-          dma.getLoc(), dma.getSrc(), srcIndices, dma.getDst(), dstIndices,
-          dma.getMcastStartIndex(), dma.getMcastShape(), coalescingFactor);
+      newDma =
+          d2m::DMAOp::create(rewriter, dma.getLoc(), dma.getSrc(), srcIndices,
+                             dma.getDst(), dstIndices, dma.getMcastStartIndex(),
+                             dma.getMcastShape(), coalescingFactor);
     } else {
       // The memory access has some stride/gaps so multiple DMA operations are
       // needed.
@@ -435,7 +439,7 @@ public:
         getLoopBounds(rewriter, dma->getLoc(), unappliedShape);
 
     // Create a loop around the unapplied indices.
-    auto nullDmaTx = rewriter.create<d2m::NullTxOp>(dma.getLoc());
+    auto nullDmaTx = d2m::NullTxOp::create(rewriter, dma.getLoc());
     scf::LoopNest loopNest = scf::buildLoopNest(
         rewriter, dma->getLoc(), lbs, ubs, steps, ValueRange(nullDmaTx),
         [&](OpBuilder &builder, Location loc, ValueRange iters,
@@ -444,9 +448,10 @@ public:
               llvm::to_vector(llvm::concat<Value>(dma.getSrcIndices(), iters));
           auto dstIndices =
               llvm::to_vector(llvm::concat<Value>(dma.getDstIndices(), iters));
-          auto dmaOp = builder.create<d2m::DMAOp>(
-              dma.getLoc(), dma.getSrc(), srcIndices, dma.getDst(), dstIndices,
-              dma.getMcastStartIndex(), dma.getMcastShape(), /*numElems=*/1);
+          auto dmaOp = d2m::DMAOp::create(builder, dma.getLoc(), dma.getSrc(),
+                                          srcIndices, dma.getDst(), dstIndices,
+                                          dma.getMcastStartIndex(),
+                                          dma.getMcastShape(), /*numElems=*/1);
           return SmallVector<Value>{dmaOp->getResult(0)};
         });
 
@@ -479,8 +484,9 @@ public:
     // Fully index the memrefs.
     SmallVector<Value> srcIndices(dma.getSrcIndices());
     SmallVector<Value> dstIndices(dma.getDstIndices());
-    Value zero = rewriter.create<arith::ConstantOp>(
-        dma.getLoc(), rewriter.getIndexType(), rewriter.getIndexAttr(0));
+    Value zero = arith::ConstantOp::create(rewriter, dma.getLoc(),
+                                           rewriter.getIndexType(),
+                                           rewriter.getIndexAttr(0));
     while (srcIndices.size() <
            static_cast<size_t>(dma.getSrcMemRefType().getRank())) {
       srcIndices.push_back(zero);
@@ -541,7 +547,7 @@ public:
                                      AffineMap map, ValueRange index,
                                      bool isRemote) {
     auto affineApply = [&](AffineMap map, ValueRange index) {
-      return rewriter.create<affine::AffineApplyOp>(loc, map, index);
+      return affine::AffineApplyOp::create(rewriter, loc, map, index);
     };
 
     if (isRemote) {

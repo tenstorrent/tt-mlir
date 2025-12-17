@@ -181,7 +181,7 @@ static mlir::func::FuncOp outlineToFunc(
     mlir::Value escVal = mapping.lookupOrNull(esc);
     retVals.push_back(escVal);
   }
-  internalBuilder.create<mlir::func::ReturnOp>(func.getLoc(), retVals);
+  mlir::func::ReturnOp::create(internalBuilder, func.getLoc(), retVals);
 
   return func;
 }

@@ -70,8 +70,8 @@ public:
     rewriter.setInsertionPointAfter(op);
     auto broadcastDimensions = ttmlir::utils::getBroadcastDimensions<int64_t>(
         implicitBroadcastedShape, resultShape);
-    auto broadcastOp = rewriter.create<ttir::BroadcastOp>(
-        op->getLoc(),
+    auto broadcastOp = ttir::BroadcastOp::create(
+        rewriter, op->getLoc(),
         RankedTensorType::get(resultShape, newResultType.getElementType(),
                               newResultType.getEncoding()),
         op->getResult(0), broadcastDimensions);

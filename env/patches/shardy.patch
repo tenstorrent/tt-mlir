@@ -1,6 +1,6 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-new file mode 100755
-index 0000000..ec8d310
+new file mode 100644
+index 0000000..30904b5
 --- /dev/null
 +++ b/CMakeLists.txt
 @@ -0,0 +1,57 @@
@@ -61,7 +61,6 @@ index 0000000..ec8d310
 +add_subdirectory(shardy/dialect/sdy/transforms)
 +add_subdirectory(shardy/integrations/python/ir)
 +add_subdirectory(shardy/integrations/c)
-\ No newline at end of file
 diff --git a/shardy/common/CMakeLists.txt b/shardy/common/CMakeLists.txt
 new file mode 100644
 index 0000000..5ae192d
@@ -87,7 +86,7 @@ index 0000000..5ae192d
 +  SdyDialect
 +)
 diff --git a/shardy/dialect/sdy/ir/CMakeLists.txt b/shardy/dialect/sdy/ir/CMakeLists.txt
-new file mode 100755
+new file mode 100644
 index 0000000..b2c87de
 --- /dev/null
 +++ b/shardy/dialect/sdy/ir/CMakeLists.txt
@@ -199,7 +198,7 @@ index 0000000..b2c87de
 +  MLIRSupport
 +)
 diff --git a/shardy/dialect/sdy/transforms/CMakeLists.txt b/shardy/dialect/sdy/transforms/CMakeLists.txt
-new file mode 100755
+new file mode 100644
 index 0000000..90e2fc5
 --- /dev/null
 +++ b/shardy/dialect/sdy/transforms/CMakeLists.txt
@@ -231,7 +230,7 @@ index 0000000..90e2fc5
 +  $<BUILD_INTERFACE:${SHARDY_BINARY_DIR}>
 +)
 diff --git a/shardy/dialect/sdy/transforms/common/CMakeLists.txt b/shardy/dialect/sdy/transforms/common/CMakeLists.txt
-new file mode 100755
+new file mode 100644
 index 0000000..3b414d1
 --- /dev/null
 +++ b/shardy/dialect/sdy/transforms/common/CMakeLists.txt
@@ -266,8 +265,8 @@ index 0000000..3b414d1
 +  SdyDialect
 +)
 diff --git a/shardy/dialect/sdy/transforms/export/CMakeLists.txt b/shardy/dialect/sdy/transforms/export/CMakeLists.txt
-new file mode 100755
-index 0000000..60f1952
+new file mode 100644
+index 0000000..7670080
 --- /dev/null
 +++ b/shardy/dialect/sdy/transforms/export/CMakeLists.txt
 @@ -0,0 +1,94 @@
@@ -357,17 +356,17 @@ index 0000000..60f1952
 +)
 +
 +target_include_directories(SdyTransformsExportPasses INTERFACE
-+  $<BUILD_INTERFACE:${SHARDY_SOURCE_DIR}>
-+  $<BUILD_INTERFACE:${SHARDY_BINARY_DIR}>
++  \$<BUILD_INTERFACE:\${SHARDY_SOURCE_DIR}>
++  \$<BUILD_INTERFACE:\${SHARDY_BINARY_DIR}>
 +)
 +
 +target_include_directories(SdyExplicitReshardsUtil INTERFACE
-+  $<BUILD_INTERFACE:${SHARDY_SOURCE_DIR}>
-+  $<BUILD_INTERFACE:${SHARDY_BINARY_DIR}>
++  \$<BUILD_INTERFACE:\${SHARDY_SOURCE_DIR}>
++  \$<BUILD_INTERFACE:\${SHARDY_BINARY_DIR}>
 +)
 diff --git a/shardy/dialect/sdy/transforms/import/CMakeLists.txt b/shardy/dialect/sdy/transforms/import/CMakeLists.txt
-new file mode 100755
-index 0000000..c302390
+new file mode 100644
+index 0000000..b478a8f
 --- /dev/null
 +++ b/shardy/dialect/sdy/transforms/import/CMakeLists.txt
 @@ -0,0 +1,47 @@
@@ -415,12 +414,12 @@ index 0000000..c302390
 +)
 +
 +target_include_directories(SdyTransformsImportPasses INTERFACE
-+  $<BUILD_INTERFACE:${SHARDY_SOURCE_DIR}>
-+  $<BUILD_INTERFACE:${SHARDY_BINARY_DIR}>
++  \$<BUILD_INTERFACE:\${SHARDY_SOURCE_DIR}>
++  \$<BUILD_INTERFACE:\${SHARDY_BINARY_DIR}>
 +)
 diff --git a/shardy/dialect/sdy/transforms/propagation/CMakeLists.txt b/shardy/dialect/sdy/transforms/propagation/CMakeLists.txt
-new file mode 100755
-index 0000000..809f431
+new file mode 100644
+index 0000000..569cf02
 --- /dev/null
 +++ b/shardy/dialect/sdy/transforms/propagation/CMakeLists.txt
 @@ -0,0 +1,188 @@
@@ -489,8 +488,8 @@ index 0000000..809f431
 +)
 +
 +target_include_directories(SdyTransformsPropagationPasses INTERFACE
-+  $<BUILD_INTERFACE:${SHARDY_SOURCE_DIR}>
-+  $<BUILD_INTERFACE:${SHARDY_BINARY_DIR}>
++  \$<BUILD_INTERFACE:\${SHARDY_SOURCE_DIR}>
++  \$<BUILD_INTERFACE:\${SHARDY_BINARY_DIR}>
 +)
 +
 +add_mlir_library(SdyTransformsPropagationOpShardingRuleBuilder
@@ -636,10 +635,10 @@ index 0000000..dc33501
 +  SdyTransformsPropagationShardingProjection
 +)
 diff --git a/shardy/dialect/sdy/transforms/propagation/debugging/source_sharding.cc b/shardy/dialect/sdy/transforms/propagation/debugging/source_sharding.cc
-index 86f16d1..8039a00 100644
+index a73917b..78cc827 100644
 --- a/shardy/dialect/sdy/transforms/propagation/debugging/source_sharding.cc
 +++ b/shardy/dialect/sdy/transforms/propagation/debugging/source_sharding.cc
-@@ -338,6 +338,7 @@ void saveShardingOriginsOnModule(
+@@ -346,6 +346,7 @@ void saveShardingOriginsOnModule(
  // the case for the target of the edge, because if the source appears multiple
  // times, then it's because it effects multiple other operands/results in the
  // op.
@@ -647,6 +646,48 @@ index 86f16d1..8039a00 100644
  bool insertSeenValue(Operation* op, const PropagationEdge& edge,
                       llvm::SmallDenseSet<Value>& seenValues) {
    EdgeNode target = edge.target;
+diff --git a/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc b/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc
+index 12f8d12..79fe46a 100644
+--- a/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc
++++ b/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc
+@@ -303,6 +303,37 @@ OpShardingRuleAttr createOpShardingRule(Operation* op,
+         }
+         return builder.build();
+       })
++      .Case<stablehlo::BatchNormInferenceOp>(
++        [conservativePropagation](stablehlo::BatchNormInferenceOp bn) {
++          auto inTy  = llvm::cast<mlir::RankedTensorType>(bn.getOperand().getType());
++          auto outTy = llvm::cast<mlir::RankedTensorType>(bn.getResult().getType());
++
++          OpShardingRuleBuilder builder(bn);
++
++          const int64_t numOperands = static_cast<int64_t>(bn->getNumOperands());
++          llvm::SmallVector<int64_t> opDims(numOperands, kNullDim);
++
++          for (auto [dU, dimSize] : llvm::enumerate(inTy.getShape())) {
++            const int64_t d = static_cast<int64_t>(dU);
++            std::fill(opDims.begin(), opDims.end(), kNullDim);
++            opDims[0] = d;
++            builder.addFactor(opDims, d, dimSize);
++          }
++
++          const int64_t featAxis = static_cast<int64_t>(bn.getFeatureIndex());
++          const int64_t C = outTy.getDimSize(featAxis);
++
++          for (int64_t paramIdx : {1LL, 2LL, 3LL, 4LL}) {
++            std::fill(opDims.begin(), opDims.end(), kNullDim);
++            opDims[paramIdx] = 0;
++            auto factorType = conservativePropagation ? FactorType::kNeedReplication
++                                                        : FactorType::kPassThrough;
++            builder.addFactor(opDims, kNullDim, C,
++                  factorType, true);
++          }
++
++          return builder.build();
++        })
+       .Case<stablehlo::BitcastConvertOp>(
+           [](stablehlo::BitcastConvertOp bitcastConvert) {
+             ArrayRef<int64_t> inShape =
 diff --git a/shardy/integrations/c/CMakeLists.txt b/shardy/integrations/c/CMakeLists.txt
 new file mode 100644
 index 0000000..fdd50c4
@@ -789,75 +830,3 @@ index 0000000..30a5cf9
 +include "shardy/dialect/sdy/ir/ops.td"
 +
 +#endif
-diff --git a/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc b/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc
-index ab93067..283d6ad 100644
---- a/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc
-+++ b/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc
-@@ -303,6 +303,37 @@ OpShardingRuleAttr createOpShardingRule(Operation* op,
-         }
-         return builder.build();
-       })
-+      .Case<stablehlo::BatchNormInferenceOp>(
-+        [conservativePropagation](stablehlo::BatchNormInferenceOp bn) {
-+          auto inTy  = llvm::cast<mlir::RankedTensorType>(bn.getOperand().getType());
-+          auto outTy = llvm::cast<mlir::RankedTensorType>(bn.getResult().getType());
-+
-+          OpShardingRuleBuilder builder(bn);
-+
-+          const int64_t numOperands = static_cast<int64_t>(bn->getNumOperands());
-+          llvm::SmallVector<int64_t> opDims(numOperands, kNullDim);
-+
-+          for (auto [dU, dimSize] : llvm::enumerate(inTy.getShape())) {
-+            const int64_t d = static_cast<int64_t>(dU);
-+            std::fill(opDims.begin(), opDims.end(), kNullDim);
-+            opDims[0] = d;
-+            builder.addFactor(opDims, d, dimSize);
-+          }
-+
-+          const int64_t featAxis = static_cast<int64_t>(bn.getFeatureIndex());
-+          const int64_t C = outTy.getDimSize(featAxis);
-+
-+          for (int64_t paramIdx : {1LL, 2LL, 3LL, 4LL}) {
-+            std::fill(opDims.begin(), opDims.end(), kNullDim);
-+            opDims[paramIdx] = 0;
-+            auto factorType = conservativePropagation ? FactorType::kNeedReplication
-+                                                        : FactorType::kPassThrough;
-+            builder.addFactor(opDims, kNullDim, C,
-+                  factorType, true);
-+          }
-+
-+          return builder.build();
-+        })
-       .Case<stablehlo::BitcastConvertOp>(
-           [](stablehlo::BitcastConvertOp bitcastConvert) {
-             ArrayRef<int64_t> inShape =
-@@ -685,6 +716,12 @@ OpShardingRuleAttr createOpShardingRule(Operation* op,
-                   /*isBlocked=*/usedByRngBitGenerator)
-               .build();
-         }
-+        // Check if the custom call implements the ShardingRuleOpInterface.
-+        if (auto shardingRuleOp =
-+                  llvm::dyn_cast<ShardingRuleOpInterface>(customCall.getOperation())) {
-+          return shardingRuleOp.getShardingRule();
-+        }
-+
-         // TODO(b/327191011): output unregistered op stats instead.
-         static llvm::once_flag onceFlag;
-         emitOpWarningOnce(
-@@ -1093,6 +1130,16 @@ OpShardingRuleAttr createOpShardingRule(Operation* op,
-             return builder.build();
-           })
-       .Case<stablehlo::ScatterOp>([](stablehlo::ScatterOp scatter) {
-+        // Check if the scatter op implements the ShardingRuleOpInterface.
-+        if (auto shardingRuleOp =
-+              llvm::dyn_cast<ShardingRuleOpInterface>(scatter.getOperation())) {
-+          // Try to get custom rule - if it returns non-null, use it.
-+          if (auto customRule = shardingRuleOp.getShardingRule()) {
-+            return customRule;
-+          }
-+          // If custom rule returns null, fall through to default.
-+        }
-+
-         OpShardingRuleBuilder builder(scatter);
-
-         // Since all inputs and results have compatible shapes, we can look at

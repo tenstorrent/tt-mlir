@@ -128,12 +128,12 @@ private:
       for (auto [index, returnValue] : llvm::enumerate(returnedValues)) {
         auto outputArgument = funcOp.getArgument(funcOp.getNumArguments() -
                                                  returnTypes.size() + index);
-        builder.create<linalg::CopyOp>(returnOp.getLoc(), returnValue,
-                                       outputArgument);
+        linalg::CopyOp::create(builder, returnOp.getLoc(), returnValue,
+                               outputArgument);
       }
 
       // Insert void return op.
-      builder.create<func::ReturnOp>(returnOp.getLoc());
+      func::ReturnOp::create(builder, returnOp.getLoc());
       returnOp.erase();
     }
   }
@@ -180,13 +180,13 @@ private:
 
         for (auto returnType : returnTypes) {
           auto outputTensor =
-              builder.create<ttir::EmptyOp>(callOp.getLoc(), returnType);
+              ttir::EmptyOp::create(builder, callOp.getLoc(), returnType);
 
           callOperands.push_back(outputTensor);
         }
 
-        auto newCallOp =
-            builder.create<func::CallOp>(callOp.getLoc(), funcOp, callOperands);
+        auto newCallOp = func::CallOp::create(builder, callOp.getLoc(), funcOp,
+                                              callOperands);
 
         // Copy attributes from old call op to new call op.
         newCallOp->setAttrs(callOp->getAttrs());

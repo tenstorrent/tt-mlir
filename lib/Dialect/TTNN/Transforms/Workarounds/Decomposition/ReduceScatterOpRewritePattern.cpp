@@ -49,7 +49,8 @@ TTNNReduceScatterWorkarounds::matchAndRewrite(ttnn::ReduceScatterOp op,
                                       paddedInputShape.end());
   RankedTensorType reshapeInputType =
       ttnn::utils::RankedTensorTypeFactory::create(inputType, paddedInputShape);
-  auto reshapeInput = rewriter.create<ttnn::ReshapeOp>(
+  auto reshapeInput = ttnn::ReshapeOp::create(
+      rewriter,
       ttmlir::utils::appendLocationSuffix(op.getLoc(), "_reshape_to_4d"),
       reshapeInputType, op.getInput(), rewriter.getI32ArrayAttr(paddedShapeI32),
       ttnn::MemoryConfigAttr());
@@ -61,7 +62,8 @@ TTNNReduceScatterWorkarounds::matchAndRewrite(ttnn::ReduceScatterOp op,
 
   // Create the reduce scatter operation on 4D tensors with adjusted
   // scatter_dim
-  auto reduceScatter4D = rewriter.create<ttnn::ReduceScatterOp>(
+  auto reduceScatter4D = ttnn::ReduceScatterOp::create(
+      rewriter,
       ttmlir::utils::appendLocationSuffix(op.getLoc(), "_reduce_scatter_4d"),
       paddedOutputType, reshapeInput.getResult(), op.getReduceType(),
       adjustedScatterDim, op.getClusterAxis(),

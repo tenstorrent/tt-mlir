@@ -233,8 +233,8 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
   /////////////////////////////////////////////////////////////////////////////
   auto fusedResultTypes = TypeRange(fusedOutputs);
 
-  auto fusedOp = rewriter.create<GenericOp>(
-      consumer.getLoc(), fusedResultTypes, fusedInputs, fusedOutputs,
+  auto fusedOp = GenericOp::create(
+      rewriter, consumer.getLoc(), fusedResultTypes, fusedInputs, fusedOutputs,
       consumer.getGrid(), consumer.getBlockFactors(),
       rewriter.getAffineMapArrayAttr(fusedMaps), consumer.getIteratorTypes(),
       consumer.getThreads(), /*regions=*/1);
@@ -463,7 +463,7 @@ static GenericOp createFusedGeneric(OpOperand *fusedOperand, GenericOp producer,
     fusedYields.push_back(irMap.lookupOrDefault(y));
   }
   rewriter.setInsertionPointToEnd(&fusedBlock);
-  rewriter.create<YieldOp>(fusedOp.getLoc(), fusedYields);
+  YieldOp::create(rewriter, fusedOp.getLoc(), fusedYields);
 
   return fusedOp;
 }

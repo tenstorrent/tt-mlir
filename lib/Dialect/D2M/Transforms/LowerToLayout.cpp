@@ -285,8 +285,8 @@ public:
         RankedTensorType::get(outputInfo.type.getShape(),
                               outputInfo.type.getElementType(), newLayout);
 
-    Value viewOp = rewriter.create<ViewLayoutOp>(loc, viewType, input,
-                                                 /*reinterpretLayout=*/false);
+    Value viewOp = ViewLayoutOp::create(rewriter, loc, viewType, input,
+                                        /*reinterpretLayout=*/false);
 
     // Materialize L1→L1 transformations with a DMA generic that performs the
     // actual data movement according to the view's affine map.
@@ -334,19 +334,19 @@ public:
               rewriter, /*arity=*/2, gridRank);
       auto indexingMap = mlir::cast<AffineMapAttr>(indexingMaps[0]);
 
-      return rewriter
-          .create<GenericOp>(
-              loc, viewOp, output,
-              [&](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
-                Value outputCB =
-                    builder.create<ReserveOp>(innerLoc, blockArgs[1])
-                        .getResult();
-                auto dma = builder.create<d2m::DMAOp>(innerLoc, viewOp,
-                                                      indexingMap, outputCB);
-                builder.create<d2m::DMAWaitOp>(innerLoc, dma);
-                builder.create<YieldOp>(innerLoc, outputCB);
-              },
-              ThreadType::Datamovement, grid)
+      return GenericOp::create(
+                 rewriter, loc, viewOp, output,
+                 [&](OpBuilder &builder, Location innerLoc,
+                     ValueRange blockArgs) {
+                   Value outputCB =
+                       ReserveOp::create(builder, innerLoc, blockArgs[1])
+                           .getResult();
+                   auto dma = d2m::DMAOp::create(builder, innerLoc, viewOp,
+                                                 indexingMap, outputCB);
+                   d2m::DMAWaitOp::create(builder, innerLoc, dma);
+                   YieldOp::create(builder, innerLoc, outputCB);
+                 },
+                 ThreadType::Datamovement, grid)
           .getResult(0);
     }
     // DRAM operations use the view directly without immediate
@@ -375,11 +375,11 @@ public:
     // Emit dedicated host transfer ops based on direction.
     if (inputInfo.isSystem()) {
       // Host → Device: use ToDeviceOp.
-      return rewriter.create<ToDeviceOp>(loc, input, output, *deviceLayout)
+      return ToDeviceOp::create(rewriter, loc, input, output, *deviceLayout)
           .getResult(0);
     }
     // Device → Host: use ToHostOp.
-    return rewriter.create<ToHostOp>(loc, input, output, *deviceLayout)
+    return ToHostOp::create(rewriter, loc, input, output, *deviceLayout)
         .getResult(0);
   }
 
@@ -436,9 +436,8 @@ public:
           baseLayout.getMemorySpace(), baseLayout.getMemoryLayout(), map);
       auto resultTy =
           RankedTensorType::get(toTy.getShape(), toTy.getElementType(), enc);
-      return rewriter
-          .create<ViewLayoutOp>(loc, resultTy, fromVal,
-                                /*reinterpretLayout=*/false)
+      return ViewLayoutOp::create(rewriter, loc, resultTy, fromVal,
+                                  /*reinterpretLayout=*/false)
           .getResult();
     };
 
@@ -459,35 +458,35 @@ public:
             rewriter, /*arity=*/2, gridRank);
     auto indexingMap = mlir::cast<AffineMapAttr>(indexingMaps[0]);
 
-    return rewriter
-        .create<GenericOp>(
-            loc, viewInput, viewOutput,
-            [&](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
-              DMAOp dma;
-              Value yield;
-              if (isSrcDramOrReblock) {
-                Value outputCB =
-                    builder.create<ReserveOp>(innerLoc, blockArgs[1])
-                        .getResult();
-                dma = builder.create<d2m::DMAOp>(innerLoc, viewInput,
-                                                 indexingMap, outputCB);
-                yield = outputCB;
-              } else {
-                // Note: Naturally you'd think to use a WaitOp since this is in
-                // input cb, but in the layout lowering there is no producer
-                // thread. The ReserveOp here effectively unwraps the CB so the
-                // DMA can access it.
-                Value inputCB =
-                    builder.create<ReserveOp>(innerLoc, blockArgs[0])
-                        .getResult();
-                dma = builder.create<d2m::DMAOp>(innerLoc, inputCB, viewOutput,
-                                                 indexingMap);
-                yield = inputCB;
-              }
-              builder.create<d2m::DMAWaitOp>(innerLoc, dma);
-              builder.create<YieldOp>(innerLoc, yield);
-            },
-            ThreadType::Datamovement)
+    return GenericOp::create(
+               rewriter, loc, viewInput, viewOutput,
+               [&](OpBuilder &builder, Location innerLoc,
+                   ValueRange blockArgs) {
+                 DMAOp dma;
+                 Value yield;
+                 if (isSrcDramOrReblock) {
+                   Value outputCB =
+                       ReserveOp::create(builder, innerLoc, blockArgs[1])
+                           .getResult();
+                   dma = d2m::DMAOp::create(builder, innerLoc, viewInput,
+                                            indexingMap, outputCB);
+                   yield = outputCB;
+                 } else {
+                   // Note: Naturally you'd think to use a WaitOp since this is
+                   // in input cb, but in the layout lowering there is no
+                   // producer thread. The ReserveOp here effectively unwraps
+                   // the CB so the DMA can access it.
+                   Value inputCB =
+                       ReserveOp::create(builder, innerLoc, blockArgs[0])
+                           .getResult();
+                   dma = d2m::DMAOp::create(builder, innerLoc, inputCB,
+                                            viewOutput, indexingMap);
+                   yield = inputCB;
+                 }
+                 d2m::DMAWaitOp::create(builder, innerLoc, dma);
+                 YieldOp::create(builder, innerLoc, yield);
+               },
+               ThreadType::Datamovement)
         .getResult(0);
   }
 
@@ -500,22 +499,22 @@ public:
     assert(inputTiled != outputTiled &&
            "one of input or output must be tiled for now");
 
-    return rewriter
-        .create<GenericOp>(
-            loc, input, output,
-            [=](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
-              Value src =
-                  builder.create<WaitOp>(innerLoc, blockArgs[0]).getResult();
-              Value dst =
-                  builder.create<ReserveOp>(innerLoc, blockArgs[1]).getResult();
-              if (inputTiled) {
-                builder.create<TileUntilizeBlockOp>(innerLoc, src, dst);
-              } else {
-                builder.create<TileTilizeBlockOp>(innerLoc, src, dst);
-              }
-              builder.create<YieldOp>(innerLoc, dst);
-            },
-            ThreadType::Compute)
+    return GenericOp::create(
+               rewriter, loc, input, output,
+               [=](OpBuilder &builder, Location innerLoc,
+                   ValueRange blockArgs) {
+                 Value src = WaitOp::create(builder, innerLoc, blockArgs[0])
+                                 .getResult();
+                 Value dst = ReserveOp::create(builder, innerLoc, blockArgs[1])
+                                 .getResult();
+                 if (inputTiled) {
+                   TileUntilizeBlockOp::create(builder, innerLoc, src, dst);
+                 } else {
+                   TileTilizeBlockOp::create(builder, innerLoc, src, dst);
+                 }
+                 YieldOp::create(builder, innerLoc, dst);
+               },
+               ThreadType::Compute)
         .getResult(0);
   }
 
@@ -523,9 +522,9 @@ public:
                               Value input, RankedTensorType desiredType) const {
     auto layout =
         mlir::cast<ttcore::MetalLayoutAttr>(desiredType.getEncoding());
-    auto output = rewriter.create<d2m::EmptyOp>(
-        loc, desiredType.getShape(), desiredType.getElementType(), layout);
-    return rewriter.create<d2m::ToLayoutOp>(loc, input, output);
+    auto output = d2m::EmptyOp::create(rewriter, loc, desiredType.getShape(),
+                                       desiredType.getElementType(), layout);
+    return d2m::ToLayoutOp::create(rewriter, loc, input, output);
   }
 
   Value bounce(PatternRewriter &rewriter, ToLayoutOp op,
@@ -564,9 +563,8 @@ public:
       }
 
       auto layout = mlir::dyn_cast<ttcore::MetalLayoutAttr>(type.getEncoding());
-      return rewriter
-          .create<d2m::EmptyOp>(op.getLoc(), type.getShape(),
-                                type.getElementType(), layout)
+      return d2m::EmptyOp::create(rewriter, op.getLoc(), type.getShape(),
+                                  type.getElementType(), layout)
           .getResult();
     };
 
