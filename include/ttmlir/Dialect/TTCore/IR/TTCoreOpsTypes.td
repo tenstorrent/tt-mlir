@@ -615,7 +615,7 @@ def TTCore_OOBValAttr : EnumAttr<TTCore_Dialect, TTCore_OOBVal, "oob_val"> {
 }
 
 def TTCore_TensorMemoryLayoutAttr : EnumAttr<TTCore_Dialect, TTCore_TensorMemoryLayout, "tensor_memory_layout"> {
-  let assemblyFormat = "$value";
+  let assemblyFormat = "`<` $value `>`";
 }
 
 def TTCore_IteratorTypeAttr : EnumAttr<TTCore_Dialect, TTCore_IteratorType, "iterator_type"> {
