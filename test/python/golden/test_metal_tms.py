@@ -64,5 +64,5 @@ def test_permute_abs(
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
-        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '}}}",
     )
