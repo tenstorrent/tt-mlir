@@ -6,15 +6,16 @@
 
 // CHECK-LABEL: func.func @decompose_mask_boundary_zero
 // Verify tile_mask_boundary with <zero> fill is decomposed
+// Constants may be hoisted outside the generic by canonicalization
+// CHECK-DAG: arith.constant 50 : index
+// CHECK-DAG: arith.constant 0.000000e+00 : f32
+// CHECK-DAG: arith.constant 1.000000e+00 : f32
 func.func @decompose_mask_boundary_zero(%input: tensor<2x2x!ttcore.tile<32x32, f32>>) -> tensor<2x2x!ttcore.tile<32x32, f32>> {
     %empty = tensor.empty() : tensor<2x2x!ttcore.tile<32x32, f32>>
     // CHECK: linalg.generic
     // CHECK-NOT: d2m.tile_mask_boundary
     // CHECK-DAG: linalg.index 0
     // CHECK-DAG: linalg.index 1
-    // CHECK-DAG: arith.constant 50 : index
-    // CHECK-DAG: arith.constant 0.000000e+00 : f32
-    // CHECK-DAG: arith.constant 1.000000e+00 : f32
     // CHECK: arith.muli
     // CHECK: arith.cmpi sge
     // CHECK: arith.ori
@@ -36,11 +37,11 @@ func.func @decompose_mask_boundary_zero(%input: tensor<2x2x!ttcore.tile<32x32, f
 
 // CHECK-LABEL: func.func @decompose_mask_boundary_neginf
 // Verify tile_mask_boundary with <neginf> fill for max reductions
+// CHECK-DAG: arith.constant 0xFF800000 : f32
 func.func @decompose_mask_boundary_neginf(%input: tensor<2x2x!ttcore.tile<32x32, f32>>) -> tensor<2x2x!ttcore.tile<32x32, f32>> {
     %empty = tensor.empty() : tensor<2x2x!ttcore.tile<32x32, f32>>
     // CHECK: linalg.generic
     // CHECK-NOT: d2m.tile_mask_boundary
-    // CHECK-DAG: arith.constant 0xFF800000 : f32
     // CHECK: arith.select
     // CHECK: d2m.tile_mul
     // CHECK: d2m.tile_add
@@ -60,11 +61,11 @@ func.func @decompose_mask_boundary_neginf(%input: tensor<2x2x!ttcore.tile<32x32,
 // CHECK-LABEL: func.func @decompose_mask_complete_tile_oob
 // Test with logical shape = [32, 32] aligned to 64x64 - tiles at (0,1), (1,0), (1,1)
 // are entirely outside the logical bounds.
+// CHECK-DAG: arith.constant 32 : index
 func.func @decompose_mask_complete_tile_oob(%input: tensor<2x2x!ttcore.tile<32x32, f32>>) -> tensor<2x2x!ttcore.tile<32x32, f32>> {
     %empty = tensor.empty() : tensor<2x2x!ttcore.tile<32x32, f32>>
     // CHECK: linalg.generic
     // CHECK-NOT: d2m.tile_mask_boundary
-    // CHECK-DAG: arith.constant 32 : index
     // CHECK: arith.select
     // CHECK: d2m.tile_mul
     // CHECK: d2m.tile_add
