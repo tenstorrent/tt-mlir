@@ -41,7 +41,7 @@ class JitFunction:
         self.func = func
         self.source_code = cleanup_source_code(func)
         self.compile_only = compile_only
-        self.debug = debug
+        self.debug = debug or compile_only
         self.graph_capture = graph_capture
         self.out_dir = os.path.join("generated", "ttnn-jit", func.__name__)
         self.math_fidelity = math_fidelity
@@ -56,6 +56,17 @@ class JitFunction:
         # Each JitFunction hold its own cache.
         # Hashing based off runtime tensor metadata.
         self.cache = JitCache(64) if enable_cache else None
+
+    def _validate_arguments(self, args, kwargs):
+        """Validate arguments (handles defaults and kwargs)."""
+        sig = inspect.signature(self.func)
+        try:
+            sig.bind(*args, **kwargs)
+        except TypeError as e:
+            raise ValueError(
+                f"Invalid arguments for function {self.func.__name__}: {str(e)}"
+            ) from e
+        return sig
 
     def _query_and_save_system_desc(self, ttnn_device=None):
         """Query system descriptor from device and save it to a file.
@@ -98,16 +109,9 @@ class JitFunction:
                 args[0].device() if args else None
             )
 
-        tensor_args = {}
-        param_names = list(inspect.signature(self.func).parameters.keys())
-        if len(param_names) != len(args):
-            raise ValueError(
-                f"Passed {len(args)} args, but function expects {len(param_names)}"
-            )
-
-        for i, arg in enumerate(args):
-            tensor_args[param_names[i]] = arg
-        kwargs["_tensor_args"] = tensor_args
+        sig = self._validate_arguments(args, kwargs)
+        param_names = list(sig.parameters.keys())
+        kwargs["_tensor_args"] = {param_names[i]: args[i] for i in range(len(args))}
 
         # Cache hit, no need to compile.
         if self.cache and self.cache.contains(*args):
@@ -126,15 +130,14 @@ class JitFunction:
         options = f"system-desc-path={self.system_desc_path} ttnn-mode=true set-math-fidelity={self.math_fidelity.name}"
         if self.compile_only:
             ttnn_to_ttmetal_pipeline(ir, options)
-            if self.debug:
-                print("---- IR Dump after ttnn_to_ttmetal_pipeline ----")
-                print(ir)
+            print("---- IR Dump after ttnn_to_ttmetal_pipeline ----")
+            print(ir)
 
             # Dump kernels to C++ files in generated/ttnn-jit
             ttkernel_to_cpp_file(ir, self.out_dir)
 
             # Generate and dump flatbuffer in generated/ttnn-jit
-            flatbuffer_file = os.path.join(self.out_dir, self.func.__name__ + ".ttn")
+            flatbuffer_file = os.path.join(self.out_dir, self.func.__name__ + ".ttnn")
             ttnn_to_flatbuffer_file(ir, flatbuffer_file, {}, [])
             return ir
 
