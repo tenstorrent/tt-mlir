@@ -3230,6 +3230,13 @@ def ttir_convolution_golden(
     # Now input_tensor is in NCHW format, call PyTorch conv2d directly
     groups = feature_group_count
 
+    # Ensure input and weight have matching dtypes for conv2d
+    # Use the input dtype as the common dtype since it comes from the computation chain
+    if input_tensor.dtype != weight.dtype:
+        weight = weight.to(input_tensor.dtype)
+        if bias is not None:
+            bias = bias.to(input_tensor.dtype)
+
     result = torch.nn.functional.conv2d(
         input_tensor,
         weight,
@@ -3249,6 +3256,14 @@ def ttir_convolution_golden(
     return result.to(output_dtype)
 
 
+# NOTE: Supports both NCHW and NHWC layouts based on spatial_dim_indices.
+# Layout detection follows TTIRToTTIRDecomposition behavior:
+# - NCHW: spatial dims at [2, 3] for 4D tensor (window_dimensions like [1, 1, kH, kW])
+# - NHWC: spatial dims at [1, 2] for 4D tensor (window_dimensions like [1, kH, kW, 1])
+# Spatial dims are detected by finding indices where window_dimensions > 1.
+# If exactly 2 spatial dims cannot be identified, defaults to NCHW (last two positions).
+# See: lib/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.cpp
+# PyTorch pooling expects NCHW, so we permute NHWC to NCHW before pooling and back after.
 def ttir_pooling_golden(
     input_tensor: GoldenMapTensor,
     pooling_method_attr: Attribute,
@@ -3259,6 +3274,8 @@ def ttir_pooling_golden(
     padding_attr: DenseI64ArrayAttr,
     output_type_mlir: Type,
 ) -> GoldenMapTensor:
+    import torch.nn.functional as F
+
     pooling_method = pooling_method_attr
     window_dimensions = unpack_mlir_attr(window_dimensions_attr)
     window_strides = unpack_mlir_attr(window_strides_attr)
@@ -3267,22 +3284,31 @@ def ttir_pooling_golden(
     padding = unpack_mlir_attr(padding_attr)
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
 
+    num_dims = len(window_dimensions)
+
     # Find spatial dimensions (those with window_dimensions > 1)
     spatial_dim_indices = [i for i, dim in enumerate(window_dimensions) if dim > 1]
 
-    # Validate spatial dimensions
-    if len(spatial_dim_indices) == 0 or len(spatial_dim_indices) > 2:
-        raise ValueError(
-            f"Pooling with {len(spatial_dim_indices)} spatial dimensions not supported. "
-            f"Expected 1 or 2 spatial dimensions."
-        )
-
-    # Default to last two dimensions if window dimensions are all 1
-    num_dims = len(window_dimensions)
-    if len(spatial_dim_indices) < 2:
+    # Default to last two dimensions if we don't have exactly 2 spatial dims
+    # (matches C++ decomposition behavior - assumes NCHW)
+    if len(spatial_dim_indices) != 2:
         spatial_dim_indices = [num_dims - 2, num_dims - 1]
 
-    # Extract kernel, stride, dilation, and padding for the spatial dimensions
+    # Determine if input is NHWC (spatial at [1, 2]) or NCHW (spatial at [2, 3])
+    # For 4D tensors: NCHW has spatial at [2, 3], NHWC has spatial at [1, 2]
+    is_nhwc = num_dims == 4 and spatial_dim_indices == [1, 2]
+
+    # If NHWC, permute to NCHW for PyTorch pooling (which expects NCHW)
+    if is_nhwc:
+        # NHWC [N, H, W, C] -> NCHW [N, C, H, W]
+        pool_input = input_tensor.permute(0, 3, 1, 2)
+        # After permute, spatial dims are now at [2, 3] (H, W in NCHW)
+        nchw_spatial_indices = [2, 3]
+    else:
+        pool_input = input_tensor
+        nchw_spatial_indices = spatial_dim_indices
+
+    # Extract kernel, stride, dilation for the spatial dimensions
     kernel = [window_dimensions[i] for i in spatial_dim_indices]
     stride = [window_strides[i] for i in spatial_dim_indices]
     dilation = [window_dilations[i] for i in spatial_dim_indices]
@@ -3296,44 +3322,62 @@ def ttir_pooling_golden(
         padding[2 * spatial_dim_indices[1] + 1],  # right
     ]
 
-    # Get pooling method enum value
+    # Handle padding - convert from [top, left, bottom, right] to PyTorch format
+    top, left, bottom, right = pool_padding
     pooling_method_str = str(pooling_method)
 
-    # Call the appropriate golden function based on pooling method
+    if top == bottom and left == right:
+        torch_padding = (top, left)
+        padded_input = pool_input
+    else:
+        # For asymmetric padding, manually pad first
+        # PyTorch F.pad expects padding in reverse order: [left, right, top, bottom]
+        manual_padding = [left, right, top, bottom]
+        if "Max" in pooling_method_str:
+            padded_input = F.pad(
+                pool_input, manual_padding, mode="constant", value=float("-inf")
+            )
+        else:
+            padded_input = F.pad(pool_input, manual_padding, mode="constant", value=0)
+        torch_padding = 0
+
+    # Call appropriate torch function (input is now in NCHW format)
     if "Max" in pooling_method_str:
-        result = max_pool2d_golden(
-            input_tensor,
-            kernel=kernel,
+        result = torch.nn.functional.max_pool2d(
+            padded_input,
+            kernel_size=kernel,
             stride=stride,
-            padding=pool_padding,
+            padding=torch_padding,
             dilation=dilation,
             ceil_mode=False,
         )
     elif "Average" in pooling_method_str:
-        result = avg_pool2d_golden(
-            input_tensor,
-            kernel=kernel,
+        result = torch.nn.functional.avg_pool2d(
+            padded_input,
+            kernel_size=kernel,
             stride=stride,
-            padding=pool_padding,
-            dilation=dilation,
+            padding=torch_padding,
             ceil_mode=False,
             count_include_pad=True,
         )
     elif "Sum" in pooling_method_str:
-        # Sum pooling = average pooling * kernel size
-        result = avg_pool2d_golden(
-            input_tensor,
-            kernel=kernel,
+        result = torch.nn.functional.avg_pool2d(
+            padded_input,
+            kernel_size=kernel,
             stride=stride,
-            padding=pool_padding,
-            dilation=dilation,
+            padding=torch_padding,
             ceil_mode=False,
             count_include_pad=True,
         )
-        kernel_size = kernel[0] * kernel[1]
-        result = torch.mul(result, kernel_size)
+        kernel_size_val = kernel[0] * kernel[1]
+        result = torch.mul(result, kernel_size_val)
     else:
         raise ValueError(f"Unknown pooling method: {pooling_method_str}")
+
+    # If input was NHWC, permute result back from NCHW to NHWC
+    if is_nhwc:
+        # NCHW [N, C, H', W'] -> NHWC [N, H', W', C]
+        result = result.permute(0, 2, 3, 1)
 
     return result.to(output_dtype)
 

@@ -1006,46 +1006,104 @@ def test_batch_norm_training(
     )
 
 
+# Layout is determined by spatial dim indices (where window_dimensions > 1):
+# - NCHW: spatial dims at [2, 3], window_dimensions like [1, 1, kH, kW]
+# - NHWC: spatial dims at [1, 2], window_dimensions like [1, kH, kW, 1]
+# If exactly 2 spatial dims cannot be identified, defaults to NCHW.
 @pytest.mark.parametrize(
-    "pooling_method,window_dims,window_strides,padding,window_dilations",
+    "pooling_method,window_dims,window_strides,padding,window_dilations,shape",
     [
-        # ResNet-style max pooling: 3x3 window, stride 2 (NCHW format)
+        # ===== NCHW format tests =====
+        # window_dimensions: [batch, channel, height, width] - spatial at positions 2,3
+        # shape: [N, C, H, W]
+        # Max pooling: 3x3 window, stride 2 (NCHW format)
+        (
+            "Max",
+            [1, 1, 3, 3],
+            [1, 1, 2, 2],
+            [0, 0, 0, 0, 0, 0, 0, 0],
+            [1, 1, 1, 1],
+            (1, 64, 114, 114),
+        ),
+        # Average pooling: 2x2 window, stride 2 (NCHW format)
+        (
+            "Average",
+            [1, 1, 2, 2],
+            [1, 1, 2, 2],
+            [0, 0, 0, 0, 0, 0, 0, 0],
+            [1, 1, 1, 1],
+            (1, 32, 64, 64),
+        ),
+        # Sum pooling: 2x2 window, stride 2 (NCHW format)
+        (
+            "Sum",
+            [1, 1, 2, 2],
+            [1, 1, 2, 2],
+            [0, 0, 0, 0, 0, 0, 0, 0],
+            [1, 1, 1, 1],
+            (1, 64, 114, 114),
+        ),
+        # Max pooling with padding (NCHW format)
+        # padding: [batch_lo, batch_hi, channel_lo, channel_hi, height_lo, height_hi, width_lo, width_hi]
+        (
+            "Max",
+            [1, 1, 3, 3],
+            [1, 1, 1, 1],
+            [0, 0, 0, 0, 1, 1, 1, 1],
+            [1, 1, 1, 1],
+            (1, 32, 64, 64),
+        ),
+        # ===== NHWC format tests =====
+        # window_dimensions: [batch, height, width, channel] - spatial at positions 1,2
+        # shape: [N, H, W, C]
+        # Max pooling: 3x3 window, stride 2 (NHWC format)
         (
             "Max",
             [1, 3, 3, 1],
             [1, 2, 2, 1],
             [0, 0, 0, 0, 0, 0, 0, 0],
             [1, 1, 1, 1],
+            (1, 114, 114, 64),
         ),
-        # Average pooling: 2x2 window, stride 2 (NCHW format)
+        # Average pooling: 2x2 window, stride 2 (NHWC format)
         (
             "Average",
             [1, 2, 2, 1],
             [1, 2, 2, 1],
             [0, 0, 0, 0, 0, 0, 0, 0],
             [1, 1, 1, 1],
+            (1, 64, 64, 32),
         ),
-        # Sum pooling: 2x2 window, stride 2 (NCHW format)
+        # Sum pooling: 2x2 window, stride 2 (NHWC format)
         (
             "Sum",
             [1, 2, 2, 1],
             [1, 2, 2, 1],
             [0, 0, 0, 0, 0, 0, 0, 0],
             [1, 1, 1, 1],
+            (1, 114, 114, 64),
         ),
-        # Max pooling with padding (NCHW format)
+        # Max pooling with padding (NHWC format)
+        # padding: [batch_lo, batch_hi, height_lo, height_hi, width_lo, width_hi, channel_lo, channel_hi]
         (
             "Max",
             [1, 3, 3, 1],
             [1, 1, 1, 1],
-            [0, 0, 0, 0, 1, 1, 1, 1],
+            [0, 0, 1, 1, 1, 1, 0, 0],
             [1, 1, 1, 1],
+            (1, 64, 64, 32),
         ),
     ],
-    ids=["resnet_max_3x3_s2", "avg_2x2_s2", "sum_2x2_s2", "max_3x3_padded"],
-)
-@pytest.mark.parametrize(
-    "shape", [(1, 64, 114, 114), (1, 32, 64, 64)], ids=["resnet_114x114", "64x64"]
+    ids=[
+        "nchw_max_3x3_s2",
+        "nchw_avg_2x2_s2",
+        "nchw_sum_2x2_s2",
+        "nchw_max_3x3_padded",
+        "nhwc_max_3x3_s2",
+        "nhwc_avg_2x2_s2",
+        "nhwc_sum_2x2_s2",
+        "nhwc_max_3x3_padded",
+    ],
 )
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
 def test_pooling(

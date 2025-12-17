@@ -3687,6 +3687,12 @@ class TTIRBuilder(Builder):
 
     ############### ttir.PoolingOp ###############
 
+    # NOTE: Supports both NCHW and NHWC layouts based on window_dimensions.
+    # Layout is determined by spatial dim indices (where window_dimensions > 1):
+    # - NCHW: spatial dims at [2, 3], window_dimensions like [1, 1, kH, kW]
+    # - NHWC: spatial dims at [1, 2], window_dimensions like [1, kH, kW, 1]
+    # If exactly 2 spatial dims cannot be identified, defaults to NCHW.
+    # See: lib/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.cpp
     @tag(ttir.PoolingOp)
     def pooling(
         self,
