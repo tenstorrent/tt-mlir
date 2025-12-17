@@ -158,6 +158,24 @@ inline ::ttnn::Tensor createTTNNTensor(
   return tensor;
 }
 
+// Create a TTNN tensor that borrows the memory from data without copying.
+// An optional deletion callback can be provided to free the memory when the
+// tensor is destroyed.
+template <typename T>
+inline ::ttnn::Tensor createBorrowedTTNNTensor(
+    void *data, const ::ttnn::Shape &shape,
+    std::function<void()> deletionCallback = []() {}) {
+  // Create MemoryPin with shared_ptr that frees the allocated memory.
+  auto pin = ::tt::tt_metal::MemoryPin(std::shared_ptr<void>(
+      data, [deletionCallback](void *) { deletionCallback(); }));
+
+  std::uint64_t numElements = shape.volume();
+  T *typedData = static_cast<T *>(data);
+  ::ttsl::Span<T> span(typedData, typedData + numElements);
+
+  return ::ttnn::Tensor::from_borrowed_data(span, shape, pin);
+}
+
 template <typename T>
 inline T getScalarFromTensor(const ::ttnn::Tensor &tensor) {
   std::vector<T> data = tensor.to_vector<T>();

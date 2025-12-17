@@ -38,7 +38,7 @@ struct WrappedTensor {
   int64_t *sizesAndStrides;
 };
 
-using WrappedFunc = void (*)(WrappedTensor *);
+using WrappedFunc = WrappedTensor *(*)(WrappedTensor *);
 
 // Common function to pack tensors, using std::function for the customizable
 // parts
@@ -105,6 +105,56 @@ prepareSizesAndStrides(const std::vector<int64_t> &sizes,
   std::transform(strides.begin(), strides.end(),
                  allSizesAndStrides.back().begin() + rank,
                  [](uint32_t s) -> int64_t { return s; });
+}
+
+// Callback type for creating tensors from WrappedTensor.
+//
+// The callback receives the tensor reference, the WrappedTensor, and a
+// deletion callback function that should be called to free the buffer when
+// the created tensor is destroyed.
+//
+template <typename TensorType, typename TensorRefType>
+using CreateTensorCallbackType =
+    std::function<TensorType(const TensorRefType *, const WrappedTensor &,
+                             std::function<void()> deletionCallback)>;
+// Unpack tensors returned from a CPU-hoisted function.
+//
+// Takes the returned WrappedTensor array and a target-specific callback to
+// create tensors. Returns a vector of created tensors.
+//
+template <typename TensorType, typename TensorRefType>
+std::vector<TensorType> inline unpackTensors(
+    WrappedTensor *outputArray, size_t numOutputs,
+    const flatbuffers::Vector<flatbuffers::Offset<TensorRefType>> *outs,
+    CreateTensorCallbackType<TensorType, TensorRefType> createTensorCallback) {
+  std::vector<TensorType> results;
+  results.reserve(numOutputs);
+
+  // Create tensors using the provided callback.
+  for (size_t i = 0; i < numOutputs; ++i) {
+    const WrappedTensor &wrappedTensor = outputArray[i];
+
+    // Deletion callback function to free the buffer allocated inside the
+    // CPU-hoisted function.
+    auto deletionCallback = [data = wrappedTensor.start]() { std::free(data); };
+
+    results.push_back(
+        createTensorCallback(outs->Get(i), wrappedTensor, deletionCallback));
+  }
+
+  // Free the sizesAndStrides buffer allocated inside the CPU-hoisted function
+  // (all outputs share one allocation).
+  if (numOutputs > 0) {
+    // NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
+    std::free(outputArray[0].sizesAndStrides);
+  }
+
+  // Free the output WrappedTensor array allocated inside the CPU-hoisted
+  // function.
+  //  NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
+  std::free(outputArray);
+
+  return results;
 }
 
 class DylibManager {

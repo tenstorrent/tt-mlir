@@ -12,9 +12,6 @@
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/utils.h"
 
-#include <dlfcn.h>
-#include <link.h>
-
 namespace tt::runtime::ttnn::operations::cpu {
 
 void run(const ::tt::target::ttnn::CpuOp *op, ProgramContext &context) {
@@ -35,20 +32,45 @@ void run(const ::tt::target::ttnn::CpuOp *op, ProgramContext &context) {
   auto dylibInputs = tt::runtime::common::packTensors(
       fbInputs, getTensorDataPtr, allSizesAndStrides);
 
-  // Last inputs are actually output destinations. We need to associate outputs
-  // with the output destination tensors already in the pool.
-  for (size_t i = 0; i < op->outs()->size(); ++i) {
-    const auto &fbOutput = op->outs()->Get(i);
+  // Call the CPU function and get returned outputs.
+  common::WrappedTensor *outputArray = fn(dylibInputs.data());
 
-    ::ttnn::Tensor outTensor = context.getTensorPool().getTTNNTensorAndValidate(
-        fbInputs->Get(fbInputs->size() - op->outs()->size() + i));
+  // Callback for tensor creation from WrappedTensor.
+  common::CreateTensorCallbackType<::ttnn::Tensor,
+                                   ::tt::target::ttnn::TensorRef>
+      createTensor =
+          [](const tt::target::ttnn::TensorRef *ref,
+             const common::WrappedTensor &wrapped,
+             std::function<void()> deletionCallback) -> ::ttnn::Tensor {
+    ::ttnn::Shape shape = utils::toTTNNShape(*ref->desc()->shape());
+    ::ttnn::DataType dtype = ::tt::runtime::ttnn::utils::toTTNNDataType(
+        ref->desc()->layout()->memory_desc()->data_type());
 
-    context.getTensorPool().insertTTNNTensorAndValidate(fbOutput, outTensor);
+    ::ttnn::Tensor tensor;
+    switch (dtype) {
+    case ::ttnn::DataType::FLOAT32:
+      tensor = ::tt::runtime::ttnn::utils::createBorrowedTTNNTensor<float>(
+          wrapped.alignedStart, shape, deletionCallback);
+      break;
+    case ::ttnn::DataType::INT32:
+      tensor = ::tt::runtime::ttnn::utils::createBorrowedTTNNTensor<int32_t>(
+          wrapped.alignedStart, shape, deletionCallback);
+      break;
+    default:
+      LOG_FATAL("Unsupported data type for CPU op output");
+    }
+
+    return tensor;
+  };
+
+  // Unpack outputs and insert into tensor pool.
+  auto outputs = common::unpackTensors<::ttnn::Tensor>(
+      outputArray, op->outs()->size(), op->outs(), createTensor);
+
+  for (size_t i = 0; i < outputs.size(); ++i) {
+    context.getTensorPool().insertTTNNTensorAndValidate(op->outs()->Get(i),
+                                                        outputs[i]);
   }
-
-  fn(dylibInputs.data());
-  // We don't need to unpack any data from output, it should be written directly
-  // to correct memory.
 }
 
 } // namespace tt::runtime::ttnn::operations::cpu
