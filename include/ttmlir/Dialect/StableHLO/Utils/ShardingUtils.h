@@ -38,7 +38,7 @@ inline constexpr llvm::StringLiteral
 
 inline const llvm::SmallVector<llvm::SmallVector<int64_t, 2>, 7>
     SupportedMeshes = {
-        {{1, 1}, {1, 2}, {1, 4}, {1, 8}, {2, 4}, {1, 32}, {8, 4}}};
+        {{1, 1}, {1, 2}, {1, 4}, {1, 8}, {2, 4}, {4, 2}, {1, 32}, {8, 4}}};
 
 // Check if the meshMap is valid.
 // todo: https://github.com/tenstorrent/tt-mlir/issues/4668
