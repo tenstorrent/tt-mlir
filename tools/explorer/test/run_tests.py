@@ -77,6 +77,7 @@ def GET_TTNN_TEST():
             return test
     return None
 
+
 @pytest.fixture(scope="function")
 def start_server(request):
     """Start the model explorer server before running tests and stop it after."""
