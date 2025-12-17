@@ -3256,14 +3256,14 @@ def ttir_convolution_golden(
     return result.to(output_dtype)
 
 
-# NOTE: We assume NCHW format (spatial dims at positions 2,3 for 4D tensors).
-# This matches the assumption in the TTIRToTTIRDecomposition pass which defaults
-# to NCHW when spatial dimensions cannot be determined from window_dimensions.
+# NOTE: Supports both NCHW and NHWC layouts based on spatial_dim_indices.
+# Layout detection follows TTIRToTTIRDecomposition behavior:
+# - NCHW: spatial dims at [2, 3] for 4D tensor (window_dimensions like [1, 1, kH, kW])
+# - NHWC: spatial dims at [1, 2] for 4D tensor (window_dimensions like [1, kH, kW, 1])
+# Spatial dims are detected by finding indices where window_dimensions > 1.
+# If exactly 2 spatial dims cannot be identified, defaults to NCHW (last two positions).
 # See: lib/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.cpp
-# The decomposition pass (ttir.pooling -> ttir.avg_pool2d/max_pool2d) adds permutes
-# to convert to NHWC for the specific pool ops. So here we do NOT permute - we
-# assume input is already in NCHW and call PyTorch pooling directly.
-# TODO(dloke, tpatel): Follow up on this with fe teams to discuss how to handle nhwc format.
+# PyTorch pooling expects NCHW, so we permute NHWC to NCHW before pooling and back after.
 def ttir_pooling_golden(
     input_tensor: GoldenMapTensor,
     pooling_method_attr: Attribute,
@@ -3294,6 +3294,20 @@ def ttir_pooling_golden(
     if len(spatial_dim_indices) != 2:
         spatial_dim_indices = [num_dims - 2, num_dims - 1]
 
+    # Determine if input is NHWC (spatial at [1, 2]) or NCHW (spatial at [2, 3])
+    # For 4D tensors: NCHW has spatial at [2, 3], NHWC has spatial at [1, 2]
+    is_nhwc = num_dims == 4 and spatial_dim_indices == [1, 2]
+
+    # If NHWC, permute to NCHW for PyTorch pooling (which expects NCHW)
+    if is_nhwc:
+        # NHWC [N, H, W, C] -> NCHW [N, C, H, W]
+        pool_input = input_tensor.permute(0, 3, 1, 2)
+        # After permute, spatial dims are now at [2, 3] (H, W in NCHW)
+        nchw_spatial_indices = [2, 3]
+    else:
+        pool_input = input_tensor
+        nchw_spatial_indices = spatial_dim_indices
+
     # Extract kernel, stride, dilation for the spatial dimensions
     kernel = [window_dimensions[i] for i in spatial_dim_indices]
     stride = [window_strides[i] for i in spatial_dim_indices]
@@ -3314,20 +3328,20 @@ def ttir_pooling_golden(
 
     if top == bottom and left == right:
         torch_padding = (top, left)
-        padded_input = input_tensor
+        padded_input = pool_input
     else:
         # For asymmetric padding, manually pad first
         # PyTorch F.pad expects padding in reverse order: [left, right, top, bottom]
         manual_padding = [left, right, top, bottom]
         if "Max" in pooling_method_str:
             padded_input = F.pad(
-                input_tensor, manual_padding, mode="constant", value=float("-inf")
+                pool_input, manual_padding, mode="constant", value=float("-inf")
             )
         else:
-            padded_input = F.pad(input_tensor, manual_padding, mode="constant", value=0)
+            padded_input = F.pad(pool_input, manual_padding, mode="constant", value=0)
         torch_padding = 0
 
-    # Call appropriate torch function directly (input is already in NCHW)
+    # Call appropriate torch function (input is now in NCHW format)
     if "Max" in pooling_method_str:
         result = torch.nn.functional.max_pool2d(
             padded_input,
@@ -3359,6 +3373,11 @@ def ttir_pooling_golden(
         result = torch.mul(result, kernel_size_val)
     else:
         raise ValueError(f"Unknown pooling method: {pooling_method_str}")
+
+    # If input was NHWC, permute result back from NCHW to NHWC
+    if is_nhwc:
+        # NCHW [N, C, H', W'] -> NHWC [N, H', W', C]
+        result = result.permute(0, 2, 3, 1)
 
     return result.to(output_dtype)
 
