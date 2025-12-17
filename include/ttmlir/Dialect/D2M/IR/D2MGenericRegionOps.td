@@ -701,7 +701,7 @@ def D2M_TileUntilizeBlockOp : D2M_GenericRegionComputeOp<"tile_untilize_block",
     let hasVerifier = 1;
 }
 
-def D2M_TileTypecastOp : D2M_GenericRegionComputeUnaryDstOp<"tile_typecast"> {
+def D2M_TileTypecastOp : D2M_GenericRegionComputeUnaryDstOp<"tile_typecast", [D2M_SkipOpEltwiseFusionTrait]> {
     let summary = "D2M Tile Typecast Op";
     let description = [{
         The `tile_typecast` operation casts the input tile to the desired dataformat.
