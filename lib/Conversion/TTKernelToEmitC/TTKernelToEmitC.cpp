@@ -742,23 +742,18 @@ public:
     Value dstIndex = operands[0];
     Value scalarParam = operands[1];
 
-    // Create a volatile variable to bounce the scalar through.
-    // This prevents the compiler from optimizing away the scalar computation.
-    auto volatileType = emitc::LValueType::get(
-        emitc::OpaqueType::get(op.getContext(), "volatile int32_t"));
-    auto varOp = rewriter.create<emitc::VariableOp>(
-        op->getLoc(), volatileType,
-        emitc::OpaqueAttr::get(op.getContext(), ""));
-    rewriter.create<emitc::AssignOp>(op->getLoc(), varOp, scalarParam);
-
-    // Load from the volatile variable.
-    auto loadOp = rewriter.create<emitc::LoadOp>(op->getLoc(),
-                                                 rewriter.getI32Type(), varOp);
-
-    // Call the tile op with (dst_index, volatile_scalar).
-    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-        op, TypeRange(), getOpName(op), nullptr, nullptr,
-        ValueRange{dstIndex, loadOp.getResult()});
+    // Use verbatim to emit the volatile bounce directly.
+    // This works around EmitC's strict type checking and ensures the
+    // GCC toolchain doesn't optimize away the scalar computation.
+    //
+    // Emits: { volatile int32_t __s = <scalar>; <op>(<idx>, __s); }
+    // Note: {{ produces { but } is not escaped (EmitC quirk).
+    std::string code =
+        "{{ volatile int32_t __s = {}; " + getOpName(op).str() + "({}, __s); }";
+    rewriter.create<emitc::VerbatimOp>(op->getLoc(),
+                                       rewriter.getStringAttr(code),
+                                       ValueRange{scalarParam, dstIndex});
+    rewriter.eraseOp(op);
 
     return success();
   }

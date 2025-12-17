@@ -145,6 +145,8 @@ def test_tilize_no_masking_when_aligned(shape: Shape, target: str, request, devi
     When tensors are already tile-aligned (multiples of 32) and we don't force
     extra alignment, the masking pass should essentially be a no-op (no OOB tiles).
     """
+    # Create deterministic input
+    input_tensor = torch.randn(shape, dtype=torch.float32)
 
     def module(builder: D2MBuilder):
         @builder.func([shape], [torch.float32])
@@ -153,6 +155,9 @@ def test_tilize_no_masking_when_aligned(shape: Shape, target: str, request, devi
             builder: D2MBuilder,
             unit_attrs: List[str] = None,
         ):
+            # Set input and golden - output should match input (roundtrip)
+            builder.set_goldens(inputs={in0: input_tensor}, outputs={})
+
             # No explicit dim_alignments - uses natural tile alignment
             to_device = builder.tilize(
                 in0,
@@ -169,6 +174,9 @@ def test_tilize_no_masking_when_aligned(shape: Shape, target: str, request, devi
                 output_type=in0.type,
                 unit_attrs=unit_attrs,
             )
+
+            # Golden is the input - roundtrip should preserve data
+            builder.set_goldens(inputs={}, outputs={from_device: input_tensor})
 
             return from_device
 
