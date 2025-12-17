@@ -3823,7 +3823,7 @@ public:
         patterns.add<PermuteMatmulFusionPattern<LinearOp>>(&getContext());
       }
       patterns.add<RepVGGConvSumFusionPattern>(&getContext());
-      patterns.add<ConcatenateHeadsUpdatePattern>(&getContext());
+      //patterns.add<ConcatenateHeadsUpdatePattern>(&getContext());
       patterns.add<SplitQueryKeyValueAndSplitHeadsUpdatePattern<MatmulOp>>(
           &getContext());
       patterns.add<SplitQueryKeyValueAndSplitHeadsUpdatePattern<LinearOp>>(
@@ -3836,8 +3836,8 @@ public:
       patterns.add<SpatialMeanOptimizationPattern>(&getContext());
       patterns.add<MatmulWithBiasFusionPattern>(&getContext());
       patterns.add<SDPAFusing>(&getContext());
-      patterns.add<RMSNormFusionPattern>(&getContext());
-      patterns.add<RMSNormReshapeFoldPattern>(&getContext());
+      //patterns.add<RMSNormFusionPattern>(&getContext());
+      //patterns.add<RMSNormReshapeFoldPattern>(&getContext());
 
       patterns.add<GeluFusionPattern>(&getContext());
       patterns.add<Relu6FusionPattern>(&getContext());
