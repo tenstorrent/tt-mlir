@@ -604,8 +604,9 @@ public:
 
   // Lower masking operation using a d2m.generic + linalg.generic structure.
   // The TileMaskBoundaryOp is applied to each tile within the shards.
-  Value lowerMaskingGeneric(PatternRewriter &rewriter, Value input, Value output,
-                            Location loc, ArrayRef<int64_t> logicalShape,
+  Value lowerMaskingGeneric(PatternRewriter &rewriter, Value input,
+                            Value output, Location loc,
+                            ArrayRef<int64_t> logicalShape,
                             ttcore::OOBVal fillValue) const {
     auto inputType = mlir::cast<RankedTensorType>(input.getType());
     auto inputLayout =
@@ -768,12 +769,21 @@ public:
     // and padding exists.
     if (currentInfo.hasLayout() && ttcore::isTiled(currentInfo.type) &&
         needsMasking(*currentInfo.layout, currentInfo.type)) {
-      // Create output with same type as input (masking is in-place semantics)
-      auto maskedEmpty = createEmpty(currentInfo.type);
-      currentValue = lowerMaskingGeneric(
-          rewriter, currentValue, maskedEmpty, op.getLoc(),
-          currentInfo.layout->getLogicalShape(),
-          currentInfo.layout->getOobVal());
+      // Create a NEW output buffer for masking - must NOT be aliased with input
+      // during bufferization, otherwise the CB synchronization will fail.
+      // Always create a fresh EmptyOp rather than potentially reusing existing
+      // buffers via createEmpty().
+      auto layout = mlir::dyn_cast<ttcore::MetalLayoutAttr>(
+          currentInfo.type.getEncoding());
+      auto maskedEmpty =
+          rewriter
+              .create<d2m::EmptyOp>(op.getLoc(), currentInfo.type.getShape(),
+                                    currentInfo.type.getElementType(), layout)
+              .getResult();
+      currentValue =
+          lowerMaskingGeneric(rewriter, currentValue, maskedEmpty, op.getLoc(),
+                              currentInfo.layout->getLogicalShape(),
+                              currentInfo.layout->getOobVal());
       currentInfo = TensorInfo::from(currentValue);
     }
 

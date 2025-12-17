@@ -101,23 +101,21 @@ def test_complete_tile_masking(
                 unit_attrs=unit_attrs,
             )
 
-            # View as row-major with the ALIGNED shape (not logical)
-            id_map = AffineMap.get_identity(2 * len(aligned_shape), builder._ctx)
-            view_as_rm = builder.view_layout(
+            # View as tiled with the ALIGNED logical shape
+            # Keep tiled=True so the final to_layout will properly untilize
+            view_with_aligned_logical = builder.view_layout(
                 to_device,
                 output_type=builder.get_metal_tensor_layout(
-                    aligned_shape, tiled=False, index_map=id_map
+                    aligned_shape, tiled=True, oobVal=oobval
                 ),
                 reinterpret_layout=True,
                 unit_attrs=unit_attrs,
             )
 
-            # Output type is the aligned shape
-            output_type = RankedTensorType.get(
-                aligned_shape, F32Type.get(builder._ctx)
-            )
+            # Output type is the aligned shape - to_layout will untilize
+            output_type = RankedTensorType.get(aligned_shape, F32Type.get(builder._ctx))
             from_device = builder.to_layout(
-                view_as_rm,
+                view_with_aligned_logical,
                 output_type=output_type,
                 unit_attrs=unit_attrs,
             )
@@ -164,18 +162,10 @@ def test_tilize_no_masking_when_aligned(shape: Shape, target: str, request, devi
                 unit_attrs=unit_attrs,
             )
 
-            id_map = AffineMap.get_identity(2 * len(shape), builder._ctx)
-            view_as_rm = builder.view_layout(
-                to_device,
-                output_type=builder.get_metal_tensor_layout(
-                    shape, tiled=False, index_map=id_map
-                ),
-                reinterpret_layout=True,
-                unit_attrs=unit_attrs,
-            )
-
+            # For aligned shapes, we can directly untilize via to_layout
+            # No need for view_layout since logical shape equals aligned shape
             from_device = builder.to_layout(
-                view_as_rm,
+                to_device,
                 output_type=in0.type,
                 unit_attrs=unit_attrs,
             )

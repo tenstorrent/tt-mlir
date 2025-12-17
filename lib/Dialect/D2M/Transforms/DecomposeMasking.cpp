@@ -108,7 +108,8 @@ public:
         loc, logicalShape[logicalShape.size() - 1]);
 
     // Check if tile is completely out of bounds:
-    // entireTileOOB = (globalRowStart >= logicalH) || (globalColStart >= logicalW)
+    // entireTileOOB = (globalRowStart >= logicalH) || (globalColStart >=
+    // logicalW)
     Value rowOOB = rewriter.create<arith::CmpIOp>(
         loc, arith::CmpIPredicate::sge, globalRowStart, logicalHIdx);
     Value colOOB = rewriter.create<arith::CmpIOp>(
@@ -121,27 +122,21 @@ public:
     Value zero = createScalarConstant(rewriter, loc, 0.0, scalarType);
     Value one = createScalarConstant(rewriter, loc, 1.0, scalarType);
 
-    // Use arith.select to choose between 0.0 and 1.0 based on OOB flag.
-    // This avoids int-to-float conversions that may canonicalize to bitcast.
-    Value oobFlagFloat =
-        rewriter.create<arith::SelectOp>(loc, entireTileOOB, one, zero);
-
-    // Blend using: result = input * (1 - oobFlag) + addend
-    // Where addend = select(oob, fill, 0) to avoid inf * 0 = NaN
+    // Blend using: result = input * mulFactor + addend
+    // Where mulFactor = select(oob, 0, 1) and addend = select(oob, fill, 0)
     //
     // When NOT OOB: result = input * 1 + 0 = input
     // When OOB:     result = input * 0 + fill = fill
     //
     // Note: D2M tile ops support (tile, scalar) order for broadcasting.
-    Value oneMinusOob =
-        rewriter.create<arith::SubFOp>(loc, one, oobFlagFloat);
-    // Use select instead of multiply to avoid inf * 0 = NaN
+    Value mulFactor =
+        rewriter.create<arith::SelectOp>(loc, entireTileOOB, zero, one);
     Value addend =
         rewriter.create<arith::SelectOp>(loc, entireTileOOB, fillConst, zero);
 
-    // inputScaled = input * (1 - oobFlag)
+    // inputScaled = input * mulFactor
     Value inputScaled =
-        rewriter.create<TileMulOp>(loc, resultType, input, oneMinusOob);
+        rewriter.create<TileMulOp>(loc, resultType, input, mulFactor);
     // result = inputScaled + addend
     Value result =
         rewriter.create<TileAddOp>(loc, resultType, inputScaled, addend);

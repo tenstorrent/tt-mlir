@@ -533,6 +533,8 @@ createKernelConfig(
     computeConfig.unpack_to_dest_mode =
         common::toUnpackToDestModes(fbComputeConfig->unpack_to_dest_mode());
 
+    // computeConfig.opt_level = tt_metal::KernelBuildOptLevel::O0;
+
     return computeConfig;
   }
 
