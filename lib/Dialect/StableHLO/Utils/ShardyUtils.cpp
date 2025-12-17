@@ -749,6 +749,11 @@ parseDimensionShardings(const std::string &dimsContent,
   return dimShardings;
 }
 
+// Key for xla.sdy.priority in frontend_attributes
+constexpr llvm::StringLiteral kXlaSdyPriorityAttr = "xla.sdy.priority";
+// Key for preserving priority as a separate attribute
+constexpr llvm::StringLiteral kTTCoreSdyPriorityAttr = "ttcore.sdy_priority";
+
 // Convert dictionary with frontend attributes to dictionary with sdy.sharding.
 mlir::DictionaryAttr
 convertXlaSdyToSdyDictionary(mlir::MLIRContext *context,
@@ -783,6 +788,16 @@ convertXlaSdyToSdyDictionary(mlir::MLIRContext *context,
                              gspmd_utils::kFrontendAttributesAttr &&
                          attr.getName() != gspmd_utils::kXlaShardingAttr;
                 });
+
+  // Preserve xla.sdy.priority as a separate attribute if it exists
+  if (dictAttr.contains(kXlaSdyPriorityAttr)) {
+    if (auto priorityAttr = mlir::dyn_cast<mlir::StringAttr>(
+            dictAttr.get(kXlaSdyPriorityAttr))) {
+      newArgAttrs.emplace_back(
+          mlir::StringAttr::get(context, kTTCoreSdyPriorityAttr),
+          priorityAttr);
+    }
+  }
 
   // Find mesh name from the sharding string.
   // Example sharding string: "#sdy.sharding<@mesh, [{}, {\22_axis_0\22}]>"
