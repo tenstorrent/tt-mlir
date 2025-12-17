@@ -426,15 +426,41 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
             return
 
         try:
-            results = check_golden_outputs(
-                [golden_tensor_torch],
-                [output_tensor_torch],
-                callback_runtime_config.pcc,
+            cal_atol, cal_rtol, cal_pcc = get_atol_rtol_pcc(
+                golden_tensor_torch,
+                output_tensor_torch,
                 callback_runtime_config.atol,
                 callback_runtime_config.rtol,
-                callback_runtime_config.check_atol,
-                callback_runtime_config.check_rtol,
-            )["output_0"][device_id]
+            )
+
+            result = "pass"
+            if cal_pcc < callback_runtime_config.pcc:
+                result = "fail"
+            if (
+                callback_runtime_config.check_atol
+                and cal_atol > callback_runtime_config.atol
+            ):
+                result = "fail"
+            if (
+                callback_runtime_config.check_rtol
+                and cal_rtol > callback_runtime_config.rtol
+            ):
+                result = "fail"
+
+            results = {}
+            results["result"] = result
+            results["expected_pcc"] = callback_runtime_config.pcc
+            results["actual_pcc"] = cal_pcc
+            results["expected_atol"] = callback_runtime_config.atol
+            results["actual_atol"] = cal_atol
+            results["expected_rtol"] = callback_runtime_config.rtol
+            results["actual_rtol"] = cal_rtol
+            results["allclose"] = torch.allclose(
+                golden_tensor_torch,
+                output_tensor_torch,
+                atol=callback_runtime_config.atol,
+                rtol=callback_runtime_config.rtol,
+            )
             if (
                 golden_tensor_torch.dtype != torch.uint16
                 and golden_tensor_torch.dtype != torch.uint32
@@ -591,7 +617,6 @@ def execute_fb(
 
         e2e_duration_nanoseconds_output = 0
 
-        output_tensors_torch = []
         for i, runtime_output_tensor in enumerate(runtime_outputs):
             start_get_output = time.perf_counter_ns()
             output_host = tt_runtime.runtime.to_host(
@@ -621,21 +646,40 @@ def execute_fb(
                     data_buffer,
                     dtype=runtime_dtype_to_torch_dtype(outputs[i].get_dtype()),
                 ).reshape(outputs[i].get_shape())
-            output_tensors_torch.append(output_tensor_torch)
 
-        # Check golden outputs if not disabled
-        if not disable_golden and len(output_tensors_torch) > 0:
-            program_golden_report = check_golden_outputs(
-                golden_outputs_torch,
-                output_tensors_torch,
-                pcc,
+            cal_atol, cal_rtol, cal_pcc, = get_atol_rtol_pcc(
+                golden_outputs_torch[i],
+                output_tensor_torch,
                 atol,
                 rtol,
-                check_atol,
-                check_rtol,
             )
-            # Merge program golden report into callback runtime config golden report
-            callback_runtime_config.golden_report.update(program_golden_report)
+
+            if cal_pcc < pcc:
+                raise TTBuilderGoldenException(
+                    f"Failed: program-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={pcc}"
+                )
+            else:
+                print(f"Program level golden for output_{i} matched. pcc={cal_pcc}")
+
+            if check_atol:
+                if cal_atol > atol:
+                    raise TTBuilderGoldenException(
+                        f"Failed: program-level output atol check failed, actual_atol={cal_atol} > expected_atol={atol}"
+                    )
+                else:
+                    print(
+                        f"Program level atol check for output_{i} passed. atol={cal_atol}"
+                    )
+
+            if check_rtol:
+                if cal_rtol > rtol:
+                    raise TTBuilderGoldenException(
+                        f"Failed: program-level output rtol check failed, actual_rtol={cal_rtol} > expected_rtol={rtol}"
+                    )
+                else:
+                    print(
+                        f"Program level rtol check for output_{i} passed. rtol={cal_rtol}"
+                    )
 
     return callback_runtime_config.golden_report
 
@@ -721,25 +765,41 @@ def execute_py(
         raise TTBuilderRuntimeException(e) from e
 
     if not disable_golden:
-        golden_outputs_torch = []
-        for i in range(len(outputs)):
-            golden_outputs_torch.append(golden_torch_tensors[f"output_{i}"][0])
-
-        # Convert program outputs to torch tensors
-        output_tensors_torch = []
         for i, output in enumerate(outputs):
-            # Transfer from device to host and convert to torch
             output_host = ttnn.from_device(output)
             output_torch = output_host.to_torch()
-            output_tensors_torch.append(output_torch)
+            golden_output_torch = golden_torch_tensors[f"output_{i}"][0]
 
-        # Check golden outputs using common function
-        check_golden_outputs(
-            golden_outputs_torch,
-            output_tensors_torch,
-            pcc,
-            atol,
-            rtol,
-            check_atol,
-            check_rtol,
-        )
+            cal_atol, cal_rtol, cal_pcc, = get_atol_rtol_pcc(
+                golden_output_torch,
+                output_torch,
+                atol,
+                rtol,
+            )
+
+            if cal_pcc < pcc:
+                raise TTBuilderGoldenException(
+                    f"Failed: program-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={pcc}"
+                )
+            else:
+                print(f"Program level golden for output_{i} matched. pcc={cal_pcc}")
+
+            if check_atol:
+                if cal_atol > atol:
+                    raise TTBuilderGoldenException(
+                        f"Failed: program-level output atol check failed, actual_atol={cal_atol} > expected_atol={atol}"
+                    )
+                else:
+                    print(
+                        f"Program level atol check for output_{i} passed. atol={cal_atol}"
+                    )
+
+            if check_rtol:
+                if cal_rtol > rtol:
+                    raise TTBuilderGoldenException(
+                        f"Failed: program-level output rtol check failed, actual_rtol={cal_rtol} > expected_rtol={rtol}"
+                    )
+                else:
+                    print(
+                        f"Program level rtol check for output_{i} passed. rtol={cal_rtol}"
+                    )
