@@ -76,7 +76,8 @@ TEST_F(OpModelTest, MatmulBlockShardedInputWithPadding) {
       {
         auto constraintsExp = op_model::OpModel<MatmulOp>::getOpConstraints(
             deviceGrid, inputShapeA, inputLayoutA, inputShapeB, inputLayoutB,
-            nullptr, matmul.getTransposeA(), matmul.getTransposeB());
+            nullptr, matmul.getTransposeA(), matmul.getTransposeB(),
+            std::nullopt);
         // Don't check the error - this will crash if fix is not in place
         (void)constraintsExp;
       },
