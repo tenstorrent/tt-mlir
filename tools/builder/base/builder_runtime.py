@@ -274,86 +274,6 @@ def update_device_tensor(program_context, tensor_ref, dst_tensor, src_tensor):
     tt_runtime.runtime.update_tensor_in_pool(program_context, tensor_ref, tensor)
 
 
-def check_golden_outputs(
-    golden_outputs_torch: List[torch.Tensor],
-    output_tensors_torch: List[torch.Tensor],
-    pcc: float,
-    atol: float,
-    rtol: float,
-    check_atol: bool,
-    check_rtol: bool,
-) -> Dict[str, Dict[int, Dict]]:
-    golden_report = {}
-
-    for i in range(min(len(golden_outputs_torch), len(output_tensors_torch))):
-        cal_atol, cal_rtol, cal_pcc = get_atol_rtol_pcc(
-            golden_outputs_torch[i],
-            output_tensors_torch[i],
-            atol,
-            rtol,
-        )
-
-        output_key = f"output_{i}"
-        result = "pass"
-
-        # Check PCC
-        if cal_pcc < pcc:
-            result = "fail"
-            raise TTBuilderGoldenException(
-                f"Failed: program-level output golden comparison failed for {output_key}, "
-                f"actual_pcc={cal_pcc} < expected_pcc={pcc}"
-            )
-        else:
-            print(f"Program level golden for {output_key} matched. pcc={cal_pcc}")
-
-        # Check atol if enabled
-        if check_atol:
-            if cal_atol > atol:
-                result = "fail"
-                raise TTBuilderGoldenException(
-                    f"Failed: program-level output atol check failed for {output_key}, "
-                    f"actual_atol={cal_atol} > expected_atol={atol}"
-                )
-            else:
-                print(
-                    f"Program level atol check for {output_key} passed. atol={cal_atol}"
-                )
-
-        # Check rtol if enabled
-        if check_rtol:
-            if cal_rtol > rtol:
-                result = "fail"
-                raise TTBuilderGoldenException(
-                    f"Failed: program-level output rtol check failed for {output_key}, "
-                    f"actual_rtol={cal_rtol} > expected_rtol={rtol}"
-                )
-            else:
-                print(
-                    f"Program level rtol check for {output_key} passed. rtol={cal_rtol}"
-                )
-
-        # Add to golden report
-        golden_report[output_key] = {
-            0: {
-                "result": result,
-                "expected_pcc": pcc,
-                "actual_pcc": cal_pcc,
-                "expected_atol": atol,
-                "actual_atol": cal_atol,
-                "expected_rtol": rtol,
-                "actual_rtol": cal_rtol,
-                "allclose": torch.allclose(
-                    golden_outputs_torch[i],
-                    output_tensors_torch[i],
-                    atol=atol,
-                    rtol=rtol,
-                ),
-            }
-        }
-
-    return golden_report
-
-
 class CallbackRuntimeConfig:
     def __init__(
         self,
@@ -694,12 +614,9 @@ def execute_py(
     check_atol: bool = False,
     check_rtol: bool = False,
 ):
+    sys.path.append(f"{os.environ['TT_METAL_HOME']}/ttnn/ttnn")
+
     import importlib.util
-
-    spec = importlib.util.find_spec("_ttmlir_runtime")
-    package_path = os.path.dirname(spec.origin)
-    sys.path.append(f"{package_path}/runtime/ttnn")
-
     import ttnn
 
     # Add tt-alchemist utils.py to path for EmitPy tests
