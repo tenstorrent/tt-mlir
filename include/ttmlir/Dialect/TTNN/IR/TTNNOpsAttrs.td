@@ -212,18 +212,28 @@ def TTNN_NDShardSpecAttr : TTNN_Attr<"NDShardSpec", "nd_shard_spec"> {
 }
 
 def TTNN_TTNNNDLayoutAttr: TTNN_Attr<"TTNNNDLayout", "ttnn_nd_layout"> {
- let summary = "Tensor encoding attribute used for types in ttnn";
+ let summary = "Tensor encoding attribute used for ND sharded tensors. Used by TTNN JIT.";
  let description = [{
+  Layout attribute for TTNN tensors, capable of representing ND sharded tensors. This encoding is:
+    - created by TTNN JIT,
+    - consumed by the D2M compilation pipeline,
+    - converted to flatbuffer through the TTNN translation path, and
+    - executed through the TTNN backend of the runtime.
+
+  The purpose of this attribute is to enable ND sharding support for TTNN JIT. While it can coexist
+  with TTNNLayoutAttr in IR, there is no support for it in the TTNN compilation pipeline.
+
+  Only single device tensors are currently supported.
  }];
 
  let parameters = (ins
     AttrParameter<"ttcore::GridAttr", "The grid shape that this tensor is divided onto.">:$grid,
-    AttrParameter<"MemRefType", "A memref that describes the physical footprint allocation of the shard">:$memref,
+    AttrParameter<"MemRefType", "A memref that describing a single shard">:$memref,
     AttrParameter<"TensorMemoryLayoutAttr", "TTNN tensor memory layout">:$mem_layout,
-    AttrParameter<"ShardOrientationAttr", "The orientation of the sharding">:$shard_orientation,
-    AttrParameter<"ShardDistributionStrategyAttr", "The distribution strategy of the sharding">:$shard_distribution_strategy);
+    OptionalParameter<"ShardOrientationAttr", "The orientation of the sharding">:$shard_orientation,
+    OptionalParameter<"ShardDistributionStrategyAttr", "The distribution strategy of the sharding">:$shard_distribution_strategy);
 
-  let assemblyFormat = "`<` $grid`,` $memref `,` $mem_layout `,` $shard_orientation `,` $shard_distribution_strategy `>`";
+  let assemblyFormat = "`<` $grid`,` $memref `,` $mem_layout (`,` $shard_orientation^ )? (`,` $shard_distribution_strategy^ )? `>`";
   let extraClassDeclaration = [{
    bool isInterleaved() const;
    bool isSharded() const;
@@ -232,12 +242,6 @@ def TTNN_TTNNNDLayoutAttr: TTNN_Attr<"TTNNNDLayout", "ttnn_nd_layout"> {
    llvm::SmallVector<int64_t> getScalarShardShape() const;
    Layout getLayout() const;
    ttcore::DataType getDataType() const;
-
-   // Determine if an ND sharding layout is the same as a legacy sharding mode
-   bool isLegacyBlockSharded(ArrayRef<int64_t> tensorShape) const;
-   bool isLegacyWidthSharded(ArrayRef<int64_t> tensorShape) const;
-   bool isLegacyHeightSharded(ArrayRef<int64_t> tensorShape) const;
-
  }];
 }
 
