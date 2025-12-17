@@ -21,6 +21,9 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/raw_ostream.h"
 
+// For MatmulMultiCoreReuseMultiCast1DProgramConfig
+#include "ttnn/operations/matmul/device/matmul_op.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -4173,11 +4176,13 @@ llvm::Expected<size_t> OpModel<LinearOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // MatmulOp
 //===----------------------------------------------------------------------===//
+
 llvm::Expected<OpConstraints> OpModel<MatmulOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
     TTNNLayoutAttr inputLayoutA, llvm::ArrayRef<int64_t> inputShapeB,
     TTNNLayoutAttr inputLayoutB, TTNNLayoutAttr outputLayout, bool transposeA,
-    bool transposeB, std::optional<llvm::StringRef> activation) {
+    bool transposeB, std::optional<llvm::StringRef> activation,
+    std::optional<mlir::Attribute> programConfigAttr) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -4205,12 +4210,16 @@ llvm::Expected<OpConstraints> OpModel<MatmulOp>::getOpConstraints(
   std::optional<std::string> activationStr =
       activation ? std::make_optional(activation->str()) : std::nullopt;
 
+  // Use program config from IR if provided
+  std::optional<::ttnn::operations::matmul::MatmulProgramConfig> programConfig =
+      programConfigAttr ? conversion::getMatmulProgramConfig(*programConfigAttr)
+                        : std::nullopt;
+
   // Create query closure
   auto matmulOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::matmul, device, inputSpecA, inputSpecB, transposeA, transposeB,
-        outputMemoryConfig, outputDType, /*program_config=*/std::nullopt,
-        activationStr);
+        outputMemoryConfig, outputDType, programConfig, activationStr);
   };
 
   return operation::getOpConstraints(inputLayoutA.getContext(), deviceGrid,

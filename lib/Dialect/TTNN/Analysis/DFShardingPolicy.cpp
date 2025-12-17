@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/DFShardingPolicy.h"
 
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
+#include "ttmlir/Dialect/TTCore/Utils/CoreRangeSet.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutAnalysisProgressTracker.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
@@ -20,6 +21,8 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/IR/Diagnostics.h"
+
+#include <memory>
 
 namespace mlir::tt::ttnn {
 
@@ -1296,10 +1299,357 @@ static bool wouldCauseInefficientMatmulInput(Operation *consumer,
   return false;
 }
 
+// Helper to compute ceiling division
+static inline int64_t divUp(int64_t a, int64_t b) { return (a + b - 1) / b; }
+
+// Forward declaration - defined below
+static void setMatmulProgramConfigForShardedOutput(Operation *op,
+                                                   const OpConfig &config);
+
+// RAII guard to temporarily set matmul program config during validation.
+// Saves the original config on construction, sets the new config, and restores
+// the original on destruction unless commit() is called.
+class MatmulProgramConfigGuard {
+public:
+  MatmulProgramConfigGuard(Operation *op, const OpConfig &config)
+      : matmulOp(mlir::dyn_cast<ttnn::MatmulOp>(op)) {
+    if (matmulOp) {
+      savedConfig = matmulOp.getMatmulProgramConfigAttr();
+      // Set the program config for validation
+      setMatmulProgramConfigForShardedOutput(op, config);
+    }
+  }
+
+  ~MatmulProgramConfigGuard() {
+    if (matmulOp && !committed) {
+      matmulOp.setMatmulProgramConfigAttr(savedConfig);
+    }
+  }
+
+  // Call this when validation succeeds and we want to keep the config
+  void commit() { committed = true; }
+
+  // Check if this is a matmul op
+  bool isMatmul() const { return matmulOp != nullptr; }
+
+private:
+  ttnn::MatmulOp matmulOp;
+  mlir::Attribute savedConfig;
+  bool committed = false;
+};
+
+// Compute the bounding box grid dimensions from a layout's shard grid.
+// Returns (gridX, gridY) representing the physical compute grid.
+static std::pair<int64_t, int64_t>
+getPhysicalGridDimensions(TTNNLayoutAttr layout) {
+  ttcore::GridAttr shardGrid = layout.getGrid();
+  AffineMap mapping = shardGrid.getMapping();
+
+  // Use toCoreRangeSet to get physical core coordinates
+  auto coreRanges =
+      ttcore::utils::toCoreRangeSet(shardGrid.getShape(), mapping);
+
+  // Compute bounding box of all core ranges
+  int64_t maxX = 0;
+  int64_t maxY = 0;
+  for (const auto &[loc, size] : coreRanges) {
+    maxX = std::max(maxX, static_cast<int64_t>(loc[0] + size[0]));
+    maxY = std::max(maxY, static_cast<int64_t>(loc[1] + size[1]));
+  }
+
+  return {maxX, maxY};
+}
+
+// Set MatmulMultiCoreReuseMultiCast1DProgramConfig on a matmul op.
+// Used when input is interleaved, width sharded, or height sharded.
+// For width sharded output: mcast_in0=true (multicast input A along width)
+// For height sharded output: mcast_in0=false (multicast input B along height)
+static void setMatmul1DProgramConfig(ttnn::MatmulOp matmulOp, int64_t Mt,
+                                     int64_t Nt, int64_t Kt,
+                                     TTNNLayoutAttr outputLayout,
+                                     TensorMemoryLayout outputMemLayout) {
+  MLIRContext *ctx = matmulOp.getContext();
+
+  // Get physical grid dimensions from the shard spec
+  auto [gridX, gridY] = getPhysicalGridDimensions(outputLayout);
+  int64_t numCores = gridX * gridY;
+
+  // For width sharded output: mcast_in0=true
+  // per_core_M = Mt (all M tiles per core)
+  // per_core_N = ceil(Nt / numCores)
+  bool mcastIn0 = (outputMemLayout == TensorMemoryLayout::WidthSharded);
+  int64_t perCoreM, perCoreN;
+
+  if (mcastIn0) {
+    perCoreM = Mt;
+    perCoreN = divUp(Nt, numCores);
+  } else {
+    // Height sharded: mcast_in0=false
+    perCoreM = divUp(Mt, numCores);
+    perCoreN = Nt;
+  }
+
+  // in0_block_w: determines how many K tiles are loaded per iteration.
+  // Larger values improve DRAM bandwidth utilization but increase L1 pressure.
+  // Constraint: Kt % in0_block_w == 0
+  //
+  // For height sharded (mcast_in0=false): use full Kt for optimal bandwidth
+  // (matches tt-metal's behavior in create_simple_matmul_program_config)
+  //
+  // For width sharded (mcast_in0=true): balance DRAM bandwidth vs L1 pressure
+  // - Small Nt (<=128 tiles / 4096 elements): use in0_block_w=8 for better DRAM
+  // BW
+  // - Large Nt (>128 tiles / 4096 elements): use in0_block_w=2 to reduce L1
+  // pressure Analysis on decoder model showed:
+  //   Q/K/V proj (N=512-2048): in0_block_w=8 -> 2x better DRAM BW
+  //   FFN up/gate (N=8192): in0_block_w=2 -> avoids L1 pressure, better perf
+  constexpr int64_t kLargeNtThreshold = 128; // 128 tiles = 4096 elements
+
+  int64_t in0BlockW;
+  if (!mcastIn0) {
+    // Height sharded: use full Kt (optimal for DRAM bandwidth)
+    in0BlockW = Kt;
+  } else {
+    // Width sharded: choose based on output N dimension
+    if (Nt > kLargeNtThreshold) {
+      // Large N: use smaller in0_block_w to reduce L1 pressure
+      if (Kt % 2 == 0) {
+        in0BlockW = 2;
+      } else {
+        in0BlockW = 1;
+      }
+    } else {
+      // Small N: use larger in0_block_w for better DRAM bandwidth
+      if (Kt % 8 == 0) {
+        in0BlockW = 8;
+      } else if (Kt % 4 == 0) {
+        in0BlockW = 4;
+      } else if (Kt % 2 == 0) {
+        in0BlockW = 2;
+      } else {
+        in0BlockW = 1;
+      }
+    }
+  }
+
+  // out_block_h/w: use per_core values
+  int64_t outBlockH = perCoreM;
+  int64_t outBlockW = perCoreN;
+
+  // out_subblock_h/w: conservative values that should fit in L1
+  // Constraint: out_subblock_h * out_subblock_w <= 8 for safe dest register
+  // usage
+  int64_t outSubblockH = 1;
+  int64_t outSubblockW = std::min(outBlockW, static_cast<int64_t>(8));
+
+  // Create attributes
+  auto gridAttr = CoreCoordAttr::get(ctx, gridX, gridY);
+  auto hopCoresAttr = CoreRangeSetAttr::get(ctx, {});
+
+  auto programConfig = MatmulMultiCoreReuseMultiCast1DProgramConfigAttr::get(
+      ctx,
+      gridAttr,                            // compute_with_storage_grid_size
+      static_cast<uint64_t>(in0BlockW),    // in0_block_w
+      static_cast<uint64_t>(outSubblockH), // out_subblock_h
+      static_cast<uint64_t>(outSubblockW), // out_subblock_w
+      static_cast<uint64_t>(outBlockH),    // out_block_h
+      static_cast<uint64_t>(outBlockW),    // out_block_w
+      static_cast<uint64_t>(perCoreM),     // per_core_m
+      static_cast<uint64_t>(perCoreN),     // per_core_n
+      false,                               // fuse_batch
+      nullptr,                             // fused_activation
+      mcastIn0,                            // mcast_in0
+      false,                               // gather_in0
+      hopCoresAttr,                        // hop_cores
+      0,                                   // num_global_cb_receivers
+      false);                              // untilize_out
+
+  matmulOp.setMatmulProgramConfigAttr(programConfig);
+
+  TTMLIR_TRACE(ttmlir::LogComponent::DFShardingPolicy,
+               "  Set MatmulMultiCoreReuseMultiCast1DProgramConfig: "
+               "grid={}x{}, per_core_m={}, per_core_n={}, in0_block_w={}, "
+               "mcast_in0={}",
+               gridX, gridY, perCoreM, perCoreN, in0BlockW, mcastIn0);
+}
+
+// Set MatmulMultiCoreReuseMultiCastProgramConfig on a matmul op.
+// Used when input is block sharded (requires 2D multicast).
+static void setMatmul2DProgramConfig(ttnn::MatmulOp matmulOp, int64_t Mt,
+                                     int64_t Nt, int64_t Kt,
+                                     TTNNLayoutAttr outputLayout) {
+  MLIRContext *ctx = matmulOp.getContext();
+
+  // Get physical grid dimensions from the shard spec
+  auto [gridX, gridY] = getPhysicalGridDimensions(outputLayout);
+
+  // For block sharded, distribute M and N across the 2D grid
+  int64_t perCoreM = divUp(Mt, gridY);
+  int64_t perCoreN = divUp(Nt, gridX);
+
+  // in0_block_w: determines how many K tiles are loaded per iteration.
+  // Constraint: Kt % in0_block_w == 0
+  // For block sharded, try larger divisors for better DRAM bandwidth.
+  int64_t in0BlockW;
+  if (Kt % 8 == 0) {
+    in0BlockW = 8;
+  } else if (Kt % 4 == 0) {
+    in0BlockW = 4;
+  } else if (Kt % 2 == 0) {
+    in0BlockW = 2;
+  } else {
+    in0BlockW = 1;
+  }
+
+  // out_block_h/w: use per_core values
+  int64_t outBlockH = perCoreM;
+  int64_t outBlockW = perCoreN;
+
+  // out_subblock_h/w: conservative values
+  int64_t outSubblockH = 4;
+  int64_t outSubblockW = 2;
+  if (outSubblockW > perCoreN) {
+    outSubblockH = 1;
+    outSubblockW = std::min(perCoreN, static_cast<int64_t>(8));
+  }
+
+  auto programConfig = MatmulMultiCoreReuseMultiCastProgramConfigAttr::get(
+      ctx,
+      CoreCoordAttr::get(ctx, gridX, gridY), // compute_with_storage_grid_size
+      static_cast<uint64_t>(in0BlockW),      // in0_block_w
+      static_cast<uint64_t>(outSubblockH),   // out_subblock_h
+      static_cast<uint64_t>(outSubblockW),   // out_subblock_w
+      static_cast<uint64_t>(outBlockH),      // out_block_h
+      static_cast<uint64_t>(outBlockW),      // out_block_w
+      static_cast<uint64_t>(perCoreM),       // per_core_m
+      static_cast<uint64_t>(perCoreN),       // per_core_n
+      false,                                 // transpose_mcast
+      nullptr,                               // fused_activation
+      false);                                // fuse_batch
+
+  matmulOp.setMatmulProgramConfigAttr(programConfig);
+
+  TTMLIR_TRACE(ttmlir::LogComponent::DFShardingPolicy,
+               "  Set MatmulMultiCoreReuseMultiCastProgramConfig: "
+               "grid={}x{}, per_core_m={}, per_core_n={}, in0_block_w={}",
+               gridX, gridY, perCoreM, perCoreN, in0BlockW);
+}
+
+// For matmul with sharded output, set an explicit program config to ensure
+// consistent behavior between compile-time validation and runtime execution.
+//
+// Background: tt-metal's create_simple_matmul_program_config() selects
+// program config based on available L1 memory. At compile-time, mock tensors
+// don't occupy L1. At runtime, input tensors occupy L1. This mismatch can cause
+// different program config selection, leading to runtime errors.
+//
+// By setting an explicit program config, we bypass tt-metal's dynamic
+// selection. Config type depends on input sharding:
+// - Interleaved/Width sharded/Height sharded input -> 1D mcast config
+// - Block sharded input -> 2D mcast config
+//
+// TODO(#xxxx): Math fidelity defaults to LoFi when program_config is set.
+// In tt-metal's matmul_op.cpp, when has_program_config=true, the default
+// math_fidelity is LoFi (see create_matmul_struct). To override this, we need
+// to add device_compute_kernel_config support to TTNN_MatmulOp:
+// 1. Add compute_config attr to TTNN_MatmulOp in TTNNOps.td
+// 2. Add serialization in TTNNToFlatbuffer.cpp and Target.fbs
+// 3. Pass compute_kernel_config in
+// runtime/lib/ttnn/operations/matmul/matmul.cpp Until then, matmuls with
+// program_config will use LoFi math fidelity.
+static void setMatmulProgramConfigForShardedOutput(Operation *op,
+                                                   const OpConfig &config) {
+  auto matmulOp = mlir::dyn_cast<ttnn::MatmulOp>(op);
+  if (!matmulOp) {
+    return;
+  }
+
+  // If program config is already set, don't override
+  if (matmulOp.getMatmulProgramConfigAttr()) {
+    return;
+  }
+
+  // Check if output is sharded
+  if (!config.outputLayout) {
+    return;
+  }
+
+  TensorMemoryLayout outputMemLayout =
+      config.outputLayout.getMemLayout().getValue();
+  if (outputMemLayout != TensorMemoryLayout::WidthSharded &&
+      outputMemLayout != TensorMemoryLayout::HeightSharded &&
+      outputMemLayout != TensorMemoryLayout::BlockSharded) {
+    return;
+  }
+
+  // Get output shape to calculate Mt, Nt
+  if (op->getNumResults() == 0) {
+    return;
+  }
+  auto resultType =
+      mlir::dyn_cast<RankedTensorType>(op->getResult(0).getType());
+  if (!resultType) {
+    return;
+  }
+
+  llvm::ArrayRef<int64_t> outShape = resultType.getShape();
+  if (outShape.size() < 2) {
+    return;
+  }
+
+  // Get input A shape and layout
+  auto inputA = matmulOp.getA();
+  auto inputAType = mlir::dyn_cast<RankedTensorType>(inputA.getType());
+  if (!inputAType) {
+    return;
+  }
+  llvm::ArrayRef<int64_t> aShape = inputAType.getShape();
+  if (aShape.size() < 2) {
+    return;
+  }
+
+  TTNNLayoutAttr inputALayout = utils::getLayoutAttrFromTensor(inputAType);
+
+  // Calculate Mt, Nt, Kt (dimensions in tiles)
+  int64_t M = outShape[outShape.size() - 2];
+  int64_t N = outShape[outShape.size() - 1];
+  int64_t K = aShape[aShape.size() - 1];
+  int64_t Mt = divUp(M, TILE_HEIGHT);
+  int64_t Nt = divUp(N, TILE_WIDTH);
+  int64_t Kt = divUp(K, TILE_WIDTH);
+
+  // Determine input A memory layout
+  TensorMemoryLayout inputMemLayout = TensorMemoryLayout::Interleaved;
+  if (inputALayout && inputALayout.hasShardedL1TensorMemoryLayout()) {
+    inputMemLayout = inputALayout.getMemLayout().getValue();
+  }
+
+  TTMLIR_TRACE(ttmlir::LogComponent::DFShardingPolicy,
+               "  Setting matmul program config: Mt={}, Nt={}, Kt={}, "
+               "inputMemLayout={}, outputMemLayout={}",
+               Mt, Nt, Kt, static_cast<int>(inputMemLayout),
+               static_cast<int>(outputMemLayout));
+
+  // Select config type based on input sharding
+  TTNNLayoutAttr outputLayout = config.outputLayout;
+  if (inputMemLayout == TensorMemoryLayout::BlockSharded) {
+    // Block sharded input requires 2D mcast config
+    setMatmul2DProgramConfig(matmulOp, Mt, Nt, Kt, outputLayout);
+  } else {
+    // Interleaved, width sharded, or height sharded input uses 1D mcast config
+    setMatmul1DProgramConfig(matmulOp, Mt, Nt, Kt, outputLayout,
+                             outputMemLayout);
+  }
+}
+
 // Validate that an op can accept a specific input layout and produce its
 // expected output layout. For matmul/linear ops, uses withIgnorePhysicalLayout
 // during validation. Returns true only if validation succeeds AND the actual
 // output layout matches the config's expected output layout.
+//
+// IMPORTANT: For matmul ops with sharded output, the caller MUST use
+// MatmulProgramConfigGuard before calling this function to ensure the program
+// config is set during validation and properly restored after.
 static bool validateOpWithInputLayout(Operation *op, size_t inputOperandIndex,
                                       TTNNLayoutAttr inputLayout,
                                       const OpConfig &config) {
@@ -1311,10 +1661,11 @@ static bool validateOpWithInputLayout(Operation *op, size_t inputOperandIndex,
   }
   inputLayouts[inputOperandIndex] = inputLayout;
 
-  // For matmul/linear ops without fused activation, use withIgnorePhysicalLayout
-  // to avoid strict grid matching during validation (similar to preprocessFirstOp).
-  // When activation is present, we need full layout because the internal unary op
-  // for activation cannot handle partial memory configs (crashes in validate_shard_spec).
+  // For matmul/linear ops without fused activation, use
+  // withIgnorePhysicalLayout to avoid strict grid matching during validation
+  // (similar to preprocessFirstOp). When activation is present, we need full
+  // layout because the internal unary op for activation cannot handle partial
+  // memory configs (crashes in validate_shard_spec).
   // TODO(tt-metal#34500): Remove activation check once tt-metal handles partial
   // memory configs in fused activations.
   bool useIgnorePhysicalLayout = false;
@@ -1453,6 +1804,8 @@ static void applyL1ReservationsForForkOps(
                  forkPos, lastUserPos);
 
     // Step 2: Try passing sharded layout to all consumers
+    // Use guards to track program configs that need to be committed on success
+    std::vector<std::unique_ptr<MatmulProgramConfigGuard>> shardedGuards;
     bool allConsumersValidWithSharded = true;
     for (Operation *user : forkOutput.getUsers()) {
       auto operandIdx = findOperandIndex(user, forkOutput);
@@ -1468,8 +1821,14 @@ static void applyL1ReservationsForForkOps(
       // Get consumer's selected config and validate with fork input
       auto selectedConfig =
           getSelectedConfig(user, opToChainMap, l1ChainConfigs);
-      if (!selectedConfig ||
-          !validateOpWithInputLayout(user, *operandIdx, shardedLayout,
+      if (!selectedConfig) {
+        allConsumersValidWithSharded = false;
+        break;
+      }
+      // Create guard to set program config before validation
+      auto guard =
+          std::make_unique<MatmulProgramConfigGuard>(user, *selectedConfig);
+      if (!validateOpWithInputLayout(user, *operandIdx, shardedLayout,
                                      *selectedConfig)) {
         allConsumersValidWithSharded = false;
         TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
@@ -1477,6 +1836,7 @@ static void applyL1ReservationsForForkOps(
                      ttmlir::opToString(user));
         break;
       }
+      shardedGuards.push_back(std::move(guard));
     }
 
     if (allConsumersValidWithSharded) {
@@ -1485,7 +1845,10 @@ static void applyL1ReservationsForForkOps(
       if (validateChainsWithReservation(l1ChainConfigs, schedulePositionMap,
                                         l1Reservations, forkPos, lastUserPos,
                                         l1Size)) {
-        // SUCCESS: Keep sharded, no spill needed
+        // SUCCESS: Keep sharded, no spill needed - commit all guards
+        for (auto &guard : shardedGuards) {
+          guard->commit();
+        }
         chain.spillLocation = SpillLocation::None;
         l1Reservations.push_back({lastOp, forkPos, lastUserPos, l1Size});
         TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
@@ -1494,6 +1857,7 @@ static void applyL1ReservationsForForkOps(
         continue;
       }
     }
+    // Guards will auto-restore on scope exit if not committed
 
     // Step 3: Try L1 interleaved fallback
     // Use tryGetL1InterleavedSize to validate and get L1 size
@@ -1509,6 +1873,8 @@ static void applyL1ReservationsForForkOps(
         shardedLayout.withBufferType(BufferType::L1)
             .withMemoryLayout(TensorMemoryLayout::Interleaved);
 
+    // Use guards to track program configs for L1 interleaved path
+    std::vector<std::unique_ptr<MatmulProgramConfigGuard>> l1Guards;
     bool allConsumersValidWithL1Interleaved = true;
     for (Operation *user : forkOutput.getUsers()) {
       auto operandIdx = findOperandIndex(user, forkOutput);
@@ -1519,12 +1885,19 @@ static void applyL1ReservationsForForkOps(
       // Get consumer's selected config and validate with L1 interleaved input
       auto selectedConfig =
           getSelectedConfig(user, opToChainMap, l1ChainConfigs);
-      TTMLIR_TRACE(ttmlir::LogComponent::DFShardingPolicy,
-                   "  Validating consumer {} with L1 interleaved input and config {}",
-                  ttmlir::opToString(user), selectedConfig->outputLayout);
+      if (!selectedConfig) {
+        allConsumersValidWithL1Interleaved = false;
+        break;
+      }
+      TTMLIR_TRACE(
+          ttmlir::LogComponent::DFShardingPolicy,
+          "  Validating consumer {} with L1 interleaved input and config {}",
+          ttmlir::opToString(user), selectedConfig->outputLayout);
 
-      if (!selectedConfig ||
-          !validateOpWithInputLayout(user, *operandIdx, l1InterleavedLayout,
+      // Create guard to set program config before validation
+      auto guard =
+          std::make_unique<MatmulProgramConfigGuard>(user, *selectedConfig);
+      if (!validateOpWithInputLayout(user, *operandIdx, l1InterleavedLayout,
                                      *selectedConfig)) {
         allConsumersValidWithL1Interleaved = false;
         TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
@@ -1532,6 +1905,7 @@ static void applyL1ReservationsForForkOps(
                      ttmlir::opToString(user));
         break;
       }
+      l1Guards.push_back(std::move(guard));
     }
 
     if (!allConsumersValidWithL1Interleaved) {
@@ -1553,7 +1927,10 @@ static void applyL1ReservationsForForkOps(
       continue;
     }
 
-    // SUCCESS: Use L1 interleaved
+    // SUCCESS: Use L1 interleaved - commit all guards
+    for (auto &guard : l1Guards) {
+      guard->commit();
+    }
     chain.spillLocation = SpillLocation::L1Interleaved;
     l1Reservations.push_back({lastOp, forkPos, lastUserPos, l1InterleavedSize});
     TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,

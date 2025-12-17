@@ -994,7 +994,8 @@ struct OpModel<MatmulOp> {
       ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
       TTNNLayoutAttr inputLayoutA, llvm::ArrayRef<int64_t> inputShapeB,
       TTNNLayoutAttr inputLayoutB, TTNNLayoutAttr outputLayout, bool transposeA,
-      bool transposeB, std::optional<llvm::StringRef> activation);
+      bool transposeB, std::optional<llvm::StringRef> activation,
+      std::optional<mlir::Attribute> programConfigAttr = std::nullopt);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
