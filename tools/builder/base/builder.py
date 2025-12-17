@@ -711,13 +711,26 @@ class Builder(metaclass=BuilderMeta):
         if len(golden_inputs) == 0:
             for ttype in fn_input_types:
                 shape = ttype.shape
-                dtype = self._get_datatype_from_torch_dtype(ttype.element_type)
-                # Handle scalar tensors (empty shape)
-                if len(shape) == 0:
-                    golden_input = torch.randn(1, dtype=dtype).squeeze()
+                dtype = self._get_torch_dtype_from_type(ttype.element_type)
+
+                if dtype.is_floating_point or dtype.is_complex:
+                    if len(shape) == 0:
+                        golden_input = torch.randn(1, dtype=dtype).squeeze()
+                    else:
+                        golden_input = torch.randn(*shape, dtype=dtype)
+                    golden_inputs.append(golden_input)
+                elif dtype == torch.bool:
+                    if len(shape) == 0:
+                        golden_input = torch.randint(0, 2, (), dtype=dtype)
+                    else:
+                        golden_input = torch.randint(0, 2, shape, dtype=dtype)
+                    golden_inputs.append(golden_input)
                 else:
-                    golden_input = torch.randn(*shape, dtype=dtype)
-                golden_inputs.append(golden_input)
+                    if len(shape) == 0:
+                        golden_input = torch.randint(0, 256, (), dtype=dtype)
+                    else:
+                        golden_input = torch.randint(0, 256, shape, dtype=dtype)
+                    golden_inputs.append(golden_input)
 
         @func.func(*fn_input_types, name=parsed_func.name.value)
         def decorated_func(*inputs):
