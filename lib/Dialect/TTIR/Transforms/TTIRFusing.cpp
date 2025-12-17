@@ -3823,7 +3823,7 @@ public:
         patterns.add<PermuteMatmulFusionPattern<LinearOp>>(&getContext());
       }
       patterns.add<RepVGGConvSumFusionPattern>(&getContext());
-      patterns.add<ConcatenateHeadsUpdatePattern>(&getContext());
+      //patterns.add<ConcatenateHeadsUpdatePattern>(&getContext());
       patterns.add<SplitQueryKeyValueAndSplitHeadsUpdatePattern<MatmulOp>>(
           &getContext());
       patterns.add<SplitQueryKeyValueAndSplitHeadsUpdatePattern<LinearOp>>(
