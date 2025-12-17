@@ -969,12 +969,6 @@ def compile_d2m_to_flatbuffer(
     except Exception as e:
         raise TTBuilderCompileException(e)
 
-    # DEBUG: Dump module to file
-    with open("/tmp/masking_test_dump.mlir", "w") as f:
-        f.write(str(module))
-    print(f"DEBUG: Dumped D2M module to /tmp/masking_test_dump.mlir")
-    # END DEBUG
-
     return builder, *compile_ttir_module_to_flatbuffer(
         module,
         builder,
