@@ -84,6 +84,18 @@ def test_ttnn_parsing_splitting_ops(mlir_snippet, request, device):
     mlir_ir_string = ttnn_mlir_snippets[mlir_snippet]
     mlir_module, builder = load_mlir_file(mlir_ir_string, target="ttnn")
     split_modules = split_mlir_file(mlir_module, builder)
+    module = split_modules[0][0]
+    builder = split_modules[0][1]
+    goldens = dict(builder.golden_map)
+    mlir_path, goldens = compile_ttir_module_to_flatbuffer(
+        module, builder, goldens=goldens
+    )
+    fb_path = mlir_path + ".ttnn"
+    execute_fb(
+        fb_path=fb_path,
+        goldens=goldens,
+        device=device,
+    )
 
 
 @pytest.mark.parametrize("mlir_snippet", ttir_to_ttnn_mlir_snippets.keys())
