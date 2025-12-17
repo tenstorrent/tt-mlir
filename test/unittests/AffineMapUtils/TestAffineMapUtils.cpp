@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/AffineMapUtils.h"
+#include "ttmlir/Utils.h"
 
 #include "testing/Utils.h"
 
@@ -282,43 +283,132 @@ TEST(AffineMapUtilsTest, CanSimplifyRedundantModExpr) {
   }
 }
 
+// Returns an affine map and the device shape for a logical tensor and two grid
+// shapes. The device shape is computed by dividing each logical shape dim by
+// the input grid shape dim.
+static std::tuple<mlir::AffineMap, llvm::SmallVector<int64_t>>
+getReblockMapAndDeviceShape(mlir::ArrayRef<int64_t> logicalShape,
+                            mlir::ArrayRef<int64_t> inputGridShape,
+                            mlir::ArrayRef<int64_t> outputGridShape,
+                            mlir::MLIRContext *context) {
+  TT_assertv(inputGridShape.size() == logicalShape.size(),
+             "Input grid shape must match logical shape");
+  TT_assertv(outputGridShape.size() == logicalShape.size(),
+             "Output grid shape must match logical shape");
+
+  // Lambda to compute device shape for given grid
+  auto computeDeviceShape = [&](llvm::ArrayRef<int64_t> logicalShape,
+                                llvm::ArrayRef<int64_t> gridShape) {
+    llvm::SmallVector<int64_t> shape;
+    size_t rank = logicalShape.size();
+    shape.reserve(rank * 2);
+    // Append the grid shape dims
+    for (size_t i = 0; i < rank; ++i) {
+      shape.push_back(gridShape[i]);
+    }
+    // Append the logicalShape dims divided by gridShape dims ("shard shape")
+    for (size_t i = 0; i < rank; ++i) {
+      TT_assertv(gridShape[i] != 0, "Grid shape dimension must not be zero");
+      TT_assertv(
+          logicalShape[i] % gridShape[i] == 0,
+          "Logical shape dimension must be divisible by grid shape dimension");
+      shape.push_back(logicalShape[i] / gridShape[i]);
+    }
+    return shape;
+  };
+
+  llvm::SmallVector<int64_t> deviceShapeInputGrid =
+      computeDeviceShape(logicalShape, inputGridShape);
+  llvm::SmallVector<int64_t> deviceShapeOutputGrid =
+      computeDeviceShape(logicalShape, outputGridShape);
+
+  auto strides = ttmlir::utils::calculateStrides<int64_t>(
+      llvm::ArrayRef<int64_t>(deviceShapeInputGrid)
+          .take_back(deviceShapeInputGrid.size() / 2),
+      1);
+
+  mlir::AffineMap reblockMap = ttmlir::utils::calculateReblockMap(
+      deviceShapeOutputGrid, deviceShapeInputGrid, context);
+  reblockMap = simplifyAffineMapWithRangeAnalysis(
+      simplifyZeroFloorDiv(reblockMap), deviceShapeInputGrid);
+
+  auto layout_map =
+      ttmlir::utils::generateAffineMapFromShardStrides(strides, context);
+  auto memoryMap = layout_map.compose(reblockMap);
+
+  return std::make_tuple(memoryMap, deviceShapeInputGrid);
+}
+
 TEST(AffineMapUtilsTest, CanDetermineCoalescingFactor) {
   using namespace mlir;
   MLIRContext context;
-  [[maybe_unused]] AffineExpr d0 = getAffineDimExpr(0, &context);
-  [[maybe_unused]] AffineExpr d1 = getAffineDimExpr(1, &context);
-  [[maybe_unused]] AffineExpr d2 = getAffineDimExpr(2, &context);
-  [[maybe_unused]] AffineExpr d3 = getAffineDimExpr(3, &context);
-  [[maybe_unused]] AffineExpr d4 = getAffineDimExpr(4, &context);
-  [[maybe_unused]] AffineExpr d5 = getAffineDimExpr(5, &context);
 
-  [[maybe_unused]] auto c = [&context](int64_t value) {
-    return getAffineConstantExpr(value, &context);
+  auto printContiguityConstraints =
+      [&](llvm::ArrayRef<int64_t> logicalShape,
+          llvm::ArrayRef<int64_t> inputGridShape,
+          llvm::ArrayRef<int64_t> outputGridShape) {
+        auto [memoryMap, deviceShape] = getReblockMapAndDeviceShape(
+            logicalShape, inputGridShape, outputGridShape, &context);
+
+        auto simpleMap = simplifyAffineMapWithRangeAnalysis(
+            simplifyZeroFloorDiv(memoryMap), deviceShape);
+
+        auto coalescingFactorAnalytical = analyzeShardDimContiguity(
+            memoryMap, deviceShape, memoryMap.getNumDims() / 2);
+
+        // Also compute coalescing factor using the sampling-based approach
+        int64_t coalescingFactor =
+            calculateCoalescingFactor(memoryMap, deviceShape, 1);
+
+        if (coalescingFactor == coalescingFactorAnalytical.value_or(-1)) {
+          llvm::dbgs() << "[TestCanDetermineCoalescingFactor] logical shape: "
+                       << ttmlir::utils::formatIterable(logicalShape, "x")
+                       << " input grid: "
+                       << ttmlir::utils::formatIterable(inputGridShape, "x")
+                       << " output grid: "
+                       << ttmlir::utils::formatIterable(outputGridShape, "x")
+                       << " SUCCESS (coalescing factor: "
+                       << coalescingFactorAnalytical.value_or(-1) << ")\n";
+        } else if (coalescingFactorAnalytical.value_or(-1) < coalescingFactor &&
+                   coalescingFactor % coalescingFactorAnalytical.value_or(-1) ==
+                       0) {
+          llvm::dbgs() << "[TestCanDetermineCoalescingFactor] logical shape: "
+                       << ttmlir::utils::formatIterable(logicalShape, "x")
+                       << " input grid: "
+                       << ttmlir::utils::formatIterable(inputGridShape, "x")
+                       << " output grid: "
+                       << ttmlir::utils::formatIterable(outputGridShape, "x")
+                       << " SUBSET (analytical="
+                       << coalescingFactorAnalytical.value_or(-1)
+                       << " vs calculated=" << coalescingFactor << ")\n";
+        } else {
+          llvm::dbgs() << "[TestCanDetermineCoalescingFactor] logical shape: "
+                       << ttmlir::utils::formatIterable(logicalShape, "x")
+                       << " input grid: "
+                       << ttmlir::utils::formatIterable(inputGridShape, "x")
+                       << " output grid: "
+                       << ttmlir::utils::formatIterable(outputGridShape, "x")
+                       << " FAILED : analytical = "
+                       << coalescingFactorAnalytical.value_or(-1)
+                       << ", calculated = " << coalescingFactor << "\n";
+          llvm::dbgs() << "    map: " << simpleMap << "\n";
+        }
+      };
+
+  auto grid_examples = SmallVector<SmallVector<int64_t>>{
+      {1, 2}, {1, 3}, {1, 4}, {1, 5}, {1, 6}, {1, 8}, {2, 1}, {3, 1}, {4, 1},
+      {5, 1}, {6, 1}, {8, 1}, {2, 2}, {3, 3}, {4, 4}, {5, 5}, {6, 6}, {8, 8},
   };
-  [[maybe_unused]] auto mod = [](AffineExpr lhs, int64_t rhs) {
-    return lhs % rhs;
-  };
-  [[maybe_unused]] auto div = [](AffineExpr lhs, int64_t rhs) {
-    return lhs.floorDiv(rhs);
-  };
 
-  // reblock map example: (d0, d1, d2, d3, d4, d5) -> (0, d0 + d1 + d3 + d4
-  // floordiv 128, d2 + d5 floordiv 32, (d4 mod 128) * 128 + (d5 mod 32) * 4)
-  SmallVector<int64_t> shape = {16, 16, 64, 64};
-  TT_assertv(shape.size() % 2 == 0u, "Shape size must be even");
-  AffineMap initialMap = AffineMap::get(shape.size(), 0,
-                                        {
-                                            (8 * d0 + 2 * d2 + 4 * d3) % 16,
-                                        },
-                                        &context);
+  for (SmallVector<int64_t> logicalShape :
+       SmallVector<SmallVector<int64_t>>{{120, 120}, {120, 240}, {240, 120}}) {
+    for (SmallVector<int64_t> inputGridShapeOrig : grid_examples) {
+      for (SmallVector<int64_t> outputGridShapeOrig : grid_examples) {
 
-  SmallVector<std::optional<int64_t>> contiguityConstraints =
-      analyzeShardDimContiguity(initialMap, shape);
-
-  for (size_t i = 0; i < contiguityConstraints.size(); ++i) {
-    llvm::dbgs() << "[TestCanDetermineCoalescingFactor] contiguity constraint "
-                    "for shard dim "
-                 << i << ": " << contiguityConstraints[i].value_or(-1) << "\n";
+        printContiguityConstraints(logicalShape, inputGridShapeOrig,
+                                   outputGridShapeOrig);
+      }
+    }
   }
 }
 } // namespace ttmlir::utils
