@@ -44,8 +44,8 @@ public:
         sliceOperandType.getElementType(), sliceOperandType.getEncoding());
 
     PermuteOp newPerm =
-        rewriter.create<PermuteOp>(permuteUser->getLoc(), newPermuteType,
-                                   op.getInput(), permuteUser.getPermutation());
+        PermuteOp::create(rewriter, permuteUser->getLoc(), newPermuteType,
+                          op.getInput(), permuteUser.getPermutation());
 
     SmallVector<Attribute> newSliceStarts = ttmlir::utils::applyPermutation(
         op.getBegins().getValue(), permuteUser.getPermutation());
@@ -60,10 +60,10 @@ public:
         op.getType().getElementType(), op.getType().getEncoding());
 
     SliceStaticOp newSlice =
-        rewriter.create<SliceStaticOp>(op->getLoc(), newSliceType, newPerm,
-                                       rewriter.getArrayAttr(newSliceStarts),
-                                       rewriter.getArrayAttr(newSliceEnds),
-                                       rewriter.getArrayAttr(newSliceSteps));
+        SliceStaticOp::create(rewriter, op->getLoc(), newSliceType, newPerm,
+                              rewriter.getArrayAttr(newSliceStarts),
+                              rewriter.getArrayAttr(newSliceEnds),
+                              rewriter.getArrayAttr(newSliceSteps));
 
     // All users must be identical TMs.
     // We must not reference `permuteUser` during/after replacements, as it will
@@ -111,8 +111,8 @@ public:
     SmallVector<Attribute> newSliceSteps = ttmlir::utils::applyPermutation(
         op.getStep().getValue(), inversePermutation);
 
-    SliceStaticOp newSlice = rewriter.create<SliceStaticOp>(
-        op->getLoc(), newSliceType, permuteOperand.getInput(),
+    SliceStaticOp newSlice = SliceStaticOp::create(
+        rewriter, op->getLoc(), newSliceType, permuteOperand.getInput(),
         rewriter.getArrayAttr(newSliceStarts),
         rewriter.getArrayAttr(newSliceEnds),
         rewriter.getArrayAttr(newSliceSteps));
@@ -121,8 +121,8 @@ public:
         op.getType().getShape(), newSlice.getType().getElementType(),
         newSlice.getType().getEncoding());
     PermuteOp newPerm =
-        rewriter.create<PermuteOp>(permuteOperand->getLoc(), newPermuteType,
-                                   newSlice, permuteOperand.getPermutation());
+        PermuteOp::create(rewriter, permuteOperand->getLoc(), newPermuteType,
+                          newSlice, permuteOperand.getPermutation());
 
     rewriter.replaceOp(op, newPerm);
   }
@@ -220,8 +220,8 @@ public:
 
     // The reshape should produce the same output type as the original slice
     SmallVector<int32_t> reshapeTargetShape(op.getType().getShape());
-    ReshapeOp newReshape = rewriter.create<ReshapeOp>(
-        reshapeOperand->getLoc(), op.getType(), newSlice,
+    ReshapeOp newReshape = ReshapeOp::create(
+        rewriter, reshapeOperand->getLoc(), op.getType(), newSlice,
         rewriter.getI32ArrayAttr(reshapeTargetShape));
     rewriter.replaceOp(op, newReshape);
   }
@@ -336,9 +336,10 @@ private:
         RankedTensorType::get(newOutputShape, op.getType().getElementType(),
                               op.getType().getEncoding());
 
-    SliceStaticOp newSlice = rewriter.create<SliceStaticOp>(
-        op->getLoc(), newSliceType, input, rewriter.getArrayAttr(newBegins),
-        rewriter.getArrayAttr(newEnds), rewriter.getArrayAttr(newSteps));
+    SliceStaticOp newSlice = SliceStaticOp::create(
+        rewriter, op->getLoc(), newSliceType, input,
+        rewriter.getArrayAttr(newBegins), rewriter.getArrayAttr(newEnds),
+        rewriter.getArrayAttr(newSteps));
 
     return newSlice;
   }
@@ -374,9 +375,9 @@ private:
         op.getInput().getType().getEncoding());
     SmallVector<int32_t> targetShapeInt32(targetShape.begin(),
                                           targetShape.end());
-    return rewriter.create<ReshapeOp>(
-        reshapeUser->getLoc(), targetType, op.getInput(),
-        rewriter.getI32ArrayAttr(targetShapeInt32));
+    return ReshapeOp::create(rewriter, reshapeUser->getLoc(), targetType,
+                             op.getInput(),
+                             rewriter.getI32ArrayAttr(targetShapeInt32));
   }
 
   bool isCommuteUpwardsViable(SliceStaticOp op,

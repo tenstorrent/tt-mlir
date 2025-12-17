@@ -805,7 +805,7 @@ new file mode 100644
 index 0000000..0607049
 --- /dev/null
 +++ b/shardy/dialect/mpmd/transforms/optimize/CMakeLists.txt
-@@ -0,0 +1,72 @@
+@@ -0,0 +1,73 @@
 +# Shardy MLIR MPMD Transforms Optimize
 +
 +set(LLVM_TARGET_DEFINITIONS passes.td)
@@ -850,6 +850,7 @@ index 0000000..0607049
 +  remat_fragment.cc
 +  scheduler.cc
 +  rule_based_schedule.cc
++  scheduling_and_rule_based_merge.cc
 +
 +  DEPENDS
 +  MpmdTransformsOptimizePassesIncGen
@@ -883,7 +884,7 @@ new file mode 100644
 index 0000000..a8a8b05
 --- /dev/null
 +++ b/shardy/dialect/mpmd/transforms/sharding_propagation/CMakeLists.txt
-@@ -0,0 +1,41 @@
+@@ -0,0 +1,42 @@
 +# Shardy MLIR MPMD Transforms Sharding Propagation
 +
 +set(LLVM_TARGET_DEFINITIONS passes.td)
@@ -897,6 +898,7 @@ index 0000000..a8a8b05
 +  enforce_user_shardings.cc
 +  extract_reshards_from_inter_mesh_transfers.cc
 +  sharding_propagation_pipeline.cc
++  simplify_program.cc
 +
 +  DEPENDS
 +  MpmdTransformsShardingPropagationPassesIncGen
@@ -1879,8 +1881,8 @@ index 0000000..58ce9e1
 + .../mpmd/transforms/export/CMakeLists.txt     |  75 ++++++++
 + .../mpmd/transforms/import/CMakeLists.txt     | 124 +++++++++++++
 + .../import/infer_mesh_assignment.cc           |  85 +++++----
-+ .../mpmd/transforms/optimize/CMakeLists.txt   |  69 ++++++++
-+ .../sharding_propagation/CMakeLists.txt       |  41 +++++
++ .../mpmd/transforms/optimize/CMakeLists.txt   |  73 ++++++++
++ .../sharding_propagation/CMakeLists.txt       |  42 +++++
 + shardy/integrations/c/CMakeLists.txt          |  39 ++++-
 + shardy/integrations/c/attributes_mpmd.cc      | 126 +++++++++++++
 + shardy/integrations/c/attributes_mpmd.h       |  84 +++++++++
@@ -2720,7 +2722,7 @@ index 0000000..58ce9e1
 +index 0000000..ecf3d7c
 +--- /dev/null
 ++++ b/shardy/dialect/mpmd/transforms/optimize/CMakeLists.txt
-+@@ -0,0 +1,69 @@
++@@ -0,0 +1,73 @@
 ++# Shardy MLIR MPMD Transforms Optimize
 ++
 ++set(LLVM_TARGET_DEFINITIONS passes.td)
@@ -2795,7 +2797,7 @@ index 0000000..58ce9e1
 +index 0000000..a8a8b05
 +--- /dev/null
 ++++ b/shardy/dialect/mpmd/transforms/sharding_propagation/CMakeLists.txt
-+@@ -0,0 +1,41 @@
++@@ -0,0 +1,42 @@
 ++# Shardy MLIR MPMD Transforms Sharding Propagation
 ++
 ++set(LLVM_TARGET_DEFINITIONS passes.td)
@@ -2809,6 +2811,7 @@ index 0000000..58ce9e1
 ++  enforce_user_shardings.cc
 ++  extract_reshards_from_inter_mesh_transfers.cc
 ++  sharding_propagation_pipeline.cc
++  simplify_program.cc
 ++
 ++  DEPENDS
 ++  MpmdTransformsShardingPropagationPassesIncGen

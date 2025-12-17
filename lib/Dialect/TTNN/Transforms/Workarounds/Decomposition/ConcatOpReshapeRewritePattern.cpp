@@ -44,9 +44,9 @@ LogicalResult ConcatOpReshapeRewritePattern::matchAndRewrite(
       utils::RankedTensorTypeFactory::create(outputType, newOutputShape);
 
   // Create new concat op with reshaped inputs and new output type.
-  auto newConcatOp = rewriter.create<ttnn::ConcatOp>(
-      srcOp->getLoc(), newOutputType, reshapedInputs, dim,
-      /*memory_config=*/nullptr);
+  auto newConcatOp = ttnn::ConcatOp::create(rewriter, srcOp->getLoc(),
+                                            newOutputType, reshapedInputs, dim,
+                                            /*memory_config=*/nullptr);
 
   // Reshape back to the original output shape.
   auto result = ttir_to_ttnn::utils::generateReshape(

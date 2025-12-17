@@ -54,8 +54,8 @@ LogicalResult ConcatOpDecompositionRewritePattern::matchAndRewrite(
     subInputs.append(subRange.begin(), subRange.end());
 
     runningConcatOp =
-        rewriter.create<ttnn::ConcatOp>(srcOp->getLoc(), outputType, subInputs,
-                                        dim, srcOp.getMemoryConfigAttr());
+        ttnn::ConcatOp::create(rewriter, srcOp->getLoc(), outputType, subInputs,
+                               dim, srcOp.getMemoryConfigAttr());
 
     start = end;
     end = std::min(end + kMaxAllowedInputs - 1, numInputs);

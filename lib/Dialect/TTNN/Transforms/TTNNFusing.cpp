@@ -285,8 +285,8 @@ private:
 
     // Create rotary_embedding op
     auto resultType = srcOp.getType();
-    auto ropeOp = rewriter.create<RotaryEmbeddingOp>(
-        srcOp.getLoc(), resultType, xUnrotated, cos, sin,
+    auto ropeOp = RotaryEmbeddingOp::create(
+        rewriter, srcOp.getLoc(), resultType, xUnrotated, cos, sin,
         /*token_index=*/nullptr,
         /*memory_config=*/nullptr, /*compute_config=*/nullptr);
 
@@ -881,7 +881,7 @@ private:
         maskType.getShape(), targetShape);
     auto shapeAttr = ShapeAttr::get(rewriter.getContext(), broadcastDims);
 
-    return rewriter.create<RepeatOp>(loc, broadcastType, mask, shapeAttr);
+    return RepeatOp::create(rewriter, loc, broadcastType, mask, shapeAttr);
   }
 
   mlir::LogicalResult createSDPAOp(mlir::PatternRewriter &rewriter,
@@ -916,9 +916,9 @@ private:
           llvm::to_vector(kToDecodePermutation), rewriter,
           c.attentionMatmul.getLoc());
 
-      auto decodeOp = rewriter.create<ScaledDotProductAttentionDecodeOp>(
-          c.attentionMatmul.getLoc(), permutedQuery.getType(), permutedQuery,
-          key, c.value,
+      auto decodeOp = ScaledDotProductAttentionDecodeOp::create(
+          rewriter, c.attentionMatmul.getLoc(), permutedQuery.getType(),
+          permutedQuery, key, c.value,
           /*is_causal=*/rewriter.getBoolAttr(false), attentionMask,
           /*cur_pos_tensor=*/Value(),
           /*attention_sink=*/Value(), scaleAttr,
@@ -933,9 +933,9 @@ private:
               ttmlir::utils::inversePermutation(kToDecodePermutation), rewriter,
               c.attentionMatmul.getLoc()));
     } else {
-      auto sdpaOp = rewriter.create<ScaledDotProductAttentionOp>(
-          c.attentionMatmul.getLoc(), c.query.getType(), c.query, key, c.value,
-          attentionMask,
+      auto sdpaOp = ScaledDotProductAttentionOp::create(
+          rewriter, c.attentionMatmul.getLoc(), c.query.getType(), c.query, key,
+          c.value, attentionMask,
           /*is_causal=*/rewriter.getBoolAttr(false), scaleAttr,
           /*sliding_window_size=*/IntegerAttr(),
           /*memory_config=*/MemoryConfigAttr());

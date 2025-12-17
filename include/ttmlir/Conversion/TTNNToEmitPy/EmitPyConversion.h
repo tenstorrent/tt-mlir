@@ -1788,12 +1788,11 @@ private:
   }
 
   mlir::Value createList(ValueRange operands) {
-    return rewriter
-        .create<emitpy::CallOpaqueOp>(
-            op.getLoc(),
-            emitpy::OpaqueType::get(rewriter.getContext(),
-                                    TypeNameV<std::vector<::ttnn::Tensor>>),
-            kCreateListFunctionName, operands, nullptr, nullptr)
+    return emitpy::CallOpaqueOp::create(
+               rewriter, op.getLoc(),
+               emitpy::OpaqueType::get(rewriter.getContext(),
+                                       TypeNameV<std::vector<::ttnn::Tensor>>),
+               kCreateListFunctionName, operands, nullptr, nullptr)
         ->getResult(0);
   }
 

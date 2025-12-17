@@ -21,8 +21,8 @@ static GetDeviceOp insertGetDeviceOp(RewriterBase &rewriter,
   // TODO (jnie): Currently hardcoding the mesh offset to 0x0
   // Need a proper plan to dynamically determine this.
   llvm::SmallVector<int64_t, 2> meshOffset{0, 0};
-  return rewriter.create<ttnn::GetDeviceOp>(
-      loc, rewriter.getType<DeviceType>(),
+  return ttnn::GetDeviceOp::create(
+      rewriter, loc, rewriter.getType<DeviceType>(),
       ttnn::MeshShapeAttr::get(rewriter.getContext(), meshShape[0],
                                meshShape[1]),
       ttnn::MeshOffsetAttr::get(rewriter.getContext(), meshOffset[0],
@@ -111,8 +111,8 @@ ToLayoutOp createToLayoutOp(Operation *op,
   Location loc = ttmlir::utils::appendLocationSuffix(op->getLoc(), locSuffix);
   // Create a ToLayoutOp to convert the input operand to the desired
   // tensor layout, buffer type and memory layout.
-  return rewriter.create<ttnn::ToLayoutOp>(
-      loc, toLayoutOpResultType, inputValue,
+  return ttnn::ToLayoutOp::create(
+      rewriter, loc, toLayoutOpResultType, inputValue,
       LayoutAttr::get(rewriter.getContext(), targetTensorLayout),
       ttcore::DataTypeAttr::get(rewriter.getContext(), targetTensorDataType),
       outputMemConfigAttr);

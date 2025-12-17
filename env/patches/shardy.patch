@@ -635,18 +635,6 @@ index 0000000..dc33501
 +  SdyDialect
 +  SdyTransformsPropagationShardingProjection
 +)
-diff --git a/shardy/dialect/sdy/transforms/propagation/debugging/source_sharding.cc b/shardy/dialect/sdy/transforms/propagation/debugging/source_sharding.cc
-index 86f16d1..8039a00 100644
---- a/shardy/dialect/sdy/transforms/propagation/debugging/source_sharding.cc
-+++ b/shardy/dialect/sdy/transforms/propagation/debugging/source_sharding.cc
-@@ -338,6 +338,7 @@ void saveShardingOriginsOnModule(
- // the case for the target of the edge, because if the source appears multiple
- // times, then it's because it effects multiple other operands/results in the
- // op.
-+[[maybe_unused]]
- bool insertSeenValue(Operation* op, const PropagationEdge& edge,
-                      llvm::SmallDenseSet<Value>& seenValues) {
-   EdgeNode target = edge.target;
 diff --git a/shardy/integrations/c/CMakeLists.txt b/shardy/integrations/c/CMakeLists.txt
 new file mode 100644
 index 0000000..fdd50c4
@@ -790,7 +778,7 @@ index 0000000..30a5cf9
 +
 +#endif
 diff --git a/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc b/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc
-index ab93067..283d6ad 100644
+index e6a92ac..7e50dde 100644
 --- a/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc
 +++ b/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc
 @@ -303,6 +303,37 @@ OpShardingRuleAttr createOpShardingRule(Operation* op,
@@ -831,20 +819,19 @@ index ab93067..283d6ad 100644
        .Case<stablehlo::BitcastConvertOp>(
            [](stablehlo::BitcastConvertOp bitcastConvert) {
              ArrayRef<int64_t> inShape =
-@@ -685,6 +716,12 @@ OpShardingRuleAttr createOpShardingRule(Operation* op,
-                   /*isBlocked=*/usedByRngBitGenerator)
-               .build();
+@@ -688,6 +719,11 @@ OpShardingRuleAttr createOpShardingRule(Operation* op,
+           return OpShardingRuleBuilder::buildPointwise(customCall);
          }
+         // TODO(b/327191011): output unregistered op stats instead.
 +        // Check if the custom call implements the ShardingRuleOpInterface.
 +        if (auto shardingRuleOp =
 +                  llvm::dyn_cast<ShardingRuleOpInterface>(customCall.getOperation())) {
 +          return shardingRuleOp.getShardingRule();
 +        }
-+
-         // TODO(b/327191011): output unregistered op stats instead.
          static llvm::once_flag onceFlag;
          emitOpWarningOnce(
-@@ -1093,6 +1130,16 @@ OpShardingRuleAttr createOpShardingRule(Operation* op,
+             onceFlag, customCall,
+@@ -1097,6 +1133,16 @@ OpShardingRuleAttr createOpShardingRule(Operation* op,
              return builder.build();
            })
        .Case<stablehlo::ScatterOp>([](stablehlo::ScatterOp scatter) {
@@ -861,3 +848,43 @@ index ab93067..283d6ad 100644
          OpShardingRuleBuilder builder(scatter);
 
          // Since all inputs and results have compatible shapes, we can look at
+diff --git a/shardy/dialect/sdy/transforms/propagation/debugging/source_sharding.cc b/shardy/dialect/sdy/transforms/propagation/debugging/source_sharding.cc
+index a73917b..c2c79a6 100644
+--- a/shardy/dialect/sdy/transforms/propagation/debugging/source_sharding.cc
++++ b/shardy/dialect/sdy/transforms/propagation/debugging/source_sharding.cc
+@@ -335,35 +335,6 @@ void saveShardingOriginsOnModule(
+   }
+ }
+
+-// In the case where we have a Value used multiple times as an operand, we
+-// should only add the edge once. For example:
+-// ```mlir
+-// %0 = stablehlo.add %arg0, %arg0 <[<@mesh, [{"a", ?}]>]> : tensor<8xf32>
+-// return %0 : tensor<8xf32>
+-// ```
+-// The sharding projection said that both operand 0 and 1 are updated. However,
+-// they are the same value, so we only need to add the edge once. This is only
+-// the case for the target of the edge, because if the source appears multiple
+-// times, then it's because it effects multiple other operands/results in the
+-// op.
+-bool insertSeenValue(Operation* op, const PropagationEdge& edge,
+-                     llvm::SmallDenseSet<Value>& seenValues) {
+-  EdgeNode target = edge.target;
+-  switch (target.type) {
+-    case EdgeNodeType::OPERAND: {
+-      if (auto funcOp = dyn_cast<func::FuncOp>(op)) {
+-        return seenValues
+-            .insert(getBodyTerminator(funcOp)->getOperand(target.index))
+-            .second;
+-      }
+-      return seenValues.insert(op->getOperand(target.index)).second;
+-    }
+-    case EdgeNodeType::RESULT: {
+-      return true;
+-    }
+-  }
+-}
+-
+ PropagationEdgesAttr createPropagationEdges(Operation* op,
+                                             const AxisToEdgesMap& axisToEdges,
+                                             MLIRContext* context) {

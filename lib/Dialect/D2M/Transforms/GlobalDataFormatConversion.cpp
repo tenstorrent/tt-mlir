@@ -52,7 +52,7 @@ struct GlobalDataFormatBodyConverter : mlir::TypeConverter {
                               mlir::Location loc) -> mlir::Value {
       mlir::RankedTensorType rankedType =
           mlir::cast<mlir::RankedTensorType>(type);
-      return builder.create<ttir::TypecastOp>(loc, rankedType, inputs);
+      return ttir::TypecastOp::create(builder, loc, rankedType, inputs);
     };
 
     addSourceMaterialization(materializeFunc); // Input conversions

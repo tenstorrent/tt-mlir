@@ -92,8 +92,8 @@ void addMeshToModule(mlir::ModuleOp &module, std::string meshName,
   mlir::sdy::MeshAttr sdyMeshAttr =
       shardy_utils::createMeshAttrFromMeshMap(context, meshMap);
   builder.setInsertionPoint(&(module.getBody()->front()));
-  builder.create<mlir::sdy::MeshOp>(
-      builder.getUnknownLoc(), builder.getStringAttr(meshName), sdyMeshAttr);
+  mlir::sdy::MeshOp::create(builder, builder.getUnknownLoc(),
+                            builder.getStringAttr(meshName), sdyMeshAttr);
 }
 
 // Create a TTMeshAttr from a sdy::meshOp.
@@ -952,8 +952,8 @@ convertCustomCallToShardingConstraint(mlir::ModuleOp &rootModule,
 
     // Create sdy.sharding_constraint op and replace it in place of custom call.
     builder.setInsertionPointAfter(customCallOp);
-    auto shardingConstraintOp = builder.create<mlir::sdy::ShardingConstraintOp>(
-        customCallOp->getLoc(), customCallOp.getResult(0).getType(),
+    auto shardingConstraintOp = mlir::sdy::ShardingConstraintOp::create(
+        builder, customCallOp->getLoc(), customCallOp.getResult(0).getType(),
         customCallOp.getOperand(0), tensorShardingAttr);
     customCallOp.getResult(0).replaceAllUsesWith(
         shardingConstraintOp.getResult());

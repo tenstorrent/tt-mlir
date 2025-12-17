@@ -2319,13 +2319,12 @@ public:
 
     // The `update_index` is modeled as a tensor in the IR, but the
     // `ttnn.update_cache` expects a `int` scalar.
-    auto updateIndex = rewriter
-                           .create<emitpy::CallOpaqueOp>(
-                               srcOp.getLoc(), rewriter.getI32Type(),
-                               ttnn_to_emitpy::kGetScalarFromTensorFunctionName,
-                               adaptor.getUpdateIndex(),
-                               /*args=*/nullptr,
-                               /*keyword_args=*/nullptr)
+    auto updateIndex = emitpy::CallOpaqueOp::create(
+                           rewriter, srcOp.getLoc(), rewriter.getI32Type(),
+                           ttnn_to_emitpy::kGetScalarFromTensorFunctionName,
+                           adaptor.getUpdateIndex(),
+                           /*args=*/nullptr,
+                           /*keyword_args=*/nullptr)
                            .getResult(0);
 
     llvm::SmallVector<mlir::Attribute> args{
@@ -2356,8 +2355,8 @@ public:
     // SubscriptOp requires a Value object as index, which is created by
     // invoking the emitpy::LiteralOp.
     //
-    Value indexAsVal = rewriter.create<emitpy::LiteralOp>(
-        getTupleElementOp->getLoc(), rewriter.getIndexType(),
+    Value indexAsVal = emitpy::LiteralOp::create(
+        rewriter, getTupleElementOp->getLoc(), rewriter.getIndexType(),
         std::to_string(adaptor.getIndex()));
 
     rewriter.replaceOpWithNewOp<emitpy::SubscriptOp>(
@@ -2414,8 +2413,8 @@ public:
     // Create a global variable for caching.
     //
     std::string globalVarName = "CACHED_" + calleeName.str();
-    rewriter.create<emitpy::GlobalOp>(
-        loadCachedOp.getLoc(),
+    emitpy::GlobalOp::create(
+        rewriter, loadCachedOp.getLoc(),
         StringAttr::get(rewriter.getContext(), globalVarName),
         emitpy::OpaqueAttr::get(rewriter.getContext(), "None"));
     rewriter.restoreInsertionPoint(currentInsertionPoint);
@@ -2430,10 +2429,9 @@ public:
             : emitpy::OpaqueType::get(rewriter.getContext(),
                                       "([ttnn.Tensor]) -> [ttnn.Tensor]");
     mlir::Value callee =
-        rewriter
-            .create<emitpy::ConstantOp>(
-                loadCachedOp.getLoc(), calleeType,
-                emitpy::OpaqueAttr::get(rewriter.getContext(), calleeName))
+        emitpy::ConstantOp::create(
+            rewriter, loadCachedOp.getLoc(), calleeType,
+            emitpy::OpaqueAttr::get(rewriter.getContext(), calleeName))
             ->getResult(0);
 
     llvm::SmallVector<Value> operands;
@@ -2443,13 +2441,11 @@ public:
     //
     if (loadCachedOp.getInputs().size() > 0) {
       mlir::Value tensorsInList =
-          rewriter
-              .create<emitpy::CallOpaqueOp>(
-                  loadCachedOp.getLoc(),
-                  emitpy::OpaqueType::get(rewriter.getContext(),
-                                          "[ttnn.Tensor]"),
-                  ttnn_to_emitpy::kCreateListFunctionName,
-                  adaptor.getOperands(), nullptr)
+          emitpy::CallOpaqueOp::create(
+              rewriter, loadCachedOp.getLoc(),
+              emitpy::OpaqueType::get(rewriter.getContext(), "[ttnn.Tensor]"),
+              ttnn_to_emitpy::kCreateListFunctionName, adaptor.getOperands(),
+              nullptr)
               ->getResult(0);
       operands.push_back(tensorsInList);
     }
@@ -2463,16 +2459,15 @@ public:
     //
     currentInsertionPoint = rewriter.saveInsertionPoint();
     rewriter.setInsertionPointToStart(&funcOp.getBody().front());
-    rewriter.create<emitpy::GlobalStatementOp>(loadCachedOp.getLoc(),
-                                               tensorListType, globalSymbol);
+    emitpy::GlobalStatementOp::create(rewriter, loadCachedOp.getLoc(),
+                                      tensorListType, globalSymbol);
     rewriter.restoreInsertionPoint(currentInsertionPoint);
 
     // Retrieve a global variable.
     //
     mlir::Value globalVar =
-        rewriter
-            .create<emitpy::GetGlobalOp>(loadCachedOp.getLoc(), tensorListType,
-                                         globalSymbol)
+        emitpy::GetGlobalOp::create(rewriter, loadCachedOp.getLoc(),
+                                    tensorListType, globalSymbol)
             ->getResult(0);
     operands.push_back(globalVar);
 
@@ -2485,11 +2480,12 @@ public:
     llvm::StringRef wrapperFuncName =
         isZeroArgWrapper ? constEvalFuncWrapperZeroArg : constEvalFuncWrapper;
 
-    auto cacheOp = rewriter.create<emitpy::CallOpaqueOp>(
-        loadCachedOp.getLoc(), tensorListType, wrapperFuncName, operands);
+    auto cacheOp =
+        emitpy::CallOpaqueOp::create(rewriter, loadCachedOp.getLoc(),
+                                     tensorListType, wrapperFuncName, operands);
     mlir::Value cacheResult = cacheOp->getResult(0);
-    rewriter.create<emitpy::AssignGlobalOp>(loadCachedOp.getLoc(), globalSymbol,
-                                            cacheResult);
+    emitpy::AssignGlobalOp::create(rewriter, loadCachedOp.getLoc(),
+                                   globalSymbol, cacheResult);
 
     // Unpack list of tensors.
     //
@@ -2498,14 +2494,14 @@ public:
       // Create index value.
       //
       auto indexType = rewriter.getIndexType();
-      auto indexOp = rewriter.create<emitpy::LiteralOp>(
-          loadCachedOp.getLoc(), indexType, std::to_string(i));
+      auto indexOp = emitpy::LiteralOp::create(rewriter, loadCachedOp.getLoc(),
+                                               indexType, std::to_string(i));
       Value indexVal = indexOp.getResult();
 
       // Get reference to the i-th element in the result.
       //
-      auto subscriptOp = rewriter.create<emitpy::SubscriptOp>(
-          loadCachedOp.getLoc(),
+      auto subscriptOp = emitpy::SubscriptOp::create(
+          rewriter, loadCachedOp.getLoc(),
           emitpy::OpaqueType::get(rewriter.getContext(), "ttnn.Tensor"),
           cacheResult, indexVal);
 
@@ -2910,8 +2906,8 @@ public:
       configKeywordArgs.push_back(rewriter.getStringAttr(""));
     }
 
-    auto mapperConfigOp = rewriter.create<emitpy::CallOpaqueOp>(
-        srcOp.getLoc(),
+    auto mapperConfigOp = emitpy::CallOpaqueOp::create(
+        rewriter, srcOp.getLoc(),
         emitpy::OpaqueType::get(rewriter.getContext(), "ttnn.MeshMapperConfig"),
         "ttnn.MeshMapperConfig", llvm::SmallVector<mlir::Value>{},
         rewriter.getArrayAttr(configArgs),
@@ -2919,8 +2915,8 @@ public:
 
     auto meshMapperType =
         emitpy::OpaqueType::get(rewriter.getContext(), "ttnn.TensorToMesh");
-    auto createMapperOp = rewriter.create<emitpy::CallOpaqueOp>(
-        srcOp.getLoc(), meshMapperType, "ttnn.create_mesh_mapper",
+    auto createMapperOp = emitpy::CallOpaqueOp::create(
+        rewriter, srcOp.getLoc(), meshMapperType, "ttnn.create_mesh_mapper",
         llvm::SmallVector<mlir::Value>{adaptor.getMeshDevice(),
                                        mapperConfigOp.getResult(0)});
 
@@ -2977,8 +2973,8 @@ public:
       configKeywordArgs.push_back(rewriter.getStringAttr(""));
     }
 
-    auto composerConfigOp = rewriter.create<emitpy::CallOpaqueOp>(
-        srcOp.getLoc(),
+    auto composerConfigOp = emitpy::CallOpaqueOp::create(
+        rewriter, srcOp.getLoc(),
         emitpy::OpaqueType::get(rewriter.getContext(),
                                 "ttnn.MeshComposerConfig"),
         "ttnn.MeshComposerConfig", llvm::SmallVector<mlir::Value>{},
@@ -2987,8 +2983,8 @@ public:
 
     auto meshComposerType =
         emitpy::OpaqueType::get(rewriter.getContext(), "ttnn.MeshToTensor");
-    auto createComposerOp = rewriter.create<emitpy::CallOpaqueOp>(
-        srcOp.getLoc(), meshComposerType, "ttnn.create_mesh_composer",
+    auto createComposerOp = emitpy::CallOpaqueOp::create(
+        rewriter, srcOp.getLoc(), meshComposerType, "ttnn.create_mesh_composer",
         llvm::SmallVector<mlir::Value>{adaptor.getMeshDevice(),
                                        composerConfigOp.getResult(0)});
 

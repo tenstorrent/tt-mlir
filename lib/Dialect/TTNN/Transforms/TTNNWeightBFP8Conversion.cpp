@@ -63,8 +63,8 @@ public:
         ttnn::utils::RankedTensorTypeFactory::create(weightType, bfp8DataType);
 
     // Insert typecast operation to convert weight to BFP8.
-    auto typecastOp = rewriter.create<TypecastOp>(
-        op.getLoc(), bfp8WeightType, weight,
+    auto typecastOp = TypecastOp::create(
+        rewriter, op.getLoc(), bfp8WeightType, weight,
         ttcore::DataTypeAttr::get(rewriter.getContext(), bfp8DataType));
 
     // Update op to use the typecast result.

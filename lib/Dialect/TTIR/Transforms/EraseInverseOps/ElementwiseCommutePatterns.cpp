@@ -50,9 +50,9 @@ public:
 
       mlir::Location newLoc = ttmlir::utils::appendLocationSuffix(
           tmUser->getLoc(), "_tm" + std::to_string(operandIdx));
-      auto newTM = rewriter.create<TMOpType>(
-          newLoc, newTMResultTypes[operandIdx], op->getOperand(operandIdx),
-          tmUser->getAttrs());
+      auto newTM =
+          TMOpType::create(rewriter, newLoc, newTMResultTypes[operandIdx],
+                           op->getOperand(operandIdx), tmUser->getAttrs());
 
       newEltwiseOperands.push_back(newTM);
     }
@@ -103,9 +103,9 @@ public:
     RankedTensorType newTMType =
         cast<RankedTensorType>(op->getResult(0).getType())
             .clone(tmOperand.getType().getShape());
-    TMOpType newUserTM = rewriter.create<TMOpType>(op->getLoc(), newTMType,
-                                                   newEltwise->getResult(0),
-                                                   tmOperand->getAttrs());
+    TMOpType newUserTM =
+        TMOpType::create(rewriter, op->getLoc(), newTMType,
+                         newEltwise->getResult(0), tmOperand->getAttrs());
 
     rewriter.replaceOp(op, newUserTM);
   }
