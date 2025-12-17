@@ -694,13 +694,23 @@ def execute_py(
     check_atol: bool = False,
     check_rtol: bool = False,
 ):
-    print("1")
     import importlib.util
+    import glob
 
     print(os.environ["TT_METAL_HOME"])
+    print(sys.path)
+    print(os.listdir(f"{os.environ['TT_METAL_HOME']}"))
+    matches = glob.glob(f"{os.environ['TT_METAL_HOME']}/**/_ttnn.so", recursive=True)
+    for match in matches:
+        print(match)
     sys.path.append(f"{os.environ['TT_METAL_HOME']}/ttnn")
-    files = os.listdir(f"{os.environ['TT_METAL_HOME']}/ttnn")
+    package_name = "ttrt"
+    spec = importlib.util.find_spec(package_name)
+    package_path = os.path.dirname(spec.origin)
+    print("TTRT PACKAGE PATH: ", package_path)
+    files = os.listdir(f"{os.environ['TT_METAL_HOME']}/build/ttnn")
     print(files)
+    sys.path.append(f"{os.environ['TT_METAL_HOME']}/build/ttnn")
 
     import ttnn
 
