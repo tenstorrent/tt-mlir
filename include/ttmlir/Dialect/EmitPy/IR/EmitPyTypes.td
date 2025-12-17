@@ -39,4 +39,31 @@ def EmitPy_OpaqueType : EmitPy_Type<"Opaque", "opaque"> {
   let genVerifyDecl = 1;
 }
 
+def EmitPy_DictType : EmitPy_Type<"Dict", "dict"> {
+  let summary = "EmitPy dictionary type";
+
+  let description = [{
+    A type representing a Python dictionary.
+    Key and value types are optional, allowing heterogeneous dictionaries like in Python.
+
+    Example:
+
+    ```mlir
+    !emitpy.dict                    // Untyped dictionary (Any, Any)
+    !emitpy.dict<i32, f32>          // Both key and value types specified
+    !emitpy.dict<!emitpy.opaque<"str">, !emitpy.opaque<"ttnn.Tensor">>
+    ```
+  }];
+
+  let parameters = (ins
+    OptionalParameter<"Type">:$keyType,
+    OptionalParameter<"Type">:$valueType
+  );
+
+  let builders = [];
+
+  let hasCustomAssemblyFormat = 1;
+  let genVerifyDecl = 1;
+}
+
 #endif // TTMLIR_TTMLIR_DIALECT_EMITPY_IR_EMITPYTYPES_TD

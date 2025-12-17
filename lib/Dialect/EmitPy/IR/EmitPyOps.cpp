@@ -12,6 +12,7 @@
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include "llvm/IR/DerivedTypes.h"
 #include <string_view>
 
 using namespace mlir;
@@ -571,6 +572,34 @@ LogicalResult GetGlobalOp::verify() {
 LogicalResult
 GetGlobalOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
   return verifyNearestGlobalSymbol<GetGlobalOp>(*this, symbolTable);
+}
+
+//===----------------------------------------------------------------------===//
+// CreateDictOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult CreateDictOp::verify() {
+  StringRef dictName = getDictName();
+  if (failed(isValidPythonIdentifier(getOperation(), dictName))) {
+    return emitOpError() << "dictionary name must be a valid Python identifier";
+  }
+
+  if (getLiteralExpr() && !getItems().empty()) {
+    return emitOpError(
+        "cannot have both literal_expr and items operands; use either "
+        "literal_expr for Python dict literals or items for key-value pairs");
+  }
+
+  if (!getLiteralExpr() && getItems().size() % 2 != 0) {
+    return emitOpError(
+        "items must be alternating key-value pairs (even count required)");
+  }
+
+  if (getLiteralExpr() && getLiteralExpr()->empty()) {
+    return emitOpError("literal_expr must not be empty");
+  }
+
+  return success();
 }
 
 #define GET_OP_CLASSES

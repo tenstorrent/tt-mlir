@@ -460,6 +460,82 @@ static LogicalResult printOperation(PythonEmitter &emitter,
   return emitter.emitGlobalStatement(globalStatementOp);
 }
 
+static LogicalResult printOperation(PythonEmitter &emitter,
+                                    CreateDictOp createDictOp) {
+  raw_indented_ostream &os = emitter.ostream();
+  StringRef dictName = createDictOp.getDictName();
+  os << dictName << " = ";
+
+  if (createDictOp.getLiteralExpr()) {
+    os << *createDictOp.getLiteralExpr();
+    return success();
+  }
+
+  os << "{";
+  auto items = createDictOp.getItems();
+  for (size_t i = 0; i < items.size(); i += 2) {
+    if (i > 0) {
+      os << ", ";
+    }
+    if (failed(emitter.emitOperand(items[i], "dict_key"))) {
+      return failure();
+    }
+    os << ": ";
+    if (failed(emitter.emitOperand(items[i + 1], "dict_value"))) {
+      return failure();
+    }
+  }
+  os << "}";
+
+  return success();
+}
+
+static LogicalResult printOperation(PythonEmitter &emitter,
+                                    SetValueForDictKeyOp op) {
+  raw_indented_ostream &os = emitter.ostream();
+
+  if (failed(emitter.emitOperand(op.getDict(), "dict_arg"))) {
+    return failure();
+  }
+  os << "[";
+
+  Attribute keyAttr = op.getKey();
+  if (auto strAttr = dyn_cast<StringAttr>(keyAttr)) {
+    os << "\"" << strAttr.getValue() << "\"";
+  } else if (auto intAttr = dyn_cast<IntegerAttr>(keyAttr)) {
+    os << intAttr.getInt();
+  }
+
+  os << "] = ";
+  if (failed(emitter.emitOperand(op.getValue(), "dict_value_arg"))) {
+    return failure();
+  }
+  return success();
+}
+
+static LogicalResult printOperation(PythonEmitter &emitter,
+                                    GetValueForDictKeyOp op) {
+  if (failed(emitter.emitAssignPrefix(*op))) {
+    return failure();
+  }
+
+  raw_indented_ostream &os = emitter.ostream();
+  if (failed(emitter.emitOperand(op.getDict(), "dict_arg"))) {
+    return failure();
+  }
+  os << "[";
+
+  Attribute keyAttr = op.getKey();
+  if (auto strAttr = dyn_cast<StringAttr>(keyAttr)) {
+    os << "\"" << strAttr.getValue() << "\"";
+  } else if (auto intAttr = dyn_cast<IntegerAttr>(keyAttr)) {
+    os << intAttr.getInt();
+  }
+
+  os << "]";
+  return success();
+}
+
 LogicalResult PythonEmitter::emitOperation(Operation &op) {
   LogicalResult status =
       llvm::TypeSwitch<Operation *, LogicalResult>(&op)
@@ -467,7 +543,8 @@ LogicalResult PythonEmitter::emitOperation(Operation &op) {
           .Case<ModuleOp>([&](auto op) { return printOperation(*this, op); })
           // EmitPy ops.
           .Case<CallOpaqueOp, ImportOp, AssignOp, ConstantOp, SubscriptOp,
-                GlobalOp, AssignGlobalOp, GlobalStatementOp>(
+                GlobalOp, AssignGlobalOp, GlobalStatementOp, CreateDictOp,
+                SetValueForDictKeyOp, GetValueForDictKeyOp>(
               [&](auto op) { return printOperation(*this, op); })
           .Case<GetGlobalOp>([&](auto op) {
             cacheDeferredOpResult(op.getResult(), op.getName());
