@@ -695,17 +695,13 @@ def execute_py(
     check_rtol: bool = False,
 ):
     import importlib.util
-    import glob
 
-    print("a")
-    matches = glob.glob(f"{os.environ['TT_METAL_HOME']}/**/_ttnn.so", recursive=True)
-    for match in matches:
-        print(match)
-    for match in matches:
-        pkg_root = os.path.dirname(os.path.dirname(match))
-        if pkg_root not in sys.path:
-            sys.path.append(pkg_root)
-    print("b")
+    TT_METAL_RUNTIME_ROOT = Path(
+        os.environ.get("TT_METAL_RUNTIME_ROOT", os.getcwd())
+    ).resolve()
+    sys.path.append(os.path.join(TT_METAL_RUNTIME_ROOT, "ttnn"))
+    print(TT_METAL_RUNTIME_ROOT)
+    print(sys.path)
 
     import ttnn
 
