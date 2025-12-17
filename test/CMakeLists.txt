@@ -61,9 +61,10 @@ add_custom_target(check-perf
     COMMAND ${CMAKE_COMMAND} -E env SYSTEM_DESC_PATH=${CMAKE_SOURCE_DIR}/ttrt-artifacts/system_desc.ttsys
             llvm-lit -v --param TTMLIR_ENABLE_OPTIMIZER_MODELS_PERF_TESTS=1
             ${CMAKE_CURRENT_SOURCE_DIR}/ttmlir/Silicon/TTNN/n150/optimizer/models_perf_tests
+            ${CMAKE_CURRENT_SOURCE_DIR}/ttmlir/Silicon/TTNN/n150/optimizer/single_layer_perf_tests
     DEPENDS ${TTMLIR_TEST_DEPENDS} ttrt
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-    COMMENT "Running optimizer models performance tests (resnet, yolo_v8, segformer)"
+    COMMENT "Running optimizer models performance tests"
 )
 set_target_properties(check-perf PROPERTIES FOLDER "Tests")
 
