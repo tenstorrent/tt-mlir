@@ -617,13 +617,20 @@ def execute_py(
     sys.path.append(f"{os.environ['TT_METAL_HOME']}/ttnn/ttnn")
 
     import importlib.util
-    import ttnn
 
     # Add tt-alchemist utils.py to path for EmitPy tests
     TT_MLIR_HOME = Path(os.environ.get("TT_MLIR_HOME", os.getcwd())).resolve()
     utils_path = os.path.join(TT_MLIR_HOME, "tools/tt-alchemist/templates/python/local")
     if utils_path not in sys.path:
         sys.path.append(utils_path)
+
+    # Add tt-metal ttnn package to path
+    TT_METAL_HOME = Path(os.environ.get("TT_METAL_HOME", os.getcwd())).resolve()
+    ttnn_package_path = os.path.join(TT_METAL_HOME, "build/lib")
+    if ttnn_package_path not in sys.path:
+        sys.path.append(ttnn_package_path)
+
+    import ttnn
 
     golden_torch_tensors = convert_golden_to_torch_tensors(goldens)
 
