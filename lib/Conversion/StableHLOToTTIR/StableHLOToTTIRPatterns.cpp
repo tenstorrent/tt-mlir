@@ -3553,20 +3553,17 @@ public:
     // 1. Add reduction (for gradient accumulation)
     // 2. Specific dimension configuration matching embedding semantics
 
-    Block &updateBlock = srcOp.getUpdateComputation().front();
-    bool hasAddReduction = llvm::any_of(updateBlock, [](Operation &op) {
-      return mlir::isa<mlir::stablehlo::AddOp>(op);
-    });
-
-    if (!hasAddReduction) {
+    llvm::ErrorOr<ttcore::ReduceType> reduceType =
+        getReduceTypeFromRegion(srcOp.getRegion());
+    if (!reduceType || *reduceType != ttcore::ReduceType::Sum) {
       return rewriter.notifyMatchFailure(
           srcOp,
-          "EmbeddingBackward requires add reduction in update computation");
+          "EmbeddingBackward requires sum reduction in update computation");
     }
 
-    Value operand = srcOp.getInputs()[0];
+    Value operand = adaptor.getInputs()[0];
     Value scatterIndices = adaptor.getScatterIndices();
-    Value update = srcOp.getUpdates()[0];
+    Value update = adaptor.getUpdates()[0];
 
     auto operandType = mlir::cast<RankedTensorType>(operand.getType());
     auto updateType = mlir::cast<RankedTensorType>(update.getType());

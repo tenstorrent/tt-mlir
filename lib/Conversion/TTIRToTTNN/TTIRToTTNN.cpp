@@ -406,10 +406,8 @@ public:
     // [batch, seq].
     if (indicesType.getRank() >= 2 &&
         indicesType.getDimSize(indicesType.getRank() - 1) == 1) {
-      llvm::SmallVector<int64_t> squeezedShape;
-      for (int64_t i = 0; i < indicesType.getRank() - 1; ++i) {
-        squeezedShape.push_back(indicesType.getDimSize(i));
-      }
+      llvm::SmallVector<int64_t> squeezedShape(
+          indicesType.getShape().drop_back());
 
       inputIndices = mlir::tt::ttir_to_ttnn::utils::generateReshape(
           mlir::cast<TypedValue<RankedTensorType>>(inputIndices), squeezedShape,
@@ -421,9 +419,7 @@ public:
     // Pad the sequence length to be divisible by TILE_WIDTH (32).
     constexpr int64_t TILE_WIDTH = 32;
     int64_t seqLen = indicesType.getDimSize(indicesType.getRank() - 1);
-    int64_t paddedSeqLen =
-        ((seqLen + TILE_WIDTH - 1) / TILE_WIDTH) * TILE_WIDTH;
-
+    int64_t paddedSeqLen = llvm::divideCeil(seqLen, TILE_WIDTH) * TILE_WIDTH;
     Value reshapedGrad = adaptor.getInGradient();
     auto gradType = adaptor.getInGradient().getType();
     auto gradTensor = mlir::cast<RankedTensorType>(gradType);
@@ -433,19 +429,11 @@ public:
       llvm::SmallVector<int64_t> paddedIndicesShape(indicesType.getShape());
       paddedIndicesShape[indicesType.getRank() - 1] = paddedSeqLen;
 
-      llvm::SmallVector<int32_t> indicesPadding;
-      for (int64_t i = 0; i < indicesType.getRank(); ++i) {
-        indicesPadding.push_back(0);
-        if (i == indicesType.getRank() - 1) {
-          indicesPadding.push_back(static_cast<int32_t>(paddedSeqLen - seqLen));
-        } else {
-          indicesPadding.push_back(0);
-        }
-      }
+      llvm::SmallVector<int32_t> indicesPadding(2 * indicesType.getRank(), 0);
+      indicesPadding[2 * indicesType.getRank() - 1] = paddedSeqLen - seqLen;
 
-      auto paddedIndicesType = RankedTensorType::get(
-          paddedIndicesShape, indicesType.getElementType(),
-          indicesType.getEncoding());
+      auto paddedIndicesType = ttnn::utils::RankedTensorTypeFactory::create(
+          indicesType, paddedIndicesShape);
 
       inputIndices = rewriter.create<ttnn::PadOp>(
           ttmlir::utils::appendLocationSuffix(loc, "_pad_indices"),
@@ -453,22 +441,15 @@ public:
           rewriter.getDenseI32ArrayAttr(indicesPadding),
           rewriter.getF32FloatAttr(0.0), rewriter.getBoolAttr(true), nullptr);
 
+      uint64_t dimensionToPad = gradShape.size() - 2;
       llvm::SmallVector<int64_t> paddedGradShape(gradShape);
-      paddedGradShape[gradShape.size() - 2] = paddedSeqLen;
+      paddedGradShape[dimensionToPad] = paddedSeqLen;
 
-      llvm::SmallVector<int32_t> gradPadding;
-      for (size_t i = 0; i < gradShape.size(); ++i) {
-        gradPadding.push_back(0);
-        if (i == gradShape.size() - 2) {
-          gradPadding.push_back(static_cast<int32_t>(paddedSeqLen - seqLen));
-        } else {
-          gradPadding.push_back(0);
-        }
-      }
+      llvm::SmallVector<int32_t> gradPadding(2 * gradShape.size(), 0);
+      gradPadding[2 * dimensionToPad + 1] = paddedSeqLen - seqLen;
 
-      auto paddedGradType =
-          RankedTensorType::get(paddedGradShape, gradTensor.getElementType(),
-                                gradTensor.getEncoding());
+      auto paddedGradType = ttnn::utils::RankedTensorTypeFactory::create(
+          gradTensor, paddedGradShape);
 
       reshapedGrad = rewriter.create<ttnn::PadOp>(
           ttmlir::utils::appendLocationSuffix(loc, "_pad_gradient"),
