@@ -64,8 +64,8 @@ static Type getScalarElementType(Type tileType) {
 /// starting position is entirely beyond the logical bounds, the entire tile
 /// is replaced with the fill value.
 ///
-/// TODO: Partial tile masking (when a tile straddles the boundary) requires
-/// per-element index tiles and will be implemented in a follow-up.
+/// TODO (#6311): Partial tile masking (when a tile straddles the boundary)
+/// requires per-element index tiles and will be implemented in a follow-up.
 class DecomposeTileMaskBoundaryPattern
     : public OpRewritePattern<TileMaskBoundaryOp> {
 public:
