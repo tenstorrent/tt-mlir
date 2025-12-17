@@ -1093,9 +1093,9 @@ public:
 
     // Create the result layout by composing with input layout.
     auto resultLayout = ttcore::MetalLayoutAttr::get(
-        ctx, permuted.logicalShape, permuted.dimAlignments,
-        inputLayout.getCollapsedIntervals(), inputLayout.getOobVal(),
-        inputLayout.getMemorySpace(), inputLayout.getMemoryLayout(),
+        ctx, permuted.logicalShape, inputLayout.getOobVal(),
+        inputLayout.getMemorySpace(), inputLayout.getMemoryLayout().getValue(),
+        inputLayout.getCollapsedIntervals(), permuted.dimAlignments,
         permuted.transposeMap);
 
     auto viewType = mlir::RankedTensorType::get(
@@ -1295,7 +1295,7 @@ public:
     auto layout = mlir::cast<ttcore::MetalLayoutAttr>(outTy.getEncoding());
     auto newLayout = ttcore::MetalLayoutAttr::get(
         layout.getContext(), layout.getLogicalShape(), layout.getOobVal(),
-        layout.getMemorySpace(), layout.getMemoryLayout(),
+        layout.getMemorySpace(), layout.getMemoryLayout().getValue(),
         layout.getCollapsedIntervals(), layout.getDimAlignments(), deviceMap);
     auto newOutTy = RankedTensorType::get(outTy.getShape(),
                                           outTy.getElementType(), newLayout);

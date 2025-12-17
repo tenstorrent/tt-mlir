@@ -182,7 +182,7 @@ static llvm::SmallVector<int64_t> computePhysicalShape(
 
   auto tempLayout = ttcore::MetalLayoutAttr::get(
       builder.getContext(), layout.getLogicalShape(), layout.getOobVal(),
-      layout.getMemorySpace(), layout.getMemoryLayout(),
+      layout.getMemorySpace(), layout.getMemoryLayout().getValue(),
       layout.getCollapsedIntervals(), alignments);
 
   return tempLayout.getPhysicalShape(
@@ -234,7 +234,8 @@ shouldImplementAsVirtualGrid(RankedTensorType tensorType,
 
   // For now, only non-collapsed 2D virtual grids on L1 are supported.
   if (layout.hasNonTrivialCollapsedDims(tensorType.getShape()) ||
-      layout.getMemoryLayout() == ttcore::TensorMemoryLayout::Interleaved) {
+      layout.getMemoryLayout().getValue() ==
+          ttcore::TensorMemoryLayout::Interleaved) {
     return false;
   }
   if (physicalShape.size() != 2) {
@@ -295,7 +296,7 @@ static ttcore::MetalLayoutAttr layoutWithOptimalGrid(
 
   return ttcore::MetalLayoutAttr::get(
       builder.getContext(), oldLayout.getLogicalShape(), oldLayout.getOobVal(),
-      oldLayout.getMemorySpace(), oldLayout.getMemoryLayout(),
+      oldLayout.getMemorySpace(), oldLayout.getMemoryLayout().getValue(),
       collapsedIntervals, newDimAlignments, indexAffineMap);
 }
 
@@ -914,10 +915,10 @@ insertTTNNDRAMStreams(d2m::GenericOp genericOp,
 
     auto streamOutputLayout = ttcore::MetalLayoutAttr::get(
         builder.getContext(), baseMetalLayout.getLogicalShape(),
-        baseMetalLayout.getDimAlignments(),
-        baseMetalLayout.getCollapsedIntervals(), baseMetalLayout.getOobVal(),
-        ttcore::MemorySpace::DeviceDRAM,
+        baseMetalLayout.getOobVal(), ttcore::MemorySpace::DeviceDRAM,
         ttcore::TensorMemoryLayout::Interleaved,
+        baseMetalLayout.getCollapsedIntervals(),
+        baseMetalLayout.getDimAlignments(),
         ttmlir::utils::calculateReblockMap(
             unShardedShapeWithGrid, fakeShardedShape, builder.getContext()));
 
