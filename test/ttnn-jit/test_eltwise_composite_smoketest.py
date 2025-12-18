@@ -22,6 +22,7 @@ SMOKETEST_SHAPES = [
     (256, 256),  # Medium
     (512, 512),  # Large
     (2, 512, 2048),  # Rank 3
+    (1, 4, 256, 1024),  # Rank 4
 ]
 
 # One representative shape/grid for each shard strategy
