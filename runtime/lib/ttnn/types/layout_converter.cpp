@@ -108,15 +108,16 @@ LayoutConverter::fromDeviceIfNeeded(const ::ttnn::Tensor &input) {
     return out;
   }
 
-  if (shouldTilize && utils::canTilizeOnDevice(outputDesc.dataType, outputDesc.memoryConfig)) {
+  if (shouldTilize &&
+      utils::canTilizeOnDevice(outputDesc.dataType, outputDesc.memoryConfig)) {
     ::ttnn::Tensor out = toDeviceIfNeeded(input, targetDevice);
     out = toLayoutIfNeeded(out);
     out = toMemoryConfigIfNeeded(out);
     return out;
   }
 
-  if (shouldTilize &&
-      (!utils::canTilizeOnDevice(outputDesc.dataType, outputDesc.memoryConfig))) {
+  if (shouldTilize && (!utils::canTilizeOnDevice(outputDesc.dataType,
+                                                 outputDesc.memoryConfig))) {
     ::ttnn::Tensor out = toLayoutIfNeeded(input);
     out = toDeviceIfNeeded(out, targetDevice);
     out = toMemoryConfigIfNeeded(out);
@@ -163,7 +164,8 @@ LayoutConverter::fromDeviceIfNeeded(const ::ttnn::Tensor &input) {
     return out;
   }
 
-  if (shouldTilize && utils::canTilizeOnDevice(inputDesc.dataType, outputDesc.memoryConfig)) {
+  if (shouldTilize &&
+      utils::canTilizeOnDevice(inputDesc.dataType, outputDesc.memoryConfig)) {
     ::ttnn::Tensor out = toDeviceIfNeeded(input, targetDevice);
     out = toLayoutIfNeeded(out);
     out = typecastIfNeeded(out);
@@ -171,7 +173,8 @@ LayoutConverter::fromDeviceIfNeeded(const ::ttnn::Tensor &input) {
     return out;
   }
 
-  if (shouldTilize && utils::canTilizeOnDevice(outputDesc.dataType, outputDesc.memoryConfig)) {
+  if (shouldTilize &&
+      utils::canTilizeOnDevice(outputDesc.dataType, outputDesc.memoryConfig)) {
     ::ttnn::Tensor out = typecastIfNeeded(input);
     out = toDeviceIfNeeded(out, targetDevice);
     out = toLayoutIfNeeded(out);
@@ -181,7 +184,8 @@ LayoutConverter::fromDeviceIfNeeded(const ::ttnn::Tensor &input) {
 
   if (shouldTilize &&
       ((!utils::canTilizeOnDevice(inputDesc.dataType, inputDesc.memoryConfig) &&
-        !utils::canTilizeOnDevice(outputDesc.dataType, outputDesc.memoryConfig)))) {
+        !utils::canTilizeOnDevice(outputDesc.dataType,
+                                  outputDesc.memoryConfig)))) {
     ::ttnn::Tensor out = typecastIfNeeded(input);
     out = toLayoutIfNeeded(out);
     out = toDeviceIfNeeded(out, targetDevice);
@@ -249,7 +253,8 @@ LayoutConverter::convertHostTensorLayout(const ::ttnn::Tensor &input,
   /* If we should tilize and the input data type and memory layout are device
    * tilizable, tilize on device
    */
-  if (shouldTilize && utils::canTilizeOnDevice(inputDesc.dataType, inputDesc.memoryConfig)) {
+  if (shouldTilize &&
+      utils::canTilizeOnDevice(inputDesc.dataType, inputDesc.memoryConfig)) {
     ::ttnn::Tensor out = toLayoutIfNeeded(input);
     out = toMemoryConfigIfNeeded(out);
     out = fromDeviceIfNeeded(out);
@@ -328,7 +333,8 @@ LayoutConverter::handleDeviceInputLayoutTypecast(const ::ttnn::Tensor &input) {
               debug::toString(outputDesc.dataType));
   }
 
-  if (shouldTilize && utils::canTilizeOnDevice(inputDesc.dataType, inputDesc.memoryConfig)) {
+  if (shouldTilize &&
+      utils::canTilizeOnDevice(inputDesc.dataType, inputDesc.memoryConfig)) {
     ::ttnn::Tensor out = toLayoutIfNeeded(input);
     out = typecastIfNeeded(out);
     out = toMemoryConfigIfNeeded(out);

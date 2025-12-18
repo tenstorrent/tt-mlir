@@ -95,8 +95,9 @@ bool canTilizeMemoryLayoutOnDevice(
          memLayout == ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED;
 }
 
-bool canTilizeOnDevice(const ::ttnn::DataType &dataType,
-                       const std::optional<::ttnn::MemoryConfig> &memoryConfig) {
+bool canTilizeOnDevice(
+    const ::ttnn::DataType &dataType,
+    const std::optional<::ttnn::MemoryConfig> &memoryConfig) {
   return canTilizeDataTypeOnDevice(dataType) &&
          canTilizeMemoryLayoutOnDevice(memoryConfig);
 }
