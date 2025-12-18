@@ -570,6 +570,7 @@ mlir::LogicalResult
 BlockMaskOp::bufferize(mlir::RewriterBase &rewriter,
                        const mlir::bufferization::BufferizationOptions &options,
                        mlir::bufferization::BufferizationState &state) {
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
   mlir::OpBuilder::InsertionGuard guard(rewriter);
   rewriter.setInsertionPoint(getOperation());
 
@@ -591,12 +592,12 @@ BlockMaskOp::bufferize(mlir::RewriterBase &rewriter,
   }
 
   mlir::Operation *old = getOperation();
-  // NOLINTNEXTLINE(clang-analyzer-core.StackAddressEscape)
   auto newOp = rewriter.create<mlir::tt::d2m::BlockMaskOp>(
       old->getLoc(), in, out, getLogicalRows(), getLogicalCols(),
       getFillValue());
   rewriter.replaceOp(old, newOp->getResults());
   return mlir::success();
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 }
 
 bool BlockMaskOp::bufferizesToMemoryRead(
