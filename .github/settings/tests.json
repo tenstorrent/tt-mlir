@@ -1,4 +1,4 @@
 [
 
-  { "runs-on": "builder",   "image": "tracy",  "script": "compute.sh" }
+  { "runs-on": "builder",   "image": "tracy",  "script": "compute.sh", "arch": "wh" }
 ]

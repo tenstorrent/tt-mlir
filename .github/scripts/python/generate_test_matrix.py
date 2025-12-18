@@ -141,8 +141,10 @@ def civ2_offload(test_matrix):
                     test_matrix[test_index]["sh-run"] = True
                     if test_matrix[test_index]["runs-on"] == "llmbox":
                         test_matrix[test_index]["runs-on"] = "n300-llmbox"
-                    if test_matrix[test_index]["runs-on"] == "p150":
+                    elif test_matrix[test_index]["runs-on"] == "p150":
                         test_matrix[test_index]["runs-on"] = "p150b"
+                    elif test_matrix[test_index]["runs-on"] == "builder":
+                        test_matrix[test_index]["runs-on"] = "large"
 
                 print(
                     f"CIv2 offload: marking tests for {name} with scope {scope}:\n{conf}"
