@@ -219,3 +219,64 @@ def test_llama_attention(
         output_root=request.config.getoption("path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
+
+
+@pytest.mark.parametrize("batch_norm", [False])
+@pytest.mark.parametrize("activation", ["relu"])
+@pytest.mark.parametrize("batch_size", [32])
+@pytest.mark.parametrize("layer_size", [1024])
+@pytest.mark.parametrize("depth", [1])
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_simple_block(
+    batch_norm,
+    activation,
+    batch_size,
+    layer_size,
+    depth,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    shapes = [[batch_size, layer_size, layer_size], [1, layer_size, layer_size], [1, layer_size, layer_size] ,]
+    dtypes = [dtype] * 3
+
+    def activation_fn(x, builder):
+        if activation == "relu":
+            return builder.relu(x)
+
+        if activation == "sigmoid":
+            return builder.sigmoid(x)
+
+        assert False, "Unsupported activation"
+
+
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def model(
+            x: Operand,
+            w0: Operand,
+            w1: Operand,
+            builder: TTIRBuilder,
+        ):
+            if batch_norm:
+                assert False
+            x = builder.matmul(x, w0)
+            x = activation_fn(x, builder)
+            x = builder.matmul(x, w1)
+            x = activation_fn(x, builder)
+            return x
+
+    #options = ["test-buffer-size-policy=min"]
+    options = []
+    compile_and_execute_ttir(
+        module,
+        target=target,
+        device=device,
+        test_base=request.node.name,
+        output_root=request.config.getoption("path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        print_ir=True,
+    )
