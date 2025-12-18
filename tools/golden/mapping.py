@@ -2860,6 +2860,20 @@ def ttir_lt_golden(
     return torch.lt(input_tensor, other_tensor).to(output_dtype)
 
 
+def ttir_le_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.le(input_tensor, other_tensor).to(output_dtype)
+
+
+def ttir_bitwise_and_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.bitwise_and(input_tensor, other_tensor).to(output_dtype)
+
+
 def ttir_minimum_golden(
     input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -3065,7 +3079,7 @@ def ttir_constant_golden(value: DenseElementsAttr) -> GoldenMapTensor:
         return dtype
 
     shape = list(value.type.shape)
-    dtype = splat_dense_attr_to_torch(value.type)
+    dtype = splat_dense_attr_to_torch(value.type.element_type)
 
     if value.is_splat:
         value = value.get_splat_value()
@@ -4296,7 +4310,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.NotEqualOp: ttir_ne_golden,
     ttir.GreaterEqualOp: ttir_ge_golden,
     ttir.GreaterThanOp: ttir_greater_than_golden,
-    ttir.LessEqualOp: less_equal_golden,
+    ttir.LessEqualOp: ttir_le_golden,
     ttir.LessThanOp: ttir_lt_golden,
     # Logical operations
     ttir.LogicalAndOp: logical_and_golden,
@@ -4308,7 +4322,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # Selection operations
     ttir.WhereOp: ttir_where_golden,
     # Bitwise operations
-    ttir.BitwiseAndOp: torch.bitwise_and,
+    ttir.BitwiseAndOp: ttir_bitwise_and_golden,
     ttir.BitwiseOrOp: torch.bitwise_or,
     ttir.BitwiseXorOp: torch.bitwise_xor,
     ttir.BitwiseNotOp: torch.bitwise_not,
