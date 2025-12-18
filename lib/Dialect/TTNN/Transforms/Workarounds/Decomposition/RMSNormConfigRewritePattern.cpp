@@ -18,20 +18,21 @@ RMSNormConfigRewritePattern::matchAndRewrite(RMSNormOp srcOp,
 
   MLIRContext *context = srcOp.getContext();
 
-  // Create a high-precision compute config:
-  // - math_fidelity: HiFi4 (default, highest fidelity)
+  // Create a maximum-precision compute config:
+  // - math_fidelity: HiFi4 (highest fidelity)
   // - math_approx_mode: false (disable approximations for better accuracy)
-  // - fp32_dest_acc_en: true (enable FP32 accumulation for better precision)
-  // - packer_l1_acc: false (default)
+  // - fp32_dest_acc_en: true (enable FP32 accumulation in destination
+  // registers)
+  // - packer_l1_acc: true (use FP32 precision for L1 accumulation)
   // - dst_full_sync_en: false (default)
   //
-  // This matches layer_norm's default precision settings.
+  // This provides maximum numerical precision for RMS norm operations.
   auto computeConfig = DeviceComputeKernelConfigAttr::get(
       context,
       /*mathFidelity=*/MathFidelity::HiFi4,
       /*mathApproxMode=*/BoolAttr::get(context, false),
       /*fp32DestAccEn=*/BoolAttr::get(context, true),
-      /*packerL1Acc=*/nullptr,
+      /*packerL1Acc=*/BoolAttr::get(context, true),
       /*dstFullSyncEn=*/nullptr);
 
   // Create a new operation with the compute config set
