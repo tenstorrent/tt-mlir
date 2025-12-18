@@ -3056,30 +3056,8 @@ def ttir_pad_golden(
 
 
 def ttir_constant_golden(value: DenseElementsAttr) -> GoldenMapTensor:
-    def splat_dense_attr_to_torch(elem_type: Type):
-        dtype = torch.float32
-
-        if isinstance(elem_type, FloatType):
-            if elem_type.width == 16:
-                dtype = torch.float16
-            elif elem_type.width == 32:
-                dtype = torch.float32
-            elif elem_type.width == 64:
-                dtype = torch.float64
-        elif isinstance(elem_type, IntegerType):
-            if elem_type.width == 8:
-                dtype = torch.int8
-            elif elem_type.width == 16:
-                dtype = torch.int16
-            elif elem_type.width == 32:
-                dtype = torch.int32
-            elif elem_type.width == 64:
-                dtype = torch.int64
-
-        return dtype
-
     shape = list(value.type.shape)
-    dtype = splat_dense_attr_to_torch(value.type.element_type)
+    dtype = mlir_type_to_torch_dtype(value.type.element_type)
 
     if value.is_splat:
         value = value.get_splat_value()
@@ -3906,30 +3884,8 @@ def stablehlo_concatenate_golden(
 
 
 def stablehlo_constant_golden(value: DenseElementsAttr) -> GoldenMapTensor:
-    def splat_dense_attr_to_torch(elem_type: Type):
-        dtype = torch.float32
-
-        if isinstance(elem_type, FloatType):
-            if elem_type.width == 16:
-                dtype = torch.float16
-            elif elem_type.width == 32:
-                dtype = torch.float32
-            elif elem_type.width == 64:
-                dtype = torch.float64
-        elif isinstance(elem_type, IntegerType):
-            if elem_type.width == 8:
-                dtype = torch.int8
-            elif elem_type.width == 16:
-                dtype = torch.int16
-            elif elem_type.width == 32:
-                dtype = torch.int32
-            elif elem_type.width == 64:
-                dtype = torch.int64
-
-        return dtype
-
     shape = list(value.type.shape)
-    dtype = splat_dense_attr_to_torch(value.type.element_type)
+    dtype = mlir_type_to_torch_dtype(value.type.element_type)
 
     if value.is_splat:
         value = value.get_splat_value()
