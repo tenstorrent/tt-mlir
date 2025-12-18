@@ -124,6 +124,10 @@ def test_conv_transpose2d(
         pytest.xfail(
             "Metal issue: https://github.com/tenstorrent/tt-metal/issues/33449"
         )
+    if test_id == "emitpy-bf16-batch16_segmentation_training":
+        pytest.xfail(
+            "Out of Memory: Not enough space to allocate 99328 B L1_SMALL buffer across 64 banks, where each bank needs to store 1552 B, but bank size is only 32768 B"
+        )
 
     if bias_shape:
         input_shapes = [input_shape, weight_shape, bias_shape]
