@@ -180,3 +180,27 @@ func.func @chained_view(%arg0: tensor<2x4x32x32xf32, #layout_base_view>) -> tens
 
   return %1 : tensor<4x2x32x32xf32, #layout_with_view>
 }
+
+// Some TMs won't collapse outer dims until the lower_to_layout pass, test to make sure we bounce through a DRAM interleaved buffer for missed alignments
+
+#layout_tm_default_align = #ttcore.metal_layout<logical_shape = 4x32x32, dim_alignments = 1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3, d4, d5) -> (d0, d1, d3, d4, d5)>
+
+func.func @test_tm_default_alignment(%arg0: tensor<4x32x32xf32>) -> tensor<4x1x1x1x32x32xf32, #layout_tm_default_align> {
+  // CHECK-LABEL: @test_tm_default_alignment
+  // CHECK: %[[L1_TENSOR_UNIT_GRID:.*]] = d2m.empty() : tensor<4x1x32x32xf32, #layout[[L1_LAYOUT:[0-9]*]]
+  // CHECK: d2m.to_device {{.*}} layout = #layout[[L1_LAYOUT]]
+  %0 = d2m.empty() : tensor<4x1x1x1x32x32xf32, #layout_tm_default_align>
+  %1 = d2m.to_layout %arg0, %0 : tensor<4x32x32xf32> into tensor<4x1x1x1x32x32xf32, #layout_tm_default_align> -> tensor<4x1x1x1x32x32xf32, #layout_tm_default_align>
+  return %1 : tensor<4x1x1x1x32x32xf32, #layout_tm_default_align>
+}
+
+#layout_tm_missed_align = #ttcore.metal_layout<logical_shape = 4x128x32, dim_alignments = 1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3, d4, d5) -> (((d1 + d2) floordiv 4 + d0) mod 4, (d1 + d2) mod 4, d3, d4, d5)>
+
+func.func @test_tm_missed_alignment(%arg0: tensor<4x128x32xf32>) -> tensor<4x4x1x1x32x32xf32, #layout_tm_missed_align> {
+  // CHECK-LABEL: @test_tm_missed_alignment
+  // CHECK: %[[DRAM_TENSOR_UNIT_GRID:.*]] = d2m.empty() : tensor<1x1x512x32xf32, #layout[[DRAM_LAYOUT:[0-9]*]]
+  // CHECK: d2m.to_device {{.*}} layout = #layout[[DRAM_LAYOUT]]
+  %0 = d2m.empty() : tensor<4x4x1x1x32x32xf32, #layout_tm_missed_align>
+  %1 = d2m.to_layout %arg0, %0 : tensor<4x128x32xf32> into tensor<4x4x1x1x32x32xf32, #layout_tm_missed_align> -> tensor<4x4x1x1x32x32xf32, #layout_tm_missed_align>
+  return %1 : tensor<4x4x1x1x32x32xf32, #layout_tm_missed_align>
+}
