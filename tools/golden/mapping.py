@@ -20,6 +20,7 @@ import torch
 import torch.nn.functional
 from ttmlir.dialects import ttir, stablehlo, d2m, ttnn, ttcore
 from ttmlir.ir import *
+from ttmlir.passes import DataType
 
 
 class GoldenMapTensor:
@@ -403,6 +404,27 @@ def mlir_type_to_torch_dtype(mlir_type: Type) -> torch.dtype:
             raise TypeError(f"Unsupported integer width: {width}")
     else:
         raise TypeError(f"Unsupported MLIR type: {mlir_type}")
+
+
+def mlir_datatype_to_torch_dtype(mlir_datatype: DataType) -> torch.dtype:
+
+    match str(mlir_datatype):
+        case "DataType.Float16":
+            return torch.float16
+        case "DataType.BFloat16":
+            return torch.bfloat16
+        case "DataType.UInt8":
+            return torch.uint8
+        case "DataType.UInt16":
+            return torch.uint16
+        case "DataType.UInt32":
+            return torch.uint32
+        case "DataType.Int32":
+            return torch.int32
+        case "DataType.Float32":
+            return torch.float32
+        case _:
+            raise TypeError(f"Unsupported MLIR DataType: {mlir_datatype}")
 
 
 def cbrt_golden(x: GoldenMapTensor) -> GoldenMapTensor:
@@ -3804,6 +3826,22 @@ def ttir_sort_golden(
     return values.to(output_dtype), indices.to(torch.int64)
 
 
+def ttir_to_layout_golden(
+    input_tensor: GoldenMapTensor, output_ranked_tensor_type: RankedTensorType
+) -> GoldenMapTensor:
+    casted_type = ttcore.ir.TileType.maybe_downcast(
+        output_ranked_tensor_type.element_type
+    )
+
+    if casted_type:
+        output_dtype = mlir_datatype_to_torch_dtype(casted_type.data_type)
+    else:
+        output_dtype = mlir_type_to_torch_dtype(output_ranked_tensor_type.element_type)
+
+    output_tensor = input_tensor.clone()
+    return output_tensor.to(output_dtype)
+
+
 ################ StableHLO Op Golden Functions ###############
 
 
@@ -4346,7 +4384,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.DotGeneralOp: ttir_dot_general_golden,
     ttir.ScatterOp: ttir_scatter_golden,
     # Layout operations (identity functions) — accept and ignore extra kwargs like reinterpretLayout
-    ttir.ToLayoutOp: (lambda x, **kwargs: x),
+    ttir.ToLayoutOp: ttir_to_layout_golden,
     # Cache operations
     ttir.FillCacheOp: fill_cache_golden,
     ttir.UpdateCacheOp: update_cache_golden,
