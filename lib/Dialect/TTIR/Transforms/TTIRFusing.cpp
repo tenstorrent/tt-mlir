@@ -3650,6 +3650,31 @@ public:
 
     llvm::SmallVector<int64_t> normalizedShape{inputType.getShape().back()};
 
+    // Reshape gamma to match normalized_shape if needed.
+    // Gamma may have extra dimensions (e.g., [1, 1, 2048] instead of [2048]).
+    auto gammaType = mlir::cast<RankedTensorType>(gamma.getType());
+    if (gammaType.getShape() != llvm::ArrayRef(normalizedShape)) {
+      // Check if gamma can be squeezed to normalized_shape.
+      // All dimensions except the last must be 1.
+      for (int64_t i = 0; i < gammaType.getRank() - 1; ++i) {
+        if (gammaType.getShape()[i] != 1) {
+          return mlir::failure();
+        }
+      }
+      // Check if the last dimension matches.
+      if (gammaType.getShape().back() != normalizedShape[0]) {
+        return mlir::failure();
+      }
+      // Reshape gamma to normalized_shape.
+      auto reshapedGammaType = RankedTensorType::get(
+          normalizedShape, gammaType.getElementType(), gammaType.getEncoding());
+      llvm::SmallVector<int32_t> targetShape(normalizedShape.begin(),
+                                             normalizedShape.end());
+      gamma = rewriter.create<ReshapeOp>(outerMul.getLoc(), reshapedGammaType,
+                                         gamma,
+                                         rewriter.getI32ArrayAttr(targetShape));
+    }
+
     // Create RMSNormOp with output shape matching input shape
     auto rmsNormOutputType =
         RankedTensorType::get(inputType.getShape(), outputType.getElementType(),
