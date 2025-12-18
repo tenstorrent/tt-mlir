@@ -246,9 +246,37 @@ public:
                          "Operation {} at {} fixed with fallback configuration",
                          operation->getName(), operation->getLoc());
           } else {
+            // Get validation status name for error message
+            const char *statusName = "Unknown";
+            switch (originalResult.status) {
+            case op_constraint_validation::ValidationStatus::Success:
+              statusName = "UnexpectedSuccess";
+              break;
+            case op_constraint_validation::ValidationStatus::NotImplemented:
+              statusName = "NotImplemented";
+              break;
+            case op_constraint_validation::ValidationStatus::MetalBackendError:
+              statusName = "MetalBackendError";
+              break;
+            case op_constraint_validation::ValidationStatus::
+                UnmatchedReferenceConfig:
+              statusName = "UnmatchedReferenceConfig";
+              break;
+            case op_constraint_validation::ValidationStatus::OutOfMemoryError:
+              statusName = "OutOfMemoryError";
+              break;
+            }
+
             operation->emitError()
-                << "OperationValidationAndFallback: Operation failed "
-                   "validation and no fallback configuration worked";
+                << "OperationValidationAndFallback: Operation "
+                << operation->getName() << " with " << inputLayouts.size()
+                << " inputs failed validation (original error: " << statusName;
+            if (!originalResult.errorMessage.empty()) {
+              operation->emitError() << " - " << originalResult.errorMessage;
+            }
+            operation->emitError()
+                << "). No fallback configuration worked after testing up to "
+                << maxFallbackAttempts << " combinations.";
             validationFailed = true;
             signalPassFailure();
             return WalkResult::interrupt();
