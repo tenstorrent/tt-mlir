@@ -239,7 +239,7 @@ def main(input_filename, target_duration, component_filter):
         if shrun:
             test_matrix[key]["sh-run"] = True
         if runs_on == "builder":
-            test_matrix[key]["container-options"] = ""
+            test_matrix[key]["no-device"] = True
 
     # Convert to list format
     test_matrix = list(test_matrix.values())
