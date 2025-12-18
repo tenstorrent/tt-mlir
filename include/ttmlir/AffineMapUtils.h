@@ -924,16 +924,16 @@ inline size_t calculateCoalescingFactor(mlir::AffineMap map,
 /// @param expr The expression to analyze
 /// @param rhsConst Optional bound from enclosing mod/floordiv operation.
 ///                 When set, changes how expressions are evaluated.
-/// @return std::nullopt for error condition,
-///         -1 for unconstrained (no contiguity limit),
+/// @return -1 for unconstrained (no contiguity limit),
+///         1 for error condition (analysis failed, no coalescing possible),
 ///         positive value for the contiguity bound
-inline std::optional<int64_t> analyzeShardResultExprForContiguity(
+inline int64_t analyzeShardResultExprForContiguity(
     mlir::AffineExpr expr, const llvm::DenseMap<int, int64_t> &dimBounds,
     std::optional<int64_t> parentModulus = std::nullopt) {
   // Handle constant expressions
   if (auto constExpr = llvm::dyn_cast<mlir::AffineConstantExpr>(expr)) {
     if (constExpr.getValue() < 0) {
-      return std::nullopt; // Error: negative constant
+      return 1; // Error: negative constant
     }
     return -1; // No contiguity constraint
   }
@@ -946,7 +946,7 @@ inline std::optional<int64_t> analyzeShardResultExprForContiguity(
   // Handle binary operations
   auto binOp = llvm::dyn_cast<mlir::AffineBinaryOpExpr>(expr);
   if (!binOp) {
-    return std::nullopt;
+    return 1;
   }
 
   mlir::AffineExpr lhs = binOp.getLHS();
@@ -955,24 +955,19 @@ inline std::optional<int64_t> analyzeShardResultExprForContiguity(
   switch (binOp.getKind()) {
   case mlir::AffineExprKind::Add: {
     // Analyze each operand recursively, propagating rhsConst
-    auto lhsBound =
+    int64_t lhsBound =
         analyzeShardResultExprForContiguity(lhs, dimBounds, parentModulus);
-    auto rhsBound =
+    int64_t rhsBound =
         analyzeShardResultExprForContiguity(rhs, dimBounds, parentModulus);
 
-    // If either operand returned nullopt, return nullopt
-    if (!lhsBound.has_value() || !rhsBound.has_value()) {
-      return std::nullopt;
-    }
-
     // Return GCD of bounds; -1 means unconstrained
-    if (*lhsBound == -1) {
-      return *rhsBound;
+    if (lhsBound == -1) {
+      return rhsBound;
     }
-    if (*rhsBound == -1) {
-      return *lhsBound;
+    if (rhsBound == -1) {
+      return lhsBound;
     }
-    return std::gcd(*lhsBound, *rhsBound);
+    return std::gcd(lhsBound, rhsBound);
   }
 
   case mlir::AffineExprKind::Mul: {
@@ -981,26 +976,22 @@ inline std::optional<int64_t> analyzeShardResultExprForContiguity(
     auto rhsConstExpr = llvm::dyn_cast<mlir::AffineConstantExpr>(rhs);
 
     if (!lhsConst && !rhsConstExpr) {
-      return std::nullopt; // Error: mul without constant operand
+      return 1; // Error: mul without constant operand
     }
 
     int64_t constVal =
         rhsConstExpr ? rhsConstExpr.getValue() : lhsConst.getValue();
 
     if (constVal < 0) {
-      return std::nullopt; // Error: negative constant
+      return 1; // Error: negative constant
     }
 
-    auto lhsBound =
+    int64_t lhsBound =
         analyzeShardResultExprForContiguity(lhs, dimBounds, parentModulus);
-    // if lhs cannot be analyzed, return error
-    if (!lhsBound) {
-      return std::nullopt;
-    }
 
     // if lhs is constrained, propagate the constraint up
-    if (lhsBound.value() != -1) {
-      return lhsBound.value();
+    if (lhsBound != -1) {
+      return lhsBound;
     }
 
     // If rhsConst is not set, the contiguity bound is unconstrained
@@ -1013,7 +1004,7 @@ inline std::optional<int64_t> analyzeShardResultExprForContiguity(
       return *parentModulus / constVal;
     }
     // If rhsConst % constVal != 0, return error
-    return std::nullopt;
+    return 1;
   }
 
   case mlir::AffineExprKind::Mod:
@@ -1025,14 +1016,14 @@ inline std::optional<int64_t> analyzeShardResultExprForContiguity(
 
     int64_t modulus = rhsConstExpr.getValue();
     if (modulus <= 0) {
-      return std::nullopt;
+      return 1;
     }
 
     // Check if LHS is also floordiv/mod - error condition
     if (auto lhsBinOp = llvm::dyn_cast<mlir::AffineBinaryOpExpr>(lhs)) {
       if (lhsBinOp.getKind() == mlir::AffineExprKind::Mod ||
           lhsBinOp.getKind() == mlir::AffineExprKind::FloorDiv) {
-        return std::nullopt;
+        return 1;
       }
     }
 
@@ -1059,7 +1050,7 @@ inline std::optional<int64_t> analyzeShardResultExprForContiguity(
                   mlir::dyn_cast<mlir::AffineConstantExpr>(mulOp->getRHS())) {
             multiplier = multiplierExpr.getValue();
           } else {
-            return std::nullopt;
+            return 1;
           }
         }
 
@@ -1069,7 +1060,7 @@ inline std::optional<int64_t> analyzeShardResultExprForContiguity(
           auto gap = modulus - modRHSConst;
           return (gap + multiplier - 1) / multiplier;
         }
-        return std::nullopt;
+        return 1;
       }
     }
 
@@ -1078,7 +1069,7 @@ inline std::optional<int64_t> analyzeShardResultExprForContiguity(
   }
 
   default:
-    return std::nullopt;
+    return 1;
   }
 }
 
@@ -1383,12 +1374,14 @@ inline int64_t analyzeGridResultExprForDiscontinuity(
 /// @param shape The shape providing bounds for each dimension
 /// @param numGridDims The number of grid dimensions (shard dims start after)
 /// @param shardDimIdx The index of the shard dimension to analyze (0-based)
-/// @return Optional contiguity bound for the dimension:
-///         - std::nullopt: Error condition (non-analyzable expression)
+/// @return Contiguity bound for the dimension:
+///         - 1: Error condition or no coalescing possible
 ///         - Positive value: Maximum coalescable run length for this dim
-inline std::optional<int64_t> analyzeSingleShardDimContiguity(
-    mlir::AffineMap map, mlir::ArrayRef<int64_t> shape, unsigned numGridDims,
-    unsigned numGridResults, unsigned shardDimIdx) {
+inline int64_t analyzeSingleShardDimContiguity(mlir::AffineMap map,
+                                               mlir::ArrayRef<int64_t> shape,
+                                               unsigned numGridDims,
+                                               unsigned numGridResults,
+                                               unsigned shardDimIdx) {
   unsigned dimPos = numGridDims + shardDimIdx;
 
   // Phase I: Set all other dims to worst-case constant values.
@@ -1406,10 +1399,10 @@ inline std::optional<int64_t> analyzeSingleShardDimContiguity(
                << simplifiedMap << "\n";
 
   // Phase II: Analyze each result expression for contiguity
-  std::optional<int64_t> dimContiguity = -1; // Start unconstrained
+  int64_t dimContiguity = -1; // Start unconstrained
 
   for (auto [i, resultExpr] : llvm::enumerate(simplifiedMap.getResults())) {
-    std::optional<int64_t> exprBound = std::nullopt;
+    int64_t exprBound;
     if (i >= numGridResults) {
       exprBound = analyzeShardResultExprForContiguity(resultExpr, dimBounds);
     } else {
@@ -1417,22 +1410,18 @@ inline std::optional<int64_t> analyzeSingleShardDimContiguity(
           analyzeGridResultExprForDiscontinuity(resultExpr, dimBounds, dimPos);
     }
 
-    if (!exprBound.has_value()) {
-      return std::nullopt;
-    }
-
     // Combine bounds using GCD
-    if (*exprBound != -1) {
-      if (*dimContiguity == -1) {
-        dimContiguity = *exprBound;
+    if (exprBound != -1) {
+      if (dimContiguity == -1) {
+        dimContiguity = exprBound;
       } else {
-        dimContiguity = std::gcd(*dimContiguity, *exprBound);
+        dimContiguity = std::gcd(dimContiguity, exprBound);
       }
     }
   }
 
   // Replace -1 (unconstrained) with the actual shape extent for this dim
-  if (dimContiguity.has_value() && *dimContiguity == -1) {
+  if (dimContiguity == -1) {
     dimContiguity = shape[dimPos];
   }
 
@@ -1471,17 +1460,14 @@ analyzeShardDimContiguity(mlir::AffineMap map, mlir::ArrayRef<int64_t> shape,
   }
 
   // Analyze each shard dim and store results
-  llvm::SmallVector<std::optional<int64_t>> dimContiguities;
+  llvm::SmallVector<int64_t> dimContiguities;
   dimContiguities.reserve(numShardDims);
 
   for (unsigned shardDimIdx = 0; shardDimIdx < numShardDims; ++shardDimIdx) {
     llvm::dbgs() << "----[analyzeShardDimContiguity] analyzing shard dim "
                  << shardDimIdx << " ----\n";
-    auto contiguity = analyzeSingleShardDimContiguity(
+    int64_t contiguity = analyzeSingleShardDimContiguity(
         map, shape, numGridDims, numGridResults, shardDimIdx);
-    if (!contiguity.has_value()) {
-      return std::nullopt; // Propagate error
-    }
     dimContiguities.push_back(contiguity);
   }
 
@@ -1492,7 +1478,7 @@ analyzeShardDimContiguity(mlir::AffineMap map, mlir::ArrayRef<int64_t> shape,
   for (int dimIdx = numShardDims - 1; dimIdx >= 0; --dimIdx) {
     unsigned dimPos = numGridDims + dimIdx;
     int64_t dimExtent = shape[dimPos];
-    int64_t dimContiguity = *dimContiguities[dimIdx];
+    int64_t dimContiguity = dimContiguities[dimIdx];
 
     if (dimContiguity < dimExtent) {
       // This dim is constrained - it's the largest contiguous dim
