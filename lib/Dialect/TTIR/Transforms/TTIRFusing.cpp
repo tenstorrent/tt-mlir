@@ -3834,7 +3834,6 @@ public:
       patterns.add<ScaledSumToMeanPattern>(&getContext());
       patterns.add<SpatialMeanOptimizationPattern>(&getContext());
       patterns.add<MatmulWithBiasFusionPattern>(&getContext());
-      patterns.add<SDPAFusing>(&getContext());
       patterns.add<RMSNormFusionPattern>(&getContext());
 
       patterns.add<GeluFusionPattern>(&getContext());

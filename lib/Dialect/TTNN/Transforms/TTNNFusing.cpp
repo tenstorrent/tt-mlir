@@ -2,10 +2,14 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Utils.h"
+
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
@@ -430,6 +434,360 @@ private:
   }
 };
 
+// ============================================================================
+// SDPA Fusing
+// ============================================================================
+//
+// Matches Scaled Dot Product Attention:
+//   Attention(Q, K, V) = softmax((Q @ K^T) * scale + mask) @ V
+//
+// Anchors on final matmul (attention @ V) and walks backward through:
+//   matmul -> [where] -> softmax -> linear/matmul (score computation)
+//
+class SDPAFusing : public mlir::OpRewritePattern<MatmulOp> {
+  using SDPAFusing::OpRewritePattern<MatmulOp>::OpRewritePattern;
+
+  // SDPA Query, Key, Value tensors have shape [B, H, S, D] (Batch, NumHeads,
+  // SeqLen, HeadDim).
+  static constexpr int64_t kNumHeadsDim = 1;
+  static constexpr int64_t kSeqLenDim = 2;
+
+  // Permutation to convert query from [B, H, S, D] -> [S, B, H, D] for SDPA
+  // decode op.
+  static constexpr std::array<int64_t, 4> kToDecodePermutation = {2, 0, 1, 3};
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(MatmulOp srcOp,
+                  mlir::PatternRewriter &rewriter) const override {
+    SDPAComponents c;
+    c.attentionMatmul = srcOp;
+    c.value = traceToSourceTensor(srcOp.getB());
+
+    // Match: matmul.A -> [where] -> softmax -> score
+    if (!matchSoftmaxPath(srcOp.getA(), c)) {
+      return failure();
+    }
+
+    if (!matchScoreComputation(c.softmax.getInput(), c)) {
+      return failure();
+    }
+
+    if (!validateSemantics(c)) {
+      return failure();
+    }
+
+    return createSDPAOp(rewriter, c);
+  }
+
+private:
+  struct SDPAComponents {
+    Value query, key, value, mask;
+    float scale = 1.0f;
+    MatmulOp attentionMatmul;
+    SoftmaxOp softmax;
+    Operation *scoreOp = nullptr;
+  };
+
+  // Trace through layout ops to find source tensor
+  bool isLayoutOp(Operation *op) const {
+    return isa<TypecastOp, ReshapeOp, PermuteOp, RepeatOp, ToLayoutOp>(op);
+  }
+
+  Value traceToSourceTensor(Value v) const {
+    while (Operation *defOp = v.getDefiningOp()) {
+      if (!isLayoutOp(defOp)) {
+        break;
+      }
+      v = defOp->getOperand(0);
+    }
+    return v;
+  }
+
+  // Match: [typecast] -> [where(cond, zeros, softmax)] or [typecast] -> softmax
+  bool matchSoftmaxPath(Value v, SDPAComponents &c) const {
+    // Trace through optional typecast (e.g., f32 -> bf16 after softmax)
+    if (auto typecastOp = v.getDefiningOp<TypecastOp>()) {
+      v = typecastOp.getInput();
+    }
+
+    // Try where(cond, zeros, softmax) first
+    if (auto whereOp = v.getDefiningOp<WhereOp>()) {
+      if (auto softmax = whereOp.getThird().getDefiningOp<SoftmaxOp>()) {
+        c.softmax = softmax;
+        return true;
+      }
+    }
+    // Direct softmax
+    if (auto softmax = v.getDefiningOp<SoftmaxOp>()) {
+      c.softmax = softmax;
+      return true;
+    }
+    return false;
+  }
+
+  // Match score: linear(Q*s, K*s, mask) or matmul variants
+  bool matchScoreComputation(Value v, SDPAComponents &c) const {
+    // Trace through optional typecast (e.g., bf16 -> f32 before softmax)
+    if (auto typecastOp = v.getDefiningOp<TypecastOp>()) {
+      v = typecastOp.getInput();
+    }
+
+    // Try linear(Q_scaled, K_scaled, mask)
+    if (auto linearOp = v.getDefiningOp<LinearOp>()) {
+      c.scoreOp = linearOp;
+      extractQKFromLinear(linearOp, c);
+      if (linearOp.getBias()) {
+        c.mask = traceToSourceTensor(linearOp.getBias());
+      }
+      return true;
+    }
+
+    // Match pattern: matmul [* scale] [+ mask]
+    // Try both orderings if we have an add (lhs/rhs as score vs mask)
+    SmallVector<std::pair<Value, Value>, 2> candidates;
+    if (auto addOp = v.getDefiningOp<AddOp>()) {
+      candidates.push_back({addOp.getLhs(), addOp.getRhs()});
+      candidates.push_back({addOp.getRhs(), addOp.getLhs()});
+    } else {
+      candidates.push_back({v, Value()});
+    }
+
+    for (auto [scoreVal, maskVal] : candidates) {
+      c.scale = 1.0f;
+      c.mask = maskVal ? traceToSourceTensor(maskVal) : Value();
+
+      // Peel off optional multiply (scale)
+      if (auto mulOp = scoreVal.getDefiningOp<MultiplyOp>()) {
+        if (auto scale = extractConstant(mulOp.getRhs())) {
+          c.scale = *scale;
+          scoreVal = mulOp.getLhs();
+        } else if (auto scale = extractConstant(mulOp.getLhs())) {
+          c.scale = *scale;
+          scoreVal = mulOp.getRhs();
+        }
+      }
+
+      // Match matmul
+      if (auto matmul = scoreVal.getDefiningOp<MatmulOp>()) {
+        if (matmul != c.attentionMatmul) {
+          c.scoreOp = matmul;
+          extractQKFromMatmul(matmul, c);
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  // Extract value and optional scale from a potentially scaled tensor.
+  // Returns the unscaled value and populates outScale if a constant scale is
+  // found.
+  Value extractScaledValue(Value v, std::optional<float> &outScale) const {
+    if (auto mulOp = v.getDefiningOp<MultiplyOp>()) {
+      if (auto scale = extractConstant(mulOp.getRhs())) {
+        outScale = scale;
+        return mulOp.getLhs();
+      }
+      if (auto scale = extractConstant(mulOp.getLhs())) {
+        outScale = scale;
+        return mulOp.getRhs();
+      }
+    }
+    return v;
+  }
+
+  // Extract K, handling optional scale and transpose.
+  Value extractKey(Value kVal) const {
+    std::optional<float> unusedScale;
+    kVal = extractScaledValue(kVal, unusedScale);
+    if (auto permuteOp = kVal.getDefiningOp<PermuteOp>()) {
+      return traceToSourceTensor(permuteOp.getInput());
+    }
+    return traceToSourceTensor(kVal);
+  }
+
+  void extractQKFromLinear(LinearOp op, SDPAComponents &c) const {
+    std::optional<float> qScale;
+    Value qVal = extractScaledValue(op.getA(), qScale);
+    c.query = traceToSourceTensor(qVal);
+    if (qScale) {
+      c.scale = (*qScale) * (*qScale);
+    }
+    c.key = extractKey(op.getB());
+  }
+
+  void extractQKFromMatmul(MatmulOp op, SDPAComponents &c) const {
+    std::optional<float> qScale;
+    Value qVal = extractScaledValue(op.getA(), qScale);
+    c.query = traceToSourceTensor(qVal);
+    if (qScale) {
+      c.scale = (*qScale) * (*qScale);
+    }
+    c.key = extractKey(op.getB());
+  }
+
+  std::optional<float> extractConstant(Value v) const {
+    // Direct FullOp
+    if (auto fullOp = v.getDefiningOp<FullOp>()) {
+      if (auto attr = mlir::dyn_cast<FloatAttr>(fullOp.getFillValue())) {
+        return attr.getValue().convertToFloat();
+      }
+    }
+
+    // Try load_cached - look up the const_eval function and find FullOp inside
+    if (auto loadCached = v.getDefiningOp<ttcore::LoadCachedOp>()) {
+      auto callee = loadCached.getCallee();
+      auto moduleOp = loadCached->getParentOfType<ModuleOp>();
+      if (!moduleOp) {
+        return std::nullopt;
+      }
+
+      auto funcOp = moduleOp.lookupSymbol<func::FuncOp>(callee);
+      if (!funcOp) {
+        return std::nullopt;
+      }
+
+      // Walk the function body to find a FullOp
+      std::optional<float> result;
+      funcOp.walk([&](FullOp fullOp) {
+        if (auto attr = mlir::dyn_cast<FloatAttr>(fullOp.getFillValue())) {
+          result = attr.getValue().convertToFloat();
+          return WalkResult::interrupt();
+        }
+        return WalkResult::advance();
+      });
+      return result;
+    }
+
+    return std::nullopt;
+  }
+
+  bool validateSemantics(const SDPAComponents &c) const {
+    if (!c.query || !c.key || !c.value || !c.softmax || !c.scoreOp) {
+      return false;
+    }
+
+    auto qType = mlir::dyn_cast<RankedTensorType>(c.query.getType());
+    auto kType = mlir::dyn_cast<RankedTensorType>(c.key.getType());
+    auto vType = mlir::dyn_cast<RankedTensorType>(c.value.getType());
+
+    if (!qType || !kType || !vType) {
+      return false;
+    }
+
+    if (c.scale <= 0.0f || c.scale > 1.0f) {
+      return false;
+    }
+
+    return true;
+  }
+
+  // Broadcast attention mask to the required shape for SDPA operations.
+  //
+  // For regular SDPA:
+  //   Target mask shape: [batch, 1, query_seq, key_seq]
+  //   - Dimension 1 (heads) stays as 1, hardware broadcasts across heads
+  //
+  // For decode SDPA:
+  //   Target mask shape: [batch, 1, num_heads, key_seq]
+  //   - Dimension 1 is query seq (always 1 for decode)
+  //   - Dimension 2 must explicitly match num_heads
+  Value broadcastMaskForSDPA(Value mask, RankedTensorType qType,
+                             RankedTensorType kType, bool isDecode,
+                             mlir::PatternRewriter &rewriter,
+                             Location loc) const {
+    if (!mask) {
+      return mask;
+    }
+
+    auto maskType = mlir::cast<RankedTensorType>(mask.getType());
+    auto qShape = qType.getShape();
+    auto kShape = kType.getShape();
+
+    // Compute target mask shape based on SDPA variant.
+    // Q shape: [batch, num_heads, seq_len, head_dim]
+    // K shape: [batch, num_heads, key_seq, head_dim]
+    SmallVector<int64_t> targetShape;
+    if (isDecode) {
+      // Decode: [batch, 1, num_heads, key_seq]
+      targetShape = {qShape[0], 1, qShape[kNumHeadsDim], kShape[kSeqLenDim]};
+    } else {
+      // Regular: [batch, 1, query_seq, key_seq]
+      targetShape = {qShape[0], 1, qShape[kSeqLenDim], kShape[kSeqLenDim]};
+    }
+
+    // Check if broadcast is needed.
+    if (llvm::equal(maskType.getShape(), targetShape)) {
+      return mask;
+    }
+
+    auto broadcastType =
+        utils::RankedTensorTypeFactory::create(maskType, targetShape);
+    auto broadcastDims = ttmlir::utils::getBroadcastDimensions<int64_t>(
+        maskType.getShape(), targetShape);
+    auto shapeAttr = ShapeAttr::get(rewriter.getContext(), broadcastDims);
+
+    return rewriter.create<RepeatOp>(loc, broadcastType, mask, shapeAttr);
+  }
+
+  mlir::LogicalResult createSDPAOp(mlir::PatternRewriter &rewriter,
+                                   SDPAComponents &c) const {
+    FloatAttr scaleAttr;
+    if (c.scale != 1.0f) {
+      scaleAttr = rewriter.getF32FloatAttr(c.scale);
+    }
+
+    auto qType = mlir::cast<RankedTensorType>(c.query.getType());
+    auto qShape = qType.getShape();
+    auto kType = mlir::cast<RankedTensorType>(c.key.getType());
+
+    // Check if this is decode mode (query seq_len == 1)
+    // Query shape: [batch x num_heads x seq_len x head_size]
+    bool isDecode = qShape.size() == 4 && qShape[kSeqLenDim] == 1;
+
+    // Broadcast mask to the required shape for the SDPA variant.
+    Value attentionMask = broadcastMaskForSDPA(
+        c.mask, qType, kType, isDecode, rewriter, c.attentionMatmul.getLoc());
+
+    if (isDecode) {
+      // Permute query: [B, H, 1, D] -> [1, B, H, D]
+      Value permutedQuery = ttir_to_ttnn::utils::generatePermute(
+          mlir::cast<TypedValue<RankedTensorType>>(c.query),
+          llvm::to_vector(kToDecodePermutation), rewriter,
+          c.attentionMatmul.getLoc());
+
+      auto decodeOp = rewriter.create<ScaledDotProductAttentionDecodeOp>(
+          c.attentionMatmul.getLoc(), permutedQuery.getType(), permutedQuery,
+          c.key, c.value,
+          /*is_causal=*/rewriter.getBoolAttr(false), attentionMask,
+          /*cur_pos_tensor=*/Value(),
+          /*attention_sink=*/Value(), scaleAttr,
+          /*memory_config=*/MemoryConfigAttr(),
+          /*program_config=*/SDPAProgramConfigAttr());
+
+      // Permute result back: [1, B, H, D] -> [B, H, 1, D].
+      rewriter.replaceOp(
+          c.attentionMatmul,
+          ttir_to_ttnn::utils::generatePermute(
+              decodeOp.getResult(),
+              ttmlir::utils::inversePermutation(kToDecodePermutation), rewriter,
+              c.attentionMatmul.getLoc()));
+    } else {
+      auto sdpaOp = rewriter.create<ScaledDotProductAttentionOp>(
+          c.attentionMatmul.getLoc(), c.query.getType(), c.query, c.key,
+          c.value, attentionMask,
+          /*is_causal=*/rewriter.getBoolAttr(false), scaleAttr,
+          /*sliding_window_size=*/IntegerAttr(),
+          /*memory_config=*/MemoryConfigAttr());
+      rewriter.replaceOp(c.attentionMatmul, sdpaOp.getResult());
+    }
+
+    return mlir::success();
+  }
+};
+
 #endif // TTMLIR_ENABLE_OPMODEL
 
 class TTNNFusingPass : public impl::TTNNFusingBase<TTNNFusingPass> {
@@ -446,7 +804,8 @@ public:
         TTNNMatmulAndLinearWithActivation<MatmulOp, SigmoidOp>,
         TTNNMatmulAndLinearWithActivation<LinearOp, SigmoidOp>,
         TTNNMatmulAndLinearWithActivation<MatmulOp, SiluOp>,
-        TTNNMatmulAndLinearWithActivation<LinearOp, SiluOp>>(&getContext());
+        TTNNMatmulAndLinearWithActivation<LinearOp, SiluOp>, SDPAFusing>(
+        &getContext());
 
 #ifdef TTMLIR_ENABLE_OPMODEL
     if (enableOpConstraints) {
