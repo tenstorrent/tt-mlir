@@ -604,25 +604,15 @@ public:
         .getResult(0);
   }
 
-  // Lower masking operation using a d2m.generic + linalg.generic structure.
-  // The TileMaskBoundaryOp is applied to each tile within the shards.
+  // Lower masking operation using a d2m.generic with BlockMaskOp.
+  // The BlockMaskOp operates at block level and gets decomposed later.
   Value lowerMaskingGeneric(PatternRewriter &rewriter, Value input,
                             Value output, Location loc,
                             ArrayRef<int64_t> logicalShape,
                             ttcore::OOBVal fillValue) const {
-    auto inputType = mlir::cast<RankedTensorType>(input.getType());
-    auto inputLayout =
-        mlir::cast<ttcore::MetalLayoutAttr>(inputType.getEncoding());
-
-    // Get the shard shape for linalg.generic iteration.
-    auto shardShape = inputLayout.getShardShape(inputType);
-    size_t shardRank = shardShape.size();
-
-    // Build identity indexing maps for linalg.generic (input and output).
-    SmallVector<AffineMap> linalgIndexingMaps(
-        2, rewriter.getMultiDimIdentityMap(shardRank));
-    SmallVector<mlir::utils::IteratorType> linalgIteratorTypes(
-        shardRank, mlir::utils::IteratorType::parallel);
+    // Extract the last two dimensions as the logical rows/cols for masking.
+    int64_t logicalRows = logicalShape[logicalShape.size() - 2];
+    int64_t logicalCols = logicalShape[logicalShape.size() - 1];
 
     auto genericOp = rewriter.create<GenericOp>(
         loc, input, output,
@@ -632,27 +622,19 @@ public:
           Value dst =
               builder.create<ReserveOp>(innerLoc, blockArgs[1]).getResult();
 
-          // Create linalg.generic that iterates over tiles in the shard.
-          auto linalgGeneric = builder.create<mlir::linalg::GenericOp>(
-              innerLoc,
-              /* result types */ dst.getType(),
-              /* inputs */ src,
-              /* outputs */ dst, linalgIndexingMaps, linalgIteratorTypes,
-              [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
-                  mlir::ValueRange bbArgs) {
-                // bbArgs[0] is the input tile, bbArgs[1] is the output tile.
-                Value inputTile = bbArgs[0];
-                Type resultType = bbArgs[1].getType();
+          // Create index constants for logical bounds.
+          // TODO: For multicore, compute per-core bounds using core_index.
+          Value logicalRowsVal =
+              builder.create<arith::ConstantIndexOp>(innerLoc, logicalRows);
+          Value logicalColsVal =
+              builder.create<arith::ConstantIndexOp>(innerLoc, logicalCols);
 
-                // Apply TileMaskBoundaryOp to the tile.
-                Value maskedTile = bbBuilder.create<TileMaskBoundaryOp>(
-                    bbLoc, resultType, inputTile,
-                    rewriter.getDenseI64ArrayAttr(logicalShape), fillValue);
+          // Apply block-level masking. BlockMaskOp is side-effecting and writes
+          // to dst, so we yield dst to propagate the result.
+          builder.create<BlockMaskOp>(innerLoc, src, dst, logicalRowsVal,
+                                      logicalColsVal, fillValue);
 
-                bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, maskedTile);
-              });
-
-          builder.create<YieldOp>(innerLoc, linalgGeneric.getResults());
+          builder.create<YieldOp>(innerLoc, ValueRange{dst});
         },
         ThreadType::Compute);
 

@@ -734,40 +734,43 @@ def D2MMaterializeViewReturns : Pass<"d2m-materialize-view-returns", "::mlir::Mo
 }
 
 def D2MDecomposeMasking : Pass<"d2m-decompose-masking", "::mlir::ModuleOp"> {
-  let summary = "Decompose tile_mask_boundary ops into primitive tile arithmetic";
+  let summary = "Decompose block_mask ops into linalg.generic with tile arithmetic";
   let description = [{
-    This pass decomposes high-level `tile_mask_boundary` operations into primitive
-    tile arithmetic operations. The tile_mask_boundary op fills tiles that are
-    completely outside the logical tensor bounds with a specified OOBVal.
+    This pass decomposes high-level `block_mask` operations into linalg.generic
+    with per-tile masking using primitive tile arithmetic. The block_mask op
+    operates at block level (memref of tiles) and masks tiles that are completely
+    outside the logical tensor bounds with a specified OOBVal.
 
-    The decomposition operates at tile granularity (not element-wise):
+    The decomposition creates a linalg.generic that iterates over tiles and:
     1. Get current tile indices from linalg.index
     2. Compute global element offset: tileIdx * 32 (tile size)
     3. Check if entire tile is OOB: globalOffset >= logicalBound
     4. Combine row/col OOB flags with OR (any dimension OOB means tile is OOB)
-    5. Blend: result = input * (1 - oobFlag) + fill * oobFlag
+    5. Blend: result = input * select(oob, 0, 1) + select(oob, fill, 0)
 
     The pass uses arith.select to avoid inf*0=NaN issues when fill is infinity.
 
     Example transformation:
     ```mlir
-    // Before (inside linalg.generic):
-    %masked = d2m.tile_mask_boundary %in, [50, 50], <zero>
-        : !ttcore.tile<32x32, f32> -> !ttcore.tile<32x32, f32>
+    // Before:
+    d2m.block_mask %input, %output, %rows, %cols, <zero>
+        : (memref<2x2x!ttcore.tile<32x32, f32>>, memref<2x2x!ttcore.tile<32x32, f32>>)
 
     // After:
-    %row = linalg.index 0 : index
-    %col = linalg.index 1 : index
-    %globalRow = arith.muli %row, %c32 : index
-    %globalCol = arith.muli %col, %c32 : index
-    %rowOOB = arith.cmpi sge, %globalRow, %c50 : index
-    %colOOB = arith.cmpi sge, %globalCol, %c50 : index
-    %oob = arith.ori %rowOOB, %colOOB : i1
-    %oobFlag = arith.select %oob, %one, %zero : f32
-    %addend = arith.select %oob, %fillVal, %zero : f32
-    %oneMinusOob = arith.subf %one, %oobFlag : f32
-    %scaled = d2m.tile_mul %in, %oneMinusOob
-    %result = d2m.tile_add %scaled, %addend
+    linalg.generic ... {
+      %row = linalg.index 0 : index
+      %col = linalg.index 1 : index
+      %globalRow = arith.muli %row, %c32 : index
+      %globalCol = arith.muli %col, %c32 : index
+      %rowOOB = arith.cmpi sge, %globalRow, %rows : index
+      %colOOB = arith.cmpi sge, %globalCol, %cols : index
+      %oob = arith.ori %rowOOB, %colOOB : i1
+      %mulFactor = arith.select %oob, %zero, %one : f32
+      %addend = arith.select %oob, %fillVal, %zero : f32
+      %scaled = d2m.tile_mul %in, %mulFactor
+      %result = d2m.tile_add %scaled, %addend
+      linalg.yield %result
+    }
     ```
 
     This pass should run after LowerToLayout and before LinalgToAffine.

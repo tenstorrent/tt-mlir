@@ -563,6 +563,102 @@ void TileUntilizeBlockOp::getEffects(
 }
 
 //===----------------------------------------------------------------------===//
+// BlockMaskOp
+//===----------------------------------------------------------------------===//
+
+mlir::LogicalResult
+BlockMaskOp::bufferize(mlir::RewriterBase &rewriter,
+                       const mlir::bufferization::BufferizationOptions &options,
+                       mlir::bufferization::BufferizationState &state) {
+  mlir::OpBuilder::InsertionGuard guard(rewriter);
+  rewriter.setInsertionPoint(getOperation());
+
+  mlir::Value in = getInput();
+  mlir::Value out = getOutput();
+  if (mlir::isa<mlir::RankedTensorType>(in.getType())) {
+    auto maybe = mlir::bufferization::getBuffer(rewriter, in, options, state);
+    if (failed(maybe)) {
+      return maybe;
+    }
+    in = *maybe;
+  }
+  if (mlir::isa<mlir::RankedTensorType>(out.getType())) {
+    auto maybe = mlir::bufferization::getBuffer(rewriter, out, options, state);
+    if (failed(maybe)) {
+      return maybe;
+    }
+    out = *maybe;
+  }
+
+  mlir::Operation *old = getOperation();
+  auto newOp = rewriter.create<mlir::tt::d2m::BlockMaskOp>(
+      old->getLoc(), in, out, getLogicalRows(), getLogicalCols(),
+      getFillValue());
+  rewriter.replaceOp(old, newOp->getResults());
+  return mlir::success();
+}
+
+bool BlockMaskOp::bufferizesToMemoryRead(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getInput();
+}
+
+bool BlockMaskOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getOutput();
+}
+
+mlir::bufferization::AliasingValueList
+BlockMaskOp::getAliasingValues(mlir::OpOperand &,
+                               const mlir::bufferization::AnalysisState &) {
+  mlir::bufferization::AliasingValueList result;
+  return result;
+}
+
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+BlockMaskOp::getBufferType(mlir::Value,
+                           const mlir::bufferization::BufferizationOptions &,
+                           const mlir::bufferization::BufferizationState &,
+                           ::llvm::SmallVector<mlir::Value> &) {
+  assert(false && "should already have bufferized types via parent generic op "
+                  "bufferization");
+  return mlir::failure();
+}
+
+mlir::LogicalResult BlockMaskOp::verify() {
+  // Verify input and output have compatible types.
+  auto inType = getInput().getType();
+  auto outType = getOutput().getType();
+
+  auto inShapedType = mlir::dyn_cast<mlir::ShapedType>(inType);
+  auto outShapedType = mlir::dyn_cast<mlir::ShapedType>(outType);
+
+  if (!inShapedType || !outShapedType) {
+    return emitOpError("input and output must be shaped types");
+  }
+
+  if (inShapedType.getShape() != outShapedType.getShape()) {
+    return emitOpError("input and output must have the same shape");
+  }
+
+  if (inShapedType.getElementType() != outShapedType.getElementType()) {
+    return emitOpError("input and output must have the same element type");
+  }
+
+  return success();
+}
+
+void BlockMaskOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getInputMutable(), 0,
+                       true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(), &getOutputMutable(),
+                       0, true, mlir::SideEffects::DefaultResource::get());
+}
+
+//===----------------------------------------------------------------------===//
 // YieldOp / WaitOp / ReserveOp / PushOp / PopOp
 //===----------------------------------------------------------------------===//
 

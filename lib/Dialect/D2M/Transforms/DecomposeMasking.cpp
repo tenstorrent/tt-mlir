@@ -51,14 +51,20 @@ static Value createScalarConstant(OpBuilder &builder, Location loc, double val,
 }
 
 // Get the scalar element type from a tile type.
-static Type getScalarElementType(Type tileType) {
-  if (auto tile = dyn_cast<ttcore::TileType>(tileType)) {
+static Type getScalarElementType(Type type) {
+  if (auto tile = dyn_cast<ttcore::TileType>(type)) {
     return tile.getElementType();
   }
-  return tileType;
+  if (auto memref = dyn_cast<MemRefType>(type)) {
+    return getScalarElementType(memref.getElementType());
+  }
+  if (auto tensor = dyn_cast<RankedTensorType>(type)) {
+    return getScalarElementType(tensor.getElementType());
+  }
+  return type;
 }
 
-/// Decompose tile_mask_boundary into primitive tile arithmetic.
+/// Decompose BlockMaskOp into linalg.generic with per-tile masking.
 ///
 /// This pattern handles complete tile out-of-bounds masking. When a tile's
 /// starting position is entirely beyond the logical bounds, the entire tile
@@ -66,76 +72,110 @@ static Type getScalarElementType(Type tileType) {
 ///
 /// TODO (#6311): Partial tile masking (when a tile straddles the boundary)
 /// requires per-element index tiles and will be implemented in a follow-up.
-class DecomposeTileMaskBoundaryPattern
-    : public OpRewritePattern<TileMaskBoundaryOp> {
+class DecomposeBlockMaskPattern : public OpRewritePattern<BlockMaskOp> {
 public:
-  using OpRewritePattern<TileMaskBoundaryOp>::OpRewritePattern;
+  using OpRewritePattern<BlockMaskOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(TileMaskBoundaryOp op,
+  LogicalResult matchAndRewrite(BlockMaskOp op,
                                 PatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
     Value input = op.getInput();
-    Type resultType = op.getResult().getType();
-    ArrayRef<int64_t> logicalShape = op.getLogicalShape();
+    Value output = op.getOutput();
+    Value logicalRows = op.getLogicalRows();
+    Value logicalCols = op.getLogicalCols();
     ttcore::OOBVal fillValue = op.getFillValue();
 
-    Type scalarType = getScalarElementType(resultType);
+    auto inputType = dyn_cast<ShapedType>(input.getType());
+    if (!inputType) {
+      return rewriter.notifyMatchFailure(op, "input must be a shaped type");
+    }
+
+    // Get the element type (should be a tile type).
+    Type elementType = inputType.getElementType();
+    auto tileType = dyn_cast<ttcore::TileType>(elementType);
+    if (!tileType) {
+      return rewriter.notifyMatchFailure(op,
+                                         "element type must be a tile type");
+    }
+
+    Type scalarType = getScalarElementType(elementType);
+    ArrayRef<int64_t> blockShape = inputType.getShape();
+    size_t blockRank = blockShape.size();
+
+    // Build identity indexing maps for linalg.generic (input and output).
+    SmallVector<AffineMap> linalgIndexingMaps(
+        2, rewriter.getMultiDimIdentityMap(blockRank));
+    SmallVector<mlir::utils::IteratorType> linalgIteratorTypes(
+        blockRank, mlir::utils::IteratorType::parallel);
 
     // Tile dimensions (assume 32x32).
     constexpr int64_t tileH = 32;
     constexpr int64_t tileW = 32;
 
-    // Get current tile indices using linalg.index.
-    // The TileMaskBoundaryOp is inside a linalg.generic that iterates over
-    // tiles in the shard. linalg.index gives us the iteration indices.
-    Value tileRowIdx = rewriter.create<linalg::IndexOp>(loc, 0);
-    Value tileColIdx = rewriter.create<linalg::IndexOp>(loc, 1);
+    // Create linalg.generic that iterates over tiles in the block.
+    rewriter.create<mlir::linalg::GenericOp>(
+        loc,
+        /* result types */ TypeRange{},
+        /* inputs */ input,
+        /* outputs */ output, linalgIndexingMaps, linalgIteratorTypes,
+        [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
+            mlir::ValueRange bbArgs) {
+          // bbArgs[0] is the input tile, bbArgs[1] is the output tile.
+          Value inputTile = bbArgs[0];
+          Type resultType = bbArgs[1].getType();
 
-    // Compute global element offsets for this tile.
-    Value tileHConst = rewriter.create<arith::ConstantIndexOp>(loc, tileH);
-    Value tileWConst = rewriter.create<arith::ConstantIndexOp>(loc, tileW);
-    Value globalRowStart =
-        rewriter.create<arith::MulIOp>(loc, tileRowIdx, tileHConst);
-    Value globalColStart =
-        rewriter.create<arith::MulIOp>(loc, tileColIdx, tileWConst);
+          // Get current tile indices using linalg.index.
+          // For a 2D block of tiles, index 0 is row, index 1 is col.
+          Value tileRowIdx = bbBuilder.create<linalg::IndexOp>(bbLoc, 0);
+          Value tileColIdx = bbBuilder.create<linalg::IndexOp>(bbLoc, 1);
 
-    // Get logical bounds as index values.
-    Value logicalHIdx = rewriter.create<arith::ConstantIndexOp>(
-        loc, logicalShape[logicalShape.size() - 2]);
-    Value logicalWIdx = rewriter.create<arith::ConstantIndexOp>(
-        loc, logicalShape[logicalShape.size() - 1]);
+          // Compute global element offsets for this tile.
+          Value tileHConst =
+              bbBuilder.create<arith::ConstantIndexOp>(bbLoc, tileH);
+          Value tileWConst =
+              bbBuilder.create<arith::ConstantIndexOp>(bbLoc, tileW);
+          Value globalRowStart =
+              bbBuilder.create<arith::MulIOp>(bbLoc, tileRowIdx, tileHConst);
+          Value globalColStart =
+              bbBuilder.create<arith::MulIOp>(bbLoc, tileColIdx, tileWConst);
 
-    // Check if tile is completely out of bounds.
-    Value rowOOB = rewriter.create<arith::CmpIOp>(
-        loc, arith::CmpIPredicate::sge, globalRowStart, logicalHIdx);
-    Value colOOB = rewriter.create<arith::CmpIOp>(
-        loc, arith::CmpIPredicate::sge, globalColStart, logicalWIdx);
-    Value entireTileOOB = rewriter.create<arith::OrIOp>(loc, rowOOB, colOOB);
+          // Check if tile is completely out of bounds.
+          Value rowOOB = bbBuilder.create<arith::CmpIOp>(
+              bbLoc, arith::CmpIPredicate::sge, globalRowStart, logicalRows);
+          Value colOOB = bbBuilder.create<arith::CmpIOp>(
+              bbLoc, arith::CmpIPredicate::sge, globalColStart, logicalCols);
+          Value entireTileOOB =
+              bbBuilder.create<arith::OrIOp>(bbLoc, rowOOB, colOOB);
 
-    // Create constants for blending.
-    double fillVal = getOOBValAsFloat(fillValue);
-    Value fillConst = createScalarConstant(rewriter, loc, fillVal, scalarType);
-    Value zero = createScalarConstant(rewriter, loc, 0.0, scalarType);
-    Value one = createScalarConstant(rewriter, loc, 1.0, scalarType);
+          // Create constants for blending.
+          double fillVal = getOOBValAsFloat(fillValue);
+          Value fillConst =
+              createScalarConstant(bbBuilder, bbLoc, fillVal, scalarType);
+          Value zero = createScalarConstant(bbBuilder, bbLoc, 0.0, scalarType);
+          Value one = createScalarConstant(bbBuilder, bbLoc, 1.0, scalarType);
 
-    // Blend using: result = input * mulFactor + addend
-    // Where mulFactor = select(oob, 0, 1) and addend = select(oob, fill, 0).
-    //
-    // When NOT OOB: result = input * 1 + 0 = input.
-    // When OOB:     result = input * 0 + fill = fill.
-    Value mulFactor =
-        rewriter.create<arith::SelectOp>(loc, entireTileOOB, zero, one);
-    Value addend =
-        rewriter.create<arith::SelectOp>(loc, entireTileOOB, fillConst, zero);
+          // Blend using: result = input * mulFactor + addend
+          // Where mulFactor = select(oob, 0, 1) and addend = select(oob, fill,
+          // 0).
+          //
+          // When NOT OOB: result = input * 1 + 0 = input.
+          // When OOB:     result = input * 0 + fill = fill.
+          Value mulFactor = bbBuilder.create<arith::SelectOp>(
+              bbLoc, entireTileOOB, zero, one);
+          Value addend = bbBuilder.create<arith::SelectOp>(bbLoc, entireTileOOB,
+                                                           fillConst, zero);
 
-    // Multiply output by select result, should be zero if OOB.
-    Value zeroPadded =
-        rewriter.create<TileMulOp>(loc, resultType, input, mulFactor);
-    // Add fill value if OOB.
-    Value filled =
-        rewriter.create<TileAddOp>(loc, resultType, zeroPadded, addend);
+          // Multiply output by select result, should be zero if OOB.
+          Value zeroPadded = bbBuilder.create<TileMulOp>(bbLoc, resultType,
+                                                         inputTile, mulFactor);
+          // Add fill value if OOB.
+          Value filled = bbBuilder.create<TileAddOp>(bbLoc, resultType,
+                                                     zeroPadded, addend);
 
-    rewriter.replaceOp(op, filled);
+          bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, filled);
+        });
+
+    rewriter.eraseOp(op);
     return success();
   }
 };
@@ -148,7 +188,7 @@ public:
   void runOnOperation() override {
     MLIRContext *ctx = &getContext();
     RewritePatternSet patterns(ctx);
-    patterns.add<DecomposeTileMaskBoundaryPattern>(ctx);
+    patterns.add<DecomposeBlockMaskPattern>(ctx);
 
     GreedyRewriteConfig config;
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns),

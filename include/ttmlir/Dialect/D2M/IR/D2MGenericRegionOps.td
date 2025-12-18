@@ -715,41 +715,56 @@ def D2M_TileTypecastOp : D2M_GenericRegionComputeUnaryDstOp<"tile_typecast", [D2
 // D2M Masking Ops
 //===----------------------------------------------------------------------===//
 
-def D2M_TileMaskBoundaryOp : D2M_GenericRegionComputeOp<"tile_mask_boundary",
-  [D2M_SkipOpEltwiseFusionTrait]> {
-    let summary = "Mask tile elements outside logical bounds with fill value";
+def D2M_BlockMaskOp : D2M_GenericRegionComputeOp<"block_mask",
+  [ DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
+                                                       , "bufferizesToMemoryWrite"
+                                                       , "bufferize"
+                                                       , "getAliasingValues"
+                                                       , "getBufferType"
+                                                       ]>
+  , D2M_SkipOpEltwiseFusionTrait
+  ]> {
+    let summary = "Mask block elements outside logical bounds with fill value";
     let description = [{
-        The `tile_mask_boundary` operation masks elements in a tile that fall outside
+        The `block_mask` operation masks elements in a block/memref that fall outside
         the logical tensor bounds, replacing them with a specified fill value.
 
-        This op is used when tensors are padded for tile alignment. Elements within
-        the logical bounds are preserved; elements in padding regions are filled with
-        the specified OOBVal (e.g., Zero for sum reductions, NegInf for max reductions).
+        This op operates at the block level (memref of tiles) and handles both complete
+        tile masking (tiles entirely outside bounds) and partial tile masking (tiles
+        that straddle the boundary).
 
-        The logical_shape specifies the original unpadded tensor dimensions. At
-        decomposition time, this op uses d2m.iter_index to determine the current tile's
-        position in the grid and computes which elements are within bounds.
+        The logical_rows and logical_cols are Index values specifying the logical
+        dimensions for this core's shard. These can be computed dynamically based on
+        the core's position in the grid, enabling multicore support.
 
-        This is a high-level op that gets decomposed in a later pass into primitive
-        tile arithmetic operations (comparisons, selects via mul/add).
+        This is a high-level op that gets decomposed in a later pass into tile iteration
+        with per-tile masking logic.
 
         Example:
         ```mlir
-        %masked = d2m.tile_mask_boundary %input, [50, 50], <zero>
-            : !ttcore.tile<32x32, f32> -> !ttcore.tile<32x32, f32>
+        d2m.block_mask %input, %output, %logical_rows, %logical_cols, <zero>
+            : (memref<2x3x!ttcore.tile<32x32, f32>>, memref<2x3x!ttcore.tile<32x32, f32>>)
         ```
     }];
 
     let arguments = (ins
-        TTCore_Tile:$input,
-        DenseI64ArrayAttr:$logical_shape,
+        AnyRankedTensorOrMemRef:$input,
+        AnyRankedTensorOrMemRef:$output,
+        Index:$logical_rows,
+        Index:$logical_cols,
         TTCore_OOBValAttr:$fill_value);
-    let results = (outs TTCore_Tile:$result);
 
     let assemblyFormat = [{
-        $input `,` $logical_shape `,` $fill_value attr-dict
-        `:` type($input) `->` type($result)
+        $input `,` $output `,` $logical_rows `,` $logical_cols `,` $fill_value attr-dict
+        `:` `(` type($input) `,` type($output) `)`
     }];
+
+    let extraClassDeclaration = [{
+      MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+    }];
+
+    let hasVerifier = 1;
 }
 
 def D2M_DstReinterpretCastOp : D2M_GenericRegionOp<"dst_reinterpret_cast"> {

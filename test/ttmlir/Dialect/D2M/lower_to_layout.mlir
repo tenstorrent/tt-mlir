@@ -170,8 +170,7 @@ func.func @tilize_with_masking(%arg0: tensor<50x50xf32>) -> tensor<1x1x2x2x!ttco
   // CHECK-LABEL: @tilize_with_masking
   // After tilization, masking should be applied due to non-undef OOBVal + padding
   // CHECK: d2m.tile_tilize_block
-  // CHECK: d2m.tile_mask_boundary
-  // CHECK-SAME: [50, 50]
+  // CHECK: d2m.block_mask
   // CHECK-SAME: <zero>
 
   %1 = d2m.to_layout %arg0, %0 : tensor<50x50xf32> into tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_mask>
