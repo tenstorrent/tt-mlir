@@ -446,7 +446,7 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg) {
   const bool hasShardSpec =
       (memcfg->shard_spec() != nullptr) || (memcfg->nd_shard_spec() != nullptr);
   LOG_ASSERT(hasShardSpec == isSharded(targetMemLayout),
-             "Shard spec presence must match memory layout type");
+             "A shard spec must be present if and only if the memory layout is sharded");
 
   // Handle 2D shard spec (legacy sharding)
   if (const auto *shardSpec = memcfg->shard_spec()) {
