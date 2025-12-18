@@ -1066,7 +1066,6 @@ class Builder(metaclass=BuilderMeta):
                 return process_multi_return_result(result)
 
             new_func_op = decorated_func.func_op
-            print(new_func_op.attributes["sym_name"])
             self._func_ops_generated[new_func_op] = [ordered_inputs, ordered_outputs]
             return new_func_op
 
