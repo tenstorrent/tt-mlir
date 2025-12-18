@@ -623,8 +623,10 @@ def execute_py(
         sys.path.append(utils_path)
 
     # Add tt-metal ttnn package to path
-    TT_METAL_HOME = Path(os.environ.get("TT_METAL_HOME", os.getcwd())).resolve()
-    sys.path.append(os.path.join(TT_METAL_HOME, "build_Debug/lib"))
+    TT_METAL_RUNTIME_ROOT = Path(
+        os.environ.get("TT_METAL_RUNTIME_ROOT", os.getcwd())
+    ).resolve()
+    sys.path.append(os.path.join(TT_METAL_RUNTIME_ROOT, "ttnn"))
 
     import ttnn
 
