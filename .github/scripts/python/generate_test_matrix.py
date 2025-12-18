@@ -238,6 +238,8 @@ def main(input_filename, target_duration, component_filter):
         test_matrix[key]["total_duration"] += duration
         if shrun:
             test_matrix[key]["sh-run"] = True
+        if runs_on == "builder":
+            test_matrix[key]["container-options"] = ""
 
     # Convert to list format
     test_matrix = list(test_matrix.values())
