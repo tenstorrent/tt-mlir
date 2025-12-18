@@ -41,7 +41,7 @@ jobs:
 
     container:
       image: ${{ matrix.build.sh-run && format('harbor.ci.tenstorrent.net/{0}', inputs.docker_image) || inputs.docker_image }}
-      options: ${{ matrix.build.no-device && '--device /dev/tenstorrent' || '' }}
+      options: ${{ matrix.build.no-device || '--device /dev/tenstorrent' && '' }}
       volumes:
         - /dev/hugepages:/dev/hugepages
         - /dev/hugepages-1G:/dev/hugepages-1G
