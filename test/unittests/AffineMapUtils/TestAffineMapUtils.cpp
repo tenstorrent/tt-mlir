@@ -509,4 +509,261 @@ TEST(AffineMapUtilsTest, CanDetermineCoalescingFactor) {
                << " success, " << subsetCount << " subset, " << failedCount
                << " failed (total: " << totalTests << ")\n";
 }
+
+TEST(AffineMapUtilsTest, AnalyzeGridResultExprForDiscontinuity) {
+  using namespace mlir;
+  MLIRContext context;
+
+  // Helper to create dimension bounds map
+  auto makeDimBounds = [](std::initializer_list<std::pair<int, int64_t>> bounds)
+      -> llvm::DenseMap<int, int64_t> {
+    llvm::DenseMap<int, int64_t> result;
+    for (auto [pos, bound] : bounds) {
+      result[pos] = bound;
+    }
+    return result;
+  };
+
+  // Test 1: Simple dimension expression d0 -> should return 1
+  // Every step in d0 changes the output
+  {
+    AffineExpr d0 = getAffineDimExpr(0, &context);
+    auto dimBounds = makeDimBounds({{0, 8}});
+    int64_t result = analyzeGridResultExprForDiscontinuity(d0, dimBounds, 0);
+    EXPECT_EQ(result, 1) << "d0 should require 1 step to change output";
+  }
+
+  // Test 2: d0 floorDiv N -> should return N
+  // Need N steps in d0 to change the output
+  {
+    AffineExpr d0 = getAffineDimExpr(0, &context);
+    AffineExpr expr = d0.floorDiv(4);
+    auto dimBounds = makeDimBounds({{0, 16}});
+    int64_t result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
+    EXPECT_EQ(result, 4) << "d0 floorDiv 4 should require 4 steps";
+  }
+
+  // Test 3: (d0 * M) floorDiv N where N % M == 0 -> should return 4
+  // Since M*d0 changes by M each step, and N/M steps cross the boundary
+  {
+    AffineExpr d0 = getAffineDimExpr(0, &context);
+    AffineExpr expr = (d0 * 2).floorDiv(8);
+    auto dimBounds = makeDimBounds({{0, 16}});
+    int64_t result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
+    // d0 * 2 means values 0, 2, 4, 6, 8, ... so crossing 8 takes 4 steps
+    EXPECT_EQ(result, 4) << "(d0 * 2) floorDiv 8 should require 4 steps";
+  }
+
+  // Test 4: Expression with unrelated dimension -> should return -1
+  // d1 floorDiv N when analyzing for d0
+  {
+    AffineExpr d1 = getAffineDimExpr(1, &context);
+    AffineExpr expr = d1.floorDiv(4);
+    auto dimBounds = makeDimBounds({{0, 8}, {1, 16}});
+    int64_t result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
+    EXPECT_EQ(result, -1) << "d1 floorDiv 4 should be unconstrained for d0";
+  }
+
+  // Test 5: Constant expression -> should return -1 (unconstrained)
+  {
+    AffineExpr constExpr = getAffineConstantExpr(42, &context);
+    auto dimBounds = makeDimBounds({{0, 8}});
+    int64_t result =
+        analyzeGridResultExprForDiscontinuity(constExpr, dimBounds, 0);
+    EXPECT_EQ(result, -1) << "Constant should be unconstrained";
+  }
+
+  // Test 6: (A*d0 + B*d1) floorDiv N - multiple dimensions
+  // Testing the minimizeGap integration
+  {
+    AffineExpr d0 = getAffineDimExpr(0, &context);
+    AffineExpr d1 = getAffineDimExpr(1, &context);
+    // (7*d0 + 5*d1) floorDiv 11
+    // d0 has bound 3 (values 0, 1, 2), d1 has bound 10 (values 0-9)
+    // Best alignment for d1: 5*8 = 40, plus 7*2 = 14, total 54, gap to 55 is 1
+    AffineExpr expr = (d0 * 7 + d1 * 5).floorDiv(11);
+    auto dimBounds = makeDimBounds({{0, 3}, {1, 10}});
+    int64_t result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
+    // The gap is minimized by d1, and we compute ceil(gap / 7)
+    EXPECT_EQ(result, 1) << "(7*d0 + 5*d1) floorDiv 11 should return >= 1";
+  }
+
+  // Test 7: Add expression combining constrained and unconstrained
+  {
+    AffineExpr d0 = getAffineDimExpr(0, &context);
+    AffineExpr d1 = getAffineDimExpr(1, &context);
+    // d0 + d1 floorDiv 4 - d0 is direct (returns 1), d1 floorDiv 4 returns 4
+    // Combined via add should return gcd(1, 4) = 1
+    AffineExpr expr = d0 + d1.floorDiv(4);
+    auto dimBounds = makeDimBounds({{0, 8}, {1, 16}});
+    int64_t result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
+    EXPECT_EQ(result, 1) << "d0 + (d1 floorDiv 4) should return 1 for d0";
+  }
+
+  // Test 8: Mul expression with target dim (not inside floorDiv)
+  {
+    AffineExpr d0 = getAffineDimExpr(0, &context);
+    AffineExpr expr = d0 * 3;
+    auto dimBounds = makeDimBounds({{0, 8}});
+    int64_t result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
+    EXPECT_EQ(result, 1) << "d0 * 3 should return 1 (any change in d0 changes "
+                            "output)";
+  }
+
+  // Test 9: Larger floorDiv value
+  {
+    AffineExpr d0 = getAffineDimExpr(0, &context);
+    AffineExpr expr = d0.floorDiv(32);
+    auto dimBounds = makeDimBounds({{0, 128}});
+    int64_t result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
+    EXPECT_EQ(result, 32) << "d0 floorDiv 32 should require 32 steps";
+  }
+
+  // Test 10: Complex expression with constant offset
+  // (d0 * 4 + 2) floorDiv 8 -> gap is 8 - 2 = 6, ceil(6/4) = 2
+  {
+    AffineExpr d0 = getAffineDimExpr(0, &context);
+    AffineExpr expr = (d0 * 4 + 2).floorDiv(8);
+    auto dimBounds = makeDimBounds({{0, 16}});
+    int64_t result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
+    // With offset 2 and multiplier 4, we need ceil((8-2)/4) = 2 steps
+    EXPECT_EQ(result, 2) << "(d0 * 4 + 2) floorDiv 8 should require 2 steps";
+  }
+
+  // Test 11: Two dimensions with multipliers - (2*d0 + 3*d1) floorDiv 10
+  // d0 is target, d1 has bound 4 (values 0,1,2,3), so 3*d1 can be 0,3,6,9
+  // Best case for d1: 3*3=9, gap to 10 is 1, so ceil(1/2)=1
+  {
+    AffineExpr d0 = getAffineDimExpr(0, &context);
+    AffineExpr d1 = getAffineDimExpr(1, &context);
+    AffineExpr expr = (d0 * 2 + d1 * 3).floorDiv(10);
+    auto dimBounds = makeDimBounds({{0, 10}, {1, 4}});
+    int64_t result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
+    // d1 can achieve 3*3=9, gap to 10 is 1, ceil(1/2) = 1
+    EXPECT_EQ(result, 1)
+        << "(2*d0 + 3*d1) floorDiv 10 should require 1 step when d1 can align";
+  }
+
+  // Test 12: Two dimensions where other dim can achieve exact multiple
+  // (d0 + 5*d1) floorDiv 10, d1 has bound 3 (values 0,1,2)
+  // d1=2 gives 5*2=10 which is exactly 10, gap=0, but minimizeGap returns 1
+  // as best achievable gap, so ceil(1/1) = 1
+  {
+    AffineExpr d0 = getAffineDimExpr(0, &context);
+    AffineExpr d1 = getAffineDimExpr(1, &context);
+    AffineExpr expr = (d0 + d1 * 5).floorDiv(10);
+    auto dimBounds = makeDimBounds({{0, 20}, {1, 3}});
+    int64_t result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
+    // d1=2 gives 10, which is exact multiple, gap=0 means any step changes
+    // But actually minimizeGap with gap=0 would return bestGap=0, not 1
+    // When gap=0, we still need at least 1 step to change (can't be 0)
+    EXPECT_EQ(result, 5) << "(d0 + 5*d1) floorDiv 10 should return 5";
+  }
+
+  // Test 13: Three dimensions - (d0 + 2*d1 + 3*d2) floorDiv 12
+  // d1 has bound 5 (0-4), d2 has bound 4 (0-3)
+  // Achievable sums from d1,d2: 0,2,3,4,5,6,7,8,9,10,11
+  // Best alignment to 12: 11 (gap=1), ceil(1/1) = 1
+  {
+    AffineExpr d0 = getAffineDimExpr(0, &context);
+    AffineExpr d1 = getAffineDimExpr(1, &context);
+    AffineExpr d2 = getAffineDimExpr(2, &context);
+    AffineExpr expr = (d0 + d1 * 2 + d2 * 3).floorDiv(12);
+    auto dimBounds = makeDimBounds({{0, 20}, {1, 5}, {2, 4}});
+    int64_t result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
+    EXPECT_EQ(result, 1)
+        << "(d0 + 2*d1 + 3*d2) floorDiv 12 should require 1 step";
+  }
+
+  // Test 14: Two dims with larger multiplier on target dim
+  // (3*d0 + 2*d1) floorDiv 7, d1 has bound 4 (0-3)
+  // 2*d1 can be 0,2,4,6. Best alignment to 7: 6 (gap=1), ceil(1/3)=1
+  {
+    AffineExpr d0 = getAffineDimExpr(0, &context);
+    AffineExpr d1 = getAffineDimExpr(1, &context);
+    AffineExpr expr = (d0 * 3 + d1 * 2).floorDiv(7);
+    auto dimBounds = makeDimBounds({{0, 10}, {1, 4}});
+    int64_t result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
+    // 2*3=6, gap to 7 is 1, ceil(1/3) = 1
+    EXPECT_EQ(result, 1) << "(3*d0 + 2*d1) floorDiv 7 should require 1 step";
+  }
+
+  // Test 15: Multiple dims with constant offset
+  // (2*d0 + 5*d1 + 3) floorDiv 11, d1 has bound 3 (0-2)
+  // 5*d1 + 3 can be 3,8,13. Modulo 11: 3,8,2. Best to 11: 8 (gap=3)
+  // ceil(3/2) = 2
+  {
+    AffineExpr d0 = getAffineDimExpr(0, &context);
+    AffineExpr d1 = getAffineDimExpr(1, &context);
+    AffineExpr expr = (d0 * 2 + d1 * 5 + 3).floorDiv(11);
+    auto dimBounds = makeDimBounds({{0, 20}, {1, 3}});
+    int64_t result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
+    // 5*1+3=8, gap to 11 is 3, ceil(3/2) = 2
+    EXPECT_EQ(result, 2)
+        << "(2*d0 + 5*d1 + 3) floorDiv 11 should require 2 steps";
+  }
+
+  // Test 16: Case where no alignment is possible - prime divisor
+  // (d0 + 2*d1) floorDiv 7, d1 has bound 3 (0-2)
+  // 2*d1 can be 0,2,4. None divides 7 evenly. Best: 4 (gap=3), ceil(3/1)=3
+  {
+    AffineExpr d0 = getAffineDimExpr(0, &context);
+    AffineExpr d1 = getAffineDimExpr(1, &context);
+    AffineExpr expr = (d0 + d1 * 2).floorDiv(7);
+    auto dimBounds = makeDimBounds({{0, 20}, {1, 3}});
+    int64_t result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
+    // 2*2=4, gap to 7 is 3, ceil(3/1) = 3
+    EXPECT_EQ(result, 3) << "(d0 + 2*d1) floorDiv 7 should require 3 steps";
+  }
+
+  // Test 17: Large bounds allowing perfect alignment
+  // (d0 + 11*d1) floorDiv 11, d1 has bound 2 (0-1)
+  // 11*1=11 is exact multiple, gap=11 (need full cycle), result=11
+  {
+    AffineExpr d0 = getAffineDimExpr(0, &context);
+    AffineExpr d1 = getAffineDimExpr(1, &context);
+    AffineExpr expr = (d0 + d1 * 11).floorDiv(11);
+    auto dimBounds = makeDimBounds({{0, 20}, {1, 2}});
+    int64_t result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
+    // d1=0: gap=11, d1=1: gap=11 (exact multiple). Min gap=11, result=11
+    EXPECT_EQ(result, 11) << "(d0 + 11*d1) floorDiv 11 should return 11";
+  }
+
+  // Test 18: Steps exceed target dim bounds - should return -1 (unconstrained)
+  // (d0 + 2*d1) floorDiv 100, d0 has bound 5 (values 0-4), d1 has bound 3
+  // d1 can achieve 0, 2, 4. Gaps: 100, 98, 96. Min gap=96, steps=96
+  // But d0 bound is 5, and 96 >= 5, so return -1
+  {
+    AffineExpr d0 = getAffineDimExpr(0, &context);
+    AffineExpr d1 = getAffineDimExpr(1, &context);
+    AffineExpr expr = (d0 + d1 * 2).floorDiv(100);
+    auto dimBounds = makeDimBounds({{0, 5}, {1, 3}});
+    int64_t result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
+    EXPECT_EQ(result, -1)
+        << "(d0 + 2*d1) floorDiv 100 with small d0 bound should return -1";
+  }
+
+  // Test 19: Steps exactly equal target dim bound - should return -1
+  // d0 floorDiv 8, d0 has bound 8 (values 0-7)
+  // Gap=8, steps=8, bound=8, 8 >= 8, so return -1
+  {
+    AffineExpr d0 = getAffineDimExpr(0, &context);
+    AffineExpr expr = d0.floorDiv(8);
+    auto dimBounds = makeDimBounds({{0, 8}});
+    int64_t result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
+    EXPECT_EQ(result, -1)
+        << "d0 floorDiv 8 with d0 bound 8 should return -1 (never changes)";
+  }
+
+  // Test 20: Steps just under target dim bound - should return steps
+  // d0 floorDiv 8, d0 has bound 9 (values 0-8)
+  // Gap=8, steps=8, bound=9, 8 < 9, so return 8
+  {
+    AffineExpr d0 = getAffineDimExpr(0, &context);
+    AffineExpr expr = d0.floorDiv(8);
+    auto dimBounds = makeDimBounds({{0, 9}});
+    int64_t result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
+    EXPECT_EQ(result, 8) << "d0 floorDiv 8 with d0 bound 9 should return 8";
+  }
+}
 } // namespace ttmlir::utils
