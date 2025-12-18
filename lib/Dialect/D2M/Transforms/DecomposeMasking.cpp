@@ -70,6 +70,11 @@ static Type getScalarElementType(Type type) {
 /// starting position is entirely beyond the logical bounds, the entire tile
 /// is replaced with the fill value.
 ///
+/// For multicore execution, each core processes a shard of tiles. We use
+/// CoreIndexOp to get the grid position and compute global tile indices as:
+///   globalTileRow = coreRowIdx * shardRows + localTileRow
+///   globalTileCol = coreColIdx * shardCols + localTileCol
+///
 /// TODO (#6311): Partial tile masking (when a tile straddles the boundary)
 /// requires per-element index tiles and will be implemented in a follow-up.
 class DecomposeBlockMaskPattern : public OpRewritePattern<BlockMaskOp> {
@@ -102,6 +107,11 @@ public:
     ArrayRef<int64_t> blockShape = inputType.getShape();
     size_t blockRank = blockShape.size();
 
+    // Get shard shape (tiles per core). The block shape is what each core
+    // sees, so for a 4x4 grid with 1 tile per core, blockShape is [1, 1].
+    int64_t shardRows = blockShape[0];
+    int64_t shardCols = blockShape[1];
+
     // Build identity indexing maps for linalg.generic (input and output).
     SmallVector<AffineMap> linalgIndexingMaps(
         2, rewriter.getMultiDimIdentityMap(blockRank));
@@ -132,20 +142,41 @@ public:
           Value inputTile = bbArgs[0];
           Type resultType = bbArgs[1].getType();
 
-          // Get current tile indices using linalg.index.
-          // For a 2D block of tiles, index 0 is row, index 1 is col.
-          Value tileRowIdx = bbBuilder.create<linalg::IndexOp>(bbLoc, 0);
-          Value tileColIdx = bbBuilder.create<linalg::IndexOp>(bbLoc, 1);
+          // Get core indices from the surrounding d2m.generic grid.
+          // CoreIndexOp(0) = row, CoreIndexOp(1) = col in the grid.
+          Value coreRowIdx = bbBuilder.create<CoreIndexOp>(bbLoc, int64_t{0});
+          Value coreColIdx = bbBuilder.create<CoreIndexOp>(bbLoc, int64_t{1});
+
+          // Get local tile indices within the shard using linalg.index.
+          // For a 1x1 shard this is always (0, 0), but for larger shards
+          // we iterate over multiple tiles per core.
+          Value localTileRowIdx = bbBuilder.create<linalg::IndexOp>(bbLoc, 0);
+          Value localTileColIdx = bbBuilder.create<linalg::IndexOp>(bbLoc, 1);
+
+          // Compute global tile indices:
+          // globalTileRow = coreRowIdx * shardRows + localTileRow
+          Value shardRowsConst =
+              bbBuilder.create<arith::ConstantIndexOp>(bbLoc, shardRows);
+          Value shardColsConst =
+              bbBuilder.create<arith::ConstantIndexOp>(bbLoc, shardCols);
+          Value coreRowOffset = bbBuilder.create<arith::MulIOp>(
+              bbLoc, coreRowIdx, shardRowsConst);
+          Value coreColOffset = bbBuilder.create<arith::MulIOp>(
+              bbLoc, coreColIdx, shardColsConst);
+          Value globalTileRowIdx = bbBuilder.create<arith::AddIOp>(
+              bbLoc, coreRowOffset, localTileRowIdx);
+          Value globalTileColIdx = bbBuilder.create<arith::AddIOp>(
+              bbLoc, coreColOffset, localTileColIdx);
 
           // Compute global element offsets for this tile.
           Value tileHConst =
               bbBuilder.create<arith::ConstantIndexOp>(bbLoc, tileH);
           Value tileWConst =
               bbBuilder.create<arith::ConstantIndexOp>(bbLoc, tileW);
-          Value globalRowStart =
-              bbBuilder.create<arith::MulIOp>(bbLoc, tileRowIdx, tileHConst);
-          Value globalColStart =
-              bbBuilder.create<arith::MulIOp>(bbLoc, tileColIdx, tileWConst);
+          Value globalRowStart = bbBuilder.create<arith::MulIOp>(
+              bbLoc, globalTileRowIdx, tileHConst);
+          Value globalColStart = bbBuilder.create<arith::MulIOp>(
+              bbLoc, globalTileColIdx, tileWConst);
 
           // Check if tile is completely out of bounds.
           Value rowOOB = bbBuilder.create<arith::CmpIOp>(

@@ -191,3 +191,92 @@ def test_tilize_no_masking_when_aligned(shape: Shape, target: str, request, devi
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
     )
+
+
+@pytest.mark.parametrize(
+    "logical_shape,aligned_shape,grid_shape,fill_value,oobval",
+    [
+        # 64x64 logical with 128x128 alignment on explicit 4x4 grid
+        # Each core gets 32x32 (1 tile), masking fills OOB regions
+        # - Cores (0,0), (0,1), (1,0), (1,1): full data
+        # - Cores (2,*), (*,2), etc: partial or complete OOB
+        # Use fill_value=1.0 (not 0.0) to catch bugs where masking doesn't run
+        # properly - we'd see 42.0 in masked regions instead of 1.0
+        ((64, 64), (128, 128), (4, 4), 1.0, ttcore.OOBVal.One),
+    ],
+)
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_multicore_tile_masking(
+    logical_shape: Shape,
+    aligned_shape: tuple,
+    grid_shape: tuple,
+    fill_value: float,
+    oobval: ttcore.OOBVal,
+    target: str,
+    request,
+    device,
+):
+    """Test tile masking with explicit multicore grid.
+
+    This test specifies an explicit grid shape in the layout, so the tensor
+    starts as 4x4x1x1 (multicore from the beginning). Each core handles a
+    shard and must correctly mask OOB regions based on logical bounds.
+    """
+    # Create input with known values
+    input_tensor = torch.ones(logical_shape, dtype=torch.float32) * 42.0
+
+    # Golden: input in upper-left, fill_value elsewhere
+    golden = make_golden_with_padding(input_tensor, aligned_shape, fill_value)
+
+    def module(builder: D2MBuilder):
+        @builder.func([logical_shape], [torch.float32])
+        def tilize_multicore_mask(
+            in0: Operand,
+            builder: D2MBuilder,
+            unit_attrs: List[str] = None,
+        ):
+            builder.set_goldens(inputs={in0: input_tensor})
+
+            # Tilize to device with explicit grid - creates 4x4x1x1 tensor
+            to_device = builder.tilize(
+                in0,
+                output_type=builder.get_metal_tensor_layout(
+                    logical_shape,
+                    tiled=True,
+                    oobVal=oobval,
+                    dim_alignments=aligned_shape,
+                    grid=grid_shape,  # Explicit 4x4 grid
+                ),
+                unit_attrs=unit_attrs,
+            )
+
+            # Reinterpret to aligned logical shape (stays on same grid)
+            view_with_aligned_logical = builder.view_layout(
+                to_device,
+                output_type=builder.get_metal_tensor_layout(
+                    aligned_shape, tiled=True, oobVal=oobval, grid=grid_shape
+                ),
+                reinterpret_layout=True,
+                unit_attrs=unit_attrs,
+            )
+
+            output_type = RankedTensorType.get(aligned_shape, F32Type.get(builder._ctx))
+            from_device = builder.to_layout(
+                view_with_aligned_logical,
+                output_type=output_type,
+                unit_attrs=unit_attrs,
+            )
+
+            builder.set_goldens(inputs={}, outputs={from_device: golden})
+            return from_device
+
+    compile_and_execute_d2m(
+        module,
+        target=target,
+        # Use custom pipeline (skips GridSelection since we set grid explicitly)
+        custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        device=device,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
