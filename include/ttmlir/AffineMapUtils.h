@@ -1282,10 +1282,9 @@ inline int64_t analyzeGridDimExpr(mlir::AffineExpr expr, unsigned dimPos) {
 /// @return Optional contiguity bound for the dimension:
 ///         - std::nullopt: Error condition (non-analyzable expression)
 ///         - Positive value: Maximum coalescable run length for this dim
-inline std::optional<int64_t>
-analyzeSingleShardDimContiguity(mlir::AffineMap map,
-                                mlir::ArrayRef<int64_t> shape,
-                                unsigned numGridDims, unsigned shardDimIdx) {
+inline std::optional<int64_t> analyzeSingleShardDimContiguity(
+    mlir::AffineMap map, mlir::ArrayRef<int64_t> shape, unsigned numGridDims,
+    unsigned numGridResults, unsigned shardDimIdx) {
   unsigned dimPos = numGridDims + shardDimIdx;
 
   // Phase I: Set all other dims to worst-case constant values.
@@ -1320,11 +1319,8 @@ analyzeSingleShardDimContiguity(mlir::AffineMap map,
 
   for (auto [i, resultExpr] : llvm::enumerate(fullyIsolatedMap.getResults())) {
     std::optional<int64_t> exprBound = std::nullopt;
-    if (i >= numGridDims) {
+    if (i >= numGridResults) {
       exprBound = analyzeContiguityExpr(resultExpr);
-      llvm::dbgs() << "   [analyzeSingleShardDimContiguity] for result: "
-                   << resultExpr
-                   << " --> expr bound: " << exprBound.value_or(-777) << "\n";
     } else {
       bool containsDim = exprContainsDim(resultExpr, dimPos);
       if (containsDim) {
@@ -1377,7 +1373,7 @@ analyzeSingleShardDimContiguity(mlir::AffineMap map,
 ///         - Positive value: Maximum coalescable run length across all shards
 inline std::optional<int64_t>
 analyzeShardDimContiguity(mlir::AffineMap map, mlir::ArrayRef<int64_t> shape,
-                          unsigned numGridDims) {
+                          unsigned numGridDims, unsigned numGridResults) {
   TT_assertv(shape.size() == map.getNumDims(),
              "Shape size must match number of map dimensions");
   TT_assertv(shape.size() % 2 == 0u, "Shape rank must be even");
@@ -1395,8 +1391,8 @@ analyzeShardDimContiguity(mlir::AffineMap map, mlir::ArrayRef<int64_t> shape,
   for (unsigned shardDimIdx = 0; shardDimIdx < numShardDims; ++shardDimIdx) {
     llvm::dbgs() << "----[analyzeShardDimContiguity] analyzing shard dim "
                  << shardDimIdx << " ----\n";
-    auto contiguity =
-        analyzeSingleShardDimContiguity(map, shape, numGridDims, shardDimIdx);
+    auto contiguity = analyzeSingleShardDimContiguity(
+        map, shape, numGridDims, numGridResults, shardDimIdx);
     if (!contiguity.has_value()) {
       return std::nullopt; // Propagate error
     }
