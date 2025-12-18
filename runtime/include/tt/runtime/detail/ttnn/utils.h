@@ -25,9 +25,10 @@ bool isValidTileShape(const ::tt::target::Dim2d *shape);
 bool isSharded(
     const ::tt::target::ttnn::TensorMemoryLayout &tensorMemoryLayout);
 
-bool canTilizeDataTypeOnDevice(const ::ttnn::DataType &dataType);
-
 bool canUntilizeDataTypeOnDevice(const ::ttnn::DataType &dataType);
+
+bool canTilizeOnDevice(const ::ttnn::DataType &dataType,
+                       const std::optional<::ttnn::MemoryConfig> &memoryConfig);
 
 const ::tt::target::ttnn::TTNNBinary *
 getBinary(const ::tt::runtime::Flatbuffer &binary);
