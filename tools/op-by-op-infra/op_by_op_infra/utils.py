@@ -105,7 +105,12 @@ class Result(OperandAndResultBase):
 
 
 class OpWrapper:
-    """Convenience wrapper around MLIR op."""
+    """
+    Convenience wrapper around MLIR op.
+
+    Extracts and caches all necessary information from the live OpView at construction
+    time, so the wrapper can outlive the MLIR context.
+    """
 
     # ----- Public methods and properties -----
 
@@ -116,35 +121,36 @@ class OpWrapper:
         func_op: Optional[func.FuncOp] = None,
     ) -> None:
         """Constructor."""
-        self.op = op
+        self.op_string = str(op)
+        self.op_name = op.name
+        self.func_op_string = str(func_op) if func_op is not None else ""
         self.operands = [
             Operand(operand.get_name(), operand.type) for operand in op.operands
         ]
         self.results = [Result(result.get_name(), result.type) for result in op.results]
         self.attributes = attrs
-        self.func_op = func_op
 
     def __str__(self) -> str:
-        return str(self.op)
+        return self.op_string
 
     def __repr__(self) -> str:
         return str(self)
 
     @property
     def name(self) -> str:
-        return self.op.name
+        return self.op_name
 
     def as_module_str(self) -> str:
         """
-        Wraps `self.op` in a MLIR `func` and then in a MLIR `module` and returns string
-        representation of that module.
+        Wraps the cached op string in a MLIR `func` and then in a MLIR `module` and
+        returns string representation of that module.
 
         Example
         ------
         ```
         module attributes {...} {
             func.func main(...) -> ... {
-                %0 = self.op ...
+                %0 = <op> ...
                 return %0
             }
         }
@@ -175,16 +181,13 @@ class OpWrapper:
         else:
             attrs = "{}"
 
-        # Add func_op if present
-        func_op_str = f"  {self.func_op} \n" if self.func_op is not None else ""
-
         return (
             f"module attributes {attrs} {{ \n"
             f"  func.func @main({unpacked_operands}) -> ({return_type}) {{ \n"
-            f"    {self.op} \n"
+            f"    {self.op_string} \n"
             f"    {return_stmt} \n"
             f"  }} \n"
-            f"{func_op_str}"
+            f"  {self.func_op_string}"
             f"}}"
         )
 
@@ -216,13 +219,13 @@ class TTNNOpWrapper(OpWrapper):
         func_op: Optional[func.FuncOp] = None,
     ) -> None:
         super().__init__(op, attrs, func_op)
-        self.tt_device_op = tt_device_op
+        self.tt_device_op_string = str(tt_device_op)
 
     # @override
     def as_module_str(self) -> str:
         """
-        Implements wrapping of `self.op` in a TTNN module which is a bit more complex
-        than what base class does.
+        Implements wrapping of the cached op string in a TTNN module which is a bit more
+        complex than what base class does.
 
         Example
         -------
@@ -230,9 +233,9 @@ class TTNNOpWrapper(OpWrapper):
         module {
             ttcore.device_module {
                 builtin.module attributes {...} {
-                    self.tt_device_op ...
+                    <tt_device_op> ...
                     func.func main(...) -> ... {
-                        %0 = self.op ...
+                        %0 = <op> ...
                         return %0
                     }
                 }
@@ -265,17 +268,14 @@ class TTNNOpWrapper(OpWrapper):
         else:
             attrs = "{}"
 
-        # Add func_op if present
-        func_op_str = f"  {self.func_op} \n" if self.func_op is not None else ""
-
         return (
             f"module {{ \n"
             f"ttcore.device_module {{ \n"
             f"builtin.module attributes {attrs} {{ \n"
-            f"  {self.tt_device_op} \n"
-            f"{func_op_str}"
+            f"  {self.tt_device_op_string} \n"
+            f"  {self.func_op_string}"
             f"  func.func @main({unpacked_operands}) -> {return_type} {{ \n"
-            f"    {self.op} \n"
+            f"    {self.op_string} \n"
             f"    {return_stmt} \n"
             f"  }} \n"
             f"}} \n"
