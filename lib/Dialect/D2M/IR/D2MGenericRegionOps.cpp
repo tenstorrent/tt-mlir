@@ -591,6 +591,7 @@ BlockMaskOp::bufferize(mlir::RewriterBase &rewriter,
   }
 
   mlir::Operation *old = getOperation();
+  // NOLINTNEXTLINE(clang-analyzer-core.StackAddressEscape)
   auto newOp = rewriter.create<mlir::tt::d2m::BlockMaskOp>(
       old->getLoc(), in, out, getLogicalRows(), getLogicalCols(),
       getFillValue());

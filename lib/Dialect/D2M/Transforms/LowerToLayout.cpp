@@ -623,7 +623,9 @@ public:
               builder.create<ReserveOp>(innerLoc, blockArgs[1]).getResult();
 
           // Create index constants for logical bounds.
-          // TODO: For multicore, compute per-core bounds using core_index.
+          // Note: For multicore, per-core bounds are computed in
+          // DecomposeMasking using CoreIndexOp to determine global tile
+          // position.
           Value logicalRowsVal =
               builder.create<arith::ConstantIndexOp>(innerLoc, logicalRows);
           Value logicalColsVal =
