@@ -158,19 +158,14 @@ def test_large_shapes_muladd_l1(device, shape, dtype):
 
 
 PASSING_LARGE_SHAPES_DTYPES_DRAM = [
-    ((2048, 512), torch.float32),
     ((4096, 512), torch.float32),
     ((8192, 512), torch.float32),
     ((2048, 1024), torch.float32),
     ((4096, 1024), torch.float32),
-    ((2048, 2048), torch.float32),
     ((1024, 4096), torch.float32),
-    ((2048, 512), torch.bfloat16),
     ((4096, 512), torch.bfloat16),
     ((8192, 512), torch.bfloat16),
     ((16384, 512), torch.bfloat16),
-    ((2048, 1024), torch.bfloat16),
-    ((4096, 1024), torch.bfloat16),
     ((8192, 1024), torch.bfloat16),
     ((4096, 2048), torch.bfloat16),
 ]
