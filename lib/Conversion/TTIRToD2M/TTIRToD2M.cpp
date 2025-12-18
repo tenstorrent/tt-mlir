@@ -1313,33 +1313,49 @@ public:
 
   static AffineMap projectLogicalMapToUnitDeviceSpace(Builder &builder,
                                                       AffineMap logicalMap) {
-    unsigned deviceRank = static_cast<int64_t>(logicalMap.getNumDims() * 2);
-    SmallVector<AffineExpr> exprs(logicalMap.getResults());
-    while (exprs.size() < (logicalMap.getNumResults() * 2)) {
-      auto expr = exprs.size() <= deviceRank
-                      ? builder.getAffineDimExpr(
-                            (deviceRank - 1) -
-                            (exprs.size() - logicalMap.getNumResults()))
-                      : builder.getAffineConstantExpr(0);
-      exprs.insert(exprs.begin(), expr);
+    unsigned outputLogicalRank = logicalMap.getNumDims();
+    unsigned inputLogicalRank = logicalMap.getNumResults();
+    unsigned outputDeviceRank = outputLogicalRank * 2;
+
+    // Shift the logical map's dim references to shard dimensions.
+    // Logical dims d0, d1, d2... become device shard dims
+    // d(outputLogicalRank), d(outputLogicalRank+1), d(outputLogicalRank+2)...
+    SmallVector<AffineExpr> shardExprs;
+    for (auto expr : logicalMap.getResults()) {
+      shardExprs.push_back(
+          expr.shiftDims(outputLogicalRank, outputLogicalRank));
     }
 
-    AffineMap shardGridFlippedMap =
-        AffineMap::get(deviceRank, 0, exprs, builder.getContext());
+    SmallVector<AffineExpr> deviceExprs;
 
-    SmallVector<unsigned> shardGridPermutation;
-    for (unsigned d = logicalMap.getNumDims();
-         d < (logicalMap.getNumDims() * 2); ++d) {
-      shardGridPermutation.push_back(d);
+    // Grid coordinate mapping (first inputLogicalRank results).
+    for (unsigned i = 0; i < inputLogicalRank; ++i) {
+      if (inputLogicalRank == outputLogicalRank) {
+        // Same rank: identity mapping for grid (matches original behavior)
+        deviceExprs.push_back(builder.getAffineDimExpr(i));
+      } else if (inputLogicalRank < outputLogicalRank) {
+        // Expanding (e.g., 2D -> 3D): map input grid dims to output's last
+        // inputLogicalRank grid dims.
+        unsigned outputGridIdx = outputLogicalRank - inputLogicalRank + i;
+        deviceExprs.push_back(builder.getAffineDimExpr(outputGridIdx));
+      } else {
+        // Contracting (e.g., 3D -> 2D): map last outputLogicalRank input grid
+        // dims to output grid, pad the rest with 0.
+        if (i < inputLogicalRank - outputLogicalRank) {
+          deviceExprs.push_back(builder.getAffineConstantExpr(0));
+        } else {
+          unsigned outputGridIdx = i - (inputLogicalRank - outputLogicalRank);
+          deviceExprs.push_back(builder.getAffineDimExpr(outputGridIdx));
+        }
+      }
     }
-    for (unsigned d = 0; d < logicalMap.getNumDims(); ++d) {
-      shardGridPermutation.push_back(d);
+
+    for (auto expr : shardExprs) {
+      deviceExprs.push_back(expr);
     }
 
-    AffineMap shardGridPermutationMap = AffineMap::getPermutationMap(
-        shardGridPermutation, builder.getContext());
-
-    return shardGridFlippedMap.compose(shardGridPermutationMap);
+    return AffineMap::get(outputDeviceRank, 0, deviceExprs,
+                          builder.getContext());
   }
 };
 } // namespace
@@ -1348,6 +1364,59 @@ static AffineMap rearrangeLogicalMap(ttir::RearrangeOp op) {
   mlir::FailureOr<AffineMap> maybeMap = op.getInvPatternMap();
   assert(succeeded(maybeMap));
   return *maybeMap;
+}
+
+// Compute logical map for ReshapeOp: linearize output coords, delinearize to
+// input coords. This handles rank changes (e.g., 2D -> 3D).
+// Returns a map from output logical coords to input logical coords.
+static AffineMap reshapeLogicalMap(ttir::ReshapeOp op) {
+  auto inputTensorType = mlir::cast<RankedTensorType>(op.getInput().getType());
+  auto outputTensorType =
+      mlir::cast<RankedTensorType>(op.getResult().getType());
+
+  ArrayRef<int64_t> inputShape = inputTensorType.getShape();
+  ArrayRef<int64_t> outputShape = outputTensorType.getShape();
+
+  int32_t inputLogicalRank = static_cast<int32_t>(inputShape.size());
+  int32_t outputLogicalRank = static_cast<int32_t>(outputShape.size());
+
+  MLIRContext *ctx = op.getContext();
+  Builder builder(ctx);
+
+  SmallVector<int64_t> outputStrides;
+  int64_t stride = 1;
+  for (int64_t i = outputShape.size() - 1; i >= 0; --i) {
+    outputStrides.insert(outputStrides.begin(), stride);
+    stride *= outputShape[i];
+  }
+
+  SmallVector<int64_t> inputStrides;
+  stride = 1;
+  for (int64_t i = inputShape.size() - 1; i >= 0; --i) {
+    inputStrides.insert(inputStrides.begin(), stride);
+    stride *= inputShape[i];
+  }
+
+  AffineExpr linearIdx = builder.getAffineConstantExpr(0);
+  for (int32_t i = 0; i < outputLogicalRank; ++i) {
+    AffineExpr dim = builder.getAffineDimExpr(i);
+    AffineExpr strideExpr = builder.getAffineConstantExpr(outputStrides[i]);
+    linearIdx = linearIdx + dim * strideExpr;
+  }
+
+  SmallVector<AffineExpr> reshapeExprs;
+  AffineExpr remainingIdx = linearIdx;
+  for (int32_t i = 0; i < inputLogicalRank; ++i) {
+    if (i == inputLogicalRank - 1) {
+      reshapeExprs.push_back(remainingIdx);
+    } else {
+      AffineExpr strideExpr = builder.getAffineConstantExpr(inputStrides[i]);
+      reshapeExprs.push_back(remainingIdx.floorDiv(strideExpr));
+      remainingIdx = remainingIdx % strideExpr;
+    }
+  }
+
+  return AffineMap::get(outputLogicalRank, 0, reshapeExprs, ctx);
 }
 
 } // namespace mlir::tt
@@ -1409,8 +1478,9 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MNamedReductionRewriter<ttir::SumOp,          d2m::TileReduceSumOp>,
     // Data movement.
     D2MNamedElementwiseRewriter<ttir::TypecastOp,     d2m::TileTypecastOp>,
-    // View ops.
+    // Tensor manipulation/View ops.
     D2MTensorManipulationOpRewriter<ttir::RearrangeOp, rearrangeLogicalMap>,
+    D2MTensorManipulationOpRewriter<ttir::ReshapeOp, reshapeLogicalMap>,
     // Permute (handles tranpose ops, since they're canonicalized into permutes).
     D2MPermuteRewriter
   >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, ttnnMode, collapseTensors);
