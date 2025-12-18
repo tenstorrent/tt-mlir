@@ -2063,15 +2063,122 @@ class CollectivePermuteOpConversionPattern
 public:
   using OpConversionPattern<ttir::CollectivePermuteOp>::OpConversionPattern;
 
+private:
+  // Helper function to create a zero tensor using ClampScalarOp.
+  // We need a zero tensor with the same layout as the input. ttnn::ZerosOp
+  // cannot accept all required layout attributes (specifically, Alignment
+  // attribute), and ttnn::ZerosLikeOp does not exist in the TTNN dialect,
+  // so we use ClampScalarOp as a workaround.
+  mlir::Value createZerosTensor(ttir::CollectivePermuteOp op,
+                                mlir::Value inputTensor,
+                                ttnn::MemoryConfigAttr memoryConfigAttr,
+                                ConversionPatternRewriter &rewriter) const {
+    FloatAttr zeroAttr =
+        FloatAttr::get(Float32Type::get(rewriter.getContext()), 0.0f);
+    return rewriter
+        .create<ttnn::ClampScalarOp>(
+            op.getLoc(), this->getTypeConverter()->convertType(op.getType()),
+            inputTensor, zeroAttr, zeroAttr, memoryConfigAttr)
+        .getResult();
+  }
+
+public:
   LogicalResult
   matchAndRewrite(ttir::CollectivePermuteOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    RankedTensorType inputType =
+        mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    ttnn::TTNNLayoutAttr layoutAttr =
+        mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding());
+    // MemoryConfigAttr only exists if memLayout is not null
+    ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
+        op.getContext(), layoutAttr.getMemLayout(),
+        ttnn::BufferTypeAttr::get(op.getContext(), layoutAttr.getBufferType()),
+        std::nullopt);
+    ttcore::DataTypeAttr dTypeAttr = ttcore::DataTypeAttr::get(
+        rewriter.getContext(), layoutAttr.getDataType());
 
-    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+    llvm::SmallVector<int64_t> pairs = llvm::SmallVector<int64_t>(
+        adaptor.getSourceTargetPairs().getValues<int64_t>());
+    if (pairs.empty()) {
+      // Early return with zeros for empty source_target_pairs.
+      // As per StableHLO, the collective permute operation should return zeros
+      // for devices that are not in the source_target_pairs. If
+      // source_target_pairs is empty, we return the input tensor with all
+      // zeros.
+      mlir::Value zerosTensor =
+          createZerosTensor(op, adaptor.getInput(), memoryConfigAttr, rewriter);
+      rewriter.replaceOp(op, zerosTensor);
+      return success();
+    }
 
-    rewriter.replaceOpWithNewOp<ttnn::CollectivePermuteOp>(
-        op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), device, adaptor.getSourceTargetPairs());
+    // Create a cloned tensor to skip P2P ops for self-mapped
+    // source_target_pairs.
+    mlir::Value resultTensor =
+        rewriter
+            .create<ttnn::AssignOp>(
+                op.getLoc(),
+                this->getTypeConverter()->convertType(op.getType()),
+                adaptor.getInput(), memoryConfigAttr, dTypeAttr)
+            .getResult();
+
+    auto meshDevice = ttcore::lookupDevice(op);
+    llvm::SmallVector<int64_t> meshShape{meshDevice.getMeshShape()};
+    int64_t numDevices =
+        std::accumulate(meshShape.begin(), meshShape.end(), int64_t{1},
+                        std::multiplies<int64_t>());
+    // Record visited and unvisited devices
+    llvm::SmallBitVector unvisited(static_cast<unsigned>(numDevices), true);
+
+    // Iterate over each source-target pair and create ttnn::PointToPointOp.
+    constexpr size_t PAIR_SIZE = 2;
+    for (size_t i = 0; i < pairs.size(); i += PAIR_SIZE) {
+      int64_t sourceDevice = pairs[i];
+      int64_t targetDevice = pairs[i + 1];
+      unvisited.reset(static_cast<unsigned>(targetDevice));
+      if (sourceDevice == targetDevice) {
+        // We already cloned the tensor for this device, so we can skip it.
+        continue;
+      }
+      DenseI64ArrayAttr sendCoord = rewriter.getDenseI64ArrayAttr(
+          ttmlir::utils::linearIdToCoord(sourceDevice, meshShape));
+      DenseI64ArrayAttr receiveCoord = rewriter.getDenseI64ArrayAttr(
+          ttmlir::utils::linearIdToCoord(targetDevice, meshShape));
+      resultTensor =
+          rewriter
+              .create<ttnn::PointToPointOp>(
+                  op.getLoc(),
+                  this->getTypeConverter()->convertType(op.getType()),
+                  adaptor.getInput(), sendCoord, receiveCoord, resultTensor)
+              .getResult();
+    }
+
+    // The collective permute operation should return zeros for devices that are
+    // not in the source_target_pairs. Here we handle the unvisited devices.
+    if (unvisited.any()) {
+      mlir::Value zerosTensor =
+          createZerosTensor(op, adaptor.getInput(), memoryConfigAttr, rewriter);
+      // Choose a source device different from the target since PointToPointOp
+      // doesn't support same-device transfers. Use device 0 if target != 0,
+      // otherwise device 1.
+      for (int idx = unvisited.find_first(); idx != -1;
+           idx = unvisited.find_next(idx)) {
+        int64_t sourceDevice = (idx != 0) ? 0 : 1;
+        DenseI64ArrayAttr sendCoord = rewriter.getDenseI64ArrayAttr(
+            ttmlir::utils::linearIdToCoord(sourceDevice, meshShape));
+        DenseI64ArrayAttr receiveCoord = rewriter.getDenseI64ArrayAttr(
+            ttmlir::utils::linearIdToCoord(idx, meshShape));
+        resultTensor =
+            rewriter
+                .create<ttnn::PointToPointOp>(
+                    op.getLoc(),
+                    this->getTypeConverter()->convertType(op.getType()),
+                    zerosTensor, sendCoord, receiveCoord, resultTensor)
+                .getResult();
+      }
+    }
+
+    rewriter.replaceOp(op, resultTensor);
 
     return success();
   }
