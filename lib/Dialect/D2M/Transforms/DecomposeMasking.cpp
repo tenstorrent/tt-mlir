@@ -112,7 +112,15 @@ public:
     constexpr int64_t tileH = 32;
     constexpr int64_t tileW = 32;
 
+    // BlockMaskOp decomposition only supports memref semantics.
+    // For tensor semantics, let the op survive through bufferization first.
+    if (isa<RankedTensorType>(input.getType())) {
+      return rewriter.notifyMatchFailure(
+          op, "decomposition requires memref types; run after bufferization");
+    }
+
     // Create linalg.generic that iterates over tiles in the block.
+    // For memref semantics, linalg.generic has no results (side-effecting).
     rewriter.create<mlir::linalg::GenericOp>(
         loc,
         /* result types */ TypeRange{},

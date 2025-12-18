@@ -128,7 +128,8 @@ def test_complete_tile_masking(
     compile_and_execute_d2m(
         module,
         target=target,
-        custom_pipeline="d2m-lower-to-layout,d2m-decompose-masking,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        # d2m-decompose-masking is now part of ttir-to-ttmetal-me-pipeline (after bufferization)
+        custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
         device=device,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
@@ -183,7 +184,8 @@ def test_tilize_no_masking_when_aligned(shape: Shape, target: str, request, devi
     compile_and_execute_d2m(
         module,
         target=target,
-        custom_pipeline="d2m-lower-to-layout,d2m-decompose-masking,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        # d2m-decompose-masking is now part of ttir-to-ttmetal-me-pipeline (after bufferization)
+        custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
         device=device,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),

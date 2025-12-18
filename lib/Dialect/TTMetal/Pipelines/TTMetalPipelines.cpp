@@ -134,6 +134,9 @@ void createTTIRToTTMetalMiddleendPipeline(
   }
   pm.addPass(d2m::createD2MAllocate(allocateOptions));
 
+  // Decompose block_mask ops now that we're in memref space.
+  pm.addPass(d2m::createD2MDecomposeMasking());
+
   pm.addPass(createCanonicalizerPassWithOptions(options));
   d2m::D2MGenericApplyInterchangeOptions applyInterchangeOptions;
   {
