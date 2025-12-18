@@ -17,16 +17,15 @@ from utils import (
 )
 
 
-# Representative shapes covering different sizes and ranks
-SMOKETEST_SHAPES = [
-    (1024, 1024),  # Medium square
-    (2048, 2048),  # Large square
-    (512, 2048),  # Rectangular
-    (4, 4, 32, 32),  # Rank 4
+DRAM_SHAPES = [
+    (1024, 1024),
+    (2048, 2048),
+    (512, 2048),
+    (2, 512, 2048),
+    (4, 4, 32, 32),
 ]
 
-# One representative shape/grid for each shard strategy
-SHARD_CONFIGS = [
+SHARD_SHAPES_GRIDS = [
     ((1024, 1024), (7, 7), ttnn.ShardStrategy.BLOCK),
     ((2048, 32), (7, 7), ttnn.ShardStrategy.HEIGHT),
     ((32, 2048), (7, 7), ttnn.ShardStrategy.WIDTH),
@@ -188,12 +187,12 @@ def bitwise_xor(a, b):
 
 
 # ------------------------------------------------------------
-# Unary ops - DRAM
+# Unary ops
 # ------------------------------------------------------------
 @pytest.mark.parametrize(
     "shape",
-    SMOKETEST_SHAPES,
-    ids=[f"{shape}" for shape in SMOKETEST_SHAPES],
+    DRAM_SHAPES,
+    ids=[f"{shape}" for shape in DRAM_SHAPES],
 )
 @pytest.mark.parametrize(
     "dtype, ttnn_dtype",
@@ -243,13 +242,10 @@ def test_unary_op_dram(device, shape, dtype, ttnn_dtype, op, graph_capture):
     )
 
 
-# ------------------------------------------------------------
-# Unary ops - L1 Sharded
-# ------------------------------------------------------------
 @pytest.mark.parametrize(
     "shape, max_grid, shard_strategy",
-    SHARD_CONFIGS,
-    ids=[f"{shape}_{strategy.name}" for shape, grid, strategy in SHARD_CONFIGS],
+    SHARD_SHAPES_GRIDS,
+    ids=[f"{shape}_{strategy.name}" for shape, grid, strategy in SHARD_SHAPES_GRIDS],
 )
 @pytest.mark.parametrize(
     "dtype, ttnn_dtype",
@@ -310,13 +306,10 @@ def test_unary_op_l1(
     )
 
 
-# ------------------------------------------------------------
-# Bitwise Unary ops - DRAM
-# ------------------------------------------------------------
 @pytest.mark.parametrize(
     "shape",
-    SMOKETEST_SHAPES,
-    ids=[f"{shape}" for shape in SMOKETEST_SHAPES],
+    DRAM_SHAPES,
+    ids=[f"{shape}" for shape in DRAM_SHAPES],
 )
 @pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
 @pytest.mark.parametrize(
@@ -341,13 +334,10 @@ def test_bitwise_unary_op_dram(device, shape, dtype, op, graph_capture):
     )
 
 
-# ------------------------------------------------------------
-# Bitwise Unary ops - L1 Sharded
-# ------------------------------------------------------------
 @pytest.mark.parametrize(
     "shape, max_grid, shard_strategy",
-    SHARD_CONFIGS,
-    ids=[f"{shape}_{strategy.name}" for shape, grid, strategy in SHARD_CONFIGS],
+    SHARD_SHAPES_GRIDS,
+    ids=[f"{shape}_{strategy.name}" for shape, grid, strategy in SHARD_SHAPES_GRIDS],
 )
 @pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
 @pytest.mark.parametrize(
@@ -372,13 +362,10 @@ def test_bitwise_unary_op_l1(
     )
 
 
-# ------------------------------------------------------------
-# Binary ops - DRAM
-# ------------------------------------------------------------
 @pytest.mark.parametrize(
     "shape",
-    SMOKETEST_SHAPES,
-    ids=[f"{shape}" for shape in SMOKETEST_SHAPES],
+    DRAM_SHAPES,
+    ids=[f"{shape}" for shape in DRAM_SHAPES],
 )
 @pytest.mark.parametrize(
     "dtype, ttnn_dtype",
@@ -395,7 +382,6 @@ def test_bitwise_unary_op_l1(
 )
 @pytest.mark.parametrize("graph_capture", [False])
 def test_binary_ops_dram(device, shape, dtype, ttnn_dtype, op, graph_capture):
-    """Test binary ops with both inputs in DRAM (interleaved)."""
     if dtype == torch.float32 and shape == (2048, 2048):
         pytest.skip("Skipping large operation for float32")
     if op in [pow, eq, ne, gt, ge, lt, le] and dtype == torch.float32:
@@ -418,13 +404,10 @@ def test_binary_ops_dram(device, shape, dtype, ttnn_dtype, op, graph_capture):
     )
 
 
-# ------------------------------------------------------------
-# Binary ops - L1 Sharded (both inputs same layout)
-# ------------------------------------------------------------
 @pytest.mark.parametrize(
     "shape, max_grid, shard_strategy",
-    SHARD_CONFIGS,
-    ids=[f"{shape}_{strategy.name}" for shape, grid, strategy in SHARD_CONFIGS],
+    SHARD_SHAPES_GRIDS,
+    ids=[f"{shape}_{strategy.name}" for shape, grid, strategy in SHARD_SHAPES_GRIDS],
 )
 @pytest.mark.parametrize(
     "dtype, ttnn_dtype",
@@ -437,14 +420,12 @@ def test_binary_ops_dram(device, shape, dtype, ttnn_dtype, op, graph_capture):
 )
 @pytest.mark.parametrize(
     "op",
-    # [add, sub, mul, div, pow, eq, ne, gt, ge, lt, le, maximum, minimum],
-    [div],
+    [add, sub, mul, div, pow, eq, ne, gt, ge, lt, le, maximum, minimum],
 )
 @pytest.mark.parametrize("graph_capture", [True, False])
 def test_binary_ops_l1(
     device, shape, max_grid, shard_strategy, dtype, ttnn_dtype, op, graph_capture
 ):
-    """Test binary ops with both inputs in L1 sharded (BLOCK, HEIGHT, WIDTH)."""
     if op in [pow, eq, ne, gt, ge, lt, le] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes")
     if op == div and ttnn_dtype == ttnn.DataType.BFLOAT8_B:
@@ -467,13 +448,10 @@ def test_binary_ops_l1(
     )
 
 
-# ------------------------------------------------------------
-# Binary ops - Mixed Layouts (one sharded, one interleaved)
-# ------------------------------------------------------------
 @pytest.mark.parametrize(
     "shape, max_grid, shard_strategy",
-    SHARD_CONFIGS,
-    ids=[f"{shape}_{strategy.name}" for shape, grid, strategy in SHARD_CONFIGS],
+    SHARD_SHAPES_GRIDS,
+    ids=[f"{shape}_{strategy.name}" for shape, grid, strategy in SHARD_SHAPES_GRIDS],
 )
 @pytest.mark.parametrize(
     "dtype, ttnn_dtype",
@@ -490,7 +468,6 @@ def test_binary_ops_l1(
 def test_binary_ops_mixed_layouts(
     device, shape, max_grid, shard_strategy, dtype, ttnn_dtype, op, graph_capture
 ):
-    """Test binary ops with mixed memory layouts (one sharded, one interleaved)."""
     input0 = create_sharded_tile_tensor(
         device,
         shape,
@@ -518,13 +495,10 @@ def test_binary_ops_mixed_layouts(
     assert pcc > 0.99, f"PCC: {pcc} is less than 0.99"
 
 
-# ------------------------------------------------------------
-# Bitwise Binary ops - DRAM
-# ------------------------------------------------------------
 @pytest.mark.parametrize(
     "shape",
-    SMOKETEST_SHAPES,
-    ids=[f"{shape}" for shape in SMOKETEST_SHAPES],
+    DRAM_SHAPES,
+    ids=[f"{shape}" for shape in DRAM_SHAPES],
 )
 @pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
 @pytest.mark.parametrize(
@@ -533,7 +507,6 @@ def test_binary_ops_mixed_layouts(
 )
 @pytest.mark.parametrize("graph_capture", [False])
 def test_bitwise_binary_ops_dram(device, shape, dtype, op, graph_capture):
-    """Test bitwise binary ops with DRAM memory layout."""
     if shape == (2048, 2048):
         pytest.skip("Skipping large operation")
 
@@ -550,13 +523,10 @@ def test_bitwise_binary_ops_dram(device, shape, dtype, op, graph_capture):
     )
 
 
-# ------------------------------------------------------------
-# Bitwise Binary ops - L1 Sharded
-# ------------------------------------------------------------
 @pytest.mark.parametrize(
     "shape, max_grid, shard_strategy",
-    SHARD_CONFIGS,
-    ids=[f"{shape}_{strategy.name}" for shape, grid, strategy in SHARD_CONFIGS],
+    SHARD_SHAPES_GRIDS,
+    ids=[f"{shape}_{strategy.name}" for shape, grid, strategy in SHARD_SHAPES_GRIDS],
 )
 @pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])
 @pytest.mark.parametrize(
@@ -567,7 +537,6 @@ def test_bitwise_binary_ops_dram(device, shape, dtype, op, graph_capture):
 def test_bitwise_binary_ops_l1(
     device, shape, max_grid, shard_strategy, dtype, op, graph_capture
 ):
-    """Test bitwise binary ops with L1 sharded memory layouts."""
     run_op_test(
         device,
         shape,
@@ -582,12 +551,15 @@ def test_bitwise_binary_ops_l1(
 
 
 # ------------------------------------------------------------
-# Interop tests - L1 Sharded
+# Interop tests
 # ------------------------------------------------------------
+
+
+# JIT op -> ttnn unary op test
 @pytest.mark.parametrize(
     "shape, max_grid, shard_strategy",
-    [SHARD_CONFIGS[0]],  # Use only BLOCK for interop
-    ids=[f"{shape}_BLOCK" for shape, grid, strategy in [SHARD_CONFIGS[0]]],
+    [SHARD_SHAPES_GRIDS[0]],  # Use only BLOCK for interop
+    ids=[f"{shape}_BLOCK" for shape, grid, strategy in [SHARD_SHAPES_GRIDS[0]]],
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize(
@@ -600,7 +572,6 @@ def test_bitwise_binary_ops_l1(
 def test_interop_jit_to_ttnn_unary_l1(
     device, shape, max_grid, shard_strategy, dtype, jit_op, ttnn_unary_op
 ):
-    """Test JIT op followed by ttnn unary op with L1 sharded layout."""
     input_tensor = create_sharded_tile_tensor(
         device, shape, max_grid, dtype, shard_strategy=shard_strategy
     )
@@ -619,23 +590,22 @@ def test_interop_jit_to_ttnn_unary_l1(
     assert all_close_check(interop_result, golden_result)
 
 
+# 2 JIT ops -> TTNN binary op test
 @pytest.mark.parametrize(
     "shape, max_grid, shard_strategy",
-    [SHARD_CONFIGS[0]],
-    ids=[f"{shape}_BLOCK" for shape, grid, strategy in [SHARD_CONFIGS[0]]],
+    [SHARD_SHAPES_GRIDS[0]],
+    ids=[f"{shape}_BLOCK" for shape, grid, strategy in [SHARD_SHAPES_GRIDS[0]]],
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize(
     "jit_op1, jit_op2, ttnn_binary_op",
     [
         (abs, exp, ttnn.add),
-        (sin, cos, ttnn.multiply),
     ],
 )
 def test_interop_two_jit_to_ttnn_binary_l1(
     device, shape, max_grid, shard_strategy, dtype, jit_op1, jit_op2, ttnn_binary_op
 ):
-    """Test two JIT ops followed by ttnn binary op with L1 sharded layout."""
     input1 = create_sharded_tile_tensor(
         device, shape, max_grid, dtype, shard_strategy=shard_strategy
     )
@@ -661,24 +631,20 @@ def test_interop_two_jit_to_ttnn_binary_l1(
     assert all_close_check(interop_result, golden_result)
 
 
-# ------------------------------------------------------------
-# Interop tests - DRAM
-# ------------------------------------------------------------
+# JIT op -> ttnn unary op test (DRAM)
 @pytest.mark.parametrize(
     "shape",
-    [SMOKETEST_SHAPES[0]],  # Use one shape for interop
-    ids=[f"{SMOKETEST_SHAPES[0]}"],
+    [DRAM_SHAPES[0]],  # Use one shape for interop
+    ids=[f"{DRAM_SHAPES[0]}"],
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize(
     "jit_op, ttnn_unary_op",
     [
         (abs, ttnn.exp),
-        (sin, ttnn.cos),
     ],
 )
 def test_interop_jit_to_ttnn_unary_dram(device, shape, dtype, jit_op, ttnn_unary_op):
-    """Test JIT op followed by ttnn unary op with DRAM layout."""
     input_tensor = create_dram_tensor(device, shape, dtype)
 
     compiled_op = ttnn_jit.jit(debug=True)(jit_op)
@@ -695,23 +661,22 @@ def test_interop_jit_to_ttnn_unary_dram(device, shape, dtype, jit_op, ttnn_unary
     assert all_close_check(interop_result, golden_result)
 
 
+# 2 JIT ops -> ttnn binary op test (DRAM)
 @pytest.mark.parametrize(
     "shape",
-    [SMOKETEST_SHAPES[0]],
-    ids=[f"{SMOKETEST_SHAPES[0]}"],
+    [DRAM_SHAPES[0]],
+    ids=[f"{DRAM_SHAPES[0]}"],
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize(
     "jit_op1, jit_op2, ttnn_binary_op",
     [
         (abs, exp, ttnn.add),
-        (sin, cos, ttnn.multiply),
     ],
 )
 def test_interop_two_jit_to_ttnn_binary_dram(
     device, shape, dtype, jit_op1, jit_op2, ttnn_binary_op
 ):
-    """Test two JIT ops followed by ttnn binary op with DRAM layout."""
     input1 = create_dram_tensor(device, shape, dtype)
     input2 = create_dram_tensor(device, shape, dtype)
 

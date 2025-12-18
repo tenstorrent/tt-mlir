@@ -16,17 +16,17 @@ from utils import (
 )
 
 
-# Representative shapes covering different sizes
-SMOKETEST_SHAPES = [
-    (64, 64),  # Small
-    (256, 256),  # Medium
-    (512, 512),  # Large
-    (2, 512, 2048),  # Rank 3
-    (1, 4, 256, 1024),  # Rank 4
+DRAM_SHAPES = [
+    (64, 64),
+    (256, 256),
+    (512, 512),
+    (256, 1024),
+    (2, 512, 2048),
+    (1, 4, 256, 1024),
 ]
 
-# One representative shape/grid for each shard strategy
-SHARD_CONFIGS = [
+
+SHARD_SHAPE_GRIDS = [
     ((512, 512), (7, 7), ttnn.ShardStrategy.BLOCK),
     ((2048, 128), (7, 7), ttnn.ShardStrategy.HEIGHT),
     ((128, 2048), (7, 7), ttnn.ShardStrategy.WIDTH),
@@ -34,7 +34,7 @@ SHARD_CONFIGS = [
 
 
 # ------------------------------------------------------------
-# Basic Composite ops
+# Composite ops
 # ------------------------------------------------------------
 def cosh(input_tensor):
     e_pos_x = ttnn.exp(input_tensor)
@@ -58,13 +58,10 @@ def mul_add(input_tensor_a, input_tensor_b, input_tensor_c):
     return output
 
 
-# ------------------------------------------------------------
-# Basic Composite ops - DRAM
-# ------------------------------------------------------------
 @pytest.mark.parametrize(
     "shape",
-    SMOKETEST_SHAPES,
-    ids=[f"{shape}" for shape in SMOKETEST_SHAPES],
+    DRAM_SHAPES,
+    ids=[f"{shape}" for shape in DRAM_SHAPES],
 )
 @pytest.mark.parametrize(
     "dtype",
@@ -74,7 +71,6 @@ def mul_add(input_tensor_a, input_tensor_b, input_tensor_c):
 @pytest.mark.parametrize("op", [cosh, sinh, mul_add])
 @pytest.mark.parametrize("graph_capture", [False])
 def test_composite_ops_dram(device, shape, dtype, op, graph_capture):
-    """Test basic composite ops with DRAM memory layout."""
     num_inputs = 3 if op is mul_add else 1
 
     run_op_test(
@@ -89,13 +85,10 @@ def test_composite_ops_dram(device, shape, dtype, op, graph_capture):
     )
 
 
-# ------------------------------------------------------------
-# Basic Composite ops - L1 Sharded
-# ------------------------------------------------------------
 @pytest.mark.parametrize(
     "shape, max_grid, shard_strategy",
-    SHARD_CONFIGS,
-    ids=[f"{shape}_{strategy.name}" for shape, grid, strategy in SHARD_CONFIGS],
+    SHARD_SHAPE_GRIDS,
+    ids=[f"{shape}_{strategy.name}" for shape, grid, strategy in SHARD_SHAPE_GRIDS],
 )
 @pytest.mark.parametrize(
     "dtype",
@@ -107,7 +100,6 @@ def test_composite_ops_dram(device, shape, dtype, op, graph_capture):
 def test_composite_ops_l1(
     device, shape, max_grid, shard_strategy, dtype, op, graph_capture
 ):
-    """Test basic composite ops with L1 sharded memory layouts."""
     num_inputs = 3 if op is mul_add else 1
 
     run_op_test(
@@ -124,8 +116,10 @@ def test_composite_ops_l1(
 
 
 # ------------------------------------------------------------
-# Special Functions - DRAM
+# Special functions
 # ------------------------------------------------------------
+
+
 @pytest.mark.parametrize(
     "shape",
     [(64, 64), (128, 128)],
@@ -160,9 +154,10 @@ def test_digamma_dram(device, shape, dtype, graph_capture):
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("graph_capture", [True])
 def test_complex_composite_dram(device, shape, dtype, graph_capture):
-    """Test complex composite operation: (a + b) * (a - b) = a^2 - b^2"""
+    """Test complex composite operation with multiple steps"""
 
     def complex_op(a, b):
+        # (a + b) * (a - b) = a^2 - b^2
         sum_ab = ttnn.add(a, b)
         diff_ab = ttnn.subtract(a, b)
         return ttnn.multiply(sum_ab, diff_ab)
@@ -188,9 +183,10 @@ def test_complex_composite_dram(device, shape, dtype, graph_capture):
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("graph_capture", [True])
 def test_nested_composite_dram(device, shape, dtype, graph_capture):
-    """Test nested composite operations: ((a + b) * c) + a"""
+    """Test nested composite operations"""
 
     def nested_op(a, b, c):
+        # ((a + b) * c) + a
         sum_ab = ttnn.add(a, b)
         prod_abc = ttnn.multiply(sum_ab, c)
         return ttnn.add(prod_abc, a)
@@ -209,8 +205,11 @@ def test_nested_composite_dram(device, shape, dtype, graph_capture):
 
 
 # ------------------------------------------------------------
-# Fusion Tests - Long Unary Chain
+# Fusion Tests
 # ------------------------------------------------------------
+# Chain can be made arbitrarily long when using JIT (as long as the
+# instructions fit on the tensix I-SRAM) and executed as one compute
+# kernel.
 def long_unary_chain(input_tensor_a):
     res_0 = ttnn.abs(input_tensor_a)
     res_1 = ttnn.sin(res_0)
@@ -236,7 +235,6 @@ def long_unary_chain(input_tensor_a):
 )
 @pytest.mark.parametrize("graph_capture", [False])
 def test_long_unary_chain_dram(device, shape, dtype, graph_capture):
-    """Test long unary chain fusion with DRAM."""
     run_op_test(
         device,
         shape,
@@ -251,8 +249,8 @@ def test_long_unary_chain_dram(device, shape, dtype, graph_capture):
 
 @pytest.mark.parametrize(
     "shape, max_grid, shard_strategy",
-    [SHARD_CONFIGS[0]],  # Use only BLOCK for fusion tests
-    ids=[f"{shape}_BLOCK" for shape, grid, strategy in [SHARD_CONFIGS[0]]],
+    [SHARD_SHAPE_GRIDS[0]],  # Use only BLOCK for fusion tests
+    ids=[f"{shape}_BLOCK" for shape, grid, strategy in [SHARD_SHAPE_GRIDS[0]]],
 )
 @pytest.mark.parametrize(
     "dtype",
@@ -263,7 +261,6 @@ def test_long_unary_chain_dram(device, shape, dtype, graph_capture):
 def test_long_unary_chain_l1(
     device, shape, max_grid, shard_strategy, dtype, graph_capture
 ):
-    """Test long unary chain fusion with L1 sharded."""
     run_op_test(
         device,
         shape,
@@ -277,9 +274,11 @@ def test_long_unary_chain_l1(
     )
 
 
-# ------------------------------------------------------------
-# Fusion Tests - Join Unary Chains
-# ------------------------------------------------------------
+### ------------------------------------------------------------------------ ###
+
+
+# Example of fusing 2 unary op chains that eventually join through a binary op.
+# Unary chains can be arbitrarily long and still be fused when using jit.
 def join_unary_chains(in0, in1):
     chain_0_0 = ttnn.abs(in0)
     chain_0_1 = ttnn.exp(chain_0_0)
@@ -304,7 +303,6 @@ def join_unary_chains(in0, in1):
 )
 @pytest.mark.parametrize("graph_capture", [False])
 def test_join_unary_chains_dram(device, shape, dtype, graph_capture):
-    """Test joining two unary chains with DRAM."""
     run_op_test(
         device,
         shape,
@@ -319,8 +317,8 @@ def test_join_unary_chains_dram(device, shape, dtype, graph_capture):
 
 @pytest.mark.parametrize(
     "shape, max_grid, shard_strategy",
-    [SHARD_CONFIGS[0]],
-    ids=[f"{shape}_BLOCK" for shape, grid, strategy in [SHARD_CONFIGS[0]]],
+    [SHARD_SHAPE_GRIDS[0]],
+    ids=[f"{shape}_BLOCK" for shape, grid, strategy in [SHARD_SHAPE_GRIDS[0]]],
 )
 @pytest.mark.parametrize(
     "dtype",
@@ -331,7 +329,6 @@ def test_join_unary_chains_dram(device, shape, dtype, graph_capture):
 def test_join_unary_chains_l1(
     device, shape, max_grid, shard_strategy, dtype, graph_capture
 ):
-    """Test joining two unary chains with L1 sharded."""
     run_op_test(
         device,
         shape,
@@ -345,9 +342,11 @@ def test_join_unary_chains_l1(
     )
 
 
-# ------------------------------------------------------------
-# Fusion Tests - Add Tree (7 to 1)
-# ------------------------------------------------------------
+### ------------------------------------------------------------------------ ###
+
+
+# The largest BALANCED op tree that can be fused into one d2m.generic and fully DST fused
+# when in 32b DST mode.
 def add_tree_7_to_1(in0, in1, in2, in3, in4, in5, in6):
     add_0_0 = ttnn.add(in0, in1)
     add_0_1 = ttnn.add(in2, in3)
@@ -373,7 +372,6 @@ def add_tree_7_to_1(in0, in1, in2, in3, in4, in5, in6):
 )
 @pytest.mark.parametrize("graph_capture", [False])
 def test_add_tree_7_to_1_dram(device, shape, dtype, graph_capture):
-    """Test balanced add tree (7 inputs -> 1 output) with DRAM."""
     run_op_test(
         device,
         shape,
@@ -388,8 +386,8 @@ def test_add_tree_7_to_1_dram(device, shape, dtype, graph_capture):
 
 @pytest.mark.parametrize(
     "shape, max_grid, shard_strategy",
-    [SHARD_CONFIGS[0]],
-    ids=[f"{shape}_BLOCK" for shape, grid, strategy in [SHARD_CONFIGS[0]]],
+    [SHARD_SHAPE_GRIDS[0]],
+    ids=[f"{shape}_BLOCK" for shape, grid, strategy in [SHARD_SHAPE_GRIDS[0]]],
 )
 @pytest.mark.parametrize(
     "dtype",
@@ -400,7 +398,6 @@ def test_add_tree_7_to_1_dram(device, shape, dtype, graph_capture):
 def test_add_tree_7_to_1_l1(
     device, shape, max_grid, shard_strategy, dtype, graph_capture
 ):
-    """Test balanced add tree (7 inputs -> 1 output) with L1 sharded."""
     run_op_test(
         device,
         shape,
@@ -414,9 +411,11 @@ def test_add_tree_7_to_1_l1(
     )
 
 
-# ------------------------------------------------------------
-# Fusion Tests - Add Tree (31 to 1) - Reduced coverage
-# ------------------------------------------------------------
+### ------------------------------------------------------------------------ ###
+
+
+# The largest BALANCED op tree that can be fused into one d2m.generic and fully DST fused
+# when in 16b DST mode. Works with 32b as well but results in more ops/kernels.
 def add_tree_31_to_1(
     in0,
     in1,
@@ -505,7 +504,6 @@ def add_tree_31_to_1(
 )
 @pytest.mark.parametrize("graph_capture", [False])
 def test_add_tree_31_to_1_dram(device, shape, dtype, graph_capture):
-    """Test large balanced add tree (31 inputs -> 1 output) with DRAM."""
     run_op_test(
         device,
         shape,
@@ -532,7 +530,6 @@ def test_add_tree_31_to_1_dram(device, shape, dtype, graph_capture):
 def test_add_tree_31_to_1_l1(
     device, shape, max_grid, shard_strategy, dtype, graph_capture
 ):
-    """Test large balanced add tree (31 inputs -> 1 output) with L1 sharded."""
     run_op_test(
         device,
         shape,
@@ -546,9 +543,14 @@ def test_add_tree_31_to_1_l1(
     )
 
 
-# ------------------------------------------------------------
-# Fusion Tests - Binary Ladder (31 inputs) - Reduced coverage
-# ------------------------------------------------------------
+### ------------------------------------------------------------------------ ###
+
+
+# A ladder pattern where each add output is summed with the next input sequentially.
+# Unlike the balanced tree, this creates a long dependency chain and requires less
+# intermediate storage. It's still limited to fusing into 7-input d2m.generics when in 32b mode due to
+# the way the CB limit is currently enforced but will be fusable into a single 31x 32b inputs in
+# later releases. YMMV based on tensor/grid sizes.
 def binary_ladder_31(
     in0,
     in1,
@@ -634,7 +636,6 @@ def binary_ladder_31(
 )
 @pytest.mark.parametrize("graph_capture", [False])
 def test_binary_ladder_31_dram(device, shape, dtype, graph_capture):
-    """Test binary ladder pattern (31 inputs) with DRAM."""
     run_op_test(
         device,
         shape,
@@ -661,7 +662,6 @@ def test_binary_ladder_31_dram(device, shape, dtype, graph_capture):
 def test_binary_ladder_31_l1(
     device, shape, max_grid, shard_strategy, dtype, graph_capture
 ):
-    """Test binary ladder pattern (31 inputs) with L1 sharded."""
     run_op_test(
         device,
         shape,
@@ -675,9 +675,6 @@ def test_binary_ladder_31_l1(
     )
 
 
-# ------------------------------------------------------------
-# Large Shapes Tests - mul_add only
-# ------------------------------------------------------------
 @pytest.mark.parametrize(
     "shape, dtype",
     [
@@ -688,7 +685,6 @@ def test_binary_ladder_31_l1(
 )
 @pytest.mark.parametrize("graph_capture", [False])
 def test_large_shapes_muladd_l1(device, shape, dtype, graph_capture):
-    """Test mul_add with large shapes on L1."""
     run_op_test(
         device,
         shape,
@@ -712,7 +708,6 @@ def test_large_shapes_muladd_l1(device, shape, dtype, graph_capture):
 )
 @pytest.mark.parametrize("graph_capture", [False])
 def test_large_shapes_muladd_dram(device, shape, dtype, graph_capture):
-    """Test mul_add with large shapes on DRAM."""
     run_op_test(
         device,
         shape,
