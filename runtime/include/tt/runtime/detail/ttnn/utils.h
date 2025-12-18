@@ -25,6 +25,11 @@ bool isValidTileShape(const ::tt::target::Dim2d *shape);
 bool isSharded(
     const ::tt::target::ttnn::TensorMemoryLayout &tensorMemoryLayout);
 
+bool canTilizeDataTypeOnDevice(const ::ttnn::DataType &dataType);
+
+bool canTilizeMemoryLayoutOnDevice(
+    const std::optional<::ttnn::MemoryConfig> &memoryConfig);
+
 bool canUntilizeDataTypeOnDevice(const ::ttnn::DataType &dataType);
 
 bool canTilizeOnDevice(const ::ttnn::DataType &dataType,
@@ -93,6 +98,9 @@ toTTNNShardOrientation(tt::target::ttnn::ShardOrientation orientation);
 
 ::tt::target::ttnn::ShardOrientation
 fromTTNNShardOrientation(::ttnn::ShardOrientation orientation);
+
+tt::tt_metal::ShardDistributionStrategy toTTNNShardDistributionStrategy(
+    tt::target::ttnn::ShardDistributionStrategy distributionStrategy);
 
 ::flatbuffers::Offset<::tt::target::ttnn::ShardSpec>
 fromTTNNShardSpec(::flatbuffers::FlatBufferBuilder &fbb,
