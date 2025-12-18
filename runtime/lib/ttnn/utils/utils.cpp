@@ -445,10 +445,11 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg) {
   // Verify that shard spec is present only for sharded memory layouts
   const bool hasShardSpec =
       (memcfg->shard_spec() != nullptr) || (memcfg->nd_shard_spec() != nullptr);
-  LOG_ASSERT(hasShardSpec == isSharded(targetMemLayout),
-             "A shard spec must be present if and only if the memory layout is sharded");
+  LOG_ASSERT(
+      hasShardSpec == isSharded(targetMemLayout),
+      "A shard spec must be present if and only if the tensor is sharded");
 
-  // Handle 2D shard spec (legacy sharding)
+  // Handle (legacy) shard spec
   if (const auto *shardSpec = memcfg->shard_spec()) {
     const auto *shardShape = shardSpec->shape();
     LOG_ASSERT(shardShape->size() == 2,
@@ -466,7 +467,7 @@ createMemoryConfigIfNeeded(const ::tt::target::ttnn::MemoryConfig *memcfg) {
     return ::ttnn::MemoryConfig{memLayout, ttnnBufferType, metalShardSpec};
   }
 
-  // Handle ND shard spec (multi-dimensional sharding)
+  // Handle ND shard spec
   if (const auto *ndShardSpec = memcfg->nd_shard_spec()) {
     const auto *shardShape = ndShardSpec->shape();
     std::vector<uint32_t> shape(shardShape->begin(), shardShape->end());
