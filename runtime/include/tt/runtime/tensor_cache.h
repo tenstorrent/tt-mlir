@@ -103,6 +103,20 @@ public:
     cache.clear();
   }
 
+  void remove(const std::string &parentFuncName,
+              const std::string &constEvalFuncName) {
+    std::unique_lock<std::shared_mutex> lock(cacheMutex);
+    auto it = cache.find(parentFuncName);
+    if (it == cache.end()) {
+      return;
+    }
+    auto internalIt = it->second.find(constEvalFuncName);
+    if (internalIt == it->second.end()) {
+      return;
+    }
+    it->second.erase(internalIt);
+  }
+
   // Get the size of the cache (number of entries)
   size_t size() const { return cache.size(); }
 

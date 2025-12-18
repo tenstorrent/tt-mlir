@@ -79,6 +79,17 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
 
   cache->store(cacheKey, constEvalFuncname, std::move(inputVersions), outputs);
 
+  std::weak_ptr<TensorCache> weakCache = cache;
+  for (auto& input: inputs) {
+    ::tt::runtime::ttnn::TTNNTensorWrapper &inputWrapper =
+        input.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
+    inputWrapper.registerOnDeleteCallback([weakCache, cacheKey, constEvalFuncname](::tt::runtime::ttnn::TTNNTensorWrapper* tensor){
+      if (auto cache = weakCache.lock()) {
+        cache->remove(cacheKey, constEvalFuncname);
+      }
+    });
+  }
+
   for (size_t i = 0; i < outputs.size(); ++i) {
     context.getTensorPool().insertRuntimeTensorAndValidate(
         op->outputs()->Get(i), outputs[i]);
