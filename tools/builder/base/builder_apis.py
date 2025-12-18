@@ -94,11 +94,10 @@ def _compile_and_execute(
     if skip_exec:
         raise TTBuilderRuntimeException("Manually skipped execution")
 
-    fb_path = mlir_path + "." + ("ttnn" if target == "ttnn" else "ttm")
-
     # Execute the flatbuffer
     golden_report = None
     if target in ["ttnn", "ttmetal"]:
+        fb_path = mlir_path + "." + ("ttnn" if target == "ttnn" else "ttm")
         golden_report = execute_fb(
             fb_path=fb_path,
             pcc=pcc,
@@ -113,8 +112,23 @@ def _compile_and_execute(
             enable_intermediate_verification=export_golden_report,
         )
 
-    if golden_report and export_golden_report:
-        _save_golden_report(builder, golden_report, mlir_path + ".golden_report.json")
+        if golden_report and export_golden_report:
+            _save_golden_report(
+                builder, golden_report, mlir_path + ".golden_report.json"
+            )
+
+    elif target == "emitpy":
+        py_path = mlir_path + ".py"
+        execute_py(
+            py_path=py_path,
+            pcc=pcc,
+            atol=atol,
+            rtol=rtol,
+            disable_golden=disable_golden,
+            check_atol=check_atol,
+            check_rtol=check_rtol,
+            goldens=goldens,
+        )
 
     return mlir_path
 
