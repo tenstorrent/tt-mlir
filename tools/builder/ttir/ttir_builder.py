@@ -3085,10 +3085,10 @@ class TTIRBuilder(Builder):
         )
 
         in0 = global_dict[old_op.input]
-        output = global_dict[old_op.output[0]]
-        output_indices = global_dict[old_op.output[1]]
         result = old_op.result.type
         result_indices = old_op.result_indices.type
+        output = self._get_empty_op(result)
+        output_indices = self._get_empty_op(result_indices)
         kernel_attr = old_op.kernel
         stride_attr = old_op.stride
         dilation_attr = old_op.dilation
