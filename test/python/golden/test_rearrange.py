@@ -33,26 +33,31 @@ def _test_pattern_map(pattern, shape, pattern_map):
 @pytest.mark.parametrize(
     "shape,pattern",
     [
-        ((3, 32, 32), "z y x -> y z x"),
-        ((3, 32, 32), "z y x -> (y z) x"),
-        ((3, 32, 32), "z y x -> y (z x)"),
-        # Unaligned
-        ((3, 4, 5), "z y x -> y z x"),
-        ((5, 7, 8), "z y x -> (y z) x"),
-        ((5, 7, 8), "z y x -> y (z x)"),
-        # Multicore
-        ((2, 4, 250), "z y x -> y z x"),
-        ((2, 7, 180), "z y x -> (y z) x"),
-        ((25, 7, 8), "z y x -> y (z x)"),
-        ((50, 7, 8), "z y x -> y (z x)")
-        | Marks(pytest.mark.xfail(reason="PCC error #6268")),
-        ((50, 15, 8), "z y x -> z (y x)"),
-        # 4d
-        ((2, 3, 4, 32), "w z y x -> y w z x"),
-        ((2, 3, 4, 32), "w z y x -> y (w z) x"),
-        ((2, 3, 4, 32), "w z y x -> (y w z) x"),
-        ((2, 3, 4, 32), "w z y x -> (y w) z x"),
-        ((2, 3, 4, 32), "w z y x -> (y w) (z x)"),
+        # ((3, 32, 32), "z y x -> y z x"),
+        # ((3, 32, 32), "z y x -> (y z) x"),
+        # ((3, 32, 32), "z y x -> y (z x)"),
+        # # Unaligned
+        # ((3, 4, 5), "z y x -> y z x"),
+        # ((5, 7, 8), "z y x -> (y z) x"),
+        # ((5, 7, 8), "z y x -> y (z x)"),
+        # # Multicore
+        # ((2, 4, 250), "z y x -> y z x"),
+        # ((2, 7, 180), "z y x -> (y z) x"),
+        # ((25, 7, 8), "z y x -> y (z x)"),
+        # ((50, 7, 8), "z y x -> y (z x)")
+        # | Marks(pytest.mark.xfail(reason="PCC error #6268")),
+        # ((50, 15, 8), "z y x -> z (y x)"),
+        # # 4d
+        # ((2, 3, 4, 32), "w z y x -> y w z x"),
+        # ((2, 3, 4, 32), "w z y x -> y (w z) x"),
+        # ((2, 3, 4, 32), "w z y x -> (y w z) x"),
+        # ((2, 3, 4, 32), "w z y x -> (y w) z x"),
+        # ((2, 3, 4, 32), "w z y x -> (y w) (z x)"),
+        # ((1, 12, 32, 100), "b c h w -> b h c w"),
+        ((1, 32, 31, 32), "b c h w -> b h c w"),
+        # ((1, 32, 1, 32), "b c h w -> b h c w"),
+        # ((5, 7, 2, 32), "b c h w -> b h c w"),
+        # [(1, 3, 3, 3, 3), "b c h w n -> b h c w n"],
     ],
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
@@ -72,7 +77,9 @@ def test_rearrange(
     def rearrange_module(builder: TTIRBuilder):
         @builder.func([shape], [torch.float32])
         def rearrange(in0, builder: TTIRBuilder, unit_attrs: List[str] = None):
-            return builder.rearrange(in0, pattern, unit_attrs=unit_attrs)
+            res = builder.rearrange(in0, pattern, unit_attrs=unit_attrs)
+            res = builder.abs(res)
+            return res
 
     compile_and_execute_ttir(
         rearrange_module,

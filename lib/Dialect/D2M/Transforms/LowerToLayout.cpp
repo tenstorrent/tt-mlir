@@ -663,9 +663,39 @@ public:
     }
 
     // 3. TILIZE: Before mapping (so mapping operates on final format).
+    // However, skip tilizing if we're going to immediately untilize in the
+    // complex mapping change path (step 4a). This avoids redundant
+    // tilize→untilize sequences that also incorrectly propagate index_maps.
     bool needsTilize =
         !ttcore::isTiled(currentInfo.type) && ttcore::isTiled(targetInfo.type);
-    if (needsTilize && currentInfo.hasLayout()) {
+
+    // Check if tilizing would lead to immediate untilizing in step 4a.
+    bool wouldNeedComplexMappingChange = false;
+    if (needsTilize && currentInfo.hasLayout() && targetInfo.hasLayout() &&
+        currentInfo.isL1()) {
+      bool needsMappingChange =
+          (currentInfo.getGridShape() != targetInfo.getGridShape() ||
+           currentInfo.layout->getIndexAffineMap() !=
+               targetInfo.layout->getIndexAffineMap() ||
+           currentInfo.layout->getLogicalShape() !=
+               targetInfo.layout->getLogicalShape() ||
+           currentInfo.layout->getDimAlignments() !=
+               targetInfo.layout->getDimAlignments());
+      bool isSimpleReblocking =
+          (currentInfo.layout->getLogicalShape() ==
+               targetInfo.layout->getLogicalShape() &&
+           currentInfo.layout->getDimAlignments() ==
+               targetInfo.layout->getDimAlignments() &&
+           currentInfo.layout->getCollapsedIntervals() ==
+               targetInfo.layout->getCollapsedIntervals());
+      // After tilizing, bothTilized would be true (since target is tiled).
+      // If it's not a simple reblocking, we'd enter the complex path and
+      // immediately untilize.
+      wouldNeedComplexMappingChange =
+          needsMappingChange && !isSimpleReblocking;
+    }
+
+    if (needsTilize && currentInfo.hasLayout() && !wouldNeedComplexMappingChange) {
       // Tilize with current layout, then mapping change will adjust layout if
       // needed.
       ArrayRef<int64_t> tileShape = ttcore::getTensorTileShape(targetInfo.type);
@@ -679,11 +709,54 @@ public:
       currentInfo = TensorInfo::from(currentValue);
     }
 
+    // If we skipped step 3 because we'd immediately untilize, go directly to
+    // steps 4b (mapping change in scalar space) and 4c (tilize). This avoids
+    // the redundant tilize→untilize sequence.
+    if (wouldNeedComplexMappingChange) {
+      // 4b. Apply complex mapping change in scalar space.
+      Type scalarType = getScalarType(currentInfo.type.getElementType());
+      auto scalarTargetLayout = ttcore::MetalLayoutAttr::get(
+          rewriter.getContext(), targetInfo.layout->getLogicalShape(),
+          targetInfo.layout->getDimAlignments(),
+          targetInfo.layout->getCollapsedIntervals(),
+          targetInfo.layout->getOobVal(),
+          ttcore::MemorySpace::DeviceL1,
+          targetInfo.layout->getMemoryLayout(),
+          targetInfo.layout->getIndexAffineMap());
+
+      auto scalarTargetGridShape = targetInfo.getGridShape();
+      auto scalarTargetDeviceShape =
+          scalarTargetLayout.getDeviceShape(scalarTargetGridShape, {});
+
+      auto scalarTargetType = RankedTensorType::get(
+          scalarTargetDeviceShape, scalarType, scalarTargetLayout);
+      auto scalarTargetEmpty = createEmpty(scalarTargetType);
+      currentValue =
+          lowerMappingChange(rewriter, currentValue, scalarTargetEmpty,
+                             op.getLoc(), targetGridShape);
+      currentInfo = TensorInfo::from(currentValue);
+
+      // 4c. Tilize to match target format.
+      ArrayRef<int64_t> tileShape =
+          ttcore::getTensorTileShape(targetInfo.type);
+      auto tiledDeviceShape = targetInfo.layout->getDeviceShape(
+          targetInfo.getGridShape(), tileShape);
+      auto tiledType = RankedTensorType::get(
+          tiledDeviceShape, targetInfo.type.getElementType(),
+          *targetInfo.layout);
+      auto tiledEmpty = createEmpty(tiledType);
+      currentValue = lowerFormatConversionGeneric(rewriter, currentValue,
+                                                  tiledEmpty, op.getLoc());
+      currentInfo = TensorInfo::from(currentValue);
+    }
+
     // 4. MAPPING CHANGE: Grid/index_map/logical_shape/dim_alignments (after
     // tilize). Includes all reblocking (both virtual and normal grids). Must
     // happen in L1 (can't reblock in DRAM). Only when element type formats
     // match (tilize/untilize should happen first).
-    if (currentInfo.hasLayout() && targetInfo.hasLayout() &&
+    // Skip if we already handled the complex mapping change above.
+    if (!wouldNeedComplexMappingChange &&
+        currentInfo.hasLayout() && targetInfo.hasLayout() &&
         currentInfo.isL1() &&
         (ttcore::isTiled(currentInfo.type) ==
          ttcore::isTiled(targetInfo.type))) {
