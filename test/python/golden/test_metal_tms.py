@@ -91,7 +91,7 @@ def test_permute_abs(
 # All shapes must have the same total number of elements.
 RESHAPE_SHAPES: List[Tuple[Tuple[int, ...], Tuple[int, ...]]] = [
     # ==================== REGULAR TESTS ====================
-    # Identity reshapes (same shape)
+    # Identity reshapes
     ((64, 64), (64, 64)),
     ((3, 32, 64), (3, 32, 64)),
     # 2D -> 2D reshapes

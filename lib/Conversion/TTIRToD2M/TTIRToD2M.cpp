@@ -1329,16 +1329,24 @@ public:
     SmallVector<AffineExpr> deviceExprs;
 
     // Grid coordinate mapping (first inputLogicalRank results).
-    // Pass through last 2 grid dims for 2D grid compatibility, pad higher dims.
     for (unsigned i = 0; i < inputLogicalRank; ++i) {
-      unsigned revIdx = inputLogicalRank - 1 - i;
-      if (revIdx < 2 && revIdx < outputLogicalRank) {
-        deviceExprs.push_back(
-            builder.getAffineDimExpr(outputLogicalRank - 1 - revIdx));
-      } else if (revIdx < outputLogicalRank) {
-        deviceExprs.push_back(builder.getAffineDimExpr(revIdx));
+      if (inputLogicalRank == outputLogicalRank) {
+        // Same rank: identity mapping for grid (matches original behavior)
+        deviceExprs.push_back(builder.getAffineDimExpr(i));
+      } else if (inputLogicalRank < outputLogicalRank) {
+        // Expanding (e.g., 2D -> 3D): map input grid dims to output's last
+        // inputLogicalRank grid dims.
+        unsigned outputGridIdx = outputLogicalRank - inputLogicalRank + i;
+        deviceExprs.push_back(builder.getAffineDimExpr(outputGridIdx));
       } else {
-        deviceExprs.push_back(builder.getAffineConstantExpr(0));
+        // Contracting (e.g., 3D -> 2D): map last outputLogicalRank input grid
+        // dims to output grid, pad the rest with 0.
+        if (i < inputLogicalRank - outputLogicalRank) {
+          deviceExprs.push_back(builder.getAffineConstantExpr(0));
+        } else {
+          unsigned outputGridIdx = i - (inputLogicalRank - outputLogicalRank);
+          deviceExprs.push_back(builder.getAffineDimExpr(outputGridIdx));
+        }
       }
     }
 
