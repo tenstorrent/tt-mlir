@@ -361,7 +361,8 @@ TEST(AffineMapUtilsTest, CanDetermineCoalescingFactor) {
 
     auto start_time = std::chrono::high_resolution_clock::now();
     auto coalescingFactorAnalytical = analyzeShardDimContiguity(
-        memoryMap, deviceShape, memoryMap.getNumDims() / 2);
+        memoryMap, deviceShape, memoryMap.getNumDims() / 2,
+        memoryMap.getNumResults() - 1);
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
         end_time - start_time);
