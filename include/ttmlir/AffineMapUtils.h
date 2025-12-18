@@ -8,6 +8,8 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Utils.h"
 
+#include "llvm/ADT/DenseSet.h"
+
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
@@ -934,9 +936,9 @@ inline size_t calculateCoalescingFactor(mlir::AffineMap map,
 /// @return std::nullopt for error condition,
 ///         -1 for unconstrained (no contiguity limit),
 ///         positive value for the contiguity bound
-inline std::optional<int64_t>
-analyzeContiguityExpr(mlir::AffineExpr expr,
-                      std::optional<int64_t> parentModulus = std::nullopt) {
+inline std::optional<int64_t> analyzeShardResultExprForContiguity(
+    mlir::AffineExpr expr, const llvm::DenseMap<int, int64_t> &dimBounds,
+    std::optional<int64_t> parentModulus = std::nullopt) {
   // Handle constant expressions
   if (auto constExpr = llvm::dyn_cast<mlir::AffineConstantExpr>(expr)) {
     if (constExpr.getValue() < 0) {
@@ -962,8 +964,10 @@ analyzeContiguityExpr(mlir::AffineExpr expr,
   switch (binOp.getKind()) {
   case mlir::AffineExprKind::Add: {
     // Analyze each operand recursively, propagating rhsConst
-    auto lhsBound = analyzeContiguityExpr(lhs, parentModulus);
-    auto rhsBound = analyzeContiguityExpr(rhs, parentModulus);
+    auto lhsBound =
+        analyzeShardResultExprForContiguity(lhs, dimBounds, parentModulus);
+    auto rhsBound =
+        analyzeShardResultExprForContiguity(rhs, dimBounds, parentModulus);
 
     // If either operand returned nullopt, return nullopt
     if (!lhsBound.has_value() || !rhsBound.has_value()) {
@@ -996,7 +1000,8 @@ analyzeContiguityExpr(mlir::AffineExpr expr,
       return std::nullopt; // Error: negative constant
     }
 
-    auto lhsBound = analyzeContiguityExpr(lhs, parentModulus);
+    auto lhsBound =
+        analyzeShardResultExprForContiguity(lhs, dimBounds, parentModulus);
     // if lhs cannot be analyzed, return error
     if (!lhsBound) {
       return std::nullopt;
@@ -1048,7 +1053,7 @@ analyzeContiguityExpr(mlir::AffineExpr expr,
     // If LHS is a Mul, return result from calling func on lhs with boundValue
     if (auto lhsBinOp = llvm::dyn_cast<mlir::AffineBinaryOpExpr>(lhs)) {
       if (lhsBinOp.getKind() == mlir::AffineExprKind::Mul) {
-        return analyzeContiguityExpr(lhs, modulus);
+        return analyzeShardResultExprForContiguity(lhs, dimBounds, modulus);
       }
 
       // If LHS is an Add, figure out largest value that keeps lhs < boundValue
@@ -1078,7 +1083,7 @@ analyzeContiguityExpr(mlir::AffineExpr expr,
     }
 
     // Default: recursively analyze LHS with boundValue as the new constraint
-    return analyzeContiguityExpr(lhs, modulus);
+    return analyzeShardResultExprForContiguity(lhs, dimBounds, modulus);
   }
 
   default:
@@ -1098,6 +1103,56 @@ inline bool exprContainsDim(mlir::AffineExpr expr, unsigned dimPos) {
   return foundDim;
 }
 
+inline bool exprIsSpecificDimExpr(mlir::AffineExpr expr, unsigned dimPos) {
+  return llvm::isa<mlir::AffineDimExpr>(expr) &&
+         llvm::dyn_cast<mlir::AffineDimExpr>(expr).getPosition() == dimPos;
+}
+
+/// Finds the minimum gap to the next target boundary for any achievable sum.
+/// For floor division semantics: gap = target - (sum % target), or target if
+/// sum is exactly on a boundary.
+/// Returns the minimum such gap across all achievable sums.
+inline int64_t minimizeGap(int64_t target, llvm::ArrayRef<int64_t> multipliers,
+                           llvm::ArrayRef<int64_t> bounds,
+                           int64_t constOffset) {
+  assert(multipliers.size() == bounds.size());
+
+  // Compute all achievable sums using dynamic programming.
+  // Start with just the constant offset.
+  llvm::DenseSet<int64_t> achievableSums;
+  achievableSums.insert(constOffset);
+
+  for (size_t i = 0; i < multipliers.size(); ++i) {
+    llvm::DenseSet<int64_t> newSums;
+    for (int64_t sum : achievableSums) {
+      for (int64_t n = 0; n <= bounds[i]; ++n) {
+        newSums.insert(sum + multipliers[i] * n);
+      }
+    }
+    achievableSums = std::move(newSums);
+  }
+
+  // Find the minimum gap to the next boundary for any achievable sum.
+  // For floor division: gap = target - (sum % target)
+  // If sum % target == 0, we're at an exact multiple, so gap = target
+  // (need full cycle to reach the next boundary).
+  int64_t bestGap = target;
+
+  for (int64_t sum : achievableSums) {
+    int64_t remainder = sum % target;
+    int64_t gap = (remainder == 0) ? target : (target - remainder);
+    if (gap < bestGap) {
+      bestGap = gap;
+    }
+    // Early exit if gap is 1 (best possible non-exact alignment)
+    if (bestGap == 1) {
+      break;
+    }
+  }
+
+  return bestGap;
+}
+
 /// Analyzes an affine expression to find the minimum change in dimension
 /// `dimPos` needed to change the output value. This is used for grid dimension
 /// analysis where any change in grid indexing is a discontinuity.
@@ -1113,7 +1168,9 @@ inline bool exprContainsDim(mlir::AffineExpr expr, unsigned dimPos) {
 /// @return Positive value: minimum change in dimPos needed to change output
 ///         -1: expression is unconstrained (dimPos doesn't affect this result)
 ///         1: conservative fallback when expression cannot be analyzed
-inline int64_t analyzeGridDimExpr(mlir::AffineExpr expr, unsigned dimPos) {
+inline int64_t analyzeGridResultExprForDiscontinuity(
+    mlir::AffineExpr expr, const llvm::DenseMap<int, int64_t> &dimBounds,
+    unsigned dimPos) {
   // Handle constant expressions - unconstrained (dim doesn't affect output)
   if (llvm::isa<mlir::AffineConstantExpr>(expr)) {
     return -1;
@@ -1146,93 +1203,149 @@ inline int64_t analyzeGridDimExpr(mlir::AffineExpr expr, unsigned dimPos) {
 
     // Extract multiplier and offset from LHS: looking for M*d + C pattern
     int64_t multiplier = 0;
-    int64_t offset = 0;
     bool foundDim = false;
 
-    // Pattern 1: d_dimPos
+    // Helper to check if steps exceed dim bounds
+    auto checkBoundsAndReturn = [&](int64_t stepsNeeded) -> int64_t {
+      int64_t targetDimBound = dimBounds.lookup(dimPos);
+      if (stepsNeeded >= targetDimBound) {
+        return -1; // Unconstrained - always contiguous within bounds
+      }
+      return stepsNeeded;
+    };
+
+    // Pattern 1: d_dimPos floorDiv N -> need N steps to change output
     if (auto dimExpr = llvm::dyn_cast<mlir::AffineDimExpr>(lhs)) {
       if (dimExpr.getPosition() == dimPos) {
-        multiplier = 1;
-        offset = 0;
-        foundDim = true;
+        return checkBoundsAndReturn(divisor);
+      } else {
+        // unrelated dim by itself poses no constraints
+        return -1;
       }
     }
 
-    // Pattern 2: M * d_dimPos
+    // Pattern 2: (M * d_dimPos) floorDiv N -> need ceil(N/M) steps
+    if (auto maybeMul = isBinaryMul(lhs)) {
+      auto mulRhsConst =
+          llvm::dyn_cast<mlir::AffineConstantExpr>(maybeMul.value().getRHS());
+      if (!mulRhsConst) {
+        return 1; // Mul RHS must be constant, cannot analyze otherwise
+      }
+      int64_t mulValue = mulRhsConst.getValue();
+      // Now we know RHS is a constant, just check LHS for dim
+      if (exprIsSpecificDimExpr(maybeMul.value().getLHS(), dimPos)) {
+        // ceil(divisor / mulValue)
+        int64_t stepsNeeded = (divisor + mulValue - 1) / mulValue;
+        return checkBoundsAndReturn(stepsNeeded);
+      } else {
+        return -1;
+      }
+    }
+
+    // Pattern 3: (A*d0 + B*d1 + ...) floorDiv N
     if (!foundDim) {
-      if (auto mulOp = llvm::dyn_cast<mlir::AffineBinaryOpExpr>(lhs);
-          mulOp && mulOp.getKind() == mlir::AffineExprKind::Mul) {
-        auto rhsConst =
-            llvm::dyn_cast<mlir::AffineConstantExpr>(mulOp.getRHS());
-        if (!rhsConst) {
-          return 1; // Mul RHS must be constant, cannot analyze otherwise
-        }
-        // Now we know RHS is a constant, just check LHS for dim
-        if (auto dimExpr =
-                llvm::dyn_cast<mlir::AffineDimExpr>(mulOp.getLHS())) {
-          if (dimExpr.getPosition() == dimPos) {
-            multiplier = rhsConst.getValue();
-            offset = 0;
-            foundDim = true;
+      if (auto maybeAdd = isBinaryAdd(lhs)) {
+        auto sumOperands = collectSumOperands(maybeAdd);
+
+        mlir::AffineExpr targetDimExpr;
+        // Track (dimPosition, multiplier) pairs for other dimensions
+        llvm::SmallVector<std::pair<unsigned, int64_t>> otherDimInfo;
+        int64_t constSum = 0;
+
+        for (auto sumOperand : sumOperands) {
+          // Case 0: constants - accumulate into constSum
+          if (auto constExpr =
+                  llvm::dyn_cast<mlir::AffineConstantExpr>(sumOperand)) {
+            constSum += constExpr.getValue();
+            continue;
           }
-        }
-      }
-    }
 
-    // Pattern 3: expr + C where expr is d or M*d
-    if (!foundDim) {
-      if (auto addOp = llvm::dyn_cast<mlir::AffineBinaryOpExpr>(lhs);
-          addOp && addOp.getKind() == mlir::AffineExprKind::Add) {
+          // Case 1: Plain dim expression (multiplier = 1)
+          if (auto dimExpr = llvm::dyn_cast<mlir::AffineDimExpr>(sumOperand)) {
+            if (dimExpr.getPosition() == dimPos) {
+              if (foundDim) {
+                return 1; // Multiple occurrences of target dim, fallback
+              }
+              foundDim = true;
+              targetDimExpr = sumOperand;
+              multiplier = 1;
+            } else {
+              otherDimInfo.push_back({dimExpr.getPosition(), 1});
+            }
+            continue;
+          }
 
-        // Early return if rhs is an expr with dims
-        if (exprContainsDim(addOp.getRHS(), dimPos)) {
+          // Case 2: Mul expression (dim * const)
+          if (auto mulOp = isBinaryMul(sumOperand)) {
+            auto dimExpr = llvm::dyn_cast<mlir::AffineDimExpr>(mulOp->getLHS());
+            auto constExpr =
+                llvm::dyn_cast<mlir::AffineConstantExpr>(mulOp->getRHS());
+
+            if (!dimExpr || !constExpr) {
+              return 1; // Expected dim * const pattern, fallback
+            }
+
+            int64_t mulValue = constExpr.getValue();
+
+            if (dimExpr.getPosition() == dimPos) {
+              if (foundDim) {
+                return 1; // Multiple occurrences of target dim, fallback
+              }
+              foundDim = true;
+              targetDimExpr = sumOperand;
+              multiplier = mulValue;
+            } else {
+              otherDimInfo.push_back({dimExpr.getPosition(), mulValue});
+            }
+            continue;
+          }
+
+          // Anything else: fallback
           return 1;
         }
 
-        auto variableExpr = addOp.getLHS();
-        auto constExpr =
-            llvm::dyn_cast<mlir::AffineConstantExpr>(addOp.getRHS());
-        offset = constExpr.getValue();
-
-        if (offset <= 0) {
-          return 1; // Cannot analyze pattern, conservative fallback
-        }
-
-        // Pattern 3a: d_dimPos + C
-        if (auto dimExpr = llvm::dyn_cast<mlir::AffineDimExpr>(variableExpr)) {
-          if (dimExpr.getPosition() == dimPos) {
-            multiplier = 1;
-            foundDim = true;
+        // If we found the target dim, compute worst-case discontinuity
+        if (foundDim && multiplier > 0) {
+          if (constSum < 0) {
+            return 1; // Negative constants not analyzed, fallback
           }
-        }
 
-        // Pattern 3b: M * d_dimPos + C, simplified: nonConstPart is a Mul of
-        // dim and const
-        if (!foundDim) {
-          if (auto mulOp =
-                  llvm::dyn_cast<mlir::AffineBinaryOpExpr>(variableExpr);
-              mulOp && mulOp.getKind() == mlir::AffineExprKind::Mul) {
-            multiplier =
-                llvm::dyn_cast<mlir::AffineConstantExpr>(mulOp.getRHS())
-                    .getValue();
-            foundDim = true;
+          int64_t gap;
+          if (otherDimInfo.empty()) {
+            // Simple case: just the target dim and a constant offset
+            // Gap is distance from constSum to the next divisor boundary
+            int64_t remainder = constSum % divisor;
+            gap = (remainder == 0) ? divisor : (divisor - remainder);
+          } else {
+            // Build multipliers and bounds arrays from tracked dimension info
+            llvm::SmallVector<int64_t> otherMultipliers;
+            llvm::SmallVector<int64_t> otherBounds;
+            for (auto [dimPosition, mul] : otherDimInfo) {
+              otherMultipliers.push_back(mul);
+              // Bound is (dimSize - 1) since dim ranges from 0 to dimSize-1
+              otherBounds.push_back(dimBounds.lookup(dimPosition) - 1);
+            }
+
+            // Use minimizeGap to find the best alignment (minimum gap)
+            gap = minimizeGap(divisor, otherMultipliers, otherBounds, constSum);
           }
+
+          int64_t stepsNeeded =
+              (gap + multiplier - 1) / multiplier; // Ceiling division
+          return checkBoundsAndReturn(stepsNeeded);
         }
       }
     }
 
-    if (!foundDim || multiplier <= 0) {
-      return 1; // Cannot analyze pattern, conservative fallback
-    }
-
-    // Figure out minimum change in dim to change output.
-    int64_t gap = divisor - (offset % divisor);
-    return (gap + multiplier - 1) / multiplier; // Ceiling division
+    // Cannot analyze, conservative fallback
+    return 1;
   }
 
   case mlir::AffineExprKind::Add: {
-    int64_t lhsResult = analyzeGridDimExpr(lhs, dimPos);
-    int64_t rhsResult = analyzeGridDimExpr(rhs, dimPos);
+    int64_t lhsResult =
+        analyzeGridResultExprForDiscontinuity(lhs, dimBounds, dimPos);
+    int64_t rhsResult =
+        analyzeGridResultExprForDiscontinuity(rhs, dimBounds, dimPos);
 
     // Combine results: take the minimum of constrained values
     // -1 means unconstrained, so we filter those out
@@ -1289,46 +1402,28 @@ inline std::optional<int64_t> analyzeSingleShardDimContiguity(
 
   // Phase I: Set all other dims to worst-case constant values.
   // The dim bounds are derived from the shape at each position.
-  llvm::DenseMap<int, int64_t> constDimBounds;
+  llvm::DenseMap<int, int64_t> dimBounds;
   for (unsigned i = 0; i < map.getNumDims(); ++i) {
-    if (i != dimPos) {
-      constDimBounds[static_cast<int>(i)] = shape[i];
-    }
+    dimBounds[static_cast<int>(i)] = shape[i];
   }
 
   // Do initial pass of simplification; all remaining mod/floordiv expressions
   // actually do something.
-  llvm::SmallVector<int64_t> dimBounds(shape.begin(), shape.end());
   mlir::AffineMap simplifiedMap =
-      simplifyAffineMapWithRangeAnalysis(simplifyZeroFloorDiv(map), dimBounds);
-
-  // Apply worst-case replacement to isolate the target shard dim
-  mlir::AffineMap constReplacedMap =
-      replaceDimExprsWithConstValues(simplifiedMap, constDimBounds);
-  llvm::dbgs() << "[analyzeSingleShardDimContiguity] const replaced map: "
-               << constReplacedMap << "\n";
-
-  // Simplify the map again using range analysis
-  mlir::AffineMap fullyIsolatedMap =
-      simplifyAffineMapWithRangeAnalysis(constReplacedMap, dimBounds);
-  llvm::dbgs() << "[analyzeSingleShardDimContiguity] fully isolated map: "
-               << fullyIsolatedMap << "\n";
+      simplifyAffineMapWithRangeAnalysis(simplifyZeroFloorDiv(map), shape);
+  llvm::dbgs() << "[analyzeSingleShardDimContiguity] simplified map: "
+               << simplifiedMap << "\n";
 
   // Phase II: Analyze each result expression for contiguity
   std::optional<int64_t> dimContiguity = -1; // Start unconstrained
 
-  for (auto [i, resultExpr] : llvm::enumerate(fullyIsolatedMap.getResults())) {
+  for (auto [i, resultExpr] : llvm::enumerate(simplifiedMap.getResults())) {
     std::optional<int64_t> exprBound = std::nullopt;
     if (i >= numGridResults) {
-      exprBound = analyzeContiguityExpr(resultExpr);
+      exprBound = analyzeShardResultExprForContiguity(resultExpr, dimBounds);
     } else {
-      bool containsDim = exprContainsDim(resultExpr, dimPos);
-      if (containsDim) {
-        exprBound = analyzeGridDimExpr(resultExpr, dimPos);
-      } else {
-        // if this expr doesn't contain the dim, it's unconstrained
-        exprBound = -1;
-      }
+      exprBound =
+          analyzeGridResultExprForDiscontinuity(resultExpr, dimBounds, dimPos);
     }
 
     if (!exprBound.has_value()) {
