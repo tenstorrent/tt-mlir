@@ -379,7 +379,7 @@ TEST(AffineMapUtilsTest, CanDetermineCoalescingFactor) {
                    << ttmlir::utils::formatIterable(outputGridShape, "x")
                    << " SUCCESS (coalescing factor: "
                    << coalescingFactorAnalytical.value_or(-1) << " in "
-                   << duration.count() << "us)\n";
+                   << duration.count() << "us)\n\n";
       return TestResult::Success;
     } else if (coalescingFactorAnalytical.value_or(-1) < coalescingFactor &&
                coalescingFactor % coalescingFactorAnalytical.value_or(-1) ==
@@ -393,7 +393,7 @@ TEST(AffineMapUtilsTest, CanDetermineCoalescingFactor) {
                    << " SUBSET (analytical="
                    << coalescingFactorAnalytical.value_or(-1)
                    << " vs calculated=" << coalescingFactor << " in "
-                   << duration.count() << "us)\n";
+                   << duration.count() << "us)\n\n";
       return TestResult::Subset;
     } else {
       llvm::dbgs() << "[TestCanDetermineCoalescingFactor] logical shape: "
@@ -405,14 +405,13 @@ TEST(AffineMapUtilsTest, CanDetermineCoalescingFactor) {
                    << " FAILED : analytical = "
                    << coalescingFactorAnalytical.value_or(-1)
                    << ", calculated = " << coalescingFactor << "\n";
-      llvm::dbgs() << "    map: " << simpleMap << "\n";
       return TestResult::Failed;
     }
   };
 
   // Configuration for 3D and 4D test generation
-  constexpr int64_t maxVolume = 100000;
-  constexpr int numLogicalShapeExamples = 8;
+  constexpr int64_t maxVolume = 10000;
+  constexpr int numLogicalShapeExamples = 10;
   constexpr int numGridPairsPerShape = 10;
   constexpr int64_t maxGridDim = 8;
 
@@ -470,7 +469,7 @@ TEST(AffineMapUtilsTest, CanDetermineCoalescingFactor) {
   int totalTests = 0;
 
   // Generate test cases for 3D and 4D shapes
-  for (int rank = 3; rank <= 4; ++rank) {
+  for (int rank = 2; rank <= 4; ++rank) {
     for (int shapeIdx = 0; shapeIdx < numLogicalShapeExamples; ++shapeIdx) {
       SmallVector<int64_t> logicalShape = generateLogicalShape(rank);
 

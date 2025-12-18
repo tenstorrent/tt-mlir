@@ -1086,6 +1086,185 @@ analyzeContiguityExpr(mlir::AffineExpr expr,
   }
 }
 
+inline bool exprContainsDim(mlir::AffineExpr expr, unsigned dimPos) {
+  bool foundDim = false;
+  expr.walk([&](mlir::AffineExpr e) {
+    if (auto dimExpr = llvm::dyn_cast<mlir::AffineDimExpr>(e)) {
+      if (dimExpr.getPosition() == dimPos) {
+        foundDim = true;
+      }
+    }
+  });
+  return foundDim;
+}
+
+/// Analyzes an affine expression to find the minimum change in dimension
+/// `dimPos` needed to change the output value. This is used for grid dimension
+/// analysis where any change in grid indexing is a discontinuity.
+///
+/// Precondition: The expression must contain dimension `dimPos`.
+///
+/// Examples:
+/// - `d0` -> 1 (every step changes output)
+/// - `d0 floorDiv N` -> N (need N steps to change output)
+/// - `(d0 + C) floorDiv N` -> N - C (steps until crossing divisor boundary)
+/// - `(M*d0 + C) floorDiv N` -> ceil((N - C) / M)
+///
+/// @return Positive value: minimum change in dimPos needed to change output
+///         -1: expression is unconstrained (dimPos doesn't affect this result)
+///         1: conservative fallback when expression cannot be analyzed
+inline int64_t analyzeGridDimExpr(mlir::AffineExpr expr, unsigned dimPos) {
+  // Handle constant expressions - unconstrained (dim doesn't affect output)
+  if (llvm::isa<mlir::AffineConstantExpr>(expr)) {
+    return -1;
+  }
+
+  // Handle dim expressions
+  if (auto dimExpr = llvm::dyn_cast<mlir::AffineDimExpr>(expr)) {
+    if (dimExpr.getPosition() == dimPos) {
+      return 1; // Direct dim reference, any change causes output change
+    }
+    return -1; // Different dim, unconstrained
+  }
+
+  auto binOp = llvm::dyn_cast<mlir::AffineBinaryOpExpr>(expr);
+  if (!binOp) {
+    return 1; // Cannot analyze, conservative fallback
+  }
+
+  mlir::AffineExpr lhs = binOp.getLHS();
+  mlir::AffineExpr rhs = binOp.getRHS();
+
+  switch (binOp.getKind()) {
+  case mlir::AffineExprKind::FloorDiv:
+  case mlir::AffineExprKind::CeilDiv: {
+    auto rhsConst = llvm::dyn_cast<mlir::AffineConstantExpr>(rhs);
+    if (!rhsConst || rhsConst.getValue() <= 0) {
+      return 1; // Cannot analyze, conservative fallback
+    }
+    int64_t divisor = rhsConst.getValue();
+
+    // Extract multiplier and offset from LHS: looking for M*d + C pattern
+    int64_t multiplier = 0;
+    int64_t offset = 0;
+    bool foundDim = false;
+
+    // Pattern 1: d_dimPos
+    if (auto dimExpr = llvm::dyn_cast<mlir::AffineDimExpr>(lhs)) {
+      if (dimExpr.getPosition() == dimPos) {
+        multiplier = 1;
+        offset = 0;
+        foundDim = true;
+      }
+    }
+
+    // Pattern 2: M * d_dimPos
+    if (!foundDim) {
+      if (auto mulOp = llvm::dyn_cast<mlir::AffineBinaryOpExpr>(lhs);
+          mulOp && mulOp.getKind() == mlir::AffineExprKind::Mul) {
+        auto rhsConst =
+            llvm::dyn_cast<mlir::AffineConstantExpr>(mulOp.getRHS());
+        if (!rhsConst) {
+          return 1; // Mul RHS must be constant, cannot analyze otherwise
+        }
+        // Now we know RHS is a constant, just check LHS for dim
+        if (auto dimExpr =
+                llvm::dyn_cast<mlir::AffineDimExpr>(mulOp.getLHS())) {
+          if (dimExpr.getPosition() == dimPos) {
+            multiplier = rhsConst.getValue();
+            offset = 0;
+            foundDim = true;
+          }
+        }
+      }
+    }
+
+    // Pattern 3: expr + C where expr is d or M*d
+    if (!foundDim) {
+      if (auto addOp = llvm::dyn_cast<mlir::AffineBinaryOpExpr>(lhs);
+          addOp && addOp.getKind() == mlir::AffineExprKind::Add) {
+
+        // Early return if rhs is an expr with dims
+        if (exprContainsDim(addOp.getRHS(), dimPos)) {
+          return 1;
+        }
+
+        auto variableExpr = addOp.getLHS();
+        auto constExpr =
+            llvm::dyn_cast<mlir::AffineConstantExpr>(addOp.getRHS());
+        offset = constExpr.getValue();
+
+        if (offset <= 0) {
+          return 1; // Cannot analyze pattern, conservative fallback
+        }
+
+        // Pattern 3a: d_dimPos + C
+        if (auto dimExpr = llvm::dyn_cast<mlir::AffineDimExpr>(variableExpr)) {
+          if (dimExpr.getPosition() == dimPos) {
+            multiplier = 1;
+            foundDim = true;
+          }
+        }
+
+        // Pattern 3b: M * d_dimPos + C, simplified: nonConstPart is a Mul of
+        // dim and const
+        if (!foundDim) {
+          if (auto mulOp =
+                  llvm::dyn_cast<mlir::AffineBinaryOpExpr>(variableExpr);
+              mulOp && mulOp.getKind() == mlir::AffineExprKind::Mul) {
+            multiplier =
+                llvm::dyn_cast<mlir::AffineConstantExpr>(mulOp.getRHS())
+                    .getValue();
+            foundDim = true;
+          }
+        }
+      }
+    }
+
+    if (!foundDim || multiplier <= 0) {
+      return 1; // Cannot analyze pattern, conservative fallback
+    }
+
+    // Figure out minimum change in dim to change output.
+    int64_t gap = divisor - (offset % divisor);
+    return (gap + multiplier - 1) / multiplier; // Ceiling division
+  }
+
+  case mlir::AffineExprKind::Add: {
+    int64_t lhsResult = analyzeGridDimExpr(lhs, dimPos);
+    int64_t rhsResult = analyzeGridDimExpr(rhs, dimPos);
+
+    // Combine results: take the minimum of constrained values
+    // -1 means unconstrained, so we filter those out
+    if (lhsResult == -1 && rhsResult == -1) {
+      return -1; // Both unconstrained
+    }
+    if (lhsResult == -1) {
+      return rhsResult;
+    }
+    if (rhsResult == -1) {
+      return lhsResult;
+    }
+    return std::gcd(lhsResult, rhsResult);
+  }
+
+  case mlir::AffineExprKind::Mod:
+  case mlir::AffineExprKind::Mul: {
+    // If a mul expression contains the target dim, it implies any change in the
+    // dim will change the output unless this op is the LHS of a floorDiv or
+    // ceilDiv expression that contains the target dim.
+    // if not, by definition it's unconstrained.
+    if (!exprContainsDim(lhs, dimPos)) {
+      return -1;
+    }
+    return 1;
+  }
+
+  default:
+    return 1; // Cannot analyze, conservative fallback
+  }
+}
+
 /// Analyzes contiguity for a single shard dimension in an affine map.
 /// A shard dimension is any dimension with position >= numGridDims.
 ///
@@ -1139,11 +1318,22 @@ analyzeSingleShardDimContiguity(mlir::AffineMap map,
   // Phase II: Analyze each result expression for contiguity
   std::optional<int64_t> dimContiguity = -1; // Start unconstrained
 
-  for (mlir::AffineExpr resultExpr : fullyIsolatedMap.getResults()) {
-    auto exprBound = analyzeContiguityExpr(resultExpr);
-    llvm::dbgs() << "   [analyzeSingleShardDimContiguity] for result: "
-                 << resultExpr
-                 << " --> expr bound: " << exprBound.value_or(-777) << "\n";
+  for (auto [i, resultExpr] : llvm::enumerate(fullyIsolatedMap.getResults())) {
+    std::optional<int64_t> exprBound = std::nullopt;
+    if (i >= numGridDims) {
+      exprBound = analyzeContiguityExpr(resultExpr);
+      llvm::dbgs() << "   [analyzeSingleShardDimContiguity] for result: "
+                   << resultExpr
+                   << " --> expr bound: " << exprBound.value_or(-777) << "\n";
+    } else {
+      bool containsDim = exprContainsDim(resultExpr, dimPos);
+      if (containsDim) {
+        exprBound = analyzeGridDimExpr(resultExpr, dimPos);
+      } else {
+        // if this expr doesn't contain the dim, it's unconstrained
+        exprBound = -1;
+      }
+    }
 
     if (!exprBound.has_value()) {
       return std::nullopt;
@@ -1203,6 +1393,8 @@ analyzeShardDimContiguity(mlir::AffineMap map, mlir::ArrayRef<int64_t> shape,
   dimContiguities.reserve(numShardDims);
 
   for (unsigned shardDimIdx = 0; shardDimIdx < numShardDims; ++shardDimIdx) {
+    llvm::dbgs() << "----[analyzeShardDimContiguity] analyzing shard dim "
+                 << shardDimIdx << " ----\n";
     auto contiguity =
         analyzeSingleShardDimContiguity(map, shape, numGridDims, shardDimIdx);
     if (!contiguity.has_value()) {
