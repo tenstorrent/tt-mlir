@@ -20,31 +20,35 @@ public:
       ReshapeOp, RMSNormOp, commuteDirection>::TTIRCommuteOpRewritePattern;
 
   // Consider the following IR pseudocode:
-  // %0 = reshape(%arg0) ...
-  // %1 = rms_norm(%0) ...
-  // %2 = reshape(%1) ...
+  // %0 = rms_norm(%arg0) {normalized_shape = [2048]}
+  // %1 = reshape(%0) <{shape = [32, 2048]}>
   //
   // This method will transform this into:
-  // %0 = rms_norm(%arg0) ...
+  // %0 = reshape(%arg0) <{shape = [32, 2048]}>
+  // %1 = rms_norm(%0) {normalized_shape = [2048]}
   //
-  // The reshape pair is eliminated because they are inverses of each other.
-  // The key constraint is that the last dimension (normalization dimension)
-  // must remain unchanged by the reshapes.
-
+  // The reshape is moved above rms_norm. If there was already an input reshape,
+  // consecutive reshapes may be folded. The key constraint is that the last
+  // dimension (normalization dimension) must remain unchanged by the reshape.
   void performCommuteUpwardsRewrite(RMSNormOp op, ReshapeOp reshapeUser,
                                     PatternRewriter &rewriter) const override {
-    auto inputReshape = op.getInput().getDefiningOp<ReshapeOp>();
-
-    auto originalInputType =
-        cast<RankedTensorType>(inputReshape.getInput().getType());
+    auto inputType = cast<RankedTensorType>(op.getInput().getType());
     auto outputReshapeType = cast<RankedTensorType>(reshapeUser.getType());
 
-    SmallVector<int64_t> normalizedShape{originalInputType.getShape().back()};
+    // Create a new input shape that matches the output reshape shape
+    SmallVector<int32_t> newInputShape(outputReshapeType.getShape());
+    auto newInputType = RankedTensorType::get(outputReshapeType.getShape(),
+                                              inputType.getElementType(),
+                                              inputType.getEncoding());
+
+    // Create reshape before rms_norm
+    auto newInputReshape =
+        rewriter.create<ReshapeOp>(op.getLoc(), newInputType, op.getInput(),
+                                   rewriter.getI32ArrayAttr(newInputShape));
 
     auto newRmsNorm = rewriter.create<RMSNormOp>(
-        op.getLoc(), outputReshapeType, inputReshape.getInput(), op.getWeight(),
-        op.getBias(), rewriter.getDenseI64ArrayAttr(normalizedShape),
-        op.getEpsilonAttr());
+        op.getLoc(), outputReshapeType, newInputReshape, op.getWeight(),
+        op.getBias(), op.getNormalizedShapeAttr(), op.getEpsilonAttr());
 
     // All users must be identical TMs. We must not reference `reshapeUser`
     // during/after replacements, as it will be erased on its turn.
@@ -74,31 +78,14 @@ private:
 
   bool isCommuteUpwardsFavorable(RMSNormOp op,
                                  ReshapeOp reshapeUser) const override {
-    // Check that there's an input reshape that is the inverse of the output
-    // reshape.
-    auto inputReshape = op.getInput().getDefiningOp<ReshapeOp>();
-    if (!inputReshape) {
-      return false;
-    }
-
-    auto originalInputType =
-        cast<RankedTensorType>(inputReshape.getInput().getType());
-    auto outputReshapeType = cast<RankedTensorType>(reshapeUser.getType());
-
-    // The shapes before input reshape and after output reshape must match
-    // (i.e., the reshapes are inverses).
-    if (originalInputType.getShape() != outputReshapeType.getShape()) {
-      return false;
-    }
-
     // We should commute if all users are identical reshapes.
-    // This will allow us to eliminate the reshape pair.
+    // This will move the reshape above rms_norm, potentially allowing
+    // it to cancel with other reshapes via other commute patterns.
     SmallVector<Operation *> users(op->getUsers());
     return !users.empty() && checkAllUsersAreIdenticalTms(users);
   }
 
   bool isCommuteDownwardsViable(RMSNormOp, ReshapeOp) const override {
-    // Downwards commute is not implemented for RMSNorm.
     return false;
   }
 

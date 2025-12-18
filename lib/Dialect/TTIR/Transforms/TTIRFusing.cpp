@@ -3615,23 +3615,27 @@ public:
     }
 
     // Match x^2 as mul(x,x) or pow(x,2).
+    // Look through layout ops to find the original input.
     mlir::Value meanInput = meanOp.getInput();
     mlir::Value squareInput = nullptr;
-    mlir::Value x = utils::lookThrough<TypecastOp>(xRaw);
+    mlir::Value x = utils::lookThroughLayoutOps(xRaw);
+
     if (auto sq = meanInput.getDefiningOp<MultiplyOp>()) {
       if (sq.getLhs() == sq.getRhs()) {
-        squareInput = utils::lookThrough<TypecastOp>(sq.getLhs());
+        squareInput = utils::lookThroughLayoutOps(sq.getLhs());
       }
     } else if (auto pw = meanInput.getDefiningOp<PowOp>()) {
       if (isFullOpWithValue(pw.getRhs(), 2.0f)) {
-        squareInput = utils::lookThrough<TypecastOp>(pw.getLhs());
+        squareInput = utils::lookThroughLayoutOps(pw.getLhs());
       }
     }
+
     if (!squareInput || squareInput != x) {
       return mlir::failure();
     }
 
-    auto epsFull = epsilon.getDefiningOp<FullOp>();
+    // Look through layout ops to find the epsilon FullOp
+    auto epsFull = utils::findOpThroughLayoutOps<FullOp>(epsilon);
     if (!epsFull) {
       return mlir::failure();
     }
@@ -3642,12 +3646,29 @@ public:
 
     mlir::Value gamma = utils::lookThroughLayoutOps(gammaRaw);
     auto inputType = mlir::cast<RankedTensorType>(x.getType());
+    auto outputType = mlir::cast<RankedTensorType>(outerMul.getType());
+
     llvm::SmallVector<int64_t> normalizedShape{inputType.getShape().back()};
 
-    rewriter.replaceOpWithNewOp<RMSNormOp>(
-        outerMul, outerMul.getType(), x, gamma,
+    // Create RMSNormOp with output shape matching input shape
+    auto rmsNormOutputType =
+        RankedTensorType::get(inputType.getShape(), outputType.getElementType(),
+                              outputType.getEncoding());
+    auto rmsNorm = rewriter.create<RMSNormOp>(
+        outerMul.getLoc(), rmsNormOutputType, x, gamma,
         /*bias=*/nullptr, rewriter.getDenseI64ArrayAttr(normalizedShape),
         rewriter.getF32FloatAttr(epsAttr.getValue().convertToFloat()));
+
+    // If output shape differs from input shape, add a reshape
+    if (inputType.getShape() != outputType.getShape()) {
+      llvm::SmallVector<int32_t> targetShape(outputType.getShape());
+      auto reshape =
+          rewriter.create<ReshapeOp>(outerMul.getLoc(), outputType, rmsNorm,
+                                     rewriter.getI32ArrayAttr(targetShape));
+      rewriter.replaceOp(outerMul, reshape);
+    } else {
+      rewriter.replaceOp(outerMul, rmsNorm);
+    }
     return mlir::success();
   }
 };
