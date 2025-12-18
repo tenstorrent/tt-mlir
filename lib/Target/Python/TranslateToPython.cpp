@@ -494,20 +494,14 @@ static LogicalResult printOperation(PythonEmitter &emitter,
                                     SetValueForDictKeyOp op) {
   raw_indented_ostream &os = emitter.ostream();
 
-  if (failed(emitter.emitOperand(op.getDict(), "dict_arg"))) {
-    return failure();
-  }
-  os << "[";
+  os << op.getDictName() << "[";
 
-  Attribute keyAttr = op.getKey();
-  if (auto strAttr = dyn_cast<StringAttr>(keyAttr)) {
-    os << "\"" << strAttr.getValue() << "\"";
-  } else if (auto intAttr = dyn_cast<IntegerAttr>(keyAttr)) {
-    os << intAttr.getInt();
+  if (failed(emitter.emitAttribute(op.getLoc(), op.getKey()))) {
+    return failure();
   }
 
   os << "] = ";
-  if (failed(emitter.emitOperand(op.getValue(), "dict_value_arg"))) {
+  if (failed(emitter.emitOperand(op.getValue(), "dict_value"))) {
     return failure();
   }
   return success();
@@ -520,16 +514,10 @@ static LogicalResult printOperation(PythonEmitter &emitter,
   }
 
   raw_indented_ostream &os = emitter.ostream();
-  if (failed(emitter.emitOperand(op.getDict(), "dict_arg"))) {
-    return failure();
-  }
-  os << "[";
+  os << op.getDictName() << "[";
 
-  Attribute keyAttr = op.getKey();
-  if (auto strAttr = dyn_cast<StringAttr>(keyAttr)) {
-    os << "\"" << strAttr.getValue() << "\"";
-  } else if (auto intAttr = dyn_cast<IntegerAttr>(keyAttr)) {
-    os << intAttr.getInt();
+  if (failed(emitter.emitAttribute(op.getLoc(), op.getKey()))) {
+    return failure();
   }
 
   os << "]";

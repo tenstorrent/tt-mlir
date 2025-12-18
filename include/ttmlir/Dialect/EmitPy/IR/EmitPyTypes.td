@@ -63,7 +63,6 @@ def EmitPy_DictType : EmitPy_Type<"Dict", "dict"> {
   let builders = [];
 
   let hasCustomAssemblyFormat = 1;
-  let genVerifyDecl = 1;
 }
 
 #endif // TTMLIR_TTMLIR_DIALECT_EMITPY_IR_EMITPYTYPES_TD

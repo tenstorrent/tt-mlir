@@ -4,6 +4,8 @@
 
 #include "ttmlir/Conversion/TTNNToEmitPy/EmitPyConversion.h"
 #include "ttmlir/Conversion/TTNNToEmitPy/TTNNToEmitPy.h"
+#include "ttmlir/Dialect/EmitPy/IR/EmitPy.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/Transforms/Passes.h"
 
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
@@ -84,6 +86,23 @@ struct ConvertTTNNToEmitPyPass
         signalPassFailure();
         return;
       }
+    }
+
+    // Count load_cached ops to determine the size of the global cache
+    // dictionary
+    //
+    size_t loadCachedCount = 0;
+    module.walk([&](ttcore::LoadCachedOp) { ++loadCachedCount; });
+
+    // Create global cache dictionary if any load_cached ops exist
+    //
+    if (loadCachedCount > 0) {
+      std::string literalExpr =
+          "{i: None for i in range(" + std::to_string(loadCachedCount) + ")}";
+      auto opaqueAttr =
+          emitpy::OpaqueAttr::get(&getContext(), StringRef(literalExpr));
+      builder.create<emitpy::GlobalOp>(module->getLoc(), "_CONST_EVAL_CACHE",
+                                       opaqueAttr);
     }
 
     // TTNN -> EmitPy

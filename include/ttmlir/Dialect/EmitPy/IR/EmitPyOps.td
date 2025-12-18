@@ -206,52 +206,55 @@ def EmitPy_CreateDictOp : EmitPy_Op<"create_dict", [Pure]> {
 def EmitPy_SetValueForDictKeyOp : EmitPy_Op<"set_value_for_dict_key"> {
   let summary = "Set dictionary value for a given key";
   let description = [{
-    Changes or inserts a value in the dictionary for a given key.
+    Changes or inserts a value in the dictionary for a given string or index integer key.
 
     Example:
     ```mlir
-    %dict = emitpy.get_global @_CONST_EVAL_CACHE : !emitpy.dict
-    emitpy.set_value_for_dict_key %dict[5 : index] = %tensor : (!emitpy.dict) -> tensor<1x64x1x1xbf16>
+    %dict = emitpy.global_statement @_CONST_EVAL_CACHE : !emitpy.dict
+    emitpy.set_value_for_dict_key "_CONST_EVAL_CACHE" %dict[5 : index] = %tensors : (!emitpy.dict) -> !emitpy.opaque<"[ttnn.Tensor]">
     ```
     ```python
     // Code emitted:
-    _CONST_EVAL_CACHE[5] = tensor
+    _CONST_EVAL_CACHE[5] = tensors
     ```
   }];
 
   let arguments = (ins
+    Arg<StrAttr>:$dict_name,
     EmitPy_DictType:$dict,
     AnyAttrOf<[StrAttr, IndexAttr]>:$key,
-    AnyRankedTensor:$value
+    EmitPy_OpaqueType:$value
   );
 
-  let assemblyFormat = "$dict `[` qualified($key) `]` `=` $value attr-dict `:` functional-type($dict, $value)";
+  let assemblyFormat = "$dict_name $dict `[` qualified($key) `]` `=` $value attr-dict `:` functional-type($dict, $value)";
 }
 
 def EmitPy_GetValueForDictKeyOp : EmitPy_Op<"get_value_for_dict_key", [Pure]> {
   let summary = "Get dictionary value for a given key";
   let description = [{
     Retrieves a value for a given key in a dictionary.
+    Values are list of tensors and keys are strings or index integers.
 
     Example:
     ```mlir
-    %dict = emitpy.get_global @_CONST_EVAL_CACHE : !emitpy.dict
-    %val = emitpy.get_value_for_dict_key %dict[5 : index] : (!emitpy.dict) -> tensor<1x64x1x1xbf16>
+    %dict = emitpy.global_statement @_CONST_EVAL_CACHE : !emitpy.dict
+    %tensors = emitpy.get_value_for_dict_key "_CONST_EVAL_CACHE" %dict[5 : index] : (!emitpy.dict) -> !emitpy.opaque<"[ttnn.Tensor]">
     ```
     ```python
     // Code emitted:
-    val = _CONST_EVAL_CACHE[5]
+    tensors = _CONST_EVAL_CACHE[5]
     ```
   }];
 
   let arguments = (ins
+    Arg<StrAttr>:$dict_name,
     EmitPy_DictType:$dict,
     AnyAttrOf<[StrAttr, IndexAttr]>:$key
   );
 
-  let results = (outs AnyRankedTensor:$result);
+  let results = (outs EmitPy_OpaqueType:$result);
 
-  let assemblyFormat = "$dict `[` qualified($key) `]` attr-dict `:` functional-type($dict, $result)";
+  let assemblyFormat = "$dict_name $dict `[` qualified($key) `]` attr-dict `:` functional-type($dict, $result)";
 }
 
 def EmitPy_VerbatimOp : EmitPy_Op<"verbatim"> {
