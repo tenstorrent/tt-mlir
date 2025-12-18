@@ -1203,6 +1203,14 @@ inline int64_t analyzeGridResultExprForDiscontinuity(
       if (auto maybeAdd = isBinaryAdd(lhs)) {
         auto sumOperands = collectSumOperands(maybeAdd);
 
+        llvm::dbgs() << "              [analyze d" << dimPos
+                     << "] expr: " << lhs << "\n";
+
+        // if the expression does not contain the target dim, it's unconstrained
+        if (!exprContainsDim(lhs, dimPos)) {
+          return -1;
+        }
+
         mlir::AffineExpr targetDimExpr;
         // Track (dimPosition, multiplier) pairs for other dimensions
         llvm::SmallVector<std::pair<unsigned, int64_t>> otherDimInfo;
@@ -1358,15 +1366,16 @@ inline int64_t analyzeSingleShardDimContiguity(mlir::AffineMap map,
     dimBounds[static_cast<int>(i)] = shape[i];
   }
 
-  // Do initial pass of simplification; all remaining mod/floordiv expressions
-  // actually do something.
-  mlir::AffineMap simplifiedMap =
-      simplifyAffineMapWithRangeAnalysis(simplifyZeroFloorDiv(map), shape);
+  llvm::dbgs() << "  [analyze d" << dimPos
+               << "] shape: " << ttmlir::utils::formatIterable(shape, "x")
+               << "\n";
 
   // Phase II: Analyze each result expression for contiguity
   int64_t dimContiguity = -1; // Start unconstrained
 
-  for (auto [i, resultExpr] : llvm::enumerate(simplifiedMap.getResults())) {
+  for (auto [i, resultExpr] : llvm::enumerate(map.getResults())) {
+    llvm::dbgs() << "      [analyze d" << dimPos << "] result " << i
+                 << " expr: " << resultExpr << "\n";
     int64_t exprBound;
     if (i >= numGridResults) {
       exprBound =
@@ -1384,6 +1393,9 @@ inline int64_t analyzeSingleShardDimContiguity(mlir::AffineMap map,
         dimContiguity = std::gcd(dimContiguity, exprBound);
       }
     }
+    llvm::dbgs() << "      [analyze d" << dimPos << "] result " << i
+                 << " bound: " << exprBound << " (overall: " << dimContiguity
+                 << ")\n\n";
   }
 
   // Replace -1 (unconstrained) with the actual shape extent for this dim
@@ -1425,13 +1437,19 @@ analyzeShardDimContiguity(mlir::AffineMap map, mlir::ArrayRef<int64_t> shape,
     return 1; // No shard dims means trivially contiguous
   }
 
+  // Do initial pass of simplification; all remaining mod/floordiv expressions
+  // actually do something.
+  mlir::AffineMap simplifiedMap =
+      simplifyAffineMapWithRangeAnalysis(simplifyZeroFloorDiv(map), shape);
+  llvm::dbgs() << "[analyzeShardDimContiguity] map: " << simplifiedMap << "\n";
+
   // Analyze each shard dim and store results
   llvm::SmallVector<int64_t> dimContiguities;
   dimContiguities.reserve(numShardDims);
 
   for (unsigned shardDimIdx = 0; shardDimIdx < numShardDims; ++shardDimIdx) {
     int64_t contiguity = analyzeSingleShardDimContiguity(
-        map, shape, numGridDims, numGridResults, shardDimIdx);
+        simplifiedMap, shape, numGridDims, numGridResults, shardDimIdx);
     dimContiguities.push_back(contiguity);
   }
 
