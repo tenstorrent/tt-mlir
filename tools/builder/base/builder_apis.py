@@ -86,7 +86,7 @@ def _compile_and_execute(
     **compile_kwargs
         All other arguments to pass through to the compile function
     """
-    builder, mlir_path, goldens = compile_fn(
+    builder, mlir_path, input_output_goldens, intermediate_goldens = compile_fn(
         target=target,
         **compile_kwargs,
     )
@@ -107,7 +107,8 @@ def _compile_and_execute(
             device=device,
             check_atol=check_atol,
             check_rtol=check_rtol,
-            goldens=goldens,
+            input_output_goldens=input_output_goldens,
+            intermediate_goldens=intermediate_goldens,
             bypass_ops=builder._bypass_ops,
             enable_intermediate_verification=export_golden_report,
         )
@@ -127,7 +128,8 @@ def _compile_and_execute(
             disable_golden=disable_golden,
             check_atol=check_atol,
             check_rtol=check_rtol,
-            goldens=goldens,
+            input_output_goldens=input_output_goldens,
+            intermediate_goldens=intermediate_goldens,
         )
 
     return mlir_path
@@ -152,14 +154,18 @@ def _save_golden_report(builder, golden_report, report_path):
         json.dump(report, f, indent=2)
 
 
-def _compile(root_func: Callable, builder: Builder, mesh_name: str = "mesh"):
+def _compile(root_func: Callable, builder: Builder):
     new_module = Module.create()
+    builder._root_module_insertion_point = new_module.body
+    builder._current_module_insertion_point = new_module.body
 
     if isinstance(builder, StableHLOBuilder):
         new_module.body.append(builder._get_mesh())
 
     with InsertionPoint(new_module.body):
         root_func(builder)
+
+    print(builder._func_ops_generated)
 
     return new_module
 
@@ -177,7 +183,6 @@ def build_module(
     output_root: str = ".",
 ) -> Tuple[Module, Union[TTIRBuilder, StableHLOBuilder, TTNNBuilder, D2MBuilder]]:
     ctx = Context()
-    current_builder = ContextVar("current_builder")
 
     try:
         fname = inspect.getfile(mod)
@@ -198,7 +203,7 @@ def build_module(
     mlir_suffix = "_" + builder_type + ".mlir"
 
     with ctx, loc:
-        new_module = _compile(mod, builder, mesh_name)
+        new_module = _compile(mod, builder)
 
         print(f"`{mod.__name__}` successfully transformed into a MLIR module.")
         base = mod.__name__ if base is None else base
@@ -1102,7 +1107,8 @@ def compile_stablehlo_to_flatbuffer(
     except Exception as e:
         raise TTBuilderCompileException(e)
 
-    goldens = dict(builder.golden_map)
+    # We need to generate golden dictionary before pipeline run because pipeline run modifies the graph in place.
+    input_output_goldens, intermediate_goldens = builder.golden_map
 
     stablehlo_pipeline(module, " ".join(shlo_pipeline_options))
     print(f"`{fn.__name__}` successfully ran stablehlo-pipeline.")
@@ -1143,7 +1149,8 @@ def compile_stablehlo_to_flatbuffer(
         custom_pipeline=custom_pipeline,
         pipeline_options=ttir_pipeline_options,
         print_ir=print_ir,
-        goldens=goldens,
+        input_output_goldens=input_output_goldens,
+        intermediate_goldens=intermediate_goldens,
     )
 
 
@@ -1161,7 +1168,10 @@ def compile_ttir_module_to_flatbuffer(
     custom_pipeline: Optional[Union[Callable, str]] = None,
     pipeline_options: List[str] = None,
     print_ir: Union[bool, str] = False,
-    goldens: Dict[Operand, GoldenMapTensor] = None,
+    input_output_goldens: Optional[
+        Dict[int, Dict[str, Dict[int, GoldenMapTensor]]]
+    ] = None,
+    intermediate_goldens: Optional[Dict[str, Dict[int, GoldenMapTensor]]] = None,
 ):
     """
     Compiles a TTIR MLIR module to flatbuffer format.
@@ -1297,11 +1307,8 @@ def compile_ttir_module_to_flatbuffer(
     output_file_fbb = ".".join([output_file_mlir, target_extension])
 
     # We need to generate golden dictionary before pipeline run because pipeline run modifies the graph in place.
-    goldens = dict(builder.golden_map) if goldens is None else goldens
-    golden_tensors: Dict[str, Dict[int, GoldenTensor]] = {}
-
-    for loc, golden in goldens.items():
-        golden_tensors[loc] = builder._generate_golden_device_tensor(loc, golden)
+    if input_output_goldens is None or intermediate_goldens is None:
+        input_output_goldens, intermediate_goldens = builder.golden_map
 
     # Compile TTIR MLIR -> TT{Metal,NN} MLIR
     try:
@@ -1322,18 +1329,18 @@ def compile_ttir_module_to_flatbuffer(
 
     # Compile TT{Metal,NN} MLIR -> flatbuffer
     try:
-        to_target(module, output_file_fbb, golden_tensors, [])
+        to_target(module, output_file_fbb, {}, [])
     except Exception as e:
         raise TTBuilderCompileException(e)
 
     print(f"{target} flatbuffer created successfully at: {output_file_fbb}")
 
-    return output_file_mlir, goldens
+    return output_file_mlir, input_output_goldens, intermediate_goldens
 
 
 def load_mlir_file(
     mlir_text: str,
-    golden_inputs: List[torch.tensor] = None,
+    golden_inputs: Dict[str, List[torch.tensor]] = None,
     target: Literal["ttir", "ttnn", "d2m", "stablehlo"] = "ttir",
 ) -> (Module, Builder):
     ctx = Context()
@@ -1421,6 +1428,11 @@ def experimental_build_stablehlo_module(
 
         # Wrap everything in a mlir module.
         module = Module.create()
+        stablehlo_builder._root_module_insertion_point = module.body
+        stablehlo_builder._current_module_insertion_point = module.body
+
+        ordered_inputs = []
+        ordered_outputs = []
 
         with InsertionPoint(module.body):
             # Wrap everything in a mlir function.
@@ -1432,7 +1444,7 @@ def experimental_build_stablehlo_module(
                         operand, dtype
                     )
                 stablehlo_builder._set_goldens(input_goldens)
-                stablehlo_builder._set_input_ordering(inputs)
+                ordered_inputs.extend(inputs)
 
                 result = fn(*inputs, stablehlo_builder)
 
@@ -1441,10 +1453,16 @@ def experimental_build_stablehlo_module(
                 for op in outputs:
                     output_goldens[op] = stablehlo_builder._get_golden_tensor(op)
                 stablehlo_builder._set_goldens(output_goldens)
-                stablehlo_builder._set_output_ordering(outputs)
+                ordered_outputs.extend(outputs)
 
                 # Convert OpView objects to MLIR Values for multi-return support
                 return process_multi_return_result(result)
+
+            new_func_op = decorated_func.func_op
+            stablehlo_builder._func_ops_generated[new_func_op] = [
+                ordered_inputs,
+                ordered_outputs,
+            ]
 
             # Create named meshes and add them to the module
             named_mesh_list = []

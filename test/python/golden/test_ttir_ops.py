@@ -3376,7 +3376,14 @@ def test_multiple_function(target, request, device):
             sigmoid0 = builder.sigmoid(in0)
             return sigmoid0
 
-    new_module, builder = build_module(my_module, "ttir")
+    compile_and_execute_ttir(
+        my_module,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        device=device,
+        target=target,
+    )
 
 
 @pytest.mark.parametrize("target", ["ttnn"])
@@ -3396,4 +3403,42 @@ def test_device_cpu_module(target, request, device):
                 sigmoid0 = builder.sigmoid(in0)
                 return sigmoid0
 
-    new_module, builder = build_module(my_module, "ttir")
+    compile_and_execute_ttir(
+        my_module,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        device=device,
+        target=target,
+    )
+
+
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_nested_function_calls(target, request, device):
+    def my_module(builder: TTIRBuilder):
+        @builder.device_module
+        def my_device_module(builder: TTIRBuilder):
+            @builder.func([(32, 32)], [torch.float32])
+            def my_modela(in0: Operand, builder: TTIRBuilder):
+                def nested_func(in0: Operand, builder: TTIRBuilder):
+                    relu0 = builder.relu(in0)
+                    return relu0
+
+                sigmoid0 = builder.sigmoid(in0)
+                ttir_builder0 = TTIRBuilder(builder.context, builder.location)
+                nested_func0 = builder.call(nested_func, [sigmoid0], ttir_builder0)
+                return nested_func0
+
+            @builder.func([(32, 32)], [torch.float32])
+            def my_modelb(in0: Operand, builder: TTIRBuilder):
+                sigmoid0 = builder.sigmoid(in0)
+                return sigmoid0
+
+    compile_and_execute_ttir(
+        my_module,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        device=device,
+        target=target,
+    )
