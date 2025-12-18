@@ -14,15 +14,12 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
-#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/Pass/Pass.h"
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/Support/Debug.h"
 
 namespace mlir::tt::d2m {
 
@@ -636,19 +633,18 @@ static void updateEmptyOps(ArrayRef<EmptyUpdateInfo> emptyOpsToUpdate,
   }
 }
 
-// Phase 4: Recreate the d2m.generic with updated operands.
-// After updating all ToLayout and StreamLayout ops, the generic's operands
-// now have new types with optimized grids. We must recreate the generic to
-// reflect these type changes, including updating the region body and any
-// nested linalg.generic result types.
-static void
-recreateGenericOp(d2m::GenericOp genericOp,
-                  ArrayRef<llvm::SmallVector<int64_t>> optimalOperandGrids) {
+// This function normalizes the operand grids for a generic operation by
+// ensuring that the grids are consistent across all operands that share the
+// same loop dimension. We also need to make sure that the grids respect any
+// constraints implied by the outputs' grids. If multiple operands participate
+// in the same loop dimension, the corresponding grid extents must agree.
+static llvm::SmallVector<llvm::SmallVector<int64_t>>
+normalizeOperandGridsForGeneric(
+    d2m::GenericOp genericOp,
+    ArrayRef<llvm::SmallVector<int64_t>> optimalOperandGrids) {
   if (optimalOperandGrids.empty()) {
-    return;
+    return {};
   }
-
-  OpBuilder builder(genericOp);
 
   TT_assert(optimalOperandGrids.size() == genericOp.getNumOperands());
 
@@ -657,7 +653,7 @@ recreateGenericOp(d2m::GenericOp genericOp,
   // dimension. If their independently chosen optimal grids differ along that
   // dimension, promote the grid factor for that *dimension only* to the
   // maximum across all inputs that share it.
-  llvm::SmallVector<llvm::SmallVector<int64_t>> adjustedOperandGrids(
+  llvm::SmallVector<llvm::SmallVector<int64_t>> normalizedOperandGrids(
       optimalOperandGrids.begin(), optimalOperandGrids.end());
 
   unsigned numInputs = genericOp.getNumDpsInputs();
@@ -692,22 +688,20 @@ recreateGenericOp(d2m::GenericOp genericOp,
 
     int64_t maxFactor = 0;
     TT_assertv(
-        entries.size() <= adjustedOperandGrids.size(),
+        entries.size() <= normalizedOperandGrids.size(),
         "adjusted operand grids size does not match dim-operand mapping size");
     for (auto [operandIndex, operandDimIdx] : entries) {
-      TT_assertv(operandDimIdx < adjustedOperandGrids[operandIndex].size(),
+      TT_assertv(operandDimIdx < normalizedOperandGrids[operandIndex].size(),
                  "operand dim index out of bounds on adjusted operand grids");
       maxFactor = std::max(maxFactor,
-                           adjustedOperandGrids[operandIndex][operandDimIdx]);
+                           normalizedOperandGrids[operandIndex][operandDimIdx]);
     }
     for (auto [operandIndex, operandDimIdx] : entries) {
-      TT_assertv(operandDimIdx < adjustedOperandGrids[operandIndex].size(),
+      TT_assertv(operandDimIdx < normalizedOperandGrids[operandIndex].size(),
                  "operand dim index out of bounds on adjusted operand grids");
-      adjustedOperandGrids[operandIndex][operandDimIdx] = maxFactor;
+      normalizedOperandGrids[operandIndex][operandDimIdx] = maxFactor;
     }
   }
-
-  llvm::SmallVector<Value> newOperands;
 
   // Compute grid dim constraints implied by the generic's outputs. These
   // constraints describe which loop dimensions must agree across operands.
@@ -721,31 +715,58 @@ recreateGenericOp(d2m::GenericOp genericOp,
           llvm::ArrayRef<AffineMap>(outputIndexingMap),
           llvm::ArrayRef<SmallVector<int64_t>>(outputShape));
 
-  for (auto [operandIndex, operand] :
-       llvm::enumerate(genericOp->getOpOperands())) {
-    llvm::SmallVector<int64_t> operandGrid =
-        llvm::to_vector(adjustedOperandGrids[operandIndex]);
+  // Ensure that input operand grid shapes respect any constraints implied by
+  // the outputs' grids. If multiple operands participate in the same loop
+  // dimension, the corresponding grid extents must agree.
+  if (outputConstraints) {
+    for (auto [operandIndex, operand] :
+         llvm::enumerate(genericOp->getOpOperands())) {
+      if (genericOp.isDpsInit(&operand)) {
+        continue;
+      }
 
-    // Ensure that operand grid shapes respect any constraints implied by the
-    // outputs' grids. If multiple operands participate in the same loop
-    // dimension, the corresponding grid extents must agree.
-    if (outputConstraints && !genericOp.isDpsInit(&operand)) {
       AffineMap indexingMap = genericOp.getIndexingMap(operandIndex);
       auto results = indexingMap.getResults();
-      if (results.size() == operandGrid.size()) {
-        for (auto [resultIdx, expr] : llvm::enumerate(results)) {
-          auto dimExpr = mlir::dyn_cast<AffineDimExpr>(expr);
-          if (!dimExpr) {
-            continue;
-          }
-          int64_t dimPos = dimExpr.getPosition();
-          int64_t constraint = (*outputConstraints)[dimPos];
-          if (constraint != 0) {
-            operandGrid[resultIdx] = constraint;
-          }
+      if (results.size() != normalizedOperandGrids[operandIndex].size()) {
+        continue;
+      }
+
+      for (auto [resultIdx, expr] : llvm::enumerate(results)) {
+        auto dimExpr = mlir::dyn_cast<AffineDimExpr>(expr);
+        if (!dimExpr) {
+          continue;
+        }
+        int64_t dimPos = dimExpr.getPosition();
+        int64_t constraint = (*outputConstraints)[dimPos];
+        if (constraint != 0) {
+          normalizedOperandGrids[operandIndex][resultIdx] = constraint;
         }
       }
     }
+  }
+
+  return normalizedOperandGrids;
+}
+
+// Phase 4: Recreate the d2m.generic with updated operands.
+// After updating all ToLayout and StreamLayout ops, the generic's operands
+// now have new types with optimized grids. We must recreate the generic to
+// reflect these type changes, including updating the region body and any
+// nested linalg.generic result types.
+static void
+recreateGenericOp(d2m::GenericOp genericOp,
+                  ArrayRef<llvm::SmallVector<int64_t>> optimalOperandGrids) {
+  if (optimalOperandGrids.empty()) {
+    return;
+  }
+
+  TT_assert(optimalOperandGrids.size() == genericOp.getNumOperands());
+
+  OpBuilder builder(genericOp);
+  llvm::SmallVector<Value> newOperands;
+
+  for (const auto &[optimalGrid, operand] :
+       llvm::zip(optimalOperandGrids, genericOp->getOpOperands())) {
 
     auto definingView = operand.get().getDefiningOp<d2m::ViewLayoutOp>();
     if (!definingView) {
@@ -768,7 +789,7 @@ recreateGenericOp(d2m::GenericOp genericOp,
 
     auto tensorType =
         mlir::cast<mlir::RankedTensorType>(operand.get().getType());
-    auto viewTensorType = utils::reblockTensor(tensorType, operandGrid);
+    auto viewTensorType = utils::reblockTensor(tensorType, optimalGrid);
     auto view = builder.create<d2m::ViewLayoutOp>(
         genericOp.getLoc(), viewTensorType, operand.get());
     newOperands.push_back(view.getResult());
@@ -1070,7 +1091,9 @@ static void assignGrids(d2m::GenericOp genericOp,
         insertTTNNDRAMStreams(genericOp, targetSquareGridShape);
   }
 
-  recreateGenericOp(genericOp, optimalOperandGrids);
+  llvm::SmallVector<llvm::SmallVector<int64_t>> normalizedOperandGrids =
+      normalizeOperandGridsForGeneric(genericOp, optimalOperandGrids);
+  recreateGenericOp(genericOp, normalizedOperandGrids);
 }
 
 // ----------------------------------------------------------------------------

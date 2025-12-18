@@ -142,8 +142,8 @@ public:
 
     McastArguments args;
     args.senderCoreIndex.reserve(grid.getShape().size());
-    args.mcastShape.reserve(grid.getShape().size());
     args.mcastCoreIndex.reserve(grid.getShape().size());
+    args.mcastShape.reserve(grid.getShape().size());
     for (auto [dim, iteratorType] : llvm::enumerate(mcastIterators)) {
       Value core = rewriter.create<CoreIndexOp>(
           loc, rewriter.getIndexType(), rewriter.getI64IntegerAttr(dim));
@@ -212,16 +212,12 @@ public:
     Value receiversReadySemaphore = createSemaphore(builder, loc, regions);
     Value senderFinishedSemaphore = createSemaphore(builder, loc, regions);
     assert(mcastArgs.senderCoreIndex.size() == mcastArgs.mcastShape.size());
-    assert(mcastArgs.conditions.size() == 1 ||
-           mcastArgs.conditions.size() == 2 &&
-               "Exactly one or two conditions supported");
-    // build compound condition using all conditions generically !!
-    Value compoundCondition;
-    if (mcastArgs.conditions.size() == 1) {
-      compoundCondition = mcastArgs.conditions[0];
-    } else {
+    assert(!mcastArgs.conditions.empty() && "Conditions should not be empty");
+    // Build a compound condition by AND-ing together all conditions.
+    Value compoundCondition = mcastArgs.conditions[0];
+    for (size_t i = 1; i < mcastArgs.conditions.size(); ++i) {
       compoundCondition = builder.create<arith::AndIOp>(
-          loc, mcastArgs.conditions[0], mcastArgs.conditions[1]);
+          loc, compoundCondition, mcastArgs.conditions[i]);
     }
     builder.create<scf::IfOp>(
         loc, compoundCondition,

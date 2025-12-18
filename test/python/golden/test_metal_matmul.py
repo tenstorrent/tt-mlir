@@ -224,11 +224,6 @@ def test_matmul_1d_shapes(
     request,
     device,
 ):
-    def matmul(
-        in0: Operand, in1: Operand, builder: TTIRBuilder, unit_attrs: List[str] = None
-    ):
-        return builder.matmul(in0, in1, unit_attrs=unit_attrs)
-
     lhs = (
         shape[0],
         shape[1],
@@ -246,7 +241,7 @@ def test_matmul_1d_shapes(
             builder: TTIRBuilder,
             unit_attrs: List[str] = None,
         ):
-            return matmul(in0, in1, builder, unit_attrs=unit_attrs)
+            return builder.matmul(in0, in1, unit_attrs=unit_attrs)
 
     options = [
         f"matmul-interchange=2,0,1",
@@ -259,7 +254,7 @@ def test_matmul_1d_shapes(
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         test_base=request.node.name,
         module_dump=True,
-        print_ir=False,
+        print_ir=True,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         skip_exec=getattr(request.node, "skip_exec", False),

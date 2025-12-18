@@ -806,12 +806,12 @@ def D2M_DMAOp : D2M_GenericRegionDatamovementOp<"dma",
       %tx = d2m.dma %src, %dst : (memref<1x1x6x8x!ttcore.tile<32x32, f32>, #ttcore.shard<...>, #dram>, memref<6x8x!ttcore.tile<32x32, f32>, #l1_>) -> !d2m.mem_tx
       ```
 
-      - Local to mcast, e.g. starting at offset core[1, 2] with mcast shape [4, 4] (src and dst have the same SSA value, implies NoC doesn't loopback)
+      - Local to mcast, e.g. starting at offset core[1, 2] with mcast shape [4, 4] (isLoopback is false)
       ```mlir
       %tx = d2m.dma %foo, %foo, core[%c1, %c2] mcast[%c4, %c4] : (memref<6x8x!ttcore.tile<32x32, f32>, #l1_>, memref<6x8x!ttcore.tile<32x32, f32>, #l1_>) -> !d2m.mem_tx
       ```
 
-      - Local to mcast w/ loopback (same as above but src and dst are different SSA values)
+      - Local to mcast w/ loopback (isLoopback is true)
       ```mlir
       %tx = d2m.dma %src, %dst, core[%c1, %c2] mcast[%c4, %c4] : (memref<6x8x!ttcore.tile<32x32, f32>, #l1_>, memref<6x8x!ttcore.tile<32x32, f32>, #l1_>) -> !d2m.mem_tx
       ```
@@ -909,7 +909,7 @@ def D2M_DMAOp : D2M_GenericRegionDatamovementOp<"dma",
       }]>,
     ];
 
-    let assemblyFormat = [{ $src (`<` $srcAffineMap^ `>`)? (`[` $srcIndices^ `]`)? `,` $dst (`<` $dstAffineMap^ `>`)? (`[` $dstIndices^ `]`)? (`core` `[` $mcastStartIndex^ `]` `mcast` `[` $mcastShape `]`)? (`,` $isLoopback^)? (`,` `<` $optNumElems^ `>`)? attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
+    let assemblyFormat = [{ $src (`<` $srcAffineMap^ `>`)? (`[` $srcIndices^ `]`)? `,` $dst (`<` $dstAffineMap^ `>`)? (`[` $dstIndices^ `]`)? (`core` `[` $mcastStartIndex^ `]` `mcast` `[` $mcastShape `]`)? (`,` `<` $optNumElems^ `>`)? attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
 
     let hasVerifier = 1;
 
@@ -1109,7 +1109,7 @@ class D2M_SemaphoreUpdateOp<string mnemonic> : D2M_GenericRegionOp<mnemonic,
       d2m.semaphore_inc %sem0, %c1 core[%c2, %c2]
       ```
 
-      - Update a remote mcast region of cores' semaphore value
+      - Update a remote mcast region of cores' semaphore value (loopback variant is determined by isLoopback)
       ```mlir
       d2m.semaphore_set %sem0, %c1 core[%c2, %c2] mcast[%c4, %c4]
       ```

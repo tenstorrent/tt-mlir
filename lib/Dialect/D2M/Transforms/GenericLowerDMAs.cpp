@@ -288,7 +288,8 @@ public:
               dma.isDstRemote() ? remoteIndices : llvm::to_vector(iters);
           auto dmaOp = thenBuilder.create<d2m::DMAOp>(
               dma.getLoc(), dma.getSrc(), srcIndices, dma.getDst(), dstIndices,
-              dma.getMcastStartIndex(), dma.getMcastShape(), coalescingFactor);
+              dma.getMcastStartIndex(), dma.getMcastShape(), coalescingFactor,
+              dma.getIsLoopbackAttr());
           thenBuilder.create<scf::YieldOp>(dma.getLoc(), dmaOp->getResult(0));
 
           auto elseBuilder = ifExpr.getElseBodyBuilder();
@@ -381,7 +382,8 @@ public:
           dma.isDstRemote() ? streamIndices : SmallVector<Value>();
       newDma = rewriter.create<d2m::DMAOp>(
           dma.getLoc(), dma.getSrc(), srcIndices, dma.getDst(), dstIndices,
-          dma.getMcastStartIndex(), dma.getMcastShape(), coalescingFactor);
+          dma.getMcastStartIndex(), dma.getMcastShape(), coalescingFactor,
+          dma.getIsLoopbackAttr());
     } else {
       // The memory access has some stride/gaps so multiple DMA operations are
       // needed.
@@ -426,7 +428,7 @@ public:
       rewriter.replaceOpWithNewOp<d2m::DMAOp>(
           dma, dma.getSrc(), dma.getSrcIndices(), dma.getDst(),
           dma.getDstIndices(), dma.getMcastStartIndex(), dma.getMcastShape(),
-          /*numElems=*/1);
+          /*numElems=*/1, dma.getIsLoopbackAttr());
       return success();
     }
 
@@ -445,7 +447,8 @@ public:
               llvm::to_vector(llvm::concat<Value>(dma.getDstIndices(), iters));
           auto dmaOp = builder.create<d2m::DMAOp>(
               dma.getLoc(), dma.getSrc(), srcIndices, dma.getDst(), dstIndices,
-              dma.getMcastStartIndex(), dma.getMcastShape(), /*numElems=*/1);
+              dma.getMcastStartIndex(), dma.getMcastShape(), /*numElems=*/1,
+              dma.getIsLoopbackAttr());
           return SmallVector<Value>{dmaOp->getResult(0)};
         });
 

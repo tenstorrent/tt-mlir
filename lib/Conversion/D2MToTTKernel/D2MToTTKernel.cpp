@@ -1047,8 +1047,6 @@ static Value buildNocAddress(OpBuilder &rewriter, Location loc, Value cb,
     // Translate the src coordinates to virtual coordinates.
     auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
         rewriter, loc, chipDesc, ValueRange{gridY, gridX});
-    rewriter.create<ttkernel::DPrintOp>(loc, "virtX: {}, virtY: {}\\n", virtX,
-                                        virtY);
 
     noc_addr_op =
         rewriter.create<ttkernel::GetNocAddrOp>(loc, virtX, virtY, addr);
@@ -1191,13 +1189,10 @@ public:
                 op.getLoc(), virtX, virtY, mcastEndX, mcastEndY, dstL1Start,
                 nullptr);
         if (op.getIsLoopback()) {
-          // If src and dst refer to the same memref, we do not loopback mcast
-          // Dests are one less because the sender core is not included
           rewriter.create<ttkernel::NocAsyncWriteMulticastLoopbackSrcOp>(
               op.getLoc(), srcL1Start, mcastAddr, transferSize, numDests,
               nullptr, nullptr, nullptr);
         } else {
-          // If src != dst, we loopback mcast
           rewriter.create<ttkernel::NocAsyncWriteMulticastOp>(
               op.getLoc(), srcL1Start, mcastAddr, transferSize, numDests,
               nullptr, nullptr, nullptr);
@@ -1214,8 +1209,6 @@ public:
         // Convert local coordinates to virtual coordinates
         auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
             rewriter, op.getLoc(), chipDesc, ValueRange{myY, myX});
-        rewriter.create<ttkernel::DPrintOp>(
-            op.getLoc(), "virtX: {}, virtY: {}\\n", virtX, virtY);
         auto nocAddr = rewriter.create<ttkernel::GetNocAddrOp>(
             op.getLoc(), virtX, virtY, dstL1Start);
         rewriter.create<ttkernel::NocAsyncWriteOp>(op.getLoc(), srcL1Start,
@@ -1513,8 +1506,6 @@ public:
              "d2m.semaphore_set to single remote core is illegal.");
       auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
           rewriter, op.getLoc(), chipDesc, op.getDstCoreIndex());
-      rewriter.create<ttkernel::DPrintOp>(
-          op.getLoc(), "virtX: {}, virtY: {}\\n", virtX, virtY);
       auto nocAddr = rewriter.create<ttkernel::GetNocAddrOp>(
           op.getLoc(), virtX, virtY, semaphoreAddr);
       rewriter.replaceOpWithNewOp<ttkernel::NocSemaphoreIncOp>(op, nocAddr,
@@ -1546,8 +1537,9 @@ public:
       rewriter.create<ttkernel::NocSemaphoreSetOp>(op.getLoc(), semaphorePtr,
                                                    value);
       if (op.getIsLoopback()) {
-        rewriter.replaceOpWithNewOp<ttkernel::NocSemaphoreSetMulticastLoopbackOp>(
-            op, semaphoreAddr, mcastAddr, numDests, nullptr, nullptr);
+        rewriter
+            .replaceOpWithNewOp<ttkernel::NocSemaphoreSetMulticastLoopbackOp>(
+                op, semaphoreAddr, mcastAddr, numDests, nullptr, nullptr);
       } else {
         rewriter.replaceOpWithNewOp<ttkernel::NocSemaphoreSetMulticastOp>(
             op, semaphoreAddr, mcastAddr, numDests, nullptr, nullptr);
