@@ -3,22 +3,221 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Analysis/LegalOpConfigAnalysis.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
+#include "ttmlir/Dialect/TTCore/Utils/CoreRangeSet.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfigAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Support/Logger.h"
 
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/ErrorHandling.h"
 
+#include <algorithm>
 #include <vector>
 
 namespace mlir::tt::ttnn {
 
+static inline int64_t divUp(int64_t a, int64_t b) { return (a + b - 1) / b; }
+
+// Compute the bounding box grid dimensions from a layout's shard grid.
+static std::pair<int64_t, int64_t>
+getPhysicalGridDimensions(TTNNLayoutAttr layout) {
+  ttcore::GridAttr shardGrid = layout.getGrid();
+  AffineMap mapping = shardGrid.getMapping();
+
+  auto coreRanges =
+      ttcore::utils::toCoreRangeSet(shardGrid.getShape(), mapping);
+
+  int64_t maxX = 0;
+  int64_t maxY = 0;
+  for (const auto &[loc, size] : coreRanges) {
+    maxX = std::max(maxX, static_cast<int64_t>(loc[0] + size[0]));
+    maxY = std::max(maxY, static_cast<int64_t>(loc[1] + size[1]));
+  }
+
+  return {maxX, maxY};
+}
+
+// Convert activation string to UnaryWithParamAttr.
+// Returns nullptr if activation is not set or not recognized.
+static UnaryWithParamAttr
+getActivationAttr(MLIRContext *ctx, std::optional<StringRef> activation) {
+  if (!activation.has_value() || activation->empty()) {
+    return nullptr;
+  }
+  auto unaryOpType = symbolizeUnaryOpType(*activation);
+  if (!unaryOpType.has_value()) {
+    return nullptr;
+  }
+  return UnaryWithParamAttr::get(ctx, *unaryOpType,
+                                 llvm::ArrayRef<FloatAttr>{});
+}
+
+// Generate MatmulMultiCoreReuseMultiCast1DProgramConfig for width/height
+// sharded output.
+static mlir::Attribute
+generateMatmul1DProgramConfig(MLIRContext *ctx, int64_t Mt, int64_t Nt,
+                              int64_t Kt, TTNNLayoutAttr outputLayout,
+                              TensorMemoryLayout outputMemLayout,
+                              UnaryWithParamAttr fusedActivation) {
+  auto [gridX, gridY] = getPhysicalGridDimensions(outputLayout);
+  int64_t numCores = gridX * gridY;
+
+  bool mcastIn0 = (outputMemLayout == TensorMemoryLayout::WidthSharded);
+  int64_t perCoreM, perCoreN;
+
+  if (mcastIn0) {
+    perCoreM = Mt;
+    perCoreN = divUp(Nt, numCores);
+  } else {
+    perCoreM = divUp(Mt, numCores);
+    perCoreN = Nt;
+  }
+
+  constexpr int64_t kLargeNtThreshold = 128;
+  int64_t in0BlockW;
+  if (!mcastIn0) {
+    in0BlockW = Kt;
+  } else {
+    if (Nt > kLargeNtThreshold) {
+      in0BlockW = (Kt % 2 == 0) ? 2 : 1;
+    } else {
+      if (Kt % 8 == 0) {
+        in0BlockW = 8;
+      } else if (Kt % 4 == 0) {
+        in0BlockW = 4;
+      } else if (Kt % 2 == 0) {
+        in0BlockW = 2;
+      } else {
+        in0BlockW = 1;
+      }
+    }
+  }
+
+  int64_t outBlockH = perCoreM;
+  int64_t outBlockW = perCoreN;
+  int64_t outSubblockH = 1;
+  int64_t outSubblockW = std::min(outBlockW, static_cast<int64_t>(8));
+
+  auto gridAttr = CoreCoordAttr::get(ctx, gridX, gridY);
+  auto hopCoresAttr = CoreRangeSetAttr::get(ctx, {});
+
+  return MatmulMultiCoreReuseMultiCast1DProgramConfigAttr::get(
+      ctx, gridAttr, static_cast<uint64_t>(in0BlockW),
+      static_cast<uint64_t>(outSubblockH), static_cast<uint64_t>(outSubblockW),
+      static_cast<uint64_t>(outBlockH), static_cast<uint64_t>(outBlockW),
+      static_cast<uint64_t>(perCoreM), static_cast<uint64_t>(perCoreN),
+      /*fuse_batch=*/true, /*fusedActivation=*/fusedActivation, mcastIn0,
+      /*gather_in0=*/false, hopCoresAttr, /*num_global_cb_receivers=*/0,
+      /*untilize_out=*/false);
+}
+
+// Generate MatmulMultiCoreReuseMultiCastProgramConfig for block sharded output.
+static mlir::Attribute
+generateMatmul2DProgramConfig(MLIRContext *ctx, int64_t Mt, int64_t Nt,
+                              int64_t Kt, TTNNLayoutAttr outputLayout,
+                              UnaryWithParamAttr fusedActivation) {
+  auto [gridX, gridY] = getPhysicalGridDimensions(outputLayout);
+
+  int64_t perCoreM = divUp(Mt, gridY);
+  int64_t perCoreN = divUp(Nt, gridX);
+
+  int64_t in0BlockW = (Kt % 2 == 0) ? 2 : 1;
+  int64_t outSubblockH = 1;
+  int64_t outSubblockW = std::min(perCoreN, static_cast<int64_t>(8));
+  int64_t outBlockH = perCoreM;
+  int64_t outBlockW = perCoreN;
+
+  auto gridAttr = CoreCoordAttr::get(ctx, gridX, gridY);
+
+  return MatmulMultiCoreReuseMultiCastProgramConfigAttr::get(
+      ctx, gridAttr, static_cast<uint64_t>(in0BlockW),
+      static_cast<uint64_t>(outSubblockH), static_cast<uint64_t>(outSubblockW),
+      static_cast<uint64_t>(outBlockH), static_cast<uint64_t>(outBlockW),
+      static_cast<uint64_t>(perCoreM), static_cast<uint64_t>(perCoreN),
+      /*transpose_mcast=*/false, /*fusedActivation=*/fusedActivation,
+      /*fuse_batch=*/true);
+}
+
+// Generate matmul program config for an op with given output layout.
+// Returns nullopt if output is not sharded.
+[[maybe_unused]] static std::optional<mlir::Attribute>
+generateMatmulProgramConfigForOp(Operation *op, TTNNLayoutAttr outputLayout) {
+  if (!outputLayout || !outputLayout.hasShardedL1TensorMemoryLayout()) {
+    return std::nullopt;
+  }
+
+  TensorMemoryLayout outputMemLayout = outputLayout.getMemLayout().getValue();
+  if (outputMemLayout != TensorMemoryLayout::WidthSharded &&
+      outputMemLayout != TensorMemoryLayout::HeightSharded &&
+      outputMemLayout != TensorMemoryLayout::BlockSharded) {
+    return std::nullopt;
+  }
+
+  auto resultType =
+      mlir::dyn_cast<RankedTensorType>(op->getResult(0).getType());
+  if (!resultType) {
+    return std::nullopt;
+  }
+  llvm::ArrayRef<int64_t> outShape = resultType.getShape();
+  if (outShape.size() < 2) {
+    return std::nullopt;
+  }
+
+  // Get input A shape and activation from the op.
+  auto [inputA, activation] =
+      llvm::TypeSwitch<Operation *, std::pair<Value, std::optional<StringRef>>>(
+          op)
+          .Case<ttnn::MatmulOp, ttnn::LinearOp>([](auto matmulOp) {
+            std::optional<StringRef> act;
+            if (auto actAttr = matmulOp.getActivationAttr()) {
+              act = actAttr.getValue();
+            }
+            return std::make_pair(matmulOp.getA(), act);
+          })
+          .Default([](Operation *) {
+            return std::make_pair(nullptr, std::optional<StringRef>{});
+          });
+
+  if (!inputA) {
+    return std::nullopt;
+  }
+
+  auto inputAType = mlir::dyn_cast<RankedTensorType>(inputA.getType());
+  if (!inputAType) {
+    return std::nullopt;
+  }
+  llvm::ArrayRef<int64_t> aShape = inputAType.getShape();
+  if (aShape.size() < 2) {
+    return std::nullopt;
+  }
+
+  int64_t M = outShape[outShape.size() - 2];
+  int64_t N = outShape[outShape.size() - 1];
+  int64_t K = aShape[aShape.size() - 1];
+  int64_t Mt = divUp(M, TILE_HEIGHT);
+  int64_t Nt = divUp(N, TILE_WIDTH);
+  int64_t Kt = divUp(K, TILE_WIDTH);
+
+  MLIRContext *ctx = op->getContext();
+  UnaryWithParamAttr fusedActivation = getActivationAttr(ctx, activation);
+
+  if (outputMemLayout == TensorMemoryLayout::BlockSharded) {
+    return generateMatmul2DProgramConfig(ctx, Mt, Nt, Kt, outputLayout,
+                                         fusedActivation);
+  }
+
+  return generateMatmul1DProgramConfig(ctx, Mt, Nt, Kt, outputLayout,
+                                       outputMemLayout, fusedActivation);
+}
+
 static bool isOpEnabledForAnalysis(Operation *op) {
   // Enable only for specific ops.
-  if (llvm::isa<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp>(op)) {
+  if (llvm::isa<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp, ttnn::MatmulOp,
+                ttnn::LinearOp>(op)) {
     return true;
   }
 
@@ -156,6 +355,10 @@ bool LegalOpConfigAnalysis::applyOverrides() {
         // configs.
         return conv2dConfigOverrides.fullConfigOverride();
       })
+      .Case<ttnn::MatmulOp, ttnn::LinearOp>([](auto) {
+        // Matmul/Linear ops don't use conv2d config overrides.
+        return false;
+      })
       .Default([](Operation *op) {
         llvm::llvm_unreachable_internal("Unsupported op type");
         return false;
@@ -236,6 +439,16 @@ void LegalOpConfigAnalysis::fillOpSpecificAttrs() {
             ttmlir::LogComponent::Optimizer,
             "Filled op specific attrs for conv2d op {}, ending with {} configs",
             convOp, analysisResult.size());
+      })
+      .Case<ttnn::MatmulOp, ttnn::LinearOp>([&](auto matmulOp) {
+        // Generate matmul program config for each output layout.
+        for (OpConfig &opConfig : analysisResult) {
+          auto programConfig =
+              generateMatmulProgramConfigForOp(op, opConfig.outputLayout);
+          if (programConfig.has_value()) {
+            opConfig.opSpecificAttrs = MatmulAttrs{programConfig.value()};
+          }
+        }
       })
       .Default([](Operation *op) -> void {
         op->emitError("Unsupported op type");

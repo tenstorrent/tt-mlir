@@ -1487,6 +1487,12 @@ def TTNN_LinearOp : TTNN_Op<"linear"> {
                          DefaultValuedAttr<BoolAttr, "false">:$transpose_a,
                          DefaultValuedAttr<BoolAttr, "false">:$transpose_b,
                          OptionalAttr<StrAttr>:$activation,
+                         OptionalAttr<AnyAttrOf<[
+                            TTNN_MatmulMultiCoreReuseProgramConfigAttr,
+                            TTNN_MatmulMultiCoreReuseMultiCastProgramConfigAttr,
+                            TTNN_MatmulMultiCoreReuseMultiCast1DProgramConfigAttr,
+                            TTNN_MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr
+                         ]>>:$matmul_program_config,
                          OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
 
     let results = (outs AnyRankedTensor:$result);

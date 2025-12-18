@@ -553,7 +553,31 @@ public:
                       // resolved, set the deviceComputeKernelConfig here as
                       // well and merge with the Conv2dOp case above.
                     }
-                  });
+                  })
+              .Case<ttnn::MatmulOp>([&](ttnn::MatmulOp matmulOp) {
+                auto opAttributes = opConfigAnalysis.getResult().at(op);
+                if (std::holds_alternative<ttnn::MatmulAttrs>(
+                        opAttributes.opSpecificAttrs)) {
+                  ttnn::MatmulAttrs matmulAttrs =
+                      std::get<ttnn::MatmulAttrs>(opAttributes.opSpecificAttrs);
+                  if (matmulAttrs.matmulProgramConfig.has_value()) {
+                    matmulOp.setMatmulProgramConfigAttr(
+                        matmulAttrs.matmulProgramConfig.value());
+                  }
+                }
+              })
+              .Case<ttnn::LinearOp>([&](ttnn::LinearOp linearOp) {
+                auto opAttributes = opConfigAnalysis.getResult().at(op);
+                if (std::holds_alternative<ttnn::MatmulAttrs>(
+                        opAttributes.opSpecificAttrs)) {
+                  ttnn::MatmulAttrs matmulAttrs =
+                      std::get<ttnn::MatmulAttrs>(opAttributes.opSpecificAttrs);
+                  if (matmulAttrs.matmulProgramConfig.has_value()) {
+                    linearOp.setMatmulProgramConfigAttr(
+                        matmulAttrs.matmulProgramConfig.value());
+                  }
+                }
+              });
         }
       });
 
@@ -825,9 +849,14 @@ private:
           mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
 
       // Create a new tensor type with DRAM layout.
+      // Note: withBufferType sets grid to 1x1 but preserves the original shard
+      // shape. For DRAM interleaved, the memref shape should cover the full
+      // tensor. withShardShape takes scalar shape and converts to tiles.
       TTNNLayoutAttr dramLayout =
           layoutAttr.withBufferType(BufferType::DRAM)
               .withMemoryLayout(TensorMemoryLayout::Interleaved);
+      dramLayout =
+          dramLayout.withShardShape(llvm::SmallVector<int64_t>(tensorShape));
       RankedTensorType newTensorType = RankedTensorType::get(
           tensorShape, tensorType.getElementType(), dramLayout);
 

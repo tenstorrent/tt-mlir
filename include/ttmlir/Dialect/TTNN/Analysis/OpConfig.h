@@ -22,7 +22,8 @@ struct OpConfig {
   TTNNLayoutAttr outputLayout;
   // Holds attributes for the op. For most cases, a new type should be
   // added to the following std::variant.
-  using OpSpecificAttrs = std::variant<UninitializedAttrs, Conv2dAttrs>;
+  using OpSpecificAttrs =
+      std::variant<UninitializedAttrs, Conv2dAttrs, MatmulAttrs>;
   OpSpecificAttrs opSpecificAttrs;
 
   // Default Config Constructors.
@@ -136,6 +137,13 @@ struct DenseMapInfo<mlir::tt::ttnn::OpConfig::OpSpecificAttrs> {
 
             // Combine hashes using LLVM's method.
             return hash_combine(h1, h2);
+          } else if constexpr (std::is_same_v<T, mlir::tt::ttnn::MatmulAttrs>) {
+            if (attr.matmulProgramConfig.has_value() &&
+                attr.matmulProgramConfig.value()) {
+              return static_cast<unsigned>(
+                  mlir::hash_value(attr.matmulProgramConfig.value()));
+            }
+            return 0;
           }
           // Default case for unknown types.
           return 1;
