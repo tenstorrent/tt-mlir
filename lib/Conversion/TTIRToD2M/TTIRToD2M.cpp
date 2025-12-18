@@ -1093,9 +1093,9 @@ public:
 
     // Create the result layout by composing with input layout.
     auto resultLayout = ttcore::MetalLayoutAttr::get(
-        ctx, permuted.logicalShape, permuted.dimAlignments,
-        inputLayout.getCollapsedIntervals(), inputLayout.getOobVal(),
+        ctx, permuted.logicalShape, inputLayout.getOobVal(),
         inputLayout.getMemorySpace(), inputLayout.getMemoryLayout(),
+        inputLayout.getCollapsedIntervals(), permuted.dimAlignments,
         permuted.transposeMap);
 
     auto viewType = mlir::RankedTensorType::get(
