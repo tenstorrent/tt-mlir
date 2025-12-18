@@ -149,7 +149,8 @@ public:
       builder->create<emitc::IncludeOp>(
           loc, "compute_kernel_api/eltwise_unary/where.h",
           /*isStandard=*/false);
-      // Helper for float-to-uint32 bit reinterpretation (used by scalar tile ops).
+      // Helper for float-to-uint32 bit reinterpretation (used by scalar tile
+      // ops).
       builder->create<emitc::VerbatimOp>(
           loc, "inline uint32_t float_to_bits(float f) { "
                "uint32_t r; __builtin_memcpy(&r, &f, sizeof(r)); return r; }");
