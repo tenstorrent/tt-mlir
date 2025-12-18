@@ -22,6 +22,16 @@ namespace mlir::tt::ttnn {
 
 static inline int64_t divUp(int64_t a, int64_t b) { return (a + b - 1) / b; }
 
+// Find the largest divisor of 'value' that is <= 'maxDivisor'.
+static inline int64_t largestDivisorUpTo(int64_t value, int64_t maxDivisor) {
+  for (int64_t d = std::min(value, maxDivisor); d >= 1; --d) {
+    if (value % d == 0) {
+      return d;
+    }
+  }
+  return 1;
+}
+
 // Compute the bounding box grid dimensions from a layout's shard grid.
 static std::pair<int64_t, int64_t>
 getPhysicalGridDimensions(TTNNLayoutAttr layout) {
@@ -56,6 +66,41 @@ getActivationAttr(MLIRContext *ctx, std::optional<StringRef> activation) {
                                  llvm::ArrayRef<FloatAttr>{});
 }
 
+// Matmul Program Config Constraints (from matmul_op.cpp):
+// --------------------------------------------------------
+// Non-zero constraints:
+//   - in0_block_w != 0
+//   - out_subblock_h != 0
+//   - out_subblock_w != 0
+//   - out_block_h != 0
+//   - out_block_w != 0
+//   - per_core_M != 0
+//   - per_core_N != 0
+//
+// Divisibility constraints:
+//   - Kt % in0_block_w == 0
+//   - per_core_M % out_subblock_h == 0
+//   - per_core_N % out_subblock_w == 0
+//   - per_core_M % out_block_h == 0
+//   - per_core_N % out_block_w == 0
+//   - out_block_h % out_subblock_h == 0
+//   - out_block_w % out_subblock_w == 0
+//
+// Register constraints:
+//   - out_subblock_w * out_subblock_h <= available_reg_count (typically 8)
+//
+// L1 memory constraints:
+//   - Circular buffers for input/output tiles must fit in L1 memory.
+//   - out_block_h * out_block_w determines output CB size per core.
+//   - in0_block_w * out_block_h determines in0 CB size per core.
+//
+// TODO(rpavlovicTT): Currently we set out_block_h = per_core_M and out_block_w
+// = per_core_N, which may exceed L1 capacity for large tensors. A follow-up
+// improvement is to generate multiple configs with different out_block_h/w
+// values (divisors of per_core_M/N) and use OpModel validation to find a config
+// that fits in L1. This would enable handling larger matmuls by trading off
+// reuse for memory.
+//
 // Generate MatmulMultiCoreReuseMultiCast1DProgramConfig for width/height
 // sharded output.
 static mlir::Attribute
@@ -100,7 +145,9 @@ generateMatmul1DProgramConfig(MLIRContext *ctx, int64_t Mt, int64_t Nt,
   int64_t outBlockH = perCoreM;
   int64_t outBlockW = perCoreN;
   int64_t outSubblockH = 1;
-  int64_t outSubblockW = std::min(outBlockW, static_cast<int64_t>(8));
+  // out_subblock_w must divide out_block_w (== perCoreN) evenly.
+  // See matmul_op.cpp constraints: out_block_w % out_subblock_w == 0.
+  int64_t outSubblockW = largestDivisorUpTo(outBlockW, 8);
 
   auto gridAttr = CoreCoordAttr::get(ctx, gridX, gridY);
   auto hopCoresAttr = CoreRangeSetAttr::get(ctx, {});
@@ -127,7 +174,10 @@ generateMatmul2DProgramConfig(MLIRContext *ctx, int64_t Mt, int64_t Nt,
 
   int64_t in0BlockW = (Kt % 2 == 0) ? 2 : 1;
   int64_t outSubblockH = 1;
-  int64_t outSubblockW = std::min(perCoreN, static_cast<int64_t>(8));
+
+  // out_subblock_w must divide out_block_w (== perCoreN) evenly.
+  // See matmul_op.cpp constraints: out_block_w % out_subblock_w == 0.
+  int64_t outSubblockW = largestDivisorUpTo(perCoreN, 8);
   int64_t outBlockH = perCoreM;
   int64_t outBlockW = perCoreN;
 

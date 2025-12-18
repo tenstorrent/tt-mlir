@@ -554,7 +554,7 @@ public:
                       // well and merge with the Conv2dOp case above.
                     }
                   })
-              .Case<ttnn::MatmulOp>([&](ttnn::MatmulOp matmulOp) {
+              .Case<ttnn::MatmulOp, ttnn::LinearOp>([&](auto matmulOp) {
                 auto opAttributes = opConfigAnalysis.getResult().at(op);
                 if (std::holds_alternative<ttnn::MatmulAttrs>(
                         opAttributes.opSpecificAttrs)) {
@@ -562,18 +562,6 @@ public:
                       std::get<ttnn::MatmulAttrs>(opAttributes.opSpecificAttrs);
                   if (matmulAttrs.matmulProgramConfig.has_value()) {
                     matmulOp.setMatmulProgramConfigAttr(
-                        matmulAttrs.matmulProgramConfig.value());
-                  }
-                }
-              })
-              .Case<ttnn::LinearOp>([&](ttnn::LinearOp linearOp) {
-                auto opAttributes = opConfigAnalysis.getResult().at(op);
-                if (std::holds_alternative<ttnn::MatmulAttrs>(
-                        opAttributes.opSpecificAttrs)) {
-                  ttnn::MatmulAttrs matmulAttrs =
-                      std::get<ttnn::MatmulAttrs>(opAttributes.opSpecificAttrs);
-                  if (matmulAttrs.matmulProgramConfig.has_value()) {
-                    linearOp.setMatmulProgramConfigAttr(
                         matmulAttrs.matmulProgramConfig.value());
                   }
                 }

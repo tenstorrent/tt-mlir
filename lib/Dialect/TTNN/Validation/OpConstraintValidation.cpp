@@ -115,6 +115,7 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
                  inputLayouts[i], static_cast<int>(inputLayouts[i].getLayout()),
                  static_cast<int>(inputLayouts[i].getDataType()));
   }
+  TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation, "Output config {}", config);
 
   llvm::Expected<ttnn::op_model::OpConstraints> l1UsageExp =
       backend.getOpConstraints(inputLayouts, config);
