@@ -53,6 +53,47 @@ class Marks:
         return pytest.param(*lhs, marks=self.marks)
 
 
+class SkipIf:
+    """
+    Convenience class for adding pytest skip_config.
+
+    Example
+    -------
+    # Marks ttmetal target as skip OR (ttnn AND sim) as skip
+    >>> test_case | SkipConfig("ttmetal", ["ttnn", "sim"])
+    """
+
+    def __init__(self, *marks_groups, mark_fn=pytest.mark.skip_config):
+        self.marks_groups = [g if isinstance(g, list) else [g] for g in marks_groups]
+        self.mark_fn = mark_fn
+
+    def __ror__(self, lhs):
+        """
+        Apply marks to a test parameter.
+
+        Parameters
+        ----------
+        lhs : Any
+            Test parameter to mark
+
+        Returns
+        -------
+        pytest.param
+            Marked test parameter
+        """
+        return pytest.param(lhs, marks=[self.mark_fn(g) for g in self.marks_groups])
+
+
+class OnlyIf(SkipIf):
+    def __init__(self, *marks_groups):
+        super().__init__(*marks_groups, mark_fn=pytest.mark.only_config)
+
+
+class SkipExecIf(SkipIf):
+    def __init__(self, *marks_groups):
+        super().__init__(*marks_groups, mark_fn=pytest.mark.skip_exec)
+
+
 def shape_str(shape):
     """
     Converts shape tuple to string.

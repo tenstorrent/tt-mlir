@@ -8,6 +8,7 @@ import re
 import platform
 from functools import reduce
 import operator
+import os
 import torch
 import subprocess
 from typing import Any, Dict, List, Tuple, Optional
@@ -15,6 +16,8 @@ import math
 
 ALL_BACKENDS = set(["ttnn", "ttmetal", "emitc", "emitpy"])
 ALL_SYSTEMS = set(["n150", "n300", "llmbox", "tg", "p150", "p300"])
+ALL_ENVIRONMENTS = set(["silicon", "sim"])
+ALL_CONFIGS = ALL_BACKENDS | ALL_SYSTEMS | ALL_ENVIRONMENTS
 
 
 _current_device = None
@@ -109,6 +112,13 @@ def _get_device_for_target(target: str, mesh_shape: Tuple[int, int], pytestconfi
     _current_device_target = target
     _current_device_mesh_shape = mesh_shape
     return _current_device
+
+
+def _get_current_environment():
+    if "TT_METAL_SIMULATOR" in os.environ:
+        return "sim"
+
+    return "silicon"
 
 
 def is_x86_machine():
@@ -490,6 +500,42 @@ def pytest_runtest_call(item: pytest.Item):
         _safe_add_property(item, "failure_stage", failure_stage)
 
 
+def _mark_item_for_skip(
+    item,
+    current_target,
+    board_id,
+    current_environment,
+    marker_name,
+    skip_handler_fn,
+    negate_check=False,
+):
+    for marker in item.iter_markers(name=marker_name):
+        for platform_config in marker.args:
+
+            # All of the operations we need to do on these are set membership based
+            platform_config = set(platform_config)
+
+            reason = marker.kwargs.get("reason", "")
+
+            # Verify this is a valid configuration
+            if not platform_config <= ALL_CONFIGS:
+                outliers = platform_config - ALL_CONFIGS
+                raise ValueError(
+                    f"Invalid {marker_name}: {platform_config}, invalid entries: {outliers}. Please ensure that all entries in the config are members of {ALL_CONFIGS}"
+                )
+
+            should_skip = platform_config <= set(
+                [current_target, board_id, current_environment]
+            )
+
+            # For only_config we want to skip if config is NOT in the allowed list
+            if negate_check:
+                should_skip = not should_skip
+
+            if should_skip:
+                skip_handler_fn(item, platform_config, reason)
+
+
 def pytest_collection_modifyitems(config, items):
     valid_items = []
     deselected = []
@@ -525,82 +571,56 @@ def pytest_collection_modifyitems(config, items):
                 current_target = param[1]
                 break
 
-        for marker in item.iter_markers(name="skip_config"):
-            for platform_config in marker.args:
+        current_environment = _get_current_environment()
+        board_id = get_board_id(system_desc)
 
-                # All of the operations we need to do on these are set membership based
-                platform_config = set(platform_config)
+        def skip_config_handler(item, platform_config, reason):
+            item.add_marker(
+                pytest.mark.skip(
+                    reason=f"Operation not supported on following platform/target combination: {platform_config}. {reason}"
+                )
+            )
 
-                reason = marker.kwargs.get("reason", "")
+        def only_config_handler(item, platform_config, reason):
+            item.add_marker(
+                pytest.mark.skip(
+                    reason=f"Test only runs on following platform/target combination: {platform_config}. {reason}"
+                )
+            )
 
-                # Verify this is a valid configuration
-                if not platform_config <= ALL_BACKENDS.union(ALL_SYSTEMS):
-                    outliers = platform_config - ALL_BACKENDS.union(ALL_SYSTEMS)
-                    raise ValueError(
-                        f"Invalid skip config: {platform_config}, invalid entries: {outliers}. Please ensure that all entries in the config are members of {ALL_SYSTEMS} or {ALL_BACKENDS}"
-                    )
+        def skip_exec_handler(item, platform_config, reason):
+            # Set skip_exec attribute on the item instead of marking as skipped
+            item.skip_exec = True
+            xfail_reason = f"Execution skipped for platform/target combination: {platform_config}. {reason}"
+            item.skip_exec_reason = xfail_reason
+            # Mark test as xfail so it's expected to fail
+            item.add_marker(pytest.mark.xfail(reason=xfail_reason, strict=False))
 
-                board_id = get_board_id(system_desc)
-
-                if platform_config <= set([current_target, board_id]):
-                    item.add_marker(
-                        pytest.mark.skip(
-                            reason=f"Operation not supported on following platform/target combination: {platform_config}. {reason}"
-                        )
-                    )
-
-        for marker in item.iter_markers(name="only_config"):
-            for platform_config in marker.args:
-
-                # All of the operations we need to do on these are set membership based
-                platform_config = set(platform_config)
-
-                reason = marker.kwargs.get("reason", "")
-
-                # Verify this is a valid configuration
-                if not platform_config <= ALL_BACKENDS.union(ALL_SYSTEMS):
-                    outliers = platform_config - ALL_BACKENDS.union(ALL_SYSTEMS)
-                    raise ValueError(
-                        f"Invalid only_config: {platform_config}, invalid entries: {outliers}. Please ensure that all entries in the config are members of {ALL_SYSTEMS} or {ALL_BACKENDS}"
-                    )
-
-                board_id = get_board_id(system_desc)
-
-                # Skip if the current config is NOT in the allowed list
-                if not platform_config <= set([current_target, board_id]):
-                    item.add_marker(
-                        pytest.mark.skip(
-                            reason=f"Test only runs on following platform/target combination: {platform_config}. {reason}"
-                        )
-                    )
-
-        # Mark tests with skip_exec to skip execution but allow compilation
-        for marker in item.iter_markers(name="skip_exec"):
-            for platform_config in marker.args:
-
-                # All of the operations we need to do on these are set membership based
-                platform_config = set(platform_config)
-
-                reason = marker.kwargs.get("reason", "")
-
-                # Verify this is a valid configuration
-                if not platform_config <= ALL_BACKENDS.union(ALL_SYSTEMS):
-                    outliers = platform_config - ALL_BACKENDS.union(ALL_SYSTEMS)
-                    raise ValueError(
-                        f"Invalid skip_exec config: {platform_config}, invalid entries: {outliers}. Please ensure that all entries in the config are members of {ALL_SYSTEMS} or {ALL_BACKENDS}"
-                    )
-
-                board_id = get_board_id(system_desc)
-
-                if platform_config <= set([current_target, board_id]):
-                    # Set skip_exec attribute on the item instead of marking as skipped
-                    item.skip_exec = True
-                    xfail_reason = f"Execution skipped for platform/target combination: {platform_config}. {reason}"
-                    item.skip_exec_reason = xfail_reason
-                    # Mark test as xfail so it's expected to fail
-                    item.add_marker(
-                        pytest.mark.xfail(reason=xfail_reason, strict=False)
-                    )
+        _mark_item_for_skip(
+            item,
+            current_target,
+            board_id,
+            current_environment,
+            "skip_config",
+            skip_config_handler,
+        )
+        _mark_item_for_skip(
+            item,
+            current_target,
+            board_id,
+            current_environment,
+            "only_config",
+            only_config_handler,
+            negate_check=True,
+        )
+        _mark_item_for_skip(
+            item,
+            current_target,
+            board_id,
+            current_environment,
+            "skip_exec",
+            skip_exec_handler,
+        )
 
     # Update the items list (collected tests)
     items[:] = valid_items
