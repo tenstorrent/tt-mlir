@@ -2477,7 +2477,8 @@ public:
 
     // Retrieve a value from the global cache dictionary.
     //
-    auto keyValue = calleeName.str().back() - '0';
+    auto lastUnderscoreIndex = calleeName.find_last_of('_');
+    auto keyValue = std::stoi(calleeName.substr(lastUnderscoreIndex + 1).str());
     mlir::Value globalVar =
         rewriter
             .create<emitpy::GetValueForDictKeyOp>(
