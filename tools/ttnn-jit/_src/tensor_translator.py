@@ -155,7 +155,8 @@ def _create_sharded_tensor_layout(ctx, tensor_arg):
 
     data_type = ttcore_dtype_from_ttnn_dtype(tensor_arg.dtype)
     tile_type = ttcore.ir.TileType.get(ctx, TILE_WIDTH, TILE_HEIGHT, data_type)
-    memref = MemRefType.get(shard_shape_tile, tile_type, None, buffer_type)
+    with Location.unknown(ctx):
+        memref = MemRefType.get(shard_shape_tile, tile_type, None, buffer_type)
 
     tensor_mesh = None
     exact_grid = True
@@ -180,7 +181,8 @@ def _create_dram_tensor_layout(ctx, tensor_arg):
     tile_type = ttcore.ir.TileType.get(ctx, TILE_WIDTH, TILE_HEIGHT, data_type)
     shape = _calculate_tile_shape(tensor_arg.shape)
 
-    memref = MemRefType.get(shape, tile_type, None, buffer_type)
+    with Location.unknown(ctx):
+        memref = MemRefType.get(shape, tile_type, None, buffer_type)
 
     tensor_mesh = None
     exact_grid = True
@@ -289,9 +291,10 @@ def _create_tensor_layout_with_shape(
         new_shape[1] // new_grid_shape[1] // 32,
     ]
     buffer_type = ttnn.ir.BufferTypeAttr.get(ctx, mem_space)
-    memref = MemRefType.get(
-        new_shard_shape, base_layout.memref.element_type, None, buffer_type
-    )
+    with Location.unknown(ctx):
+        memref = MemRefType.get(
+            new_shard_shape, base_layout.memref.element_type, None, buffer_type
+        )
     grid = ttcore.ir.GridAttr.get(ctx, new_grid_shape)
 
     tensor_mesh = None

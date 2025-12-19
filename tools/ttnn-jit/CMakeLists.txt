@@ -94,6 +94,9 @@ else ()
         _src/conversions.py
         _src/op_registry.py
         _src/return_modifier.py
+        _src/jit_functions.py
+        _src/tracing_compiler.py
+        _src/operand_resolver.py
   )
 
   add_mlir_python_modules(TTNNJITModules

@@ -232,8 +232,8 @@ def hardsigmoid(input_tensor):
     DRAM_INTERLEAVED_SHAPES,
     ids=[f"{shape}" for shape in DRAM_INTERLEAVED_SHAPES],
 )
-@pytest.mark.parametrize("graph_capture", [True, False])
-def test_unary_op_dram(device, shape, dtype, ttnn_dtype, op, graph_capture):
+@pytest.mark.parametrize("frontend", ["ast", "graph_capture"])
+def test_unary_op_dram(device, shape, dtype, ttnn_dtype, op, frontend):
     if (
         op in [log, ceil, floor, sqrt, reciprocal, logical_not]
         and dtype == torch.float32
@@ -249,7 +249,7 @@ def test_unary_op_dram(device, shape, dtype, ttnn_dtype, op, graph_capture):
         op,
         num_inputs=1,
         buffer_type=ttnn.BufferType.DRAM,
-        graph_capture=graph_capture,
+        frontend=frontend,
         ttnn_dtype=ttnn_dtype,
     )
 
@@ -290,9 +290,9 @@ def test_unary_op_dram(device, shape, dtype, ttnn_dtype, op, graph_capture):
         tan,
     ],
 )
-@pytest.mark.parametrize("graph_capture", [True, False])
+@pytest.mark.parametrize("frontend", ["ast", "graph_capture"])
 def test_unary_op_l1(
-    device, shape, max_grid, shard_strategy, dtype, ttnn_dtype, op, graph_capture
+    device, shape, max_grid, shard_strategy, dtype, ttnn_dtype, op, frontend
 ):
     if op in [log, ceil, floor, sqrt, rsqrt, logical_not] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes for float32")
@@ -310,7 +310,7 @@ def test_unary_op_l1(
         op,
         num_inputs=1,
         buffer_type=ttnn.BufferType.L1,
-        graph_capture=graph_capture,
+        frontend=frontend,
         shard_strategy=shard_strategy,
         ttnn_dtype=ttnn_dtype,
     )
@@ -343,9 +343,9 @@ def test_unary_op_l1(
         tan,
     ],
 )
-@pytest.mark.parametrize("graph_capture", [True, False])
+@pytest.mark.parametrize("frontend", ["ast", "graph_capture"])
 def test_unary_op_l1_minimal(
-    device, shape, max_grid, shard_strategy, dtype, ttnn_dtype, op, graph_capture
+    device, shape, max_grid, shard_strategy, dtype, ttnn_dtype, op, frontend
 ):
     run_op_test(
         device,
@@ -355,7 +355,7 @@ def test_unary_op_l1_minimal(
         op,
         num_inputs=1,
         buffer_type=ttnn.BufferType.L1,
-        graph_capture=graph_capture,
+        frontend=frontend,
         shard_strategy=shard_strategy,
         ttnn_dtype=ttnn_dtype,
     )
@@ -373,8 +373,8 @@ def test_unary_op_l1_minimal(
     DRAM_INTERLEAVED_SHAPES,
     ids=[f"{shape}" for shape in DRAM_INTERLEAVED_SHAPES],
 )
-@pytest.mark.parametrize("graph_capture", [True, False])
-def test_bitwise_unary_op_dram(device, shape, dtype, op, graph_capture):
+@pytest.mark.parametrize("frontend", ["ast", "graph_capture"])
+def test_bitwise_unary_op_dram(device, shape, dtype, op, frontend):
     max_grid = (0, 0)
     run_op_test(
         device,
@@ -384,7 +384,7 @@ def test_bitwise_unary_op_dram(device, shape, dtype, op, graph_capture):
         op,
         num_inputs=1,
         buffer_type=ttnn.BufferType.DRAM,
-        graph_capture=graph_capture,
+        frontend=frontend,
     )
 
 
@@ -403,9 +403,9 @@ def test_bitwise_unary_op_dram(device, shape, dtype, op, graph_capture):
         bitwise_not,
     ],
 )
-@pytest.mark.parametrize("graph_capture", [True, False])
+@pytest.mark.parametrize("frontend", ["ast", "graph_capture"])
 def test_bitwise_unary_op_l1(
-    device, shape, max_grid, shard_strategy, dtype, op, graph_capture
+    device, shape, max_grid, shard_strategy, dtype, op, frontend
 ):
     run_op_test(
         device,
@@ -415,7 +415,7 @@ def test_bitwise_unary_op_l1(
         op,
         num_inputs=1,
         buffer_type=ttnn.BufferType.L1,
-        graph_capture=graph_capture,
+        frontend=frontend,
         shard_strategy=shard_strategy,
     )
 
@@ -545,7 +545,7 @@ def test_binary_ops_mixed1(device, shape, max_grid, shard_strategy, dtype, op):
     input1 = create_dram_tensor(device, shape, dtype)
     op_jit = ttnn_jit.jit(
         debug=True,
-        graph_capture=False,
+        frontend="ast",
     )(op)
     output_tensor = op_jit(input0, input1)
     assert memory_configs_equal(output_tensor.memory_config(), input0.memory_config())
@@ -586,8 +586,8 @@ def test_binary_ops_mixed1(device, shape, max_grid, shard_strategy, dtype, op):
         # logical_and, logical_or, logical_xor
     ],
 )
-@pytest.mark.parametrize("graph_capture", [True, False])
-def test_binary_ops(device, shape, max_grid, shard_strategy, dtype, op, graph_capture):
+@pytest.mark.parametrize("frontend", ["ast", "graph_capture"])
+def test_binary_ops(device, shape, max_grid, shard_strategy, dtype, op, frontend):
     compile_only = False
     if op == div:
         compile_only = True
@@ -602,7 +602,7 @@ def test_binary_ops(device, shape, max_grid, shard_strategy, dtype, op, graph_ca
         op,
         num_inputs=2,
         buffer_type=ttnn.BufferType.L1,
-        graph_capture=graph_capture,
+        frontend=frontend,
         shard_strategy=shard_strategy,
         compile_only=compile_only,
     )
@@ -671,9 +671,9 @@ def test_binary_ops_dram(device, shape, dtype, op):
         bitwise_xor,
     ],
 )
-@pytest.mark.parametrize("graph_capture", [True, False])
+@pytest.mark.parametrize("frontend", ["ast", "graph_capture"])
 def test_bitwise_binary_ops_l1(
-    device, shape, max_grid, shard_strategy, dtype, op, graph_capture
+    device, shape, max_grid, shard_strategy, dtype, op, frontend
 ):
     run_op_test(
         device,
@@ -683,7 +683,7 @@ def test_bitwise_binary_ops_l1(
         op,
         num_inputs=2,
         buffer_type=ttnn.BufferType.L1,
-        graph_capture=graph_capture,
+        frontend=frontend,
         shard_strategy=shard_strategy,
     )
 
@@ -995,7 +995,7 @@ def test_identity_op_rejection(device):
 
     # Attempting to JIT compile a function with ttnn.identity should raise AssertionError
     with pytest.raises(AssertionError) as exc_info:
-        compiled_op = ttnn_jit.jit(graph_capture=True)(identity_op)
+        compiled_op = ttnn_jit.jit(frontend="graph_capture")(identity_op)
         # The error should occur during compilation, not execution
         _ = compiled_op(input_tensor)
 
@@ -1004,3 +1004,299 @@ def test_identity_op_rejection(device):
     assert expected_message in str(
         exc_info.value
     ), f"Expected error message '{expected_message}' not found in: {str(exc_info.value)}"
+
+
+def my_func(a, b):
+    return ttnn.sum(a, dim=0, keepdim=True)
+
+
+@pytest.mark.parametrize("op", [my_func])
+def test_binary_ops_tracing(device, op):
+    shape = (64, 32)
+    max_grid = (0, 0)
+    dtype = torch.bfloat16
+
+    run_op_test(
+        device,
+        shape,
+        max_grid,
+        dtype,
+        op,
+        num_inputs=2,
+        buffer_type=ttnn.BufferType.L1,
+        frontend="tracing",
+    )
+
+
+# ------------------------------------------------------------
+# Tracing mode tests
+# ------------------------------------------------------------
+
+
+def tracing_add(a, b):
+    return ttnn.add(a, b)
+
+
+def tracing_subtract(a, b):
+    return ttnn.subtract(a, b)
+
+
+def tracing_multiply(a, b):
+    return ttnn.multiply(a, b)
+
+
+def tracing_sum_keepdim(a):
+    return ttnn.sum(a, dim=0, keepdim=True)
+
+
+def tracing_sum_no_keepdim(a):
+    return ttnn.sum(a, dim=0, keepdim=False)
+
+
+def tracing_sum_all_dims(a):
+    return ttnn.sum(a)
+
+
+def tracing_matmul(a, b):
+    return ttnn.matmul(a, b)
+
+
+def tracing_intermediate_result(a, b):
+    """Test using intermediate results."""
+    x = ttnn.add(a, b)
+    y = ttnn.multiply(x, a)
+    return ttnn.subtract(y, b)
+
+
+def tracing_mixed_operands(a, b):
+    """Test using both inputs and intermediate results."""
+    x = ttnn.add(a, b)
+    return ttnn.multiply(x, b)
+
+
+def tracing_argument_order(a, b):
+    """Test respecting argument order."""
+    x = ttnn.add(a, b)
+    return ttnn.subtract(b, x)
+
+
+def tracing_unused_input(a, b):
+    """Test function that doesn't use all inputs."""
+    return ttnn.sum(a, dim=0, keepdim=True)
+
+
+def tracing_shape_change(a):
+    """Test op that changes shape."""
+    return ttnn.sum(a, dim=0, keepdim=True)
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (32, 32),
+        (64, 32),
+        (128, 64),
+    ],
+    ids=[f"{shape}" for shape in [(32, 32), (64, 32), (128, 64)]],
+)
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize(
+    "op",
+    [
+        tracing_add,
+        tracing_subtract,
+        tracing_multiply,
+    ],
+)
+def test_tracing_binary_ops(device, shape, dtype, op):
+    """Test binary operations in tracing mode."""
+    max_grid = (0, 0)
+    run_op_test(
+        device,
+        shape,
+        max_grid,
+        dtype,
+        op,
+        num_inputs=2,
+        buffer_type=ttnn.BufferType.L1,
+        frontend="tracing",
+    )
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (64, 32),
+        (128, 64),
+    ],
+    ids=[f"{shape}" for shape in [(64, 32), (128, 64)]],
+)
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize(
+    "op",
+    [
+        tracing_sum_keepdim,
+        tracing_sum_no_keepdim,
+    ],
+)
+def test_tracing_reduction_ops(device, shape, dtype, op):
+    """Test reduction operations in tracing mode."""
+    max_grid = (0, 0)
+    run_op_test(
+        device,
+        shape,
+        max_grid,
+        dtype,
+        op,
+        num_inputs=1,
+        buffer_type=ttnn.BufferType.L1,
+        frontend="tracing",
+    )
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        ((32, 64), (64, 32)),
+        ((64, 32), (32, 16)),
+    ],
+    ids=["32x64_64x32", "64x32_32x16"],
+)
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+def test_tracing_matmul(device, shape, dtype):
+    """Test matmul operation in tracing mode."""
+    max_grid = (0, 0)
+
+    def matmul_op(a, b):
+        return ttnn.matmul(a, b)
+
+    # Create inputs with different shapes
+    input0_shape, input1_shape = shape
+    input0 = create_sharded_tile_tensor(
+        device, input0_shape, max_grid, dtype, shard_strategy=ttnn.ShardStrategy.BLOCK
+    )
+    input1 = create_sharded_tile_tensor(
+        device, input1_shape, max_grid, dtype, shard_strategy=ttnn.ShardStrategy.BLOCK
+    )
+
+    op_jit = ttnn_jit.jit(debug=True, frontend="tracing")(matmul_op)
+    output_tensor = op_jit(input0, input1)
+
+    golden_output = matmul_op(input0, input1)
+    assert all_close_check(output_tensor, golden_output)
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (32, 32),
+    ],
+    ids=["32x32"],
+)
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+def test_tracing_intermediate_results(device, shape, dtype):
+    """Test operations using intermediate results."""
+    max_grid = (0, 0)
+    run_op_test(
+        device,
+        shape,
+        max_grid,
+        dtype,
+        tracing_intermediate_result,
+        num_inputs=2,
+        buffer_type=ttnn.BufferType.L1,
+        frontend="tracing",
+    )
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (32, 32),
+    ],
+    ids=["32x32"],
+)
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+def test_tracing_mixed_operands(device, shape, dtype):
+    """Test operations using both inputs and intermediate results."""
+    max_grid = (0, 0)
+    run_op_test(
+        device,
+        shape,
+        max_grid,
+        dtype,
+        tracing_mixed_operands,
+        num_inputs=2,
+        buffer_type=ttnn.BufferType.L1,
+        frontend="tracing",
+    )
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (32, 32),
+    ],
+    ids=["32x32"],
+)
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+def test_tracing_argument_order(device, shape, dtype):
+    """Test respecting argument order."""
+    max_grid = (0, 0)
+    run_op_test(
+        device,
+        shape,
+        max_grid,
+        dtype,
+        tracing_argument_order,
+        num_inputs=2,
+        buffer_type=ttnn.BufferType.L1,
+        frontend="tracing",
+    )
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (64, 32),
+    ],
+    ids=["64x32"],
+)
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+def test_tracing_unused_inputs(device, shape, dtype):
+    """Test functions that don't use all inputs."""
+    max_grid = (0, 0)
+    run_op_test(
+        device,
+        shape,
+        max_grid,
+        dtype,
+        tracing_unused_input,
+        num_inputs=2,
+        buffer_type=ttnn.BufferType.L1,
+        frontend="tracing",
+    )
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (64, 32),
+        (128, 64),
+    ],
+    ids=[f"{shape}" for shape in [(64, 32), (128, 64)]],
+)
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+def test_tracing_shape_changes(device, shape, dtype):
+    """Test ops that change shape (like sum with keepdim)."""
+    max_grid = (0, 0)
+    run_op_test(
+        device,
+        shape,
+        max_grid,
+        dtype,
+        tracing_shape_change,
+        num_inputs=1,
+        buffer_type=ttnn.BufferType.L1,
+        frontend="tracing",
+    )

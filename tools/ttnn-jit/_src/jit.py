@@ -35,14 +35,14 @@ class JitFunction:
         compile_only: bool,
         debug: bool,
         enable_cache: bool,
-        graph_capture: bool,
+        frontend: str,
         math_fidelity: ttnn.MathFidelity,
     ):
         self.func = func
         self.source_code = cleanup_source_code(func)
         self.compile_only = compile_only
         self.debug = debug
-        self.graph_capture = graph_capture
+        self.frontend = frontend
         self.out_dir = os.path.join("generated", "ttnn-jit", func.__name__)
         self.math_fidelity = math_fidelity
         os.makedirs(self.out_dir, exist_ok=True)
@@ -115,7 +115,7 @@ class JitFunction:
             return run_binary(fb_binary, args)
 
         ir = generate_ir(
-            self.graph_capture,
+            self.frontend,
             self.source_code,
             self.func,
             self.debug,
