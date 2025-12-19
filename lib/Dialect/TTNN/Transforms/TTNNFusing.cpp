@@ -442,7 +442,13 @@ private:
 //   Attention(Q, K, V) = softmax((Q @ K^T) * scale + mask) @ V
 //
 // Anchors on final matmul (attention @ V) and walks backward through:
-//   matmul -> [where] -> softmax -> linear/matmul (score computation)
+//   matmul -> [transparent] -> [where] -> softmax -> [transparent] ->
+//   [add(mask)] -> [transparent] -> [multiply(scale)] -> [transparent] ->
+//   matmul
+//
+// Uses a generic skipTransparent() utility to handle type conversions and
+// layout ops that don't change semantics, making the pattern robust to
+// variations in the IR.
 //
 class SDPAFusing : public mlir::OpRewritePattern<MatmulOp> {
   using SDPAFusing::OpRewritePattern<MatmulOp>::OpRewritePattern;
@@ -489,11 +495,36 @@ private:
     Operation *scoreOp = nullptr;
   };
 
-  // Trace through layout ops to find source tensor
-  bool isLayoutOp(Operation *op) const {
+  // ============================================================================
+  // Transparent Op Utilities
+  // ============================================================================
+
+  // Operations that don't change semantic meaning - can be traced through.
+  // These are typically type conversions and layout transformations.
+  static bool isTransparentOp(Operation *op) {
+    return isa<TypecastOp, ReshapeOp, ToLayoutOp>(op);
+  }
+
+  // Operations considered "layout" ops for tracing to source tensors.
+  // Superset of transparent ops, includes ops that change tensor arrangement.
+  static bool isLayoutOp(Operation *op) {
     return isa<TypecastOp, ReshapeOp, PermuteOp, RepeatOp, ToLayoutOp>(op);
   }
 
+  // Skip through transparent ops to find the semantic operation.
+  // This is the core utility that makes pattern matching robust to IR
+  // variations like inserted typecasts for precision conversion.
+  Value skipTransparent(Value v) const {
+    while (Operation *defOp = v.getDefiningOp()) {
+      if (!isTransparentOp(defOp)) {
+        break;
+      }
+      v = defOp->getOperand(0);
+    }
+    return v;
+  }
+
+  // Trace through all layout ops to find the original source tensor.
   Value traceToSourceTensor(Value v) const {
     while (Operation *defOp = v.getDefiningOp()) {
       if (!isLayoutOp(defOp)) {
@@ -504,36 +535,43 @@ private:
     return v;
   }
 
-  // Match: [typecast] -> [where(cond, zeros, softmax)] or [typecast] -> softmax
-  bool matchSoftmaxPath(Value v, SDPAComponents &c) const {
-    // Trace through optional typecast (e.g., f32 -> bf16 after softmax)
-    if (auto typecastOp = v.getDefiningOp<TypecastOp>()) {
-      v = typecastOp.getInput();
-    }
+  // ============================================================================
+  // Pattern Matching with Backtracking
+  // ============================================================================
 
-    // Try where(cond, zeros, softmax) first
+  // Match: [transparent] -> [where(cond, zeros, softmax)] -> softmax
+  //    or: [transparent] -> softmax
+  bool matchSoftmaxPath(Value v, SDPAComponents &c) const {
+    v = skipTransparent(v);
+
+    // Try where(cond, zeros, softmax) pattern first
     if (auto whereOp = v.getDefiningOp<WhereOp>()) {
-      if (auto softmax = whereOp.getThird().getDefiningOp<SoftmaxOp>()) {
+      Value softmaxCandidate = skipTransparent(whereOp.getThird());
+      if (auto softmax = softmaxCandidate.getDefiningOp<SoftmaxOp>()) {
         c.softmax = softmax;
         return true;
       }
     }
+
     // Direct softmax
     if (auto softmax = v.getDefiningOp<SoftmaxOp>()) {
       c.softmax = softmax;
       return true;
     }
+
     return false;
   }
 
-  // Match score: linear(Q*s, K*s, mask) or matmul variants
+  // Match score computation with backtracking for different orderings.
+  // Pattern: [transparent] -> [add(score, mask)] -> score_chain
+  //      or: [transparent] -> score_chain (no mask)
+  //
+  // Where score_chain is: [transparent] -> [multiply(scale)] -> [transparent]
+  // -> matmul
   bool matchScoreComputation(Value v, SDPAComponents &c) const {
-    // Trace through optional typecast (e.g., bf16 -> f32 before softmax)
-    if (auto typecastOp = v.getDefiningOp<TypecastOp>()) {
-      v = typecastOp.getInput();
-    }
+    v = skipTransparent(v);
 
-    // Try linear(Q_scaled, K_scaled, mask)
+    // Try linear(Q_scaled, K_scaled, mask) first
     if (auto linearOp = v.getDefiningOp<LinearOp>()) {
       c.scoreOp = linearOp;
       extractQKFromLinear(linearOp, c);
@@ -543,43 +581,62 @@ private:
       return true;
     }
 
-    // Match pattern: matmul [* scale] [+ mask]
-    // Try both orderings if we have an add (lhs/rhs as score vs mask)
-    SmallVector<std::pair<Value, Value>, 2> candidates;
+    // Try add(score, mask) with both operand orderings
     if (auto addOp = v.getDefiningOp<AddOp>()) {
-      candidates.push_back({addOp.getLhs(), addOp.getRhs()});
-      candidates.push_back({addOp.getRhs(), addOp.getLhs()});
-    } else {
-      candidates.push_back({v, Value()});
+      // Try lhs as score, rhs as mask
+      if (matchScoreChain(addOp.getLhs(), c)) {
+        c.mask = traceToSourceTensor(addOp.getRhs());
+        return true;
+      }
+      // Try rhs as score, lhs as mask
+      if (matchScoreChain(addOp.getRhs(), c)) {
+        c.mask = traceToSourceTensor(addOp.getLhs());
+        return true;
+      }
+      return false;
     }
 
-    for (auto [scoreVal, maskVal] : candidates) {
-      c.scale = 1.0f;
-      c.mask = maskVal ? traceToSourceTensor(maskVal) : Value();
+    // No add - try direct score chain (no mask)
+    return matchScoreChain(v, c);
+  }
 
-      // Peel off optional multiply (scale)
-      if (auto mulOp = scoreVal.getDefiningOp<MultiplyOp>()) {
-        if (auto scale = extractConstant(mulOp.getRhs())) {
-          c.scale = *scale;
-          scoreVal = mulOp.getLhs();
-        } else if (auto scale = extractConstant(mulOp.getLhs())) {
-          c.scale = *scale;
-          scoreVal = mulOp.getRhs();
-        }
+  // Match: [transparent] -> [multiply(*, scale)] -> [transparent] -> matmul
+  // Extracts scale if present, then matches the Q@K matmul.
+  bool matchScoreChain(Value v, SDPAComponents &c) const {
+    v = skipTransparent(v);
+    c.scale = 1.0f;
+
+    // Optional multiply for scale
+    if (auto mulOp = v.getDefiningOp<MultiplyOp>()) {
+      if (auto scale = extractConstant(mulOp.getRhs())) {
+        c.scale = *scale;
+        v = skipTransparent(mulOp.getLhs());
+      } else if (auto scale = extractConstant(mulOp.getLhs())) {
+        c.scale = *scale;
+        v = skipTransparent(mulOp.getRhs());
+      } else {
+        // Multiply exists but neither operand is a constant scale
+        // Continue without extracting scale, the multiply might be
+        // part of the score computation
+        v = skipTransparent(v);
       }
+    }
 
-      // Match matmul
-      if (auto matmul = scoreVal.getDefiningOp<MatmulOp>()) {
-        if (matmul != c.attentionMatmul) {
-          c.scoreOp = matmul;
-          extractQKFromMatmul(matmul, c);
-          return true;
-        }
+    // Must end with matmul (different from attention matmul)
+    if (auto matmul = v.getDefiningOp<MatmulOp>()) {
+      if (matmul != c.attentionMatmul) {
+        c.scoreOp = matmul;
+        extractQKFromMatmul(matmul, c);
+        return true;
       }
     }
 
     return false;
   }
+
+  // ============================================================================
+  // Q/K Extraction with Scale Handling
+  // ============================================================================
 
   // Extract Q tensor and its scale, handling TM reordering from
   // EraseInverseOps. Traverses through layout ops and extracts scale from
@@ -675,7 +732,7 @@ private:
     // Combine scales: Q*s and K*s → combined scale = s*s
     float qs = qScale.value_or(1.0f);
     float ks = kScale.value_or(1.0f);
-    c.scale = qs * ks;
+    c.scale *= qs * ks;
   }
 
   void extractQKFromMatmul(MatmulOp op, SDPAComponents &c) const {
@@ -688,10 +745,17 @@ private:
     // Combine scales: Q*s and K*s → combined scale = s*s
     float qs = qScale.value_or(1.0f);
     float ks = kScale.value_or(1.0f);
-    c.scale = qs * ks;
+    c.scale *= qs * ks;
   }
 
+  // ============================================================================
+  // Constant Extraction
+  // ============================================================================
+
   std::optional<float> extractConstant(Value v) const {
+    // Skip transparent ops to find the actual constant
+    v = skipTransparent(v);
+
     // Direct FullOp
     if (auto fullOp = v.getDefiningOp<FullOp>()) {
       if (auto attr = mlir::dyn_cast<FloatAttr>(fullOp.getFillValue())) {
@@ -726,6 +790,10 @@ private:
 
     return std::nullopt;
   }
+
+  // ============================================================================
+  // Validation
+  // ============================================================================
 
   bool validateSemantics(const SDPAComponents &c) const {
     if (!c.query || !c.key || !c.value || !c.softmax || !c.scoreOp) {
