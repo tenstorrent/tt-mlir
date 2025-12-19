@@ -129,7 +129,7 @@ class DeviceContext:
         self,
         mesh_shape=None,
         mesh_offset=None,
-        enable_program_cache=False,
+        enable_program_cache=True,
         trace_region_size=0,
         num_hw_cqs=1,
     ):
