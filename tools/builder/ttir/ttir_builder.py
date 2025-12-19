@@ -6998,27 +6998,6 @@ class TTIRBuilder(Builder):
 
         return add_module, add_builder
 
-    ############### ttir.EmptyOp ###############
-
-    @parse(ttir.EmptyOp)
-    def empty_parser(
-        self,
-        old_op: ttir.EmptyOp,
-        global_dict: Dict[Operand, Operand],
-    ) -> Tuple[Operation, Dict[Operand, GoldenMapTensor]]:
-        ttir_op = self.get_opview_from_parser(TTIRBuilder.empty_parser)
-        result = old_op.result.type
-
-        new_op = ttir_op(
-            result,
-            loc=old_op.location,
-        )
-        new_op_result = new_op.result
-
-        op_map_dictionary = {}
-        op_map_dictionary[new_op_result] = new_op.result
-        return new_op, op_map_dictionary
-
     ############### ttir.SigmoidOp ###############
 
     @tag(ttir.SigmoidOp)
