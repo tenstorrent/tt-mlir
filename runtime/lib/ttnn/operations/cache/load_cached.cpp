@@ -79,15 +79,26 @@ void run(const ::tt::target::ttnn::LoadCachedOp *op, ProgramContext &context) {
 
   cache->store(cacheKey, constEvalFuncname, std::move(inputVersions), outputs);
 
+  // Register on-destroy callbacks to remove the created cache entry when any of
+  // the input tensors are destroyed.
+  //
+  // Use weak_ptr to decouple the lifetime of the whole cache from the lifetime
+  // of a particular tensor. This way the cache can be destroyed as a whole
+  // without having to destroy each individual tensor first.
   std::weak_ptr<TensorCache> weakCache = cache;
-  for (auto& input: inputs) {
+  for (auto &input : inputs) {
+    // Lambda to remove cache entry on tensor destruction.
+    auto onDestroyCallback =
+        [weakCache, cacheKey,
+         constEvalFuncname](::tt::runtime::ttnn::TTNNTensorWrapper *tensor) {
+          if (auto cache = weakCache.lock()) {
+            cache->removeIfExists(cacheKey, constEvalFuncname, tensor->getVersion());
+          }
+        };
+
     ::tt::runtime::ttnn::TTNNTensorWrapper &inputWrapper =
         input.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
-    inputWrapper.registerOnDeleteCallback([weakCache, cacheKey, constEvalFuncname](::tt::runtime::ttnn::TTNNTensorWrapper* tensor){
-      if (auto cache = weakCache.lock()) {
-        cache->remove(cacheKey, constEvalFuncname);
-      }
-    });
+    inputWrapper.registerOnDeleteCallback(onDestroyCallback);
   }
 
   for (size_t i = 0; i < outputs.size(); ++i) {

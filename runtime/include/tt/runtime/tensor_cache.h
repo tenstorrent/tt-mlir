@@ -103,8 +103,10 @@ public:
     cache.clear();
   }
 
-  void remove(const std::string &parentFuncName,
-              const std::string &constEvalFuncName) {
+  // Removes a specific entry from the cache - if it exists.
+  void removeIfExists(const std::string &parentFuncName,
+                      const std::string &constEvalFuncName,
+                      const uint64_t tensorVersion) {
     std::unique_lock<std::shared_mutex> lock(cacheMutex);
     auto it = cache.find(parentFuncName);
     if (it == cache.end()) {
@@ -114,7 +116,16 @@ public:
     if (internalIt == it->second.end()) {
       return;
     }
-    it->second.erase(internalIt);
+
+    // NOTE: Since currently input versions are not part of the cache key,
+    // confirm that the entry is indeed using the tensor of version
+    // `tensorVersion`. If that is the case, we can remove it from the cache.
+    if (std::find(internalIt->second.inputVersions.begin(),
+                  internalIt->second.inputVersions.end(),
+                  tensorVersion) != internalIt->second.inputVersions.end()) {
+
+      it->second.erase(internalIt);
+    }
   }
 
   // Get the size of the cache (number of entries)

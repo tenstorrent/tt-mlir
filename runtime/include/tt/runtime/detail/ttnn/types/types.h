@@ -25,8 +25,9 @@ using OptionalMeshDeviceRef =
 using TensorMap = std::unordered_map<uint32_t, ::tt::runtime::Tensor>;
 using TensorPtrMap = std::unordered_map<uint32_t, ::tt::runtime::Tensor *>;
 using TensorPtrMapIterator = typename TensorPtrMap::iterator;
+
 class TTNNTensorWrapper;
-using OnDeleteTensorCallback = std::function<void(TTNNTensorWrapper *)>;
+using OnDestroyTensorCallback = std::function<void(TTNNTensorWrapper *)>;
 
 // Wrapper for ttnn::Tensor that contains
 // additional metadata specific to our ttnn runtime
@@ -40,7 +41,7 @@ public:
         version(getLatestVersion()) {}
 
   ~TTNNTensorWrapper() {
-    for (const auto &callback : onDeleteCallbacks) {
+    for (const auto &callback : onDestroyCallbacks) {
       callback(this);
     }
   }
@@ -62,8 +63,8 @@ public:
     this->meshEvent = meshEvent;
   }
 
-  void registerOnDeleteCallback(OnDeleteTensorCallback callback) {
-    onDeleteCallbacks.push_back(callback);
+  void registerOnDeleteCallback(OnDestroyTensorCallback callback) {
+    onDestroyCallbacks.push_back(callback);
   }
 
   bool shouldRetain() const { return retain.load(std::memory_order_relaxed); }
@@ -98,7 +99,12 @@ private:
   std::atomic<uint64_t> version;
 
   static uint64_t getLatestVersion();
-  std::vector<OnDeleteTensorCallback> onDeleteCallbacks;
+
+  // Callbacks to be called on destruction of the tensor.
+  // Used for cleaning up any associated resources with this tensor.
+  // E.g., used in consteval caching to remove cache entries associated with an
+  // input tensor, once the input tensor is destroyed.
+  std::vector<OnDestroyTensorCallback> onDestroyCallbacks;
 };
 
 struct LayoutDesc {
