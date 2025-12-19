@@ -648,7 +648,6 @@ def execute_fb(
 def execute_py(
     py_path: str,
     input_output_goldens: Dict[int, Dict[str, Dict[int, GoldenMapTensor]]],
-    intermediate_goldens: Dict[str, Dict[int, GoldenMapTensor]],
     pcc: float = 0.99,
     atol: float = 1e-08,
     rtol: float = 1e-05,
@@ -776,7 +775,6 @@ def execute_py(
 def execute_so(
     so_path: str,
     input_output_goldens: Dict[int, Dict[str, Dict[int, GoldenMapTensor]]],
-    intermediate_goldens: Dict[str, Dict[int, GoldenMapTensor]],
     pcc: float = 0.99,
     atol: float = 1e-08,
     rtol: float = 1e-05,
@@ -828,20 +826,20 @@ def execute_so(
             )
 
             if not disable_golden:
-                for i, runtime_output_tensor in enumerate(outputs):
+                for i, output in enumerate(outputs):
                     golden_output_torch = golden_input_outputs[f"output_{i}"][0]
-                    data_buffer = bytearray(outputs[i].get_data_buffer())
+                    data_buffer = bytearray(output.get_data_buffer())
 
                     if len(data_buffer) == 0:
                         output_tensor_torch = torch.empty(
-                            outputs[i].get_shape(),
-                            dtype=runtime_dtype_to_torch_dtype(outputs[i].get_dtype()),
+                            output.get_shape(),
+                            dtype=runtime_dtype_to_torch_dtype(output.get_dtype()),
                         )
                     else:
                         output_tensor_torch = torch.frombuffer(
                             data_buffer,
-                            dtype=runtime_dtype_to_torch_dtype(outputs[i].get_dtype()),
-                        ).reshape(outputs[i].get_shape())
+                            dtype=runtime_dtype_to_torch_dtype(output.get_dtype()),
+                        ).reshape(output.get_shape())
 
                     cal_atol, cal_rtol, cal_pcc, = get_atol_rtol_pcc(
                         golden_output_torch,
