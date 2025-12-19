@@ -129,10 +129,25 @@ def create_tensor(tensor):
     )
 
 
-def convert_input_layouts(device, inputs, fbb, program_index):
+def convert_input_layouts(
+    device: tt_runtime.runtime.Device,
+    inputs: List[tt_runtime.runtime.Tensor],
+    template_inputs: List[tt_runtime.runtime.Tensor] = None,
+    fbb: tt_runtime.binary.Binary = None,
+    program_index: int = None,
+):
     inputs_converted = []
     for input_index in range(len(inputs)):
-        input_layout = tt_runtime.runtime.get_layout(fbb, program_index, input_index)
+        if template_inputs:
+            input_layout = template_inputs[input_index].get_layout()
+        elif fbb and program_index:
+            input_layout = tt_runtime.runtime.get_layout(
+                fbb, program_index, input_index
+            )
+        else:
+            raise ValueError(
+                "Either template_inputs or fbb and program_index must be provided"
+            )
         inputs_converted.append(
             tt_runtime.runtime.to_layout(
                 inputs[input_index], device, input_layout, True
@@ -537,7 +552,9 @@ def execute_fb(
         for i in golden_inputs_torch:
             new_input = create_tensor(i)
             inputs.append(new_input)
-        converted_inputs = convert_input_layouts(device, inputs, fbb, program_index)
+        converted_inputs = convert_input_layouts(
+            device, inputs, fbb=fbb, program_index=program_index
+        )
 
         for i in outputs_torch:
             new_output = create_tensor(i)
@@ -658,9 +675,6 @@ def execute_py(
     golden_input_output_tensors = convert_golden_input_output_to_torch(
         input_output_goldens
     )
-    golden_intermediate_torch_tensors = convert_golden_intermediates_to_torch(
-        intermediate_goldens
-    )
 
     try:
         module_name = os.path.splitext(os.path.basename(py_path))[0]
@@ -774,9 +788,7 @@ def execute_so(
     golden_input_output_tensors = convert_golden_input_output_to_torch(
         input_output_goldens
     )
-    golden_intermediate_torch_tensors = convert_golden_intermediates_to_torch(
-        intermediate_goldens
-    )
+
     try:
         emitc_dylib_handle = tt_runtime.runtime.test.open_so(so_path)
         program_names = tt_runtime.runtime.test.get_so_programs(
@@ -784,32 +796,30 @@ def execute_so(
         )
 
         for program_index, program_name in enumerate(program_names):
-            if disable_golden:
-                inputs = tt_runtime.runtime.test.create_inputs(
-                    emitc_dylib_handle,
-                    program_name,
-                    device,
-                    dylib.file_path,
-                )
-            else:
+            template_inputs = tt_runtime.runtime.test.create_inputs(
+                emitc_dylib_handle,
+                program_name,
+                device,
+                so_path,
+            )
+            if not disable_golden:
                 inputs = []
                 golden_input_outputs = golden_input_output_tensors[program_index]
 
-                print(golden_input_outputs)
-                for golden_input in golden_input_outputs.values():
-                    new_input = create_tensor(fbb_torch_input)
-                    inputs.append(new_input)
+                for tensor_name in golden_input_outputs:
+                    if tensor_name.startswith("input_"):
+                        golden_input = golden_input_outputs[tensor_name][0]
+                        new_input = create_tensor(golden_input)
+                        inputs.append(new_input)
 
-                # This is a problem: need other way to get input layouts
                 inputs = convert_input_layouts(
                     device,
                     inputs,
-                    bin.fbb,
-                    program_index,
+                    template_inputs=template_inputs,
                 )
+            else:
+                inputs = template_inputs
 
-            # DEVICE?
-            # I may need to close device if golden is disabled so create inputs can open a new one
             outputs = tt_runtime.runtime.test.run_so_program(
                 emitc_dylib_handle,
                 program_name,
@@ -819,24 +829,7 @@ def execute_so(
 
             if not disable_golden:
                 for i, runtime_output_tensor in enumerate(outputs):
-                    start_get_output = time.perf_counter_ns()
-                    output_host = tt_runtime.runtime.to_host(
-                        runtime_output_tensor, untilize=True
-                    )[0]
-                    end_get_output = time.perf_counter_ns()
-                    e2e_duration_nanoseconds_output += end_get_output - start_get_output
-
-                    if disable_golden:
-                        continue
-
-                    tt_runtime.runtime.memcpy(
-                        outputs[i],
-                        output_host,
-                    )
-                    tt_runtime.runtime.deallocate_tensor(
-                        runtime_output_tensor, force=True
-                    )
-
+                    golden_output_torch = golden_input_outputs[f"output_{i}"][0]
                     data_buffer = bytearray(outputs[i].get_data_buffer())
 
                     if len(data_buffer) == 0:
@@ -852,7 +845,7 @@ def execute_so(
 
                     cal_atol, cal_rtol, cal_pcc, = get_atol_rtol_pcc(
                         golden_output_torch,
-                        output_torch,
+                        output_tensor_torch,
                         atol,
                         rtol,
                     )

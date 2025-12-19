@@ -40,6 +40,12 @@ Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
   return Layout(nullptr, DeviceRuntime::TTMetal);
 }
 
+// Return the layout of a given runtime Tensor for TTMetal (currently a stub)
+Layout getTensorLayout(Tensor /*tensor*/) {
+  // TODO(#3126): Provide actual tensor layout extraction for TTMetal
+  return Layout(nullptr, DeviceRuntime::TTMetal);
+}
+
 Tensor toLayout(Tensor tensor, Device, Layout layout, std::optional<bool>) {
   std::visit(
       utils::overloaded{
