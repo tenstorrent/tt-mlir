@@ -2478,6 +2478,9 @@ public:
     // Retrieve a value from the global cache dictionary.
     //
     auto lastUnderscoreIndex = calleeName.find_last_of('_');
+    if (lastUnderscoreIndex == llvm::StringRef::npos) {
+      return failure();
+    }
     auto keyValue = std::stoi(calleeName.substr(lastUnderscoreIndex + 1).str());
     mlir::Value globalVar =
         rewriter
