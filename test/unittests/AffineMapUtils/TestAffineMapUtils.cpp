@@ -374,7 +374,7 @@ TEST(AffineMapUtilsTest, CanGenerateAffineMapFromShardStrides) {
 
   auto coalescingFactorAnalytical = analyzeShardDimContiguity(
       memoryMap, deviceShape, memoryMap.getNumDims() / 2,
-      memoryMap.getNumResults() - 1, 1);
+      memoryMap.getNumResults() - 1, elemSizeBytes);
 
   // Also compute coalescing factor using the sampling-based approach
   int64_t coalescingFactorSampling = calculateCoalescingFactor(
@@ -498,9 +498,9 @@ TEST(AffineMapUtilsTest, CanDetermineCoalescingFactor) {
         }
         generatedCases.insert(key);
 
-        TestResult result = testSingleReblockingTestcase(
-            logicalShape, inputGridShape, outputGridShape);
-        GTEST_ASSERT_EQ(result, TestResult::Success);
+        auto result = testSingleReblockingTestcase(logicalShape, inputGridShape,
+                                                   outputGridShape);
+        GTEST_EXPECT_TRUE(result == TestResult::Success);
       }
     }
   }
