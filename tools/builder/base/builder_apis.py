@@ -132,6 +132,36 @@ def _compile_and_execute(
             intermediate_goldens=intermediate_goldens,
         )
 
+    elif target == "emitc":
+        # Add ttnn-standalone to sys.path for emitc compilation
+        TT_MLIR_HOME = Path(os.environ.get("TT_MLIR_HOME", os.getcwd())).resolve()
+        ttnn_standalone_path = os.path.join(TT_MLIR_HOME, "tools/ttnn-standalone")
+        if ttnn_standalone_path not in sys.path:
+            sys.path.append(ttnn_standalone_path)
+
+        from emitc_compiler import compile_emitc_to_so
+
+        cpp_path = mlir_path + ".cpp"
+        output_dir = os.path.dirname(cpp_path)
+        compile_emitc_to_so(
+            cpp_path,
+            output_dir,
+        )
+
+        so_path = mlir_path + ".so"
+        execute_so(
+            so_path=so_path,
+            pcc=pcc,
+            atol=atol,
+            rtol=rtol,
+            disable_golden=disable_golden,
+            device=device,
+            check_atol=check_atol,
+            check_rtol=check_rtol,
+            input_output_goldens=input_output_goldens,
+            intermediate_goldens=intermediate_goldens,
+        )
+
     return mlir_path
 
 
