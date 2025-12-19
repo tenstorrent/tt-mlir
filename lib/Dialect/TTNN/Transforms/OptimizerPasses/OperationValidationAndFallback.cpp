@@ -267,16 +267,16 @@ public:
               break;
             }
 
-            operation->emitError()
+            auto diag =
+                operation->emitError()
                 << "OperationValidationAndFallback: Operation "
                 << operation->getName() << " with " << inputLayouts.size()
                 << " inputs failed validation (original error: " << statusName;
             if (!originalResult.errorMessage.empty()) {
-              operation->emitError() << " - " << originalResult.errorMessage;
+              diag << " - " << originalResult.errorMessage;
             }
-            operation->emitError()
-                << "). No fallback configuration worked after testing up to "
-                << maxFallbackAttempts << " combinations.";
+            diag << "). No fallback configuration worked after testing up to " +
+                        std::to_string(maxFallbackAttempts) + " combinations.";
             validationFailed = true;
             signalPassFailure();
             return WalkResult::interrupt();
