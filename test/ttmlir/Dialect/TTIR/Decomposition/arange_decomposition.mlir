@@ -12,7 +12,7 @@ module attributes {} {
 
   func.func @test_arange_multiply(%arg0: tensor<1x32x128x128xf32>) -> tensor<1x32x128x128xf32> {
     // CHECK: %[[ARANGE:[0-9]+]] = "ttir.arange"
-    // CHECK-SAME: {arange_dimension = 0 : i64, end = 32 : si64, dtype =f32, start = 0 : si64, step = 1 : si64}
+    // CHECK-SAME: {arange_dimension = 0 : i64, dtype = f32, end = 32 : si64, start = 0 : si64, step = 1 : si64}
     // CHECK-SAME: -> tensor<32xf32>
     // CHECK: %[[RESHAPE:[0-9]+]] = "ttir.reshape"(%[[ARANGE]]
     // CHECK-SAME: (tensor<32xf32>) -> tensor<1x32x1x1xf32>
