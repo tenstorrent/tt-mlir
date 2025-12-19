@@ -140,7 +140,7 @@ def convert_input_layouts(
     for input_index in range(len(inputs)):
         if template_inputs:
             input_layout = template_inputs[input_index].get_layout()
-        elif fbb and program_index:
+        elif fbb and program_index is not None:
             input_layout = tt_runtime.runtime.get_layout(
                 fbb, program_index, input_index
             )
@@ -553,7 +553,10 @@ def execute_fb(
             new_input = create_tensor(i)
             inputs.append(new_input)
         converted_inputs = convert_input_layouts(
-            device, inputs, fbb=fbb, program_index=program_index
+            device,
+            inputs,
+            fbb=fbb,
+            program_index=program_index,
         )
 
         for i in outputs_torch:
