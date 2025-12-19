@@ -1801,6 +1801,50 @@ def mean_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     return torch.mean(input_tensor, dim=dim_arg, keepdim=keep_dim)
 
 
+def reduce_and_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
+    """
+    Golden function for reduce_and operation with TTIR parameter names.
+
+    Parameters
+    ----------
+    input_tensor : GoldenMapTensor
+        Input tensor to reduce
+    **kwargs : dict
+        Keyword arguments including 'dim_arg' and 'keep_dim'
+
+    Returns
+    -------
+    GoldenMapTensor
+        Reduced tensor
+    """
+    dim_arg = kwargs.get("dim_arg", [0])
+    keep_dim = kwargs.get("keep_dim", True)
+    return torch.all(input_tensor, dim=tuple(dim_arg), keepdim=keep_dim)
+
+
+def reduce_or_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
+    """
+    Golden function for reduce_or operation with TTIR parameter names.
+
+    Parameters
+    ----------
+    input_tensor : GoldenMapTensor
+        Input tensor to reduce
+    **kwargs : dict
+        Keyword arguments including 'dim_arg' and 'keep_dim'
+
+    Returns
+    -------
+    GoldenMapTensor
+        Reduced tensor
+    """
+    dim_arg = kwargs.get("dim_arg", [0])
+    keep_dim = kwargs.get("keep_dim", True)
+    return torch.any(input_tensor, dim=tuple(dim_arg), keepdim=keep_dim).to(
+        torch.float32
+    )
+
+
 def transpose_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTensor:
     """
     Golden function for transpose operation with TTIR parameter names.
