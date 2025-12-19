@@ -558,9 +558,8 @@ double calculateLayoutDistance(Layout from, Layout to) {
     return NO_COST;
   }
 
-  // RowMajor <-> Tile conversion is low cost as it's safer
-  // than changing dtype
-  return LOW_COST;
+  // RowMajor <-> Tile conversion is not cheap since it's not frequently needed
+  return MID_COST;
 }
 
 // Calculate total distance for a layout transformation
