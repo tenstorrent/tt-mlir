@@ -581,51 +581,114 @@ private:
     return false;
   }
 
-  // Extract value and optional scale from a potentially scaled tensor.
-  // Returns the unscaled value and populates outScale if a constant scale is
-  // found.
-  Value extractScaledValue(Value v, std::optional<float> &outScale) const {
-    if (auto mulOp = v.getDefiningOp<MultiplyOp>()) {
-      if (auto scale = extractConstant(mulOp.getRhs())) {
-        outScale = scale;
-        return mulOp.getLhs();
+  // Extract Q tensor and its scale, handling TM reordering from
+  // EraseInverseOps. Traverses through layout ops and extracts scale from
+  // multiply if present.
+  std::pair<Value, std::optional<float>> extractQuery(Value v) const {
+    std::optional<float> scale;
+
+    while (Operation *defOp = v.getDefiningOp()) {
+      // Skip layout ops
+      if (isLayoutOp(defOp)) {
+        v = defOp->getOperand(0);
+        continue;
       }
-      if (auto scale = extractConstant(mulOp.getLhs())) {
-        outScale = scale;
-        return mulOp.getRhs();
+
+      // Extract scale from multiply (only once)
+      if (auto mulOp = dyn_cast<MultiplyOp>(defOp)) {
+        if (!scale) {
+          if (auto s = extractConstant(mulOp.getRhs())) {
+            scale = s;
+            v = mulOp.getLhs();
+            continue;
+          }
+          if (auto s = extractConstant(mulOp.getLhs())) {
+            scale = s;
+            v = mulOp.getRhs();
+            continue;
+          }
+        }
+        break;
       }
+
+      break;
     }
-    return v;
+
+    return {traceToSourceTensor(v), scale};
   }
 
-  // Extract K, handling optional scale and transpose.
-  Value extractKey(Value kVal) const {
-    std::optional<float> unusedScale;
-    kVal = extractScaledValue(kVal, unusedScale);
-    if (auto permuteOp = kVal.getDefiningOp<PermuteOp>()) {
-      return traceToSourceTensor(permuteOp.getInput());
+  // Extract K tensor and its scale, handling TM reordering from
+  // EraseInverseOps. Traverses through layout ops, extracts scale from
+  // multiply, and handles permute (transpose) in any order relative to
+  // multiply.
+  std::pair<Value, std::optional<float>> extractKey(Value v) const {
+    std::optional<float> scale;
+    bool foundPermute = false;
+
+    while (Operation *defOp = v.getDefiningOp()) {
+      // Skip layout ops
+      if (isLayoutOp(defOp)) {
+        v = defOp->getOperand(0);
+        continue;
+      }
+
+      // Extract scale from multiply (only once)
+      if (auto mulOp = dyn_cast<MultiplyOp>(defOp)) {
+        if (!scale) {
+          if (auto s = extractConstant(mulOp.getRhs())) {
+            scale = s;
+            v = mulOp.getLhs();
+            continue;
+          }
+          if (auto s = extractConstant(mulOp.getLhs())) {
+            scale = s;
+            v = mulOp.getRhs();
+            continue;
+          }
+        }
+        break;
+      }
+
+      // Handle permute/transpose (only once)
+      if (auto permuteOp = dyn_cast<PermuteOp>(defOp)) {
+        if (!foundPermute) {
+          foundPermute = true;
+          v = permuteOp.getInput();
+          continue;
+        }
+        break;
+      }
+
+      break;
     }
-    return traceToSourceTensor(kVal);
+
+    return {traceToSourceTensor(v), scale};
   }
 
   void extractQKFromLinear(LinearOp op, SDPAComponents &c) const {
-    std::optional<float> qScale;
-    Value qVal = extractScaledValue(op.getA(), qScale);
-    c.query = traceToSourceTensor(qVal);
-    if (qScale) {
-      c.scale = (*qScale) * (*qScale);
-    }
-    c.key = extractKey(op.getB());
+    auto [query, qScale] = extractQuery(op.getA());
+    auto [key, kScale] = extractKey(op.getB());
+
+    c.query = query;
+    c.key = key;
+
+    // Combine scales: Q*s and K*s → combined scale = s*s
+    float qs = qScale.value_or(1.0f);
+    float ks = kScale.value_or(1.0f);
+    c.scale = qs * ks;
   }
 
   void extractQKFromMatmul(MatmulOp op, SDPAComponents &c) const {
-    std::optional<float> qScale;
-    Value qVal = extractScaledValue(op.getA(), qScale);
-    c.query = traceToSourceTensor(qVal);
-    if (qScale) {
-      c.scale = (*qScale) * (*qScale);
-    }
-    c.key = extractKey(op.getB());
+    auto [query, qScale] = extractQuery(op.getA());
+    auto [key, kScale] = extractKey(op.getB());
+
+    c.query = query;
+    c.key = key;
+
+    // Combine scales: Q*s and K*s → combined scale = s*s
+    float qs = qScale.value_or(1.0f);
+    float ks = kScale.value_or(1.0f);
+    c.scale = qs * ks;
   }
 
   std::optional<float> extractConstant(Value v) const {

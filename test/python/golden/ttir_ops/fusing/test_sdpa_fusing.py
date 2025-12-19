@@ -342,6 +342,42 @@ def build_ttir_split_scale_robust_softmax(
             (8, 8, 512, 64),
             (8, 8, 512, 64),
         ],
+        # Non-GQA / MHA variant (same heads for Q/K/V)
+        [
+            (1, 32, 1, 64),
+            (1, 32, 128, 64),
+            (1, 32, 128, 64),
+        ],
+        # MQA decode (kv_heads=1, used in Falcon-style models)
+        [
+            (8, 32, 1, 64),
+            (8, 1, 128, 64),
+            (8, 1, 128, 64),
+        ],
+        # GQA with larger head_dim=128 (common in larger models)
+        [
+            (4, 64, 1, 128),
+            (4, 8, 256, 128),
+            (4, 8, 256, 128),
+        ],
+        # Prefill mode: q_seq > 1 (initial prompt processing)
+        [
+            (1, 32, 128, 64),  # Q: [batch, q_heads, q_seq=128, head_dim]
+            (1, 8, 128, 64),  # K: [batch, kv_heads, kv_seq=128, head_dim]
+            (1, 8, 128, 64),  # V: [batch, kv_heads, kv_seq=128, head_dim]
+        ],
+        # Prefill mode with longer sequence
+        [
+            (1, 32, 512, 64),
+            (1, 8, 512, 64),
+            (1, 8, 512, 64),
+        ],
+        # MHA prefill (non-GQA)
+        [
+            (1, 32, 128, 64),
+            (1, 32, 128, 64),
+            (1, 32, 128, 64),
+        ],
     ],
 )
 @pytest.mark.parametrize("target", ["ttnn"])
@@ -425,7 +461,12 @@ def test_sdpa_split_scale_robust_softmax(
         device=device,
     )
 
-    assert check_op(output, "scaled_dot_product_attention_decode")
+    # Check for appropriate fused op based on q_seq
+    q_seq = query_shape[2]
+    if q_seq == 1:
+        assert check_op(output, "scaled_dot_product_attention_decode")
+    else:
+        assert check_op(output, "scaled_dot_product_attention")
 
 
 @pytest.mark.parametrize(
@@ -449,9 +490,39 @@ def test_sdpa_split_scale_robust_softmax(
             (8, 8, 512, 64),
             (8, 8, 512, 64),
         ],
-        # Non-GQA variant (same heads for Q/K/V)
+        # Non-GQA / MHA variant (same heads for Q/K/V)
         [
             (1, 32, 1, 64),
+            (1, 32, 128, 64),
+            (1, 32, 128, 64),
+        ],
+        # MQA decode (kv_heads=1, used in Falcon-style models)
+        [
+            (8, 32, 1, 64),
+            (8, 1, 128, 64),
+            (8, 1, 128, 64),
+        ],
+        # GQA with larger head_dim=128 (common in larger models)
+        [
+            (4, 64, 1, 128),
+            (4, 8, 256, 128),
+            (4, 8, 256, 128),
+        ],
+        # Prefill mode: q_seq > 1 (initial prompt processing)
+        [
+            (1, 32, 128, 64),  # Q: [batch, q_heads, q_seq=128, head_dim]
+            (1, 8, 128, 64),  # K: [batch, kv_heads, kv_seq=128, head_dim]
+            (1, 8, 128, 64),  # V: [batch, kv_heads, kv_seq=128, head_dim]
+        ],
+        # Prefill mode with longer sequence
+        [
+            (1, 32, 512, 64),
+            (1, 8, 512, 64),
+            (1, 8, 512, 64),
+        ],
+        # MHA prefill (non-GQA)
+        [
+            (1, 32, 128, 64),
             (1, 32, 128, 64),
             (1, 32, 128, 64),
         ],
@@ -472,8 +543,11 @@ def test_sdpa_single_scale_simple_softmax(
     - GQA using reshape → broadcast → reshape pattern
     - Simple softmax: typecast → max → subtract → exp → sum → div → typecast
     - No all-masked row handling
+    - Supports both decode (q_seq=1) and prefill (q_seq>1) modes
 
-    Expected to fuse into ttnn.scaled_dot_product_attention_decode
+    Expected to fuse into:
+    - ttnn.scaled_dot_product_attention_decode (when q_seq=1)
+    - ttnn.scaled_dot_product_attention (when q_seq>1)
     """
     query_shape, key_shape, value_shape = shapes
     mask_shape = (query_shape[0], 1, query_shape[2], key_shape[2])
@@ -563,4 +637,9 @@ def test_sdpa_single_scale_simple_softmax(
         device=device,
     )
 
-    assert check_op(output, "scaled_dot_product_attention_decode")
+    # Check for appropriate fused op based on q_seq
+    q_seq = query_shape[2]
+    if q_seq == 1:
+        assert check_op(output, "scaled_dot_product_attention_decode")
+    else:
+        assert check_op(output, "scaled_dot_product_attention")
