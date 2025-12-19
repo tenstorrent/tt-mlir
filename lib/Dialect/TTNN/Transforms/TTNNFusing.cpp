@@ -502,13 +502,13 @@ private:
   // Operations that don't change semantic meaning - can be traced through.
   // These are typically type conversions and layout transformations.
   static bool isTransparentOp(Operation *op) {
-    return isa<TypecastOp, ReshapeOp, ToLayoutOp>(op);
+    return isa<TypecastOp, ReshapeOp>(op);
   }
 
   // Operations considered "layout" ops for tracing to source tensors.
   // Superset of transparent ops, includes ops that change tensor arrangement.
   static bool isLayoutOp(Operation *op) {
-    return isa<TypecastOp, ReshapeOp, PermuteOp, RepeatOp, ToLayoutOp>(op);
+    return isa<TypecastOp, ReshapeOp, PermuteOp, RepeatOp>(op);
   }
 
   // Skip through transparent ops to find the semantic operation.
