@@ -1503,7 +1503,7 @@ def TTNN_LinearOp : TTNN_Op<"linear"> {
                      "StringAttr":$activation),
       [{
         build($_builder, $_state, result, a, b, bias, transpose_a, transpose_b,
-              activation, /*compute_config=*/nullptr);
+              activation, /*matmul_program_config=*/nullptr, /*compute_config=*/nullptr);
       }]>
     ];
 
