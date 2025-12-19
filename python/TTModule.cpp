@@ -460,6 +460,8 @@ void populateTTModule(nb::module_ &m) {
                    [](tt::ttcore::TileType self) {
                      return static_cast<uint32_t>(self.getDataType());
                    })
+      .def_prop_ro("data_type",
+                   [](tt::ttcore::TileType self) { return self.getDataType(); })
       .def_prop_ro("shape", [](const tt::ttcore::TileType &tile) {
         return std::vector<int64_t>({tile.getHeight(), tile.getWidth()});
       });

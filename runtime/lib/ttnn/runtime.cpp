@@ -1172,10 +1172,6 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_ReduceScatterOp()->out();
     break;
   }
-  case ::tt::target::ttnn::OpType::CollectivePermuteOp: {
-    tensorRef = opContext.type_as_CollectivePermuteOp()->out();
-    break;
-  }
   case ::tt::target::ttnn::OpType::MeshShardOp: {
     tensorRef = opContext.type_as_MeshShardOp()->out();
     break;
@@ -1550,10 +1546,6 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::ReduceScatterOp: {
     tensorRefs = {opContext.type_as_ReduceScatterOp()->in()};
-    break;
-  }
-  case ::tt::target::ttnn::OpType::CollectivePermuteOp: {
-    tensorRefs = {opContext.type_as_CollectivePermuteOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::MeshShardOp: {
