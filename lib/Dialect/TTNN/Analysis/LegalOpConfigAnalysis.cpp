@@ -44,6 +44,7 @@ getPhysicalGridDimensions(TTNNLayoutAttr layout) {
   int64_t maxX = 0;
   int64_t maxY = 0;
   for (const auto &[loc, size] : coreRanges) {
+    // loc is [x, y] per toCoreRangeSet convention
     maxX = std::max(maxX, static_cast<int64_t>(loc[0] + size[0]));
     maxY = std::max(maxY, static_cast<int64_t>(loc[1] + size[1]));
   }
@@ -498,6 +499,10 @@ void LegalOpConfigAnalysis::fillOpSpecificAttrs() {
           if (programConfig.has_value()) {
             opConfig.opSpecificAttrs = MatmulAttrs{programConfig.value()};
           }
+          TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                       "Filled op specific attrs for matmul/linear op {}, "
+                       "\n\t op config: {}",
+                       ttmlir::opToString(matmulOp), opConfig);
         }
       })
       .Default([](Operation *op) -> void {

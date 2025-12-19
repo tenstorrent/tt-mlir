@@ -5,7 +5,6 @@
 #include "ttmlir/Dialect/TTNN/Analysis/DFShardingPolicy.h"
 
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
-#include "ttmlir/Dialect/TTCore/Utils/CoreRangeSet.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1ChainConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutAnalysisProgressTracker.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
@@ -13,7 +12,6 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
-#include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
 #include "ttmlir/Scheduler/Scheduler.h"
@@ -21,8 +19,6 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/IR/Diagnostics.h"
-
-#include <memory>
 
 namespace mlir::tt::ttnn {
 
@@ -79,17 +75,59 @@ buildResolvedLayoutMap(const L1ChainConfig &chain) {
   return layoutMap;
 }
 
+// Forward declaration of empty L1 residents layout map.
+static const llvm::DenseMap<Operation *, TTNNLayoutAttr>
+    kEmptyL1ResidentsLayoutMap;
+
+// Workaround for tt-metal issue #34765: elementwise binary ops with sharded
+// inputs hang when the output has fewer cores than the inputs (implicit
+// resharding). This function rejects such configurations.
+// TODO(rpavlovicTT): Remove this workaround once tt-metal issue #34765 is
+// fixed. https://github.com/tenstorrent/tt-metal/issues/34765
+static bool rejectsEltwiseBinaryCoreShrink(Operation *op,
+                                           TTNNLayoutAttr outputLayout,
+                                           TTNNLayoutAttr lhsLayout,
+                                           TTNNLayoutAttr rhsLayout) {
+  if (!llvm::isa<ttnn::AddOp, ttnn::MultiplyOp, ttnn::MinimumOp>(op)) {
+    return false;
+  }
+  if (!outputLayout || !outputLayout.hasShardedL1TensorMemoryLayout()) {
+    return false;
+  }
+
+  int64_t outputCores = outputLayout.getGrid().getGridVolume();
+  int64_t lhsCores = (lhsLayout && lhsLayout.hasShardedL1TensorMemoryLayout())
+                         ? lhsLayout.getGrid().getGridVolume()
+                         : 0;
+  int64_t rhsCores = (rhsLayout && rhsLayout.hasShardedL1TensorMemoryLayout())
+                         ? rhsLayout.getGrid().getGridVolume()
+                         : 0;
+  int64_t maxInputCores = std::max(lhsCores, rhsCores);
+
+  if (maxInputCores > 0 && outputCores < maxInputCores) {
+    TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                 "Rejecting {}: elementwise binary op cannot shrink cores "
+                 "from {} to {} (tt-metal #34765)",
+                 ttmlir::opToString(op), maxInputCores, outputCores);
+    return true;
+  }
+  return false;
+}
+
 // Build input layouts for an op using resolved configs from the chain.
 // Priority order for each operand:
 // 1. If there's a reshard entry for this edge, use reshard output layout
 // 2. If producer is in chain, use its resolved output layout
-// 3. Otherwise extract from IR (external operand)
+// 3. If producer has a resolved layout in l1ResidentsLayoutMap, use that
+// 4. Otherwise extract from IR (external operand)
 // Returns std::nullopt if any layout cannot be determined.
 static std::optional<std::vector<TTNNLayoutAttr>>
 buildInputLayoutsFromResolvedConfigs(
     Operation *op,
     const llvm::DenseMap<Operation *, TTNNLayoutAttr> &resolvedLayoutMap,
-    const llvm::DenseMap<Edge, MemReconfigEntry> &memReconfigEntryMap) {
+    const llvm::DenseMap<Edge, MemReconfigEntry> &memReconfigEntryMap,
+    const llvm::DenseMap<Operation *, TTNNLayoutAttr> &l1ResidentsLayoutMap =
+        kEmptyL1ResidentsLayoutMap) {
   std::vector<TTNNLayoutAttr> inputLayouts;
   inputLayouts.reserve(op->getNumOperands());
 
@@ -133,9 +171,20 @@ buildInputLayoutsFromResolvedConfigs(
         inputLayouts.push_back(it->second);
         continue;
       }
+
+      // Check if producer has a resolved layout in the L1 residents map
+      // (from other chains whose output stays in L1).
+      auto l1It = l1ResidentsLayoutMap.find(producerOp);
+      if (l1It != l1ResidentsLayoutMap.end()) {
+        TTMLIR_TRACE(ttmlir::LogComponent::DFShardingPolicy,
+                     "  Operand {}: using L1 resident layout from op {}", i,
+                     producerOp->getName());
+        inputLayouts.push_back(l1It->second);
+        continue;
+      }
     }
 
-    // Producer not in chain and no reshard - extract layout from IR.
+    // Producer not in chain and not in L1 residents - extract layout from IR.
     auto tensorType = mlir::dyn_cast<RankedTensorType>(operand.getType());
     if (tensorType) {
       if (auto layout = mlir::dyn_cast_or_null<TTNNLayoutAttr>(
@@ -178,9 +227,11 @@ static const std::vector<L1Reservation> kEmptyL1Reservations;
 // Also accounts for any active L1 reservations at each op's position.
 static bool validateChainBWithMergedInput(
     const L1ChainConfig &chainB, Operation *joinOp, TTNNLayoutAttr rhsLayout,
-    size_t rhsOperandIndex, uint64_t chainAOutputSize,
+    size_t rhsOperandIndex, uint64_t sourceOutputSize,
     const llvm::DenseMap<Operation *, int64_t> &schedulePositionMap,
-    const std::vector<L1Reservation> &l1Reservations) {
+    const std::vector<L1Reservation> &l1Reservations,
+    const llvm::DenseMap<Operation *, TTNNLayoutAttr> &l1ResidentsLayoutMap =
+        kEmptyL1ResidentsLayoutMap) {
 
   auto joinOpPosIt = schedulePositionMap.find(joinOp);
   if (joinOpPosIt == schedulePositionMap.end()) {
@@ -206,7 +257,7 @@ static bool validateChainBWithMergedInput(
 
     // Build input layouts using resolved configs from the chain.
     auto inputLayoutsOpt = buildInputLayoutsFromResolvedConfigs(
-        op, resolvedLayoutMap, memReconfigEntryMap);
+        op, resolvedLayoutMap, memReconfigEntryMap, l1ResidentsLayoutMap);
     if (!inputLayoutsOpt) {
       return false;
     }
@@ -220,7 +271,7 @@ static bool validateChainBWithMergedInput(
 
     // Calculate total additional L1: chain merge + active reservations
     uint64_t reservedL1 = getActiveL1Reservations(opPos, l1Reservations);
-    uint64_t totalAdditionalL1 = chainAOutputSize + reservedL1;
+    uint64_t totalAdditionalL1 = sourceOutputSize + reservedL1;
 
     // Validate the operation with total additional L1 usage.
     op_constraint_validation::ValidationResult result =
@@ -232,6 +283,19 @@ static bool validateChainBWithMergedInput(
                    "Chain merge validation failed at op {}: {}",
                    ttmlir::opToString(op), result.errorMessage);
       return false;
+    }
+
+    // At join op, check for elementwise binary core shrinking (tt-metal
+    // #34765).
+    if (op == joinOp) {
+      size_t lhsOperandIndex = (rhsOperandIndex == 0) ? 1 : 0;
+      TTNNLayoutAttr lhsLayout = (lhsOperandIndex < inputLayouts.size())
+                                     ? inputLayouts[lhsOperandIndex]
+                                     : TTNNLayoutAttr{};
+      if (rejectsEltwiseBinaryCoreShrink(op, spec.config.outputLayout,
+                                         lhsLayout, rhsLayout)) {
+        return false;
+      }
     }
 
     // Stop after validating the join op - Chain A output is consumed there.
@@ -251,7 +315,9 @@ static bool validateChainBWithMergedInput(
 static bool validateChainWithPredecessorInL1(
     const L1ChainConfig &chainC, uint64_t predecessorOutputSize,
     const llvm::DenseMap<Operation *, int64_t> &schedulePositionMap,
-    const std::vector<L1Reservation> &l1Reservations) {
+    const std::vector<L1Reservation> &l1Reservations,
+    const llvm::DenseMap<Operation *, TTNNLayoutAttr> &l1ResidentsLayoutMap =
+        kEmptyL1ResidentsLayoutMap) {
 
   // Build a map of resolved output layouts for ops in Chain C.
   llvm::DenseMap<Operation *, TTNNLayoutAttr> resolvedLayoutMap =
@@ -265,7 +331,7 @@ static bool validateChainWithPredecessorInL1(
 
     // Build input layouts using resolved configs from the chain.
     auto inputLayoutsOpt = buildInputLayoutsFromResolvedConfigs(
-        op, resolvedLayoutMap, memReconfigEntryMap);
+        op, resolvedLayoutMap, memReconfigEntryMap, l1ResidentsLayoutMap);
     if (!inputLayoutsOpt) {
       return false;
     }
@@ -296,13 +362,70 @@ static bool validateChainWithPredecessorInL1(
   return true;
 }
 
+// Validate that the join op in a 3-way merge can execute with both sharded
+// inputs from Chain A (operand 0) and Chain C (operand 1).
+// This is critical because the join op was originally validated with
+// interleaved inputs in preprocessFirstOp, but after chain merging it will
+// receive sharded inputs from both chains.
+static bool validateThreeWayMergeJoinOp(
+    const L1ChainConfig &chainB, TTNNLayoutAttr lhsLayout,
+    TTNNLayoutAttr rhsLayout,
+    const llvm::DenseMap<Operation *, int64_t> &schedulePositionMap,
+    const std::vector<L1Reservation> &l1Reservations) {
+
+  const auto &specs = chainB.getOpL1MemSpecs();
+  if (specs.empty()) {
+    return false;
+  }
+
+  Operation *joinOp = specs.front().op;
+  const OpConfig &joinOpConfig = specs.front().config;
+
+  // Build input layouts starting from IR, then replace with merged layouts.
+  std::vector<TTNNLayoutAttr> inputLayouts = utils::extractInputLayouts(joinOp);
+  if (inputLayouts.size() < 2) {
+    return false;
+  }
+
+  // Replace both operands with the actual layouts from the merged chains.
+  inputLayouts[0] = lhsLayout;
+  inputLayouts[1] = rhsLayout;
+
+  // Check for elementwise binary core shrinking (tt-metal #34765 workaround).
+  if (rejectsEltwiseBinaryCoreShrink(joinOp, joinOpConfig.outputLayout,
+                                     lhsLayout, rhsLayout)) {
+    return false;
+  }
+
+  // Get active L1 reservations at the join op's position.
+  auto joinOpPosIt = schedulePositionMap.find(joinOp);
+  uint64_t reservedL1 = 0;
+  if (joinOpPosIt != schedulePositionMap.end()) {
+    reservedL1 = getActiveL1Reservations(joinOpPosIt->second, l1Reservations);
+  }
+
+  // Validate the join op with the actual sharded inputs.
+  op_constraint_validation::ValidationResult result =
+      op_constraint_validation::validateOperation(joinOp, inputLayouts,
+                                                  joinOpConfig, reservedL1);
+
+  if (!result.isSuccess()) {
+    TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                 "3-way merge join op validation failed for {}: {}",
+                 ttmlir::opToString(joinOp), result.errorMessage);
+    return false;
+  }
+
+  return true;
+}
+
 // Represents a potential merge candidate.
 struct MergeCandidate {
-  size_t chainAIdx;
+  size_t sourceChainIdx;
   Operation *joinOp;
   size_t operandIdx;
-  uint64_t chainAOutputSize;
-  TTNNLayoutAttr chainAOutputLayout;
+  uint64_t sourceOutputSize;
+  TTNNLayoutAttr sourceOutputLayout;
 
   // Returns true if this is an operand 0 merge (main path continuation).
   bool isOperand0Merge() const { return operandIdx == 0; }
@@ -368,24 +491,24 @@ static llvm::SmallVector<MergeCandidate> findAllMergeCandidates(
         continue;
       }
 
-      size_t chainAIdx = chainIt->second;
+      size_t sourceChainIdx = chainIt->second;
       TTMLIR_TRACE(ttmlir::LogComponent::DFShardingPolicy,
                    "    Operand {}: producer in chain {}", operandIdx,
-                   chainAIdx);
+                   sourceChainIdx);
 
-      if (chainAIdx == chainBIndex) {
+      if (sourceChainIdx == chainBIndex) {
         TTMLIR_TRACE(ttmlir::LogComponent::DFShardingPolicy,
                      "    Operand {}: same chain, skipping", operandIdx);
         continue;
       }
 
-      const L1ChainConfig &chainA = l1ChainConfigs[chainAIdx];
+      const L1ChainConfig &chainA = l1ChainConfigs[sourceChainIdx];
 
       // Chain A must be completed.
       if (chainA.getState() != L1ChainState::Completed) {
         TTMLIR_TRACE(ttmlir::LogComponent::DFShardingPolicy,
                      "    Chain {} not Completed (state={}), skipping",
-                     chainAIdx, chainA.getStateString());
+                     sourceChainIdx, chainA.getStateString());
         continue;
       }
 
@@ -393,7 +516,7 @@ static llvm::SmallVector<MergeCandidate> findAllMergeCandidates(
       if (chainA.getLastOp() != producerOp) {
         TTMLIR_TRACE(ttmlir::LogComponent::DFShardingPolicy,
                      "    Producer {} is not last op of chain {}, skipping",
-                     producerOp->getName(), chainAIdx);
+                     producerOp->getName(), sourceChainIdx);
         continue;
       }
 
@@ -404,26 +527,26 @@ static llvm::SmallVector<MergeCandidate> findAllMergeCandidates(
       const auto &chainASpecs = chainA.getOpL1MemSpecs();
       if (chainASpecs.empty()) {
         TTMLIR_TRACE(ttmlir::LogComponent::DFShardingPolicy,
-                     "    Chain {} has empty specs, skipping", chainAIdx);
+                     "    Chain {} has empty specs, skipping", sourceChainIdx);
         continue;
       }
-      TTNNLayoutAttr chainAOutputLayout =
+      TTNNLayoutAttr sourceOutputLayout =
           chainASpecs.back().config.outputLayout;
-      if (!chainAOutputLayout) {
+      if (!sourceOutputLayout) {
         TTMLIR_TRACE(ttmlir::LogComponent::DFShardingPolicy,
                      "    Chain {} has null output layout, skipping",
-                     chainAIdx);
+                     sourceChainIdx);
         continue;
       }
-      uint64_t chainAOutputSize = getChainOutputSizeBytes(chainA);
+      uint64_t sourceOutputSize = getChainOutputSizeBytes(chainA);
 
       TTMLIR_TRACE(ttmlir::LogComponent::DFShardingPolicy,
                    "    FOUND candidate: chain {} -> chain {} (size={} bytes)",
-                   chainAIdx, chainBIndex, chainAOutputSize);
+                   sourceChainIdx, chainBIndex, sourceOutputSize);
 
       // Found a candidate!
-      candidates.push_back(
-          {chainAIdx, op, operandIdx, chainAOutputSize, chainAOutputLayout});
+      candidates.push_back({sourceChainIdx, op, operandIdx, sourceOutputSize,
+                            sourceOutputLayout});
     }
 
     isFirstOpInChain = false;
@@ -815,6 +938,11 @@ static void applyChainMerges(std::vector<L1ChainConfig> &l1ChainConfigs,
   llvm::DenseMap<Operation *, size_t> opToChainMap =
       buildOpToChainMap(l1ChainConfigs);
 
+  // Track layouts of chain outputs that stay in L1 after merging.
+  // Updated incrementally as merges are applied, so subsequent validations
+  // see the actual sharded layouts from merged chains.
+  llvm::DenseMap<Operation *, TTNNLayoutAttr> l1ResidentsLayoutMap;
+
   // Track chains that have received a merge (one-level limit per chain).
   llvm::DenseSet<size_t> mergedIntoChains;
 
@@ -870,34 +998,62 @@ static void applyChainMerges(std::vector<L1ChainConfig> &l1ChainConfigs,
       // Chain A (operand 0) executes first, then Chain C (operand 1).
       // Validate that Chain C can execute with Chain A's output in L1.
       const L1ChainConfig &chainC =
-          l1ChainConfigs[operand1Candidate->chainAIdx];
+          l1ChainConfigs[operand1Candidate->sourceChainIdx];
 
-      if (validateChainWithPredecessorInL1(
-              chainC, operand0Candidate->chainAOutputSize, schedulePositionMap,
-              l1Reservations)) {
+      if (!validateChainWithPredecessorInL1(
+              chainC, operand0Candidate->sourceOutputSize, schedulePositionMap,
+              l1Reservations, l1ResidentsLayoutMap)) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                     "3-way merge rejected: Chain C (chain {}) cannot execute "
+                     "with Chain A's (chain {}) output in L1",
+                     operand1Candidate->sourceChainIdx,
+                     operand0Candidate->sourceChainIdx);
+        // Fall through to try classic RHS merge
+      } else if (!validateThreeWayMergeJoinOp(
+                     chainB, operand0Candidate->sourceOutputLayout,
+                     operand1Candidate->sourceOutputLayout, schedulePositionMap,
+                     l1Reservations)) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                     "3-way merge rejected: join op {} cannot execute with "
+                     "sharded inputs from chain {} and chain {}",
+                     firstOpInChainB->getName(),
+                     operand0Candidate->sourceChainIdx,
+                     operand1Candidate->sourceChainIdx);
+        // Fall through to try classic RHS merge
+      } else {
         // 3-way merge is valid! Apply both merges.
-        L1ChainConfig &chainA = l1ChainConfigs[operand0Candidate->chainAIdx];
-        L1ChainConfig &chainCMut = l1ChainConfigs[operand1Candidate->chainAIdx];
+        L1ChainConfig &chainA =
+            l1ChainConfigs[operand0Candidate->sourceChainIdx];
+        L1ChainConfig &chainCMut =
+            l1ChainConfigs[operand1Candidate->sourceChainIdx];
 
         chainA.spillLocation = SpillLocation::None;
         chainCMut.spillLocation = SpillLocation::None;
         mergedIntoChains.insert(chainBIdx);
 
+        // Track merged chain outputs as L1 residents for subsequent
+        // validations.
+        Operation *chainALastOp = chainA.getLastOp();
+        Operation *chainCLastOp = chainCMut.getLastOp();
+        if (chainALastOp && operand0Candidate->sourceOutputLayout) {
+          l1ResidentsLayoutMap[chainALastOp] =
+              operand0Candidate->sourceOutputLayout;
+        }
+        if (chainCLastOp && operand1Candidate->sourceOutputLayout) {
+          l1ResidentsLayoutMap[chainCLastOp] =
+              operand1Candidate->sourceOutputLayout;
+        }
+
         TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
                      "3-way merge applied: [chain {} (op0) + chain {} (op1) -> "
                      "chain {}] (join op: {}, tensor sizes: {} + {} bytes)",
-                     operand0Candidate->chainAIdx, operand1Candidate->chainAIdx,
-                     chainBIdx, firstOpInChainB->getName(),
-                     operand0Candidate->chainAOutputSize,
-                     operand1Candidate->chainAOutputSize);
+                     operand0Candidate->sourceChainIdx,
+                     operand1Candidate->sourceChainIdx, chainBIdx,
+                     firstOpInChainB->getName(),
+                     operand0Candidate->sourceOutputSize,
+                     operand1Candidate->sourceOutputSize);
         continue; // Move to next chain
       }
-
-      TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
-                   "3-way merge rejected: Chain C (chain {}) cannot execute "
-                   "with Chain A's (chain {}) output in L1",
-                   operand1Candidate->chainAIdx, operand0Candidate->chainAIdx);
-      // Fall through to try classic RHS merge
     }
 
     // Scenario 1: Classic RHS merge (operand > 0 only, or operand 0 for
@@ -916,26 +1072,26 @@ static void applyChainMerges(std::vector<L1ChainConfig> &l1ChainConfigs,
       // 2. The source chain is a concat chain (can't be continued during build)
       if (candidate.isOperand0Merge() &&
           candidate.joinOp->getNumOperands() != 1 &&
-          !l1ChainConfigs[candidate.chainAIdx].isConcatChain) {
+          !l1ChainConfigs[candidate.sourceChainIdx].isConcatChain) {
         continue;
       }
 
       // Validate Chain B can execute with the candidate's output in L1.
       if (!validateChainBWithMergedInput(
-              chainB, candidate.joinOp, candidate.chainAOutputLayout,
-              candidate.operandIdx, candidate.chainAOutputSize,
-              schedulePositionMap, l1Reservations)) {
+              chainB, candidate.joinOp, candidate.sourceOutputLayout,
+              candidate.operandIdx, candidate.sourceOutputSize,
+              schedulePositionMap, l1Reservations, l1ResidentsLayoutMap)) {
         TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
                      "Chain merge candidate rejected: validation failed for "
                      "merging chain {} into chain {} at op {}",
-                     candidate.chainAIdx, chainBIdx,
+                     candidate.sourceChainIdx, chainBIdx,
                      candidate.joinOp->getName());
         continue;
       }
 
       // Select this candidate if it has the largest output size so far.
-      if (candidate.chainAOutputSize > bestSize) {
-        bestSize = candidate.chainAOutputSize;
+      if (candidate.sourceOutputSize > bestSize) {
+        bestSize = candidate.sourceOutputSize;
         bestCandidate = &candidate;
       }
     }
@@ -945,17 +1101,24 @@ static void applyChainMerges(std::vector<L1ChainConfig> &l1ChainConfigs,
     }
 
     // Apply the merge.
-    L1ChainConfig &chainToMerge = l1ChainConfigs[bestCandidate->chainAIdx];
+    L1ChainConfig &chainToMerge = l1ChainConfigs[bestCandidate->sourceChainIdx];
     chainToMerge.spillLocation = SpillLocation::None;
     mergedIntoChains.insert(chainBIdx);
+
+    // Track merged chain output as L1 resident for subsequent validations.
+    Operation *mergedChainLastOp = chainToMerge.getLastOp();
+    if (mergedChainLastOp && bestCandidate->sourceOutputLayout) {
+      l1ResidentsLayoutMap[mergedChainLastOp] =
+          bestCandidate->sourceOutputLayout;
+    }
 
     TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
                  "{} merge applied: [chain {} -> chain {}] "
                  "(join op: {}, operand: {}, tensor size: {} bytes)",
                  bestCandidate->isOperand0Merge() ? "Operand0" : "RHS",
-                 bestCandidate->chainAIdx, chainBIdx,
+                 bestCandidate->sourceChainIdx, chainBIdx,
                  bestCandidate->joinOp->getName(), bestCandidate->operandIdx,
-                 bestCandidate->chainAOutputSize);
+                 bestCandidate->sourceOutputSize);
   }
 }
 
@@ -1248,408 +1411,10 @@ static std::optional<size_t> findOperandIndex(Operation *consumer,
   return std::nullopt;
 }
 
-// Check if a sharded layout would cause inefficient in0_block_w for matmul.
-// For WIDTH_SHARDED and BLOCK_SHARDED, metal computes:
-//   in0_block_w = gcd(shard_shape[1] / TILE_SIZE, K)
-// When shard_width <= TILE_WIDTH (32), in0_block_w will be forced to 1,
-// resulting in poor DRAM bandwidth utilization.
-// HEIGHT_SHARDED is optimal as it uses in0_block_w = K.
-// Returns true if this layout would be inefficient for the given matmul
-// consumer.
-static bool wouldCauseInefficientMatmulInput(Operation *consumer,
-                                             size_t operandIndex,
-                                             TTNNLayoutAttr layout) {
-  // Only check for matmul/linear ops with input A (operand 0)
-  if (!mlir::isa<ttnn::MatmulOp, ttnn::LinearOp>(consumer)) {
-    return false;
-  }
-  if (operandIndex != 0) {
-    return false; // Only input A affects in0_block_w
-  }
-
-  auto memLayoutOpt = layout.getMemLayoutOpt();
-  if (!memLayoutOpt) {
-    return false;
-  }
-
-  // WIDTH_SHARDED and BLOCK_SHARDED both use gcd(shard_width/TILE, K) formula
-  // HEIGHT_SHARDED uses in0_block_w = K (optimal), so skip it
-  if (*memLayoutOpt != TensorMemoryLayout::WidthSharded &&
-      *memLayoutOpt != TensorMemoryLayout::BlockSharded) {
-    return false;
-  }
-
-  // Get scalar shard shape - [height, width] in elements (not tiles)
-  llvm::SmallVector<int64_t> shardShape = layout.getScalarShardShape();
-  if (shardShape.size() < 2) {
-    return false;
-  }
-
-  // If shard width <= TILE_WIDTH (32 elements), in0_block_w will be 1
-  // (inefficient)
-  int64_t shardWidth = shardShape.back();
-  if (shardWidth <= static_cast<int64_t>(TILE_WIDTH)) {
-    TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
-                 "  Matmul {} would have in0_block_w=1 with sharded "
-                 "input (shard_width={} <= {})",
-                 ttmlir::opToString(consumer), shardWidth, TILE_WIDTH);
-    return true;
-  }
-
-  return false;
-}
-
-// Helper to compute ceiling division
-static inline int64_t divUp(int64_t a, int64_t b) { return (a + b - 1) / b; }
-
-// Forward declaration - defined below
-static void setMatmulProgramConfigForShardedOutput(Operation *op,
-                                                   const OpConfig &config);
-
-// RAII guard to temporarily set matmul program config during validation.
-// Saves the original config on construction, sets the new config, and restores
-// the original on destruction unless commit() is called.
-class MatmulProgramConfigGuard {
-public:
-  MatmulProgramConfigGuard(Operation *op, const OpConfig &config)
-      : matmulOp(mlir::dyn_cast<ttnn::MatmulOp>(op)) {
-    if (matmulOp) {
-      savedConfig = matmulOp.getMatmulProgramConfigAttr();
-      // Set the program config for validation
-      setMatmulProgramConfigForShardedOutput(op, config);
-    }
-  }
-
-  ~MatmulProgramConfigGuard() {
-    if (matmulOp && !committed) {
-      matmulOp.setMatmulProgramConfigAttr(savedConfig);
-    }
-  }
-
-  // Call this when validation succeeds and we want to keep the config
-  void commit() { committed = true; }
-
-  // Check if this is a matmul op
-  bool isMatmul() const { return matmulOp != nullptr; }
-
-private:
-  ttnn::MatmulOp matmulOp;
-  mlir::Attribute savedConfig;
-  bool committed = false;
-};
-
-// Compute the bounding box grid dimensions from a layout's shard grid.
-// Returns (gridX, gridY) representing the physical compute grid.
-static std::pair<int64_t, int64_t>
-getPhysicalGridDimensions(TTNNLayoutAttr layout) {
-  ttcore::GridAttr shardGrid = layout.getGrid();
-  AffineMap mapping = shardGrid.getMapping();
-
-  // Use toCoreRangeSet to get physical core coordinates
-  auto coreRanges =
-      ttcore::utils::toCoreRangeSet(shardGrid.getShape(), mapping);
-
-  // Compute bounding box of all core ranges
-  int64_t maxX = 0;
-  int64_t maxY = 0;
-  for (const auto &[loc, size] : coreRanges) {
-    maxX = std::max(maxX, static_cast<int64_t>(loc[0] + size[0]));
-    maxY = std::max(maxY, static_cast<int64_t>(loc[1] + size[1]));
-  }
-
-  return {maxX, maxY};
-}
-
-// Set MatmulMultiCoreReuseMultiCast1DProgramConfig on a matmul op.
-// Used when input is interleaved, width sharded, or height sharded.
-// For width sharded output: mcast_in0=true (multicast input A along width)
-// For height sharded output: mcast_in0=false (multicast input B along height)
-static void setMatmul1DProgramConfig(ttnn::MatmulOp matmulOp, int64_t Mt,
-                                     int64_t Nt, int64_t Kt,
-                                     TTNNLayoutAttr outputLayout,
-                                     TensorMemoryLayout outputMemLayout) {
-  MLIRContext *ctx = matmulOp.getContext();
-
-  // Get physical grid dimensions from the shard spec
-  auto [gridX, gridY] = getPhysicalGridDimensions(outputLayout);
-  int64_t numCores = gridX * gridY;
-
-  // For width sharded output: mcast_in0=true
-  // per_core_M = Mt (all M tiles per core)
-  // per_core_N = ceil(Nt / numCores)
-  bool mcastIn0 = (outputMemLayout == TensorMemoryLayout::WidthSharded);
-  int64_t perCoreM, perCoreN;
-
-  if (mcastIn0) {
-    perCoreM = Mt;
-    perCoreN = divUp(Nt, numCores);
-  } else {
-    // Height sharded: mcast_in0=false
-    perCoreM = divUp(Mt, numCores);
-    perCoreN = Nt;
-  }
-
-  // in0_block_w: determines how many K tiles are loaded per iteration.
-  // Larger values improve DRAM bandwidth utilization but increase L1 pressure.
-  // Constraint: Kt % in0_block_w == 0
-  //
-  // For height sharded (mcast_in0=false): use full Kt for optimal bandwidth
-  // (matches tt-metal's behavior in create_simple_matmul_program_config)
-  //
-  // For width sharded (mcast_in0=true): balance DRAM bandwidth vs L1 pressure
-  // - Small Nt (<=128 tiles / 4096 elements): use in0_block_w=8 for better DRAM
-  // BW
-  // - Large Nt (>128 tiles / 4096 elements): use in0_block_w=2 to reduce L1
-  // pressure Analysis on decoder model showed:
-  //   Q/K/V proj (N=512-2048): in0_block_w=8 -> 2x better DRAM BW
-  //   FFN up/gate (N=8192): in0_block_w=2 -> avoids L1 pressure, better perf
-  constexpr int64_t kLargeNtThreshold = 128; // 128 tiles = 4096 elements
-
-  int64_t in0BlockW;
-  if (!mcastIn0) {
-    // Height sharded: use full Kt (optimal for DRAM bandwidth)
-    in0BlockW = Kt;
-  } else {
-    // Width sharded: choose based on output N dimension
-    if (Nt > kLargeNtThreshold) {
-      // Large N: use smaller in0_block_w to reduce L1 pressure
-      if (Kt % 2 == 0) {
-        in0BlockW = 2;
-      } else {
-        in0BlockW = 1;
-      }
-    } else {
-      // Small N: use larger in0_block_w for better DRAM bandwidth
-      if (Kt % 8 == 0) {
-        in0BlockW = 8;
-      } else if (Kt % 4 == 0) {
-        in0BlockW = 4;
-      } else if (Kt % 2 == 0) {
-        in0BlockW = 2;
-      } else {
-        in0BlockW = 1;
-      }
-    }
-  }
-
-  // out_block_h/w: use per_core values
-  int64_t outBlockH = perCoreM;
-  int64_t outBlockW = perCoreN;
-
-  // out_subblock_h/w: conservative values that should fit in L1
-  // Constraint: out_subblock_h * out_subblock_w <= 8 for safe dest register
-  // usage
-  int64_t outSubblockH = 1;
-  int64_t outSubblockW = std::min(outBlockW, static_cast<int64_t>(8));
-
-  // Create attributes
-  auto gridAttr = CoreCoordAttr::get(ctx, gridX, gridY);
-  auto hopCoresAttr = CoreRangeSetAttr::get(ctx, {});
-
-  auto programConfig = MatmulMultiCoreReuseMultiCast1DProgramConfigAttr::get(
-      ctx,
-      gridAttr,                            // compute_with_storage_grid_size
-      static_cast<uint64_t>(in0BlockW),    // in0_block_w
-      static_cast<uint64_t>(outSubblockH), // out_subblock_h
-      static_cast<uint64_t>(outSubblockW), // out_subblock_w
-      static_cast<uint64_t>(outBlockH),    // out_block_h
-      static_cast<uint64_t>(outBlockW),    // out_block_w
-      static_cast<uint64_t>(perCoreM),     // per_core_m
-      static_cast<uint64_t>(perCoreN),     // per_core_n
-      false,                               // fuse_batch
-      nullptr,                             // fused_activation
-      mcastIn0,                            // mcast_in0
-      false,                               // gather_in0
-      hopCoresAttr,                        // hop_cores
-      0,                                   // num_global_cb_receivers
-      false);                              // untilize_out
-
-  matmulOp.setMatmulProgramConfigAttr(programConfig);
-
-  TTMLIR_TRACE(ttmlir::LogComponent::DFShardingPolicy,
-               "  Set MatmulMultiCoreReuseMultiCast1DProgramConfig: "
-               "grid={}x{}, per_core_m={}, per_core_n={}, in0_block_w={}, "
-               "mcast_in0={}",
-               gridX, gridY, perCoreM, perCoreN, in0BlockW, mcastIn0);
-}
-
-// Set MatmulMultiCoreReuseMultiCastProgramConfig on a matmul op.
-// Used when input is block sharded (requires 2D multicast).
-static void setMatmul2DProgramConfig(ttnn::MatmulOp matmulOp, int64_t Mt,
-                                     int64_t Nt, int64_t Kt,
-                                     TTNNLayoutAttr outputLayout) {
-  MLIRContext *ctx = matmulOp.getContext();
-
-  // Get physical grid dimensions from the shard spec
-  auto [gridX, gridY] = getPhysicalGridDimensions(outputLayout);
-
-  // For block sharded, distribute M and N across the 2D grid
-  int64_t perCoreM = divUp(Mt, gridY);
-  int64_t perCoreN = divUp(Nt, gridX);
-
-  // in0_block_w: determines how many K tiles are loaded per iteration.
-  // Constraint: Kt % in0_block_w == 0
-  // For block sharded, try larger divisors for better DRAM bandwidth.
-  int64_t in0BlockW;
-  if (Kt % 8 == 0) {
-    in0BlockW = 8;
-  } else if (Kt % 4 == 0) {
-    in0BlockW = 4;
-  } else if (Kt % 2 == 0) {
-    in0BlockW = 2;
-  } else {
-    in0BlockW = 1;
-  }
-
-  // out_block_h/w: use per_core values
-  int64_t outBlockH = perCoreM;
-  int64_t outBlockW = perCoreN;
-
-  // out_subblock_h/w: conservative values
-  int64_t outSubblockH = 4;
-  int64_t outSubblockW = 2;
-  if (outSubblockW > perCoreN) {
-    outSubblockH = 1;
-    outSubblockW = std::min(perCoreN, static_cast<int64_t>(8));
-  }
-
-  auto programConfig = MatmulMultiCoreReuseMultiCastProgramConfigAttr::get(
-      ctx,
-      CoreCoordAttr::get(ctx, gridX, gridY), // compute_with_storage_grid_size
-      static_cast<uint64_t>(in0BlockW),      // in0_block_w
-      static_cast<uint64_t>(outSubblockH),   // out_subblock_h
-      static_cast<uint64_t>(outSubblockW),   // out_subblock_w
-      static_cast<uint64_t>(outBlockH),      // out_block_h
-      static_cast<uint64_t>(outBlockW),      // out_block_w
-      static_cast<uint64_t>(perCoreM),       // per_core_m
-      static_cast<uint64_t>(perCoreN),       // per_core_n
-      false,                                 // transpose_mcast
-      nullptr,                               // fused_activation
-      false);                                // fuse_batch
-
-  matmulOp.setMatmulProgramConfigAttr(programConfig);
-
-  TTMLIR_TRACE(ttmlir::LogComponent::DFShardingPolicy,
-               "  Set MatmulMultiCoreReuseMultiCastProgramConfig: "
-               "grid={}x{}, per_core_m={}, per_core_n={}, in0_block_w={}",
-               gridX, gridY, perCoreM, perCoreN, in0BlockW);
-}
-
-// For matmul with sharded output, set an explicit program config to ensure
-// consistent behavior between compile-time validation and runtime execution.
-//
-// Background: tt-metal's create_simple_matmul_program_config() selects
-// program config based on available L1 memory. At compile-time, mock tensors
-// don't occupy L1. At runtime, input tensors occupy L1. This mismatch can cause
-// different program config selection, leading to runtime errors.
-//
-// By setting an explicit program config, we bypass tt-metal's dynamic
-// selection. Config type depends on input sharding:
-// - Interleaved/Width sharded/Height sharded input -> 1D mcast config
-// - Block sharded input -> 2D mcast config
-//
-// TODO(#xxxx): Math fidelity defaults to LoFi when program_config is set.
-// In tt-metal's matmul_op.cpp, when has_program_config=true, the default
-// math_fidelity is LoFi (see create_matmul_struct). To override this, we need
-// to add device_compute_kernel_config support to TTNN_MatmulOp:
-// 1. Add compute_config attr to TTNN_MatmulOp in TTNNOps.td
-// 2. Add serialization in TTNNToFlatbuffer.cpp and Target.fbs
-// 3. Pass compute_kernel_config in
-// runtime/lib/ttnn/operations/matmul/matmul.cpp Until then, matmuls with
-// program_config will use LoFi math fidelity.
-static void setMatmulProgramConfigForShardedOutput(Operation *op,
-                                                   const OpConfig &config) {
-  auto matmulOp = mlir::dyn_cast<ttnn::MatmulOp>(op);
-  if (!matmulOp) {
-    return;
-  }
-
-  // If program config is already set, don't override
-  if (matmulOp.getMatmulProgramConfigAttr()) {
-    return;
-  }
-
-  // Check if output is sharded
-  if (!config.outputLayout) {
-    return;
-  }
-
-  TensorMemoryLayout outputMemLayout =
-      config.outputLayout.getMemLayout().getValue();
-  if (outputMemLayout != TensorMemoryLayout::WidthSharded &&
-      outputMemLayout != TensorMemoryLayout::HeightSharded &&
-      outputMemLayout != TensorMemoryLayout::BlockSharded) {
-    return;
-  }
-
-  // Get output shape to calculate Mt, Nt
-  if (op->getNumResults() == 0) {
-    return;
-  }
-  auto resultType =
-      mlir::dyn_cast<RankedTensorType>(op->getResult(0).getType());
-  if (!resultType) {
-    return;
-  }
-
-  llvm::ArrayRef<int64_t> outShape = resultType.getShape();
-  if (outShape.size() < 2) {
-    return;
-  }
-
-  // Get input A shape and layout
-  auto inputA = matmulOp.getA();
-  auto inputAType = mlir::dyn_cast<RankedTensorType>(inputA.getType());
-  if (!inputAType) {
-    return;
-  }
-  llvm::ArrayRef<int64_t> aShape = inputAType.getShape();
-  if (aShape.size() < 2) {
-    return;
-  }
-
-  TTNNLayoutAttr inputALayout = utils::getLayoutAttrFromTensor(inputAType);
-
-  // Calculate Mt, Nt, Kt (dimensions in tiles)
-  int64_t M = outShape[outShape.size() - 2];
-  int64_t N = outShape[outShape.size() - 1];
-  int64_t K = aShape[aShape.size() - 1];
-  int64_t Mt = divUp(M, TILE_HEIGHT);
-  int64_t Nt = divUp(N, TILE_WIDTH);
-  int64_t Kt = divUp(K, TILE_WIDTH);
-
-  // Determine input A memory layout
-  TensorMemoryLayout inputMemLayout = TensorMemoryLayout::Interleaved;
-  if (inputALayout && inputALayout.hasShardedL1TensorMemoryLayout()) {
-    inputMemLayout = inputALayout.getMemLayout().getValue();
-  }
-
-  TTMLIR_TRACE(ttmlir::LogComponent::DFShardingPolicy,
-               "  Setting matmul program config: Mt={}, Nt={}, Kt={}, "
-               "inputMemLayout={}, outputMemLayout={}",
-               Mt, Nt, Kt, static_cast<int>(inputMemLayout),
-               static_cast<int>(outputMemLayout));
-
-  // Select config type based on input sharding
-  TTNNLayoutAttr outputLayout = config.outputLayout;
-  if (inputMemLayout == TensorMemoryLayout::BlockSharded) {
-    // Block sharded input requires 2D mcast config
-    setMatmul2DProgramConfig(matmulOp, Mt, Nt, Kt, outputLayout);
-  } else {
-    // Interleaved, width sharded, or height sharded input uses 1D mcast config
-    setMatmul1DProgramConfig(matmulOp, Mt, Nt, Kt, outputLayout,
-                             outputMemLayout);
-  }
-}
-
 // Validate that an op can accept a specific input layout and produce its
 // expected output layout. For matmul/linear ops, uses withIgnorePhysicalLayout
 // during validation. Returns true only if validation succeeds AND the actual
 // output layout matches the config's expected output layout.
-//
-// IMPORTANT: For matmul ops with sharded output, the caller MUST use
-// MatmulProgramConfigGuard before calling this function to ensure the program
-// config is set during validation and properly restored after.
 static bool validateOpWithInputLayout(Operation *op, size_t inputOperandIndex,
                                       TTNNLayoutAttr inputLayout,
                                       const OpConfig &config) {
@@ -1804,17 +1569,10 @@ static void applyL1ReservationsForForkOps(
                  forkPos, lastUserPos);
 
     // Step 2: Try passing sharded layout to all consumers
-    // Use guards to track program configs that need to be committed on success
-    std::vector<std::unique_ptr<MatmulProgramConfigGuard>> shardedGuards;
     bool allConsumersValidWithSharded = true;
     for (Operation *user : forkOutput.getUsers()) {
       auto operandIdx = findOperandIndex(user, forkOutput);
       if (!operandIdx) {
-        allConsumersValidWithSharded = false;
-        break;
-      }
-      // Check if this would cause inefficient in0_block_w for matmul
-      if (wouldCauseInefficientMatmulInput(user, *operandIdx, shardedLayout)) {
         allConsumersValidWithSharded = false;
         break;
       }
@@ -1825,9 +1583,6 @@ static void applyL1ReservationsForForkOps(
         allConsumersValidWithSharded = false;
         break;
       }
-      // Create guard to set program config before validation
-      auto guard =
-          std::make_unique<MatmulProgramConfigGuard>(user, *selectedConfig);
       if (!validateOpWithInputLayout(user, *operandIdx, shardedLayout,
                                      *selectedConfig)) {
         allConsumersValidWithSharded = false;
@@ -1836,7 +1591,6 @@ static void applyL1ReservationsForForkOps(
                      ttmlir::opToString(user));
         break;
       }
-      shardedGuards.push_back(std::move(guard));
     }
 
     if (allConsumersValidWithSharded) {
@@ -1845,10 +1599,7 @@ static void applyL1ReservationsForForkOps(
       if (validateChainsWithReservation(l1ChainConfigs, schedulePositionMap,
                                         l1Reservations, forkPos, lastUserPos,
                                         l1Size)) {
-        // SUCCESS: Keep sharded, no spill needed - commit all guards
-        for (auto &guard : shardedGuards) {
-          guard->commit();
-        }
+        // SUCCESS: Keep sharded, no spill needed
         chain.spillLocation = SpillLocation::None;
         l1Reservations.push_back({lastOp, forkPos, lastUserPos, l1Size});
         TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
@@ -1857,7 +1608,6 @@ static void applyL1ReservationsForForkOps(
         continue;
       }
     }
-    // Guards will auto-restore on scope exit if not committed
 
     // Step 3: Try L1 interleaved fallback
     // Use tryGetL1InterleavedSize to validate and get L1 size
@@ -1873,8 +1623,6 @@ static void applyL1ReservationsForForkOps(
         shardedLayout.withBufferType(BufferType::L1)
             .withMemoryLayout(TensorMemoryLayout::Interleaved);
 
-    // Use guards to track program configs for L1 interleaved path
-    std::vector<std::unique_ptr<MatmulProgramConfigGuard>> l1Guards;
     bool allConsumersValidWithL1Interleaved = true;
     for (Operation *user : forkOutput.getUsers()) {
       auto operandIdx = findOperandIndex(user, forkOutput);
@@ -1894,9 +1642,6 @@ static void applyL1ReservationsForForkOps(
           "  Validating consumer {} with L1 interleaved input and config {}",
           ttmlir::opToString(user), selectedConfig->outputLayout);
 
-      // Create guard to set program config before validation
-      auto guard =
-          std::make_unique<MatmulProgramConfigGuard>(user, *selectedConfig);
       if (!validateOpWithInputLayout(user, *operandIdx, l1InterleavedLayout,
                                      *selectedConfig)) {
         allConsumersValidWithL1Interleaved = false;
@@ -1905,7 +1650,6 @@ static void applyL1ReservationsForForkOps(
                      ttmlir::opToString(user));
         break;
       }
-      l1Guards.push_back(std::move(guard));
     }
 
     if (!allConsumersValidWithL1Interleaved) {
@@ -1927,10 +1671,7 @@ static void applyL1ReservationsForForkOps(
       continue;
     }
 
-    // SUCCESS: Use L1 interleaved - commit all guards
-    for (auto &guard : l1Guards) {
-      guard->commit();
-    }
+    // SUCCESS: Use L1 interleaved
     chain.spillLocation = SpillLocation::L1Interleaved;
     l1Reservations.push_back({lastOp, forkPos, lastUserPos, l1InterleavedSize});
     TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
