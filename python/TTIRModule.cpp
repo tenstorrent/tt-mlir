@@ -5,6 +5,7 @@
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
 #include "mlir/CAPI/AffineMap.h"
 #include "mlir/CAPI/IR.h"
@@ -66,5 +67,24 @@ void populateTTIRModule(nb::module_ &m) {
             return std::vector<int64_t>(outputSpatialDimensions.begin(),
                                         outputSpatialDimensions.end());
           });
+  m.def(
+      "rearrange_inv_pattern_map",
+      [](MlirContext context, std::string pattern, std::vector<int64_t> shape) {
+        mlir::FailureOr<AffineMap> failureOrMap =
+            tt::ttir::RearrangeOp::getInvPatternMap(unwrap(context), pattern,
+                                                    shape);
+        if (failed(failureOrMap)) {
+          throw std::runtime_error(
+              "rearrange_pattern_affine_map: failed to parse pattern \"" +
+              pattern + "\".");
+        }
+        return wrap(*failureOrMap);
+      });
+
+  m.def("affine_map_compose",
+        [](MlirAffineMap map, std::vector<int64_t> index) {
+          auto sample = unwrap(map).compose(index);
+          return std::vector<int64_t>(sample.begin(), sample.end());
+        });
 }
 } // namespace mlir::ttmlir::python

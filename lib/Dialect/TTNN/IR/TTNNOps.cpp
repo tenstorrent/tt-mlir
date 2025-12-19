@@ -2852,84 +2852,6 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
 }
 
 //===----------------------------------------------------------------------===//
-// CollectivePermuteOp
-//===----------------------------------------------------------------------===//
-
-// CollectivePermuteOp verification
-::mlir::LogicalResult CollectivePermuteOp::verify() {
-  auto sourceTargetPairs = getSourceTargetPairs().getValues<int64_t>();
-
-  // Check that the rank of sourceTargetPairs is 2D.
-  llvm::ArrayRef<int64_t> sourceTargetPairsShape =
-      getSourceTargetPairs().getType().getShape();
-  const size_t sourceTargetPairsRank = sourceTargetPairsShape.size();
-
-  if (sourceTargetPairsRank != 2) {
-    return emitOpError("The rank of source target pairs must be 2, got rank = ")
-           << sourceTargetPairsRank;
-  }
-
-  /* Check that the 'src' values and 'dest' values in sourceTargetPairs is
-  unique. Given a 2D rank tensor of source target pairs eg. [['src', 'target'],
-  ['src', 'target'] ...], we need to ensure that each 'src' is unique and each
-  'target' is unique.
-  */
-  auto areElementsUnique = [](const auto &sourceTargetPairs) -> bool {
-    for (size_t i = 0; i < sourceTargetPairs.size(); i++) {
-      int target = sourceTargetPairs[i];
-      for (size_t j = i + 2; j < sourceTargetPairs.size(); j += 2) {
-        if (sourceTargetPairs[j] == target) {
-          return false;
-        }
-      }
-    }
-
-    return true;
-  };
-
-  if (!areElementsUnique(sourceTargetPairs)) {
-    return emitOpError(
-        "There are duplicate 'src' or 'dest' devices in source target pairs");
-  }
-
-  return success();
-}
-
-::mlir::OpFoldResult
-mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
-  ::mlir::DenseIntElementsAttr srcTargetPairs = getSourceTargetPairs();
-
-  // Filter out self-mapping src-target pairs.
-  auto elements = srcTargetPairs.getValues<APInt>();
-  SmallVector<APInt> filteredPairs;
-  for (size_t idx = 0; idx < elements.size(); idx += 2) {
-    auto src = elements[idx];
-    auto target = elements[idx + 1];
-    if (src == target) {
-      continue;
-    }
-    filteredPairs.push_back(src);
-    filteredPairs.push_back(target);
-  }
-
-  if (filteredPairs.empty()) {
-    // No permutations left. Exclude this op.
-    return getInput();
-  }
-
-  // There are effective permutations left.
-  if (srcTargetPairs.getNumElements() !=
-      static_cast<int64_t>(filteredPairs.size())) {
-    // Update source_target_pairs if changed.
-    std::array<int64_t, 2> shape = {
-        static_cast<int64_t>(filteredPairs.size() / 2), 2};
-    auto newType =
-        RankedTensorType::get(shape, srcTargetPairs.getType().getElementType());
-    setSourceTargetPairsAttr(DenseIntElementsAttr::get(newType, filteredPairs));
-  }
-  return {};
-}
-//===----------------------------------------------------------------------===//
 // MeshShardOp
 //===----------------------------------------------------------------------===//
 // NOTE: This legacy mesh_shard path only handles the "identity" variant.
@@ -3255,54 +3177,6 @@ mlir::tt::ttnn::CollectivePermuteOp::fold(FoldAdaptor adaptor) {
   }
 
   return success();
-}
-
-// PermuteOp canonicalizes to ReshapeOp when only size-1 dims are permuted.
-void mlir::tt::ttnn::PermuteOp::getCanonicalizationPatterns(
-    mlir::RewritePatternSet &patterns, mlir::MLIRContext * /*context*/) {
-
-  patterns.add(+[](PermuteOp op,
-                   mlir::PatternRewriter &rewriter) -> mlir::LogicalResult {
-    // Require ranked tensors so we can reason about shapes.
-    auto inputType = op.getInput().getType();
-    auto resultType = op.getResult().getType();
-
-    auto inShape = inputType.getShape();
-    auto outShape = resultType.getShape();
-    auto permutation = op.getPermutation();
-
-    // Collect indices of non-1 dims in the original order.
-    llvm::SmallVector<int64_t> origNonOne;
-    for (int64_t i = 0, e = inShape.size(); i < e; ++i) {
-      if (inShape[i] != 1) {
-        origNonOne.push_back(i);
-      }
-    }
-
-    // Collect indices of non-1 dims in the permuted order.
-    llvm::SmallVector<int64_t> permNonOne;
-    for (int64_t idx : permutation) {
-      if (inShape[idx] != 1) {
-        permNonOne.push_back(idx);
-      }
-    }
-
-    // If non-1 dims change relative order, this is a real permute.
-    if (!llvm::equal(origNonOne, permNonOne)) {
-      return mlir::failure();
-    }
-
-    // Only singleton dims are moved: we can safely rewrite as reshape.
-    llvm::SmallVector<int32_t> newShape(outShape.begin(), outShape.end());
-
-    auto shapeAttr = rewriter.getI32ArrayAttr(newShape);
-    auto memCfg = op.getMemoryConfigAttr();
-
-    rewriter.replaceOpWithNewOp<mlir::tt::ttnn::ReshapeOp>(
-        op, resultType, op.getInput(), shapeAttr, memCfg);
-
-    return mlir::success();
-  });
 }
 
 //===----------------------------------------------------------------------===//

@@ -42,8 +42,13 @@ def generate_ir_from_graph(f, debug, *args, **kwargs):
     # Create a modified version of f with ttnn.identity calls before returns
     g = create_modified_function(f)
 
+    # Filter out internal kwargs (like _tensor_args) before calling the function
+    # These are used by the compiler but shouldn't be passed to the actual function
+    internal_kwargs = {"_tensor_args"}
+    function_kwargs = {k: v for k, v in kwargs.items() if k not in internal_kwargs}
+
     begin_graph_capture(RunMode.NO_DISPATCH)
-    g(*args)
+    g(*args, **function_kwargs)
     captured_graph = end_graph_capture()
     # visualize(captured_graph, file_name=f.__name__ + "_graph.svg")
 

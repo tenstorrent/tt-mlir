@@ -853,9 +853,18 @@ class TTNN_ReductionOp<string mnemonic, list<Trait> traits = []> : TTNN_Op<mnemo
 
   let arguments = (ins AnyRankedTensor:$input,
                        BoolAttr:$keep_dim,
-                       OptionalAttr<I32ArrayAttr>:$dim_arg);
-
+                       OptionalAttr<I32ArrayAttr>:$dim_arg,
+                       OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
   let results = (outs AnyRankedTensor:$result);
+
+  let builders = [
+    OpBuilder<(ins "Type":$result, "Value":$input,
+                   "bool":$keep_dim, "ArrayAttr":$dim_arg),
+    [{
+      build($_builder, $_state, result, input, keep_dim, dim_arg,
+            /*compute_config=*/nullptr);
+    }]>
+  ];
 
   let extraClassDeclaration = [{
     wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
@@ -1208,9 +1217,25 @@ def TTNN_SoftmaxOp : TTNN_Op<"softmax"> {
 
     let arguments = (ins AnyRankedTensor:$input,
                          SI32Attr: $dimension,
-                         DefaultValuedAttr<BoolAttr, "false">:$numericStable);
+                         DefaultValuedAttr<BoolAttr, "false">:$numericStable,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let builders = [
+      OpBuilder<(ins "Type":$result, "Value":$input,
+                     "int32_t":$dimension, "bool":$numericStable),
+      [{
+        build($_builder, $_state, result, input, dimension, numericStable,
+              /*compute_config=*/nullptr);
+      }]>,
+      OpBuilder<(ins "Type":$result, "Value":$input,
+                     "int32_t":$dimension),
+      [{
+        build($_builder, $_state, result, input, dimension, /*numericStable=*/false,
+              /*compute_config=*/nullptr);
+      }]>
+    ];
 
     let hasVerifier = 1;
 }
@@ -1461,9 +1486,20 @@ def TTNN_LinearOp : TTNN_Op<"linear"> {
                          Optional<AnyRankedTensor>:$bias,
                          DefaultValuedAttr<BoolAttr, "false">:$transpose_a,
                          DefaultValuedAttr<BoolAttr, "false">:$transpose_b,
-                         OptionalAttr<StrAttr>:$activation);
+                         OptionalAttr<StrAttr>:$activation,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let builders = [
+      OpBuilder<(ins "Type":$result, "Value":$a, "Value":$b,
+                     "Value":$bias, "bool":$transpose_a, "bool":$transpose_b,
+                     "StringAttr":$activation),
+      [{
+        build($_builder, $_state, result, a, b, bias, transpose_a, transpose_b,
+              activation, /*compute_config=*/nullptr);
+      }]>
+    ];
 
     let hasVerifier = 1;
 }
@@ -1481,9 +1517,21 @@ def TTNN_MatmulOp : TTNN_Op<"matmul"> {
                             TTNN_MatmulMultiCoreReuseMultiCast1DProgramConfigAttr,
                             TTNN_MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr
                          ]>>:$matmul_program_config,
-                         OptionalAttr<StrAttr>:$activation);
+                         OptionalAttr<StrAttr>:$activation,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let builders = [
+      OpBuilder<(ins "Type":$result, "Value":$a, "Value":$b,
+                     "bool":$transpose_a, "bool":$transpose_b,
+                     "Attribute":$matmul_program_config,
+                     "StringAttr":$activation),
+      [{
+        build($_builder, $_state, result, a, b, transpose_a, transpose_b,
+              matmul_program_config, activation, /*compute_config=*/nullptr);
+      }]>
+    ];
 
     let hasVerifier = 1;
 }
@@ -1996,9 +2044,22 @@ def TTNN_BatchNormInferenceOp : TTNN_Op<"batch_norm_inference", [AttrSizedOperan
                          DefaultValuedAttr<F32Attr, "1e-05">:$epsilon,
                          Optional<AnyRankedTensor>:$weight,
                          Optional<AnyRankedTensor>:$bias,
-                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let builders = [
+      OpBuilder<(ins "Type":$result, "Value":$input,
+                     "Value":$running_mean, "Value":$running_var,
+                     "llvm::APFloat":$epsilon,
+                     "Value":$weight, "Value":$bias,
+                     "MemoryConfigAttr":$memory_config),
+      [{
+        build($_builder, $_state, result, input, running_mean, running_var,
+              epsilon, weight, bias, memory_config, /*compute_config=*/nullptr);
+      }]>
+    ];
 
     let hasVerifier = 1;
 }
@@ -2017,9 +2078,22 @@ def TTNN_BatchNormTrainingOp : TTNN_Op<"batch_norm_training", [AttrSizedOperandS
                          DefaultValuedAttr<F32Attr, "0.1">:$momentum,
                          Optional<AnyRankedTensor>:$weight,
                          Optional<AnyRankedTensor>:$bias,
-                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let builders = [
+      OpBuilder<(ins "Type":$result, "Value":$input,
+                     "Value":$running_mean, "Value":$running_var,
+                     "llvm::APFloat":$epsilon, "llvm::APFloat":$momentum,
+                     "Value":$weight, "Value":$bias,
+                     "MemoryConfigAttr":$memory_config),
+      [{
+        build($_builder, $_state, result, input, running_mean, running_var,
+              epsilon, momentum, weight, bias, memory_config, /*compute_config=*/nullptr);
+      }]>
+    ];
 
     let hasVerifier = 1;
 }
@@ -2039,9 +2113,21 @@ def TTNN_RMSNormOp : TTNN_Op<"rms_norm", [AttrSizedOperandSegments, TTNN_MemoryC
                          Optional<AnyRankedTensor>:$weight,
                          Optional<AnyRankedTensor>:$bias,
                          DefaultValuedAttr<F32Attr, "1e-12">:$epsilon,
-                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let builders = [
+      OpBuilder<(ins "Type":$result, "Value":$input,
+                     "Value":$weight, "Value":$bias,
+                     "llvm::APFloat":$epsilon,
+                     "MemoryConfigAttr":$memory_config),
+      [{
+        build($_builder, $_state, result, input, weight, bias,
+              epsilon, memory_config, /*compute_config=*/nullptr);
+      }]>
+    ];
 
     let hasVerifier = 1;
 }
@@ -2410,30 +2496,6 @@ def TTNN_AllReduceOp: TTNN_Op<"all_reduce", [TTNN_MemoryConfigOpInterface]> {
     let hasFolder = 1;
 }
 
-def TTNN_CollectivePermuteOp: TTNN_Op<"collective_permute"> {
-    let summary = "Collective permute op.";
-    let description = [{
-      Collective permute op. This operation ingests a multi-device tensor spread across multi-devices and will shuffle the data according to source_target_pairs [['src', 'dest']].
-
-      Example:
-        For a 1x2 mesh, the following will take the device shard living in device 0 and move it to device 1. The device shard living in device 1 will move to device 0.
-        %source_target_pairs: [[0, 1], [1, 0]]
-
-        In the case of missing 'dest', the device shard living on that device will contain values of 0. For example, device shard living in device 0 will contain 0 values.
-        %source_target_pairs: [[0, 1]]
-    }];
-
-    let arguments = (ins AnyRankedTensor:$input,
-                         TTNN_Device:$device,
-                         I64ElementsAttr:$source_target_pairs);
-
-    let results = (outs AnyRankedTensor:$result);
-
-    let hasVerifier = 1;
-
-    let hasFolder = 1;
-}
-
 def TTNN_MeshShardOp: TTNN_Op<"mesh_shard"> {
     let summary = "Mesh shard op.";
     let description = [{
@@ -2479,7 +2541,6 @@ def TTNN_PermuteOp : TTNN_Op<"permute"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
-    let hasCanonicalizer = 1;
 
     let extraClassDeclaration = [{
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {

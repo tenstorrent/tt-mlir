@@ -479,9 +479,14 @@ createOp(FlatbufferObjectCache &cache, MatmulOp op) {
 
   auto activation = toFlatbuffer(cache, op.getActivation()).value_or(0);
 
+  std::optional<
+      ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
+      computeConfig = toFlatbuffer(cache, op.getComputeConfig());
+
   return ::tt::target::ttnn::CreateMatmulOp(
       *cache.fbb, a, b, output, op.getTransposeA(), op.getTransposeB(),
-      matmulProgramConfigType, matmulProgramConfigDesc, activation);
+      matmulProgramConfigType, matmulProgramConfigDesc, activation,
+      computeConfig.value_or(0));
 }
 // ANCHOR_END: adding_an_op_matmul_serialize_to_binary
 
@@ -961,20 +966,6 @@ createOp(FlatbufferObjectCache &cache, ScatterOp op) {
       toFlatbuffer(op.getScatterReduceType()));
 }
 
-::flatbuffers::Offset<::tt::target::ttnn::CollectivePermuteOp>
-createOp(FlatbufferObjectCache &cache, CollectivePermuteOp op) {
-  auto input = cache.at<::tt::target::ttnn::TensorRef>(
-      getOperandThroughDPSOps(op.getInput()));
-  auto output = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
-  auto device = getOperandThroughDPSOps(op.getDevice());
-  auto sourceTargetPairs = op.getSourceTargetPairs().getValues<int64_t>();
-  std::vector<int64_t> sourceTargetPairsVec(sourceTargetPairs.begin(),
-                                            sourceTargetPairs.end());
-  return ::tt::target::ttnn::CreateCollectivePermuteOp(
-      *cache.fbb, input, output, cache.at<::tt::target::DeviceRef>(device),
-      cache.fbb->CreateVector<int64_t>(sourceTargetPairsVec));
-}
-
 // NOTE: This legacy mesh_shard path only handles the "identity" variant.
 // All non-identity behavior has been split out to distribute_tensor /
 // aggregate_tensor. It remains because current TTIR lowering still generates
@@ -1053,10 +1044,15 @@ createOp(FlatbufferObjectCache &cache, BatchNormInferenceOp op) {
   ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig =
       op.getMemoryConfig() ? toFlatbuffer(cache, *op.getMemoryConfig()) : 0;
 
+  std::optional<
+      ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
+      computeConfig = toFlatbuffer(cache, op.getComputeConfig());
+
   // For inference BatchNormInferenceOp: no momentum, no batch stats
   return ::tt::target::ttnn::CreateBatchNormInferenceOp(
       *cache.fbb, input, runningMean, runningVar,
-      op.getEpsilon().convertToFloat(), weight, bias, memoryConfig, output);
+      op.getEpsilon().convertToFloat(), weight, bias, memoryConfig, output,
+      computeConfig.value_or(0));
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::BatchNormTrainingOp>
@@ -1084,11 +1080,15 @@ createOp(FlatbufferObjectCache &cache, BatchNormTrainingOp op) {
   ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig =
       op.getMemoryConfig() ? toFlatbuffer(cache, *op.getMemoryConfig()) : 0;
 
+  std::optional<
+      ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
+      computeConfig = toFlatbuffer(cache, op.getComputeConfig());
+
   // For training BatchNormTrainingOp with momentum
   return ::tt::target::ttnn::CreateBatchNormTrainingOp(
       *cache.fbb, input, runningMean, runningVar,
       op.getEpsilon().convertToFloat(), op.getMomentum().convertToFloat(),
-      weight, bias, memoryConfig, output);
+      weight, bias, memoryConfig, output, computeConfig.value_or(0));
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::RMSNormOp>
@@ -1116,9 +1116,13 @@ createOp(FlatbufferObjectCache &cache, RMSNormOp op) {
   ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig =
       getMemoryConfigIfNeeded(cache, op);
 
-  return ::tt::target::ttnn::CreateRMSNormOp(*cache.fbb, input, weight, bias,
-                                             op.getEpsilon().convertToFloat(),
-                                             memoryConfig, output);
+  std::optional<
+      ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
+      computeConfig = toFlatbuffer(cache, op.getComputeConfig());
+
+  return ::tt::target::ttnn::CreateRMSNormOp(
+      *cache.fbb, input, weight, bias, op.getEpsilon().convertToFloat(),
+      memoryConfig, output, computeConfig.value_or(0));
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::UpsampleOp>
@@ -1828,8 +1832,13 @@ createReductionOp(FlatbufferObjectCache &cache, ReductionOp op) {
   auto dimArg =
       arrayAttrToFlatbuffer<mlir::IntegerAttr, int>(cache, op.getDimArg());
 
+  std::optional<
+      ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
+      computeConfig = toFlatbuffer(cache, op.getComputeConfig());
+
   return ::tt::target::ttnn::CreateReductionOp(*cache.fbb, type, in, output,
-                                               dimArg, op.getKeepDim());
+                                               dimArg, op.getKeepDim(),
+                                               computeConfig.value_or(0));
 }
 
 template <typename ReductionOp>
@@ -2172,9 +2181,12 @@ createSoftmaxOp(FlatbufferObjectCache &cache, SoftmaxOp op) {
   auto out = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
   int32_t dimension = op.getDimension();
   bool numericStable = op.getNumericStable();
+  std::optional<
+      ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
+      computeConfig = toFlatbuffer(cache, op.getComputeConfig());
 
-  return ::tt::target::ttnn::CreateSoftmaxOp(*cache.fbb, in, out, dimension,
-                                             numericStable);
+  return ::tt::target::ttnn::CreateSoftmaxOp(
+      *cache.fbb, in, out, dimension, numericStable, computeConfig.value_or(0));
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::DeallocateOp>
@@ -3233,11 +3245,6 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto scatterOp = dyn_cast<ScatterOp>(op); scatterOp) {
     return createOperation(cache, createOp(cache, scatterOp), debugString,
                            locInfo);
-  }
-  if (auto collectivePermuteOp = dyn_cast<CollectivePermuteOp>(op);
-      collectivePermuteOp) {
-    return createOperation(cache, createOp(cache, collectivePermuteOp),
-                           debugString, locInfo);
   }
   if (auto meshShardOp = dyn_cast<MeshShardOp>(op); meshShardOp) {
     return createOperation(cache, createOp(cache, meshShardOp), debugString,
