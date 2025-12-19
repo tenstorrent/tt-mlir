@@ -1705,9 +1705,6 @@ inline int64_t analyzeShardDimContiguity(mlir::AffineMap map,
   mlir::AffineMap simplifiedMap =
       simplifyAffineMapWithRangeAnalysis(simplifyZeroFloorDiv(map), shape);
 
-  llvm::dbgs() << "[analyzeShardDimContiguity] simplified map: "
-               << simplifiedMap << "\n";
-
   // Analyze each shard dim and store results
   llvm::SmallVector<int64_t> dimContiguities;
   dimContiguities.reserve(numShardDims);
@@ -1733,19 +1730,12 @@ inline int64_t analyzeShardDimContiguity(mlir::AffineMap map,
       break;
     }
   }
-  llvm::dbgs() << "[analyzeShardDimContiguity] coalescingFactor before stride "
-                  "analysis = "
-               << coalescingFactor << "\n";
-
   // Check stride alignment. This fundamentally limits the coalescing factor.
   auto strideLimit =
       analyzeShardDimStrides(simplifiedMap, shape, numGridDims, numGridResults);
   TT_assertv(strideLimit % elemSizeBytes == 0,
              "strideLimit must be divisible by elemSizeBytes");
   strideLimit /= elemSizeBytes;
-
-  llvm::dbgs() << "[analyzeShardDimContiguity] strideLimit = " << strideLimit
-               << "\n";
 
   if (strideLimit < coalescingFactor) {
     return std::gcd(coalescingFactor, strideLimit);

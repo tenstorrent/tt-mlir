@@ -347,7 +347,7 @@ public:
     llvm::dbgs() << "[CoalescingFactor] alt = " << altCoalescingFactor << " vs "
                  << coalescingFactor << "\n";
 
-    TT_assertv(coalescingFactor % size_t(altCoalescingFactor) == 0,
+    TT_assertv(coalescingFactor % size_t(altCoalescingFactor) == 0ul,
                "Coalescing factor mismatch sampled = {} vs analytical = {} ",
                coalescingFactor, altCoalescingFactor);
     //-------------------------------------------------------------------//
