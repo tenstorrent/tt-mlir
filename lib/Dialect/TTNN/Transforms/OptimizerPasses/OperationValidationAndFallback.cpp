@@ -459,8 +459,8 @@ createFallbackTransforms(TTNNLayoutAttr originalLayout,
 
   // Variable optimized out in debug builds, but useful for logging
   [[maybe_unused]] size_t attemptedInsertions = 0;
-  for (Layout targetLayout : targetLayouts) {
-    for (ttcore::DataType targetDataType : targetDataTypes) {
+  for (ttcore::DataType targetDataType : targetDataTypes) {
+    for (Layout targetLayout : targetLayouts) {
       for (BufferType targetBufferType : targetBufferTypes) {
         // Skip if this is the same as original
         if (targetLayout == originalLayout.getLayout() &&
@@ -472,16 +472,18 @@ createFallbackTransforms(TTNNLayoutAttr originalLayout,
         // Start with original layout
         TTNNLayoutAttr result = originalLayout;
 
-        // Apply layout transformation if needed
-        if (targetLayout != originalLayout.getLayout()) {
-          result = result.withLayout(targetLayout, tensorShape);
-        }
-
-        // Apply data type transformation if needed
+        // Apply data type transformation first (before layout changes)
+        // This prevents issues where layout changes force incompatible layouts
+        // (e.g., BFP8 -> Tile) before we can try row-major with other dtypes
         if (targetDataType != result.getDataType()) {
           auto targetElementType = ttnn::utils::getElementType(
               result.getContext(), result.getLayout(), targetDataType);
           result = result.withElementType(targetElementType, tensorShape);
+        }
+
+        // Apply layout transformation if needed (after dtype change)
+        if (targetLayout != result.getLayout()) {
+          result = result.withLayout(targetLayout, tensorShape);
         }
 
         if (targetBufferType != result.getBufferType()) {
