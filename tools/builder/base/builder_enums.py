@@ -15,3 +15,15 @@ class ReduceType(Enum):
     Var = ttcore.ir.ReduceType.Var
     Prod = ttcore.ir.ReduceType.Prod
     Invalid = ttcore.ir.ReduceType.Invalid
+
+
+class MeshShardType(Enum):
+    Identity = ttcore.ir.MeshShardType.Identity
+    Replicate = ttcore.ir.MeshShardType.Replicate
+    Maximal = ttcore.ir.MeshShardType.Maximal
+    Devices = ttcore.ir.MeshShardType.Devices
+
+
+class MeshShardDirection(Enum):
+    FullToShard = ttcore.ir.MeshShardDirection.FullToShard
+    ShardToFull = ttcore.ir.MeshShardDirection.ShardToFull
