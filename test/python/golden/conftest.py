@@ -96,7 +96,7 @@ def _get_device_for_target(target: str, mesh_shape: Tuple[int, int], pytestconfi
     elif target == "ttmetal":
         device_runtime_enum = tt_runtime.runtime.DeviceRuntime.TTMetal
     elif target == "emitpy":
-        # Emity execution instantiates its own device internally
+        # Emitpy execution instantiates its own device internally
         return None
     else:
         raise ValueError(f"Only TTNN and TTMetal devices are supported, got {target}")

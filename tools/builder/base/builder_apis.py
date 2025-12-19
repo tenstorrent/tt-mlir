@@ -129,7 +129,6 @@ def _compile_and_execute(
             check_atol=check_atol,
             check_rtol=check_rtol,
             input_output_goldens=input_output_goldens,
-            intermediate_goldens=intermediate_goldens,
         )
 
     elif target == "emitc":
@@ -159,7 +158,6 @@ def _compile_and_execute(
             check_atol=check_atol,
             check_rtol=check_rtol,
             input_output_goldens=input_output_goldens,
-            intermediate_goldens=intermediate_goldens,
         )
 
     return mlir_path
