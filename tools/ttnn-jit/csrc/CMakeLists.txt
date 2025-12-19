@@ -50,7 +50,6 @@ nanobind_add_module(
 )
 set_property(TARGET _ttnn_jit PROPERTY CXX_STANDARD 20)
 target_include_directories(_ttnn_jit
-  SYSTEM PRIVATE ${pybind11_INCLUDE_DIRS}
   PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/include
   ${PROJECT_SOURCE_DIR}/runtime/include
