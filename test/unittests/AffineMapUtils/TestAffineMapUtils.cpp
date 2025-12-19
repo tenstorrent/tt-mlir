@@ -390,7 +390,7 @@ TEST(AffineMapUtilsTest, CanDetermineCoalescingFactor) {
   // Test result codes
   enum class TestResult { Success, Subset, Failed };
 
-  auto printContiguityConstraints =
+  auto testSingleReblockingTestcase =
       [&](llvm::ArrayRef<int64_t> logicalShape,
           llvm::ArrayRef<int64_t> inputGridShape,
           llvm::ArrayRef<int64_t> outputGridShape) -> TestResult {
@@ -409,29 +409,11 @@ TEST(AffineMapUtilsTest, CanDetermineCoalescingFactor) {
       return TestResult::Success;
     } else if (coalescingFactorAnalytical < coalescingFactor &&
                coalescingFactor % coalescingFactorAnalytical == 0) {
-      llvm::dbgs() << "[TestCanDetermineCoalescingFactor] logical shape: "
-                   << ttmlir::utils::formatIterable(logicalShape, "x")
-                   << " input grid: "
-                   << ttmlir::utils::formatIterable(inputGridShape, "x")
-                   << " output grid: "
-                   << ttmlir::utils::formatIterable(outputGridShape, "x")
-                   << " SUBSET (analytical=" << coalescingFactorAnalytical
-                   << " vs calculated=" << coalescingFactor << ")\n\n";
       return TestResult::Subset;
     } else {
-      llvm::dbgs() << "[TestCanDetermineCoalescingFactor] logical shape: "
-                   << ttmlir::utils::formatIterable(logicalShape, "x")
-                   << " input grid: "
-                   << ttmlir::utils::formatIterable(inputGridShape, "x")
-                   << " output grid: "
-                   << ttmlir::utils::formatIterable(outputGridShape, "x")
-                   << " FAILED : analytical = " << coalescingFactorAnalytical
-                   << ", calculated = " << coalescingFactor << "\n";
       return TestResult::Failed;
     }
   };
-
-  printContiguityConstraints({32, 16, 4}, {1, 8, 2}, {2, 4, 1});
 
   // Configuration for 3D and 4D test generation
   constexpr int64_t maxVolume = 6400;
@@ -491,12 +473,6 @@ TEST(AffineMapUtilsTest, CanDetermineCoalescingFactor) {
     return gridShape;
   };
 
-  // Track test result counts
-  int successCount = 0;
-  int subsetCount = 0;
-  int failedCount = 0;
-  int totalTests = 0;
-
   // Generate test cases for 3D and 4D shapes
   // Use a set to skip test cases that have already been generated
   llvm::DenseSet<std::tuple<SmallVector<int64_t>, SmallVector<int64_t>,
@@ -522,35 +498,12 @@ TEST(AffineMapUtilsTest, CanDetermineCoalescingFactor) {
         }
         generatedCases.insert(key);
 
-        TestResult result = printContiguityConstraints(
+        TestResult result = testSingleReblockingTestcase(
             logicalShape, inputGridShape, outputGridShape);
-
-        switch (result) {
-        case TestResult::Success:
-          ++successCount;
-          break;
-        case TestResult::Subset:
-          ++subsetCount;
-          break;
-        case TestResult::Failed:
-          ++failedCount;
-          break;
-        }
-
-        ++totalTests;
-        if (totalTests % 50 == 0) {
-          llvm::dbgs() << "[TestCanDetermineCoalescingFactor] Progress: "
-                       << totalTests << " tests run (" << successCount
-                       << " success, " << subsetCount << " subset, "
-                       << failedCount << " failed)\n";
-        }
+        GTEST_ASSERT_EQ(result, TestResult::Success);
       }
     }
   }
-
-  llvm::dbgs() << "[TestCanDetermineCoalescingFactor] Summary: " << successCount
-               << " success, " << subsetCount << " subset, " << failedCount
-               << " failed (total: " << totalTests << ")\n";
 }
 
 TEST(AffineMapUtilsTest, AnalyzeGridResultExprForDiscontinuity) {
