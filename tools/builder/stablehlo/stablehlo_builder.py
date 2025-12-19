@@ -274,6 +274,170 @@ class StableHLOBuilder(Builder):
 
     # ----- Public StableHLO Op Generators ----
 
+    ############### stablehlo.DynamicUpdateSliceOp ###############
+
+    @tag(stablehlo.DynamicUpdateSliceOp)
+    def dynamic_update_slice(
+        self,
+        input: Operand,
+        update: Operand,
+        start_indices: List[Operand],
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        stablehlo_op = self.get_opview_from_method(
+            StableHLOBuilder.dynamic_update_slice
+        )
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = stablehlo_op(
+            input,
+            update,
+            start_indices,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            input_tensor = self._get_golden_tensor(input)
+            update_tensor = self._get_golden_tensor(update)
+            start_indices_tensors = [
+                self._get_golden_tensor(idx) for idx in start_indices
+            ]
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(
+                input_tensor,
+                update_tensor,
+                start_indices_tensors,
+                op.result.type.element_type,
+            )
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(stablehlo.DynamicUpdateSliceOp)
+    def dynamic_update_slice_parser(
+        self,
+        old_op: stablehlo.DynamicUpdateSliceOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(
+            StableHLOBuilder.dynamic_update_slice_parser
+        )
+
+        input = global_dict[old_op.operand]
+        update = global_dict[old_op.update]
+        start_indices = [global_dict[idx] for idx in old_op.start_indices]
+
+        new_op = stablehlo_op(
+            input,
+            update,
+            start_indices,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input_tensor = self._get_golden_tensor(input)
+            update_tensor = self._get_golden_tensor(update)
+            start_indices_tensors = [
+                self._get_golden_tensor(idx) for idx in start_indices
+            ]
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(
+                input_tensor,
+                update_tensor,
+                start_indices_tensors,
+                new_op_result.type.element_type,
+            )
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.DynamicUpdateSliceOp)
+    def dynamic_update_slice_split(
+        self,
+        old_op: stablehlo.DynamicUpdateSliceOp,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        stablehlo_op = self.get_opview_from_split(
+            StableHLOBuilder.dynamic_update_slice_split
+        )
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            dynamic_update_slice_module = Module.create()
+            dynamic_update_slice_builder = StableHLOBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.operand.type,
+                old_op.update.type,
+            ] + [idx.type for idx in old_op.start_indices]
+
+            with InsertionPoint(dynamic_update_slice_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="dynamic_update_slice_module")
+                def decorated_func(*inputs):
+                    input = inputs[0]
+                    update = inputs[1]
+                    start_indices = inputs[2 : 2 + len(old_op.start_indices)]
+
+                    new_op = stablehlo_op(
+                        input, update, start_indices, loc=old_op.location
+                    )
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(stablehlo_op)
+                        input_tensor = self._get_golden_tensor(old_op.operand)
+                        update_tensor = self._get_golden_tensor(old_op.update)
+                        start_indices_tensors = [
+                            self._get_golden_tensor(idx) for idx in old_op.start_indices
+                        ]
+                        golden_output = op_golden_function(
+                            input_tensor,
+                            update_tensor,
+                            start_indices_tensors,
+                            new_op_result.type.element_type,
+                        )
+                        dynamic_update_slice_builder._set_golden_tensor(
+                            new_op_result, golden_output
+                        )
+                        dynamic_update_slice_builder._set_golden_tensor(
+                            input, input_tensor
+                        )
+                        dynamic_update_slice_builder._set_golden_tensor(
+                            update, update_tensor
+                        )
+                        ordered_inputs.extend([input, update] + list(start_indices))
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                dynamic_update_slice_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return dynamic_update_slice_module, dynamic_update_slice_builder
+
     ############### stablehlo.AddOp ###############
 
     @tag(stablehlo.AddOp)
