@@ -775,8 +775,8 @@ def execute_py(
         raise TTBuilderRuntimeException(e) from e
 
 
-def execute_so(
-    so_path: str,
+def execute_cpp(
+    cpp_path: str,
     input_output_goldens: Dict[int, Dict[str, Dict[int, GoldenMapTensor]]],
     pcc: float = 0.99,
     atol: float = 1e-08,
@@ -786,6 +786,21 @@ def execute_so(
     check_atol: bool = False,
     check_rtol: bool = False,
 ):
+    # Add ttnn-standalone to sys.path for emitc compilation
+    TT_MLIR_HOME = Path(os.environ.get("TT_MLIR_HOME", os.getcwd())).resolve()
+    ttnn_standalone_path = os.path.join(TT_MLIR_HOME, "tools/ttnn-standalone")
+    if ttnn_standalone_path not in sys.path:
+        sys.path.append(ttnn_standalone_path)
+
+    from emitc_compiler import compile_emitc_to_so
+
+    output_dir = os.path.dirname(cpp_path)
+    compile_emitc_to_so(
+        cpp_path,
+        output_dir,
+    )
+    so_path = cpp_path.replace(".cpp", ".so")
+
     golden_input_output_tensors = convert_golden_input_output_to_torch(
         input_output_goldens
     )
@@ -797,29 +812,27 @@ def execute_so(
         )
 
         for program_index, program_name in enumerate(program_names):
-            template_inputs = tt_runtime.runtime.test.create_inputs(
+            inputs = tt_runtime.runtime.test.create_inputs(
                 emitc_dylib_handle,
                 program_name,
                 device,
                 so_path,
             )
             if not disable_golden:
-                inputs = []
+                corrected_inputs = []
                 golden_input_outputs = golden_input_output_tensors[program_index]
 
-                for tensor_name in golden_input_outputs:
-                    if tensor_name.startswith("input_"):
-                        golden_input = golden_input_outputs[tensor_name][0]
-                        new_input = create_tensor(golden_input)
-                        inputs.append(new_input)
+                for input_index, template_input in enumerate(inputs):
+                    # Use the layout from the template_input to convert the golden input
+                    golden_input = golden_input_outputs[f"input_{input_index}"][0]
+                    new_input = create_tensor(golden_input)
+                    corrected_inputs.append(new_input)
 
                 inputs = convert_input_layouts(
                     device,
-                    inputs,
-                    template_inputs=template_inputs,
+                    corrected_inputs,
+                    template_inputs=inputs,
                 )
-            else:
-                inputs = template_inputs
 
             outputs = tt_runtime.runtime.test.run_so_program(
                 emitc_dylib_handle,
