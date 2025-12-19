@@ -267,8 +267,12 @@ public:
               break;
             }
 
+            std::string opStr;
+            llvm::raw_string_ostream os(opStr);
+            operation->print(os);
+
             auto diag =
-                operation->emitError()
+                emitError(operation->getLoc())
                 << "OperationValidationAndFallback: Operation "
                 << operation->getName() << " with " << inputLayouts.size()
                 << " inputs failed validation (original error: " << statusName;
@@ -277,6 +281,7 @@ public:
             }
             diag << "). No fallback configuration worked after testing up to " +
                         std::to_string(maxFallbackAttempts) + " combinations.";
+            diag << "\nOperation IR: " << os.str();
             validationFailed = true;
             signalPassFailure();
             return WalkResult::interrupt();
