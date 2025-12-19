@@ -160,7 +160,6 @@ def _create_sharded_tensor_layout(ctx, tensor_arg):
     tensor_mesh = None
     exact_grid = True
 
-    # Convert TensorMemoryLayout enum to int for nanobind compatibility
     mem_layout = tensor_arg.memory_config().memory_layout.value
 
     return ttnn.ir.TTNNLayoutAttr.get_with_linear(
@@ -187,7 +186,6 @@ def _create_dram_tensor_layout(ctx, tensor_arg):
 
     tensor_mesh = None
     exact_grid = True
-    # Convert TensorMemoryLayout enum to int for nanobind compatibility
     return ttnn.ir.TTNNLayoutAttr.get_with_linear(
         ctx,
         affine_map,
@@ -300,7 +298,6 @@ def _create_tensor_layout_with_shape(
 
     tensor_mesh = None
     exact_grid = True
-    # Convert TensorMemoryLayout enum to int for nanobind compatibility
     return ttnn.ir.TTNNLayoutAttr.get_with_linear(
         ctx,
         affine_map,

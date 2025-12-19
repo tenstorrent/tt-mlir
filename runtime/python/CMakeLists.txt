@@ -81,7 +81,6 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 
 if (TTMLIR_ENABLE_RUNTIME)
-  # Isolate utils.cpp to a separate TU to avoid pulling in ttnn headers.
   add_library(_mlir_runtime_utils OBJECT runtime/utils.cpp)
   target_include_directories(_mlir_runtime_utils
     PRIVATE
