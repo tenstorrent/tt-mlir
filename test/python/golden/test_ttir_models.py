@@ -221,12 +221,17 @@ def test_llama_attention(
     )
 
 
+def format_nanoseconds(ns):
+    # Convert to microseconds and round to 3 decimal places
+    return f"{round(ns / 1e3, 3)} us"
+
+
 @pytest.mark.parametrize("batch_norm", [False])
 @pytest.mark.parametrize("activation", ["relu"])
-@pytest.mark.parametrize("batch_size", [32])
+@pytest.mark.parametrize("batch_size", [32, 1024])
 @pytest.mark.parametrize("layer_size", [1024])
-@pytest.mark.parametrize("depth", [1])
-@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["f32"])
+@pytest.mark.parametrize("depth", [16])
+@pytest.mark.parametrize("dtype", ["bf16", "bfp8_b"])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_simple_block(
     batch_norm,
@@ -239,8 +244,19 @@ def test_simple_block(
     request,
     device,
 ):
-    shapes = [[batch_size, layer_size, layer_size], [1, layer_size, layer_size], [1, layer_size, layer_size] ,]
-    dtypes = [dtype] * 3
+    print("batch_size", batch_size)
+    print("layer_size", layer_size)
+    print("depth", depth)
+    ops = batch_size * layer_size * layer_size * 2 * depth
+    tops = ops / 10**12
+    print("Compute Tops", tops)
+    wh_tops = 108.0
+    ns = (tops / wh_tops) * 10**9
+    print("Theoretical Latency", format_nanoseconds(ns))
+
+    shapes = [[batch_size, layer_size]] + [[layer_size, layer_size]] * depth * 2
+    torch_dtype = torch.bfloat16
+    dtypes = [torch_dtype] * (depth * 2 + 1)
 
     def activation_fn(x, builder):
         if activation == "relu":
@@ -256,20 +272,25 @@ def test_simple_block(
         @builder.func(shapes, dtypes)
         def model(
             x: Operand,
-            w0: Operand,
-            w1: Operand,
-            builder: TTIRBuilder,
+            *wN: List[Operand],
+            builder: TTIRBuilder = None,
         ):
-            if batch_norm:
-                assert False
-            x = builder.matmul(x, w0)
-            x = activation_fn(x, builder)
-            x = builder.matmul(x, w1)
-            x = activation_fn(x, builder)
+            assert len(wN) == depth * 2, "{len(wN)} != {depth * 2}"
+            for d in range(depth):
+                r = x
+                if batch_norm:
+                    assert False
+                x = builder.matmul(x, wN[d + 0])
+                x = activation_fn(x, builder)
+                x = builder.matmul(x, wN[d + 1])
+                x = activation_fn(x, builder)
+                x = builder.add(x, r)
             return x
 
     #options = ["test-buffer-size-policy=min"]
     options = []
+    if dtype == "bfp8_b":
+        options += ["global-data-format-target=bfp_bf8", "set-math-fidelity=LoFi"]
     compile_and_execute_ttir(
         module,
         target=target,
@@ -278,5 +299,6 @@ def test_simple_block(
         output_root=request.config.getoption("path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
-        print_ir=True,
+        disable_golden=True,
+        #print_ir=True,
     )

@@ -1000,13 +1000,13 @@ class Run:
                                     )
 
                             self.logging.info(
-                                f"e2e_duration_nanoseconds_submit = {e2e_duration_nanoseconds_submit}"
+                                f"e2e_duration_nanoseconds_submit = {e2e_duration_nanoseconds_submit} ({format_nanoseconds(e2e_duration_nanoseconds_submit)})"
                             )
                             self.logging.info(
-                                f"e2e_duration_nanoseconds_output = {e2e_duration_nanoseconds_output}"
+                                f"e2e_duration_nanoseconds_output = {e2e_duration_nanoseconds_output} ({format_nanoseconds(e2e_duration_nanoseconds_output)})"
                             )
                             self.logging.info(
-                                f"total_e2e_duration_nanoseconds_submit_plus_output = {e2e_duration_nanoseconds_submit + e2e_duration_nanoseconds_output}"
+                                f"total_e2e_duration_nanoseconds_submit_plus_output = {e2e_duration_nanoseconds_submit + e2e_duration_nanoseconds_output}  ({format_nanoseconds(e2e_duration_nanoseconds_submit + e2e_duration_nanoseconds_output)})"
                             )
                             self.logging.debug(
                                 f"finished loop={loop+1}/{self['--loops']} for binary={bin.file_path}"

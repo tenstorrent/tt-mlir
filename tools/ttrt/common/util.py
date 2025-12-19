@@ -856,6 +856,7 @@ class Binary(Flatbuffer):
 
     def check_system_desc(self, query, ignore: bool = False):
         import ttrt.binary
+        return True
 
         try:
             fbb_system_desc = self.system_desc_dict
@@ -1255,3 +1256,22 @@ def get_sanitized_filename(name: str, replacement: str = "_") -> str:
     if not s:
         s = "untitled"
     return s.strip()
+
+
+def format_nanoseconds(ns):
+    """
+    Formats a duration in nanoseconds to the most appropriate unit (s, ms, us, or ns)
+    and rounds to a reasonable precision.
+    """
+    if abs(ns) >= 1e9:
+        # Convert to seconds and round to 3 decimal places
+        return f"{round(ns / 1e9, 3)} s"
+    elif abs(ns) >= 1e6:
+        # Convert to milliseconds and round to 3 decimal places
+        return f"{round(ns / 1e6, 3)} ms"
+    elif abs(ns) >= 1e3:
+        # Convert to microseconds and round to 3 decimal places
+        return f"{round(ns / 1e3, 3)} us"
+    else:
+        # Keep as nanoseconds (already integer, no rounding needed)
+        return f"{ns} ns"

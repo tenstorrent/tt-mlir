@@ -1054,7 +1054,7 @@ class Builder(metaclass=BuilderMeta):
                 self._set_goldens(input_goldens)
                 ordered_inputs.extend(inputs)
 
-                result = fn(*inputs, self)
+                result = fn(*inputs, builder=self)
 
                 outputs = result if hasattr(result, "__iter__") else [result]
                 output_goldens: Dict[Operand, GoldenMapTensor] = {}
