@@ -336,12 +336,13 @@ class GraphToIRTranslator:
             exact_grid = True
             tensor_mesh = None
 
+            # Convert TensorMemoryLayout enum to int for nanobind compatibility
             layout = ttnn.ir.TTNNLayoutAttr.get_with_linear(
                 self.ctx,
                 affine_map,
                 grid,
                 memref,
-                memory_layout_enum,
+                memory_layout_enum.value,
                 tensor_mesh,
                 exact_grid,
             )
