@@ -847,6 +847,23 @@ inline int64_t minimizeGap(int64_t target, llvm::ArrayRef<int64_t> multipliers,
   return bestGap;
 }
 
+inline bool exprContainsDim(mlir::AffineExpr expr, unsigned dimPos) {
+  bool foundDim = false;
+  expr.walk([&](mlir::AffineExpr e) {
+    if (auto dimExpr = llvm::dyn_cast<mlir::AffineDimExpr>(e)) {
+      if (dimExpr.getPosition() == dimPos) {
+        foundDim = true;
+      }
+    }
+  });
+  return foundDim;
+}
+
+inline bool exprIsSpecificDimExpr(mlir::AffineExpr expr, unsigned dimPos) {
+  return llvm::isa<mlir::AffineDimExpr>(expr) &&
+         llvm::dyn_cast<mlir::AffineDimExpr>(expr).getPosition() == dimPos;
+}
+
 /// Helper function to recursively analyze contiguity of an affine expression.
 /// This identifies the maximum coalescable run by analyzing mod/floordiv
 /// expressions.
@@ -893,7 +910,8 @@ inline int64_t analyzeShardResultExprForContiguity(
   mlir::AffineExpr lhs = binOp.getLHS();
   mlir::AffineExpr rhs = binOp.getRHS();
 
-  switch (binOp.getKind()) {
+  auto kind = binOp.getKind();
+  switch (kind) {
   case mlir::AffineExprKind::Add: {
     // Analyze each operand recursively, propagating rhsConst
     int64_t lhsBound = analyzeShardResultExprForContiguity(
@@ -962,9 +980,51 @@ inline int64_t analyzeShardResultExprForContiguity(
 
     // Check if LHS is also floordiv/mod - error condition
     if (auto lhsBinOp = llvm::dyn_cast<mlir::AffineBinaryOpExpr>(lhs)) {
-      if (lhsBinOp.getKind() == mlir::AffineExprKind::Mod ||
-          lhsBinOp.getKind() == mlir::AffineExprKind::FloorDiv) {
-        return 1;
+      auto lhsKind = lhsBinOp.getKind();
+      if (lhsKind == mlir::AffineExprKind::Mod ||
+          lhsKind == mlir::AffineExprKind::FloorDiv) {
+        if (!exprContainsDim(lhsBinOp.getLHS(), dimPos)) {
+          return -1;
+        } else {
+          // Precompute the value of the RHS constant for lhsBinOp
+          auto innerRhsConst =
+              llvm::dyn_cast<mlir::AffineConstantExpr>(lhsBinOp.getRHS());
+          TT_assertv(innerRhsConst, "Nested binary op RHS must be constant");
+          int64_t innerRhsConstValue = innerRhsConst.getValue();
+
+          if (lhsKind == mlir::AffineExprKind::FloorDiv &&
+              kind == mlir::AffineExprKind::FloorDiv) {
+            // Both inner and outer are floordiv, so collapse them into a
+            // single floordiv
+            int64_t combinedDivisor = innerRhsConstValue * modulus;
+            return analyzeShardResultExprForContiguity(
+                lhsBinOp.getLHS().floorDiv(combinedDivisor), dimBounds, dimPos,
+                combinedDivisor);
+          } else if (lhsKind == mlir::AffineExprKind::Mod &&
+                     kind == mlir::AffineExprKind::Mod) {
+            // Both inner and outer are mod: recurse on the LHS with min of the
+            // two rhs modulus
+            int64_t gcdMod = std::min(innerRhsConstValue, modulus);
+            return analyzeShardResultExprForContiguity(
+                lhsBinOp.getLHS() % gcdMod, dimBounds, dimPos, gcdMod);
+          } else if (lhsKind == mlir::AffineExprKind::Mod &&
+                     kind == mlir::AffineExprKind::FloorDiv) {
+            // Inner is mod, outer is floordiv: analyze mod op, then multiply by
+            // floordiv divisor
+            int64_t modBound = analyzeShardResultExprForContiguity(
+                lhsBinOp, dimBounds, dimPos, innerRhsConstValue);
+            return modBound * modulus;
+          } else if (lhsKind == mlir::AffineExprKind::FloorDiv &&
+                     kind == mlir::AffineExprKind::Mod) {
+            // discontinuity happens as soon as lhs floordiv expr changes; no
+            // need to analyze outer mod.
+            return analyzeShardResultExprForContiguity(lhsBinOp, dimBounds,
+                                                       dimPos, modulus);
+          } else {
+            // not handled
+            return -1;
+          }
+        }
       }
     }
 
@@ -1209,50 +1269,23 @@ inline int64_t analyzeShardDimStrides(mlir::AffineMap map,
   }
 
   int64_t accumulatedStride = innermostStride * shape[innermostDimPos];
-  llvm::dbgs() << "\n[analyzeShardDimStrides] shape: "
-               << ttmlir::utils::formatIterable(shape, "x") << "\n";
-  llvm::dbgs() << "\n[analyzeShardDimStrides] expr: " << shardResult << "\n";
   for (int i = map.getNumDims() - 2; i >= static_cast<int>(numGridDims); --i) {
     unsigned dimPos = i;
     if (shape[dimPos] == 1) {
       // for unit dims, skip over
-      llvm::dbgs() << "    [analyzeShardDimStrides] skipping unit dim @ d"
-                   << dimPos << "\n";
       continue;
     }
     int64_t stride = analyzeExprForDimStride(shardResult, dimPos);
-    llvm::dbgs() << "    [analyzeShardDimStrides] stride @ d" << dimPos << " = "
-                 << stride << " (acc = " << accumulatedStride << ")\n";
     if (stride < 0) {
       return 1;
     }
     if (stride != accumulatedStride) {
-      llvm::dbgs() << "      [analyzeShardDimStrides] stride mismatch @ d"
-                   << dimPos << ": " << stride << " != " << accumulatedStride
-                   << "\n";
       break;
     }
     accumulatedStride = stride * shape[dimPos];
   }
 
   return accumulatedStride;
-}
-
-inline bool exprContainsDim(mlir::AffineExpr expr, unsigned dimPos) {
-  bool foundDim = false;
-  expr.walk([&](mlir::AffineExpr e) {
-    if (auto dimExpr = llvm::dyn_cast<mlir::AffineDimExpr>(e)) {
-      if (dimExpr.getPosition() == dimPos) {
-        foundDim = true;
-      }
-    }
-  });
-  return foundDim;
-}
-
-inline bool exprIsSpecificDimExpr(mlir::AffineExpr expr, unsigned dimPos) {
-  return llvm::isa<mlir::AffineDimExpr>(expr) &&
-         llvm::dyn_cast<mlir::AffineDimExpr>(expr).getPosition() == dimPos;
 }
 
 /// Analyzes an affine expression to find the minimum change in dimension
@@ -1341,6 +1374,19 @@ inline int64_t analyzeGridResultExprForDiscontinuity(
                                                    dimPos);
     }
 
+    // Deal with nested floordiv expressions
+    if (auto lhsBinOp = llvm::dyn_cast<mlir::AffineBinaryOpExpr>(lhs);
+        lhsBinOp && lhsBinOp.getKind() == mlir::AffineExprKind::FloorDiv) {
+
+      auto innerRhsConst =
+          llvm::dyn_cast<mlir::AffineConstantExpr>(lhsBinOp.getRHS());
+      TT_assertv(innerRhsConst, "Nested binary op RHS must be constant");
+
+      int64_t combinedDivisor = innerRhsConst.getValue() * divisor;
+      return analyzeGridResultExprForDiscontinuity(
+          lhsBinOp.getLHS().floorDiv(combinedDivisor), dimBounds, dimPos);
+    }
+
     // Pattern 2: (M * d_dimPos) floorDiv N -> need ceil(N/M) steps
     if (auto maybeMul = isBinaryMul(lhs)) {
       auto mulRhsConst =
@@ -1408,6 +1454,25 @@ inline int64_t analyzeGridResultExprForDiscontinuity(
           return fusedDivResult;
         }
 
+        // identify if dim exists in multiple top-level sum operand exprs
+        int targetDimReferences = 0;
+        for (auto sumOperand : sumOperands) {
+          bool foundTargetDim = false;
+          if (auto dimExpr = llvm::dyn_cast<mlir::AffineDimExpr>(sumOperand)) {
+            if (dimExpr.getPosition() == dimPos) {
+              foundTargetDim = true;
+            }
+          }
+          if (foundTargetDim) {
+            targetDimReferences++;
+          }
+        }
+        // Cannot analyze expression if the target dim exists in multiple
+        // top-level sum operand exprs
+        if (targetDimReferences > 1) {
+          return 1;
+        }
+
         for (auto sumOperand : sumOperands) {
           // Case 0: constants - accumulate into constSum
           if (auto constExpr =
@@ -1438,15 +1503,22 @@ inline int64_t analyzeGridResultExprForDiscontinuity(
                 llvm::dyn_cast<mlir::AffineConstantExpr>(mulOp->getRHS());
 
             if (!dimExpr || !constExpr) {
-              return 1; // Expected dim * const pattern, fallback
+              // lhs is binary op expr, can only analyze if this contains the
+              // only reference to the target dim.
+              if (exprContainsDim(sumOperand, dimPos)) {
+                // worst case assume that any change in the lhs expr will change
+                // the output
+                return analyzeGridResultExprForDiscontinuity(sumOperand,
+                                                             dimBounds, dimPos);
+              } else {
+                // don't try to analyze this for now
+                return 1;
+              }
             }
 
             int64_t mulValue = constExpr.getValue();
 
             if (dimExpr.getPosition() == dimPos) {
-              if (foundDim) {
-                return 1; // Multiple occurrences of target dim, fallback
-              }
               foundDim = true;
               targetDimExpr = sumOperand;
               multiplier = mulValue;

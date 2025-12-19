@@ -343,16 +343,16 @@ public:
     //--------------- trial analytical coalescing approach --------------//
     auto altCoalescingFactor = ttmlir::utils::analyzeShardDimContiguity(
         memoryMap, memref.getShape(), memrefGridShape.size(),
-        memoryMap.getNumResults() - 1);
+        memoryMap.getNumResults() - 1, elemSizeBytes);
+    llvm::dbgs() << "[CoalescingFactor] alt = " << altCoalescingFactor << " vs "
+                 << coalescingFactor << "\n";
 
-    TT_assertv(altCoalescingFactor.has_value(),
-               "Failed to analyze shard dim contiguity");
-    TT_assertv((coalescingFactor % *altCoalescingFactor == 0),
+    TT_assertv(coalescingFactor % size_t(altCoalescingFactor) == 0,
                "Coalescing factor mismatch sampled = {} vs analytical = {} ",
-               coalescingFactor, *altCoalescingFactor);
+               coalescingFactor, altCoalescingFactor);
     //-------------------------------------------------------------------//
 
-    return {streamIndices, coalescingFactor};
+    return {streamIndices, altCoalescingFactor};
   }
 
   LogicalResult matchAndRewrite(DMAOp dma,
