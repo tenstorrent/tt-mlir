@@ -16,6 +16,8 @@ namespace mlir::tt::sharding_utils {
 inline constexpr llvm::StringRef kXlaSdyShardingAttr = "xla.sdy.sharding";
 inline constexpr llvm::StringRef kXlaSdyMeshesAttr = "xla.sdy.meshes";
 inline constexpr llvm::StringRef kDefaultMeshName = "mesh";
+inline constexpr llvm::StringRef kTTShardingConstraintTargetName =
+    "tt.sharding_constraint";
 
 // Composite op flattening/re-outlining related string definitions.
 inline constexpr llvm::StringLiteral kGroupAttr("reoutline.group");

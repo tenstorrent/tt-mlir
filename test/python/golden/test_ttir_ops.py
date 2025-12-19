@@ -1007,46 +1007,104 @@ def test_batch_norm_training(
     )
 
 
+# Layout is determined by spatial dim indices (where window_dimensions > 1):
+# - NCHW: spatial dims at [2, 3], window_dimensions like [1, 1, kH, kW]
+# - NHWC: spatial dims at [1, 2], window_dimensions like [1, kH, kW, 1]
+# If exactly 2 spatial dims cannot be identified, defaults to NCHW.
 @pytest.mark.parametrize(
-    "pooling_method,window_dims,window_strides,padding,window_dilations",
+    "pooling_method,window_dims,window_strides,padding,window_dilations,shape",
     [
-        # ResNet-style max pooling: 3x3 window, stride 2 (NCHW format)
+        # ===== NCHW format tests =====
+        # window_dimensions: [batch, channel, height, width] - spatial at positions 2,3
+        # shape: [N, C, H, W]
+        # Max pooling: 3x3 window, stride 2 (NCHW format)
+        (
+            "Max",
+            [1, 1, 3, 3],
+            [1, 1, 2, 2],
+            [0, 0, 0, 0, 0, 0, 0, 0],
+            [1, 1, 1, 1],
+            (1, 64, 114, 114),
+        ),
+        # Average pooling: 2x2 window, stride 2 (NCHW format)
+        (
+            "Average",
+            [1, 1, 2, 2],
+            [1, 1, 2, 2],
+            [0, 0, 0, 0, 0, 0, 0, 0],
+            [1, 1, 1, 1],
+            (1, 32, 64, 64),
+        ),
+        # Sum pooling: 2x2 window, stride 2 (NCHW format)
+        (
+            "Sum",
+            [1, 1, 2, 2],
+            [1, 1, 2, 2],
+            [0, 0, 0, 0, 0, 0, 0, 0],
+            [1, 1, 1, 1],
+            (1, 64, 114, 114),
+        ),
+        # Max pooling with padding (NCHW format)
+        # padding: [batch_lo, batch_hi, channel_lo, channel_hi, height_lo, height_hi, width_lo, width_hi]
+        (
+            "Max",
+            [1, 1, 3, 3],
+            [1, 1, 1, 1],
+            [0, 0, 0, 0, 1, 1, 1, 1],
+            [1, 1, 1, 1],
+            (1, 32, 64, 64),
+        ),
+        # ===== NHWC format tests =====
+        # window_dimensions: [batch, height, width, channel] - spatial at positions 1,2
+        # shape: [N, H, W, C]
+        # Max pooling: 3x3 window, stride 2 (NHWC format)
         (
             "Max",
             [1, 3, 3, 1],
             [1, 2, 2, 1],
             [0, 0, 0, 0, 0, 0, 0, 0],
             [1, 1, 1, 1],
+            (1, 114, 114, 64),
         ),
-        # Average pooling: 2x2 window, stride 2 (NCHW format)
+        # Average pooling: 2x2 window, stride 2 (NHWC format)
         (
             "Average",
             [1, 2, 2, 1],
             [1, 2, 2, 1],
             [0, 0, 0, 0, 0, 0, 0, 0],
             [1, 1, 1, 1],
+            (1, 64, 64, 32),
         ),
-        # Sum pooling: 2x2 window, stride 2 (NCHW format)
+        # Sum pooling: 2x2 window, stride 2 (NHWC format)
         (
             "Sum",
             [1, 2, 2, 1],
             [1, 2, 2, 1],
             [0, 0, 0, 0, 0, 0, 0, 0],
             [1, 1, 1, 1],
+            (1, 114, 114, 64),
         ),
-        # Max pooling with padding (NCHW format)
+        # Max pooling with padding (NHWC format)
+        # padding: [batch_lo, batch_hi, height_lo, height_hi, width_lo, width_hi, channel_lo, channel_hi]
         (
             "Max",
             [1, 3, 3, 1],
             [1, 1, 1, 1],
-            [0, 0, 0, 0, 1, 1, 1, 1],
+            [0, 0, 1, 1, 1, 1, 0, 0],
             [1, 1, 1, 1],
+            (1, 64, 64, 32),
         ),
     ],
-    ids=["resnet_max_3x3_s2", "avg_2x2_s2", "sum_2x2_s2", "max_3x3_padded"],
-)
-@pytest.mark.parametrize(
-    "shape", [(1, 64, 114, 114), (1, 32, 64, 64)], ids=["resnet_114x114", "64x64"]
+    ids=[
+        "nchw_max_3x3_s2",
+        "nchw_avg_2x2_s2",
+        "nchw_sum_2x2_s2",
+        "nchw_max_3x3_padded",
+        "nhwc_max_3x3_s2",
+        "nhwc_avg_2x2_s2",
+        "nhwc_sum_2x2_s2",
+        "nhwc_max_3x3_padded",
+    ],
 )
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
 def test_pooling(
@@ -2941,9 +2999,7 @@ def test_reduce_scatter(
 @pytest.mark.parametrize(
     "mesh_shape, source_target_pairs",
     [
-        pytest.param(
-            (1, 2), [(0, 1)], marks=pytest.mark.xfail(reason="Fails Golden")
-        ),  # https://github.com/tenstorrent/tt-mlir/issues/4323
+        ((1, 2), [(0, 1)]),
         ((1, 2), [(0, 1), (1, 0)]),
         ((2, 4), [(0, 1), (1, 2), (2, 3), (3, 0)]),
         ((2, 4), [(0, 1), (1, 2), (2, 3), (3, 0), (4, 5), (5, 6), (6, 7), (7, 4)]),
@@ -2951,13 +3007,7 @@ def test_reduce_scatter(
         ((2, 4), [(0, 4), (1, 5), (2, 6), (3, 7), (4, 0), (5, 1), (6, 2), (7, 3)]),
         ((2, 4), [(0, 2), (1, 3), (4, 6), (5, 7), (2, 0), (3, 1), (6, 4), (7, 5)]),
         ((2, 4), [(0, 7), (1, 6), (2, 5), (3, 4), (4, 3), (5, 2), (6, 1), (7, 0)]),
-        pytest.param(
-            (2, 4),
-            [(0, 1), (2, 3), (4, 5), (6, 7)],
-            marks=pytest.mark.xfail(
-                reason="https://github.com/tenstorrent/tt-mlir/issues/4323"
-            ),
-        ),
+        ((2, 4), [(0, 1), (2, 3), (4, 5), (6, 7)]),
         ((1, 8), [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (6, 7), (7, 0)]),
         ((1, 32), [(i, (i + 1) % 32) for i in range(32)]),
         (
@@ -2999,10 +3049,6 @@ def test_collective_permute(
     request,
     device,
 ):
-    max_id = reduce(operator.mul, mesh_shape, 1)
-    if not all(pair[0] < max_id and pair[1] < max_id for pair in source_target_pairs):
-        pytest.skip("Source and target pairs are out of range")
-
     rank_in = len(test_shape)
     rank_mesh = len(mesh_shape)
 
@@ -3319,7 +3365,14 @@ def test_multiple_function(target, request, device):
             sigmoid0 = builder.sigmoid(in0)
             return sigmoid0
 
-    new_module, builder = build_module(my_module, "ttir")
+    compile_and_execute_ttir(
+        my_module,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        device=device,
+        target=target,
+    )
 
 
 @pytest.mark.parametrize("target", ["ttnn"])
@@ -3339,4 +3392,42 @@ def test_device_cpu_module(target, request, device):
                 sigmoid0 = builder.sigmoid(in0)
                 return sigmoid0
 
-    new_module, builder = build_module(my_module, "ttir")
+    compile_and_execute_ttir(
+        my_module,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        device=device,
+        target=target,
+    )
+
+
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_nested_function_calls(target, request, device):
+    def my_module(builder: TTIRBuilder):
+        @builder.device_module
+        def my_device_module(builder: TTIRBuilder):
+            @builder.func([(32, 32)], [torch.float32])
+            def my_modela(in0: Operand, builder: TTIRBuilder):
+                def nested_func(in0: Operand, builder: TTIRBuilder):
+                    relu0 = builder.relu(in0)
+                    return relu0
+
+                sigmoid0 = builder.sigmoid(in0)
+                ttir_builder0 = TTIRBuilder(builder.context, builder.location)
+                nested_func0 = builder.call(nested_func, [sigmoid0], ttir_builder0)
+                return nested_func0
+
+            @builder.func([(32, 32)], [torch.float32])
+            def my_modelb(in0: Operand, builder: TTIRBuilder):
+                sigmoid0 = builder.sigmoid(in0)
+                return sigmoid0
+
+    compile_and_execute_ttir(
+        my_module,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        device=device,
+        target=target,
+    )

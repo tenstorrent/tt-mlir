@@ -129,7 +129,7 @@ jobs:
         mkdir -p test_reports
         rm -rf ttrt_results || true
         mkdir -p ttrt_results
-        llvm-lit --filter-out="optimizer" --xunit-xml-output ${{ steps.strings.outputs.work-dir }}/test_reports/report_lit_${{matrix.build.runs-on}}_${{ matrix.build.image }}_${{strategy.job-index}}_${{steps.fetch-job-id.outputs.job_id}}.xml \
+        llvm-lit --filter-out="optimizer|ttnn-jit" --xunit-xml-output ${{ steps.strings.outputs.work-dir }}/test_reports/report_lit_${{matrix.build.runs-on}}_${{ matrix.build.image }}_${{strategy.job-index}}_${{steps.fetch-job-id.outputs.job_id}}.xml \
           ${{ steps.strings.outputs.build-output-dir }}/test
 
     - name: Run Tests

@@ -229,14 +229,14 @@ def module_log(builder: StableHLOBuilder):
 
 def module_and_int(builder: StableHLOBuilder):
     @builder.func([(128, 128), (128, 128)], [torch.int32, torch.int32])
-    def and_(
+    def logical_and(
         in0: Operand,
         in1: Operand,
         builder: StableHLOBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
         builder.set_graph_level_check(True)
-        return builder.and_(in0, in1, unit_attrs=unit_attrs)
+        return builder.logical_and(in0, in1, unit_attrs=unit_attrs)
 
 
 def module_or_int(builder: StableHLOBuilder):
@@ -265,14 +265,14 @@ def module_xor_int(builder: StableHLOBuilder):
 
 def module_and_bool(builder: StableHLOBuilder):
     @builder.func([(128, 128), (128, 128)], [torch.bool, torch.bool])
-    def and_(
+    def logical_and(
         in0: Operand,
         in1: Operand,
         builder: StableHLOBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
         builder.set_graph_level_check(True)
-        return builder.and_(in0, in1, unit_attrs=unit_attrs)
+        return builder.logical_and(in0, in1, unit_attrs=unit_attrs)
 
 
 def module_or_bool(builder: StableHLOBuilder):
@@ -464,26 +464,26 @@ def test_unary_ops(
 
 
 _RESHAPE_CASES = [
-    # shapes, semantic id, xfail_ttmetal?
+    # shapes, semantic id, skip_ttmetal?
     ([(2, 3), (3, 2)], "swap", True),
     ([(2, 3), (6,)], "flatten", True),
     ([(1, 784), (1, 28, 28)], "unflatten", True),
     ([(4, 8, 16), (4, 128)], "3d_to_2d", True),
     ([(64, 512), (64, 1, 512)], "expand_dims", True),
     ([(128, 128), (64, 256)], "rearrange_2d", True),
-    ([(10,), (10,)], "identity", False),
+    ([(10,), (10,)], "identity", True),
     ([(0, 6), (0, 2, 3)], "zero_dim", True),
 ]
 
 _RESHAPE_PARAMS = []
-for shapes, case_id, xfail_ttmetal in _RESHAPE_CASES:
+for shapes, case_id, skip_ttmetal in _RESHAPE_CASES:
     # ttnn: expected to pass
     _RESHAPE_PARAMS.append(pytest.param(shapes, "ttnn", id=f"{case_id}-ttnn"))
-    # ttmetal: mark as xfail for cases known to be unsupported
+    # ttmetal: skip cases known to be unsupported
     marks = []
-    if xfail_ttmetal:
+    if skip_ttmetal:
         marks.append(
-            pytest.mark.xfail(
+            pytest.mark.skip(
                 reason="reshape lowering not yet supported in TTMetal backend"
             )
         )

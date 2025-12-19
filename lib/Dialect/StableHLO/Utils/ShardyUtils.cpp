@@ -835,12 +835,42 @@ mlir::LogicalResult convertFrontendAttributesToSDY(mlir::ModuleOp &rootModule,
   return mlir::success();
 }
 
-// Convert all stablehlo.custom_call @Sharding ops to sdy.sharding_constraint
-// ops.
+// Replace mesh_idx_N placeholders with actual axis names from mesh.
+// e.g., "mesh_idx_0" -> "x", "mesh_idx_1" -> "y" or "mesh_idx_0" -> "_axis_0",
+// "mesh_idx_1" -> "_axis_1"
+static std::string replaceMeshIdxPlaceholders(
+    const std::string &shardingStr,
+    const llvm::SmallVector<mlir::sdy::MeshAxisAttr> &meshAxes) {
+  std::string result = shardingStr;
+  constexpr llvm::StringLiteral kMeshIdxPrefix = "mesh_idx_";
+
+  for (size_t i = 0; i < meshAxes.size(); ++i) {
+    std::string placeholder = (kMeshIdxPrefix + llvm::Twine(i)).str();
+    std::string axisName = meshAxes[i].getName().str();
+
+    // Replace all occurrences of placeholder with actual axis name
+    size_t pos = 0;
+    while ((pos = result.find(placeholder, pos)) != std::string::npos) {
+      result.replace(pos, placeholder.length(), axisName);
+      pos += axisName.length();
+    }
+  }
+  return result;
+}
+
+// Convert all stablehlo.custom_call @Sharding and @tt.sharding_constraint ops
+// to sdy.sharding_constraint ops.
 mlir::LogicalResult
 convertCustomCallToShardingConstraint(mlir::ModuleOp &rootModule,
                                       mlir::MLIRContext *context,
                                       mlir::OpBuilder &builder) {
+  // Get mesh axes for placeholder replacement
+  llvm::SmallVector<mlir::sdy::MeshAxisAttr> meshAxes;
+  llvm::SmallVector<mlir::sdy::MeshOp> meshOps = getMeshOps(rootModule);
+  if (!meshOps.empty()) {
+    meshAxes = llvm::to_vector(meshOps[0].getMeshAttr().getAxes());
+  }
+
   rootModule.walk([&](mlir::Operation *op) {
     if (!mlir::isa<mlir::stablehlo::CustomCallOp>(op)) {
       return;
@@ -850,13 +880,52 @@ convertCustomCallToShardingConstraint(mlir::ModuleOp &rootModule,
     mlir::stablehlo::CustomCallOp customCallOp =
         mlir::cast<mlir::stablehlo::CustomCallOp>(op);
     auto callTargetName = customCallOp.getCallTargetNameAttr();
-    if (callTargetName != gspmd_utils::kShardingCustomCallTargetName) {
+    // Handle both @Sharding (from xs.mark_sharding) and @tt.sharding_constraint
+    // (from custom ops)
+    if (callTargetName != gspmd_utils::kShardingCustomCallTargetName &&
+        callTargetName != sharding_utils::kTTShardingConstraintTargetName) {
       return;
     }
 
+    // For tt.sharding_constraint, replace mesh_idx_N placeholders with actual
+    // axis names before parsing
+    mlir::DictionaryAttr attrDict = customCallOp->getAttrDictionary();
+    if (callTargetName == sharding_utils::kTTShardingConstraintTargetName &&
+        !meshAxes.empty()) {
+      if (auto frontendAttrs = attrDict.getAs<mlir::DictionaryAttr>(
+              gspmd_utils::kFrontendAttributesAttr)) {
+        if (auto sdyShardingStr = frontendAttrs.getAs<mlir::StringAttr>(
+                sharding_utils::kXlaSdyShardingAttr)) {
+          std::string replacedStr = replaceMeshIdxPlaceholders(
+              sdyShardingStr.getValue().str(), meshAxes);
+          // Create new frontend_attributes with replaced sharding string
+          llvm::SmallVector<mlir::NamedAttribute> newFrontendAttrs;
+          for (auto attr : frontendAttrs) {
+            if (attr.getName() == sharding_utils::kXlaSdyShardingAttr) {
+              newFrontendAttrs.push_back(mlir::NamedAttribute(
+                  attr.getName(), mlir::StringAttr::get(context, replacedStr)));
+            } else {
+              newFrontendAttrs.push_back(attr);
+            }
+          }
+          // Create new attrDict with updated frontend_attributes
+          llvm::SmallVector<mlir::NamedAttribute> newAttrs;
+          for (auto attr : attrDict) {
+            if (attr.getName() == gspmd_utils::kFrontendAttributesAttr) {
+              newAttrs.push_back(mlir::NamedAttribute(
+                  attr.getName(),
+                  mlir::DictionaryAttr::get(context, newFrontendAttrs)));
+            } else {
+              newAttrs.push_back(attr);
+            }
+          }
+          attrDict = mlir::DictionaryAttr::get(context, newAttrs);
+        }
+      }
+    }
+
     mlir::DictionaryAttr newAttrDict =
-        shardy_utils::convertXlaSdyToSdyDictionary(
-            context, customCallOp->getAttrDictionary());
+        shardy_utils::convertXlaSdyToSdyDictionary(context, attrDict);
     mlir::Attribute sdyShardingAttr =
         newAttrDict.get(mlir::sdy::TensorShardingAttr::name);
     mlir::sdy::TensorShardingAttr tensorShardingAttr =

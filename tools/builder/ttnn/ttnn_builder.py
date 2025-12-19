@@ -251,15 +251,16 @@ class TTNNBuilder(Builder):
             loc=loc,
             dtype=dtype,
         )
+        op_result = op.result
 
         if unit_attrs is not None:
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         if not self._disable_golden_check:
-            self._set_golden_tensor(op.result, golden_output)
+            self._set_golden_tensor(op_result, golden_output)
 
-        return op.result
+        return op_result
 
     @parse(ttnn.AddOp)
     def add_parser(
@@ -273,16 +274,17 @@ class TTNNBuilder(Builder):
         result = old_op.result.type
 
         new_op = ttnn_op(result, lhs, rhs, loc=old_op.location, dtype=old_op.dtype)
+        new_op_result = new_op.result
 
         if not self._disable_golden_check:
             input0 = self._get_golden_tensor(lhs)
             input1 = self._get_golden_tensor(rhs)
             op_golden_function = get_golden_function(ttnn_op)
             golden_output = op_golden_function(input0, input1, result.element_type)
-            self._set_golden_tensor(new_op.result, golden_output)
+            self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
-        op_map_dictionary[old_op.result] = new_op.result
+        op_map_dictionary[old_op.result] = new_op_result
         return new_op, op_map_dictionary
 
     @split(ttnn.AddOp)
@@ -304,6 +306,9 @@ class TTNNBuilder(Builder):
 
             with InsertionPoint(add_module.body):
 
+                ordered_inputs = []
+                ordered_outputs = []
+
                 @func.func(*op_input_types, name="add_module")
                 def decorated_func(*inputs):
                     lhs = inputs[0]
@@ -313,6 +318,7 @@ class TTNNBuilder(Builder):
                     new_op = ttnn_op(
                         result, lhs, rhs, loc=old_op.location, dtype=old_op.dtype
                     )
+                    new_op_result = new_op.result
 
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(ttnn_op)
@@ -321,13 +327,19 @@ class TTNNBuilder(Builder):
                         golden_output = op_golden_function(
                             input0, input1, result.element_type
                         )
-                        add_builder._set_golden_tensor(new_op.result, golden_output)
-                        add_builder._set_output_ordering([new_op.result])
+                        add_builder._set_golden_tensor(new_op_result, golden_output)
                         add_builder._set_golden_tensor(lhs, input0)
                         add_builder._set_golden_tensor(rhs, input1)
-                        add_builder._set_input_ordering([lhs, rhs])
+                        ordered_inputs.extend([lhs, rhs])
+                        ordered_outputs.append(new_op_result)
 
                     return new_op
+
+                new_func_op = decorated_func.func_op
+                add_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
 
         return add_module, add_builder
 
@@ -2877,10 +2889,12 @@ class TTNNBuilder(Builder):
 
     @staticmethod
     def from_module(
-        ctx: Context, mlir_text: str, golden_inputs: List[torch.tensor] = None
+        ctx: Context,
+        mlir_text: str,
+        golden_inputs: Dict[str, List[torch.tensor]] = None,
     ) -> Tuple(Module, TTNNBuilder):
         if golden_inputs is None:
-            golden_inputs = []
+            golden_inputs = {}
 
         root_module = Module.parse(mlir_text, ctx)
         loc = Location.unknown(ctx)
@@ -2916,22 +2930,46 @@ class TTNNBuilder(Builder):
                             device_op_module.regions[0].blocks[0].operations
                         ):
                             if isinstance(device_module_op, func.FuncOp):
+                                if device_module_op.name.value in builder._nested_funcs:
+                                    continue
+
                                 for block in device_module_op.body:
                                     for op in block.operations:
                                         if isinstance(op, func.ReturnOp):
                                             continue
+                                        elif isinstance(op, func.CallOp):
+                                            sub_op_module_builder = (
+                                                builder.split_call_op(op)
+                                            )
+                                            if len(sub_op_module_builder) != 0:
+                                                sub_modules_and_builders.append(
+                                                    sub_op_module_builder
+                                                )
                                         else:
                                             sub_op_module_builder = builder.split_op(op)
-                                            sub_modules_and_builders.append(
-                                                sub_op_module_builder
-                                            )
+                                            if len(sub_op_module_builder) != 0:
+                                                sub_modules_and_builders.append(
+                                                    sub_op_module_builder
+                                                )
                 elif isinstance(entry, func.FuncOp):
+                    if entry.name.value in builder._nested_funcs:
+                        continue
+
                     for block in entry.body:
                         for op in block.operations:
                             if isinstance(op, func.ReturnOp):
                                 continue
+                            elif isinstance(op, func.CallOp):
+                                sub_op_module_builder = builder.split_call_op(op)
+                                if len(sub_op_module_builder) != 0:
+                                    sub_modules_and_builders.append(
+                                        sub_op_module_builder
+                                    )
                             else:
                                 sub_op_module_builder = builder.split_op(op)
-                                sub_modules_and_builders.append(sub_op_module_builder)
+                                if len(sub_op_module_builder) != 0:
+                                    sub_modules_and_builders.append(
+                                        sub_op_module_builder
+                                    )
 
         return sub_modules_and_builders

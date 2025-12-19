@@ -108,7 +108,9 @@ config.substitutions.append(("%PATH%", config.environment["PATH"]))
 config.substitutions.append(("%shlibext", config.llvm_shlib_ext))
 config.substitutions.append(("%system_desc_path%", config.system_desc_path))
 
-llvm_config.with_system_environment(["HOME", "INCLUDE", "LIB", "TMP", "TEMP"])
+llvm_config.with_system_environment(
+    ["HOME", "INCLUDE", "LIB", "TMP", "TEMP", "PYTHONPATH"]
+)
 
 llvm_config.use_default_substitutions()
 
@@ -131,6 +133,17 @@ config.models_root = os.path.join(config.ttmlir_source_dir, "test/ttmlir/models"
 config.substitutions.append(("%ttmlir_test_root", config.test_root))
 config.substitutions.append(("%models", config.models_root))
 config.substitutions.append(("%ttmlir_scripts_root", config.scripts_root))
+
+if config.enable_ttnn_jit:
+    lit_config.parallelism_groups["ttnn-jit"] = 1
+    config.available_features.add("ttnn-jit")
+
+    # Add test/ttnn-jit to PYTHONPATH so tests can import utils module
+    llvm_config.with_environment(
+        "PYTHONPATH",
+        os.path.join(config.test_source_root, "ttnn-jit"),
+        append_path=True,
+    )
 
 # Tweak the PATH to include the tools dir.
 llvm_config.with_environment("PATH", config.llvm_tools_dir, append_path=True)
@@ -161,6 +174,11 @@ if "TT_METAL_RUNTIME_ROOT" in os.environ:
     )
 else:
     raise OSError("Error: TT_METAL_RUNTIME_ROOT not set")
+
+if "TT_METAL_HOME" in os.environ:
+    llvm_config.with_environment("TT_METAL_HOME", os.environ["TT_METAL_HOME"])
+else:
+    raise OSError("Error: TT_METAL_HOME not set")
 
 # Add `TT_METAL_BUILD_HOME` to lit environment.
 if "TT_METAL_BUILD_HOME" in os.environ:

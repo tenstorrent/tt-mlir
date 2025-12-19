@@ -130,19 +130,22 @@ public:
           // Pattern: %view = view_layout ... -> %host = to_host %view ->
           // return %host. We need to materialize the view BEFORE the
           // device-to-host transfer.
-          if (auto toHostOp =
-                  mlir::dyn_cast_if_present<d2m::ToHostOp>(definingOp)) {
-            Value toHostInput = toHostOp.getInput();
+          auto toLayoutOp =
+              mlir::dyn_cast_if_present<d2m::ToLayoutOp>(definingOp);
+          bool isToHostOp = mlir::isa_and_nonnull<d2m::ToHostOp>(definingOp) ||
+                            (toLayoutOp && toLayoutOp.isDeviceToHost());
+          if (isToHostOp) {
+            Value toHostInput = definingOp->getOperand(0);
             Operation *inputDefiningOp = toHostInput.getDefiningOp();
 
             if (isViewOp(inputDefiningOp)) {
               // Materialize the view before the device-to-host transfer.
-              builder.setInsertionPoint(toHostOp);
+              builder.setInsertionPoint(definingOp);
               Value materialized =
-                  materializeView(builder, toHostOp.getLoc(), toHostInput);
+                  materializeView(builder, definingOp->getLoc(), toHostInput);
 
               // Update the ToHostOp to use the materialized value.
-              toHostOp.getInputMutable().assign(materialized);
+              definingOp->setOperand(0, materialized);
             }
           }
         }

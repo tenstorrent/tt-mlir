@@ -5,7 +5,7 @@
 #layout = #ttcore.metal_layout<logical_shape = 256x256, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = map(0)>
 
 // CHECK-AFTER: #[[LAYOUT_STREAM_0:.*]] = #ttcore.metal_layout<logical_shape = 32x2048, dim_alignments = 32x32,  {{.*}} index_map = (d0, d1, d2, d3) -> (d1 floordiv 8, d1 mod 8, d2, d3)>
-// CHECK-AFTER: #[[LAYOUT_STREAM_1:.*]] = #ttcore.metal_layout<logical_shape = 32x2048, dim_alignments = 32x256, {{.*}} index_map = (d0, d1, d2, d3) -> (0, d3 floordiv 4, 0, d3 mod 4)>
+// CHECK-AFTER: #[[LAYOUT_STREAM_1:.*]] = #ttcore.metal_layout<logical_shape = 32x2048, dim_alignments = 32x256, {{.*}} index_map = (d0, d1, d2, d3) -> (d1 floordiv 8, d1 mod 8, d2, d3)>
 // CHECK-AFTER: #[[LAYOUT_STREAM_2:.*]] = #ttcore.metal_layout<logical_shape = 32x2048, dim_alignments = 32x256, {{.*}} index_map = (d0, d1, d2, d3) -> (0, ((d1 + d3) mod 64) floordiv 4, 0, (d1 + d3) mod 4)>
 #layout_stream = #ttcore.metal_layout<logical_shape = 32x2048, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = (d0,d1,d2,d3) -> (d1 floordiv 8, d1 mod 8, d2, d3) >
 #layout_stream2 = #ttcore.metal_layout<logical_shape = 32x2048, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = (d0,d1,d2,d3) -> (0, d3 floordiv 4, 0, d3 mod 4) >

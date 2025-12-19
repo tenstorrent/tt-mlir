@@ -4,17 +4,17 @@
 #l1 = #ttnn.buffer_type<l1>
 
 // CHECK: #layout = #ttcore.metal_layout<logical_shape = 32x384, dim_alignments = 32x32, collapsed_intervals
-// CHECK-SAME: l1,, index_map = (d0, d1, d2, d3) -> (d1 floordiv 2, d1 mod 2, d2, d3)
+// CHECK-SAME: l1, sharded, index_map = (d0, d1, d2, d3) -> (d1 floordiv 2, d1 mod 2, d2, d3)
 // CHECK: #layout1 = #ttcore.metal_layout<logical_shape = 32x384, dim_alignments = 32x32, collapsed_intervals
-// CHECK-SAME: l1,, index_map = (d0, d1, d2, d3) -> (d1 floordiv 6, d1 mod 6, d2, d3)
+// CHECK-SAME: l1, sharded, index_map = (d0, d1, d2, d3) -> (d1 floordiv 6, d1 mod 6, d2, d3)
 // CHECK: #layout2 = #ttcore.metal_layout<logical_shape = 64x384, dim_alignments = 32x32, collapsed_intervals
-// CHECK-SAME: l1,, index_map = (d0, d1, d2, d3) -> (d1 floordiv 2, d1 mod 2, d2, d3)
+// CHECK-SAME: l1, sharded, index_map = (d0, d1, d2, d3) -> (d1 floordiv 2, d1 mod 2, d2, d3)
 // CHECK: #layout3 = #ttcore.metal_layout<logical_shape = 64x384, dim_alignments = 32x32, collapsed_intervals
-// CHECK-SAME: l1,, index_map = (d0, d1, d2, d3) -> (d1 floordiv 6, d1 mod 6, d2, d3)
+// CHECK-SAME: l1, sharded, index_map = (d0, d1, d2, d3) -> (d1 floordiv 6, d1 mod 6, d2, d3)
 // CHECK: #layout4 = #ttcore.metal_layout<logical_shape = 2x32x384, dim_alignments = 1x32x32, collapsed_intervals
-// CHECK-SAME: l1,, index_map = (d0, d1, d2, d3) -> (d1 floordiv 2, d1 mod 2, d2, d3)
+// CHECK-SAME: l1, sharded, index_map = (d0, d1, d2, d3) -> (d1 floordiv 2, d1 mod 2, d2, d3)
 // CHECK: #layout5 = #ttcore.metal_layout<logical_shape = 2x2x32x384, dim_alignments = 1x1x32x32, collapsed_intervals
-// CHECK-SAME: l1,, index_map = (d0, d1, d2, d3) -> (d1 floordiv 2, d1 mod 2, d2, d3)
+// CHECK-SAME: l1, sharded, index_map = (d0, d1, d2, d3) -> (d1 floordiv 2, d1 mod 2, d2, d3)
 
 
 // Width Sharded - Rank 2 layouts

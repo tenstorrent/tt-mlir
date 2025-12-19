@@ -532,11 +532,26 @@ updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
             storageLayout.getLogicalShape(), targetSquareGridShape,
             storageLayout.getNormalizedIntervals());
 
+    // If using a virtual grid, compute required forward index affine map.
+    AffineMap storageIndexMap = storageLayout.getIndexAffineMap();
+    if (info.isVirtualGrid) {
+      auto physicalGridShape = findLegalPhysicalGridForVolume(
+          ttmlir::utils::volume<int64_t>(optimalGrid), targetSquareGridShape);
+      TT_assertv(!physicalGridShape.empty(),
+                 "Unable to find 2D rect that can fit virtual grid {} within "
+                 "device grid {}",
+                 ttmlir::utils::formatIterable(optimalGrid, "x"),
+                 ttmlir::utils::formatIterable(targetSquareGridShape, "x"));
+      auto [fwdMap, _] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
+          builder.getContext(), optimalGrid, physicalGridShape);
+      storageIndexMap = fwdMap;
+    }
+
     auto newStorageLayout = ttcore::MetalLayoutAttr::get(
         builder.getContext(), storageLayout.getLogicalShape(),
         storageDimAlignments, storageLayout.getCollapsedIntervals(),
         storageLayout.getOobVal(), storageLayout.getMemorySpace(),
-        storageLayout.getMemoryLayout(), storageLayout.getIndexAffineMap());
+        storageLayout.getMemoryLayout(), storageIndexMap);
 
     llvm::SmallVector<int64_t> tileShape;
     if (auto tileType =
@@ -899,10 +914,10 @@ insertTTNNDRAMStreams(d2m::GenericOp genericOp,
 
     auto streamOutputLayout = ttcore::MetalLayoutAttr::get(
         builder.getContext(), baseMetalLayout.getLogicalShape(),
-        baseMetalLayout.getDimAlignments(),
-        baseMetalLayout.getCollapsedIntervals(), baseMetalLayout.getOobVal(),
-        ttcore::MemorySpace::DeviceDRAM,
+        baseMetalLayout.getOobVal(), ttcore::MemorySpace::DeviceDRAM,
         ttcore::TensorMemoryLayout::Interleaved,
+        baseMetalLayout.getCollapsedIntervals(),
+        baseMetalLayout.getDimAlignments(),
         ttmlir::utils::calculateReblockMap(
             unShardedShapeWithGrid, fakeShardedShape, builder.getContext()));
 
