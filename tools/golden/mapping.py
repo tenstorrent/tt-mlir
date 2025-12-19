@@ -4291,6 +4291,58 @@ def stablehlo_shift_right_logical_golden(
     return shifted.to(output_dtype)
 
 
+# The following golden implementation is taken from the op spec: https://openxla.org/stablehlo/spec#dynamic_update_slice
+def stablehlo_dynamic_update_slice_golden(
+    input_tensor: GoldenMapTensor,
+    update_tensor: GoldenMapTensor,
+    start_indices: List[GoldenMapTensor],
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    def clamp(min_val, x, max_val):
+        return max(min_val, min(x, max_val))
+
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    result_shard_map = {}
+    for device_id in input_tensor.shard_map.keys():
+        input_shard = input_tensor.shard_map[device_id]
+        update_shard = update_tensor.shard_map[device_id]
+        start_indices_shard = [
+            idx_tensor.shard_map[device_id] for idx_tensor in start_indices
+        ]
+        result_shard = input_shard.clone()
+
+        input_shape = input_shard.shape
+        update_shape = update_shard.shape
+        input_rank = len(input_shape)
+
+        # adjusted_start_indices = clamp(0, start_indices, shape(operand) - shape(update))
+        adjusted_start_indices = tuple(
+            clamp(0, int(start_indices_shard[d]), input_shape[d] - update_shape[d])
+            for d in range(input_rank)
+        )
+
+        for result_index in itertools.product(*[range(s) for s in input_shape]):
+            # update_index = result_index - adjusted_start_indices
+            update_index = tuple(
+                result_index[d] - adjusted_start_indices[d] for d in range(input_rank)
+            )
+
+            # 0 <= update_index < shape(update)
+            in_update = all(
+                0 <= update_index[d] < update_shape[d] for d in range(input_rank)
+            )
+
+            if in_update:
+                result_shard[result_index] = update_shard[update_index]
+            else:
+                result_shard[result_index] = input_shard[result_index]
+
+            result_shard_map[device_id] = result_shard
+
+    return GoldenMapTensor(result_shard_map, input_tensor.mesh_shape).to(output_dtype)
+
+
 ################ TTNN Op Golden Functions ###############
 
 
@@ -4483,6 +4535,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.ShiftRightLogicalOp: stablehlo_shift_right_logical_golden,
     stablehlo.ReverseOp: stablehlo_reverse_golden,
     stablehlo.DotGeneralOp: dot_general_golden,
+    stablehlo.DynamicUpdateSliceOp: stablehlo_dynamic_update_slice_golden,
     # StableHLO tensor manipulation operations
     stablehlo.TransposeOp: stablehlo_transpose_golden,
     stablehlo.SelectOp: stablehlo_select_golden,
