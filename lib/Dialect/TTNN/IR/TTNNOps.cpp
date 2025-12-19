@@ -23,6 +23,7 @@
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
 #include "mlir/IR/BuiltinTypes.h"
+#include "llvm/Support/raw_ostream.h"
 #include <cstdint>
 #include <numeric>
 #include <optional>
@@ -1582,6 +1583,8 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttnn::ReshapeOp op) {
 
 // SliceStaticOp verification
 ::mlir::LogicalResult mlir::tt::ttnn::SliceStaticOp::verify() {
+  llvm::errs() << "[SliceStaticOp::verify] Starting verification\n";
+  
   ::mlir::RankedTensorType inputType = getInput().getType();
   ::llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
   ::mlir::ArrayAttr begins = getBeginsAttr();
@@ -1589,16 +1592,30 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttnn::ReshapeOp op) {
   ::mlir::ArrayAttr stepAttr = getStepAttr();
   ::mlir::RankedTensorType outputType = getResult().getType();
 
+  llvm::errs() << "[SliceStaticOp::verify] Input shape = [";
+  for (size_t i = 0; i < inputShape.size(); ++i) {
+    llvm::errs() << inputShape[i];
+    if (i < inputShape.size() - 1) llvm::errs() << ", ";
+  }
+  llvm::errs() << "]\n";
+  llvm::errs() << "[SliceStaticOp::verify] Input rank = " << inputType.getRank() << "\n";
+
   // Verify that the input is at least 1D tensor
   if (inputType.getRank() < 1) {
+    llvm::errs() << "[SliceStaticOp::verify] ERROR: Input rank < 1\n";
     return emitOpError("Input must be at least a 1D tensor");
   }
 
   // Verify that the input rank matches number of elements in begins, ends, and
   // step
   size_t input_rank = static_cast<size_t>(inputType.getRank());
+  llvm::errs() << "[SliceStaticOp::verify] begins.size() = " << begins.size() << "\n";
+  llvm::errs() << "[SliceStaticOp::verify] ends.size() = " << ends.size() << "\n";
+  llvm::errs() << "[SliceStaticOp::verify] stepAttr.size() = " << stepAttr.size() << "\n";
+  
   if (input_rank != begins.size() || input_rank != ends.size() ||
       input_rank != stepAttr.size()) {
+    llvm::errs() << "[SliceStaticOp::verify] ERROR: Size mismatch\n";
     return emitOpError("Begins, ends, and step attributes must have the same "
                        "number of elements as the input tensor rank");
   }
@@ -1606,27 +1623,36 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttnn::ReshapeOp op) {
   // Validate that the output tensor has the same element type as the input
   // tensor
   if (inputType.getElementType() != outputType.getElementType()) {
+    llvm::errs() << "[SliceStaticOp::verify] ERROR: Element type mismatch\n";
     return emitOpError(
         "Output tensor must have the same element type as the input tensor");
   }
 
   // Verify the output tensor rank
   if (inputType.getRank() != outputType.getRank()) {
+    llvm::errs() << "[SliceStaticOp::verify] ERROR: Rank mismatch\n";
     return emitOpError(
         "Output tensor must have the same rank as the input tensor");
   }
 
   // Verify begin, end, step and the output tensor dimensions
   for (size_t i = 0; i < input_rank; ++i) {
+    llvm::errs() << "[SliceStaticOp::verify] Processing dimension " << i << "\n";
+    
     int64_t dimSize = inputShape[i];
+    llvm::errs() << "[SliceStaticOp::verify]   dimSize = " << dimSize << "\n";
 
     int32_t begin = ::mlir::cast<::mlir::IntegerAttr>(begins[i]).getInt();
     int32_t end = ::mlir::cast<::mlir::IntegerAttr>(ends[i]).getInt();
     int32_t step = ::mlir::cast<::mlir::IntegerAttr>(stepAttr[i]).getInt();
+    
+    llvm::errs() << "[SliceStaticOp::verify]   Raw values: begin = " << begin << ", end = " << end << ", step = " << step << "\n";
 
     // Adjust negative begin and end
     int32_t adjustedBegin = (begin < 0) ? (begin + dimSize) : begin;
     int32_t adjustedEnd = (end < 0) ? (end + dimSize) : end;
+    
+    llvm::errs() << "[SliceStaticOp::verify]   Adjusted values: adjustedBegin = " << adjustedBegin << ", adjustedEnd = " << adjustedEnd << "\n";
 
     std::ostringstream inputShapeStream;
     inputShapeStream << "(";
@@ -1639,8 +1665,11 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttnn::ReshapeOp op) {
     inputShapeStream << ")";
     std::string inputShapeStr = inputShapeStream.str();
     bool isEmptySliceOp = adjustedEnd == adjustedBegin;
+    
+    llvm::errs() << "[SliceStaticOp::verify]   isEmptySliceOp = " << (isEmptySliceOp ? "true" : "false") << "\n";
 
     if (!isEmptySliceOp && (adjustedBegin < 0 || adjustedBegin >= dimSize)) {
+      llvm::errs() << "[SliceStaticOp::verify]   ERROR: Invalid begin index\n";
       return emitOpError() << "Invalid begin index for dimension "
                            << std::to_string(i) << ". Expected value in range ["
                            << std::to_string(-dimSize) << ", " << dimSize
@@ -1648,6 +1677,7 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttnn::ReshapeOp op) {
                            << ". Input shape: " << inputShapeStr;
     }
     if (!isEmptySliceOp && (adjustedEnd < 0 || adjustedEnd > dimSize)) {
+      llvm::errs() << "[SliceStaticOp::verify]   ERROR: Invalid end index\n";
       return emitOpError() << "Invalid end index for dimension "
                            << std::to_string(i) << ". Expected value in range ["
                            << std::to_string(-dimSize) << ", " << dimSize
@@ -1662,13 +1692,19 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttnn::ReshapeOp op) {
     };
     std::string beginValueMessage = formatValueMessage(begin, adjustedBegin);
     std::string endValueMessage = formatValueMessage(end, adjustedEnd);
+    
+    llvm::errs() << "[SliceStaticOp::verify]   Formatted messages: beginValueMessage = \"" << beginValueMessage << "\", endValueMessage = \"" << endValueMessage << "\"\n";
 
     if (step == 0) {
+      llvm::errs() << "[SliceStaticOp::verify]   ERROR: Step is zero\n";
       return emitOpError("Step value for dimension " + std::to_string(i) +
                          " cannot be zero");
     }
 
+    llvm::errs() << "[SliceStaticOp::verify]   Checking step > 0 && adjustedBegin > adjustedEnd: " << (step > 0 ? "true" : "false") << " && " << (adjustedBegin > adjustedEnd ? "true" : "false") << "\n";
     if (step > 0 && adjustedBegin > adjustedEnd) {
+      llvm::errs() << "[SliceStaticOp::verify]   ERROR: For positive step, begin > end\n";
+      llvm::errs() << "[SliceStaticOp::verify]   Details: step = " << step << ", adjustedBegin = " << adjustedBegin << ", adjustedEnd = " << adjustedEnd << "\n";
       return emitOpError() << "For positive step, begin index must be less "
                               "than or equal to end index for dimension "
                            << i << ". Got begin: " << beginValueMessage
@@ -1676,7 +1712,9 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttnn::ReshapeOp op) {
                            << ", input shape: " << inputShapeStr;
     }
 
+    llvm::errs() << "[SliceStaticOp::verify]   Checking step < 0 && adjustedBegin < adjustedEnd: " << (step < 0 ? "true" : "false") << " && " << (adjustedBegin < adjustedEnd ? "true" : "false") << "\n";
     if (step < 0 && adjustedBegin < adjustedEnd) {
+      llvm::errs() << "[SliceStaticOp::verify]   ERROR: For negative step, begin < end\n";
       return emitOpError() << "For negative step, begin index must be greater "
                               "than or equal to end index for dimension "
                            << i << ". Got begin: " << beginValueMessage
@@ -1688,14 +1726,19 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttnn::ReshapeOp op) {
     int32_t expectedDimSize =
         (std::abs(adjustedEnd - adjustedBegin) + std::abs(step) - 1) /
         std::abs(step);
+    llvm::errs() << "[SliceStaticOp::verify]   Expected output dim size = " << expectedDimSize << ", actual = " << outputType.getDimSize(i) << "\n";
     if (outputType.getDimSize(i) != expectedDimSize) {
+      llvm::errs() << "[SliceStaticOp::verify]   ERROR: Output dimension size mismatch\n";
       return emitOpError() << "Mismatch in dimension " << std::to_string(i)
                            << " of the output tensor: expected size "
                            << expectedDimSize << ", but got "
                            << outputType.getDimSize(i);
     }
+    
+    llvm::errs() << "[SliceStaticOp::verify]   Dimension " << i << " verification passed\n";
   }
 
+  llvm::errs() << "[SliceStaticOp::verify] All verifications passed\n";
   return success();
 }
 

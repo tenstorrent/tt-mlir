@@ -19,6 +19,8 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 
+#include "llvm/Support/raw_ostream.h"
+
 #include <algorithm>
 #include <cassert>
 #include <numeric>
@@ -46,31 +48,87 @@ struct IndexToSliceConversionPattern
   LogicalResult
   matchAndRewrite(ttir::IndexOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    llvm::errs() << "[IndexToSliceConversionPattern] Starting transformation\n";
+    llvm::errs() << "[IndexToSliceConversionPattern] op.getDim() = " << op.getDim() << "\n";
+    
     auto inputType =
         ::mlir::dyn_cast<mlir::RankedTensorType>(adaptor.getInput().getType());
     if (!inputType || !inputType.hasRank()) {
+      llvm::errs() << "[IndexToSliceConversionPattern] Input type check failed\n";
       return failure();
     }
 
     int64_t rank = inputType.getRank();
+    llvm::errs() << "[IndexToSliceConversionPattern] Input rank = " << rank << "\n";
+    llvm::errs() << "[IndexToSliceConversionPattern] Input shape = [";
+    for (int64_t i = 0; i < rank; ++i) {
+      llvm::errs() << inputType.getDimSize(i);
+      if (i < rank - 1) llvm::errs() << ", ";
+    }
+    llvm::errs() << "]\n";
+    
+    // Debug: Check values from op directly
+    llvm::errs() << "[IndexToSliceConversionPattern] op.getBegin() = " << op.getBegin() << "\n";
+    llvm::errs() << "[IndexToSliceConversionPattern] op.getEnd() = " << op.getEnd() << "\n";
+    llvm::errs() << "[IndexToSliceConversionPattern] op.getStep() = " << op.getStep() << "\n";
+    
+    // Debug: Check values from adaptor
+    llvm::errs() << "[IndexToSliceConversionPattern] adaptor.getBegin() = " << adaptor.getBegin() << "\n";
+    llvm::errs() << "[IndexToSliceConversionPattern] adaptor.getEnd() = " << adaptor.getEnd() << "\n";
+    llvm::errs() << "[IndexToSliceConversionPattern] adaptor.getStep() = " << adaptor.getStep() << "\n";
+    
     llvm::SmallVector<mlir::Attribute, 4> begins, ends, steps;
 
     for (int64_t i = 0; i < rank; ++i) {
+      llvm::errs() << "[IndexToSliceConversionPattern] Processing dimension " << i << "\n";
       if (i == op.getDim()) {
-        begins.push_back(rewriter.getI32IntegerAttr(adaptor.getBegin()));
-        ends.push_back(rewriter.getI32IntegerAttr(adaptor.getEnd()));
-        steps.push_back(rewriter.getI32IntegerAttr(adaptor.getStep()));
+        int32_t beginVal = adaptor.getBegin();
+        int32_t endVal = adaptor.getEnd();
+        int32_t stepVal = adaptor.getStep();
+        llvm::errs() << "[IndexToSliceConversionPattern]   Dimension matches op.getDim(), using adaptor values\n";
+        llvm::errs() << "[IndexToSliceConversionPattern]   beginVal = " << beginVal << "\n";
+        llvm::errs() << "[IndexToSliceConversionPattern]   endVal = " << endVal << "\n";
+        llvm::errs() << "[IndexToSliceConversionPattern]   stepVal = " << stepVal << "\n";
+        begins.push_back(rewriter.getI32IntegerAttr(beginVal));
+        ends.push_back(rewriter.getI32IntegerAttr(endVal));
+        steps.push_back(rewriter.getI32IntegerAttr(stepVal));
       } else {
+        int64_t dimSize = inputType.getDimSize(i);
+        llvm::errs() << "[IndexToSliceConversionPattern]   Other dimension, using defaults\n";
+        llvm::errs() << "[IndexToSliceConversionPattern]   dimSize = " << dimSize << "\n";
         begins.push_back(rewriter.getI32IntegerAttr(0));
-        ends.push_back(rewriter.getI32IntegerAttr(inputType.getDimSize(i)));
+        ends.push_back(rewriter.getI32IntegerAttr(dimSize));
         steps.push_back(rewriter.getI32IntegerAttr(1));
       }
     }
+
+    llvm::errs() << "[IndexToSliceConversionPattern] Final arrays:\n";
+    llvm::errs() << "[IndexToSliceConversionPattern]   begins = [";
+    for (size_t i = 0; i < begins.size(); ++i) {
+      llvm::errs() << ::mlir::cast<::mlir::IntegerAttr>(begins[i]).getInt();
+      if (i < begins.size() - 1) llvm::errs() << ", ";
+    }
+    llvm::errs() << "]\n";
+    llvm::errs() << "[IndexToSliceConversionPattern]   ends = [";
+    for (size_t i = 0; i < ends.size(); ++i) {
+      llvm::errs() << ::mlir::cast<::mlir::IntegerAttr>(ends[i]).getInt();
+      if (i < ends.size() - 1) llvm::errs() << ", ";
+    }
+    llvm::errs() << "]\n";
+    llvm::errs() << "[IndexToSliceConversionPattern]   steps = [";
+    for (size_t i = 0; i < steps.size(); ++i) {
+      llvm::errs() << ::mlir::cast<::mlir::IntegerAttr>(steps[i]).getInt();
+      if (i < steps.size() - 1) llvm::errs() << ", ";
+    }
+    llvm::errs() << "]\n";
 
     auto newOp = rewriter.create<ttir::SliceStaticOp>(
         op.getLoc(), getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), rewriter.getArrayAttr(begins),
         rewriter.getArrayAttr(ends), rewriter.getArrayAttr(steps));
+
+    llvm::errs() << "[IndexToSliceConversionPattern] Created ttir.slice_static op\n";
+    llvm::errs() << "[IndexToSliceConversionPattern] Transformation complete\n";
 
     rewriter.replaceOp(op, newOp.getResult());
     return success();
