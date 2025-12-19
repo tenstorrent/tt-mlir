@@ -1254,7 +1254,8 @@ inline int64_t analyzeExprForDimStride(mlir::AffineExpr expr, unsigned dimPos) {
 inline int64_t analyzeShardDimStrides(mlir::AffineMap map,
                                       mlir::ArrayRef<int64_t> shape,
                                       unsigned numGridDims,
-                                      unsigned numGridResults) {
+                                      unsigned numGridResults,
+                                      int64_t elemSizeBytes) {
   int numShardDims = shape.size() - numGridDims;
   TT_assert(numShardDims > 0);
   // TODO: fix this
@@ -1265,19 +1266,25 @@ inline int64_t analyzeShardDimStrides(mlir::AffineMap map,
   int64_t innermostStride =
       analyzeExprForDimStride(shardResult, innermostDimPos);
   if (innermostStride < 0) {
-    return 1;
+    return elemSizeBytes;
+  }
+  // Expect stride for innermost dim to match element size, otherwise it must
+  // be strided non-contiguous access. This is only true if the innermost dim
+  // is non-unit.
+  if (innermostStride > 0 && innermostStride != elemSizeBytes &&
+      shape[innermostDimPos] != 1) {
+    return elemSizeBytes;
   }
 
   int64_t accumulatedStride = innermostStride * shape[innermostDimPos];
   for (int i = map.getNumDims() - 2; i >= static_cast<int>(numGridDims); --i) {
     unsigned dimPos = i;
     if (shape[dimPos] == 1) {
-      // for unit dims, skip over
       continue;
     }
     int64_t stride = analyzeExprForDimStride(shardResult, dimPos);
     if (stride < 0) {
-      return 1;
+      return elemSizeBytes;
     }
     if (stride != accumulatedStride) {
       break;
@@ -1731,8 +1738,8 @@ inline int64_t analyzeShardDimContiguity(mlir::AffineMap map,
     }
   }
   // Check stride alignment. This fundamentally limits the coalescing factor.
-  auto strideLimit =
-      analyzeShardDimStrides(simplifiedMap, shape, numGridDims, numGridResults);
+  auto strideLimit = analyzeShardDimStrides(simplifiedMap, shape, numGridDims,
+                                            numGridResults, elemSizeBytes);
   TT_assertv(strideLimit % elemSizeBytes == 0,
              "strideLimit must be divisible by elemSizeBytes");
   strideLimit /= elemSizeBytes;

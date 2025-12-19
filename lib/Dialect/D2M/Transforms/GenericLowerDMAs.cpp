@@ -347,6 +347,15 @@ public:
     llvm::dbgs() << "[CoalescingFactor] alt = " << altCoalescingFactor << " vs "
                  << coalescingFactor << "\n";
 
+    if (coalescingFactor % size_t(altCoalescingFactor) != 0) {
+      llvm::dbgs() << "[CoalescingFactor] mismatch sampled = "
+                   << coalescingFactor
+                   << " vs analytical = " << altCoalescingFactor << "\n";
+      llvm::dbgs() << "[CoalescingFactor] map: " << memoryMap << "\n";
+      llvm::dbgs() << "[CoalescingFactor] shape: "
+                   << ttmlir::utils::formatIterable(memref.getShape(), "x")
+                   << "\n";
+    }
     TT_assertv(coalescingFactor % size_t(altCoalescingFactor) == 0ul,
                "Coalescing factor mismatch sampled = {} vs analytical = {} ",
                coalescingFactor, altCoalescingFactor);
