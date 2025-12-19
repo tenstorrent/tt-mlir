@@ -779,7 +779,6 @@ inline size_t calculateCoalescingFactor(mlir::AffineMap map,
       fullIndex.append(shardIndex.begin(), shardIndex.end());
 
       llvm::SmallVector<int64_t, 4> address = map.compose(fullIndex);
-
       if (expectedAddress.empty() || expectedAddress == address) {
         ++currentRunLength;
       } else {
@@ -1092,6 +1091,153 @@ inline int64_t analyzeShardResultExprForContiguity(
   }
 }
 
+/// Analyzes the stride (coefficient) of a specific dimension in an affine
+/// expression. The stride represents how much the output changes when the
+/// dimension increases by 1.
+///
+/// Returns:
+///   -1: Error/cannot analyze the expression
+///   0: Dimension doesn't affect this expression
+///   >0: The stride (coefficient) of the dimension
+///
+/// Examples:
+/// - d0 -> stride is 1
+/// - d0 * 128 -> stride is 128
+/// - (d0 * 64) mod 4096 -> stride is 64 (mod doesn't change stride)
+/// - d0 * 128 + (d0 * 64) mod 4096 -> stride is 128 + 64 = 192
+/// - (d0 * 16) floorDiv 2 -> stride is 16 / 2 = 8
+/// - (d0 * 2) floorDiv 16 -> stride is 0 (output changes less than once per
+/// step)
+inline int64_t analyzeExprForDimStride(mlir::AffineExpr expr, unsigned dimPos) {
+  // Constant: stride = 0 (doesn't depend on dim)
+  if (llvm::isa<mlir::AffineConstantExpr>(expr)) {
+    return 0;
+  }
+
+  // Dim expression
+  if (auto dimExpr = llvm::dyn_cast<mlir::AffineDimExpr>(expr)) {
+    return dimExpr.getPosition() == dimPos ? 1 : 0;
+  }
+
+  auto binOp = llvm::dyn_cast<mlir::AffineBinaryOpExpr>(expr);
+  if (!binOp) {
+    return -1; // Cannot analyze
+  }
+
+  auto lhs = binOp.getLHS();
+  auto rhs = binOp.getRHS();
+
+  switch (binOp.getKind()) {
+  case mlir::AffineExprKind::Add: {
+    int64_t lhsStride = analyzeExprForDimStride(lhs, dimPos);
+    int64_t rhsStride = analyzeExprForDimStride(rhs, dimPos);
+    if (lhsStride < 0 || rhsStride < 0) {
+      return -1;
+    }
+    return lhsStride + rhsStride;
+  }
+
+  case mlir::AffineExprKind::Mul: {
+    auto rhsConst = llvm::dyn_cast<mlir::AffineConstantExpr>(rhs);
+    // To simplify analysis, assert that rhs is always a constant here
+    TT_assertv(
+        rhsConst,
+        "analyzeExprForDimStride: analysis expects MulOp rhs to be a constant");
+    int64_t lhsStride = analyzeExprForDimStride(lhs, dimPos);
+    if (lhsStride < 0) {
+      return -1;
+    }
+    return lhsStride * rhsConst.getValue();
+  }
+
+  case mlir::AffineExprKind::Mod: {
+    // Mod doesn't change stride, it just limits the range
+    return analyzeExprForDimStride(lhs, dimPos);
+  }
+
+  case mlir::AffineExprKind::FloorDiv:
+  case mlir::AffineExprKind::CeilDiv: {
+    auto rhsConst = llvm::dyn_cast<mlir::AffineConstantExpr>(rhs);
+    if (!rhsConst || rhsConst.getValue() <= 0) {
+      return -1;
+    }
+
+    int64_t lhsStride = analyzeExprForDimStride(lhs, dimPos);
+    if (lhsStride < 0) {
+      return -1;
+    }
+
+    int64_t divisor = rhsConst.getValue();
+    // If lhsStride >= divisor, output changes by lhsStride/divisor per step
+    // If lhsStride < divisor, output changes less than once per step (stride 0)
+    // return std::max(1l, lhsStride / divisor);
+    return std::max(1l, lhsStride / divisor);
+  }
+
+  default:
+    return -1;
+  }
+}
+
+/// Analyzes stride alignment for shard dimensions in an affine map.
+/// For contiguous access (stride=1), the strides must satisfy:
+/// - Innermost shard dimension has stride 1
+/// - Each outer shard dimension has stride = inner_stride * inner_bound
+///
+/// @param map The affine map to analyze
+/// @param shape The shape providing bounds for each dimension
+/// @param numGridDims The number of grid dimensions (shard dims start after)
+/// @param numGridResults The number of grid results in the map
+/// @return Coalescing factor limited by stride misalignment:
+///         - std::nullopt: Strides are properly aligned (no constraint)
+///         - Positive value: Maximum coalescing factor due to stride issues
+inline int64_t analyzeShardDimStrides(mlir::AffineMap map,
+                                      mlir::ArrayRef<int64_t> shape,
+                                      unsigned numGridDims,
+                                      unsigned numGridResults) {
+  int numShardDims = shape.size() - numGridDims;
+  TT_assert(numShardDims > 0);
+  // TODO: fix this
+  TT_assert(numGridResults == map.getNumResults() - 1);
+
+  mlir::AffineExpr shardResult = map.getResult(numGridResults);
+  size_t innermostDimPos = map.getNumDims() - 1;
+  int64_t innermostStride =
+      analyzeExprForDimStride(shardResult, innermostDimPos);
+  if (innermostStride < 0) {
+    return 1;
+  }
+
+  int64_t accumulatedStride = innermostStride * shape[innermostDimPos];
+  llvm::dbgs() << "\n[analyzeShardDimStrides] shape: "
+               << ttmlir::utils::formatIterable(shape, "x") << "\n";
+  llvm::dbgs() << "\n[analyzeShardDimStrides] expr: " << shardResult << "\n";
+  for (int i = map.getNumDims() - 2; i >= static_cast<int>(numGridDims); --i) {
+    unsigned dimPos = i;
+    if (shape[dimPos] == 1) {
+      // for unit dims, skip over
+      llvm::dbgs() << "    [analyzeShardDimStrides] skipping unit dim @ d"
+                   << dimPos << "\n";
+      continue;
+    }
+    int64_t stride = analyzeExprForDimStride(shardResult, dimPos);
+    llvm::dbgs() << "    [analyzeShardDimStrides] stride @ d" << dimPos << " = "
+                 << stride << " (acc = " << accumulatedStride << ")\n";
+    if (stride < 0) {
+      return 1;
+    }
+    if (stride != accumulatedStride) {
+      llvm::dbgs() << "      [analyzeShardDimStrides] stride mismatch @ d"
+                   << dimPos << ": " << stride << " != " << accumulatedStride
+                   << "\n";
+      break;
+    }
+    accumulatedStride = stride * shape[dimPos];
+  }
+
+  return accumulatedStride;
+}
+
 inline bool exprContainsDim(mlir::AffineExpr expr, unsigned dimPos) {
   bool foundDim = false;
   expr.walk([&](mlir::AffineExpr e) {
@@ -1180,6 +1326,21 @@ inline int64_t analyzeGridResultExprForDiscontinuity(
       }
     }
 
+    if (auto lhsMod = mlir::dyn_cast<mlir::AffineBinaryOpExpr>(lhs);
+        lhsMod && lhsMod.getKind() == mlir::AffineExprKind::Mod) {
+
+      // strip away mod, it doesn't impact analysis
+      mlir::AffineExpr fusedExpr;
+      if (binOp.getKind() == mlir::AffineExprKind::FloorDiv) {
+        fusedExpr = lhsMod.getLHS().floorDiv(divisor);
+      } else {
+        fusedExpr = lhsMod.getLHS().ceilDiv(divisor);
+      }
+
+      return analyzeGridResultExprForDiscontinuity(fusedExpr, dimBounds,
+                                                   dimPos);
+    }
+
     // Pattern 2: (M * d_dimPos) floorDiv N -> need ceil(N/M) steps
     if (auto maybeMul = isBinaryMul(lhs)) {
       auto mulRhsConst =
@@ -1203,9 +1364,6 @@ inline int64_t analyzeGridResultExprForDiscontinuity(
       if (auto maybeAdd = isBinaryAdd(lhs)) {
         auto sumOperands = collectSumOperands(maybeAdd);
 
-        llvm::dbgs() << "              [analyze d" << dimPos
-                     << "] expr: " << lhs << "\n";
-
         // if the expression does not contain the target dim, it's unconstrained
         if (!exprContainsDim(lhs, dimPos)) {
           return -1;
@@ -1215,6 +1373,40 @@ inline int64_t analyzeGridResultExprForDiscontinuity(
         // Track (dimPosition, multiplier) pairs for other dimensions
         llvm::SmallVector<std::pair<unsigned, int64_t>> otherDimInfo;
         int64_t constSum = 0;
+
+        // Case: ((targetDim floorDiv N) + unrelated dim crap) floorDiv M) ...
+        bool foundNestedFloordiv = false;
+        bool foundNonDivExprWithTargetDim = false;
+        int64_t fusedDivResult = 0;
+        for (auto sumOperand : sumOperands) {
+          if (auto lhsFloordiv =
+                  mlir::dyn_cast<mlir::AffineBinaryOpExpr>(sumOperand);
+              lhsFloordiv &&
+              (lhsFloordiv.getKind() == mlir::AffineExprKind::FloorDiv)) {
+
+            if (!exprContainsDim(lhsFloordiv.getLHS(), dimPos)) {
+              continue;
+            }
+            foundNestedFloordiv = true;
+
+            mlir::AffineExpr innerRHS = lhsFloordiv.getRHS();
+            if (auto innerDivisor =
+                    llvm::dyn_cast<mlir::AffineConstantExpr>(innerRHS)) {
+              mlir::AffineExpr combinedDivisor = mlir::getAffineConstantExpr(
+                  divisor * innerDivisor.getValue(), expr.getContext());
+
+              mlir::AffineExpr fusedExpr =
+                  lhsFloordiv.getLHS().floorDiv(combinedDivisor);
+              fusedDivResult = analyzeGridResultExprForDiscontinuity(
+                  fusedExpr, dimBounds, dimPos);
+            }
+          } else if (exprContainsDim(sumOperand, dimPos)) {
+            foundNonDivExprWithTargetDim = true;
+          }
+        }
+        if (foundNestedFloordiv && !foundNonDivExprWithTargetDim) {
+          return fusedDivResult;
+        }
 
         for (auto sumOperand : sumOperands) {
           // Case 0: constants - accumulate into constSum
@@ -1296,7 +1488,8 @@ inline int64_t analyzeGridResultExprForDiscontinuity(
 
           int64_t stepsNeeded =
               (gap + multiplier - 1) / multiplier; // Ceiling division
-          return checkBoundsAndReturn(stepsNeeded);
+          auto it = checkBoundsAndReturn(stepsNeeded);
+          return it;
         }
       }
     }
@@ -1333,8 +1526,9 @@ inline int64_t analyzeGridResultExprForDiscontinuity(
     // if not, by definition it's unconstrained.
     if (!exprContainsDim(lhs, dimPos)) {
       return -1;
+    } else {
+      return analyzeGridResultExprForDiscontinuity(lhs, dimBounds, dimPos);
     }
-    return 1;
   }
 
   default:
@@ -1366,16 +1560,10 @@ inline int64_t analyzeSingleShardDimContiguity(mlir::AffineMap map,
     dimBounds[static_cast<int>(i)] = shape[i];
   }
 
-  llvm::dbgs() << "  [analyze d" << dimPos
-               << "] shape: " << ttmlir::utils::formatIterable(shape, "x")
-               << "\n";
-
   // Phase II: Analyze each result expression for contiguity
   int64_t dimContiguity = -1; // Start unconstrained
 
   for (auto [i, resultExpr] : llvm::enumerate(map.getResults())) {
-    llvm::dbgs() << "      [analyze d" << dimPos << "] result " << i
-                 << " expr: " << resultExpr << "\n";
     int64_t exprBound;
     if (i >= numGridResults) {
       exprBound =
@@ -1393,9 +1581,6 @@ inline int64_t analyzeSingleShardDimContiguity(mlir::AffineMap map,
         dimContiguity = std::gcd(dimContiguity, exprBound);
       }
     }
-    llvm::dbgs() << "      [analyze d" << dimPos << "] result " << i
-                 << " bound: " << exprBound << " (overall: " << dimContiguity
-                 << ")\n\n";
   }
 
   // Replace -1 (unconstrained) with the actual shape extent for this dim
@@ -1411,12 +1596,15 @@ inline int64_t analyzeSingleShardDimContiguity(mlir::AffineMap map,
 /// position >= numGridDims.
 ///
 /// The algorithm:
-/// 1. Iterates shard dims from most minor (last) to least minor (first)
-/// 2. For each dim, checks if it's constrained (dimContiguity < shape extent)
-/// 3. If constrained, this is the largest contiguous dim - computes the
+/// 1. First checks stride alignment - for contiguous access, strides must be:
+///    - Innermost shard dim has stride 1
+///    - Each outer dim has stride = inner_stride * inner_bound
+/// 2. Then iterates shard dims from most minor (last) to least minor (first)
+/// 3. For each dim, checks if it's constrained (dimContiguity < shape extent)
+/// 4. If constrained, this is the largest contiguous dim - computes the
 ///    coalescing factor by multiplying the dim's contiguity with the size of
 ///    all more minor dims that are fully contiguous
-/// 4. If all dims are fully contiguous, returns the product of all shard sizes
+/// 5. Returns the minimum of stride-based and contiguity-based constraints
 ///
 /// @param map The affine map to analyze
 /// @param shape The shape providing bounds for each dimension
@@ -1424,9 +1612,12 @@ inline int64_t analyzeSingleShardDimContiguity(mlir::AffineMap map,
 /// @return Combined coalescing factor:
 ///         - std::nullopt: Error condition (non-analyzable expression)
 ///         - Positive value: Maximum coalescable run length across all shards
-inline std::optional<int64_t>
-analyzeShardDimContiguity(mlir::AffineMap map, mlir::ArrayRef<int64_t> shape,
-                          unsigned numGridDims, unsigned numGridResults) {
+inline int64_t analyzeShardDimContiguity(mlir::AffineMap map,
+                                         mlir::ArrayRef<int64_t> shape,
+                                         unsigned numGridDims,
+                                         unsigned numGridResults,
+                                         int64_t elemSizeBytes) {
+  TT_assert(elemSizeBytes > 0);
   TT_assertv(shape.size() == map.getNumDims(),
              "Shape size must match number of map dimensions");
   TT_assertv(shape.size() % 2 == 0u, "Shape rank must be even");
@@ -1441,7 +1632,9 @@ analyzeShardDimContiguity(mlir::AffineMap map, mlir::ArrayRef<int64_t> shape,
   // actually do something.
   mlir::AffineMap simplifiedMap =
       simplifyAffineMapWithRangeAnalysis(simplifyZeroFloorDiv(map), shape);
-  llvm::dbgs() << "[analyzeShardDimContiguity] map: " << simplifiedMap << "\n";
+
+  llvm::dbgs() << "[analyzeShardDimContiguity] simplified map: "
+               << simplifiedMap << "\n";
 
   // Analyze each shard dim and store results
   llvm::SmallVector<int64_t> dimContiguities;
@@ -1453,27 +1646,40 @@ analyzeShardDimContiguity(mlir::AffineMap map, mlir::ArrayRef<int64_t> shape,
     dimContiguities.push_back(contiguity);
   }
 
-  // Iterate from most minor to least minor shard dim
-  // Accumulate the product of fully contiguous minor dims
-  int64_t minorProduct = 1;
-
+  // Iterate from most minor to least minor shard dim.
+  // Accumulate the product of fully contiguous minor dims.
+  int64_t coalescingFactor = 1;
   for (int dimIdx = numShardDims - 1; dimIdx >= 0; --dimIdx) {
     unsigned dimPos = numGridDims + dimIdx;
     int64_t dimExtent = shape[dimPos];
     int64_t dimContiguity = dimContiguities[dimIdx];
 
+    coalescingFactor *= dimContiguity;
     if (dimContiguity < dimExtent) {
-      // This dim is constrained - it's the largest contiguous dim
-      // Return dimContiguity * product of all fully contiguous minor dims
-      return dimContiguity * minorProduct;
+      // Stop accumulating the coalescing factor once non-contiguous dim is
+      // encountered.
+      break;
     }
+  }
+  llvm::dbgs() << "[analyzeShardDimContiguity] coalescingFactor before stride "
+                  "analysis = "
+               << coalescingFactor << "\n";
 
-    // Dim is fully contiguous, accumulate its size
-    minorProduct *= dimExtent;
+  // Check stride alignment. This fundamentally limits the coalescing factor.
+  auto strideLimit =
+      analyzeShardDimStrides(simplifiedMap, shape, numGridDims, numGridResults);
+  TT_assertv(strideLimit % elemSizeBytes == 0,
+             "strideLimit must be divisible by elemSizeBytes");
+  strideLimit /= elemSizeBytes;
+
+  llvm::dbgs() << "[analyzeShardDimContiguity] strideLimit = " << strideLimit
+               << "\n";
+
+  if (strideLimit < coalescingFactor) {
+    return std::gcd(coalescingFactor, strideLimit);
   }
 
-  // All dims are fully contiguous
-  return minorProduct;
+  return coalescingFactor;
 }
 
 } // namespace ttmlir::utils
