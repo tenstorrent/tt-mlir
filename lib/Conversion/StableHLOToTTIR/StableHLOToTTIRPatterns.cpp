@@ -3544,6 +3544,9 @@ public:
       TypeConverter &typeConverter, MLIRContext *ctx)
       : OpConversionPattern<mlir::stablehlo::ScatterOp>(typeConverter, ctx,
                                                         /*benefit=*/2) {}
+
+  // Benefit is 2 to ensure this pattern is tried before generic scatter.
+  // This is because embedding_backward is a more specific pattern than scatter.
   LogicalResult
   matchAndRewrite(mlir::stablehlo::ScatterOp srcOp,
                   mlir::stablehlo::ScatterOp::Adaptor adaptor,
@@ -3560,6 +3563,11 @@ public:
           srcOp,
           "EmbeddingBackward requires sum reduction in update computation");
     }
+
+    assert(adaptor.getInputs().size() == 1 &&
+           "EmbeddingBackward requires 1 inputs");
+    assert(adaptor.getUpdates().size() == 1 &&
+           "EmbeddingBackward requires 1 update");
 
     Value operand = adaptor.getInputs()[0];
     Value scatterIndices = adaptor.getScatterIndices();
@@ -3602,6 +3610,8 @@ public:
                  "embedding dimension");
     }
 
+    assert(srcOp.getResults().size() == 1 &&
+           "EmbeddingBackward requires 1 result");
     auto outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResults()[0].getType()));
 

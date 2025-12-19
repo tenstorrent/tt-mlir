@@ -404,7 +404,7 @@ public:
 
     // StableHLO scatter produces [batch, seq, 1], but embedding_bw expects
     // [batch, seq].
-    if (indicesType.getRank() >= 2 &&
+    if (indicesType.getRank() > 2 &&
         indicesType.getDimSize(indicesType.getRank() - 1) == 1) {
       llvm::SmallVector<int64_t> squeezedShape(
           indicesType.getShape().drop_back());
