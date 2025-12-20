@@ -274,6 +274,49 @@ class StableHLOBuilder(Builder):
 
     # ----- Public StableHLO Op Generators ----
 
+    ############### stablehlo.RngOp ###############
+
+    @tag(stablehlo.RngOp)
+    def rng(
+        self,
+        shape: List[int],
+        dtype: torch.dtype,
+        low: float = 0.0,
+        high: float = 1.0,
+        loc: Optional[str] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.rng)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        # Create explicit output since RNG has no tensor inputs
+        output_type = self._get_type_from_torch_dtype(dtype)
+        output = self._create_ranked_tensor_type(shape, output_type)
+
+        # Build the StableHLO RNG op (uniform distribution only)
+        op = stablehlo_op(
+            output,
+            rng_distribution=stablehlo.RngDistributionAttr.get(
+                stablehlo.RngDistribution.UNIFORM
+            ),
+            low=FloatAttr.get(F64Type.get(self._ctx), low),
+            high=FloatAttr.get(F64Type.get(self._ctx), high),
+            loc=loc,
+        )
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
+
+        if not self._disable_golden_check:
+            golden = torch.rand(shape, dtype=dtype) * (high - low) + low
+            self._set_golden_tensor(op.result, golden)
+
+        return op.result
+
     ############### stablehlo.DynamicUpdateSliceOp ###############
 
     @tag(stablehlo.DynamicUpdateSliceOp)

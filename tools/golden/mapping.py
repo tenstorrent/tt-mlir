@@ -444,6 +444,11 @@ def cbrt_golden(x: GoldenMapTensor) -> GoldenMapTensor:
     return torch.mul(golden_sign, golden_cbrt)
 
 
+# RNG golden helper for StableHLO RNG op
+def rng_golden(*, shape, dtype, low=0.0, high=1.0, **kwargs) -> GoldenMapTensor:
+    return torch.rand(shape, dtype=dtype) * (high - low) + low
+
+
 def conv2d_golden(
     input_tensor: GoldenMapTensor,
     weight: GoldenMapTensor,
@@ -2201,6 +2206,358 @@ def repeat_interleave_golden(
     return torch.repeat_interleave(input_tensor, repeats, dim=dim)
 
 
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+=======
+<<<<<<< HEAD
+=======
+>>>>>>> f4bab2e78 (feat: add StableHLO RNG op builder, golden, and tests)
+def _sharding(
+    tensor: GoldenMapTensor,
+    mesh_shape: Tuple[int],
+    shard_dims: Tuple[Union[int, None]],
+) -> GoldenMapTensor:
+    assert len(mesh_shape) == len(
+        shard_dims
+    ), "mesh_shape and shard_dims must have the same length"
+    assert len(tensor.shard_map) == 1, "Input tensor must have a single shard"
+
+    shards = [tensor.shard_at(0).clone()]
+    for dim_size, shard_dim in zip(mesh_shape, shard_dims):
+        temp_shards = []
+        if shard_dim is None or shard_dim == -1:
+            for shard in shards:
+                temp_shards.extend([shard.clone() for _ in range(dim_size)])
+        else:
+            for shard in shards:
+                temp_shards.extend(torch.chunk(shard, dim_size, dim=shard_dim))
+        shards = temp_shards
+
+    shard_dictionary = {i: shard for i, shard in enumerate(shards)}
+    return GoldenMapTensor(shard_dictionary, mesh_shape)
+
+
+def _unsharding(
+    tensor: GoldenMapTensor,
+    mesh_shape: Tuple[int],
+    shard_dims: Tuple[Union[int, None]],
+) -> GoldenMapTensor:
+    assert len(mesh_shape) == len(
+        shard_dims
+    ), "mesh_shape and shard_dims must have the same length"
+    assert len(tensor.shard_map) != 1, "Input tensor must have multiple shards"
+
+    shards = [tensor.shard_at(i).clone() for i in range(len(tensor.shard_map))]
+    for dim_size, shard_dim in zip(reversed(mesh_shape), reversed(shard_dims)):
+        if shard_dim is None or shard_dim == -1:
+            shards = shards[::dim_size]
+        else:
+            temp_shards = []
+            for i in range(0, len(shards), dim_size):
+                concat_shard = torch.cat(shards[i : i + dim_size], dim=shard_dim)
+                temp_shards.append(concat_shard)
+            shards = temp_shards
+
+    return GoldenMapTensor({0: shards[0]}, mesh_shape)
+
+
+def mesh_shard_golden(
+    input: GoldenMapTensor,
+    mesh_shape: Tuple[int, int],
+    shard_type: Attribute,
+    shard_direction: Attribute,
+    shard_shape: Tuple[int, int],
+    shard_dims: List[int],
+) -> GoldenMapTensor:
+    """
+    Return a tensor which was sharded or unsharded by mesh_shard.
+
+    Parameters
+    ----------
+    input : GoldenMapTensor
+        Input tensor to be sharded or unsharded
+    mesh_shape : Tuple[int, int]
+        Shape of the device mesh
+    shard_type : Attribute
+        Type of sharding operation
+    shard_direction : Attribute
+        Direction of sharding
+    shard_shape : Tuple[int, int]
+        Shape of the shard
+    shard_dims : List[int]
+        Dimensions to shard along
+
+    Returns
+    -------
+    GoldenMapTensor
+        Golden tensor which was sharded or unsharded by mesh_shard.
+    """
+
+    shard_direction_str = str(shard_direction).lower()
+    shard_type_str = str(shard_type).lower()
+    if "full_to_shard" in shard_direction_str:
+        if "replicate" in shard_type_str:
+            shard_dims = [None] * len(mesh_shape)
+        return _sharding(input, mesh_shape, shard_dims)
+    elif "shard_to_full" in shard_direction_str:
+        if "replicate" in shard_type_str:
+            return _unsharding(input, [1], [1])
+        else:
+            return _unsharding(input, mesh_shape, shard_dims)
+
+
+def all_gather_golden(
+    input: GoldenMapTensor,
+    all_gather_dim: int,
+    cluster_axis: int,
+) -> GoldenMapTensor:
+    """
+    Return a GoldenMapTensor which was gathered from all devices.
+
+    Parameters
+    ----------
+    input : GoldenMapTensor
+        Input tensor to gather from all devices
+    all_gather_dim : int
+        Dimension to gather along
+    cluster_axis : int
+        Axis of the cluster for gathering
+
+    Returns
+    -------
+    GoldenMapTensor
+        GoldenMapTensor which was gathered from all devices
+    """
+
+    output_shards = [None] * len(input.shard_map)
+    grouped_shards = input.group_by_axis(cluster_axis)
+    for group in grouped_shards:
+        gathered_tensor = torch.cat(list(group.values()), dim=all_gather_dim)
+        for id in group.keys():
+            output_shards[id] = gathered_tensor.clone()
+    return GoldenMapTensor(
+        {i: t for i, t in enumerate(output_shards)}, input.mesh_shape
+    )
+
+
+# Map of supported reduction keywords to callable functions
+_REDUCE = {
+    "sum": lambda xs: torch.sum(torch.stack(xs), 0),
+    "mean": lambda xs: torch.mean(torch.stack(xs), 0),
+    "max": lambda xs: torch.amax(torch.stack(xs), 0),
+    "min": lambda xs: torch.amin(torch.stack(xs), 0),
+    "std": lambda xs: torch.std(torch.stack(xs), 0),  # default correction=1
+    "var": lambda xs: torch.var(torch.stack(xs), 0),
+}
+<<<<<<< HEAD
+=======
+# StableHLO golden function mapping (add new ops as needed)
+stablehlo_golden_mapping = {
+    stablehlo.AddOp: torch.add,
+    stablehlo.ConcatOp: concat_golden,
+    stablehlo.MulOp: torch.mul,
+    stablehlo.SubOp: torch.sub,
+    stablehlo.DivOp: torch.div,
+    stablehlo.RngOp: rng_golden,
+    # ... add other StableHLO ops as needed
+}
+>>>>>>> f4bab2e78 (feat: add StableHLO RNG op builder, golden, and tests)
+
+
+def _reduce(inputs: List[torch.Tensor], reduce_type: Attribute) -> GoldenMapTensor:
+    key = str(reduce_type).lower()
+    # Handle alias form like "reduce_type<sum>"
+    if key.startswith("#ttcore.reduce_type<") and key.endswith(">"):
+        key = key[20:-1]
+    try:
+        return _REDUCE[key](inputs)
+    except KeyError as err:
+        raise ValueError(f"Unsupported reduce type: {reduce_type}") from err
+
+
+def all_reduce_golden(
+    input: GoldenMapTensor,
+    cluster_axis: int,
+    reduce_type: Attribute,
+) -> GoldenMapTensor:
+    """
+    Return a GoldenMapTensor which was reduced across devices.
+
+    Parameters
+    ----------
+    input : GoldenMapTensor
+        Input tensor to reduce across devices
+    cluster_axis : int
+        Axis of the cluster for reduction
+    reduce_type : Attribute
+        Type of reduction operation
+
+    Returns
+    -------
+    GoldenMapTensor
+        GoldenMapTensor which was reduced across devices
+    """
+
+    output_shards = [None] * len(input.shard_map)
+    grouped_shards = input.group_by_axis(cluster_axis)
+    for group in grouped_shards:
+        group_tensors = list(group.values())
+        reduced_tensor = _reduce(group_tensors, reduce_type)
+        for id in group.keys():
+            output_shards[id] = reduced_tensor.clone()
+    return GoldenMapTensor(
+        {i: t for i, t in enumerate(output_shards)}, input.mesh_shape
+    )
+
+
+def reduce_scatter_golden(
+    input: GoldenMapTensor,
+    reduce_type: Attribute,
+    scatter_dim: int,
+    cluster_axis: int,
+) -> GoldenMapTensor:
+    """
+    Return a GoldenMapTensor which was reduced and scattered across devices.
+
+    Parameters
+    ----------
+    input : GoldenMapTensor
+        Input tensor to reduce and scatter
+    reduce_type : Attribute
+        Type of reduction operation
+    scatter_dim : int
+        Dimension to scatter along
+    cluster_axis : int
+        Axis of the cluster for operation
+
+    Returns
+    -------
+    GoldenMapTensor
+        GoldenMapTensor which was reduced and scattered across devices
+    """
+
+    output_shards = [None] * len(input.shard_map)
+    grouped_shards = input.group_by_axis(cluster_axis)
+    for group in grouped_shards:
+        group_tensors = list(group.values())
+        reduced_tensor = _reduce(group_tensors, reduce_type)
+        scattered_tensor = torch.chunk(reduced_tensor, len(group), dim=scatter_dim)
+        for index, id in enumerate(group.keys()):
+            output_shards[id] = scattered_tensor[index].clone()
+    return GoldenMapTensor(
+        {i: t for i, t in enumerate(output_shards)}, input.mesh_shape
+    )
+
+
+def collective_permute_golden(
+    input: GoldenMapTensor,
+    source_target_pairs: List[Tuple[int, int]],
+) -> GoldenMapTensor:
+    """
+    Return a GoldenMapTensor which was permuted across devices.
+
+    Parameters
+    ----------
+    input : GoldenMapTensor
+        Input tensor to permute across devices
+    source_target_pairs : List[Tuple[int, int]]
+        List of (source, target) device ID pairs for permutation
+
+    Returns
+    -------
+    GoldenMapTensor
+        GoldenMapTensor which was permuted across devices
+    """
+
+    output_shards = [torch.zeros_like(shard) for shard in input.shard_map.values()]
+    for src, tgt in source_target_pairs:
+        output_shards[tgt] = input.shard_at(src).clone()
+    return GoldenMapTensor(
+        {i: t for i, t in enumerate(output_shards)}, input.mesh_shape
+    )
+
+
+def all_to_all_golden(
+    input: GoldenMapTensor,
+    split_dim: int,
+    concat_dim: int,
+    split_count: int,
+    replica_groups: List[List[int]],
+) -> GoldenMapTensor:
+    """
+    Return a GoldenMapTensor which was redistributed across devices.
+
+    Parameters
+    ----------
+    input : GoldenMapTensor
+        Input tensor to perform all-to-all communication on
+    split_dim : int
+        Dimension to split the input tensor along
+    concat_dim : int
+        Dimension to concatenate the received tensors along
+    split_count : int
+        Number of splits to perform
+    replica_groups : List[List[int]]
+        Groups of replica devices for communication
+
+    Returns
+    -------
+    GoldenMapTensor
+        GoldenMapTensor which was redistributed across devices.
+    """
+
+    output_shards = [None] * len(input.shard_map)
+    for group in replica_groups:
+        assert len(group) == split_count, "group size must equal split_count"
+        splits_per_src: List[Tuple[torch.Tensor, ...]] = [
+            torch.chunk(input.shard_at(dev_id), split_count, dim=split_dim)
+            for dev_id in group
+        ]
+        for dst_idx in range(split_count):
+            output_shards[group[dst_idx]] = torch.cat(
+                [splits_per_src[src_idx][dst_idx] for src_idx in range(split_count)],
+                dim=concat_dim,
+            )
+    return GoldenMapTensor(
+        {i: t for i, t in enumerate(output_shards)}, input.mesh_shape
+    )
+
+
+def collective_broadcast_golden(
+    input: GoldenMapTensor,
+    replica_groups: List[Tuple[int, int]],
+) -> GoldenMapTensor:
+    """
+    Return a GoldenMapTensor which was broadcasted across devices.
+
+    Parameters
+    ----------
+    input : GoldenMapTensor
+        Input tensor to broadcast across devices
+    replica_groups : List[Tuple[int, int]]
+        Groups of replica devices for broadcasting
+
+    Returns
+    -------
+    GoldenMapTensor
+        GoldenMapTensor which was broadcasted across devices.
+    """
+
+    output_shards = [None] * len(input.shard_map)
+    for group in replica_groups:
+        for device in group:
+            output_shards[device] = input.shard_at(group[0]).clone()
+    return GoldenMapTensor(
+        {i: t for i, t in enumerate(output_shards)}, input.mesh_shape
+    )
+
+
+<<<<<<< HEAD
+=======
+>>>>>>> 56dd28c26 (feat: add StableHLO RNG op builder, golden, and tests)
+>>>>>>> f4bab2e78 (feat: add StableHLO RNG op builder, golden, and tests)
+>>>>>>> a85128517 (feat: add StableHLO RNG op builder, golden, and tests)
 def stablehlo_or_golden(
     input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, **kwargs
 ) -> GoldenMapTensor:
