@@ -580,7 +580,8 @@ private:
             loc,
             /* result tensor types */
             llvm::to_vector(
-                static_cast<mlir::ValueRange>(blockArgs.take_back(numOutputs)).getTypes()),
+                static_cast<mlir::ValueRange>(blockArgs.take_back(numOutputs))
+                    .getTypes()),
             /* inputs */ blockArgs.take_front(numInputs),
             /* outputs */ blockArgs.take_back(numOutputs), linalgIndexingMaps,
             linalgIteratorTypes,
@@ -711,7 +712,8 @@ private:
             loc,
             /* result tensor types */
             llvm::to_vector(
-                static_cast<mlir::ValueRange>(blockArgs.take_back(numOutputs)).getTypes()),
+                static_cast<mlir::ValueRange>(blockArgs.take_back(numOutputs))
+                    .getTypes()),
             /* inputs */ blockArgs.take_front(numInputs),
             /* outputs */ blockArgs.take_back(numOutputs), linalgIndexingMaps,
             linalgIteratorTypes,
@@ -1377,8 +1379,8 @@ static AffineMap getPermuteLogicalMap(ttir::PermuteOp op) {
   const bool noInnerPermute =
       (permutation[logicalRank - 2] != static_cast<int64_t>(logicalRank - 2) &&
        permutation[logicalRank - 1] == static_cast<int64_t>(logicalRank - 1));
-  assert(noInnerPermute &&
-         "Complex permutes (both inner and outer permutations) are not supported.");
+  assert(noInnerPermute && "Complex permutes (both inner and outer "
+                           "permutations) are not supported.");
   SmallVector<AffineExpr> results(logicalRank);
   for (auto [dstIdx, srcIdx] : llvm::enumerate(permutation)) {
     results[dstIdx] = mlir::getAffineDimExpr(srcIdx, ctx);

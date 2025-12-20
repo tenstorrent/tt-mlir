@@ -14,17 +14,18 @@ namespace mlir::tt::d2m {
 
 namespace {
 
-// Check if the permutation is an inner permute (only swaps the last two positions (n-2, n-1)).
+// Check if the permutation is an inner permute (only swaps the last two
+// positions (n-2, n-1)).
 bool isInnerPermute(llvm::ArrayRef<int64_t> permutation) {
   size_t rank = permutation.size();
 
- llvm::ArrayRef<int64_t> identity(permutation.data(), rank - 2);
- if (!permutation.take_front(rank - 2).equals(identity)) {
+  llvm::ArrayRef<int64_t> identity(permutation.data(), rank - 2);
+  if (!permutation.take_front(rank - 2).equals(identity)) {
     return false;
- }
+  }
 
- return (permutation[rank - 2] == static_cast<int64_t>(rank - 1) &&
-         permutation[rank - 1] == static_cast<int64_t>(rank - 2));
+  return (permutation[rank - 2] == static_cast<int64_t>(rank - 1) &&
+          permutation[rank - 1] == static_cast<int64_t>(rank - 2));
 }
 
 // Create an inner permute (only swaps the last two positions (n-2, n-1)).
@@ -37,16 +38,16 @@ llvm::SmallVector<int64_t> createInnerPermute(size_t rank) {
   perm[rank - 1] = rank - 2;
   return perm;
 }
-  
-// Create an outer permute that swaps positions i and j, keeping last position fixed.
-// Acts on positions [0..n-2], keeps last position fixed.
+
+// Create an outer permute that swaps positions i and j, keeping last position
+// fixed. Acts on positions [0..n-2], keeps last position fixed.
 llvm::SmallVector<int64_t> createOuterSwap(size_t rank, size_t i, size_t j) {
-    llvm::SmallVector<int64_t> perm(rank);
-    int64_t* data = perm.data();    
-    for (size_t k = 0; k < rank; ++k) {
-      data[k] = (k == i) ? j : (k == j ? i : k);
-    }
-    return perm;
+  llvm::SmallVector<int64_t> perm(rank);
+  int64_t *data = perm.data();
+  for (size_t k = 0; k < rank; ++k) {
+    data[k] = (k == i) ? j : (k == j ? i : k);
+  }
+  return perm;
 }
 
 // Apply permutation p to array arr: result[i] = arr[p[i]].
@@ -170,11 +171,10 @@ public:
 
         llvm::SmallVector<int64_t> outputShape =
             ttmlir::utils::applyPermutation(inputType.getShape(), perm);
-        auto outputType = RankedTensorType::get(outputShape,
-                                                inputType.getElementType(),
-                                                inputType.getEncoding());
-        auto permuteOp =
-            rewriter.create<ttir::PermuteOp>(loc, outputType, currentInput, perm);
+        auto outputType = RankedTensorType::get(
+            outputShape, inputType.getElementType(), inputType.getEncoding());
+        auto permuteOp = rewriter.create<ttir::PermuteOp>(loc, outputType,
+                                                          currentInput, perm);
         currentInput = permuteOp.getResult();
         inputType = mlir::cast<RankedTensorType>(currentInput.getType());
       }
@@ -187,4 +187,3 @@ public:
 } // namespace
 
 } // namespace mlir::tt::d2m
-

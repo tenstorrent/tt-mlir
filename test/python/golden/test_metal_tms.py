@@ -63,7 +63,7 @@ NOC_ISSUE_SKIP = pytest.mark.skip(
         [(18, 24, 128), [1, 0, 2]],
         [(18, 8, 128), [1, 0, 2]],
         [(128, 24, 128), [1, 0, 2]],
-        [(128, 8, 128), [1, 0, 2]], 
+        [(128, 8, 128), [1, 0, 2]],
         # 4d outer permutes
         [(1, 32, 31, 32), [0, 2, 1, 3]],
         [(1, 32, 1, 32), [0, 2, 1, 3]],
@@ -80,9 +80,7 @@ NOC_ISSUE_SKIP = pytest.mark.skip(
     ],
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
-def test_permute(
-    shape: Shape, permutation: List[int], target: str, request, device
-):
+def test_permute(shape: Shape, permutation: List[int], target: str, request, device):
     """Test permute operations with abs on TTMetal backend."""
 
     def permute_module(builder: TTIRBuilder):
