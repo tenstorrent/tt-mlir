@@ -614,11 +614,6 @@ private:
       } else if (auto scale = extractConstant(mulOp.getLhs())) {
         c.scale = *scale;
         v = skipTransparent(mulOp.getRhs());
-      } else {
-        // Multiply exists but neither operand is a constant scale
-        // Continue without extracting scale, the multiply might be
-        // part of the score computation
-        v = skipTransparent(v);
       }
     }
 

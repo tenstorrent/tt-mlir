@@ -3288,6 +3288,7 @@ private:
 } // namespace
 
 namespace {
+<<<<<<< HEAD
 // ============================================================================
 // SDPA Fusing
 // ============================================================================
@@ -3698,6 +3699,8 @@ public:
   }
 };
 
+=======
+>>>>>>> 60f0613af (Remove sdpa fusing from TTIR)
 // If value is defined by PermuteOp with permute dimensions
 // (..., rank - 2, rank - 1), return the input of the PermuteOp, otherwise
 // return std::nullopt. This is used for fusing permute into MatmulOp and
