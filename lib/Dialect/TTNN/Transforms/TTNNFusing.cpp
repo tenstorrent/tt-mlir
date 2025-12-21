@@ -468,18 +468,21 @@ public:
                   mlir::PatternRewriter &rewriter) const override {
     SDPAComponents c;
     c.attentionMatmul = srcOp;
-    c.value = traceToSourceTensor(srcOp.getB());
+    c.value = skipTransparent(srcOp.getB());
 
-    // Match: matmul.A -> [where] -> softmax -> score
+    // Match: matmul -> [where] -> softmax -> score
     if (!matchSoftmaxPath(srcOp.getA(), c)) {
+      llvm::errs() << "Failed to match softmax path\n";
       return failure();
     }
 
     if (!matchScoreComputation(c.softmax.getInput(), c)) {
+      llvm::errs() << "Failed to match score path\n";
       return failure();
     }
 
     if (!validateSemantics(c)) {
+      llvm::errs() << "Failed to validate semantics\n";
       return failure();
     }
 
@@ -489,7 +492,7 @@ public:
 private:
   struct SDPAComponents {
     Value query, key, value, mask;
-    float scale = 1.0f;
+    std::optional<float> scale;
     MatmulOp attentionMatmul;
     SoftmaxOp softmax;
     Operation *scoreOp = nullptr;
@@ -500,34 +503,14 @@ private:
   // ============================================================================
 
   // Operations that don't change semantic meaning - can be traced through.
-  // These are typically type conversions and layout transformations.
   static bool isTransparentOp(Operation *op) {
-    return isa<TypecastOp, ReshapeOp>(op);
-  }
-
-  // Operations considered "layout" ops for tracing to source tensors.
-  // Superset of transparent ops, includes ops that change tensor arrangement.
-  static bool isLayoutOp(Operation *op) {
-    return isa<TypecastOp, ReshapeOp, PermuteOp, RepeatOp>(op);
+    return isa<ReshapeOp, RepeatOp, PermuteOp, TypecastOp>(op);
   }
 
   // Skip through transparent ops to find the semantic operation.
-  // This is the core utility that makes pattern matching robust to IR
-  // variations like inserted typecasts for precision conversion.
   Value skipTransparent(Value v) const {
     while (Operation *defOp = v.getDefiningOp()) {
       if (!isTransparentOp(defOp)) {
-        break;
-      }
-      v = defOp->getOperand(0);
-    }
-    return v;
-  }
-
-  // Trace through all layout ops to find the original source tensor.
-  Value traceToSourceTensor(Value v) const {
-    while (Operation *defOp = v.getDefiningOp()) {
-      if (!isLayoutOp(defOp)) {
         break;
       }
       v = defOp->getOperand(0);
@@ -563,20 +546,21 @@ private:
   }
 
   // Match score computation with backtracking for different orderings.
-  // Pattern: [transparent] -> [add(score, mask)] -> score_chain
-  //      or: [transparent] -> score_chain (no mask)
-  //
-  // Where score_chain is: [transparent] -> [multiply(scale)] -> [transparent]
-  // -> matmul
+  // Patterns (in order of priority):
+  //   1. [transparent] -> linear(Q_scaled, K_scaled, mask)
+  //   2. [transparent] -> add(score_chain, mask)
+  //   3. [transparent] -> score_chain (no mask)
   bool matchScoreComputation(Value v, SDPAComponents &c) const {
     v = skipTransparent(v);
 
     // Try linear(Q_scaled, K_scaled, mask) first
     if (auto linearOp = v.getDefiningOp<LinearOp>()) {
       c.scoreOp = linearOp;
-      extractQKFromLinear(linearOp, c);
+      if (!extractQKWithScales(linearOp.getA(), linearOp.getB(), c)) {
+        return false;
+      }
       if (linearOp.getBias()) {
-        c.mask = traceToSourceTensor(linearOp.getBias());
+        c.mask = skipTransparent(linearOp.getBias());
       }
       return true;
     }
@@ -585,12 +569,12 @@ private:
     if (auto addOp = v.getDefiningOp<AddOp>()) {
       // Try lhs as score, rhs as mask
       if (matchScoreChain(addOp.getLhs(), c)) {
-        c.mask = traceToSourceTensor(addOp.getRhs());
+        c.mask = skipTransparent(addOp.getRhs());
         return true;
       }
       // Try rhs as score, lhs as mask
       if (matchScoreChain(addOp.getRhs(), c)) {
-        c.mask = traceToSourceTensor(addOp.getLhs());
+        c.mask = skipTransparent(addOp.getLhs());
         return true;
       }
       return false;
@@ -604,15 +588,14 @@ private:
   // Extracts scale if present, then matches the Q@K matmul.
   bool matchScoreChain(Value v, SDPAComponents &c) const {
     v = skipTransparent(v);
-    c.scale = 1.0f;
 
-    // Optional multiply for scale
+    // Optional multiply for scale (post-matmul scaling)
     if (auto mulOp = v.getDefiningOp<MultiplyOp>()) {
       if (auto scale = extractConstant(mulOp.getRhs())) {
-        c.scale = *scale;
+        c.scale = scale;
         v = skipTransparent(mulOp.getLhs());
       } else if (auto scale = extractConstant(mulOp.getLhs())) {
-        c.scale = *scale;
+        c.scale = scale;
         v = skipTransparent(mulOp.getRhs());
       }
     }
@@ -621,7 +604,9 @@ private:
     if (auto matmul = v.getDefiningOp<MatmulOp>()) {
       if (matmul != c.attentionMatmul) {
         c.scoreOp = matmul;
-        extractQKFromMatmul(matmul, c);
+        if (!extractQKWithScales(matmul.getA(), matmul.getB(), c)) {
+          return false;
+        }
         return true;
       }
     }
@@ -633,114 +618,51 @@ private:
   // Q/K Extraction with Scale Handling
   // ============================================================================
 
-  // Extract Q tensor and its scale, handling TM reordering from
-  // EraseInverseOps. Traverses through layout ops and extracts scale from
-  // multiply if present.
-  std::pair<Value, std::optional<float>> extractQuery(Value v) const {
+  // Extract tensor and its scale, handling TM reordering from EraseInverseOps.
+  // Skips transparent ops and extracts scale from multiply if present.
+  std::pair<Value, std::optional<float>> extractTensorWithScale(Value v) const {
     std::optional<float> scale;
 
-    while (Operation *defOp = v.getDefiningOp()) {
-      // Skip layout ops
-      if (isLayoutOp(defOp)) {
-        v = defOp->getOperand(0);
-        continue;
-      }
+    v = skipTransparent(v);
 
-      // Extract scale from multiply (only once)
-      if (auto mulOp = dyn_cast<MultiplyOp>(defOp)) {
-        if (!scale) {
-          if (auto s = extractConstant(mulOp.getRhs())) {
-            scale = s;
-            v = mulOp.getLhs();
-            continue;
-          }
-          if (auto s = extractConstant(mulOp.getLhs())) {
-            scale = s;
-            v = mulOp.getRhs();
-            continue;
-          }
-        }
-        break;
+    // Check if we hit a multiply (scale applied to tensor)
+    if (auto mulOp = v.getDefiningOp<MultiplyOp>()) {
+      if (auto s = extractConstant(mulOp.getRhs())) {
+        scale = s;
+        v = skipTransparent(mulOp.getLhs());
+      } else if (auto s = extractConstant(mulOp.getLhs())) {
+        scale = s;
+        v = skipTransparent(mulOp.getRhs());
       }
-
-      break;
     }
 
-    return {traceToSourceTensor(v), scale};
+    return {v, scale};
   }
 
-  // Extract K tensor and its scale, handling TM reordering from
-  // EraseInverseOps. Traverses through layout ops, extracts scale from
-  // multiply, and handles permute (transpose) in any order relative to
-  // multiply.
-  std::pair<Value, std::optional<float>> extractKey(Value v) const {
-    std::optional<float> scale;
-    bool foundPermute = false;
+  // Returns false if we find both post-matmul scaling AND pre-scaling on Q/K,
+  // which would indicate this is likely not a standard SDPA pattern.
+  bool extractQKWithScales(Value a, Value b, SDPAComponents &c) const {
+    auto [query, qScale] = extractTensorWithScale(a);
+    auto [key, kScale] = extractTensorWithScale(b);
 
-    while (Operation *defOp = v.getDefiningOp()) {
-      // Skip layout ops
-      if (isLayoutOp(defOp)) {
-        v = defOp->getOperand(0);
-        continue;
-      }
-
-      // Extract scale from multiply (only once)
-      if (auto mulOp = dyn_cast<MultiplyOp>(defOp)) {
-        if (!scale) {
-          if (auto s = extractConstant(mulOp.getRhs())) {
-            scale = s;
-            v = mulOp.getLhs();
-            continue;
-          }
-          if (auto s = extractConstant(mulOp.getLhs())) {
-            scale = s;
-            v = mulOp.getRhs();
-            continue;
-          }
-        }
-        break;
-      }
-
-      // Handle permute/transpose (only once)
-      if (auto permuteOp = dyn_cast<PermuteOp>(defOp)) {
-        if (!foundPermute) {
-          foundPermute = true;
-          v = permuteOp.getInput();
-          continue;
-        }
-        break;
-      }
-
-      break;
+    // Reject if we found both post-matmul scale and pre-scaling on Q/K.
+    // Standard SDPA uses one or the other, not both.
+    bool hasPostMatmulScale = c.scale.has_value();
+    bool hasPreScale = qScale.has_value() || kScale.has_value();
+    if (hasPostMatmulScale && hasPreScale) {
+      return false;
     }
-
-    return {traceToSourceTensor(v), scale};
-  }
-
-  void extractQKFromLinear(LinearOp op, SDPAComponents &c) const {
-    auto [query, qScale] = extractQuery(op.getA());
-    auto [key, kScale] = extractKey(op.getB());
 
     c.query = query;
     c.key = key;
 
-    // Combine scales: Q*s and K*s → combined scale = s*s
-    float qs = qScale.value_or(1.0f);
-    float ks = kScale.value_or(1.0f);
-    c.scale *= qs * ks;
-  }
-
-  void extractQKFromMatmul(MatmulOp op, SDPAComponents &c) const {
-    auto [query, qScale] = extractQuery(op.getA());
-    auto [key, kScale] = extractKey(op.getB());
-
-    c.query = query;
-    c.key = key;
-
-    // Combine scales: Q*s and K*s → combined scale = s*s
-    float qs = qScale.value_or(1.0f);
-    float ks = kScale.value_or(1.0f);
-    c.scale *= qs * ks;
+    // Combine pre-scales if present: Q*s and K*s → combined scale = s*s
+    if (hasPreScale) {
+      float qs = qScale.value_or(1.0f);
+      float ks = kScale.value_or(1.0f);
+      c.scale = qs * ks;
+    }
+    return true;
   }
 
   // ============================================================================
@@ -803,7 +725,18 @@ private:
       return false;
     }
 
-    if (c.scale <= 0.0f || c.scale > 1.0f) {
+    if (!c.softmax->hasOneUse()) {
+      return false;
+    }
+
+    // If softmax feeds into a typecast, verify the typecast also has one use.
+    if (auto *softmaxUser = *c.softmax->getUsers().begin()) {
+      if (isa<TypecastOp>(softmaxUser) && !softmaxUser->hasOneUse()) {
+        return false;
+      }
+    }
+
+    if (c.scale.has_value() && (*c.scale <= 0.0f || *c.scale > 1.0f)) {
       return false;
     }
 
@@ -814,7 +747,7 @@ private:
   //
   // For regular SDPA:
   //   Target mask shape: [batch, 1, query_seq, key_seq]
-  //   - Dimension 1 (heads) stays as 1, hardware broadcasts across heads
+  //   - Dimension 1 (heads) stays as 1
   //
   // For decode SDPA:
   //   Target mask shape: [batch, 1, num_heads, key_seq]
@@ -861,8 +794,8 @@ private:
   mlir::LogicalResult createSDPAOp(mlir::PatternRewriter &rewriter,
                                    SDPAComponents &c) const {
     FloatAttr scaleAttr;
-    if (c.scale != 1.0f) {
-      scaleAttr = rewriter.getF32FloatAttr(c.scale);
+    if (c.scale.has_value()) {
+      scaleAttr = rewriter.getF32FloatAttr(*c.scale);
     }
 
     auto qType = mlir::cast<RankedTensorType>(c.query.getType());
