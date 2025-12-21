@@ -199,6 +199,12 @@ class SDPAFusing : public mlir::OpRewritePattern<MatmulOp> {
   // decode op.
   static constexpr std::array<int64_t, 4> kToDecodePermutation = {2, 0, 1, 3};
 
+  // Permutation to un-transpose key from [B, H, D, S] -> [B, H, S, D].
+  // Used when key comes from SplitQueryKeyValueAndSplitHeadsOp with
+  // transpose_key=true.
+  static constexpr std::array<int64_t, 4> kUnTransposeKeyPermutation = {0, 1, 3,
+                                                                        2};
+
 public:
   mlir::LogicalResult
   matchAndRewrite(MatmulOp srcOp,
@@ -443,6 +449,39 @@ private:
   }
 
   // ============================================================================
+  // Key Un-transpose
+  // ============================================================================
+
+  // Check if key is transposed by comparing its shape with query's head_dim.
+  // If key shape is [B, H, D, S] instead of [B, H, S, D], generate a permute
+  // to restore the expected shape for SDPA.
+  Value unTransposeKeyIfNeeded(Value query, Value key,
+                               mlir::PatternRewriter &rewriter,
+                               Location loc) const {
+    auto qType = mlir::cast<RankedTensorType>(query.getType());
+    auto kType = mlir::cast<RankedTensorType>(key.getType());
+    auto qShape = qType.getShape();
+    auto kShape = kType.getShape();
+
+    int64_t qHeadDim = qShape[3];
+
+    // Determine if key is transposed by comparing head_dim with query.
+    // If K is not transposed: [B, H, S, D] -> kShape[3] == qHeadDim
+    // If K is transposed: [B, H, D, S] -> kShape[2] == qHeadDim
+    bool keyTransposed =
+        (kShape[3] != qHeadDim) && (kShape[kSeqLenDim] == qHeadDim);
+
+    if (!keyTransposed) {
+      return key;
+    }
+
+    // Generate permute to un-transpose: [B, H, D, S] -> [B, H, S, D]
+    return ttir_to_ttnn::utils::generatePermute(
+        mlir::cast<TypedValue<RankedTensorType>>(key),
+        llvm::to_vector(kUnTransposeKeyPermutation), rewriter, loc);
+  }
+
+  // ============================================================================
   // Validation
   // ============================================================================
 
@@ -456,6 +495,61 @@ private:
     auto vType = mlir::dyn_cast<RankedTensorType>(c.value.getType());
 
     if (!qType || !kType || !vType) {
+      return false;
+    }
+
+    // Validate shapes: Q, K, V should be 4D tensors.
+    // Q shape: [batch, num_heads, seq_q, head_dim]
+    // K shape: [batch, num_kv_heads, seq_k, head_dim] or
+    //          [batch, num_kv_heads, head_dim, seq_k] if transposed
+    // V shape: [batch, num_kv_heads, seq_v, head_dim]
+    auto qShape = qType.getShape();
+    auto kShape = kType.getShape();
+    auto vShape = vType.getShape();
+
+    if (qShape.size() != 4 || kShape.size() != 4 || vShape.size() != 4) {
+      return false;
+    }
+
+    int64_t qHeadDim = qShape[3];
+    int64_t vSeqLen = vShape[kSeqLenDim];
+    int64_t vHeadDim = vShape[3];
+
+    // Determine if key is transposed by comparing head_dim with query.
+    // If K is not transposed: [B, H, S, D] -> kShape[3] == qHeadDim
+    // If K is transposed: [B, H, D, S] -> kShape[2] == qHeadDim
+    bool keyTransposed =
+        (kShape[3] != qHeadDim) && (kShape[kSeqLenDim] == qHeadDim);
+    int64_t kSeqLen = keyTransposed ? kShape[3] : kShape[kSeqLenDim];
+    int64_t kHeadDim = keyTransposed ? kShape[kSeqLenDim] : kShape[3];
+
+    // Key and Value must have the same sequence length.
+    if (kSeqLen != vSeqLen) {
+      return false;
+    }
+
+    // Head dimensions must match across Q, K, V.
+    if (qHeadDim != kHeadDim || kHeadDim != vHeadDim) {
+      return false;
+    }
+
+    // Batch dimensions must match.
+    if (qShape[0] != kShape[0] || kShape[0] != vShape[0]) {
+      return false;
+    }
+
+    // Validate num_heads:
+    // - K and V must have the same num_heads (num_kv_heads)
+    // - Q's num_heads must be divisible by num_kv_heads (for GQA/MQA support)
+    int64_t qNumHeads = qShape[kNumHeadsDim];
+    int64_t kNumHeads = kShape[kNumHeadsDim];
+    int64_t vNumHeads = vShape[kNumHeadsDim];
+
+    if (kNumHeads != vNumHeads) {
+      return false;
+    }
+
+    if (qNumHeads % kNumHeads != 0) {
       return false;
     }
 
@@ -532,9 +626,15 @@ private:
       scaleAttr = rewriter.getF32FloatAttr(*c.scale);
     }
 
+    // If key is transposed (coming from SplitQueryKeyValueAndSplitHeadsOp with
+    // transpose_key=true) [B, H, D, S], un-transpose it to restore [B, H, S, D]
+    // shape expected by SDPA.
+    Value key = unTransposeKeyIfNeeded(c.query, c.key, rewriter,
+                                       c.attentionMatmul.getLoc());
+
     auto qType = mlir::cast<RankedTensorType>(c.query.getType());
     auto qShape = qType.getShape();
-    auto kType = mlir::cast<RankedTensorType>(c.key.getType());
+    auto kType = mlir::cast<RankedTensorType>(key.getType());
 
     // Check if this is decode mode (query seq_len == 1)
     // Query shape: [batch x num_heads x seq_len x head_size]
@@ -553,7 +653,7 @@ private:
 
       auto decodeOp = rewriter.create<ScaledDotProductAttentionDecodeOp>(
           c.attentionMatmul.getLoc(), permutedQuery.getType(), permutedQuery,
-          c.key, c.value,
+          key, c.value,
           /*is_causal=*/rewriter.getBoolAttr(false), attentionMask,
           /*cur_pos_tensor=*/Value(),
           /*attention_sink=*/Value(), scaleAttr,
@@ -569,8 +669,8 @@ private:
               c.attentionMatmul.getLoc()));
     } else {
       auto sdpaOp = rewriter.create<ScaledDotProductAttentionOp>(
-          c.attentionMatmul.getLoc(), c.query.getType(), c.query, c.key,
-          c.value, attentionMask,
+          c.attentionMatmul.getLoc(), c.query.getType(), c.query, key, c.value,
+          attentionMask,
           /*is_causal=*/rewriter.getBoolAttr(false), scaleAttr,
           /*sliding_window_size=*/IntegerAttr(),
           /*memory_config=*/MemoryConfigAttr());
