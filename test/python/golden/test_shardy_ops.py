@@ -133,7 +133,7 @@ def test_input_annotation(
                     ),
                 ],
             )
-            builder.arg_attrs[in0] = {"sdy.sharding": tensor_sharding_attr}
+            builder.set_attribute(in0, "sdy.sharding", tensor_sharding_attr)
             return builder.add(in0, in1)
 
     compile_and_execute_shlo(

@@ -20,7 +20,7 @@ from ttmlir.dialects import stablehlo, sdy, mpmd, func
 from builder.base.builder import *
 from builder.base.builder_utils import *
 
-from golden import *
+from golden import get_golden_function, apply_sharding, apply_unsharding
 
 
 class StableHLOBuilder(Builder):
@@ -39,8 +39,6 @@ class StableHLOBuilder(Builder):
     ):
         super().__init__(ctx, location, mesh_name, mesh_dict, disable_golden_check)
 
-        self._arg_attrs: Dict[Operand, Dict[str, Attribute]] = {}
-
     # ----- Class helper methods -----
 
     @classmethod
@@ -53,10 +51,6 @@ class StableHLOBuilder(Builder):
                     cls.opname_to_opview_map[op_name] = obj
 
     # ----- Public methods -----
-
-    @property
-    def arg_attrs(self) -> Dict[Operand, Dict[str, Attribute]]:
-        return self._arg_attrs
 
     def create_sharding_attr_from_tuples(
         self,
@@ -273,6 +267,455 @@ class StableHLOBuilder(Builder):
         return Location.name(f"{filename}:{lineno}")
 
     # ----- Public StableHLO Op Generators ----
+
+    ############### stablehlo.ReduceScatterOp ###############
+
+    @tag(stablehlo.ReduceScatterOp)
+    def reduce_scatter(
+        self,
+        input: Operand,
+        scatter_dimensions: int,
+        replica_groups: List[List[int]],
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.reduce_scatter)
+
+        scatter_dimensions_attr = IntegerAttr.get(IntegerType.get_signless(64), scatter_dimensions)
+        replica_groups_attr = DenseElementsAttr.get(np.array(replica_groups))
+        input0 = self._get_golden_tensor(input)
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(input0, scatter_dimensions_attr, replica_groups_attr)
+        result = self._create_ranked_tensor_type(golden_output.shape, self.get_type(input))
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = stablehlo_op(
+            result,
+            input,
+            scatter_dimensions_attr,
+            replica_groups_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(stablehlo.ReduceScatterOp)
+    def reduce_scatter_parser(
+        self,
+        old_op: stablehlo.ReduceScatterOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(
+            StableHLOBuilder.reduce_scatter_parser
+        )
+
+        input = global_dict[old_op.operand]
+        scatter_dimensions_attr = old_op.scatter_dimensions
+        replica_groups_attr = old_op.replica_groups
+
+        new_op = stablehlo_op(
+            old_op.result.type,
+            input,
+            scatter_dimensions_attr,
+            replica_groups_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(input)
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(input0, scatter_dimensions_attr, replica_groups_attr)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+
+    ############### stablehlo.CollectivePermuteOp ###############
+
+    @tag(stablehlo.CollectivePermuteOp)
+    def collective_permute(
+        self,
+        input: Operand,
+        source_target_pairs: List[Tuple[int, int]],
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.collective_permute)
+
+        source_target_pairs_attr = DenseElementsAttr.get(np.array(source_target_pairs))
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = stablehlo_op(
+            input,
+            source_target_pairs_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(input)
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(input0, source_target_pairs_attr)
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(stablehlo.CollectivePermuteOp)
+    def collective_permute_parser(
+        self,
+        old_op: stablehlo.CollectivePermuteOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(
+            StableHLOBuilder.collective_permute_parser
+        )
+
+        input = global_dict[old_op.operand]
+        source_target_pairs_attr = old_op.source_target_pairs
+
+        new_op = stablehlo_op(
+            old_op.result.type,
+            input,
+            source_target_pairs_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(input)
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(input0, source_target_pairs_attr)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    ############### stablehlo.CollectiveBroadcastOp ###############
+
+    @tag(stablehlo.CollectiveBroadcastOp)
+    def collective_broadcast(
+        self,
+        input: Operand,
+        replica_groups: List[List[int]],
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.collective_broadcast)
+
+        replica_groups_attr = DenseElementsAttr.get(np.array(replica_groups))
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = stablehlo_op(
+            input,
+            replica_groups_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(input)
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(input0, replica_groups_attr)
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(stablehlo.CollectiveBroadcastOp)
+    def collective_broadcast_parser(
+        self,
+        old_op: stablehlo.CollectiveBroadcastOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(
+            StableHLOBuilder.collective_broadcast_parser
+        )
+
+        input = global_dict[old_op.operand]
+        replica_groups_attr = old_op.replica_groups
+
+        new_op = stablehlo_op(
+            old_op.result.type,
+            input,
+            replica_groups_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(input)
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(input0, replica_groups_attr)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    ############### stablehlo.AllToAllOp ###############
+
+    @tag(stablehlo.AllToAllOp)
+    def all_to_all(
+        self,
+        input: Operand,
+        split_dim: int,
+        concat_dim: int,
+        split_count: int,
+        replica_groups: List[List[int]],
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.all_to_all)
+
+        split_dim_attr = IntegerAttr.get(IntegerType.get_signless(64), split_dim)
+        concat_dim_attr = IntegerAttr.get(IntegerType.get_signless(64), concat_dim)
+        split_count_attr = IntegerAttr.get(IntegerType.get_signless(64), split_count)
+        replica_groups_attr = DenseElementsAttr.get(np.array(replica_groups))
+        
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = stablehlo_op(
+            input,
+            split_dim_attr,
+            concat_dim_attr,
+            split_count_attr,
+            replica_groups_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(input)
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(
+                input0, split_dim_attr, concat_dim_attr, split_count_attr, replica_groups_attr
+            )
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(stablehlo.AllToAllOp)
+    def all_to_all_parser(
+        self,
+        old_op: stablehlo.AllToAllOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.all_to_all_parser)
+
+        input = global_dict[old_op.operand]
+        split_dim_attr = old_op.split_dim
+        concat_dim_attr = old_op.concat_dim
+        split_count_attr = old_op.split_count
+        replica_groups_attr = old_op.replica_groups
+
+        new_op = stablehlo_op(
+            input,
+            split_dim_attr,
+            concat_dim_attr,
+            split_count_attr,
+            replica_groups_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(input)
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(
+                input0, split_dim_attr, concat_dim_attr, split_count_attr, replica_groups_attr
+            )
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+
+    ############### stablehlo.AllReduceOp ###############
+
+    @tag(stablehlo.AllReduceOp)
+    def all_reduce(
+        input: Operand,
+        replica_groups: Optional[List[List[int]]],
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.all_reduce)
+
+        replica_groups_attr = DenseElementsAttr.get(np.array(replica_groups))
+        input0 = self._get_golden_tensor(input)
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(input0, replica_groups_attr)
+        result = self._create_ranked_tensor_type(golden_output.shape, self.get_type(input))
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = stablehlo_op(
+            result,
+            input,
+            replica_groups_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(stablehlo.AllReduceOp)
+    def all_reduce_parser(
+        self,
+        old_op: stablehlo.AllReduceOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.all_reduce_parser)
+
+        input = global_dict[old_op.operand]
+        replica_groups_attr = old_op.replica_groups
+
+        new_op = stablehlo_op(
+            old_op.result.type,
+            input,
+            replica_groups_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(input)
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(input0, replica_groups_attr)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+
+    ############### stablehlo.AllGatherOp ###############
+
+    @tag(stablehlo.AllGatherOp)
+    def all_gather(
+        self,
+        input: Operand,
+        all_gather_dim: int,
+        replica_groups: Optional[List[List[int]]],
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.all_gather)
+
+        all_gather_dim_attr = IntegerAttr.get(IntegerType.get_signless(64), all_gather_dim)
+        replica_groups_attr = DenseElementsAttr.get(np.array(replica_groups))
+        input0 = self._get_golden_tensor(input)
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(
+            input0, all_gather_dim_attr, replica_groups_attr
+        )
+        result = self._create_ranked_tensor_type(golden_output.shape, self.get_type(input))
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = stablehlo_op(
+            result,
+            input,
+            all_gather_dim_attr,
+            replica_groups_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(stablehlo.AllGatherOp)
+    def all_gather_parser(
+        self,
+        old_op: stablehlo.AllGatherOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.all_gather_parser)
+
+        input = global_dict[old_op.operand]
+        all_gather_dim_attr = old_op.all_gather_dim
+        replica_groups_attr = old_op.replica_groups
+
+        new_op = stablehlo_op(
+            old_op.result.type,
+            input,
+            all_gather_dim_attr,
+            replica_groups_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(input)
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(
+                input0, all_gather_dim_attr, replica_groups_attr
+            )
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
 
     ############### stablehlo.DynamicUpdateSliceOp ###############
 
@@ -5366,7 +5809,6 @@ class StableHLOBuilder(Builder):
         )
 
     def _get_zero_attr(self, element_type: Type) -> Attribute:
-        """Create a zero constant attribute for the given element type."""
         if IntegerType.isinstance(element_type):
             return DenseElementsAttr.get_splat(
                 RankedTensorType.get([], element_type), IntegerAttr.get(element_type, 0)
@@ -5377,7 +5819,6 @@ class StableHLOBuilder(Builder):
             )
 
     def _get_one_attr(self, element_type: Type) -> Attribute:
-        """Create a one constant attribute for the given element type."""
         if IntegerType.isinstance(element_type):
             return DenseElementsAttr.get_splat(
                 RankedTensorType.get([], element_type), IntegerAttr.get(element_type, 1)
@@ -5388,7 +5829,6 @@ class StableHLOBuilder(Builder):
             )
 
     def _get_neg_inf_attr(self, element_type: Type) -> Attribute:
-        """Create a negative infinity constant attribute for the given element type."""
         if IntegerType.isinstance(element_type):
             int_type = IntegerType(element_type)
             width = int_type.width
@@ -5404,7 +5844,6 @@ class StableHLOBuilder(Builder):
             )
 
     def _get_pos_inf_attr(self, element_type: Type) -> Attribute:
-        """Create a positive infinity constant attribute for the given element type."""
         if IntegerType.isinstance(element_type):
             int_type = IntegerType(element_type)
             width = int_type.width
@@ -5419,6 +5858,51 @@ class StableHLOBuilder(Builder):
                 FloatAttr.get(element_type, math.inf),
             )
 
+    def _apply_sharding_to_type(self, tensor_type: RankedTensorType, sharding: sdy.TensorShardingAttr) -> RankedTensorType:
+        new_shape = list(tensor_type.shape)
+
+        for i in range(len(new_shape)):
+            dim_sharding_attr = sharding.dimension_shardings[i]
+            dim_sharding = sdy.DimensionShardingAttr.maybe_downcast(dim_sharding_attr)
+
+            # Mesh encoding in sdy.TensorShardingAttr starts with @ (ex. @mesh).
+            mesh_name = str(sharding.mesh_or_ref)[1:]
+            mesh_dict = self._meshes[mesh_name]
+
+            for axis_ref_attr in dim_sharding.axes:
+                axis_ref = sdy.AxisRefAttr.maybe_downcast(axis_ref_attr)
+                axis_name = axis_ref.name
+                new_shape[i] = new_shape[i] // mesh_dict[axis_name]
+
+        return RankedTensorType.get(new_shape, tensor_type.element_type)
+
+    def _apply_sharding_to_golden(self, golden_tensor: GoldenMapTensor, sharding: sdy.TensorShardingAttr, is_shard: bool) -> GoldenMapTensor:
+        all_replicated = True
+        for dim_sharding_attr in sharding.dimension_shardings:
+            dim_sharding = sdy.DimensionShardingAttr.maybe_downcast(dim_sharding_attr)
+            if len(dim_sharding.axes) != 0:
+                all_replicated = False
+                break
+
+        mesh_name = str(sharding.mesh_or_ref)[1:]
+        mesh_dict = self._meshes[mesh_name]
+        mesh_shape = []
+        for some_length in mesh_dict.values():
+            mesh_shape.append(some_length)
+
+        shard_dims = []
+        if not all_replicated:
+            for dim_num, dim_sharding_attr in enumerate(sharding.dimension_shardings):
+                dim_sharding = sdy.DimensionShardingAttr.maybe_downcast(dim_sharding_attr)
+                if len(dim_sharding.axes) != 0:
+                    shard_dims.append(dim_num)
+        elif all_replicated:
+            shard_dims = [None] * len(mesh_shape)
+        
+        if is_shard:
+            return apply_sharding(golden_tensor, mesh_shape, shard_dims)
+        return apply_unsharding(golden_tensor, (1, 1), shard_dims)
+
     # ----- Public Shardy Attribute Generators ----
 
     def mesh_axis_attr(
@@ -5426,43 +5910,12 @@ class StableHLOBuilder(Builder):
         name: str,
         size: int,
     ) -> sdy.MeshAxisAttr:
-        """
-        Creates a mesh axis attribute.
-        This attribute represents a single axis in a mesh, defined by its name and size.
-
-        Parameters
-        ----------
-        name : str
-            The name of the mesh axis
-        size : int
-            The size of the mesh axis, indicating how many elements are along this axis
-
-        Returns
-        -------
-        (*sdy.MeshAxisAttr*)
-            A mesh axis attribute representing the specified axis with its name and size
-        """
         return sdy.MeshAxisAttr.get(name, size)
 
     def mesh_attr(
         self,
         axes: List[sdy.MeshAxisAttr],
     ) -> MeshAttr:
-        """
-        Creates a mesh attribute from a list of mesh axis attributes.
-        This attribute represents a mesh, which is a collection of axes that can be used
-        to define the layout of tensors across multiple devices or processing units.
-
-        Parameters
-        ----------
-        axes : List[sdy.MeshAxisAttr]
-            A list of mesh axis attributes that define the axes of the mesh
-
-        Returns
-        -------
-        (*sdy.MeshAttr*)
-            A mesh attribute representing the collection of axes in the mesh
-        """
         return sdy.MeshAttr.get(axes)
 
     def axis_ref_attr(
@@ -5470,23 +5923,6 @@ class StableHLOBuilder(Builder):
         name: str,
         sub_axis_info_attr: Optional[sdy.AxisRefAttr] = None,
     ) -> sdy.AxisRefAttr:
-        """
-        Creates an axis reference attribute.
-        This attribute is used to reference a specific axis in a mesh, optionally with additional
-        sub-axis information.
-
-        Parameters
-        ----------
-        name : str
-            The name of the axis reference
-        sub_axis_info_attr : *Optional[sdy.AxisRefAttr]*
-            An optional sub-axis reference attribute that provides additional information about the axis
-
-        Returns
-        -------
-        (*sdy.AxisRefAttr*)
-            An axis reference attribute that can be used to refer to a specific axis in a mesh
-        """
         return sdy.AxisRefAttr.get(name, sub_axis_info_attr)
 
     def dimension_sharding_attr(
@@ -5495,25 +5931,6 @@ class StableHLOBuilder(Builder):
         is_closed: bool,
         priority: Optional[int] = None,
     ) -> sdy.DimensionShardingAttr:
-        """
-        Creates a dimension sharding attribute.
-        This attribute defines how a tensor is sharded across multiple devices or processing units
-        based on the specified axes. It can also indicate whether the sharding is closed and an optional priority for the sharding.
-
-        Parameters
-        ----------
-        axes : List[sdy.AxisRefAttr]
-            A list of axis reference attributes that define how the tensor is sharded across the mesh
-        is_closed : bool
-            A boolean indicating whether the sharding is closed
-        priority : *Optional[int]*
-            An optional integer that specifies the priority of the sharding. If not provided, defaults to None.
-
-        Returns
-        -------
-        (*sdy.DimensionShardingAttr*)
-            A dimension sharding attribute that describes how a tensor is distributed across the mesh
-        """
         return sdy.DimensionShardingAttr.get(axes, is_closed, priority)
 
     def tensor_sharding_attr(
@@ -5523,27 +5940,6 @@ class StableHLOBuilder(Builder):
         replicated_axes: List[sdy.AxisRefAttr] = [],
         unreduced_axes: List[sdy.AxisRefAttr] = [],
     ) -> sdy.TensorShardingAttr:
-        """
-        Creates a tensor sharding attribute.
-        This attribute describes how a tensor is sharded across a mesh, including the mesh name,
-        the dimension shardings, and any replicated or unreduced axes.
-
-        Parameters
-        ----------
-        mesh_name : str
-            The name of the mesh to which the tensor sharding applies
-        dimension_shardings : List[sdy.DimensionShardingAttr]
-            A list of dimension sharding attributes that define how the tensor is sharded across the mesh
-        replicated_axes : List[sdy.AxisRefAttr]
-            A list of axis reference attributes that are replicated across the mesh. Defaults to an empty list
-        unreduced_axes : List[sdy.AxisRefAttr]
-            A list of axis reference attributes that are not reduced in the sharding. Defaults to an empty list
-
-        Returns
-        -------
-        (*sdy.TensorShardingAttr*)
-            A tensor sharding attribute that describes how a tensor is distributed across the mesh
-        """
         return sdy.TensorShardingAttr.get(
             mesh_name,
             dimension_shardings,
@@ -5555,45 +5951,25 @@ class StableHLOBuilder(Builder):
         self,
         shardings: List[sdy.TensorShardingAttr],
     ) -> sdy.TensorShardingPerValueAttr:
-        """
-        Creates a tensor sharding per value attribute from a list of tensor sharding attributes.
-        This attribute allows for specifying different sharding strategies for different tensors.
-
-        Parameters
-        ----------
-        shardings : List[sdy.TensorShardingAttr]
-            A list of tensor sharding attributes, each defining a sharding strategy for a tensor
-
-        Returns
-        -------
-        (*sdy.TensorShardingPerValueAttr*)
-            A tensor sharding per value attribute that describes how multiple tensors are distributed across the mesh
-        """
         return sdy.TensorShardingPerValueAttr.get(
             shardings,
+        )
+
+    def manual_axes_attr(
+        self,
+        manual_axes: List[str],
+    ) -> sdy.ManualAxesAttr:
+        manual_axes_attr = []
+        for axis in manual_axes:
+            manual_axes_attr.append(StringAttr.get(axis))
+
+        return sdy.ManualAxesAttr.get(
+            manual_axes_attr,
         )
 
     # ----- Public Shardy Op Generators ----
 
     def mesh(self, mesh_name: str, mesh_attr: sdy.MeshAttr) -> sdy.MeshOp:
-        """
-        Creates a mesh operation.
-        This operation defines a mesh in the system, which can be used to distribute tensors
-        across multiple devices or processing units. The mesh is identified by its name and
-        defined by the provided mesh attribute.
-
-        Parameters
-        ----------
-        mesh_name : str
-            The name of the mesh to be created
-        mesh_attr : sdy.MeshAttr
-            The mesh attribute that defines the axes and properties of the mesh
-
-        Returns
-        -------
-        (*sdy.MeshOp*)
-            A mesh operation that represents the defined mesh in the system
-        """
         return sdy.MeshOp(sym_name=mesh_name, mesh=mesh_attr)
 
     def sharding_constraint(
@@ -5601,24 +5977,61 @@ class StableHLOBuilder(Builder):
         in0: Operand,
         tensor_sharding_attr: sdy.TensorShardingAttr,
     ) -> sdy.ShardingConstraintOp:
-        """
-        Creates a sharding constraint operation.
-        This operation applies a sharding constraint to a tensor, specifying how the tensor should be distributed
-        across a mesh based on the provided tensor sharding attribute.
-
-        Parameters
-        ----------
-        in0 : Operand
-            The input tensor to which the sharding constraint will be applied
-        tensor_sharding_attr : sdy.TensorShardingAttr
-            The tensor sharding attribute that defines how the tensor should be sharded across the mesh
-
-        Returns
-        -------
-        (*sdy.ShardingConstraintOp*)
-            A sharding constraint operation that applies the specified sharding to the input tensor
-        """
         return sdy.ShardingConstraintOp(in0, tensor_sharding_attr)
+
+    def manual_computation(self, nested_func: Callable, original_inputs: List[Operand], in_shardings: List[sdy.TensorShardingAttr], out_shardings: List[sdy.TensorShardingAttr], manual_axes: List[str]) -> sdy.ManualComputationOp:
+        original_input_goldens = [self._get_golden_tensor(inp) for inp in original_inputs]
+        original_input_types = [inp.type for inp in original_inputs]
+        original_output_types = []
+        
+        # We need to run a dummy builder to infer the output types of the nested function.
+        new_ctx = Context()
+        new_loc = Location.unknown(new_ctx)
+
+        with new_ctx, new_loc:
+            dummy_builder = StableHLOBuilder(new_ctx, new_loc)
+            for org_input in original_inputs:
+                dummy_builder._set_golden_tensor(org_input, self._get_golden_tensor(org_input))
+
+            with dummy_builder._ctx, dummy_builder._loc:
+                result = nested_func(*original_inputs, dummy_builder)
+                outputs = result if hasattr(result, "__iter__") else [result]
+                original_output_types.extend([op.type for op in outputs])
+
+        new_manual_computation_op = sdy.ManualComputationOp(
+            original_output_types,
+            original_inputs,
+            self.tensor_sharding_per_value_attr(in_shardings),
+            self.tensor_sharding_per_value_attr(out_shardings),
+            self.manual_axes_attr(manual_axes),
+        )
+
+        region = new_manual_computation_op.body
+        block = Block.create_at_start(region)
+
+        for inp_type, inp_golden, in_sharding in zip(original_input_types, original_input_goldens, in_shardings):
+            new_inp_type = self._apply_sharding_to_type(inp_type, in_sharding)
+            new_arg = block.add_argument(new_inp_type, loc=Location.unknown(self._ctx))
+            new_inp_golden = self._apply_sharding_to_golden(inp_golden, in_sharding, is_shard = True)
+            self._set_golden_tensor(new_arg, new_inp_golden)
+
+        output_goldens = []
+        with InsertionPoint(block):
+            result = nested_func(*block.arguments, self)
+            outputs = result if hasattr(result, "__iter__") else [result]
+            sdy_return0 = sdy.ReturnOp(outputs)
+        
+            for i, output in enumerate(outputs):
+                output_golden = self._get_golden_tensor(output)
+                output_goldens.append(output_golden)
+        
+        for i, (out_sharding, output_golden) in enumerate(zip(out_shardings, output_goldens)):
+            new_output_golden = self._apply_sharding_to_golden(output_golden, out_sharding, is_shard = False)
+            self._set_golden_tensor(new_manual_computation_op.results[i], new_output_golden)
+
+        return (
+            new_manual_computation_op.results[0] if len(new_manual_computation_op.results) == 1 else tuple(new_manual_computation_op.results)
+        )
 
     # ----- Experimental Mpmd Attribute Generators ----
 
