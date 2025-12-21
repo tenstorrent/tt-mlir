@@ -621,10 +621,10 @@ private:
 
   mlir::LogicalResult createSDPAOp(mlir::PatternRewriter &rewriter,
                                    SDPAComponents &c) const {
-    FloatAttr scaleAttr;
-    if (c.scale.has_value()) {
-      scaleAttr = rewriter.getF32FloatAttr(*c.scale);
-    }
+    // When no scale is found in the pattern, explicitly set scale=1.0 to
+    // prevent tt-metal from applying the default 1/sqrt(head_dim) scaling.
+    float scale = c.scale.value_or(1.0f);
+    FloatAttr scaleAttr = rewriter.getF32FloatAttr(scale);
 
     // If key is transposed (coming from SplitQueryKeyValueAndSplitHeadsOp with
     // transpose_key=true) [B, H, D, S], un-transpose it to restore [B, H, S, D]
