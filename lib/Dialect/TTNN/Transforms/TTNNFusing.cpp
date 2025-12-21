@@ -472,17 +472,14 @@ public:
 
     // Match: matmul -> [where] -> softmax -> score
     if (!matchSoftmaxPath(srcOp.getA(), c)) {
-      llvm::errs() << "Failed to match softmax path\n";
       return failure();
     }
 
     if (!matchScoreComputation(c.softmax.getInput(), c)) {
-      llvm::errs() << "Failed to match score path\n";
       return failure();
     }
 
     if (!validateSemantics(c)) {
-      llvm::errs() << "Failed to validate semantics\n";
       return failure();
     }
 
