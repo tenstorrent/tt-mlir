@@ -4508,6 +4508,99 @@ def stablehlo_dynamic_update_slice_golden(
     return GoldenMapTensor(result_shard_map, input_tensor.mesh_shape).to(output_dtype)
 
 
+def stablehlo_sort_golden(
+    inputs: List[GoldenMapTensor],
+    dimension: int,
+    is_stable: bool,
+    element_type=None,
+    comparator: Optional[Callable] = None,
+):
+    rank = inputs[0].ndim
+    adjusted_dimension = dimension if dimension >= 0 else rank + dimension
+
+    if comparator is None:
+        sorted_indices = torch.argsort(
+            inputs[0], dim=adjusted_dimension, stable=is_stable
+        )
+    else:
+        # Use custom comparator
+        sorted_indices = _sort_with_custom_comparator(
+            inputs, adjusted_dimension, is_stable, comparator
+        )
+
+    sorted_tensors = [
+        torch.gather(t, dim=adjusted_dimension, index=sorted_indices) for t in inputs
+    ]
+
+    return sorted_tensors[0] if len(sorted_tensors) == 1 else tuple(sorted_tensors)
+
+
+def _sort_with_custom_comparator(
+    tensors: Tuple[GoldenMapTensor, ...],
+    dimension: int,
+    is_stable: bool,
+    comparator: Callable,
+) -> torch.Tensor:
+    key_tensor = tensors[0]
+    n = key_tensor.shape[dimension]
+
+    def get_elements_at_index(idx: int) -> list:
+        elements = []
+        for t in tensors:
+            index = torch.tensor([idx], dtype=torch.int64, device=t.device)
+            slice_result = torch.index_select(t, dimension, index)
+            slice_result = slice_result.squeeze(dimension)
+            elements.append(slice_result)
+        return elements
+
+    def compare_indices(i: int, j: int) -> bool:
+        lhs_elements = get_elements_at_index(i)
+        rhs_elements = get_elements_at_index(j)
+        args = []
+        for lhs, rhs in zip(lhs_elements, rhs_elements):
+            args.extend([lhs, rhs])
+        result = comparator(*args)
+
+        if isinstance(result, torch.Tensor):
+            if result.numel() == 1:
+                return bool(result.item())
+            else:
+                return bool(torch.all(result).item())
+        return bool(result)
+
+    import functools
+
+    # Create list of indices to sort
+    indices_list = list(range(n))
+
+    # Define comparison function for sorted()
+    def cmp_func(i: int, j: int) -> int:
+        """
+        Comparison function: returns -1 if i < j, 0 if i == j, 1 if i > j.
+        """
+        if compare_indices(i, j):
+            return -1
+        elif compare_indices(j, i):
+            return 1
+        else:
+            return 0
+
+    # Sort using comparator (Python's sorted is stable when key/cmp doesn't distinguish)
+    sorted_indices_list = sorted(indices_list, key=functools.cmp_to_key(cmp_func))
+
+    sorted_indices_tensor = torch.tensor(
+        sorted_indices_list, dtype=torch.int64, device=key_tensor.device
+    )
+
+    shape = list(key_tensor.shape)
+    index_shape = [1] * len(shape)
+    index_shape[dimension] = n
+    sorted_indices_tensor = sorted_indices_tensor.view(*index_shape)
+    sorted_indices_tensor = sorted_indices_tensor.expand(*shape)
+
+    return sorted_indices_tensor
+
+
 def stablehlo_all_gather_golden(
     input: GoldenMapTensor,
     all_gather_dim_attr: IntegerAttr,

@@ -4375,6 +4375,91 @@ class StableHLOBuilder(Builder):
 
         return srl_module, srl_builder
 
+    ############### stablehlo.SortOp ###############
+
+    @tag(stablehlo.SortOp)
+    def sort(
+        self,
+        inputs: Union[Operand, List[Operand]],
+        dimension: int,
+        is_stable: bool = False,
+        comparator: Optional[Callable] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        # Ensure inputs is a list
+        if not isinstance(inputs, list):
+            inputs = [inputs]
+
+        loc = Location.name(loc) if loc else self._get_location()
+        dimension_attr = IntegerAttr.get(
+            IntegerType.get_signless(64, context=self._ctx), dimension
+        )
+        is_stable_attr = BoolAttr.get(is_stable, context=self._ctx)
+
+        input_types = [inp.type for inp in inputs]
+
+        # Always create the SortOp (it will have one region)
+        sort_op = stablehlo.SortOp(
+            input_types,
+            inputs=inputs,
+            dimension=dimension_attr,
+            is_stable=is_stable_attr,
+            loc=loc,
+        )
+
+        # Prepare element types for block arguments
+        element_types = [RankedTensorType(inp.type).element_type for inp in inputs]
+        scalar_types = [RankedTensorType.get([], et) for et in element_types]
+
+        # Create block arguments: 2 per input tensor
+        block_arg_types = []
+        for scalar_type in scalar_types:
+            block_arg_types.extend([scalar_type, scalar_type])
+
+        block = Block.create_at_start(sort_op.regions[0], block_arg_types)
+
+        with InsertionPoint(block):
+            if comparator is not None:
+                # Use the custom comparator
+                compare_result = comparator(block.arguments)
+            else:
+                # Default comparator: ascending order (LT)
+                compare_result = stablehlo.CompareOp(
+                    block.arguments[0],
+                    block.arguments[1],
+                    stablehlo.ComparisonDirectionAttr.get("LT"),
+                    compare_type=stablehlo.ComparisonTypeAttr.get("FLOAT"),
+                    loc=loc,
+                ).result
+
+            stablehlo.ReturnOp([compare_result], loc=loc)
+
+        if sharding_attr:
+            sort_op.operation.attributes["sdy.sharding"] = sharding_attr
+        if unit_attrs:
+            for attr_name in unit_attrs:
+                sort_op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            # Compute golden output
+            golden_inputs = [self._get_golden_tensor(inp) for inp in inputs]
+            op_golden_function = get_golden_function(type(sort_op))
+
+            if op_golden_function is not None:
+                golden_outputs = op_golden_function(
+                    golden_inputs, dimension, is_stable, element_types[0]
+                )
+
+                if len(inputs) == 1:
+                    self._set_golden_tensor(sort_op.results[0], golden_outputs)
+                else:
+                    for i, result in enumerate(sort_op.results):
+                        self._set_golden_tensor(result, golden_outputs[i])
+
+        return sort_op.results[0] if len(sort_op.results) == 1 else sort_op.results
+
     ############### stablehlo.ReverseOp ###############
 
     @tag(stablehlo.ReverseOp)

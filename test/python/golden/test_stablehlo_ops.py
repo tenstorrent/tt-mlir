@@ -611,6 +611,53 @@ def test_dot_general(
     )
 
 
+@pytest.mark.parametrize("shape", [(128, 128)], ids=["128x128"])
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("dimension", [0])
+def test_sort(
+    shape: Shape,
+    dtype: torch.dtype,
+    dimension: int,
+    target: str,
+    request,
+    device,
+):
+    """Test stablehlo sort operation with custom comparator."""
+
+    def module(builder: StableHLOBuilder):
+        @builder.func([shape], [dtype])
+        def sort(in0: Operand, builder: StableHLOBuilder):
+            # Simple comparator: sort in descending order
+            def descending_comparator(args):
+                lhs, rhs = args
+                from ttmlir.dialects import stablehlo
+
+                return stablehlo.CompareOp(
+                    lhs,
+                    rhs,
+                    comparison_direction=stablehlo.ComparisonDirectionAttr.get("GT"),
+                    compare_type=stablehlo.ComparisonTypeAttr.get("FLOAT"),
+                ).result
+
+            builder.set_graph_level_check(True)
+            return builder.sort(
+                in0,
+                dimension=dimension,
+                is_stable=True,
+                comparator=descending_comparator,
+            )
+
+    compile_and_execute_shlo(
+        module,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
 @pytest.mark.parametrize("shape", [(2, 3, 4), (128, 64)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
