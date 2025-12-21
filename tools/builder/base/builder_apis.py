@@ -194,7 +194,7 @@ def build_module(
     elif builder_type == "stablehlo":
         builder = StableHLOBuilder(ctx, loc, mesh_name, mesh_dict)
     elif builder_type == "ttnn":
-        builder = TTNNBuilder(ctx, loc)
+        builder = TTNNBuilder(ctx, loc, mesh_name, mesh_dict)
     elif builder_type == "d2m":
         builder = D2MBuilder(ctx, loc, mesh_name, mesh_dict)
     dir_name = builder_type + "-builder-artifacts"
