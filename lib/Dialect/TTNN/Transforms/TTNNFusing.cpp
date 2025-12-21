@@ -258,6 +258,18 @@ private:
     return v;
   }
 
+  // Check if key is transposed by looking at its source operation.
+  // Returns true if key came from SplitQueryKeyValueAndSplitHeadsOp with
+  // transpose_key=true.
+  bool isKeyTransposed(Value key) const {
+    Operation *defOp = key.getDefiningOp();
+    if (auto splitOp =
+            dyn_cast_or_null<SplitQueryKeyValueAndSplitHeadsOp>(defOp)) {
+      return splitOp.getTransposeKey();
+    }
+    return false;
+  }
+
   // ============================================================================
   // Pattern Matching with Backtracking
   // ============================================================================
@@ -452,26 +464,13 @@ private:
   // Key Un-transpose
   // ============================================================================
 
-  // Check if key is transposed by comparing its shape with query's head_dim.
-  // If key shape is [B, H, D, S] instead of [B, H, S, D], generate a permute
-  // to restore the expected shape for SDPA.
+  // Check if key is transposed by looking at its source operation.
+  // If key came from SplitQueryKeyValueAndSplitHeadsOp with transpose_key=true,
+  // generate a permute to restore the expected shape [B, H, S, D] for SDPA.
   Value unTransposeKeyIfNeeded(Value query, Value key,
                                mlir::PatternRewriter &rewriter,
                                Location loc) const {
-    auto qType = mlir::cast<RankedTensorType>(query.getType());
-    auto kType = mlir::cast<RankedTensorType>(key.getType());
-    auto qShape = qType.getShape();
-    auto kShape = kType.getShape();
-
-    int64_t qHeadDim = qShape[3];
-
-    // Determine if key is transposed by comparing head_dim with query.
-    // If K is not transposed: [B, H, S, D] -> kShape[3] == qHeadDim
-    // If K is transposed: [B, H, D, S] -> kShape[2] == qHeadDim
-    bool keyTransposed =
-        (kShape[3] != qHeadDim) && (kShape[kSeqLenDim] == qHeadDim);
-
-    if (!keyTransposed) {
+    if (!isKeyTransposed(key)) {
       return key;
     }
 
@@ -515,11 +514,11 @@ private:
     int64_t vSeqLen = vShape[kSeqLenDim];
     int64_t vHeadDim = vShape[3];
 
-    // Determine if key is transposed by comparing head_dim with query.
-    // If K is not transposed: [B, H, S, D] -> kShape[3] == qHeadDim
-    // If K is transposed: [B, H, D, S] -> kShape[2] == qHeadDim
-    bool keyTransposed =
-        (kShape[3] != qHeadDim) && (kShape[kSeqLenDim] == qHeadDim);
+    // Determine if key is transposed by checking if it came from
+    // SplitQueryKeyValueAndSplitHeadsOp with transpose_key=true.
+    // If K is not transposed: [B, H, S, D] -> kShape[3] == head_dim
+    // If K is transposed: [B, H, D, S] -> kShape[2] == head_dim
+    bool keyTransposed = isKeyTransposed(c.key);
     int64_t kSeqLen = keyTransposed ? kShape[3] : kShape[kSeqLenDim];
     int64_t kHeadDim = keyTransposed ? kShape[kSeqLenDim] : kShape[3];
 
