@@ -13,6 +13,7 @@ from conftest import x86_only
 from builder.base.builder_utils import Operand, Shape, TypeInfo
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir, build_module
+from builder.base.builder_enums import *
 from ttmlir.ir import DenseI32ArrayAttr
 from test_utils import (
     Marks,
@@ -2681,16 +2682,16 @@ def test_mesh_shard_devices(
         def mesh_shard_devices(in0: Operand, builder: TTIRBuilder):
             mesh_shard_in0 = builder.mesh_shard(
                 in0,
-                shard_direction="#ttcore.shard_direction<full_to_shard>",
-                shard_type="#ttcore.shard_type<devices>",
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Devices.value,
                 shard_shape=shard_shape,
                 shard_dims=shard_dims,
             )
             neg_output = builder.neg(mesh_shard_in0)
             return builder.mesh_shard(
                 neg_output,
-                shard_direction="#ttcore.shard_direction<shard_to_full>",
-                shard_type="#ttcore.shard_type<devices>",
+                shard_direction=MeshShardDirection.ShardToFull.value,
+                shard_type=MeshShardType.Devices.value,
                 shard_shape=shard_shape,
                 shard_dims=shard_dims,
             )
@@ -2766,8 +2767,8 @@ def test_all_gather(
         def all_gather(in0: Operand, builder: TTIRBuilder):
             in_shard = builder.mesh_shard(
                 in0,
-                shard_direction="#ttcore.shard_direction<full_to_shard>",
-                shard_type="#ttcore.shard_type<devices>",
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Devices.value,
                 shard_shape=shard_shape,
                 shard_dims=shard_dims,
             )
@@ -2780,8 +2781,8 @@ def test_all_gather(
 
             return builder.mesh_shard(
                 all_gather0,
-                shard_direction="#ttcore.shard_direction<shard_to_full>",
-                shard_type="#ttcore.shard_type<devices>",
+                shard_direction=MeshShardDirection.ShardToFull.value,
+                shard_type=MeshShardType.Devices.value,
                 shard_shape=shard_shape,
                 shard_dims=shard_dims,
             )
@@ -2858,22 +2859,22 @@ def test_all_reduce(
         def all_reduce(in0: Operand, builder: TTIRBuilder):
             in_shard = builder.mesh_shard(
                 in0,
-                shard_direction="#ttcore.shard_direction<full_to_shard>",
-                shard_type="#ttcore.shard_type<devices>",
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Devices.value,
                 shard_shape=shard_shape,
                 shard_dims=shard_dims,
             )
 
             all_reduce0 = builder.all_reduce(
                 in_shard,
-                reduce_type="#ttcore.reduce_type<sum>",
+                reduce_type=ReduceType.Sum.value,
                 cluster_axis=cluster_axis,
             )
 
             return builder.mesh_shard(
                 all_reduce0,
-                shard_direction="#ttcore.shard_direction<shard_to_full>",
-                shard_type="#ttcore.shard_type<devices>",
+                shard_direction=MeshShardDirection.ShardToFull.value,
+                shard_type=MeshShardType.Devices.value,
                 shard_shape=shard_shape,
                 shard_dims=shard_dims,
             )
@@ -2952,23 +2953,23 @@ def test_reduce_scatter(
         def reduce_scatter(in0: Operand, builder: TTIRBuilder):
             in_shard = builder.mesh_shard(
                 in0,
-                shard_direction="#ttcore.shard_direction<full_to_shard>",
-                shard_type="#ttcore.shard_type<devices>",
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Devices.value,
                 shard_shape=shard_shape,
                 shard_dims=shard_dims,
             )
 
             reduce_scatter0 = builder.reduce_scatter(
                 in_shard,
-                reduce_type="#ttcore.reduce_type<sum>",
+                reduce_type=ReduceType.Sum.value,
                 scatter_dim=scatter_dim,
                 cluster_axis=cluster_axis,
             )
 
             return builder.mesh_shard(
                 reduce_scatter0,
-                shard_direction="#ttcore.shard_direction<shard_to_full>",
-                shard_type="#ttcore.shard_type<devices>",
+                shard_direction=MeshShardDirection.ShardToFull.value,
+                shard_type=MeshShardType.Devices.value,
                 shard_shape=shard_shape,
                 shard_dims=shard_dims,
             )
@@ -3070,8 +3071,8 @@ def test_collective_permute(
         def collective_permute_wrapper(in0: Operand, builder: TTIRBuilder):
             mesh_shard_in = builder.mesh_shard(
                 in0,
-                shard_direction="#ttcore.shard_direction<full_to_shard>",
-                shard_type="#ttcore.shard_type<devices>",
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Devices.value,
                 shard_shape=shard_shape,
                 shard_dims=shard_dims,
             )
@@ -3082,8 +3083,8 @@ def test_collective_permute(
 
             return builder.mesh_shard(
                 collective_permute_out,
-                shard_direction="#ttcore.shard_direction<shard_to_full>",
-                shard_type="#ttcore.shard_type<devices>",
+                shard_direction=MeshShardDirection.ShardToFull.value,
+                shard_type=MeshShardType.Devices.value,
                 shard_shape=shard_shape,
                 shard_dims=shard_dims,
             )
@@ -3172,8 +3173,8 @@ def test_all_to_all(
         def all_to_all_wrapper(in0: Operand, builder: TTIRBuilder):
             in_shard = builder.mesh_shard(
                 in0,
-                shard_direction="#ttcore.shard_direction<full_to_shard>",
-                shard_type="#ttcore.shard_type<devices>",
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Devices.value,
                 shard_shape=shard_shape,
                 shard_dims=shard_dims,
             )
@@ -3188,8 +3189,8 @@ def test_all_to_all(
 
             return builder.mesh_shard(
                 all_to_all0,
-                shard_direction="#ttcore.shard_direction<shard_to_full>",
-                shard_type="#ttcore.shard_type<devices>",
+                shard_direction=MeshShardDirection.ShardToFull.value,
+                shard_type=MeshShardType.Devices.value,
                 shard_shape=shard_shape,
                 shard_dims=shard_dims,
             )
@@ -3269,8 +3270,8 @@ def test_collective_broadcast(
         def collective_broadcast(in0: Operand, builder: TTIRBuilder):
             in_shard = builder.mesh_shard(
                 in0,
-                shard_direction="#ttcore.shard_direction<full_to_shard>",
-                shard_type="#ttcore.shard_type<devices>",
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Devices.value,
                 shard_shape=shard_shape,
                 shard_dims=shard_dims,
             )
@@ -3281,8 +3282,8 @@ def test_collective_broadcast(
 
             return builder.mesh_shard(
                 collective_broadcast_out,
-                shard_direction="#ttcore.shard_direction<shard_to_full>",
-                shard_type="#ttcore.shard_type<devices>",
+                shard_direction=MeshShardDirection.ShardToFull.value,
+                shard_type=MeshShardType.Devices.value,
                 shard_shape=shard_shape,
                 shard_dims=shard_dims,
             )
