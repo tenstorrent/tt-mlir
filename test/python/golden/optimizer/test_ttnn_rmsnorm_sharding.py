@@ -11,7 +11,13 @@ from builder.base.builder_utils import Shape
 from builder.base.builder_apis import compile_and_execute_ttnn
 from builder.ttnn.ttnn_builder import TTNNBuilder
 
-pytestmark = pytest.mark.frontend("ttnn")
+# Temporarily disabled: RMSNorm with sharded input causes crash in metal.
+pytestmark = [
+    pytest.mark.frontend("ttnn"),
+    pytest.mark.skip(
+        reason="Temporarily disabled: RMSNorm sharding causes crash in metal"
+    ),
+]
 
 
 @pytest.mark.parametrize(
