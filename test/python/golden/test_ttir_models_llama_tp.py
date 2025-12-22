@@ -11,6 +11,7 @@ from collections import OrderedDict
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
+from builder.base.builder_enums import *
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -30,8 +31,8 @@ def full_to_shard_device(input, builder, dim):
     shard_shape[dim] = num_devices
     return builder.mesh_shard(
         input,
-        shard_direction="#ttcore.shard_direction<full_to_shard>",
-        shard_type="#ttcore.shard_type<devices>",
+        shard_direction=MeshShardDirection.FullToShard.value,
+        shard_type=MeshShardType.Devices.value,
         shard_shape=shard_shape,
         shard_dims=[-1, dim],
     )
@@ -40,8 +41,8 @@ def full_to_shard_device(input, builder, dim):
 def full_to_shard_replicate(input, builder):
     return builder.mesh_shard(
         input,
-        shard_direction="#ttcore.shard_direction<full_to_shard>",
-        shard_type="#ttcore.shard_type<replicate>",
+        shard_direction=MeshShardDirection.FullToShard.value,
+        shard_type=MeshShardType.Replicate.value,
         shard_shape=[1],
         shard_dims=[-1],
     )
@@ -54,8 +55,8 @@ def shard_to_full_device(input, builder, dim):
     shard_shape[dim] = num_devices
     return builder.mesh_shard(
         input,
-        shard_direction="#ttcore.shard_direction<shard_to_full>",
-        shard_type="#ttcore.shard_type<devices>",
+        shard_direction=MeshShardDirection.ShardToFull.value,
+        shard_type=MeshShardType.Devices.value,
         shard_shape=shard_shape,
         shard_dims=[-1, dim],
     )
@@ -64,8 +65,8 @@ def shard_to_full_device(input, builder, dim):
 def shard_to_full_replicate(input, builder):
     return builder.mesh_shard(
         input,
-        shard_direction="#ttcore.shard_direction<shard_to_full>",
-        shard_type="#ttcore.shard_type<replicate>",
+        shard_direction=MeshShardDirection.ShardToFull.value,
+        shard_type=MeshShardType.Replicate.value,
         shard_shape=[1],
         shard_dims=[-1],
     )
@@ -221,7 +222,7 @@ def test_llama_attention_1xn_tp(
             arg11_mesh_shard = full_to_shard_device(arg11, builder, 0)
             output3 = builder.matmul(output1, arg11_mesh_shard)
             output3 = builder.all_reduce(
-                output3, reduce_type="#ttcore.reduce_type<sum>", cluster_axis=1
+                output3, reduce_type=ReduceType.Sum.value, cluster_axis=1
             )
             output5 = builder.reshape(output3, (1, 128, 32, 128))
             output7 = builder.transpose(output5, -3, -2)
@@ -248,7 +249,7 @@ def test_llama_attention_1xn_tp(
             output25 = builder.matmul(arg4_mesh_shard, output23)
             output25 = builder.reduce_scatter(
                 output25,
-                reduce_type="#ttcore.reduce_type<sum>",
+                reduce_type=ReduceType.Sum.value,
                 scatter_dim=3,
                 cluster_axis=1,
             )
@@ -260,7 +261,7 @@ def test_llama_attention_1xn_tp(
             output33 = builder.matmul(arg6_mesh_shard, output31)
             output33 = builder.reduce_scatter(
                 output33,
-                reduce_type="#ttcore.reduce_type<sum>",
+                reduce_type=ReduceType.Sum.value,
                 scatter_dim=3,
                 cluster_axis=1,
             )
@@ -278,7 +279,7 @@ def test_llama_attention_1xn_tp(
             arg12_mesh_shard = full_to_shard_device(arg12, builder, 0)
             output49 = builder.matmul(output1, arg12_mesh_shard)
             output49 = builder.all_reduce(
-                output49, reduce_type="#ttcore.reduce_type<sum>", cluster_axis=1
+                output49, reduce_type=ReduceType.Sum.value, cluster_axis=1
             )
             output51 = builder.reshape(output49, (1, 128, 32, 128))
             output53 = builder.transpose(output51, -3, -2)
@@ -290,7 +291,7 @@ def test_llama_attention_1xn_tp(
             output59 = builder.matmul(arg7_mesh_shard, output57)
             output59 = builder.reduce_scatter(
                 output59,
-                reduce_type="#ttcore.reduce_type<sum>",
+                reduce_type=ReduceType.Sum.value,
                 scatter_dim=3,
                 cluster_axis=1,
             )
@@ -302,7 +303,7 @@ def test_llama_attention_1xn_tp(
             output67 = builder.matmul(arg9_mesh_shard, output65)
             output67 = builder.reduce_scatter(
                 output67,
-                reduce_type="#ttcore.reduce_type<sum>",
+                reduce_type=ReduceType.Sum.value,
                 scatter_dim=3,
                 cluster_axis=1,
             )
@@ -340,7 +341,7 @@ def test_llama_attention_1xn_tp(
             arg13_mesh_shard = full_to_shard_device(arg13, builder, 0)
             output93 = builder.matmul(output1, arg13_mesh_shard)
             output93 = builder.all_reduce(
-                output93, reduce_type="#ttcore.reduce_type<sum>", cluster_axis=1
+                output93, reduce_type=ReduceType.Sum.value, cluster_axis=1
             )
             output95 = builder.reshape(output93, (1, 128, 32, 128))
             output95 = shard_to_full_replicate(output95, builder)
@@ -351,7 +352,7 @@ def test_llama_attention_1xn_tp(
             output103 = builder.transpose(output101, -2, -1)
             output105 = builder.matmul(output91, output103)
             output105 = builder.all_reduce(
-                output105, reduce_type="#ttcore.reduce_type<sum>", cluster_axis=1
+                output105, reduce_type=ReduceType.Sum.value, cluster_axis=1
             )
             output107 = builder.unsqueeze(output105, 0)
             output109 = builder.transpose(output107, -3, -2)

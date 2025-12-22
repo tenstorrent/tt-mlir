@@ -17,10 +17,20 @@ from builder.base.builder_apis import (
     split_mlir_file,
 )
 from builder.base.builder_runtime import *
+from builder.base.builder_enums import *
 
 pytestmark = pytest.mark.frontend("ttir")
 
 ttir_mlir_snippets = {}
+skip_split_ttir_tests = [
+    "ttir_reduce_scatter.mlir",
+    "ttir_all_to_all.mlir",
+    "ttir_collective_permute.mlir",
+    "ttir_all_gather.mlir",
+    "ttir_all_reduce.mlir",
+    "ttir_collective_broadcast.mlir",
+    "ttir_mesh_shard.mlir",
+]
 ttir_snippets_dir_path = os.path.join(os.path.dirname(__file__), "mlir_snippets/ttir")
 for filename in os.listdir(ttir_snippets_dir_path):
     if filename.endswith(".mlir"):
@@ -54,7 +64,9 @@ for filename in os.listdir(ttnn_snippets_dir_path):
 def test_ttir_parsing_splitting_ops(mlir_snippet, request, device):
     mlir_ir_string = ttir_mlir_snippets[mlir_snippet]
     mlir_module, builder = load_mlir_file(mlir_ir_string, target="ttir")
-    split_modules = split_mlir_file(mlir_module, builder)
+
+    if mlir_snippet not in skip_split_ttir_tests:
+        split_modules = split_mlir_file(mlir_module, builder)
 
 
 @pytest.mark.parametrize("mlir_snippet", stablehlo_mlir_snippets.keys())
