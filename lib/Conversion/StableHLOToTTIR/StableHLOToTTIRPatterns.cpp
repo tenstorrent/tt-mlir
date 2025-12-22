@@ -3206,8 +3206,8 @@ public:
                               startIndicesTensorType.getEncoding()),
         startIndicesTensor, sliceSizesConstant);
 
-    rewriter.create<mlir::tt::ttir::SliceDynamicOp>(
-        srcOp.getLoc(), outputType, adaptor.getOperand(), startIndicesTensor,
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::SliceDynamicOp>(
+        srcOp, outputType, adaptor.getOperand(), startIndicesTensor,
         endIndicesTensor, ArrayAttr());
 
     return success();
