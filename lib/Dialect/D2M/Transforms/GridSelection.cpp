@@ -448,7 +448,7 @@ normalizeOperandGridsForGeneric(
   }
 
   // For each loop dimension that is used by multiple inputs, promote the grid
-  // size associated with that loop dimension to the maximum across those
+  // size associated with that loop dimension to the minimum across those
   // inputs.
   for (auto &it : dimToInputOperandDims) {
     auto &entries = it.second;
