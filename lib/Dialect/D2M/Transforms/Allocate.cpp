@@ -1061,7 +1061,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       }
 
       for (const OperandContext &operandCtx : genericCtx.operands) {
-        auto memrefIt = analysis.memrefs.find(operandCtx.root);
+        const auto *memrefIt = analysis.memrefs.find(operandCtx.root);
         TT_debug(memrefIt != analysis.memrefs.end());
         const MemrefValueContext &memrefCtx = memrefIt->second;
 
