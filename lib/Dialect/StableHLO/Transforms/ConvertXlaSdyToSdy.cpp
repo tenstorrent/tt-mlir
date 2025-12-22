@@ -56,11 +56,16 @@ public:
       }
     }
 
-    // Remove xla.sdy.FuncResultSharding custom calls - these are marker
-    // operations that should be replaced with their input operand.
-    // This is done unconditionally as these can appear regardless of
-    // frontend attribute presence.
-    shardy_utils::removeXlaSdyFuncResultShardingCalls(rootModule);
+    // Convert xla.sdy.FuncResultSharding custom calls to
+    // sdy.sharding_constraint ops. These marker operations specify result
+    // shardings and need to be converted to sharding constraints so Shardy can
+    // generate appropriate collectives. This is done unconditionally as these
+    // can appear regardless of frontend attribute presence.
+    if (mlir::failed(shardy_utils::convertFuncResultShardingToConstraint(
+            rootModule, context, builder))) {
+      signalPassFailure();
+      return;
+    }
   }
 };
 } // namespace mlir::tt::stablehlo
