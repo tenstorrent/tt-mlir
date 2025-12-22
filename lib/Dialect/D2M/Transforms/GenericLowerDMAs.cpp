@@ -181,48 +181,6 @@ public:
                            std::multiplies<int64_t>());
   }
 
-  // For now we'll do just a simple brute force check and sample the entire map
-  // to calculate the coalescing factor. In the future there are some simple
-  // checks we could do for the common case that would be much faster.
-  static size_t calculateCoalescingFactor(AffineMap memoryMap,
-                                          ArrayRef<int64_t> gridShape,
-                                          ArrayRef<int64_t> shardShape,
-                                          size_t elemSizeBytes) {
-    size_t coalescingFactor = ttmlir::utils::volume(shardShape);
-    SmallVector<int64_t> memoryIndex;
-    memoryIndex.resize(gridShape.size() + shardShape.size());
-    ttmlir::utils::sample(gridShape, [&](ArrayRef<int64_t> gridIndex) {
-      size_t currentCoalescingFactor = 0;
-      SmallVector<int64_t, 4> nextAddress;
-      ttmlir::utils::sample(shardShape, [&](ArrayRef<int64_t> shardIndex) {
-        for (unsigned i = 0; i < gridIndex.size(); i++) {
-          memoryIndex[i] = gridIndex[i];
-        }
-        for (unsigned i = 0; i < shardIndex.size(); i++) {
-          memoryIndex[gridIndex.size() + i] = shardIndex[i];
-        }
-        SmallVector<int64_t, 4> address = memoryMap.compose(memoryIndex);
-        if (nextAddress.empty() || nextAddress == address) {
-          ++currentCoalescingFactor;
-        } else {
-          coalescingFactor =
-              std::gcd(coalescingFactor, currentCoalescingFactor);
-          // If coalescing factor reaches unit size, it cannot change further.
-          // Early exit to save on runtime.
-          if (coalescingFactor == 1) {
-            return;
-          }
-          // current memory access can potentially be coalesced with next
-          // access!
-          currentCoalescingFactor = 1;
-        }
-        nextAddress = address;
-        nextAddress.back() += elemSizeBytes;
-      });
-    });
-    return coalescingFactor;
-  }
-
   // Uses coalescing factor to build an optimized gather loop with uniform
   // packet size.
   static scf::LoopNest buildCoalescedGatherLoop(OpBuilder &builder,
@@ -337,8 +295,9 @@ public:
         viewInterface.applyViews();
     AffineMap memoryMap = device.getMemoryMap(underlyingMemrefAndView,
                                               0 /* use default page size*/);
-    size_t coalescingFactor = calculateCoalescingFactor(
-        memoryMap, memrefGridShape, memrefShardShape, elemSizeBytes);
+
+    size_t coalescingFactor = ttmlir::utils::calculateCoalescingFactor(
+        memoryMap, memref.getShape(), elemSizeBytes, memrefGridShape.size());
 
     //--------------- trial analytical coalescing approach --------------//
     auto altCoalescingFactor = ttmlir::utils::analyzeShardDimContiguity(
