@@ -216,6 +216,13 @@ def module_select(builder: StableHLOBuilder):
         return builder.select(pred, on_true, on_false, unit_attrs=unit_attrs)
 
 
+def module_rng(builder: StableHLOBuilder):
+    @builder.func([], [])
+    def rng(builder: StableHLOBuilder):
+        builder.set_graph_level_check(True)
+        return builder.rng([128, 128], torch.float32, low=0.0, high=1.0)
+
+
 def module_log(builder: StableHLOBuilder):
     @builder.func([(128, 128)], [torch.float32])
     def log(
@@ -1142,6 +1149,18 @@ def test_reverse(shapes, dtype, dimensions, target: str, request, device):
 def test_select(target: str, request, device):
     compile_and_execute_shlo(
         module_select,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_rng(target: str, request, device):
+    compile_and_execute_shlo(
+        module_rng,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
