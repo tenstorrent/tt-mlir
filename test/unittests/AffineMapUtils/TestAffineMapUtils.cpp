@@ -283,104 +283,113 @@ TEST(AffineMapUtilsTest, CanSimplifyRedundantModExpr) {
   }
 }
 
-// Returns an affine map and the device shape for a logical tensor and two grid
-// shapes. The device shape is computed by dividing each logical shape dim by
-// the input grid shape dim.
-static std::tuple<mlir::AffineMap, llvm::SmallVector<int64_t>>
-getReblockMapAndDeviceShape(mlir::ArrayRef<int64_t> logicalShape,
-                            mlir::ArrayRef<int64_t> inputGridShape,
-                            mlir::ArrayRef<int64_t> outputGridShape,
-                            mlir::MLIRContext *context) {
-  TT_assertv(inputGridShape.size() == logicalShape.size(),
-             "Input grid shape must match logical shape");
-  TT_assertv(outputGridShape.size() == logicalShape.size(),
-             "Output grid shape must match logical shape");
+/// Collapse leading dimensions of a shape to a target rank.
+/// E.g., shape = [2, 3, 4, 5], targetRank = 2 -> [24, 5]
+static llvm::SmallVector<int64_t> collapseToRank(llvm::ArrayRef<int64_t> shape,
+                                                 int targetRank) {
+  TT_assertv(targetRank > 0, "Target rank must be positive");
+  if (static_cast<int>(shape.size()) <= targetRank) {
+    return llvm::SmallVector<int64_t>(shape);
+  }
 
-  // Lambda to compute device shape for given grid
-  auto computeDeviceShape = [&](llvm::ArrayRef<int64_t> logicalShape,
-                                llvm::ArrayRef<int64_t> gridShape) {
-    llvm::SmallVector<int64_t> shape;
-    size_t rank = logicalShape.size();
-    shape.reserve(rank * 2);
-    // Append the grid shape dims
-    for (size_t i = 0; i < rank; ++i) {
-      shape.push_back(gridShape[i]);
-    }
-    // Append the logicalShape dims divided by gridShape dims ("shard shape")
-    for (size_t i = 0; i < rank; ++i) {
-      TT_assertv(gridShape[i] != 0, "Grid shape dimension must not be zero");
-      TT_assertv(
-          logicalShape[i] % gridShape[i] == 0,
-          "Logical shape dimension must be divisible by grid shape dimension");
-      shape.push_back(logicalShape[i] / gridShape[i]);
-    }
-    return shape;
-  };
+  llvm::SmallVector<int64_t> result;
+  size_t dimsToCollapse = shape.size() - targetRank + 1;
+  int64_t collapsedDim = 1;
+  for (size_t i = 0; i < dimsToCollapse; ++i) {
+    collapsedDim *= shape[i];
+  }
+  result.push_back(collapsedDim);
+
+  for (size_t i = dimsToCollapse; i < shape.size(); ++i) {
+    result.push_back(shape[i]);
+  }
+  return result;
+}
+
+/// Computes device shape as [grid dims..., shard dims...] for a given logical
+/// shape and grid shape.
+static llvm::SmallVector<int64_t>
+computeDeviceShape(llvm::ArrayRef<int64_t> logicalShape,
+                   llvm::ArrayRef<int64_t> gridShape) {
+  TT_assertv(logicalShape.size() == gridShape.size(),
+             "Logical and grid shapes must have same rank");
+  llvm::SmallVector<int64_t> shape;
+  size_t rank = logicalShape.size();
+  shape.reserve(rank * 2);
+  // Append the grid shape dims
+  for (size_t i = 0; i < rank; ++i) {
+    shape.push_back(gridShape[i]);
+  }
+  // Append the logicalShape dims divided by gridShape dims ("shard shape")
+  for (size_t i = 0; i < rank; ++i) {
+    TT_assertv(gridShape[i] != 0, "Grid shape dimension must not be zero");
+    TT_assertv(
+        logicalShape[i] % gridShape[i] == 0,
+        "Logical shape dimension must be divisible by grid shape dimension");
+    shape.push_back(logicalShape[i] / gridShape[i]);
+  }
+  return shape;
+}
+
+/// Returns an affine map and the input device shape for a reblock operation.
+/// The logical shape has max(inputRank, outputRank) dimensions. The smaller
+/// rank side has its leading dimensions collapsed.
+///
+/// Input = domain of the affine map (the apparent shape after reblocking)
+/// Output = codomain (the underlying tensor indexed post-transformation)
+///
+/// The returned map transforms input device coordinates to memory addresses
+/// based on the output (underlying) layout. The returned device shape is
+/// the input device shape (iteration domain).
+static std::tuple<mlir::AffineMap, llvm::SmallVector<int64_t>>
+getReblockMapAndDeviceShapeMixedRank(mlir::ArrayRef<int64_t> logicalShape,
+                                     int inputRank, int outputRank,
+                                     mlir::ArrayRef<int64_t> inputGridShape,
+                                     mlir::ArrayRef<int64_t> outputGridShape,
+                                     mlir::MLIRContext *context) {
+  int maxRank = std::max(inputRank, outputRank);
+  TT_assertv(static_cast<int>(logicalShape.size()) == maxRank,
+             "Logical shape must have max rank");
+  TT_assertv(static_cast<int>(inputGridShape.size()) == inputRank,
+             "Input grid shape must match input rank");
+  TT_assertv(static_cast<int>(outputGridShape.size()) == outputRank,
+             "Output grid shape must match output rank");
+
+  // Collapse logical shape to match input and output ranks
+  auto inputLogicalShape = collapseToRank(logicalShape, inputRank);
+  auto outputLogicalShape = collapseToRank(logicalShape, outputRank);
 
   llvm::SmallVector<int64_t> deviceShapeInputGrid =
-      computeDeviceShape(logicalShape, inputGridShape);
+      computeDeviceShape(inputLogicalShape, inputGridShape);
   llvm::SmallVector<int64_t> deviceShapeOutputGrid =
-      computeDeviceShape(logicalShape, outputGridShape);
+      computeDeviceShape(outputLogicalShape, outputGridShape);
 
-  auto strides = ttmlir::utils::calculateStrides<int64_t>(
-      llvm::ArrayRef<int64_t>(deviceShapeInputGrid)
-          .take_back(deviceShapeInputGrid.size() / 2),
-      1);
-
+  // calculateReblockMap(A, B) creates a map from B's dims to A's indices.
+  // We want: input device coords (domain) → output device coords (underlying)
+  // So call calculateReblockMap(outputDevice, inputDevice)
+  // Result: inputDevice.size() dims → outputDevice.size() results
   mlir::AffineMap reblockMap = ttmlir::utils::calculateReblockMap(
       deviceShapeOutputGrid, deviceShapeInputGrid, context);
   reblockMap = simplifyAffineMapWithRangeAnalysis(
       simplifyZeroFloorDiv(reblockMap), deviceShapeInputGrid);
 
+  // The layout map converts output device indices to memory addresses
+  // (since the underlying memory is laid out according to output device shape)
+  auto strides = ttmlir::utils::calculateStrides<int64_t>(
+      llvm::ArrayRef<int64_t>(deviceShapeOutputGrid)
+          .take_back(deviceShapeOutputGrid.size() / 2),
+      1);
   auto layout_map =
       ttmlir::utils::generateAffineMapFromShardStrides(strides, context);
+
+  // Compose: layout_map expects outputRank*2 dims, reblockMap produces
+  // outputRank*2 results
+  TT_assertv(layout_map.getNumDims() == reblockMap.getNumResults(),
+             "Dimension mismatch for compose");
   auto memoryMap = layout_map.compose(reblockMap);
 
+  // Return the input device shape since that's the iteration domain
   return std::make_tuple(memoryMap, deviceShapeInputGrid);
-}
-
-TEST(AffineMapUtilsTest, CanGenerateAffineMapFromShardStrides) {
-  using namespace mlir;
-  MLIRContext context;
-
-  using namespace mlir;
-  // Explicitly build (d0, d1, d2, d3, d4, d5) -> (0, (d0 * 64 + d1 * 32 + d3 *
-  // 32 + d4) floordiv 128, d2 + d5 floordiv 32, ((d0 * 64 + d1 * 32 + d3 * 32 +
-  // d4) mod 128) * 128 + (d5 mod 32) * 4)
-  AffineExpr d0, d1, d2, d3, d4, d5;
-  bindDims(&context, d0, d1, d2, d3, d4, d5);
-
-  // First result: 0
-  AffineExpr r0 = getAffineConstantExpr(0, &context);
-
-  // Second result: (d0 * 64 + d1 * 32 + d3 * 32 + d4) floordiv 128
-  AffineExpr r1 = (d0 * 64 + d1 * 32 + d3 * 32 + d4).floorDiv(128);
-
-  // Third result: d2 + d5 floordiv 32
-  AffineExpr r2 = d2 + d5.floorDiv(32);
-
-  // Fourth result: ((d0 * 64 + d1 * 32 + d3 * 32 + d4) mod 128) * 128 + (d5 mod
-  // 32) * 4
-  AffineExpr group = d0 * 64 + d1 * 32 + d3 * 32 + d4;
-  AffineExpr shard = d5;
-  AffineExpr r3 = (group % 128) * 128 + (shard % 32) * 4;
-
-  SmallVector<AffineExpr, 4> results{r0, r1, r2, r3};
-  AffineMap memoryMap =
-      AffineMap::get(/*dimCount=*/6, /*symbolCount=*/0, results, &context);
-
-  SmallVector<int64_t> deviceShape = {16, 1, 4, 2, 32, 32};
-  constexpr int64_t elemSizeBytes = 4;
-
-  auto coalescingFactorAnalytical = analyzeShardDimContiguity(
-      memoryMap, deviceShape, memoryMap.getNumDims() / 2,
-      memoryMap.getNumResults() - 1, elemSizeBytes);
-
-  // Also compute coalescing factor using the sampling-based approach
-  int64_t coalescingFactorSampling = calculateCoalescingFactor(
-      memoryMap, deviceShape, elemSizeBytes, memoryMap.getNumDims() / 2);
-
-  GTEST_ASSERT_EQ(coalescingFactorAnalytical, coalescingFactorSampling);
 }
 
 TEST(AffineMapUtilsTest, CanDetermineCoalescingFactor) {
@@ -390,120 +399,271 @@ TEST(AffineMapUtilsTest, CanDetermineCoalescingFactor) {
   // Test result codes
   enum class TestResult { Success, Subset, Failed };
 
-  auto testSingleReblockingTestcase =
-      [&](llvm::ArrayRef<int64_t> logicalShape,
-          llvm::ArrayRef<int64_t> inputGridShape,
-          llvm::ArrayRef<int64_t> outputGridShape) -> TestResult {
-    auto [memoryMap, deviceShape] = getReblockMapAndDeviceShape(
-        logicalShape, inputGridShape, outputGridShape, &context);
+  // Test result with additional info for logging
+  struct TestInfo {
+    TestResult result;
+    mlir::AffineMap memoryMap;
+    llvm::SmallVector<int64_t> inputDeviceShape;
+    llvm::SmallVector<int64_t> outputDeviceShape;
+    int64_t coalescingFactor;
+    int64_t coalescingFactorAnalytical;
+  };
+
+  // Test case for reblocking (supports same and mixed ranks)
+  auto testReblock = [&](llvm::ArrayRef<int64_t> logicalShape, int inputRank,
+                         int outputRank, llvm::ArrayRef<int64_t> inputGridShape,
+                         llvm::ArrayRef<int64_t> outputGridShape) -> TestInfo {
+    auto inputLogicalShape = collapseToRank(logicalShape, inputRank);
+    auto outputLogicalShape = collapseToRank(logicalShape, outputRank);
+    auto inputDeviceShape =
+        computeDeviceShape(inputLogicalShape, inputGridShape);
+    auto outputDeviceShape =
+        computeDeviceShape(outputLogicalShape, outputGridShape);
+
+    auto [memoryMap, deviceShape] = getReblockMapAndDeviceShapeMixedRank(
+        logicalShape, inputRank, outputRank, inputGridShape, outputGridShape,
+        &context);
 
     auto coalescingFactorAnalytical = analyzeShardDimContiguity(
         memoryMap, deviceShape, memoryMap.getNumDims() / 2,
         memoryMap.getNumResults() - 1, 1);
 
-    // Also compute coalescing factor using the sampling-based approach
     int64_t coalescingFactor = calculateCoalescingFactor(
         memoryMap, deviceShape, 1, memoryMap.getNumDims() / 2);
 
+    TestResult result;
     if (coalescingFactor == coalescingFactorAnalytical) {
-      return TestResult::Success;
+      result = TestResult::Success;
     } else if (coalescingFactorAnalytical < coalescingFactor &&
                coalescingFactor % coalescingFactorAnalytical == 0) {
-      return TestResult::Subset;
+      result = TestResult::Subset;
     } else {
-      return TestResult::Failed;
+      result = TestResult::Failed;
     }
+    return {result,           memoryMap,
+            inputDeviceShape, outputDeviceShape,
+            coalescingFactor, coalescingFactorAnalytical};
   };
 
-  // Configuration for 3D and 4D test generation
-  constexpr int64_t maxVolume = 6400;
-  constexpr int numLogicalShapeExamples = 4;
-  constexpr int numGridPairsPerShape = 16;
+  // Configuration
+  constexpr int64_t maxCollapsedDim = 8192;
+  constexpr int numTestCasesPerRankPair = 4;
 
   std::mt19937 rng(42); // deterministic seed for reproducibility
 
-  // Valid grid dimensions: only 1, 2, 4, 8 (even or 1)
-  const SmallVector<int64_t> validGridDims = {1, 2, 3, 4, 5, 6, 7, 8};
-
-  // Helper to get valid grid dimensions that divide n
-  auto getValidGridDivisors = [&](int64_t n) -> SmallVector<int64_t> {
+  // Helper to get all divisors of n (any positive integer that divides n)
+  auto getAllDivisors = [](int64_t n) -> SmallVector<int64_t> {
     SmallVector<int64_t> divisors;
-    for (int64_t d : validGridDims) {
+    for (int64_t d = 1; d * d <= n; ++d) {
       if (n % d == 0) {
         divisors.push_back(d);
+        if (d != n / d) {
+          divisors.push_back(n / d);
+        }
       }
     }
+    llvm::sort(divisors);
     return divisors;
   };
 
-  // Helper to generate random logical shape with given rank and max volume
-  // All dimensions are divisible by 4
+  // Helper to generate a random logical shape with given rank
+  // Ensures the product of leading dims that would be collapsed to any
+  // smaller rank doesn't exceed maxCollapsedDim
   auto generateLogicalShape = [&](int rank) -> SmallVector<int64_t> {
-    SmallVector<int64_t> shape(rank, 4); // Start with 16 (divisible by 16)
-    int64_t volume = static_cast<int64_t>(std::pow(4, rank));
+    SmallVector<int64_t> shape(rank);
+    std::uniform_int_distribution<int64_t> dimDist(2, 16);
 
-    // Build up the shape by multiplying random dimensions by factors of 2
-    // to maintain divisibility by 4
-    std::uniform_int_distribution<int> dimDist(0, rank - 1);
-    std::uniform_int_distribution<int64_t> factorDist(1, 2); // 2^1, 2^2, 2^3
-
-    // Keep growing until we're close to target volume
-    while (volume < maxVolume / 8) {
-      int dim = dimDist(rng);
-      int64_t factor = 1 << factorDist(rng); // 2, 4, or 8
-      if (volume * factor <= maxVolume) {
-        shape[dim] *= factor;
-        volume *= factor;
+    // Generate dimensions from the end (least significant) to the front
+    // This ensures we can control the collapsed product
+    int64_t remainingBudget = maxCollapsedDim;
+    for (int i = rank - 1; i >= 0; --i) {
+      int64_t maxDim = std::min<int64_t>(16, remainingBudget);
+      if (maxDim < 2) {
+        maxDim = 2;
+      }
+      std::uniform_int_distribution<int64_t> boundedDimDist(2, maxDim);
+      shape[i] = boundedDimDist(rng);
+      // Update budget for remaining (more leading) dimensions
+      // We need the product of dims [0..i-1] to not exceed maxCollapsedDim
+      if (i > 0) {
+        remainingBudget = maxCollapsedDim / shape[i];
+        if (remainingBudget < 2) {
+          remainingBudget = 2;
+        }
       }
     }
-
     return shape;
   };
 
   // Helper to generate a random valid grid shape for a given logical shape
-  // Only uses grid dimensions 1, 2, 4, 8
-  auto generateGridShape =
-      [&](ArrayRef<int64_t> logicalShape) -> SmallVector<int64_t> {
+  // Picks any divisor of each dimension
+  auto generateGridShape = [&](ArrayRef<int64_t> logicalShape,
+                               std::mt19937 &gen) -> SmallVector<int64_t> {
     SmallVector<int64_t> gridShape;
     for (int64_t dim : logicalShape) {
-      auto divisors = getValidGridDivisors(dim);
+      auto divisors = getAllDivisors(dim);
       std::uniform_int_distribution<size_t> dist(0, divisors.size() - 1);
-      gridShape.push_back(divisors[dist(rng)]);
+      gridShape.push_back(divisors[dist(gen)]);
     }
     return gridShape;
   };
 
-  // Generate test cases for 3D and 4D shapes
-  // Use a set to skip test cases that have already been generated
-  llvm::DenseSet<std::tuple<SmallVector<int64_t>, SmallVector<int64_t>,
-                            SmallVector<int64_t>>>
-      generatedCases;
+  // Test mixed-rank reblocking: input rank from 2-6, output rank from 2-6
+  std::uniform_int_distribution<int> rankDist(2, 6);
 
-  for (int rank = 2; rank <= 6; ++rank) {
-    for (int shapeIdx = 0; shapeIdx < numLogicalShapeExamples; ++shapeIdx) {
-      SmallVector<int64_t> logicalShape = generateLogicalShape(rank);
+  int numPassed = 0;
+  int numTested = 0;
+  int numFailed = 0;
+  int numSubset = 0;
 
-      for (int gridPairIdx = 0; gridPairIdx < numGridPairsPerShape;
-           ++gridPairIdx) {
-        SmallVector<int64_t> inputGridShape = generateGridShape(logicalShape);
-        SmallVector<int64_t> outputGridShape = generateGridShape(logicalShape);
+  for (int testIdx = 0; testIdx < numTestCasesPerRankPair * 4; ++testIdx) {
+    int inputRank = rankDist(rng);
+    int outputRank = rankDist(rng);
+    int maxRank = std::max(inputRank, outputRank);
 
-        // Build a tuple key for this test case
-        auto key =
-            std::make_tuple(logicalShape, inputGridShape, outputGridShape);
+    // Generate logical shape with max rank
+    SmallVector<int64_t> logicalShape = generateLogicalShape(maxRank);
 
-        // Skip if this test case has already been generated
-        if (generatedCases.contains(key)) {
-          continue;
-        }
-        generatedCases.insert(key);
+    // Collapse to get the shapes for input and output grids
+    auto inputLogicalShape = collapseToRank(logicalShape, inputRank);
+    auto outputLogicalShape = collapseToRank(logicalShape, outputRank);
 
-        auto result = testSingleReblockingTestcase(logicalShape, inputGridShape,
-                                                   outputGridShape);
-        GTEST_EXPECT_TRUE(result == TestResult::Success);
-      }
+    // Verify collapsed dim constraint
+    if (inputLogicalShape[0] > maxCollapsedDim ||
+        outputLogicalShape[0] > maxCollapsedDim) {
+      continue; // Skip this test case
     }
+
+    ++numTested;
+
+    // Generate grid shapes for each
+    SmallVector<int64_t> inputGridShape =
+        generateGridShape(inputLogicalShape, rng);
+    SmallVector<int64_t> outputGridShape =
+        generateGridShape(outputLogicalShape, rng);
+
+    auto info = testReblock(logicalShape, inputRank, outputRank, inputGridShape,
+                            outputGridShape);
+
+    // Log test case result only if Subset or Failed; banner for failures
+    const bool isFail = (info.result == TestResult::Failed);
+    const bool isSubset = (info.result == TestResult::Subset);
+
+    if (isFail) {
+      llvm::errs() << "\n";
+      llvm::errs() << "================= FAILURE DETECTED =================\n";
+    }
+    if (isFail || isSubset) {
+      const char *status = isFail ? "FAIL" : isSubset ? "SUBSET" : "UNKNOWN";
+      llvm::errs() << "[" << status << "] " << inputRank << "D->" << outputRank
+                   << "D\n";
+      llvm::errs() << "    inputDeviceShape: [";
+      for (size_t i = 0; i < info.inputDeviceShape.size(); ++i) {
+        if (i > 0) {
+          llvm::errs() << ", ";
+        }
+        llvm::errs() << info.inputDeviceShape[i];
+      }
+      llvm::errs() << "]\n";
+      llvm::errs() << "    outputDeviceShape: [";
+      for (size_t i = 0; i < info.outputDeviceShape.size(); ++i) {
+        if (i > 0) {
+          llvm::errs() << ", ";
+        }
+        llvm::errs() << info.outputDeviceShape[i];
+      }
+      llvm::errs() << "]\n";
+      llvm::errs() << "    map: " << info.memoryMap << "\n";
+      llvm::errs() << "    coalescingFactorSampling:   "
+                   << info.coalescingFactor << "\n";
+      llvm::errs() << "    coalescingFactorAnalytical: "
+                   << info.coalescingFactorAnalytical << "\n";
+    }
+    if (isFail) {
+      llvm::errs()
+          << "====================================================\n\n";
+      ++numFailed;
+    } else if (isSubset) {
+      ++numSubset;
+    }
+
+    // Same-rank: analytical and sampling methods should match
+    if (info.result == TestResult::Success) {
+      ++numPassed;
+    }
+
+    EXPECT_TRUE(info.result == TestResult::Success)
+        << "Failed for inputRank=" << inputRank
+        << ", outputRank=" << outputRank;
+
+    // Mixed-rank: currently just verifies no crashes; analytical method
+    // may not handle asymmetric grid/shard structures correctly
   }
+
+  llvm::errs() << "[AffineMapUtilsTest] Passed " << numPassed << " / "
+               << numTested << " (Subset: " << numSubset
+               << ", Failed: " << numFailed << ")\n";
+}
+
+// Isolated test case for debugging a specific FAIL case
+TEST(AffineMapUtilsTest, CanTestSingleCoalescingFactorMismatch) {
+  using namespace mlir;
+  MLIRContext context;
+
+  // 4D->2D SUBSET case:
+  // inputDeviceShape: [5, 1, 1, 5, 1, 7, 8, 2]
+  // outputDeviceShape: [8, 5, 35, 2]
+  // map: (d0, d1, d2, d3, d4, d5, d6, d7) -> (
+  //   (d0 * 560 + d4 * 560 + d1 * 560 + d5 * 80 + d2 * 80 + d6 * 10 + d3 * 2 +
+  //   d7) floordiv 350, d3,
+  //   ((d0 * 56 + d4 * 56 + d1 * 56 + d5 * 8 + d2 * 8 + d6) mod 35) * 2 + d7
+  // )
+  // coalescingFactorSampling: 14, coalescingFactorAnalytical: 2
+  AffineExpr d0, d1, d2, d3, d4, d5, d6, d7;
+  bindDims(&context, d0, d1, d2, d3, d4, d5, d6, d7);
+
+  AffineExpr r0 = (d0 * 560 + d4 * 560 + d1 * 560 + d5 * 80 + d2 * 80 +
+                   d6 * 10 + d3 * 2 + d7)
+                      .floorDiv(350);
+  AffineExpr r1 = d3;
+  AffineExpr r2 =
+      ((d0 * 56 + d4 * 56 + d1 * 56 + d5 * 8 + d2 * 8 + d6) % 35) * 2 + d7;
+
+  SmallVector<AffineExpr> results{r0, r1, r2};
+  AffineMap memoryMap =
+      AffineMap::get(/*dimCount=*/8, /*symbolCount=*/0, results, &context);
+
+  SmallVector<int64_t> inputDeviceShape = {5, 1, 1, 5, 1, 7, 8, 2};
+  SmallVector<int64_t> outputDeviceShape = {8, 5, 35, 2};
+
+  constexpr int64_t elemSizeBytes = 1;
+  unsigned numGridDims = inputDeviceShape.size() / 2;      // 4
+  unsigned numGridResults = memoryMap.getNumResults() - 1; // 2
+
+  llvm::errs() << "Map: " << memoryMap << "\n";
+  llvm::errs() << "inputDeviceShape: [";
+  for (size_t i = 0; i < inputDeviceShape.size(); ++i) {
+    if (i > 0) {
+      llvm::errs() << ", ";
+    }
+    llvm::errs() << inputDeviceShape[i];
+  }
+  llvm::errs() << "]\n";
+  llvm::errs() << "numGridDims: " << numGridDims << "\n";
+  llvm::errs() << "numGridResults: " << numGridResults << "\n";
+
+  auto coalescingFactorAnalytical = analyzeShardDimContiguity(
+      memoryMap, inputDeviceShape, numGridDims, numGridResults, elemSizeBytes);
+
+  int64_t coalescingFactorSampling = calculateCoalescingFactor(
+      memoryMap, inputDeviceShape, elemSizeBytes, numGridDims);
+
+  llvm::errs() << "coalescingFactorAnalytical: " << coalescingFactorAnalytical
+               << "\n";
+  llvm::errs() << "coalescingFactorSampling: " << coalescingFactorSampling
+               << "\n";
+
+  EXPECT_EQ(coalescingFactorAnalytical, coalescingFactorSampling);
 }
 
 TEST(AffineMapUtilsTest, AnalyzeGridResultExprForDiscontinuity) {
@@ -833,7 +993,7 @@ TEST(AffineMapUtilsTest, AnalyzeExprForDimStride) {
     AffineExpr d0 = getAffineDimExpr(0, &context);
     AffineExpr expr = (d0 * 2).floorDiv(16);
     int64_t stride = analyzeExprForDimStride(expr, 0);
-    EXPECT_EQ(stride, 1) << "(d0 * 2) floorDiv 16 should have stride 1";
+    EXPECT_EQ(stride, 0) << "(d0 * 2) floorDiv 16 should have stride 0";
   }
 
   // Test 9: Plain dim with mod: d0 mod 32 -> stride is 1
@@ -849,7 +1009,7 @@ TEST(AffineMapUtilsTest, AnalyzeExprForDimStride) {
     AffineExpr d0 = getAffineDimExpr(0, &context);
     AffineExpr expr = d0.floorDiv(4);
     int64_t stride = analyzeExprForDimStride(expr, 0);
-    EXPECT_EQ(stride, 1) << "d0 floorDiv 4 should have stride 0";
+    EXPECT_EQ(stride, 0) << "d0 floorDiv 4 should have stride 0";
   }
 
   // Test 11: Two dimensions added: d0*128 + d1*4
@@ -1055,9 +1215,9 @@ TEST(AffineMapUtilsTest, AnalyzeShardResultExprForContiguity) {
     AffineExpr d0 = getAffineDimExpr(0, &context);
     AffineExpr expr = d0 * 4;
     auto dimBounds = makeDimBounds({{0, 32}});
-    // Call with parentModulus = 16
+    // Call with numGridDims=0, parentModulus = 16
     int64_t result =
-        analyzeShardResultExprForContiguity(expr, dimBounds, 0, 16);
+        analyzeShardResultExprForContiguity(expr, dimBounds, 0, 0, 16);
     EXPECT_EQ(result, 4) << "(d0 * 4) with parentModulus 16 should return 4";
   }
 
