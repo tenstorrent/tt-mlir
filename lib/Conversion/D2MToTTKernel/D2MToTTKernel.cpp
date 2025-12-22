@@ -1186,8 +1186,8 @@ public:
             op.getLoc(), rewriter.getI32Type(), numDestsIdx);
         auto mcastAddr =
             rewriter.create<ttkernel::ExperimentalGetNocMulticastAddrOp>(
-                op.getLoc(), virtX, virtY, mcastEndX, mcastEndY, dstL1Start,
-                nullptr);
+                op.getLoc(), virtX, virtY, virtMcastEndX, virtMcastEndY,
+                dstL1Start, nullptr);
         if (op.getIsLoopback()) {
           rewriter.create<ttkernel::NocAsyncWriteMulticastLoopbackSrcOp>(
               op.getLoc(), srcL1Start, mcastAddr, transferSize, numDests,
