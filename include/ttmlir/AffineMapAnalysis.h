@@ -1188,8 +1188,6 @@ inline int64_t analyzeShardDimContiguity(mlir::AffineMap map,
   TT_assertv(shape.size() == map.getNumDims(),
              "Shape size must match number of map dimensions");
   TT_assertv(shape.size() % 2 == 0u, "Shape rank must be even");
-  TT_assertv(map.getNumResults() == numGridDims + 1,
-             "Map must have exactly one shard result");
 
   unsigned numShardDims = shape.size() - numGridDims;
 
