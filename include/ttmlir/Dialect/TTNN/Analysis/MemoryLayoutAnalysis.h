@@ -57,17 +57,21 @@ struct MemoryLayoutAnalysisResult {
   llvm::DenseMap<Operation *, std::vector<OpConfig>> legalConfigs;
   llvm::DenseMap<Edge, MemReconfigEntry> memReconfigEntryMap;
   std::vector<Operation *> spillToDramOps;
+  std::vector<Operation *> spillToL1InterleavedOps;
   llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> schedule;
 
   MemoryLayoutAnalysisResult()
-      : legalConfigs(), memReconfigEntryMap(), spillToDramOps(), schedule() {}
+      : legalConfigs(), memReconfigEntryMap(), spillToDramOps(),
+        spillToL1InterleavedOps(), schedule() {}
 
   MemoryLayoutAnalysisResult(
       const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
       const llvm::DenseMap<Edge, MemReconfigEntry> &memReconfigEntryMap,
-      const std::vector<Operation *> &spillToDramOps)
+      const std::vector<Operation *> &spillToDramOps,
+      const std::vector<Operation *> &spillToL1InterleavedOps)
       : legalConfigs(legalConfigs), memReconfigEntryMap(memReconfigEntryMap),
-        spillToDramOps(spillToDramOps) {}
+        spillToDramOps(spillToDramOps),
+        spillToL1InterleavedOps(spillToL1InterleavedOps) {}
 };
 
 // Analyze and determine which parts of the model graph can be pushed to L1
