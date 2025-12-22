@@ -119,6 +119,7 @@ class OpWrapper:
         op: OpView,
         attrs: Optional[OpAttributeMap] = None,
         func_op: Optional[func.FuncOp] = None,
+        origin_model: str = "",
     ) -> None:
         """Constructor."""
         self.op_string = str(op)
@@ -129,6 +130,7 @@ class OpWrapper:
         ]
         self.results = [Result(result.get_name(), result.type) for result in op.results]
         self.attributes = attrs
+        self.origin_model = origin_model
 
     def __str__(self) -> str:
         return self.op_string
@@ -217,8 +219,9 @@ class TTNNOpWrapper(OpWrapper):
         tt_device_op: ttcore.DeviceOp,
         attrs: Optional[OpAttributeMap] = None,
         func_op: Optional[func.FuncOp] = None,
+        origin_model: str = "",
     ) -> None:
-        super().__init__(op, attrs, func_op)
+        super().__init__(op, attrs, func_op, origin_model)
         self.tt_device_op_string = str(tt_device_op)
 
     # @override
@@ -342,8 +345,13 @@ class ModuleWrapper:
         """Returns True if module originated as a single op."""
         return self.origin_op_name is not None
 
-    def wrap_op(self, op: OpView, func_op: Optional[func.FuncOp] = None) -> OpWrapper:
-        return OpWrapper(op, self._attributes, func_op)
+    def wrap_op(
+        self,
+        op: OpView,
+        func_op: Optional[func.FuncOp] = None,
+        origin_model: str = "",
+    ) -> OpWrapper:
+        return OpWrapper(op, self._attributes, func_op, origin_model)
 
     # ----- Private methods and properties -----
 
@@ -434,9 +442,14 @@ class TTNNModuleWrapper(ModuleWrapper):
 
     # @override
     def wrap_op(
-        self, op: OpView, func_op: Optional[func.FuncOp] = None
+        self,
+        op: OpView,
+        func_op: Optional[func.FuncOp] = None,
+        origin_model: str = "",
     ) -> TTNNOpWrapper:
-        return TTNNOpWrapper(op, self._tt_device_op, self._attributes, func_op)
+        return TTNNOpWrapper(
+            op, self._tt_device_op, self._attributes, func_op, origin_model
+        )
 
     # ----- Private methods and properties -----
 

@@ -12,7 +12,9 @@ from typing import List, Optional
 from ttmlir.ir import Module
 
 from . import workflow_internal
+from .mlir_module_splitter import MLIRModuleSplitter
 from .pydantic_models import OpTest
+from .utils import OpWrapper
 
 
 def run_op_by_op_workflow(
@@ -74,3 +76,26 @@ def run_op_by_op_workflow(
         frontend=frontend,
         model_name=model_name,
     )
+
+
+def extract_ops_from_module(
+    module: Module | str, origin_model: str = ""
+) -> List[OpWrapper]:
+    """
+    Extracts operations from a module without executing them.
+
+    Parameters
+    ----------
+    module : Module | str
+        MLIR module (or module string) to extract ops from
+    origin_model : str
+        Name of the model this module originated from
+
+    Returns
+    -------
+    List[OpWrapper]
+        List of wrapped operations extracted from the module
+    """
+    splitter = MLIRModuleSplitter()
+    splitter.split(module, origin_model=origin_model)
+    return splitter.sub_ops
