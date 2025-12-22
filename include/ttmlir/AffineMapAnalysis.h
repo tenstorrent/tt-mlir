@@ -494,47 +494,48 @@ inline int64_t analyzeShardResultExprForContiguity(
           lhsKind == mlir::AffineExprKind::FloorDiv) {
         if (!exprContainsDim(lhsBinOp.getLHS(), dimPos)) {
           return -1;
-        } else {
-          // Precompute the value of the RHS constant for lhsBinOp
-          auto innerRhsConst =
-              llvm::dyn_cast<mlir::AffineConstantExpr>(lhsBinOp.getRHS());
-          TT_assertv(innerRhsConst, "Nested binary op RHS must be constant");
-          int64_t innerRhsConstValue = innerRhsConst.getValue();
-
-          if (lhsKind == mlir::AffineExprKind::FloorDiv &&
-              kind == mlir::AffineExprKind::FloorDiv) {
-            // Both inner and outer are floordiv, so collapse them into a
-            // single floordiv
-            int64_t combinedDivisor = innerRhsConstValue * modulus;
-            return analyzeShardResultExprForContiguity(
-                lhsBinOp.getLHS().floorDiv(combinedDivisor), dimBounds, dimPos,
-                numGridDims, combinedDivisor);
-          } else if (lhsKind == mlir::AffineExprKind::Mod &&
-                     kind == mlir::AffineExprKind::Mod) {
-            // Both inner and outer are mod: recurse on the LHS with min of the
-            // two rhs modulus
-            int64_t gcdMod = std::min(innerRhsConstValue, modulus);
-            return analyzeShardResultExprForContiguity(
-                lhsBinOp.getLHS() % gcdMod, dimBounds, dimPos, numGridDims,
-                gcdMod);
-          } else if (lhsKind == mlir::AffineExprKind::Mod &&
-                     kind == mlir::AffineExprKind::FloorDiv) {
-            // Inner is mod, outer is floordiv: analyze mod op, then multiply by
-            // floordiv divisor
-            int64_t modBound = analyzeShardResultExprForContiguity(
-                lhsBinOp, dimBounds, dimPos, numGridDims, innerRhsConstValue);
-            return modBound * modulus;
-          } else if (lhsKind == mlir::AffineExprKind::FloorDiv &&
-                     kind == mlir::AffineExprKind::Mod) {
-            // discontinuity happens as soon as lhs floordiv expr changes; no
-            // need to analyze outer mod.
-            return analyzeShardResultExprForContiguity(
-                lhsBinOp, dimBounds, dimPos, numGridDims, modulus);
-          } else {
-            // not handled
-            return -1;
-          }
         }
+        // Precompute the value of the RHS constant for lhsBinOp
+        auto innerRhsConst =
+            llvm::dyn_cast<mlir::AffineConstantExpr>(lhsBinOp.getRHS());
+        TT_assertv(innerRhsConst, "Nested binary op RHS must be constant");
+        int64_t innerRhsConstValue = innerRhsConst.getValue();
+
+        if (lhsKind == mlir::AffineExprKind::FloorDiv &&
+            kind == mlir::AffineExprKind::FloorDiv) {
+          // Both inner and outer are floordiv, so collapse them into a
+          // single floordiv
+          int64_t combinedDivisor = innerRhsConstValue * modulus;
+          return analyzeShardResultExprForContiguity(
+              lhsBinOp.getLHS().floorDiv(combinedDivisor), dimBounds, dimPos,
+              numGridDims, combinedDivisor);
+        }
+        if (lhsKind == mlir::AffineExprKind::Mod &&
+            kind == mlir::AffineExprKind::Mod) {
+          // Both inner and outer are mod: recurse on the LHS with min of the
+          // two rhs modulus
+          int64_t gcdMod = std::min(innerRhsConstValue, modulus);
+          return analyzeShardResultExprForContiguity(lhsBinOp.getLHS() % gcdMod,
+                                                     dimBounds, dimPos,
+                                                     numGridDims, gcdMod);
+        }
+        if (lhsKind == mlir::AffineExprKind::Mod &&
+            kind == mlir::AffineExprKind::FloorDiv) {
+          // Inner is mod, outer is floordiv: analyze mod op, then multiply by
+          // floordiv divisor
+          int64_t modBound = analyzeShardResultExprForContiguity(
+              lhsBinOp, dimBounds, dimPos, numGridDims, innerRhsConstValue);
+          return modBound * modulus;
+        }
+        if (lhsKind == mlir::AffineExprKind::FloorDiv &&
+            kind == mlir::AffineExprKind::Mod) {
+          // discontinuity happens as soon as lhs floordiv expr changes; no
+          // need to analyze outer mod.
+          return analyzeShardResultExprForContiguity(
+              lhsBinOp, dimBounds, dimPos, numGridDims, modulus);
+        }
+        // not handled
+        return -1;
       }
     }
 
@@ -914,10 +915,9 @@ inline int64_t analyzeGridResultExprForDiscontinuity(
     if (auto dimExpr = llvm::dyn_cast<mlir::AffineDimExpr>(lhs)) {
       if (dimExpr.getPosition() == dimPos) {
         return checkBoundsAndReturn(divisor);
-      } else {
-        // unrelated dim by itself poses no constraints
-        return -1;
       }
+      // unrelated dim by itself poses no constraints
+      return -1;
     }
 
     if (auto lhsMod = mlir::dyn_cast<mlir::AffineBinaryOpExpr>(lhs);
@@ -962,9 +962,8 @@ inline int64_t analyzeGridResultExprForDiscontinuity(
         // ceil(divisor / mulValue)
         int64_t stepsNeeded = (divisor + mulValue - 1) / mulValue;
         return checkBoundsAndReturn(stepsNeeded);
-      } else {
-        return -1;
       }
+      return -1;
     }
 
     // Pattern 3: (A*d0 + B*d1 + ...) floorDiv N
@@ -1072,10 +1071,9 @@ inline int64_t analyzeGridResultExprForDiscontinuity(
                 // the output
                 return analyzeGridResultExprForDiscontinuity(
                     sumOperand, dimBounds, dimPos, numGridDims);
-              } else {
-                // don't try to analyze this for now
-                return 1;
               }
+              // don't try to analyze this for now
+              return 1;
             }
 
             int64_t mulValue = constExpr.getValue();
@@ -1174,10 +1172,9 @@ inline int64_t analyzeGridResultExprForDiscontinuity(
     // if not, by definition it's unconstrained.
     if (!exprContainsDim(lhs, dimPos)) {
       return -1;
-    } else {
-      return analyzeGridResultExprForDiscontinuity(lhs, dimBounds, dimPos,
-                                                   numGridDims);
     }
+    return analyzeGridResultExprForDiscontinuity(lhs, dimBounds, dimPos,
+                                                 numGridDims);
   }
 
   default:
