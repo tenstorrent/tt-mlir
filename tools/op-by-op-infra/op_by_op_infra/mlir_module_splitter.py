@@ -60,16 +60,20 @@ class MLIRModuleSplitter:
         self._sub_modules: List[ModuleWrapper] = []
         # Maps function names to the functions themselves, for easier retrieval.
         self._func_map = {}
+        # Name of the model this module originated from.
+        self._origin_model = ""
 
     @convert_to_module_wrapper
-    def split(self, module: ModuleWrapper) -> List[ModuleWrapper]:
+    def split(
+        self, module: ModuleWrapper, origin_model: str = ""
+    ) -> List[ModuleWrapper]:
         """
         Splits `module` and returns list of constituent ops each wrapped in a MLIR
         module (i.e. returns list of sub modules).
         """
         # Each time `split` is called, prepare for new run by forgetting results of
         # previous run and storing new module to work on.
-        self._reset(module)
+        self._reset(module, origin_model)
         # Run the splitting algorithm on stored module.
         return self._split()
 
@@ -98,7 +102,7 @@ class MLIRModuleSplitter:
 
     # ----- Private methods -----
 
-    def _reset(self, module: ModuleWrapper) -> None:
+    def _reset(self, module: ModuleWrapper, origin_model: str = "") -> None:
         """
         Resets internal state, gets ready for a new run.
 
@@ -108,6 +112,7 @@ class MLIRModuleSplitter:
         self._sub_ops = []
         self._sub_modules = []
         self._func_map = {}
+        self._origin_model = origin_model
 
     def _split(self) -> List[ModuleWrapper]:
         """Splits the original module into constituent operations."""
@@ -173,9 +178,11 @@ class MLIRModuleSplitter:
                     op_str = str(op)
                     if "stablehlo.composite" in op_str:
                         decomposition_func = self._extract_decomposition_func(op_str)
-                        op_wrapper = self._module.wrap_op(op, decomposition_func)
+                        op_wrapper = self._module.wrap_op(
+                            op, decomposition_func, self._origin_model
+                        )
                     else:
-                        op_wrapper = self._module.wrap_op(op)
+                        op_wrapper = self._module.wrap_op(op, None, self._origin_model)
 
                     self._sub_ops.append(op_wrapper)
 
