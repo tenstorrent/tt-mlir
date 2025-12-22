@@ -826,6 +826,45 @@ def rms_norm_golden(
     return rms_norm.to(input.dtype)
 
 
+def layer_norm_golden(
+    input: GoldenMapTensor,
+    weight: Optional[GoldenMapTensor] = None,
+    bias: Optional[GoldenMapTensor] = None,
+    normalized_shape: List[int] = None,
+    epsilon: float = 1e-5,
+) -> GoldenMapTensor:
+    """
+    Custom golden function for layer normalization operation.
+    Parameters
+    ----------
+    input : GoldenMapTensor
+        Input tensor to layer normalization operation
+    weight : GoldenMapTensor, optional
+        Weight tensor for scaling (default: None)
+    bias : GoldenMapTensor, optional
+        Bias tensor for shifting (default: None)
+    normalized_shape : List[int], optional
+        Shape of the input tensor to normalize (default: None)
+    epsilon : float, optional
+        Small value to avoid division by zero (default: 1e-5)
+    Returns
+    -------
+    GoldenMapTensor
+        Layer normalized output tensor
+    """
+    # Convert to float for computation
+    input_float = input.float()
+
+    layer_norm = torch.nn.functional.layer_norm(
+        input_float,
+        normalized_shape=normalized_shape,
+        weight=weight,
+        bias=bias,
+        eps=epsilon,
+    )
+    return layer_norm.to(input.dtype)
+
+
 def typecast_golden(input_tensor: GoldenMapTensor, dtype) -> GoldenMapTensor:
     """
     Custom golden function for typecasting.
@@ -5264,6 +5303,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.Upsample2dOp: upsample2d_golden,
     ttir.BatchNormInferenceOp: ttir_batch_norm_inference_golden,
     ttir.BatchNormTrainingOp: ttir_batch_norm_training_golden,
+    ttir.LayerNormOp: layer_norm_golden,
     ttir.RMSNormOp: rms_norm_golden,
     # Type operations
     ttir.TypecastOp: ttir_typecast_golden,
@@ -5431,6 +5471,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # Complex operations
     ttnn.MatmulOp: ttnn_matmul_golden,
     ttnn.LinearOp: ttnn_linear_golden,
+    ttnn.LayerNormOp: layer_norm_golden,
     ttnn.RMSNormOp: rms_norm_golden,
     # Tensor manipulation
     ttnn.ConcatOp: ttnn_concat_golden,
