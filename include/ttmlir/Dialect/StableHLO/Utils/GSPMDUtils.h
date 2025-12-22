@@ -24,6 +24,8 @@ inline constexpr llvm::StringRef kSPMDFullToShardShapeCallTargetName =
     "SPMDFullToShardShape";
 inline constexpr llvm::StringRef kSPMDShardToFullShapeCallTargetName =
     "SPMDShardToFullShape";
+inline constexpr llvm::StringRef kXlaSdyFuncResultShardingCallTargetName =
+    "xla.sdy.FuncResultSharding";
 inline constexpr llvm::StringRef kXlaShardingAttr = "mhlo.sharding";
 inline constexpr llvm::StringRef kFrontendAttributesAttr =
     "mhlo.frontend_attributes";

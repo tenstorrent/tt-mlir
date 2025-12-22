@@ -82,6 +82,11 @@ convertCustomCallToShardingConstraint(mlir::ModuleOp &rootModule,
                                       mlir::MLIRContext *context,
                                       mlir::OpBuilder &builder);
 
+// Remove xla.sdy.FuncResultSharding custom calls by replacing them with their
+// input operand. These are marker operations used by shardy to annotate
+// result shardings.
+void removeXlaSdyFuncResultShardingCalls(mlir::ModuleOp &rootModule);
+
 // Check if the graph is solved.
 bool isGraphSolved(mlir::ModuleOp &module);
 

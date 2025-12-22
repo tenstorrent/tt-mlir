@@ -959,6 +959,26 @@ convertCustomCallToShardingConstraint(mlir::ModuleOp &rootModule,
   return mlir::success();
 }
 
+// Remove xla.sdy.FuncResultSharding custom calls by replacing them with their
+// input operand. These are marker operations used by shardy to annotate
+// result shardings and should be removed before conversion.
+void removeXlaSdyFuncResultShardingCalls(mlir::ModuleOp &rootModule) {
+  llvm::SmallVector<mlir::stablehlo::CustomCallOp> opsToErase;
+
+  rootModule.walk([&](mlir::stablehlo::CustomCallOp customCallOp) {
+    if (customCallOp.getCallTargetName() ==
+        gspmd_utils::kXlaSdyFuncResultShardingCallTargetName) {
+      // Replace all uses of the result with the input operand
+      customCallOp.getResult(0).replaceAllUsesWith(customCallOp.getOperand(0));
+      opsToErase.push_back(customCallOp);
+    }
+  });
+
+  for (auto op : opsToErase) {
+    op.erase();
+  }
+}
+
 #endif // #ifdef TTMLIR_ENABLE_STABLEHLO
 
 } // namespace mlir::tt::shardy_utils
