@@ -305,8 +305,7 @@ private:
                                               0 /* use default page size*/);
 
     auto coalescingFactor = ttmlir::utils::analyzeShardDimContiguity(
-        memoryMap, memref.getShape(), memrefGridShape.size(),
-        memoryMap.getNumResults() - 1, elemSizeBytes);
+        memoryMap, memref.getShape(), memrefGridShape.size(), elemSizeBytes);
 
     // When debug mode is enabled, also run the slow sampling-based coalescing
     // factor computation and compares results. If their is a discrepancy, the

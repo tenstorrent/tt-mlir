@@ -497,8 +497,7 @@ TEST(AffineMapUtilsTest, DISABLED_CanDetermineCoalescingFactor) {
         &context);
 
     auto coalescingFactorAnalytical = analyzeShardDimContiguity(
-        memoryMap, deviceShape, memoryMap.getNumDims() / 2,
-        memoryMap.getNumResults() - 1, 1);
+        memoryMap, deviceShape, memoryMap.getNumDims() / 2, 1);
 
     int64_t coalescingFactor = calculateCoalescingFactor(
         memoryMap, deviceShape, 1, memoryMap.getNumDims() / 2);
@@ -732,12 +731,10 @@ TEST(AffineMapUtilsTest, CanDetermineCoalescingFactorCached) {
         tc.outputGridShape, &context);
 
     unsigned numGridDims = deviceShape.size() / 2;
-    unsigned numGridResults = memoryMap.getNumResults() - 1;
 
     // Use the fast analytical method
-    int64_t analyticalFactor =
-        analyzeShardDimContiguity(memoryMap, deviceShape, numGridDims,
-                                  numGridResults, /*elemSizeBytes=*/1);
+    int64_t analyticalFactor = analyzeShardDimContiguity(
+        memoryMap, deviceShape, numGridDims, /*elemSizeBytes=*/1);
 
     EXPECT_EQ(analyticalFactor, tc.expectedCoalescingFactor)
         << "Test case " << i << " failed";
@@ -794,8 +791,8 @@ TEST(AffineMapUtilsTest, CanDetermineCoalescingFactorForPermutations) {
         simplifyZeroFloorDiv(memoryMap), deviceShape);
 
     // Analyze coalescing factor using both methods
-    auto analyticalFactor = analyzeShardDimContiguity(
-        memoryMap, deviceShape, numGridDims, memoryMap.getNumResults() - 1, 1);
+    auto analyticalFactor =
+        analyzeShardDimContiguity(memoryMap, deviceShape, numGridDims, 1);
 
     int64_t samplingFactor =
         calculateCoalescingFactor(memoryMap, deviceShape, 1, numGridDims);
@@ -916,11 +913,10 @@ TEST(AffineMapUtilsTest, CanTestSingleCoalescingFactorMismatch) {
   SmallVector<int64_t> outputDeviceShape = {60, 1, 8, 4};
 
   constexpr int64_t elemSizeBytes = 1;
-  unsigned numGridDims = inputDeviceShape.size() / 2;      // 4
-  unsigned numGridResults = memoryMap.getNumResults() - 1; // 2
+  unsigned numGridDims = inputDeviceShape.size() / 2; // 4
 
   auto coalescingFactorAnalytical = analyzeShardDimContiguity(
-      memoryMap, inputDeviceShape, numGridDims, numGridResults, elemSizeBytes);
+      memoryMap, inputDeviceShape, numGridDims, elemSizeBytes);
 
   int64_t coalescingFactorSampling = calculateCoalescingFactor(
       memoryMap, inputDeviceShape, elemSizeBytes, numGridDims);
