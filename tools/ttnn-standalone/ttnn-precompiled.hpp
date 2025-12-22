@@ -33,6 +33,7 @@
 #include "operations/matmul/matmul.hpp"
 #include "operations/moreh/moreh_cumsum/moreh_cumsum.hpp"
 #include "operations/normalization/batch_norm/batch_norm.hpp"
+#include "operations/normalization/layer_norm/layer_norm.hpp"
 #include "operations/normalization/rmsnorm/rmsnorm.hpp"
 #include "operations/normalization/softmax/softmax.hpp"
 #include "operations/pool/generic/generic_pools.hpp"
