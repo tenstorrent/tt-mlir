@@ -462,6 +462,7 @@ def test_sdpa_split_scale_robust_softmax(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         device=device,
+        compile_options=["enable-optimizer=true"],
     )
 
     # Check for appropriate fused op based on q_seq
@@ -641,6 +642,7 @@ def test_sdpa_single_scale_simple_softmax(
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         device=device,
+        compile_options=["enable-optimizer=true"],
     )
 
     # Check for appropriate fused op based on q_seq
