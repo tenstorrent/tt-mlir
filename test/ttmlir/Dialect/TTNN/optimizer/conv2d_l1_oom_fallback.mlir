@@ -1,5 +1,5 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttcore-register-device --ttnn-optimizer --ttnn-operation-validation-and-fallback %s | FileCheck %s
+// RUN: ttmlir-opt --ttcore-register-device --ttnn-operation-validation-and-fallback %s | FileCheck %s
 //
 // This test verifies that when a Conv2d operation with conv2d_slice_config=<l1_full>
 // causes L1 OOM, the optimizer fallback pass fixes by removing or replacing the slice config
