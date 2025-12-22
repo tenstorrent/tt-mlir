@@ -5,7 +5,6 @@
 #ifndef TTMLIR_AFFINEMAPUTILS_H
 #define TTMLIR_AFFINEMAPUTILS_H
 
-#include "ttmlir/AffineMapAnalysis.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Utils.h"
 
