@@ -447,7 +447,7 @@ TEST(AffineMapUtilsTest, CanDetermineCoalescingFactor) {
 
   // Configuration
   constexpr int64_t maxCollapsedDim = 8192;
-  constexpr int numTestCasesPerRankPair = 4;
+  constexpr int numTestCasesPerRankPair = 16;
 
   std::mt19937 rng(42); // deterministic seed for reproducibility
 

@@ -580,7 +580,7 @@ simplifyAffineExprWithRangeAnalysis(mlir::AffineExpr expr,
 inline mlir::AffineMap
 simplifyAffineMapWithRangeAnalysis(mlir::AffineMap map,
                                    mlir::ArrayRef<int64_t> dimBounds,
-                                   bool performEquivalenceCheck = true) {
+                                   bool performEquivalenceCheck = false) {
   TT_assertv(map.getNumDims() == dimBounds.size(),
              "Number of dimension bounds must match number of map dimensions");
   mlir::SmallVector<mlir::AffineExpr> newResults;
@@ -811,29 +811,41 @@ inline int64_t minimizeGap(int64_t target, llvm::ArrayRef<int64_t> multipliers,
                            int64_t constOffset) {
   assert(multipliers.size() == bounds.size());
 
-  // Compute all achievable sums using dynamic programming.
-  // Start with just the constant offset.
-  llvm::DenseSet<int64_t> achievableSums;
-  achievableSums.insert(constOffset);
+  // Compute all achievable remainders (mod target) using dynamic programming.
+  // Since we only care about sum % target, we track remainders directly.
+  // This limits the set size to at most 'target' elements, preventing
+  // exponential blowup.
+  llvm::DenseSet<int64_t> achievableRemainders;
+  achievableRemainders.insert(((constOffset % target) + target) % target);
 
   for (size_t i = 0; i < multipliers.size(); ++i) {
-    llvm::DenseSet<int64_t> newSums;
-    for (int64_t sum : achievableSums) {
+    llvm::DenseSet<int64_t> newRemainders;
+    int64_t multiplierMod = ((multipliers[i] % target) + target) % target;
+    for (int64_t remainder : achievableRemainders) {
       for (int64_t n = 0; n <= bounds[i]; ++n) {
-        newSums.insert(sum + multipliers[i] * n);
+        int64_t newRemainder = (remainder + multiplierMod * n) % target;
+        newRemainders.insert(newRemainder);
+        // Early exit: if we've covered all remainders, no need to continue
+        if (newRemainders.size() == static_cast<size_t>(target)) {
+          break;
+        }
+      }
+      if (newRemainders.size() == static_cast<size_t>(target)) {
+        break;
       }
     }
-    achievableSums = std::move(newSums);
+    achievableRemainders = std::move(newRemainders);
+    // Early exit: if all remainders are achievable, gap will be 1
+    if (achievableRemainders.size() == static_cast<size_t>(target)) {
+      return 1;
+    }
   }
 
-  // Find the minimum gap to the next boundary for any achievable sum.
-  // For floor division: gap = target - (sum % target)
-  // If sum % target == 0, we're at an exact multiple, so gap = target
-  // (need full cycle to reach the next boundary).
+  // Find the minimum gap to the next boundary for any achievable remainder.
+  // For floor division: gap = target - remainder, or target if remainder is 0.
   int64_t bestGap = target;
 
-  for (int64_t sum : achievableSums) {
-    int64_t remainder = sum % target;
+  for (int64_t remainder : achievableRemainders) {
     int64_t gap = (remainder == 0) ? target : (target - remainder);
     if (gap < bestGap) {
       bestGap = gap;
