@@ -159,6 +159,119 @@ bool testRedundantModSimplification(mlir::MLIRContext *context,
   return true;
 }
 
+//===----------------------------------------------------------------------===//
+// Common helpers for coalescing factor tests
+//===----------------------------------------------------------------------===//
+
+/// Test result codes for coalescing factor comparisons.
+enum class CoalescingTestResult { Success, Subset, Failed };
+
+/// Compares analytical and sampling coalescing factors and returns the result.
+/// Success: factors match exactly.
+/// Subset: analytical < sampling and sampling is divisible by analytical.
+/// Failed: factors don't match and aren't in subset relationship.
+CoalescingTestResult compareCoalescingFactors(int64_t samplingFactor,
+                                              int64_t analyticalFactor) {
+  if (samplingFactor == analyticalFactor) {
+    return CoalescingTestResult::Success;
+  }
+  if (analyticalFactor < samplingFactor &&
+      samplingFactor % analyticalFactor == 0) {
+    return CoalescingTestResult::Subset;
+  }
+  return CoalescingTestResult::Failed;
+}
+
+/// Returns all divisors of n sorted in ascending order.
+llvm::SmallVector<int64_t> getAllDivisors(int64_t n) {
+  llvm::SmallVector<int64_t> divisors;
+  for (int64_t d = 1; d * d <= n; ++d) {
+    if (n % d == 0) {
+      divisors.push_back(d);
+      if (d != n / d) {
+        divisors.push_back(n / d);
+      }
+    }
+  }
+  llvm::sort(divisors);
+  return divisors;
+}
+
+/// Logs a shape to stderr in the format [a, b, c, ...].
+void logShape(llvm::StringRef label, llvm::ArrayRef<int64_t> shape) {
+  llvm::errs() << label << ": [";
+  for (size_t i = 0; i < shape.size(); ++i) {
+    if (i > 0) {
+      llvm::errs() << ", ";
+    }
+    llvm::errs() << shape[i];
+  }
+  llvm::errs() << "]\n";
+}
+
+/// Logs coalescing test failure or subset information.
+void logCoalescingTestInfo(CoalescingTestResult result,
+                           llvm::StringRef testDescription,
+                           mlir::AffineMap memoryMap,
+                           llvm::ArrayRef<int64_t> deviceShape,
+                           int64_t samplingFactor, int64_t analyticalFactor) {
+  bool isFail = (result == CoalescingTestResult::Failed);
+  bool isSubset = (result == CoalescingTestResult::Subset);
+
+  if (isFail) {
+    llvm::errs() << "\n";
+    llvm::errs() << "================= FAILURE DETECTED =================\n";
+  }
+  if (isFail || isSubset) {
+    const char *status = isFail ? "FAIL" : "SUBSET";
+    llvm::errs() << "[" << status << "] " << testDescription << "\n";
+    logShape("    deviceShape", deviceShape);
+    llvm::errs() << "    map: " << memoryMap << "\n";
+    llvm::errs() << "    coalescingFactorSampling:   " << samplingFactor
+                 << "\n";
+    llvm::errs() << "    coalescingFactorAnalytical: " << analyticalFactor
+                 << "\n";
+  }
+  if (isFail) {
+    llvm::errs() << "====================================================\n\n";
+  }
+}
+
+/// Generates a random shape with the given rank using the provided RNG.
+/// Each dimension is in range [minDim, maxDim].
+llvm::SmallVector<int64_t> generateRandomShape(std::mt19937 &rng, int rank,
+                                               int64_t minDim, int64_t maxDim) {
+  llvm::SmallVector<int64_t> shape(rank);
+  std::uniform_int_distribution<int64_t> dimDist(minDim, maxDim);
+  for (int i = 0; i < rank; ++i) {
+    shape[i] = dimDist(rng);
+  }
+  return shape;
+}
+
+/// Generates a random valid grid shape for a given logical shape.
+/// Each grid dimension is a random divisor of the corresponding logical dim.
+llvm::SmallVector<int64_t>
+generateRandomGridShape(llvm::ArrayRef<int64_t> logicalShape,
+                        std::mt19937 &rng) {
+  llvm::SmallVector<int64_t> gridShape;
+  for (int64_t dim : logicalShape) {
+    auto divisors = getAllDivisors(dim);
+    std::uniform_int_distribution<size_t> dist(0, divisors.size() - 1);
+    gridShape.push_back(divisors[dist(rng)]);
+  }
+  return gridShape;
+}
+
+/// Generates a random permutation of [0, 1, ..., n-1].
+llvm::SmallVector<unsigned> generateRandomPermutation(std::mt19937 &rng,
+                                                      unsigned n) {
+  llvm::SmallVector<unsigned> perm(n);
+  std::iota(perm.begin(), perm.end(), 0);
+  std::shuffle(perm.begin(), perm.end(), rng);
+  return perm;
+}
+
 } // namespace
 
 TEST(AffineMapUtilsTest, CanSimplifyZeroFloorDivExpr) {
@@ -396,12 +509,9 @@ TEST(AffineMapUtilsTest, CanDetermineCoalescingFactor) {
   using namespace mlir;
   MLIRContext context;
 
-  // Test result codes
-  enum class TestResult { Success, Subset, Failed };
-
-  // Test result with additional info for logging
-  struct TestInfo {
-    TestResult result;
+  // Test result with additional info for reblock-specific logging
+  struct ReblockTestInfo {
+    CoalescingTestResult result;
     mlir::AffineMap memoryMap;
     llvm::SmallVector<int64_t> inputDeviceShape;
     llvm::SmallVector<int64_t> outputDeviceShape;
@@ -410,9 +520,10 @@ TEST(AffineMapUtilsTest, CanDetermineCoalescingFactor) {
   };
 
   // Test case for reblocking (supports same and mixed ranks)
-  auto testReblock = [&](llvm::ArrayRef<int64_t> logicalShape, int inputRank,
-                         int outputRank, llvm::ArrayRef<int64_t> inputGridShape,
-                         llvm::ArrayRef<int64_t> outputGridShape) -> TestInfo {
+  auto testReblock =
+      [&](llvm::ArrayRef<int64_t> logicalShape, int inputRank, int outputRank,
+          llvm::ArrayRef<int64_t> inputGridShape,
+          llvm::ArrayRef<int64_t> outputGridShape) -> ReblockTestInfo {
     auto inputLogicalShape = collapseToRank(logicalShape, inputRank);
     auto outputLogicalShape = collapseToRank(logicalShape, outputRank);
     auto inputDeviceShape =
@@ -431,15 +542,9 @@ TEST(AffineMapUtilsTest, CanDetermineCoalescingFactor) {
     int64_t coalescingFactor = calculateCoalescingFactor(
         memoryMap, deviceShape, 1, memoryMap.getNumDims() / 2);
 
-    TestResult result;
-    if (coalescingFactor == coalescingFactorAnalytical) {
-      result = TestResult::Success;
-    } else if (coalescingFactorAnalytical < coalescingFactor &&
-               coalescingFactor % coalescingFactorAnalytical == 0) {
-      result = TestResult::Subset;
-    } else {
-      result = TestResult::Failed;
-    }
+    CoalescingTestResult result =
+        compareCoalescingFactors(coalescingFactor, coalescingFactorAnalytical);
+
     return {result,           memoryMap,
             inputDeviceShape, outputDeviceShape,
             coalescingFactor, coalescingFactorAnalytical};
@@ -450,21 +555,6 @@ TEST(AffineMapUtilsTest, CanDetermineCoalescingFactor) {
   constexpr int numTestCasesPerRankPair = 16;
 
   std::mt19937 rng(42); // deterministic seed for reproducibility
-
-  // Helper to get all divisors of n (any positive integer that divides n)
-  auto getAllDivisors = [](int64_t n) -> SmallVector<int64_t> {
-    SmallVector<int64_t> divisors;
-    for (int64_t d = 1; d * d <= n; ++d) {
-      if (n % d == 0) {
-        divisors.push_back(d);
-        if (d != n / d) {
-          divisors.push_back(n / d);
-        }
-      }
-    }
-    llvm::sort(divisors);
-    return divisors;
-  };
 
   // Helper to generate a random logical shape with given rank
   // Ensures the product of leading dims that would be collapsed to any
@@ -493,19 +583,6 @@ TEST(AffineMapUtilsTest, CanDetermineCoalescingFactor) {
       }
     }
     return shape;
-  };
-
-  // Helper to generate a random valid grid shape for a given logical shape
-  // Picks any divisor of each dimension
-  auto generateGridShape = [&](ArrayRef<int64_t> logicalShape,
-                               std::mt19937 &gen) -> SmallVector<int64_t> {
-    SmallVector<int64_t> gridShape;
-    for (int64_t dim : logicalShape) {
-      auto divisors = getAllDivisors(dim);
-      std::uniform_int_distribution<size_t> dist(0, divisors.size() - 1);
-      gridShape.push_back(divisors[dist(gen)]);
-    }
-    return gridShape;
   };
 
   // Test mixed-rank reblocking: input rank from 2-6, output rank from 2-6
@@ -538,61 +615,38 @@ TEST(AffineMapUtilsTest, CanDetermineCoalescingFactor) {
 
     // Generate grid shapes for each
     SmallVector<int64_t> inputGridShape =
-        generateGridShape(inputLogicalShape, rng);
+        generateRandomGridShape(inputLogicalShape, rng);
     SmallVector<int64_t> outputGridShape =
-        generateGridShape(outputLogicalShape, rng);
+        generateRandomGridShape(outputLogicalShape, rng);
 
     auto info = testReblock(logicalShape, inputRank, outputRank, inputGridShape,
                             outputGridShape);
 
-    // Log test case result only if Subset or Failed; banner for failures
-    const bool isFail = (info.result == TestResult::Failed);
-    const bool isSubset = (info.result == TestResult::Subset);
+    // Log test case result only if Subset or Failed
+    const bool isFail = (info.result == CoalescingTestResult::Failed);
+    const bool isSubset = (info.result == CoalescingTestResult::Subset);
+
+    if (isFail || isSubset) {
+      std::string desc =
+          std::to_string(inputRank) + "D->" + std::to_string(outputRank) + "D";
+      logCoalescingTestInfo(info.result, desc, info.memoryMap,
+                            info.inputDeviceShape, info.coalescingFactor,
+                            info.coalescingFactorAnalytical);
+      logShape("    outputDeviceShape", info.outputDeviceShape);
+    }
 
     if (isFail) {
-      llvm::errs() << "\n";
-      llvm::errs() << "================= FAILURE DETECTED =================\n";
-    }
-    if (isFail || isSubset) {
-      const char *status = isFail ? "FAIL" : isSubset ? "SUBSET" : "UNKNOWN";
-      llvm::errs() << "[" << status << "] " << inputRank << "D->" << outputRank
-                   << "D\n";
-      llvm::errs() << "    inputDeviceShape: [";
-      for (size_t i = 0; i < info.inputDeviceShape.size(); ++i) {
-        if (i > 0) {
-          llvm::errs() << ", ";
-        }
-        llvm::errs() << info.inputDeviceShape[i];
-      }
-      llvm::errs() << "]\n";
-      llvm::errs() << "    outputDeviceShape: [";
-      for (size_t i = 0; i < info.outputDeviceShape.size(); ++i) {
-        if (i > 0) {
-          llvm::errs() << ", ";
-        }
-        llvm::errs() << info.outputDeviceShape[i];
-      }
-      llvm::errs() << "]\n";
-      llvm::errs() << "    map: " << info.memoryMap << "\n";
-      llvm::errs() << "    coalescingFactorSampling:   "
-                   << info.coalescingFactor << "\n";
-      llvm::errs() << "    coalescingFactorAnalytical: "
-                   << info.coalescingFactorAnalytical << "\n";
-    }
-    if (isFail) {
-      llvm::errs()
-          << "====================================================\n\n";
       ++numFailed;
     } else if (isSubset) {
       ++numSubset;
     }
 
     // Same-rank: analytical and sampling methods should match
-    if (info.result == TestResult::Success) {
+    if (info.result == CoalescingTestResult::Success) {
       ++numPassed;
     }
 
-    EXPECT_TRUE(info.result == TestResult::Success)
+    EXPECT_TRUE(info.result == CoalescingTestResult::Success)
         << "Failed for inputRank=" << inputRank
         << ", outputRank=" << outputRank;
 
@@ -605,36 +659,254 @@ TEST(AffineMapUtilsTest, CanDetermineCoalescingFactor) {
                << ", Failed: " << numFailed << ")\n";
 }
 
+TEST(AffineMapUtilsTest, CanDetermineCoalescingFactorForPermutations) {
+  using namespace mlir;
+  MLIRContext context;
+
+  // Test a permutation applied to a device shape.
+  // Creates a permutation map and composes it with a row-major layout to
+  // create a memory access pattern, then verifies that analytical and sampling
+  // coalescing factors match.
+  //
+  // @param deviceShape The device shape [grid dims..., shard dims...]
+  // @param permutation The permutation to apply (must be same size as
+  // deviceShape)
+  // @return Tuple of (result, memoryMap, samplingFactor, analyticalFactor)
+  auto testPermutation = [&](llvm::ArrayRef<int64_t> deviceShape,
+                             llvm::ArrayRef<unsigned> permutation)
+      -> std::tuple<CoalescingTestResult, AffineMap, int64_t, int64_t> {
+    unsigned numDims = deviceShape.size();
+    unsigned numGridDims = numDims / 2;
+
+    // Create the permutation map: (d0, d1, ...) -> (d_perm[0], d_perm[1], ...)
+    AffineMap permMap = AffineMap::getPermutationMap(permutation, &context);
+
+    // Apply permutation to get the permuted device shape
+    SmallVector<int64_t> permutedDeviceShape;
+    for (unsigned p : permutation) {
+      permutedDeviceShape.push_back(deviceShape[p]);
+    }
+
+    // Create row-major layout strides for the permuted shard shape
+    // The shard dims are the last numGridDims elements of the permuted shape
+    auto permutedShardShape =
+        llvm::ArrayRef<int64_t>(permutedDeviceShape).take_back(numGridDims);
+    auto strides =
+        ttmlir::utils::calculateStrides<int64_t>(permutedShardShape, 1);
+
+    // Create layout map: (grid dims..., shard dims...) -> (grid dims...,
+    // linearized offset)
+    auto layoutMap =
+        ttmlir::utils::generateAffineMapFromShardStrides(strides, &context);
+
+    // Compose layout with permutation to get memory access pattern
+    // layoutMap operates on permuted coordinates, permMap converts original ->
+    // permuted
+    auto memoryMap = layoutMap.compose(permMap);
+
+    // Simplify the map using range analysis
+    memoryMap = simplifyAffineMapWithRangeAnalysis(
+        simplifyZeroFloorDiv(memoryMap), deviceShape);
+
+    // Analyze coalescing factor using both methods
+    auto analyticalFactor = analyzeShardDimContiguity(
+        memoryMap, deviceShape, numGridDims, memoryMap.getNumResults() - 1, 1);
+
+    int64_t samplingFactor =
+        calculateCoalescingFactor(memoryMap, deviceShape, 1, numGridDims);
+
+    CoalescingTestResult result =
+        compareCoalescingFactors(samplingFactor, analyticalFactor);
+
+    return {result, memoryMap, samplingFactor, analyticalFactor};
+  };
+
+  // Configuration
+  constexpr int numRandomTests = 64;
+  std::mt19937 rng(123); // deterministic seed
+
+  int numPassed = 0;
+  int numTested = 0;
+  int numFailed = 0;
+  int numSubset = 0;
+
+  // Test 1: Identity permutation should be fully contiguous
+  {
+    SmallVector<int64_t> deviceShape = {2, 3, 4, 5}; // 2D grid, 2D shard
+    SmallVector<unsigned> identity = {0, 1, 2, 3};
+
+    auto [result, memoryMap, samplingFactor, analyticalFactor] =
+        testPermutation(deviceShape, identity);
+
+    ++numTested;
+    if (result == CoalescingTestResult::Success) {
+      ++numPassed;
+    } else if (result == CoalescingTestResult::Subset) {
+      ++numSubset;
+      logCoalescingTestInfo(result, "Identity permutation", memoryMap,
+                            deviceShape, samplingFactor, analyticalFactor);
+    } else {
+      ++numFailed;
+      logCoalescingTestInfo(result, "Identity permutation", memoryMap,
+                            deviceShape, samplingFactor, analyticalFactor);
+    }
+
+    // Identity should give full shard volume (4*5 = 20)
+    EXPECT_EQ(samplingFactor, 20) << "Identity permutation should be fully "
+                                     "contiguous within shard";
+    EXPECT_TRUE(result == CoalescingTestResult::Success)
+        << "Identity permutation failed";
+  }
+
+  // Test 2: Swap last two shard dims (should break contiguity)
+  {
+    SmallVector<int64_t> deviceShape = {2, 3, 4, 5}; // 2D grid, 2D shard
+    SmallVector<unsigned> swapLast = {0, 1, 3, 2};   // Swap d2 and d3
+
+    auto [result, memoryMap, samplingFactor, analyticalFactor] =
+        testPermutation(deviceShape, swapLast);
+
+    ++numTested;
+    if (result == CoalescingTestResult::Success) {
+      ++numPassed;
+    } else if (result == CoalescingTestResult::Subset) {
+      ++numSubset;
+      logCoalescingTestInfo(result, "Swap last two dims", memoryMap,
+                            deviceShape, samplingFactor, analyticalFactor);
+    } else {
+      ++numFailed;
+      logCoalescingTestInfo(result, "Swap last two dims", memoryMap,
+                            deviceShape, samplingFactor, analyticalFactor);
+    }
+
+    EXPECT_TRUE(result == CoalescingTestResult::Success)
+        << "Swap last two dims failed";
+  }
+
+  // Test 3: Swap grid dims only (should still be contiguous within shards)
+  {
+    SmallVector<int64_t> deviceShape = {2, 3, 4, 5}; // 2D grid, 2D shard
+    SmallVector<unsigned> swapGrid = {1, 0, 2, 3};   // Swap d0 and d1
+
+    auto [result, memoryMap, samplingFactor, analyticalFactor] =
+        testPermutation(deviceShape, swapGrid);
+
+    ++numTested;
+    if (result == CoalescingTestResult::Success) {
+      ++numPassed;
+    } else if (result == CoalescingTestResult::Subset) {
+      ++numSubset;
+      logCoalescingTestInfo(result, "Swap grid dims", memoryMap, deviceShape,
+                            samplingFactor, analyticalFactor);
+    } else {
+      ++numFailed;
+      logCoalescingTestInfo(result, "Swap grid dims", memoryMap, deviceShape,
+                            samplingFactor, analyticalFactor);
+    }
+
+    EXPECT_TRUE(result == CoalescingTestResult::Success)
+        << "Swap grid dims failed";
+  }
+
+  // Test 4: Complete reversal
+  {
+    SmallVector<int64_t> deviceShape = {2, 3, 4, 5}; // 2D grid, 2D shard
+    SmallVector<unsigned> reverse = {3, 2, 1, 0};    // Complete reversal
+
+    auto [result, memoryMap, samplingFactor, analyticalFactor] =
+        testPermutation(deviceShape, reverse);
+
+    ++numTested;
+    if (result == CoalescingTestResult::Success) {
+      ++numPassed;
+    } else if (result == CoalescingTestResult::Subset) {
+      ++numSubset;
+      logCoalescingTestInfo(result, "Complete reversal", memoryMap, deviceShape,
+                            samplingFactor, analyticalFactor);
+    } else {
+      ++numFailed;
+      logCoalescingTestInfo(result, "Complete reversal", memoryMap, deviceShape,
+                            samplingFactor, analyticalFactor);
+    }
+
+    EXPECT_TRUE(result == CoalescingTestResult::Success)
+        << "Complete reversal failed";
+  }
+
+  // Test 5: Random permutations with varying ranks
+  std::uniform_int_distribution<int> rankDist(2, 4); // Grid rank from 2-4
+
+  for (int testIdx = 0; testIdx < numRandomTests; ++testIdx) {
+    int gridRank = rankDist(rng);
+    int totalDims = gridRank * 2; // Equal grid and shard dims
+
+    // Generate random device shape with small dimensions for fast sampling
+    auto deviceShape = generateRandomShape(rng, totalDims, 2, 6);
+
+    // Generate random permutation
+    auto permutation =
+        generateRandomPermutation(rng, static_cast<unsigned>(totalDims));
+
+    auto [result, memoryMap, samplingFactor, analyticalFactor] =
+        testPermutation(deviceShape, permutation);
+
+    ++numTested;
+    if (result == CoalescingTestResult::Success) {
+      ++numPassed;
+    } else if (result == CoalescingTestResult::Subset) {
+      ++numSubset;
+      std::string desc = "Random perm #" + std::to_string(testIdx) +
+                         " (rank=" + std::to_string(gridRank) + ")";
+      logCoalescingTestInfo(result, desc, memoryMap, deviceShape,
+                            samplingFactor, analyticalFactor);
+    } else {
+      ++numFailed;
+      std::string desc = "Random perm #" + std::to_string(testIdx) +
+                         " (rank=" + std::to_string(gridRank) + ")";
+      logCoalescingTestInfo(result, desc, memoryMap, deviceShape,
+                            samplingFactor, analyticalFactor);
+    }
+
+    EXPECT_TRUE(result == CoalescingTestResult::Success)
+        << "Failed for random permutation #" << testIdx
+        << " with gridRank=" << gridRank;
+  }
+
+  llvm::errs() << "[CanDetermineCoalescingFactorForPermutations] Passed "
+               << numPassed << " / " << numTested << " (Subset: " << numSubset
+               << ", Failed: " << numFailed << ")\n";
+}
+
 // Isolated test case for debugging a specific FAIL case
 TEST(AffineMapUtilsTest, CanTestSingleCoalescingFactorMismatch) {
   using namespace mlir;
   MLIRContext context;
 
-  // 4D->2D SUBSET case:
-  // inputDeviceShape: [5, 1, 1, 5, 1, 7, 8, 2]
-  // outputDeviceShape: [8, 5, 35, 2]
+  // 4D->4D FAIL case:
+  // inputDeviceShape: [2, 1, 5, 1, 4, 4, 3, 4]
+  // outputDeviceShape: [60, 1, 8, 4]
   // map: (d0, d1, d2, d3, d4, d5, d6, d7) -> (
-  //   (d0 * 560 + d4 * 560 + d1 * 560 + d5 * 80 + d2 * 80 + d6 * 10 + d3 * 2 +
-  //   d7) floordiv 350, d3,
-  //   ((d0 * 56 + d4 * 56 + d1 * 56 + d5 * 8 + d2 * 8 + d6) mod 35) * 2 + d7
+  //   d0 * 30 + (d4 * 240 + d1 * 240 + d5 * 60 + d2 * 12 + d6 * 4 + d3 * 4 +
+  //   d7) floordiv 32, 0,
+  //   ((d4 * 60 + d1 * 60 + d5 * 15 + d2 * 3 + d3 + d6) mod 8) * 4 + d7
   // )
-  // coalescingFactorSampling: 14, coalescingFactorAnalytical: 2
+  // coalescingFactorSampling: 4, coalescingFactorAnalytical: 8
   AffineExpr d0, d1, d2, d3, d4, d5, d6, d7;
   bindDims(&context, d0, d1, d2, d3, d4, d5, d6, d7);
 
-  AffineExpr r0 = (d0 * 560 + d4 * 560 + d1 * 560 + d5 * 80 + d2 * 80 +
-                   d6 * 10 + d3 * 2 + d7)
-                      .floorDiv(350);
-  AffineExpr r1 = d3;
+  AffineExpr r0 =
+      d0 * 30 + (d4 * 240 + d1 * 240 + d5 * 60 + d2 * 12 + d6 * 4 + d3 * 4 + d7)
+                    .floorDiv(32);
+  AffineExpr r1 = getAffineConstantExpr(0, &context);
   AffineExpr r2 =
-      ((d0 * 56 + d4 * 56 + d1 * 56 + d5 * 8 + d2 * 8 + d6) % 35) * 2 + d7;
+      ((d4 * 60 + d1 * 60 + d5 * 15 + d2 * 3 + d3 + d6) % 8) * 4 + d7;
 
   SmallVector<AffineExpr> results{r0, r1, r2};
   AffineMap memoryMap =
       AffineMap::get(/*dimCount=*/8, /*symbolCount=*/0, results, &context);
 
-  SmallVector<int64_t> inputDeviceShape = {5, 1, 1, 5, 1, 7, 8, 2};
-  SmallVector<int64_t> outputDeviceShape = {8, 5, 35, 2};
+  SmallVector<int64_t> inputDeviceShape = {2, 1, 5, 1, 4, 4, 3, 4};
+  SmallVector<int64_t> outputDeviceShape = {60, 1, 8, 4};
 
   constexpr int64_t elemSizeBytes = 1;
   unsigned numGridDims = inputDeviceShape.size() / 2;      // 4

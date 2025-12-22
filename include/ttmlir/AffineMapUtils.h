@@ -1138,24 +1138,19 @@ inline int64_t analyzeShardResultExprForContiguity(
             gap = (remainder == 0) ? modulus : (modulus - remainder);
           } else {
             // Build multipliers and bounds arrays from tracked dimension info
-            // Include:
-            //   - Grid dims (dimPosition < numGridDims): to find worst-case
-            //   grid position
-            //   - Inner shard dims (dimPosition > dimPos): vary within
-            //   innermost iteration
-            // Exclude:
-            //   - Outer shard dims (numGridDims <= dimPosition < dimPos): fixed
-            //   during iteration
+            // Include ALL other dimensions to find worst-case gap:
+            //   - Grid dims: fixed per transfer, need worst case across grid
+            //   - Outer shard dims: fixed during inner iteration, need worst
+            //   case
+            //   - Inner shard dims: vary within iteration
+            // All must be considered to find the minimum gap that produces
+            // the worst-case contiguity bound.
             llvm::SmallVector<int64_t> otherMultipliers;
             llvm::SmallVector<int64_t> otherBounds;
             for (auto [dimPosition, mul] : otherDimInfo) {
-              bool isGridDim = (dimPosition < numGridDims);
-              bool isInnerShardDim = (dimPosition > dimPos);
-              if (isGridDim || isInnerShardDim) {
-                otherMultipliers.push_back(mul);
-                // Bound is (dimSize - 1) since dim ranges from 0 to dimSize-1
-                otherBounds.push_back(dimBounds.lookup(dimPosition) - 1);
-              }
+              otherMultipliers.push_back(mul);
+              // Bound is (dimSize - 1) since dim ranges from 0 to dimSize-1
+              otherBounds.push_back(dimBounds.lookup(dimPosition) - 1);
             }
 
             if (otherMultipliers.empty()) {
@@ -1621,24 +1616,19 @@ inline int64_t analyzeGridResultExprForDiscontinuity(
             gap = (remainder == 0) ? divisor : (divisor - remainder);
           } else {
             // Build multipliers and bounds arrays from tracked dimension info
-            // Include:
-            //   - Grid dims (dimPosition < numGridDims): to find worst-case
-            //   grid position
-            //   - Inner shard dims (dimPosition > dimPos): vary within
-            //   innermost iteration
-            // Exclude:
-            //   - Outer shard dims (numGridDims <= dimPosition < dimPos): fixed
-            //   during iteration
+            // Include ALL other dimensions to find worst-case gap:
+            //   - Grid dims: fixed per transfer, need worst case across grid
+            //   - Outer shard dims: fixed during inner iteration, need worst
+            //   case
+            //   - Inner shard dims: vary within iteration
+            // All must be considered to find the minimum gap that produces
+            // the worst-case contiguity bound.
             llvm::SmallVector<int64_t> otherMultipliers;
             llvm::SmallVector<int64_t> otherBounds;
             for (auto [dimPosition, mul] : otherDimInfo) {
-              bool isGridDim = (dimPosition < numGridDims);
-              bool isInnerShardDim = (dimPosition > dimPos);
-              if (isGridDim || isInnerShardDim) {
-                otherMultipliers.push_back(mul);
-                // Bound is (dimSize - 1) since dim ranges from 0 to dimSize-1
-                otherBounds.push_back(dimBounds.lookup(dimPosition) - 1);
-              }
+              otherMultipliers.push_back(mul);
+              // Bound is (dimSize - 1) since dim ranges from 0 to dimSize-1
+              otherBounds.push_back(dimBounds.lookup(dimPosition) - 1);
             }
 
             if (otherMultipliers.empty()) {
@@ -1729,10 +1719,12 @@ inline int64_t analyzeSingleShardDimContiguity(mlir::AffineMap map,
 
   // Phase II: Analyze each result expression for contiguity
   int64_t dimContiguity = -1; // Start unconstrained
+  auto results = map.getResults();
 
-  for (auto [i, resultExpr] : llvm::enumerate(map.getResults())) {
+  for (size_t idx = 0; idx < results.size(); ++idx) {
+    mlir::AffineExpr resultExpr = results[idx];
     int64_t exprBound;
-    if (i >= numGridResults) {
+    if (idx >= numGridResults) {
       exprBound = analyzeShardResultExprForContiguity(resultExpr, dimBounds,
                                                       dimPos, numGridDims);
     } else {
