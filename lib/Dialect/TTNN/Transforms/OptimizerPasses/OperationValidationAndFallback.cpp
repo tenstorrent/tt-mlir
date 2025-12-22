@@ -620,6 +620,13 @@ testFallbackCombination(Operation *op, const OpConfig &originalConfig,
         TensorMemoryLayout::Interleaved);
   }
 
+  // For Conv2d operations, avoid L1 memory usage to avoid OOM during fallback.
+  if (mlir::isa<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp>(op)) {
+    auto conv2dSliceConfig = Conv2dSliceConfigAttr::get(
+        op->getContext(), Conv2dSliceType::DramHeight, 0);
+    op->setAttr("conv2d_slice_config", conv2dSliceConfig);
+  }
+
   return op_constraint_validation::validateOperation(op, inputLayouts,
                                                      testConfig);
 }
