@@ -127,7 +127,7 @@ getExprUpperBound(mlir::AffineExpr expr, mlir::ArrayRef<int64_t> dimBounds) {
 
     auto lhs = getExprUpperBound(binOp.getLHS(), dimBounds);
 
-    // Quick check for Mod with constant RHS
+    // Quick check for Mod with constant RHS.
     if (binOp.getKind() == mlir::AffineExprKind::Mod) {
 
       auto lhs = getExprUpperBound(binOp.getLHS(), dimBounds);
@@ -276,7 +276,7 @@ collectSumOperandsImpl(mlir::AffineExpr expr,
                        llvm::SmallVectorImpl<mlir::AffineExpr> &results) {
   // Add operations have least precedence, so collecting all operands
   // commutatively gathers the entire expressions; everything else must be a
-  // child expr of the top-level add
+  // child expr of the top-level add.
   if (auto binOp = llvm::dyn_cast<mlir::AffineBinaryOpExpr>(expr)) {
     if (binOp.getKind() == mlir::AffineExprKind::Add) {
       collectSumOperandsImpl(binOp.getLHS(), results);
@@ -368,23 +368,9 @@ inline bool exprIsSpecificDimExpr(mlir::AffineExpr expr, unsigned dimPos) {
          llvm::dyn_cast<mlir::AffineDimExpr>(expr).getPosition() == dimPos;
 }
 
-/// Helper function to recursively analyze contiguity of an affine expression.
-/// This identifies the maximum coalescable run by analyzing mod/floordiv
-/// expressions.
-///
-/// @param expr The expression to analyze
-/// @param dimBounds Map of dimension positions to their bounds (number of
-/// elements)
-/// @param dimPos The target dimension being analyzed for contiguity
-/// @param numGridDims Number of grid dimensions (dims 0..numGridDims-1 are
-/// grid).
-///                    Defaults to 0, meaning all dims are shard dims (original
-///                    behavior).
-/// @param parentModulus Optional bound from enclosing mod/floordiv operation.
-///                      When set, changes how expressions are evaluated.
-/// @return -1 for unconstrained (no contiguity limit),
-///         1 for error condition (analysis failed, no coalescing possible),
-///         positive value for the contiguity bound
+/// Recursively analyzes contiguity of an affine expression to find the maximum
+/// coalescable run. Returns -1 if unconstrained, 1 on error, or the contiguity
+/// bound.
 inline int64_t analyzeShardResultExprForContiguity(
     mlir::AffineExpr expr, const llvm::DenseMap<int, int64_t> &dimBounds,
     unsigned dimPos, unsigned numGridDims = 0,
@@ -677,23 +663,9 @@ inline int64_t analyzeShardResultExprForContiguity(
   }
 }
 
-/// Analyzes the stride (coefficient) of a specific dimension in an affine
-/// expression. The stride represents how much the output changes when the
-/// dimension increases by 1.
-///
-/// Returns:
-///   -1: Error/cannot analyze the expression
-///   0: Dimension doesn't affect this expression
-///   >0: The stride (coefficient) of the dimension
-///
-/// Examples:
-/// - d0 -> stride is 1
-/// - d0 * 128 -> stride is 128
-/// - (d0 * 64) mod 4096 -> stride is 64 (mod doesn't change stride)
-/// - d0 * 128 + (d0 * 64) mod 4096 -> stride is 128 + 64 = 192
-/// - (d0 * 16) floorDiv 2 -> stride is 16 / 2 = 8
-/// - (d0 * 2) floorDiv 16 -> stride is 0 (output changes less than once per
-/// step)
+/// Analyzes the stride (coefficient) of a dimension in an affine expression.
+/// Returns -1 on error, 0 if dimension doesn't affect this expression,
+/// or the stride value.
 inline int64_t analyzeExprForDimStride(mlir::AffineExpr expr, unsigned dimPos) {
   // Constant: stride = 0 (doesn't depend on dim)
   if (llvm::isa<mlir::AffineConstantExpr>(expr)) {
@@ -767,29 +739,16 @@ inline int64_t analyzeExprForDimStride(mlir::AffineExpr expr, unsigned dimPos) {
   }
 }
 
-/// Analyzes stride alignment for shard dimensions in an affine map.
-/// For contiguous access (stride=1), the strides must satisfy:
-/// - Innermost shard dimension has stride 1
-/// - Each outer shard dimension has stride = inner_stride * inner_bound
-///
-/// @param map The affine map to analyze
-/// @param shape The shape providing bounds for each dimension
-/// @param numGridDims The number of grid dimensions (shard dims start after)
-/// @param numGridResults The number of grid results in the map
-/// @return Coalescing factor limited by stride misalignment:
-///         - std::nullopt: Strides are properly aligned (no constraint)
-///         - Positive value: Maximum coalescing factor due to stride issues
+/// Analyzes stride alignment for shard dimensions. Returns the coalescing
+/// factor limited by stride misalignment. Requires exactly one shard result.
 inline int64_t analyzeShardDimStrides(mlir::AffineMap map,
                                       mlir::ArrayRef<int64_t> shape,
                                       unsigned numGridDims,
-                                      unsigned numGridResults,
                                       int64_t elemSizeBytes) {
   int numShardDims = shape.size() - numGridDims;
   TT_assert(numShardDims > 0);
-  // TODO: fix this
-  TT_assert(numGridResults == map.getNumResults() - 1);
 
-  mlir::AffineExpr shardResult = map.getResult(numGridResults);
+  mlir::AffineExpr shardResult = map.getResult(map.getNumResults() - 1);
   size_t innermostDimPos = map.getNumDims() - 1;
   int64_t innermostStride =
       analyzeExprForDimStride(shardResult, innermostDimPos);
@@ -846,25 +805,10 @@ inline int64_t analyzeShardDimStrides(mlir::AffineMap map,
   return accumulatedStride;
 }
 
-/// Analyzes an affine expression to find the minimum change in dimension
-/// `dimPos` needed to change the output value. This is used for grid dimension
-/// analysis where any change in grid indexing is a discontinuity.
-///
-/// Precondition: The expression must contain dimension `dimPos`.
-///
-/// Examples:
-/// - `d0` -> 1 (every step changes output)
-/// - `d0 floorDiv N` -> N (need N steps to change output)
-/// - `(d0 + C) floorDiv N` -> N - C (steps until crossing divisor boundary)
-/// - `(M*d0 + C) floorDiv N` -> ceil((N - C) / M)
-///
-/// @param numGridDims Number of grid dimensions (dims 0..numGridDims-1 are
-/// grid).
-///                    Defaults to 0, meaning all dims are shard dims (original
-///                    behavior).
-/// @return Positive value: minimum change in dimPos needed to change output
-///         -1: expression is unconstrained (dimPos doesn't affect this result)
-///         1: conservative fallback when expression cannot be analyzed
+/// Finds the minimum change in a dimension needed to change the output value.
+/// Used for grid dimension analysis where any change in grid indexing is a
+/// discontinuity. Returns -1 if unconstrained, 1 as fallback, or the minimum
+/// step count.
 inline int64_t analyzeGridResultExprForDiscontinuity(
     mlir::AffineExpr expr, const llvm::DenseMap<int, int64_t> &dimBounds,
     unsigned dimPos, unsigned numGridDims = 0) {
@@ -1182,31 +1126,22 @@ inline int64_t analyzeGridResultExprForDiscontinuity(
   }
 }
 
-/// Analyzes contiguity for a single shard dimension in an affine map.
-/// A shard dimension is any dimension with position >= numGridDims.
-///
-/// @param map The affine map to analyze
-/// @param shape The shape providing bounds for each dimension
-/// @param numGridDims The number of grid dimensions (shard dims start after)
-/// @param shardDimIdx The index of the shard dimension to analyze (0-based)
-/// @return Contiguity bound for the dimension:
-///         - 1: Error condition or no coalescing possible
-///         - Positive value: Maximum coalescable run length for this dim
+/// Analyzes contiguity for a single shard dimension (position >= numGridDims).
+/// Returns 1 on error or the maximum coalescable run length for this dim.
+/// Requires exactly one shard result (the last result in the map).
 inline int64_t analyzeSingleShardDimContiguity(mlir::AffineMap map,
                                                mlir::ArrayRef<int64_t> shape,
                                                unsigned numGridDims,
-                                               unsigned numGridResults,
                                                unsigned shardDimIdx) {
   unsigned dimPos = numGridDims + shardDimIdx;
+  unsigned numGridResults = map.getNumResults() - 1;
 
-  // Phase I: Set all other dims to worst-case constant values.
   // The dim bounds are derived from the shape at each position.
   llvm::DenseMap<int, int64_t> dimBounds;
   for (unsigned i = 0; i < map.getNumDims(); ++i) {
     dimBounds[static_cast<int>(i)] = shape[i];
   }
 
-  // Phase II: Analyze each result expression for contiguity
   int64_t dimContiguity = -1; // Start unconstrained
   auto results = map.getResults();
 
@@ -1240,35 +1175,19 @@ inline int64_t analyzeSingleShardDimContiguity(mlir::AffineMap map,
 }
 
 /// Computes a combined coalescing factor by analyzing all shard dimensions
-/// from most minor to least minor. A shard dimension is any dimension with
-/// position >= numGridDims.
-///
-/// The algorithm:
-/// 1. First checks stride alignment - for contiguous access, strides must be:
-///    - Innermost shard dim has stride 1
-///    - Each outer dim has stride = inner_stride * inner_bound
-/// 2. Then iterates shard dims from most minor (last) to least minor (first)
-/// 3. For each dim, checks if it's constrained (dimContiguity < shape extent)
-/// 4. If constrained, this is the largest contiguous dim - computes the
-///    coalescing factor by multiplying the dim's contiguity with the size of
-///    all more minor dims that are fully contiguous
-/// 5. Returns the minimum of stride-based and contiguity-based constraints
-///
-/// @param map The affine map to analyze
-/// @param shape The shape providing bounds for each dimension
-/// @param numGridDims The number of grid dimensions (shard dims start after)
-/// @return Combined coalescing factor:
-///         - std::nullopt: Error condition (non-analyzable expression)
-///         - Positive value: Maximum coalescable run length across all shards
+/// from most minor to least minor, checking both stride alignment and
+/// contiguity constraints. Returns the maximum coalescable run length.
+/// Requires exactly one shard result (the last result in the map).
 inline int64_t analyzeShardDimContiguity(mlir::AffineMap map,
                                          mlir::ArrayRef<int64_t> shape,
                                          unsigned numGridDims,
-                                         unsigned numGridResults,
                                          int64_t elemSizeBytes) {
   TT_assert(elemSizeBytes > 0);
   TT_assertv(shape.size() == map.getNumDims(),
              "Shape size must match number of map dimensions");
   TT_assertv(shape.size() % 2 == 0u, "Shape rank must be even");
+  TT_assertv(map.getNumResults() == numGridDims + 1,
+             "Map must have exactly one shard result");
 
   unsigned numShardDims = shape.size() - numGridDims;
 
@@ -1287,7 +1206,7 @@ inline int64_t analyzeShardDimContiguity(mlir::AffineMap map,
 
   for (unsigned shardDimIdx = 0; shardDimIdx < numShardDims; ++shardDimIdx) {
     int64_t contiguity = analyzeSingleShardDimContiguity(
-        simplifiedMap, shape, numGridDims, numGridResults, shardDimIdx);
+        simplifiedMap, shape, numGridDims, shardDimIdx);
     dimContiguities.push_back(contiguity);
   }
 
@@ -1307,8 +1226,8 @@ inline int64_t analyzeShardDimContiguity(mlir::AffineMap map,
     }
   }
   // Check stride alignment. This fundamentally limits the coalescing factor.
-  auto strideLimit = analyzeShardDimStrides(simplifiedMap, shape, numGridDims,
-                                            numGridResults, elemSizeBytes);
+  auto strideLimit =
+      analyzeShardDimStrides(simplifiedMap, shape, numGridDims, elemSizeBytes);
   TT_assertv(strideLimit % elemSizeBytes == 0,
              "strideLimit must be divisible by elemSizeBytes");
   strideLimit /= elemSizeBytes;
