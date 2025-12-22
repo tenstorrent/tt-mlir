@@ -863,6 +863,10 @@ inline bool exprIsSpecificDimExpr(mlir::AffineExpr expr, unsigned dimPos) {
 /// @param dimBounds Map of dimension positions to their bounds (number of
 /// elements)
 /// @param dimPos The target dimension being analyzed for contiguity
+/// @param numGridDims Number of grid dimensions (dims 0..numGridDims-1 are
+/// grid).
+///                    Defaults to 0, meaning all dims are shard dims (original
+///                    behavior).
 /// @param parentModulus Optional bound from enclosing mod/floordiv operation.
 ///                      When set, changes how expressions are evaluated.
 /// @return -1 for unconstrained (no contiguity limit),
@@ -870,7 +874,8 @@ inline bool exprIsSpecificDimExpr(mlir::AffineExpr expr, unsigned dimPos) {
 ///         positive value for the contiguity bound
 inline int64_t analyzeShardResultExprForContiguity(
     mlir::AffineExpr expr, const llvm::DenseMap<int, int64_t> &dimBounds,
-    unsigned dimPos, std::optional<int64_t> parentModulus = std::nullopt) {
+    unsigned dimPos, unsigned numGridDims = 0,
+    std::optional<int64_t> parentModulus = std::nullopt) {
   // Helper to check if steps exceed dim bounds
   auto checkBoundsAndReturn = [&](int64_t stepsNeeded) -> int64_t {
     int64_t targetDimBound = dimBounds.lookup(dimPos);
@@ -906,9 +911,9 @@ inline int64_t analyzeShardResultExprForContiguity(
   case mlir::AffineExprKind::Add: {
     // Analyze each operand recursively, propagating rhsConst
     int64_t lhsBound = analyzeShardResultExprForContiguity(
-        lhs, dimBounds, dimPos, parentModulus);
+        lhs, dimBounds, dimPos, numGridDims, parentModulus);
     int64_t rhsBound = analyzeShardResultExprForContiguity(
-        rhs, dimBounds, dimPos, parentModulus);
+        rhs, dimBounds, dimPos, numGridDims, parentModulus);
 
     // Return GCD of bounds; -1 means unconstrained
     if (lhsBound == -1) {
@@ -937,7 +942,7 @@ inline int64_t analyzeShardResultExprForContiguity(
     }
 
     int64_t lhsBound = analyzeShardResultExprForContiguity(
-        lhs, dimBounds, dimPos, parentModulus);
+        lhs, dimBounds, dimPos, numGridDims, parentModulus);
 
     // if lhs is constrained, propagate the constraint up
     if (lhsBound != -1) {
@@ -990,27 +995,28 @@ inline int64_t analyzeShardResultExprForContiguity(
             int64_t combinedDivisor = innerRhsConstValue * modulus;
             return analyzeShardResultExprForContiguity(
                 lhsBinOp.getLHS().floorDiv(combinedDivisor), dimBounds, dimPos,
-                combinedDivisor);
+                numGridDims, combinedDivisor);
           } else if (lhsKind == mlir::AffineExprKind::Mod &&
                      kind == mlir::AffineExprKind::Mod) {
             // Both inner and outer are mod: recurse on the LHS with min of the
             // two rhs modulus
             int64_t gcdMod = std::min(innerRhsConstValue, modulus);
             return analyzeShardResultExprForContiguity(
-                lhsBinOp.getLHS() % gcdMod, dimBounds, dimPos, gcdMod);
+                lhsBinOp.getLHS() % gcdMod, dimBounds, dimPos, numGridDims,
+                gcdMod);
           } else if (lhsKind == mlir::AffineExprKind::Mod &&
                      kind == mlir::AffineExprKind::FloorDiv) {
             // Inner is mod, outer is floordiv: analyze mod op, then multiply by
             // floordiv divisor
             int64_t modBound = analyzeShardResultExprForContiguity(
-                lhsBinOp, dimBounds, dimPos, innerRhsConstValue);
+                lhsBinOp, dimBounds, dimPos, numGridDims, innerRhsConstValue);
             return modBound * modulus;
           } else if (lhsKind == mlir::AffineExprKind::FloorDiv &&
                      kind == mlir::AffineExprKind::Mod) {
             // discontinuity happens as soon as lhs floordiv expr changes; no
             // need to analyze outer mod.
-            return analyzeShardResultExprForContiguity(lhsBinOp, dimBounds,
-                                                       dimPos, modulus);
+            return analyzeShardResultExprForContiguity(
+                lhsBinOp, dimBounds, dimPos, numGridDims, modulus);
           } else {
             // not handled
             return -1;
@@ -1032,7 +1038,7 @@ inline int64_t analyzeShardResultExprForContiguity(
     if (auto lhsBinOp = llvm::dyn_cast<mlir::AffineBinaryOpExpr>(lhs)) {
       if (lhsBinOp.getKind() == mlir::AffineExprKind::Mul) {
         return analyzeShardResultExprForContiguity(lhs, dimBounds, dimPos,
-                                                   modulus);
+                                                   numGridDims, modulus);
       }
 
       // If LHS is an Add, find worst-case gap using minimizeGap algorithm
@@ -1111,16 +1117,35 @@ inline int64_t analyzeShardResultExprForContiguity(
             gap = (remainder == 0) ? modulus : (modulus - remainder);
           } else {
             // Build multipliers and bounds arrays from tracked dimension info
+            // Include:
+            //   - Grid dims (dimPosition < numGridDims): to find worst-case
+            //   grid position
+            //   - Inner shard dims (dimPosition > dimPos): vary within
+            //   innermost iteration
+            // Exclude:
+            //   - Outer shard dims (numGridDims <= dimPosition < dimPos): fixed
+            //   during iteration
             llvm::SmallVector<int64_t> otherMultipliers;
             llvm::SmallVector<int64_t> otherBounds;
             for (auto [dimPosition, mul] : otherDimInfo) {
-              otherMultipliers.push_back(mul);
-              // Bound is (dimSize - 1) since dim ranges from 0 to dimSize-1
-              otherBounds.push_back(dimBounds.lookup(dimPosition) - 1);
+              bool isGridDim = (dimPosition < numGridDims);
+              bool isInnerShardDim = (dimPosition > dimPos);
+              if (isGridDim || isInnerShardDim) {
+                otherMultipliers.push_back(mul);
+                // Bound is (dimSize - 1) since dim ranges from 0 to dimSize-1
+                otherBounds.push_back(dimBounds.lookup(dimPosition) - 1);
+              }
             }
 
-            // Use minimizeGap to find the best alignment (minimum gap)
-            gap = minimizeGap(modulus, otherMultipliers, otherBounds, constSum);
+            if (otherMultipliers.empty()) {
+              // No more-minor dims, just use constant offset
+              int64_t remainder = constSum % modulus;
+              gap = (remainder == 0) ? modulus : (modulus - remainder);
+            } else {
+              // Use minimizeGap to find the best alignment (minimum gap)
+              gap =
+                  minimizeGap(modulus, otherMultipliers, otherBounds, constSum);
+            }
           }
 
           int64_t stepsNeeded = (gap + targetMultiplier - 1) /
@@ -1134,7 +1159,8 @@ inline int64_t analyzeShardResultExprForContiguity(
     }
 
     // Default: recursively analyze LHS with boundValue as the new constraint
-    return analyzeShardResultExprForContiguity(lhs, dimBounds, dimPos, modulus);
+    return analyzeShardResultExprForContiguity(lhs, dimBounds, dimPos,
+                                               numGridDims, modulus);
   }
 
   default:
@@ -1221,8 +1247,10 @@ inline int64_t analyzeExprForDimStride(mlir::AffineExpr expr, unsigned dimPos) {
     int64_t divisor = rhsConst.getValue();
     // If lhsStride >= divisor, output changes by lhsStride/divisor per step
     // If lhsStride < divisor, output changes less than once per step (stride 0)
-    // return std::max(1l, lhsStride / divisor);
-    return std::max(1l, lhsStride / divisor);
+    if (lhsStride < divisor) {
+      return 0;
+    }
+    return lhsStride / divisor;
   }
 
   default:
@@ -1256,6 +1284,7 @@ inline int64_t analyzeShardDimStrides(mlir::AffineMap map,
   size_t innermostDimPos = map.getNumDims() - 1;
   int64_t innermostStride =
       analyzeExprForDimStride(shardResult, innermostDimPos);
+
   if (innermostStride < 0) {
     return elemSizeBytes;
   }
@@ -1267,7 +1296,22 @@ inline int64_t analyzeShardDimStrides(mlir::AffineMap map,
     return elemSizeBytes;
   }
 
-  int64_t accumulatedStride = innermostStride * shape[innermostDimPos];
+  // If innermost dim has non-unit extent but stride 0 in the shard result,
+  // the dimension must affect a grid result instead. Every step of that
+  // dimension causes a grid discontinuity, so there's no contiguity.
+  if (innermostStride == 0 && shape[innermostDimPos] != 1) {
+    return elemSizeBytes;
+  }
+
+  // When innermost dim has stride 0 with unit extent (can be skipped) or
+  // proper stride, compute the expected accumulated stride.
+  int64_t accumulatedStride;
+  if (shape[innermostDimPos] == 1) {
+    accumulatedStride = elemSizeBytes;
+  } else {
+    accumulatedStride = innermostStride * shape[innermostDimPos];
+  }
+
   for (int i = map.getNumDims() - 2; i >= static_cast<int>(numGridDims); --i) {
     unsigned dimPos = i;
     if (shape[dimPos] == 1) {
@@ -1276,6 +1320,13 @@ inline int64_t analyzeShardDimStrides(mlir::AffineMap map,
     int64_t stride = analyzeExprForDimStride(shardResult, dimPos);
     if (stride < 0) {
       return elemSizeBytes;
+    }
+    // If a non-unit shard dim has stride 0 in the shard result, it must
+    // affect a grid result instead. This causes grid discontinuities when
+    // this dim changes, but doesn't prevent coalescing within the innermost
+    // contiguous dimensions. Break here rather than returning elemSizeBytes.
+    if (stride == 0) {
+      break;
     }
     if (stride != accumulatedStride) {
       break;
@@ -1298,12 +1349,16 @@ inline int64_t analyzeShardDimStrides(mlir::AffineMap map,
 /// - `(d0 + C) floorDiv N` -> N - C (steps until crossing divisor boundary)
 /// - `(M*d0 + C) floorDiv N` -> ceil((N - C) / M)
 ///
+/// @param numGridDims Number of grid dimensions (dims 0..numGridDims-1 are
+/// grid).
+///                    Defaults to 0, meaning all dims are shard dims (original
+///                    behavior).
 /// @return Positive value: minimum change in dimPos needed to change output
 ///         -1: expression is unconstrained (dimPos doesn't affect this result)
 ///         1: conservative fallback when expression cannot be analyzed
 inline int64_t analyzeGridResultExprForDiscontinuity(
     mlir::AffineExpr expr, const llvm::DenseMap<int, int64_t> &dimBounds,
-    unsigned dimPos) {
+    unsigned dimPos, unsigned numGridDims = 0) {
   // Handle constant expressions - unconstrained (dim doesn't affect output)
   if (llvm::isa<mlir::AffineConstantExpr>(expr)) {
     return -1;
@@ -1368,8 +1423,8 @@ inline int64_t analyzeGridResultExprForDiscontinuity(
         fusedExpr = lhsMod.getLHS().ceilDiv(divisor);
       }
 
-      return analyzeGridResultExprForDiscontinuity(fusedExpr, dimBounds,
-                                                   dimPos);
+      return analyzeGridResultExprForDiscontinuity(fusedExpr, dimBounds, dimPos,
+                                                   numGridDims);
     }
 
     // Deal with nested floordiv expressions
@@ -1382,7 +1437,8 @@ inline int64_t analyzeGridResultExprForDiscontinuity(
 
       int64_t combinedDivisor = innerRhsConst.getValue() * divisor;
       return analyzeGridResultExprForDiscontinuity(
-          lhsBinOp.getLHS().floorDiv(combinedDivisor), dimBounds, dimPos);
+          lhsBinOp.getLHS().floorDiv(combinedDivisor), dimBounds, dimPos,
+          numGridDims);
     }
 
     // Pattern 2: (M * d_dimPos) floorDiv N -> need ceil(N/M) steps
@@ -1442,7 +1498,7 @@ inline int64_t analyzeGridResultExprForDiscontinuity(
               mlir::AffineExpr fusedExpr =
                   lhsFloordiv.getLHS().floorDiv(combinedDivisor);
               fusedDivResult = analyzeGridResultExprForDiscontinuity(
-                  fusedExpr, dimBounds, dimPos);
+                  fusedExpr, dimBounds, dimPos, numGridDims);
             }
           } else if (exprContainsDim(sumOperand, dimPos)) {
             foundNonDivExprWithTargetDim = true;
@@ -1506,8 +1562,8 @@ inline int64_t analyzeGridResultExprForDiscontinuity(
               if (exprContainsDim(sumOperand, dimPos)) {
                 // worst case assume that any change in the lhs expr will change
                 // the output
-                return analyzeGridResultExprForDiscontinuity(sumOperand,
-                                                             dimBounds, dimPos);
+                return analyzeGridResultExprForDiscontinuity(
+                    sumOperand, dimBounds, dimPos, numGridDims);
               } else {
                 // don't try to analyze this for now
                 return 1;
@@ -1544,16 +1600,35 @@ inline int64_t analyzeGridResultExprForDiscontinuity(
             gap = (remainder == 0) ? divisor : (divisor - remainder);
           } else {
             // Build multipliers and bounds arrays from tracked dimension info
+            // Include:
+            //   - Grid dims (dimPosition < numGridDims): to find worst-case
+            //   grid position
+            //   - Inner shard dims (dimPosition > dimPos): vary within
+            //   innermost iteration
+            // Exclude:
+            //   - Outer shard dims (numGridDims <= dimPosition < dimPos): fixed
+            //   during iteration
             llvm::SmallVector<int64_t> otherMultipliers;
             llvm::SmallVector<int64_t> otherBounds;
             for (auto [dimPosition, mul] : otherDimInfo) {
-              otherMultipliers.push_back(mul);
-              // Bound is (dimSize - 1) since dim ranges from 0 to dimSize-1
-              otherBounds.push_back(dimBounds.lookup(dimPosition) - 1);
+              bool isGridDim = (dimPosition < numGridDims);
+              bool isInnerShardDim = (dimPosition > dimPos);
+              if (isGridDim || isInnerShardDim) {
+                otherMultipliers.push_back(mul);
+                // Bound is (dimSize - 1) since dim ranges from 0 to dimSize-1
+                otherBounds.push_back(dimBounds.lookup(dimPosition) - 1);
+              }
             }
 
-            // Use minimizeGap to find the best alignment (minimum gap)
-            gap = minimizeGap(divisor, otherMultipliers, otherBounds, constSum);
+            if (otherMultipliers.empty()) {
+              // No more-minor dims, just use constant offset
+              int64_t remainder = constSum % divisor;
+              gap = (remainder == 0) ? divisor : (divisor - remainder);
+            } else {
+              // Use minimizeGap to find the best alignment (minimum gap)
+              gap =
+                  minimizeGap(divisor, otherMultipliers, otherBounds, constSum);
+            }
           }
 
           int64_t stepsNeeded =
@@ -1569,10 +1644,10 @@ inline int64_t analyzeGridResultExprForDiscontinuity(
   }
 
   case mlir::AffineExprKind::Add: {
-    int64_t lhsResult =
-        analyzeGridResultExprForDiscontinuity(lhs, dimBounds, dimPos);
-    int64_t rhsResult =
-        analyzeGridResultExprForDiscontinuity(rhs, dimBounds, dimPos);
+    int64_t lhsResult = analyzeGridResultExprForDiscontinuity(
+        lhs, dimBounds, dimPos, numGridDims);
+    int64_t rhsResult = analyzeGridResultExprForDiscontinuity(
+        rhs, dimBounds, dimPos, numGridDims);
 
     // Combine results: take the minimum of constrained values
     // -1 means unconstrained, so we filter those out
@@ -1597,7 +1672,8 @@ inline int64_t analyzeGridResultExprForDiscontinuity(
     if (!exprContainsDim(lhs, dimPos)) {
       return -1;
     } else {
-      return analyzeGridResultExprForDiscontinuity(lhs, dimBounds, dimPos);
+      return analyzeGridResultExprForDiscontinuity(lhs, dimBounds, dimPos,
+                                                   numGridDims);
     }
   }
 
@@ -1636,11 +1712,11 @@ inline int64_t analyzeSingleShardDimContiguity(mlir::AffineMap map,
   for (auto [i, resultExpr] : llvm::enumerate(map.getResults())) {
     int64_t exprBound;
     if (i >= numGridResults) {
-      exprBound =
-          analyzeShardResultExprForContiguity(resultExpr, dimBounds, dimPos);
+      exprBound = analyzeShardResultExprForContiguity(resultExpr, dimBounds,
+                                                      dimPos, numGridDims);
     } else {
-      exprBound =
-          analyzeGridResultExprForDiscontinuity(resultExpr, dimBounds, dimPos);
+      exprBound = analyzeGridResultExprForDiscontinuity(resultExpr, dimBounds,
+                                                        dimPos, numGridDims);
     }
 
     // Combine bounds using GCD
