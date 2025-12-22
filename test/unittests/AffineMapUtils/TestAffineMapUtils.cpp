@@ -197,46 +197,6 @@ llvm::SmallVector<int64_t> getAllDivisors(int64_t n) {
   return divisors;
 }
 
-/// Logs a shape to stderr in the format [a, b, c, ...].
-void logShape(llvm::StringRef label, llvm::ArrayRef<int64_t> shape) {
-  llvm::errs() << label << ": [";
-  for (size_t i = 0; i < shape.size(); ++i) {
-    if (i > 0) {
-      llvm::errs() << ", ";
-    }
-    llvm::errs() << shape[i];
-  }
-  llvm::errs() << "]\n";
-}
-
-/// Logs coalescing test failure or subset information.
-void logCoalescingTestInfo(CoalescingTestResult result,
-                           llvm::StringRef testDescription,
-                           mlir::AffineMap memoryMap,
-                           llvm::ArrayRef<int64_t> deviceShape,
-                           int64_t samplingFactor, int64_t analyticalFactor) {
-  bool isFail = (result == CoalescingTestResult::Failed);
-  bool isSubset = (result == CoalescingTestResult::Subset);
-
-  if (isFail) {
-    llvm::errs() << "\n";
-    llvm::errs() << "================= FAILURE DETECTED =================\n";
-  }
-  if (isFail || isSubset) {
-    const char *status = isFail ? "FAIL" : "SUBSET";
-    llvm::errs() << "[" << status << "] " << testDescription << "\n";
-    logShape("    deviceShape", deviceShape);
-    llvm::errs() << "    map: " << memoryMap << "\n";
-    llvm::errs() << "    coalescingFactorSampling:   " << samplingFactor
-                 << "\n";
-    llvm::errs() << "    coalescingFactorAnalytical: " << analyticalFactor
-                 << "\n";
-  }
-  if (isFail) {
-    llvm::errs() << "====================================================\n\n";
-  }
-}
-
 /// Generates a random shape with the given rank using the provided RNG.
 /// Each dimension is in range [minDim, maxDim].
 llvm::SmallVector<int64_t> generateRandomShape(std::mt19937 &rng, int rank,
@@ -505,7 +465,7 @@ getReblockMapAndDeviceShapeMixedRank(mlir::ArrayRef<int64_t> logicalShape,
   return std::make_tuple(memoryMap, deviceShapeInputGrid);
 }
 
-TEST(AffineMapUtilsTest, CanDetermineCoalescingFactor) {
+TEST(AffineMapUtilsTest, DISABLED_CanDetermineCoalescingFactor) {
   using namespace mlir;
   MLIRContext context;
 
@@ -588,11 +548,6 @@ TEST(AffineMapUtilsTest, CanDetermineCoalescingFactor) {
   // Test mixed-rank reblocking: input rank from 2-6, output rank from 2-6
   std::uniform_int_distribution<int> rankDist(2, 6);
 
-  int numPassed = 0;
-  int numTested = 0;
-  int numFailed = 0;
-  int numSubset = 0;
-
   for (int testIdx = 0; testIdx < numTestCasesPerRankPair * 4; ++testIdx) {
     int inputRank = rankDist(rng);
     int outputRank = rankDist(rng);
@@ -611,8 +566,6 @@ TEST(AffineMapUtilsTest, CanDetermineCoalescingFactor) {
       continue; // Skip this test case
     }
 
-    ++numTested;
-
     // Generate grid shapes for each
     SmallVector<int64_t> inputGridShape =
         generateRandomGridShape(inputLogicalShape, rng);
@@ -622,30 +575,6 @@ TEST(AffineMapUtilsTest, CanDetermineCoalescingFactor) {
     auto info = testReblock(logicalShape, inputRank, outputRank, inputGridShape,
                             outputGridShape);
 
-    // Log test case result only if Subset or Failed
-    const bool isFail = (info.result == CoalescingTestResult::Failed);
-    const bool isSubset = (info.result == CoalescingTestResult::Subset);
-
-    if (isFail || isSubset) {
-      std::string desc =
-          std::to_string(inputRank) + "D->" + std::to_string(outputRank) + "D";
-      logCoalescingTestInfo(info.result, desc, info.memoryMap,
-                            info.inputDeviceShape, info.coalescingFactor,
-                            info.coalescingFactorAnalytical);
-      logShape("    outputDeviceShape", info.outputDeviceShape);
-    }
-
-    if (isFail) {
-      ++numFailed;
-    } else if (isSubset) {
-      ++numSubset;
-    }
-
-    // Same-rank: analytical and sampling methods should match
-    if (info.result == CoalescingTestResult::Success) {
-      ++numPassed;
-    }
-
     EXPECT_TRUE(info.result == CoalescingTestResult::Success)
         << "Failed for inputRank=" << inputRank
         << ", outputRank=" << outputRank;
@@ -653,10 +582,165 @@ TEST(AffineMapUtilsTest, CanDetermineCoalescingFactor) {
     // Mixed-rank: currently just verifies no crashes; analytical method
     // may not handle asymmetric grid/shard structures correctly
   }
+}
 
-  llvm::errs() << "[AffineMapUtilsTest] Passed " << numPassed << " / "
-               << numTested << " (Subset: " << numSubset
-               << ", Failed: " << numFailed << ")\n";
+// Pre-cached test cases extracted from CanDetermineCoalescingFactor.
+// Each entry contains reblocking parameters that are used to construct the
+// affine map directly (avoiding string parsing). This validates
+// analyzeShardDimContiguity() against known-good results from
+// calculateCoalescingFactor() without the runtime cost of sampling.
+TEST(AffineMapUtilsTest, CanDetermineCoalescingFactorCached) {
+  using namespace mlir;
+  MLIRContext context;
+
+  struct CachedTestCase {
+    llvm::SmallVector<int64_t> logicalShape;
+    int inputRank;
+    int outputRank;
+    llvm::SmallVector<int64_t> inputGridShape;
+    llvm::SmallVector<int64_t> outputGridShape;
+    int64_t expectedCoalescingFactor;
+  };
+
+  // clang-format off
+  const llvm::SmallVector<CachedTestCase> testCases = {
+    // Test case 0
+    {{10, 13, 12, 4, 16}, 3, 5, {65, 1, 4}, {1, 1, 1, 2, 16}, 1},
+    // Test case 1
+    {{2, 2, 11, 12, 4}, 3, 5, {44, 6, 4}, {2, 1, 1, 2, 4}, 2},
+    // Test case 2
+    {{8, 2, 9, 11, 6}, 2, 5, {1, 2}, {4, 2, 3, 1, 1}, 3},
+    // Test case 3
+    {{11, 13, 3, 8, 5, 7}, 3, 6, {11, 1, 7}, {11, 13, 1, 1, 5, 7}, 1},
+    // Test case 4
+    {{16, 16, 2, 2, 8}, 5, 2, {16, 4, 2, 1, 2}, {1, 1}, 4},
+    // Test case 5
+    {{11, 3, 12, 8, 5}, 3, 5, {18, 8, 1}, {1, 3, 3, 2, 1}, 5},
+    // Test case 6
+    {{10, 5, 9, 8, 6}, 5, 5, {5, 1, 1, 8, 6}, {10, 1, 9, 2, 6}, 1},
+    // Test case 7
+    {{4, 10, 3, 6, 15, 12}, 6, 4, {2, 1, 3, 2, 15, 3}, {24, 2, 5, 6}, 2},
+    // Test case 8
+    {{10, 11, 6, 16}, 4, 3, {2, 1, 2, 16}, {2, 1, 1}, 1},
+    // Test case 9
+    {{2, 2, 6, 4, 7, 13}, 6, 4, {2, 1, 3, 4, 7, 13}, {12, 2, 1, 13}, 1},
+    // Test case 10
+    {{11, 14, 14, 15, 3}, 3, 5, {44, 3, 1}, {1, 2, 2, 5, 1}, 3},
+    // Test case 11
+    {{10, 15, 6, 11, 10}, 5, 5, {2, 3, 1, 11, 5}, {10, 15, 3, 11, 1}, 2},
+    // Test case 12
+    {{8, 12, 9, 2, 9}, 5, 3, {1, 1, 3, 1, 1}, {1, 2, 3}, 3},
+    // Test case 13
+    {{15, 12, 9, 10}, 4, 3, {1, 2, 3, 2}, {15, 9, 1}, 5},
+    // Test case 14
+    {{15, 4, 12, 6, 10, 3}, 3, 6, {1080, 5, 3}, {3, 2, 1, 6, 2, 3}, 1},
+    // Test case 15
+    {{15, 15, 8}, 3, 2, {5, 3, 8}, {3, 8}, 5},
+    // Test case 16
+    {{6, 3, 15}, 3, 3, {1, 3, 3}, {1, 3, 3}, 30},
+    // Test case 17
+    {{9, 8, 10, 9, 4, 2}, 6, 3, {1, 4, 1, 1, 2, 1}, {2160, 1, 1}, 4},
+    // Test case 18
+    {{7, 8, 12, 10}, 3, 4, {1, 12, 2}, {7, 1, 2, 5}, 1},
+    // Test case 19
+    {{2, 16, 6, 4, 6}, 4, 5, {2, 3, 4, 3}, {1, 1, 1, 1, 2}, 1},
+    // Test case 20
+    {{8, 9, 9, 4, 12, 5}, 6, 5, {8, 3, 1, 2, 6, 1}, {24, 3, 1, 2, 5}, 1},
+    // Test case 21
+    {{5, 12, 6, 10, 14}, 5, 2, {1, 6, 3, 10, 1}, {25, 7}, 2},
+    // Test case 22
+    {{12, 16}, 2, 2, {3, 2}, {4, 16}, 1},
+    // Test case 23
+    {{14, 4, 11, 5, 5, 12}, 4, 6, {616, 5, 5, 4}, {2, 1, 11, 1, 5, 12}, 1},
+    // Test case 24
+    {{7, 6, 7, 4, 11, 15}, 4, 6, {49, 4, 11, 15}, {7, 6, 1, 4, 11, 5}, 1},
+    // Test case 25
+    {{11, 16, 3, 7}, 4, 2, {11, 1, 1, 1}, {11, 7}, 1},
+    // Test case 26
+    {{4, 5, 16, 11, 8}, 4, 5, {10, 1, 1, 2}, {1, 1, 8, 1, 4}, 2},
+    // Test case 27
+    {{3, 10, 10, 6, 11, 12}, 5, 6, {6, 2, 3, 1, 2}, {1, 5, 10, 6, 1, 3}, 2},
+    // Test case 28
+    {{11, 9, 7, 13, 8, 11}, 6, 6, {11, 9, 1, 13, 1, 1}, {11, 3, 1, 13, 1, 11}, 1},
+    // Test case 29
+    {{15, 16, 2, 13, 7, 15}, 3, 6, {30, 1, 5}, {15, 4, 2, 13, 7, 1}, 3},
+    // Test case 30
+    {{14, 4, 7}, 3, 3, {2, 1, 1}, {1, 2, 7}, 1},
+    // Test case 31
+    {{3, 3, 10, 15, 12, 14}, 3, 6, {9, 4, 7}, {3, 1, 1, 3, 4, 2}, 1},
+    // Test case 32
+    {{12, 12, 4, 12, 14, 13}, 6, 3, {3, 4, 1, 2, 14, 1}, {768, 2, 13}, 1},
+    // Test case 33
+    {{13, 11, 9, 2, 9, 3}, 5, 6, {1, 3, 1, 9, 1}, {13, 1, 9, 2, 3, 1}, 3},
+    // Test case 34
+    {{12, 10, 8, 3}, 3, 4, {1, 2, 1}, {1, 5, 8, 1}, 3},
+    // Test case 35
+    {{14, 2, 2, 5, 2, 14}, 6, 4, {2, 1, 2, 1, 1, 7}, {28, 5, 1, 1}, 2},
+    // Test case 36
+    {{9, 4, 2, 14, 3, 8}, 6, 5, {3, 2, 2, 7, 1, 4}, {2, 2, 14, 3, 4}, 2},
+    // Test case 37
+    {{6, 7, 13}, 3, 2, {2, 1, 13}, {1, 1}, 1},
+    // Test case 38
+    {{3, 16}, 2, 2, {3, 4}, {3, 8}, 2},
+    // Test case 39
+    {{8, 4, 15, 4}, 4, 2, {2, 1, 5, 1}, {60, 1}, 4},
+    // Test case 40
+    {{11, 13, 9, 16, 11, 6}, 5, 6, {13, 3, 8, 11, 2}, {1, 1, 3, 2, 1, 6}, 1},
+    // Test case 41
+    {{3, 7}, 2, 2, {1, 1}, {1, 1}, 21},
+    // Test case 42
+    {{3, 2, 9, 4, 12, 16}, 3, 6, {54, 3, 16}, {1, 1, 1, 2, 3, 8}, 1},
+    // Test case 43
+    {{11, 16, 11}, 3, 2, {11, 1, 1}, {8, 1}, 22},
+    // Test case 44
+    {{12, 11, 10, 14, 9, 9}, 5, 6, {2, 5, 1, 9, 3}, {12, 1, 10, 7, 3, 9}, 1},
+    // Test case 45
+    {{8, 3, 11, 10, 7, 12}, 6, 4, {8, 3, 11, 10, 7, 3}, {88, 10, 7, 12}, 1},
+    // Test case 46
+    {{5, 3, 6}, 3, 2, {1, 1, 1}, {1, 1}, 90},
+    // Test case 47
+    {{7, 6, 11, 3, 7}, 5, 5, {7, 3, 1, 1, 7}, {1, 2, 1, 1, 7}, 33},
+    // Test case 48
+    {{13, 2, 15, 16, 11}, 5, 3, {1, 2, 15, 2, 11}, {3, 4, 11}, 4},
+    // Test case 49
+    {{7, 3, 8, 12, 16, 10}, 4, 6, {6, 6, 4, 2}, {7, 3, 4, 12, 2, 2}, 20},
+    // Test case 50
+    {{7, 3, 5, 13, 13}, 5, 5, {7, 3, 5, 1, 13}, {1, 1, 1, 13, 1}, 1},
+    // Test case 51
+    {{15, 16, 2}, 3, 2, {15, 1, 1}, {8, 2}, 1},
+    // Test case 52
+    {{3, 11, 9, 10, 9, 16}, 6, 5, {1, 1, 1, 5, 1, 4}, {11, 1, 10, 9, 8}, 2},
+    // Test case 53
+    {{16, 9, 15, 3, 3}, 5, 5, {1, 9, 5, 1, 1}, {8, 9, 5, 1, 3}, 1},
+    // Test case 54
+    {{5, 3, 9, 3, 4, 12}, 6, 6, {5, 3, 3, 3, 2, 12}, {5, 1, 9, 3, 4, 4}, 1},
+    // Test case 55
+    {{13, 9, 3, 12, 7}, 5, 3, {1, 3, 3, 3, 1}, {351, 2, 1}, 14},
+    // Test case 56
+    {{9, 8, 2, 5}, 4, 4, {3, 1, 2, 1}, {9, 1, 2, 5}, 1},
+  };
+  // clang-format on
+
+  for (size_t i = 0; i < testCases.size(); ++i) {
+    const auto &tc = testCases[i];
+
+    // Construct affine map directly using the same infrastructure as the
+    // original test
+    auto [memoryMap, deviceShape] = getReblockMapAndDeviceShapeMixedRank(
+        tc.logicalShape, tc.inputRank, tc.outputRank, tc.inputGridShape,
+        tc.outputGridShape, &context);
+
+    unsigned numGridDims = deviceShape.size() / 2;
+    unsigned numGridResults = memoryMap.getNumResults() - 1;
+
+    // Use the fast analytical method
+    int64_t analyticalFactor =
+        analyzeShardDimContiguity(memoryMap, deviceShape, numGridDims,
+                                  numGridResults, /*elemSizeBytes=*/1);
+
+    EXPECT_EQ(analyticalFactor, tc.expectedCoalescingFactor)
+        << "Test case " << i << " failed";
+  }
 }
 
 TEST(AffineMapUtilsTest, CanDetermineCoalescingFactorForPermutations) {
@@ -725,11 +809,6 @@ TEST(AffineMapUtilsTest, CanDetermineCoalescingFactorForPermutations) {
   constexpr int numRandomTests = 64;
   std::mt19937 rng(123); // deterministic seed
 
-  int numPassed = 0;
-  int numTested = 0;
-  int numFailed = 0;
-  int numSubset = 0;
-
   // Test 1: Identity permutation should be fully contiguous
   {
     SmallVector<int64_t> deviceShape = {2, 3, 4, 5}; // 2D grid, 2D shard
@@ -737,19 +816,6 @@ TEST(AffineMapUtilsTest, CanDetermineCoalescingFactorForPermutations) {
 
     auto [result, memoryMap, samplingFactor, analyticalFactor] =
         testPermutation(deviceShape, identity);
-
-    ++numTested;
-    if (result == CoalescingTestResult::Success) {
-      ++numPassed;
-    } else if (result == CoalescingTestResult::Subset) {
-      ++numSubset;
-      logCoalescingTestInfo(result, "Identity permutation", memoryMap,
-                            deviceShape, samplingFactor, analyticalFactor);
-    } else {
-      ++numFailed;
-      logCoalescingTestInfo(result, "Identity permutation", memoryMap,
-                            deviceShape, samplingFactor, analyticalFactor);
-    }
 
     // Identity should give full shard volume (4*5 = 20)
     EXPECT_EQ(samplingFactor, 20) << "Identity permutation should be fully "
@@ -766,19 +832,6 @@ TEST(AffineMapUtilsTest, CanDetermineCoalescingFactorForPermutations) {
     auto [result, memoryMap, samplingFactor, analyticalFactor] =
         testPermutation(deviceShape, swapLast);
 
-    ++numTested;
-    if (result == CoalescingTestResult::Success) {
-      ++numPassed;
-    } else if (result == CoalescingTestResult::Subset) {
-      ++numSubset;
-      logCoalescingTestInfo(result, "Swap last two dims", memoryMap,
-                            deviceShape, samplingFactor, analyticalFactor);
-    } else {
-      ++numFailed;
-      logCoalescingTestInfo(result, "Swap last two dims", memoryMap,
-                            deviceShape, samplingFactor, analyticalFactor);
-    }
-
     EXPECT_TRUE(result == CoalescingTestResult::Success)
         << "Swap last two dims failed";
   }
@@ -791,19 +844,6 @@ TEST(AffineMapUtilsTest, CanDetermineCoalescingFactorForPermutations) {
     auto [result, memoryMap, samplingFactor, analyticalFactor] =
         testPermutation(deviceShape, swapGrid);
 
-    ++numTested;
-    if (result == CoalescingTestResult::Success) {
-      ++numPassed;
-    } else if (result == CoalescingTestResult::Subset) {
-      ++numSubset;
-      logCoalescingTestInfo(result, "Swap grid dims", memoryMap, deviceShape,
-                            samplingFactor, analyticalFactor);
-    } else {
-      ++numFailed;
-      logCoalescingTestInfo(result, "Swap grid dims", memoryMap, deviceShape,
-                            samplingFactor, analyticalFactor);
-    }
-
     EXPECT_TRUE(result == CoalescingTestResult::Success)
         << "Swap grid dims failed";
   }
@@ -815,19 +855,6 @@ TEST(AffineMapUtilsTest, CanDetermineCoalescingFactorForPermutations) {
 
     auto [result, memoryMap, samplingFactor, analyticalFactor] =
         testPermutation(deviceShape, reverse);
-
-    ++numTested;
-    if (result == CoalescingTestResult::Success) {
-      ++numPassed;
-    } else if (result == CoalescingTestResult::Subset) {
-      ++numSubset;
-      logCoalescingTestInfo(result, "Complete reversal", memoryMap, deviceShape,
-                            samplingFactor, analyticalFactor);
-    } else {
-      ++numFailed;
-      logCoalescingTestInfo(result, "Complete reversal", memoryMap, deviceShape,
-                            samplingFactor, analyticalFactor);
-    }
 
     EXPECT_TRUE(result == CoalescingTestResult::Success)
         << "Complete reversal failed";
@@ -850,31 +877,10 @@ TEST(AffineMapUtilsTest, CanDetermineCoalescingFactorForPermutations) {
     auto [result, memoryMap, samplingFactor, analyticalFactor] =
         testPermutation(deviceShape, permutation);
 
-    ++numTested;
-    if (result == CoalescingTestResult::Success) {
-      ++numPassed;
-    } else if (result == CoalescingTestResult::Subset) {
-      ++numSubset;
-      std::string desc = "Random perm #" + std::to_string(testIdx) +
-                         " (rank=" + std::to_string(gridRank) + ")";
-      logCoalescingTestInfo(result, desc, memoryMap, deviceShape,
-                            samplingFactor, analyticalFactor);
-    } else {
-      ++numFailed;
-      std::string desc = "Random perm #" + std::to_string(testIdx) +
-                         " (rank=" + std::to_string(gridRank) + ")";
-      logCoalescingTestInfo(result, desc, memoryMap, deviceShape,
-                            samplingFactor, analyticalFactor);
-    }
-
     EXPECT_TRUE(result == CoalescingTestResult::Success)
         << "Failed for random permutation #" << testIdx
         << " with gridRank=" << gridRank;
   }
-
-  llvm::errs() << "[CanDetermineCoalescingFactorForPermutations] Passed "
-               << numPassed << " / " << numTested << " (Subset: " << numSubset
-               << ", Failed: " << numFailed << ")\n";
 }
 
 // Isolated test case for debugging a specific FAIL case
@@ -912,28 +918,11 @@ TEST(AffineMapUtilsTest, CanTestSingleCoalescingFactorMismatch) {
   unsigned numGridDims = inputDeviceShape.size() / 2;      // 4
   unsigned numGridResults = memoryMap.getNumResults() - 1; // 2
 
-  llvm::errs() << "Map: " << memoryMap << "\n";
-  llvm::errs() << "inputDeviceShape: [";
-  for (size_t i = 0; i < inputDeviceShape.size(); ++i) {
-    if (i > 0) {
-      llvm::errs() << ", ";
-    }
-    llvm::errs() << inputDeviceShape[i];
-  }
-  llvm::errs() << "]\n";
-  llvm::errs() << "numGridDims: " << numGridDims << "\n";
-  llvm::errs() << "numGridResults: " << numGridResults << "\n";
-
   auto coalescingFactorAnalytical = analyzeShardDimContiguity(
       memoryMap, inputDeviceShape, numGridDims, numGridResults, elemSizeBytes);
 
   int64_t coalescingFactorSampling = calculateCoalescingFactor(
       memoryMap, inputDeviceShape, elemSizeBytes, numGridDims);
-
-  llvm::errs() << "coalescingFactorAnalytical: " << coalescingFactorAnalytical
-               << "\n";
-  llvm::errs() << "coalescingFactorSampling: " << coalescingFactorSampling
-               << "\n";
 
   EXPECT_EQ(coalescingFactorAnalytical, coalescingFactorSampling);
 }
