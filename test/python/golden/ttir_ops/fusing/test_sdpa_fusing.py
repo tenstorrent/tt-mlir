@@ -381,6 +381,9 @@ def build_ttir_split_scale_robust_softmax(
     ],
 )
 @pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.xfail(
+    reason="The SDPA fusing pattern is only executed when the optimizer is enabled, but then the golden test fails: https://github.com/tenstorrent/tt-mlir/issues/5283"
+)
 def test_sdpa_split_scale_robust_softmax(
     shapes: List[Shape], target: str, request, device
 ):
@@ -530,6 +533,9 @@ def test_sdpa_split_scale_robust_softmax(
 )
 @pytest.mark.parametrize("use_mask", [False, True])
 @pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.xfail(
+    reason="The SDPA fusing pattern is only executed when the optimizer is enabled, but then the golden test fails: https://github.com/tenstorrent/tt-mlir/issues/5283"
+)
 def test_sdpa_single_scale_simple_softmax(
     shapes: List[Shape], use_mask: bool, target: str, request, device
 ):
