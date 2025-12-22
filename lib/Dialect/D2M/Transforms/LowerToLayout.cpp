@@ -138,8 +138,8 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
       auto newIndexMap = referenceLayout.getIndexAffineMap();
       bool hasNonTrivialIndexMap =
           !newIndexMap.isEmpty() && !newIndexMap.isIdentity();
-      ttcore::MetalLayoutAttr layout;
 
+      ttcore::MetalLayoutAttr layout;
       if (hasNonTrivialIndexMap && virtualBounceNeeded) {
         // If the reference layout has a virtual grid, the bounce shape should
         // not copy its index map.
@@ -150,26 +150,17 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
         auto [collapsedIntervals, dimAlignments] =
             computeGridAwareCollapsedIntervalsAndDimAlignments(referenceLayout,
                                                                targetGridShape);
-        // Bounce through interleaved DRAM if dimAlignments has changed.
-        if (llvm::equal(dimAlignments, referenceLayout.getDimAlignments())) {
-          layout = ttcore::MetalLayoutAttr::get(
-              ctx, referenceLayout.getLogicalShape(), dimAlignments,
-              collapsedIntervals, referenceLayout.getOobVal(),
-              ttcore::MemorySpace::DeviceL1, referenceLayout.getMemoryLayout(),
-              newIndexMap);
-        } else {
-          // Unit grid for interleaved DRAM tensor.
-          tensorGridShape.assign(targetGridShape.size(), 1);
+        // Bounce virtual grids through interleaved DRAM on the unit grid.
+        tensorGridShape.assign(targetGridShape.size(), 1);
 
-          // Keep old dimAlignments but use new collapsedIntervals to collapse
-          // the DRAM tensor to 2D.
-          TT_assert(collapsedIntervals.getType().getDimSize(0) == 2);
-          layout = ttcore::MetalLayoutAttr::get(
-              ctx, referenceLayout.getLogicalShape(),
-              referenceLayout.getDimAlignments(), collapsedIntervals,
-              referenceLayout.getOobVal(), ttcore::MemorySpace::DeviceDRAM,
-              ttcore::TensorMemoryLayout::Interleaved, newIndexMap);
-        }
+        // Keep old dimAlignments but use new collapsedIntervals to collapse the
+        // DRAM tensor to 2D.
+        TT_assert(collapsedIntervals.getType().getDimSize(0) == 2);
+        layout = ttcore::MetalLayoutAttr::get(
+            ctx, referenceLayout.getLogicalShape(),
+            referenceLayout.getDimAlignments(), collapsedIntervals,
+            referenceLayout.getOobVal(), ttcore::MemorySpace::DeviceDRAM,
+            ttcore::TensorMemoryLayout::Interleaved, newIndexMap);
       } else {
         layout = ttcore::MetalLayoutAttr::get(
             ctx, referenceLayout.getLogicalShape(),
