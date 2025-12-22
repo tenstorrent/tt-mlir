@@ -714,6 +714,177 @@ class StableHLOBuilder(Builder):
         op_map_dictionary[old_op.result] = new_op_result
         return new_op, op_map_dictionary
 
+    ############### stablehlo.RngOp ###############
+
+    @tag(stablehlo.RngOp)
+    def rng(
+        self,
+        shape: List[int],
+        dtype: torch.dtype,
+        low: float = 0.0,
+        high: float = 1.0,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.rng)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        # Create output type for the RNG result
+        output_element_type = self._get_type_from_torch_dtype(dtype)
+        output = self._create_ranked_tensor_type(shape, output_element_type)
+
+        # Create scalar (0-dimensional) tensor constants for low and high
+        # StableHLO RngOp requires tensor operands, not scalar attributes
+        scalar_type = RankedTensorType.get([], output_element_type)
+        low_attr = DenseElementsAttr.get_splat(
+            scalar_type, FloatAttr.get(output_element_type, low)
+        )
+        high_attr = DenseElementsAttr.get_splat(
+            scalar_type, FloatAttr.get(output_element_type, high)
+        )
+        low_tensor = stablehlo.ConstantOp(low_attr, loc=loc).result
+        high_tensor = stablehlo.ConstantOp(high_attr, loc=loc).result
+
+        # Create shape tensor (1D tensor of i64)
+        shape_tensor_type = RankedTensorType.get(
+            [len(shape)], IntegerType.get_signless(64, self._ctx)
+        )
+        shape_attr = DenseElementsAttr.get(
+            array=shape,
+            type=shape_tensor_type,
+        )
+        shape_tensor = stablehlo.ConstantOp(shape_attr, loc=loc).result
+
+        # Build the StableHLO RNG op (uniform distribution only)
+        op = stablehlo_op(
+            output,
+            low_tensor,
+            high_tensor,
+            shape_tensor,
+            rng_distribution=stablehlo.RngDistributionAttr.get(
+                stablehlo.RngDistribution.UNIFORM
+            ),
+            loc=loc,
+        )
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(
+                low_attr, high_attr, shape_attr, output_element_type
+            )
+            self._set_golden_tensor(op.result, golden_output)
+
+        self.bypass(op.result)
+        return op.result
+
+    @parse(stablehlo.RngOp)
+    def rng_parser(
+        self,
+        old_op: stablehlo.RngOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.rng_parser)
+
+        a = global_dict[old_op.a]
+        b = global_dict[old_op.b]
+        shape = global_dict[old_op.shape]
+        rng_distribution = old_op.rng_distribution
+
+        new_op = stablehlo_op(
+            old_op.result.type,
+            a,
+            b,
+            shape,
+            rng_distribution=rng_distribution,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(
+                old_op.a, old_op.b, old_op.shape, old_op.result.type
+            )
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        self.bypass(new_op_result)
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.RngOp)
+    def rng_split(
+        self,
+        old_op: stablehlo.RngOp,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        stablehlo_op = self.get_opview_from_split(StableHLOBuilder.rng_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            rng_module = Module.create()
+            rng_builder = StableHLOBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.a.type,
+                old_op.b.type,
+                old_op.shape.type,
+            ]
+
+            with InsertionPoint(rng_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="rng_module")
+                def decorated_func(*inputs):
+                    a = inputs[0]
+                    b = inputs[1]
+                    shape = inputs[2]
+                    rng_distribution = old_op.rng_distribution
+
+                    new_op = stablehlo_op(
+                        old_op.result.type,
+                        a,
+                        b,
+                        shape,
+                        rng_distribution=rng_distribution,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(stablehlo_op)
+                        golden_output = op_golden_function(
+                            old_op.a, old_op.b, old_op.shape, old_op.result.type
+                        )
+                        rng_builder._set_golden_tensor(new_op_result, golden_output)
+                        ordered_outputs.append(new_op_result)
+
+                    ordered_inputs.extend([a, b, shape])
+
+                    rng_builder.bypass(new_op_result)
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                rng_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return rng_module, rng_builder
+
     ############### stablehlo.DynamicUpdateSliceOp ###############
 
     @tag(stablehlo.DynamicUpdateSliceOp)

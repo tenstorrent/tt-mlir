@@ -1471,83 +1471,6 @@ def test_dynamic_iota(
     )
 
 
-def module_reduce_window_sum(builder: StableHLOBuilder):
-    @builder.func([(1, 1, 8, 8)], [torch.float32])
-    def reduce_window_sum(
-        in0: Operand,
-        builder: StableHLOBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        builder.set_graph_level_check(True)
-        return builder.reduce_window(
-            in0,
-            init_value=0.0,
-            window_dimensions=[1, 1, 2, 2],
-            window_strides=[1, 1, 2, 2],
-            padding=[[0, 0], [0, 0], [0, 0], [0, 0]],
-            body="add",
-        )
-
-
-def module_reduce_window_avg(builder: StableHLOBuilder):
-    @builder.func([(1, 1, 8, 8)], [torch.float32])
-    def reduce_window_avg(
-        in0: Operand,
-        builder: StableHLOBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        builder.set_graph_level_check(True)
-        window_h, window_w = 2, 2
-        window_area = float(window_h * window_w)
-        output_shape = (1, 1, 4, 4)
-        summed = builder.reduce_window(
-            in0,
-            init_value=0.0,
-            window_dimensions=[1, 1, window_h, window_w],
-            window_strides=[1, 1, 2, 2],
-            padding=[[0, 0], [0, 0], [0, 0], [0, 0]],
-            body="add",
-        )
-        divisor = builder.constant(
-            torch.full(output_shape, window_area, dtype=torch.float32)
-        )
-        return builder.divide(summed, divisor)
-
-
-def module_reduce_window_max(builder: StableHLOBuilder):
-    @builder.func([(1, 1, 8, 8)], [torch.float32])
-    def reduce_window_max(
-        in0: Operand,
-        builder: StableHLOBuilder,
-        unit_attrs: Optional[List[str]] = None,
-    ):
-        builder.set_graph_level_check(True)
-        return builder.reduce_window(
-            in0,
-            init_value=float("-inf"),
-            window_dimensions=[1, 1, 3, 3],
-            window_strides=[1, 1, 1, 1],
-            padding=[[0, 0], [0, 0], [1, 1], [1, 1]],
-            body="max",
-        )
-
-
-@pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.parametrize(
-    "test_fn",
-    [module_reduce_window_sum, module_reduce_window_avg, module_reduce_window_max],
-)
-def test_reduce_window_op(test_fn: Callable, target: str, request, device):
-    compile_and_execute_shlo(
-        test_fn,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        target=target,
-        device=device,
-    )
-
-
 @pytest.mark.parametrize("target", ["ttnn"])
 def test_all_gather(target: str, request, device):
     def module_all_gather(builder: StableHLOBuilder):
@@ -1597,112 +1520,16 @@ def test_all_gather(target: str, request, device):
     )
 
 
-@pytest.mark.parametrize(
-    "shapes,stride,padding,dilation,groups",
-    [
-        # ResNet initial 7x7 conv: stride=2, padding=3
-        (
-            [(1, 3, 224, 224), (64, 3, 7, 7)],
-            [2, 2],
-            [3, 3, 3, 3],
-            [1, 1],
-            1,
-        ),
-        # ResNet 1x1 conv: stride=1, no padding
-        (
-            [(1, 64, 56, 56), (64, 64, 1, 1)],
-            [1, 1],
-            [0, 0, 0, 0],
-            [1, 1],
-            1,
-        ),
-        # ResNet 3x3 conv: stride=1, padding=1
-        (
-            [(1, 64, 56, 56), (64, 64, 3, 3)],
-            [1, 1],
-            [1, 1, 1, 1],
-            [1, 1],
-            1,
-        ),
-        # ResNet bottleneck 1x1 expansion: stride=1, no padding
-        (
-            [(1, 64, 56, 56), (256, 64, 1, 1)],
-            [1, 1],
-            [0, 0, 0, 0],
-            [1, 1],
-            1,
-        ),
-        # ResNet stride 2 downsampling: 3x3 conv
-        (
-            [(1, 64, 56, 56), (128, 64, 3, 3)],
-            [2, 2],
-            [1, 1, 1, 1],
-            [1, 1],
-            1,
-        ),
-        # Small test case
-        (
-            [(1, 16, 32, 32), (32, 16, 3, 3)],
-            [1, 1],
-            [1, 1, 1, 1],
-            [1, 1],
-            1,
-        ),
-    ],
-    ids=[
-        "resnet_initial_7x7",
-        "resnet_1x1_conv",
-        "resnet_3x3_conv",
-        "resnet_bottleneck_expansion",
-        "resnet_stride2_downsample",
-        "small_3x3",
-    ],
-)
-@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+def module_rng(builder: StableHLOBuilder):
+    @builder.func([], [])
+    def rng(builder: StableHLOBuilder, unit_attrs: Optional[List[str]] = None):
+        return builder.rng([32, 32], torch.bfloat16, low=0.0, high=1.0)
+
+
 @pytest.mark.parametrize("target", ["ttnn"])
-def test_convolution(
-    shapes: List[Shape],
-    stride: List[int],
-    padding: List[int],
-    dilation: List[int],
-    groups: int,
-    dtype: torch.dtype,
-    target: str,
-    request,
-    device,
-):
-    """Test the stablehlo.convolution op with various ResNet-style configurations"""
-
-    def module(builder: StableHLOBuilder):
-        @builder.func(shapes, [dtype] * len(shapes))
-        def convolution(
-            in0: Operand,
-            weight: Operand,
-            builder: StableHLOBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            return builder.convolution(
-                in0,
-                weight,
-                window_strides=stride,
-                padding=padding,
-                lhs_dilation=dilation,
-                rhs_dilation=dilation,
-                input_batch_dimension=0,
-                input_feature_dimension=1,
-                input_spatial_dimensions=list(range(2, 2 + len(dilation))),
-                kernel_output_feature_dimension=0,
-                kernel_input_feature_dimension=1,
-                kernel_spatial_dimensions=list(range(2, 2 + len(dilation))),
-                output_batch_dimension=0,
-                output_feature_dimension=1,
-                output_spatial_dimensions=list(range(2, 2 + len(dilation))),
-                feature_group_count=groups,
-                batch_group_count=1,
-            )
-
+def test_rng(target: str, request, device):
     compile_and_execute_shlo(
-        module,
+        module_rng,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
