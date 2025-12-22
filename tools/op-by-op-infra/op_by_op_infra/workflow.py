@@ -99,3 +99,34 @@ def extract_ops_from_module(
     splitter = MLIRModuleSplitter()
     splitter.split(module, origin_model=origin_model)
     return splitter.sub_ops
+
+
+def execute_extracted_ops(
+    ops: List[OpWrapper], compile_only: bool = False
+) -> List[OpTest]:
+    """
+    Takes a list of OpWrappers, makes a submodule out of each, compiles and executes them.
+
+    Behavior is identical to split_and_execute but operates on pre-extracted ops.
+
+    Parameters
+    ----------
+    ops : List[OpWrapper]
+        List of wrapped operations to execute
+    compile_only : bool
+        If True, only compiles without executing on device
+
+    Returns
+    -------
+    List[OpTest]
+        List of OpTest pydantic models with execution results
+    """
+    executor = workflow_internal.MLIRModuleExecutor(compile_only)
+    execution_results = []
+
+    for op in workflow_internal.progress_bar(ops, desc="Executing submodules..."):
+        sub_module = op.as_module()
+        execution_result = executor.execute(sub_module)
+        execution_results.append(execution_result)
+
+    return workflow_internal.convert_results_to_pydantic_models(execution_results)
