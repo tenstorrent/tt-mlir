@@ -212,6 +212,84 @@ public:
   }
 };
 
+// Special handling for tenstorrent.layer_norm -> ttir.layer_norm
+// Converts normalized_shape tensor attribute to DenseI64ArrayAttr
+// and sets operandSegmentSizes for AttrSizedOperandSegments
+class TenstorrentLayerNormConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
+
+public:
+  TenstorrentLayerNormConversionPattern(MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::CompositeOp>(context) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CompositeOp srcOp,
+                  mlir::stablehlo::CompositeOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (srcOp.getName() != "tenstorrent.layer_norm") {
+      return failure();
+    }
+
+    if (srcOp.getNumResults() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "CompositeOp must have exactly one result.");
+    }
+
+    auto outputType =
+        mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
+
+    DictionaryAttr compositeAttrs = srcOp.getCompositeAttributes();
+
+    auto normalizedShapeAttr = compositeAttrs.get("normalized_shape");
+    SmallVector<int64_t> normalizedShapeVec;
+
+    if (auto denseAttr =
+            mlir::dyn_cast<DenseIntElementsAttr>(normalizedShapeAttr)) {
+      for (auto val : denseAttr.getValues<int64_t>()) {
+        normalizedShapeVec.push_back(val);
+      }
+    } else if (auto arrayAttr =
+                   mlir::dyn_cast<ArrayAttr>(normalizedShapeAttr)) {
+      for (auto attr : arrayAttr) {
+        normalizedShapeVec.push_back(mlir::cast<IntegerAttr>(attr).getInt());
+      }
+    } else {
+      return rewriter.notifyMatchFailure(
+          srcOp, "normalized_shape must be a dense tensor or array attribute");
+    }
+
+    auto normalizedShapeDenseAttr =
+        rewriter.getDenseI64ArrayAttr(normalizedShapeVec);
+
+    auto epsilonAttr = compositeAttrs.get("epsilon");
+
+    SmallVector<NamedAttribute> namedAttrs;
+    namedAttrs.push_back(
+        rewriter.getNamedAttr("normalized_shape", normalizedShapeDenseAttr));
+    if (epsilonAttr) {
+      namedAttrs.push_back(rewriter.getNamedAttr("epsilon", epsilonAttr));
+    }
+
+    // ttir.layer_norm has AttrSizedOperandSegments: [input, weight, bias]
+    size_t numOperands = adaptor.getOperands().size();
+    SmallVector<int32_t> segmentSizes;
+    if (numOperands == 3) { // input, weight, bias
+      segmentSizes = {1, 1, 1};
+    } else if (numOperands == 2) { // input, weight
+      segmentSizes = {1, 1, 0};
+    } else { // input only
+      segmentSizes = {1, 0, 0};
+    }
+
+    namedAttrs.push_back(rewriter.getNamedAttr(
+        "operandSegmentSizes", rewriter.getDenseI32ArrayAttr(segmentSizes)));
+
+    rewriter.replaceOpWithNewOp<ttir::LayerNormOp>(
+        srcOp, outputType, adaptor.getOperands(), namedAttrs);
+    return success();
+  }
+};
+
 struct LegalizeStableHLOCompositeToTTIR
     : public ttir::impl::LegalizeStableHLOCompositeToTTIRBase<
           LegalizeStableHLOCompositeToTTIR> {
@@ -247,6 +325,7 @@ void populateStableHLOCompositeLegalizationPatterns(
   patterns.add<StableHLOToTTIRCompositeOpConversionPattern<ttir::GeluOp>>(
       context, "tenstorrent.gelu_tanh");
   patterns.add<TenstorrentRMSNormConversionPattern>(context);
+  patterns.add<TenstorrentLayerNormConversionPattern>(context);
   patterns.add<TenstorrentUniformToRandConversionPattern>(context);
 }
 } // namespace mlir::tt
