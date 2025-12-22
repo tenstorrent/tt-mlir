@@ -945,7 +945,6 @@ private:
     return mlir::success();
   }
 };
-};
 
 #endif // TTMLIR_ENABLE_OPMODEL
 
