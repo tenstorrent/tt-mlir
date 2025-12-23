@@ -107,24 +107,6 @@ static bool shouldMeshShardOpForceSystemMemory(mlir::Operation *srcOp) {
                             mlir::tt::ttcore::MeshShardType::Identity;
 }
 
-// Check if an operation is a CPU operation (CPU-hoisted call).
-static bool isCPUOperation(mlir::Operation *op) {
-  if (auto callOp = mlir::dyn_cast_if_present<func::CallOp>(op)) {
-    return callOp->hasAttr(ttir::CPUHoistedCallAttr::name);
-  }
-  return false;
-}
-
-// Check if a Value is consumed by a CPU operation.
-static bool isConsumedByCPUOperation(Value value) {
-  for (Operation *user : value.getUsers()) {
-    if (isCPUOperation(user)) {
-      return true;
-    }
-  }
-  return false;
-}
-
 //===----------------------------------------------------------------------===//
 // To layout pass
 //===----------------------------------------------------------------------===//
@@ -401,6 +383,55 @@ public:
       : OpRewritePattern<ttir::MeshShardOp>(ctx) {}
 
 private:
+  // Determine the required buffer type for a Value by checking the operand
+  // types of operations that use this Value. Returns DRAM only if all user
+  // operations explicitly require DRAM, otherwise returns SystemMemory. Note:
+  // func::ReturnOp requires SystemMemory. CPU-hoisted func::CallOp requires
+  // SystemMemory.
+  BufferType getRequiredBufferTypeForValue(Value value) const {
+    bool hasAnyRelevantUser = false;
+
+    for (Operation *user : value.getUsers()) {
+      // ReturnOp requires SystemMemory
+      if (mlir::isa<func::ReturnOp>(user)) {
+        return BufferType::SystemMemory;
+      }
+
+      // CPU-hoisted CallOp requires SystemMemory
+      if (auto callOp = mlir::dyn_cast_if_present<func::CallOp>(user)) {
+        if (callOp->hasAttr(ttir::CPUHoistedCallAttr::name)) {
+          return BufferType::SystemMemory;
+        }
+      }
+
+      hasAnyRelevantUser = true;
+      for (OpOperand &operand : user->getOpOperands()) {
+        if (operand.get() == value) {
+          if (auto tensorType =
+                  mlir::dyn_cast<RankedTensorType>(operand.get().getType())) {
+            if (auto layout = mlir::dyn_cast_if_present<TTNNLayoutAttr>(
+                    tensorType.getEncoding())) {
+              BufferType requiredBufferType = layout.getBufferType();
+              if (requiredBufferType != BufferType::DRAM) {
+                return BufferType::SystemMemory;
+              }
+            } else {
+              return BufferType::SystemMemory;
+            }
+          } else {
+            return BufferType::SystemMemory;
+          }
+          break;
+        }
+      }
+    }
+
+    // If we reach here, all relevant users require DRAM (or there are no
+    // relevant users, in which case it's a dangling value and we default to
+    // SystemMemory)
+    return hasAnyRelevantUser ? BufferType::DRAM : BufferType::SystemMemory;
+  }
+
   // Update the input operand layout if needed.
   // Returns true if the operand was modified.
   bool updateInputLayout(ttir::MeshShardOp op, PatternRewriter &rewriter,
@@ -450,13 +481,11 @@ public:
 
       RankedTensorType resultType =
           mlir::cast<RankedTensorType>(op.getResult().getType());
-      bool outputToCPU = isConsumedByCPUOperation(op.getResult());
-      TTNNLayoutAttr newLayout =
-          outputToCPU
-              ? createLayoutAttr(rewriter.getContext(), nullptr, resultType,
-                                 BufferType::SystemMemory, /* isTiled */ false)
-              : createLayoutAttr(rewriter.getContext(), nullptr, resultType,
-                                 BufferType::DRAM, /* isTiled */ false);
+      BufferType requiredBufferType =
+          getRequiredBufferTypeForValue(op.getResult());
+      TTNNLayoutAttr newLayout = createLayoutAttr(
+          rewriter.getContext(), nullptr, resultType, requiredBufferType,
+          /* isTiled */ false);
       modified |= updateResultType(op, rewriter, newLayout);
     } else if (op.getShardDirection() ==
                ttcore::MeshShardDirection::ShardToFull) {
@@ -464,7 +493,9 @@ public:
       RankedTensorType inputType =
           mlir::cast<RankedTensorType>(input.getType());
 
-      // Preserve the current bufferType and only change tiled to RowMajor
+      // ttnn.aggregate_tensor op which will be lowered while TTIRToTTNN pass
+      // doesn't care about the buffer type of the input, so we keep the buffer
+      // type as is and only change tiled to RowMajor
       BufferType currentBufferType = g_defaultMemorySpaceDevice;
       if (auto currentLayout = mlir::dyn_cast_if_present<TTNNLayoutAttr>(
               inputType.getEncoding())) {
