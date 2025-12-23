@@ -3407,25 +3407,35 @@ public:
                                          rewriter.getI32ArrayAttr(targetShape));
     }
 
-    // Create RMSNormOp with output shape matching input shape
+    // Create RMSNormOp with output shape and dtype matching input
     auto rmsNormOutputType =
-        RankedTensorType::get(inputType.getShape(), outputType.getElementType(),
-                              outputType.getEncoding());
+        RankedTensorType::get(inputType.getShape(), inputType.getElementType(),
+                              inputType.getEncoding());
     auto rmsNorm = rewriter.create<RMSNormOp>(
         outerMul.getLoc(), rmsNormOutputType, x, gamma,
         /*bias=*/nullptr, rewriter.getDenseI64ArrayAttr(normalizedShape),
         rewriter.getF32FloatAttr(epsAttr.getValue().convertToFloat()));
 
+    mlir::Value result = rmsNorm;
+
     // If output shape differs from input shape, add a reshape
     if (inputType.getShape() != outputType.getShape()) {
       llvm::SmallVector<int32_t> targetShape(outputType.getShape());
-      auto reshape =
-          rewriter.create<ReshapeOp>(outerMul.getLoc(), outputType, rmsNorm,
-                                     rewriter.getI32ArrayAttr(targetShape));
-      rewriter.replaceOp(outerMul, reshape);
-    } else {
-      rewriter.replaceOp(outerMul, rmsNorm);
+      auto reshapeOutputType = RankedTensorType::get(outputType.getShape(),
+                                                     inputType.getElementType(),
+                                                     inputType.getEncoding());
+      result = rewriter.create<ReshapeOp>(
+          outerMul.getLoc(), reshapeOutputType, result,
+          rewriter.getI32ArrayAttr(targetShape));
     }
+
+    // If output dtype differs from input dtype, add a typecast
+    if (inputType.getElementType() != outputType.getElementType()) {
+      result =
+          rewriter.create<TypecastOp>(outerMul.getLoc(), outputType, result);
+    }
+
+    rewriter.replaceOp(outerMul, result);
     return mlir::success();
   }
 };
