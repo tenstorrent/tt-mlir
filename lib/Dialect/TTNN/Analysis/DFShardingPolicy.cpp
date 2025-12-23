@@ -63,6 +63,21 @@ static uint64_t getChainOutputSizeBytes(const L1ChainConfig &chain) {
   return lastSpec.config.outputLayout.getShardSizeInBytes();
 }
 
+// Create an L1 interleaved layout with the max device grid.
+// This ensures L1 interleaved uses the full device grid rather than inheriting
+// a potentially smaller grid from DRAM interleaved layouts.
+static TTNNLayoutAttr createL1InterleavedLayout(Operation *op,
+                                                RankedTensorType outputType,
+                                                TTNNLayoutAttr baseLayout) {
+
+  static auto deviceAttr = ttcore::lookupDevice(op);
+  static ttcore::GridAttr l1InterleavedGrid = deviceAttr.getWorkerGrid();
+
+  return baseLayout.withBufferType(BufferType::L1)
+      .withMemoryLayout(TensorMemoryLayout::Interleaved)
+      .withGrid(outputType, l1InterleavedGrid, {{0, -1}});
+}
+
 // Build a map from Operation* to its resolved output layout within a chain.
 static llvm::DenseMap<Operation *, TTNNLayoutAttr>
 buildResolvedLayoutMap(const L1ChainConfig &chain) {
@@ -1025,17 +1040,35 @@ static void applyChainMerges(std::vector<L1ChainConfig> &l1ChainConfigs,
     }
 
     // Scenario 2: 3-way merge
-    if (operand0Candidate && operand1Candidate) {
-      // Chain A (operand 0) executes first, then Chain C (operand 1).
-      // Validate intermediate ops between Chain A and Chain C, and that
-      // Chain C can execute with Chain A's output in L1.
+    // Try to merge both operand chains into Chain B. If validation fails,
+    // fall through to try classic RHS merge instead.
+    auto tryThreeWayMerge = [&]() -> bool {
+      if (!operand0Candidate || !operand1Candidate) {
+        return false;
+      }
+
       const L1ChainConfig &chainC =
           l1ChainConfigs[operand1Candidate->sourceChainIdx];
       const L1ChainConfig &chainA =
           l1ChainConfigs[operand0Candidate->sourceChainIdx];
 
-      // Get schedule positions for intermediate ops validation.
+      // Reject if either chain's last op is a fork. Fork ops are complex
+      // and handled separately in applyL1ReservationsForForkOps.
       Operation *chainALastOp = chainA.getLastOp();
+      Operation *chainCLastOp = chainC.getLastOp();
+      bool chainAIsFork =
+          chainALastOp && !chainALastOp->getResult(0).hasOneUse();
+      bool chainCIsFork =
+          chainCLastOp && !chainCLastOp->getResult(0).hasOneUse();
+      if (chainAIsFork || chainCIsFork) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                     "3-way merge rejected: chain {}'s last op is a fork",
+                     chainAIsFork ? operand0Candidate->sourceChainIdx
+                                  : operand1Candidate->sourceChainIdx);
+        return false;
+      }
+
+      // Get schedule positions for intermediate ops validation.
       Operation *chainCFirstOp = chainC.getOpL1MemSpecs().empty()
                                      ? nullptr
                                      : chainC.getOpL1MemSpecs().front().op;
@@ -1046,11 +1079,7 @@ static void applyChainMerges(std::vector<L1ChainConfig> &l1ChainConfigs,
                                     ? schedulePositionMap.find(chainCFirstOp)
                                     : schedulePositionMap.end();
 
-      // Validate intermediate ops between Chain A's last op and Chain C's
-      // first op can execute with Chain A's output in L1.
-      // We need to pass Chain A's output layout so non-chain ops (like MeanOp)
-      // that consume Chain A's output get validated with the correct sharded
-      // input layout instead of the IR's DRAM layout.
+      // Validate intermediate ops between Chain A and Chain C.
       llvm::DenseMap<Operation *, TTNNLayoutAttr> chainAOutputMap;
       if (chainALastOp && operand0Candidate->sourceOutputLayout) {
         chainAOutputMap[chainALastOp] = operand0Candidate->sourceOutputLayout;
@@ -1063,70 +1092,65 @@ static void applyChainMerges(std::vector<L1ChainConfig> &l1ChainConfigs,
               schedulePositionMap, l1Reservations,
               chainALastOpPosIt->second + 1, chainCFirstOpPosIt->second - 1,
               operand0Candidate->sourceOutputSize, chainAOutputMap)) {
-        TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
-                     "3-way merge rejected: intermediate ops between "
-                     "chain A ({}) and chain C ({}) cannot execute with "
-                     "Chain A's output in L1",
-                     operand0Candidate->sourceChainIdx,
-                     operand1Candidate->sourceChainIdx);
-        // Fall through to try classic RHS merge
-      } else if (!validateChainWithPredecessorInL1(
-                     chainC, operand0Candidate->sourceOutputSize,
-                     schedulePositionMap, l1Reservations,
-                     l1ResidentsLayoutMap)) {
-        TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
-                     "3-way merge rejected: Chain C (chain {}) cannot execute "
-                     "with Chain A's (chain {}) output in L1",
-                     operand1Candidate->sourceChainIdx,
-                     operand0Candidate->sourceChainIdx);
-        // Fall through to try classic RHS merge
-      } else if (!validateThreeWayMergeJoinOp(
-                     chainB, operand0Candidate->sourceOutputLayout,
-                     operand1Candidate->sourceOutputLayout, schedulePositionMap,
-                     l1Reservations)) {
-        TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
-                     "3-way merge rejected: join op {} cannot execute with "
-                     "sharded inputs from chain {} and chain {}",
-                     firstOpInChainB->getName(),
-                     operand0Candidate->sourceChainIdx,
-                     operand1Candidate->sourceChainIdx);
-        // Fall through to try classic RHS merge
-      } else {
-        // 3-way merge is valid! Apply both merges.
-        L1ChainConfig &chainA =
-            l1ChainConfigs[operand0Candidate->sourceChainIdx];
-        L1ChainConfig &chainCMut =
-            l1ChainConfigs[operand1Candidate->sourceChainIdx];
-
-        chainA.spillLocation = SpillLocation::None;
-        chainCMut.spillLocation = SpillLocation::None;
-        mergedIntoChains.insert(chainBIdx);
-
-        // Track merged chain outputs as L1 residents for subsequent
-        // validations.
-        Operation *chainALastOp = chainA.getLastOp();
-        Operation *chainCLastOp = chainCMut.getLastOp();
-        if (chainALastOp && operand0Candidate->sourceOutputLayout) {
-          l1ResidentsLayoutMap[chainALastOp] =
-              operand0Candidate->sourceOutputLayout;
-        }
-        if (chainCLastOp && operand1Candidate->sourceOutputLayout) {
-          l1ResidentsLayoutMap[chainCLastOp] =
-              operand1Candidate->sourceOutputLayout;
-        }
-
-        TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
-                     "3-way merge applied: [chain {} (op0) + chain {} (op1) -> "
-                     "chain {}] (join op: {}, chain A last op: {}, chain C "
-                     "last op: {}, tensor sizes: {} + {} bytes)",
-                     operand0Candidate->sourceChainIdx,
-                     operand1Candidate->sourceChainIdx, chainBIdx,
-                     firstOpInChainB->getName(), chainALastOp->getName(),
-                     chainCLastOp->getName(),
-                     operand0Candidate->sourceOutputSize,
-                     operand1Candidate->sourceOutputSize);
-        continue; // Move to next chain
+        TTMLIR_DEBUG(
+            ttmlir::LogComponent::DFShardingPolicy,
+            "3-way merge rejected: intermediate ops validation failed");
+        return false;
       }
+
+      // Validate Chain C can execute with Chain A's output in L1.
+      if (!validateChainWithPredecessorInL1(
+              chainC, operand0Candidate->sourceOutputSize, schedulePositionMap,
+              l1Reservations, l1ResidentsLayoutMap)) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                     "3-way merge rejected: Chain C validation failed");
+        return false;
+      }
+
+      // Validate join op can execute with both sharded inputs.
+      if (!validateThreeWayMergeJoinOp(chainB,
+                                       operand0Candidate->sourceOutputLayout,
+                                       operand1Candidate->sourceOutputLayout,
+                                       schedulePositionMap, l1Reservations)) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                     "3-way merge rejected: join op validation failed");
+        return false;
+      }
+
+      // 3-way merge is valid! Apply both merges.
+      L1ChainConfig &chainAMut =
+          l1ChainConfigs[operand0Candidate->sourceChainIdx];
+      L1ChainConfig &chainCMut =
+          l1ChainConfigs[operand1Candidate->sourceChainIdx];
+
+      chainAMut.spillLocation = SpillLocation::None;
+      chainCMut.spillLocation = SpillLocation::None;
+      mergedIntoChains.insert(chainBIdx);
+
+      // Track merged chain outputs as L1 residents.
+      if (chainALastOp && operand0Candidate->sourceOutputLayout) {
+        l1ResidentsLayoutMap[chainALastOp] =
+            operand0Candidate->sourceOutputLayout;
+      }
+      if (chainCLastOp && operand1Candidate->sourceOutputLayout) {
+        l1ResidentsLayoutMap[chainCLastOp] =
+            operand1Candidate->sourceOutputLayout;
+      }
+
+      TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                   "3-way merge applied: [chain {} (op0) + chain {} (op1) -> "
+                   "chain {}] (join op: {}, chain A last op: {}, chain C "
+                   "last op: {}, tensor sizes: {} + {} bytes)",
+                   operand0Candidate->sourceChainIdx,
+                   operand1Candidate->sourceChainIdx, chainBIdx,
+                   firstOpInChainB->getName(), chainALastOp->getName(),
+                   chainCLastOp->getName(), operand0Candidate->sourceOutputSize,
+                   operand1Candidate->sourceOutputSize);
+      return true;
+    };
+
+    if (tryThreeWayMerge()) {
+      continue; // Move to next chain
     }
 
     // Scenario 1: Classic RHS merge (operand > 0 only, or operand 0 for
@@ -1168,6 +1192,19 @@ static void applyChainMerges(std::vector<L1ChainConfig> &l1ChainConfigs,
           l1ChainConfigs[candidate.sourceChainIdx];
       Operation *sourceLastOp = sourceChain.getLastOp();
       if (sourceLastOp) {
+        // Reject merge if source chain's last op is a fork (multiple users).
+        // Fork ops are complex and handled separately in
+        // applyL1ReservationsForForkOps which validates all consumers.
+        Value sourceOutput = sourceLastOp->getResult(0);
+        if (!sourceOutput.hasOneUse()) {
+          TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                       "Chain merge candidate rejected: source chain {}'s last "
+                       "op {} is a fork (has multiple users)",
+                       candidate.sourceChainIdx,
+                       sourceLastOp->getName().getStringRef().str());
+          continue;
+        }
+
         auto sourceLastOpPosIt = schedulePositionMap.find(sourceLastOp);
         auto joinOpPosIt = schedulePositionMap.find(candidate.joinOp);
         if (sourceLastOpPosIt != schedulePositionMap.end() &&
@@ -1278,14 +1315,17 @@ static uint64_t tryGetL1InterleavedSize(Operation *op) {
   }
 
   TTNNLayoutAttr l1Layout =
-      currentLayout.withBufferType(BufferType::L1)
-          .withMemoryLayout(TensorMemoryLayout::Interleaved);
+      createL1InterleavedLayout(op, outputType, currentLayout);
 
   // Convert input layouts to L1 interleaved for validation
   std::vector<TTNNLayoutAttr> inputLayouts = utils::extractInputLayouts(op);
-  for (auto &inputLayout : inputLayouts) {
-    inputLayout = inputLayout.withBufferType(BufferType::L1)
-                      .withMemoryLayout(TensorMemoryLayout::Interleaved);
+  for (size_t i = 0; i < inputLayouts.size(); ++i) {
+    auto inputType =
+        mlir::dyn_cast<RankedTensorType>(op->getOperand(i).getType());
+    if (inputType) {
+      inputLayouts[i] =
+          createL1InterleavedLayout(op, inputType, inputLayouts[i]);
+    }
   }
 
   OpConfig l1Config;
@@ -1543,8 +1583,7 @@ static void applyL1ReservationsForReshapes(
     auto outputType = mlir::cast<RankedTensorType>(op->getResult(0).getType());
     auto currentLayout = mlir::cast<TTNNLayoutAttr>(outputType.getEncoding());
     TTNNLayoutAttr l1Layout =
-        currentLayout.withBufferType(BufferType::L1)
-            .withMemoryLayout(TensorMemoryLayout::Interleaved);
+        createL1InterleavedLayout(op, outputType, currentLayout);
 
     // Find last user position
     int64_t lastUserPos = reshapePos;
@@ -1846,9 +1885,9 @@ static void applyL1ReservationsForForkOps(
       continue;
     }
 
+    auto forkOutputType = mlir::cast<RankedTensorType>(forkOutput.getType());
     TTNNLayoutAttr l1InterleavedLayout =
-        shardedLayout.withBufferType(BufferType::L1)
-            .withMemoryLayout(TensorMemoryLayout::Interleaved);
+        createL1InterleavedLayout(lastOp, forkOutputType, shardedLayout);
 
     bool allConsumersValidWithL1Interleaved = true;
     for (Operation *user : forkOutput.getUsers()) {
