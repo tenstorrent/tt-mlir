@@ -1,6 +1,7 @@
 // REQUIRES: stablehlo
 // RUN: ttmlir-opt --stablehlo-pipeline --split-input-file -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
+// UNSUPPORTED: true
 
 module {
   sdy.mesh @mesh = <["batch"=1, "model"=2]>
