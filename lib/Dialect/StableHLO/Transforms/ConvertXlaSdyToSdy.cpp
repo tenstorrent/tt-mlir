@@ -46,11 +46,22 @@ public:
         signalPassFailure();
         return;
       }
+
+      // Walk through all operations and convert stablehlo.custom_call @Sharding
+      // ops to sdy.sharding_constraint ops
+      if (mlir::failed(shardy_utils::convertCustomCallToShardingConstraint(
+              rootModule, context, builder))) {
+        signalPassFailure();
+        return;
+      }
     }
 
-    // Convert sharding custom calls (@Sharding, @tt.sharding_constraint,
-    // @xla.sdy.FuncResultSharding) to sdy.sharding_constraint ops.
-    if (mlir::failed(shardy_utils::convertCustomCallToShardingConstraint(
+    // Convert xla.sdy.FuncResultSharding custom calls to
+    // sdy.sharding_constraint ops. These marker operations specify result
+    // shardings and need to be converted to sharding constraints so Shardy can
+    // generate appropriate collectives. This is done unconditionally as these
+    // can appear regardless of frontend attribute presence.
+    if (mlir::failed(shardy_utils::convertFuncResultShardingToConstraint(
             rootModule, context, builder))) {
       signalPassFailure();
       return;
