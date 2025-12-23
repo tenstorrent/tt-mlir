@@ -49,6 +49,7 @@ public:
         debugCoalescingInference(debugCoalescingInference) {}
 
 private:
+  static constexpr size_t coalescingFactorSamplingFallbackThreshold = 16;
   bool debugCoalescingInference;
 
   // Returns a tuple of the stream index and the index bounds. The stream index
@@ -307,16 +308,25 @@ private:
     auto coalescingFactor = ttmlir::utils::analyzeShardDimContiguity(
         memoryMap, memref.getShape(), memrefGridShape.size(), elemSizeBytes);
 
+    // If the coalescing factor is less than the sampling fallback threshold,
+    // use the sampling-based approach to see if we can do better.
+    bool shouldFallbackToSampling =
+        coalescingFactor <= coalescingFactorSamplingFallbackThreshold;
+    if (shouldFallbackToSampling) {
+      llvm::errs() << "Falling back to using sampling-based "
+                      "method for calculating coalescing factor.\n";
+      coalescingFactor = ttmlir::utils::calculateCoalescingFactor(
+          memoryMap, memref.getShape(), elemSizeBytes, memrefGridShape.size());
+    }
+
     // When debug mode is enabled, also run the slow sampling-based coalescing
     // factor computation and compares results. If their is a discrepancy, the
     // sampled value is used as the fallback.
-    if (debugCoalescingInference) {
+    if (!shouldFallbackToSampling && debugCoalescingInference) {
       llvm::dbgs() << "[CoalescingFactor] Running sampling-based coalescing "
                       "factor computation; this may take a while...\n";
-      int64_t sampledCoalescingFactor =
-          ttmlir::utils::calculateCoalescingFactor(memoryMap, memref.getShape(),
-                                                   elemSizeBytes,
-                                                   memrefGridShape.size());
+      size_t sampledCoalescingFactor = ttmlir::utils::calculateCoalescingFactor(
+          memoryMap, memref.getShape(), elemSizeBytes, memrefGridShape.size());
 
       if (coalescingFactor != sampledCoalescingFactor &&
           sampledCoalescingFactor % coalescingFactor == 0) {
@@ -325,6 +335,10 @@ private:
                "a fraction of the sampled coalescing factor!\n";
         llvm::dbgs() << "[CoalescingFactor] analytical = " << coalescingFactor
                      << " vs sampled = " << sampledCoalescingFactor << "\n";
+        llvm::dbgs() << "[CoalescingFactor] map: " << memoryMap << "\n";
+        llvm::dbgs() << "[CoalescingFactor] shape: "
+                     << ttmlir::utils::formatIterable(memref.getShape(), "x")
+                     << "\n";
         llvm::dbgs() << "[CoalescingFactor] Setting coalescing factor to "
                         "fallback sampled value = "
                      << sampledCoalescingFactor << "\n";
