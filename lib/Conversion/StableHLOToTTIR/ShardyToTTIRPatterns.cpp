@@ -281,15 +281,15 @@ public:
       });
     }
 
-    // Remove sdy.sharding attributes from function arguments and results.
-    // This must be done before erasing the MeshOp, otherwise the shardy
-    // verifier will fail to find the mesh when verifying the sharding
-    // attributes. See: https://github.com/openxla/shardy verifiers.cc
-    for (auto funcOp : module.getOps<mlir::func::FuncOp>()) {
-      rewriter.modifyOpInPlace(funcOp, [&]() {
-        shardy_utils::removeSdyTensorShardings(getContext(), funcOp);
-      });
-    }
+    // // Remove sdy.sharding attributes from function arguments and results.
+    // // This must be done before erasing the MeshOp, otherwise the shardy
+    // // verifier will fail to find the mesh when verifying the sharding
+    // // attributes. See: https://github.com/openxla/shardy verifiers.cc
+    // for (auto funcOp : module.getOps<mlir::func::FuncOp>()) {
+    //   rewriter.modifyOpInPlace(funcOp, [&]() {
+    //     shardy_utils::removeSdyTensorShardings(getContext(), funcOp);
+    //   });
+    // }
 
     rewriter.eraseOp(srcOp);
     return llvm::success();
