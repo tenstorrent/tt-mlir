@@ -1589,10 +1589,16 @@ public:
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getWeight()),
         emitter.emit(srcOp.getBias()),
-        emitter.emitConv3dConfig(srcOp.getOutChannels(), srcOp.getKernelSize(),
-                                 srcOp.getStride(), srcOp.getPadding(),
-                                 srcOp.getPaddingMode(), srcOp.getGroups(),
-                                 outputDtype, srcOp.getConv3dConfig()),
+        emitter.emitConv3dConfig(srcOp.getConv3dConfig()),
+        emitter.emit(outputDtype),
+        emitter.emit(srcOp.getOutChannels()),
+        emitter.emit<std::array<uint32_t, 3>>(srcOp.getKernelSizeAttr()),
+        emitter.emit<std::array<uint32_t, 3>>(srcOp.getStrideAttr()),
+        emitter.emit<std::array<uint32_t, 3>>(srcOp.getPaddingAttr()),
+        emitter.emit<std::array<uint32_t, 3>>(
+            rewriter.getDenseI32ArrayAttr({1, 1, 1})), // dilation
+        emitter.emit(srcOp.getPaddingMode()),
+        emitter.emit(srcOp.getGroups()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
         emitter.emit(std::nullopt), // compute_config - not yet supported
     };
