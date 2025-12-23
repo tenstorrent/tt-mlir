@@ -4,4 +4,3 @@
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn phi_1_5_prefill_layer_ttnn.mlir
 // RUN: ttrt run --benchmark %t.ttnn
 // CHECK-DAG: "ttnn.layer_norm"
-

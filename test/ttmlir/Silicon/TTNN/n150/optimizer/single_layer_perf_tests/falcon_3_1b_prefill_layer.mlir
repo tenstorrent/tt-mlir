@@ -3,5 +3,4 @@
 // RUN: FileCheck %s --input-file=falcon_3_1b_prefill_layer_ttnn.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn falcon_3_1b_prefill_layer_ttnn.mlir
 // RUN: ttrt run --benchmark %t.ttnn
-// CHECK-DAG: "ttnn.layer_norm"
-
+// CHECK-DAG: "ttnn.rms_norm"

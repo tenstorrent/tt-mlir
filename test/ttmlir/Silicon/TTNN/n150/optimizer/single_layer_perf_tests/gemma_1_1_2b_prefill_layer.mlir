@@ -4,4 +4,3 @@
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn gemma_1_1_2b_prefill_layer_ttnn.mlir
 // RUN: ttrt run --benchmark %t.ttnn
 // CHECK-DAG: "ttnn.rms_norm"
-

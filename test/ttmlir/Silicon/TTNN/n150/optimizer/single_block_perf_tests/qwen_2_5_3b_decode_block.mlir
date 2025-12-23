@@ -4,4 +4,3 @@
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn qwen_2_5_3b_decode_block_ttnn.mlir
 // RUN: ttrt run --benchmark %t.ttnn
 // CHECK-DAG: "ttnn.rms_norm"
-
