@@ -1009,12 +1009,12 @@ convertFuncResultShardingToConstraint(mlir::ModuleOp &rootModule,
   // Remove mhlo.sharding from function results to allow
   // WrapUnderManualComputation to wrap the function body (gspmdAnnotationsExist
   // checks for mhlo.sharding).
-  rootModule.walk([&](func::FuncOp funcOp) {
-    for (unsigned i = 0; i < funcOp.getNumResults(); i++) {
-      funcOp.removeResultAttr(
-          i, mlir::StringAttr::get(context, gspmd_utils::kXlaShardingAttr));
-    }
-  });
+  // rootModule.walk([&](func::FuncOp funcOp) {
+  //   for (unsigned i = 0; i < funcOp.getNumResults(); i++) {
+  //     funcOp.removeResultAttr(
+  //         i, mlir::StringAttr::get(context, gspmd_utils::kXlaShardingAttr));
+  //   }
+  // });
 
   return mlir::success();
 }
