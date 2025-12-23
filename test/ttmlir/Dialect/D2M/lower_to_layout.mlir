@@ -180,3 +180,27 @@ func.func @chained_view(%arg0: tensor<2x4x32x32xf32, #layout_base_view>) -> tens
 
   return %1 : tensor<4x2x32x32xf32, #layout_with_view>
 }
+
+// Always use interleaved DRAM bounce for tensors on virtual grids
+
+#layout_virtual_dram_aligned = #ttcore.metal_layout<logical_shape = 4x32x32, dim_alignments = 1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3, d4, d5) -> (d0, d1, d3, d4, d5)>
+
+func.func @test_virtual_dram_bounce_aligned(%arg0: tensor<4x32x32xf32>) -> tensor<4x1x1x1x32x32xf32, #layout_virtual_dram_aligned> {
+  // CHECK-LABEL: @test_virtual_dram_bounce_aligned
+  // CHECK: %{{.*}} = d2m.empty() : tensor<1x1x128x32xf32, #layout[[DRAM_LAYOUT_ALIGNED:[0-9]*]]
+  // CHECK: d2m.to_device {{.*}} layout = #layout[[DRAM_LAYOUT_ALIGNED]]
+  %0 = d2m.empty() : tensor<4x1x1x1x32x32xf32, #layout_virtual_dram_aligned>
+  %1 = d2m.to_layout %arg0, %0 : tensor<4x32x32xf32> into tensor<4x1x1x1x32x32xf32, #layout_virtual_dram_aligned> -> tensor<4x1x1x1x32x32xf32, #layout_virtual_dram_aligned>
+  return %1 : tensor<4x1x1x1x32x32xf32, #layout_virtual_dram_aligned>
+}
+
+#layout_virtual_dram_unaligned = #ttcore.metal_layout<logical_shape = 4x128x32, dim_alignments = 1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3, d4, d5) -> (((d1 + d2) floordiv 4 + d0) mod 4, (d1 + d2) mod 4, d3, d4, d5)>
+
+func.func @test_virtual_dram_bounce_unaligned(%arg0: tensor<4x128x32xf32>) -> tensor<4x4x1x1x32x32xf32, #layout_virtual_dram_unaligned> {
+  // CHECK-LABEL: @test_virtual_dram_bounce_unaligned
+  // CHECK: %{{.*}} = d2m.empty() : tensor<1x1x512x32xf32, #layout[[DRAM_LAYOUT_UNALIGNED:[0-9]*]]
+  // CHECK: d2m.to_device {{.*}} layout = #layout[[DRAM_LAYOUT_UNALIGNED]]
+  %0 = d2m.empty() : tensor<4x4x1x1x32x32xf32, #layout_virtual_dram_unaligned>
+  %1 = d2m.to_layout %arg0, %0 : tensor<4x128x32xf32> into tensor<4x4x1x1x32x32xf32, #layout_virtual_dram_unaligned> -> tensor<4x4x1x1x32x32xf32, #layout_virtual_dram_unaligned>
+  return %1 : tensor<4x4x1x1x32x32xf32, #layout_virtual_dram_unaligned>
+}

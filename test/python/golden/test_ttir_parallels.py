@@ -10,6 +10,7 @@ from collections import OrderedDict
 from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
+from builder.base.builder_enums import *
 from test_utils import shape_str, make_shard_shape
 
 pytestmark = pytest.mark.frontend("ttir")
@@ -50,22 +51,22 @@ def _build_matmul_parallel(
 
     mesh_shard_in = builder.mesh_shard(
         input,
-        shard_direction="#ttcore.shard_direction<full_to_shard>",
-        shard_type="#ttcore.shard_type<devices>",
+        shard_direction=MeshShardDirection.FullToShard.value,
+        shard_type=MeshShardType.Devices.value,
         shard_shape=shard_shape_inout,
         shard_dims=shard_dims_inout,
     )
     mesh_shard_wt = builder.mesh_shard(
         weight,
-        shard_direction="#ttcore.shard_direction<full_to_shard>",
-        shard_type="#ttcore.shard_type<devices>",
+        shard_direction=MeshShardDirection.FullToShard.value,
+        shard_type=MeshShardType.Devices.value,
         shard_shape=shard_shape_wt,
         shard_dims=shard_dims_wt,
     )
     partial_matmul = builder.matmul(mesh_shard_in, mesh_shard_wt)
     reduced = builder.reduce_scatter(
         partial_matmul,
-        reduce_type="#ttcore.reduce_type<sum>",
+        reduce_type=ReduceType.Sum.value,
         scatter_dim=1,
         cluster_axis=parallelize_axis,
     )
@@ -74,8 +75,8 @@ def _build_matmul_parallel(
     else:
         return builder.mesh_shard(
             reduced,
-            shard_direction="#ttcore.shard_direction<shard_to_full>",
-            shard_type="#ttcore.shard_type<devices>",
+            shard_direction=MeshShardDirection.ShardToFull.value,
+            shard_type=MeshShardType.Devices.value,
             shard_shape=shard_shape_inout,
             shard_dims=shard_dims_inout,
         )
@@ -166,8 +167,8 @@ def test_parallelized_matmul_with_unary_chaining(
             shard_shape_out = make_shard_shape(2, shard_dims_out, mesh_shape)
             output = builder.mesh_shard(
                 output,
-                shard_direction="#ttcore.shard_direction<shard_to_full>",
-                shard_type="#ttcore.shard_type<devices>",
+                shard_direction=MeshShardDirection.ShardToFull.value,
+                shard_type=MeshShardType.Devices.value,
                 shard_shape=shard_shape_out,
                 shard_dims=shard_dims_out,
             )
@@ -221,16 +222,16 @@ def test_parallelized_matmul_with_binary_chaining(
             shard_shape = make_shard_shape(2, shard_dims, mesh_shape)
             mesh_shard_in2 = builder.mesh_shard(
                 in2,
-                shard_direction="#ttcore.shard_direction<full_to_shard>",
-                shard_type="#ttcore.shard_type<devices>",
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Devices.value,
                 shard_shape=shard_shape,
                 shard_dims=shard_dims,
             )
             add = builder.add(matmul_shard, mesh_shard_in2)
             output = builder.mesh_shard(
                 add,
-                shard_direction="#ttcore.shard_direction<shard_to_full>",
-                shard_type="#ttcore.shard_type<devices>",
+                shard_direction=MeshShardDirection.ShardToFull.value,
+                shard_type=MeshShardType.Devices.value,
                 shard_shape=shard_shape,
                 shard_dims=shard_dims,
             )
@@ -296,8 +297,8 @@ def test_parallelized_matmul_fusion_with_binary_chaining(
             shard_shape_out = make_shard_shape(2, shard_dims_out, mesh_shape)
             output = builder.mesh_shard(
                 output,
-                shard_direction="#ttcore.shard_direction<shard_to_full>",
-                shard_type="#ttcore.shard_type<devices>",
+                shard_direction=MeshShardDirection.ShardToFull.value,
+                shard_type=MeshShardType.Devices.value,
                 shard_shape=shard_shape_out,
                 shard_dims=shard_dims_out,
             )
@@ -359,23 +360,23 @@ def test_parallelized_elementwise_operations(
             shard_shape = make_shard_shape(len(shape), shard_dims, mesh_shape)
             mesh_shard_in0 = builder.mesh_shard(
                 in0,
-                shard_direction="#ttcore.shard_direction<full_to_shard>",
-                shard_type="#ttcore.shard_type<devices>",
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Devices.value,
                 shard_shape=shard_shape,
                 shard_dims=shard_dims,
             )
             mesh_shard_in1 = builder.mesh_shard(
                 in1,
-                shard_direction="#ttcore.shard_direction<full_to_shard>",
-                shard_type="#ttcore.shard_type<devices>",
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Devices.value,
                 shard_shape=shard_shape,
                 shard_dims=shard_dims,
             )
             partial_sum = builder.add(mesh_shard_in0, mesh_shard_in1)
             output = builder.mesh_shard(
                 partial_sum,
-                shard_direction="#ttcore.shard_direction<shard_to_full>",
-                shard_type="#ttcore.shard_type<devices>",
+                shard_direction=MeshShardDirection.ShardToFull.value,
+                shard_type=MeshShardType.Devices.value,
                 shard_shape=shard_shape,
                 shard_dims=shard_dims,
             )
@@ -579,8 +580,8 @@ def test_jit_tensor_parallel(mesh_shape: Tuple[int, int], request, device):
             shard_shape_in0 = make_shard_shape(4, shard_dims_in0, mesh_shape)
             mesh_shard_in0 = builder.mesh_shard(
                 in0,
-                shard_direction="#ttcore.shard_direction<full_to_shard>",
-                shard_type="#ttcore.shard_type<devices>",
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Devices.value,
                 shard_shape=shard_shape_in0,
                 shard_dims=shard_dims_in0,
             )
@@ -588,8 +589,8 @@ def test_jit_tensor_parallel(mesh_shape: Tuple[int, int], request, device):
             shard_shape_in1 = make_shard_shape(4, shard_dims_in1, mesh_shape)
             mesh_shard_in1 = builder.mesh_shard(
                 in1,
-                shard_direction="#ttcore.shard_direction<full_to_shard>",
-                shard_type="#ttcore.shard_type<devices>",
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Devices.value,
                 shard_shape=shard_shape_in1,
                 shard_dims=shard_dims_in1,
             )
@@ -607,13 +608,13 @@ def test_jit_tensor_parallel(mesh_shape: Tuple[int, int], request, device):
             reduce_scatter = builder.reduce_scatter(
                 permute,
                 scatter_dim=2,
-                reduce_type="#ttcore.reduce_type<sum>",
+                reduce_type=ReduceType.Sum.value,
                 cluster_axis=1,
             )
             mesh_shard_out = builder.mesh_shard(
                 reduce_scatter,
-                shard_direction="#ttcore.shard_direction<shard_to_full>",
-                shard_type="#ttcore.shard_type<devices>",
+                shard_direction=MeshShardDirection.ShardToFull.value,
+                shard_type=MeshShardType.Devices.value,
                 shard_shape=shard_shape_in1,
                 shard_dims=shard_dims_in1,
             )
@@ -643,15 +644,15 @@ def test_jit_data_parallel(mesh_shape: Tuple[int, int], request, device):
             shard_shape_in0 = make_shard_shape(4, shard_dims_in0, mesh_shape)
             mesh_shard_in0 = builder.mesh_shard(
                 in0,
-                shard_direction="#ttcore.shard_direction<full_to_shard>",
-                shard_type="#ttcore.shard_type<devices>",
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Devices.value,
                 shard_shape=shard_shape_in0,
                 shard_dims=shard_dims_in0,
             )
             mesh_shard_in1 = builder.mesh_shard(
                 in1,
-                shard_direction="#ttcore.shard_direction<full_to_shard>",
-                shard_type="#ttcore.shard_type<replicate>",
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Replicate.value,
                 shard_shape=[1],
                 shard_dims=[-1],
             )
@@ -670,8 +671,8 @@ def test_jit_data_parallel(mesh_shape: Tuple[int, int], request, device):
             shard_shape_out = make_shard_shape(4, shard_dims_out, mesh_shape)
             mesh_shard_out = builder.mesh_shard(
                 permute,
-                shard_direction="#ttcore.shard_direction<shard_to_full>",
-                shard_type="#ttcore.shard_type<devices>",
+                shard_direction=MeshShardDirection.ShardToFull.value,
+                shard_type=MeshShardType.Devices.value,
                 shard_shape=shard_shape_out,
                 shard_dims=shard_dims_out,
             )
@@ -701,8 +702,8 @@ def test_jit_data_tensor_parallel(mesh_shape: Tuple[int, int], request, device):
             shard_shape_in0 = make_shard_shape(4, shard_dims_in0, mesh_shape)
             mesh_shard_in0 = builder.mesh_shard(
                 in0,
-                shard_direction="#ttcore.shard_direction<full_to_shard>",
-                shard_type="#ttcore.shard_type<devices>",
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Devices.value,
                 shard_shape=shard_shape_in0,
                 shard_dims=shard_dims_in0,
             )
@@ -710,8 +711,8 @@ def test_jit_data_tensor_parallel(mesh_shape: Tuple[int, int], request, device):
             shard_shape_in1 = make_shard_shape(4, shard_dims_in1, mesh_shape)
             mesh_shard_in1 = builder.mesh_shard(
                 in1,
-                shard_direction="#ttcore.shard_direction<full_to_shard>",
-                shard_type="#ttcore.shard_type<devices>",
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Devices.value,
                 shard_shape=shard_shape_in1,
                 shard_dims=shard_dims_in1,
             )
@@ -729,15 +730,15 @@ def test_jit_data_tensor_parallel(mesh_shape: Tuple[int, int], request, device):
             reduce_scatter = builder.reduce_scatter(
                 permute,
                 scatter_dim=2,
-                reduce_type="#ttcore.reduce_type<sum>",
+                reduce_type=ReduceType.Sum.value,
                 cluster_axis=1,
             )
             shard_dims_out = [0, 2]
             shard_shape_out = make_shard_shape(4, shard_dims_out, mesh_shape)
             mesh_shard_out = builder.mesh_shard(
                 reduce_scatter,
-                shard_direction="#ttcore.shard_direction<shard_to_full>",
-                shard_type="#ttcore.shard_type<devices>",
+                shard_direction=MeshShardDirection.ShardToFull.value,
+                shard_type=MeshShardType.Devices.value,
                 shard_shape=shard_shape_out,
                 shard_dims=shard_dims_out,
             )
