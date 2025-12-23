@@ -474,12 +474,11 @@ createFallbackTransforms(TTNNLayoutAttr originalLayout,
     }
   }
 
-  size_t totalCombinations =
-      targetDataTypes.size() * targetLayouts.size() * targetBufferTypes.size();
   TTMLIR_TRACE(
       ttmlir::LogComponent::OpValidation,
       "Generated {} unique fallback layouts from {} target combinations",
-      fallbackLayoutsSet.size(), totalCombinations);
+      fallbackLayoutsSet.size(),
+      targetDataTypes.size() * targetLayouts.size() * targetBufferTypes.size());
 
   // Convert set to vector for return
   return std::vector<TTNNLayoutAttr>(fallbackLayoutsSet.begin(),
