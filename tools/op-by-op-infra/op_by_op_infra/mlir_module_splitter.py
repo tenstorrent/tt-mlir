@@ -98,6 +98,7 @@ class MLIRModuleSplitter:
     @property
     def sub_modules(self) -> List[ModuleWrapper]:
         """Returns list of constituent ops each wrapped in a MLIR module."""
+        self._generate_sub_modules()
         return self._sub_modules
 
     # ----- Private methods -----
@@ -114,12 +115,11 @@ class MLIRModuleSplitter:
         self._func_map = {}
         self._origin_model = origin_model
 
-    def _split(self) -> List[ModuleWrapper]:
+    def _split(self) -> List[OpWrapper]:
         """Splits the original module into constituent operations."""
         self._build_func_map()
         self._process_func_op(self._main_func)
-        self._generate_sub_modules()
-        return self._sub_modules
+        return self._sub_ops
 
     def _build_func_map(self) -> None:
         """

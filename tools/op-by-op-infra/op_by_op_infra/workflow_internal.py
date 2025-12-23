@@ -127,7 +127,8 @@ def split_and_execute(
     results = []
 
     progress_msg("Splitting module...")
-    sub_modules = splitter.split(module)
+    sub_ops = splitter.split(module)
+    sub_modules = splitter.sub_modules
 
     for sub_module in progress_bar(sub_modules, desc="Executing submodules..."):
         execution_result = executor.execute(sub_module)
@@ -158,7 +159,8 @@ def compile_split_and_execute(module: Module | str) -> List[ExecutionResult]:
     progress_msg("Compiling module...")
     ttnn_module = executor.compile(module)
     progress_msg("Splitting module...")
-    sub_modules = splitter.split(ttnn_module)
+    sub_ops = splitter.split(module)
+    sub_modules = splitter.sub_modules
 
     for sub_module in progress_bar(sub_modules, desc="Executing submodules..."):
         execution_result = executor.execute(sub_module)
@@ -188,7 +190,8 @@ def split_compile_split_and_execute(module: Module | str) -> List[ExecutionResul
     results = []
 
     progress_msg("Splitting module...")
-    sub_modules = splitter.split(module)
+    sub_ops = splitter.split(module)
+    sub_modules = splitter.sub_modules
 
     for sub_module in progress_bar(
         sub_modules, desc="Compiling, splitting and executing submodules..."
@@ -196,7 +199,8 @@ def split_compile_split_and_execute(module: Module | str) -> List[ExecutionResul
         progress_msg("Compiling submodule...")
         ttnn_module = executor.compile(sub_module)
         progress_msg("Splitting submodule...")
-        ttnn_sub_modules = splitter.split(ttnn_module)
+        ttnn_sub_ops = splitter.split(ttnn_module)
+        ttnn_sub_modules = splitter.sub_modules
 
         for ttnn_sub_module in progress_bar(
             ttnn_sub_modules, desc="Executing submodules...", leave=False

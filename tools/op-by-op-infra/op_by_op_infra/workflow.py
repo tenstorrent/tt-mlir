@@ -97,8 +97,8 @@ def extract_ops_from_module(
         List of wrapped operations extracted from the module
     """
     splitter = MLIRModuleSplitter()
-    splitter.split(module, origin_model=origin_model)
-    return splitter.sub_ops
+    sub_ops = splitter.split(module, origin_model=origin_model)
+    return sub_ops
 
 
 def execute_extracted_ops(
