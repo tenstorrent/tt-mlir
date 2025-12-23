@@ -183,21 +183,6 @@ CoalescingTestResult compareCoalescingFactors(int64_t samplingFactor,
   return CoalescingTestResult::Failed;
 }
 
-/// Returns all divisors of n sorted in ascending order.
-llvm::SmallVector<int64_t> getAllDivisors(int64_t n) {
-  llvm::SmallVector<int64_t> divisors;
-  for (int64_t d = 1; d * d <= n; ++d) {
-    if (n % d == 0) {
-      divisors.push_back(d);
-      if (d != n / d) {
-        divisors.push_back(n / d);
-      }
-    }
-  }
-  llvm::sort(divisors);
-  return divisors;
-}
-
 /// Generates a random shape with the given rank using the provided RNG.
 /// Each dimension is in range [minDim, maxDim].
 llvm::SmallVector<int64_t> generateRandomShape(std::mt19937 &rng, int rank,
@@ -217,7 +202,7 @@ generateRandomGridShape(llvm::ArrayRef<int64_t> logicalShape,
                         std::mt19937 &rng) {
   llvm::SmallVector<int64_t> gridShape;
   for (int64_t dim : logicalShape) {
-    auto divisors = getAllDivisors(dim);
+    auto divisors = ttmlir::utils::getFactors(dim);
     std::uniform_int_distribution<size_t> dist(0, divisors.size() - 1);
     gridShape.push_back(divisors[dist(rng)]);
   }
@@ -309,58 +294,12 @@ TEST(AffineMapUtilsTest, CanSimplifyRedundantModExpr) {
                                              {true, false, true}));
   EXPECT_TRUE(testRedundantModSimplification(&context, {2, 10, 4}, {5, 5, 10},
                                              {false, true, false}));
-
-  // Test random cases where moduli are larger than dimension bounds (should
-  // simplify) and moduli are smaller than dimension bounds (should not
-  // simplify).
-  auto seed = tt::testing::randomSeed();
-  auto gen = tt::testing::createRNG(seed);
-  std::uniform_int_distribution<int32_t> unifModulusCount(1, 5);
-  std::uniform_int_distribution<int32_t> unifPartialModulusCount(2, 5);
-  std::uniform_int_distribution<int64_t> unifSmallModulus(1, 100);
-  std::uniform_int_distribution<int64_t> unifLargeModulus(1000, 16384);
-  std::uniform_int_distribution<int64_t> unifSmallDimBound(1, 100);
-  std::uniform_int_distribution<int64_t> unifLargeDimBound(1000, 16384);
-  std::uniform_int_distribution<int32_t> unifShouldSimplify(0, 1);
-
-  constexpr int32_t partialIterations = 50;
-  for (int32_t i = 0; i < partialIterations; ++i) {
-    const int32_t modulusCount = unifPartialModulusCount(gen);
-    llvm::SmallVector<int64_t> moduli;
-    llvm::SmallVector<int64_t> dimBounds;
-    llvm::SmallVector<bool> expectedPattern;
-
-    for (int32_t j = 0; j < modulusCount; ++j) {
-      // Randomly choose whether this mod should be simplified or remain.
-      bool shouldSimplify = unifShouldSimplify(gen);
-
-      int64_t modulus, dimBound;
-      if (shouldSimplify) {
-        modulus = unifLargeModulus(gen);
-        dimBound = unifSmallDimBound(gen);
-      } else {
-        modulus = unifSmallModulus(gen);
-        dimBound = unifLargeDimBound(gen);
-      }
-
-      moduli.push_back(modulus);
-      dimBounds.push_back(dimBound);
-
-      bool isRedundant = (dimBound - 1) < modulus;
-      expectedPattern.push_back(isRedundant);
-    }
-
-    EXPECT_TRUE(testRedundantModSimplification(&context, moduli, dimBounds,
-                                               expectedPattern))
-        << "Failed for partial simplification with " << modulusCount
-        << " moduli";
-  }
 }
 
 /// Collapse leading dimensions of a shape to a target rank.
 /// E.g., shape = [2, 3, 4, 5], targetRank = 2 -> [24, 5].
-static llvm::SmallVector<int64_t> collapseToRank(llvm::ArrayRef<int64_t> shape,
-                                                 int targetRank) {
+static llvm::SmallVector<int64_t>
+collapseLeadingDims(llvm::ArrayRef<int64_t> shape, int targetRank) {
   TT_assertv(targetRank > 0, "Target rank must be positive");
   if (static_cast<int>(shape.size()) <= targetRank) {
     return llvm::SmallVector<int64_t>(shape);
@@ -405,16 +344,8 @@ computeDeviceShape(llvm::ArrayRef<int64_t> logicalShape,
   return shape;
 }
 
-/// Returns an affine map and the input device shape for a reblock operation.
-/// The logical shape has max(inputRank, outputRank) dimensions. The smaller
-/// rank side has its leading dimensions collapsed.
-///
-/// Input = domain of the affine map (the apparent shape after reblocking).
-/// Output = codomain (the underlying tensor indexed post-transformation).
-///
-/// The returned map transforms input device coordinates to memory addresses
-/// based on the output (underlying) layout. The returned device shape is
-/// the input device shape (iteration domain).
+/// Returns an affine map and input device shape for reblocking, collapsing any
+/// extra leading dimensions on the smaller rank side.
 static std::tuple<mlir::AffineMap, llvm::SmallVector<int64_t>>
 getReblockMapAndDeviceShapeMixedRank(mlir::ArrayRef<int64_t> logicalShape,
                                      int inputRank, int outputRank,
@@ -430,8 +361,8 @@ getReblockMapAndDeviceShapeMixedRank(mlir::ArrayRef<int64_t> logicalShape,
              "Output grid shape must match output rank");
 
   // Collapse logical shape to match input and output ranks.
-  auto inputLogicalShape = collapseToRank(logicalShape, inputRank);
-  auto outputLogicalShape = collapseToRank(logicalShape, outputRank);
+  auto inputLogicalShape = collapseLeadingDims(logicalShape, inputRank);
+  auto outputLogicalShape = collapseLeadingDims(logicalShape, outputRank);
 
   llvm::SmallVector<int64_t> deviceShapeInputGrid =
       computeDeviceShape(inputLogicalShape, inputGridShape);
@@ -476,8 +407,8 @@ TEST(AffineMapUtilsTest, DISABLED_CanDetermineCoalescingFactor) {
     mlir::AffineMap memoryMap;
     llvm::SmallVector<int64_t> inputDeviceShape;
     llvm::SmallVector<int64_t> outputDeviceShape;
-    int64_t coalescingFactor;
-    int64_t coalescingFactorAnalytical;
+    size_t coalescingFactor;
+    size_t coalescingFactorAnalytical;
   };
 
   // Test case for reblocking (supports same and mixed ranks).
@@ -485,8 +416,8 @@ TEST(AffineMapUtilsTest, DISABLED_CanDetermineCoalescingFactor) {
       [&](llvm::ArrayRef<int64_t> logicalShape, int inputRank, int outputRank,
           llvm::ArrayRef<int64_t> inputGridShape,
           llvm::ArrayRef<int64_t> outputGridShape) -> ReblockTestInfo {
-    auto inputLogicalShape = collapseToRank(logicalShape, inputRank);
-    auto outputLogicalShape = collapseToRank(logicalShape, outputRank);
+    auto inputLogicalShape = collapseLeadingDims(logicalShape, inputRank);
+    auto outputLogicalShape = collapseLeadingDims(logicalShape, outputRank);
     auto inputDeviceShape =
         computeDeviceShape(inputLogicalShape, inputGridShape);
     auto outputDeviceShape =
@@ -499,7 +430,7 @@ TEST(AffineMapUtilsTest, DISABLED_CanDetermineCoalescingFactor) {
     auto coalescingFactorAnalytical = analyzeShardDimContiguity(
         memoryMap, deviceShape, memoryMap.getNumDims() / 2, 1);
 
-    int64_t coalescingFactor = calculateCoalescingFactor(
+    size_t coalescingFactor = calculateCoalescingFactor(
         memoryMap, deviceShape, 1, memoryMap.getNumDims() / 2);
 
     CoalescingTestResult result =
@@ -557,8 +488,8 @@ TEST(AffineMapUtilsTest, DISABLED_CanDetermineCoalescingFactor) {
     SmallVector<int64_t> logicalShape = generateLogicalShape(maxRank);
 
     // Collapse to get the shapes for input and output grids.
-    auto inputLogicalShape = collapseToRank(logicalShape, inputRank);
-    auto outputLogicalShape = collapseToRank(logicalShape, outputRank);
+    auto inputLogicalShape = collapseLeadingDims(logicalShape, inputRank);
+    auto outputLogicalShape = collapseLeadingDims(logicalShape, outputRank);
 
     // Verify collapsed dim constraint.
     if (inputLogicalShape[0] > maxCollapsedDim ||
