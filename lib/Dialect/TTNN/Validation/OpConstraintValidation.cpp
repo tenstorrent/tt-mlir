@@ -106,8 +106,8 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
   }
 
   TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
-               "About to call getOpConstraints with {} input layouts",
-               inputLayouts.size());
+               "About to call getOpConstraints for {} with {} input layouts",
+               ttmlir::opToString(op), inputLayouts.size());
 
   for (size_t i = 0; i < inputLayouts.size(); ++i) {
     TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,

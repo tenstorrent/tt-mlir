@@ -224,11 +224,13 @@ static bool validateScheduleRangeWithReservation(
         &chainLayoutMaps,
     const llvm::DenseMap<Operation *, int64_t> &schedulePositionMap,
     const std::vector<L1Reservation> &existingReservations, int64_t startPos,
-    int64_t endPos, uint64_t additionalL1);
+    int64_t endPos, uint64_t additionalL1,
+    const llvm::DenseMap<Operation *, TTNNLayoutAttr> &l1ResidentsLayoutMap);
 
 // Static empty containers for validation calls that don't need reservations.
 static const llvm::DenseMap<Operation *, int64_t> kEmptySchedulePositionMap;
 static const std::vector<L1Reservation> kEmptyL1Reservations;
+static const llvm::DenseMap<Operation *, TTNNLayoutAttr> kEmptyL1ResidentsMap;
 
 // Validate that Chain B can execute with Chain A's output in L1.
 // This validates each op in Chain B (up to and including joinOp) with
@@ -1046,13 +1048,21 @@ static void applyChainMerges(std::vector<L1ChainConfig> &l1ChainConfigs,
 
       // Validate intermediate ops between Chain A's last op and Chain C's
       // first op can execute with Chain A's output in L1.
+      // We need to pass Chain A's output layout so non-chain ops (like MeanOp)
+      // that consume Chain A's output get validated with the correct sharded
+      // input layout instead of the IR's DRAM layout.
+      llvm::DenseMap<Operation *, TTNNLayoutAttr> chainAOutputMap;
+      if (chainALastOp && operand0Candidate->sourceOutputLayout) {
+        chainAOutputMap[chainALastOp] = operand0Candidate->sourceOutputLayout;
+      }
+
       if (chainALastOpPosIt != schedulePositionMap.end() &&
           chainCFirstOpPosIt != schedulePositionMap.end() &&
           !validateScheduleRangeWithReservation(
               schedule, l1ChainConfigs, opToChainMap, chainLayoutMaps,
               schedulePositionMap, l1Reservations,
               chainALastOpPosIt->second + 1, chainCFirstOpPosIt->second - 1,
-              operand0Candidate->sourceOutputSize)) {
+              operand0Candidate->sourceOutputSize, chainAOutputMap)) {
         TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
                      "3-way merge rejected: intermediate ops between "
                      "chain A ({}) and chain C ({}) cannot execute with "
@@ -1107,10 +1117,12 @@ static void applyChainMerges(std::vector<L1ChainConfig> &l1ChainConfigs,
 
         TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
                      "3-way merge applied: [chain {} (op0) + chain {} (op1) -> "
-                     "chain {}] (join op: {}, tensor sizes: {} + {} bytes)",
+                     "chain {}] (join op: {}, chain A last op: {}, chain C "
+                     "last op: {}, tensor sizes: {} + {} bytes)",
                      operand0Candidate->sourceChainIdx,
                      operand1Candidate->sourceChainIdx, chainBIdx,
-                     firstOpInChainB->getName(),
+                     firstOpInChainB->getName(), chainALastOp->getName(),
+                     chainCLastOp->getName(),
                      operand0Candidate->sourceOutputSize,
                      operand1Candidate->sourceOutputSize);
         continue; // Move to next chain
@@ -1162,10 +1174,18 @@ static void applyChainMerges(std::vector<L1ChainConfig> &l1ChainConfigs,
             joinOpPosIt != schedulePositionMap.end()) {
           int64_t startPos = sourceLastOpPosIt->second + 1;
           int64_t endPos = joinOpPosIt->second - 1;
+
+          // Build map with source chain's output layout for non-chain op
+          // validation (same fix as 3-way merge for tt-metal issue #34951).
+          llvm::DenseMap<Operation *, TTNNLayoutAttr> sourceOutputMap;
+          if (candidate.sourceOutputLayout) {
+            sourceOutputMap[sourceLastOp] = candidate.sourceOutputLayout;
+          }
+
           if (!validateScheduleRangeWithReservation(
                   schedule, l1ChainConfigs, opToChainMap, chainLayoutMaps,
                   schedulePositionMap, l1Reservations, startPos, endPos,
-                  candidate.sourceOutputSize)) {
+                  candidate.sourceOutputSize, sourceOutputMap)) {
             TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
                          "Chain merge candidate rejected: intermediate ops "
                          "between chain {} and join op {} cannot execute with "
@@ -1199,13 +1219,14 @@ static void applyChainMerges(std::vector<L1ChainConfig> &l1ChainConfigs,
           bestCandidate->sourceOutputLayout;
     }
 
-    TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
-                 "{} merge applied: [chain {} -> chain {}] "
-                 "(join op: {}, operand: {}, tensor size: {} bytes)",
-                 bestCandidate->isOperand0Merge() ? "Operand0" : "RHS",
-                 bestCandidate->sourceChainIdx, chainBIdx,
-                 bestCandidate->joinOp->getName(), bestCandidate->operandIdx,
-                 bestCandidate->sourceOutputSize);
+    TTMLIR_DEBUG(
+        ttmlir::LogComponent::DFShardingPolicy,
+        "{} merge applied: [chain {} -> chain {}] "
+        "(join op: {}, merged op name: {}, operand: {}, tensor size: {} bytes)",
+        bestCandidate->isOperand0Merge() ? "Operand0" : "RHS",
+        bestCandidate->sourceChainIdx, chainBIdx,
+        bestCandidate->joinOp->getName(), mergedChainLastOp->getName(),
+        bestCandidate->operandIdx, bestCandidate->sourceOutputSize);
   }
 }
 
@@ -1296,6 +1317,9 @@ static std::optional<TTNNLayoutAttr> extractOutputLayoutFromIR(Operation *op) {
 // including those not in any chain. This is critical for chain merging to
 // ensure intermediate ops between the source chain and target chain can
 // tolerate the L1 pressure from the merged output staying in L1.
+// The l1ResidentsLayoutMap provides layouts for ops whose outputs will be
+// in L1 (from merged chains), used when building input layouts for non-chain
+// ops that consume those outputs.
 static bool validateScheduleRangeWithReservation(
     const llvm::SmallVector<Operation *> &schedule,
     const std::vector<L1ChainConfig> &l1ChainConfigs,
@@ -1304,7 +1328,8 @@ static bool validateScheduleRangeWithReservation(
         &chainLayoutMaps,
     const llvm::DenseMap<Operation *, int64_t> &schedulePositionMap,
     const std::vector<L1Reservation> &existingReservations, int64_t startPos,
-    int64_t endPos, uint64_t additionalL1) {
+    int64_t endPos, uint64_t additionalL1,
+    const llvm::DenseMap<Operation *, TTNNLayoutAttr> &l1ResidentsLayoutMap) {
 
   // Early exit if range is invalid or empty
   if (startPos > endPos) {
@@ -1374,8 +1399,41 @@ static bool validateScheduleRangeWithReservation(
         return false;
       }
     } else {
-      // Op is NOT in a chain - use IR layouts
+      // Op is NOT in a chain - use IR layouts, but override with L1 resident
+      // layouts if the input comes from a merged chain output.
       std::vector<TTNNLayoutAttr> inputLayouts = utils::extractInputLayouts(op);
+
+      // Override input layouts with L1 resident layouts where applicable.
+      // This handles cases where a non-chain op (like MeanOp) consumes output
+      // from a merged chain that will be in L1 with sharded layout.
+      bool hasShardedInputFromL1Resident = false;
+      for (size_t i = 0; i < op->getNumOperands(); ++i) {
+        Value operand = op->getOperand(i);
+        Operation *defOp = operand.getDefiningOp();
+        if (defOp) {
+          auto l1ResidentIt = l1ResidentsLayoutMap.find(defOp);
+          if (l1ResidentIt != l1ResidentsLayoutMap.end() &&
+              i < inputLayouts.size()) {
+            inputLayouts[i] = l1ResidentIt->second;
+            if (l1ResidentIt->second.hasShardedL1TensorMemoryLayout()) {
+              hasShardedInputFromL1Resident = true;
+            }
+          }
+        }
+      }
+
+      // Workaround for tt-metal issue #34951: Reduction ops return invalid
+      // TensorSpec (DRAM + SHARDED) when given sharded input with DRAM output.
+      // Reject merges that would give sharded input to these ops.
+      if (hasShardedInputFromL1Resident &&
+          isa<ttnn::MeanOp, ttnn::SumOp, ttnn::MinOp, ttnn::MaxOp>(op)) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                     "Schedule range validation failed: reduction op {} "
+                     "cannot accept sharded input (tt-metal #34951)",
+                     ttmlir::opToString(op));
+        return false;
+      }
+
       auto outputLayoutOpt = extractOutputLayoutFromIR(op);
 
       if (!outputLayoutOpt) {
@@ -1481,6 +1539,13 @@ static void applyL1ReservationsForReshapes(
       continue;
     }
 
+    // Compute L1 interleaved layout for the reshape output
+    auto outputType = mlir::cast<RankedTensorType>(op->getResult(0).getType());
+    auto currentLayout = mlir::cast<TTNNLayoutAttr>(outputType.getEncoding());
+    TTNNLayoutAttr l1Layout =
+        currentLayout.withBufferType(BufferType::L1)
+            .withMemoryLayout(TensorMemoryLayout::Interleaved);
+
     // Find last user position
     int64_t lastUserPos = reshapePos;
     for (Operation *user : op->getUsers()) {
@@ -1490,20 +1555,20 @@ static void applyL1ReservationsForReshapes(
       }
     }
 
+    llvm::DenseMap<Operation *, TTNNLayoutAttr> reshapeOutputMap;
+    reshapeOutputMap[op] = l1Layout;
+
     // Validate all ops in the range can execute with this reservation
     if (!validateScheduleRangeWithReservation(
             schedule, l1ChainConfigs, opToChainMap, chainLayoutMaps,
             schedulePositionMap, l1Reservations, reshapePos, lastUserPos,
-            l1Size)) {
+            l1Size, reshapeOutputMap)) {
       continue;
     }
 
     l1Reservations.push_back({op, reshapePos, lastUserPos, l1Size});
 
     // Create L1ChainConfig for reshape so optimizer updates its layout
-    auto outputType = mlir::cast<RankedTensorType>(op->getResult(0).getType());
-    auto currentLayout = mlir::cast<TTNNLayoutAttr>(outputType.getEncoding());
-    TTNNLayoutAttr l1Layout = currentLayout.withBufferType(BufferType::L1);
 
     L1ChainConfig reshapeChain;
     OpL1MemSpec reshapeSpec;
@@ -1720,6 +1785,18 @@ static void applyL1ReservationsForForkOps(
         allConsumersValidWithSharded = false;
         break;
       }
+
+      // Workaround for tt-metal issue #34951: Reduction ops (MeanOp, SumOp)
+      // return invalid TensorSpec (DRAM + BLOCK_SHARDED) when given sharded
+      // input and DRAM output. Reject sharded inputs for these ops until fixed.
+      if (isa<ttnn::MeanOp, ttnn::SumOp, ttnn::MinOp, ttnn::MaxOp>(user)) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
+                     "  Consumer {} is reduction op - rejecting sharded input",
+                     ttmlir::opToString(user));
+        allConsumersValidWithSharded = false;
+        break;
+      }
+
       // Get consumer's selected config and validate with fork input
       auto selectedConfig =
           getSelectedConfig(user, opToChainMap, l1ChainConfigs);
@@ -1740,10 +1817,15 @@ static void applyL1ReservationsForForkOps(
     if (allConsumersValidWithSharded) {
       // Validate memory pressure with sharded layout
       uint64_t l1Size = shardedLayout.getShardSizeInBytes();
+
+      // Build map with fork op's sharded layout for non-chain op validation
+      llvm::DenseMap<Operation *, TTNNLayoutAttr> forkOutputMap;
+      forkOutputMap[lastOp] = shardedLayout;
+
       if (validateScheduleRangeWithReservation(
               schedule, l1ChainConfigs, opToChainMap, chainLayoutMaps,
-              schedulePositionMap, l1Reservations, forkPos, lastUserPos,
-              l1Size)) {
+              schedulePositionMap, l1Reservations, forkPos, lastUserPos, l1Size,
+              forkOutputMap)) {
         // SUCCESS: Keep sharded, no spill needed
         chain.spillLocation = SpillLocation::None;
         l1Reservations.push_back({lastOp, forkPos, lastUserPos, l1Size});
@@ -1806,10 +1888,15 @@ static void applyL1ReservationsForForkOps(
     }
 
     // Step 4: Validate memory pressure with L1 interleaved reservation
+    // Build map with fork op's L1 interleaved layout for non-chain op
+    // validation
+    llvm::DenseMap<Operation *, TTNNLayoutAttr> forkL1InterleavedMap;
+    forkL1InterleavedMap[lastOp] = l1InterleavedLayout;
+
     if (!validateScheduleRangeWithReservation(
             schedule, l1ChainConfigs, opToChainMap, chainLayoutMaps,
             schedulePositionMap, l1Reservations, forkPos, lastUserPos,
-            l1InterleavedSize)) {
+            l1InterleavedSize, forkL1InterleavedMap)) {
       TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,
                    "Fork op {}: L1 interleaved fails memory validation, "
                    "keeping DRAM spill",
