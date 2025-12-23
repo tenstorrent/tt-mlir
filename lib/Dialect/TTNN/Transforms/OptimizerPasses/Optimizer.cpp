@@ -60,8 +60,7 @@ TTNNOptimizerOptions::TTNNOptimizerOptions(
       memReconfigEnabled(pipelineOptions.memReconfigEnabled),
       maxLegalLayouts(pipelineOptions.maxLegalLayouts),
       rowMajorEnabled(pipelineOptions.rowMajorEnabled),
-      tensorL1UsageCap(pipelineOptions.tensorL1UsageCap),
-      maxFallbackAttempts(pipelineOptions.maxFallbackAttempts) {}
+      tensorL1UsageCap(pipelineOptions.tensorL1UsageCap) {}
 
 namespace impl {
 
@@ -133,7 +132,6 @@ public:
     maxLegalLayouts = std::move(options.maxLegalLayouts);
     rowMajorEnabled = std::move(options.rowMajorEnabled);
     tensorL1UsageCap = std::move(options.tensorL1UsageCap);
-    maxFallbackAttempts = std::move(options.maxFallbackAttempts);
   }
 
 protected:
@@ -190,12 +188,6 @@ protected:
           "Override tensor L1 usage cap in L1 Interleaved Fallback Analysis "
           "and Memory Layout Analysis. [0.0-1.0]"),
       ::llvm::cl::init(1.0f)};
-  ::mlir::Pass::Option<uint32_t> maxFallbackAttempts{
-      *this, "max-fallback-attempts",
-      ::llvm::cl::desc(
-          "Maximum number of fallback attempts per operation in Operation "
-          "Validation and Fallback pass. 0 means unlimited attempts."),
-      ::llvm::cl::init(10000)};
 
   // Calculate the usable L1 cache size with capacity scaling.
   // For analysis purposes, usableL1CacheSize is scaled by a cap value between

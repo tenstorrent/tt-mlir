@@ -22,9 +22,6 @@ struct DevicePassesWrapperOptions {
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> devicePtr = nullptr;
   // Tensor L1 usage cap (fraction of available L1 memory)
   float tensorL1UsageCap = 0.95f;
-  // Maximum number of fallback attempts per operation in Operation Validation
-  // and Fallback pass. 0 means unlimited attempts.
-  int64_t maxFallbackAttempts = 10000;
 };
 
 // Creates a pass that wraps device-dependent passes with device lifecycle

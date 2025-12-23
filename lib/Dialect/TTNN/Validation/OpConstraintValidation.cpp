@@ -21,6 +21,22 @@ namespace mlir::tt::ttnn {
 
 namespace op_constraint_validation {
 
+const char *validationStatusToString(ValidationStatus status) {
+  switch (status) {
+  case ValidationStatus::Success:
+    return "Success";
+  case ValidationStatus::NotImplemented:
+    return "NotImplemented";
+  case ValidationStatus::MetalBackendError:
+    return "MetalBackendError";
+  case ValidationStatus::UnmatchedReferenceConfig:
+    return "UnmatchedReferenceConfig";
+  case ValidationStatus::OutOfMemoryError:
+    return "OutOfMemoryError";
+  }
+  return "Unknown";
+}
+
 static ValidationResult
 validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
                     const OpConfig &config);
