@@ -21,31 +21,6 @@ namespace mlir::tt::ttir {
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 namespace {
-// Moves the use-define chain of a value before a target operation.
-// Used when operations are moved or new operations are added to ensure that
-// operations are not placed before the definitions of their inputs, preserving
-// MLIR's topological ordering.
-static void moveUDChainBefore(Value value, Operation *targetOp) {
-  if (!value.getDefiningOp() ||
-      value.getDefiningOp()->isBeforeInBlock(targetOp)) {
-    return;
-  }
-
-  SetVector<Value> udChain = ttmlir::utils::getUseDefChain(value);
-  SetVector<Operation *> udChainOps =
-      ttmlir::utils::filterOperations(udChain.getArrayRef());
-  SetVector<Operation *> udChainSorted = topologicalSort(udChainOps);
-
-  // We are not moving ops in UD chain that are already before the target, as
-  // they could have descendants that are also before target but are not in
-  // the UD chain.
-  for (auto *op : udChainSorted) {
-    if (op->isBeforeInBlock(targetOp)) {
-      continue;
-    }
-    op->moveBefore(targetOp);
-  }
-}
 
 // Check if we can fuse conv followed by add into conv with bias.
 // This pattern supports both:
@@ -77,7 +52,7 @@ public:
     }
 
     // Move bias UD chain before conv to keep the ordering of ops.
-    moveUDChainBefore(bias, convOp);
+    utils::moveUDChainBefore(bias, convOp);
 
     rewriter.modifyOpInPlace(convOp,
                              [&]() { convOp.getBiasMutable().assign(bias); });
@@ -106,9 +81,8 @@ private:
                     "Unsupported ConvOpType");
     }
 
-    if (auto bcastOp = bias.getDefiningOp<BroadcastOp>()) {
-      bias = bcastOp.getInput();
-    }
+    bias = mlir::cast<mlir::TypedValue<mlir::RankedTensorType>>(
+        utils::lookThrough<BroadcastOp>(bias));
     auto biasShape = bias.getType().getShape();
     auto outputShape =
         mlir::cast<mlir::RankedTensorType>(convOp.getType()).getShape();
@@ -255,14 +229,9 @@ public:
     // Check if the denominator is a broadcast operation or directly a sum
     // reduce. If broadcast folding has occurred, the broadcast may be
     // eliminated.
-    mlir::Value sumValue = denominator;
     BroadcastOp broadcastOp = denominator.getDefiningOp<BroadcastOp>();
-    if (broadcastOp) {
-      sumValue = broadcastOp.getInput();
-    }
-
     // Check that we have a sum reduce operation with keep_dim=true.
-    auto sumOp = sumValue.getDefiningOp<SumOp>();
+    auto sumOp = utils::findOpThrough<SumOp, BroadcastOp>(denominator);
     if (!sumOp || !sumOp.getKeepDim()) {
       return mlir::failure();
     }
@@ -342,14 +311,9 @@ public:
 
     // Check if the subtracted value is a broadcast operation or directly a max.
     // If broadcast folding has occurred, the broadcast may be eliminated.
-    mlir::Value maxValue = subtractedValue;
     BroadcastOp broadcastOp = subtractedValue.getDefiningOp<BroadcastOp>();
-    if (broadcastOp) {
-      maxValue = broadcastOp.getInput();
-    }
-
     // Check if we have a max operation.
-    auto maxOp = maxValue.getDefiningOp<MaxOp>();
+    auto maxOp = utils::findOpThrough<MaxOp, BroadcastOp>(subtractedValue);
     if (!maxOp) {
       return mlir::failure();
     }
@@ -565,16 +529,8 @@ public:
   mlir::LogicalResult
   matchAndRewrite(MultiplyOp multiplyOp,
                   mlir::PatternRewriter &rewriter) const final {
-    mlir::Value lhs = multiplyOp.getLhs();
-    mlir::Value rhs = multiplyOp.getRhs();
-
-    // If either operand is a typecast, we want to look through it.
-    if (auto lhsTypecast = lhs.getDefiningOp<TypecastOp>()) {
-      lhs = lhsTypecast.getInput();
-    }
-    if (auto rhsTypecast = rhs.getDefiningOp<TypecastOp>()) {
-      rhs = rhsTypecast.getInput();
-    }
+    mlir::Value lhs = utils::lookThrough<TypecastOp>(multiplyOp.getLhs());
+    mlir::Value rhs = utils::lookThrough<TypecastOp>(multiplyOp.getRhs());
 
     if (lhs.getType() != rhs.getType()) {
       return mlir::failure();
@@ -667,7 +623,7 @@ public:
     Value reshapedScale = createReshapedScale(rewriter, scaleValue, convOp);
 
     // Move scale UD chain before conv to keep the ordering of ops.
-    moveUDChainBefore(reshapedScale, convOp);
+    utils::moveUDChainBefore(reshapedScale, convOp);
 
     rewriter.setInsertionPoint(convOp);
 
@@ -1203,7 +1159,7 @@ private:
            "Expected same weight type");
 
     // Move additional weight UD chain before conv to ensure it is before addOp.
-    moveUDChainBefore(additionalWeight, conv);
+    utils::moveUDChainBefore(additionalWeight, conv);
 
     auto combinedWeight = rewriter.create<AddOp>(
         ttmlir::utils::appendLocationSuffix(conv.getLoc(), "_weight_add"),
@@ -1223,7 +1179,7 @@ private:
       assert(bias1.getType() == bias2.getType() && "Expected same bias type");
 
       // Move bias2 UD chain before conv1 to ensure it is before addOp.
-      moveUDChainBefore(bias2, conv1);
+      utils::moveUDChainBefore(bias2, conv1);
 
       auto combinedBias = rewriter.create<AddOp>(
           ttmlir::utils::appendLocationSuffix(conv1.getLoc(), "_bias_add"),
@@ -3332,308 +3288,145 @@ private:
 } // namespace
 
 namespace {
-// ============================================================================
-// SDPA Fusing
-// ============================================================================
-//
-// This pattern identifies Scaled Dot Product Attention (SDPA) by its
-// mathematical semantics rather than exact IR structure:
-//
-// Attention(Q, K, V) = softmax((Q @ K^T) * scale + mask) @ V
-//
-// The matcher uses data-flow analysis to identify:
-// - Two matmuls (Q@K^T for scores, scores@V for output)
-// - Softmax normalization between them
-// - Scale operation (multiply/divide with constant)
-// - Optional mask addition
-//
-// After the matched pattern is replaced with ttir.scaled_dot_product_attention
-// op, the mask is broadcasted to shape [batch_size, 1, query_seq_len,
-// key_seq_len]
 
-class SDPAFusing : public mlir::OpRewritePattern<MatmulOp> {
-  using SDPAFusing::OpRewritePattern<MatmulOp>::OpRewritePattern;
+// Fuses: (x * rsqrt(mean(x^2) + epsilon)) * gamma -> RMSNormOp
+class RMSNormFusionPattern : public mlir::OpRewritePattern<MultiplyOp> {
+  using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
 
 public:
   mlir::LogicalResult
-  matchAndRewrite(MatmulOp srcOp,
-                  mlir::PatternRewriter &rewriter) const override {
-    AttentionComponents components;
-    if (!matchAttentionPattern(srcOp.getOperation(), components)) {
-      return failure();
+  matchAndRewrite(MultiplyOp outerMul,
+                  mlir::PatternRewriter &rewriter) const final {
+    MultiplyOp innerMul =
+        utils::findOpThrough<MultiplyOp, TypecastOp>(outerMul.getLhs());
+    mlir::Value gammaRaw = outerMul.getRhs();
+    if (!innerMul) {
+      innerMul =
+          utils::findOpThrough<MultiplyOp, TypecastOp>(outerMul.getRhs());
+      gammaRaw = outerMul.getLhs();
+    }
+    if (!innerMul) {
+      return mlir::failure();
     }
 
-    if (!validateAttentionSemantics(components)) {
-      return failure();
+    RsqrtOp rsqrtOp = utils::findOpThroughLayoutOps<RsqrtOp>(innerMul.getLhs());
+    mlir::Value xRaw = innerMul.getRhs();
+    if (!rsqrtOp) {
+      rsqrtOp = utils::findOpThroughLayoutOps<RsqrtOp>(innerMul.getRhs());
+      xRaw = innerMul.getLhs();
+    }
+    if (!rsqrtOp) {
+      return mlir::failure();
     }
 
-    if (components.mask) {
-      // Broadcast mask to shape [batch_size, 1, query_seq_len, key_seq_len]
-      broadcastMask(rewriter, components);
+    auto addOp = utils::findOpThroughLayoutOps<AddOp>(rsqrtOp.getInput());
+    if (!addOp) {
+      return mlir::failure();
+    }
+    MeanOp meanOp = addOp.getLhs().getDefiningOp<MeanOp>();
+    mlir::Value epsilon = addOp.getRhs();
+    if (!meanOp) {
+      meanOp = addOp.getRhs().getDefiningOp<MeanOp>();
+      epsilon = addOp.getLhs();
+    }
+    if (!meanOp) {
+      return mlir::failure();
     }
 
-    FloatAttr scaleAttr;
-    if (components.scale != 1.0f) {
-      scaleAttr = rewriter.getF32FloatAttr(components.scale);
+    // TTNN RMS norm only supports normalization over the last dimension.
+    auto dimArg = meanOp.getDimArg();
+    if (!dimArg || dimArg->size() != 1) {
+      return mlir::failure();
+    }
+    auto meanInputType =
+        mlir::cast<RankedTensorType>(meanOp.getInput().getType());
+    int64_t dim = mlir::cast<mlir::IntegerAttr>((*dimArg)[0]).getInt();
+    int64_t actualDim = dim < 0 ? meanInputType.getRank() + dim : dim;
+    if (actualDim != meanInputType.getRank() - 1) {
+      return mlir::failure();
     }
 
-    auto resultType = mlir::cast<RankedTensorType>(components.query.getType());
-    auto sdpaOp = rewriter.create<ScaledDotProductAttentionOp>(
-        components.attentionMatmul.getLoc(), resultType, components.query,
-        components.key, components.value, components.mask,
-        /*is_causal=*/rewriter.getBoolAttr(false), scaleAttr,
-        /*sliding_window_size=*/IntegerAttr());
+    // Match x^2 as mul(x,x) or pow(x,2).
+    // Look through layout ops to find the original input.
+    mlir::Value meanInput = meanOp.getInput();
+    mlir::Value squareInput = nullptr;
+    mlir::Value x = utils::lookThroughLayoutOps(xRaw);
 
-    rewriter.replaceOp(components.attentionMatmul, sdpaOp.getResult());
+    if (auto sq = meanInput.getDefiningOp<MultiplyOp>()) {
+      if (sq.getLhs() == sq.getRhs()) {
+        squareInput = utils::lookThroughLayoutOps(sq.getLhs());
+      }
+    } else if (auto pw = meanInput.getDefiningOp<PowOp>()) {
+      if (isFullOpWithValue(pw.getRhs(), 2.0f)) {
+        squareInput = utils::lookThroughLayoutOps(pw.getLhs());
+      }
+    }
+
+    if (!squareInput || squareInput != x) {
+      return mlir::failure();
+    }
+
+    // Look through layout ops to find the epsilon FullOp
+    auto epsFull = utils::findOpThroughLayoutOps<FullOp>(epsilon);
+    if (!epsFull) {
+      return mlir::failure();
+    }
+    auto epsAttr = mlir::dyn_cast<FloatAttr>(epsFull.getFillValue());
+    if (!epsAttr) {
+      return mlir::failure();
+    }
+
+    mlir::Value gamma = utils::lookThroughLayoutOps(gammaRaw);
+    auto inputType = mlir::cast<RankedTensorType>(x.getType());
+    auto outputType = mlir::cast<RankedTensorType>(outerMul.getType());
+
+    llvm::SmallVector<int64_t> normalizedShape{inputType.getShape().back()};
+
+    // Reshape gamma to match normalized_shape if needed.
+    // Gamma may have extra dimensions (e.g., [1, 1, 2048] instead of [2048]).
+    auto gammaType = mlir::cast<RankedTensorType>(gamma.getType());
+    if (gammaType.getShape() != llvm::ArrayRef(normalizedShape)) {
+      // Check if gamma can be squeezed to normalized_shape.
+      // All dimensions except the last must be 1.
+      for (int64_t i = 0; i < gammaType.getRank() - 1; ++i) {
+        if (gammaType.getShape()[i] != 1) {
+          return mlir::failure();
+        }
+      }
+      // Check if the last dimension matches.
+      if (gammaType.getShape().back() != normalizedShape[0]) {
+        return mlir::failure();
+      }
+      // Reshape gamma to normalized_shape.
+      auto reshapedGammaType = RankedTensorType::get(
+          normalizedShape, gammaType.getElementType(), gammaType.getEncoding());
+      llvm::SmallVector<int32_t> targetShape(normalizedShape.begin(),
+                                             normalizedShape.end());
+      gamma = rewriter.create<ReshapeOp>(outerMul.getLoc(), reshapedGammaType,
+                                         gamma,
+                                         rewriter.getI32ArrayAttr(targetShape));
+    }
+
+    // Create RMSNormOp with output shape matching input shape
+    auto rmsNormOutputType =
+        RankedTensorType::get(inputType.getShape(), outputType.getElementType(),
+                              outputType.getEncoding());
+    auto rmsNorm = rewriter.create<RMSNormOp>(
+        outerMul.getLoc(), rmsNormOutputType, x, gamma,
+        /*bias=*/nullptr, rewriter.getDenseI64ArrayAttr(normalizedShape),
+        rewriter.getF32FloatAttr(epsAttr.getValue().convertToFloat()));
+
+    // If output shape differs from input shape, add a reshape
+    if (inputType.getShape() != outputType.getShape()) {
+      llvm::SmallVector<int32_t> targetShape(outputType.getShape());
+      auto reshape =
+          rewriter.create<ReshapeOp>(outerMul.getLoc(), outputType, rmsNorm,
+                                     rewriter.getI32ArrayAttr(targetShape));
+      rewriter.replaceOp(outerMul, reshape);
+    } else {
+      rewriter.replaceOp(outerMul, rmsNorm);
+    }
     return mlir::success();
-  }
-
-private:
-  struct AttentionComponents {
-    Value query;
-    Value key;
-    Value value;
-    Value mask; // Can be null for maskless attention
-    float scale = 1.0f;
-    MatmulOp qkMatmul;
-    MatmulOp attentionMatmul;
-    SoftmaxOp softmax;
-  };
-
-  bool matchAttentionPattern(Operation *anchor,
-                             AttentionComponents &components) const {
-    // Start from a matmul and see if it's the attention@V matmul
-    auto matmul = dyn_cast<MatmulOp>(anchor);
-    if (!matmul) {
-      return false;
-    }
-    components.attentionMatmul = matmul;
-
-    // Check if this matmul has softmax feeding into it (attention scores @ V)
-    SoftmaxOp softmax = findOpThroughLayoutOps<SoftmaxOp>(matmul.getA());
-    if (!softmax) {
-      return false;
-    }
-    components.softmax = softmax;
-    components.value = traceToSourceTensor(matmul.getB());
-
-    // Look for optional mask addition
-    Value cursor = softmax.getInput();
-    if (auto maskAdd = findOpThroughLayoutOps<AddOp>(cursor)) {
-      if (auto maskResult = tryExtractMask(maskAdd)) {
-        components.mask = maskResult->first;
-        cursor = maskResult->second;
-      }
-    }
-
-    // Look for optional scale multiplication
-    if (auto mulOp = findOpThroughLayoutOps<MultiplyOp>(cursor)) {
-      if (auto scaleResult = tryExtractScale(mulOp)) {
-        components.scale = scaleResult->first;
-        cursor = scaleResult->second;
-      }
-    }
-
-    // Look for Q@K matmul (required)
-    auto qkMatmul = findOpThroughLayoutOps<MatmulOp>(cursor);
-    if (!qkMatmul) {
-      return false;
-    }
-    components.qkMatmul = qkMatmul;
-    components.query = traceToSourceTensor(components.qkMatmul.getA());
-    components.key = traceToSourceTensor(components.qkMatmul.getB());
-
-    return true;
-  }
-
-  void broadcastMask(mlir::PatternRewriter &rewriter,
-                     AttentionComponents &components) const {
-    auto qType = mlir::cast<RankedTensorType>(components.query.getType());
-    auto kType = mlir::cast<RankedTensorType>(components.key.getType());
-    auto maskType = mlir::cast<RankedTensorType>(components.mask.getType());
-
-    llvm::SmallVector<int64_t> targetMaskShape = {
-        qType.getShape()[0], 1, qType.getShape()[2], kType.getShape()[2]};
-
-    if (!llvm::equal(maskType.getShape(), targetMaskShape)) {
-      auto targetMaskType = RankedTensorType::get(
-          targetMaskShape, maskType.getElementType(), maskType.getEncoding());
-      auto broadcastDims = ttmlir::utils::getBroadcastDimensions<int64_t>(
-          maskType.getShape(), targetMaskShape);
-      auto broadcastOp =
-          rewriter.create<BroadcastOp>(components.mask.getLoc(), targetMaskType,
-                                       components.mask, broadcastDims);
-      components.mask = broadcastOp.getResult();
-    }
-  }
-
-  // Validate that the extracted components form valid attention
-  bool validateAttentionSemantics(AttentionComponents &components) const {
-    if (!components.query || !components.key || !components.value ||
-        !components.qkMatmul || !components.attentionMatmul ||
-        !components.softmax) {
-      return false;
-    }
-
-    // Verify that intermediate operations have single uses.
-    // If any intermediate result (like attention weights) is used elsewhere
-    // (e.g., returned as output), we cannot safely fuse without duplicating
-    // computation.
-    if (!components.qkMatmul.getResult().hasOneUse()) {
-      return false;
-    }
-
-    // Check that the entire chain from attentionMatmul input back to softmax
-    // has single uses. This catches cases where intermediate layout ops
-    // (typecast, reshape) between softmax and the matmul are used elsewhere.
-    if (!chainHasSingleUses(components.attentionMatmul.getA(),
-                            components.softmax)) {
-      return false;
-    }
-
-    auto qType = mlir::dyn_cast<RankedTensorType>(components.query.getType());
-    auto kType = mlir::dyn_cast<RankedTensorType>(components.key.getType());
-    auto vType = mlir::dyn_cast<RankedTensorType>(components.value.getType());
-
-    if (!qType || !kType || !vType) {
-      return false;
-    }
-
-    if (qType.getRank() != 4 || kType.getRank() != 4 || vType.getRank() != 4) {
-      return false;
-    }
-
-    // Head dimension should match between Q and K (last dim of Q, last dim of
-    // K)
-    int64_t qHeadDim = qType.getShape()[qType.getRank() - 1];
-    int64_t kHeadDim = kType.getShape()[kType.getRank() - 1];
-    if (qHeadDim != kHeadDim) {
-      return false;
-    }
-
-    if (components.scale <= 0.0f || components.scale > 1.0f) {
-      return false;
-    }
-
-    return true;
-  }
-
-  // Try to extract mask from an add operation.
-  // Returns {mask, score_path} if found, nullopt otherwise.
-  std::optional<std::pair<Value, Value>> tryExtractMask(AddOp addOp) const {
-    auto lhsMul = findOpThroughLayoutOps<MultiplyOp>(addOp.getLhs());
-    auto rhsMul = findOpThroughLayoutOps<MultiplyOp>(addOp.getRhs());
-    if (lhsMul && looksLikeMask(addOp.getRhs())) {
-      return std::make_pair(addOp.getRhs(), addOp.getLhs());
-    }
-
-    if (rhsMul && looksLikeMask(addOp.getLhs())) {
-      return std::make_pair(addOp.getLhs(), addOp.getRhs());
-    }
-
-    return std::nullopt;
-  }
-
-  // Try to extract scale from a multiply operation.
-  // Returns {scale, continuation_value} if found, nullopt otherwise.
-  std::optional<std::pair<float, Value>>
-  tryExtractScale(MultiplyOp mulOp) const {
-    if (auto scaleVal = extractConstantScale(mulOp.getRhs())) {
-      return std::make_pair(*scaleVal, mulOp.getLhs());
-    }
-    if (auto scaleVal = extractConstantScale(mulOp.getLhs())) {
-      return std::make_pair(*scaleVal, mulOp.getRhs());
-    }
-
-    return std::nullopt;
-  }
-
-  // Traces backward from a value through layout ops (typecast, reshape,
-  // permute, broadcast, repeat_interleave) to find an operation of type OpType.
-  // Returns nullptr if a non-layout op is encountered before finding the
-  // target.
-  template <typename OpType>
-  OpType findOpThroughLayoutOps(Value v) const {
-    while (Operation *defOp = v.getDefiningOp()) {
-      if (auto targetOp = dyn_cast<OpType>(defOp)) {
-        return targetOp;
-      }
-
-      if (!isLayoutOp(defOp)) {
-        return nullptr;
-      }
-
-      v = defOp->getOperand(0);
-    }
-
-    return nullptr;
-  }
-
-  bool isLayoutOp(Operation *op) const {
-    return isa<TypecastOp, ReshapeOp, PermuteOp, BroadcastOp,
-               RepeatInterleaveOp>(op);
-  }
-
-  // Checks that all values from 'start' back to 'end' have single uses.
-  // This ensures intermediate results (like attention weights after softmax)
-  // are not used elsewhere, which is required for safe fusion.
-  // Assumes the caller has already validated that only appropriate ops
-  // exist in the chain (e.g., via skipLayoutOps).
-  bool chainHasSingleUses(Value start, Operation *end) const {
-    Value current = start;
-
-    while (Operation *defOp = current.getDefiningOp()) {
-      if (!current.hasOneUse()) {
-        return false;
-      }
-
-      if (defOp == end) {
-        return true;
-      }
-
-      current = defOp->getOperand(0);
-    }
-
-    return false;
-  }
-
-  Value traceToSourceTensor(Value v) const {
-    while (Operation *defOp = v.getDefiningOp()) {
-      if (!isLayoutOp(defOp)) {
-        break;
-      }
-      v = defOp->getOperand(0);
-    }
-    return v;
-  }
-
-  std::optional<float> extractConstantScale(Value scaleVal) const {
-    auto fullOp = scaleVal.getDefiningOp<FullOp>();
-    if (!fullOp) {
-      return std::nullopt;
-    }
-
-    return llvm::TypeSwitch<mlir::Attribute, std::optional<float>>(
-               fullOp.getFillValue())
-        .Case([](FloatAttr attr) -> std::optional<float> {
-          return attr.getValue().convertToFloat();
-        })
-        .Case([](IntegerAttr attr) -> std::optional<float> {
-          return static_cast<float>(attr.getValue().getSExtValue());
-        })
-        .Default([](mlir::Attribute) -> std::optional<float> {
-          return std::nullopt;
-        });
-  }
-
-  bool looksLikeMask(Value v) const {
-    auto type = mlir::dyn_cast<RankedTensorType>(v.getType());
-    if (!type || type.getRank() != 4) {
-      return false;
-    }
-
-    // Attention masks typically broadcast over heads: [batch, 1, seq, seq]
-    return type.getShape()[1] == 1;
   }
 };
 
@@ -3773,7 +3566,7 @@ public:
       patterns.add<ScaledSumToMeanPattern>(&getContext());
       patterns.add<SpatialMeanOptimizationPattern>(&getContext());
       patterns.add<MatmulWithBiasFusionPattern>(&getContext());
-      patterns.add<SDPAFusing>(&getContext());
+      patterns.add<RMSNormFusionPattern>(&getContext());
 
       patterns.add<GeluFusionPattern>(&getContext());
       patterns.add<Relu6FusionPattern>(&getContext());

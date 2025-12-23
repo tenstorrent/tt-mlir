@@ -7,16 +7,11 @@
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTCore/Utils/AffineMapUtils.h"
-#include "ttmlir/Utils.h"
 
-#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/ArrayRef.h"
-#include <algorithm>
-#include <string>
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MLOWERTOLAYOUT
@@ -132,8 +127,7 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
     // Create a device tensor type from a system tensor type.
     RankedTensorType createDeviceType(
         RankedTensorType systemType, ttcore::MetalLayoutAttr referenceLayout,
-        RankedTensorType referenceType, ttcore::MemorySpace memSpace,
-        ArrayRef<int64_t> targetGridShape,
+        RankedTensorType referenceType, ArrayRef<int64_t> targetGridShape,
         bool stripIndexMapIfTargetIsVirtualGrid = false) {
       SmallVector<int64_t> tensorGridShape =
           llvm::to_vector(referenceLayout.getGridShape(referenceType));
@@ -144,30 +138,35 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
       auto newIndexMap = referenceLayout.getIndexAffineMap();
       bool hasNonTrivialIndexMap =
           !newIndexMap.isEmpty() && !newIndexMap.isIdentity();
+
+      ttcore::MetalLayoutAttr layout;
       if (hasNonTrivialIndexMap && virtualBounceNeeded) {
         // If the reference layout has a virtual grid, the bounce shape should
         // not copy its index map.
         newIndexMap = AffineMap::get(ctx);
         tensorGridShape =
             computeVirtualGridBounceShape(tensorGridShape, targetGridShape);
-      }
 
-      ttcore::MetalLayoutAttr layout;
-      if (hasNonTrivialIndexMap && virtualBounceNeeded) {
         auto [collapsedIntervals, dimAlignments] =
             computeGridAwareCollapsedIntervalsAndDimAlignments(referenceLayout,
                                                                targetGridShape);
-        layout = ttcore::MetalLayoutAttr::get(
-            ctx, referenceLayout.getLogicalShape(), dimAlignments,
-            collapsedIntervals, referenceLayout.getOobVal(), memSpace,
-            referenceLayout.getMemoryLayout(), newIndexMap);
+        // Bounce virtual grids through interleaved DRAM on the unit grid.
+        tensorGridShape.assign(targetGridShape.size(), 1);
 
+        // Keep old dimAlignments but use new collapsedIntervals to collapse the
+        // DRAM tensor to 2D.
+        TT_assert(collapsedIntervals.getType().getDimSize(0) == 2);
+        layout = ttcore::MetalLayoutAttr::get(
+            ctx, referenceLayout.getLogicalShape(),
+            referenceLayout.getDimAlignments(), collapsedIntervals,
+            referenceLayout.getOobVal(), ttcore::MemorySpace::DeviceDRAM,
+            ttcore::TensorMemoryLayout::Interleaved, newIndexMap);
       } else {
         layout = ttcore::MetalLayoutAttr::get(
             ctx, referenceLayout.getLogicalShape(),
             referenceLayout.getDimAlignments(),
             referenceLayout.getCollapsedIntervals(),
-            referenceLayout.getOobVal(), memSpace,
+            referenceLayout.getOobVal(), ttcore::MemorySpace::DeviceL1,
             referenceLayout.getMemoryLayout(), newIndexMap);
       }
 
@@ -623,27 +622,27 @@ public:
           .getResult();
     };
 
-    // 1. SYSTEM→DEVICE: Transfer to L1 with same element type as input.
+    // 1. SYSTEM→DEVICE: Transfer to L1/DRAM with same element type as input.
     if (!currentInfo.hasLayout() && targetInfo.hasLayout()) {
       // System transfer can ONLY change memory space, not element type.
-      // Create L1 intermediate with scalar element type (same as system input).
+      // Create intermediate with scalar element type (same as system input).
       Type scalarElemType = getScalarType(currentInfo.type.getElementType());
       // Always strip the target's index map if creating a bounce shape
       // here for a target with a virtual grid.
       constexpr bool stripIndexMapIfTargetIsVirtualGrid = true;
-      auto l1Type = typeBuilder.createDeviceType(
+      auto newType = typeBuilder.createDeviceType(
           currentInfo.type, *targetInfo.layout, targetInfo.type,
-          ttcore::MemorySpace::DeviceL1, targetGridShape,
-          stripIndexMapIfTargetIsVirtualGrid);
+          targetGridShape, stripIndexMapIfTargetIsVirtualGrid);
 
-      // Force scalar element type for the L1 intermediate.
-      auto l1Layout = mlir::cast<ttcore::MetalLayoutAttr>(l1Type.getEncoding());
-      auto scalarL1Type =
-          RankedTensorType::get(l1Type.getShape(), scalarElemType, l1Layout);
+      // Force scalar element type for the L1/DRAM intermediate.
+      auto newLayout =
+          mlir::cast<ttcore::MetalLayoutAttr>(newType.getEncoding());
+      auto scalarNewType =
+          RankedTensorType::get(newType.getShape(), scalarElemType, newLayout);
 
-      auto l1Empty = createEmpty(scalarL1Type);
-      currentValue =
-          lowerSystemLayoutChange(rewriter, currentValue, l1Empty, op.getLoc());
+      auto newEmpty = createEmpty(scalarNewType);
+      currentValue = lowerSystemLayoutChange(rewriter, currentValue, newEmpty,
+                                             op.getLoc());
       currentInfo = TensorInfo::from(currentValue);
     }
 
@@ -651,10 +650,16 @@ public:
     // Use target's layout characteristics.
     if (currentInfo.hasLayout() && currentInfo.isDRAM() &&
         targetInfo.hasLayout() && !targetInfo.isDRAM()) {
-      // Use target's layout but force L1 and preserve current's grid shape.
+      // Use target's layout but force L1 and preserve current's grid shape
+      // unless we are copying from an interleaved DRAM tensor on a unit grid.
+      const bool isDRAMInterleaved = currentInfo.layout->getMemoryLayout() ==
+                                     ttcore::TensorMemoryLayout::Interleaved;
+      auto bounceGrid =
+          llvm::to_vector(isDRAMInterleaved ? targetInfo.getGridShape()
+                                            : currentInfo.getGridShape());
       auto l1Type = typeBuilder.modifyDeviceType(
           targetInfo.type, *targetInfo.layout, targetGridShape,
-          ttcore::MemorySpace::DeviceL1, currentInfo.getGridShape(),
+          ttcore::MemorySpace::DeviceL1, bounceGrid,
           currentInfo.type.getElementType());
       auto l1Empty = createEmpty(l1Type);
       currentValue = lowerDatamovementGeneric(rewriter, currentValue, l1Empty,

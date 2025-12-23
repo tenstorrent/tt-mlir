@@ -92,12 +92,16 @@ void DFShardingPolicy::run() {
 
         // Consider sharding only if we found at least single legal config for
         // the current op.
+        //
+        // TODO (mvasiljevic): RMSNormOp is excluded from sharding as a
+        // workaround until the following metal fix is uplifted:
+        // https://github.com/tenstorrent/tt-metal/pull/34335
         bool validForSharding =
             llvm::isa<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp, ttnn::AddOp,
                       ttnn::MultiplyOp, ttnn::ReluOp, ttnn::Relu6Op,
                       ttnn::TypecastOp, ttnn::SiluOp, ttnn::MatmulOp,
-                      ttnn::LinearOp, ttnn::MinimumOp, ttnn::RMSNormOp,
-                      ttnn::RotaryEmbeddingOp, ttnn::GeluOp>(currentOp) &&
+                      ttnn::LinearOp, ttnn::MinimumOp, ttnn::RotaryEmbeddingOp,
+                      ttnn::GeluOp>(currentOp) &&
             legalConfigs.lookup(currentOp).size() > 0;
 
         if (validForSharding) {
