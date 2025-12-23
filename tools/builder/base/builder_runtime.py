@@ -794,10 +794,16 @@ def execute_cpp(
 
     from emitc_compiler import compile_emitc_to_so
 
+    TT_METAL_RUNTIME_ROOT = Path(
+        os.environ.get("TT_METAL_RUNTIME_ROOT", os.getcwd())
+    ).resolve()
+    metal_lib_dir = os.path.join(TT_METAL_RUNTIME_ROOT, "build_Debug/lib")
+
     output_dir = os.path.dirname(cpp_path)
     compile_emitc_to_so(
         cpp_path,
         output_dir,
+        metal_lib_dir=metal_lib_dir,
     )
     so_path = cpp_path.replace(".cpp", ".so")
 
