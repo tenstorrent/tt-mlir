@@ -826,6 +826,7 @@ convertXlaSdyToSdyDictionary(mlir::MLIRContext *context,
   return mlir::DictionaryAttr::get(context, newArgAttrs);
 }
 
+// Convert all function arguments from frontend attributes format to SDY format.
 mlir::LogicalResult convertFrontendAttributesToSDY(mlir::ModuleOp &rootModule,
                                                    mlir::MLIRContext *context) {
   rootModule.walk([&](func::FuncOp funcOp) {
@@ -834,21 +835,6 @@ mlir::LogicalResult convertFrontendAttributesToSDY(mlir::ModuleOp &rootModule,
           arg.getArgNumber(),
           shardy_utils::convertXlaSdyToSdyDictionary(
               context, funcOp.getArgAttrDict(arg.getArgNumber())));
-    }
-
-    mlir::FunctionType funcType = funcOp.getFunctionType();
-    for (uint32_t i = 0; i < funcType.getNumResults(); i++) {
-      if (auto resultAttrDict =
-              mlir::DictionaryAttr::get(context, funcOp.getResultAttrs(i))) {
-        llvm::SmallVector<mlir::NamedAttribute> newResultAttrs;
-        llvm::copy_if(resultAttrDict.getValue(),
-                      std::back_inserter(newResultAttrs),
-                      [&](mlir::NamedAttribute attr) {
-                        return attr.getName() != gspmd_utils::kXlaShardingAttr;
-                      });
-        funcOp.setResultAttrs(
-            i, mlir::DictionaryAttr::get(context, newResultAttrs));
-      }
     }
   });
 
@@ -1019,6 +1005,16 @@ convertFuncResultShardingToConstraint(mlir::ModuleOp &rootModule,
   for (auto op : opsToErase) {
     op.erase();
   }
+
+  // Remove mhlo.sharding from function results to allow
+  // WrapUnderManualComputation to wrap the function body (gspmdAnnotationsExist
+  // checks for mhlo.sharding).
+  rootModule.walk([&](func::FuncOp funcOp) {
+    for (unsigned i = 0; i < funcOp.getNumResults(); i++) {
+      funcOp.removeResultAttr(
+          i, mlir::StringAttr::get(context, gspmd_utils::kXlaShardingAttr));
+    }
+  });
 
   return mlir::success();
 }
