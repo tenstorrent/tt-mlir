@@ -35,10 +35,6 @@ def CPUHoistTransform: Pass<"cpu-hoist-transform", "::mlir::ModuleOp">
     A function declaration is created in the device module, and the original ops are replaced with a
     call to that function declaration.
 
-    The hoisted functions return their results via return values, and do not use destination passing style.
-    For targets which require void functions with output destination arguments, the ConvertCPUHoistedFunctionsToDPS
-    pass can be run after this pass to convert the hoisted functions into DPS style.
-
     Example:
     input:
       ttcore.device_module {
@@ -63,7 +59,7 @@ def CPUHoistTransform: Pass<"cpu-hoist-transform", "::mlir::ModuleOp">
       }
       ttcore.cpu_module {
         builtin.module {
-          func.func @hoisted_ttir_add_32x32xbf16_32x32xbf16_32x32xbf16_func(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>, %arg2: tensor<32x32xbf16>) -> tensor<32x32xbf16> attributes {arg_ranks = [2, 2, 2, 2]} {
+          func.func @hoisted_ttir_add_32x32xbf16_32x32xbf16_32x32xbf16_func(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>, %arg2: tensor<32x32xbf16>) -> tensor<32x32xbf16> attributes {arg_ranks = [2, 2, 2, 2], result_ranks = [2]} {
             %0 = "ttir.add"(%arg0, %arg1, %arg2) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
             return %0 : tensor<32x32xbf16>
           }
