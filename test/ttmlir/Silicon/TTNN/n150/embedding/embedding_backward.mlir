@@ -7,4 +7,12 @@ module attributes {} {
     %1 = "ttir.embedding_backward"(%arg0, %arg1, %arg2) : (tensor<1x32xf32>, tensor<512x128xf32>, tensor<1x32x128xf32>) -> tensor<512x128xf32>
     return %1 : tensor<512x128xf32>
   }
+
+    func.func @backward_with_pad(%arg0: tensor<1x10x1xsi32>, %arg1: tensor<2x128xf32>, %arg2: tensor<1x10x128xf32>) -> tensor<2x128xf32> {
+    // CHECK: %{{[0-9]+}} = "ttnn.pad"
+    // CHECK: %{{[0-9]+}} = "ttnn.pad"
+    // CHECK: %{{[0-9]+}} = "ttnn.embedding_bw"
+    %1 = "ttir.embedding_backward"(%arg0, %arg1, %arg2) : (tensor<1x10x1xsi32>, tensor<2x128xf32>, tensor<1x10x128xf32>) -> tensor<2x128xf32>
+    return %1 : tensor<2x128xf32>
+  }
 }

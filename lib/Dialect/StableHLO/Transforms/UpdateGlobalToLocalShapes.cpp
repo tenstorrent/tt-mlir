@@ -349,6 +349,10 @@ convertShardyCCLToStableHLOCCL(MLIRContext *context,
   }();
 
   config.enableConstantCSE(!hasProtectedConst);
+  // Fixes: https://github.com/tenstorrent/tt-mlir/issues/6157
+  // TODO(hshah): See if the above issue can be fixed by modifying the pattern
+  // rewriter directly (without needing to use top-down traversal)
+  config.setUseTopDownTraversal();
 
   // Apply patterns greedily.
   if (failed(applyPatternsGreedily(rootModule, patternSet, config))) {
