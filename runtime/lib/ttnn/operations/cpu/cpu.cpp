@@ -46,15 +46,21 @@ void run(const ::tt::target::ttnn::CpuOp *op, ProgramContext &context) {
     ::ttnn::DataType dtype = ::tt::runtime::ttnn::utils::toTTNNDataType(
         ref->desc()->layout()->memory_desc()->data_type());
 
+    // Create shared_ptr that will free the allocated memory when tensor is
+    // destroyed.
+    std::shared_ptr<void> dataPtr(
+        wrapped.alignedStart,
+        [deletionCallback](void *) { deletionCallback(); });
+
     ::ttnn::Tensor tensor;
     switch (dtype) {
     case ::ttnn::DataType::FLOAT32:
       tensor = ::tt::runtime::ttnn::utils::createBorrowedTTNNTensor<float>(
-          wrapped.alignedStart, shape, deletionCallback);
+          dataPtr, shape);
       break;
     case ::ttnn::DataType::INT32:
       tensor = ::tt::runtime::ttnn::utils::createBorrowedTTNNTensor<int32_t>(
-          wrapped.alignedStart, shape, deletionCallback);
+          dataPtr, shape);
       break;
     default:
       LOG_FATAL("Unsupported data type for CPU op output");
