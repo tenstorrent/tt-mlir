@@ -56,6 +56,7 @@ void createStableHLOPipeline(OpPassManager &pm,
   // control over which shardings take precedence when conflicts arise.
   // If no explicit priority is set, Shardy's internal default policy decides.
   mlir::sdy::PropagationOptions propagationOptions;
+  propagationOptions.keepShardingRules = true;
   propagationOptions.conservativePropagation = true;
   pm.addPass(mlir::sdy::createUserPriorityPropagationPass(propagationOptions));
 

@@ -203,6 +203,41 @@ static FailureOr<mlir::OperationState> createNewOperationState(
 
             return mlir::success();
           })
+          .Case<mlir::stablehlo::ConcatenateOp>([&](auto concatenateOp) {
+            llvm::errs() << "At concatenate op\n";
+            // 1. Get the sharding for each operand dimension.
+            llvm::ArrayRef<mlir::sdy::DimensionShardingAttr>
+                operandDimShardings =
+                    shardy_utils::getOperandShardingAttr(
+                        concatenateOp.getOperation()->getOpOperand(0),
+                        globalMeshOp)
+                        .getDimShardings();
+            // === DEBUG: Print input shapes and shardings ===
+            auto operandType = concatenateOp.getOperand(0).getType();
+            llvm::errs() << "Operand type: " << operandType << "\n";
+            llvm::errs() << "Operand shape: [";
+            if (auto shapedType =
+                    mlir::dyn_cast<mlir::ShapedType>(operandType)) {
+              for (auto [idx, dim] : llvm::enumerate(shapedType.getShape())) {
+                if (idx > 0) {
+                  llvm::errs() << ", ";
+                }
+                llvm::errs() << dim;
+              }
+            }
+            llvm::errs() << "]\n";
+
+            llvm::errs() << "Operand dim shardings: [";
+            for (auto [idx, dimSharding] :
+                 llvm::enumerate(operandDimShardings)) {
+              if (idx > 0) {
+                llvm::errs() << ", ";
+              }
+              llvm::errs() << dimSharding;
+            }
+            llvm::errs() << "]\n";
+            return mlir::success();
+          })
           .Default([](mlir::Operation *op) { return mlir::success(); });
 
   if (failed(updatedAttributeResult)) {
