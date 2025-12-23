@@ -17,6 +17,11 @@ namespace mlir::tt::shardy_utils {
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
 
+// Sharding related string definitions from open-xla.
+// https://github.com/openxla/xla/blob/main/xla/service/spmd/shardy/constants.h
+inline constexpr llvm::StringRef kFuncResultShardingTargetName =
+    "xla.sdy.FuncResultSharding";
+
 // We used MapVector because we want the order to be preserved when inserting
 // axes into the meshMap.
 using MeshMap =

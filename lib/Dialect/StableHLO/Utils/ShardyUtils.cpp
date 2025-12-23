@@ -895,8 +895,7 @@ convertCustomCallToShardingConstraint(mlir::ModuleOp &rootModule,
     // (from custom ops), and @xla.sdy.FuncResultSharding (result shardings).
     if (callTargetName != gspmd_utils::kShardingCustomCallTargetName &&
         callTargetName != sharding_utils::kTTShardingConstraintTargetName &&
-        callTargetName !=
-            gspmd_utils::kXlaSdyFuncResultShardingCallTargetName) {
+        callTargetName != shardy_utils::kFuncResultShardingTargetName) {
       return;
     }
 
@@ -960,8 +959,7 @@ convertCustomCallToShardingConstraint(mlir::ModuleOp &rootModule,
         shardingConstraintOp.getResult());
 
     // Only erase FuncResultSharding ops, others are needed by AnalyzeMeshPass.
-    if (callTargetName ==
-        gspmd_utils::kXlaSdyFuncResultShardingCallTargetName) {
+    if (callTargetName == shardy_utils::kFuncResultShardingTargetName) {
       hasFuncResultSharding = true;
       opsToErase.push_back(customCallOp);
     }
