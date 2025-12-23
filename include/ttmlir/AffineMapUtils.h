@@ -15,7 +15,9 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
+#include <atomic>
 #include <numeric>
+#include <thread>
 
 namespace ttmlir::utils {
 
@@ -462,6 +464,684 @@ inline size_t calculateCoalescingFactor(mlir::AffineMap map,
   return coalescingFactor;
 }
 
+//===----------------------------------------------------------------------===//
+// High-Performance Affine Expression Interpreter
+//===----------------------------------------------------------------------===//
+//
+// This interpreter provides fast evaluation of MLIR AffineExpr by compiling
+// expressions into a compact bytecode-style AST that can be evaluated
+// efficiently without MLIR infrastructure overhead.
+//
+// Usage:
+//   AffineExprInterpreter interp(affineExpr);
+//   int64_t result = interp.evaluate(dimValues);
+//
+// For evaluating entire maps:
+//   AffineMapInterpreter mapInterp(affineMap);
+//   SmallVector<int64_t> results = mapInterp.evaluate(dimValues);
+//
+//===----------------------------------------------------------------------===//
+
+/// Opcodes for the bytecode representation of affine expressions.
+enum class AffineExprOpcode : uint8_t {
+  Constant, // Push a constant value
+  Dim,      // Push a dimension value
+  Symbol,   // Push a symbol value
+  Add,      // Pop two values, push their sum
+  Mul,      // Pop two values, push their product
+  Mod,      // Pop two values, push lhs % rhs
+  FloorDiv, // Pop two values, push lhs floordiv rhs
+  CeilDiv,  // Pop two values, push lhs ceildiv rhs
+  // Power-of-2 optimized variants (use bit operations instead of division)
+  ModPow2,      // Pop one value, push lhs & (2^operand - 1)
+  FloorDivPow2, // Pop one value, push lhs >> operand
+  CeilDivPow2,  // Pop one value, push (lhs + (2^operand - 1)) >> operand
+  MulPow2,      // Pop one value, push lhs << operand
+};
+
+/// Check if a value is a power of 2.
+inline bool isPowerOf2(int64_t val) {
+  return val > 0 && (val & (val - 1)) == 0;
+}
+
+/// Get the log2 of a power of 2 value.
+inline int64_t log2Pow2(int64_t val) {
+  int64_t log = 0;
+  while ((1LL << log) < val) {
+    ++log;
+  }
+  return log;
+}
+
+/// A single instruction in the bytecode representation.
+/// Uses a compact layout to maximize cache efficiency.
+struct AffineExprInstruction {
+  AffineExprOpcode opcode;
+  // For Constant: the constant value
+  // For Dim/Symbol: the index (position)
+  // For Pow2 ops: the shift amount (log2 of the power-of-2 constant)
+  // For other binary ops: unused (operands come from stack)
+  int64_t operand;
+
+  AffineExprInstruction(AffineExprOpcode op, int64_t val = 0)
+      : opcode(op), operand(val) {}
+};
+
+/// High-performance interpreter for a single AffineExpr.
+/// Compiles the expression into a stack-based bytecode representation
+/// that can be evaluated efficiently without MLIR overhead.
+class AffineExprInterpreter {
+public:
+  /// Compile an AffineExpr into bytecode for fast repeated evaluation.
+  explicit AffineExprInterpreter(mlir::AffineExpr expr) { compile(expr); }
+
+  /// Default constructor for use in containers.
+  AffineExprInterpreter() = default;
+
+  /// Evaluate the compiled expression with the given dimension values.
+  int64_t
+  evaluate(llvm::ArrayRef<int64_t> dimValues,
+           [[maybe_unused]] llvm::ArrayRef<int64_t> symbolValues = {}) const {
+    llvm::SmallVector<int64_t, 16> stack(instructions_.size());
+    return evaluateFast(dimValues, stack);
+  }
+
+  /// Fast evaluation using a pre-allocated stack (avoids allocation overhead).
+  /// The stack is cleared and reused. Returns the result value.
+  int64_t evaluateFast(llvm::ArrayRef<int64_t> dimValues,
+                       llvm::MutableArrayRef<int64_t> stack) const {
+    size_t sp = 0; // Stack pointer
+
+    for (const auto &inst : instructions_) {
+      switch (inst.opcode) {
+      case AffineExprOpcode::Constant:
+        stack[sp++] = inst.operand;
+        break;
+
+      case AffineExprOpcode::Dim:
+        stack[sp++] = dimValues[inst.operand];
+        break;
+
+      case AffineExprOpcode::Symbol:
+        // Symbol support not needed for fast path
+        stack[sp++] = 0;
+        break;
+
+      case AffineExprOpcode::Add: {
+        int64_t rhs = stack[--sp];
+        int64_t lhs = stack[--sp];
+        stack[sp++] = lhs + rhs;
+        break;
+      }
+
+      case AffineExprOpcode::Mul: {
+        int64_t rhs = stack[--sp];
+        int64_t lhs = stack[--sp];
+        stack[sp++] = lhs * rhs;
+        break;
+      }
+
+      case AffineExprOpcode::Mod: {
+        int64_t rhs = stack[--sp];
+        int64_t lhs = stack[--sp];
+        // For positive values (common case), simple mod works
+        stack[sp++] = lhs % rhs;
+        break;
+      }
+
+      case AffineExprOpcode::FloorDiv: {
+        int64_t rhs = stack[--sp];
+        int64_t lhs = stack[--sp];
+        // For positive values (common case), simple division works
+        stack[sp++] = lhs / rhs;
+        break;
+      }
+
+      case AffineExprOpcode::CeilDiv: {
+        int64_t rhs = stack[--sp];
+        int64_t lhs = stack[--sp];
+        stack[sp++] = (lhs + rhs - 1) / rhs;
+        break;
+      }
+
+      // Power-of-2 optimized operations (use bit operations)
+      case AffineExprOpcode::ModPow2: {
+        // x % (2^n) = x & ((2^n) - 1)
+        int64_t lhs = stack[--sp];
+        int64_t mask = (1LL << inst.operand) - 1;
+        stack[sp++] = lhs & mask;
+        break;
+      }
+
+      case AffineExprOpcode::FloorDivPow2: {
+        // x / (2^n) = x >> n (for positive x)
+        int64_t lhs = stack[--sp];
+        stack[sp++] = lhs >> inst.operand;
+        break;
+      }
+
+      case AffineExprOpcode::CeilDivPow2: {
+        // ceil(x / 2^n) = (x + 2^n - 1) >> n
+        int64_t lhs = stack[--sp];
+        int64_t mask = (1LL << inst.operand) - 1;
+        stack[sp++] = (lhs + mask) >> inst.operand;
+        break;
+      }
+
+      case AffineExprOpcode::MulPow2: {
+        // x * (2^n) = x << n
+        int64_t lhs = stack[--sp];
+        stack[sp++] = lhs << inst.operand;
+        break;
+      }
+      }
+    }
+
+    return stack[0];
+  }
+
+  /// Check if the interpreter has been compiled with an expression.
+  bool isValid() const { return !instructions_.empty(); }
+
+  /// Get the number of instructions (for profiling/debugging).
+  size_t getInstructionCount() const { return instructions_.size(); }
+
+  /// Get the maximum stack depth needed for evaluation.
+  size_t getMaxStackDepth() const { return instructions_.size(); }
+
+  /// Check if this is a constant expression (no variable dims).
+  bool isConstant() const {
+    for (const auto &inst : instructions_) {
+      if (inst.opcode == AffineExprOpcode::Dim) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+private:
+  llvm::SmallVector<AffineExprInstruction, 8> instructions_;
+
+  /// Recursively compile an AffineExpr into bytecode instructions.
+  /// Uses post-order traversal so operands are evaluated before operators.
+  void compile(mlir::AffineExpr expr) {
+    if (auto constExpr = llvm::dyn_cast<mlir::AffineConstantExpr>(expr)) {
+      instructions_.emplace_back(AffineExprOpcode::Constant,
+                                 constExpr.getValue());
+      return;
+    }
+
+    if (auto dimExpr = llvm::dyn_cast<mlir::AffineDimExpr>(expr)) {
+      instructions_.emplace_back(AffineExprOpcode::Dim, dimExpr.getPosition());
+      return;
+    }
+
+    if (auto symExpr = llvm::dyn_cast<mlir::AffineSymbolExpr>(expr)) {
+      instructions_.emplace_back(AffineExprOpcode::Symbol,
+                                 symExpr.getPosition());
+      return;
+    }
+
+    auto binExpr = llvm::cast<mlir::AffineBinaryOpExpr>(expr);
+
+    // Check for power-of-2 optimizations on RHS constant
+    if (auto rhsConst =
+            llvm::dyn_cast<mlir::AffineConstantExpr>(binExpr.getRHS())) {
+      int64_t rhsVal = rhsConst.getValue();
+      if (isPowerOf2(rhsVal)) {
+        int64_t shift = log2Pow2(rhsVal);
+        switch (binExpr.getKind()) {
+        case mlir::AffineExprKind::Mod:
+          compile(binExpr.getLHS());
+          instructions_.emplace_back(AffineExprOpcode::ModPow2, shift);
+          return;
+        case mlir::AffineExprKind::FloorDiv:
+          compile(binExpr.getLHS());
+          instructions_.emplace_back(AffineExprOpcode::FloorDivPow2, shift);
+          return;
+        case mlir::AffineExprKind::CeilDiv:
+          compile(binExpr.getLHS());
+          instructions_.emplace_back(AffineExprOpcode::CeilDivPow2, shift);
+          return;
+        case mlir::AffineExprKind::Mul:
+          compile(binExpr.getLHS());
+          instructions_.emplace_back(AffineExprOpcode::MulPow2, shift);
+          return;
+        default:
+          break; // Fall through to normal compilation
+        }
+      }
+    }
+
+    // Compile operands first (post-order traversal)
+    compile(binExpr.getLHS());
+    compile(binExpr.getRHS());
+
+    // Then add the operation
+    switch (binExpr.getKind()) {
+    case mlir::AffineExprKind::Add:
+      instructions_.emplace_back(AffineExprOpcode::Add);
+      break;
+    case mlir::AffineExprKind::Mul:
+      instructions_.emplace_back(AffineExprOpcode::Mul);
+      break;
+    case mlir::AffineExprKind::Mod:
+      instructions_.emplace_back(AffineExprOpcode::Mod);
+      break;
+    case mlir::AffineExprKind::FloorDiv:
+      instructions_.emplace_back(AffineExprOpcode::FloorDiv);
+      break;
+    case mlir::AffineExprKind::CeilDiv:
+      instructions_.emplace_back(AffineExprOpcode::CeilDiv);
+      break;
+    default:
+      llvm_unreachable("Unknown affine expression kind");
+    }
+  }
+};
+
+/// High-performance interpreter for an entire AffineMap.
+/// Compiles all result expressions for fast batch evaluation.
+class AffineMapInterpreter {
+public:
+  /// Compile an AffineMap into interpreters for all result expressions.
+  explicit AffineMapInterpreter(mlir::AffineMap map)
+      : numDims_(map.getNumDims()), numSymbols_(map.getNumSymbols()),
+        maxStackDepth_(0), originalMap_(map) {
+    resultInterpreters_.reserve(map.getNumResults());
+    for (auto result : map.getResults()) {
+      resultInterpreters_.emplace_back(result);
+      maxStackDepth_ = std::max(maxStackDepth_,
+                                resultInterpreters_.back().getMaxStackDepth());
+    }
+  }
+
+  /// Default constructor.
+  AffineMapInterpreter() : numDims_(0), numSymbols_(0), maxStackDepth_(0) {}
+
+  /// Evaluate all results of the map with the given dimension values.
+  llvm::SmallVector<int64_t, 4>
+  evaluate(llvm::ArrayRef<int64_t> dimValues,
+           llvm::ArrayRef<int64_t> symbolValues = {}) const {
+    llvm::SmallVector<int64_t, 4> results;
+    results.reserve(resultInterpreters_.size());
+    for (const auto &interp : resultInterpreters_) {
+      results.push_back(interp.evaluate(dimValues, symbolValues));
+    }
+    return results;
+  }
+
+  /// Fast evaluation using a pre-allocated stack buffer.
+  /// The stack buffer must be at least getMaxStackDepth() elements.
+  void evaluateFast(llvm::ArrayRef<int64_t> dimValues,
+                    llvm::MutableArrayRef<int64_t> results,
+                    llvm::MutableArrayRef<int64_t> stack) const {
+    for (size_t i = 0; i < resultInterpreters_.size(); ++i) {
+      results[i] = resultInterpreters_[i].evaluateFast(dimValues, stack);
+    }
+  }
+
+  /// Get the number of results in the map.
+  size_t getNumResults() const { return resultInterpreters_.size(); }
+
+  /// Get the number of dimensions expected.
+  unsigned getNumDims() const { return numDims_; }
+
+  /// Get the number of symbols expected.
+  unsigned getNumSymbols() const { return numSymbols_; }
+
+  /// Get the maximum stack depth needed for any result expression.
+  size_t getMaxStackDepth() const { return maxStackDepth_; }
+
+  /// Check if the interpreter has been compiled.
+  bool isValid() const { return !resultInterpreters_.empty(); }
+
+  /// Get access to the original map for specialization.
+  mlir::AffineMap getMap() const { return originalMap_; }
+
+  /// Store the original map for later specialization.
+  void setMap(mlir::AffineMap map) { originalMap_ = map; }
+
+private:
+  llvm::SmallVector<AffineExprInterpreter, 4> resultInterpreters_;
+  unsigned numDims_;
+  unsigned numSymbols_;
+  size_t maxStackDepth_;
+  mlir::AffineMap originalMap_;
+};
+
+/// Threshold for enabling parallel execution (512 elements in shard).
+constexpr size_t kParallelShardVolumeThreshold = 512;
+
+/// Get the number of worker threads for parallel execution.
+/// Uses hardware concurrency, with a reasonable cap and fallback.
+inline unsigned getNumWorkerThreads() {
+  unsigned hwThreads = std::thread::hardware_concurrency();
+  // Fallback to 4 if hardware_concurrency returns 0 (unable to detect)
+  if (hwThreads == 0) {
+    hwThreads = 4;
+  }
+  // Cap at 8 threads to avoid excessive overhead for small workloads
+  return std::min(hwThreads, 8u);
+}
+
+/// Substitute constant values for grid dimensions and fold the expression.
+/// gridDimValues contains the constant values for dimensions 0..gridRank-1.
+/// Shard dimensions (gridRank and beyond) are remapped to 0-based indices.
+/// Uses recursive AST traversal for simplification.
+inline mlir::AffineExpr
+substituteGridDimsAndFold(mlir::AffineExpr expr,
+                          llvm::ArrayRef<int64_t> gridDimValues,
+                          unsigned gridRank, mlir::MLIRContext *context) {
+  // Handle constants - already folded
+  if (auto constExpr = llvm::dyn_cast<mlir::AffineConstantExpr>(expr)) {
+    return expr;
+  }
+
+  // Handle dimension expressions
+  if (auto dimExpr = llvm::dyn_cast<mlir::AffineDimExpr>(expr)) {
+    unsigned pos = dimExpr.getPosition();
+    if (pos < gridRank) {
+      // Grid dimension - substitute with constant
+      return mlir::getAffineConstantExpr(gridDimValues[pos], context);
+    }
+    // Shard dimension - remap to 0-based index
+    return mlir::getAffineDimExpr(pos - gridRank, context);
+  }
+
+  // Handle symbols - pass through unchanged
+  if (llvm::isa<mlir::AffineSymbolExpr>(expr)) {
+    return expr;
+  }
+
+  // Handle binary expressions - recurse and fold
+  auto binExpr = llvm::cast<mlir::AffineBinaryOpExpr>(expr);
+  auto lhs = substituteGridDimsAndFold(binExpr.getLHS(), gridDimValues,
+                                       gridRank, context);
+  auto rhs = substituteGridDimsAndFold(binExpr.getRHS(), gridDimValues,
+                                       gridRank, context);
+
+  // If both are constants, fold the operation
+  auto lhsConst = llvm::dyn_cast<mlir::AffineConstantExpr>(lhs);
+  auto rhsConst = llvm::dyn_cast<mlir::AffineConstantExpr>(rhs);
+
+  if (lhsConst && rhsConst) {
+    int64_t lhsVal = lhsConst.getValue();
+    int64_t rhsVal = rhsConst.getValue();
+    int64_t result;
+    switch (binExpr.getKind()) {
+    case mlir::AffineExprKind::Add:
+      result = lhsVal + rhsVal;
+      break;
+    case mlir::AffineExprKind::Mul:
+      result = lhsVal * rhsVal;
+      break;
+    case mlir::AffineExprKind::Mod:
+      result = lhsVal % rhsVal;
+      break;
+    case mlir::AffineExprKind::FloorDiv:
+      result = lhsVal / rhsVal;
+      break;
+    case mlir::AffineExprKind::CeilDiv:
+      result = (lhsVal + rhsVal - 1) / rhsVal;
+      break;
+    default:
+      llvm_unreachable("Unknown affine expression kind");
+    }
+    return mlir::getAffineConstantExpr(result, context);
+  }
+
+  // Rebuild the binary expression with simplified operands
+  switch (binExpr.getKind()) {
+  case mlir::AffineExprKind::Add:
+    return lhs + rhs;
+  case mlir::AffineExprKind::Mul:
+    return lhs * rhs;
+  case mlir::AffineExprKind::Mod:
+    return lhs % rhs;
+  case mlir::AffineExprKind::FloorDiv:
+    return lhs.floorDiv(rhs);
+  case mlir::AffineExprKind::CeilDiv:
+    return lhs.ceilDiv(rhs);
+  default:
+    llvm_unreachable("Unknown affine expression kind");
+  }
+}
+
+/// Substitute constant values for grid dimensions in an affine map.
+/// Returns a new map with grid dimensions replaced by constants and folded.
+/// The resulting map has shardRank dimensions (renumbered from 0).
+inline mlir::AffineMap
+substituteGridDimsInMap(mlir::AffineMap map,
+                        llvm::ArrayRef<int64_t> gridDimValues,
+                        unsigned gridRank, unsigned shardRank) {
+  mlir::MLIRContext *context = map.getContext();
+  llvm::SmallVector<mlir::AffineExpr> simplifiedResults;
+  simplifiedResults.reserve(map.getNumResults());
+
+  for (auto result : map.getResults()) {
+    simplifiedResults.push_back(
+        substituteGridDimsAndFold(result, gridDimValues, gridRank, context));
+  }
+
+  return mlir::AffineMap::get(shardRank, 0, simplifiedResults, context);
+}
+
+/// Internal: Process a single grid point and return its coalescing factor.
+/// This is extracted to enable parallel execution.
+/// Pre-substitutes grid coordinates into affine expressions and folds constants
+/// to simplify evaluation.
+inline size_t calculateCoalescingFactorForGridPoint(
+    mlir::AffineMap map, int64_t gridIdx, llvm::ArrayRef<int64_t> gridShape,
+    llvm::ArrayRef<int64_t> gridStrides, llvm::ArrayRef<int64_t> shardShape,
+    llvm::ArrayRef<int64_t> outerShardStrides, int64_t outerShardVolume,
+    [[maybe_unused]] size_t numDims, [[maybe_unused]] size_t innermostDimIdx,
+    int64_t innermostSize, int64_t stride, size_t numResults) {
+
+  size_t shardVolume = volume(shardShape);
+  size_t localCoalescingFactor = shardVolume;
+
+  // Compute grid coordinates for this grid point
+  llvm::SmallVector<int64_t, 4> gridCoords(gridShape.size());
+  for (unsigned j = 0; j < gridShape.size(); ++j) {
+    gridCoords[j] = (gridIdx / gridStrides[j]) % gridShape[j];
+  }
+
+  // Substitute grid dimensions with constants and fold expressions.
+  // This simplifies the map so it only depends on shard dimensions.
+  mlir::AffineMap simplifiedMap = substituteGridDimsInMap(
+      map, gridCoords, gridShape.size(), shardShape.size());
+
+  // Create interpreter for simplified map (only depends on shard dims now)
+  AffineMapInterpreter mapInterp(simplifiedMap);
+
+  // Thread-local buffers - only need shard dimensions now
+  llvm::SmallVector<int64_t, 8> shardIndex(shardShape.size(), 0);
+  llvm::SmallVector<int64_t, 16> evalStack(mapInterp.getMaxStackDepth());
+
+  // Double-buffer for addresses
+  llvm::SmallVector<int64_t, 8> addressBuf0(numResults);
+  llvm::SmallVector<int64_t, 8> addressBuf1(numResults);
+  int64_t *address = addressBuf0.data();
+  int64_t *nextAddress = addressBuf1.data();
+
+  bool nextAddressValid = false;
+  size_t currentCoalescingFactor = 0;
+
+  // Helper to compare addresses
+  auto addressesEqual = [numResults](const int64_t *a, const int64_t *b) {
+    for (size_t i = 0; i < numResults; ++i) {
+      if (a[i] != b[i]) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  // Innermost dimension index in shard-only coordinates
+  size_t shardInnermostIdx = shardShape.size() - 1;
+
+  // Loop over outer shard dimensions (all but innermost)
+  for (int64_t outerShardIdx = 0; outerShardIdx < outerShardVolume;
+       ++outerShardIdx) {
+    if (localCoalescingFactor == 1) {
+      break;
+    }
+
+    // Compute outer shard coordinates
+    for (unsigned j = 0; j + 1 < shardShape.size(); ++j) {
+      shardIndex[j] = (outerShardIdx / outerShardStrides[j]) % shardShape[j];
+    }
+
+    // Inner loop over innermost dimension
+    for (int64_t inner = 0; inner < innermostSize; ++inner) {
+      shardIndex[shardInnermostIdx] = inner;
+      mapInterp.evaluateFast(
+          shardIndex, llvm::MutableArrayRef<int64_t>(address, numResults),
+          evalStack);
+
+      if (!nextAddressValid || addressesEqual(address, nextAddress)) {
+        ++currentCoalescingFactor;
+      } else {
+        localCoalescingFactor =
+            std::gcd(localCoalescingFactor, currentCoalescingFactor);
+        if (localCoalescingFactor == 1) {
+          break;
+        }
+        currentCoalescingFactor = 1;
+      }
+
+      std::swap(address, nextAddress);
+      nextAddress[numResults - 1] += stride;
+      nextAddressValid = true;
+    }
+
+    if (localCoalescingFactor == 1) {
+      break;
+    }
+  }
+
+  // Account for final run
+  return std::gcd(localCoalescingFactor, currentCoalescingFactor);
+}
+
+/// Calculates the coalescing factor using the high-performance interpreter.
+/// This is a drop-in replacement for calculateCoalescingFactor that avoids
+/// MLIR infrastructure overhead during evaluation.
+/// For large shard volumes (>16K elements), uses parallel execution.
+inline size_t calculateCoalescingFactorFast(mlir::AffineMap map,
+                                            mlir::ArrayRef<int64_t> shape,
+                                            int64_t stride,
+                                            unsigned numGridDims = 0) {
+  TT_assertv(map.getNumDims() == shape.size(),
+             "Map dimensions must match shape size");
+  TT_assertv(numGridDims <= shape.size(),
+             "Number of grid dims cannot exceed shape size");
+
+  // Extract grid and shard shapes
+  mlir::ArrayRef<int64_t> gridShape = shape.take_front(numGridDims);
+  mlir::ArrayRef<int64_t> shardShape = shape.drop_front(numGridDims);
+
+  // If no shard dims, trivially contiguous (volume is 1)
+  if (shardShape.empty()) {
+    return 1;
+  }
+
+  size_t shardVolume = volume(shardShape);
+  const size_t numResults = map.getNumResults();
+
+  // Compute grid volume and strides
+  int64_t gridVolume = gridShape.empty() ? 1 : volume(gridShape);
+  llvm::SmallVector<int64_t, 4> gridStrides;
+  if (!gridShape.empty()) {
+    gridStrides = calculateStrides(gridShape);
+  }
+
+  const size_t numDims = gridShape.size() + shardShape.size();
+  const size_t innermostDimIdx = numDims - 1;
+  const int64_t innermostSize = shardShape.back();
+
+  // Compute strides for outer shard dimensions
+  llvm::SmallVector<int64_t, 8> outerShardStrides;
+  int64_t outerShardVolume = 1;
+  if (shardShape.size() > 1) {
+    auto outerShardShape = shardShape.drop_back();
+    outerShardStrides = calculateStrides(outerShardShape);
+    outerShardVolume = volume(outerShardShape);
+  }
+
+  // Decide whether to use parallel execution
+  bool useParallel =
+      shardVolume > kParallelShardVolumeThreshold && gridVolume > 1;
+
+  if (!useParallel) {
+    // Sequential execution - single grid point or small shard
+    size_t coalescingFactor = shardVolume;
+    for (int64_t gridIdx = 0; gridIdx < gridVolume; ++gridIdx) {
+      if (coalescingFactor == 1) {
+        break;
+      }
+      size_t gridResult = calculateCoalescingFactorForGridPoint(
+          map, gridIdx, gridShape, gridStrides, shardShape, outerShardStrides,
+          outerShardVolume, numDims, innermostDimIdx, innermostSize, stride,
+          numResults);
+      coalescingFactor = std::gcd(coalescingFactor, gridResult);
+    }
+    return coalescingFactor;
+  }
+
+  // Parallel execution for large shard volumes
+  std::atomic<size_t> globalCoalescingFactor(shardVolume);
+  std::atomic<int64_t> nextGridIdx(0);
+
+  auto workerFn = [&]() {
+    while (true) {
+      // Early exit if coalescing factor is already 1
+      if (globalCoalescingFactor.load(std::memory_order_relaxed) == 1) {
+        return;
+      }
+
+      // Claim next grid index
+      int64_t gridIdx = nextGridIdx.fetch_add(1, std::memory_order_relaxed);
+      if (gridIdx >= gridVolume) {
+        return;
+      }
+
+      // Process this grid point
+      size_t gridResult = calculateCoalescingFactorForGridPoint(
+          map, gridIdx, gridShape, gridStrides, shardShape, outerShardStrides,
+          outerShardVolume, numDims, innermostDimIdx, innermostSize, stride,
+          numResults);
+
+      // Update global coalescing factor atomically using CAS loop
+      size_t current = globalCoalescingFactor.load(std::memory_order_relaxed);
+      size_t newVal;
+      do {
+        newVal = std::gcd(current, gridResult);
+        if (newVal == current) {
+          break; // No change needed
+        }
+      } while (!globalCoalescingFactor.compare_exchange_weak(
+          current, newVal, std::memory_order_relaxed));
+    }
+  };
+
+  // Launch worker threads
+  llvm::SmallVector<std::thread, 8> workers;
+  unsigned numThreads =
+      std::min(static_cast<unsigned>(gridVolume), getNumWorkerThreads());
+  workers.reserve(numThreads);
+  for (unsigned i = 0; i < numThreads; ++i) {
+    workers.emplace_back(workerFn);
+  }
+
+  // Wait for all workers to complete
+  for (auto &worker : workers) {
+    worker.join();
+  }
+
+  return globalCoalescingFactor.load();
+}
 } // namespace ttmlir::utils
 
 #endif // TTMLIR_AFFINEMAPUTILS_H
