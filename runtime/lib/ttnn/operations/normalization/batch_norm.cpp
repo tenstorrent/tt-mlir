@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "operations/normalization/batch_norm.h"
+#include "tt/runtime/detail/ttnn/operations/utils.h"
 
 namespace tt::runtime::ttnn::operations::batch_norm {
 void run(const ::tt::target::ttnn::BatchNormInferenceOp *op,
@@ -20,11 +21,17 @@ void run(const ::tt::target::ttnn::BatchNormInferenceOp *op,
   const ::ttnn::Tensor &bias = tensorPool.getTTNNTensorAndValidate(op->bias());
 
   float epsilon = op->epsilon();
+  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig;
+  if (op->compute_config()) {
+    computeConfig =
+        utils::createDeviceComputeKernelConfig(op->compute_config());
+  }
 
   // For inference: training=false, momentum=0.1 (default, not used in
   // inference)
   ::ttnn::Tensor output = ::ttnn::batch_norm(
-      input, runningMean, runningVar, false, epsilon, 0.1f, weight, bias);
+      input, runningMean, runningVar, false, epsilon, 0.1f, weight, bias,
+      /*output=*/std::nullopt, /*memory_config=*/std::nullopt, computeConfig);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
@@ -47,8 +54,15 @@ void run(const ::tt::target::ttnn::BatchNormTrainingOp *op,
   float momentum = op->momentum();
 
   // For training: training=true
+  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig;
+  if (op->compute_config()) {
+    computeConfig =
+        utils::createDeviceComputeKernelConfig(op->compute_config());
+  }
+
   ::ttnn::Tensor output = ::ttnn::batch_norm(
-      input, runningMean, runningVar, true, epsilon, momentum, weight, bias);
+      input, runningMean, runningVar, true, epsilon, momentum, weight, bias,
+      /*output=*/std::nullopt, /*memory_config=*/std::nullopt, computeConfig);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }

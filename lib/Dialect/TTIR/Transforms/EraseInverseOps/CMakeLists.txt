@@ -3,6 +3,7 @@ add_mlir_dialect_library(MLIRTTIREraseInverseOps
         BroadcastCommutePatterns.cpp
         ElementwiseCommutePatterns.cpp
         ConcatCommutePatterns.cpp
+        RMSNormCommutePatterns.cpp
         SliceCommutePatterns.cpp
         ReduceCommutePatterns.cpp
 

@@ -396,6 +396,14 @@ createConv2dSliceConfig(const ::tt::target::ttnn::Conv2dSliceConfig *config) {
     computeKernelConfig.math_approx_mode = *config->math_approx_mode();
   }
 
+  if (config->fp32_dest_acc_en()) {
+    computeKernelConfig.fp32_dest_acc_en = *config->fp32_dest_acc_en();
+  }
+
+  if (config->packer_l1_acc()) {
+    computeKernelConfig.packer_l1_acc = *config->packer_l1_acc();
+  }
+
   if (config->dst_full_sync_en()) {
     computeKernelConfig.dst_full_sync_en = *config->dst_full_sync_en();
   }

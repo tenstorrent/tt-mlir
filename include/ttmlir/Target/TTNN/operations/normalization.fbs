@@ -1,5 +1,6 @@
 include "ttmlir/Target/Common/types.fbs";
 include "ttmlir/Target/TTNN/types.fbs";
+include "ttmlir/Target/TTNN/operations/configs.fbs";
 
 namespace tt.target.ttnn;
 
@@ -8,6 +9,7 @@ table SoftmaxOp {
   out: tt.target.ttnn.TensorRef;
   dimension: int32;
   numeric_stable: bool = false;
+  compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
 }
 
 table BatchNormInferenceOp {
@@ -19,6 +21,7 @@ table BatchNormInferenceOp {
   bias: tt.target.ttnn.TensorRef;
   memory_config: tt.target.ttnn.MemoryConfig;
   out: tt.target.ttnn.TensorRef;
+  compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
 }
 
 table BatchNormTrainingOp {
@@ -31,6 +34,7 @@ table BatchNormTrainingOp {
   bias: tt.target.ttnn.TensorRef;
   memory_config: tt.target.ttnn.MemoryConfig;
   out: tt.target.ttnn.TensorRef;
+  compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
 }
 
 table RMSNormOp {
@@ -40,4 +44,5 @@ table RMSNormOp {
   epsilon: float;
   memory_config: tt.target.ttnn.MemoryConfig;
   out: tt.target.ttnn.TensorRef;
+  compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
 }

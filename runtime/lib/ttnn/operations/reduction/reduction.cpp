@@ -34,9 +34,15 @@ static void runReductionOp(
                                                              fbDimArg->end()))
                : std::nullopt;
 
+  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig;
+  if (op->compute_config()) {
+    computeConfig =
+        utils::createDeviceComputeKernelConfig(op->compute_config());
+  }
+
   ::ttnn::Tensor out = ttnnOp(
       in, dimArg, op->keep_dim(), outputMemoryConfig /* memory_config_arg */,
-      std::nullopt /* compute_kernel_config */, 1.0f /* scalar */);
+      computeConfig /* compute_kernel_config */, 1.0f /* scalar */);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

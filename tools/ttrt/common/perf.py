@@ -115,7 +115,7 @@ class Perf:
         Perf.register_arg(
             name="--enable-program-cache",
             type=bool,
-            default=False,
+            default=True,
             choices=[True, False],
             help="enable program cache in ttnn runtime",
         )

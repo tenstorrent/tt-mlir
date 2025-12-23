@@ -25,13 +25,6 @@ table AllReduceOp {
   topology: tt.target.Topology = null;
 }
 
-table CollectivePermuteOp {
-  in: tt.target.ttnn.TensorRef;
-  out: tt.target.ttnn.TensorRef;
-  device: tt.target.DeviceRef;
-  source_target_pairs: [int64];
-}
-
 table MeshShardOp {
   in: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;

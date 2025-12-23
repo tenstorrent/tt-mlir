@@ -4098,7 +4098,7 @@ TEST_F(OpModelBase, rmsNormOp) {
 
   RMSNormOp rmsNormOp =
       builder.create<RMSNormOp>(builder.getUnknownLoc(), outputType, input,
-                                weight, bias, epsilon, nullptr);
+                                weight, bias, epsilon, nullptr, nullptr);
   rmsNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto constraintsExp = getOpConstraints(rmsNormOp.getOperation());
@@ -4133,7 +4133,7 @@ TEST_F(OpModelBase, rmsNormOpMinimal) {
 
   RMSNormOp rmsNormOp =
       builder.create<RMSNormOp>(builder.getUnknownLoc(), outputType, input,
-                                nullptr, nullptr, epsilon, nullptr);
+                                nullptr, nullptr, epsilon, nullptr, nullptr);
   rmsNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto constraintsExp = getOpConstraints(rmsNormOp.getOperation());
@@ -4183,7 +4183,7 @@ TEST_F(OpModelBase, rmsNormOpL1Memory) {
 
   RMSNormOp rmsNormOp =
       builder.create<RMSNormOp>(builder.getUnknownLoc(), outputType, input,
-                                weight, bias, epsilon, nullptr);
+                                weight, bias, epsilon, nullptr, nullptr);
   rmsNormOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto constraintsExp = getOpConstraints(rmsNormOp.getOperation());

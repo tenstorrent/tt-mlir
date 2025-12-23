@@ -2,12 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 import ttnn
-import ttnn_supplemental
 import math
-
-
-# Monkey-patch ttnn with ttnn_supplemental objects
-ttnn.collective_permute = ttnn_supplemental.collective_permute
 
 
 class DeviceGetter:

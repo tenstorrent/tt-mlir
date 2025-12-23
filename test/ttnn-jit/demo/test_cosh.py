@@ -10,32 +10,36 @@ import pytest
 from utils import all_close_check
 
 
+@ttnn_jit.jit(debug=True)
+def cosh(input_tensor):
+    e_pos_x = ttnn.exp(input_tensor)
+    e_neg_x = ttnn.exp(ttnn.neg(input_tensor))
+    nr_term = ttnn.add(e_pos_x, e_neg_x)
+    output = ttnn.multiply(nr_term, 0.5)
+    return output
+
+
+def model(input_0, input_1):
+    x = cosh(input_0)
+    y = ttnn.exp(input_1)
+    return ttnn.matmul(x, y)
+
+
+def cosh_not_jit(input_tensor):
+    e_pos_x = ttnn.exp(input_tensor)
+    e_neg_x = ttnn.exp(ttnn.neg(input_tensor))
+    nr_term = ttnn.add(e_pos_x, e_neg_x)
+    output = ttnn.multiply(nr_term, 0.5)
+    return output
+
+
+def model_not_jit(input_0, input_1):
+    x = cosh_not_jit(input_0)
+    y = ttnn.exp(input_1)
+    return ttnn.matmul(x, y)
+
+
 def test_cosh_demo(device):
-    @ttnn_jit.jit(debug=True)
-    def cosh(input_tensor):
-        e_pos_x = ttnn.exp(input_tensor)
-        e_neg_x = ttnn.exp(ttnn.neg(input_tensor))
-        nr_term = ttnn.add(e_pos_x, e_neg_x)
-        output = ttnn.multiply(nr_term, 0.5)
-        return output
-
-    def model(input_0, input_1):
-        x = cosh(input_0)
-        y = ttnn.exp(input_1)
-        return ttnn.matmul(x, y)
-
-    def cosh_not_jit(input_tensor):
-        e_pos_x = ttnn.exp(input_tensor)
-        e_neg_x = ttnn.exp(ttnn.neg(input_tensor))
-        nr_term = ttnn.add(e_pos_x, e_neg_x)
-        output = ttnn.multiply(nr_term, 0.5)
-        return output
-
-    def model_not_jit(input_0, input_1):
-        x = cosh_not_jit(input_0)
-        y = ttnn.exp(input_1)
-        return ttnn.matmul(x, y)
-
     input_0_torch = torch.randn(512, 512, dtype=torch.bfloat16)
     input_1_torch = torch.randn(512, 512, dtype=torch.bfloat16)
     memory_config = ttnn.create_sharded_memory_config(

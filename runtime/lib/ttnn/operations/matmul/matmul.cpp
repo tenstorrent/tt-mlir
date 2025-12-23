@@ -36,10 +36,16 @@ void run(const ::tt::target::ttnn::MatmulOp *op, ProgramContext &context) {
       op->activation() ? std::make_optional(op->activation()->str())
                        : std::nullopt;
 
+  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig;
+  if (op->compute_config()) {
+    computeConfig =
+        utils::createDeviceComputeKernelConfig(op->compute_config());
+  }
+
   ::ttnn::Tensor output = ::ttnn::matmul(
       lhs, rhs, op->transpose_a(), op->transpose_b(), outputMemoryConfig,
       outputDataType, matmulProgramConfig,
-      /*activation=*/activation, /*compute_kernel_config=*/std::nullopt,
+      /*activation=*/activation, /*compute_kernel_config=*/computeConfig,
       /*core_grid=*/std::nullopt, /*output_tile=*/std::nullopt,
       /* optional_output_tensor=*/std::nullopt);
 
@@ -69,10 +75,16 @@ void run(const ::tt::target::ttnn::LinearOp *op, ProgramContext &context) {
       op->activation() ? std::make_optional(op->activation()->str())
                        : std::nullopt;
 
+  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig;
+  if (op->compute_config()) {
+    computeConfig =
+        utils::createDeviceComputeKernelConfig(op->compute_config());
+  }
+
   ::ttnn::Tensor output = ::ttnn::linear(
       lhs, rhs, bias, op->transpose_a(), op->transpose_b(), outputMemoryConfig,
       outputDataType, /*program_config=*/std::nullopt,
-      /*activation=*/activation, /*compute_kernel_config=*/std::nullopt,
+      /*activation=*/activation, /*compute_kernel_config=*/computeConfig,
       /*core_grid=*/std::nullopt, /*output_tile=*/std::nullopt,
       /* optional_output_tensor=*/std::nullopt);
 

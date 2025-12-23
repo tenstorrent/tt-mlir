@@ -851,15 +851,15 @@ MetalLayoutAttr MetalLayoutAttr::compose(AffineMap affineMap) const {
   }
 
   return ttcore::MetalLayoutAttr::get(
-      getContext(), getLogicalShape(), getOobVal(), getMemorySpace(),
-      getMemoryLayout(), getCollapsedIntervals(), getDimAlignments(),
+      getContext(), getLogicalShape(), getDimAlignments(),
+      getCollapsedIntervals(), getOobVal(), getMemorySpace(), getMemoryLayout(),
       getIndexAffineMap().compose(affineMap));
 }
 
 MetalLayoutAttr MetalLayoutAttr::withIndexAffineMap(AffineMap affineMap) const {
   return ttcore::MetalLayoutAttr::get(
-      getContext(), getLogicalShape(), getOobVal(), getMemorySpace(),
-      getMemoryLayout(), getCollapsedIntervals(), getDimAlignments(),
+      getContext(), getLogicalShape(), getDimAlignments(),
+      getCollapsedIntervals(), getOobVal(), getMemorySpace(), getMemoryLayout(),
       affineMap.isIdentity() ? AffineMap::get(getContext()) : affineMap);
 }
 

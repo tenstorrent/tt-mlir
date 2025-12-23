@@ -1,5 +1,6 @@
 include "ttmlir/Target/Common/types.fbs";
 include "ttmlir/Target/TTNN/types.fbs";
+include "ttmlir/Target/TTNN/operations/configs.fbs";
 include "ttmlir/Target/TTNN/operations/eltwise.fbs";
 
 namespace tt.target.ttnn;
@@ -68,6 +69,7 @@ table MatmulOp {
   transpose_b: bool;
   matmul_program_config: tt.target.ttnn.MatmulProgramConfig;
   activation: string;
+  compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
 }
 // ANCHOR_END: adding_an_op_matmul_fbs
 
@@ -79,4 +81,5 @@ table LinearOp {
   transpose_a: bool;
   transpose_b: bool;
   activation: string;
+  compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
 }

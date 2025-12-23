@@ -32,6 +32,7 @@ install(
     workarounds.hpp
     compile_so.hpp
     compile_so.cpp
+    emitc_compiler.py
   DESTINATION tools/ttnn-standalone
   COMPONENT TTNNStandalone
 )
