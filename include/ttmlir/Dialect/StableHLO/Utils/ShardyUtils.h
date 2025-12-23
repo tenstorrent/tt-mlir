@@ -75,19 +75,10 @@ convertXlaSdyToSdyDictionary(mlir::MLIRContext *context,
 mlir::LogicalResult convertFrontendAttributesToSDY(mlir::ModuleOp &rootModule,
                                                    mlir::MLIRContext *context);
 
-// Convert all stablehlo.custom_call @Sharding and @tt.sharding_constraint ops
-// to sdy.sharding_constraint ops.
+// Convert all stablehlo.custom_call @Sharding, @tt.sharding_constraint, and
+// @xla.sdy.FuncResultSharding ops to sdy.sharding_constraint ops.
 mlir::LogicalResult
 convertCustomCallToShardingConstraint(mlir::ModuleOp &rootModule,
-                                      mlir::MLIRContext *context,
-                                      mlir::OpBuilder &builder);
-
-// Convert xla.sdy.FuncResultSharding custom calls to sdy.sharding_constraint
-// ops. These marker operations specify result shardings and need to be
-// converted to sharding constraints so Shardy can generate appropriate
-// collectives.
-mlir::LogicalResult
-convertFuncResultShardingToConstraint(mlir::ModuleOp &rootModule,
                                       mlir::MLIRContext *context,
                                       mlir::OpBuilder &builder);
 

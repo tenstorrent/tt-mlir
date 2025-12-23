@@ -873,8 +873,8 @@ static std::string replaceMeshIdxPlaceholders(
   return result;
 }
 
-// Convert all stablehlo.custom_call @Sharding and @tt.sharding_constraint ops
-// to sdy.sharding_constraint ops.
+// Convert all stablehlo.custom_call @Sharding, @tt.sharding_constraint, and
+// @xla.sdy.FuncResultSharding ops to sdy.sharding_constraint ops.
 mlir::LogicalResult
 convertCustomCallToShardingConstraint(mlir::ModuleOp &rootModule,
                                       mlir::MLIRContext *context,
@@ -886,19 +886,17 @@ convertCustomCallToShardingConstraint(mlir::ModuleOp &rootModule,
     meshAxes = llvm::to_vector(meshOps[0].getMeshAttr().getAxes());
   }
 
-  rootModule.walk([&](mlir::Operation *op) {
-    if (!mlir::isa<mlir::stablehlo::CustomCallOp>(op)) {
-      return;
-    }
+  llvm::SmallVector<mlir::stablehlo::CustomCallOp> opsToErase;
+  bool hasFuncResultSharding = false;
 
-    // Check call target name to see if it's the one we are interested in.
-    mlir::stablehlo::CustomCallOp customCallOp =
-        mlir::cast<mlir::stablehlo::CustomCallOp>(op);
+  rootModule.walk([&](mlir::stablehlo::CustomCallOp customCallOp) {
     auto callTargetName = customCallOp.getCallTargetNameAttr();
-    // Handle both @Sharding (from xs.mark_sharding) and @tt.sharding_constraint
-    // (from custom ops).
+    // Handle @Sharding (from xs.mark_sharding), @tt.sharding_constraint
+    // (from custom ops), and @xla.sdy.FuncResultSharding (result shardings).
     if (callTargetName != gspmd_utils::kShardingCustomCallTargetName &&
-        callTargetName != sharding_utils::kTTShardingConstraintTargetName) {
+        callTargetName != sharding_utils::kTTShardingConstraintTargetName &&
+        callTargetName !=
+            gspmd_utils::kXlaSdyFuncResultShardingCallTargetName) {
       return;
     }
 
@@ -943,6 +941,13 @@ convertCustomCallToShardingConstraint(mlir::ModuleOp &rootModule,
         shardy_utils::convertXlaSdyToSdyDictionary(context, attrDict);
     mlir::Attribute sdyShardingAttr =
         newAttrDict.get(mlir::sdy::TensorShardingAttr::name);
+
+    // If no sharding attribute found, skip this op - it uses a different
+    // sharding format (e.g., mhlo.sharding) that is handled by AnalyzeMeshPass.
+    if (!sdyShardingAttr) {
+      return;
+    }
+
     mlir::sdy::TensorShardingAttr tensorShardingAttr =
         mlir::cast<mlir::sdy::TensorShardingAttr>(sdyShardingAttr);
 
@@ -953,56 +958,30 @@ convertCustomCallToShardingConstraint(mlir::ModuleOp &rootModule,
         customCallOp.getOperand(0), tensorShardingAttr);
     customCallOp.getResult(0).replaceAllUsesWith(
         shardingConstraintOp.getResult());
-  });
 
-  return mlir::success();
-}
-
-// Convert xla.sdy.FuncResultSharding custom calls to sdy.sharding_constraint
-// ops. These marker operations specify result shardings and need to be
-// converted to sharding constraints so Shardy can generate appropriate
-// collectives.
-mlir::LogicalResult
-convertFuncResultShardingToConstraint(mlir::ModuleOp &rootModule,
-                                      mlir::MLIRContext *context,
-                                      mlir::OpBuilder &builder) {
-  llvm::SmallVector<mlir::stablehlo::CustomCallOp> opsToErase;
-
-  rootModule.walk([&](mlir::stablehlo::CustomCallOp customCallOp) {
-    if (customCallOp.getCallTargetName() !=
+    // Only erase FuncResultSharding ops, others are needed by AnalyzeMeshPass.
+    if (callTargetName ==
         gspmd_utils::kXlaSdyFuncResultShardingCallTargetName) {
-      return;
+      hasFuncResultSharding = true;
+      opsToErase.push_back(customCallOp);
     }
-
-    mlir::DictionaryAttr attrDict = customCallOp->getAttrDictionary();
-    mlir::DictionaryAttr newAttrDict =
-        shardy_utils::convertXlaSdyToSdyDictionary(context, attrDict);
-    mlir::Attribute sdyShardingAttr =
-        newAttrDict.get(mlir::sdy::TensorShardingAttr::name);
-    mlir::sdy::TensorShardingAttr tensorShardingAttr =
-        mlir::cast<mlir::sdy::TensorShardingAttr>(sdyShardingAttr);
-
-    builder.setInsertionPointAfter(customCallOp);
-    auto shardingConstraintOp = builder.create<mlir::sdy::ShardingConstraintOp>(
-        customCallOp->getLoc(), customCallOp.getResult(0).getType(),
-        customCallOp.getOperand(0), tensorShardingAttr);
-    customCallOp.getResult(0).replaceAllUsesWith(
-        shardingConstraintOp.getResult());
-    opsToErase.push_back(customCallOp);
   });
 
   for (auto op : opsToErase) {
     op.erase();
   }
 
-  // Remove mhlo.sharding from function results to allow WrapUnderManualComputation
-  // to wrap the function body (gspmdAnnotationsExist checks for mhlo.sharding).
-  rootModule.walk([&](func::FuncOp funcOp) {
-    for (unsigned i = 0; i < funcOp.getNumResults(); i++) {
-      funcOp.removeResultAttr(
-          i, mlir::StringAttr::get(context, gspmd_utils::kXlaShardingAttr));
-    }
-  });
+  // Remove mhlo.sharding from function results to allow
+  // WrapUnderManualComputation to wrap the function body (gspmdAnnotationsExist
+  // checks for mhlo.sharding).
+  if (hasFuncResultSharding) {
+    rootModule.walk([&](func::FuncOp funcOp) {
+      for (unsigned i = 0; i < funcOp.getNumResults(); i++) {
+        funcOp.removeResultAttr(
+            i, mlir::StringAttr::get(context, gspmd_utils::kXlaShardingAttr));
+      }
+    });
+  }
 
   return mlir::success();
 }
