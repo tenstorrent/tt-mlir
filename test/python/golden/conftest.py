@@ -210,6 +210,59 @@ def pytest_addoption(parser):
         action="store_true",
         help="disable putting dispatch on ethernet cores - place it on worker cores instead; necessary on blackhole",
     )
+    parser.addoption(
+        "--dump-kernels",
+        action="store_true",
+        help="Dump kernels to disk as they are being executed",
+    )
+    parser.addoption(
+        "--load-kernels",
+        action="store_true",
+        help="Load kernels from disk (requires previous --dump-kernels run)",
+    )
+    parser.addoption(
+        "--kernel-source-dir",
+        action="store",
+        default="",
+        help="Directory to save/load kernels (defaults to /tmp)",
+    )
+    parser.addoption(
+        "--use-loc-for-kernel-name",
+        action="store_true",
+        help="Use location info for kernel filenames when dumping",
+    )
+
+
+@pytest.fixture(scope="session", autouse=True)
+def configure_debug_env(pytestconfig):
+    """
+    Configure runtime debug environment at session start.
+
+    This must run before any device operations as debug::Env is a
+    singleton that's initialized on first access. The first call to
+    DebugEnv.get() locks in the configuration for the entire process.
+
+    Options:
+        --dump-kernels: Dump kernels to disk during execution
+        --load-kernels: Load kernels from disk for execution
+        --kernel-source-dir: Directory for kernel files (default: /tmp)
+        --use-loc-for-kernel-name: Use location info for kernel filenames
+    """
+    dump_kernels = pytestconfig.getoption("--dump-kernels")
+    load_kernels = pytestconfig.getoption("--load-kernels")
+    kernel_source_dir = pytestconfig.getoption("--kernel-source-dir")
+    use_loc_for_kernel_name = pytestconfig.getoption("--use-loc-for-kernel-name")
+
+    # Only initialize if any kernel debug option is specified
+    if dump_kernels or load_kernels or kernel_source_dir or use_loc_for_kernel_name:
+        tt_runtime.runtime.DebugEnv.get(
+            dump_kernels,  # dumpKernels
+            load_kernels,  # loadKernels
+            use_loc_for_kernel_name,  # useLocForKernelName
+            kernel_source_dir,  # kernelSourceDir
+            True,  # deviceAddressValidation (safe default)
+            False,  # blockingCQ
+        )
 
 
 def get_board_id(system_desc) -> str:
