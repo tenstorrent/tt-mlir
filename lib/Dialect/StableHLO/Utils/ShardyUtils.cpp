@@ -714,10 +714,25 @@ parseDimensionShardings(const std::string &dimsContent,
     std::string dimContent =
         dimsContent.substr(braceStart + 1, braceEnd - braceStart - 1);
 
+    // Parse priority if present (e.g., "}p0" or "}p1")
+    std::optional<int64_t> priority = std::nullopt;
+    size_t afterBrace = braceEnd + 1;
+    if (afterBrace < dimsContent.length() && dimsContent[afterBrace] == 'p') {
+      size_t numStart = afterBrace + 1;
+      size_t numEnd = numStart;
+      while (numEnd < dimsContent.length() &&
+             std::isdigit(dimsContent[numEnd])) {
+        ++numEnd;
+      }
+      if (numEnd > numStart) {
+        priority = std::stoll(dimsContent.substr(numStart, numEnd - numStart));
+      }
+    }
+
     if (dimContent.empty()) {
-      // "#sdy.sharding<@mesh, [{}]>"
+      // "#sdy.sharding<@mesh, [{}]>" or "{?}" (open, empty)
       dimShardings.push_back(
-          mlir::sdy::DimensionShardingAttr::get(context, {}, true));
+          mlir::sdy::DimensionShardingAttr::get(context, {}, true, priority));
     } else {
       llvm::SmallVector<mlir::sdy::AxisRefAttr> axisRefs;
       size_t axisPos = 0;
@@ -739,8 +754,8 @@ parseDimensionShardings(const std::string &dimsContent,
         axisPos = quoteEnd + 1;
       }
 
-      dimShardings.push_back(
-          mlir::sdy::DimensionShardingAttr::get(context, axisRefs, isClosed));
+      dimShardings.push_back(mlir::sdy::DimensionShardingAttr::get(
+          context, axisRefs, isClosed, priority));
     }
 
     pos = braceEnd + 1;
