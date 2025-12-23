@@ -20,6 +20,10 @@ from ttmlir.ir import (
     Type,
 )
 
+_LOC_LINE_PATTERN = re.compile(r"^#loc.*$", re.MULTILINE)
+_LOC_INLINE_PATTERN = re.compile(r"\s*loc\((?:[^()]*(?:\([^()]*\))*)*\)")
+_SDY_MESH_PATTERN = re.compile(r"\s*sdy.mesh.*$", re.MULTILINE)
+
 
 @dataclass(frozen=True)
 class OperandAndResultBase(ABC):
@@ -120,9 +124,10 @@ class OpWrapper:
         attrs: Optional[OpAttributeMap] = None,
         func_op: Optional[func.FuncOp] = None,
         origin_model: str = "",
+        op_str: Optional[str] = None,
     ) -> None:
         """Constructor."""
-        self.op_string = str(op)
+        self.op_string = op_str if op_str is not None else str(op)
         self.op_name = op.name
         self.func_op_string = str(func_op) if func_op is not None else ""
         self.operands = [
@@ -220,8 +225,9 @@ class TTNNOpWrapper(OpWrapper):
         attrs: Optional[OpAttributeMap] = None,
         func_op: Optional[func.FuncOp] = None,
         origin_model: str = "",
+        op_str: Optional[str] = None,
     ) -> None:
-        super().__init__(op, attrs, func_op, origin_model)
+        super().__init__(op, attrs, func_op, origin_model, op_str)
         self.tt_device_op_string = str(tt_device_op)
 
     # @override
@@ -350,8 +356,9 @@ class ModuleWrapper:
         op: OpView,
         func_op: Optional[func.FuncOp] = None,
         origin_model: str = "",
+        op_str: Optional[str] = None,
     ) -> OpWrapper:
-        return OpWrapper(op, self._attributes, func_op, origin_model)
+        return OpWrapper(op, self._attributes, func_op, origin_model, op_str)
 
     # ----- Private methods and properties -----
 
@@ -446,9 +453,10 @@ class TTNNModuleWrapper(ModuleWrapper):
         op: OpView,
         func_op: Optional[func.FuncOp] = None,
         origin_model: str = "",
+        op_str: Optional[str] = None,
     ) -> TTNNOpWrapper:
         return TTNNOpWrapper(
-            op, self._tt_device_op, self._attributes, func_op, origin_model
+            op, self._tt_device_op, self._attributes, func_op, origin_model, op_str
         )
 
     # ----- Private methods and properties -----
@@ -505,12 +513,9 @@ def preprocess_module_str(module_str: str) -> str:
     - `loc(...(...)...)` from other lines
     - `.sdy.mesh...` lines
     """
-    loc_pattern = re.compile(r"^#loc.*$", re.MULTILINE)
-    module_str = re.sub(loc_pattern, "", module_str)
-    loc_pattern = re.compile(r"\s*loc\((?:[^()]*(?:\([^()]*\))*)*\)")
-    module_str = re.sub(loc_pattern, "", module_str)
-    loc_pattern = re.compile(r"\s*sdy.mesh.*$", re.MULTILINE)
-    return re.sub(loc_pattern, "", module_str)
+    module_str = re.sub(_LOC_LINE_PATTERN, "", module_str)
+    module_str = re.sub(_LOC_INLINE_PATTERN, "", module_str)
+    return re.sub(_SDY_MESH_PATTERN, "", module_str)
 
 
 def convert_to_module_wrapper(func: Callable) -> Callable:
