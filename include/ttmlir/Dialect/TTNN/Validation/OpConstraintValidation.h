@@ -25,6 +25,9 @@ enum class ValidationStatus {
   OutOfMemoryError
 };
 
+// Convert ValidationStatus to string for error messages
+const char *validationStatusToString(ValidationStatus status);
+
 // Result of a single constraint validation test.
 struct ValidationResult {
   ValidationStatus status = ValidationStatus::Success;

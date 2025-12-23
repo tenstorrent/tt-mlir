@@ -36,7 +36,6 @@ struct TTNNOptimizerOptions {
   bool rowMajorEnabled = false;
   float tensorL1UsageCap =
       0.95f; // Default to 100% of maximum free space in L1.
-  uint32_t maxFallbackAttempts = 10000;
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> devicePtr = nullptr;
 
   TTNNOptimizerOptions() = default;

@@ -246,42 +246,22 @@ public:
                          "Operation {} at {} fixed with fallback configuration",
                          operation->getName(), operation->getLoc());
           } else {
-            // Get validation status name for error message
-            const char *statusName = "Unknown";
-            switch (originalResult.status) {
-            case op_constraint_validation::ValidationStatus::Success:
-              statusName = "UnexpectedSuccess";
-              break;
-            case op_constraint_validation::ValidationStatus::NotImplemented:
-              statusName = "NotImplemented";
-              break;
-            case op_constraint_validation::ValidationStatus::MetalBackendError:
-              statusName = "MetalBackendError";
-              break;
-            case op_constraint_validation::ValidationStatus::
-                UnmatchedReferenceConfig:
-              statusName = "UnmatchedReferenceConfig";
-              break;
-            case op_constraint_validation::ValidationStatus::OutOfMemoryError:
-              statusName = "OutOfMemoryError";
-              break;
-            }
-
             std::string opStr;
             llvm::raw_string_ostream os(opStr);
             operation->print(os);
 
-            auto diag =
-                emitError(operation->getLoc())
+            emitError(operation->getLoc())
                 << "OperationValidationAndFallback: Operation "
-                << operation->getName() << " with " << inputLayouts.size()
-                << " inputs failed validation (original error: " << statusName;
-            if (!originalResult.errorMessage.empty()) {
-              diag << " - " << originalResult.errorMessage;
-            }
-            diag << "). No fallback configuration worked after testing up to " +
-                        std::to_string(maxFallbackAttempts) + " combinations.";
-            diag << "\nOperation IR: " << os.str();
+                << operation->getName()
+                << " failed validation (original error: "
+                << op_constraint_validation::validationStatusToString(
+                       originalResult.status)
+                << (!originalResult.errorMessage.empty()
+                        ? " - " + originalResult.errorMessage
+                        : "")
+                << "). No fallback configuration worked (tested up to "
+                << std::to_string(maxFallbackAttempts) << " combinations)."
+                << "\nOperation IR: " << os.str();
             validationFailed = true;
             signalPassFailure();
             return WalkResult::interrupt();
@@ -292,17 +272,11 @@ public:
     });
 
     // Log validation summary
-    if (validationFailed) {
-      TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
-                   "Operation validation FAILED: {} operations checked before "
-                   "failure, {} fixed",
-                   totalOperationsChecked, operationsFixed);
-    } else {
-      TTMLIR_DEBUG(
-          ttmlir::LogComponent::OpValidation,
-          "Operation validation complete: {} operations checked, {} fixed",
-          totalOperationsChecked, operationsFixed);
-    }
+    TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+                 "Operation validation {}: {} operations checked{}, {} fixed",
+                 validationFailed ? "FAILED" : "complete",
+                 totalOperationsChecked,
+                 validationFailed ? " before failure" : "", operationsFixed);
 #endif // TTMLIR_ENABLE_OPMODEL
   }
 
@@ -462,8 +436,6 @@ createFallbackTransforms(TTNNLayoutAttr originalLayout,
   std::vector<BufferType> targetBufferTypes = {BufferType::DRAM,
                                                BufferType::SystemMemory};
 
-  // Variable optimized out in debug builds, but useful for logging
-  [[maybe_unused]] size_t attemptedInsertions = 0;
   for (ttcore::DataType targetDataType : targetDataTypes) {
     for (Layout targetLayout : targetLayouts) {
       for (BufferType targetBufferType : targetBufferTypes) {
@@ -478,8 +450,10 @@ createFallbackTransforms(TTNNLayoutAttr originalLayout,
         TTNNLayoutAttr result = originalLayout;
 
         // Apply data type transformation first (before layout changes)
-        // This prevents issues where layout changes force incompatible layouts
-        // (e.g., BFP8 -> Tile) before we can try row-major with other dtypes
+        // This prevents issues where layout changes force incompatible
+        // combinations (e.g., BFP8 requires tile layout, so changing layout to
+        // row-major first would auto-convert back to tile, preventing us from
+        // trying row-major with other data types)
         if (targetDataType != result.getDataType()) {
           auto targetElementType = ttnn::utils::getElementType(
               result.getContext(), result.getLayout(), targetDataType);
@@ -495,16 +469,17 @@ createFallbackTransforms(TTNNLayoutAttr originalLayout,
           result = result.withBufferType(targetBufferType);
         }
 
-        attemptedInsertions++;
         fallbackLayoutsSet.insert(result);
       }
     }
   }
 
+  size_t totalCombinations =
+      targetDataTypes.size() * targetLayouts.size() * targetBufferTypes.size();
   TTMLIR_TRACE(
       ttmlir::LogComponent::OpValidation,
       "Generated {} unique fallback layouts from {} target combinations",
-      fallbackLayoutsSet.size(), attemptedInsertions);
+      fallbackLayoutsSet.size(), totalCombinations);
 
   // Convert set to vector for return
   return std::vector<TTNNLayoutAttr>(fallbackLayoutsSet.begin(),
@@ -869,7 +844,7 @@ bool tryConfigFallbacks(Operation *operation,
               if (result.isSuccess()) {
                 workingConfig = configAttr;
                 workingResult = result;
-                TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+                TTMLIR_TRACE(ttmlir::LogComponent::OpValidation,
                              "Found working config after {} failed attempts",
                              failedAttempts);
                 return true;
