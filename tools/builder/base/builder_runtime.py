@@ -494,6 +494,8 @@ def execute_fb(
             post_op_get_callback_fn(callback_runtime_config),
         )
 
+    torch.set_printoptions(threshold=8192, edgeitems=3, linewidth=8192)
+
     for program_index in program_indices:
         if fbb.is_program_private(program_index):
             continue
@@ -506,6 +508,9 @@ def execute_fb(
             if not disable_golden:
                 golden_inputs_torch.append(
                     golden_input_output_tensors[program_index][f"input_{i}"][0]
+                )
+                print(
+                    f"Input{i} shape={golden_inputs_torch[i].shape}\n{golden_inputs_torch[i]}"
                 )
             else:
                 torch_tensor = torch.randn(
@@ -522,6 +527,9 @@ def execute_fb(
             if not disable_golden:
                 golden_outputs_torch.append(
                     golden_input_output_tensors[program_index][f"output_{i}"][0]
+                )
+                print(
+                    f"Golden{i} shape={golden_outputs_torch[i].shape}\n{golden_outputs_torch[i]}"
                 )
 
             torch_tensor = torch.zeros(
@@ -590,6 +598,7 @@ def execute_fb(
                     data_buffer,
                     dtype=runtime_dtype_to_torch_dtype(outputs[i].get_dtype()),
                 ).reshape(outputs[i].get_shape())
+            print(f"Output{i} shape={output_tensor_torch.shape}\n{output_tensor_torch}")
 
             cal_atol, cal_rtol, cal_pcc, = get_atol_rtol_pcc(
                 golden_outputs_torch[i],
