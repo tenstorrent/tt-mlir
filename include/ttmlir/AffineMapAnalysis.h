@@ -1177,6 +1177,16 @@ inline int64_t analyzeSingleShardDimContiguity(mlir::AffineMap map,
     dimContiguity = shape[dimPos];
   }
 
+  // Handle partial cycles: when dimExtent % dimContiguity != 0, the last cycle
+  // has fewer elements, creating uneven run lengths. GCD with partial cycle.
+  int64_t dimExtent = shape[dimPos];
+  if (dimContiguity > 0 && dimContiguity < dimExtent) {
+    int64_t remainder = dimExtent % dimContiguity;
+    if (remainder != 0) {
+      dimContiguity = std::gcd(dimContiguity, remainder);
+    }
+  }
+
   return dimContiguity;
 }
 
