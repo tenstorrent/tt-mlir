@@ -61,6 +61,7 @@ table DistributeTensorOp {
   mapper_config: tt.target.ttnn.MeshMapperConfig;
   device: tt.target.DeviceRef;
   cq_id: uint32 = null;
+  to_device: bool = null;
 }
 
 table AggregateTensorOp {

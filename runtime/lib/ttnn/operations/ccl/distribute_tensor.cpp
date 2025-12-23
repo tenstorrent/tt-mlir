@@ -47,8 +47,13 @@ void run(const ::tt::target::ttnn::DistributeTensorOp *op,
   }
   std::unique_ptr<TensorToMesh> meshMapper =
       ::ttnn::distributed::create_mesh_mapper(meshDevice, meshMapperConfig);
-  ::ttnn::Tensor out =
-      ::ttnn::distributed::distribute_tensor(input, *meshMapper);
+  std::optional<std::reference_wrapper<::ttnn::MeshDevice>>
+      meshDeviceForToDevice = std::nullopt;
+  if (op->to_device().has_value() && op->to_device().value()) {
+    meshDeviceForToDevice = std::ref(meshDevice);
+  }
+  ::ttnn::Tensor out = ::ttnn::distributed::distribute_tensor(
+      input, *meshMapper, meshDeviceForToDevice);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

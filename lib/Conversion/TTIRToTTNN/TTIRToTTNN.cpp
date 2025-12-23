@@ -2013,11 +2013,18 @@ public:
     for (uint32_t dim : meshShape) {
       meshShapeAttr.push_back(rewriter.getUI32IntegerAttr(dim));
     }
+
+    RankedTensorType outputType =
+        mlir::cast<RankedTensorType>(op.getResult().getType());
+    auto ttnnLayoutAttr =
+        mlir::cast<ttnn::TTNNLayoutAttr>(outputType.getEncoding());
+    bool needToDevice =
+        ttnnLayoutAttr.getBufferType() != ttnn::BufferType::SystemMemory;
     rewriter.replaceOpWithNewOp<ttnn::DistributeTensorOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(),
         ttnn::MeshMapperConfigAttr::get(context, placements, meshShapeAttr),
-        meshDevice, nullptr);
+        meshDevice, nullptr, needToDevice);
     return success();
   }
 

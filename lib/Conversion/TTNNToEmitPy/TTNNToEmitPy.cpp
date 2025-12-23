@@ -2927,6 +2927,9 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(createMapperOp.getResult(0), "mapper", 1)};
+    if (srcOp.getToDevice()) {
+      args.push_back(emitter.emit(adaptor.getMeshDevice(), "mesh_device"));
+    }
 
     emitter.replaceOp(*this, args);
     return success();

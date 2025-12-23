@@ -2778,7 +2778,8 @@ createOp(FlatbufferObjectCache &cache, DistributeTensorOp op) {
 
   return ::tt::target::ttnn::CreateDistributeTensorOp(
       *cache.fbb, input, output, mapperConfig,
-      cache.at<::tt::target::DeviceRef>(device), op.getCqId());
+      cache.at<::tt::target::DeviceRef>(device), op.getCqId(),
+      op.getToDevice());
 }
 ::flatbuffers::Offset<::tt::target::ttnn::AggregateTensorOp>
 createOp(FlatbufferObjectCache &cache, AggregateTensorOp op) {

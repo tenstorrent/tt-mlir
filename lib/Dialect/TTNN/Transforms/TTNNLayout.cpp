@@ -107,6 +107,24 @@ static bool shouldMeshShardOpForceSystemMemory(mlir::Operation *srcOp) {
                             mlir::tt::ttcore::MeshShardType::Identity;
 }
 
+// Check if an operation is a CPU operation (CPU-hoisted call).
+static bool isCPUOperation(mlir::Operation *op) {
+  if (auto callOp = mlir::dyn_cast_if_present<func::CallOp>(op)) {
+    return callOp->hasAttr(ttir::CPUHoistedCallAttr::name);
+  }
+  return false;
+}
+
+// Check if a Value is consumed by a CPU operation.
+static bool isConsumedByCPUOperation(Value value) {
+  for (Operation *user : value.getUsers()) {
+    if (isCPUOperation(user)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 //===----------------------------------------------------------------------===//
 // To layout pass
 //===----------------------------------------------------------------------===//
@@ -381,6 +399,40 @@ class TTNNLayoutMeshShardRewriter : public OpRewritePattern<ttir::MeshShardOp> {
 public:
   TTNNLayoutMeshShardRewriter(MLIRContext *ctx)
       : OpRewritePattern<ttir::MeshShardOp>(ctx) {}
+
+private:
+  // Update the input operand layout if needed.
+  // Returns true if the operand was modified.
+  bool updateInputLayout(ttir::MeshShardOp op, PatternRewriter &rewriter,
+                         BufferType targetBufferType) const {
+    Value input = op.getOperand();
+    Location newLoc = appendInputSuffix(op.getLoc(), 0);
+    std::optional<Value> inputLayout = createToLayoutOp(
+        rewriter, newLoc, input, targetBufferType, /* tiled */ false);
+    if (inputLayout.has_value()) {
+      rewriter.modifyOpInPlace(op, [&]() { op->setOperand(0, *inputLayout); });
+      return true;
+    }
+    return false;
+  }
+
+  // Update the result type layout if needed.
+  // Returns true if the result type was modified.
+  bool updateResultType(ttir::MeshShardOp op, PatternRewriter &rewriter,
+                        TTNNLayoutAttr newLayout) const {
+    RankedTensorType resultType =
+        mlir::cast<RankedTensorType>(op.getResult().getType());
+    if (newLayout != resultType.getEncoding()) {
+      auto resultSystemMemoryType = RankedTensorType::get(
+          resultType.getShape(), resultType.getElementType(), newLayout);
+      rewriter.modifyOpInPlace(
+          op, [&]() { op->getResult(0).setType(resultSystemMemoryType); });
+      return true;
+    }
+    return false;
+  }
+
+public:
   // Match and rewrite the MeshShardOp.
   LogicalResult matchAndRewrite(ttir::MeshShardOp op,
                                 PatternRewriter &rewriter) const override {
@@ -392,29 +444,46 @@ public:
     if (!shouldMeshShardOpForceSystemMemory(op.getOperation())) {
       return failure();
     }
-
     bool modified = false;
-    Value input = op.getOperand();
-    Location newLoc = appendInputSuffix(op.getLoc(), 0);
-    std::optional<Value> inputLayout = createToLayoutOp(
-        rewriter, newLoc, input, BufferType::SystemMemory, /* tiled */ false);
-    if (inputLayout.has_value()) {
-      rewriter.modifyOpInPlace(op, [&]() { op->setOperand(0, *inputLayout); });
-      modified = true;
+    if (op.getShardDirection() == ttcore::MeshShardDirection::FullToShard) {
+      modified |= updateInputLayout(op, rewriter, BufferType::SystemMemory);
+
+      RankedTensorType resultType =
+          mlir::cast<RankedTensorType>(op.getResult().getType());
+      bool outputToCPU = isConsumedByCPUOperation(op.getResult());
+      TTNNLayoutAttr newLayout =
+          outputToCPU
+              ? createLayoutAttr(rewriter.getContext(), nullptr, resultType,
+                                 BufferType::SystemMemory, /* isTiled */ false)
+              : createLayoutAttr(rewriter.getContext(), nullptr, resultType,
+                                 BufferType::DRAM, /* isTiled */ false);
+      modified |= updateResultType(op, rewriter, newLayout);
+    } else if (op.getShardDirection() ==
+               ttcore::MeshShardDirection::ShardToFull) {
+      Value input = op.getOperand();
+      RankedTensorType inputType =
+          mlir::cast<RankedTensorType>(input.getType());
+
+      // Preserve the current bufferType and only change tiled to RowMajor
+      BufferType currentBufferType = g_defaultMemorySpaceDevice;
+      if (auto currentLayout = mlir::dyn_cast_if_present<TTNNLayoutAttr>(
+              inputType.getEncoding())) {
+        currentBufferType = currentLayout.getBufferType();
+      }
+
+      modified |= updateInputLayout(op, rewriter, currentBufferType);
+
+      RankedTensorType resultType =
+          mlir::cast<RankedTensorType>(op.getResult().getType());
+      TTNNLayoutAttr newLayout =
+          createLayoutAttr(rewriter.getContext(), nullptr, resultType,
+                           BufferType::SystemMemory, /* isTiled */ false);
+      modified |= updateResultType(op, rewriter, newLayout);
+    } else {
+      op.emitError("Invalid shard direction: " +
+                   stringifyMeshShardDirection(op.getShardDirection()));
     }
 
-    RankedTensorType resultType =
-        mlir::cast<RankedTensorType>(op.getResult().getType());
-    TTNNLayoutAttr newLayout =
-        createLayoutAttr(rewriter.getContext(), nullptr, resultType,
-                         BufferType::SystemMemory, /* isTiled */ false);
-    if (newLayout != resultType.getEncoding()) {
-      auto resultSystemMemoryType = RankedTensorType::get(
-          resultType.getShape(), resultType.getElementType(), newLayout);
-      rewriter.modifyOpInPlace(
-          op, [&]() { op->getResult(0).setType(resultSystemMemoryType); });
-      modified = true;
-    }
     return success(modified);
   }
 };

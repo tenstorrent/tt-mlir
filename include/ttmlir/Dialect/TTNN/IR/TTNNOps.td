@@ -3192,7 +3192,8 @@ def TTNN_DistributeTensorOp : TTNN_Op<"distribute_tensor"> {
     AnyRankedTensor:$input,
     TTNN_MeshMapperConfigAttr:$mapper_config,
     TTNN_Device:$mesh_device,
-    OptionalAttr<UI32Attr>:$cq_id
+    OptionalAttr<UI32Attr>:$cq_id,
+    DefaultValuedAttr<BoolAttr, "false">:$to_device // Whether to move the result tensor to device
   );
 
   let results = (outs AnyRankedTensor:$result); // Distributed tensor

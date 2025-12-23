@@ -2615,6 +2615,9 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(tensorToMeshRef, /*index=*/1)};
+    if (srcOp.getToDevice()) {
+      args.push_back(emitter.emit(adaptor.getMeshDevice(), 2));
+    }
 
     emitter.replaceOp(*this, args);
     return success();
