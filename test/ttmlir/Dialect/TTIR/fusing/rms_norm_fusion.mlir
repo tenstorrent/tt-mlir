@@ -139,4 +139,72 @@ module {
         %18 = "ttir.reshape"(%17) <{shape = [128 : i32, 1024 : i32]}> : (tensor<128x1x1024xbf16>) -> tensor<128x1024xbf16>
         return %18 : tensor<128x1024xbf16>
     }
+
+    // RMS norm with bf16 input, different output shape (needs reshape only, no typecast).
+    // Input is 32x2048xbf16, output should be 32x1x2048xbf16.
+    // The fusion produces rms_norm -> reshape, but erase-inverse-ops commutes reshape before rms_norm.
+    // CHECK-LABEL: func.func @rms_norm_fusion_with_reshape_only
+    func.func @rms_norm_fusion_with_reshape_only(%arg0: tensor<32x2048xbf16>, %arg1: tensor<2048xbf16>) -> tensor<32x1x2048xbf16> {
+        // CHECK: %[[RESHAPE:.*]] = "ttir.reshape"(%arg0)
+        // CHECK-SAME: (tensor<32x2048xbf16>) -> tensor<32x1x2048xbf16>
+        // CHECK: %[[RMSNORM:.*]] = "ttir.rms_norm"(%[[RESHAPE]], %arg1)
+        // CHECK-SAME: (tensor<32x1x2048xbf16>, tensor<2048xbf16>) -> tensor<32x1x2048xbf16>
+        // CHECK-NOT: "ttir.typecast"
+        // CHECK: return %[[RMSNORM]]
+        %0 = "ttir.constant"() <{value = dense<9.99999974E-6> : tensor<32x1x1xf32>}> : () -> tensor<32x1x1xf32>
+        %1 = "ttir.constant"() <{value = dense<4.8828125E-4> : tensor<32x1xf32>}> : () -> tensor<32x1xf32>
+        %2 = "ttir.constant"() <{value = dense<2.000000e+00> : tensor<32x1x2048xf32>}> : () -> tensor<32x1x2048xf32>
+        %3 = "ttir.reshape"(%arg1) <{shape = [1 : i32, 1 : i32, 2048 : i32]}> : (tensor<2048xbf16>) -> tensor<1x1x2048xbf16>
+        %4 = "ttir.broadcast"(%3) <{broadcast_dimensions = array<i64: 32, 1, 1>}> : (tensor<1x1x2048xbf16>) -> tensor<32x1x2048xbf16>
+        %5 = "ttir.reshape"(%arg0) <{shape = [32 : i32, 1 : i32, 2048 : i32]}> : (tensor<32x2048xbf16>) -> tensor<32x1x2048xbf16>
+        %6 = "ttir.typecast"(%5) <{conservative_folding = false}> : (tensor<32x1x2048xbf16>) -> tensor<32x1x2048xf32>
+        %7 = "ttir.pow"(%6, %2) : (tensor<32x1x2048xf32>, tensor<32x1x2048xf32>) -> tensor<32x1x2048xf32>
+        %8 = "ttir.sum"(%7) <{dim_arg = [2 : i32], keep_dim = false}> : (tensor<32x1x2048xf32>) -> tensor<32x1xf32>
+        %9 = "ttir.multiply"(%8, %1) : (tensor<32x1xf32>, tensor<32x1xf32>) -> tensor<32x1xf32>
+        %10 = "ttir.reshape"(%9) <{shape = [32 : i32, 1 : i32, 1 : i32]}> : (tensor<32x1xf32>) -> tensor<32x1x1xf32>
+        %11 = "ttir.add"(%10, %0) : (tensor<32x1x1xf32>, tensor<32x1x1xf32>) -> tensor<32x1x1xf32>
+        %12 = "ttir.rsqrt"(%11) : (tensor<32x1x1xf32>) -> tensor<32x1x1xf32>
+        %13 = "ttir.reshape"(%12) <{shape = [32 : i32, 1 : i32]}> : (tensor<32x1x1xf32>) -> tensor<32x1xf32>
+        %14 = "ttir.reshape"(%13) <{shape = [32 : i32, 1 : i32, 1 : i32]}> : (tensor<32x1xf32>) -> tensor<32x1x1xf32>
+        %15 = "ttir.broadcast"(%14) <{broadcast_dimensions = array<i64: 1, 1, 2048>}> : (tensor<32x1x1xf32>) -> tensor<32x1x2048xf32>
+        %16 = "ttir.multiply"(%6, %15) : (tensor<32x1x2048xf32>, tensor<32x1x2048xf32>) -> tensor<32x1x2048xf32>
+        %17 = "ttir.typecast"(%16) <{conservative_folding = false}> : (tensor<32x1x2048xf32>) -> tensor<32x1x2048xbf16>
+        // Note: No reshape after outer multiply - output keeps 32x1x2048 shape (different from input 32x2048)
+        %18 = "ttir.multiply"(%4, %17) : (tensor<32x1x2048xbf16>, tensor<32x1x2048xbf16>) -> tensor<32x1x2048xbf16>
+        return %18 : tensor<32x1x2048xbf16>
+    }
+
+    // RMS norm with f32 input, different output shape (needs reshape), and bf16 output (needs typecast).
+    // Input is 32x2048xf32, output should be 32x1x2048xbf16.
+    // The fusion produces rms_norm -> reshape -> typecast, but erase-inverse-ops commutes reshape before rms_norm.
+    // CHECK-LABEL: func.func @rms_norm_fusion_with_reshape_and_typecast
+    func.func @rms_norm_fusion_with_reshape_and_typecast(%arg0: tensor<32x2048xf32>, %arg1: tensor<2048xbf16>) -> tensor<32x1x2048xbf16> {
+        // CHECK: %[[RESHAPE:.*]] = "ttir.reshape"(%arg0)
+        // CHECK-SAME: (tensor<32x2048xf32>) -> tensor<32x1x2048xf32>
+        // CHECK: %[[RMSNORM:.*]] = "ttir.rms_norm"(%[[RESHAPE]], %arg1)
+        // CHECK-SAME: (tensor<32x1x2048xf32>, tensor<2048xbf16>) -> tensor<32x1x2048xf32>
+        // CHECK: %[[TYPECAST:.*]] = "ttir.typecast"(%[[RMSNORM]])
+        // CHECK-SAME: (tensor<32x1x2048xf32>) -> tensor<32x1x2048xbf16>
+        // CHECK: return %[[TYPECAST]]
+        %0 = "ttir.constant"() <{value = dense<9.99999974E-6> : tensor<32x1x1xf32>}> : () -> tensor<32x1x1xf32>
+        %1 = "ttir.constant"() <{value = dense<4.8828125E-4> : tensor<32x1xf32>}> : () -> tensor<32x1xf32>
+        %2 = "ttir.constant"() <{value = dense<2.000000e+00> : tensor<32x1x2048xf32>}> : () -> tensor<32x1x2048xf32>
+        %3 = "ttir.reshape"(%arg1) <{shape = [1 : i32, 1 : i32, 2048 : i32]}> : (tensor<2048xbf16>) -> tensor<1x1x2048xbf16>
+        %4 = "ttir.broadcast"(%3) <{broadcast_dimensions = array<i64: 32, 1, 1>}> : (tensor<1x1x2048xbf16>) -> tensor<32x1x2048xbf16>
+        %5 = "ttir.reshape"(%arg0) <{shape = [32 : i32, 1 : i32, 2048 : i32]}> : (tensor<32x2048xf32>) -> tensor<32x1x2048xf32>
+        %6 = "ttir.pow"(%5, %2) : (tensor<32x1x2048xf32>, tensor<32x1x2048xf32>) -> tensor<32x1x2048xf32>
+        %7 = "ttir.sum"(%6) <{dim_arg = [2 : i32], keep_dim = false}> : (tensor<32x1x2048xf32>) -> tensor<32x1xf32>
+        %8 = "ttir.multiply"(%7, %1) : (tensor<32x1xf32>, tensor<32x1xf32>) -> tensor<32x1xf32>
+        %9 = "ttir.reshape"(%8) <{shape = [32 : i32, 1 : i32, 1 : i32]}> : (tensor<32x1xf32>) -> tensor<32x1x1xf32>
+        %10 = "ttir.add"(%9, %0) : (tensor<32x1x1xf32>, tensor<32x1x1xf32>) -> tensor<32x1x1xf32>
+        %11 = "ttir.rsqrt"(%10) : (tensor<32x1x1xf32>) -> tensor<32x1x1xf32>
+        %12 = "ttir.reshape"(%11) <{shape = [32 : i32, 1 : i32]}> : (tensor<32x1x1xf32>) -> tensor<32x1xf32>
+        %13 = "ttir.reshape"(%12) <{shape = [32 : i32, 1 : i32, 1 : i32]}> : (tensor<32x1xf32>) -> tensor<32x1x1xf32>
+        %14 = "ttir.broadcast"(%13) <{broadcast_dimensions = array<i64: 1, 1, 2048>}> : (tensor<32x1x1xf32>) -> tensor<32x1x2048xf32>
+        %15 = "ttir.multiply"(%5, %14) : (tensor<32x1x2048xf32>, tensor<32x1x2048xf32>) -> tensor<32x1x2048xf32>
+        %16 = "ttir.typecast"(%15) <{conservative_folding = false}> : (tensor<32x1x2048xf32>) -> tensor<32x1x2048xbf16>
+        // Note: No reshape after outer multiply - output keeps 32x1x2048 shape
+        %17 = "ttir.multiply"(%4, %16) : (tensor<32x1x2048xbf16>, tensor<32x1x2048xbf16>) -> tensor<32x1x2048xbf16>
+        return %17 : tensor<32x1x2048xbf16>
+    }
 }
