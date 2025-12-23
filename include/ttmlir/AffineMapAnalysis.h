@@ -507,11 +507,15 @@ inline int64_t analyzeShardResultExprForContiguity(
         }
         if (lhsKind == mlir::AffineExprKind::Mod &&
             kind == mlir::AffineExprKind::FloorDiv) {
-          // Inner is mod, outer is floordiv: analyze mod op, then multiply by
-          // floordiv divisor.
-          int64_t modBound = analyzeShardResultExprForContiguity(
-              lhsBinOp, dimBounds, dimPos, numGridDims, innerRhsConstValue);
-          return modBound * modulus;
+          // (X mod N) floordiv K
+          // If N <= K: mod value is always in [0, K-1], floordiv always 0.
+          if (innerRhsConstValue <= modulus) {
+            return -1; // Always 0, unconstrained
+          }
+          // If N > K: the contiguity is determined by the mod expression.
+          // Analyze the mod expression for when it causes discontinuities.
+          return analyzeShardResultExprForContiguity(lhsBinOp, dimBounds,
+                                                     dimPos, numGridDims);
         }
         if (lhsKind == mlir::AffineExprKind::FloorDiv &&
             kind == mlir::AffineExprKind::Mod) {

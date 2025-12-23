@@ -886,31 +886,46 @@ TEST(AffineMapUtilsTest, CanTestSingleCoalescingFactorMismatch) {
   using namespace mlir;
   MLIRContext context;
 
-  // 4D->4D FAIL case.
-  // inputDeviceShape: [2, 1, 5, 1, 4, 4, 3, 4].
-  // outputDeviceShape: [60, 1, 8, 4].
-  // map: (d0, d1, d2, d3, d4, d5, d6, d7) -> (
-  //   d0 * 30 + (d4 * 240 + d1 * 240 + d5 * 60 + d2 * 12 + d6 * 4 + d3 * 4 +
-  //   d7) floordiv 32, 0,
-  //   ((d4 * 60 + d1 * 60 + d5 * 15 + d2 * 3 + d3 + d6) mod 8) * 4 + d7
-  // ).
-  // coalescingFactorSampling: 4, coalescingFactorAnalytical: 8.
+  // Failing test case:
+  // affine map: (d0, d1, d2, d3, d4, d5, d6, d7) -> (
+  //   0,
+  //   (((((d3 * 32 + d7) mod 128) floordiv 32) mod 4) floordiv 2) mod 2,
+  //   (((d3 * 32 + d7) mod 128) floordiv 32) mod 2,
+  //   ((((((d6 + (d3 * 32 + d7) floordiv 128) mod 32) * 128 +
+  //       (d3 * 32 + d7) mod 128) mod 2304) floordiv 128 +
+  //     ((d3 * 32 + d7) mod 128) floordiv 128) mod 32) * 128 + (d7 mod 32) * 4
+  // )
+  // shape: (1x1x1x4x1x1x32x32)
   AffineExpr d0, d1, d2, d3, d4, d5, d6, d7;
   bindDims(&context, d0, d1, d2, d3, d4, d5, d6, d7);
 
-  AffineExpr r0 =
-      d0 * 30 + (d4 * 240 + d1 * 240 + d5 * 60 + d2 * 12 + d6 * 4 + d3 * 4 + d7)
-                    .floorDiv(32);
-  AffineExpr r1 = getAffineConstantExpr(0, &context);
-  AffineExpr r2 =
-      ((d4 * 60 + d1 * 60 + d5 * 15 + d2 * 3 + d3 + d6) % 8) * 4 + d7;
+  // Build (d3 * 32 + d7) - common subexpression
+  AffineExpr d3_32_d7 = d3 * 32 + d7;
 
-  SmallVector<AffineExpr> results{r0, r1, r2};
+  // r0 = 0
+  AffineExpr r0 = getAffineConstantExpr(0, &context);
+
+  // r1 = (((((d3 * 32 + d7) mod 128) floordiv 32) mod 4) floordiv 2) mod 2
+  AffineExpr r1 = (((((d3_32_d7) % 128).floorDiv(32)) % 4).floorDiv(2)) % 2;
+
+  // r2 = (((d3 * 32 + d7) mod 128) floordiv 32) mod 2
+  AffineExpr r2 = (((d3_32_d7) % 128).floorDiv(32)) % 2;
+
+  // r3 = ((((((d6 + (d3 * 32 + d7) floordiv 128) mod 32) * 128 +
+  //         (d3 * 32 + d7) mod 128) mod 2304) floordiv 128 +
+  //       ((d3 * 32 + d7) mod 128) floordiv 128) mod 32) * 128 + (d7 mod 32) *
+  //       4
+  AffineExpr innerSum = (d6 + (d3_32_d7).floorDiv(128)) % 32;
+  AffineExpr bigExpr = (innerSum * 128 + (d3_32_d7) % 128) % 2304;
+  AffineExpr r3 =
+      (((bigExpr.floorDiv(128) + ((d3_32_d7) % 128).floorDiv(128)) % 32) * 128 +
+       (d7 % 32) * 4);
+
+  SmallVector<AffineExpr> results{r0, r1, r2, r3};
   AffineMap memoryMap =
       AffineMap::get(/*dimCount=*/8, /*symbolCount=*/0, results, &context);
 
-  SmallVector<int64_t> inputDeviceShape = {2, 1, 5, 1, 4, 4, 3, 4};
-  SmallVector<int64_t> outputDeviceShape = {60, 1, 8, 4};
+  SmallVector<int64_t> inputDeviceShape = {1, 1, 1, 4, 1, 1, 32, 32};
 
   constexpr int64_t elemSizeBytes = 1;
   unsigned numGridDims = inputDeviceShape.size() / 2; // 4.
