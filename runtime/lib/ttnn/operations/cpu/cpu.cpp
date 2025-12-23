@@ -38,19 +38,11 @@ void run(const ::tt::target::ttnn::CpuOp *op, ProgramContext &context) {
   // Callback for tensor creation from WrappedTensor.
   common::CreateTensorCallbackType<::ttnn::Tensor,
                                    ::tt::target::ttnn::TensorRef>
-      createTensor =
-          [](const tt::target::ttnn::TensorRef *ref,
-             const common::WrappedTensor &wrapped,
-             std::function<void()> deletionCallback) -> ::ttnn::Tensor {
+      createTensor = [](const tt::target::ttnn::TensorRef *ref,
+                        std::shared_ptr<void> dataPtr) -> ::ttnn::Tensor {
     ::ttnn::Shape shape = utils::toTTNNShape(*ref->desc()->shape());
     ::ttnn::DataType dtype = ::tt::runtime::ttnn::utils::toTTNNDataType(
         ref->desc()->layout()->memory_desc()->data_type());
-
-    // Create shared_ptr that will free the allocated memory when tensor is
-    // destroyed.
-    std::shared_ptr<void> dataPtr(
-        wrapped.alignedStart,
-        [deletionCallback](void *) { deletionCallback(); });
 
     ::ttnn::Tensor tensor;
     switch (dtype) {

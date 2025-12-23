@@ -465,15 +465,7 @@ void MCQExecutor::execute(const target::metal::CpuCommand *command) {
 
   common::CreateTensorCallbackType<Tensor, tt::target::metal::BufferRef>
       createTensor = [](const tt::target::metal::BufferRef *ref,
-                        const common::WrappedTensor &wrapped,
-                        std::function<void()> deletionCallback) -> Tensor {
-    // Actual tensor data might be aligned, so we use alignedStart.
-    void *data = wrapped.alignedStart;
-
-    // Create shared_ptr that points to the data with custom deleter.
-    auto dataPtr = std::shared_ptr<void>(
-        data, [deletionCallback](void *) { deletionCallback(); });
-
+                        std::shared_ptr<void> dataPtr) -> Tensor {
     TensorDesc desc = createTensorDescFromBufferDesc(ref->desc());
     return ttmetal::createBorrowedHostTensor(dataPtr, desc);
   };
