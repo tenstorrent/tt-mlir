@@ -959,10 +959,6 @@ convertCustomCallToShardingConstraint(mlir::ModuleOp &rootModule,
   return mlir::success();
 }
 
-// Convert xla.sdy.FuncResultSharding custom calls to sdy.sharding_constraint
-// ops. These marker operations specify result shardings and need to be
-// converted to sharding constraints so Shardy can generate appropriate
-// collectives.
 mlir::LogicalResult
 convertFuncResultShardingToConstraint(mlir::ModuleOp &rootModule,
                                       mlir::MLIRContext *context,
@@ -975,7 +971,6 @@ convertFuncResultShardingToConstraint(mlir::ModuleOp &rootModule,
       return;
     }
 
-    // Extract sharding from the FuncResultSharding attributes
     mlir::DictionaryAttr attrDict = customCallOp->getAttrDictionary();
     mlir::DictionaryAttr newAttrDict =
         shardy_utils::convertXlaSdyToSdyDictionary(context, attrDict);
@@ -1006,15 +1001,13 @@ convertFuncResultShardingToConstraint(mlir::ModuleOp &rootModule,
     op.erase();
   }
 
-  // Remove mhlo.sharding from function results to allow
-  // WrapUnderManualComputation to wrap the function body (gspmdAnnotationsExist
-  // checks for mhlo.sharding).
-  // rootModule.walk([&](func::FuncOp funcOp) {
-  //   for (unsigned i = 0; i < funcOp.getNumResults(); i++) {
-  //     funcOp.removeResultAttr(
-  //         i, mlir::StringAttr::get(context, gspmd_utils::kXlaShardingAttr));
-  //   }
-  // });
+  // Delete gspmd xla.sharding attributes from function results.
+  rootModule.walk([&](func::FuncOp funcOp) {
+    for (unsigned i = 0; i < funcOp.getNumResults(); i++) {
+      funcOp.removeResultAttr(
+          i, mlir::StringAttr::get(context, gspmd_utils::kXlaShardingAttr));
+    }
+  });
 
   return mlir::success();
 }
