@@ -2503,7 +2503,6 @@ class TTNNBuilder(Builder):
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
         ttnn_op = self.get_opview_from_method(TTNNBuilder.logical_left_shift)
-        dtype = self._get_data_type_attribute(in0)
 
         if output_type is None:
             mlir_output_type = self.get_type(in0)
@@ -2526,7 +2525,6 @@ class TTNNBuilder(Builder):
             in0,
             in1,
             loc=loc,
-            dtype=dtype,
         )
         op_result = op.result
 
@@ -2550,7 +2548,7 @@ class TTNNBuilder(Builder):
         rhs = global_dict[old_op.rhs]
         result = old_op.result.type
 
-        new_op = ttnn_op(result, lhs, rhs, loc=old_op.location, dtype=old_op.dtype)
+        new_op = ttnn_op(result, lhs, rhs, loc=old_op.location)
         new_op_result = new_op.result
 
         if not self._disable_golden_check:
@@ -2588,7 +2586,27 @@ class TTNNBuilder(Builder):
 
                 @func.func(*op_input_types, name="logical_left_shift_module")
                 def decorated_func(*inputs):
-                    pass
+                    lhs = inputs[0]
+                    rhs = inputs[1]
+                    result = old_op.result.type
+
+                    new_op = ttnn_op(result, lhs, rhs, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttnn_op)
+                        input0 = self._get_golden_tensor(old_op.lhs)
+                        input1 = self._get_golden_tensor(old_op.rhs)
+                        golden_output = op_golden_function(
+                            input0, input1, result.element_type
+                        )
+                        lshift_builder._set_golden_tensor(new_op_result, golden_output)
+                        lshift_builder._set_golden_tensor(lhs, input0)
+                        lshift_builder._set_golden_tensor(rhs, input1)
+                        ordered_inputs.extend([lhs, rhs])
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
 
                 new_func_op = decorated_func.func_op
                 lshift_builder._func_ops_generated[new_func_op] = [
@@ -2947,7 +2965,29 @@ class TTNNBuilder(Builder):
 
                 @func.func(*op_input_types, name="logical_xor_module")
                 def decorated_func(*inputs):
-                    pass
+                    lhs = inputs[0]
+                    rhs = inputs[1]
+                    result = old_op.result.type
+
+                    new_op = ttnn_op(
+                        result, lhs, rhs, loc=old_op.location, dtype=old_op.dtype
+                    )
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttnn_op)
+                        input0 = self._get_golden_tensor(old_op.lhs)
+                        input1 = self._get_golden_tensor(old_op.rhs)
+                        golden_output = op_golden_function(
+                            input0, input1, result.element_type
+                        )
+                        xor_builder._set_golden_tensor(new_op_result, golden_output)
+                        xor_builder._set_golden_tensor(lhs, input0)
+                        xor_builder._set_golden_tensor(rhs, input1)
+                        ordered_inputs.extend([lhs, rhs])
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
 
                 new_func_op = decorated_func.func_op
                 xor_builder._func_ops_generated[new_func_op] = [
@@ -3840,7 +3880,6 @@ class TTNNBuilder(Builder):
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
         ttnn_op = self.get_opview_from_method(TTNNBuilder.pow_tensor)
-        dtype = self._get_data_type_attribute(in0)
 
         if output_type is None:
             mlir_output_type = self.get_type(in0)
@@ -3863,7 +3902,6 @@ class TTNNBuilder(Builder):
             in0,
             in1,
             loc=loc,
-            dtype=dtype,
         )
         op_result = op.result
 
@@ -3887,7 +3925,7 @@ class TTNNBuilder(Builder):
         rhs = global_dict[old_op.rhs]
         result = old_op.result.type
 
-        new_op = ttnn_op(result, lhs, rhs, loc=old_op.location, dtype=old_op.dtype)
+        new_op = ttnn_op(result, lhs, rhs, loc=old_op.location)
         new_op_result = new_op.result
 
         if not self._disable_golden_check:
@@ -3929,9 +3967,7 @@ class TTNNBuilder(Builder):
                     rhs = inputs[1]
                     result = old_op.result.type
 
-                    new_op = ttnn_op(
-                        result, lhs, rhs, loc=old_op.location, dtype=old_op.dtype
-                    )
+                    new_op = ttnn_op(result, lhs, rhs, loc=old_op.location)
                     new_op_result = new_op.result
 
                     if not self._disable_golden_check:
