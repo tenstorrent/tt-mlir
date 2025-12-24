@@ -536,6 +536,11 @@ public:
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::MatmulOp> emitter(
         matmulOp, adaptor, rewriter);
 
+    // Convert matmul_program_config before building args array
+    // (but emitOpaque must be called in the correct position within args)
+    auto programConfigOpt = ttnn_to_emitpy::convertMatmulProgramConfig(
+        matmulOp.getMatmulProgramConfig());
+
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(matmulOp.getA()),
         emitter.emit(matmulOp.getB()),
@@ -545,7 +550,9 @@ public:
                          emitter.getMemoryConfig(matmulOp.getResult()),
                      "memory_config"),
         emitter.emit(std::nullopt, "dtype"),
-        emitter.emit(std::nullopt, "program_config"),
+        programConfigOpt
+            ? emitter.emitOpaque(*programConfigOpt, "program_config")
+            : emitter.emit(std::nullopt, "program_config"),
         emitter.emit(matmulOp.getActivation(), "activation"),
     };
 
@@ -574,6 +581,11 @@ public:
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::LinearOp> emitter(
         srcOp, adaptor, rewriter);
 
+    // Convert matmul_program_config before building args array
+    // (but emitOpaque must be called in the correct position within args)
+    auto programConfigOpt = ttnn_to_emitpy::convertMatmulProgramConfig(
+        srcOp.getMatmulProgramConfig());
+
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getA()),
         emitter.emit(srcOp.getB()),
@@ -583,7 +595,9 @@ public:
         emitter.emit(std::nullopt | emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
         emitter.emit(std::nullopt, "dtype"),
-        emitter.emit(std::nullopt, "program_config"),
+        programConfigOpt
+            ? emitter.emitOpaque(*programConfigOpt, "program_config")
+            : emitter.emit(std::nullopt, "program_config"),
         emitter.emit(srcOp.getActivation(), "activation"),
     };
 
@@ -2340,6 +2354,44 @@ public:
 };
 } // namespace
 
+// PagedUpdateCacheOp
+//
+namespace {
+class PagedUpdateCacheOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::PagedUpdateCacheOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.paged_update_cache";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.experimental.paged_update_cache";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::PagedUpdateCacheOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::PagedUpdateCacheOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::PagedUpdateCacheOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getCache()), emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getUpdateIndex(), "update_idxs_tensor"),
+        emitter.emit(srcOp.getShareCache(), "share_cache"),
+        emitter.emit(srcOp.getPageTable(), "page_table")};
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // GetTupleElementOp conversion pattern
 //
 namespace {
@@ -3150,6 +3202,10 @@ public:
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::RMSNormOp> emitter(
         srcOp, adaptor, rewriter);
 
+    // Convert compute_config before building args array
+    auto computeConfigOpt = ttnn_to_emitpy::convertDeviceComputeKernelConfig(
+        srcOp.getComputeConfig());
+
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getEpsilon(), "epsilon"),
@@ -3160,7 +3216,9 @@ public:
                          emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
         emitter.emit(std::nullopt, "program_config"),
-        emitter.emit(std::nullopt, "compute_kernel_config"),
+        computeConfigOpt
+            ? emitter.emitOpaque(*computeConfigOpt, "compute_kernel_config")
+            : emitter.emit(std::nullopt, "compute_kernel_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -3755,6 +3813,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   //
   patterns.add<FillCacheOpConversionPattern>(typeConverter, ctx);
   patterns.add<UpdateCacheOpConversionPattern>(typeConverter, ctx);
+  patterns.add<PagedUpdateCacheOpConversionPattern>(typeConverter, ctx);
 
   // Quantization ops.
   //
