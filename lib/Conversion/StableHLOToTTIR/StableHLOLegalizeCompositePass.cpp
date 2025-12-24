@@ -212,6 +212,70 @@ public:
   }
 };
 
+class TenstorrentGroupNormConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
+
+public:
+  TenstorrentGroupNormConversionPattern(MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::CompositeOp>(context) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CompositeOp srcOp,
+                  mlir::stablehlo::CompositeOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (srcOp.getName() != "tenstorrent.group_norm") {
+      return failure();
+    }
+
+    if (srcOp.getNumResults() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "CompositeOp must have exactly one result.");
+    }
+
+    auto outputType =
+        mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
+
+    DictionaryAttr compositeAttrs = srcOp.getCompositeAttributes();
+
+    // Extract num_groups (required)
+    auto numGroupsAttr = compositeAttrs.get("num_groups");
+    if (!numGroupsAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "num_groups attribute is required for group_norm");
+    }
+    int32_t numGroups = mlir::cast<IntegerAttr>(numGroupsAttr).getInt();
+
+    // Extract epsilon (optional, default: 1e-12)
+    auto epsilonAttr = compositeAttrs.get("epsilon");
+
+    SmallVector<NamedAttribute> namedAttrs;
+    namedAttrs.push_back(rewriter.getNamedAttr(
+        "num_groups", rewriter.getI32IntegerAttr(numGroups)));
+    if (epsilonAttr) {
+      namedAttrs.push_back(rewriter.getNamedAttr("epsilon", epsilonAttr));
+    }
+
+    // ttir.group_norm has AttrSizedOperandSegments: [input, weight, bias]
+    size_t numOperands = adaptor.getOperands().size();
+    SmallVector<int32_t> segmentSizes;
+    if (numOperands == 3) { // input, weight, bias
+      segmentSizes = {1, 1, 1};
+    } else if (numOperands == 2) { // input, weight or input, bias
+      // Assume it's weight if only 2 operands
+      segmentSizes = {1, 1, 0};
+    } else { // input only
+      segmentSizes = {1, 0, 0};
+    }
+
+    namedAttrs.push_back(rewriter.getNamedAttr(
+        "operandSegmentSizes", rewriter.getDenseI32ArrayAttr(segmentSizes)));
+
+    rewriter.replaceOpWithNewOp<ttir::GroupNormOp>(
+        srcOp, outputType, adaptor.getOperands(), namedAttrs);
+    return success();
+  }
+};
+
 struct LegalizeStableHLOCompositeToTTIR
     : public ttir::impl::LegalizeStableHLOCompositeToTTIRBase<
           LegalizeStableHLOCompositeToTTIR> {
@@ -247,6 +311,7 @@ void populateStableHLOCompositeLegalizationPatterns(
   patterns.add<StableHLOToTTIRCompositeOpConversionPattern<ttir::GeluOp>>(
       context, "tenstorrent.gelu_tanh");
   patterns.add<TenstorrentRMSNormConversionPattern>(context);
+  patterns.add<TenstorrentGroupNormConversionPattern>(context);
   patterns.add<TenstorrentUniformToRandConversionPattern>(context);
 }
 } // namespace mlir::tt

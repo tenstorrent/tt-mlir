@@ -1271,6 +1271,91 @@ public:
 };
 } // namespace
 
+namespace {
+class GroupNormOpConversionPattern
+    : public OpConversionPattern<ttir::GroupNormOp> {
+public:
+  using OpConversionPattern<ttir::GroupNormOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::GroupNormOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    RankedTensorType inputType =
+        mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    ArrayRef<int64_t> inputShape = inputType.getShape();
+
+    // TTNN group_norm requires input shape to be [N, 1, H×W, C]
+    // TTIR group_norm accepts [N, H, W, C] or any rank >= 1
+    // We need to reshape if the input is not in the required format
+
+    Value groupNormInput = adaptor.getInput();
+    Value groupNormOutput;
+    bool needsReshape = false;
+
+    // Check if we need to reshape: input must be 4D with dim[1] == 1
+    if (inputShape.size() == 4 && inputShape[1] == 1) {
+      // Already in correct format [N, 1, H×W, C], no reshape needed
+      needsReshape = false;
+    } else if (inputShape.size() == 4) {
+      // Input is [N, H, W, C], need to reshape to [N, 1, H×W, C]
+      int64_t N = inputShape[0];
+      int64_t H = inputShape[1];
+      int64_t W = inputShape[2];
+      int64_t C = inputShape[3];
+
+      // Validate N×H×W is multiple of 32 (tile size requirement)
+      if ((N * H * W) % 32 != 0) {
+        return rewriter.notifyMatchFailure(
+            op, "TTNN group_norm requires N × H × W to be a multiple of 32 "
+                "(tile size)");
+      }
+
+      // Create reshape to [N, 1, H×W, C]
+      SmallVector<int64_t> reshapedShape = {N, 1, H * W, C};
+      auto reshapedType = RankedTensorType::get(
+          reshapedShape, inputType.getElementType(),
+          mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding()));
+
+      groupNormInput = rewriter.create<ttnn::ReshapeOp>(
+          op.getLoc(), reshapedType, adaptor.getInput());
+      needsReshape = true;
+    } else {
+      // For other ranks, validate and reject for now
+      return rewriter.notifyMatchFailure(
+          op, "TTNN group_norm currently only supports 4D input tensors with "
+              "shape [N, H, W, C]");
+    }
+
+    // Create the group_norm op
+    auto outputType = this->getTypeConverter()->convertType(op.getType());
+    RankedTensorType groupNormOutputType;
+
+    if (needsReshape) {
+      // Output will be reshaped, so group_norm output should match reshaped
+      // input
+      groupNormOutputType =
+          mlir::cast<RankedTensorType>(groupNormInput.getType());
+    } else {
+      groupNormOutputType = mlir::cast<RankedTensorType>(outputType);
+    }
+
+    groupNormOutput = rewriter.create<ttnn::GroupNormOp>(
+        op.getLoc(), groupNormOutputType, groupNormInput, adaptor.getWeight(),
+        adaptor.getBias(), adaptor.getNumGroups(), adaptor.getEpsilon(),
+        /*memoryConfig*/ nullptr, /*computeConfig*/ nullptr);
+
+    // Reshape back to original shape if we reshaped the input
+    if (needsReshape) {
+      groupNormOutput = rewriter.create<ttnn::ReshapeOp>(
+          op.getLoc(), outputType, groupNormOutput);
+    }
+
+    rewriter.replaceOp(op, groupNormOutput);
+    return success();
+  }
+};
+} // namespace
+
 // ANCHOR: adding_an_op_matmul_op_rewriter
 namespace {
 class MatmulOpConversionPattern : public OpConversionPattern<ttir::MatmulOp> {
@@ -2925,6 +3010,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            BatchNormInferenceOpConversionPattern,
            BatchNormTrainingOpConversionPattern,
            RMSNormOpConversionPattern,
+           GroupNormOpConversionPattern,
            MatmulOpConversionPattern,
            Conv2dOpConversionPattern,
            Conv3dOpConversionPattern,

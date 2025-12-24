@@ -3170,6 +3170,42 @@ public:
 };
 } // namespace
 
+//
+// GroupNormOp conversion pattern
+//
+namespace {
+class GroupNormOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::GroupNormOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::GroupNormOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::GroupNormOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::GroupNormOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    // Args order: (input, num_groups, epsilon, weight, bias, memory_config)
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getNumGroups(), "num_groups"),
+        emitter.emit(srcOp.getEpsilon(), "epsilon"),
+        emitter.emit(srcOp.getWeight(), "weight"),
+        emitter.emit(srcOp.getBias(), "bias"),
+        emitter.emit(srcOp.getMemoryConfig() |
+                         emitter.getMemoryConfig(srcOp.getResult()),
+                     "memory_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // NLPCreateQKVHeadsDecodeOp conversion pattern
 namespace {
 class NLPCreateQKVHeadsDecodeOpConversionPattern
@@ -3705,10 +3741,9 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 
   // Normalization ops
   //
-  patterns
-      .add<BatchNormInferenceOpConversionPattern,
-           BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern>(
-          typeConverter, ctx);
+  patterns.add<BatchNormInferenceOpConversionPattern,
+               BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
+               GroupNormOpConversionPattern>(typeConverter, ctx);
 
   // Transformers ops
   //
