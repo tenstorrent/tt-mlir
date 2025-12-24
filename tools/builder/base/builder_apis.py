@@ -847,6 +847,9 @@ def compile_ttnn_to_flatbuffer(
         module, builder = build_module(
             fn,
             "ttnn",
+            module_dump=module_dump,
+            output_root=output_root,
+            base=test_base,
         )
     except Exception as e:
         raise TTBuilderCompileException(e)
@@ -1258,9 +1261,7 @@ def compile_ttir_module_to_flatbuffer(
         pipeline_options = []
 
     if type(custom_pipeline) is str:
-        custom_pipeline = create_custom_ttir_pipeline_fn(
-            custom_pipeline, print_ir=print_ir
-        )
+        custom_pipeline = create_custom_pipeline_fn(custom_pipeline, print_ir=print_ir)
 
     pipeline_fn: Callable
     to_target: Callable
@@ -1282,7 +1283,7 @@ def compile_ttir_module_to_flatbuffer(
         mlir_suffix = "_ttm.mlir"
         target_extension = "ttm"
     elif target == "emitc":
-        ttir_to_ttnn_emitc_pipeline = create_custom_ttir_pipeline_fn(
+        ttir_to_ttnn_emitc_pipeline = create_custom_pipeline_fn(
             "ttir-to-emitc-pipeline", print_ir=print_ir
         )
         pipeline_fn = (

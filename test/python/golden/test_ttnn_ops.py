@@ -6,10 +6,11 @@ import pytest
 import torch
 from typing import Callable, List, Optional
 
-from builder.base.builder_utils import Operand, Shape
+from builder.base.builder_utils import Operand, Shape, create_custom_pipeline_fn
 from builder.ttnn.ttnn_builder import TTNNBuilder
 from builder.base.builder_apis import compile_and_execute_ttnn
 from test_utils import shape_str, shapes_list_str
+from ttmlir.dialects import ttnn
 
 pytestmark = pytest.mark.frontend("ttnn")
 
@@ -253,4 +254,40 @@ def test_linear(
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
         device=device,
+    )
+
+
+@pytest.mark.parametrize("shape", [(32, 32)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
+@pytest.mark.parametrize("low,high,seed", [(0.0, 1.0, 0)])
+def test_rand(
+    shape: Shape,
+    dtype: torch.dtype,
+    low: float,
+    high: float,
+    seed: int,
+    request,
+    device,
+):
+    def module(builder: TTNNBuilder):
+        @builder.func([], [])
+        def rand(builder: TTNNBuilder, unit_attrs: Optional[List[str]] = None):
+            return builder.rand(
+                shape,
+                dtype,
+                low=low,
+                high=high,
+                seed=seed,
+                unit_attrs=unit_attrs,
+            )
+
+    register_device_pipeline = create_custom_pipeline_fn("")
+    compile_and_execute_ttnn(
+        module,
+        test_base=request.node.name,
+        device=device,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        print_ir=True,
+        custom_pipeline=register_device_pipeline,
     )

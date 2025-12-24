@@ -4238,6 +4238,26 @@ def ttnn_add_golden(
     return torch.add(input_tensor, other_tensor).to(output_dtype)
 
 
+def ttnn_rand_golden(
+    size_attr: ArrayAttr,
+    low_attr: FloatAttr,
+    high_attr: FloatAttr,
+    seed_attr: IntegerAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    size = unpack_mlir_attr(size_attr)
+    low = unpack_mlir_attr(low_attr)
+    high = unpack_mlir_attr(high_attr)
+    seed = unpack_mlir_attr(seed_attr)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    gen = torch.Generator()
+    gen.manual_seed(seed)
+    base = torch.rand(size, generator=gen, dtype=torch.bfloat16)
+    rand_tensor = (base * (high - low) + low).to(output_dtype)
+    return GoldenMapTensor({0: rand_tensor}, (1, 1))
+
+
 GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # ----- TTIR OPS -----
     # Elementwise unary operations
@@ -4497,6 +4517,8 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.RepeatInterleaveOp: repeat_interleave_golden,
     ttnn.ClampScalarOp: clamp_scalar_golden,
     ttnn.ClampTensorOp: clamp_tensor_golden,
+    # Tensor creation
+    ttnn.RandOp: ttnn_rand_golden,
 }
 
 
