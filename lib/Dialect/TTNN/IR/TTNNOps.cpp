@@ -2705,6 +2705,77 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
 }
 
 //===----------------------------------------------------------------------===//
+// GroupNormOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttnn::GroupNormOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType outputType = getResult().getType();
+
+  // Input and output must have the same shape.
+  if (inputType.getShape() != outputType.getShape()) {
+    return emitOpError("input and output must have the same shape");
+  }
+
+  // Input must be 4D with shape [N, 1, H×W, C]
+  if (inputType.getRank() != 4) {
+    return emitOpError("input tensor must be 4D with shape [N, 1, H×W, C]");
+  }
+
+  ArrayRef<int64_t> inputShape = inputType.getShape();
+
+  // Second dimension must be exactly 1 (required by ttnn API)
+  if (inputShape[1] != 1) {
+    return emitOpError("input tensor dimension 1 must be exactly 1, got ")
+           << inputShape[1] << " (expected shape: [N, 1, H×W, C])";
+  }
+
+  int64_t N = inputShape[0];
+  int64_t HW = inputShape[2];
+  int64_t C = inputShape[3];
+
+  // Verify N×H×W is multiple of 32 (tile size requirement)
+  if ((N * HW) % 32 != 0) {
+    return emitOpError("N × H×W must be a multiple of 32 (tile size), got ")
+           << (N * HW);
+  }
+
+  int32_t numGroups = getNumGroups();
+
+  // Verify num_groups is positive
+  if (numGroups <= 0) {
+    return emitOpError("num_groups must be positive, got ") << numGroups;
+  }
+
+  // Verify C is divisible by num_groups
+  if (C % numGroups != 0) {
+    return emitOpError("number of channels (")
+           << C << ") must be divisible by num_groups (" << numGroups << ")";
+  }
+
+  // Verify weight tensor shape if present: must be 1D with size C
+  if (getWeight()) {
+    RankedTensorType weightType = getWeight().getType();
+    if (weightType.getRank() != 1 || weightType.getShape()[0] != C) {
+      return emitOpError("weight tensor must be 1D with size equal to "
+                         "number of channels (")
+             << C << ")";
+    }
+  }
+
+  // Verify bias tensor shape if present: must be 1D with size C
+  if (getBias()) {
+    RankedTensorType biasType = getBias().getType();
+    if (biasType.getRank() != 1 || biasType.getShape()[0] != C) {
+      return emitOpError("bias tensor must be 1D with size equal to "
+                         "number of channels (")
+             << C << ")";
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // AllGatherOp
 //===----------------------------------------------------------------------===//
 

@@ -2132,6 +2132,55 @@ def TTNN_RMSNormOp : TTNN_Op<"rms_norm", [AttrSizedOperandSegments, TTNN_MemoryC
     let hasVerifier = 1;
 }
 
+def TTNN_GroupNormOp : TTNN_Op<"group_norm", [AttrSizedOperandSegments, TTNN_MemoryConfigOpInterface]> {
+    let summary = "Group normalization op.";
+    let description = [{
+      Group normalization operation over the input tensor.
+
+      Divides the channels into groups and performs normalization within each group,
+      normalizing over spatial dimensions (height and width) and channels within the group.
+
+      Input must be in the format [N, 1, H×W, C] where:
+      - N is the batch size
+      - Dimension 1 must be exactly 1 (required by TTNN)
+      - H×W is the flattened spatial dimensions (must be multiple of 32)
+      - C is the number of channels (must be divisible by num_groups)
+
+      The operation computes:
+        output = (input - mean) / sqrt(variance + epsilon)
+      If weight is provided:
+        output = output * weight
+      If bias is provided:
+        output = output + bias
+
+      where mean and variance are computed within each group independently.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         Optional<AnyRankedTensor>:$weight,
+                         Optional<AnyRankedTensor>:$bias,
+                         I32Attr:$num_groups,
+                         DefaultValuedAttr<F32Attr, "1e-12">:$epsilon,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let builders = [
+      OpBuilder<(ins "Type":$result, "Value":$input,
+                     "Value":$weight, "Value":$bias,
+                     "int32_t":$num_groups,
+                     "llvm::APFloat":$epsilon,
+                     "MemoryConfigAttr":$memory_config),
+      [{
+        build($_builder, $_state, result, input, weight, bias, num_groups,
+              epsilon, memory_config, /*compute_config=*/nullptr);
+      }]>
+    ];
+
+    let hasVerifier = 1;
+}
+
 def TTNN_ClampScalarOp : TTNN_Op<"clamp_scalar", [TTNN_MemoryConfigOpInterface]> {
     let summary = "Clamp op.";
     let description = [{
