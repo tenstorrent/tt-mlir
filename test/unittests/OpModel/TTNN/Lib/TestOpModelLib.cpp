@@ -2817,7 +2817,7 @@ class OpModelConvTranspose2dParam
 TEST_P(OpModelConvTranspose2dParam, ConvTranspose2d) {
   GTEST_SKIP()
       << "Skipping ConvTranspose2d test until metal fix lands."
-      << "Tracked here: https://github.com/tenstorrent/tt-mlir/issues/6423";
+      << "Tracked here: https://github.com/tenstorrent/tt-metal/issues/35028";
   auto params = GetParam();
   const auto [inputShape, inputTensorLayout, inputBufferType,
               inputVirtualGrid] = std::get<0>(params);
