@@ -4361,6 +4361,62 @@ def ttnn_bitwise_not_golden(
     return torch.bitwise_not(input_tensor, other_tensor).to(output_dtype)
 
 
+def ttnn_minimum_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.minimum(input_tensor, other_tensor).to(output_dtype)
+
+
+def ttnn_maximum_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.maximum(input_tensor, other_tensor).to(output_dtype)
+
+
+def ttnn_multiply_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.multiply(input_tensor, other_tensor).to(output_dtype)
+
+
+def ttnn_subtract_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.subtract(input_tensor, other_tensor).to(output_dtype)
+
+
+def ttnn_remainder_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.remainder(input_tensor, other_tensor).to(output_dtype)
+
+
+def ttnn_pow_tensor_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.pow(input_tensor, other_tensor).to(output_dtype)
+
+
+def ttnn_divide_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.div(input_tensor, other_tensor).to(output_dtype)
+
+
+def ttnn_atan2_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.atan2(input_tensor, other_tensor).to(output_dtype)
+
+
 GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # ----- TTIR OPS -----
     # Elementwise unary operations
@@ -4581,14 +4637,14 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.MishOp: torch.nn.functional.mish,
     # Elementwise binary operations
     ttnn.AddOp: ttnn_add_golden,
-    ttnn.Atan2Op: torch.atan2,
-    ttnn.MultiplyOp: torch.multiply,
-    ttnn.SubtractOp: torch.subtract,
-    ttnn.DivideOp: torch.div,
-    ttnn.MaximumOp: torch.maximum,
-    ttnn.MinimumOp: torch.minimum,
-    ttnn.RemainderOp: torch.remainder,
-    ttnn.PowTensorOp: torch.pow,
+    ttnn.Atan2Op: ttnn_atan2_golden,
+    ttnn.MultiplyOp: ttnn_multiply_golden,
+    ttnn.SubtractOp: ttnn_subtract_golden,
+    ttnn.DivideOp: ttnn_divide_golden,
+    ttnn.MaximumOp: ttnn_maximum_golden,
+    ttnn.MinimumOp: ttnn_minimum_golden,
+    ttnn.RemainderOp: ttnn_remainder_golden,
+    ttnn.PowTensorOp: ttnn_pow_tensor_golden,
     # Comparison operations
     ttnn.EqualOp: ttnn_eq_golden,
     ttnn.NotEqualOp: ttnn_ne_golden,
