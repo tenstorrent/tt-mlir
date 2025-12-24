@@ -96,12 +96,23 @@ static FailureOr<mlir::OperationState> createNewOperationState(
 
               if (failed(updatedLimitDim)) {
                 sliceOp->emitError(
-                    "Could not apply propagated tensor shardings "
-                    "to attribute dictionary for slice op");
+                    "Could not apply propagated tensor shardings for limit "
+                    "indices of attribute dictionary for slice op");
                 return mlir::failure();
               }
 
               limitIndices[i] = *updatedLimitDim;
+
+              FailureOr<int64_t> updatedStartDim =
+                  shardy_utils::calculateUpdatedDim(
+                      globalMeshOp.getMesh(), shardings[0], startIndices[i]);
+              if (failed(updatedStartDim)) {
+                sliceOp->emitError(
+                    "Could not apply propagated tensor shardings for start "
+                    "indices of attribute dictionary for slice op");
+                return mlir::failure();
+              }
+              startIndices[i] = *updatedStartDim;
             }
 
             // 4. Update start and limit indices in op named attributes.
