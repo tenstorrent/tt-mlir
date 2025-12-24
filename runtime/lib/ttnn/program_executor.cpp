@@ -63,6 +63,7 @@
 #include "operations/mlir_native/func_call.h"
 #include "operations/moreh/moreh_cumsum.h"
 #include "operations/normalization/batch_norm.h"
+#include "operations/normalization/group_norm.h"
 #include "operations/normalization/rms_norm.h"
 #include "operations/normalization/softmax.h"
 #include "operations/pool/pool2d.h"
@@ -388,6 +389,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::GlobalAvgPool2dOp: {
     return operations::pool::run(op->type_as_GlobalAvgPool2dOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::GroupNormOp: {
+    return operations::group_norm::run(op->type_as_GroupNormOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::MaxPool2dWithIndicesOp: {
     return operations::pool::run(op->type_as_MaxPool2dWithIndicesOp(),
