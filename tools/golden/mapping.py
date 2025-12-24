@@ -4231,6 +4231,204 @@ def stablehlo_dynamic_update_slice_golden(
 ################ TTNN Op Golden Functions ###############
 
 
+def ttnn_abs_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.abs(input_tensor).to(output_dtype)
+
+
+def ttnn_abs_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.abs(input_tensor).to(dtype)
+
+
+def ttnn_cbrt_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    golden_sign = torch.sign(input_tensor)
+    golden_cbrt = torch.pow(torch.abs(input_tensor), 1 / 3)
+    return torch.mul(golden_sign, golden_cbrt).to(dtype)
+
+
+def ttnn_ceil_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.ceil(input_tensor).to(dtype)
+
+
+def ttnn_cos_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.cos(input_tensor).to(dtype)
+
+
+def ttnn_erf_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.erf(input_tensor).to(dtype)
+
+
+def ttnn_erfc_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.erfc(input_tensor).to(dtype)
+
+
+def ttnn_exp_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.exp(input_tensor).to(dtype)
+
+
+def ttnn_floor_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.floor(input_tensor).to(dtype)
+
+
+def ttnn_gelu_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.nn.functional.gelu(input_tensor).to(dtype)
+
+
+def ttnn_isfinite_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.isfinite(input_tensor).to(dtype)
+
+
+def ttnn_neg_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.neg(input_tensor).to(dtype)
+
+
+def ttnn_tan_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.tan(input_tensor).to(dtype)
+
+
+def ttnn_atan_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.atan(input_tensor).to(dtype)
+
+
+def ttnn_tanh_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.tanh(input_tensor).to(dtype)
+
+
+def ttnn_reciprocal_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.reciprocal(input_tensor).to(dtype)
+
+
+def ttnn_relu_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.nn.functional.relu(input_tensor).to(dtype)
+
+
+def ttnn_relu6_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.clamp(input_tensor, min=0, max=6).to(dtype)
+
+
+def ttnn_rsqrt_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.rsqrt(input_tensor).to(dtype)
+
+
+def ttnn_sigmoid_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.sigmoid(input_tensor).to(dtype)
+
+
+def ttnn_sign_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.sign(input_tensor).to(dtype)
+
+
+def ttnn_silu_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.nn.functional.silu(input_tensor).to(dtype)
+
+
+def ttnn_sin_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.sin(input_tensor).to(dtype)
+
+
+def ttnn_sqrt_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.sqrt(input_tensor).to(dtype)
+
+
+def ttnn_typecast_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return input_tensor.to(dtype)
+
+
+def ttnn_log_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.log(input_tensor).to(dtype)
+
+
+def ttnn_log1p_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.log1p(input_tensor).to(dtype)
+
+
+def ttnn_expm1_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.expm1(input_tensor).to(dtype)
+
+
 def ttnn_add_golden(
     input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -4605,32 +4803,32 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.SelectOp: stablehlo_select_golden,
     # ----- TTNN OPS -----
     # Elementwise unary operations
-    ttnn.AbsOp: torch.abs,
-    ttnn.CbrtOp: cbrt_golden,
-    ttnn.CeilOp: torch.ceil,
-    ttnn.CosOp: torch.cos,
-    ttnn.ErfOp: torch.erf,
-    ttnn.ErfcOp: torch.erfc,
-    ttnn.FloorOp: torch.floor,
-    ttnn.GeluOp: torch.nn.functional.gelu,
-    ttnn.IsFiniteOp: torch.isfinite,
-    ttnn.NegOp: torch.neg,
-    ttnn.TanOp: torch.tan,
-    ttnn.AtanOp: torch.atan,
-    ttnn.TanhOp: torch.tanh,
-    ttnn.ReciprocalOp: torch.reciprocal,
-    ttnn.ReluOp: torch.relu,
-    ttnn.Relu6Op: torch.nn.functional.relu6,
-    ttnn.RsqrtOp: torch.rsqrt,
-    ttnn.SigmoidOp: torch.sigmoid,
-    ttnn.SignOp: torch.sign,
-    ttnn.SiluOp: silu_golden,
-    ttnn.SinOp: torch.sin,
-    ttnn.SqrtOp: torch.sqrt,
-    ttnn.LogOp: torch.log,
-    ttnn.Log1pOp: torch.log1p,
-    ttnn.Expm1Op: torch.expm1,
-    ttnn.ExpOp: torch.exp,
+    ttnn.AbsOp: ttnn_abs_golden,
+    ttnn.CbrtOp: ttnn_cbrt_golden,
+    ttnn.CeilOp: ttnn_ceil_golden,
+    ttnn.CosOp: ttnn_cos_golden,
+    ttnn.ErfOp: ttnn_erf_golden,
+    ttnn.ErfcOp: ttnn_erfc_golden,
+    ttnn.FloorOp: ttnn_floor_golden,
+    ttnn.GeluOp: ttnn_gelu_golden,
+    ttnn.IsFiniteOp: ttnn_isfinite_golden,
+    ttnn.NegOp: ttnn_neg_golden,
+    ttnn.TanOp: ttnn_tan_golden,
+    ttnn.AtanOp: ttnn_atan_golden,
+    ttnn.TanhOp: ttnn_tanh_golden,
+    ttnn.ReciprocalOp: ttnn_reciprocal_golden,
+    ttnn.ReluOp: ttnn_relu_golden,
+    ttnn.Relu6Op: ttnn_relu6_golden,
+    ttnn.RsqrtOp: ttnn_rsqrt_golden,
+    ttnn.SigmoidOp: ttnn_sigmoid_golden,
+    ttnn.SignOp: ttnn_sign_golden,
+    ttnn.SiluOp: ttnn_silu_golden,
+    ttnn.SinOp: ttnn_sin_golden,
+    ttnn.SqrtOp: ttnn_sqrt_golden,
+    ttnn.LogOp: ttnn_log_golden,
+    ttnn.Log1pOp: ttnn_log1p_golden,
+    ttnn.Expm1Op: ttnn_expm1_golden,
+    ttnn.ExpOp: ttnn_exp_golden,
     ttnn.LeakyReluOp: leaky_relu_golden,
     # TTNN elementwise operations
     ttnn.MultiplyOp: torch.multiply,

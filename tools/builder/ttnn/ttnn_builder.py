@@ -343,432 +343,17 @@ class TTNNBuilder(Builder):
 
         return add_module, add_builder
 
-    def mish(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
-        """
-        Creates ``ttnn.mish``.
+    ############### ttnn.AbsOp ###############
 
-        *Elementwise Mish activation operation.*
-
-        Applies the Mish activation function element-wise to the input tensor.
-        Mish is a smooth, self-regularized, non-monotonic activation function defined as:
-        f(x) = x * tanh(softplus(x)) = x * tanh(ln(1 + e^x))
-
-        Mathematical definition: mish(x) = x * tanh(ln(1 + e^x))
-
-        .. code-block:: mlir
-
-            // Apply Mish activation
-            %result = ttnn.mish(%input, %output) : tensor<3xf32>, tensor<3xf32> -> tensor<3xf32>
-            // Input tensor:
-            // input: [0.0, 1.0, -1.0]
-            // Output tensor:
-            // [0.0, 0.865, -0.303]
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        unit_attrs : *Optional[List[str]]*
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            A tensor containing the elementwise Mish activation of the input
-        """
-        return self._op_proxy(ttnn.MishOp, [in0], unit_attrs=unit_attrs, ttnn_kwargs={})
-
-    def where(
-        self,
-        in0: Operand,
-        in1: Operand,
-        in2: Operand,
-        unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
-        """
-        Creates ``ttnn.where``.
-
-        *Elementwise conditional selection operation.*
-
-        For each element position, selects between two values based on a boolean condition:
-        - If the condition is true (non-zero), selects from the first value tensor
-        - If the condition is false (zero), selects from the second value tensor
-
-        Supports broadcasting according to standard broadcasting rules.
-
-        .. code-block:: mlir
-
-            // Basic selection between two tensors
-            %result = ttnn.where(%cond, %true_vals, %false_vals) :
-                tensor<2x2xi1>, tensor<2x2xf32>, tensor<2x2xf32> -> tensor<2x2xf32>
-            // Input tensors:
-            // %cond: [[1, 0], [0, 1]]
-            // %true_vals: [[1.0, 2.0], [3.0, 4.0]]
-            // %false_vals: [[5.0, 6.0], [7.0, 8.0]]
-            // Output tensor:
-            // [[1.0, 6.0], [7.0, 4.0]]
-
-            // With broadcasting (scalar condition)
-            %result = ttnn.where(%scalar_cond, %true_vals, %false_vals) :
-                tensor<i1>, tensor<2x2xf32>, tensor<2x2xf32> -> tensor<2x2xf32>
-
-        Parameters
-        ----------
-        in0 : Operand
-            Condition tensor (predicate)
-        in1 : Operand
-            Tensor containing values to select when condition is true
-        in2 : Operand
-            Tensor containing values to select when condition is false
-        unit_attrs : *Optional[List[str]]*
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-        """
-        # Handle golden condition tensor
-        in0_tensor = self._get_golden_tensor(in0)
-        condition = in0_tensor.apply_shardwise(
-            lambda shard: torch.where(
-                shard > 0,
-                torch.tensor(True, device=shard.device),
-                torch.tensor(False, device=shard.device),
-            )
-        )
-        return self._op_proxy(
-            ttnn.WhereOp,
-            [in0, in1, in2],
-            organize_golden_args=lambda i, o: (
-                condition,
-                self._get_golden_tensor(i[1]),
-                self._get_golden_tensor(i[2]),
-            ),
-            unit_attrs=unit_attrs,
-        )
-
-    # class TTNN_ElementwiseUnaryOp
-
-    def abs(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
-        """
-        Creates ``ttnn.abs``.
-
-        *Elementwise absolute value operation.*
-
-        Computes the absolute value of each element in the input tensor.
-
-        .. code-block:: mlir
-
-            // Compute absolute values of all elements in %input
-            %result = ttnn.abs(%input, %output) : tensor<4x4xf32>, tensor<4x4xf32> -> tensor<4x4xf32>
-            // Input tensor:
-            // [[-2.5,  3.7,  0.0,  1.2], ... ]
-            // Output tensor:
-            // [[2.5, 3.7, 0.0, 1.2], ... ]
-
-            // Example with integer tensor
-            %result = ttnn.abs(%int_input, %int_output) : tensor<10xi32>, tensor<10xi32> -> tensor<10xi32>
-            // Input tensor:
-            // [-5, 0, 3, -2, ...]
-            // Output tensor:
-            // [5, 0, 3, 2, ...]
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor to compute absolute value of
-        unit_attrs : *Optional[List[str]]*
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-        """
-
-        return self._op_proxy(ttnn.AbsOp, [in0], unit_attrs)
-
-    def cbrt(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
-        """
-        Creates ``ttnn.cbrt``.
-
-        *Elementwise cubic root operation.*
-
-        Computes the cubic root (∛) of each element in the input tensor.
-        For each element, returns the real-valued number that, when cubed, equals the input value.
-        Unlike square root, cubic root is defined for negative numbers as well as positive numbers.
-
-        .. code-block:: mlir
-
-            // Compute cubic root of all elements
-            %result = ttnn.cbrt(%input, %output) : tensor<4xf32>, tensor<4xf32> -> tensor<4xf32>
-            // Input tensor:
-            // [8.0, 27.0, -8.0, 1.0]
-            // Output tensor:
-            // [2.0, 3.0, -2.0, 1.0]
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        unit_attrs : *Optional[List[str]]*
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            A tensor containing the cubic root of each element in the input tensor
-        """
-        return self._op_proxy(ttnn.CbrtOp, [in0], unit_attrs)
-
-    def ceil(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
-        """
-        Creates ``ttnn.ceil``.
-
-        *Elementwise ceiling operation.*
-
-        Computes the ceiling of each element in the input tensor, rounding up to the nearest integer.
-        This operation is idempotent.
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        unit_attrs : *Optional[List[str]]*
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            Tensor with ceiling values
-        """
-        return self._op_proxy(ttnn.CeilOp, [in0], unit_attrs)
-
-    def cos(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
-        """
-        Creates ``ttnn.cos``.
-
-        *Elementwise cosine operation.*
-
-        Computes the cosine of each element in the input tensor.
-        Input values are expected to be in radians.
-
-        .. code-block:: mlir
-
-            // Compute cosine of all elements
-            %result = ttnn.cos(%input, %output) : tensor<4xf32>, tensor<4xf32> -> tensor<4xf32>
-            // Input tensor (in radians):
-            // [0.0, 3.14159, 1.5708, -1.5708]
-            // Output tensor:
-            // [1.0, -1.0, 0.0, 0.0]
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor (values in radians)
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            A tensor containing the cosine of each element in the input tensor
-        """
-        return self._op_proxy(ttnn.CosOp, [in0], unit_attrs)
-
-    def erf(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
-        """
-        Creates ``ttnn.erf``.
-
-        *Elementwise error function operation.*
-
-        Computes the error function (erf) of each element in the input tensor.
-        The error function is a mathematical function used in probability, statistics,
-        and partial differential equations related to the normal distribution.
-
-        Mathematical definition: erf(x) = (2/sqrt(π)) * ∫[0 to x] e^(-t^2) dt
-
-        .. code-block:: mlir
-
-            // Compute error function of all elements
-            %result = ttnn.erf(%input, %output) : tensor<4xf32>, tensor<4xf32> -> tensor<4xf32>
-            // Input tensor:
-            // [0.0, 0.5, 1.0, -1.0]
-            // Output tensor:
-            // [0.0, 0.5205, 0.8427, -0.8427]
-        """
-        return self._op_proxy(ttnn.ErfOp, [in0], unit_attrs)
-
-    def erfc(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
-        """
-        Creates ``ttnn.erfc``.
-
-        *Elementwise complementary error function operation.*
-
-        Computes the complementary error function (erfc) of each element in the input tensor.
-        The complementary error function is defined as erfc(x) = 1 - erf(x),
-        where erf(x) is the error function. It is commonly used in statistics and probability.
-
-        Mathematical definition: erfc(x) = 1 - (2/sqrt(π)) * ∫[0 to x] e^(-t^2) dt
-
-        .. code-block:: mlir
-
-            // Compute complementary error function of all elements
-            %result = ttnn.erfc(%input, %output) : tensor<4xf32>, tensor<4xf32> -> tensor<4xf32>
-            // Input tensor:
-            // [0.0, 0.5, 1.0, -1.0]
-            // Output tensor:
-            // [1.0, 0.4795, 0.1573, 1.8427]
-        """
-        return self._op_proxy(ttnn.ErfcOp, [in0], unit_attrs)
-
-    def exp(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
-        """
-        Creates ``ttnn.exp``.
-
-        *Elementwise exponential operation.*
-
-        Computes the exponential of each element in the input tensor.
-        For each element x, returns e^x, where e is Euler's number (approximately 2.71828).
-
-        .. code-block:: mlir
-
-            // Compute exponential of all elements
-            %result = ttnn.exp(%input, %output) : tensor<3xf32>, tensor<3xf32> -> tensor<3xf32>
-            // Input tensor:
-            // [0.0, 1.0, 2.0]
-            // Output tensor:
-            // [1.0, 2.71828, 7.38906]
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        unit_attrs : *Optional[List[str]]*
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            A tensor containing the exponential of each element in the input tensor
-        """
-        return self._op_proxy(
-            ttnn.ExpOp,
-            [in0],
-            unit_attrs=unit_attrs,
-        )
-
-    def floor(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
-        """
-        Creates ``ttnn.floor``.
-
-        *Elementwise floor operation.*
-
-        Computes the floor of each element in the input tensor, rounding down to the nearest integer.
-        This operation is idempotent.
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            Tensor with floor values
-        """
-        return self._op_proxy(
-            ttnn.FloorOp,
-            [in0],
-            unit_attrs,
-        )
-
-    def gelu(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
-        """
-        Creates ``ttnn.gelu``.
-
-        *Elementwise GELU operation.*
-
-        Computes the GELU (Gaussian Error Linear Unit) of each element in the input tensor.
-        GELU is a smooth, non-monotonic activation function that approximates the cumulative
-        distribution function of a standard normal distribution.
-
-        Mathematical definition: gelu(x) = 0.5 * x * (1 + erf(x / sqrt(2)))
-
-        .. code-block:: mlir
-
-            // Compute GELU of all elements
-            %result = ttnn.gelu(%input, %output) : tensor<4xf32>, tensor<4xf32> -> tensor<4xf32>
-            // Input tensor:
-            // [1.0, -0.5, 2.0, -2.0]
-            // Output tensor:
-            // [0.841, -0.154, 1.954, -0.046]
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            A tensor containing the GELU values of each element in the input tensor
-        """
-        return self._op_proxy(ttnn.GeluOp, [in0], unit_attrs)
-
-    def isfinite(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
-        """
-        Creates ``ttnn.isfinite``.
-
-        *Elementwise finite check operation.*
-
-        Checks if each element in the input tensor is finite (neither infinite nor NaN).
-        For each element, returns a boolean value indicating whether the element is finite.
-
-        Mathematical definition: isfinite(x) = x ∈ ℝ
-
-        .. code-block:: mlir
-
-            // Check if elements are finite
-            %result = ttnn.isfinite(%input, %output) : tensor<4xf32>, tensor<4xi1> -> tensor<4xi1>
-            // Input tensor:
-            // [1.0, inf, -inf, nan]
-            // Output tensor:
-            // [true, false, false, false]
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-        """
-        return self._op_proxy(
-            ttnn.IsFiniteOp,
-            [in0],
-            output_type=self._get_type_from_torch_dtype(
-                self._get_golden_tensor(in0).dtype
-            ),
-            unit_attrs=unit_attrs,
-        )
-
-    @tag(ttnn.LogicalNotOp)
-    def logical_not(
+    @tag(ttnn.AbsOp)
+    def abs(
         self,
         in0: Operand,
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
-        ttnn_op = self.get_opview_from_method(TTNNBuilder.logical_not)
-        dtype = self._get_data_type_attribute(in0)
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.abs)
 
         if output_type is None:
             mlir_output_type = self.get_type(in0)
@@ -789,7 +374,1128 @@ class TTNNBuilder(Builder):
             result,
             in0,
             loc=loc,
-            dtype=dtype,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.AbsOp)
+    def abs_parser(
+        self,
+        old_op: ttnn.AbsOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.abs_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttnn_op(result, input0, loc=old_op.location)
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttnn_op)
+            golden_output = op_golden_function(input0, result.element_type)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttnn.AbsOp)
+    def abs_split(
+        self,
+        old_op: ttnn.AbsOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.abs_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            abs_module = Module.create()
+            abs_builder = TTNNBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.input.type,
+            ]
+
+            with InsertionPoint(abs_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="abs_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttnn_op(result, in0, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttnn_op)
+                        input0 = self._get_golden_tensor(old_op.input)
+                        golden_output = op_golden_function(input0, result.element_type)
+                        abs_builder._set_golden_tensor(new_op_result, golden_output)
+                        abs_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.extend([in0])
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                abs_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return abs_module, abs_builder
+
+    @tag(ttnn.CbrtOp)
+    def cbrt(
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.cbrt)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            result,
+            in0,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.CbrtOp)
+    def cbrt_parser(
+        self,
+        old_op: ttnn.CbrtOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.cbrt_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttnn_op(result, in0, loc=old_op.location)
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttnn_op)
+            golden_output = op_golden_function(input0, result.element_type)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttnn.CbrtOp)
+    def cbrt_split(
+        self,
+        old_op: ttnn.CbrtOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.cbrt_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            cbrt_module = Module.create()
+            cbrt_builder = TTNNBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.input.type,
+            ]
+
+            with InsertionPoint(cbrt_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="cbrt_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttnn_op(result, in0, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttnn_op)
+                        input0 = self._get_golden_tensor(old_op.input)
+                        golden_output = op_golden_function(input0, result.element_type)
+                        cbrt_builder._set_golden_tensor(new_op_result, golden_output)
+                        cbrt_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.extend([in0])
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                cbrt_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return cbrt_module, cbrt_builder
+
+    @tag(ttnn.CeilOp)
+    def ceil(
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.ceil)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            result,
+            in0,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.CeilOp)
+    def ceil_parser(
+        self,
+        old_op: ttnn.CeilOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.ceil_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttnn_op(result, in0, loc=old_op.location)
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttnn_op)
+            golden_output = op_golden_function(input0, result.element_type)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttnn.CeilOp)
+    def ceil_split(
+        self,
+        old_op: ttnn.CeilOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.ceil_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            ceil_module = Module.create()
+            ceil_builder = TTNNBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.input.type,
+            ]
+
+            with InsertionPoint(ceil_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="ceil_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttnn_op(result, in0, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttnn_op)
+                        input0 = self._get_golden_tensor(old_op.input)
+                        golden_output = op_golden_function(input0, result.element_type)
+                        ceil_builder._set_golden_tensor(new_op_result, golden_output)
+                        ceil_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.extend([in0])
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                ceil_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return ceil_module, ceil_builder
+
+    @tag(ttnn.CosOp)
+    def cos(
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.cos)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            result,
+            in0,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.CosOp)
+    def cos_parser(
+        self,
+        old_op: ttnn.CosOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.cos_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttnn_op(result, in0, loc=old_op.location)
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttnn_op)
+            golden_output = op_golden_function(input0, result.element_type)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttnn.CosOp)
+    def cos_split(
+        self,
+        old_op: ttnn.CosOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.cos_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            cos_module = Module.create()
+            cos_builder = TTNNBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.input.type,
+            ]
+
+            with InsertionPoint(cos_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="cos_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttnn_op(result, in0, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttnn_op)
+                        input0 = self._get_golden_tensor(old_op.input)
+                        golden_output = op_golden_function(input0, result.element_type)
+                        cos_builder._set_golden_tensor(new_op_result, golden_output)
+                        cos_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.extend([in0])
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                cos_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return cos_module, cos_builder
+
+    @tag(ttnn.ErfOp)
+    def erf(
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.erf)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            result,
+            in0,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.ErfOp)
+    def erf_parser(
+        self,
+        old_op: ttnn.ErfOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.erf_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttnn_op(result, in0, loc=old_op.location)
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttnn_op)
+            golden_output = op_golden_function(input0, result.element_type)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttnn.ErfOp)
+    def erf_split(
+        self,
+        old_op: ttnn.ErfOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.erf_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            erf_module = Module.create()
+            erf_builder = TTNNBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.input.type,
+            ]
+
+            with InsertionPoint(erf_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="erf_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttnn_op(result, in0, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttnn_op)
+                        input0 = self._get_golden_tensor(old_op.input)
+                        golden_output = op_golden_function(input0, result.element_type)
+                        erf_builder._set_golden_tensor(new_op_result, golden_output)
+                        erf_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.extend([in0])
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                erf_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return erf_module, erf_builder
+
+    @tag(ttnn.ErfcOp)
+    def erfc(
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.erfc)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            result,
+            in0,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.ErfcOp)
+    def erfc_parser(
+        self,
+        old_op: ttnn.ErfcOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.erfc_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttnn_op(result, in0, loc=old_op.location)
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttnn_op)
+            golden_output = op_golden_function(input0, result.element_type)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttnn.ErfcOp)
+    def erfc_split(
+        self,
+        old_op: ttnn.ErfcOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.erfc_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            erfc_module = Module.create()
+            erfc_builder = TTNNBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.input.type,
+            ]
+
+            with InsertionPoint(erfc_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="erfc_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttnn_op(result, in0, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttnn_op)
+                        input0 = self._get_golden_tensor(old_op.input)
+                        golden_output = op_golden_function(input0, result.element_type)
+                        erfc_builder._set_golden_tensor(new_op_result, golden_output)
+                        erfc_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.extend([in0])
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                erfc_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return erfc_module, erfc_builder
+
+    @tag(ttnn.ExpOp)
+    def exp(
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.exp)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            result,
+            in0,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.ExpOp)
+    def exp_parser(
+        self,
+        old_op: ttnn.ExpOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.exp_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttnn_op(result, in0, loc=old_op.location)
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttnn_op)
+            golden_output = op_golden_function(input0, result.element_type)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttnn.ExpOp)
+    def exp_split(
+        self,
+        old_op: ttnn.ExpOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.exp_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            exp_module = Module.create()
+            exp_builder = TTNNBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.input.type,
+            ]
+
+            with InsertionPoint(exp_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="exp_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttnn_op(result, in0, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttnn_op)
+                        input0 = self._get_golden_tensor(old_op.input)
+                        golden_output = op_golden_function(input0, result.element_type)
+                        exp_builder._set_golden_tensor(new_op_result, golden_output)
+                        exp_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.extend([in0])
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                exp_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return exp_module, exp_builder
+
+    @tag(ttnn.FloorOp)
+    def floor(
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.floor)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            result,
+            in0,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.FloorOp)
+    def floor_parser(
+        self,
+        old_op: ttnn.FloorOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.floor_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttnn_op(result, in0, loc=old_op.location)
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttnn_op)
+            golden_output = op_golden_function(input0, result.element_type)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttnn.FloorOp)
+    def floor_split(
+        self,
+        old_op: ttnn.FloorOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.floor_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            floor_module = Module.create()
+            floor_builder = TTNNBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.input.type,
+            ]
+
+            with InsertionPoint(floor_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="floor_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttnn_op(result, in0, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttnn_op)
+                        input0 = self._get_golden_tensor(old_op.input)
+                        golden_output = op_golden_function(input0, result.element_type)
+                        floor_builder._set_golden_tensor(new_op_result, golden_output)
+                        floor_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.extend([in0])
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                floor_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return floor_module, floor_builder
+
+    @tag(ttnn.GeluOp)
+    def gelu(
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.gelu)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            result,
+            in0,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.GeluOp)
+    def gelu_parser(
+        self,
+        old_op: ttnn.GeluOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.gelu_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttnn_op(result, in0, loc=old_op.location)
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttnn_op)
+            golden_output = op_golden_function(input0, result.element_type)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttnn.GeluOp)
+    def gelu_split(
+        self,
+        old_op: ttnn.GeluOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.gelu_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            gelu_module = Module.create()
+            gelu_builder = TTNNBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.input.type,
+            ]
+
+            with InsertionPoint(gelu_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="gelu_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttnn_op(result, in0, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttnn_op)
+                        input0 = self._get_golden_tensor(old_op.input)
+                        golden_output = op_golden_function(input0, result.element_type)
+                        gelu_builder._set_golden_tensor(new_op_result, golden_output)
+                        gelu_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.extend([in0])
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                gelu_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return gelu_module, gelu_builder
+
+    @tag(ttnn.IsFiniteOp)
+    def isfinite(
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.isfinite)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            result,
+            in0,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.IsFiniteOp)
+    def isfinite_parser(
+        self,
+        old_op: ttnn.IsFiniteOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.isfinite_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttnn_op(result, in0, loc=old_op.location)
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttnn_op)
+            golden_output = op_golden_function(input0, result.element_type)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttnn.IsFiniteOp)
+    def isfinite_split(
+        self,
+        old_op: ttnn.IsFiniteOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.isfinite_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            isfinite_module = Module.create()
+            isfinite_builder = TTNNBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.input.type,
+            ]
+
+            with InsertionPoint(isfinite_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="isfinite_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttnn_op(result, in0, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttnn_op)
+                        input0 = self._get_golden_tensor(old_op.input)
+                        golden_output = op_golden_function(input0, result.element_type)
+                        isfinite_builder._set_golden_tensor(
+                            new_op_result, golden_output
+                        )
+                        isfinite_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.extend([in0])
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                isfinite_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return isfinite_module, isfinite_builder
+
+    @tag(ttnn.LogicalNotOp)
+    def logical_not(
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.logical_not)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            result,
+            in0,
+            loc=loc,
         )
         op_result = op.result
 
@@ -809,14 +1515,14 @@ class TTNNBuilder(Builder):
         global_dict: Dict[Operand, Operand],
     ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
         ttnn_op = self.get_opview_from_parser(TTNNBuilder.logical_not_parser)
-        inp = global_dict[old_op.input]
+        in0 = global_dict[old_op.input]
         result = old_op.result.type
 
-        new_op = ttnn_op(result, inp, loc=old_op.location, dtype=old_op.dtype)
+        new_op = ttnn_op(result, in0, loc=old_op.location)
         new_op_result = new_op.result
 
         if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(inp)
+            input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttnn_op)
             golden_output = op_golden_function(input0, result.element_type)
             self._set_golden_tensor(new_op_result, golden_output)
@@ -848,12 +1554,10 @@ class TTNNBuilder(Builder):
 
                 @func.func(*op_input_types, name="logical_not_module")
                 def decorated_func(*inputs):
-                    inp = inputs[0]
+                    in0 = inputs[0]
                     result = old_op.result.type
 
-                    new_op = ttnn_op(
-                        result, inp, loc=old_op.location, dtype=old_op.dtype
-                    )
+                    new_op = ttnn_op(result, in0, loc=old_op.location)
                     new_op_result = new_op.result
 
                     if not self._disable_golden_check:
@@ -861,8 +1565,8 @@ class TTNNBuilder(Builder):
                         input0 = self._get_golden_tensor(old_op.input)
                         golden_output = op_golden_function(input0, result.element_type)
                         not_builder._set_golden_tensor(new_op_result, golden_output)
-                        not_builder._set_golden_tensor(inp, input0)
-                        ordered_inputs.append(inp)
+                        not_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.append(in0)
                         ordered_outputs.append(new_op_result)
 
                     return new_op
@@ -925,14 +1629,14 @@ class TTNNBuilder(Builder):
         global_dict: Dict[Operand, Operand],
     ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
         ttnn_op = self.get_opview_from_parser(TTNNBuilder.bitwise_not_parser)
-        inp = global_dict[old_op.input]
+        in0 = global_dict[old_op.input]
         result = old_op.result.type
 
-        new_op = ttnn_op(result, inp, loc=old_op.location, dtype=old_op.dtype)
+        new_op = ttnn_op(result, in0, loc=old_op.location, dtype=old_op.dtype)
         new_op_result = new_op.result
 
         if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(inp)
+            input0 = self._get_golden_tensor(in0)
             op_golden_function = get_golden_function(ttnn_op)
             golden_output = op_golden_function(input0, result.element_type)
             self._set_golden_tensor(new_op_result, golden_output)
@@ -964,11 +1668,11 @@ class TTNNBuilder(Builder):
 
                 @func.func(*op_input_types, name="bitwise_not_module")
                 def decorated_func(*inputs):
-                    inp = inputs[0]
+                    in0 = inputs[0]
                     result = old_op.result.type
 
                     new_op = ttnn_op(
-                        result, inp, loc=old_op.location, dtype=old_op.dtype
+                        result, in0, loc=old_op.location, dtype=old_op.dtype
                     )
                     new_op_result = new_op.result
 
@@ -977,8 +1681,8 @@ class TTNNBuilder(Builder):
                         input0 = self._get_golden_tensor(old_op.input)
                         golden_output = op_golden_function(input0, result.element_type)
                         not_builder._set_golden_tensor(new_op_result, golden_output)
-                        not_builder._set_golden_tensor(inp, input0)
-                        ordered_inputs.append(inp)
+                        not_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.append(in0)
                         ordered_outputs.append(new_op_result)
 
                     return new_op
@@ -991,618 +1695,1911 @@ class TTNNBuilder(Builder):
 
         return not_module, not_builder
 
-    def neg(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
-        """
-        Creates ``ttnn.neg``.
+    @tag(ttnn.NegOp)
+    def neg(
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.neg)
 
-        *Elementwise negate operation.*
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
-        Computes the negation of each element in the input tensor.
-        For each element, returns the negation of the value.
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
 
-        Mathematical definition: neg(x) = -x
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
 
-        .. code-block:: mlir
+        op = ttnn_op(
+            result,
+            in0,
+            loc=loc,
+        )
+        op_result = op.result
 
-            // Compute negation of all elements
-            %result = ttnn.neg(%input, %output) : tensor<4xf32>, tensor<4xf32> -> tensor<4xf32>
-            // Input tensor:
-            // [1.7, 2.0, -0.3, 4.5]
-            // Output tensor:
-            // [-1.7, -2.0, 0.3, -4.5]
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
 
-        Returns
-        -------
-        (*OpView*)
-            A tensor containing the negation of each input element
-        """
-        return self._op_proxy(ttnn.NegOp, [in0], unit_attrs)
+        return op_result
 
-    def tan(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
-        """
-        Creates ``ttnn.tan``.
+    @parse(ttnn.NegOp)
+    def neg_parser(
+        self,
+        old_op: ttnn.NegOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.neg_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
 
-        *Elementwise tangent operation.*
+        new_op = ttnn_op(result, in0, loc=old_op.location)
+        new_op_result = new_op.result
 
-        Computes the tangent of each element in the input tensor.
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttnn_op)
+            golden_output = op_golden_function(input0, result.element_type)
+            self._set_golden_tensor(new_op_result, golden_output)
 
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
 
-        Returns
-        -------
-        (*OpView*)
-            Tensor with tangent values
-        """
-        return self._op_proxy(ttnn.TanOp, [in0], unit_attrs)
+    @split(ttnn.NegOp)
+    def neg_split(
+        self,
+        old_op: ttnn.NegOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.neg_split)
 
-    def atan(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
-        """
-        Creates ``ttnn.atan``.
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            neg_module = Module.create()
+            neg_builder = TTNNBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.input.type,
+            ]
 
-        *Elementwise arctangent operation.*
+            with InsertionPoint(neg_module.body):
 
-        Computes the inverse tangent (arctangent) of each element in the input tensor.
+                ordered_inputs = []
+                ordered_outputs = []
 
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
+                @func.func(*op_input_types, name="neg_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
 
-        Returns
-        -------
-        (*OpView*)
-            Tensor with arctangent values
-        """
-        return self._op_proxy(ttnn.AtanOp, [in0], unit_attrs)
+                    new_op = ttnn_op(result, in0, loc=old_op.location)
+                    new_op_result = new_op.result
 
-    def tanh(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
-        """
-        Creates ``ttnn.tanh``.
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttnn_op)
+                        input0 = self._get_golden_tensor(old_op.input)
+                        golden_output = op_golden_function(input0, result.element_type)
+                        neg_builder._set_golden_tensor(new_op_result, golden_output)
+                        neg_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.extend([in0])
+                        ordered_outputs.append(new_op_result)
 
-        *Elementwise hyperbolic tangent operation.*
+                    return new_op
 
-        Computes the hyperbolic tangent of each element in the input tensor.
+                new_func_op = decorated_func.func_op
+                neg_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
 
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
+        return neg_module, neg_builder
 
-        Returns
-        -------
-        (*OpView*)
-            Tensor with hyperbolic tangent values
-        """
-        return self._op_proxy(ttnn.TanhOp, [in0], unit_attrs)
+    @tag(ttnn.TanOp)
+    def tan(
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.tan)
 
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            result,
+            in0,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.TanOp)
+    def tan_parser(
+        self,
+        old_op: ttnn.TanOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.tan_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttnn_op(result, in0, loc=old_op.location)
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttnn_op)
+            golden_output = op_golden_function(input0, result.element_type)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttnn.TanOp)
+    def tan_split(
+        self,
+        old_op: ttnn.TanOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.tan_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            tan_module = Module.create()
+            tan_builder = TTNNBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.input.type,
+            ]
+
+            with InsertionPoint(tan_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="tan_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttnn_op(result, in0, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttnn_op)
+                        input0 = self._get_golden_tensor(old_op.input)
+                        golden_output = op_golden_function(input0, result.element_type)
+                        tan_builder._set_golden_tensor(new_op_result, golden_output)
+                        tan_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.extend([in0])
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                tan_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return tan_module, tan_builder
+
+    @tag(ttnn.AtanOp)
+    def atan(
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.atan)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            result,
+            in0,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.AtanOp)
+    def atan_parser(
+        self,
+        old_op: ttnn.AtanOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.atan_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttnn_op(result, in0, loc=old_op.location)
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttnn_op)
+            golden_output = op_golden_function(input0, result.element_type)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttnn.AtanOp)
+    def atan_split(
+        self,
+        old_op: ttnn.AtanOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.atan_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            atan_module = Module.create()
+            atan_builder = TTNNBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.input.type,
+            ]
+
+            with InsertionPoint(atan_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="atan_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttnn_op(result, in0, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttnn_op)
+                        input0 = self._get_golden_tensor(old_op.input)
+                        golden_output = op_golden_function(input0, result.element_type)
+                        atan_builder._set_golden_tensor(new_op_result, golden_output)
+                        atan_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.extend([in0])
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                atan_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return atan_module, atan_builder
+
+    @tag(ttnn.TanhOp)
+    def tanh(
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.tanh)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            result,
+            in0,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.TanhOp)
+    def tanh_parser(
+        self,
+        old_op: ttnn.TanhOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.tanh_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttnn_op(result, in0, loc=old_op.location)
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttnn_op)
+            golden_output = op_golden_function(input0, result.element_type)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttnn.TanhOp)
+    def tanh_split(
+        self,
+        old_op: ttnn.TanhOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.tanh_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            tanh_module = Module.create()
+            tanh_builder = TTNNBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.input.type,
+            ]
+
+            with InsertionPoint(tanh_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="tanh_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttnn_op(result, in0, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttnn_op)
+                        input0 = self._get_golden_tensor(old_op.input)
+                        golden_output = op_golden_function(input0, result.element_type)
+                        tanh_builder._set_golden_tensor(new_op_result, golden_output)
+                        tanh_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.extend([in0])
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                tanh_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return tanh_module, tanh_builder
+
+    @tag(ttnn.ReciprocalOp)
     def reciprocal(
-        self, in0: Operand, unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
-        """
-        Creates ``ttnn.reciprocal``.
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.reciprocal)
 
-        *Elementwise reciprocal operation.*
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
-        Computes the reciprocal (1/x) of each element in the input tensor.
-        This operation is involutive (applying it twice returns to the original value).
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
 
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
 
-        Returns
-        -------
-        (*OpView*)
-            Tensor with reciprocal values
-        """
-        return self._op_proxy(
-            ttnn.ReciprocalOp,
-            [in0],
-            unit_attrs,
+        op = ttnn_op(
+            result,
+            in0,
+            loc=loc,
         )
+        op_result = op.result
 
-    def relu(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
-        """
-        Creates ``ttnn.relu``.
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        *Elementwise ReLU activation operation.*
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
 
-        Computes the Rectified Linear Unit function for each element in the input tensor.
-        This operation is idempotent (applying it multiple times has the same effect as applying it once).
+        return op_result
 
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
+    @parse(ttnn.ReciprocalOp)
+    def reciprocal_parser(
+        self,
+        old_op: ttnn.ReciprocalOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.reciprocal_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
 
-        Returns
-        -------
-        (*OpView*)
-            Tensor with ReLU activation values
-        """
-        return self._op_proxy(ttnn.ReluOp, [in0], unit_attrs)
+        new_op = ttnn_op(result, in0, loc=old_op.location)
+        new_op_result = new_op.result
 
-    def relu6(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
-        """
-        Creates ``ttnn.relu6``.
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttnn_op)
+            golden_output = op_golden_function(input0, result.element_type)
+            self._set_golden_tensor(new_op_result, golden_output)
 
-        *Elementwise ReLU6 activation operation.*
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
 
-        Computes the ReLU6 function for each element in the input tensor.
-        ReLU6 is defined as: min(max(0, x), 6)
-        This activation function clips values between 0 and 6, making it useful
-        for quantized neural networks and mobile applications.
+    @split(ttnn.ReciprocalOp)
+    def reciprocal_split(
+        self,
+        old_op: ttnn.ReciprocalOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.reciprocal_split)
 
-        .. code-block:: mlir
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            reciprocal_module = Module.create()
+            reciprocal_builder = TTNNBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.input.type,
+            ]
 
-            // Compute ReLU6 of all elements
-            %result = ttnn.relu6(%input, %output) : tensor<4xf32>, tensor<4xf32> -> tensor<4xf32>
-            // Input tensor:
-            // [-2.0, 3.0, 8.0, 1.5]
-            // Output tensor:
-            // [0.0, 3.0, 6.0, 1.5]
+            with InsertionPoint(reciprocal_module.body):
 
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
+                ordered_inputs = []
+                ordered_outputs = []
 
-        Returns
-        -------
-        (*OpView*)
-            Tensor with ReLU6 activation values
-        """
-        return self._op_proxy(ttnn.Relu6Op, [in0], unit_attrs)
+                @func.func(*op_input_types, name="reciprocal_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
 
-    def silu(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
-        """
-        Creates ``ttnn.silu``.
+                    new_op = ttnn_op(result, in0, loc=old_op.location)
+                    new_op_result = new_op.result
 
-        *Elementwise SiLU (Swish) activation operation.*
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttnn_op)
+                        input0 = self._get_golden_tensor(old_op.input)
+                        golden_output = op_golden_function(input0, result.element_type)
+                        reciprocal_builder._set_golden_tensor(
+                            new_op_result, golden_output
+                        )
+                        reciprocal_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.extend([in0])
+                        ordered_outputs.append(new_op_result)
 
-        Computes the SiLU (Sigmoid Linear Unit) activation function for each element in the input tensor.
-        SiLU is also known as Swish activation and is defined as: silu(x) = x * sigmoid(x) = x / (1 + exp(-x))
+                    return new_op
 
-        This activation function is smooth, non-monotonic, and has been shown to work well
-        in deep neural networks, particularly in transformer architectures.
+                new_func_op = decorated_func.func_op
+                reciprocal_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
 
-        .. code-block:: mlir
+        return reciprocal_module, reciprocal_builder
 
-            // Compute SiLU activation of all elements
-            %result = ttnn.silu(%input, %output) : tensor<4xf32>, tensor<4xf32> -> tensor<4xf32>
-            // Input tensor:
-            // [1.0, -0.5, 2.0, -2.0]
-            // Output tensor:
-            // [0.731, -0.193, 1.762, -0.238]
+    @tag(ttnn.ReluOp)
+    def relu(
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.relu)
 
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
-        Returns
-        -------
-        (*OpView*)
-            A tensor containing the SiLU activation values of each element in the input tensor
-        """
-        return self._op_proxy(ttnn.SiluOp, [in0], unit_attrs)
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
 
-    def relu6(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
-        """
-        Creates ``ttnn.relu6``.
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
 
-        *Elementwise ReLU6 activation operation.*
-
-        Computes the ReLU6 function for each element in the input tensor.
-        ReLU6 is defined as: min(max(0, x), 6)
-        This activation function clips values between 0 and 6, making it useful
-        for quantized neural networks and mobile applications.
-
-        .. code-block:: mlir
-
-            // Compute ReLU6 of all elements
-            %result = ttnn.relu6(%input, %output) : tensor<4xf32>, tensor<4xf32> -> tensor<4xf32>
-            // Input tensor:
-            // [-2.0, 3.0, 8.0, 1.5]
-            // Output tensor:
-            // [0.0, 3.0, 6.0, 1.5]
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            Tensor with ReLU6 activation values
-        """
-        return self._op_proxy(ttnn.Relu6Op, [in0], unit_attrs)
-
-    def rsqrt(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
-        """
-        Creates ``ttnn.rsqrt``.
-
-        *Elementwise reciprocal square root operation.*
-
-        Computes the reciprocal of the square root (1/√x) of each element in the input tensor.
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            Tensor with reciprocal square root values
-        """
-        return self._op_proxy(
-            ttnn.RsqrtOp,
-            [in0],
-            unit_attrs,
+        op = ttnn_op(
+            result,
+            in0,
+            loc=loc,
         )
+        op_result = op.result
 
-    def sigmoid(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
-        """
-        Creates ``ttnn.sigmoid``.
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        *Elementwise sigmoid activation operation.*
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
 
-        Computes the sigmoid function (1/(1 + e^-x)) for each element in the input tensor.
+        return op_result
 
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
+    @parse(ttnn.ReluOp)
+    def relu_parser(
+        self,
+        old_op: ttnn.ReluOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.relu_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
 
-        Returns
-        -------
-        (*OpView*)
-            Tensor with sigmoid activation values
-        """
-        return self._op_proxy(
-            ttnn.SigmoidOp,
-            [in0],
-            unit_attrs,
+        new_op = ttnn_op(result, in0, loc=old_op.location)
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttnn_op)
+            golden_output = op_golden_function(input0, result.element_type)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttnn.ReluOp)
+    def relu_split(
+        self,
+        old_op: ttnn.ReluOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.relu_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            relu_module = Module.create()
+            relu_builder = TTNNBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.input.type,
+            ]
+
+            with InsertionPoint(relu_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="relu_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttnn_op(result, in0, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttnn_op)
+                        input0 = self._get_golden_tensor(old_op.input)
+                        golden_output = op_golden_function(input0, result.element_type)
+                        relu_builder._set_golden_tensor(new_op_result, golden_output)
+                        relu_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.extend([in0])
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                relu_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return relu_module, relu_builder
+
+    @tag(ttnn.Relu6Op)
+    def relu6(
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.relu6)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            result,
+            in0,
+            loc=loc,
         )
+        op_result = op.result
 
-    def sign(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
-        """
-        Creates ``ttnn.sign``.
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        *Elementwise sign operation.*
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
 
-        Returns the sign (-1, 0, or 1) of each element in the input tensor.
-        This operation is idempotent.
+        return op_result
 
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
+    @parse(ttnn.Relu6Op)
+    def relu6_parser(
+        self,
+        old_op: ttnn.Relu6Op,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.relu6_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
 
-        Returns
-        -------
-        (*OpView*)
-            Tensor with sign values
-        """
-        return self._op_proxy(ttnn.SignOp, [in0], unit_attrs)
+        new_op = ttnn_op(result, in0, loc=old_op.location)
+        new_op_result = new_op.result
 
-    def silu(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
-        """
-        Creates ``ttnn.silu``.
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttnn_op)
+            golden_output = op_golden_function(input0, result.element_type)
+            self._set_golden_tensor(new_op_result, golden_output)
 
-        *Elementwise SiLU (Swish) activation operation.*
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
 
-        Computes the SiLU (Sigmoid Linear Unit) activation function for each element in the input tensor.
-        SiLU is also known as Swish activation and is defined as: silu(x) = x * sigmoid(x) = x / (1 + exp(-x))
+    @split(ttnn.Relu6Op)
+    def relu6_split(
+        self,
+        old_op: ttnn.Relu6Op,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.relu6_split)
 
-        This activation function is smooth, non-monotonic, and has been shown to work well
-        in deep neural networks, particularly in transformer architectures.
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            relu6_module = Module.create()
+            relu6_builder = TTNNBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.input.type,
+            ]
 
-        .. code-block:: mlir
+            with InsertionPoint(relu6_module.body):
 
-            // Compute SiLU activation of all elements
-            %result = ttnn.silu(%input, %output) : tensor<4xf32>, tensor<4xf32> -> tensor<4xf32>
-            // Input tensor:
-            // [1.0, -0.5, 2.0, -2.0]
-            // Output tensor:
-            // [0.731, -0.193, 1.762, -0.238]
+                ordered_inputs = []
+                ordered_outputs = []
 
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
+                @func.func(*op_input_types, name="relu6_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
 
-        Returns
-        -------
-        (*OpView*)
-            A tensor containing the SiLU activation values of each element in the input tensor
-        """
-        return self._op_proxy(ttnn.SiluOp, [in0], unit_attrs)
+                    new_op = ttnn_op(result, in0, loc=old_op.location)
+                    new_op_result = new_op.result
 
-    def sin(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
-        """
-        Creates ``ttnn.sin``.
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttnn_op)
+                        input0 = self._get_golden_tensor(old_op.input)
+                        golden_output = op_golden_function(input0, result.element_type)
+                        relu6_builder._set_golden_tensor(new_op_result, golden_output)
+                        relu6_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.extend([in0])
+                        ordered_outputs.append(new_op_result)
 
-        *Elementwise sine operation.*
+                    return new_op
 
-        Computes the sine of each element in the input tensor.
+                new_func_op = decorated_func.func_op
+                relu6_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
 
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
+        return relu6_module, relu6_builder
 
-        Returns
-        -------
-        (*OpView*)
-            Tensor with sine values
-        """
-        return self._op_proxy(ttnn.SinOp, [in0], unit_attrs)
+    @tag(ttnn.RsqrtOp)
+    def rsqrt(
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.rsqrt)
 
-    def sqrt(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
-        """
-        Creates ``ttnn.sqrt``.
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
-        *Elementwise square root operation.*
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
 
-        Computes the square root of each element in the input tensor.
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
 
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
+        op = ttnn_op(
+            result,
+            in0,
+            loc=loc,
+        )
+        op_result = op.result
 
-        Returns
-        -------
-        (*OpView*)
-            Tensor with square root values
-        """
-        return self._op_proxy(ttnn.SqrtOp, [in0], unit_attrs)
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.RsqrtOp)
+    def rsqrt_parser(
+        self,
+        old_op: ttnn.RsqrtOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.rsqrt_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttnn_op(result, in0, loc=old_op.location)
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttnn_op)
+            golden_output = op_golden_function(input0, result.element_type)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttnn.RsqrtOp)
+    def rsqrt_split(
+        self,
+        old_op: ttnn.RsqrtOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.rsqrt_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            rsqrt_module = Module.create()
+            rsqrt_builder = TTNNBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.input.type,
+            ]
+
+            with InsertionPoint(rsqrt_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="rsqrt_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttnn_op(result, in0, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttnn_op)
+                        input0 = self._get_golden_tensor(old_op.input)
+                        golden_output = op_golden_function(input0, result.element_type)
+                        rsqrt_builder._set_golden_tensor(new_op_result, golden_output)
+                        rsqrt_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.extend([in0])
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                rsqrt_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return rsqrt_module, rsqrt_builder
+
+    @tag(ttnn.SigmoidOp)
+    def sigmoid(
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.sigmoid)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            result,
+            in0,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.SigmoidOp)
+    def sigmoid_parser(
+        self,
+        old_op: ttnn.SigmoidOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.sigmoid_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttnn_op(result, in0, loc=old_op.location)
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttnn_op)
+            golden_output = op_golden_function(input0, result.element_type)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttnn.SigmoidOp)
+    def sigmoid_split(
+        self,
+        old_op: ttnn.SigmoidOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.sigmoid_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            sigmoid_module = Module.create()
+            sigmoid_builder = TTNNBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.input.type,
+            ]
+
+            with InsertionPoint(sigmoid_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="sigmoid_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttnn_op(result, in0, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttnn_op)
+                        input0 = self._get_golden_tensor(old_op.input)
+                        golden_output = op_golden_function(input0, result.element_type)
+                        sigmoid_builder._set_golden_tensor(new_op_result, golden_output)
+                        sigmoid_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.extend([in0])
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                sigmoid_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return sigmoid_module, sigmoid_builder
+
+    @tag(ttnn.SiluOp)
+    def silu(
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.silu)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            result,
+            in0,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.SiluOp)
+    def silu_parser(
+        self,
+        old_op: ttnn.SiluOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.silu_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttnn_op(result, in0, loc=old_op.location)
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttnn_op)
+            golden_output = op_golden_function(input0, result.element_type)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttnn.SiluOp)
+    def silu_split(
+        self,
+        old_op: ttnn.SiluOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.silu_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            silu_module = Module.create()
+            silu_builder = TTNNBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.input.type,
+            ]
+
+            with InsertionPoint(silu_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="silu_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttnn_op(result, in0, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttnn_op)
+                        input0 = self._get_golden_tensor(old_op.input)
+                        golden_output = op_golden_function(input0, result.element_type)
+                        silu_builder._set_golden_tensor(new_op_result, golden_output)
+                        silu_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.extend([in0])
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                silu_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return silu_module, silu_builder
+
+    @tag(ttnn.SignOp)
+    def sign(
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.sign)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            result,
+            in0,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.SignOp)
+    def sign_parser(
+        self,
+        old_op: ttnn.SignOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.sign_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttnn_op(result, in0, loc=old_op.location)
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttnn_op)
+            golden_output = op_golden_function(input0, result.element_type)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttnn.SignOp)
+    def sign_split(
+        self,
+        old_op: ttnn.SignOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.sign_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            sign_module = Module.create()
+            sign_builder = TTNNBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.input.type,
+            ]
+
+            with InsertionPoint(sign_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="sign_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttnn_op(result, in0, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttnn_op)
+                        input0 = self._get_golden_tensor(old_op.input)
+                        golden_output = op_golden_function(input0, result.element_type)
+                        sign_builder._set_golden_tensor(new_op_result, golden_output)
+                        sign_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.extend([in0])
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                sign_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return sign_module, sign_builder
+
+    @tag(ttnn.SinOp)
+    def sin(
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.sin)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            result,
+            in0,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.SinOp)
+    def sin_parser(
+        self,
+        old_op: ttnn.SinOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.sin_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttnn_op(result, in0, loc=old_op.location)
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttnn_op)
+            golden_output = op_golden_function(input0, result.element_type)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttnn.SinOp)
+    def sin_split(
+        self,
+        old_op: ttnn.SinOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.sin_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            sin_module = Module.create()
+            sin_builder = TTNNBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.input.type,
+            ]
+
+            with InsertionPoint(sin_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="sin_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttnn_op(result, in0, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttnn_op)
+                        input0 = self._get_golden_tensor(old_op.input)
+                        golden_output = op_golden_function(input0, result.element_type)
+                        sin_builder._set_golden_tensor(new_op_result, golden_output)
+                        sin_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.extend([in0])
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                sin_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return sin_module, sin_builder
+
+    @tag(ttnn.SqrtOp)
+    def sqrt(
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.sqrt)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            result,
+            in0,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.SqrtOp)
+    def sqrt_parser(
+        self,
+        old_op: ttnn.SqrtOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.sqrt_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttnn_op(result, in0, loc=old_op.location)
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttnn_op)
+            golden_output = op_golden_function(input0, result.element_type)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttnn.SqrtOp)
+    def sqrt_split(
+        self,
+        old_op: ttnn.SqrtOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.sqrt_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            sqrt_module = Module.create()
+            sqrt_builder = TTNNBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.input.type,
+            ]
+
+            with InsertionPoint(sqrt_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="sqrt_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttnn_op(result, in0, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttnn_op)
+                        input0 = self._get_golden_tensor(old_op.input)
+                        golden_output = op_golden_function(input0, result.element_type)
+                        sqrt_builder._set_golden_tensor(new_op_result, golden_output)
+                        sqrt_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.extend([in0])
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                sqrt_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return sqrt_module, sqrt_builder
+
+    @tag(ttnn.TypecastOp)
     def typecast(
         self,
         in0: Operand,
         output_type: torch.dtype,
+        loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
-        """
-        Creates ``ttnn.typecast``.
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.typecast)
 
-        *Elementwise type casting operation.*
+        mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
-        Casts each element in the input tensor to the type of the output tensor.
-        The output type can be any supported tensor element type.
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
 
-        .. code-block:: mlir
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
 
-            // Cast float32 to int32
-            %result = ttnn.typecast(%input, %output) : tensor<2x2xf32>, tensor<2x2xi32> -> tensor<2x2xi32>
-            // Input tensor:
-            // [[1.7, 2.3],
-            //  [3.8, 4.1]]
-            // Output tensor:
-            // [[1, 2],
-            //  [3, 4]]
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor to cast
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            A tensor containing the input values cast to the output type
-        """
-        return self._op_proxy(
-            ttnn.TypecastOp,
-            [in0],
-            golden_kwargs={"dtype": output_type},
-            output_type=self._get_type_from_torch_dtype(output_type),
-            unit_attrs=unit_attrs,
+        op = ttnn_op(
+            result,
+            in0,
+            loc=loc,
         )
+        op_result = op.result
 
-    def log(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
-        """
-        Creates ``ttnn.log``.
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        *Elementwise natural logarithm operation.*
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
 
-        Computes the natural logarithm of each element in the input tensor.
-        For each element x, returns ln(x), where ln is the natural logarithm.
+        return op_result
 
-        .. code-block:: mlir
+    @parse(ttnn.TypecastOp)
+    def typecast_parser(
+        self,
+        old_op: ttnn.TypecastOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.typecast_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
 
-            // Compute natural logarithm of all elements
-            %result = ttnn.log(%input, %output) : tensor<3xf32>, tensor<3xf32> -> tensor<3xf32>
-            // Input tensor:
-            // [1.0, 2.71828, 7.38906]
-            // Output tensor:
-            // [0.0, 1.0, 2.0]
+        new_op = ttnn_op(result, in0, loc=old_op.location)
+        new_op_result = new_op.result
 
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttnn_op)
+            golden_output = op_golden_function(input0, result.element_type)
+            self._set_golden_tensor(new_op_result, golden_output)
 
-        Returns
-        -------
-        (*OpView*)
-            A tensor containing the natural logarithm of each element in the input tensor
-        """
-        return self._op_proxy(ttnn.LogOp, [in0], unit_attrs)
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
 
-    def log1p(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
-        """Elementwise natural logarithm of one plus input operation.
+    @split(ttnn.TypecastOp)
+    def typecast_split(
+        self,
+        old_op: ttnn.TypecastOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.typecast_split)
 
-        The `log1p` operation computes the natural logarithm of one plus each element in the
-        input tensor. For each element x, it returns ln(1 + x). This operation is more
-        accurate than computing log(1 + x) directly for x values close to zero, and it is
-        defined for x > -1. For values less than or equal to -1, the behavior depends on
-        the implementation (may return NaN or negative infinity).
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            typecast_module = Module.create()
+            typecast_builder = TTNNBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.input.type,
+            ]
 
-        .. code-block:: mlir
+            with InsertionPoint(typecast_module.body):
 
-            // Compute log1p of all elements
-            %result = ttnn.log1p(%input, %output) : tensor<4xf32>, tensor<4xf32> -> tensor<4xf32>
-            // Input tensor:
-            // [0.0, -0.999, 7.0, 6.38905621, 15.0]
-            // Output tensor:
-            // [0.0, -6.90776825, 2.07944155, 2.0, 2.77258873]
+                ordered_inputs = []
+                ordered_outputs = []
 
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
+                @func.func(*op_input_types, name="typecast_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
 
-        Returns
-        -------
-        (*OpView*)
-            A tensor containing the log1p values of the input tensor
-        """
-        return self._op_proxy(
-            ttnn.Log1pOp,
-            [in0],
-            unit_attrs,
-        )
+                    new_op = ttnn_op(result, in0, loc=old_op.location)
+                    new_op_result = new_op.result
 
-    def expm1(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
-        """
-        Creates ``ttnn.expm1``.
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttnn_op)
+                        input0 = self._get_golden_tensor(old_op.input)
+                        golden_output = op_golden_function(input0, result.element_type)
+                        typecast_builder._set_golden_tensor(
+                            new_op_result, golden_output
+                        )
+                        typecast_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.extend([in0])
+                        ordered_outputs.append(new_op_result)
 
-        *Elementwise exponential minus one operation.*
+                    return new_op
 
-        Computes e^x - 1 for each element in the input tensor, where e is Euler's number.
-        This operation provides better numerical precision than computing exp(x) - 1 directly,
-        especially for small values of x.
+                new_func_op = decorated_func.func_op
+                typecast_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
 
-        .. code-block:: mlir
+        return typecast_module, typecast_builder
 
-            // Compute exp(x) - 1 for all elements
-            %result = ttnn.expm1(%input, %output) : tensor<3xf32>, tensor<3xf32> -> tensor<3xf32>
-            // Input tensor:
-            // [0.0, 0.1, -0.1]
-            // Output tensor:
-            // [0.0, 0.10517, -0.09516]
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            A tensor containing exp(x) - 1 for each element x in the input tensor
-        """
-        return self._op_proxy(
-            ttnn.Expm1Op,
-            [in0],
-            unit_attrs,
-        )
-
-    # class TTNN_ElementwiseUnaryWithFloatParameterOp
-
-    def leaky_relu(
+    @tag(ttnn.LogOp)
+    def log(
         self,
         in0: Operand,
-        parameter: float = 0.01,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
-        """
-        Creates ``ttnn.leaky_relu``.
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.log)
 
-        *Elementwise leaky ReLU activation operation.*
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
-        Computes a leaky version of the Rectified Linear Unit (ReLU) activation function.
-        For each element x in the input tensor:
-        - If x > 0: returns x
-        - If x ≤ 0: returns parameter * x
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
 
-        The parameter controls the slope for negative values, allowing a small gradient
-        when the unit is not active.
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
 
-        .. code-block:: mlir
-
-            // Compute leaky ReLU with slope 0.01 for negative values
-            %result = ttnn.leaky_relu(%input, %output) : tensor<4xf32>, tensor<4xf32> -> tensor<4xf32>
-            // Input tensor:
-            // [2.0, -1.0, 0.0, -3.0]
-            // Output tensor:
-            // [2.0, -0.01, 0.0, -0.03]
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor to be activated
-        parameter : float, optional
-            Slope for negative values (default: 0.01)
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            A tensor containing the leaky ReLU activation values
-        """
-        ttnn_kwargs = {"parameter": parameter}
-        return self._op_proxy(
-            ttnn.LeakyReluOp,
-            [in0],
-            ttnn_kwargs=ttnn_kwargs,
-            unit_attrs=unit_attrs,
+        op = ttnn_op(
+            result,
+            in0,
+            loc=loc,
         )
+        op_result = op.result
 
-    # class TTNN_ElementwiseBinaryOp
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.LogOp)
+    def log_parser(
+        self,
+        old_op: ttnn.LogOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.log_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttnn_op(result, in0, loc=old_op.location)
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttnn_op)
+            golden_output = op_golden_function(input0, result.element_type)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttnn.LogOp)
+    def log_split(
+        self,
+        old_op: ttnn.LogOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.log_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            log_module = Module.create()
+            log_builder = TTNNBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.input.type,
+            ]
+
+            with InsertionPoint(log_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="log_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttnn_op(result, in0, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttnn_op)
+                        input0 = self._get_golden_tensor(old_op.input)
+                        golden_output = op_golden_function(input0, result.element_type)
+                        log_builder._set_golden_tensor(new_op_result, golden_output)
+                        log_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.extend([in0])
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                log_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return log_module, log_builder
+
+    @tag(ttnn.Log1pOp)
+    def log1p(
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.log1p)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            result,
+            in0,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.Log1pOp)
+    def log1p_parser(
+        self,
+        old_op: ttnn.Log1pOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.log1p_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttnn_op(result, in0, loc=old_op.location)
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttnn_op)
+            golden_output = op_golden_function(input0, result.element_type)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttnn.Log1pOp)
+    def log1p_split(
+        self,
+        old_op: ttnn.Log1pOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.log1p_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            log1p_module = Module.create()
+            log1p_builder = TTNNBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.input.type,
+            ]
+
+            with InsertionPoint(log1p_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="log1p_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttnn_op(result, in0, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttnn_op)
+                        input0 = self._get_golden_tensor(old_op.input)
+                        golden_output = op_golden_function(input0, result.element_type)
+                        log1p_builder._set_golden_tensor(new_op_result, golden_output)
+                        log1p_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.extend([in0])
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                log1p_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return log1p_module, log1p_builder
+
+    @tag(ttnn.Expm1Op)
+    def expm1(
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.expm1)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttnn_op(
+            result,
+            in0,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.Expm1Op)
+    def expm1_parser(
+        self,
+        old_op: ttnn.Expm1Op,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.expm1_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttnn_op(result, in0, loc=old_op.location)
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttnn_op)
+            golden_output = op_golden_function(input0, result.element_type)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttnn.Expm1Op)
+    def expm1_split(
+        self,
+        old_op: ttnn.Expm1Op,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.expm1_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            expm1_module = Module.create()
+            expm1_builder = TTNNBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.input.type,
+            ]
+
+            with InsertionPoint(expm1_module.body):
+
+                ordered_inputs = []
+
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="expm1_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttnn_op(result, in0, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttnn_op)
+                        input0 = self._get_golden_tensor(old_op.input)
+                        golden_output = op_golden_function(input0, result.element_type)
+                        expm1_builder._set_golden_tensor(new_op_result, golden_output)
+                        expm1_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.extend([in0])
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                expm1_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return expm1_module, expm1_builder
 
     @tag(ttnn.EqualOp)
     def eq(
@@ -4827,6 +6824,162 @@ class TTNNBuilder(Builder):
                 unit_attrs=unit_attrs,
                 golden_kwargs=golden_kwargs,
             )
+
+    # class TTNN_ElementwiseUnaryWithFloatParameterOp
+
+    def leaky_relu(
+        self,
+        in0: Operand,
+        parameter: float = 0.01,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``ttnn.leaky_relu``.
+
+        *Elementwise leaky ReLU activation operation.*
+
+        Computes a leaky version of the Rectified Linear Unit (ReLU) activation function.
+        For each element x in the input tensor:
+        - If x > 0: returns x
+        - If x ≤ 0: returns parameter * x
+
+        The parameter controls the slope for negative values, allowing a small gradient
+        when the unit is not active.
+
+        .. code-block:: mlir
+
+            // Compute leaky ReLU with slope 0.01 for negative values
+            %result = ttnn.leaky_relu(%input, %output) : tensor<4xf32>, tensor<4xf32> -> tensor<4xf32>
+            // Input tensor:
+            // [2.0, -1.0, 0.0, -3.0]
+            // Output tensor:
+            // [2.0, -0.01, 0.0, -0.03]
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor to be activated
+        parameter : float, optional
+            Slope for negative values (default: 0.01)
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the leaky ReLU activation values
+        """
+        ttnn_kwargs = {"parameter": parameter}
+        return self._op_proxy(
+            ttnn.LeakyReluOp,
+            [in0],
+            ttnn_kwargs=ttnn_kwargs,
+            unit_attrs=unit_attrs,
+        )
+
+    def mish(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
+        """
+        Creates ``ttnn.mish``.
+
+        *Elementwise Mish activation operation.*
+
+        Applies the Mish activation function element-wise to the input tensor.
+        Mish is a smooth, self-regularized, non-monotonic activation function defined as:
+        f(x) = x * tanh(softplus(x)) = x * tanh(ln(1 + e^x))
+
+        Mathematical definition: mish(x) = x * tanh(ln(1 + e^x))
+
+        .. code-block:: mlir
+
+            // Apply Mish activation
+            %result = ttnn.mish(%input, %output) : tensor<3xf32>, tensor<3xf32> -> tensor<3xf32>
+            // Input tensor:
+            // input: [0.0, 1.0, -1.0]
+            // Output tensor:
+            // [0.0, 0.865, -0.303]
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise Mish activation of the input
+        """
+        return self._op_proxy(ttnn.MishOp, [in0], unit_attrs=unit_attrs, ttnn_kwargs={})
+
+    def where(
+        self,
+        in0: Operand,
+        in1: Operand,
+        in2: Operand,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpView:
+        """
+        Creates ``ttnn.where``.
+
+        *Elementwise conditional selection operation.*
+
+        For each element position, selects between two values based on a boolean condition:
+        - If the condition is true (non-zero), selects from the first value tensor
+        - If the condition is false (zero), selects from the second value tensor
+
+        Supports broadcasting according to standard broadcasting rules.
+
+        .. code-block:: mlir
+
+            // Basic selection between two tensors
+            %result = ttnn.where(%cond, %true_vals, %false_vals) :
+                tensor<2x2xi1>, tensor<2x2xf32>, tensor<2x2xf32> -> tensor<2x2xf32>
+            // Input tensors:
+            // %cond: [[1, 0], [0, 1]]
+            // %true_vals: [[1.0, 2.0], [3.0, 4.0]]
+            // %false_vals: [[5.0, 6.0], [7.0, 8.0]]
+            // Output tensor:
+            // [[1.0, 6.0], [7.0, 4.0]]
+
+            // With broadcasting (scalar condition)
+            %result = ttnn.where(%scalar_cond, %true_vals, %false_vals) :
+                tensor<i1>, tensor<2x2xf32>, tensor<2x2xf32> -> tensor<2x2xf32>
+
+        Parameters
+        ----------
+        in0 : Operand
+            Condition tensor (predicate)
+        in1 : Operand
+            Tensor containing values to select when condition is true
+        in2 : Operand
+            Tensor containing values to select when condition is false
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+        """
+        # Handle golden condition tensor
+        in0_tensor = self._get_golden_tensor(in0)
+        condition = in0_tensor.apply_shardwise(
+            lambda shard: torch.where(
+                shard > 0,
+                torch.tensor(True, device=shard.device),
+                torch.tensor(False, device=shard.device),
+            )
+        )
+        return self._op_proxy(
+            ttnn.WhereOp,
+            [in0, in1, in2],
+            organize_golden_args=lambda i, o: (
+                condition,
+                self._get_golden_tensor(i[1]),
+                self._get_golden_tensor(i[2]),
+            ),
+            unit_attrs=unit_attrs,
+        )
 
     # ----- Parse ttnn module ----
 
