@@ -4238,6 +4238,97 @@ def ttnn_add_golden(
     return torch.add(input_tensor, other_tensor).to(output_dtype)
 
 
+def ttnn_eq_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    result_bool = torch.eq(input_tensor, other_tensor)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return result_bool.to(output_dtype)
+
+
+def ttnn_ne_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    result_bool = torch.ne(input_tensor, other_tensor)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return result_bool.to(output_dtype)
+
+
+def ttnn_ge_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.ge(input_tensor, other_tensor).to(output_dtype)
+
+
+def ttnn_gt_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    result_bool = torch.gt(input_tensor, other_tensor)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return result_bool.to(output_dtype)
+
+
+def ttnn_le_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.le(input_tensor, other_tensor).to(output_dtype)
+
+
+def ttnn_lt_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.lt(input_tensor, other_tensor).to(output_dtype)
+
+
+def ttnn_logical_and_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.logical_and(input_tensor, other_tensor).to(output_dtype)
+
+
+def ttnn_logical_or_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.logical_or(input_tensor, other_tensor).to(output_dtype)
+
+
+def ttnn_logical_right_shift_golden(
+    input_tensor: GoldenMapTensor, shift_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    input_int64 = input_tensor.to(torch.int64)
+    shift_int64 = shift_tensor.to(torch.int64)
+    input_unsigned = torch.bitwise_and(input_int64, 0xFFFFFFFF)
+    result = torch.bitwise_right_shift(input_unsigned, shift_int64)
+    return torch.bitwise_and(result, 0xFFFFFFFF).to(output_dtype)
+
+
+def ttnn_bitwise_and_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.bitwise_and(input_tensor, other_tensor).to(output_dtype)
+
+
+def ttnn_bitwise_or_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.bitwise_or(input_tensor, other_tensor).to(output_dtype)
+
+
+def ttnn_bitwise_xor_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.bitwise_xor(input_tensor, other_tensor).to(output_dtype)
+
+
 GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # ----- TTIR OPS -----
     # Elementwise unary operations
@@ -4467,25 +4558,25 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.RemainderOp: torch.remainder,
     ttnn.PowTensorOp: torch.pow,
     # Comparison operations
-    ttnn.EqualOp: equal_golden,
-    ttnn.NotEqualOp: not_equal_golden,
-    ttnn.GreaterEqualOp: greater_equal_golden,
-    ttnn.GreaterThanOp: greater_than_golden,
-    ttnn.LessEqualOp: less_equal_golden,
-    ttnn.LessThanOp: less_than_golden,
+    ttnn.EqualOp: ttnn_eq_golden,
+    ttnn.NotEqualOp: ttnn_ne_golden,
+    ttnn.GreaterEqualOp: ttnn_ge_golden,
+    ttnn.GreaterThanOp: ttnn_gt_golden,
+    ttnn.LessEqualOp: ttnn_le_golden,
+    ttnn.LessThanOp: ttnn_lt_golden,
     # Logical operations
-    ttnn.LogicalAndOp: logical_and_golden,
+    ttnn.LogicalAndOp: ttnn_logical_and_golden,
     ttnn.LogicalLeftShiftOp: logical_left_shift_golden,
-    ttnn.LogicalOrOp: logical_or_golden,
-    ttnn.LogicalRightShiftOp: logical_right_shift_golden,
+    ttnn.LogicalOrOp: ttnn_logical_or_golden,
+    ttnn.LogicalRightShiftOp: ttnn_logical_right_shift_golden,
     ttnn.LogicalXorOp: logical_xor_golden,
     ttnn.LogicalNotOp: logical_not_golden,
     # Selection operations
     ttnn.WhereOp: torch.where,
     # Bitwise operations
-    ttnn.BitwiseAndOp: torch.bitwise_and,
-    ttnn.BitwiseOrOp: torch.bitwise_or,
-    ttnn.BitwiseXorOp: torch.bitwise_xor,
+    ttnn.BitwiseAndOp: ttnn_bitwise_and_golden,
+    ttnn.BitwiseOrOp: ttnn_bitwise_or_golden,
+    ttnn.BitwiseXorOp: ttnn_bitwise_xor_golden,
     ttnn.BitwiseNotOp: torch.bitwise_not,
     # Complex operations
     ttnn.MatmulOp: matmul_golden,
