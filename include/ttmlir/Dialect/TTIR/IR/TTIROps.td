@@ -2079,6 +2079,62 @@ def TTIR_RMSNormOp : TTIR_NamedOp<"rms_norm", [AttrSizedOperandSegments]> {
   let hasVerifier = 1;
 }
 
+def TTIR_GroupNormOp : TTIR_NamedOp<"group_norm", [AttrSizedOperandSegments]> {
+  let summary = "Group normalization operation";
+  let description = [{
+    Performs group normalization on the input tensor. This operation divides the input
+    channels into groups and normalizes each group separately. Group normalization is
+    useful for training models with small batch sizes where batch normalization becomes
+    less effective.
+
+    The operation normalizes the input tensor by:
+    1. Dividing the channels into num_groups groups
+    2. Computing mean and variance for each group
+    3. Normalizing using the computed statistics
+    4. Optionally scaling with weight and shifting with bias
+
+    Inputs:
+    - `input` (Tensor): The input tensor with shape [N, H, W, C] or any rank >= 1.
+    - `weight` (Optional Tensor): The scale parameter (gamma). If provided, this weight is
+      used to scale the normalized result. Shape: [C], where C is number of channels.
+    - `bias` (Optional Tensor): The shift parameter (beta). If provided, this bias is
+      added to the scaled result. Shape: [C], where C is number of channels.
+
+    Attributes:
+    - `num_groups` (i32): The number of groups to divide the channels into. C must be
+      divisible by num_groups.
+    - `epsilon` (f32): A small constant added for numerical stability (default: 1e-12).
+
+    Output:
+    - `result` (Tensor): The group normalized output tensor with same shape as input.
+
+    Example:
+    ```mlir
+      // Group normalization with 8 groups on [N, H, W, C] input
+      %result = ttir.group_norm(%input) <{ num_groups = 8, epsilon = 1e-12 }> :
+            (tensor<2x4x4x32xf32>) -> tensor<2x4x4x32xf32>
+
+      // Group normalization with weight and bias
+      %result = ttir.group_norm(%input, %weight, %bias) <{ num_groups = 8, epsilon = 1e-12 }> :
+            (tensor<2x4x4x32xf32>, tensor<32xf32>, tensor<32xf32>) -> tensor<2x4x4x32xf32>
+    ```
+
+    Mathematical definition:
+      For input divided into G groups, each group is normalized:
+      group_norm(x, weight, bias) = weight * (x - mean(x_group)) / sqrt(var(x_group) + epsilon) + bias
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       Optional<AnyRankedTensor>:$weight,
+                       Optional<AnyRankedTensor>:$bias,
+                       I32Attr:$num_groups,
+                       DefaultValuedAttr<F32Attr, "1e-12">:$epsilon);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 class TTIR_ReductionOp<string mnemonic, list<Trait> traits = []> :
     TTIR_NamedOp<mnemonic, traits> {
 

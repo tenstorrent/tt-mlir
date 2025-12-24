@@ -4956,6 +4956,63 @@ mlir::tt::ttir::SplitQueryKeyValueAndSplitHeadsOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// GroupNormOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::GroupNormOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType outputType = getResult().getType();
+
+  // Input and output must have the same shape.
+  if (inputType.getShape() != outputType.getShape()) {
+    return emitOpError("input and output must have the same shape");
+  }
+
+  // Input must be at least rank 1 (need at least a channel dimension).
+  if (inputType.getRank() < 1) {
+    return emitOpError("input tensor must have at least rank 1");
+  }
+
+  ArrayRef<int64_t> inputShape = inputType.getShape();
+  int64_t C =
+      inputShape[inputShape.size() - 1]; // Number of channels (last dimension)
+  int32_t numGroups = getNumGroups();
+
+  // Verify num_groups is positive.
+  if (numGroups <= 0) {
+    return emitOpError("num_groups must be positive, got ") << numGroups;
+  }
+
+  // Verify C is divisible by num_groups.
+  if (C % numGroups != 0) {
+    return emitOpError("number of channels (")
+           << C << ") must be divisible by num_groups (" << numGroups << ")";
+  }
+
+  // Verify weight tensor is 1D with size C if present.
+  if (getWeight()) {
+    RankedTensorType weightType = getWeight().getType();
+    if (weightType.getRank() != 1 || weightType.getShape()[0] != C) {
+      return emitOpError("weight tensor must be 1D with size equal to number "
+                         "of channels (")
+             << C << ")";
+    }
+  }
+
+  // Verify bias tensor is 1D with size C if present.
+  if (getBias()) {
+    RankedTensorType biasType = getBias().getType();
+    if (biasType.getRank() != 1 || biasType.getShape()[0] != C) {
+      return emitOpError("bias tensor must be 1D with size equal to number of "
+                         "channels (")
+             << C << ")";
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // ScaledDotProductAttentionDecodeOp
 //===----------------------------------------------------------------------===//
 
