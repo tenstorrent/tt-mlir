@@ -4859,6 +4859,8 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.LogicalNotOp: ttnn_logical_not_golden,
     # Selection operations
     ttnn.WhereOp: torch.where,
+    # Type operations
+    ttnn.TypecastOp: ttnn_typecast_golden,
     # Bitwise operations
     ttnn.BitwiseAndOp: ttnn_bitwise_and_golden,
     ttnn.BitwiseOrOp: ttnn_bitwise_or_golden,
