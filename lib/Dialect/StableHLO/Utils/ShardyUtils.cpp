@@ -873,37 +873,34 @@ static std::string replaceMeshIdxPlaceholders(
   return result;
 }
 
-// Convert all stablehlo.custom_call @Sharding and @tt.sharding_constraint ops
-// to sdy.sharding_constraint ops.
+// Convert all stablehlo.custom_call @Sharding, @tt.sharding_constraint, and
+// @xla.sdy.FuncResultSharding ops to sdy.sharding_constraint ops.
 mlir::LogicalResult
 convertCustomCallToShardingConstraint(mlir::ModuleOp &rootModule,
                                       mlir::MLIRContext *context,
                                       mlir::OpBuilder &builder) {
-  // Get mesh axes for placeholder replacement
+  // Get mesh axes for placeholder replacement.
   llvm::SmallVector<mlir::sdy::MeshAxisAttr> meshAxes;
   llvm::SmallVector<mlir::sdy::MeshOp> meshOps = getMeshOps(rootModule);
   if (!meshOps.empty()) {
     meshAxes = llvm::to_vector(meshOps[0].getMeshAttr().getAxes());
   }
 
-  rootModule.walk([&](mlir::Operation *op) {
-    if (!mlir::isa<mlir::stablehlo::CustomCallOp>(op)) {
-      return;
-    }
+  llvm::SmallVector<mlir::stablehlo::CustomCallOp> opsToErase;
+  bool hasFuncResultSharding = false;
 
-    // Check call target name to see if it's the one we are interested in.
-    mlir::stablehlo::CustomCallOp customCallOp =
-        mlir::cast<mlir::stablehlo::CustomCallOp>(op);
+  rootModule.walk([&](mlir::stablehlo::CustomCallOp customCallOp) {
     auto callTargetName = customCallOp.getCallTargetNameAttr();
-    // Handle both @Sharding (from xs.mark_sharding) and @tt.sharding_constraint
-    // (from custom ops)
+    // Handle @Sharding (from xs.mark_sharding), @tt.sharding_constraint
+    // (from custom ops), and @xla.sdy.FuncResultSharding (result shardings).
     if (callTargetName != gspmd_utils::kShardingCustomCallTargetName &&
-        callTargetName != sharding_utils::kTTShardingConstraintTargetName) {
+        callTargetName != sharding_utils::kTTShardingConstraintTargetName &&
+        callTargetName != shardy_utils::kFuncResultShardingTargetName) {
       return;
     }
 
     // For tt.sharding_constraint, replace mesh_idx_N placeholders with actual
-    // axis names before parsing
+    // axis names before parsing.
     mlir::DictionaryAttr attrDict = customCallOp->getAttrDictionary();
     if (callTargetName == sharding_utils::kTTShardingConstraintTargetName &&
         !meshAxes.empty()) {
@@ -913,7 +910,7 @@ convertCustomCallToShardingConstraint(mlir::ModuleOp &rootModule,
                 sharding_utils::kXlaSdyShardingAttr)) {
           std::string replacedStr = replaceMeshIdxPlaceholders(
               sdyShardingStr.getValue().str(), meshAxes);
-          // Create new frontend_attributes with replaced sharding string
+          // Create new frontend_attributes with replaced sharding string.
           llvm::SmallVector<mlir::NamedAttribute> newFrontendAttrs;
           for (auto attr : frontendAttrs) {
             if (attr.getName() == sharding_utils::kXlaSdyShardingAttr) {
@@ -923,7 +920,7 @@ convertCustomCallToShardingConstraint(mlir::ModuleOp &rootModule,
               newFrontendAttrs.push_back(attr);
             }
           }
-          // Create new attrDict with updated frontend_attributes
+          // Create new attrDict with updated frontend_attributes.
           llvm::SmallVector<mlir::NamedAttribute> newAttrs;
           for (auto attr : attrDict) {
             if (attr.getName() == gspmd_utils::kFrontendAttributesAttr) {
@@ -943,18 +940,46 @@ convertCustomCallToShardingConstraint(mlir::ModuleOp &rootModule,
         shardy_utils::convertXlaSdyToSdyDictionary(context, attrDict);
     mlir::Attribute sdyShardingAttr =
         newAttrDict.get(mlir::sdy::TensorShardingAttr::name);
+
+    // If no sharding attribute found, skip this op - it uses a different
+    // sharding format (e.g., mhlo.sharding) that is handled by AnalyzeMeshPass.
+    if (!sdyShardingAttr) {
+      return;
+    }
+
     mlir::sdy::TensorShardingAttr tensorShardingAttr =
         mlir::cast<mlir::sdy::TensorShardingAttr>(sdyShardingAttr);
 
-    // Create sdy.sharding_constraint op and replace it in place of custom
-    // call
+    // Create sdy.sharding_constraint op and replace it in place of custom call.
     builder.setInsertionPointAfter(customCallOp);
     auto shardingConstraintOp = builder.create<mlir::sdy::ShardingConstraintOp>(
         customCallOp->getLoc(), customCallOp.getResult(0).getType(),
         customCallOp.getOperand(0), tensorShardingAttr);
     customCallOp.getResult(0).replaceAllUsesWith(
         shardingConstraintOp.getResult());
+
+    // Only erase FuncResultSharding ops, others are needed by AnalyzeMeshPass.
+    if (callTargetName == shardy_utils::kFuncResultShardingTargetName) {
+      hasFuncResultSharding = true;
+      opsToErase.push_back(customCallOp);
+    }
   });
+
+  for (auto op : opsToErase) {
+    op.erase();
+  }
+
+  // Remove mhlo.sharding from function results to allow
+  // WrapUnderManualComputation to wrap the function body (gspmdAnnotationsExist
+  // checks for mhlo.sharding).
+  if (hasFuncResultSharding) {
+    rootModule.walk([&](func::FuncOp funcOp) {
+      for (unsigned i = 0; i < funcOp.getNumResults(); i++) {
+        funcOp.removeResultAttr(
+            i, mlir::StringAttr::get(context, gspmd_utils::kXlaShardingAttr));
+      }
+    });
+  }
 
   return mlir::success();
 }
