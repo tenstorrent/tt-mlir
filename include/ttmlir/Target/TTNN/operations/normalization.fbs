@@ -46,3 +46,14 @@ table RMSNormOp {
   out: tt.target.ttnn.TensorRef;
   compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
 }
+
+table GroupNormOp {
+  input: tt.target.ttnn.TensorRef;
+  weight: tt.target.ttnn.TensorRef;
+  bias: tt.target.ttnn.TensorRef;
+  num_groups: int32;
+  epsilon: float;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
+  compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
+}
