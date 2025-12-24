@@ -1,5 +1,5 @@
 // RUN: ttmlir-opt --ttnn-canonicalize-function-arguments --ttnn-reorder-function-arguments --ttnn-tuplify-tensors %s | FileCheck %s --check-prefix=CHECK
-// RUN: ttmlir-opt --ttnn-canonicalize-function-arguments --ttnn-reorder-function-arguments --ttnn-tuplify-tensors="tuplify-input-if-empty=true" %s | FileCheck %s --check-prefix=EMPTY-CHECK
+// RUN: ttmlir-opt --ttnn-tuplify-tensors="tuplify-mode=target-module" %s | FileCheck %s --check-prefix=TARGET-MODULE-CHECK
 
 // CHECK-LABEL: func.func @test_input_parameter_split
 // CHECK-SAME: (%[[INPUT_TUPLE:.*]]: tuple<tensor<64x128xf32>, tensor<32x64xf32>> {ttcore.argument_type = #ttcore.argument_type<input>, ttcore.original_arg_positions = #ttcore.original_arg_positions<[0, 1]>}
@@ -61,25 +61,24 @@ func.func @test_const_eval(
   return %1 : tensor<64x256xf32>
 }
 
-// Test private functions are skipped
+// Test private functions
 // CHECK-LABEL: func.func private @private_func
-// CHECK-SAME: (%arg0: tensor<64x128xf32>)
+// CHECK-SAME: (%arg0: tuple<tensor<64x128xf32>> {{.*}})
 func.func private @private_func(%arg0: tensor<64x128xf32>) -> tensor<64x128xf32> {
   return %arg0 : tensor<64x128xf32>
 }
 
 #dram = #ttnn.buffer_type<dram>
 #layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<2x4x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>
-// Test empty input with tuplify-input-if-empty option
-// EMPTY-CHECK-LABEL: func.func @test_empty_input
-// EMPTY-CHECK-SAME: (%[[INPUT_TUPLE:.*]]: tuple<> {ttcore.argument_type = #ttcore.argument_type<input>, ttcore.original_arg_positions = #ttcore.original_arg_positions<[]>},
-// EMPTY-CHECK-SAME:  %[[PARAM_TUPLE:.*]]: tuple<> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.original_arg_positions = #ttcore.original_arg_positions<[]>})
-func.func @test_empty_input() -> tensor<64x128xf32, #layout> {
+// Test target module option
+// TARGET-MODULE-CHECK-LABEL: func.func @test_target_module
+// TARGET-MODULE-CHECK-SAME: (%arg0: tuple<>)
+func.func @test_target_module() -> tensor<64x128xf32, #layout> {
   %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 2x4>}> : () -> !ttnn.device
-  // EMPTY-CHECK: %[[EMPTY_OP:.*]] = "ttnn.empty"
+  // TARGET-MODULE-CHECK: %[[EMPTY_OP:.*]] = "ttnn.empty"
   %1 = "ttnn.empty"(%0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>, shape = #ttnn.shape<64x128>}> : (!ttnn.device) -> tensor<64x128xf32, #layout>
-  // EMPTY-CHECK: %[[TUPLE_RESULT:.*]] = ttcore.tuple %[[EMPTY_OP]] : tuple<tensor<64x128xf32, #ttnn_layout>>
-  // EMPTY-CHECK: return %[[TUPLE_RESULT]]
+  // TARGET-MODULE-CHECK: %[[TUPLE_RESULT:.*]] = ttcore.tuple %[[EMPTY_OP]] : tuple<tensor<64x128xf32, #ttnn_layout>>
+  // TARGET-MODULE-CHECK: return %[[TUPLE_RESULT]]
   return %1 : tensor<64x128xf32, #layout>
 }
 

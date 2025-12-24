@@ -6,6 +6,7 @@
 #define TTMLIR_DIALECT_TTNN_PIPELINES_TTNNPIPELINES_H
 
 #include "ttmlir/Dialect/TTCore/Utils/PopulateArgumentTypes.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/Utils/MemoryLayoutAnalysisParams.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 
@@ -401,13 +402,6 @@ struct TTNNBackendToEmitCPipelineOptions
   Option<bool> targetDylib{*this, "target-dylib",
                            llvm::cl::desc("Tailor passes for dylib target."),
                            llvm::cl::init(false)};
-
-  Option<bool> tuplifyInputIfEmpty{
-      *this, "tuplify-input-if-empty",
-      llvm::cl::desc("Whether to create an empty tuple if no inputs to forward "
-                     "function. This should only be used if the `target-dylib` "
-                     "option is set to `true`"),
-      llvm::cl::init(false)};
 
   Option<bool> loadInputTensorsFromDisk{
       *this, "load-input-tensors-from-disk",
