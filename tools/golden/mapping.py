@@ -4297,6 +4297,20 @@ def ttnn_logical_or_golden(
     return torch.logical_or(input_tensor, other_tensor).to(output_dtype)
 
 
+def ttnn_logical_not_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.logical_not(input_tensor).to(output_dtype)
+
+
+def ttnn_logical_xor_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.logical_xor(input_tensor, other_tensor).to(output_dtype)
+
+
 def ttnn_logical_right_shift_golden(
     input_tensor: GoldenMapTensor, shift_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -4305,6 +4319,17 @@ def ttnn_logical_right_shift_golden(
     shift_int64 = shift_tensor.to(torch.int64)
     input_unsigned = torch.bitwise_and(input_int64, 0xFFFFFFFF)
     result = torch.bitwise_right_shift(input_unsigned, shift_int64)
+    return torch.bitwise_and(result, 0xFFFFFFFF).to(output_dtype)
+
+
+def ttnn_logical_left_shift_golden(
+    input_tensor: GoldenMapTensor, shift_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    input_int64 = input_tensor.to(torch.int64)
+    shift_int64 = shift_tensor.to(torch.int64)
+    input_unsigned = torch.bitwise_and(input_int64, 0xFFFFFFFF)
+    result = torch.bitwise_left_shift(input_unsigned, shift_int64)
     return torch.bitwise_and(result, 0xFFFFFFFF).to(output_dtype)
 
 
@@ -4327,6 +4352,13 @@ def ttnn_bitwise_xor_golden(
 ) -> GoldenMapTensor:
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     return torch.bitwise_xor(input_tensor, other_tensor).to(output_dtype)
+
+
+def ttnn_bitwise_not_golden(
+    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.bitwise_not(input_tensor, other_tensor).to(output_dtype)
 
 
 GOLDEN_MAPPINGS: Dict[type, Callable] = {
@@ -4566,18 +4598,18 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.LessThanOp: ttnn_lt_golden,
     # Logical operations
     ttnn.LogicalAndOp: ttnn_logical_and_golden,
-    ttnn.LogicalLeftShiftOp: logical_left_shift_golden,
+    ttnn.LogicalLeftShiftOp: ttnn_logical_left_shift_golden,
     ttnn.LogicalOrOp: ttnn_logical_or_golden,
     ttnn.LogicalRightShiftOp: ttnn_logical_right_shift_golden,
-    ttnn.LogicalXorOp: logical_xor_golden,
-    ttnn.LogicalNotOp: logical_not_golden,
+    ttnn.LogicalXorOp: ttnn_logical_xor_golden,
+    ttnn.LogicalNotOp: ttnn_logical_not_golden,
     # Selection operations
     ttnn.WhereOp: torch.where,
     # Bitwise operations
     ttnn.BitwiseAndOp: ttnn_bitwise_and_golden,
     ttnn.BitwiseOrOp: ttnn_bitwise_or_golden,
     ttnn.BitwiseXorOp: ttnn_bitwise_xor_golden,
-    ttnn.BitwiseNotOp: torch.bitwise_not,
+    ttnn.BitwiseNotOp: ttnn_bitwise_not_golden,
     # Complex operations
     ttnn.MatmulOp: matmul_golden,
     ttnn.LinearOp: linear_golden,

@@ -759,90 +759,237 @@ class TTNNBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
+    @tag(ttnn.LogicalNotOp)
     def logical_not(
-        self, in0: Operand, unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
-        """
-        Creates ``ttnn.logical_not``.
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.logical_not)
+        dtype = self._get_data_type_attribute(in0)
 
-        *Elementwise logical NOT operation.*
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
-        Computes the logical NOT of each element in the input tensor.
-        For each element x, returns True if x is False, and False if x is True.
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
 
-        .. code-block:: mlir
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
 
-            // Compute logical NOT of all elements
-            %result = ttnn.logical_not(%input, %output) : tensor<3xi1>, tensor<3xi1> -> tensor<3xi1>
-            // Input tensor:
-            // [true, false, true]
-            // Output tensor:
-            // [false, true, false]
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-            A tensor containing the logical NOT of each element in the input tensor
-        """
-        return self._op_proxy(
-            ttnn.LogicalNotOp,
-            [in0],
-            unit_attrs=unit_attrs,
+        op = ttnn_op(
+            result,
+            in0,
+            loc=loc,
+            dtype=dtype,
         )
+        op_result = op.result
 
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.LogicalNotOp)
+    def logical_not_parser(
+        self,
+        old_op: ttnn.LogicalNotOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.logical_not_parser)
+        inp = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttnn_op(result, inp, loc=old_op.location, dtype=old_op.dtype)
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(inp)
+            op_golden_function = get_golden_function(ttnn_op)
+            golden_output = op_golden_function(input0, result.element_type)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttnn.LogicalNotOp)
+    def logical_not_split(
+        self,
+        old_op: ttnn.LogicalNotOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.logical_not_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            not_module = Module.create()
+            not_builder = TTNNBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.input.type,
+            ]
+
+            with InsertionPoint(not_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="logical_not_module")
+                def decorated_func(*inputs):
+                    inp = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttnn_op(
+                        result, inp, loc=old_op.location, dtype=old_op.dtype
+                    )
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttnn_op)
+                        input0 = self._get_golden_tensor(old_op.input)
+                        golden_output = op_golden_function(input0, result.element_type)
+                        not_builder._set_golden_tensor(new_op_result, golden_output)
+                        not_builder._set_golden_tensor(inp, input0)
+                        ordered_inputs.append(inp)
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                not_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return not_module, not_builder
+
+    @tag(ttnn.BitwiseNotOp)
     def bitwise_not(
-        self, in0: Operand, unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
-        """
-        Creates ``ttnn.bitwise_not``.
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.bitwise_not)
+        dtype = self._get_data_type_attribute(in0)
 
-        *Elementwise bitwise NOT operation.*
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
-        Computes the bitwise NOT (one's complement) of each element in the input tensor.
-        For each element, flips all the bits in the binary representation of the value.
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
 
-        This operation is typically used with integer data types and has the involution property,
-        meaning that applying it twice returns the original value: bitwise_not(bitwise_not(x)) = x.
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
 
-        .. code-block:: mlir
-
-            // Bitwise NOT with integer tensors
-            %result = ttnn.bitwise_not(%input, %output) : tensor<2x2xi32>, tensor<2x2xi32> -> tensor<2x2xi32>
-            // Input tensor:
-            // [[1, 2],
-            //  [3, 4]]
-            // Output tensor:
-            // [[-2, -3],
-            //  [-4, -5]]
-
-            // Example with 8-bit integers
-            %result = ttnn.bitwise_not(%input, %output) : tensor<3xi8>, tensor<3xi8> -> tensor<3xi8>
-            // Input: [0, 5, 255] (binary: [00000000, 00000101, 11111111])
-            // Output: [255, 250, 0] (binary: [11111111, 11111010, 00000000])
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-        """
-        return self._op_proxy(
-            ttnn.BitwiseNotOp,
-            [in0],
-            unit_attrs,
+        op = ttnn_op(
+            result,
+            in0,
+            loc=loc,
+            dtype=dtype,
         )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.BitwiseNotOp)
+    def bitwise_not_parser(
+        self,
+        old_op: ttnn.BitwiseNotOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.bitwise_not_parser)
+        inp = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttnn_op(result, inp, loc=old_op.location, dtype=old_op.dtype)
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(inp)
+            op_golden_function = get_golden_function(ttnn_op)
+            golden_output = op_golden_function(input0, result.element_type)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttnn.BitwiseNotOp)
+    def bitwise_not_split(
+        self,
+        old_op: ttnn.BitwiseNotOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.bitwise_not_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            not_module = Module.create()
+            not_builder = TTNNBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.input.type,
+            ]
+
+            with InsertionPoint(not_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="bitwise_not_module")
+                def decorated_func(*inputs):
+                    inp = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttnn_op(
+                        result, inp, loc=old_op.location, dtype=old_op.dtype
+                    )
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttnn_op)
+                        input0 = self._get_golden_tensor(old_op.input)
+                        golden_output = op_golden_function(input0, result.element_type)
+                        not_builder._set_golden_tensor(new_op_result, golden_output)
+                        not_builder._set_golden_tensor(inp, input0)
+                        ordered_inputs.append(inp)
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                not_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return not_module, not_builder
 
     def neg(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
         """
@@ -2346,46 +2493,110 @@ class TTNNBuilder(Builder):
 
         return and_module, and_builder
 
+    @tag(ttnn.LogicalLeftShiftOp)
     def logical_left_shift(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
-        """
-        Creates ``ttnn.logical_shift_left``.
+        self,
+        in0: Operand,
+        in1: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.logical_left_shift)
+        dtype = self._get_data_type_attribute(in0)
 
-        *Elementwise logical shift left operation.*
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
-        Performs elementwise logical shift left operation between two tensors.
-        For each pair of corresponding elements, shifts the bits of the first element to the left
-        by the number of positions specified by the second element.
+        input0 = self._get_golden_tensor(in0)
+        input1 = self._get_golden_tensor(in1)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, input1, mlir_output_type)
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
 
-        .. code-block:: mlir
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
 
-            // Logical shift left operation
-            %result = ttnn.logical_shift_left(%lhs, %rhs, %output) : tensor<3xi8>, tensor<3xi8>, tensor<3xi8> -> tensor<3xi8>
-            // Input tensors:
-            // lhs: [2, 4, 8]  (binary: [00000010, 00000100, 00001000])
-            // rhs: [1, 2, 3]  (shift amounts)
-            // Output tensor:
-            // [4, 16, 64]    (binary: [00000100, 00010000, 01000000])
-
-        Parameters
-        ----------
-        in0 : Operand
-            First input tensor
-        in1 : Operand
-            Second input tensor (shift amounts)
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-        """
-        return self._op_proxy(
-            ttnn.LogicalLeftShiftOp,
-            [in0, in1],
-            unit_attrs=unit_attrs,
+        op = ttnn_op(
+            result,
+            in0,
+            in1,
+            loc=loc,
+            dtype=dtype,
         )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.LogicalLeftShiftOp)
+    def logical_left_shift_parser(
+        self,
+        old_op: ttnn.LogicalLeftShiftOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.logical_left_shift_parser)
+        lhs = global_dict[old_op.lhs]
+        rhs = global_dict[old_op.rhs]
+        result = old_op.result.type
+
+        new_op = ttnn_op(result, lhs, rhs, loc=old_op.location, dtype=old_op.dtype)
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(lhs)
+            input1 = self._get_golden_tensor(rhs)
+            op_golden_function = get_golden_function(ttnn_op)
+            golden_output = op_golden_function(input0, input1, result.element_type)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttnn.LogicalLeftShiftOp)
+    def logical_left_shift_split(
+        self,
+        old_op: ttnn.LogicalLeftShiftOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.logical_left_shift_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            lshift_module = Module.create()
+            lshift_builder = TTNNBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.lhs.type,
+                old_op.rhs.type,
+            ]
+
+            with InsertionPoint(lshift_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="logical_left_shift_module")
+                def decorated_func(*inputs):
+                    pass
+
+                new_func_op = decorated_func.func_op
+                lshift_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return lshift_module, lshift_builder
 
     @tag(ttnn.LogicalOrOp)
     def logical_or(
@@ -2641,53 +2852,110 @@ class TTNNBuilder(Builder):
 
         return rshift_module, rshift_builder
 
+    @tag(ttnn.LogicalXorOp)
     def logical_xor(
-        self, in0: Operand, in1: Operand, unit_attrs: Optional[List[str]] = None
-    ) -> OpView:
-        """
-        Creates ``ttnn.logical_xor``.
+        self,
+        in0: Operand,
+        in1: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttnn_op = self.get_opview_from_method(TTNNBuilder.logical_xor)
+        dtype = self._get_data_type_attribute(in0)
 
-        *Elementwise logical XOR operation.*
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
-        Performs elementwise logical XOR (exclusive OR) operation between two tensors.
-        For each pair of corresponding elements, returns:
-        - 1 (true) if exactly one element is 1 (true)
-        - 0 (false) if both elements are the same (both 0 or both 1)
+        input0 = self._get_golden_tensor(in0)
+        input1 = self._get_golden_tensor(in1)
+        op_golden_function = get_golden_function(ttnn_op)
+        golden_output = op_golden_function(input0, input1, mlir_output_type)
+        result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
 
-        Mathematical definition: logical_xor(x, y) = (x || y) && !(x && y)
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
 
-        .. code-block:: mlir
-
-            // Logical XOR operation
-            %result = ttnn.logical_xor(%lhs, %rhs, %output) : tensor<4xi1>, tensor<4xi1>, tensor<4xi1> -> tensor<4xi1>
-            // Input tensors:
-            // lhs: [1, 0, 1, 0]
-            // rhs: [1, 1, 0, 1]
-            // Output tensor:
-            // [0, 1, 1, 1]
-
-        Parameters
-        ----------
-        in0 : Operand
-            First input tensor
-        in1 : Operand
-            Second input tensor
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-        """
-        ttnn_kwargs = {
-            "dtype": self._get_data_type_attribute(in0),
-        }
-        return self._op_proxy(
-            ttnn.LogicalXorOp,
-            [in0, in1],
-            ttnn_kwargs=ttnn_kwargs,
-            unit_attrs=unit_attrs,
+        op = ttnn_op(
+            result,
+            in0,
+            in1,
+            loc=loc,
+            dtype=dtype,
         )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttnn.LogicalXorOp)
+    def logical_xor_parser(
+        self,
+        old_op: ttnn.LogicalXorOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttnn_op = self.get_opview_from_parser(TTNNBuilder.logical_xor_parser)
+        lhs = global_dict[old_op.lhs]
+        rhs = global_dict[old_op.rhs]
+        result = old_op.result.type
+
+        new_op = ttnn_op(result, lhs, rhs, loc=old_op.location, dtype=old_op.dtype)
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(lhs)
+            input1 = self._get_golden_tensor(rhs)
+            op_golden_function = get_golden_function(ttnn_op)
+            golden_output = op_golden_function(input0, input1, result.element_type)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttnn.LogicalXorOp)
+    def logical_xor_split(
+        self,
+        old_op: ttnn.LogicalXorOp,
+    ) -> Tuple[Module, TTNNBuilder]:
+        ttnn_op = self.get_opview_from_split(TTNNBuilder.logical_xor_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            xor_module = Module.create()
+            xor_builder = TTNNBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.lhs.type,
+                old_op.rhs.type,
+            ]
+
+            with InsertionPoint(xor_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="logical_xor_module")
+                def decorated_func(*inputs):
+                    pass
+
+                new_func_op = decorated_func.func_op
+                xor_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return xor_module, xor_builder
 
     @tag(ttnn.BitwiseAndOp)
     def bitwise_and(
