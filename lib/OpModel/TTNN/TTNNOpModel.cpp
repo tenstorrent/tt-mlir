@@ -6164,6 +6164,86 @@ llvm::Expected<size_t> OpModel<RMSNormOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// GroupNormOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<GroupNormOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout,
+    std::optional<llvm::ArrayRef<int64_t>> weightShape,
+    std::optional<TTNNLayoutAttr> weightLayout,
+    std::optional<llvm::ArrayRef<int64_t>> biasShape,
+    std::optional<TTNNLayoutAttr> biasLayout, int32_t numGroups,
+    llvm::APFloat epsilon, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  std::optional<::ttnn::TensorSpec> weightSpec =
+      detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
+  std::optional<::ttnn::TensorSpec> biasSpec =
+      detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
+
+  // Create query closure
+  auto groupNormQuery = [=]() {
+    return ::ttnn::graph::query_op_constraints(
+        ::ttnn::group_norm, device, inputSpec, numGroups,
+        epsilon.convertToFloat(), weightSpec, biasSpec,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     groupNormQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<GroupNormOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    std::optional<llvm::ArrayRef<int64_t>> weightShape,
+    std::optional<TTNNLayoutAttr> weightLayout,
+    std::optional<llvm::ArrayRef<int64_t>> biasShape,
+    std::optional<TTNNLayoutAttr> biasLayout, int32_t numGroups,
+    llvm::APFloat epsilon, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  std::optional<::ttnn::TensorSpec> weightSpec =
+      detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
+  std::optional<::ttnn::TensorSpec> biasSpec =
+      detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
+
+  // Create query closure
+  auto groupNormQuery = [=]() {
+    return ::ttnn::graph::query_op_runtime(
+        ::ttnn::group_norm, device, inputSpec, numGroups,
+        epsilon.convertToFloat(), weightSpec, biasSpec,
+        detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpRuntime(groupNormQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // ClampScalar
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints> OpModel<ClampScalarOp>::getOpConstraints(
