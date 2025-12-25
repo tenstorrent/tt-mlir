@@ -2413,7 +2413,6 @@ struct ConvChannelLastDecompositionPattern
     auto inputType = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
     auto outputType = mlir::cast<RankedTensorType>(op.getResult().getType());
 
-    // Get current dimension indices from the op.
     int64_t batchDim = op.getBatchDim();
     int64_t heightDim = op.getHeightDim();
     int64_t widthDim = op.getWidthDim();
@@ -2423,10 +2422,8 @@ struct ConvChannelLastDecompositionPattern
                                       channelDim};
 
     // Compute inverse permutation from NHWC back to original layout.
-    // fromNhwc[i] = where does dimension i in NHWC go in original.
     llvm::SmallVector<int64_t> fromNhwc =
         ttmlir::utils::inversePermutation(toNhwc);
-    // Permute input from current layout to NHWC.
     auto permutedInputShape =
         ttmlir::utils::applyPermutation(inputType.getShape(), toNhwc);
     auto permutedInputType =

@@ -1447,3 +1447,199 @@ def test_all_gather(target: str, request, device):
         device=device,
         mesh_dict=OrderedDict([("x", 1), ("y", 1)]),
     )
+
+@pytest.mark.parametrize(
+    "shapes,stride,padding,dilation,groups",
+    [
+        # ResNet initial 7x7 conv: stride=2, padding=3
+        (
+            [(1, 3, 224, 224), (64, 3, 7, 7)],
+            [2, 2],
+            [3, 3, 3, 3],
+            [1, 1],
+            1,
+        ),
+        # ResNet 1x1 conv: stride=1, no padding
+        (
+            [(1, 64, 56, 56), (64, 64, 1, 1)],
+            [1, 1],
+            [0, 0, 0, 0],
+            [1, 1],
+            1,
+        ),
+        # ResNet 3x3 conv: stride=1, padding=1
+        (
+            [(1, 64, 56, 56), (64, 64, 3, 3)],
+            [1, 1],
+            [1, 1, 1, 1],
+            [1, 1],
+            1,
+        ),
+        # ResNet bottleneck 1x1 expansion: stride=1, no padding
+        (
+            [(1, 64, 56, 56), (256, 64, 1, 1)],
+            [1, 1],
+            [0, 0, 0, 0],
+            [1, 1],
+            1,
+        ),
+        # ResNet stride 2 downsampling: 3x3 conv
+        (
+            [(1, 64, 56, 56), (128, 64, 3, 3)],
+            [2, 2],
+            [1, 1, 1, 1],
+            [1, 1],
+            1,
+        ),
+        # Small test case
+        (
+            [(1, 16, 32, 32), (32, 16, 3, 3)],
+            [1, 1],
+            [1, 1, 1, 1],
+            [1, 1],
+            1,
+        ),
+    ],
+    ids=[
+        "resnet_initial_7x7",
+        "resnet_1x1_conv",
+        "resnet_3x3_conv",
+        "resnet_bottleneck_expansion",
+        "resnet_stride2_downsample",
+        "small_3x3",
+    ],
+)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_convolution(
+    shapes: List[Shape],
+    stride: List[int],
+    padding: List[int],
+    dilation: List[int],
+    groups: int,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    """Test the stablehlo.convolution op with various ResNet-style configurations"""
+
+    def module(builder: StableHLOBuilder):
+        @builder.func(shapes, [dtype] * len(shapes))
+        def convolution(
+            in0: Operand,
+            weight: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.convolution(
+                in0,
+                weight,
+                window_strides=stride,
+                padding=padding,
+                lhs_dilation=dilation,
+                rhs_dilation=dilation,
+                input_batch_dimension=0,
+                input_feature_dimension=1,
+                input_spatial_dimensions=list(range(2, 2 + len(dilation))),
+                kernel_output_feature_dimension=0,
+                kernel_input_feature_dimension=1,
+                kernel_spatial_dimensions=list(range(2, 2 + len(dilation))),
+                output_batch_dimension=0,
+                output_feature_dimension=1,
+                output_spatial_dimensions=list(range(2, 2 + len(dilation))),
+                feature_group_count=groups,
+                batch_group_count=1,
+            )
+
+    compile_and_execute_shlo(
+        module,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes,stride,padding,dilation,groups",
+    [
+        # Depthwise convolution (groups = input_channels)
+        (
+            [(1, 32, 28, 28), (32, 1, 3, 3)],
+            [1, 1],
+            [1, 1, 1, 1],
+            [1, 1],
+            32,
+        ),
+        # Group convolution (4 groups)
+        (
+            [(1, 64, 32, 32), (64, 16, 3, 3)],
+            [1, 1],
+            [1, 1, 1, 1],
+            [1, 1],
+            4,
+        ),
+        # Dilated convolution
+        (
+            [(1, 32, 32, 32), (64, 32, 3, 3)],
+            [1, 1],
+            [2, 2, 2, 2],
+            [2, 2],
+            1,
+        ),
+    ],
+    ids=["depthwise_conv", "group_conv_4groups", "dilated_conv"],
+)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_convolution_groups_dilation(
+    shapes: List[Shape],
+    stride: List[int],
+    padding: List[int],
+    dilation: List[int],
+    groups: int,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    """Test convolution with group and dilation patterns"""
+
+    def module(builder: StableHLOBuilder):
+        @builder.func(shapes, [dtype] * len(shapes))
+        def convolution(
+            in0: Operand,
+            weight: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.convolution(
+                in0,
+                weight,
+                window_strides=stride,
+                padding=padding,
+                lhs_dilation=[1, 1],
+                rhs_dilation=dilation,
+                input_batch_dimension=0,
+                input_feature_dimension=1,
+                input_spatial_dimensions=[2, 3],
+                kernel_output_feature_dimension=0,
+                kernel_input_feature_dimension=1,
+                kernel_spatial_dimensions=[2, 3],
+                output_batch_dimension=0,
+                output_feature_dimension=1,
+                output_spatial_dimensions=[2, 3],
+                feature_group_count=groups,
+                batch_group_count=1,
+            )
+
+    compile_and_execute_shlo(
+        module,
+        test_base=request.node.name,
+        target=target,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        device=device,
+    )

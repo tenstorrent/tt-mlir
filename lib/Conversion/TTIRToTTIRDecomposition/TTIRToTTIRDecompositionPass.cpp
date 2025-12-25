@@ -56,7 +56,6 @@ struct TTIRToTTIRDecompositionPass
       target.addLegalOp<ttir::QuantizeOp>();
       target.addLegalOp<ttir::RequantizeOp>();
       target.addLegalOp<ttir::DequantizeOp>();
-      target.addLegalOp<ttir::ReverseOp>();
 
       // These three are illegal (will be decomposed)
       target.addIllegalOp<ttir::DotGeneralOp>();

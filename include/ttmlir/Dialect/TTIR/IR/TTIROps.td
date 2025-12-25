@@ -3335,7 +3335,6 @@ def TTIR_Conv2dOp : TTIR_NamedOp<"conv2d", [DeclareOpInterfaceMethods<TTIR_Quant
                          DefaultValuedAttr<TTIR_FlattenedCompatInfoAttr, "nullptr">:$flattened_compat_info);
 
     let builders = [
-      // Builder with NHWC defaults (no dimension attributes needed)
       OpBuilder<(ins "Type":$result, "Value":$input, "Value":$weight,
                      "Value":$bias, "::mlir::Attribute":$stride,
                      "::mlir::Attribute":$padding, "::mlir::Attribute":$dilation,
@@ -3518,7 +3517,6 @@ def TTIR_ConvTranspose2dOp : TTIR_NamedOp<"conv_transpose2d", [DeclareOpInterfac
                          DefaultValuedAttr<TTIR_FlattenedCompatInfoAttr, "nullptr">:$flattened_compat_info);
 
     let builders = [
-      // Builder with NHWC defaults (no dimension attributes needed)
       OpBuilder<(ins "Type":$result, "Value":$input, "Value":$weight,
                      "Value":$bias, "::mlir::Attribute":$stride,
                      "::mlir::Attribute":$padding, "::mlir::Attribute":$output_padding,

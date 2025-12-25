@@ -7,10 +7,7 @@ module @jit_convolution {
     // CHECK: "ttnn.conv2d"
     // CHECK: "ttnn.permute"
     // CHECK-SAME: permutation = array<i64: 0, 3, 1, 2>
-    %0 = "ttir.permute"(%arg0) <{permutation = array<i64: 0, 2, 3, 1>}> : (tensor<1x3x100x100xbf16>) -> tensor<1x100x100x3xbf16>
-    %1 = "ttir.permute"(%arg1) <{permutation = array<i64: 0, 1, 2, 3>}> : (tensor<7x3x3x3xbf16>) -> tensor<7x3x3x3xbf16>
-    %2 = "ttir.conv2d"(%0, %1) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>}> : (tensor<1x100x100x3xbf16>, tensor<7x3x3x3xbf16>) -> tensor<1x100x100x7xbf16>
-    %3 = "ttir.permute"(%2) <{permutation = array<i64: 0, 3, 1, 2>}> : (tensor<1x100x100x7xbf16>) -> tensor<1x7x100x100xbf16>
-    return %3 : tensor<1x7x100x100xbf16>
+    %0 = "ttir.conv2d"(%arg0, %arg1) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 1, 1, 1, 1>, stride = array<i32: 1, 1>, batch_dim = 0 : i64, channel_dim = 1 : i64, height_dim = 2 : i64, width_dim = 3 : i64}> : (tensor<1x3x100x100xbf16>, tensor<7x3x3x3xbf16>) -> tensor<1x7x100x100xbf16>
+    return %0 : tensor<1x7x100x100xbf16>
   }
 }

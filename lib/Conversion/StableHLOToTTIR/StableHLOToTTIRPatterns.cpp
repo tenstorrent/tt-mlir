@@ -1365,10 +1365,6 @@ public:
   using OpConversionPattern<
       mlir::stablehlo::ConvolutionOp>::OpConversionPattern;
 
-  //  All convolutions will have a batch and feature dimension, and the kernel
-  //  will have an input and output feature dimension. The spatial dimensions
-  //  can be
-  // represented by non-negative integers.
   enum ConvolutionDimension { BATCH = -1, FEATURE = -2, INVALID_DIM = -3 };
   enum ConvolutionKernelDimension {
     INPUT_FEATURES = -1,
@@ -1398,7 +1394,6 @@ protected:
            "Convolution input, output, and kernel must have the same number of "
            "spatial dimensions");
 
-    // Not currently supporting window reversal
     if (op.getWindowReversal() &&
         llvm::any_of(*op.getWindowReversal(), ttmlir::utils::identity<bool>)) {
       return false;
@@ -1526,11 +1521,11 @@ sliceForBatchGroups(ConversionPatternRewriter &rewriter, Location loc,
   return slices;
 }
 
-// A decomposition pattern that matches to a ttir.convolution op that does 1D
-// convolution. Since that is not supported in ttnn, we reshape the inputs and
-// the output to match a 2D ttir.convolution op. The expectation is that the new
-// ttir.convolution op will be picked up by the ConvolutionToConv2dPattern and
-// translated into ttir.conv2d op.
+// A decomposition pattern that matches to a stablehlo.convolution op that does
+// 1D convolution. Since that is not supported in ttnn, we reshape the inputs
+// and the output to match a 2D stablehlo.convolution op. The expectation is
+// that the new stablehlo.convolution op will be picked up by the
+// ConvolutionToConv2dPattern and translated into ttir.conv2d op.
 namespace {
 struct Legalize1DConvolutionPattern : public ConvolutionDecompositionPattern {
 public:
@@ -1985,7 +1980,7 @@ private:
     if (isTransposed) {
       // [TODO](mmanzoor) Verify the implementation of transposed convolution
       // for tt-xla. https://github.com/tenstorrent/tt-mlir/issues/3293
-      // stablehlo.convolution/ttir.convolution op doesn't have output_padding
+      // stablehlo.convolution op doesn't have output_padding
       // attribute. So Torch-MLIR adds output_padding with padding attribute for
       // transposed convolution during lowering.
       // https://github.com/llvm/torch-mlir/blob/main/lib/Conversion/TorchToStablehlo/Linear.cpp
@@ -2345,8 +2340,7 @@ public:
     // output"
     //   - Run conv with padding=[0, 0] to get larger intermediate result
     //   - Slice [1:-1, 1:-1] to remove the edges and get final output
-    // This pattern only handles negative padding. Let other patterns handle
-    // normal convolutions.
+    // This pattern only handles negative padding.
     ArrayRef<int64_t> paddingArray = paddingAttr.asArrayRef();
     bool hasNegativePadding =
         llvm::any_of(paddingArray, [](int64_t p) { return p < 0; });

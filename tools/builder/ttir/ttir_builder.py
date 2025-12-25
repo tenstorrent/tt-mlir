@@ -5854,281 +5854,6 @@ class TTIRBuilder(Builder):
 
         return batch_norm_training_module, batch_norm_training_builder
 
-    ############### ttir.ConvolutionOp ###############
-
-    @tag(ttir.ConvolutionOp)
-    def convolution(
-        self,
-        in0: Operand,
-        weight: Operand,
-        bias: Optional[Operand],
-        window_strides: Union[int, List[int]],
-        padding: Union[int, List[int]],
-        input_dilation: Union[int, List[int]],
-        weight_dilation: Union[int, List[int]],
-        input_batch: int,
-        input_feature: int,
-        input_spatial_dimensions: List[int],
-        kernel_output_feature: int,
-        kernel_input_feature: int,
-        kernel_spatial_dimensions: List[int],
-        output_batch: int,
-        output_feature: int,
-        output_spatial_dimensions: List[int],
-        feature_group_count: int,
-        batch_group_count: int,
-        output_type: Optional[torch.dtype] = None,
-        loc: Optional[str] = None,
-        unit_attrs: Optional[List[str]] = None,
-    ) -> OpResult:
-        ttir_op = self.get_opview_from_method(TTIRBuilder.convolution)
-
-        if isinstance(window_strides, int):
-            window_strides = [window_strides, window_strides]
-        if isinstance(padding, int):
-            padding = [padding, padding, padding, padding]
-        elif len(padding) == 2:
-            padding = [padding[0], padding[1], padding[0], padding[1]]
-        if isinstance(input_dilation, int):
-            input_dilation = [input_dilation, input_dilation]
-        if isinstance(weight_dilation, int):
-            weight_dilation = [weight_dilation, weight_dilation]
-
-        window_strides_attr = DenseI64ArrayAttr.get(window_strides)
-        padding_attr = DenseI64ArrayAttr.get(padding)
-        input_dilation_attr = DenseI64ArrayAttr.get(input_dilation)
-        weight_dilation_attr = DenseI64ArrayAttr.get(weight_dilation)
-        window_reversal_attr = DenseBoolArrayAttr.get([False, False])
-        feature_group_count_attr = IntegerAttr.get(
-            IntegerType.get_signless(64), feature_group_count
-        )
-        batch_group_count_attr = IntegerAttr.get(
-            IntegerType.get_signless(64), batch_group_count
-        )
-
-        convolution_layout_attr = ttir.ir.ConvolutionLayoutAttr.get(
-            self._ctx,
-            input_batch,
-            input_feature,
-            input_spatial_dimensions,
-            kernel_output_feature,
-            kernel_input_feature,
-            kernel_spatial_dimensions,
-            output_batch,
-            output_feature,
-            output_spatial_dimensions,
-        )
-
-        input0 = self._get_golden_tensor(in0)
-        weight0 = self._get_golden_tensor(weight)
-        bias0 = None
-        if bias is not None:
-            bias0 = self._get_golden_tensor(bias)
-
-        if output_type is None:
-            mlir_output_type = self.get_type(in0)
-        else:
-            mlir_output_type = self._get_type_from_torch_dtype(output_type)
-
-        op_golden_function = get_golden_function(ttir_op)
-        golden_output = op_golden_function(
-            input0,
-            weight0,
-            bias0,
-            window_strides_attr,
-            padding_attr,
-            input_dilation_attr,
-            weight_dilation_attr,
-            window_reversal_attr,
-            convolution_layout_attr,
-            feature_group_count_attr,
-            batch_group_count_attr,
-            mlir_output_type,
-        )
-        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
-
-        if loc is None:
-            loc = self._get_location()
-        else:
-            loc = Location.name(loc)
-
-        op = ttir_op(
-            result,
-            in0,
-            weight,
-            window_strides_attr,
-            padding_attr,
-            input_dilation_attr,
-            weight_dilation_attr,
-            window_reversal_attr,
-            convolution_layout_attr,
-            feature_group_count_attr,
-            batch_group_count_attr,
-            # bias=bias,
-            loc=loc,
-        )
-        op_result = op.result
-
-        if unit_attrs is not None:
-            for attr_name in unit_attrs:
-                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
-
-        if not self._disable_golden_check:
-            self._set_golden_tensor(op_result, golden_output)
-
-        return op_result
-
-    @parse(ttir.ConvolutionOp)
-    def convolution_parser(
-        self,
-        old_op: ttir.ConvolutionOp,
-        global_dict: Dict[Operand, Operand],
-    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
-        ttir_op = self.get_opview_from_parser(TTIRBuilder.convolution_parser)
-        in0 = global_dict[old_op.input]
-        weight = global_dict[old_op.weight]
-        window_strides_attr = old_op.window_strides
-        padding_attr = old_op.padding
-        input_dilation_attr = old_op.input_dilation
-        weight_dilation_attr = old_op.weight_dilation
-        window_reversal_attr = old_op.window_reversal
-        convolution_layout_attr = old_op.convolution_layout
-        feature_group_count_attr = old_op.feature_group_count
-        batch_group_count_attr = old_op.batch_group_count
-        result = old_op.result.type
-
-        new_op = ttir_op(
-            result,
-            in0,
-            weight,
-            window_strides_attr,
-            padding_attr,
-            input_dilation_attr,
-            weight_dilation_attr,
-            window_reversal_attr,
-            convolution_layout_attr,
-            feature_group_count_attr,
-            batch_group_count_attr,
-            loc=old_op.location,
-        )
-        new_op_result = new_op.result
-
-        if not self._disable_golden_check:
-            input0 = self._get_golden_tensor(in0)
-            weight0 = self._get_golden_tensor(weight)
-            op_golden_function = get_golden_function(ttir_op)
-            golden_output = op_golden_function(
-                input0,
-                weight0,
-                None,
-                window_strides_attr,
-                padding_attr,
-                input_dilation_attr,
-                weight_dilation_attr,
-                window_reversal_attr,
-                convolution_layout_attr,
-                feature_group_count_attr,
-                batch_group_count_attr,
-                result.element_type,
-            )
-            self._set_golden_tensor(new_op_result, golden_output)
-
-        op_map_dictionary = {}
-        op_map_dictionary[old_op.result] = new_op_result
-        return new_op, op_map_dictionary
-
-    @split(ttir.ConvolutionOp)
-    def convolution_split(
-        self,
-        old_op: ttir.ConvolutionOp,
-    ) -> Tuple[Module, TTIRBuilder]:
-        ttir_op = self.get_opview_from_split(TTIRBuilder.convolution_split)
-
-        old_context = old_op.context
-        old_location = Location.unknown(old_context)
-        with old_context, old_location:
-
-            convolution_module = Module.create()
-            convolution_builder = TTIRBuilder(old_context, old_location)
-            op_input_types = []
-
-            conv_input = old_op.input
-            conv_weight = old_op.weight
-            op_input_types.append(self._get_type(conv_input))
-            op_input_types.append(self._get_type(conv_weight))
-
-            with InsertionPoint(convolution_module.body):
-
-                ordered_inputs = []
-                ordered_outputs = []
-
-                @func.func(*op_input_types, name="convolution_module")
-                def decorated_func(*inputs):
-                    in0 = inputs[0]
-                    weight = inputs[1]
-                    result = old_op.result.type
-                    window_strides_attr = old_op.window_strides
-                    padding_attr = old_op.padding
-                    input_dilation_attr = old_op.input_dilation
-                    weight_dilation_attr = old_op.weight_dilation
-                    window_reversal_attr = old_op.window_reversal
-                    convolution_layout_attr = old_op.convolution_layout
-                    feature_group_count_attr = old_op.feature_group_count
-                    batch_group_count_attr = old_op.batch_group_count
-
-                    new_op = ttir_op(
-                        result,
-                        in0,
-                        weight,
-                        window_strides_attr,
-                        padding_attr,
-                        input_dilation_attr,
-                        weight_dilation_attr,
-                        window_reversal_attr,
-                        convolution_layout_attr,
-                        feature_group_count_attr,
-                        batch_group_count_attr,
-                        loc=old_op.location,
-                    )
-                    new_op_result = new_op.result
-
-                    if not self._disable_golden_check:
-                        input0 = self._get_golden_tensor(old_op.input)
-                        weight0 = self._get_golden_tensor(old_op.weight)
-
-                        op_golden_function = get_golden_function(ttir_op)
-                        golden_output = op_golden_function(
-                            input0,
-                            weight0,
-                            None,
-                            window_strides_attr,
-                            padding_attr,
-                            input_dilation_attr,
-                            weight_dilation_attr,
-                            window_reversal_attr,
-                            convolution_layout_attr,
-                            feature_group_count_attr,
-                            batch_group_count_attr,
-                            result.element_type,
-                        )
-                        convolution_builder._set_golden_tensor(
-                            new_op_result, golden_output
-                        )
-                        convolution_builder._set_golden_tensor(in0, input0)
-                        convolution_builder._set_golden_tensor(weight, weight0)
-                        ordered_inputs.extend([in0, weight])
-                        ordered_outputs.append(new_op_result)
-
-                    return new_op
-
-                new_func_op = decorated_func.func_op
-                convolution_builder._func_ops_generated[new_func_op] = [
-                    ordered_inputs,
-                    ordered_outputs,
-                ]
-
-        return convolution_module, convolution_builder
-
     ############### ttir.ConstantOp ###############
 
     @tag(ttir.ConstantOp)
@@ -11294,6 +11019,170 @@ class TTIRBuilder(Builder):
             },
             unit_attrs=unit_attrs,
         )
+
+    @parse(ttir.Conv2dOp)
+    def conv2d_parser(
+        self,
+        old_op: ttir.Conv2dOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.conv2d_parser)
+
+        in0 = global_dict[old_op.input]
+        weight = global_dict[old_op.weight]
+        bias = global_dict[old_op.bias] if old_op.bias is not None else None
+        result = old_op.result.type
+
+        stride_attr = old_op.stride
+        padding_attr = old_op.padding
+        dilation_attr = old_op.dilation
+        groups_attr = old_op.groups
+
+        # Access optional flattened_compat_info attribute safely
+        flattened_compat_info = None
+        if "flattened_compat_info" in old_op.operation.attributes:
+            flattened_compat_info = old_op.operation.attributes["flattened_compat_info"]
+
+        new_op = ttir_op(
+            result,
+            in0,
+            weight,
+            stride_attr,
+            padding_attr,
+            dilation_attr,
+            groups_attr,
+            bias=bias,
+            batch_dim=old_op.batch_dim,
+            height_dim=old_op.height_dim,
+            width_dim=old_op.width_dim,
+            channel_dim=old_op.channel_dim,
+            flattened_compat_info=flattened_compat_info,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            input_weight = self._get_golden_tensor(weight)
+            input_bias = self._get_golden_tensor(bias) if bias is not None else None
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(
+                input0,
+                input_weight,
+                input_bias,
+                stride=stride_attr,
+                padding=padding_attr,
+                dilation=dilation_attr,
+                groups=groups_attr,
+                batch_dim=old_op.batch_dim,
+                channel_dim=old_op.channel_dim,
+                height_dim=old_op.height_dim,
+                width_dim=old_op.width_dim,
+            )
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttir.Conv2dOp)
+    def conv2d_split(
+        self,
+        old_op: ttir.Conv2dOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.conv2d_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            conv2d_module = Module.create()
+            conv2d_builder = TTIRBuilder(old_ctx, old_loc)
+            op_input_types = [old_op.input.type, old_op.weight.type]
+            if old_op.bias is not None:
+                op_input_types.append(old_op.bias.type)
+
+            with InsertionPoint(conv2d_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="conv2d_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    weight = inputs[1]
+                    bias = inputs[2] if len(inputs) > 2 else None
+                    result = old_op.result.type
+
+                    stride_attr = old_op.stride
+                    padding_attr = old_op.padding
+                    dilation_attr = old_op.dilation
+                    groups_attr = old_op.groups
+
+                    # Access optional flattened_compat_info attribute safely
+                    flattened_compat_info = None
+                    if "flattened_compat_info" in old_op.operation.attributes:
+                        flattened_compat_info = old_op.operation.attributes[
+                            "flattened_compat_info"
+                        ]
+
+                    new_op = ttir_op(
+                        result,
+                        in0,
+                        weight,
+                        stride_attr,
+                        padding_attr,
+                        dilation_attr,
+                        groups_attr,
+                        bias=bias,
+                        batch_dim=old_op.batch_dim,
+                        height_dim=old_op.height_dim,
+                        width_dim=old_op.width_dim,
+                        channel_dim=old_op.channel_dim,
+                        flattened_compat_info=flattened_compat_info,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        input0 = self._get_golden_tensor(old_op.input)
+                        input_weight = self._get_golden_tensor(old_op.weight)
+                        input_bias = (
+                            self._get_golden_tensor(old_op.bias)
+                            if old_op.bias is not None
+                            else None
+                        )
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_output = op_golden_function(
+                            input0,
+                            input_weight,
+                            input_bias,
+                            stride=stride_attr,
+                            padding=padding_attr,
+                            dilation=dilation_attr,
+                            groups=groups_attr,
+                            batch_dim=old_op.batch_dim,
+                            channel_dim=old_op.channel_dim,
+                            height_dim=old_op.height_dim,
+                            width_dim=old_op.width_dim,
+                        )
+                        conv2d_builder._set_golden_tensor(new_op_result, golden_output)
+                        conv2d_builder._set_golden_tensor(in0, input0)
+                        conv2d_builder._set_golden_tensor(weight, input_weight)
+                        ordered_inputs.extend([in0, weight])
+                        if bias is not None:
+                            conv2d_builder._set_golden_tensor(bias, input_bias)
+                            ordered_inputs.append(bias)
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                conv2d_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return conv2d_module, conv2d_builder
 
     def conv_transpose2d(
         self,
