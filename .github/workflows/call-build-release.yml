@@ -145,6 +145,14 @@ jobs:
         cmake --install ${{ steps.strings.outputs.build-output-dir }} --component TTNNStandalone
         cmake --install ${{ steps.strings.outputs.build-output-dir }} --component DistributedRuntime
 
+    - name: Build ttrt wheel
+      shell: bash
+      run: |
+        source env/activate
+        cd tools/ttrt
+        python setup.py bdist_wheel
+        ls -la dist/
+
     - name: Build components
       shell: bash
       run: |
@@ -158,7 +166,7 @@ jobs:
         export BUILD_NAME="${{ matrix.build.name }}"
         export UPLOAD_LIST="$WORK_DIR/_components_upload.json"
         echo "[" >$UPLOAD_LIST
-        echo "{\"name\":\"ttrt-whl-$BUILD_NAME\",\"path\":\"$WORK_DIR/build/tools/ttrt/build/ttrt*.whl\"}," >> $UPLOAD_LIST
+        echo "{\"name\":\"ttrt-whl-$BUILD_NAME\",\"path\":\"$WORK_DIR/tools/ttrt/dist/ttrt*.whl\"}," >> $UPLOAD_LIST
 
         # run all component build scripts
         if [ -f ".github/settings/build.json" ]; then
