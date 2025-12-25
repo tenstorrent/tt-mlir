@@ -1,0 +1,8 @@
+---
+# Inherit from parent config but disable clang-analyzer-core.CallAndMessage
+# This check produces false positives when calling tt-metal APIs that use
+# C++17 structured bindings in device_operation.hpp (line 523).
+# The static analyzer cannot track initialization through structured bindings.
+InheritParentConfig: true
+Checks: '-clang-analyzer-core.CallAndMessage'
+...
