@@ -921,7 +921,8 @@ public:
 
     // Used only paired with convolution
     auto *definingOp = batchNormOp.getOperand().getDefiningOp();
-    if (!definingOp || (!isa<Conv2dOp>(definingOp)) ||
+    if (!definingOp ||
+        (!isa<Conv2dOp>(definingOp) && !isa<ConvTranspose2dOp>(definingOp)) ||
         !definingOp->hasOneUse()) {
       return mlir::failure();
     }
@@ -3547,6 +3548,7 @@ public:
 
       if (conv2dWithMultiplyEnabled) {
         patterns.add<ConvWithMultiply<Conv2dOp>>(&getContext());
+        patterns.add<ConvWithMultiply<ConvTranspose2dOp>>(&getContext());
         patterns.add<BatchNormDecomposition>(&getContext());
       }
       if (permuteMatmulEnabled) {
