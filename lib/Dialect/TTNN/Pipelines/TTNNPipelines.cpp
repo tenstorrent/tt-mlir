@@ -315,14 +315,15 @@ void createTTNNBackendToEmitCPipeline(
     // empty, which is necessary for proper dylib interface generation.
     //
     TTNNTuplifyTensorsOptions tuplifyOptions;
-    tuplifyOptions.tuplifyInputIfEmpty = true;
+    tuplifyOptions.tuplifyMode = TTNNTuplifyMode::TargetModule;
     pm.addPass(createTTNNTuplifyTensors(tuplifyOptions));
   } else {
     // In canonical path, run tuplification + input generation/loading.
     //
-    TTNNTuplifyTensorsOptions tuplifyOptions;
-    tuplifyOptions.tuplifyInputIfEmpty = options.tuplifyInputIfEmpty;
-    pm.addPass(createTTNNTuplifyTensors(tuplifyOptions));
+    // Split function arguments into inputs and parameters
+    pm.addPass(createTTNNCanonicalizeFunctionArguments());
+    pm.addPass(createTTNNReorderFunctionArguments());
+    pm.addPass(createTTNNTuplifyTensors());
 
     if (options.loadInputTensorsFromDisk) {
       TTNNLoadInputTensorsOptions loadOptions;
@@ -354,12 +355,17 @@ void createTTNNBackendToEmitPyPipeline(
     // generation.
     //
     TTNNTuplifyTensorsOptions tuplifyOptions;
-    tuplifyOptions.tuplifyInputIfEmpty = true;
+    tuplifyOptions.tuplifyMode = TTNNTuplifyMode::TargetModule;
     pm.addPass(createTTNNTuplifyTensors(tuplifyOptions));
     pm.addPass(createTTNNPrepareModuleForExport());
   } else {
     // In canonical path, run tuplification + input generation/loading.
     //
+
+    // Split function arguments into inputs and parameters
+    pm.addPass(createTTNNCanonicalizeFunctionArguments());
+    pm.addPass(createTTNNReorderFunctionArguments());
+
     pm.addPass(createTTNNTuplifyTensors());
 
     if (options.loadInputTensorsFromDisk) {

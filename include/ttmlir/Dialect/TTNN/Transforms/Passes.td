@@ -171,11 +171,17 @@ def TTNNTuplifyTensors: Pass<"ttnn-tuplify-tensors", "::mlir::ModuleOp"> {
   }];
 
   let options = [
-    Option<"tuplifyInputIfEmpty",
-            "tuplify-input-if-empty",
-            "bool", /*default=*/"false",
+    Option<"tuplifyMode",
+            "tuplify-mode",
+            "mlir::tt::ttnn::TTNNTuplifyMode", /*default=*/"mlir::tt::ttnn::TTNNTuplifyMode::Default",
             "If input arg is originally empty, force create an empty tuple arg. This is useful for scenarios where "
-            "signatures are required have tuples on the input, like the EmitC dylib path.">
+            "signatures are required have tuples on the input, like the EmitC dylib path.",
+            [{::llvm::cl::values(
+              clEnumValN(mlir::tt::ttnn::TTNNTuplifyMode::Default, "default",
+              "Default tuplify mode."),
+              clEnumValN(mlir::tt::ttnn::TTNNTuplifyMode::TargetModule, "target-module",
+              "Tuplify mode targeting the entire module.")
+            )}]>
   ];
 }
 
@@ -432,6 +438,52 @@ def TTNNCollectPerfMetrics: Pass<"ttnn-collect-perf-metrics", "::mlir::ModuleOp"
     Option<"ttnnEnableTrace", "ttnn-enable-trace", "bool", /*default=*/"false",
            "Collect metrics only for the main traced function">
   ];
+}
+
+def TTNNCanonicalizeFunctionArguments: Pass<"ttnn-canonicalize-function-arguments", "::mlir::ModuleOp"> {
+  let summary = "Canonicalize function arguments by setting default argument types.";
+  let description = [{
+    This pass ensures all function arguments have a ttcore.argument_type attribute.
+    Arguments without this attribute are assigned #ttcore.argument_type<input> as default.
+    This canonicalization simplifies downstream passes that rely on argument types.
+
+    Additionally, this pass sets ttcore.original_arg_position for all arguments to track
+    their original positions before any transformations.
+  }];
+}
+
+def TTNNReorderFunctionArguments: Pass<"ttnn-reorder-function-arguments", "::mlir::ModuleOp"> {
+  let summary = "Split function arguments into inputs and parameters based on argument types.";
+  let description = [{
+    This pass modifies function signatures by regrouping arguments based on their
+    ttcore.argument_type attribute. It creates two groups:
+    - inputs: arguments with #ttcore.argument_type<input>
+    - parameters: arguments with #ttcore.argument_type<parameter> and #ttcore.argument_type<constant>
+
+    The pass rewrites the function signature to have all inputs first, followed by all parameters,
+    and updates all uses of the arguments accordingly.
+
+    Note: This pass expects all arguments to already have ttcore.argument_type set
+    (typically by TTNNCanonicalizeFunctionArguments pass).
+
+    Given a function like this:
+    ```mlir
+    func.func @add(%arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>},
+                   %arg1: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>},
+                   %arg2: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>}) -> tensor<32x32xbf16> {
+      // function body
+    }
+    ```
+
+    The pass will rewrite it to:
+    ```mlir
+    func.func @add(%arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>, ttcore.original_arg_position = 0 : i64},
+                   %arg1: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>, ttcore.original_arg_position = 2 : i64},
+                   %arg2: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>, ttcore.original_arg_position = 1 : i64}) -> tensor<32x32xbf16> {
+      // function body with updated argument uses
+    }
+    ```
+  }];
 }
 
 #endif

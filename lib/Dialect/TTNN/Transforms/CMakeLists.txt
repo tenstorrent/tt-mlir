@@ -11,11 +11,13 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         OptimizerPasses/TTNNPrepareConv2dWeightsAndBias.cpp
         TTNNAdjustDeallocs.cpp
         TTNNCollectPerfMetrics.cpp
+        TTNNCanonicalizeFunctionArguments.cpp
         TTNNDecomposeLayouts.cpp
         TTNNEmitPyWorkarounds.cpp
         TTNNConstEvalInputsToSystemMemory.cpp
         TTNNFusing.cpp
         TTNNLayout.cpp
+        TTNNReorderFunctionArguments.cpp
         TTNNToCpp.cpp
         TTNNToPython.cpp
         TTNNTraceHoistTransform.cpp

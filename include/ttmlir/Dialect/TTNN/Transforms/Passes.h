@@ -17,6 +17,8 @@
 
 namespace mlir::tt::ttnn {
 
+enum class TTNNTuplifyMode { Default, TargetModule };
+
 // TTNN Passes
 #define GEN_PASS_DECL
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
