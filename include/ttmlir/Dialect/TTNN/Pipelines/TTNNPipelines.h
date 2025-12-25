@@ -450,6 +450,12 @@ struct TTNNBackendToEmitPyPipelineOptions
   Option<std::string> tensorLoadFilePrefix{
       *this, "tensor-load-file-prefix",
       llvm::cl::desc("Prefix for input tensor files"), llvm::cl::init("arg")};
+
+  Option<bool> enablePrettify{
+      *this, "enable-prettify",
+      llvm::cl::desc("Enable pipelines and passes that \"prettify\" the IR for "
+                     "code generation."),
+      llvm::cl::init(false)};
 };
 
 // TTIR to EmitC pipeline options.
@@ -465,6 +471,15 @@ struct TTIRToEmitCPipelineOptions : public TTIRToTTNNBackendPipelineOptions,
 //
 struct TTIRToEmitPyPipelineOptions : public TTIRToTTNNBackendPipelineOptions,
                                      public TTNNBackendToEmitPyPipelineOptions {
+};
+
+// Prettify XLA/Torch pipeline options.
+// This pipeline applies prettification passes to make TTNN IR more readable
+// for code generation from XLA/Torch frontends.
+//
+struct PrettifyXLATorchPipelineOptions
+    : public PassPipelineOptions<PrettifyXLATorchPipelineOptions> {
+  // Add any future options here if needed
 };
 
 //===----------------------------------------------------------------------===//
@@ -500,6 +515,9 @@ void createTTIRToEmitCPipeline(OpPassManager &pm,
 
 void createTTIRToEmitPyPipeline(OpPassManager &pm,
                                 const TTIRToEmitPyPipelineOptions &options);
+
+void createPrettifyXLATorchPipeline(
+    OpPassManager &pm, const PrettifyXLATorchPipelineOptions &options);
 
 /// Registers all pipelines for the `bufferization` dialect. Currently,
 /// this includes only the "ttir-to-ttnn-backend-pipeline".
