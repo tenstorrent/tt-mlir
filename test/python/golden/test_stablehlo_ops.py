@@ -1148,3 +1148,72 @@ def test_select(target: str, request, device):
         target=target,
         device=device,
     )
+
+
+def module_iota(builder: StableHLOBuilder):
+    @builder.func([], [])
+    def iota(
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.iota(
+            output_shape=[4, 5],
+            output_type=torch.float32,
+            iota_dimension=0,
+            unit_attrs=unit_attrs,
+        )
+
+
+@pytest.mark.parametrize(
+    "output_shape, output_type, iota_dimension",
+    [
+        ([4, 5], torch.float32, 0),
+        ([4, 5], torch.float32, 1),
+        ([2, 3, 4], torch.float32, 0),
+        ([2, 3, 4], torch.float32, 1),
+        ([2, 3, 4], torch.float32, 2),
+        ([32, 64], torch.bfloat16, 0),
+        ([32, 64], torch.bfloat16, 1),
+    ],
+    ids=[
+        "shape_4x5_dim0",
+        "shape_4x5_dim1",
+        "shape_2x3x4_dim0",
+        "shape_2x3x4_dim1",
+        "shape_2x3x4_dim2",
+        "shape_32x64_bf16_dim0",
+        "shape_32x64_bf16_dim1",
+    ],
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_iota(
+    output_shape: List[int],
+    output_type: torch.dtype,
+    iota_dimension: int,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: StableHLOBuilder):
+        @builder.func([], [])
+        def iota(
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            builder.set_graph_level_check(True)
+            return builder.iota(
+                output_shape=output_shape,
+                output_type=output_type,
+                iota_dimension=iota_dimension,
+                unit_attrs=unit_attrs,
+            )
+
+    compile_and_execute_shlo(
+        module,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )

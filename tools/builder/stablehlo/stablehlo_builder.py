@@ -4207,6 +4207,284 @@ class StableHLOBuilder(Builder):
 
         return constant_module, constant_builder
 
+    ################ stablehlo.IotaOp ###############
+
+    @tag(stablehlo.IotaOp)
+    def iota(
+        self,
+        output_shape: List[int],
+        output_type: torch.dtype,
+        iota_dimension: int,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.iota)
+
+        mlir_output_type = self._get_type_from_torch_dtype(output_type)
+        result = self._create_ranked_tensor_type(output_shape, mlir_output_type)
+        iota_dimension_attr = IntegerAttr.get(
+            IntegerType.get_signless(64, self._ctx), iota_dimension
+        )
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = stablehlo_op(
+            result,
+            iota_dimension=iota_dimension_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(
+                output_shape, iota_dimension, mlir_output_type
+            )
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(stablehlo.IotaOp)
+    def iota_parser(
+        self,
+        old_op: stablehlo.IotaOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.iota_parser)
+
+        result = old_op.result.type
+        iota_dimension_attr = old_op.iota_dimension
+
+        new_op = stablehlo_op(
+            result,
+            iota_dimension=iota_dimension_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            op_golden_function = get_golden_function(stablehlo_op)
+            output_shape = list(result.shape)
+            mlir_output_type = result.element_type
+            iota_dimension = iota_dimension_attr.value
+            golden_output = op_golden_function(
+                output_shape, iota_dimension, mlir_output_type
+            )
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.IotaOp)
+    def iota_split(
+        self,
+        old_op: stablehlo.IotaOp,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        stablehlo_op = self.get_opview_from_split(StableHLOBuilder.iota_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        iota_dimension_attr = old_op.iota_dimension
+        result = old_op.result.type
+
+        with old_context, old_loc:
+            iota_module = Module.create()
+            iota_builder = StableHLOBuilder(old_context, old_loc)
+
+            with InsertionPoint(iota_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(name="iota_module")
+                def decorated_func():
+                    new_op = stablehlo_op(
+                        result,
+                        iota_dimension=iota_dimension_attr,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(stablehlo_op)
+                        output_shape = list(result.shape)
+                        mlir_output_type = result.element_type
+                        iota_dimension = iota_dimension_attr.value
+                        golden_output = op_golden_function(
+                            output_shape, iota_dimension, mlir_output_type
+                        )
+                        iota_builder._set_golden_tensor(new_op_result, golden_output)
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                iota_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return iota_module, iota_builder
+
+    ################ stablehlo.DynamicIotaOp ###############
+
+    @tag(stablehlo.DynamicIotaOp)
+    def dynamic_iota(
+        self,
+        output_shape: Operand,
+        output_type: torch.dtype,
+        iota_dimension: int,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.dynamic_iota)
+
+        # Get the shape from the output_shape operand
+        output_shape_type = output_shape.type
+        shape_size = output_shape_type.shape[0]
+
+        mlir_output_type = self._get_type_from_torch_dtype(output_type)
+        # For dynamic iota, we create a result type with dynamic dimensions
+        result = RankedTensorType.get(
+            [ShapedType.get_dynamic_size()] * shape_size, mlir_output_type
+        )
+        iota_dimension_attr = IntegerAttr.get(
+            IntegerType.get_signless(64, self._ctx), iota_dimension
+        )
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = stablehlo_op(
+            result,
+            output_shape,
+            iota_dimension=iota_dimension_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            op_golden_function = get_golden_function(stablehlo_op)
+            golden_output = op_golden_function(
+                output_shape, iota_dimension, mlir_output_type
+            )
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(stablehlo.DynamicIotaOp)
+    def dynamic_iota_parser(
+        self,
+        old_op: stablehlo.DynamicIotaOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.dynamic_iota_parser)
+
+        result = old_op.result.type
+        iota_dimension_attr = old_op.iota_dimension
+        output_shape = global_dict[old_op.output_shape]
+
+        new_op = stablehlo_op(
+            result,
+            output_shape,
+            iota_dimension=iota_dimension_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            op_golden_function = get_golden_function(stablehlo_op)
+            mlir_output_type = result.element_type
+            iota_dimension = iota_dimension_attr.value
+            golden_output = op_golden_function(
+                output_shape, iota_dimension, mlir_output_type
+            )
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.DynamicIotaOp)
+    def dynamic_iota_split(
+        self,
+        old_op: stablehlo.DynamicIotaOp,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        stablehlo_op = self.get_opview_from_split(StableHLOBuilder.dynamic_iota_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        iota_dimension_attr = old_op.iota_dimension
+        result = old_op.result.type
+        old_output_shape = old_op.output_shape
+
+        with old_context, old_loc:
+            dynamic_iota_module = Module.create()
+            dynamic_iota_builder = StableHLOBuilder(old_context, old_loc)
+
+            with InsertionPoint(dynamic_iota_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                op_input_types = [old_output_shape.type]
+
+                @func.func(*op_input_types, name="dynamic_iota_module")
+                def decorated_func(output_shape):
+                    ordered_inputs.append(output_shape)
+
+                    new_op = stablehlo_op(
+                        result,
+                        output_shape,
+                        iota_dimension=iota_dimension_attr,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(stablehlo_op)
+                        mlir_output_type = result.element_type
+                        iota_dimension = iota_dimension_attr.value
+                        golden_output = op_golden_function(
+                            output_shape, iota_dimension, mlir_output_type
+                        )
+                        dynamic_iota_builder._set_golden_tensor(
+                            new_op_result, golden_output
+                        )
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                dynamic_iota_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return dynamic_iota_module, dynamic_iota_builder
+
     ################ stablehlo.BatchNormGradOp ###############
 
     @tag(stablehlo.BatchNormGradOp)
