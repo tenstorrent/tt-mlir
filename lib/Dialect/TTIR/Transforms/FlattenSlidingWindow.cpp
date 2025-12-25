@@ -74,12 +74,12 @@ public:
           op.getLoc(), getNHWFlattenedType(outputType), flattenedInput,
           adaptor.getWeight(), adaptor.getBias(), adaptor.getStride(),
           adaptor.getPadding(), adaptor.getOutputPadding(),
-          adaptor.getDilation(), adaptor.getGroups(), flattenedCompatInfoAttr);
+          adaptor.getDilation(), op.getGroups(), flattenedCompatInfoAttr);
     } else if constexpr (std::is_same_v<Conv2dOpType, ttir::Conv2dOp>) {
       newConv = rewriter.create<ttir::Conv2dOp>(
           op.getLoc(), getNHWFlattenedType(outputType), flattenedInput,
           adaptor.getWeight(), adaptor.getBias(), adaptor.getStride(),
-          adaptor.getPadding(), adaptor.getDilation(), adaptor.getGroups(),
+          adaptor.getPadding(), adaptor.getDilation(), op.getGroups(),
           flattenedCompatInfoAttr);
     } else {
       static_assert(ttmlir::utils::always_false<Conv2dOpType>(),
