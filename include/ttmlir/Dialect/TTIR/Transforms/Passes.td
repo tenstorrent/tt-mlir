@@ -196,11 +196,7 @@ def TTIRFusing: Pass<"ttir-fusing", "::mlir::ModuleOp">
       Option<"conv2dWithMultiplyEnabled",
              "ttnn-enable-conv2d-with-multiply-pattern",
              "bool", /*default=*/"false",
-             "Controls if we should enable the Conv2dWithMultiply pattern">,
-      Option<"permuteMatmulEnabled",
-             "enable-permute-matmul-fusion",
-             "bool", /*default=*/"true",
-             "Fuse permute ops into matmul/linear transpose attributes">,
+             "Controls if we should enable the Conv2dWithMultiply pattern">
   ];
 }
 
