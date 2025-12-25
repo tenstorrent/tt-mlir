@@ -1,4 +1,5 @@
 ---
+# Issue(vkovacevic): https://github.com/tenstorrent/tt-metal/issues/35064
 # Inherit from parent config but disable clang-analyzer-core.CallAndMessage
 # This check produces false positives when calling tt-metal APIs that use
 # C++17 structured bindings in device_operation.hpp (line 523).

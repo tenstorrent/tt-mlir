@@ -78,10 +78,20 @@ export LD_LIBRARY_PATH="$INSTALL_DIR/tools/tt-alchemist/test:$INSTALL_DIR/lib:$I
 export PYTHONPATH="$INSTALL_DIR/tools/tt-alchemist/test:$INSTALL_DIR/tt-metal/ttnn:$INSTALL_DIR/tt-metal:${PYTHONPATH:-}"
 cd "$INSTALL_DIR/tools/tt-alchemist/test"
 
-echo "Run test_python_runner_simple"
-./test_python_runner_simple
+# Issue(vkovacevic): https://github.com/tenstorrent/tt-mlir/issues/6443
+# python_runner tests are skipped when tt-metal is built with nanobind (incompatible with pybind11::embed)
+if [ -f "./test_python_runner_simple" ]; then
+  echo "Run test_python_runner_simple"
+  ./test_python_runner_simple
+else
+  echo "Skipping test_python_runner_simple (not built - likely due to nanobind)"
+fi
 
-echo "Run test_python_runner (requires device)"
-./test_python_runner
+if [ -f "./test_python_runner" ]; then
+  echo "Run test_python_runner (requires device)"
+  ./test_python_runner
+else
+  echo "Skipping test_python_runner (not built - likely due to nanobind)"
+fi
 
 cd $WORK_DIR
