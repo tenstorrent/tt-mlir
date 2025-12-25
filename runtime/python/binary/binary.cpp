@@ -4,7 +4,7 @@
 
 #include <numeric>
 
-#include "tt/runtime/tensor_cache.h"
+#include "tt/runtime/detail/ttnn/types/global_tensor_cache.h"
 #include "tt/runtime/types.h"
 
 #include "tt/runtime/detail/python/nanobind_headers.h"
@@ -46,10 +46,6 @@ void registerBinaryBindings(nb::module_ &m) {
       .def("get_program_outputs_as_json",
            &tt::runtime::Binary::getProgramOutputsAsJson)
       .def("get_mlir_as_json", &tt::runtime::Binary::getMlirAsJson)
-      .def("get_tensor_cache",
-           [](tt::runtime::Binary &bin) {
-             return bin.getConstEvalTensorCache();
-           })
       .def("get_program_mesh_shape", &tt::runtime::Binary::getProgramMeshShape);
 
   nb::class_<tt::runtime::SystemDesc>(m, "SystemDesc")
@@ -141,18 +137,10 @@ void registerBinaryBindings(nb::module_ &m) {
              return nb::bytearray(data, size);
            });
 
-  nb::class_<tt::runtime::TensorCache>(m, "TensorCache")
-      .def(nb::init<>())
-      .def("clear", &tt::runtime::TensorCache::clear)
-      .def("size", &tt::runtime::TensorCache::size)
-      .def(
-          "remove_program",
-          [](tt::runtime::TensorCache &cache, const int meshId,
-             size_t programIndex) {
-            std::string outerKey =
-                tt::runtime::generateCacheOuterKey(meshId, programIndex);
-            cache.remove(outerKey);
-          },
-          "Remove cache entries for a specific device id and program index");
+  nb::class_<tt::runtime::GlobalTensorCache>(m, "GlobalTensorCache")
+      .def_static("get_instance", &tt::runtime::GlobalTensorCache::getInstance,
+                  nb::rv_policy::reference)
+      .def("clear", &tt::runtime::GlobalTensorCache::clear)
+      .def("size", &tt::runtime::GlobalTensorCache::size);
 }
 } // namespace tt::runtime::python

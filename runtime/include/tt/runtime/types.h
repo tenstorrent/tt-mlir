@@ -296,7 +296,6 @@ struct SystemDesc : public Flatbuffer {
   const ::tt::target::SystemDesc *operator->() const { return get(); }
 };
 
-class TensorCache;
 class ProgramDescCache;
 
 struct Binary : public Flatbuffer {
@@ -337,9 +336,6 @@ struct Binary : public Flatbuffer {
   void setId(std::uint64_t id) { binaryId = id; }
   std::uint64_t id() const;
 
-  // Get the tensor cache associated with this binary
-  std::shared_ptr<TensorCache> getConstEvalTensorCache() { return tensorCache; }
-
   // Get the program descriptor cache associated with this binary
   std::shared_ptr<tt::runtime::ProgramDescCache> getProgramDescCache() {
     return programDescCache;
@@ -349,9 +345,6 @@ private:
   std::uint64_t nextBinaryId();
 
   std::uint64_t binaryId;
-
-  // The tensor cache associated with this binary
-  std::shared_ptr<TensorCache> tensorCache;
 
   // Program descriptor cache associated with this binary
   std::shared_ptr<tt::runtime::ProgramDescCache> programDescCache;
@@ -405,7 +398,6 @@ struct Tensor : public detail::RuntimeCheckedObjectImpl {
 
 private:
   std::uint64_t nextTensorGlobalId();
-
   std::uint64_t globalId;
 };
 
