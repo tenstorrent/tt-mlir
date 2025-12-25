@@ -4,236 +4,198 @@
 
 import os
 import platform
-from setuptools import setup
 import shutil
 import subprocess
+from pathlib import Path
 
-TTMLIR_VERSION_MAJOR = os.getenv("TTMLIR_VERSION_MAJOR", "0")
-TTMLIR_VERSION_MINOR = os.getenv("TTMLIR_VERSION_MINOR", "0")
-TTMLIR_VERSION_PATCH = os.getenv("TTMLIR_VERSION_PATCH", "0")
+from setuptools import setup
+from setuptools.command.build_py import build_py
+from wheel.bdist_wheel import bdist_wheel
 
-__version__ = f"{TTMLIR_VERSION_MAJOR}.{TTMLIR_VERSION_MINOR}.{TTMLIR_VERSION_PATCH}"
+THIS_DIR = Path(os.path.realpath(os.path.dirname(__file__)))
+REPO_DIR = (THIS_DIR / ".." / "..").resolve()
 
-src_dir = os.environ.get(
-    "SOURCE_ROOT",
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."),
-)
-# Use 'src_dir/build' as default location if TTMLIR_BINARY_DIR env variable is not available.
-ttmlir_build_dir = os.environ.get(
-    "TTMLIR_BINARY_DIR",
-    os.path.join(src_dir, "build"),
-)
 
-metaldir = os.environ.get(
-    "TTMETAL_BUILD_DIR",
-    f"{src_dir}/third_party/tt-metal/src/tt-metal/build",
-)
-ttmetalhome = os.environ.get("TT_METAL_RUNTIME_ROOT", "")
+def get_cmake_options() -> dict:
+    """Get CMake build options - always build with everything enabled."""
+    return {
+        "CMAKE_BUILD_TYPE": "Release",
+        "TTMLIR_ENABLE_RUNTIME": "ON",
+        "TT_RUNTIME_ENABLE_TTNN": "ON",
+        "TT_RUNTIME_ENABLE_TTMETAL": "ON",
+        "TT_RUNTIME_ENABLE_PERF_TRACE": "ON",
+        "TTMLIR_ENABLE_RUNTIME_TESTS": "OFF",
+        "TT_RUNTIME_DEBUG": "OFF",
+    }
 
-os.environ["LDFLAGS"] = "-Wl,-rpath,'$ORIGIN'"
-enable_runtime = os.environ.get("TTMLIR_ENABLE_RUNTIME", "OFF") == "ON"
-enable_ttnn = os.environ.get("TT_RUNTIME_ENABLE_TTNN", "OFF") == "ON"
-enable_ttmetal = os.environ.get("TT_RUNTIME_ENABLE_TTMETAL", "OFF") == "ON"
-enable_runtime_tests = os.environ.get("TTMLIR_ENABLE_RUNTIME_TESTS", "OFF") == "ON"
-enable_perf = os.environ.get("TT_RUNTIME_ENABLE_PERF_TRACE", "OFF") == "ON"
-debug_runtime = os.environ.get("TT_RUNTIME_DEBUG", "OFF") == "ON"
-arch = os.environ.get("CMAKE_SYSTEM_PROCESSOR", "x86_64")
-py_maj_ver, py_min_ver, py_patch_ver = platform.python_version_tuple()
 
-runtime_module = f"_ttmlir_runtime.cpython-{py_maj_ver}{py_min_ver}-{arch}-linux-gnu.so"
-dylibs = []
-runlibs = []
-perflibs = []
-metallibs = []
-install_requires = []
-install_requires += ["nanobind"]
+def get_version() -> str:
+    """Get version string from environment or default."""
+    major = os.getenv("TTMLIR_VERSION_MAJOR", "0")
+    minor = os.getenv("TTMLIR_VERSION_MINOR", "0")
+    patch = os.getenv("TTMLIR_VERSION_PATCH", "0")
+    return f"{major}.{minor}.{patch}"
 
-if enable_ttnn:
-    runlibs += ["_ttnncpp.so"]
 
-if enable_ttmetal:
-    runlibs += ["libtt_metal.so"]
+class BdistWheel(bdist_wheel):
+    """Custom wheel builder for platform-specific package."""
 
-if enable_ttnn or enable_ttmetal:
-    runlibs += ["libdevice.so"]
-    runlibs += ["libtt_stl.so"]
-    runlibs += ["libtracy.so.0.10.0"]
+    def finalize_options(self):
+        super().finalize_options()
+        # Mark wheel as platform-specific (contains native binaries)
+        self.root_is_pure = False
 
-if enable_perf:
-    perflibs += ["capture-release"]
-    perflibs += ["csvexport-release"]
+    def get_tag(self):
+        python, abi, plat = super().get_tag()
+        # Force specific Python version tag
+        py_major, py_minor, _ = platform.python_version_tuple()
+        python = f"cp{py_major}{py_minor}"
+        abi = f"cp{py_major}{py_minor}"
+        return python, abi, plat
 
-if enable_runtime:
-    shutil.copy(
-        f"{ttmlir_build_dir}/runtime/lib/libTTMLIRRuntime.so",
-        f"{ttmlir_build_dir}/python_packages/ttrt/runtime",
-    )
 
-    shutil.copy(
-        f"{ttmlir_build_dir}/runtime/python/{runtime_module}",
-        f"{ttmlir_build_dir}/python_packages/ttrt/runtime",
-    )
+class CMakeBuildPy(build_py):
+    """
+    Custom build_py command that runs CMake to build and install ttrt.
 
-    for runlib in runlibs:
-        shutil.copy(
-            f"{metaldir}/lib/{runlib}",
-            f"{ttmlir_build_dir}/python_packages/ttrt/runtime",
-        )
+    For wheel builds:
+    1. Configures CMake with all features enabled (runtime, TTNN, TTMetal, perf)
+    2. Builds the project
+    3. Installs SharedLib component to build_lib/ttrt/runtime/
+    4. Copies _ttmlir_runtime.so separately
 
-    for dylib in perflibs:
-        shutil.copy(
-            f"{metaldir}/tools/profiler/bin/{dylib}",
-            f"{ttmlir_build_dir}/python_packages/ttrt/runtime",
-        )
-        shutil.copy(
-            f"{metaldir}/tools/profiler/bin/{dylib}",
-            f"{ttmetalhome}/{dylib}",
-        )
+    For editable installs:
+    - Skips the build (relies on CMake-managed symlinks)
+    """
 
-    tt_metal_folders_to_ignore = [
-        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-addr2line",
-        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-ar",
-        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-as",
-        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-c++",
-        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-c++filt",
-        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-cpp",
-        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-elfedit",
-        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-gcc",
-        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-gcc-10.2.0",
-        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-gcc-12.2.0",
-        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-gcc-ar",
-        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-gcc-nm",
-        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-gcc-ranlib",
-        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-gcov",
-        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-gcov-dump",
-        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-gcov-tool",
-        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-gdb",
-        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-gdb-add-index",
-        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-gprof",
-        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-ld",
-        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-ld.bfd",
-        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-lto-dump",
-        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-nm",
-        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-objdump",
-        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-ranlib",
-        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-readelf",
-        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-run",
-        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-size",
-        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-strings",
-        "third_party/sfpi/compiler/bin/riscv32-unknown-elf-strip",
-        "third_party/sfpi/compiler/share",
-        "third_party/sfpi/compiler/compiler",
-        "third_party/fmt",
-        "third_party/pybind11",
-        "third_party/taskflow",
-        "third_party/json",
-        "third_party/magic_enum",
-        "third_party/tracy",
-    ]
+    def run(self):
+        # Check if in editable mode
+        if hasattr(self, "editable_mode") and self.editable_mode:
+            print("Editable mode: skipping CMake build")
+            super().run()
+            return
 
-    def tt_metal_ignore_folders(folder, contents):
-        relative_folder = os.path.relpath(folder, start=f"{ttmetalhome}/tt_metal")
+        print("Building ttrt wheel with CMake")
 
-        ignored_items = [
-            item
-            for item in contents
-            if any(
-                os.path.join(relative_folder, item).startswith(ignore)
-                for ignore in tt_metal_folders_to_ignore
-            )
+        # Determine build directory
+        build_dir = (REPO_DIR / "build").resolve()
+
+        # Run CMake configure, build, and install
+        self.run_cmake_build(build_dir)
+
+        # Continue with Python build
+        super().run()
+
+    def run_cmake_build(self, build_dir: Path):
+        """Run CMake configure, build, and install."""
+        # Install directory for runtime binaries
+        install_dir = (Path(self.build_lib) / "ttrt" / "runtime").resolve()
+        install_dir.mkdir(parents=True, exist_ok=True)
+
+        # Get CMake options
+        cmake_options = get_cmake_options()
+
+        # Configure CMake with install prefix
+        configure_command = [
+            "cmake",
+            "-G",
+            "Ninja",
+            "-B",
+            str(build_dir),
+            f"-DCMAKE_INSTALL_PREFIX={install_dir}",
         ]
 
-        return ignored_items
+        # Add CMake options
+        for key, value in cmake_options.items():
+            configure_command.append(f"-D{key}={value}")
 
-    # copy metal dir folder
-    shutil.copytree(
-        f"{ttmetalhome}/tt_metal",
-        f"{ttmlir_build_dir}/python_packages/ttrt/runtime/tt_metal",
-        dirs_exist_ok=True,
-        ignore=tt_metal_ignore_folders,
-    )
+        print(f"Configuring CMake: {' '.join(configure_command)}")
+        subprocess.check_call(configure_command, cwd=REPO_DIR)
 
-    # copy runtime dir folder
-    shutil.copytree(
-        f"{ttmetalhome}/runtime",
-        f"{ttmlir_build_dir}/python_packages/ttrt/runtime/runtime",
-        dirs_exist_ok=True,
-    )
+        # Build
+        build_command = ["cmake", "--build", str(build_dir)]
+        print(f"Building: {' '.join(build_command)}")
+        subprocess.check_call(build_command, cwd=REPO_DIR)
 
-    # copy kernels
-    shutil.copytree(
-        f"{ttmetalhome}/ttnn",
-        f"{ttmlir_build_dir}/python_packages/ttrt/runtime/ttnn",
-        dirs_exist_ok=True,
-    )
+        # Install SharedLib component (prefix already set during configure)
+        install_command = [
+            "cmake",
+            "--install",
+            str(build_dir),
+            "--component",
+            "SharedLib",
+        ]
+        print(f"Installing: {' '.join(install_command)}")
+        subprocess.check_call(install_command, cwd=REPO_DIR)
 
-    import os
+        # Copy _ttmlir_runtime.so separately
+        runtime_so = self._find_runtime_module(build_dir)
+        if runtime_so and runtime_so.exists():
+            dest = install_dir / runtime_so.name
+            print(f"Copying {runtime_so.name} to {install_dir}")
+            shutil.copy(runtime_so, dest)
+        else:
+            raise RuntimeError(
+                f"_ttmlir_runtime.so not found in {build_dir}/runtime/python/"
+            )
 
-    def package_files(directory):
-        paths = []
-        for path, directories, filenames in os.walk(directory):
-            for filename in filenames:
-                paths.append(os.path.join("..", path, filename))
-        return paths
+    def _find_runtime_module(self, build_dir: Path) -> Path:
+        """Find _ttmlir_runtime.cpython-*.so in build directory."""
+        runtime_python_dir = build_dir / "runtime" / "python"
+        if not runtime_python_dir.exists():
+            return None
 
-    extra_files_tt_metal = package_files(
-        f"{ttmlir_build_dir}/python_packages/ttrt/runtime/tt_metal/"
-    )
-    extra_files_runtime = package_files(
-        f"{ttmlir_build_dir}/python_packages/ttrt/runtime/runtime/"
-    )
-    extra_files_ttnn = package_files(
-        f"{ttmlir_build_dir}/python_packages/ttrt/runtime/ttnn/"
-    )
-    extra_files_tests = package_files(
-        f"{ttmlir_build_dir}/python_packages/ttrt/runtime/tests/"
-    )
+        for so_file in runtime_python_dir.glob("_ttmlir_runtime.cpython-*.so"):
+            return so_file
+        return None
 
-    metallibs += extra_files_tt_metal
-    metallibs += extra_files_runtime
-    metallibs += extra_files_ttnn
-    metallibs += extra_files_tests
 
-dylibs += ["libTTMLIRRuntime.so", runtime_module]
-dylibs += runlibs
-dylibs += perflibs
-dylibs += metallibs
+# Get version
+version = get_version()
 
+# All requirements (perf tools always included)
+requirements = [
+    "nanobind",
+    "loguru",
+    "pandas",
+    "seaborn",
+    "graphviz",
+    "pyyaml",
+    "click",
+]
+
+# Setup package directories (must be relative paths)
 packages = ["ttrt", "ttrt.common", "ttrt.binary", "ttrt.runtime"]
 package_dir = {
-    "ttrt": f"{src_dir}/tools/ttrt",
-    "ttrt.common": f"{src_dir}/tools/ttrt/common",
-    "ttrt.binary": f"{src_dir}/tools/ttrt/binary",
-    "ttrt.runtime": f"{src_dir}/tools/ttrt/runtime",
+    "ttrt": ".",
+    "ttrt.common": "common",
+    "ttrt.binary": "binary",
+    "ttrt.runtime": "runtime",
 }
-if enable_perf:
-    install_requires += ["loguru"]
-    install_requires += ["pandas"]
-    install_requires += ["seaborn"]
-    install_requires += ["graphviz"]
-    install_requires += ["pyyaml"]
-    install_requires += ["click"]
-    packages += ["tracy"]
-    packages += ["tt_metal"]
-    package_dir["tracy"] = f"{ttmetalhome}/tools/tracy"
-    package_dir["tt_metal"] = f"{ttmetalhome}/tt_metal"
 
 setup(
     name="ttrt",
-    version=__version__,
-    author="Nicholas Smith",
+    version=version,
+    author="Tenstorrent",
     author_email="nsmith@tenstorrent.com",
     url="https://github.com/tenstorrent/tt-mlir",
-    description="Python bindings to runtime libraries",
+    description="Python bindings to tt-mlir runtime libraries",
     long_description="",
-    packages=packages,
-    package_dir=package_dir,
-    install_requires=install_requires,
+    classifiers=[
+        "License :: OSI Approved :: Apache Software License",
+        "Programming Language :: Python :: 3",
+        "Development Status :: 3 - Alpha",
+    ],
+    cmdclass={
+        "bdist_wheel": BdistWheel,
+        "build_py": CMakeBuildPy,
+    },
     entry_points={
         "console_scripts": ["ttrt = ttrt:main"],
     },
-    package_data={"ttrt.runtime": dylibs},
-    # include_package_data=True,
-    zip_safe=False,
+    install_requires=requirements,
+    packages=packages,
+    package_dir=package_dir,
     python_requires=">=3.7",
+    zip_safe=False,
 )

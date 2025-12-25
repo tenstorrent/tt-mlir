@@ -178,6 +178,41 @@ install(
   REGEX "third_party/umd/"
 )
 
+# Install tt-metal binary libraries for ttrt wheel
+if (TT_RUNTIME_ENABLE_TTNN OR TT_RUNTIME_ENABLE_TTMETAL)
+  set(METAL_RUNTIME_LIBS
+    ${TTMETAL_LIBRARY_DIR}/libdevice.so
+    ${TTMETAL_LIBRARY_DIR}/libtt_stl.so
+    ${TTMETAL_LIBRARY_DIR}/libtracy.so.0.10.0
+  )
+
+  if (TT_RUNTIME_ENABLE_TTNN)
+    list(APPEND METAL_RUNTIME_LIBS ${TTMETAL_LIBRARY_DIR}/_ttnncpp.so)
+  endif()
+
+  if (TT_RUNTIME_ENABLE_TTMETAL)
+    list(APPEND METAL_RUNTIME_LIBS ${TTMETAL_LIBRARY_DIR}/libtt_metal.so)
+  endif()
+
+  install(
+    FILES ${METAL_RUNTIME_LIBS}
+    DESTINATION ${CMAKE_INSTALL_PREFIX}
+    COMPONENT SharedLib
+    EXCLUDE_FROM_ALL
+  )
+
+  if (TT_RUNTIME_ENABLE_PERF_TRACE)
+    install(
+      PROGRAMS
+        ${TTMETAL_BUILD_DIR}/tools/profiler/bin/capture-release
+        ${TTMETAL_BUILD_DIR}/tools/profiler/bin/csvexport-release
+      DESTINATION ${CMAKE_INSTALL_PREFIX}
+      COMPONENT SharedLib
+      EXCLUDE_FROM_ALL
+    )
+  endif()
+endif()
+
 # TTNN Standalone install commands
 #
 # Copy .cpmcache libs

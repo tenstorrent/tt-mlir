@@ -8,36 +8,15 @@ foreach (filename ${TTRT_FILES})
     list(APPEND TTRT_SOURCES "${CMAKE_CURRENT_BINARY_DIR}/${relative_filename}")
 endforeach (filename)
 
-# Create symlink for runtime SO in source repo
-add_custom_command(
+add_custom_target(ttrt ALL
+  COMMENT "python ttrt package"
   COMMAND ${CMAKE_COMMAND} -E create_symlink
     ${TTMLIR_BINARY_DIR}/runtime/python/_ttmlir_runtime.cpython-${Python3_VERSION_MAJOR}${Python3_VERSION_MINOR}-${CMAKE_SYSTEM_PROCESSOR}-linux-gnu.so
     ${CMAKE_CURRENT_SOURCE_DIR}/runtime/_ttmlir_runtime.cpython-${Python3_VERSION_MAJOR}${Python3_VERSION_MINOR}-${CMAKE_SYSTEM_PROCESSOR}-linux-gnu.so
+  COMMAND python -m pip install -e ${CMAKE_CURRENT_SOURCE_DIR} --no-deps
   WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
-  DEPENDS _ttmlir_runtime
-  OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/runtime/_ttmlir_runtime.cpython-${Python3_VERSION_MAJOR}${Python3_VERSION_MINOR}-${CMAKE_SYSTEM_PROCESSOR}-linux-gnu.so
-  COMMENT "Creating symlink for ttrt runtime SO"
-)
-
-# Editable install (only needs to run once)
-add_custom_command(
-  COMMAND python -m pip install -r "${CMAKE_CURRENT_SOURCE_DIR}/requirements.txt"
-  COMMAND TTMLIR_VERSION_MAJOR=${TTMLIR_VERSION_MAJOR}
-          TTMLIR_VERSION_MINOR=${TTMLIR_VERSION_MINOR}
-          TTMLIR_VERSION_PATCH=${TTMLIR_VERSION_PATCH}
-          SOURCE_ROOT=${TTMLIR_SOURCE_DIR}
-          TTMLIR_BINARY_DIR=${TTMLIR_BINARY_DIR}
-          python -m pip install -e ${CMAKE_CURRENT_SOURCE_DIR} --no-deps
-  COMMAND touch ${CMAKE_CURRENT_BINARY_DIR}/.editable_installed
-  WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
-  DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/runtime/_ttmlir_runtime.cpython-${Python3_VERSION_MAJOR}${Python3_VERSION_MINOR}-${CMAKE_SYSTEM_PROCESSOR}-linux-gnu.so
-  OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/.editable_installed
   COMMENT "Installing ttrt in editable mode"
 )
-
-add_custom_target(ttrt ALL
-  COMMENT "python ttrt package"
-  DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/.editable_installed)
 
 declare_mlir_python_sources(TTRTSources
   ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}"
