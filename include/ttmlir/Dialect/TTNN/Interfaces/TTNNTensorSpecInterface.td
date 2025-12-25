@@ -98,6 +98,42 @@ def TTNN_MemoryConfigOpInterface : OpInterface<"TTNNMemoryConfigOpInterface"> {
   }];
 }
 
+def TTNN_ComputeKernelConfigOpInterface : OpInterface<"TTNNComputeKernelConfigOpInterface"> {
+  let cppNamespace = "::mlir::tt::ttnn";
+  let description = [{
+    Interface for operations that support ComputeKernelConfig attribute.
+  }];
+  let methods = [
+    InterfaceMethod<
+      /*desc=*/[{
+        Get the compute kernel config attribute.
+        Returns nullptr if not set.
+      }],
+      /*retTy=*/"DeviceComputeKernelConfigAttr",
+      /*methodName=*/"getComputeConfigAttr",
+      /*args=*/(ins),
+      /*methodBody=*/[{
+        return $_op.getComputeConfigAttr();
+      }]
+    >,
+    InterfaceMethod<
+      /*desc=*/[{
+        Set the compute kernel config attribute.
+      }],
+      /*retTy=*/"void",
+      /*methodName=*/"setComputeConfigAttr",
+      /*args=*/(ins "DeviceComputeKernelConfigAttr": $computeConfigAttr),
+      /*methodBody=*/[{
+        $_op->setAttr("compute_config", computeConfigAttr);
+      }]
+    >,
+  ];
+
+  let verify = [{
+    return verifyTTNNComputeKernelConfigInterface<ConcreteOp>($_op);
+  }];
+}
+
 def TTNN_TensorSpecInterface : OpInterface<"TTNNTensorSpecInterface", [TTNN_DtypeOpInterface, TTNN_LayoutOpInterface, TTNN_MemoryConfigOpInterface]>
 {
   let cppNamespace = "::mlir::tt::ttnn";
