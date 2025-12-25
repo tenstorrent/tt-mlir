@@ -71,7 +71,6 @@ if (TTMLIR_ENABLE_RUNTIME)
     "../include/tt/runtime/debug.h"
     "../include/tt/runtime/perf.h"
     "../include/tt/runtime/runtime.h"
-    "../include/tt/runtime/tensor_cache.h"
     "../include/tt/runtime/types.h"
     "../include/tt/runtime/utils.h"
     "../include/tt/runtime/workarounds.h"
