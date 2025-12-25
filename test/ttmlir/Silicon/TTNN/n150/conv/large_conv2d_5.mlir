@@ -4,12 +4,15 @@
 // This convolution will not pass if the input is in tile layout. The TTNNWorkaround which sets convolution inputs to row-major should allow this to execute.
 module {
   func.func @main(%arg0: tensor<1x3x224x224xbf16>, %arg1: tensor<1024x3x16x16xbf16>, %arg2: tensor<1024xbf16>) -> tensor<1x1024x14x14xbf16> {
-    %1 = "ttir.convolution"(%arg0, %arg1) <{batch_group_count = 1 : i64, convolution_layout = #ttir<convolution_layout input_batch = 0, input_feature = 1, input_spatial_dimensions = 2x3, kernel_output_feature = 0, kernel_input_feature = 1, kernel_spatial_dimensions = 2x3, output_batch = 0, output_feature = 1, output_spatial_dimensions = 2x3>, feature_group_count = 1 : i64, input_dilation = array<i64: 1, 1>, padding = array<i64: 0, 0, 0, 0>, weight_dilation = array<i64: 1, 1>, window_reversal = array<i1: false, false>, window_strides = array<i64: 16, 16>}> : (tensor<1x3x224x224xbf16>, tensor<1024x3x16x16xbf16>) -> tensor<1x1024x14x14xbf16>
-    %3 = "ttir.reshape"(%arg2) <{shape = [1024 : i32, 1 : i32, 1 : i32]}> : (tensor<1024xbf16>) -> tensor<1024x1x1xbf16>
-    %5 = "ttir.broadcast"(%1) <{broadcast_dimensions = array<i64: 1, 1, 1, 1>}> : (tensor<1x1024x14x14xbf16>) -> tensor<1x1024x14x14xbf16>
-    %7 = "ttir.reshape"(%3) <{shape = [1 : i32, 1024 : i32, 1 : i32, 1 : i32]}> : (tensor<1024x1x1xbf16>) -> tensor<1x1024x1x1xbf16>
-    %9 = "ttir.broadcast"(%7) <{broadcast_dimensions = array<i64: 1, 1, 14, 14>}> : (tensor<1x1024x1x1xbf16>) -> tensor<1x1024x14x14xbf16>
-    %11 = "ttir.add"(%5, %9) : (tensor<1x1024x14x14xbf16>, tensor<1x1024x14x14xbf16>) -> tensor<1x1024x14x14xbf16>
-    return %11 : tensor<1x1024x14x14xbf16>
+    %0 = "ttir.permute"(%arg0) <{permutation = array<i64: 0, 2, 3, 1>}> : (tensor<1x3x224x224xbf16>) -> tensor<1x224x224x3xbf16>
+    %1 = "ttir.permute"(%arg1) <{permutation = array<i64: 0, 1, 2, 3>}> : (tensor<1024x3x16x16xbf16>) -> tensor<1024x3x16x16xbf16>
+    %2 = "ttir.conv2d"(%0, %1) <{dilation = array<i32: 1, 1>, groups = 1 : i32, padding = array<i32: 0, 0, 0, 0>, stride = array<i32: 16, 16>}> : (tensor<1x224x224x3xbf16>, tensor<1024x3x16x16xbf16>) -> tensor<1x14x14x1024xbf16>
+    %3 = "ttir.permute"(%2) <{permutation = array<i64: 0, 3, 1, 2>}> : (tensor<1x14x14x1024xbf16>) -> tensor<1x1024x14x14xbf16>
+    %4 = "ttir.reshape"(%arg2) <{shape = [1024 : i32, 1 : i32, 1 : i32]}> : (tensor<1024xbf16>) -> tensor<1024x1x1xbf16>
+    %5 = "ttir.broadcast"(%3) <{broadcast_dimensions = array<i64: 1, 1, 1, 1>}> : (tensor<1x1024x14x14xbf16>) -> tensor<1x1024x14x14xbf16>
+    %6 = "ttir.reshape"(%4) <{shape = [1 : i32, 1024 : i32, 1 : i32, 1 : i32]}> : (tensor<1024x1x1xbf16>) -> tensor<1x1024x1x1xbf16>
+    %7 = "ttir.broadcast"(%6) <{broadcast_dimensions = array<i64: 1, 1, 14, 14>}> : (tensor<1x1024x1x1xbf16>) -> tensor<1x1024x14x14xbf16>
+    %8 = "ttir.add"(%5, %7) : (tensor<1x1024x14x14xbf16>, tensor<1x1024x14x14xbf16>) -> tensor<1x1024x14x14xbf16>
+    return %8 : tensor<1x1024x14x14xbf16>
   }
 }

@@ -49,7 +49,6 @@ struct TTIRToTTIRDecompositionPass
       // CPU fallback only decomposes dot_general, reduce_or, reduce_and
       // All other ops are legal (won't be decomposed)
       target.addLegalOp<ttir::IndexOp>();
-      target.addLegalOp<ttir::ConvolutionOp>();
       target.addLegalOp<ttir::GetDimensionSizeOp>();
       target.addLegalOp<ttir::PoolingOp>();
       target.addLegalOp<ttir::GatherOp>();
@@ -57,6 +56,7 @@ struct TTIRToTTIRDecompositionPass
       target.addLegalOp<ttir::QuantizeOp>();
       target.addLegalOp<ttir::RequantizeOp>();
       target.addLegalOp<ttir::DequantizeOp>();
+      target.addLegalOp<ttir::ReverseOp>();
 
       // These three are illegal (will be decomposed)
       target.addIllegalOp<ttir::DotGeneralOp>();
@@ -68,7 +68,6 @@ struct TTIRToTTIRDecompositionPass
     case DecompMode::TTMetal:
       // TTNN and TTMetal decompose all ops
       target.addIllegalOp<ttir::IndexOp>();
-      target.addIllegalOp<ttir::ConvolutionOp>();
       target.addIllegalOp<ttir::GetDimensionSizeOp>();
       target.addIllegalOp<ttir::PoolingOp>();
       target.addIllegalOp<ttir::GatherOp>();
@@ -79,6 +78,14 @@ struct TTIRToTTIRDecompositionPass
       target.addIllegalOp<ttir::QuantizeOp>();
       target.addIllegalOp<ttir::RequantizeOp>();
       target.addIllegalOp<ttir::DequantizeOp>();
+      target.addIllegalOp<ttir::ReverseOp>();
+
+      // Conv2d and ConvTranspose2d are legal only if already in NHWC format.
+      // Non-NHWC ops will be decomposed with permutes to NHWC.
+      target.addDynamicallyLegalOp<ttir::Conv2dOp>(
+          [](ttir::Conv2dOp op) { return op.isNHWC(); });
+      target.addDynamicallyLegalOp<ttir::ConvTranspose2dOp>(
+          [](ttir::ConvTranspose2dOp op) { return op.isNHWC(); });
       break;
     }
 
@@ -116,21 +123,6 @@ struct TTIRToTTIRDecompositionPass
       }
       uint64_t rank = op.getInput().getType().getRank();
       return (dimArg->size() == 1 || dimArg->size() == rank);
-    });
-
-    target.addDynamicallyLegalOp<ttir::ReverseOp>([&](ttir::ReverseOp op) {
-      // Only decompose if not used by a transposed convolution.
-      bool isUsedByTransposedConv = false;
-      for (auto &use : op.getResult().getUses()) {
-        auto *userOp = use.getOwner();
-        if (auto convOp = dyn_cast<ttir::ConvolutionOp>(userOp)) {
-          if (mlir::tt::ttir::utils::isTransposedConv(convOp)) {
-            isUsedByTransposedConv = true;
-            break;
-          }
-        }
-      }
-      return isUsedByTransposedConv;
     });
 
     TypeConverter typeConverter;
