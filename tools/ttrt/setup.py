@@ -201,10 +201,10 @@ dylibs += metallibs
 
 packages = ["ttrt", "ttrt.common", "ttrt.binary", "ttrt.runtime"]
 package_dir = {
-    "ttrt": f"{ttmlir_build_dir}/python_packages/ttrt",
-    "ttrt.common": f"{ttmlir_build_dir}/python_packages/ttrt/common",
-    "ttrt.binary": f"{ttmlir_build_dir}/python_packages/ttrt/binary",
-    "ttrt.runtime": f"{ttmlir_build_dir}/python_packages/ttrt/runtime",
+    "ttrt": f"{src_dir}/tools/ttrt",
+    "ttrt.common": f"{src_dir}/tools/ttrt/common",
+    "ttrt.binary": f"{src_dir}/tools/ttrt/binary",
+    "ttrt.runtime": f"{src_dir}/tools/ttrt/runtime",
 }
 if enable_perf:
     install_requires += ["loguru"]

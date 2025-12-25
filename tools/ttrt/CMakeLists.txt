@@ -8,34 +8,36 @@ foreach (filename ${TTRT_FILES})
     list(APPEND TTRT_SOURCES "${CMAKE_CURRENT_BINARY_DIR}/${relative_filename}")
 endforeach (filename)
 
+# Create symlink for runtime SO in source repo
 add_custom_command(
-  COMMAND rm -rf build
-  COMMAND python -m pip install -r "${CMAKE_CURRENT_BINARY_DIR}/requirements.txt"
-  COMMAND TTMLIR_ENABLE_RUNTIME=${TTMLIR_ENABLE_RUNTIME}
-          TT_RUNTIME_ENABLE_TTNN=${TT_RUNTIME_ENABLE_TTNN}
-          TT_RUNTIME_ENABLE_TTMETAL=${TT_RUNTIME_ENABLE_TTMETAL}
-          TTMLIR_ENABLE_RUNTIME_TESTS=${TTMLIR_ENABLE_RUNTIME_TESTS}
-          TT_RUNTIME_ENABLE_PERF_TRACE=${TT_RUNTIME_ENABLE_PERF_TRACE}
-          TT_RUNTIME_DEBUG=${TT_RUNTIME_DEBUG}
-          TT_METAL_RUNTIME_ROOT=${TTMLIR_SOURCE_DIR}/third_party/tt-metal/src/tt-metal
-          TTMLIR_BINARY_DIR=${TTMLIR_BINARY_DIR}
-          TTMLIR_VERSION_MAJOR=${TTMLIR_VERSION_MAJOR}
+  COMMAND ${CMAKE_COMMAND} -E create_symlink
+    ${TTMLIR_BINARY_DIR}/runtime/python/_ttmlir_runtime.cpython-${Python3_VERSION_MAJOR}${Python3_VERSION_MINOR}-${CMAKE_SYSTEM_PROCESSOR}-linux-gnu.so
+    ${CMAKE_CURRENT_SOURCE_DIR}/runtime/_ttmlir_runtime.cpython-${Python3_VERSION_MAJOR}${Python3_VERSION_MINOR}-${CMAKE_SYSTEM_PROCESSOR}-linux-gnu.so
+  WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+  DEPENDS _ttmlir_runtime
+  OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/runtime/_ttmlir_runtime.cpython-${Python3_VERSION_MAJOR}${Python3_VERSION_MINOR}-${CMAKE_SYSTEM_PROCESSOR}-linux-gnu.so
+  COMMENT "Creating symlink for ttrt runtime SO"
+)
+
+# Editable install (only needs to run once)
+add_custom_command(
+  COMMAND python -m pip install -r "${CMAKE_CURRENT_SOURCE_DIR}/requirements.txt"
+  COMMAND TTMLIR_VERSION_MAJOR=${TTMLIR_VERSION_MAJOR}
           TTMLIR_VERSION_MINOR=${TTMLIR_VERSION_MINOR}
           TTMLIR_VERSION_PATCH=${TTMLIR_VERSION_PATCH}
-          CMAKE_SYSTEM_PROCESSOR=${CMAKE_SYSTEM_PROCESSOR}
           SOURCE_ROOT=${TTMLIR_SOURCE_DIR}
-          TTMETAL_BUILD_DIR=${TTMETAL_BUILD_DIR}
-          python -m pip wheel . --wheel-dir build
-  COMMAND python -m pip install build/*.whl --force-reinstall
-  COMMAND touch ${CMAKE_CURRENT_BINARY_DIR}/build/.installed
+          TTMLIR_BINARY_DIR=${TTMLIR_BINARY_DIR}
+          python -m pip install -e ${CMAKE_CURRENT_SOURCE_DIR} --no-deps
+  COMMAND touch ${CMAKE_CURRENT_BINARY_DIR}/.editable_installed
   WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
-  DEPENDS ${TTRT_SOURCES} ${TTRT_FILES} TTMLIRRuntime TTRuntimeTTNNTypes TTRuntimeTTNNUtils _ttmlir_runtime
-  OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/build/.installed
+  DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/runtime/_ttmlir_runtime.cpython-${Python3_VERSION_MAJOR}${Python3_VERSION_MINOR}-${CMAKE_SYSTEM_PROCESSOR}-linux-gnu.so
+  OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/.editable_installed
+  COMMENT "Installing ttrt in editable mode"
 )
 
 add_custom_target(ttrt ALL
   COMMENT "python ttrt package"
-  DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/build/.installed)
+  DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/.editable_installed)
 
 declare_mlir_python_sources(TTRTSources
   ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}"
