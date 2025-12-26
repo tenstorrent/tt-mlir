@@ -31,7 +31,7 @@ def mlir_dtype_from_ttnn_dtype(dtype, ctx):
         MLIR dtype object
     """
 
-    match int(dtype):
+    match dtype.value:
         case 0:
             return BF16Type.get(ctx)
         case 1:

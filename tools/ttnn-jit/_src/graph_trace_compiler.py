@@ -341,7 +341,7 @@ class GraphToIRTranslator:
                 affine_map,
                 grid,
                 memref,
-                memory_layout_enum,
+                memory_layout_enum.value,
                 tensor_mesh,
                 exact_grid,
             )

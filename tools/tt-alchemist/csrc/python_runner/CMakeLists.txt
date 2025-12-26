@@ -6,6 +6,14 @@
 # Python Model Runner Library
 ################################################################################
 
+# Issue(vkovacevic): https://github.com/tenstorrent/tt-mlir/issues/6443
+# Python embedding via pybind11::embed is incompatible with nanobind.
+# When tt-metal is built with EXPERIMENTAL_NANOBIND_BINDINGS=ON (default),
+# the type casters registered by nanobind cannot be used by pybind11's py::cast.
+# Skip building this library when nanobind is enabled.
+message(STATUS "Skipping python_runner: incompatible with nanobind (EXPERIMENTAL_NANOBIND_BINDINGS=ON)")
+return()
+
 set(PYTHON_RUNNER_LIBRARY_NAME tt-alchemist-python-runner)
 
 # Find pybind11 for Python embedding support (used by python runner)

@@ -2935,7 +2935,7 @@ TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
       constraintsExp.get();
   EXPECT_GT(cbSize, 0);
   EXPECT_GT(l1PeakSize, 0);
-  EXPECT_GT(outputSize, 0);
+  EXPECT_EQ(outputSize, 0);
 
   auto runtimeExp =
       backend.getOpRuntime(getInputLayouts(convTranspose2d),

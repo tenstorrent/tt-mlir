@@ -10,24 +10,15 @@
 
 #include "tt/runtime/detail/python/nanobind_headers.h"
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wcovered-switch-default"
-#include <pybind11/cast.h>
-#include <pybind11/pybind11.h>
-#include <pybind11/pytypes.h>
-#pragma clang diagnostic pop
-
 namespace nb = nanobind;
-namespace py = pybind11;
 
 namespace mlir::tt::ttnn::jit {
 
 std::vector<::ttnn::Tensor> convertArgsToTensors(nb::args args) {
   std::vector<::ttnn::Tensor> tensorArgs;
   for (auto arg : args) {
-    py::handle argPybindObj(arg.ptr());
-    if (py::isinstance<::ttnn::Tensor>(argPybindObj)) {
-      tensorArgs.push_back(py::cast<::ttnn::Tensor>(argPybindObj));
+    if (nb::isinstance<::ttnn::Tensor>(arg)) {
+      tensorArgs.push_back(nb::cast<::ttnn::Tensor>(arg));
     } else {
       throw std::runtime_error(
           "Unsupported argument type: expected ttnn.Tensor");
