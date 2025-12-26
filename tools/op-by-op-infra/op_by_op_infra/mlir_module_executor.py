@@ -176,6 +176,7 @@ class MLIRModuleExecutor:
                     origin_op_name=self._module.origin_op_name,
                     origin_op_operands=self._module.origin_op_operands,
                     origin_op_results=self._module.origin_op_results,
+                    origin_model=self._module.origin_model,
                 ),
             )
 
@@ -187,6 +188,7 @@ class MLIRModuleExecutor:
                     origin_op_name=self._module.origin_op_name,
                     origin_op_operands=self._module.origin_op_operands,
                     origin_op_results=self._module.origin_op_results,
+                    origin_model=self._module.origin_model,
                 ),
             )
         finally:
@@ -210,6 +212,7 @@ class MLIRModuleExecutor:
                     origin_op_name=self._module.origin_op_name,
                     origin_op_operands=self._module.origin_op_operands,
                     origin_op_results=self._module.origin_op_results,
+                    origin_model=self._module.origin_model,
                 ),
             )
         finally:
