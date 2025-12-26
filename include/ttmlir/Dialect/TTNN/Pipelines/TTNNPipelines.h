@@ -367,6 +367,13 @@ struct TTIRToTTNNDevicePipelineOptions
           "Enable verbose output with per-operation details in metrics."),
       llvm::cl::init(true)};
 
+  Option<uint32_t> maxFallbackAttempts{
+      *this, "max-fallback-attempts",
+      llvm::cl::desc(
+          "Maximum number of fallback attempts per operation in Operation "
+          "Validation and Fallback pass. 0 means unlimited attempts."),
+      llvm::cl::init(10000)};
+
   // Option to provide a pointer to an already opened device. When provided,
   // the optimizer will use this device instead of opening a new one.
   // This allows frontends to pass in an active device without closing it.
