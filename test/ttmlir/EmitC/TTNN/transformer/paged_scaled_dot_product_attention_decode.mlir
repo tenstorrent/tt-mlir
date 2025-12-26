@@ -1,6 +1,6 @@
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" %s > %t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %basename_t.ttnn
-// RUN: ttmlir-opt --ttnn-backend-to-emitc-pipeline %t.mlir > %t2.mlir
+// RUN: ttmlir-opt --ttnn-to-emitc-device-pipeline %t.mlir > %t2.mlir
 // RUN: ttmlir-translate --mlir-to-cpp %t2.mlir > %basename_t.cpp
 module @sdpa {
     func.func public @sdpa_causal(%arg0: tensor<1x1x12x64xbf16>, %arg1: tensor<128x12x32x64xbf16>, %arg2: tensor<128x12x32x64xbf16>, %arg3: tensor<1x4xi32>, %arg4: tensor<1xi32>) -> tensor<1x1x12x64xbf16> {

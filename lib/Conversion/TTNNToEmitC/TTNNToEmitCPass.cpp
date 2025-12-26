@@ -62,11 +62,6 @@ struct ConvertTTNNToEmitCPass
           ConvertTTNNToEmitCPass> {
   void runOnOperation() override {
     mlir::ModuleOp module = getOperation();
-    // Only run conversion on top-level moduleOp.
-    if (module->getParentOp() != nullptr) {
-      return;
-    }
-
     mlir::ConversionTarget target(getContext());
 
     // EmitC is legal, TTNN is illegal
@@ -98,17 +93,6 @@ struct ConvertTTNNToEmitCPass
       //
       builder.create<emitc::IncludeOp>(module.getLoc(), "ttnn-precompiled.hpp",
                                        /*isStandard=*/false);
-    }
-
-    // Unwrap device_module into top-level ModuleOp (if present)
-    {
-      OpPassManager pm(ModuleOp::getOperationName());
-      pm.addPass(mlir::tt::ttcore::createTTCoreUnwrapDeviceModulePass());
-
-      if (failed(runPipeline(pm, module))) {
-        signalPassFailure();
-        return;
-      }
     }
 
     // TTNN -> EmitC
