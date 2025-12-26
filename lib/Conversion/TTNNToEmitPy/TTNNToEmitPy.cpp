@@ -2365,17 +2365,40 @@ public:
   matchAndRewrite(mlir::tt::ttcore::GetTupleElementOp getTupleElementOp,
                   mlir::tt::ttcore::GetTupleElementOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    // SubscriptOp requires a Value object as index, which is created by
-    // invoking the emitpy::LiteralOp.
-    //
-    Value indexAsVal = rewriter.create<emitpy::LiteralOp>(
-        getTupleElementOp->getLoc(), rewriter.getIndexType(),
-        std::to_string(adaptor.getIndex()));
+    // Get the converted result type
+    auto resultType =
+        this->getTypeConverter()->convertType(getTupleElementOp.getType());
 
-    rewriter.replaceOpWithNewOp<emitpy::SubscriptOp>(
-        getTupleElementOp,
-        this->getTypeConverter()->convertType(getTupleElementOp.getType()),
-        adaptor.getOperand(), indexAsVal);
+    // Create an expression op to inline the subscript operation
+    auto loc = getTupleElementOp->getLoc();
+    auto exprOp = rewriter.create<emitpy::ExpressionOp>(
+        loc, resultType, ValueRange{adaptor.getOperand()});
+
+    // Setup the expression body
+    {
+      OpBuilder::InsertionGuard guard(rewriter);
+      Block *bodyBlock = &exprOp.getBody().emplaceBlock();
+
+      // Add block argument for the tuple operand
+      auto tupleArg =
+          bodyBlock->addArgument(adaptor.getOperand().getType(), loc);
+
+      rewriter.setInsertionPointToStart(bodyBlock);
+
+      // Create literal for the index
+      Value indexAsVal = rewriter.create<emitpy::LiteralOp>(
+          loc, rewriter.getIndexType(), std::to_string(adaptor.getIndex()));
+
+      // Create subscript operation inside the expression
+      Value subscriptResult = rewriter.create<emitpy::SubscriptOp>(
+          loc, resultType, tupleArg, indexAsVal);
+
+      // Yield the result
+      rewriter.create<emitpy::YieldOp>(loc, subscriptResult);
+    }
+
+    // Replace the original op with the expression op
+    rewriter.replaceOp(getTupleElementOp, exprOp.getResult());
 
     return success();
   }

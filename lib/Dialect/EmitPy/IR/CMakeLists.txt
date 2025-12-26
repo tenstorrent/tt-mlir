@@ -11,4 +11,8 @@ add_mlir_dialect_library(MLIREmitPyDialect
         MLIREmitPyOpsIncGen
         MLIREmitPyAttrsIncGen
         MLIRTTCoreOpsIncGen
+
+        LINK_LIBS
+        PUBLIC
+        MLIREmitPyInterfaces
         )
