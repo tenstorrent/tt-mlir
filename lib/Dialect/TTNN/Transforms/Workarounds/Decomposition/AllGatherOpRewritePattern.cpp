@@ -49,7 +49,8 @@ TTNNAllGatherWorkarounds::matchAndRewrite(ttnn::AllGatherOp op,
                                       paddedInputShape.end());
   RankedTensorType reshapeInputType =
       ttnn::utils::RankedTensorTypeFactory::create(inputType, paddedInputShape);
-  auto reshapeInput = rewriter.create<ttnn::ReshapeOp>(
+  auto reshapeInput = ttnn::ReshapeOp::create(
+      rewriter,
       ttmlir::utils::appendLocationSuffix(op.getLoc(), "_reshape_to_4d"),
       reshapeInputType, op.getInput(), rewriter.getI32ArrayAttr(paddedShapeI32),
       ttnn::MemoryConfigAttr());
@@ -61,7 +62,8 @@ TTNNAllGatherWorkarounds::matchAndRewrite(ttnn::AllGatherOp op,
 
   // Create the reduce gather operation on 4D tensors with adjusted
   // all_gather_dim
-  auto allGather4D = rewriter.create<ttnn::AllGatherOp>(
+  auto allGather4D = ttnn::AllGatherOp::create(
+      rewriter,
       ttmlir::utils::appendLocationSuffix(op.getLoc(), "_all_gather_4d"),
       paddedOutputType, reshapeInput.getResult(), adjustedGatherDim,
       op.getClusterAxis(),

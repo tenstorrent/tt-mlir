@@ -40,8 +40,8 @@ ttir::ReshapeOp generateReshape(mlir::TypedValue<mlir::RankedTensorType> input,
   // We cannot pass the shape directly as the attribute as ttir::ReshapeOp
   // requires that the shape attribute is a 32-bit integer array attribute.
   // Construction the SmallVector allows us to cast it.
-  return rewriter.create<ttir::ReshapeOp>(
-      ttmlir::utils::appendLocationSuffix(input.getLoc(), "_reshape"),
+  return ttir::ReshapeOp::create(
+      rewriter, ttmlir::utils::appendLocationSuffix(input.getLoc(), "_reshape"),
       outputType, input,
       rewriter.getI32ArrayAttr(SmallVector<int32_t>(
           outputType.getShape().begin(), outputType.getShape().end())));
@@ -70,17 +70,17 @@ public:
 
     Conv2dOpType newConv;
     if constexpr (std::is_same_v<Conv2dOpType, ttir::ConvTranspose2dOp>) {
-      newConv = rewriter.create<ttir::ConvTranspose2dOp>(
-          op.getLoc(), getNHWFlattenedType(outputType), flattenedInput,
-          adaptor.getWeight(), adaptor.getBias(), adaptor.getStride(),
-          adaptor.getPadding(), adaptor.getOutputPadding(),
+      newConv = ttir::ConvTranspose2dOp::create(
+          rewriter, op.getLoc(), getNHWFlattenedType(outputType),
+          flattenedInput, adaptor.getWeight(), adaptor.getBias(),
+          adaptor.getStride(), adaptor.getPadding(), adaptor.getOutputPadding(),
           adaptor.getDilation(), adaptor.getGroups(), flattenedCompatInfoAttr);
     } else if constexpr (std::is_same_v<Conv2dOpType, ttir::Conv2dOp>) {
-      newConv = rewriter.create<ttir::Conv2dOp>(
-          op.getLoc(), getNHWFlattenedType(outputType), flattenedInput,
-          adaptor.getWeight(), adaptor.getBias(), adaptor.getStride(),
-          adaptor.getPadding(), adaptor.getDilation(), adaptor.getGroups(),
-          flattenedCompatInfoAttr);
+      newConv = ttir::Conv2dOp::create(
+          rewriter, op.getLoc(), getNHWFlattenedType(outputType),
+          flattenedInput, adaptor.getWeight(), adaptor.getBias(),
+          adaptor.getStride(), adaptor.getPadding(), adaptor.getDilation(),
+          adaptor.getGroups(), flattenedCompatInfoAttr);
     } else {
       static_assert(ttmlir::utils::always_false<Conv2dOpType>(),
                     "Unsupported Conv2dOpType");
@@ -117,15 +117,16 @@ public:
 
     Pooling2dOp newPool;
     if constexpr (std::is_same_v<Pooling2dOp, ttir::MaxPool2dOp>) {
-      newPool = rewriter.create<ttir::MaxPool2dOp>(
-          op.getLoc(), getNHWFlattenedType(outputType), flattenedInput,
-          adaptor.getKernel(), adaptor.getStride(), adaptor.getDilation(),
-          adaptor.getPadding(), adaptor.getCeilMode(), flattenedCompatInfoAttr);
+      newPool = ttir::MaxPool2dOp::create(
+          rewriter, op.getLoc(), getNHWFlattenedType(outputType),
+          flattenedInput, adaptor.getKernel(), adaptor.getStride(),
+          adaptor.getDilation(), adaptor.getPadding(), adaptor.getCeilMode(),
+          flattenedCompatInfoAttr);
     } else if constexpr (std::is_same_v<Pooling2dOp, ttir::AvgPool2dOp>) {
-      newPool = rewriter.create<ttir::AvgPool2dOp>(
-          op.getLoc(), getNHWFlattenedType(outputType), flattenedInput,
-          adaptor.getKernel(), adaptor.getStride(), adaptor.getDilation(),
-          adaptor.getPadding(), adaptor.getCeilMode(),
+      newPool = ttir::AvgPool2dOp::create(
+          rewriter, op.getLoc(), getNHWFlattenedType(outputType),
+          flattenedInput, adaptor.getKernel(), adaptor.getStride(),
+          adaptor.getDilation(), adaptor.getPadding(), adaptor.getCeilMode(),
           adaptor.getCountIncludePad(), flattenedCompatInfoAttr);
     } else if constexpr (std::is_same_v<Pooling2dOp,
                                         ttir::MaxPool2dWithIndicesOp>) {
@@ -141,16 +142,17 @@ public:
       // TODO (umales): Migrate to createDPSOp when it supports multiple
       // outputs. See https://github.com/tenstorrent/tt-mlir/issues/5497
       auto resultEmpty =
-          rewriter.create<ttir::EmptyOp>(op.getLoc(), flattenedOutputType);
+          ttir::EmptyOp::create(rewriter, op.getLoc(), flattenedOutputType);
       auto indicesEmpty =
-          rewriter.create<ttir::EmptyOp>(op.getLoc(), flattenedIndicesType);
+          ttir::EmptyOp::create(rewriter, op.getLoc(), flattenedIndicesType);
 
       // Create the MaxPool2dWithIndicesOp
-      auto newPoolWithIndices = rewriter.create<ttir::MaxPool2dWithIndicesOp>(
-          op.getLoc(), TypeRange{flattenedOutputType, flattenedIndicesType},
-          flattenedInput, ValueRange{resultEmpty, indicesEmpty},
-          adaptor.getKernel(), adaptor.getStride(), adaptor.getDilation(),
-          adaptor.getPadding(), adaptor.getCeilMode(), flattenedCompatInfoAttr);
+      auto newPoolWithIndices = ttir::MaxPool2dWithIndicesOp::create(
+          rewriter, op.getLoc(),
+          TypeRange{flattenedOutputType, flattenedIndicesType}, flattenedInput,
+          ValueRange{resultEmpty, indicesEmpty}, adaptor.getKernel(),
+          adaptor.getStride(), adaptor.getDilation(), adaptor.getPadding(),
+          adaptor.getCeilMode(), flattenedCompatInfoAttr);
 
       auto pooledOutputVal = newPoolWithIndices.getResult();
       auto indicesOutputVal = newPoolWithIndices.getResultIndices();

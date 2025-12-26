@@ -39,8 +39,8 @@ ScaledDotProductAttentionDecodeConfigRewritePattern::matchAndRewrite(
       /*max_cores_per_head_batch=*/std::nullopt);
 
   // Create a new operation with the program config set
-  auto newOp = rewriter.create<ScaledDotProductAttentionDecodeOp>(
-      srcOp.getLoc(), srcOp.getResult().getType(), srcOp.getQuery(),
+  auto newOp = ScaledDotProductAttentionDecodeOp::create(
+      rewriter, srcOp.getLoc(), srcOp.getResult().getType(), srcOp.getQuery(),
       srcOp.getKey(), srcOp.getValue(), srcOp.getIsCausal(),
       srcOp.getAttentionMask(), srcOp.getCurPosTensor(),
       srcOp.getAttentionSink(), srcOp.getScaleAttr(),

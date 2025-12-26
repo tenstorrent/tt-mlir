@@ -68,8 +68,8 @@ public:
                                                               collapsedDims) &&
              "linearizeAffineMap assumes that the shape is collapsible aka "
              "has contiguous memory layout");
-      linearizedArg = rewriter.create<memref::CollapseShapeOp>(op.getLoc(), val,
-                                                               collapsedDims);
+      linearizedArg = memref::CollapseShapeOp::create(rewriter, op.getLoc(),
+                                                      val, collapsedDims);
       collapseOps->insert({val, linearizedArg});
     }
 
@@ -78,8 +78,8 @@ public:
 
     rewriter.setInsertionPoint(op);
 
-    Value linearIndex =
-        rewriter.create<affine::AffineApplyOp>(op.getLoc(), linearMap, indices);
+    Value linearIndex = affine::AffineApplyOp::create(rewriter, op.getLoc(),
+                                                      linearMap, indices);
 
     // Create new load/store with linearized access
     if constexpr (std::is_same_v<LoadStoreOp, memref::LoadOp>) {

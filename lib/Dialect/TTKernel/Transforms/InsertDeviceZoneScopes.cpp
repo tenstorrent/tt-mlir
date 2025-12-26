@@ -29,15 +29,15 @@ public:
         return;
       }
       OpBuilder builder(op);
-      builder.create<emitc::VerbatimOp>(op->getLoc(), "{");
+      emitc::VerbatimOp::create(builder, op->getLoc(), "{");
       auto name = op->getName().getStringRef();
       if (name.starts_with("ttkernel.")) {
         name = name.drop_front(9);
       }
-      builder.create<emitc::VerbatimOp>(op->getLoc(), "DeviceZoneScopedN(\"" +
-                                                          name.str() + "\");");
+      emitc::VerbatimOp::create(builder, op->getLoc(),
+                                "DeviceZoneScopedN(\"" + name.str() + "\");");
       builder.setInsertionPointAfter(op);
-      builder.create<emitc::VerbatimOp>(op->getLoc(), "}");
+      emitc::VerbatimOp::create(builder, op->getLoc(), "}");
     });
   }
 };

@@ -2,9 +2,9 @@ cmake_minimum_required(VERSION 3.20.0)
 project(ttmlir-toolchain LANGUAGES CXX C)
 
 set(FLATBUFFERS_VERSION "fb9afbafc7dfe226b9db54d4923bfb8839635274")
-set(LLVM_PROJECT_VERSION "4efe170d858eb54432f520abb4e7f0086236748b")
-set(STABLEHLO_VERSION "0a4440a5c8de45c4f9649bf3eb4913bf3f97da0d")
-set(SHARDY_VERSION "edfd6730ddfc39da5fbea8b6b202357fdf1cdb90")
+set(LLVM_PROJECT_VERSION "43bfec29cbecc1ff2e5aa6f8908c4d63e9c896c5")
+set(STABLEHLO_VERSION "1ef9e390b5295e676d2b864fe1924bc2f3f4cf0f")
+set(SHARDY_VERSION "f36aaacad42e307da330bace41c920bdf23f1869")
 set(LLVM_BUILD_TYPE MinSizeRel CACHE STRING "Build type for LLVM")
 
 include(ExternalProject)
