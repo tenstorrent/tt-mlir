@@ -156,6 +156,107 @@ def EmitPy_AssignOp : EmitPy_Op<"assign"> {
   let assemblyFormat = "$value attr-dict `:` functional-type(operands, results)";
 }
 
+def EmitPy_CreateDictOp : EmitPy_Op<"create_dict", [Pure]> {
+  let summary = "Create dictionary operation";
+  let description = [{
+    Creates a Python dictionary with a specified name.
+
+    Can be created in two ways:
+    1. From key-value pairs (items operands) - pairs are alternating key, value
+    2. From a Python literal expression (literal_expr attribute)
+
+    When literal_expr is provided, items must be empty.
+    When items are provided, they must be even count (key-value pairs).
+
+    Example:
+
+    ```mlir
+    // Empty dict using literal_expr
+    %dict1 = emitpy.create_dict "my_dict" {literal_expr = "{}"} : () -> !emitpy.dict
+
+    // Dict from key-value operands
+    %dict2 = emitpy.create_dict "cache" (%k0, %v0) : (index, !emitpy.opaque<"None">) -> !emitpy.dict
+
+    // Dict from literal expression (most compact for complex dicts)
+    %dict3 = emitpy.create_dict "_CONST_EVAL_CACHE" {literal_expr = "{i: None for i in range(133)}"} : () -> !emitpy.dict
+    ```
+
+    ```python
+    // Code emitted for the operations above:
+    my_dict = {}
+    cache = {0: None}
+    _CONST_EVAL_CACHE = {i: None for i in range(133)}
+    ```
+  }];
+
+  let arguments = (ins
+    Arg<StrAttr>:$dict_name,
+    Variadic<AnyType>:$items,
+    OptionalAttr<StrAttr>:$literal_expr
+  );
+
+  let results = (outs EmitPy_DictType:$result);
+
+  let hasVerifier = 1;
+  let assemblyFormat = [{
+    $dict_name (`(` $items^ `)`)? attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+def EmitPy_SetValueForDictKeyOp : EmitPy_Op<"set_value_for_dict_key"> {
+  let summary = "Set dictionary value for a given key";
+  let description = [{
+    Changes or inserts a value in the dictionary for a given string or index integer key.
+
+    Example:
+    ```mlir
+    %dict = emitpy.global_statement @_CONST_EVAL_CACHE : !emitpy.dict
+    emitpy.set_value_for_dict_key "_CONST_EVAL_CACHE" %dict[5 : index] = %tensors : (!emitpy.dict) -> !emitpy.opaque<"[ttnn.Tensor]">
+    ```
+    ```python
+    // Code emitted:
+    _CONST_EVAL_CACHE[5] = tensors
+    ```
+  }];
+
+  let arguments = (ins
+    Arg<StrAttr>:$dict_name,
+    EmitPy_DictType:$dict,
+    AnyAttrOf<[StrAttr, IndexAttr]>:$key,
+    EmitPy_OpaqueType:$value
+  );
+
+  let assemblyFormat = "$dict_name $dict `[` qualified($key) `]` `=` $value attr-dict `:` functional-type($dict, $value)";
+}
+
+def EmitPy_GetValueForDictKeyOp : EmitPy_Op<"get_value_for_dict_key", [Pure]> {
+  let summary = "Get dictionary value for a given key";
+  let description = [{
+    Retrieves a value for a given key in a dictionary.
+    Values are list of tensors and keys are strings or index integers.
+
+    Example:
+    ```mlir
+    %dict = emitpy.global_statement @_CONST_EVAL_CACHE : !emitpy.dict
+    %tensors = emitpy.get_value_for_dict_key "_CONST_EVAL_CACHE" %dict[5 : index] : (!emitpy.dict) -> !emitpy.opaque<"[ttnn.Tensor]">
+    ```
+    ```python
+    // Code emitted:
+    tensors = _CONST_EVAL_CACHE[5]
+    ```
+  }];
+
+  let arguments = (ins
+    Arg<StrAttr>:$dict_name,
+    EmitPy_DictType:$dict,
+    AnyAttrOf<[StrAttr, IndexAttr]>:$key
+  );
+
+  let results = (outs EmitPy_OpaqueType:$result);
+
+  let assemblyFormat = "$dict_name $dict `[` qualified($key) `]` attr-dict `:` functional-type($dict, $result)";
+}
+
 def EmitPy_VerbatimOp : EmitPy_Op<"verbatim"> {
   let summary = "Verbatim operation";
   let description = [{
