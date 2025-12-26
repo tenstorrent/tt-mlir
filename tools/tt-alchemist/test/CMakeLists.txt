@@ -6,10 +6,8 @@
 
 # Issue(vkovacevic): https://github.com/tenstorrent/tt-mlir/issues/6443
 # Skip tests when nanobind is enabled (python_runner is incompatible with nanobind)
-if(EXPERIMENTAL_NANOBIND_BINDINGS)
-  message(STATUS "Skipping python_runner tests: incompatible with nanobind (EXPERIMENTAL_NANOBIND_BINDINGS=ON)")
-  return()
-endif()
+message(STATUS "Skipping python_runner tests: incompatible with nanobind (EXPERIMENTAL_NANOBIND_BINDINGS=ON)")
+return()
 
 # Find Python for linking (needed for pybind11)
 find_package(Python3 COMPONENTS Development REQUIRED)
