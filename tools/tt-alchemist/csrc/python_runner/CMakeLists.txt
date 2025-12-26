@@ -49,6 +49,9 @@ target_link_libraries(${PYTHON_RUNNER_LIBRARY_NAME}
     ${TTMETAL_LIBRARY_DIR}/libfmt$<IF:$<CONFIG:Debug>,d,>.so
 )
 
+# Ensure tt-metal libraries are built before python_runner
+add_dependencies(${PYTHON_RUNNER_LIBRARY_NAME} tt-metal)
+
 set_target_properties(${PYTHON_RUNNER_LIBRARY_NAME} PROPERTIES
   BUILD_RPATH "$ORIGIN"
   INSTALL_RPATH "$ORIGIN"
