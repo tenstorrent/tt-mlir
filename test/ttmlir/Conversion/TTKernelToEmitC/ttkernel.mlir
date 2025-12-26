@@ -1684,7 +1684,9 @@ module {
       %bank_address = arith.constant 303104 : i32
       %page_size = arith.constant 32 : i32
 
-      // CHECK: emitc.call_opaque "TensorAccessor"(%[[ARGS3_LIT]], {{.*}}) : (!emitc.opaque<"TensorAccessorArgs">, i32, i32) -> !emitc.opaque<"TensorAccessor">
+      // CHECK: %[[BANK_ADDR:.*]] = "emitc.constant"() {{.*}} : () -> i32
+      // CHECK: %[[PAGE_SIZE:.*]] = "emitc.constant"() {{.*}} : () -> i32
+      // CHECK: emitc.call_opaque "TensorAccessor"(%[[ARGS3_LIT]], %[[BANK_ADDR]], %[[PAGE_SIZE]]) : (!emitc.opaque<"TensorAccessorArgs">, i32, i32) -> !emitc.opaque<"TensorAccessor">
       %tensor_accessor = "ttkernel.TensorAccessor"(%args3, %bank_address, %page_size) : (!ttkernel.TensorAccessorArgs, i32, i32) -> !ttkernel.TensorAccessor
 
       return
@@ -1723,9 +1725,13 @@ module {
 
     // CHECK-LABEL: func @test_cta_only_chained
     func.func @test_cta_only_chained() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      // CHECK: %[[CTA0:.*]] = "emitc.constant"() <{value = 0 : i32}>
       %cta_0 = arith.constant 0 : i32
+      // CHECK: %[[CRTA0:.*]] = "emitc.constant"() <{value = 0 : i32}>
       %crta_0 = arith.constant 0 : i32
+      // CHECK: %[[BANK_ADDR:.*]] = "emitc.constant"() <{value = 303104 : i32}>
       %bank_address = arith.constant 303104 : i32
+      // CHECK: %[[PAGE_SIZE:.*]] = "emitc.constant"() <{value = 32 : i32}>
       %page_size = arith.constant 32 : i32
 
       // First accessor
@@ -1738,7 +1744,7 @@ module {
       // CHECK-NEXT: %[[CTA_ONLY_LIT:.*]] = emitc.literal "[[CTA_ONLY]]" : !emitc.opaque<"TensorAccessorArgs">
       %args_cta_only = "ttkernel.TensorAccessorArgs"(%args_base, %cta_0, %crta_0) {crta_expr = "0"} : (!ttkernel.TensorAccessorArgs, i32, i32) -> !ttkernel.TensorAccessorArgs
 
-      // CHECK: emitc.call_opaque "TensorAccessor"
+      // CHECK: %[[TA:.*]] = emitc.call_opaque "TensorAccessor"(%[[CTA_ONLY_LIT]], %[[BANK_ADDR]], %[[PAGE_SIZE]]) : (!emitc.opaque<"TensorAccessorArgs">, i32, i32) -> !emitc.opaque<"TensorAccessor">
       %tensor_accessor = "ttkernel.TensorAccessor"(%args_cta_only, %bank_address, %page_size) : (!ttkernel.TensorAccessorArgs, i32, i32) -> !ttkernel.TensorAccessor
 
       return
@@ -1749,9 +1755,13 @@ module {
 
     // CHECK-LABEL: func @test_tensor_accessor_args_constexpr
     func.func @test_tensor_accessor_args_constexpr() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      // CHECK: %[[CTA_OFFSET:.*]] = "emitc.constant"() <{value = 0 : i32}>
       %cta_offset = arith.constant 0 : i32
+      // CHECK: %[[CRTA_OFFSET:.*]] = "emitc.constant"() <{value = 0 : i32}>
       %crta_offset = arith.constant 0 : i32
+      // CHECK: %[[BANK_ADDR:.*]] = "emitc.constant"() <{value = 303104 : i32}>
       %bank_address = arith.constant 303104 : i32
+      // CHECK: %[[PAGE_SIZE:.*]] = "emitc.constant"() <{value = 32 : i32}>
       %page_size = arith.constant 32 : i32
 
       // Case: First accessor with constexpr string expression (NEW: cta_expr attribute)
@@ -1765,7 +1775,7 @@ module {
       %args2 = "ttkernel.TensorAccessorArgs"(%args, %cta_offset, %crta_offset) : (!ttkernel.TensorAccessorArgs, i32, i32) -> !ttkernel.TensorAccessorArgs
 
       // Use the result to ensure it's not erased
-      // CHECK: emitc.call_opaque "TensorAccessor"
+      // CHECK: %[[TA:.*]] = emitc.call_opaque "TensorAccessor"(%[[CEXPR2_LIT]], %[[BANK_ADDR]], %[[PAGE_SIZE]]) : (!emitc.opaque<"TensorAccessorArgs">, i32, i32) -> !emitc.opaque<"TensorAccessor">
       %tensor_accessor = "ttkernel.TensorAccessor"(%args2, %bank_address, %page_size) : (!ttkernel.TensorAccessorArgs, i32, i32) -> !ttkernel.TensorAccessor
 
       return
@@ -1776,11 +1786,15 @@ module {
 
     // CHECK-LABEL: func @test_tensor_accessor_args_mixed_crta
     func.func @test_tensor_accessor_args_mixed_crta() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      // CHECK: %[[CTA0:.*]] = "emitc.constant"() <{value = 0 : i32}>
       %cta_0 = arith.constant 0 : i32
+      // CHECK: %[[CRTA0:.*]] = "emitc.constant"() <{value = 0 : i32}>
       %crta_0 = arith.constant 0 : i32
       %crta_8 = arith.constant 8 : i32
       %crta_16 = arith.constant 16 : i32
+      // CHECK: %[[BANK_ADDR:.*]] = "emitc.constant"() <{value = 303104 : i32}>
       %bank_address = arith.constant 303104 : i32
+      // CHECK: %[[PAGE_SIZE:.*]] = "emitc.constant"() <{value = 32 : i32}>
       %page_size = arith.constant 32 : i32
 
       // CHECK: emitc.verbatim "auto [[M1:[a-z_0-9]+]] = TensorAccessorArgs<0, 0>();"
@@ -1796,7 +1810,7 @@ module {
       %args3 = "ttkernel.TensorAccessorArgs"(%args2, %cta_0, %crta_0) : (!ttkernel.TensorAccessorArgs, i32, i32) -> !ttkernel.TensorAccessorArgs
 
       // Use the result to ensure it's not erased
-      // CHECK: emitc.call_opaque "TensorAccessor"
+      // CHECK: %[[TA:.*]] = emitc.call_opaque "TensorAccessor"(%[[M3_LIT]], %[[BANK_ADDR]], %[[PAGE_SIZE]]) : (!emitc.opaque<"TensorAccessorArgs">, i32, i32) -> !emitc.opaque<"TensorAccessor">
       %tensor_accessor = "ttkernel.TensorAccessor"(%args3, %bank_address, %page_size) : (!ttkernel.TensorAccessorArgs, i32, i32) -> !ttkernel.TensorAccessor
 
       return
@@ -1822,9 +1836,13 @@ module {
 
     // CHECK-LABEL: func @test_priority_override
     func.func @test_priority_override() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      // CHECK: %[[CTA0:.*]] = "emitc.constant"() <{value = 0 : i32}>
       %cta_0 = arith.constant 0 : i32
+      // CHECK: %[[CRTA0:.*]] = "emitc.constant"() <{value = 0 : i32}>
       %crta_0 = arith.constant 0 : i32
+      // CHECK: %[[BANK_ADDR:.*]] = "emitc.constant"() <{value = 303104 : i32}>
       %bank_address = arith.constant 303104 : i32
+      // CHECK: %[[PAGE_SIZE:.*]] = "emitc.constant"() <{value = 32 : i32}>
       %page_size = arith.constant 32 : i32
 
       // First accessor
@@ -1833,10 +1851,12 @@ module {
       %args_base = "ttkernel.TensorAccessorArgs"(%cta_0, %crta_0) : (i32, i32) -> !ttkernel.TensorAccessorArgs
 
       // Override chaining with explicit cta_expr (prev_args provided but cta_expr takes precedence)
-      // CHECK: emitc.verbatim "auto {{.*}} = TensorAccessorArgs<42, {{.*}}.next_common_runtime_args_offset()>();"
+      // CTA uses explicit "42", CRTA chains from [[BASE]]
+      // CHECK: emitc.verbatim "auto [[OVERRIDE:[a-z_0-9]+]] = TensorAccessorArgs<42, [[BASE]].next_common_runtime_args_offset()>();"
+      // CHECK-NEXT: %[[OVERRIDE_LIT:.*]] = emitc.literal "[[OVERRIDE]]" : !emitc.opaque<"TensorAccessorArgs">
       %args_override = "ttkernel.TensorAccessorArgs"(%args_base, %cta_0, %crta_0) {cta_expr = "42"} : (!ttkernel.TensorAccessorArgs, i32, i32) -> !ttkernel.TensorAccessorArgs
 
-      // CHECK: emitc.call_opaque "TensorAccessor"
+      // CHECK: %[[TA:.*]] = emitc.call_opaque "TensorAccessor"(%[[OVERRIDE_LIT]], %[[BANK_ADDR]], %[[PAGE_SIZE]]) : (!emitc.opaque<"TensorAccessorArgs">, i32, i32) -> !emitc.opaque<"TensorAccessor">
       %tensor_accessor = "ttkernel.TensorAccessor"(%args_override, %bank_address, %page_size) : (!ttkernel.TensorAccessorArgs, i32, i32) -> !ttkernel.TensorAccessor
 
       return

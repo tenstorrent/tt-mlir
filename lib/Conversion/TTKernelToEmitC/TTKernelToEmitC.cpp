@@ -563,7 +563,8 @@ public:
       // Verifier ensures this is a constant.
       auto cta_base = op.getCtaBase();
       auto cta_base_attr = cta_base.getDefiningOp<arith::ConstantOp>();
-      TT_assertv(cta_base_attr, "cta_base should be constant (checked by verifier)");
+      TT_assertv(cta_base_attr,
+                 "cta_base should be constant (checked by verifier)");
       ctaArg =
           std::to_string(cast<IntegerAttr>(cta_base_attr.getValue()).getInt());
     }
@@ -586,7 +587,8 @@ public:
       // Verifier ensures this is a constant.
       auto crta_base = op.getCrtaBase();
       auto crta_base_attr = crta_base.getDefiningOp<arith::ConstantOp>();
-      TT_assertv(crta_base_attr, "crta_base should be constant (checked by verifier)");
+      TT_assertv(crta_base_attr,
+                 "crta_base should be constant (checked by verifier)");
       crtaArg =
           std::to_string(cast<IntegerAttr>(crta_base_attr.getValue()).getInt());
     }
