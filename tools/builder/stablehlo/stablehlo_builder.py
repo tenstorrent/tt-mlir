@@ -2925,6 +2925,45 @@ class StableHLOBuilder(Builder):
                     ordered_outputs,
                 ]
 
+################ stablehlo.ErfOp ###############
+
+    def erf(
+        self,
+        in0: Operand,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpView:
+        """
+        Creates ``stablehlo.erf``.
+
+        *Elementwise Gauss error function operation.*
+
+        Computes the element-wise Gauss error function of the input tensor.
+
+        Mathematical definition: erf(x) = (2/√π) ∫₀ˣ e^(-t²) dt
+
+        See: https://openxla.org/xla/operation_semantics#erf
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor of floating-point type
+        unit_attrs : *Optional[List[str]]*
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpView*)
+            A tensor containing the elementwise erf values of the input
+        """
+        return self._eltwise_proxy(
+            stablehlo.ErfOp,
+            [in0],
+            unit_attrs=unit_attrs,
+            sharding_attr=sharding_attr,
+        )
+
+
         return max_module, max_builder
 
     ############### stablehlo.MinOp ###############
@@ -4037,6 +4076,7 @@ class StableHLOBuilder(Builder):
             dim_attr,
             loc=old_op.location,
         )
+    
         new_op_result = new_op.result
 
         if not self._disable_golden_check:

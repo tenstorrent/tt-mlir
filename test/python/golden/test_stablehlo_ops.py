@@ -142,6 +142,15 @@ def module_tanh(builder: StableHLOBuilder):
         builder.set_graph_level_check(True)
         return builder.tanh(in0, unit_attrs=unit_attrs)
 
+def module_erf(builder: StableHLOBuilder):
+    @builder.func([(128, 128)], [torch.float32])
+    def erf(
+        in0: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.erf(in0, unit_attrs=unit_attrs)
 
 def module_log1p(builder: StableHLOBuilder):
     @builder.func([(128, 128)], [torch.float32])
@@ -436,6 +445,7 @@ def test_binary_ops(test_fn: Callable, target: str, request, device):
         module_sqrt,
         module_tan,
         module_tanh,
+        module_erf,
     ],
 )
 def test_unary_ops(
