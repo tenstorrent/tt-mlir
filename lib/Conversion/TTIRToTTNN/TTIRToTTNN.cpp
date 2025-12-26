@@ -1356,6 +1356,8 @@ public:
     auto outputDtypeAttr =
         rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
 
+    // Config tensors are allocated in L1 by default in Metal.
+    // In the general path, we want to allocate them in DRAM to prevent OOM.
     auto conv2dConfigAttr = ttnn::Conv2dConfigAttr::get(rewriter.getContext())
                                 .withConfigTensorsInDram(true);
 
@@ -1621,6 +1623,8 @@ public:
     auto outputDtypeAttr =
         rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
 
+    // Config tensors are allocated in L1 by default in Metal.
+    // In the general path, we want to allocate them in DRAM to prevent OOM.
     auto conv2dConfigAttr = ttnn::Conv2dConfigAttr::get(rewriter.getContext())
                                 .withConfigTensorsInDram(true);
 
