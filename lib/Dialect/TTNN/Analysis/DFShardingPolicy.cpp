@@ -11,7 +11,6 @@
 #include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
 #include "ttmlir/Scheduler/Scheduler.h"
@@ -1588,6 +1587,10 @@ static void applyL1ReservationsForReshapes(
     // Find last user position
     int64_t lastUserPos = reshapePos;
     for (Operation *user : op->getUsers()) {
+      if (mlir::isa<func::ReturnOp>(user)) {
+        // User is a return op - must spill to DRAM
+        return;
+      }
       auto userPosIt = schedulePositionMap.find(user);
       if (userPosIt != schedulePositionMap.end()) {
         lastUserPos = std::max(lastUserPos, userPosIt->second);
