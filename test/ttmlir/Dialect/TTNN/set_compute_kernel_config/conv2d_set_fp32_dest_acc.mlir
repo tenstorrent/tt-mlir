@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttnn-set-compute-kernel-config="fp32-dest-acc-en=true fp32-dest-acc-en-set=true" %s | FileCheck %s
+// RUN: ttmlir-opt --ttnn-set-compute-kernel-config="fp32-dest-acc-en=true" %s | FileCheck %s
 // Test that the pass can set fp32_dest_acc_en parameter
 
 // CHECK-LABEL: func @test_set_fp32_dest_acc

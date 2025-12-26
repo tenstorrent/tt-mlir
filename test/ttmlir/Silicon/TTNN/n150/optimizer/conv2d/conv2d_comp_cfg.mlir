@@ -1,5 +1,5 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-optimizer=true compute-cfg-math-fidelity=lofi compute-cfg-fp32-dest-acc-en=true" -o %t.mlir
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% optimization-level=1 compute-cfg-math-fidelity=lofi compute-cfg-fp32-dest-acc-en=true" -o %t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t.mlir > %t.ttnn
 // RUN: ttrt run %t.ttnn
 
