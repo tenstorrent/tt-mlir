@@ -2497,10 +2497,13 @@ struct ArgMaxPattern : public OpConversionPattern<ttir::ArgMaxOp> {
       return failure();
     }
 
+    auto inputType = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    auto outputType = mlir::cast<RankedTensorType>(op.getResult().getType());
+    auto keepDim = op.getKeepDim();
+
     SmallVector<Attribute> newDims;
     newDims.reserve(tempDimArg->size());
-    int32_t rank =
-        mlir::cast<RankedTensorType>(adaptor.getInput().getType()).getRank();
+    int32_t rank = inputType.getRank();
 
     for (Attribute dimAttr : *tempDimArg) {
       int32_t dim = mlir::cast<IntegerAttr>(dimAttr).getInt();
@@ -2514,10 +2517,6 @@ struct ArgMaxPattern : public OpConversionPattern<ttir::ArgMaxOp> {
     op.setDimArgAttr(newDimAttr);
     auto dimArg = op.getDimArg();
 
-    auto inputTensor =
-        mlir::cast<RankedTensorType>(adaptor.getInput().getType());
-    auto outputTensor = mlir::cast<RankedTensorType>(op.getResult().getType());
-    auto keepDim = op.getKeepDim();
     // Step 1: Permute input tensor.
     // Get the reduce dimensions indices so it's easier to reshape back;
     DenseMap<int32_t, bool> reduceDimsMap;
@@ -2527,54 +2526,54 @@ struct ArgMaxPattern : public OpConversionPattern<ttir::ArgMaxOp> {
       Attribute dimAttr = (*dimArg)[dimIdx];
       int32_t dim = mlir::cast<IntegerAttr>(dimAttr).getInt();
       reduceDims.push_back(dim);
-      reshapedDimSize *= inputTensor.getDimSize(dim);
+      reshapedDimSize *= inputType.getDimSize(dim);
       reduceDimsMap[dim] = true;
     }
     llvm::sort(reduceDims);
     auto *uniqueReduceDims = std::unique(reduceDims.begin(), reduceDims.end());
     reduceDims.erase(uniqueReduceDims, reduceDims.end());
     // Prepare shape for reshaping input tensor.
-    for (int32_t dimIdx = 0; dimIdx < inputTensor.getRank(); ++dimIdx) {
+    for (int32_t dimIdx = 0; dimIdx < inputType.getRank(); ++dimIdx) {
       if (reduceDimsMap.find(dimIdx) == reduceDimsMap.end()) {
         nonReduceDims.push_back(dimIdx);
       }
     }
-    SmallVector<int64_t> transposedShape;
+    SmallVector<int64_t> permuteShape;
     for (int32_t dimIdx : nonReduceDims) {
-      transposedShape.push_back(inputTensor.getDimSize(dimIdx));
+      permuteShape.push_back(inputType.getDimSize(dimIdx));
     }
     for (int32_t dimIdx : reduceDims) {
-      transposedShape.push_back(inputTensor.getDimSize(dimIdx));
+      permuteShape.push_back(inputType.getDimSize(dimIdx));
     }
-    auto transposeOpResultType =
-        RankedTensorType::get(transposedShape, inputTensor.getElementType());
+    auto permuteOpResultType =
+        RankedTensorType::get(permuteShape, inputType.getElementType());
 
-    rewriter.create<ttir::PermuteOp>(op.getLoc(), transposeOpResultType,
-                                     adaptor.getInput(),
-                                     rewriter.getDenseI64ArrayAttr([&]() {
-                                       SmallVector<int64_t> permutation;
-                                       for (int32_t dimIdx : nonReduceDims) {
-                                         permutation.push_back(dimIdx);
-                                       }
-                                       for (int32_t dimIdx : reduceDims) {
-                                         permutation.push_back(dimIdx);
-                                       }
-                                       return permutation;
-                                     }()));
+    auto permuteOp = rewriter.create<ttir::PermuteOp>(
+        op.getLoc(), permuteOpResultType, adaptor.getInput(),
+        rewriter.getDenseI64ArrayAttr([&]() {
+          SmallVector<int64_t> permutation;
+          for (int32_t dimIdx : nonReduceDims) {
+            permutation.push_back(dimIdx);
+          }
+          for (int32_t dimIdx : reduceDims) {
+            permutation.push_back(dimIdx);
+          }
+          return permutation;
+        }()));
 
     // Step 2. Reshape the permuted tensor to make all reduction dimensions into
     // one
     SmallVector<int64_t> tempArgMaxShape;
     for (int32_t dimIdx : nonReduceDims) {
-      tempArgMaxShape.push_back(inputTensor.getDimSize(dimIdx));
+      tempArgMaxShape.push_back(inputType.getDimSize(dimIdx));
     }
 
     tempArgMaxShape.push_back(reshapedDimSize);
     // RankedTensor need int64_t shape
     auto reshapeOp = rewriter.create<ttir::ReshapeOp>(
         op.getLoc(),
-        RankedTensorType::get(tempArgMaxShape, inputTensor.getElementType()),
-        adaptor.getInput(),
+        RankedTensorType::get(tempArgMaxShape, inputType.getElementType()),
+        permuteOp.getResult(),
         rewriter.getI32ArrayAttr(llvm::to_vector_of<int32_t>(tempArgMaxShape)));
 
     // Step 3. Create a new ArgMax op with the reshaped tensor and the new
@@ -2587,7 +2586,7 @@ struct ArgMaxPattern : public OpConversionPattern<ttir::ArgMaxOp> {
     }
     auto argMaxOp = rewriter.create<ttir::ArgMaxOp>(
         op.getLoc(),
-        RankedTensorType::get(tempArgMaxShape, outputTensor.getElementType()),
+        RankedTensorType::get(tempArgMaxShape, outputType.getElementType()),
         reshapeOp.getResult(), rewriter.getBoolAttr(keepDim),
         rewriter.getI32ArrayAttr(newDim));
 
@@ -2595,17 +2594,16 @@ struct ArgMaxPattern : public OpConversionPattern<ttir::ArgMaxOp> {
     // dim
     if (keepDim) {
       SmallVector<int64_t> finalArgMaxShape;
-      for (int64_t dimIdx = 0; dimIdx < inputTensor.getRank(); ++dimIdx) {
+      for (int64_t dimIdx = 0; dimIdx < inputType.getRank(); ++dimIdx) {
         if (reduceDimsMap.find(dimIdx) == reduceDimsMap.end()) {
-          finalArgMaxShape.push_back(inputTensor.getDimSize(dimIdx));
+          finalArgMaxShape.push_back(inputType.getDimSize(dimIdx));
         } else if (keepDim) {
           finalArgMaxShape.push_back(1);
         }
       }
       auto result = rewriter.create<ttir::ReshapeOp>(
           op.getLoc(),
-          RankedTensorType::get(finalArgMaxShape,
-                                outputTensor.getElementType()),
+          RankedTensorType::get(finalArgMaxShape, outputType.getElementType()),
           argMaxOp.getResult(),
           rewriter.getI32ArrayAttr(
               llvm::to_vector_of<int32_t>(finalArgMaxShape)));

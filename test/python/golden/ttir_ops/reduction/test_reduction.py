@@ -78,13 +78,6 @@ def test_reduction_ops(
             "See: https://github.com/tenstorrent/tt-metal/pull/33904"
         )
 
-    if reduction_op_name == "argmax" and dim_arg is not None and len(dim_arg) > 1:
-        request.node.add_marker(
-            pytest.xfail(
-                reason="Fails in TTIR compilation, see issue https://github.com/tenstorrent/tt-mlir/issues/5791"
-            )
-        )
-
     if reduction_op_name == "prod" and dim_arg is None and keep_dim is True:
         request.node.add_marker(
             pytest.xfail(
