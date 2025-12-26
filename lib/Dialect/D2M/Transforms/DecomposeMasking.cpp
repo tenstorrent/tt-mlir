@@ -107,10 +107,17 @@ public:
     ArrayRef<int64_t> blockShape = inputType.getShape();
     size_t blockRank = blockShape.size();
 
-    // Get shard shape (tiles per core). The block shape is what each core
-    // sees, so for a 4x4 grid with 1 tile per core, blockShape is [1, 1].
-    int64_t shardRows = blockShape[0];
-    int64_t shardCols = blockShape[1];
+    if (blockRank < 2) {
+      return rewriter.notifyMatchFailure(
+          op, "block shape must have at least 2 dimensions for tile masking");
+    }
+
+    // Get shard shape (tiles per core) from the last two dimensions.
+    // This assumes the standard D2M layout where tile row/col are the trailing
+    // dimensions (i.e., default collapse dims). Any batch or other dimensions
+    // are collapsed into leading dimensions.
+    int64_t shardRows = blockShape[blockRank - 2];
+    int64_t shardCols = blockShape[blockRank - 1];
 
     // Build identity indexing maps for linalg.generic (input and output).
     SmallVector<AffineMap> linalgIndexingMaps(
@@ -149,9 +156,11 @@ public:
 
           // Get local tile indices within the shard using linalg.index.
           // For a 1x1 shard this is always (0, 0), but for larger shards
-          // we iterate over multiple tiles per core.
-          Value localTileRowIdx = bbBuilder.create<linalg::IndexOp>(bbLoc, 0);
-          Value localTileColIdx = bbBuilder.create<linalg::IndexOp>(bbLoc, 1);
+          // we iterate over multiple tiles per core. Use the last two dims.
+          Value localTileRowIdx =
+              bbBuilder.create<linalg::IndexOp>(bbLoc, blockRank - 2);
+          Value localTileColIdx =
+              bbBuilder.create<linalg::IndexOp>(bbLoc, blockRank - 1);
 
           // Compute global tile indices:
           // globalTileRow = coreRowIdx * shardRows + localTileRow
