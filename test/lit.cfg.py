@@ -67,18 +67,12 @@ config.system_desc_path = os.getenv("SYSTEM_DESC_PATH", "")
 # set features based on system
 system_desc = None
 if config.system_desc_path:
-    try:
-        import ttrt
+    import ttrt
 
-        system_desc = ttrt.binary.fbb_as_dict(
-            ttrt.binary.load_system_desc_from_path(config.system_desc_path)
-        )["system_desc"]
-        config.available_features.add(system_desc["chip_descs"][0]["arch"])
-    except ImportError:
-        print(
-            "ttrt not found. Please install ttrt to use have system desc driven test requirements set.",
-            file=sys.stderr,
-        )
+    system_desc = ttrt.binary.fbb_as_dict(
+        ttrt.binary.load_system_desc_from_path(config.system_desc_path)
+    )["system_desc"]
+    config.available_features.add(system_desc["chip_descs"][0]["arch"])
 
 
 # set targets based on the system (default = n150)
