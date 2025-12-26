@@ -77,8 +77,9 @@ class CMakeBuildPy(build_py):
 
         print("Building ttrt wheel with CMake")
 
-        # Determine build directory
-        build_dir = (REPO_DIR / "build").resolve()
+        # Determine build directory - use separate dir for wheel builds
+        # to avoid conflicts with main build
+        build_dir = (REPO_DIR / "build-ttrt-wheel").resolve()
 
         # Run CMake configure, build, and install
         self.run_cmake_build(build_dir)

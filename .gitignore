@@ -1,5 +1,6 @@
 .local
 **/build
+build-ttrt-wheel
 third_party/tt-metal
 third_party/ttnn-python
 .DS_STORE
