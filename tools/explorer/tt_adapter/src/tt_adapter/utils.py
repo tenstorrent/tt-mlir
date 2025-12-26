@@ -167,7 +167,7 @@ def list_ir_files(dir_path: str):
 def get_collection_path(model_path: str):
     resolved_model_path = Path(model_path).resolve()
 
-    # If the path is adirectory and has an "extension", simply return it.
+    # If the path is a directory and has an "extension", simply return it.
     if (
         os.path.isdir(resolved_model_path)
         and MODEL_EXTENSIONS.count(resolved_model_path.suffix) > 0
