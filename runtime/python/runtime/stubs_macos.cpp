@@ -133,6 +133,13 @@ void Stats::clear() { __builtin_trap(); }
 std::string Stats::toString() const { __builtin_trap(); }
 #endif
 
+void logMemoryState(
+    const std::unordered_map<tt::runtime::MemoryBufferType,
+                             tt::runtime::MemoryView> &memoryState,
+    std::string_view prefix) {
+  __builtin_trap();
+}
+
 } // namespace debug
 
 // Stubs for Flatbuffer methods
