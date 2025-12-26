@@ -1356,6 +1356,8 @@ public:
     auto outputDtypeAttr =
         rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
 
+    // Config tensors are allocated in L1 by default in Metal.
+    // In the general path, we want to allocate them in DRAM to prevent OOM.
     auto conv2dConfigAttr = ttnn::Conv2dConfigAttr::get(rewriter.getContext())
                                 .withConfigTensorsInDram(true);
 
@@ -1621,12 +1623,17 @@ public:
     auto outputDtypeAttr =
         rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
 
+    // Config tensors are allocated in L1 by default in Metal.
+    // In the general path, we want to allocate them in DRAM to prevent OOM.
+    auto conv2dConfigAttr = ttnn::Conv2dConfigAttr::get(rewriter.getContext())
+                                .withConfigTensorsInDram(true);
+
     rewriter.replaceOpWithNewOp<ttnn::ConvTranspose2dOp>(
         op, getTypeConverter()->convertType(outputTy), adaptor.getInput(),
         adaptor.getWeight(), adaptor.getBias(), device, inChannelsAttr,
         outChannelsAttr, batchSizeAttr, inputHeightAttr, inputWidthAttr,
         kernelSizeAttr, *strideAttr, reducedPaddingAttr, *outputPaddingAttr,
-        *dilationAttr, groupsAttr, outputDtypeAttr, /*conv2d_config=*/nullptr,
+        *dilationAttr, groupsAttr, outputDtypeAttr, conv2dConfigAttr,
         /*compute_config=*/nullptr, /*memoryConfig=*/nullptr);
 
     return success();
