@@ -2914,13 +2914,13 @@ def TTKernel_TensorAccessorArgsOp : TTKernel_Op<"TensorAccessorArgs"> {
     TensorAccessorArgs struct constructor.
 
     CTA (compile-time args) offset is determined by (in priority order):
-    1. If prev_args is provided: uses prev_args.next_compile_time_args_offset()
-    2. If cta_expr is provided: uses the constexpr string expression
+    1. If cta_expr is provided: uses the constexpr string expression (overrides chaining)
+    2. Else if prev_args is provided: uses prev_args.next_compile_time_args_offset()
     3. Otherwise: uses cta_base integer constant
 
     CRTA (compile/runtime args) offset is determined by (in priority order):
-    1. If prev_args is provided: uses prev_args.next_common_runtime_args_offset()
-    2. If crta_expr is provided: uses the constexpr string expression
+    1. If crta_expr is provided: uses the constexpr string expression (overrides chaining)
+    2. Else if prev_args is provided: uses prev_args.next_common_runtime_args_offset()
     3. Otherwise: uses crta_base integer constant
   }];
 
@@ -2939,6 +2939,8 @@ def TTKernel_TensorAccessorArgsOp : TTKernel_Op<"TensorAccessorArgs"> {
     (`crta_expr` `=` $crta_expr^)?
     attr-dict `:` functional-type(operands, results)
   }];
+
+  let hasVerifier = 1;
 }
 
 def TTKernel_TensorAccessorOp : TTKernel_Op<"TensorAccessor"> {

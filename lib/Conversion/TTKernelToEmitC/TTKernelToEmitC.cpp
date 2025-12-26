@@ -560,13 +560,10 @@ public:
           prevLiteral.getValue().str() + ".next_compile_time_args_offset()";
     } else {
       // Literal integer constant (no prev_args or cta_expr provided).
+      // Verifier ensures this is a constant.
       auto cta_base = op.getCtaBase();
       auto cta_base_attr = cta_base.getDefiningOp<arith::ConstantOp>();
-      if (!cta_base_attr) {
-        return rewriter.notifyMatchFailure(
-            op, "cta_base must be a constant when prev_args and cta_expr are "
-                "not provided");
-      }
+      TT_assertv(cta_base_attr, "cta_base should be constant (checked by verifier)");
       ctaArg =
           std::to_string(cast<IntegerAttr>(cta_base_attr.getValue()).getInt());
     }
@@ -586,13 +583,10 @@ public:
           prevLiteral.getValue().str() + ".next_common_runtime_args_offset()";
     } else {
       // Literal integer constant (no prev_args or crta_expr provided).
+      // Verifier ensures this is a constant.
       auto crta_base = op.getCrtaBase();
       auto crta_base_attr = crta_base.getDefiningOp<arith::ConstantOp>();
-      if (!crta_base_attr) {
-        return rewriter.notifyMatchFailure(
-            op, "crta_base must be a constant when prev_args and crta_expr are "
-                "not provided");
-      }
+      TT_assertv(crta_base_attr, "crta_base should be constant (checked by verifier)");
       crtaArg =
           std::to_string(cast<IntegerAttr>(crta_base_attr.getValue()).getInt());
     }

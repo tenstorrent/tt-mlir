@@ -1817,6 +1817,31 @@ module {
       return
     }
 
+    // TEST: Priority override - cta_expr/crta_expr override prev_args chaining
+    // Verifies that explicit expressions take precedence over chaining
+
+    // CHECK-LABEL: func @test_priority_override
+    func.func @test_priority_override() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      %cta_0 = arith.constant 0 : i32
+      %crta_0 = arith.constant 0 : i32
+      %bank_address = arith.constant 303104 : i32
+      %page_size = arith.constant 32 : i32
+
+      // First accessor
+      // CHECK: emitc.verbatim "auto [[BASE:[a-z_0-9]+]] = TensorAccessorArgs<0, 0>();"
+      // CHECK-NEXT: %[[BASE_LIT:.*]] = emitc.literal "[[BASE]]" : !emitc.opaque<"TensorAccessorArgs">
+      %args_base = "ttkernel.TensorAccessorArgs"(%cta_0, %crta_0) : (i32, i32) -> !ttkernel.TensorAccessorArgs
+
+      // Override chaining with explicit cta_expr (prev_args provided but cta_expr takes precedence)
+      // CHECK: emitc.verbatim "auto {{.*}} = TensorAccessorArgs<42, {{.*}}.next_common_runtime_args_offset()>();"
+      %args_override = "ttkernel.TensorAccessorArgs"(%args_base, %cta_0, %crta_0) {cta_expr = "42"} : (!ttkernel.TensorAccessorArgs, i32, i32) -> !ttkernel.TensorAccessorArgs
+
+      // CHECK: emitc.call_opaque "TensorAccessor"
+      %tensor_accessor = "ttkernel.TensorAccessor"(%args_override, %bank_address, %page_size) : (!ttkernel.TensorAccessorArgs, i32, i32) -> !ttkernel.TensorAccessor
+
+      return
+    }
+
     // CHECK-LABEL: func @interleaved_addr_gen
     func.func @interleaved_addr_gen() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
       %cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles

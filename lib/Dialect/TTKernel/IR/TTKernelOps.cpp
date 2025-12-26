@@ -217,4 +217,27 @@ static std::string verifyTilizeUntilizeCBs(CBType tilizedCB, CBType scalarCB) {
   return success();
 }
 
+::mlir::LogicalResult TensorAccessorArgsOp::verify() {
+  // When not using chaining or constexpr, operands must be constants
+  if (!getPrevArgs() && !getCtaExprAttr()) {
+    auto ctaBase = getCtaBase();
+    if (!ctaBase.getDefiningOp<arith::ConstantOp>()) {
+      return emitOpError(
+          "cta_base must be a constant when prev_args and cta_expr are not "
+          "provided");
+    }
+  }
+
+  if (!getPrevArgs() && !getCrtaExprAttr()) {
+    auto crtaBase = getCrtaBase();
+    if (!crtaBase.getDefiningOp<arith::ConstantOp>()) {
+      return emitOpError(
+          "crta_base must be a constant when prev_args and crta_expr are not "
+          "provided");
+    }
+  }
+
+  return success();
+}
+
 } // namespace mlir::tt::ttkernel
