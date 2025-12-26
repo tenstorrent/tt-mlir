@@ -86,6 +86,8 @@ def add_missing_attributes(
     """
     Sets additional attributes of `pydantic_model` in-place.
 
+    Only sets attributes if they are provided and not already set.
+
     Parameters
     ----------
     pydantic_model: OpTest
@@ -98,8 +100,10 @@ def add_missing_attributes(
         Name of the ML model which was passed as original MLIR module to the op by op
         infra. I.e model in which operation `pydantic_model.op_name` is used.
     """
-    pydantic_model.frontend = frontend
-    pydantic_model.model_name = model_name
+    if frontend:
+        pydantic_model.frontend = frontend
+    if model_name:
+        pydantic_model.model_name = model_name
 
 
 # ---------- Workflows ----------

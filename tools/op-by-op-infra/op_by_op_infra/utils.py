@@ -135,7 +135,7 @@ class OpWrapper:
         ]
         self.results = [Result(result.get_name(), result.type) for result in op.results]
         self.attributes = attrs
-        self.origin_model = origin_model
+        self.origin_model = [origin_model]
 
     def __str__(self) -> str:
         return self.op_string
@@ -146,6 +146,19 @@ class OpWrapper:
     @property
     def name(self) -> str:
         return self.op_name
+
+    def add_origin_model(self, model: str) -> None:
+        """
+        Adds a new origin model to the list if it's not already present.
+
+        Parameters
+        ----------
+        model : str
+            The name of the model to add
+        """
+        if model and model not in self.origin_model:
+            self.origin_model.append(model)
+
 
     def as_module_str(self) -> str:
         """
@@ -207,6 +220,8 @@ class OpWrapper:
         module_wrapper.origin_op_name = str(self.name)
         module_wrapper.origin_op_operands = self.operands
         module_wrapper.origin_op_results = self.results
+        # Convert list of origin models to a single string (comma-separated if multiple)
+        module_wrapper.origin_model = ", ".join(self.origin_model)
         return module_wrapper
 
 
@@ -311,6 +326,7 @@ class ModuleWrapper:
         origin_op_name: Optional[str] = None,
         origin_op_operands: Optional[List[Operand]] = None,
         origin_op_results: Optional[List[Result]] = None,
+        origin_model: str = "",
     ) -> None:
         self.module: Module = module
         self.dialect: ModuleDialect = dialect or ModuleDialect.detect(module)
@@ -318,6 +334,7 @@ class ModuleWrapper:
         self.origin_op_name = origin_op_name
         self.origin_op_operands = origin_op_operands
         self.origin_op_results = origin_op_results
+        self.origin_model = origin_model
 
     def __repr__(self) -> str:
         s = f"ModuleWrapper(\ndialect: {self.dialect.value}\n{self.module}"
@@ -409,6 +426,7 @@ class TTNNModuleWrapper(ModuleWrapper):
         origin_op_name: Optional[str] = None,
         origin_op_operands: Optional[List[Operand]] = None,
         origin_op_results: Optional[List[Result]] = None,
+        origin_model: str = "",
     ) -> None:
         super().__init__(
             module,
@@ -416,6 +434,7 @@ class TTNNModuleWrapper(ModuleWrapper):
             origin_op_name=origin_op_name,
             origin_op_operands=origin_op_operands,
             origin_op_results=origin_op_results,
+            origin_model=origin_model,
         )
 
         self._tt_device_module_op: ttcore.DeviceModuleOp = self.module.body.operations[
