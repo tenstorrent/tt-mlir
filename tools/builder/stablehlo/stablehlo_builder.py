@@ -274,6 +274,72 @@ class StableHLOBuilder(Builder):
 
     # ----- Public StableHLO Op Generators ----
 
+    ############### stablehlo.RngOp ###############
+
+    @tag(stablehlo.RngOp)
+    def rng(
+        self,
+        shape: List[int],
+        dtype: torch.dtype,
+        low: float = 0.0,
+        high: float = 1.0,
+        loc: Optional[str] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.rng)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        # Create output type for the RNG result
+        output_element_type = self._get_type_from_torch_dtype(dtype)
+        output = self._create_ranked_tensor_type(shape, output_element_type)
+
+        # Create scalar (0-dimensional) tensor constants for low and high
+        # StableHLO RngOp requires tensor operands, not scalar attributes
+        scalar_type = RankedTensorType.get([], output_element_type)
+        low_attr = DenseElementsAttr.get_splat(
+            scalar_type, FloatAttr.get(output_element_type, low)
+        )
+        high_attr = DenseElementsAttr.get_splat(
+            scalar_type, FloatAttr.get(output_element_type, high)
+        )
+        low_tensor = stablehlo.ConstantOp(low_attr, loc=loc).result
+        high_tensor = stablehlo.ConstantOp(high_attr, loc=loc).result
+
+        # Create shape tensor (1D tensor of i64)
+        shape_tensor_type = RankedTensorType.get(
+            [len(shape)], IntegerType.get_signless(64, self._ctx)
+        )
+        shape_attr = DenseElementsAttr.get(
+            array=shape,
+            type=shape_tensor_type,
+        )
+        shape_tensor = stablehlo.ConstantOp(shape_attr, loc=loc).result
+
+        # Build the StableHLO RNG op (uniform distribution only)
+        op = stablehlo_op(
+            output,
+            low_tensor,
+            high_tensor,
+            shape_tensor,
+            rng_distribution=stablehlo.RngDistributionAttr.get(
+                stablehlo.RngDistribution.UNIFORM
+            ),
+            loc=loc,
+        )
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
+
+        if not self._disable_golden_check:
+            golden = torch.rand(shape, dtype=dtype) * (high - low) + low
+            self._set_golden_tensor(op.result, golden)
+
+        return op.result
+
     ############### stablehlo.DynamicUpdateSliceOp ###############
 
     @tag(stablehlo.DynamicUpdateSliceOp)
