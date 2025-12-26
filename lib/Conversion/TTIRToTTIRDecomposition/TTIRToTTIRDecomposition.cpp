@@ -2488,10 +2488,10 @@ struct ArgMaxPattern : public OpConversionPattern<ttir::ArgMaxOp> {
                   ConversionPatternRewriter &rewriter) const override {
     // This pattern works as follows:
     // 1. Permute input tensor, i.e, put all reduction dimensions at the end.
-    // 2. Reshape the permuted tensor to make all reduction dimensions into one
+    // 2. Reshape the permuted tensor to make all reduction dimensions into one.
     // 3. Create a new ArgMax op with the reshaped tensor and the new reduction
     //    dimension.
-    // 4. Reshape the output tensor to the expected shape.
+    // 4. Reshape the output tensor to the expected shape in case of keep dim.
     auto tempDimArg = op.getDimArg();
     if (!tempDimArg || tempDimArg->size() <= 1) {
       return failure();
@@ -2591,7 +2591,7 @@ struct ArgMaxPattern : public OpConversionPattern<ttir::ArgMaxOp> {
         reshapeOp.getResult(), rewriter.getBoolAttr(keepDim),
         rewriter.getI32ArrayAttr(newDim));
 
-    // Step 4. Reshape the output tensor to the expected shape om case of keep
+    // Step 4. Reshape the output tensor to the expected shape in case of keep
     // dim
     if (keepDim) {
       SmallVector<int64_t> finalArgMaxShape;
