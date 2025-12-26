@@ -19,6 +19,11 @@ enum ShardOrientation: uint32 {
   ColMajor,
 }
 
+enum ShardDistributionStrategy: uint32 {
+  RoundRobin1D,
+  Grid2D,
+}
+
 struct CoreCoord {
   x: uint64;
   y: uint64;
@@ -55,10 +60,18 @@ table ShardSpec {
   orientation: ShardOrientation;
 }
 
+table NDShardSpec {
+  core_range_set: CoreRangeSet;
+  shape: [int32];
+  orientation: ShardOrientation;
+  distribution_strategy: ShardDistributionStrategy;
+}
+
 table MemoryConfig {
   tensor_memory_layout: TensorMemoryLayout;
   buffer_type: BufferType;
   shard_spec: ShardSpec;
+  nd_shard_spec: NDShardSpec;
 }
 
 table MemoryDesc {
