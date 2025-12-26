@@ -168,6 +168,16 @@ struct TTIRToTTMetalPipelineOptions
       *this, "enable-op-scheduler",
       llvm::cl::desc("Enable operation scheduling optimization"),
       llvm::cl::init(true)};
+
+  // Option to enable debug mode for coalescing inference in DMA lowering.
+  // When enabled, runs both analytical and sampling-based coalescing checks
+  // and prints debug output comparing them.
+  Option<bool> debugD2mCoalescingInference{
+      *this, "debug-d2m-coalescing-inference",
+      llvm::cl::desc("Enable debug mode for coalescing inference. Runs both "
+                     "analytical and sampling-based coalescing checks and "
+                     "prints debug output comparing them."),
+      llvm::cl::init(false)};
 };
 
 void createTTIRBufferizationPipeline(
