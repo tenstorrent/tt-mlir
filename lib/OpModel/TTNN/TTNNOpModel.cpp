@@ -4070,7 +4070,8 @@ llvm::Expected<OpConstraints> OpModel<LinearOp>::getOpConstraints(
     TTNNLayoutAttr inputLayoutB,
     std::optional<llvm::ArrayRef<int64_t>> biasShape,
     std::optional<TTNNLayoutAttr> biasLayout, TTNNLayoutAttr outputLayout,
-    bool transposeA, bool transposeB) {
+    bool transposeA, bool transposeB, std::optional<llvm::StringRef> activation,
+    std::optional<mlir::Attribute> programConfigAttr) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -4101,11 +4102,21 @@ llvm::Expected<OpConstraints> OpModel<LinearOp>::getOpConstraints(
   std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
       detail::getNullableMemoryConfig(outputLayout);
 
+  // Convert activation to std::optional<std::string> for tt-metal API
+  std::optional<std::string> activationStr =
+      activation ? std::make_optional(activation->str()) : std::nullopt;
+
+  // Use program config from IR if provided
+  std::optional<::ttnn::operations::matmul::MatmulProgramConfig> programConfig =
+      programConfigAttr ? conversion::getMatmulProgramConfig(*programConfigAttr)
+                        : std::nullopt;
+
   // Create query closure
   auto linearOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::linear, device, inputSpecA, inputSpecB, biasTensor, transposeA,
-        transposeB, outputMemoryConfig, outputDType);
+        transposeB, outputMemoryConfig, outputDType, programConfig,
+        activationStr);
   };
 
   return operation::getOpConstraints(inputLayoutA.getContext(), deviceGrid,
@@ -4167,11 +4178,13 @@ llvm::Expected<size_t> OpModel<LinearOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // MatmulOp
 //===----------------------------------------------------------------------===//
+
 llvm::Expected<OpConstraints> OpModel<MatmulOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
     TTNNLayoutAttr inputLayoutA, llvm::ArrayRef<int64_t> inputShapeB,
     TTNNLayoutAttr inputLayoutB, TTNNLayoutAttr outputLayout, bool transposeA,
-    bool transposeB) {
+    bool transposeB, std::optional<llvm::StringRef> activation,
+    std::optional<mlir::Attribute> programConfigAttr) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -4195,11 +4208,20 @@ llvm::Expected<OpConstraints> OpModel<MatmulOp>::getOpConstraints(
   std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
       detail::getNullableMemoryConfig(outputLayout);
 
+  // Convert activation to std::optional<std::string> for tt-metal API
+  std::optional<std::string> activationStr =
+      activation ? std::make_optional(activation->str()) : std::nullopt;
+
+  // Use program config from IR if provided
+  std::optional<::ttnn::operations::matmul::MatmulProgramConfig> programConfig =
+      programConfigAttr ? conversion::getMatmulProgramConfig(*programConfigAttr)
+                        : std::nullopt;
+
   // Create query closure
   auto matmulOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::matmul, device, inputSpecA, inputSpecB, transposeA, transposeB,
-        outputMemoryConfig, outputDType);
+        outputMemoryConfig, outputDType, programConfig, activationStr);
   };
 
   return operation::getOpConstraints(inputLayoutA.getContext(), deviceGrid,
