@@ -27,7 +27,9 @@ def set_tt_metal_home():
     mirrored TTMetal tree within the `ttrt` wheel.
     """
     if "TT_METAL_RUNTIME_ROOT" in os.environ:
-        return
+        existing_path = os.environ["TT_METAL_RUNTIME_ROOT"]
+        if os.path.exists(existing_path):
+            return
     os.environ["TT_METAL_RUNTIME_ROOT_EXTERNAL"] = os.environ.get(
         "TT_METAL_RUNTIME_ROOT", ""
     )
