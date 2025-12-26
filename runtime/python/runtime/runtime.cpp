@@ -227,7 +227,10 @@ void registerRuntimeBindings(nb::module_ &m) {
       .def("has_layout",
            [](tt::runtime::Tensor self, tt::runtime::Layout layout) {
              return tt::runtime::hasLayout(self, layout);
-           });
+           })
+      .def("get_layout", [](tt::runtime::Tensor self) {
+        return tt::runtime::getTensorLayout(self);
+      });
 
   nb::class_<tt::runtime::TensorRef>(m, "TensorRef");
   nb::class_<tt::runtime::Layout>(m, "Layout");

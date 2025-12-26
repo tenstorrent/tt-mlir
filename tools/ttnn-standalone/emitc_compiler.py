@@ -292,6 +292,8 @@ def compile_emitc_to_so(
     output_dir: Optional[str] = None,
     build_type: str = "Release",
     incremental: bool = True,
+    metal_src_dir: Optional[str] = None,
+    metal_lib_dir: Optional[str] = None,
     verbose: bool = True,
 ) -> str:
     """
@@ -321,6 +323,8 @@ def compile_emitc_to_so(
         build_type=build_type,
         mode="dylib",
         incremental=incremental,
+        metal_src_dir=metal_src_dir,
+        metal_lib_dir=metal_lib_dir,
         verbose=verbose,
     )
     return compiler.compile(cpp_file_path, output_dir=output_dir)

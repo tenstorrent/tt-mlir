@@ -195,6 +195,8 @@ Tensor toLayout(Tensor tensor, Device device, Layout layout,
 
 bool hasLayout(Tensor tensor, Layout layout);
 
+Layout getTensorLayout(Tensor tensor);
+
 Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
                  std::uint32_t inputIndex);
 

@@ -13,6 +13,23 @@ import torch
 import subprocess
 from typing import Any, Dict, List, Tuple, Optional
 import math
+import sys
+from pathlib import Path
+
+# Add tt-alchemist utils.py to path for EmitPy tests
+TT_MLIR_HOME = Path(os.environ.get("TT_MLIR_HOME", os.getcwd())).resolve()
+utils_path = os.path.join(TT_MLIR_HOME, "tools/tt-alchemist/templates/python/local")
+if utils_path not in sys.path:
+    sys.path.append(utils_path)
+
+# Add TTNN to path for EmitPy tests
+TT_METAL_RUNTIME_ROOT = Path(
+    os.environ.get("TT_METAL_RUNTIME_ROOT", os.getcwd())
+).resolve()
+sys.path.append(os.path.join(TT_METAL_RUNTIME_ROOT, "ttnn"))
+
+import utils
+import ttnn
 
 ALL_BACKENDS = set(["ttnn", "ttmetal", "emitc", "emitpy"])
 ALL_SYSTEMS = set(["n150", "n300", "llmbox", "tg", "p150", "p300"])
@@ -58,6 +75,8 @@ def _get_device_for_target(target: str, mesh_shape: Tuple[int, int], pytestconfi
             and _current_device_mesh_shape == mesh_shape
         ):
             return _current_device
+        elif _current_device_target == "emitpy":
+            ttnn.close_mesh_device(_current_device)
         else:  # Cache miss, need to teardown
             print(
                 f"Found new target {target} with mesh shape {mesh_shape}, closing device for {_current_device_target} with {_current_device_mesh_shape}"
@@ -66,48 +85,55 @@ def _get_device_for_target(target: str, mesh_shape: Tuple[int, int], pytestconfi
             tt_runtime.runtime.set_fabric_config(
                 tt_runtime.runtime.FabricConfig.DISABLED
             )
-            _current_device = None
-            _current_device_target = None
-            _current_device_mesh_shape = None
+        _current_device = None
+        _current_device_target = None
+        _current_device_mesh_shape = None
 
     # Open new device for target
-    if target != "emitpy":
-        print(f"Opening device for {target} with mesh shape {mesh_shape}")
+    print(f"Opening device for {target} with mesh shape {mesh_shape}")
 
-    mesh_options = tt_runtime.runtime.MeshDeviceOptions()
-    system_desc = fbb_as_dict(
-        tt_runtime.binary.load_system_desc_from_path(pytestconfig.option.sys_desc)
-    )["system_desc"]
-    board_id = get_board_id(system_desc)
+    if target == "emitpy":
+        device = utils.DeviceGetter.get_device(mesh_shape)
 
-    if pytestconfig.getoption("--disable-eth-dispatch") or board_id in ["p150", "p300"]:
-        mesh_options.dispatch_core_type = tt_runtime.runtime.DispatchCoreType.WORKER
     else:
-        mesh_options.dispatch_core_type = tt_runtime.runtime.DispatchCoreType.ETH
+        mesh_options = tt_runtime.runtime.MeshDeviceOptions()
+        system_desc = fbb_as_dict(
+            tt_runtime.binary.load_system_desc_from_path(pytestconfig.option.sys_desc)
+        )["system_desc"]
+        board_id = get_board_id(system_desc)
 
-    # Start with a small mesh shape that should work for most tests
-    # Tests requiring larger meshes will be handled appropriately
-    mesh_options.mesh_shape = mesh_shape
+        if pytestconfig.getoption("--disable-eth-dispatch") or board_id in [
+            "p150",
+            "p300",
+        ]:
+            mesh_options.dispatch_core_type = tt_runtime.runtime.DispatchCoreType.WORKER
+        else:
+            mesh_options.dispatch_core_type = tt_runtime.runtime.DispatchCoreType.ETH
 
-    device_runtime_enum = None
+        # Start with a small mesh shape that should work for most tests
+        # Tests requiring larger meshes will be handled appropriately
+        mesh_options.mesh_shape = mesh_shape
 
-    if target == "ttnn":
-        device_runtime_enum = tt_runtime.runtime.DeviceRuntime.TTNN
-    elif target == "ttmetal":
-        device_runtime_enum = tt_runtime.runtime.DeviceRuntime.TTMetal
-    elif target == "emitpy":
-        # Emitpy execution instantiates its own device internally
-        return None
-    else:
-        raise ValueError(f"Only TTNN and TTMetal devices are supported, got {target}")
+        device_runtime_enum = None
 
-    tt_runtime.runtime.set_current_device_runtime(device_runtime_enum)
-    if math.prod(mesh_shape) > 1:
-        tt_runtime.runtime.set_fabric_config(tt_runtime.runtime.FabricConfig.FABRIC_1D)
-    device = tt_runtime.runtime.open_mesh_device(mesh_options)
-    print(
-        f"Device opened for test session with target {target} & mesh shape {mesh_options.mesh_shape}."
-    )
+        if target in ["ttnn", "emitc"]:
+            device_runtime_enum = tt_runtime.runtime.DeviceRuntime.TTNN
+        elif target == "ttmetal":
+            device_runtime_enum = tt_runtime.runtime.DeviceRuntime.TTMetal
+        else:
+            raise ValueError(
+                f"Only TTNN and TTMetal devices are supported, got {target}"
+            )
+
+        tt_runtime.runtime.set_current_device_runtime(device_runtime_enum)
+        if math.prod(mesh_shape) > 1:
+            tt_runtime.runtime.set_fabric_config(
+                tt_runtime.runtime.FabricConfig.FABRIC_1D
+            )
+        device = tt_runtime.runtime.open_mesh_device(mesh_options)
+        print(
+            f"Device opened for test session with target {target} & mesh shape {mesh_options.mesh_shape}."
+        )
     _current_device = device
     _current_device_target = target
     _current_device_mesh_shape = mesh_shape
@@ -175,7 +201,7 @@ def device(request, pytestconfig):
         target = request.node.callspec.params.get("target", "ttnn")
 
         # Support for other backends coming soon.
-        if target not in ["ttnn", "ttmetal", "emitpy"]:
+        if target not in ["ttnn", "ttmetal", "emitpy", "emitc"]:
             return None
 
         mesh_shape = request.node.callspec.params.get("mesh_shape", (1, 1))

@@ -55,6 +55,8 @@ bool getTensorRetain(::tt::runtime::Tensor tensorHandle);
 
 void setTensorRetain(::tt::runtime::Tensor tensorHandle, bool retain);
 
+::tt::runtime::Layout getTensorLayout(::tt::runtime::Tensor tensor);
+
 ::tt::runtime::Layout getLayout(::tt::runtime::Binary executableHandle,
                                 std::uint32_t programIndex,
                                 std::uint32_t inputIndex);

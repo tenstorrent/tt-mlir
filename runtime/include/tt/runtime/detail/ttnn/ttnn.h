@@ -212,6 +212,8 @@ std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
 
 bool hasLayout(Tensor tensor, Layout layout);
 
+Layout getTensorLayout(Tensor tensor);
+
 Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
                  std::uint32_t inputIndex);
 
