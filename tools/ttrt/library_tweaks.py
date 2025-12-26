@@ -18,7 +18,7 @@ def get_ttrt_metal_home_path() -> str:
     package_name = "ttrt"
     spec = importlib.util.find_spec(package_name)
     package_path = os.path.dirname(spec.origin)
-    tt_metal_home = f"{package_path}/runtime"
+    tt_metal_home = f"{package_path}/runtime/tt-metal"
     return tt_metal_home
 
 
@@ -26,6 +26,8 @@ def set_tt_metal_home():
     """Sets the environment variable `TT_METAL_RUNTIME_ROOT` to point into the root
     mirrored TTMetal tree within the `ttrt` wheel.
     """
+    if "TT_METAL_RUNTIME_ROOT" in os.environ:
+        return
     os.environ["TT_METAL_RUNTIME_ROOT_EXTERNAL"] = os.environ.get(
         "TT_METAL_RUNTIME_ROOT", ""
     )
