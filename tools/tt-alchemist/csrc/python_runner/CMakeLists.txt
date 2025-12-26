@@ -11,10 +11,8 @@
 # When tt-metal is built with EXPERIMENTAL_NANOBIND_BINDINGS=ON (default),
 # the type casters registered by nanobind cannot be used by pybind11's py::cast.
 # Skip building this library when nanobind is enabled.
-if(EXPERIMENTAL_NANOBIND_BINDINGS)
-  message(STATUS "Skipping python_runner: incompatible with nanobind (EXPERIMENTAL_NANOBIND_BINDINGS=ON)")
-  return()
-endif()
+message(STATUS "Skipping python_runner: incompatible with nanobind (EXPERIMENTAL_NANOBIND_BINDINGS=ON)")
+return()
 
 set(PYTHON_RUNNER_LIBRARY_NAME tt-alchemist-python-runner)
 
