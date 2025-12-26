@@ -119,6 +119,9 @@ struct PythonEmitter {
   /// Insert the op result into the value cache.
   void cacheDeferredOpResult(Value value, StringRef str);
 
+  /// Register the result value with a name so it can be referenced later.
+  void registerResultValueName(Value value, std::string name);
+
   /// RAII helper function to manage entering/exiting Python scopes.
   struct Scope {
     Scope(PythonEmitter &emitter)
@@ -191,6 +194,12 @@ std::string PythonEmitter::getSubscriptName(SubscriptOp op) {
 void PythonEmitter::cacheDeferredOpResult(Value value, StringRef str) {
   if (!valueMapper.count(value)) {
     valueMapper.insert(value, str.str());
+  }
+}
+
+void PythonEmitter::registerResultValueName(Value value, std::string name) {
+  if (!valueMapper.count(value)) {
+    valueMapper.insert(value, name);
   }
 }
 
@@ -464,6 +473,9 @@ static LogicalResult printOperation(PythonEmitter &emitter,
                                     CreateDictOp createDictOp) {
   raw_indented_ostream &os = emitter.ostream();
   StringRef dictName = createDictOp.getDictName();
+
+  emitter.registerResultValueName(createDictOp.getResult(), dictName.str());
+
   os << dictName << " = ";
 
   if (createDictOp.getLiteralExpr()) {
@@ -589,7 +601,11 @@ LogicalResult PythonEmitter::emitAttribute(Location loc, Attribute attr) {
     os << printInt(iAttr.getValue());
     return success();
   }
-
+  // Print string attributes.
+  if (auto sAttr = dyn_cast<StringAttr>(attr)) {
+    os << "\"" << sAttr.getValue() << "\"";
+    return success();
+  }
   // Print opaque attributes.
   if (auto oAttr = dyn_cast<mlir::tt::emitpy::OpaqueAttr>(attr)) {
     os << oAttr.getValue();
