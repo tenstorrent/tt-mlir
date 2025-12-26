@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttnn-set-compute-kernel-config="math-fidelity=lofi fp32-dest-acc-en=true fp32-dest-acc-en-set=true" %s | FileCheck %s
+// RUN: ttmlir-opt --ttnn-set-compute-kernel-config="math-fidelity=lofi fp32-dest-acc-en=true" %s | FileCheck %s
 // Test that the pass can set multiple parameters at once
 
 // CHECK-LABEL: func @test_set_multiple_params

@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttnn-set-compute-kernel-config="math-fidelity=hifi4 fp32-dest-acc-en=true fp32-dest-acc-en-set=true" %s | FileCheck %s
+// RUN: ttmlir-opt --ttnn-set-compute-kernel-config="math-fidelity=hifi4 fp32-dest-acc-en=true" %s | FileCheck %s
 // Test that the pass adds missing parameters while preserving existing ones.
 // Existing math-fidelity should not be overridden.
 

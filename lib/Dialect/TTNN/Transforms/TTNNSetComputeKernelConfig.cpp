@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Interfaces/TTNNTensorSpecInterface.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/Utils/MathFidelityParser.h"
 #include "ttmlir/Support/Logger.h"
 
 namespace mlir::tt::ttnn {
