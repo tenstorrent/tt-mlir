@@ -1802,6 +1802,21 @@ module {
       return
     }
 
+    // TEST: Unused TensorAccessorArgs gets eliminated (dead code elimination)
+    // Verifies that ops with no uses are properly erased
+
+    // CHECK-LABEL: func @test_unused_tensor_accessor_args
+    func.func @test_unused_tensor_accessor_args() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      %cta_0 = arith.constant 0 : i32
+      %crta_0 = arith.constant 0 : i32
+
+      // This accessor has no uses and should be eliminated
+      // CHECK-NOT: TensorAccessorArgs
+      %unused_args = "ttkernel.TensorAccessorArgs"(%cta_0, %crta_0) : (i32, i32) -> !ttkernel.TensorAccessorArgs
+
+      return
+    }
+
     // CHECK-LABEL: func @interleaved_addr_gen
     func.func @interleaved_addr_gen() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
       %cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
