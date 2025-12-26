@@ -1469,6 +1469,31 @@ struct OpModel<RMSNormOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// LayerNormOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<LayerNormOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(ttcore::GridAttr deviceGrid,
+                   llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout,
+                   std::optional<llvm::ArrayRef<int64_t>> weightShape,
+                   std::optional<TTNNLayoutAttr> weightLayout,
+                   std::optional<llvm::ArrayRef<int64_t>> biasShape,
+                   std::optional<TTNNLayoutAttr> biasLayout,
+                   llvm::APFloat epsilon, TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               std::optional<llvm::ArrayRef<int64_t>> weightShape,
+               std::optional<TTNNLayoutAttr> weightLayout,
+               std::optional<llvm::ArrayRef<int64_t>> biasShape,
+               std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
+               TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
 // ClampScalarOp
 //===----------------------------------------------------------------------===//
 
