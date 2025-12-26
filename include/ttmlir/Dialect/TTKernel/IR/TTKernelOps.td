@@ -2912,13 +2912,32 @@ def TTKernel_TensorAccessorArgsOp : TTKernel_Op<"TensorAccessorArgs"> {
   let summary = "TensorAccessorArgs";
   let description = [{
     TensorAccessorArgs struct constructor.
+
+    CTA (compile-time args) offset is determined by (in priority order):
+    1. If prev_args is provided: uses prev_args.next_compile_time_args_offset()
+    2. If cta_expr is provided: uses the constexpr string expression
+    3. Otherwise: uses cta_base integer constant
+
+    CRTA (compile/runtime args) offset is determined by (in priority order):
+    1. If prev_args is provided: uses prev_args.next_common_runtime_args_offset()
+    2. If crta_expr is provided: uses the constexpr string expression
+    3. Otherwise: uses crta_base integer constant
   }];
 
-  let arguments = (ins I32:$cta_base, I32:$crta_base);
+  let arguments = (ins
+    Optional<TTKernel_TensorAccessorArgs>:$prev_args,
+    OptionalAttr<StrAttr>:$cta_expr,
+    OptionalAttr<StrAttr>:$crta_expr,
+    I32:$cta_base,
+    I32:$crta_base
+  );
   let results = (outs TTKernel_TensorAccessorArgs:$result);
 
   let assemblyFormat = [{
-    `(` $cta_base `,` $crta_base `)` attr-dict `:` functional-type(operands, results)
+    `(` ($prev_args^ `,`)? $cta_base `,` $crta_base `)`
+    (`cta_expr` `=` $cta_expr^)?
+    (`crta_expr` `=` $crta_expr^)?
+    attr-dict `:` functional-type(operands, results)
   }];
 }
 
