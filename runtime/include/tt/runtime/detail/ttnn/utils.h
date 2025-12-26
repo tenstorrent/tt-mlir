@@ -158,6 +158,42 @@ inline ::ttnn::Tensor createTTNNTensor(
   return tensor;
 }
 
+// Create a TTNN tensor that borrows the memory from a pre-allocated buffer,
+// without copying.
+//
+// The buffer is managed through a shared_ptr, allowing TTNN to handle the
+// deletion of the buffer when the tensor is destroyed.
+//
+template <typename T>
+inline ::ttnn::Tensor createBorrowedTTNNTensor(std::shared_ptr<void> data,
+                                               const ::ttnn::Shape &shape) {
+  // Create MemoryPin with shared_ptr that allows TTNN to handle the deletion of
+  // the buffer.
+  auto pin = ::tt::tt_metal::MemoryPin(data);
+
+  std::uint64_t numElements = shape.volume();
+  T *typedData = static_cast<T *>(data.get());
+  ::ttsl::Span<T> span(typedData, typedData + numElements);
+
+  return ::ttnn::Tensor::from_borrowed_data(span, shape, pin);
+}
+
+// Create a TTNN tensor that borrows the memory from a pre-allocated buffer,
+// without copying.
+//
+// The caller is responsible for ensuring that the buffer
+// remains valid for the lifetime of the tensor.
+//
+template <typename T>
+inline ::ttnn::Tensor createBorrowedTTNNTensor(void *rawData,
+                                               const ::ttnn::Shape &shape) {
+  auto dataPtr = std::shared_ptr<void>(rawData, [](void *) {
+    // No deletion needed, as the caller manages the buffer's lifetime.
+  });
+
+  return createBorrowedTTNNTensor<T>(dataPtr, shape);
+}
+
 template <typename T>
 inline T getScalarFromTensor(const ::ttnn::Tensor &tensor) {
   std::vector<T> data = tensor.to_vector<T>();

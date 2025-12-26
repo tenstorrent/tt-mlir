@@ -58,25 +58,6 @@ def UndoConstEvalTransform : Pass<"undo-const-eval", "mlir::ModuleOp"> {
   let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect"];
 }
 
-def ConvertCPUHoistedFunctionsToDPS: Pass<"convert-cpu-hoisted-functions-to-dps", "::mlir::ModuleOp"> {
-  let summary = "Enables Destination Passing Style semantics in the CPU-hoisted functions.";
-  let description = [{
-    CPU-hoisted functions created through the CPUHoistTransform pass return their results
-    via a Return Op. This pass modifies those functions so that they become
-    void functions that take an additional argument representing the output destination,
-    thus enabling Destination Passing Style (DPS) semantics.
-
-    This pass can run on both Device and CPU modules:
-    - In Device modules, it updates the function declarations to reflect the DPS semantics.
-    - In CPU modules, it modifies the function definitions accordingly - changing the return type to void,
-      adding the output destination argument, and inserting `linalg.copy` operations to copy the results
-      into the provided output destination.
-
-    This pass is crucial for allowing CPU-hoisted functions to properly be lowered
-    to LLVM dialect, and then to executable code.
-  }];
-}
-
 def CollapseParallelLoops: Pass<"collapse-parallel-loops", "::mlir::func::FuncOp"> {
   let summary = "Collapse and reverse dimensions in multidimensional SCF parallel loops";
   let description = [{

@@ -49,7 +49,7 @@
 namespace mlir::tt::ttnn {
 
 TTNNOptimizerOptions::TTNNOptimizerOptions(
-    const TTIRToTTNNBackendPipelineOptions &pipelineOptions)
+    const TTIRToTTNNDevicePipelineOptions &pipelineOptions)
     : insertMemReconfig(pipelineOptions.insertMemReconfig),
       overrideOutputLayout(pipelineOptions.overrideOutputLayout),
       overrideConv2dConfig(pipelineOptions.overrideConv2dConfig),

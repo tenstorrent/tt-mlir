@@ -150,6 +150,7 @@ private:
     populateConcatCommutePatterns<commuteDirection>(&getContext(), patterns);
     populateSliceCommutePatterns<commuteDirection>(&getContext(), patterns);
     populateReduceCommutePatterns<commuteDirection>(&getContext(), patterns);
+    populateRMSNormCommutePatterns<commuteDirection>(&getContext(), patterns);
 
     populateTTIRTMFusionPatterns(&getContext(), patterns);
     return patterns;

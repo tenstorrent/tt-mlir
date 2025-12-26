@@ -205,7 +205,8 @@ createGridInverseMapFromIndexMap(mlir::AffineMap indexMap, unsigned gridRank,
 inline mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
                                            mlir::ArrayRef<int64_t> outputShape,
                                            mlir::MLIRContext *ctx) {
-
+  TT_assert(utils::volume<int64_t>(inputShape) ==
+            utils::volume<int64_t>(outputShape));
   int64_t inputRank = static_cast<int64_t>(inputShape.size());
   int64_t outputRank = static_cast<int64_t>(outputShape.size());
   TT_assertv(inputRank % 2 == 0, "Input rank must be even");
@@ -215,8 +216,8 @@ inline mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
     return mlir::AffineMap::getMultiDimIdentityMap(inputRank, ctx);
   }
 
-  // Construct a map that transforms output (grid x shard) indices to logical
-  // indices.
+  // Construct a map that transforms output (grid x shard) indices to row-major
+  // flat indices.
   mlir::AffineExpr expr = mlir::getAffineConstantExpr(0, ctx);
   auto overallStride = mlir::getAffineConstantExpr(1, ctx);
   for (auto [i, dimStride] :
@@ -225,9 +226,9 @@ inline mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
     expr = (dim * overallStride) + expr;
     overallStride = overallStride * dimStride;
   }
-  auto outputToLogical = mlir::AffineMap::get(outputRank, 0, {expr}, ctx);
+  auto outputToFlat = mlir::AffineMap::get(outputRank, 0, {expr}, ctx);
 
-  // Construct a map that transforms logical indices to input (grid x shard)
+  // Construct a map that transforms flat indices to input (grid x shard)
   // indices.
   llvm::SmallVector<mlir::AffineExpr> toInputExprs(inputRank);
   overallStride = mlir::getAffineConstantExpr(1, ctx);
@@ -236,9 +237,9 @@ inline mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
     toInputExprs[i] = (dim.floorDiv(overallStride)) % dimStride;
     overallStride = overallStride * dimStride;
   }
-  auto logicalToInput = mlir::AffineMap::get(1, 0, toInputExprs, ctx);
+  auto flatToInput = mlir::AffineMap::get(1, 0, toInputExprs, ctx);
 
-  return logicalToInput.compose(outputToLogical);
+  return flatToInput.compose(outputToFlat);
 }
 
 /// Calculate a reblock affine map given a shape and new grid shape.

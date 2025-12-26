@@ -230,19 +230,14 @@ void createTTIRToTTMetalPipeline(OpPassManager &pm,
   OpPassManager &devicePm =
       pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
 
-  // Enable DPS semantics in CPU-hoisted functions in DeviceModule.
-  devicePm.addPass(transforms::createConvertCPUHoistedFunctionsToDPS());
-
   // Run regular ttir to ttmetal pipelines on IR in DeviceModule.
   createTTIRToTTMetalFrontendPipeline(devicePm, options);
   createTTIRToTTMetalMiddleendPipeline(devicePm, options);
   createTTIRToTTMetalBackendPipeline(devicePm, options);
 
-  // Run lowering to LLVM pass on hoisted funcs in CPUModule.
-  auto &cpuPm = pm.nest<ttcore::CPUModuleOp>().nest<mlir::ModuleOp>();
-
-  ttir::LinalgToLLVMPipelineOptions linalgToLLVMOptions;
-  ttir::createTTIRToCPUPipeline(cpuPm, linalgToLLVMOptions);
+  // Run lowering to LLVM pass.
+  ttir::TTIRToLLVMCPUPipelineOptions ttirToCPUOptions;
+  ttir::createTTIRToLLVMCPUPipeline(pm, ttirToCPUOptions);
 }
 
 //===----------------------------------------------------------------------===//

@@ -40,23 +40,17 @@ using OpsVectorType = llvm::SmallVector<mlir::Operation *>;
 using ValuesVectorType = llvm::SmallVector<mlir::Value>;
 using TypesVectorType = llvm::SmallVector<mlir::Type>;
 
-// Helper function to get ranks of a set of input tensor values.
-// We use this to populate attrs which we need to perform
-// tensor unpacking operations later.
+// Helper function to get ranks of tensor values.
+// Used to populate attrs needed for tensor packing/unpacking operations.
 static llvm::SmallVector<int64_t>
-getSubgraphOperandTensorRanks(const ValuesVectorType &inputValues) {
+getTensorRanks(const ValuesVectorType &values) {
   llvm::SmallVector<int64_t> ranks;
-
-  // Iterate over input values.
-  for (auto value : inputValues) {
-    // Check if the value is a tensor.
+  for (auto value : values) {
     if (auto tensorType =
             mlir::dyn_cast<mlir::RankedTensorType>(value.getType())) {
-      // Add the rank of the tensor (number of dimensions).
       ranks.push_back(tensorType.getRank());
     }
   }
-
   return ranks;
 }
 
@@ -363,10 +357,11 @@ static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
     // Add the function to the module first.
     sourceModule.push_back(localFunc);
 
-    // Get operand ranks and set them as an attribute on the hoisted function.
+    // Set tensor rank attributes for wrapper function generation.
     hoistedFunc->setAttr(
-        "arg_ranks",
-        builder.getI64ArrayAttr(getSubgraphOperandTensorRanks(inputArguments)));
+        "arg_ranks", builder.getI64ArrayAttr(getTensorRanks(inputArguments)));
+    hoistedFunc->setAttr("result_ranks", builder.getI64ArrayAttr(getTensorRanks(
+                                             descriptor.outputValues)));
 
     // Mark the hoisted function with the HoistedFuncAttr.
     hoistedFunc->setAttr(CPUHoistedFuncAttr::name,

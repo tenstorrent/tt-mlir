@@ -45,11 +45,6 @@ struct ConvertTTNNToEmitPyPass
     : public tt::ttnn::impl::ConvertTTNNToEmitPyBase<ConvertTTNNToEmitPyPass> {
   void runOnOperation() override {
     mlir::ModuleOp module = getOperation();
-    // Only run conversion on top-level moduleOp.
-    if (module->getParentOp() != nullptr) {
-      return;
-    }
-
     mlir::ConversionTarget target(getContext());
     target.addLegalDialect<emitpy::EmitPyDialect>();
     target.addIllegalDialect<tt::ttnn::TTNNDialect>();
