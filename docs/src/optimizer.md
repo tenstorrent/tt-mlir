@@ -30,7 +30,7 @@ The optimizer provides additional configuration options:
   - Enables memory layout optimization
   - Shards tensors to maximize usage of fast L1 memory instead of DRAM
 
-- **`max-legal-layouts`** (default: `64`)
+- **`max-legal-layouts`** (default: `8`)
   - Maximum number of different layouts to generate for each operation during analysis
   - Higher values may provide better results but increase compile time
 
@@ -40,3 +40,7 @@ The optimizer provides additional configuration options:
 # Enable optimizer with default settings
 ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-optimizer=true memory-layout-analysis-enabled=true max-legal-layouts=8" input.mlir
 ```
+
+## Design Documentation
+
+For detailed information about the optimizer's architecture, algorithms, and implementation, see the [TTNN Optimizer Design Specification](./specs/ttnn-optimizer.md).
