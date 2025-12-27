@@ -20,6 +20,7 @@ REPO_DIR = (THIS_DIR / ".." / "..").resolve()
 class BuildConfig:
     enable_perf = "ON"  # Default to ON for standalone wheel builds
     enable_runtime_debug = "OFF"
+    enable_runtime_tests = "ON"  # Default to ON so tests work
 
 
 def get_cmake_options() -> dict:
@@ -30,7 +31,7 @@ def get_cmake_options() -> dict:
         "TT_RUNTIME_ENABLE_TTNN": "ON",
         "TT_RUNTIME_ENABLE_TTMETAL": "ON",
         "TT_RUNTIME_ENABLE_PERF_TRACE": BuildConfig.enable_perf,
-        "TTMLIR_ENABLE_RUNTIME_TESTS": "OFF",
+        "TTMLIR_ENABLE_RUNTIME_TESTS": BuildConfig.enable_runtime_tests,
         "TT_RUNTIME_DEBUG": BuildConfig.enable_runtime_debug,
     }
 
@@ -53,6 +54,11 @@ class BdistWheel(bdist_wheel):
             None,
             "Enable runtime debug: ON or OFF (default: OFF)",
         ),
+        (
+            "enable-runtime-tests=",
+            None,
+            "Enable runtime tests: ON or OFF (default: ON)",
+        ),
     ]
 
     def initialize_options(self):
@@ -60,12 +66,14 @@ class BdistWheel(bdist_wheel):
         # Default values
         self.enable_perf = "ON"
         self.enable_runtime_debug = "OFF"
+        self.enable_runtime_tests = "ON"
 
     def finalize_options(self):
         super().finalize_options()
         # Validate and store options in BuildConfig
         self.enable_perf = self.enable_perf.upper()
         self.enable_runtime_debug = self.enable_runtime_debug.upper()
+        self.enable_runtime_tests = self.enable_runtime_tests.upper()
 
         if self.enable_perf not in ["ON", "OFF"]:
             raise ValueError(
@@ -75,9 +83,14 @@ class BdistWheel(bdist_wheel):
             raise ValueError(
                 f"Invalid --enable-runtime-debug value: {self.enable_runtime_debug}. Must be ON or OFF"
             )
+        if self.enable_runtime_tests not in ["ON", "OFF"]:
+            raise ValueError(
+                f"Invalid --enable-runtime-tests value: {self.enable_runtime_tests}. Must be ON or OFF"
+            )
 
         BuildConfig.enable_perf = self.enable_perf
         BuildConfig.enable_runtime_debug = self.enable_runtime_debug
+        BuildConfig.enable_runtime_tests = self.enable_runtime_tests
 
         # Mark wheel as platform-specific (contains native binaries)
         self.root_is_pure = False
