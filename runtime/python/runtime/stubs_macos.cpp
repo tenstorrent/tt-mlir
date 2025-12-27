@@ -146,7 +146,7 @@ void Flatbuffer::store(const char *path) const { __builtin_trap(); }
 
 // Stubs for Binary methods
 Binary::Binary(std::shared_ptr<void> handle)
-    : Flatbuffer(handle), binaryId(0), tensorCache(nullptr) {}
+    : Flatbuffer(handle), binaryId(0) {}
 std::string Binary::getMlirAsJson() const { __builtin_trap(); }
 std::uint32_t Binary::getNumPrograms() const { __builtin_trap(); }
 std::string Binary::getProgramInputsAsJson(std::uint32_t programIndex) const {

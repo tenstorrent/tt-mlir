@@ -2913,15 +2913,12 @@ def TTKernel_TensorAccessorArgsOp : TTKernel_Op<"TensorAccessorArgs"> {
   let description = [{
     TensorAccessorArgs struct constructor.
 
-    CTA (compile-time args) offset is determined by (in priority order):
-    1. If cta_expr is provided: uses the constexpr string expression
-    2. Else if prev_args is provided: uses prev_args.next_compile_time_args_offset() (chaining)
-    3. Otherwise: uses cta_base integer constant
-
-    CRTA (compile/runtime args) offset is determined by (in priority order):
-    1. If crta_expr is provided: uses the constexpr string expression
-    2. Else if prev_args is provided: uses prev_args.next_common_runtime_args_offset() (chaining)
-    3. Otherwise: uses crta_base integer constant
+    CTA (compile-time args) and CRTA (compile/runtime args) offsets are determined as follows.
+    1. If cta_expr is provided: use the constexpr string expression.
+    2. Else if `prev_args` is provided, use chaining:
+      `prev_args.next_compile_time_args_offset()` (for CTA) or
+      `prev_args.next_common_runtime_args_offset()` (for CRTA).
+    3. Otherwise, use cta_base/crta_base integer constants.
 
     Examples:
     ```mlir
