@@ -105,7 +105,9 @@ jobs:
       run: |
         source env/activate
         cd tools/ttrt
-        python setup.py bdist_wheel
+        python setup.py bdist_wheel \
+          --enable-perf=${{ matrix.build.enable_perf || 'OFF' }} \
+          --enable-runtime-debug=${{ matrix.build.enable_runtime_debug || 'OFF' }}
         ls -la dist/
 
     - name: Configure CMake

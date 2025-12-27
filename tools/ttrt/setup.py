@@ -17,15 +17,35 @@ REPO_DIR = (THIS_DIR / ".." / "..").resolve()
 
 
 def get_cmake_options() -> dict:
-    """Get CMake build options - always build with everything enabled."""
+    """Get CMake build options from command line arguments or defaults."""
+    import sys
+
+    # Parse custom arguments from command line
+    enable_perf = "ON"  # Default to ON for standalone wheel builds
+    enable_runtime_debug = "OFF"
+
+    # Look for our custom arguments
+    args_to_remove = []
+    for arg in sys.argv[1:]:
+        if arg.startswith("--enable-perf="):
+            enable_perf = arg.split("=")[1].upper()
+            args_to_remove.append(arg)
+        elif arg.startswith("--enable-runtime-debug="):
+            enable_runtime_debug = arg.split("=")[1].upper()
+            args_to_remove.append(arg)
+
+    # Remove our custom arguments so setuptools doesn't complain
+    for arg in args_to_remove:
+        sys.argv.remove(arg)
+
     return {
         "CMAKE_BUILD_TYPE": "Release",
         "TTMLIR_ENABLE_RUNTIME": "ON",
         "TT_RUNTIME_ENABLE_TTNN": "ON",
         "TT_RUNTIME_ENABLE_TTMETAL": "ON",
-        "TT_RUNTIME_ENABLE_PERF_TRACE": "ON",
+        "TT_RUNTIME_ENABLE_PERF_TRACE": enable_perf,
         "TTMLIR_ENABLE_RUNTIME_TESTS": "OFF",
-        "TT_RUNTIME_DEBUG": "OFF",
+        "TT_RUNTIME_DEBUG": enable_runtime_debug,
     }
 
 
