@@ -193,18 +193,30 @@ static bool fissionAtStore(affine::AffineForOp outerFor,
     postOps.push_back(&op);
   }
 
-  count = postOps.size() - 1;
+  // Collect ops that will be kept (after the store).
+  llvm::DenseSet<Operation *> keptOps;
+  for (size_t i = storeIdx + 1; i < postOps.size(); ++i) {
+    keptOps.insert(postOps[i]);
+  }
 
-  // erase operations in a bottom up manner until
-  // we reach the store op
-  while (!postOps.empty()) {
-    Operation *lastOp = postOps.pop_back_val();
+  // Erase operations up to storeIdx, but skip any op that has users
+  // in the kept set (e.g., scalar ops used by tile ops after the store).
+  // When we keep an op, add it to keptOps so its dependencies are also kept.
+  for (int i = storeIdx; i >= 0; --i) {
+    Operation *op = postOps[i];
 
-    if (count <= storeIdx) {
-      rewriter.eraseOp(lastOp);
+    // Check if any user of this op is in the kept set.
+    bool hasKeptUser = llvm::any_of(op->getUsers(), [&](Operation *user) {
+      return keptOps.contains(user);
+    });
+
+    if (hasKeptUser) {
+      // This op is needed by kept ops, so keep it and mark it as kept
+      // so its own dependencies will also be preserved.
+      keptOps.insert(op);
+    } else {
+      rewriter.eraseOp(op);
     }
-
-    --count;
   }
 
   return true;
