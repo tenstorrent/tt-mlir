@@ -2912,14 +2912,56 @@ def TTKernel_TensorAccessorArgsOp : TTKernel_Op<"TensorAccessorArgs"> {
   let summary = "TensorAccessorArgs";
   let description = [{
     TensorAccessorArgs struct constructor.
+
+    CTA (compile-time args) offset is determined by (in priority order):
+    1. If cta_expr is provided: uses the constexpr string expression
+    2. Else if prev_args is provided: uses prev_args.next_compile_time_args_offset() (chaining)
+    3. Otherwise: uses cta_base integer constant
+
+    CRTA (compile/runtime args) offset is determined by (in priority order):
+    1. If crta_expr is provided: uses the constexpr string expression
+    2. Else if prev_args is provided: uses prev_args.next_common_runtime_args_offset() (chaining)
+    3. Otherwise: uses crta_base integer constant
+
+    Examples:
+    ```mlir
+    // Literal offsets
+    %c0 = arith.constant 0 : i32
+    %args = ttkernel.TensorAccessorArgs(%c0, %c0) : (i32, i32) -> !ttkernel.TensorAccessorArgs
+    // Generates: TensorAccessorArgs<0, 0>()
+
+    // CTA+CRTA chaining (common pattern)
+    %args_src = ttkernel.TensorAccessorArgs(%c0, %c0) : (i32, i32) -> !ttkernel.TensorAccessorArgs
+    %args_dst = ttkernel.TensorAccessorArgs(%args_src, %c0, %c0) : (!ttkernel.TensorAccessorArgs, i32, i32) -> !ttkernel.TensorAccessorArgs
+    // Generates: TensorAccessorArgs<args_src.next_compile_time_args_offset(), args_src.next_common_runtime_args_offset()>()
+
+    // Selective override: chain CTA, use literal CRTA
+    %args_custom = ttkernel.TensorAccessorArgs(%args_src, %c0, %c0) {crta_expr = "0"} : (!ttkernel.TensorAccessorArgs, i32, i32) -> !ttkernel.TensorAccessorArgs
+    // Generates: TensorAccessorArgs<args_src.next_compile_time_args_offset(), 0>()
+
+    // Constexpr expression
+    %args_expr = ttkernel.TensorAccessorArgs(%c0, %c0) {cta_expr = "get_offset()"} : (i32, i32) -> !ttkernel.TensorAccessorArgs
+    // Generates: TensorAccessorArgs<get_offset(), 0>()
+    ```
   }];
 
-  let arguments = (ins I32:$cta_base, I32:$crta_base);
+  let arguments = (ins
+    Optional<TTKernel_TensorAccessorArgs>:$prev_args,
+    OptionalAttr<StrAttr>:$cta_expr,
+    OptionalAttr<StrAttr>:$crta_expr,
+    I32:$cta_base,
+    I32:$crta_base
+  );
   let results = (outs TTKernel_TensorAccessorArgs:$result);
 
   let assemblyFormat = [{
-    `(` $cta_base `,` $crta_base `)` attr-dict `:` functional-type(operands, results)
+    `(` ($prev_args^ `,`)? $cta_base `,` $crta_base `)`
+    (`cta_expr` `=` $cta_expr^)?
+    (`crta_expr` `=` $crta_expr^)?
+    attr-dict `:` functional-type(operands, results)
   }];
+
+  let hasVerifier = 1;
 }
 
 def TTKernel_TensorAccessorOp : TTKernel_Op<"TensorAccessor"> {
