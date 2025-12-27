@@ -16,36 +16,22 @@ THIS_DIR = Path(os.path.realpath(os.path.dirname(__file__)))
 REPO_DIR = (THIS_DIR / ".." / "..").resolve()
 
 
-def get_cmake_options() -> dict:
-    """Get CMake build options from command line arguments or defaults."""
-    import sys
-
-    # Parse custom arguments from command line
+# Global config to store build options
+class BuildConfig:
     enable_perf = "ON"  # Default to ON for standalone wheel builds
     enable_runtime_debug = "OFF"
 
-    # Look for our custom arguments
-    args_to_remove = []
-    for arg in sys.argv[1:]:
-        if arg.startswith("--enable-perf="):
-            enable_perf = arg.split("=")[1].upper()
-            args_to_remove.append(arg)
-        elif arg.startswith("--enable-runtime-debug="):
-            enable_runtime_debug = arg.split("=")[1].upper()
-            args_to_remove.append(arg)
 
-    # Remove our custom arguments so setuptools doesn't complain
-    for arg in args_to_remove:
-        sys.argv.remove(arg)
-
+def get_cmake_options() -> dict:
+    """Get CMake build options from build config."""
     return {
         "CMAKE_BUILD_TYPE": "Release",
         "TTMLIR_ENABLE_RUNTIME": "ON",
         "TT_RUNTIME_ENABLE_TTNN": "ON",
         "TT_RUNTIME_ENABLE_TTMETAL": "ON",
-        "TT_RUNTIME_ENABLE_PERF_TRACE": enable_perf,
+        "TT_RUNTIME_ENABLE_PERF_TRACE": BuildConfig.enable_perf,
         "TTMLIR_ENABLE_RUNTIME_TESTS": "OFF",
-        "TT_RUNTIME_DEBUG": enable_runtime_debug,
+        "TT_RUNTIME_DEBUG": BuildConfig.enable_runtime_debug,
     }
 
 
@@ -60,8 +46,39 @@ def get_version() -> str:
 class BdistWheel(bdist_wheel):
     """Custom wheel builder for platform-specific package."""
 
+    user_options = bdist_wheel.user_options + [
+        ("enable-perf=", None, "Enable perf trace: ON or OFF (default: ON)"),
+        (
+            "enable-runtime-debug=",
+            None,
+            "Enable runtime debug: ON or OFF (default: OFF)",
+        ),
+    ]
+
+    def initialize_options(self):
+        super().initialize_options()
+        # Default values
+        self.enable_perf = "ON"
+        self.enable_runtime_debug = "OFF"
+
     def finalize_options(self):
         super().finalize_options()
+        # Validate and store options in BuildConfig
+        self.enable_perf = self.enable_perf.upper()
+        self.enable_runtime_debug = self.enable_runtime_debug.upper()
+
+        if self.enable_perf not in ["ON", "OFF"]:
+            raise ValueError(
+                f"Invalid --enable-perf value: {self.enable_perf}. Must be ON or OFF"
+            )
+        if self.enable_runtime_debug not in ["ON", "OFF"]:
+            raise ValueError(
+                f"Invalid --enable-runtime-debug value: {self.enable_runtime_debug}. Must be ON or OFF"
+            )
+
+        BuildConfig.enable_perf = self.enable_perf
+        BuildConfig.enable_runtime_debug = self.enable_runtime_debug
+
         # Mark wheel as platform-specific (contains native binaries)
         self.root_is_pure = False
 
