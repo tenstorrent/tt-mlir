@@ -90,6 +90,7 @@ class Builder(metaclass=BuilderMeta):
         # Internal values to keep track
         self._root_module_insertion_point = None
         self._current_module_insertion_point = None
+        self._cpu_module_insertion_point = None
         self._hoisted_cpu_functions: List[str] = []
         self._nested_funcs: List[str] = []
         self._func_name_to_op: Dict[str, func.FuncOp] = {}
@@ -758,8 +759,11 @@ class Builder(metaclass=BuilderMeta):
     def parse_root_module(
         self, parsed_root_module: Module, golden_inputs: Dict[str, [List[torch.tensor]]]
     ):
+        found_cpu_module = False
+
         for entry in parsed_root_module.body.operations:
             if isinstance(entry, ttcore.CPUModuleOp):
+                found_cpu_module = True
                 builtin_module = entry.regions[0].blocks[0].operations[0]
                 for op in builtin_module.regions[0].blocks[0].operations:
                     if isinstance(op, func.FuncOp):
@@ -788,6 +792,15 @@ class Builder(metaclass=BuilderMeta):
         self._current_module_insertion_point = new_root_module.body
 
         with InsertionPoint(new_root_module.body):
+            if found_cpu_module:
+                cpu_module_op = ttcore.CPUModuleOp()
+                region = cpu_module_op.regions[0]
+                block = Block.create_at_start(region)
+                new_module = Module.create()
+                cloned_op = new_module.operation.clone()
+                cpu_module_op.regions[0].blocks[0].append(cloned_op.operation)
+                self._cpu_module_insertion_point = cloned_op.regions[0].blocks[0]
+
             for entry in parsed_root_module.body.operations:
                 if isinstance(entry, ttcore.DeviceModuleOp):
                     device_module_op = ttcore.DeviceModuleOp()
@@ -882,6 +895,8 @@ class Builder(metaclass=BuilderMeta):
                         global_result = tuple(
                             global_dict[operand] for operand in op.operands
                         )
+                    elif isinstance(op, ttir.EmptyOp):
+                        continue
                     else:
                         (
                             parsed_op,
@@ -964,45 +979,95 @@ class Builder(metaclass=BuilderMeta):
         parsed_op: func.CallOp,
         global_dict: Dict[Operand, Operand],
     ) -> Tuple[Operation, Dict[Operand, GoldenMapTensor]]:
-        is_hoisted_cpu_call = False
-        for attr in parsed_op.attributes:
+        is_hoisted = False
+        parsed_op_attributes = parsed_op.attributes
+        parsed_op_callee_value = parsed_op.callee.value
+        parsed_op_operands = parsed_op.operands
+
+        for attr in parsed_op_attributes:
             if attr.name == "ttir.cpu_hoisted_call":
-                is_hoisted_cpu_call = True
+                is_hoisted = True
                 break
 
-        if is_hoisted_cpu_call:
-            raise NotImplementedError(
-                "Hoisted CPU calls are not supported in parsing yet."
-            )
+        if is_hoisted:
+            insertion_point = self._cpu_module_insertion_point
+            hoisted_func_name = parsed_op_callee_value
+            hoisted_func_name_clean = hoisted_func_name.removesuffix("_decl")
+            nested_func_op = self._func_name_to_op[hoisted_func_name_clean]
 
-        nested_func_op = self._func_name_to_op[parsed_op.callee.value]
-        new_golden_inputs = []
-        for operand in parsed_op.operands:
-            owner0 = operand.owner
-            if isinstance(owner0, Block):
-                queried_operand = operand
-            else:
-                queried_operand = owner0.result
+            new_golden_inputs = []
+            for operand in parsed_op_operands:
+                owner0 = operand.owner
+                if isinstance(owner0, Block):
+                    queried_operand = operand
+                else:
+                    queried_operand = owner0.result
 
-            new_golden_inputs.append(
-                self._get_golden_tensor(global_dict[queried_operand])
-            )
+                new_golden_inputs.append(
+                    self._get_golden_tensor(global_dict[queried_operand])
+                )
 
-        with InsertionPoint(self._current_module_insertion_point):
-            new_func_op = self.parse_nested_func(nested_func_op, new_golden_inputs)
+            with InsertionPoint(insertion_point):
+                new_func_op = self.parse_nested_func(nested_func_op, new_golden_inputs)
 
-        new_operands = [global_dict[operand] for operand in parsed_op.operands]
-        call_op = func.CallOp(new_func_op, new_operands)
+            with InsertionPoint(self._current_module_insertion_point):
+                private_func_op = func.FuncOp(
+                    type=new_func_op.type, name=hoisted_func_name, visibility="private"
+                )
+                private_func_op.attributes["ttir.cpu_hoisted_func"] = UnitAttr.get(
+                    self._ctx
+                )
 
-        ordered_inputs, ordered_outputs = self._func_ops_generated[new_func_op]
-        for index, output in enumerate(ordered_outputs):
-            self._set_golden_tensor(
-                call_op.results[index], self._get_golden_tensor(output)
-            )
+            self._nested_funcs.append(private_func_op.name.value)
 
-        op_map_dictionary = {}
-        for old_result, new_result in zip(parsed_op.results, call_op.results):
-            op_map_dictionary[old_result] = new_result
+            new_operands = [global_dict[operand] for operand in parsed_op_operands]
+            call_op = func.CallOp(private_func_op, new_operands)
+            call_op_result = call_op.results
+            call_op.attributes["ttir.cpu_hoisted_call"] = UnitAttr.get(self._ctx)
+
+            ordered_inputs, ordered_outputs = self._func_ops_generated[new_func_op]
+            for index, output in enumerate(ordered_outputs):
+                self._set_golden_tensor(
+                    call_op_result[index], self._get_golden_tensor(output)
+                )
+
+            op_map_dictionary = {}
+            parsed_op_results = parsed_op.results
+            for old_result, new_result in zip(parsed_op_results, call_op.results):
+                op_map_dictionary[old_result] = new_result
+
+            return call_op, op_map_dictionary
+
+        else:
+            insertion_point = self._current_module_insertion_point
+            nested_func_op = self._func_name_to_op[parsed_op.callee.value]
+            new_golden_inputs = []
+            for operand in parsed_op.operands:
+                owner0 = operand.owner
+                if isinstance(owner0, Block):
+                    queried_operand = operand
+                else:
+                    queried_operand = owner0.result
+
+                new_golden_inputs.append(
+                    self._get_golden_tensor(global_dict[queried_operand])
+                )
+
+            with InsertionPoint(insertion_point):
+                new_func_op = self.parse_nested_func(nested_func_op, new_golden_inputs)
+
+            new_operands = [global_dict[operand] for operand in parsed_op.operands]
+            call_op = func.CallOp(new_func_op, new_operands)
+
+            ordered_inputs, ordered_outputs = self._func_ops_generated[new_func_op]
+            for index, output in enumerate(ordered_outputs):
+                self._set_golden_tensor(
+                    call_op.results[index], self._get_golden_tensor(output)
+                )
+
+            op_map_dictionary = {}
+            for old_result, new_result in zip(parsed_op.results, call_op.results):
+                op_map_dictionary[old_result] = new_result
 
         return call_op, op_map_dictionary
 
@@ -1010,22 +1075,31 @@ class Builder(metaclass=BuilderMeta):
         self,
         old_op: func.CallOp,
     ) -> Tuple[Module, TTIRBuilder]:
-        nested_func_op = self._func_name_to_op[old_op.callee.value]
-        sub_modules_and_builders = []
+        is_hoisted = False
+        for attr in old_op.attributes:
+            if attr.name == "ttir.cpu_hoisted_call":
+                is_hoisted = True
+                break
 
-        for block in nested_func_op.body:
-            for op in block.operations:
-                if isinstance(op, func.ReturnOp) or isinstance(
-                    op,
-                    ttir.EmptyOp,
-                ):
-                    continue
-                elif isinstance(op, func.CallOp):
-                    sub_op_module_builder = self.split_call_op(op)
-                    sub_modules_and_builders.append(sub_op_module_builder)
-                else:
-                    sub_op_module_builder = self.split_op(op)
-                    sub_modules_and_builders.append(sub_op_module_builder)
+        if is_hoisted:
+            sub_modules_and_builders = []
+        else:
+            nested_func_op = self._func_name_to_op[old_op.callee.value]
+            sub_modules_and_builders = []
+
+            for block in nested_func_op.body:
+                for op in block.operations:
+                    if isinstance(op, func.ReturnOp) or isinstance(
+                        op,
+                        ttir.EmptyOp,
+                    ):
+                        continue
+                    elif isinstance(op, func.CallOp):
+                        sub_op_module_builder = self.split_call_op(op)
+                        sub_modules_and_builders.append(sub_op_module_builder)
+                    else:
+                        sub_op_module_builder = self.split_op(op)
+                        sub_modules_and_builders.append(sub_op_module_builder)
 
         return sub_modules_and_builders
 

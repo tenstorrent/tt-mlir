@@ -5,9 +5,6 @@
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-cpu-hoisted-const-eval=true" -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
-// Test basic const-eval CPU hoisting with parameter + constant ops.
-// The const-eval subgraph (subtract on parameters/constants) should be hoisted to CPU module.
-
 module {
   // CHECK: ttcore.device_module {
   // CHECK: builtin.module
@@ -41,9 +38,41 @@ module {
     return %2 : tensor<32x32xbf16>
   }
 
+  // CHECK-LABEL: func.func private @forward_merge_return_multiple_values_const_eval_0
+  // CHECK-SAME: -> (tensor<32x32xbf16{{.*}}>, tensor<32x32xbf16{{.*}}>)
+  // CHECK: call @hoisted_forward_merge_return_multiple_values_const_eval_0_decl
+
+  // CHECK-LABEL: func.func @forward_merge_return_multiple_values
+  func.func @forward_merge_return_multiple_values(
+                    %arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>},
+                    %arg1: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>},
+                    %arg2: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>},
+                    %arg3: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> tensor<32x32xbf16> {
+    // CHECK: [[CONSTEVAL:%[0-9]+]]:2 = ttcore.load_cached{{.*}}%arg1, %arg2, %arg3
+
+    // CHECK: [[ADD0:%[0-9]+]] = "ttnn.add"(%{{.*}}, %arg1)
+    %0 = "ttir.add"(%arg0, %arg1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+
+    // CHECK-NOT: "ttnn.add"
+    %1 = "ttir.add"(%arg1, %arg2)  : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %2 = "ttir.add"(%arg2, %arg3)  : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+
+    // CHECK: [[MUL0:%[0-9]+]] = "ttnn.multiply"([[ADD0]], [[CONSTEVAL]]#1)
+    %3 = "ttir.multiply"(%1, %2) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+    %4 = "ttir.multiply"(%0, %3) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+
+    // CHECK: "ttnn.multiply"([[MUL0]], [[CONSTEVAL]]#0)
+    %5 = "ttir.multiply"(%4, %2) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+
+    return %5 : tensor<32x32xbf16>
+  }
+
   // CHECK-LABEL: func.func private @hoisted_forward_const_eval_0_decl{{.*}} -> tensor<32x32xf32
+  // CHECK-LABEL: func.func private @hoisted_forward_merge_return_multiple_values_const_eval_0_decl
+  // CHECK-SAME: -> (tensor<32x32xf32{{.*}}>, tensor<32x32xf32{{.*}}>)
 
   // CHECK: ttcore.cpu_module {
   // CHECK: builtin.module {
   // CHECK-LABEL: llvm.func @hoisted_forward_const_eval_0{{.*}}
+  // CHECK-LABEL: llvm.func @hoisted_forward_merge_return_multiple_values_const_eval_0{{.*}}
 }

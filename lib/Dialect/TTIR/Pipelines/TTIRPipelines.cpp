@@ -265,8 +265,11 @@ void createLinalgToLLVMPipeline(OpPassManager &manager,
   }
 }
 
-void createTTIRToCPUPipeline(OpPassManager &cpuPm,
-                             const LinalgToLLVMPipelineOptions &options) {
+void createTTIRToLLVMCPUPipeline(OpPassManager &pm,
+                                 const TTIRToLLVMCPUPipelineOptions &options) {
+
+  auto &cpuPm = pm.nest<ttcore::CPUModuleOp>().nest<mlir::ModuleOp>();
+
 #ifdef TTMLIR_ENABLE_STABLEHLO
   // Directly convert any hoisted SHLO ops into linalg ops.
   cpuPm.addPass(stablehlo::createStablehloLegalizeToLinalgPass());
@@ -289,9 +292,6 @@ void createTTIRToCPUPipeline(OpPassManager &cpuPm,
   // Add tosa-to-tensor/arith passes to handle tosa.const operations
   cpuPm.addPass(createTosaToTensorPass());
   cpuPm.addPass(createTosaToArithPass());
-
-  // Enable DPS semantics for hoisted functions in CPU module.
-  cpuPm.addPass(transforms::createConvertCPUHoistedFunctionsToDPS());
 
   ttir::createLinalgToLLVMPipeline(cpuPm, options);
   cpuPm.addPass(llvm_util::createLLVMEmitCallingConventionWrapperFuncs());
