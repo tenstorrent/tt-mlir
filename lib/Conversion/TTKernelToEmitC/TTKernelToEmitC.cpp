@@ -545,53 +545,32 @@ public:
     os.flush();
     std::string varName = "tensor_accessor_args_" + ssaName.substr(1);
 
-    // Build the CTA expression; cta_expr takes precedence over chaining.
-    std::string ctaArg;
-    if (auto ctaExpr = op.getCtaExprAttr()) {
-      // Explicit constexpr string expression (overrides chaining).
-      ctaArg = ctaExpr.getValue().str();
-    } else if (auto prevArgs = op.getPrevArgs()) {
-      // Chaining from previous accessor (no cta_expr provided).
-      auto prevLiteral =
-          adaptor.getPrevArgs().getDefiningOp<emitc::LiteralOp>();
-      TT_assertv(prevLiteral,
-                 "prev_args should be emitc.literal after conversion");
-      ctaArg =
-          prevLiteral.getValue().str() + ".next_compile_time_args_offset()";
-    } else {
-      // Literal integer constant (no prev_args or cta_expr provided).
-      // Verifier ensures this is a constant.
-      auto cta_base = op.getCtaBase();
-      auto cta_base_attr = cta_base.getDefiningOp<arith::ConstantOp>();
-      TT_assertv(cta_base_attr,
-                 "cta_base should be constant (checked by verifier)");
-      ctaArg =
-          std::to_string(cast<IntegerAttr>(cta_base_attr.getValue()).getInt());
-    }
+    // Build CTA/CRTA expression with priority: expr attr > chaining > literal.
+    auto buildArgExpr = [&](StringAttr exprAttr, Value baseValue,
+                            StringRef chainMethodName) -> std::string {
+      if (exprAttr) {
+        // Explicit constexpr string expression (overrides chaining).
+        return exprAttr.getValue().str();
+      }
+      if (op.getPrevArgs()) {
+        // Chaining from previous accessor.
+        auto prevLiteral =
+            adaptor.getPrevArgs().getDefiningOp<emitc::LiteralOp>();
+        TT_assertv(prevLiteral,
+                   "prev_args should be emitc.literal after conversion.");
+        return prevLiteral.getValue().str() + "." + chainMethodName.str() +
+               "()";
+      }
+      // Literal integer constant (verifier ensures this is a constant).
+      auto baseAttr = baseValue.getDefiningOp<arith::ConstantOp>();
+      TT_assertv(baseAttr, "base should be constant.");
+      return std::to_string(cast<IntegerAttr>(baseAttr.getValue()).getInt());
+    };
 
-    // Build the CRTA expression; crta_expr takes precedence over chaining.
-    std::string crtaArg;
-    if (auto crtaExpr = op.getCrtaExprAttr()) {
-      // Explicit constexpr string expression (overrides chaining).
-      crtaArg = crtaExpr.getValue().str();
-    } else if (auto prevArgs = op.getPrevArgs()) {
-      // Chaining from previous accessor when no crta_expr is provided.
-      auto prevLiteral =
-          adaptor.getPrevArgs().getDefiningOp<emitc::LiteralOp>();
-      TT_assertv(prevLiteral,
-                 "prev_args should be emitc.literal after conversion");
-      crtaArg =
-          prevLiteral.getValue().str() + ".next_common_runtime_args_offset()";
-    } else {
-      // Literal integer constant (no prev_args or crta_expr provided).
-      // Verifier ensures this is a constant.
-      auto crta_base = op.getCrtaBase();
-      auto crta_base_attr = crta_base.getDefiningOp<arith::ConstantOp>();
-      TT_assertv(crta_base_attr,
-                 "crta_base should be constant (checked by verifier)");
-      crtaArg =
-          std::to_string(cast<IntegerAttr>(crta_base_attr.getValue()).getInt());
-    }
+    std::string ctaArg = buildArgExpr(op.getCtaExprAttr(), op.getCtaBase(),
+                                      "next_compile_time_args_offset");
+    std::string crtaArg = buildArgExpr(op.getCrtaExprAttr(), op.getCrtaBase(),
+                                       "next_common_runtime_args_offset");
 
     // Emit: auto tensor_accessor_args_N = TensorAccessorArgs<ctaArg,
     // crtaArg>();

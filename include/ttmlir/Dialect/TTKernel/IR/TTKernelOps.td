@@ -2914,14 +2914,35 @@ def TTKernel_TensorAccessorArgsOp : TTKernel_Op<"TensorAccessorArgs"> {
     TensorAccessorArgs struct constructor.
 
     CTA (compile-time args) offset is determined by (in priority order):
-    1. If cta_expr is provided: uses the constexpr string expression (overrides chaining)
-    2. Else if prev_args is provided: uses prev_args.next_compile_time_args_offset()
+    1. If cta_expr is provided: uses the constexpr string expression
+    2. Else if prev_args is provided: uses prev_args.next_compile_time_args_offset() (chaining)
     3. Otherwise: uses cta_base integer constant
 
     CRTA (compile/runtime args) offset is determined by (in priority order):
-    1. If crta_expr is provided: uses the constexpr string expression (overrides chaining)
-    2. Else if prev_args is provided: uses prev_args.next_common_runtime_args_offset()
+    1. If crta_expr is provided: uses the constexpr string expression
+    2. Else if prev_args is provided: uses prev_args.next_common_runtime_args_offset() (chaining)
     3. Otherwise: uses crta_base integer constant
+
+    Examples:
+    ```mlir
+    // Literal offsets
+    %c0 = arith.constant 0 : i32
+    %args = ttkernel.TensorAccessorArgs(%c0, %c0) : (i32, i32) -> !ttkernel.TensorAccessorArgs
+    // Generates: TensorAccessorArgs<0, 0>()
+
+    // CTA+CRTA chaining (common pattern)
+    %args_src = ttkernel.TensorAccessorArgs(%c0, %c0) : (i32, i32) -> !ttkernel.TensorAccessorArgs
+    %args_dst = ttkernel.TensorAccessorArgs(%args_src, %c0, %c0) : (!ttkernel.TensorAccessorArgs, i32, i32) -> !ttkernel.TensorAccessorArgs
+    // Generates: TensorAccessorArgs<args_src.next_compile_time_args_offset(), args_src.next_common_runtime_args_offset()>()
+
+    // Selective override: chain CTA, use literal CRTA
+    %args_custom = ttkernel.TensorAccessorArgs(%args_src, %c0, %c0) {crta_expr = "0"} : (!ttkernel.TensorAccessorArgs, i32, i32) -> !ttkernel.TensorAccessorArgs
+    // Generates: TensorAccessorArgs<args_src.next_compile_time_args_offset(), 0>()
+
+    // Constexpr expression
+    %args_expr = ttkernel.TensorAccessorArgs(%c0, %c0) {cta_expr = "get_offset()"} : (i32, i32) -> !ttkernel.TensorAccessorArgs
+    // Generates: TensorAccessorArgs<get_offset(), 0>()
+    ```
   }];
 
   let arguments = (ins
