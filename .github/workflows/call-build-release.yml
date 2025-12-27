@@ -100,6 +100,14 @@ jobs:
         CCACHE_NOHASHDIR: true
         CCACHE_BASEDIR: ${{ steps.strings.outputs.work-dir }}
 
+    - name: Build ttrt wheel
+      shell: bash
+      run: |
+        source env/activate
+        cd tools/ttrt
+        python setup.py bdist_wheel
+        ls -la dist/
+
     - name: Configure CMake
       shell: bash
       run: |
@@ -144,14 +152,6 @@ jobs:
         cmake --install ${{ steps.strings.outputs.build-output-dir }} --component SharedLib
         cmake --install ${{ steps.strings.outputs.build-output-dir }} --component TTNNStandalone
         cmake --install ${{ steps.strings.outputs.build-output-dir }} --component DistributedRuntime
-
-    - name: Build ttrt wheel
-      shell: bash
-      run: |
-        source env/activate
-        cd tools/ttrt
-        python setup.py bdist_wheel
-        ls -la dist/
 
     - name: Build components
       shell: bash
