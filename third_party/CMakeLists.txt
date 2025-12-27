@@ -206,7 +206,7 @@ if (TT_RUNTIME_ENABLE_TTNN OR TT_RUNTIME_ENABLE_TTMETAL)
       PROGRAMS
         ${TTMETAL_BUILD_DIR}/tools/profiler/bin/capture-release
         ${TTMETAL_BUILD_DIR}/tools/profiler/bin/csvexport-release
-      DESTINATION ${CMAKE_INSTALL_PREFIX}
+      DESTINATION ${CMAKE_INSTALL_PREFIX}/tt-metal
       COMPONENT SharedLib
       EXCLUDE_FROM_ALL
     )
