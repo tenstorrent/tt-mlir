@@ -71,6 +71,36 @@ inline LogicalResult interleaveCommaWithError(const Container container,
 }
 
 namespace {
+
+// Forward declaration
+struct PythonEmitter;
+
+/// Helper class for building inline Python expressions
+class ExpressionBuilder {
+public:
+  ExpressionBuilder(PythonEmitter &emitter) {}
+
+  /// Register a block argument with its corresponding name
+  void mapBlockArgument(Value blockArg, StringRef name) {
+    blockArgNames[blockArg] = name.str();
+  }
+
+  /// Build an expression string for a value recursively
+  FailureOr<std::string> buildExpression(Value value);
+
+private:
+  /// Build expression for specific operation types
+  FailureOr<std::string> buildCallOpaqueExpr(CallOpaqueOp op);
+  FailureOr<std::string> buildLiteralExpr(LiteralOp op);
+  FailureOr<std::string> buildSubscriptExpr(SubscriptOp op);
+
+  /// Map from Value to its expression string representation
+  DenseMap<Value, std::string> expressionCache;
+
+  /// Block arguments mapped to their names
+  DenseMap<Value, std::string> blockArgNames;
+};
+
 /// Emitter that uses dialect specific emitters to emit Python code.
 struct PythonEmitter {
   explicit PythonEmitter(raw_ostream &os) : os(os) {
@@ -163,8 +193,95 @@ private:
 };
 } // namespace
 
+// Implementation of ExpressionBuilder methods
+FailureOr<std::string> ExpressionBuilder::buildExpression(Value value) {
+  // Check if already cached
+  if (expressionCache.count(value)) {
+    return expressionCache[value];
+  }
+
+  // Check if it's a block argument
+  if (blockArgNames.count(value)) {
+    return blockArgNames[value];
+  }
+
+  // Otherwise, it must be defined by an operation
+  Operation *defOp = value.getDefiningOp();
+  if (!defOp) {
+    return failure();
+  }
+
+  // Build expression based on operation type
+  FailureOr<std::string> result;
+  if (auto callOp = dyn_cast<CallOpaqueOp>(defOp)) {
+    result = buildCallOpaqueExpr(callOp);
+  } else if (auto literalOp = dyn_cast<LiteralOp>(defOp)) {
+    result = buildLiteralExpr(literalOp);
+  } else if (auto subscriptOp = dyn_cast<SubscriptOp>(defOp)) {
+    result = buildSubscriptExpr(subscriptOp);
+  } else {
+    return defOp->emitOpError(
+        "operation type not supported in inline expression");
+  }
+
+  if (succeeded(result)) {
+    expressionCache[value] = *result;
+  }
+  return result;
+}
+
+FailureOr<std::string> ExpressionBuilder::buildCallOpaqueExpr(CallOpaqueOp op) {
+  std::string expr;
+  llvm::raw_string_ostream os(expr);
+
+  os << op.getCallee() << "(";
+
+  bool first = true;
+  for (Value operand : op.getOperands()) {
+    if (!first) {
+      os << ", ";
+    }
+    first = false;
+
+    auto operandExpr = buildExpression(operand);
+    if (failed(operandExpr)) {
+      return failure();
+    }
+    os << *operandExpr;
+  }
+
+  os << ")";
+  return expr;
+}
+
+FailureOr<std::string> ExpressionBuilder::buildLiteralExpr(LiteralOp op) {
+  return std::string(op.getValue());
+}
+
+FailureOr<std::string> ExpressionBuilder::buildSubscriptExpr(SubscriptOp op) {
+  std::string expr;
+  llvm::raw_string_ostream os(expr);
+
+  auto valueExpr = buildExpression(op.getValue());
+  if (failed(valueExpr)) {
+    return failure();
+  }
+
+  auto indexExpr = buildExpression(op.getIndex());
+  if (failed(indexExpr)) {
+    return failure();
+  }
+
+  os << *valueExpr << "[" << *indexExpr << "]";
+  return expr;
+}
+
 /// Determine whether op result should be emitted in a deferred way.
 static bool hasDeferredEmission(Operation *op) {
+  // ExpressionOp with inline mode should also be deferred
+  if (auto exprOp = dyn_cast_or_null<ExpressionOp>(op)) {
+    return !exprOp.getDoNotInline();
+  }
   return isa_and_nonnull<LiteralOp, GetGlobalOp>(op);
 }
 
@@ -460,6 +577,84 @@ static LogicalResult printOperation(PythonEmitter &emitter,
   return emitter.emitGlobalStatement(globalStatementOp);
 }
 
+static LogicalResult printOperation(PythonEmitter &emitter, YieldOp yieldOp) {
+  // YieldOp should only appear inside ExpressionOp
+  // In the new design, yield should never be directly emitted
+  // It's handled by the ExpressionBuilder
+  return yieldOp.emitOpError("yield operation should not be directly emitted");
+}
+
+// Helper function to build an expression string
+static FailureOr<std::string> buildExpressionString(ExpressionOp expressionOp,
+                                                    PythonEmitter &emitter) {
+  ExpressionBuilder builder(emitter);
+
+  // Map block arguments to operands
+  Block *bodyBlock = expressionOp.getBodyBlock();
+  for (auto [blockArg, operand] :
+       llvm::zip(bodyBlock->getArguments(), expressionOp.getOperands())) {
+    // Get the name from the parent emitter and register it in the builder
+    std::string argName = emitter.getOrCreateName(operand, "expr_arg").str();
+    builder.mapBlockArgument(blockArg, argName);
+  }
+
+  // Find the yield op and build its expression
+  auto yieldOp = cast<YieldOp>(bodyBlock->getTerminator());
+  Value yieldValue = yieldOp.getResult();
+
+  // Build the expression recursively
+  return builder.buildExpression(yieldValue);
+}
+
+static LogicalResult printOperation(PythonEmitter &emitter,
+                                    ExpressionOp expressionOp) {
+
+  // Check if we should emit inline or not
+  bool shouldInline = !expressionOp.getDoNotInline();
+
+  if (shouldInline) {
+    // For inline expressions, build the expression string and cache it
+    auto exprStrResult = buildExpressionString(expressionOp, emitter);
+    if (failed(exprStrResult)) {
+      return failure();
+    }
+
+    // Cache the expression for deferred emission
+    emitter.cacheDeferredOpResult(expressionOp.getResult(), *exprStrResult);
+
+    // Return success - the expression will be emitted when it's used
+    return success();
+  } else {
+    // Emit non-inline: emit the body operations normally
+    PythonEmitter::Scope scope(emitter);
+
+    // Map block arguments to operands
+    Block *bodyBlock = expressionOp.getBodyBlock();
+    for (auto [blockArg, operand] :
+         llvm::zip(bodyBlock->getArguments(), expressionOp.getOperands())) {
+      emitter.cacheDeferredOpResult(
+          blockArg, emitter.getOrCreateName(operand, "expr_arg"));
+    }
+
+    // Emit all operations in the body except the yield
+    for (Operation &bodyOp : bodyBlock->getOperations()) {
+      if (isa<YieldOp>(bodyOp)) {
+        // For the yield, just emit an assignment to the expression result
+        auto yieldOp = cast<YieldOp>(bodyOp);
+        if (failed(emitter.emitAssignPrefix(*expressionOp))) {
+          return failure();
+        }
+        return emitter.emitOperand(yieldOp.getResult(), "");
+      }
+      if (failed(emitter.emitOperation(bodyOp))) {
+        return failure();
+      }
+    }
+  }
+
+  return success();
+}
+
 LogicalResult PythonEmitter::emitOperation(Operation &op) {
   LogicalResult status =
       llvm::TypeSwitch<Operation *, LogicalResult>(&op)
@@ -467,8 +662,8 @@ LogicalResult PythonEmitter::emitOperation(Operation &op) {
           .Case<ModuleOp>([&](auto op) { return printOperation(*this, op); })
           // EmitPy ops.
           .Case<CallOpaqueOp, ImportOp, AssignOp, ConstantOp, SubscriptOp,
-                GlobalOp, AssignGlobalOp, GlobalStatementOp>(
-              [&](auto op) { return printOperation(*this, op); })
+                GlobalOp, AssignGlobalOp, GlobalStatementOp, ExpressionOp,
+                YieldOp>([&](auto op) { return printOperation(*this, op); })
           .Case<GetGlobalOp>([&](auto op) {
             cacheDeferredOpResult(op.getResult(), op.getName());
             return success();
@@ -498,6 +693,18 @@ LogicalResult PythonEmitter::emitOperation(Operation &op) {
 }
 
 LogicalResult PythonEmitter::emitOperand(Value value, std::string name) {
+  // Check if this value is from an inline expression that has been cached
+  if (auto *defOp = value.getDefiningOp()) {
+    if (auto exprOp = dyn_cast<ExpressionOp>(defOp)) {
+      if (!exprOp.getDoNotInline() && valueMapper.count(value)) {
+        // Emit the cached expression string directly
+        os << valueMapper.lookup(value);
+        return success();
+      }
+    }
+  }
+
+  // Default behavior: emit the variable name
   os << getOrCreateName(value, name);
 
   return success();
