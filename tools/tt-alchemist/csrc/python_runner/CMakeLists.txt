@@ -39,14 +39,19 @@ target_include_directories(${PYTHON_RUNNER_LIBRARY_NAME}
 # Find Python for linking
 find_package(Python3 COMPONENTS Development REQUIRED)
 
+target_link_directories(${PYTHON_RUNNER_LIBRARY_NAME}
+  PUBLIC
+    ${TTMETAL_LIBRARY_DIR}
+)
+
 target_link_libraries(${PYTHON_RUNNER_LIBRARY_NAME}
   PUBLIC
     pybind11::embed
     Python3::Python
-    ${TTMETAL_LIBRARY_DIR}/libtt_metal.so
-    ${TTMETAL_LIBRARY_DIR}/_ttnncpp.so
-    ${TTMETAL_LIBRARY_DIR}/libtt_stl.so
-    ${TTMETAL_LIBRARY_DIR}/libfmt$<IF:$<CONFIG:Debug>,d,>.so
+    -l:libtt_metal.so
+    -l:_ttnncpp.so
+    -l:libtt_stl.so
+    -l:libfmt$<IF:$<CONFIG:Debug>,d,>.so
 )
 
 # Ensure tt-metal libraries are built before python_runner
