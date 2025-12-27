@@ -332,6 +332,7 @@ public:
     llvm::DenseMap<func::FuncOp, llvm::SmallVector<Operation *>> opSchedule;
     llvm::DenseMap<Edge, MemReconfigEntry> memReconfigEntryMap;
     std::vector<Operation *> spillToDramOps;
+    std::vector<Operation *> spillToL1InterleavedOps;
 
     // Extract override resharding edges
     //
@@ -354,6 +355,8 @@ public:
       memReconfigEntryMap =
           memoryLayoutAnalysis.getResult().memReconfigEntryMap;
       spillToDramOps = memoryLayoutAnalysis.getResult().spillToDramOps;
+      spillToL1InterleavedOps =
+          memoryLayoutAnalysis.getResult().spillToL1InterleavedOps;
     }
 
     // Manually overriden resharding edges should be added to the
@@ -557,6 +560,7 @@ public:
       }
 
       processSpillOps(spillToDramOps, deviceGrid, insertedMemoryReconfigOps);
+      processSpillToL1InterleavedOps(spillToL1InterleavedOps, deviceGrid);
 
       // Try finding ops that can be upgraded from DRAM to L1 interleaved
       // layout.
@@ -911,6 +915,55 @@ private:
               memoryReconfigOp, ttmlir::opToString(spilledOp));
           memoryReconfigOp->setOperand(0, spilledOp->getResult(0));
         }
+      }
+    }
+  }
+
+  // Insert ToLayoutOp to convert L1 sharded → L1 interleaved for ops
+  // whose consumers need interleaved input (e.g., reshape).
+  void processSpillToL1InterleavedOps(
+      const std::vector<Operation *> &spillToL1InterleavedOps,
+      ttcore::GridAttr deviceGrid) {
+
+    for (Operation *spilledOp : spillToL1InterleavedOps) {
+      RankedTensorType tensorType =
+          mlir::cast<RankedTensorType>(spilledOp->getResult(0).getType());
+      TTNNLayoutAttr layoutAttr =
+          mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
+
+      TTNNLayoutAttr l1InterleavedLayout =
+          layoutAttr.withBufferType(BufferType::L1)
+              .withMemoryLayout(TensorMemoryLayout::Interleaved);
+      RankedTensorType newTensorType = RankedTensorType::get(
+          tensorType.getShape(), tensorType.getElementType(),
+          l1InterleavedLayout);
+
+      OpBuilder builder(spilledOp->getContext());
+      ttcore::DataTypeAttr dataType = ttcore::DataTypeAttr::get(
+          spilledOp->getContext(), l1InterleavedLayout.getDataType());
+      LayoutAttr newLayout = LayoutAttr::get(spilledOp->getContext(),
+                                             l1InterleavedLayout.getLayout());
+      MemoryConfigAttr memConfigAttr = MemoryConfigAttr::get(
+          spilledOp->getContext(), l1InterleavedLayout.getMemLayout(),
+          BufferTypeAttr::get(spilledOp->getContext(), BufferType::L1),
+          utils::createShardSpecIfNeeded(l1InterleavedLayout, deviceGrid));
+
+      builder.setInsertionPointAfter(spilledOp);
+      Location loc = ttmlir::utils::appendLocationSuffix(spilledOp->getLoc(),
+                                                         "_to_l1_interleaved");
+
+      // Save uses, insert ToLayoutOp, reconnect uses
+      llvm::SmallVector<std::pair<Operation *, unsigned>> uses;
+      for (auto &use : spilledOp->getResult(0).getUses()) {
+        uses.emplace_back(use.getOwner(), use.getOperandNumber());
+      }
+
+      Operation *toLayoutOp = builder.create<ToLayoutOp>(
+          loc, newTensorType, spilledOp->getResult(0), newLayout, dataType,
+          memConfigAttr);
+
+      for (auto &[useOp, operandIdx] : uses) {
+        useOp->setOperand(operandIdx, toLayoutOp->getResult(0));
       }
     }
   }
