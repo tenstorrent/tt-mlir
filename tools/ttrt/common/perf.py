@@ -199,12 +199,23 @@ class Perf:
         )
         self.ttnn_binaries = []
         self.ttmetal_binaries = []
+
+        # Look for tracy tools in installed location first, then development build location
+        metal_home = self.globals.get_ttmetal_home_path()
+        installed_capture = f"{metal_home}/capture-release"
+        dev_capture = f"{metal_home}/build/tools/profiler/bin/capture-release"
         self.tracy_capture_tool_path = (
-            f"{self.globals.get_ttmetal_home_path()}/capture-release"
+            installed_capture if os.path.exists(installed_capture) else dev_capture
         )
+
+        installed_csvexport = f"{metal_home}/csvexport-release"
+        dev_csvexport = f"{metal_home}/build/tools/profiler/bin/csvexport-release"
         self.tracy_csvexport_tool_path = (
-            f"{self.globals.get_ttmetal_home_path()}/csvexport-release"
+            installed_csvexport
+            if os.path.exists(installed_csvexport)
+            else dev_csvexport
         )
+
         self.tracy_capture_tool_process = None
         self.results = Results(self.logger, self.file_manager)
 
