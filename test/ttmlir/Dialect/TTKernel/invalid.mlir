@@ -104,3 +104,36 @@ func.func @test_tensor_accessor_args_missing_crta_expr_equal() {
   %args = ttkernel.TensorAccessorArgs(%c0, %c0) crta_expr "bar"
   return
 }
+
+// -----
+
+// Test: wrong type for prev_args operand (should be !ttkernel.TensorAccessorArgs).
+func.func @test_tensor_accessor_args_wrong_prev_type() {
+  // expected-note @+1 {{prior use here}}
+  %c0 = arith.constant 0 : i32
+  // expected-error @+1 {{use of value '%c0' expects different type than prior uses: '!ttkernel.TensorAccessorArgs' vs 'i32'}}
+  %args = ttkernel.TensorAccessorArgs(prev = %c0)
+  return
+}
+
+// -----
+
+// Test: wrong type for cta_base operand (should be i32).
+func.func @test_tensor_accessor_args_wrong_cta_type() {
+  // expected-note @+1 {{prior use here}}
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : i32
+  // expected-error @+1 {{use of value '%c0' expects different type than prior uses: 'i32' vs 'index'}}
+  %args = ttkernel.TensorAccessorArgs(%c0, %c1)
+  return
+}
+
+// -----
+
+// Test: malformed attr-dict.
+func.func @test_tensor_accessor_args_malformed_attr_dict() {
+  %c0 = arith.constant 0 : i32
+  // expected-error @+1 {{expected attribute value}}
+  %args = ttkernel.TensorAccessorArgs(%c0, %c0) {foo =
+  return
+}
