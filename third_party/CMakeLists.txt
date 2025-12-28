@@ -210,15 +210,6 @@ if (TT_RUNTIME_ENABLE_TTNN OR TT_RUNTIME_ENABLE_TTMETAL)
       COMPONENT SharedLib
       EXCLUDE_FROM_ALL
     )
-
-    # Install tracy Python module
-    install(
-      DIRECTORY
-        ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/tools/tracy
-      DESTINATION ${CMAKE_INSTALL_PREFIX}/tt-metal
-      COMPONENT SharedLib
-      EXCLUDE_FROM_ALL
-    )
   endif()
 endif()
 

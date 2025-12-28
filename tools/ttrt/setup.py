@@ -216,12 +216,13 @@ requirements = [
 ]
 
 # Setup package directories (must be relative paths)
-packages = ["ttrt", "ttrt.common", "ttrt.binary", "ttrt.runtime"]
+packages = ["ttrt", "ttrt.common", "ttrt.binary", "ttrt.runtime", "tracy"]
 package_dir = {
     "ttrt": ".",
     "ttrt.common": "common",
     "ttrt.binary": "binary",
     "ttrt.runtime": "runtime",
+    "tracy": "../../third_party/tt-metal/src/tt-metal/tools/tracy",
 }
 
 setup(
