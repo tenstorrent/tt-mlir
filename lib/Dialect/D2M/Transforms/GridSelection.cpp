@@ -708,6 +708,15 @@ recreateGenericOp(d2m::GenericOp genericOp,
         genericOp.getIteratorTypes(),
         [&](OpBuilder &b, Location loc, ValueRange blockArgs) {
           IRMapping mapping;
+
+          // Map old operands to new operands for ops that capture external
+          // values (e.g., DMAs that reference views outside the region).
+          for (auto [oldOp, newOp] :
+               llvm::zip(genericOp.getOperands(), newOperands)) {
+            mapping.map(oldOp, newOp);
+          }
+
+          // Map block arguments.
           Block &oldBlock = oldRegion.front();
           for (auto [oldArg, newArg] :
                llvm::zip(oldBlock.getArguments(), blockArgs)) {
