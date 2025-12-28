@@ -218,24 +218,161 @@ static std::string verifyTilizeUntilizeCBs(CBType tilizedCB, CBType scalarCB) {
 }
 
 ::mlir::LogicalResult TensorAccessorArgsOp::verify() {
-  // When not using chaining or constexpr, operands must be constants
-  if (!getPrevArgs() && !getCtaExprAttr()) {
-    auto ctaBase = getCtaBase();
-    if (!ctaBase.getDefiningOp<arith::ConstantOp>()) {
+  // Validation rules:
+  // 1. If prev_args is present, cta_base and crta_base should NOT be present
+  // 2. If prev_args is NOT present, both cta_base and crta_base MUST be present
+  //    and must be constants (unless expr attrs are provided)
+
+  if (getPrevArgs()) {
+    // When chaining, we shouldn't have cta_base/crta_base
+    if (getCtaBase() || getCrtaBase()) {
       return emitOpError(
-          "cta_base must be a constant when prev_args and cta_expr are not "
+          "cta_base and crta_base should not be provided when using prev_args");
+    }
+  } else {
+    // When not chaining, both cta_base and crta_base are required
+    if (!getCtaBase() || !getCrtaBase()) {
+      return emitOpError(
+          "both cta_base and crta_base are required when prev_args is not "
           "provided");
+    }
+
+    // If no expr attribute, the base must be a constant
+    if (!getCtaExprAttr()) {
+      if (!getCtaBase().getDefiningOp<arith::ConstantOp>()) {
+        return emitOpError(
+            "cta_base must be a constant when cta_expr is not provided");
+      }
+    }
+
+    if (!getCrtaExprAttr()) {
+      if (!getCrtaBase().getDefiningOp<arith::ConstantOp>()) {
+        return emitOpError(
+            "crta_base must be a constant when crta_expr is not provided");
+      }
     }
   }
 
-  if (!getPrevArgs() && !getCrtaExprAttr()) {
-    auto crtaBase = getCrtaBase();
-    if (!crtaBase.getDefiningOp<arith::ConstantOp>()) {
-      return emitOpError(
-          "crta_base must be a constant when prev_args and crta_expr are not "
-          "provided");
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// TensorAccessorArgsOp custom assembly format
+//===----------------------------------------------------------------------===//
+// Format:
+// - Without prev_args: TensorAccessorArgs(%cta, %crta) [cta_expr = "..."]
+//                      [crta_expr = "..."] {attr-dict}
+// - With prev_args:    TensorAccessorArgs(prev = %prev) [cta_expr = "..."]
+//                      [crta_expr = "..."] {attr-dict}
+
+void TensorAccessorArgsOp::print(::mlir::OpAsmPrinter &p) {
+  p << "(";
+  if (getPrevArgs()) {
+    p << "prev = " << getPrevArgs();
+  } else {
+    p << getCtaBase() << ", " << getCrtaBase();
+  }
+  p << ")";
+
+  if (getCtaExprAttr()) {
+    p << " cta_expr = " << getCtaExprAttr();
+  }
+  if (getCrtaExprAttr()) {
+    p << " crta_expr = " << getCrtaExprAttr();
+  }
+
+  llvm::SmallVector<::llvm::StringRef, 3> elidedAttrs = {
+      "cta_expr", "crta_expr", "operandSegmentSizes"};
+  p.printOptionalAttrDict((*this)->getAttrs(), elidedAttrs);
+}
+
+::mlir::ParseResult
+TensorAccessorArgsOp::parse(::mlir::OpAsmParser &parser,
+                            ::mlir::OperationState &result) {
+  ::mlir::OpAsmParser::UnresolvedOperand ctaBaseOperand;
+  ::mlir::OpAsmParser::UnresolvedOperand crtaBaseOperand;
+  ::mlir::OpAsmParser::UnresolvedOperand prevArgsOperand;
+  bool hasPrevArgs = false;
+
+  auto i32Type = parser.getBuilder().getI32Type();
+  auto tensorAccessorArgsType =
+      TensorAccessorArgsType::get(parser.getContext());
+
+  // Parse opening paren
+  if (parser.parseLParen()) {
+    return failure();
+  }
+
+  // Check if we have "prev =" or operands.
+  if (succeeded(parser.parseOptionalKeyword("prev"))) {
+    if (parser.parseEqual() || parser.parseOperand(prevArgsOperand)) {
+      return failure();
+    }
+    hasPrevArgs = true;
+  } else {
+    // Parse cta_base, crta_base.
+    if (parser.parseOperand(ctaBaseOperand) || parser.parseComma() ||
+        parser.parseOperand(crtaBaseOperand)) {
+      return failure();
     }
   }
+
+  if (parser.parseRParen()) {
+    return failure();
+  }
+
+  StringAttr ctaExprAttr;
+  if (succeeded(parser.parseOptionalKeyword("cta_expr"))) {
+    if (parser.parseEqual() || parser.parseAttribute(ctaExprAttr)) {
+      return failure();
+    }
+    result.addAttribute("cta_expr", ctaExprAttr);
+  }
+
+  StringAttr crtaExprAttr;
+  if (succeeded(parser.parseOptionalKeyword("crta_expr"))) {
+    if (parser.parseEqual() || parser.parseAttribute(crtaExprAttr)) {
+      return failure();
+    }
+    result.addAttribute("crta_expr", crtaExprAttr);
+  }
+
+  if (parser.parseOptionalAttrDict(result.attributes)) {
+    return failure();
+  }
+
+  // Resolve operands and build operandSegmentSizes
+  // Arguments order: cta_base (optional), crta_base (optional), prev_args
+  // (optional). When prev_args is present, cta_base and crta_base are not
+  // provided.
+  int32_t ctaBaseCount = 0;
+  int32_t crtaBaseCount = 0;
+  int32_t prevArgsCount = 0;
+
+  if (hasPrevArgs) {
+    // Only prev_args operand
+    if (parser.resolveOperand(prevArgsOperand, tensorAccessorArgsType,
+                              result.operands)) {
+      return failure();
+    }
+    prevArgsCount = 1;
+  } else {
+    // cta_base and crta_base operands
+    if (parser.resolveOperand(ctaBaseOperand, i32Type, result.operands) ||
+        parser.resolveOperand(crtaBaseOperand, i32Type, result.operands)) {
+      return failure();
+    }
+    ctaBaseCount = 1;
+    crtaBaseCount = 1;
+  }
+
+  // Add operandSegmentSizes attribute (required by AttrSizedOperandSegments)
+  result.addAttribute("operandSegmentSizes",
+                      parser.getBuilder().getDenseI32ArrayAttr(
+                          {ctaBaseCount, crtaBaseCount, prevArgsCount}));
+
+  // Add result type
+  result.addTypes(tensorAccessorArgsType);
 
   return success();
 }
