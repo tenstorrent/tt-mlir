@@ -1588,7 +1588,6 @@ class TTNNBuilder(Builder):
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
         ttnn_op = self.get_opview_from_method(TTNNBuilder.bitwise_not)
-        dtype = self._get_data_type_attribute(in0)
 
         if output_type is None:
             mlir_output_type = self.get_type(in0)
@@ -1609,7 +1608,6 @@ class TTNNBuilder(Builder):
             result,
             in0,
             loc=loc,
-            dtype=dtype,
         )
         op_result = op.result
 
@@ -1632,7 +1630,7 @@ class TTNNBuilder(Builder):
         in0 = global_dict[old_op.input]
         result = old_op.result.type
 
-        new_op = ttnn_op(result, in0, loc=old_op.location, dtype=old_op.dtype)
+        new_op = ttnn_op(result, in0, loc=old_op.location)
         new_op_result = new_op.result
 
         if not self._disable_golden_check:
@@ -1671,9 +1669,7 @@ class TTNNBuilder(Builder):
                     in0 = inputs[0]
                     result = old_op.result.type
 
-                    new_op = ttnn_op(
-                        result, in0, loc=old_op.location, dtype=old_op.dtype
-                    )
+                    new_op = ttnn_op(result, in0, loc=old_op.location)
                     new_op_result = new_op.result
 
                     if not self._disable_golden_check:
@@ -3177,8 +3173,8 @@ class TTNNBuilder(Builder):
         op = ttnn_op(
             result,
             in0,
+            mlir_output_type,
             loc=loc,
-            dtype=mlir_output_type,
         )
         op_result = op.result
 
@@ -3201,7 +3197,7 @@ class TTNNBuilder(Builder):
         in0 = global_dict[old_op.input]
         result = old_op.result.type
 
-        new_op = ttnn_op(result, in0, loc=old_op.location, dtype=old_op.dtype)
+        new_op = ttnn_op(result, in0, old_op.dtype, loc=old_op.location)
         new_op_result = new_op.result
 
         if not self._disable_golden_check:
@@ -3240,14 +3236,15 @@ class TTNNBuilder(Builder):
                     in0 = inputs[0]
                     result = old_op.result.type
 
-                    new_op = ttnn_op(result, in0, loc=old_op.location)
+                    new_op = ttnn_op(result, in0, old_op.dtype, loc=old_op.location)
                     new_op_result = new_op.result
 
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(ttnn_op)
                         input0 = self._get_golden_tensor(old_op.input)
                         golden_output = op_golden_function(
-                            input0, result.element_type, dtype=old_op.dtype
+                            input0,
+                            result.element_type,
                         )
                         typecast_builder._set_golden_tensor(
                             new_op_result, golden_output
@@ -7036,9 +7033,9 @@ class TTNNBuilder(Builder):
             golden_output = op_golden_function(
                 input0,
                 input1,
+                old_op.transpose_a,
+                old_op.transpose_b,
                 result.element_type,
-                transpose_a=old_op.transpose_a,
-                transpose_b=old_op.transpose_b,
             )
             self._set_golden_tensor(new_op_result, golden_output)
 
@@ -7087,9 +7084,9 @@ class TTNNBuilder(Builder):
                         golden_output = op_golden_function(
                             input0,
                             input1,
+                            old_op.transpose_a,
+                            old_op.transpose_b,
                             result.element_type,
-                            transpose_a=old_op.transpose_a,
-                            transpose_b=old_op.transpose_b,
                         )
                         matmul_builder._set_golden_tensor(new_op_result, golden_output)
                         matmul_builder._set_golden_tensor(lhs, input0)
@@ -7259,10 +7256,10 @@ class TTNNBuilder(Builder):
                         golden_output = op_golden_function(
                             input0,
                             input1,
+                            bias_golden,
+                            old_op.transpose_a,
+                            old_op.transpose_b,
                             result.element_type,
-                            bias=bias_golden,
-                            transpose_a=old_op.transpose_a,
-                            transpose_b=old_op.transpose_b,
                         )
                         linear_builder._set_golden_tensor(new_op_result, golden_output)
                         linear_builder._set_golden_tensor(a, input0)
@@ -7300,8 +7297,8 @@ class TTNNBuilder(Builder):
             mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         input0 = self._get_golden_tensor(in0)
-        min_attr = FloatAttr.get(min_arg, self._ctx)
-        max_attr = FloatAttr.get(max_arg, self._ctx)
+        min_attr = FloatAttr.get_f32(min_arg)
+        max_attr = FloatAttr.get_f32(max_arg)
         op_golden_function = get_golden_function(ttnn_op)
         golden_output = op_golden_function(input0, min_attr, max_attr, mlir_output_type)
         result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)
@@ -7542,7 +7539,7 @@ class TTNNBuilder(Builder):
             mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         input0 = self._get_golden_tensor(in0)
-        parameter_attr = FloatAttr.get(parameter, self._ctx)
+        parameter_attr = FloatAttr.get_f32(parameter)
         op_golden_function = get_golden_function(ttnn_op)
         golden_output = op_golden_function(input0, parameter_attr, mlir_output_type)
         result = self.create_ttnn_tensor(golden_output.shape, mlir_output_type)

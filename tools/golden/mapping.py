@@ -4507,10 +4507,10 @@ def ttnn_bitwise_xor_golden(
 
 
 def ttnn_bitwise_not_golden(
-    input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
-    return torch.bitwise_not(input_tensor, other_tensor).to(output_dtype)
+    return torch.bitwise_not(input_tensor).to(output_dtype)
 
 
 def ttnn_minimum_golden(
