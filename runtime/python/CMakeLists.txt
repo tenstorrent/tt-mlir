@@ -51,7 +51,7 @@ if (TTMLIR_ENABLE_TTNN_JIT)
   )
 else()
   set_target_properties(_ttmlir_runtime PROPERTIES
-    INSTALL_RPATH "$ORIGIN;$ORIGIN/lib"
+    INSTALL_RPATH "$ORIGIN;$ORIGIN/lib;$ORIGIN/../lib"
     BUILD_RPATH "$ORIGIN;$<TARGET_FILE_DIR:TTMLIRRuntime>"
     BUILD_WITH_INSTALL_RPATH FALSE
   )
