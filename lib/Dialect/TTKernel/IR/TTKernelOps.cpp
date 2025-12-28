@@ -219,9 +219,9 @@ static std::string verifyTilizeUntilizeCBs(CBType tilizedCB, CBType scalarCB) {
 
 ::mlir::LogicalResult TensorAccessorArgsOp::verify() {
   // Validation rules:
-  // 1. If prev_args is present, cta_base and crta_base should NOT be present
+  // 1. If prev_args is present, cta_base and crta_base should NOT be present.
   // 2. If prev_args is NOT present, both cta_base and crta_base MUST be present
-  //    and must be constants (unless expr attrs are provided)
+  //    and must be constants (unless expr attrs are provided).
 
   if (getPrevArgs()) {
     // When chaining, we shouldn't have cta_base/crta_base
@@ -230,14 +230,14 @@ static std::string verifyTilizeUntilizeCBs(CBType tilizedCB, CBType scalarCB) {
           "cta_base and crta_base should not be provided when using prev_args");
     }
   } else {
-    // When not chaining, both cta_base and crta_base are required
+    // When not chaining, both cta_base and crta_base are required.
     if (!getCtaBase() || !getCrtaBase()) {
       return emitOpError(
           "both cta_base and crta_base are required when prev_args is not "
           "provided");
     }
 
-    // If no expr attribute, the base must be a constant
+    // If no expr attribute, the base must be a constant.
     if (!getCtaExprAttr()) {
       if (!getCtaBase().getDefiningOp<arith::ConstantOp>()) {
         return emitOpError(
@@ -298,12 +298,10 @@ TensorAccessorArgsOp::parse(::mlir::OpAsmParser &parser,
   auto tensorAccessorArgsType =
       TensorAccessorArgsType::get(parser.getContext());
 
-  // Parse opening paren
   if (parser.parseLParen()) {
     return failure();
   }
 
-  // Check if we have "prev =" or operands.
   if (succeeded(parser.parseOptionalKeyword("prev"))) {
     if (parser.parseEqual() || parser.parseOperand(prevArgsOperand)) {
       return failure();
