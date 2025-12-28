@@ -1046,6 +1046,12 @@ mlir::OpFoldResult d2m::ViewLayoutOp::fold(FoldAdaptor adaptor) {
     return nullptr;
   }
 
+  // Don't fold through reinterpretLayout views - they legitimately change
+  // logical shape and cannot be skipped.
+  if (consecutiveView.getReinterpretLayout()) {
+    return nullptr;
+  }
+
   // Replace the input through the consecutive view.
   setOperand(consecutiveView.getInput());
 

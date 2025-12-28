@@ -149,6 +149,15 @@ public:
       builder->create<emitc::IncludeOp>(
           loc, "compute_kernel_api/eltwise_unary/where.h",
           /*isStandard=*/false);
+      // Helper for float-to-uint32 bit reinterpretation (used by scalar tile
+      // ops).
+      builder->create<emitc::VerbatimOp>(
+          loc, "inline uint32_t float_to_bits(float f) { "
+               "uint32_t r; __builtin_memcpy(&r, &f, sizeof(r)); return r; }");
+      // Define INFINITY if not available (needed for OOB masking with inf
+      // fill).
+      builder->create<emitc::VerbatimOp>(
+          loc, "#ifndef INFINITY\n#define INFINITY __builtin_inff()\n#endif");
       // Must define macros REDUCE_OP and REDUCE_DIM before including reduce.h
       // because they are default template parameters values in reduce api.
       builder->create<emitc::VerbatimOp>(loc,
