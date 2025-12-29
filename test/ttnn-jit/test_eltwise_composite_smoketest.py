@@ -14,6 +14,7 @@ from utils import (
     create_sharded_tile_tensor,
     run_op_test,
 )
+from op_definitions import cosh, sinh, mul_add
 
 
 DRAM_SHAPES = [
@@ -31,31 +32,6 @@ SHARD_SHAPE_GRIDS = [
     ((2048, 128), (7, 7), ttnn.ShardStrategy.HEIGHT),
     ((128, 2048), (7, 7), ttnn.ShardStrategy.WIDTH),
 ]
-
-
-# ------------------------------------------------------------
-# Composite ops
-# ------------------------------------------------------------
-def cosh(input_tensor):
-    e_pos_x = ttnn.exp(input_tensor)
-    e_neg_x = ttnn.exp(ttnn.neg(input_tensor))
-    nr_term = ttnn.add(e_pos_x, e_neg_x)
-    output = ttnn.multiply(nr_term, 0.5)
-    return output
-
-
-def sinh(input_tensor):
-    e_pos_x = ttnn.exp(input_tensor)
-    e_neg_x = ttnn.exp(ttnn.neg(input_tensor))
-    nr_term = ttnn.subtract(e_pos_x, e_neg_x)
-    output = ttnn.multiply(nr_term, 0.5)
-    return output
-
-
-def mul_add(input_tensor_a, input_tensor_b, input_tensor_c):
-    matmul_result = ttnn.multiply(input_tensor_b, input_tensor_c)
-    output = ttnn.add(matmul_result, input_tensor_a)
-    return output
 
 
 @pytest.mark.parametrize(

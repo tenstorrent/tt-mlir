@@ -15,6 +15,12 @@ from utils import (
     run_op_test,
 )
 
+from op_definitions import (
+    cosh,
+    sinh,
+    mul_add,
+)
+
 BLOCK_SHARDED_SHAPE_GRIDS = [
     ((32, 32), (0, 0)),
     ((32, 64), (0, 0)),
@@ -62,31 +68,6 @@ SHARDED_SHAPE_GRID_LAYOUTS = (
 )
 
 DRAM_SHAPES = [(32, 32), (32, 64), (64, 64), (64, 128), (128, 128)]
-
-
-# ------------------------------------------------------------
-# Composite ops
-# ------------------------------------------------------------
-def cosh(input_tensor):
-    e_pos_x = ttnn.exp(input_tensor)
-    e_neg_x = ttnn.exp(ttnn.neg(input_tensor))
-    nr_term = ttnn.add(e_pos_x, e_neg_x)
-    output = ttnn.multiply(nr_term, 0.5)
-    return output
-
-
-def sinh(input_tensor):
-    e_pos_x = ttnn.exp(input_tensor)
-    e_neg_x = ttnn.exp(ttnn.neg(input_tensor))
-    nr_term = ttnn.subtract(e_pos_x, e_neg_x)
-    output = ttnn.multiply(nr_term, 0.5)
-    return output
-
-
-def mul_add(input_tensor_a, input_tensor_b, input_tensor_c):
-    matmul_result = ttnn.multiply(input_tensor_b, input_tensor_c)
-    output = ttnn.add(matmul_result, input_tensor_a)
-    return output
 
 
 @pytest.mark.parametrize(

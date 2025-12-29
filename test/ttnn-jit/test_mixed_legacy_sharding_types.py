@@ -11,6 +11,7 @@ from utils import (
     all_close_check,
     create_sharded_tile_tensor,
 )
+from op_definitions import add
 
 HEIGHT_WIDTH_SHARDED_SHAPE_GRIDS = [
     ((32, 32), (0, 0)),
@@ -41,10 +42,6 @@ WIDTH_BLOCK_SHARDED_SHAPE_GRIDS = [
     ((1, 4, 32, 128), (0, 0)),
     ((2, 4, 32, 2048), (7, 7)),
 ]
-
-
-def add(input_tensor_a, input_tensor_b):
-    return ttnn.add(input_tensor_a, input_tensor_b)
 
 
 @pytest.mark.parametrize(
