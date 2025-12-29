@@ -10,7 +10,6 @@ from builder.base.builder_utils import Operand, Shape, create_custom_pipeline_fn
 from builder.ttnn.ttnn_builder import TTNNBuilder
 from builder.base.builder_apis import compile_and_execute_ttnn
 from test_utils import shape_str, shapes_list_str
-from ttmlir.dialects import ttnn
 
 pytestmark = pytest.mark.frontend("ttnn")
 
