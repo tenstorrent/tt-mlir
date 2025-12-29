@@ -1,6 +1,6 @@
 // RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" -o %t.mlir %s
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
-// Temporary test for ttnn_nd_layout support in runtime. When TTNN JIT support is brought up (#5832), this test will be removed
+// Temporary test for ttnn_nd_layout support in runtime. When TTNN JIT support is brought up (#5831), this test will be removed
 
 #l1 = #ttnn.buffer_type<l1>
 #layout = #ttnn.ttnn_nd_layout<<1x1>, memref<1x1x!ttcore.tile<32x32, bf16>, #l1>, <block_sharded>, <row_major>, <grid_2d>>
