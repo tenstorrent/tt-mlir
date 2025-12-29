@@ -130,10 +130,28 @@ class OpWrapper:
         self.op_string = op_str if op_str is not None else str(op)
         self.op_name = op.name
         self.func_op_string = str(func_op) if func_op is not None else ""
-        self.operands = [
-            Operand(operand.get_name(), operand.type) for operand in op.operands
-        ]
-        self.results = [Result(result.get_name(), result.type) for result in op.results]
+
+        # Create standardized operand and result names
+        operand_mapping = {}
+        for i, operand in enumerate(op.operands):
+            original_name = operand.get_name()
+            standardized_name = f"%arg{i}"
+            operand_mapping[original_name] = standardized_name
+
+        result_mapping = {}
+        for i, result in enumerate(op.results):
+            original_name = result.get_name()
+            standardized_name = f"%res{i}"
+            result_mapping[original_name] = standardized_name
+
+        # Replace operand and result names in op_string
+        for original, standardized in {**result_mapping, **operand_mapping}.items():
+            pattern = re.escape(original) + r'(?=[^a-zA-Z0-9_]|$)'
+            self.op_string = re.sub(pattern, standardized, self.op_string)
+
+        # Store operands and results with standardized names
+        self.operands = [Operand(f"%arg{i}", operand.type) for i, operand in enumerate(op.operands)]
+        self.results = [Result(f"%res{i}", result.type) for i, result in enumerate(op.results)]
         self.attributes = attrs
         self.origin_model = [origin_model]
 
