@@ -72,13 +72,29 @@ public:
       return failure();
     }
 
+    // Check if loops are already generated (avoid infinite loop)
+    // Look for the marker attribute on the outermost loop
+    Region &checkRegion = generic.getRegion(0);
+    if (!checkRegion.empty()) {
+      Block &checkBlock = checkRegion.front();
+      for (Operation &op : checkBlock.getOperations()) {
+        if (auto forOp = dyn_cast<scf::ForOp>(&op)) {
+          if (forOp->hasAttr("d2m.outer_loop")) {
+            return failure();
+          }
+        }
+      }
+    }
+
     // Create a new GenericOp with the same structure
+    // After generating loops, preserve all attributes including block_factors
+    // (needed by LowerDMAOps for stream index computation).
     auto loopedGeneric = rewriter.create<GenericOp>(
         generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
         generic.getOutputs(), generic.getGrid(),
-        /* block_factors */ rewriter.getArrayAttr({}),
-        /* indexing_maps */ rewriter.getArrayAttr({}),
-        /* iterator_types */ rewriter.getArrayAttr({}), generic.getThreads(),
+        /* block_factors */ generic.getBlockFactors(),
+        /* indexing_maps */ generic.getIndexingMaps(),
+        /* iterator_types */ generic.getIteratorTypes(), generic.getThreads(),
         generic.getNumRegions());
 
     // Process the single region
@@ -92,6 +108,12 @@ public:
     rewriter.setInsertionPointToStart(loopedBlock);
     scf::LoopNest loopNest = buildLoopNest(
         rewriter, generic.getLoc(), loopBounds, regionBlock, loopedBlock);
+
+    // Mark the outermost loop with an attribute to prevent re-processing
+    if (!loopNest.loops.empty()) {
+      loopNest.loops.front()->setAttr("d2m.outer_loop", rewriter.getUnitAttr());
+    }
+
     rewriter.modifyOpInPlace(loopedGeneric, [&]() {
       replaceIterIndexUses(rewriter, generic.getLoc(), loopNest);
     });

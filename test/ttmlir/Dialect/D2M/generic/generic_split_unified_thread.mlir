@@ -25,7 +25,7 @@ func.func @binary1x1_stream(%arg0: memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttc
   %stream0 = "d2m.stream_layout"(%arg0, %cb0_alloc) : (memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>, memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) -> memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<map(4)>, #l1_>
   %stream1 = "d2m.stream_layout"(%arg1, %cb1_alloc) : (memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>, memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) -> memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<map(4)>, #l1_>
   "d2m.generic"(%stream0, %stream1, %alloc) <{block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<compute>], operandSegmentSizes = array<i32: 2, 1>}> ({
-  // CHECK: d2m.generic {block_factors = []
+  // CHECK: d2m.generic {block_factors = [1, 1]
   // CHECK-SAME: threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]
   // CHECK: ^datamovement0(%cb0: !d2m.cb<{{.*}}>, %cb1: !d2m.cb<{{.*}}>, %cb2: !d2m.cb<{{.*}}>):
   // CHECK: scf.execute_region no_inline {
@@ -69,7 +69,7 @@ func.func @matmul_outer_k_stream(%arg0: memref<1x2x2x2x!ttcore.tile<32x32, f32>,
   %stream = "d2m.stream_layout"(%arg0, %alloc_0) : (memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>) -> memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #ttcore.view<map(4)>, #l1_>
   %stream_2 = "d2m.stream_layout"(%arg1, %alloc_1) : (memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>) -> memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #ttcore.view<map(4)>, #l1_>
   "d2m.generic"(%stream, %stream_2, %alloc) <{block_factors = [1, 1, 2], grid = #ttcore.grid<1x1>, indexing_maps = [#map1, #map2, #map3], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<compute>], operandSegmentSizes = array<i32: 2, 1>}> ({
-  // CHECK: d2m.generic {block_factors = []
+  // CHECK: d2m.generic {block_factors = [1, 1, 2]
   // CHECK-SAME: threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]
   // CHECK: ^datamovement0(%cb0: !d2m.cb<{{.*}}>, %cb1: !d2m.cb<{{.*}}>, %cb2: !d2m.cb<{{.*}}>):
   // CHECK: scf.execute_region no_inline {
