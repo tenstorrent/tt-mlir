@@ -7,20 +7,18 @@ set -e -o pipefail
 # Build the tt-alchemist wheel for distribution (default target is editable wheel)
 cmake --build $BUILD_DIR -- tt-alchemist-build-wheel-distribution
 
-# python_runner tests disabled - incompatible with nanobind
-# See: https://github.com/tenstorrent/tt-mlir/issues/6443
-# cmake --build $BUILD_DIR -- test_python_runner test_python_runner_simple
-# mkdir -p $INSTALL_DIR/tools/tt-alchemist/test
-# cp $BUILD_DIR/tools/tt-alchemist/csrc/test/test_python_runner $INSTALL_DIR/tools/tt-alchemist/test/
-# cp $BUILD_DIR/tools/tt-alchemist/csrc/test/test_python_runner_simple $INSTALL_DIR/tools/tt-alchemist/test/
-# cp $BUILD_DIR/tools/tt-alchemist/csrc/python_runner/libtt-alchemist-python-runner.so $INSTALL_DIR/tools/tt-alchemist/test/
-# cp $WORK_DIR/tools/tt-alchemist/test/simple_test_model.py $INSTALL_DIR/tools/tt-alchemist/test/
-# cp $WORK_DIR/tools/tt-alchemist/test/test_model.py $INSTALL_DIR/tools/tt-alchemist/test/
-# TTMETAL_LIB_DIR=$WORK_DIR/third_party/tt-metal/src/tt-metal/build/lib
-# cp $TTMETAL_LIB_DIR/libtt_metal.so $INSTALL_DIR/tools/tt-alchemist/test/
-# cp $TTMETAL_LIB_DIR/_ttnncpp.so $INSTALL_DIR/tools/tt-alchemist/test/
-# cp $TTMETAL_LIB_DIR/libtt_stl.so $INSTALL_DIR/tools/tt-alchemist/test/
-# cp $TTMETAL_LIB_DIR/libfmt.so* $INSTALL_DIR/tools/tt-alchemist/test/
+cmake --build $BUILD_DIR -- test_python_runner test_python_runner_simple
+mkdir -p $INSTALL_DIR/tools/tt-alchemist/test
+cp $BUILD_DIR/tools/tt-alchemist/csrc/test/test_python_runner $INSTALL_DIR/tools/tt-alchemist/test/
+cp $BUILD_DIR/tools/tt-alchemist/csrc/test/test_python_runner_simple $INSTALL_DIR/tools/tt-alchemist/test/
+cp $BUILD_DIR/tools/tt-alchemist/csrc/python_runner/libtt-alchemist-python-runner.so $INSTALL_DIR/tools/tt-alchemist/test/
+cp $WORK_DIR/tools/tt-alchemist/test/simple_test_model.py $INSTALL_DIR/tools/tt-alchemist/test/
+cp $WORK_DIR/tools/tt-alchemist/test/test_model.py $INSTALL_DIR/tools/tt-alchemist/test/
+TTMETAL_LIB_DIR=$WORK_DIR/third_party/tt-metal/src/tt-metal/build/lib
+cp $TTMETAL_LIB_DIR/libtt_metal.so $INSTALL_DIR/tools/tt-alchemist/test/
+cp $TTMETAL_LIB_DIR/_ttnncpp.so $INSTALL_DIR/tools/tt-alchemist/test/
+cp $TTMETAL_LIB_DIR/libtt_stl.so $INSTALL_DIR/tools/tt-alchemist/test/
+cp $TTMETAL_LIB_DIR/libfmt.so* $INSTALL_DIR/tools/tt-alchemist/test/
 
 # upload artifact
 echo "{\"name\":\"tt-alchemist-whl-$BUILD_NAME\",\"path\":\"$BUILD_DIR/tools/tt-alchemist/csrc/dist/tt_alchemist*.whl\"}," >> $UPLOAD_LIST
