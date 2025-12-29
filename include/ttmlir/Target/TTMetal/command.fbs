@@ -56,7 +56,7 @@ table MemrefCopyCommand {
 
 table CpuCommand {
   ins: [BufferRef];
-  out: BufferRef;
+  outs: [BufferRef];
   func_name: string;
   dylib_id: uint32;
 }

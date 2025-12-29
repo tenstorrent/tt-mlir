@@ -38,17 +38,6 @@ namespace tt::runtime::ttnn {
 
 using ::tt::runtime::DeviceRuntime;
 
-template <typename T>
-static ::ttnn::Tensor createBorrowedTTNNTensor(void *rawData,
-                                               const ::ttnn::Shape &shape) {
-  std::uint64_t numElements = shape.volume();
-  T *typedData = static_cast<T *>(rawData);
-  ::ttsl::Span<T> data(typedData, typedData + numElements);
-  ::ttnn::Tensor tensor =
-      ::ttnn::Tensor::from_borrowed_data(data, shape, []() {}, []() {});
-  return tensor;
-}
-
 static ::ttnn::Tensor
 createOwnedTTNNTensor(const void *data, const std::vector<std::uint32_t> &shape,
                       const std::vector<std::uint32_t> &stride,
@@ -195,22 +184,22 @@ createBorrowedHostTensor(void *data, const std::vector<std::uint32_t> &shape,
   switch (dataType) {
   case ::tt::target::DataType::Float32:
     return utils::createRuntimeTensorFromTTNN(
-        createBorrowedTTNNTensor<float>(data, ttnnShape));
+        utils::createBorrowedTTNNTensor<float>(data, ttnnShape));
   case ::tt::target::DataType::BFloat16:
     return utils::createRuntimeTensorFromTTNN(
-        createBorrowedTTNNTensor<bfloat16>(data, ttnnShape));
+        utils::createBorrowedTTNNTensor<bfloat16>(data, ttnnShape));
   case ::tt::target::DataType::UInt32:
     return utils::createRuntimeTensorFromTTNN(
-        createBorrowedTTNNTensor<uint32_t>(data, ttnnShape));
+        utils::createBorrowedTTNNTensor<uint32_t>(data, ttnnShape));
   case ::tt::target::DataType::UInt16:
     return utils::createRuntimeTensorFromTTNN(
-        createBorrowedTTNNTensor<uint16_t>(data, ttnnShape));
+        utils::createBorrowedTTNNTensor<uint16_t>(data, ttnnShape));
   case ::tt::target::DataType::UInt8:
     return utils::createRuntimeTensorFromTTNN(
-        createBorrowedTTNNTensor<uint8_t>(data, ttnnShape));
+        utils::createBorrowedTTNNTensor<uint8_t>(data, ttnnShape));
   case ::tt::target::DataType::Int32:
     return utils::createRuntimeTensorFromTTNN(
-        createBorrowedTTNNTensor<int32_t>(data, ttnnShape));
+        utils::createBorrowedTTNNTensor<int32_t>(data, ttnnShape));
   default:
     LOG_FATAL("Unsupported data type");
   }

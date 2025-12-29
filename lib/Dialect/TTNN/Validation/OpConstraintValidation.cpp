@@ -13,6 +13,7 @@
 
 #include "mlir/IR/BuiltinOps.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -20,6 +21,22 @@
 namespace mlir::tt::ttnn {
 
 namespace op_constraint_validation {
+
+llvm::StringRef validationStatusToString(ValidationStatus status) {
+  switch (status) {
+  case ValidationStatus::Success:
+    return "Success";
+  case ValidationStatus::NotImplemented:
+    return "NotImplemented";
+  case ValidationStatus::MetalBackendError:
+    return "MetalBackendError";
+  case ValidationStatus::UnmatchedReferenceConfig:
+    return "UnmatchedReferenceConfig";
+  case ValidationStatus::OutOfMemoryError:
+    return "OutOfMemoryError";
+  }
+  return "Unknown";
+}
 
 static ValidationResult
 validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
