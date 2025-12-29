@@ -86,9 +86,9 @@ void populateTTKernelModule(nb::module_ &m) {
           "get",
           [](MlirContext ctx, uint32_t argTypeValue, size_t operandIndex,
              bool isUniform = true) {
-            return wrap(tt::ttkernel::ArgAttr::get(
+            return tt::ttkernel::ArgAttr::get(
                 unwrap(ctx), static_cast<tt::ttkernel::ArgType>(argTypeValue),
-                operandIndex, isUniform));
+                operandIndex, isUniform);
           },
           nb::arg("ctx"), nb::arg("argTypeValue"), nb::arg("operandIndex"),
           nb::arg("isUniform") = true)
@@ -100,25 +100,29 @@ void populateTTKernelModule(nb::module_ &m) {
 
   tt_attribute_class<tt::ttkernel::ArgSpecAttr>(m, "ArgSpecAttr")
       .def_static("get",
-                  [](MlirContext ctx, std::vector<MlirAttribute> rtArgs,
-                     std::vector<MlirAttribute> ctArgs) {
-                    std::vector<tt::ttkernel::ArgAttr> _rt_args, _ct_args;
-
-                    for (const auto &x : rtArgs) {
-                      _rt_args.emplace_back(
-                          mlir::cast<tt::ttkernel::ArgAttr>(unwrap(x)));
-                    }
-
-                    for (const auto &x : ctArgs) {
-                      _ct_args.emplace_back(
-                          mlir::cast<tt::ttkernel::ArgAttr>(unwrap(x)));
-                    }
-
-                    return wrap(tt::ttkernel::ArgSpecAttr::get(
-                        unwrap(ctx), _rt_args, _ct_args));
+                  [](MlirContext ctx, std::vector<tt::ttkernel::ArgAttr> rtArgs,
+                     std::vector<tt::ttkernel::ArgAttr> ctArgs) {
+                    return wrap(tt::ttkernel::ArgSpecAttr::get(unwrap(ctx),
+                                                               rtArgs, ctArgs));
                   })
-      .def_prop_ro_static("name", [](nb::handle) {
-        return std::string(tt::ttkernel::ArgSpecAttr::name);
+      .def_prop_ro_static("name",
+                          [](nb::handle) {
+                            return std::string(tt::ttkernel::ArgSpecAttr::name);
+                          })
+      .def_prop_ro("rt_args",
+                   [](tt::ttkernel::ArgSpecAttr &self) {
+                     std::vector<tt::ttkernel::ArgAttr> result;
+                     for (const auto &arg : self.getRtArgs()) {
+                       result.push_back(arg);
+                     }
+                     return result;
+                   })
+      .def_prop_ro("ct_args", [](tt::ttkernel::ArgSpecAttr &self) {
+        std::vector<tt::ttkernel::ArgAttr> result;
+        for (const auto &arg : self.getCtArgs()) {
+          result.push_back(arg);
+        }
+        return result;
       });
 }
 } // namespace mlir::ttmlir::python
