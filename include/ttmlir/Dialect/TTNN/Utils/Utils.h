@@ -101,6 +101,10 @@ createShardSpecIfNeeded(TensorMemoryLayoutAttr tensorMemoryLayout,
                         mlir::tt::ttcore::GridAttr shardGrid,
                         mlir::tt::ttcore::GridAttr deviceGrid);
 
+// Helper method to create a NDShardSpecAttr if needed.
+std::optional<NDShardSpecAttr>
+createNDShardSpecIfNeeded(TTNNNDLayoutAttr layout);
+
 bool isTTNNTraceFunc(func::FuncOp funcOp);
 bool isTTNNHoistGenericViaD2MOp(mlir::Operation *op);
 

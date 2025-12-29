@@ -23,6 +23,8 @@
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
 #include "mlir/IR/BuiltinTypes.h"
+#include "llvm/ADT/TypeSwitch.h"
+
 #include <cstdint>
 #include <numeric>
 #include <optional>
@@ -1279,8 +1281,7 @@ void mlir::tt::ttnn::FullOp::build(mlir::OpBuilder &builder,
   // tensor type.
   //
   RankedTensorType output = getResult().getType();
-
-  TTNNLayoutAttr layoutAttr = mlir::cast<TTNNLayoutAttr>(output.getEncoding());
+  mlir::Attribute encoding = output.getEncoding();
 
   // Shape
   //
@@ -1290,28 +1291,44 @@ void mlir::tt::ttnn::FullOp::build(mlir::OpBuilder &builder,
                          << output.getShape();
   }
 
-  // DataType and Layout
-  //
-  if (getLayout() != layoutAttr.getLayout()) {
-    return emitOpError("Layout mismatch between op and layoutAttr.");
-  }
-  if (getDtype() != layoutAttr.getDataType()) {
-    return emitOpError("Data type mismatch between op and layoutAttr.");
-  }
+  // Helper lambda to verify layout attributes generically
+  auto verifyLayoutAttr = [&](auto layoutAttr) -> LogicalResult {
+    // DataType and Layout
+    //
+    if (getLayout() != layoutAttr.getLayout()) {
+      return emitOpError("Layout mismatch between op and layoutAttr.");
+    }
+    if (getDtype() != layoutAttr.getDataType()) {
+      return emitOpError("Data type mismatch between op and layoutAttr.");
+    }
 
-  // MemoryConfig
-  // Compare internal attrs with output tensor attrs.
-  //
-  if (getMemoryConfig().getBufferType().getValue() !=
-      layoutAttr.getBufferType()) {
-    return emitOpError("Buffer type mismatch between op and layoutAttr.");
-  }
-  if (getMemoryConfig().getTensorMemoryLayout() != layoutAttr.getMemLayout()) {
-    return emitOpError(
-        "Tensor memory layout mismatch between op and layoutAttr.");
-  }
+    // MemoryConfig
+    // Compare internal attrs with output tensor attrs.
+    //
+    if (getMemoryConfig().getBufferType().getValue() !=
+        layoutAttr.getBufferType()) {
+      return emitOpError("Buffer type mismatch between op and layoutAttr.");
+    }
+    if (getMemoryConfig().getTensorMemoryLayout() !=
+        layoutAttr.getMemLayout()) {
+      return emitOpError(
+          "Tensor memory layout mismatch between op and layoutAttr.");
+    }
 
-  return success();
+    return success();
+  };
+
+  // Use TypeSwitch to handle both TTNNLayoutAttr and TTNNNDLayoutAttr
+  return llvm::TypeSwitch<mlir::Attribute, mlir::LogicalResult>(encoding)
+      .Case<TTNNLayoutAttr>([&](TTNNLayoutAttr layoutAttr) {
+        return verifyLayoutAttr(layoutAttr);
+      })
+      .template Case<TTNNNDLayoutAttr>([&](TTNNNDLayoutAttr layoutAttr) {
+        return verifyLayoutAttr(layoutAttr);
+      })
+      .Default([&](mlir::Attribute) {
+        return emitOpError() << "Unsupported layout encoding type";
+      });
 }
 
 //===----------------------------------------------------------------------===//
