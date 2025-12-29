@@ -47,3 +47,7 @@ with Context() as ctx, Location.unknown():
     print(f"rt_arg2_back is_uniform: {rt_args[1].is_uniform}")
     # CHECK: ct_arg1_back operand_index: 2
     print(f"ct_arg1_back operand_index: {ct_args[0].operand_index}")
+
+    # Test the name property.
+    # CHECK: ArgSpecAttr name: ttkernel.arg_spec
+    print(f"ArgSpecAttr name: {ttkernel.ir.ArgSpecAttr.name}")
