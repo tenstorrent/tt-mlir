@@ -6674,7 +6674,7 @@ class TTNNBuilder(Builder):
         input0 = self._get_golden_tensor(in0)
         repeat_dims_attr = ttnn.ir.ShapeAttr.get(self._ctx, repeat_dims)
         op_golden_function = get_golden_function(ttnn_op)
-        golden_output = op_golden_function(input0, repeat_dims, mlir_output_type)
+        golden_output = op_golden_function(input0, repeat_dims_attr, mlir_output_type)
         result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
         if loc is None:
