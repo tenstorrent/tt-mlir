@@ -4700,7 +4700,7 @@ class StableHLOBuilder(Builder):
             feature_index=feature_index_attr,
             loc=loc,
         )
-        op_output = op.output
+        op_output = op.result
         if sharding_attr is not None:
             op.operation.attributes["sdy.sharding"] = sharding_attr
         if unit_attrs is not None:
@@ -4752,7 +4752,7 @@ class StableHLOBuilder(Builder):
             feature_index=feature_index_attr,
             loc=old_op.location,
         )
-        new_op_output = new_op.output
+        new_op_output = new_op.result
         if not self._disable_golden_check:
             operand_golden = self._get_golden_tensor(operand)
             scale_golden = self._get_golden_tensor(scale)
@@ -4772,7 +4772,7 @@ class StableHLOBuilder(Builder):
             )
             self._set_golden_tensor(new_op_output, output_golden)
         op_map_dictionary = {}
-        op_map_dictionary[old_op.output] = new_op_output
+        op_map_dictionary[old_op.result] = new_op_output
         return new_op, op_map_dictionary
 
     @split(stablehlo.BatchNormInferenceOp)
@@ -4818,7 +4818,7 @@ class StableHLOBuilder(Builder):
                         feature_index=feature_index_attr,
                         loc=old_op.location,
                     )
-                    new_op_output = new_op.output
+                    new_op_output = new_op.result
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(stablehlo_op)
                         operand_golden = self._get_golden_tensor(old_op.operand)
