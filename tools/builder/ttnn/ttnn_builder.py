@@ -394,7 +394,7 @@ class TTNNBuilder(Builder):
         if not self._disable_golden_check:
             op_golden_function = get_golden_function(ttnn_op)
             golden_output = op_golden_function(
-                result.shape, low_attr, high_attr, seed_attr, mlir_output_type
+                size_attr, low_attr, high_attr, seed_attr, mlir_output_type
             )
             self._set_golden_tensor(op.result, golden_output)
 
@@ -431,7 +431,7 @@ class TTNNBuilder(Builder):
         if not self._disable_golden_check:
             op_golden_function = get_golden_function(ttnn_op)
             golden_output = op_golden_function(
-                result.shape,
+                size_attr,
                 low_attr,
                 high_attr,
                 seed_attr,
@@ -487,7 +487,7 @@ class TTNNBuilder(Builder):
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(ttnn_op)
                         golden_output = op_golden_function(
-                            result.shape,
+                            size_attr,
                             low_attr,
                             high_attr,
                             seed_attr,

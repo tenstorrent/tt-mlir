@@ -357,6 +357,13 @@ def unpack_mlir_attr(attr):
     if isinstance(attr, DenseElementsAttr):
         array = np.array(attr)
         return array
+    if isinstance(attr, Attribute):
+        # Must be a TTNN_ShapeAttr
+        s = str(attr)
+        start = s.find("<")
+        end = s.find(">", start)
+        inner = s[start + 1 : end]
+        return [int(x.strip()) for x in inner.split("x")]
     raise ValueError(f"Unexpected attribute type: {type(attr)}")
 
 
@@ -4239,7 +4246,7 @@ def ttnn_add_golden(
 
 
 def ttnn_rand_golden(
-    size_attr: ArrayAttr,
+    size_attr: Attribute,
     low_attr: FloatAttr,
     high_attr: FloatAttr,
     seed_attr: IntegerAttr,
