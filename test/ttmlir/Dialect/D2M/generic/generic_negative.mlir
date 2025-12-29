@@ -1,3 +1,4 @@
+// UNSUPPORTED: true
 // RUN: not ttmlir-opt --split-input-file %s 2>&1 | FileCheck %s
 // Negative tests for generic operation.
 

@@ -5,6 +5,8 @@
 #ifndef TTMLIR_DIALECT_D2M_UTILS_UTILS_H
 #define TTMLIR_DIALECT_D2M_UTILS_UTILS_H
 
+#include "mlir/IR/AffineMap.h"
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
 
 namespace mlir::tt::d2m::utils {
@@ -28,6 +30,12 @@ Type getRegionLargestDstElemType(Region &region);
 std::optional<SmallVector<int64_t>>
 computeDimConstraints(mlir::ArrayRef<mlir::AffineMap> indexingMaps,
                       mlir::ArrayRef<mlir::SmallVector<int64_t>> shapes);
+
+// Build grid dimension indices from an indexing map. For each result in the
+// indexing map, creates an IterIndexOp for dimension expressions or a
+// ConstantIndexOp for constant expressions.
+SmallVector<Value> buildGridIndices(OpBuilder &builder, Location loc,
+                                    AffineMap indexingMap);
 
 } // namespace mlir::tt::d2m::utils
 

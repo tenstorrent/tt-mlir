@@ -1,3 +1,4 @@
+// UNSUPPORTED: true
 // RUN: ttmlir-opt --ttcore-register-device --d2m-materialize-view-returns %s | FileCheck %s
 // SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 //

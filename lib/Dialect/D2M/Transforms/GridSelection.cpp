@@ -874,6 +874,16 @@ recreateGenericOp(d2m::GenericOp genericOp,
               clonedOp->getResult(0).setType(
                   mlir::cast<d2m::CBType>(clonedOp->getOperand(0).getType())
                       .getUnderlying());
+            } else if (auto remoteLoadOp =
+                           llvm::dyn_cast<d2m::RemoteLoadOp>(clonedOp)) {
+              auto cbType =
+                  mlir::cast<d2m::CBType>(remoteLoadOp.getCb().getType());
+              remoteLoadOp.getResult().setType(cbType.getUnderlying());
+            } else if (auto remoteStoreOp =
+                           llvm::dyn_cast<d2m::RemoteStoreOp>(clonedOp)) {
+              auto cbType =
+                  mlir::cast<d2m::CBType>(remoteStoreOp.getCb().getType());
+              remoteStoreOp.getResult().setType(cbType.getUnderlying());
             }
           }
         },

@@ -169,6 +169,14 @@ struct TTIRToTTMetalPipelineOptions
       llvm::cl::desc("Enable operation scheduling optimization"),
       llvm::cl::init(true)};
 
+  // Option to use unified middleend pipeline instead of regular middleend
+  // pipeline.
+  Option<bool> useUnifiedMiddleendPipeline{
+      *this, "use-unified-middleend-pipeline",
+      llvm::cl::desc("Use unified middleend pipeline instead of regular "
+                     "middleend pipeline"),
+      llvm::cl::init(false)};
+
   // Option to enable debug mode for coalescing inference in DMA lowering.
   // When enabled, runs both analytical and sampling-based coalescing checks
   // and prints debug output comparing them.
@@ -184,6 +192,9 @@ void createTTIRBufferizationPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options);
 
 void createTTIRToTTMetalBackendPipeline(
+    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options);
+
+void createTTIRToTTMetalUnifiedMiddleendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options);
 
 void createTTIRToTTMetalPipelineDebug(

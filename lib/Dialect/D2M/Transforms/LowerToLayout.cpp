@@ -11,8 +11,6 @@
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTCore/Utils/AffineMapUtils.h"
 
-#include "mlir/Dialect/Bufferization/IR/Bufferization.h"
-#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/ArrayRef.h"
 
@@ -419,21 +417,32 @@ public:
       std::tie(indexingMaps, iteratorTypes) =
           GenericOp::buildParallelAffineMapsAndIteratorTypes(
               rewriter, /*arity=*/2, gridRank);
-      auto indexingMap = mlir::cast<AffineMapAttr>(indexingMaps[0]);
+      auto indexingMapAttr = mlir::cast<AffineMapAttr>(indexingMaps[0]);
+      AffineMap indexingMap = indexingMapAttr.getValue();
 
       return rewriter
           .create<GenericOp>(
               loc, viewOp, output,
               [&](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
-                Value outputCB =
-                    builder.create<ReserveOp>(innerLoc, blockArgs[1])
-                        .getResult();
-                auto dma = builder.create<d2m::DMAOp>(innerLoc, viewOp,
-                                                      indexingMap, outputCB);
-                builder.create<d2m::DMAWaitOp>(innerLoc, dma);
-                builder.create<YieldOp>(innerLoc, outputCB);
+                // Remote input, local output: remote_load
+                // remote_load returns the underlying memref/tensor from the
+                // CB (equivalent to reserve)
+                SmallVector<Value> indices =
+                    utils::buildGridIndices(builder, innerLoc, indexingMap);
+                // Use outputCB for remote_load
+                Value outputCBValue = blockArgs[1]; // CB type for remote_load
+                Value loadResult =
+                    builder
+                        .create<RemoteLoadOp>(innerLoc, outputCBValue, viewOp,
+                                              indices)
+                        ->getResult(0);
+                builder.create<WaitOp>(innerLoc, outputCBValue);
+                builder.create<PopOp>(innerLoc, outputCBValue);
+                // View transformation is handled by view_layout and the
+                // generic op's indexing maps
+                builder.create<YieldOp>(innerLoc, loadResult);
               },
-              ThreadType::Datamovement, grid)
+              ThreadType::Unified, grid)
           .getResult(0);
     }
     // DRAM operations use the view directly without immediate
@@ -544,38 +553,50 @@ public:
     std::tie(indexingMaps, iteratorTypes) =
         GenericOp::buildParallelAffineMapsAndIteratorTypes(
             rewriter, /*arity=*/2, gridRank);
-    auto indexingMap = mlir::cast<AffineMapAttr>(indexingMaps[0]);
+    auto indexingMapAttr = mlir::cast<AffineMapAttr>(indexingMaps[0]);
+    AffineMap indexingMap = indexingMapAttr.getValue();
 
-    return rewriter
-        .create<GenericOp>(
-            loc, viewInput, viewOutput,
-            [&](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
-              DMAOp dma;
-              Value yield;
-              if (isSrcDramOrReblock) {
-                Value outputCB =
-                    builder.create<ReserveOp>(innerLoc, blockArgs[1])
-                        .getResult();
-                dma = builder.create<d2m::DMAOp>(innerLoc, viewInput,
-                                                 indexingMap, outputCB);
-                yield = outputCB;
-              } else {
-                // Note: Naturally you'd think to use a WaitOp since this is in
-                // input cb, but in the layout lowering there is no producer
-                // thread. The ReserveOp here effectively unwraps the CB so the
-                // DMA can access it.
-                Value inputCB =
-                    builder.create<ReserveOp>(innerLoc, blockArgs[0])
-                        .getResult();
-                dma = builder.create<d2m::DMAOp>(innerLoc, inputCB, viewOutput,
-                                                 indexingMap);
-                yield = inputCB;
-              }
-              builder.create<d2m::DMAWaitOp>(innerLoc, dma);
-              builder.create<YieldOp>(innerLoc, yield);
-            },
-            ThreadType::Datamovement)
-        .getResult(0);
+    auto result =
+        rewriter
+            .create<GenericOp>(
+                loc, viewInput, viewOutput,
+                [&](OpBuilder &builder, Location innerLoc,
+                    ValueRange blockArgs) {
+                  if (isSrcDramOrReblock) {
+                    SmallVector<Value> indices =
+                        utils::buildGridIndices(builder, innerLoc, indexingMap);
+                    // Use outputCB for remote_load
+                    Value outputCBValue =
+                        blockArgs[1]; // CB type for remote_load
+                    Value loadResult =
+                        builder
+                            .create<RemoteLoadOp>(innerLoc, outputCBValue,
+                                                  viewInput, indices)
+                            ->getResult(0);
+                    builder.create<WaitOp>(innerLoc, outputCBValue);
+                    builder.create<PopOp>(innerLoc, outputCBValue);
+                    // View transformation is handled by view_layout and the
+                    // generic op's indexing maps
+                    builder.create<YieldOp>(innerLoc, loadResult);
+                  } else {
+                    SmallVector<Value> indices =
+                        utils::buildGridIndices(builder, innerLoc, indexingMap);
+                    Value inputCBValue = blockArgs[0];
+                    builder.create<ReserveOp>(innerLoc, inputCBValue);
+                    builder.create<PushOp>(innerLoc, inputCBValue);
+                    Value loadResult =
+                        builder
+                            .create<RemoteStoreOp>(innerLoc, viewOutput,
+                                                   indices, inputCBValue)
+                            ->getResult(0);
+                    // View transformation is handled by view_layout and the
+                    // generic op's indexing maps
+                    builder.create<YieldOp>(innerLoc, loadResult);
+                  }
+                },
+                ThreadType::Unified)
+            .getResult(0);
+    return result;
   }
 
   Value lowerFormatConversionGeneric(PatternRewriter &rewriter, Value input,
@@ -602,7 +623,7 @@ public:
               }
               builder.create<YieldOp>(innerLoc, dst);
             },
-            ThreadType::Compute)
+            ThreadType::Unified)
         .getResult(0);
   }
 
@@ -640,7 +661,7 @@ public:
 
           builder.create<YieldOp>(innerLoc, ValueRange{dst});
         },
-        ThreadType::Compute);
+        ThreadType::Unified);
 
     return genericOp.getResult(0);
   }
