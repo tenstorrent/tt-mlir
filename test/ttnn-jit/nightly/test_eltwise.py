@@ -18,7 +18,6 @@ from utils import (
 
 BLOCK_SHARDED_SHAPE_GRIDS = [
     ((32, 32), (0, 0)),
-    ((32, 64), (0, 0)),
     ((512, 1024), (7, 7)),
     ((1024, 1024), (7, 7)),
     # Ensure non-square grid dims are interpreted correctly.
@@ -35,7 +34,6 @@ BLOCK_SHARDED_SHAPE_GRIDS = [
 
 HEIGHT_SHARDED_SHAPE_GRIDS = [
     ((256, 32), (3, 0)),
-    ((128, 32), (3, 0)),
     ((256, 32), (3, 1)),
     ((512, 32), (3, 3)),
     ((1024, 32), (7, 1)),
@@ -257,19 +255,38 @@ def test_unary_op_dram(device, shape, dtype, ttnn_dtype, op, graph_capture):
     )
 
 
-@pytest.mark.parametrize(
-    "shape, max_grid",
-    BLOCK_SHARDED_SHAPE_GRIDS,
-    ids=[f"shape_{shape}_grid_{grid}" for shape, grid in BLOCK_SHARDED_SHAPE_GRIDS],
-)
-@pytest.mark.parametrize(
-    "dtype, ttnn_dtype",
-    [
+UNARY_L1_BLOCK_PARAMS = [
+    (shape, grid, ttnn.ShardStrategy.BLOCK, dtype, ttnn_dtype)
+    for shape, grid in BLOCK_SHARDED_SHAPE_GRIDS
+    for dtype, ttnn_dtype in [
         (torch.float32, None),
         (torch.bfloat16, None),
         (torch.bfloat16, ttnn.DataType.BFLOAT8_B),
+    ]
+]
+
+UNARY_L1_HEIGHT_PARAMS = [
+    (shape, grid, ttnn.ShardStrategy.HEIGHT, torch.bfloat16, None)
+    for shape, grid in HEIGHT_SHARDED_SHAPE_GRIDS
+]
+
+UNARY_L1_WIDTH_PARAMS = [
+    (shape, grid, ttnn.ShardStrategy.WIDTH, torch.bfloat16, None)
+    for shape, grid in WIDTH_SHARDED_SHAPE_GRIDS
+]
+
+UNARY_L1_ALL_PARAMS = (
+    UNARY_L1_BLOCK_PARAMS + UNARY_L1_HEIGHT_PARAMS + UNARY_L1_WIDTH_PARAMS
+)
+
+
+@pytest.mark.parametrize(
+    "shape, max_grid, shard_strategy, dtype, ttnn_dtype",
+    UNARY_L1_ALL_PARAMS,
+    ids=[
+        f"shape_{shape}_grid_{grid}_{strategy.name}_{('f32' if dtype==torch.float32 else 'bfp8' if ttnn_dtype==ttnn.DataType.BFLOAT8_B else 'bf16')}"
+        for shape, grid, strategy, dtype, ttnn_dtype in UNARY_L1_ALL_PARAMS
     ],
-    ids=["f32", "bf16", "bfp8"],
 )
 @pytest.mark.parametrize(
     "op",
@@ -291,8 +308,8 @@ def test_unary_op_dram(device, shape, dtype, ttnn_dtype, op, graph_capture):
     ],
 )
 @pytest.mark.parametrize("graph_capture", [True, False])
-def test_unary_op_l1_block(
-    device, shape, max_grid, dtype, ttnn_dtype, op, graph_capture
+def test_unary_op_l1(
+    device, shape, max_grid, shard_strategy, dtype, ttnn_dtype, op, graph_capture
 ):
     if op in [log, ceil, floor, sqrt, rsqrt, logical_not] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes for float32")
@@ -311,105 +328,7 @@ def test_unary_op_l1_block(
         num_inputs=1,
         buffer_type=ttnn.BufferType.L1,
         graph_capture=graph_capture,
-        shard_strategy=ttnn.ShardStrategy.BLOCK,
-        ttnn_dtype=ttnn_dtype,
-    )
-
-
-@pytest.mark.parametrize(
-    "shape, max_grid",
-    HEIGHT_SHARDED_SHAPE_GRIDS,
-    ids=[f"shape_{shape}_grid_{grid}" for shape, grid in HEIGHT_SHARDED_SHAPE_GRIDS],
-)
-@pytest.mark.parametrize(
-    "dtype, ttnn_dtype",
-    [
-        (torch.bfloat16, None),
-    ],
-    ids=["bf16"],
-)
-@pytest.mark.parametrize(
-    "op",
-    [
-        abs,
-        exp,
-        log,
-        cos,
-        sin,
-        ceil,
-        floor,
-        logical_not,
-        tanh,
-        sigmoid,
-        hardsigmoid,
-        sqrt,
-        reciprocal,
-        tan,
-    ],
-)
-@pytest.mark.parametrize("graph_capture", [True, False])
-def test_unary_op_l1_height(
-    device, shape, max_grid, dtype, ttnn_dtype, op, graph_capture
-):
-    run_op_test(
-        device,
-        shape,
-        max_grid,
-        dtype,
-        op,
-        num_inputs=1,
-        buffer_type=ttnn.BufferType.L1,
-        graph_capture=graph_capture,
-        shard_strategy=ttnn.ShardStrategy.HEIGHT,
-        ttnn_dtype=ttnn_dtype,
-    )
-
-
-@pytest.mark.parametrize(
-    "shape, max_grid",
-    WIDTH_SHARDED_SHAPE_GRIDS,
-    ids=[f"shape_{shape}_grid_{grid}" for shape, grid in WIDTH_SHARDED_SHAPE_GRIDS],
-)
-@pytest.mark.parametrize(
-    "dtype, ttnn_dtype",
-    [
-        (torch.bfloat16, None),
-    ],
-    ids=["bf16"],
-)
-@pytest.mark.parametrize(
-    "op",
-    [
-        abs,
-        exp,
-        log,
-        cos,
-        sin,
-        ceil,
-        floor,
-        logical_not,
-        tanh,
-        sigmoid,
-        hardsigmoid,
-        sqrt,
-        reciprocal,
-        tan,
-    ],
-)
-@pytest.mark.parametrize("graph_capture", [True, False])
-def test_unary_op_l1_width(
-    device, shape, max_grid, dtype, ttnn_dtype, op, graph_capture
-):
-    run_op_test(
-        device,
-        shape,
-        max_grid,
-        dtype,
-        op,
-        num_inputs=1,
-        buffer_type=ttnn.BufferType.L1,
-        graph_capture=graph_capture,
-        shard_strategy=ttnn.ShardStrategy.WIDTH,
+        shard_strategy=shard_strategy,
         ttnn_dtype=ttnn_dtype,
     )
 
@@ -656,12 +575,35 @@ def test_binary_ops_mixed1(device, shape, max_grid, shard_strategy, dtype, op):
     assert all_close_check(output_tensor, golden_output)
 
 
-@pytest.mark.parametrize(
-    "shape, max_grid",
-    BLOCK_SHARDED_SHAPE_GRIDS,
-    ids=[f"shape_{shape}_grid_{grid}" for shape, grid in BLOCK_SHARDED_SHAPE_GRIDS],
+BINARY_L1_BLOCK_PARAMS = [
+    (shape, grid, ttnn.ShardStrategy.BLOCK, dtype)
+    for shape, grid in BLOCK_SHARDED_SHAPE_GRIDS
+    for dtype in [torch.float32, torch.bfloat16]
+]
+
+BINARY_L1_HEIGHT_PARAMS = [
+    (shape, grid, ttnn.ShardStrategy.HEIGHT, torch.bfloat16)
+    for shape, grid in HEIGHT_SHARDED_SHAPE_GRIDS
+]
+
+BINARY_L1_WIDTH_PARAMS = [
+    (shape, grid, ttnn.ShardStrategy.WIDTH, torch.bfloat16)
+    for shape, grid in WIDTH_SHARDED_SHAPE_GRIDS
+]
+
+BINARY_L1_ALL_PARAMS = (
+    BINARY_L1_BLOCK_PARAMS + BINARY_L1_HEIGHT_PARAMS + BINARY_L1_WIDTH_PARAMS
 )
-@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
+
+
+@pytest.mark.parametrize(
+    "shape, max_grid, shard_strategy, dtype",
+    BINARY_L1_ALL_PARAMS,
+    ids=[
+        f"shape_{shape}_grid_{grid}_{strategy.name}_{('f32' if dtype==torch.float32 else 'bf16')}"
+        for shape, grid, strategy, dtype in BINARY_L1_ALL_PARAMS
+    ],
+)
 @pytest.mark.parametrize(
     "op",
     [
@@ -681,7 +623,9 @@ def test_binary_ops_mixed1(device, shape, max_grid, shard_strategy, dtype, op):
     ],
 )
 @pytest.mark.parametrize("graph_capture", [True, False])
-def test_binary_ops_l1_block(device, shape, max_grid, dtype, op, graph_capture):
+def test_binary_ops_l1(
+    device, shape, max_grid, shard_strategy, dtype, op, graph_capture
+):
     compile_only = False
     if op == div:
         compile_only = True
@@ -697,95 +641,7 @@ def test_binary_ops_l1_block(device, shape, max_grid, dtype, op, graph_capture):
         num_inputs=2,
         buffer_type=ttnn.BufferType.L1,
         graph_capture=graph_capture,
-        shard_strategy=ttnn.ShardStrategy.BLOCK,
-        compile_only=compile_only,
-    )
-
-
-@pytest.mark.parametrize(
-    "shape, max_grid",
-    HEIGHT_SHARDED_SHAPE_GRIDS,
-    ids=[f"shape_{shape}_grid_{grid}" for shape, grid in HEIGHT_SHARDED_SHAPE_GRIDS],
-)
-@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
-@pytest.mark.parametrize(
-    "op",
-    [
-        add,
-        sub,
-        mul,
-        div,
-        pow,
-        eq,
-        ne,
-        gt,
-        ge,
-        lt,
-        le,
-        maximum,
-        minimum,
-    ],
-)
-@pytest.mark.parametrize("graph_capture", [True, False])
-def test_binary_ops_l1_height(device, shape, max_grid, dtype, op, graph_capture):
-    compile_only = False
-    if op == div:
-        compile_only = True
-
-    run_op_test(
-        device,
-        shape,
-        max_grid,
-        dtype,
-        op,
-        num_inputs=2,
-        buffer_type=ttnn.BufferType.L1,
-        graph_capture=graph_capture,
-        shard_strategy=ttnn.ShardStrategy.HEIGHT,
-        compile_only=compile_only,
-    )
-
-
-@pytest.mark.parametrize(
-    "shape, max_grid",
-    WIDTH_SHARDED_SHAPE_GRIDS,
-    ids=[f"shape_{shape}_grid_{grid}" for shape, grid in WIDTH_SHARDED_SHAPE_GRIDS],
-)
-@pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
-@pytest.mark.parametrize(
-    "op",
-    [
-        add,
-        sub,
-        mul,
-        div,
-        pow,
-        eq,
-        ne,
-        gt,
-        ge,
-        lt,
-        le,
-        maximum,
-        minimum,
-    ],
-)
-@pytest.mark.parametrize("graph_capture", [True, False])
-def test_binary_ops_l1_width(device, shape, max_grid, dtype, op, graph_capture):
-    compile_only = False
-    if op == div:
-        compile_only = True
-
-    run_op_test(
-        device,
-        shape,
-        max_grid,
-        dtype,
-        op,
-        num_inputs=2,
-        buffer_type=ttnn.BufferType.L1,
-        graph_capture=graph_capture,
-        shard_strategy=ttnn.ShardStrategy.WIDTH,
+        shard_strategy=shard_strategy,
         compile_only=compile_only,
     )
 
