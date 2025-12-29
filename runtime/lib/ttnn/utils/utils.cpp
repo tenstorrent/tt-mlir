@@ -95,6 +95,13 @@ bool canTilizeMemoryLayoutOnDevice(
          memLayout == ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED;
 }
 
+bool canTilizeOnDevice(
+    const ::ttnn::DataType &dataType,
+    const std::optional<::ttnn::MemoryConfig> &memoryConfig) {
+  return canTilizeDataTypeOnDevice(dataType) &&
+         canTilizeMemoryLayoutOnDevice(memoryConfig);
+}
+
 // tt-metal untilize supports: bfloat16, float32, uint32, int32
 // (requires use_pack_untilize for uint32/int32)
 // See: ttnn/operations/data_movement/untilize/device/untilize_op.cpp
