@@ -11,9 +11,11 @@ add_mlir_dialect_library(MLIRD2MTransforms
         GenericReplaceGlobals.cpp
         GenericTileComputeLoops.cpp
         GridSelection.cpp
+        InsertDMAOps.cpp
         InsertDstRegisterAccess.cpp
         InsertStreams.cpp
         LinalgToAffine.cpp
+        LowerDMAOps.cpp
         LowerToLayout.cpp
         MaterializeViewReturns.cpp
         ElementwiseFusion.cpp
@@ -21,6 +23,8 @@ add_mlir_dialect_library(MLIRD2MTransforms
         SFPUTileLoopFission.cpp
         GlobalDataFormatConversion.cpp
         ScalarizeConstTensors.cpp
+        GenerateOuterLoops.cpp
+        SplitUnifiedThread.cpp
 
         ADDITIONAL_HEADER_DIRS
         ${PROJECT_SOURCE_DIR}/include/ttmlir

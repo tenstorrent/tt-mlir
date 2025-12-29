@@ -836,4 +836,36 @@ def D2MScalarizeConstTensors : Pass<"d2m-scalarize-const-tensors", "::mlir::Modu
   }];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect", "::mlir::arith::ArithDialect"];
 }
+
+def D2MInsertDMAOps : Pass<"d2m-insert-dma-ops", "::mlir::ModuleOp"> {
+  let summary = "Insert DMA operations.";
+  let description = [{
+    This pass inserts DMA operations for data movement.
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
+}
+
+def D2MGenerateOuterLoops : Pass<"d2m-generate-outer-loops", "::mlir::ModuleOp"> {
+  let summary = "Generate outer loops.";
+  let description = [{
+    This pass generates outer loops for generic operations.
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
+}
+
+def D2MSplitUnifiedThread : Pass<"d2m-split-unified-thread", "::mlir::ModuleOp"> {
+  let summary = "Split unified thread regions.";
+  let description = [{
+    This pass splits unified thread regions into separate regions.
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
+}
+
+def D2MLowerDMAOps : Pass<"d2m-lower-dma-ops", "::mlir::ModuleOp"> {
+  let summary = "Lower D2M DMA operations.";
+  let description = [{
+    This pass performs lowering of D2M DMA operations.
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
+}
 #endif
