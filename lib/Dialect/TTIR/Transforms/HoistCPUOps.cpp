@@ -7,9 +7,11 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 #include "ttmlir/FunctionTypes.h"
+#include "ttmlir/Support/IRHasher.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/MLIRContext.h"
@@ -22,7 +24,10 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Casting.h"
+
+#include <optional>
 
 #ifdef TTMLIR_ENABLE_STABLEHLO
 #include "stablehlo/dialect/StablehloOps.h"
@@ -55,39 +60,10 @@ getTensorRanks(const ValuesVectorType &values) {
   return ranks;
 }
 
-// Helper function which generates a unique name based on operation type +
-// argument tensors dims & types.
-llvm::SmallString<64> generateHoistedFuncName(const OpsVectorType &ops) {
-  llvm::SmallString<64> uniqueName("hoisted_");
-
-  for (auto *op : ops) {
-    uniqueName.append(op->getName().getStringRef());
-
-    for (auto operand : op->getOperands()) {
-      if (auto tensorType =
-              mlir::dyn_cast<mlir::RankedTensorType>(operand.getType())) {
-        uniqueName += "_";
-        llvm::raw_svector_ostream os(uniqueName);
-        // Emit shape and element type. Example: 2x3xf32.
-        if (!tensorType.getShape().empty()) {
-          llvm::interleave(tensorType.getShape(), os, "x");
-          os << "x";
-        }
-        tensorType.getElementType().print(os);
-      }
-    }
-  }
-
-  uniqueName += "_func";
-  std::replace(uniqueName.begin(), uniqueName.end(), '.', '_');
-
-  return uniqueName;
-}
-
 // Helper function to collect input arguments to a set of operations.
-// If shouldDeduplicate is true, only unique arguments are collected.
-static ValuesVectorType collectInputArguments(const OpsVectorType &operations,
-                                              bool shouldDeduplicate) {
+// If an operand is used multiple times across the ops set, it will appear
+// multiple times in the returned vector - input arguments are NOT deduplicated.
+static ValuesVectorType collectInputArguments(const OpsVectorType &operations) {
   ValuesVectorType inputArguments;
 
   for (auto *op : operations) {
@@ -95,10 +71,6 @@ static ValuesVectorType collectInputArguments(const OpsVectorType &operations,
       // If the operand is defined inside the hoisted ops set, it is not an
       // input argument to the set of operations.
       if (llvm::is_contained(operations, operand.getDefiningOp())) {
-        continue;
-      }
-
-      if (shouldDeduplicate && llvm::is_contained(inputArguments, operand)) {
         continue;
       }
 
@@ -243,26 +215,196 @@ struct CPUHoistedOpsDescriptor {
   OpsVectorType operations;
   // Values representing the outputs of the hoisted operations.
   ValuesVectorType outputValues;
-  // Name of the generated hoisted function.
-  llvm::SmallString<64> funcName;
-  // Flag indicating whether to deduplicate input arguments.
-  bool shouldDeduplicateInputs;
+  // Suffix for the hoisted function name (appears after "cpu_hoisted_").
+  llvm::SmallString<64> funcNameSuffix;
 
   CPUHoistedOpsDescriptor(const OpsVectorType &ops,
                           const ValuesVectorType &outputs,
-                          llvm::SmallString<64> name,
-                          bool deduplicateInputs = true)
-      : operations(ops), outputValues(outputs), funcName(std::move(name)),
-        shouldDeduplicateInputs(deduplicateInputs) {}
+                          llvm::SmallString<64> suffix)
+      : operations(ops), outputValues(outputs),
+        funcNameSuffix(std::move(suffix)) {}
 };
 
+// Helper function to generate a CPU-hoisted function definition.
+static func::FuncOp createCPUHoistedFunctionDefinition(
+    mlir::MLIRContext *context, mlir::Location loc,
+    CPUHoistedOpsDescriptor &descriptor, const ValuesVectorType &inputArguments,
+    const ValuesVectorType &convertedInputArguments,
+    const TypesVectorType &resultTypes, const OpsVectorType &outputProducers) {
+  // Determine argument types from input arguments.
+  const TypesVectorType argumentTypes =
+      llvm::map_to_vector(convertedInputArguments,
+                          [](mlir::Value value) { return value.getType(); });
+
+  // Create the function type.
+  mlir::FunctionType funcType =
+      mlir::FunctionType::get(context, argumentTypes, resultTypes);
+
+  // Create the function.
+  auto funcDefinition =
+      func::FuncOp::create(loc, "temp_cpu_hoisted_func", funcType);
+
+  // Add a basic block to the function.
+  mlir::Block *block = funcDefinition.addEntryBlock();
+  mlir::OpBuilder builder(context);
+  builder.setInsertionPointToStart(block);
+
+  mlir::IRMapping mapping;
+  OpsVectorType clonedOutputProducers;
+
+  // Clone each operation, replacing input operands with block arguments.
+  // We iterate in the same order as collectInputArguments, so incrementing
+  // an index as we encounter input operands gives us the correct block
+  // argument.
+  size_t inputArgIdx = 0;
+
+  for (auto *opToHoist : descriptor.operations) {
+    auto *clonedOp = builder.clone(*opToHoist, mapping);
+
+    // Replace input argument operands with the corresponding block arguments.
+    for (unsigned opIdx = 0; opIdx < clonedOp->getNumOperands(); ++opIdx) {
+      auto operand = opToHoist->getOperand(opIdx);
+      // Skip operands defined within the hoisted ops set - these are handled
+      // by the IRMapping above.
+      if (llvm::is_contained(descriptor.operations, operand.getDefiningOp())) {
+        continue;
+      }
+      clonedOp->setOperand(opIdx, block->getArgument(inputArgIdx++));
+    }
+
+    // Update operand types to supported tensor types.
+    for (auto operand : clonedOp->getOperands()) {
+      if (auto tensorType =
+              mlir::dyn_cast<mlir::RankedTensorType>(operand.getType())) {
+        auto convertedTensorType = convertTensorType(tensorType);
+        operand.setType(convertedTensorType);
+      }
+    }
+
+    // Update result types to supported tensor types.
+    for (auto result : clonedOp->getResults()) {
+      if (auto tensorType =
+              mlir::dyn_cast<mlir::RankedTensorType>(result.getType())) {
+        auto convertedTensorType = convertTensorType(tensorType);
+        result.setType(convertedTensorType);
+      }
+    }
+
+    // Check if this is the output producing op. If it is, keep track of it
+    // for later.
+    if (llvm::is_contained(outputProducers, opToHoist)) {
+      clonedOutputProducers.push_back(clonedOp);
+    }
+  }
+
+  // Add return op to the function from the cloned output producers.
+  const ValuesVectorType returnValues =
+      llvm::map_to_vector(clonedOutputProducers, [](mlir::Operation *op) {
+        return mlir::cast<mlir::Value>(op->getResult(0));
+      });
+
+  builder.create<mlir::func::ReturnOp>(loc, returnValues);
+
+  // Add bufferization access attributes to function arguments.
+  for (auto [index, argument] :
+       llvm::enumerate(funcDefinition.getArguments())) {
+    if (auto tensorType =
+            mlir::dyn_cast<mlir::RankedTensorType>(argument.getType())) {
+      funcDefinition.setArgAttr(index, "bufferization.access",
+                                builder.getStringAttr("read"));
+    }
+  }
+
+  // Set tensor rank attributes for wrapper function generation.
+  funcDefinition->setAttr(
+      "arg_ranks", builder.getI64ArrayAttr(getTensorRanks(inputArguments)));
+
+  funcDefinition->setAttr(
+      "result_ranks",
+      builder.getI64ArrayAttr(getTensorRanks(descriptor.outputValues)));
+
+  // Set the type of the function.
+  ttmlir::utils::setFunctionType(funcDefinition,
+                                 ttmlir::utils::FunctionType::ForwardCPU);
+
+  // Finally, hash the function implementation and set the func_hash attribute.
+  std::string funcHash = hashFuncOp(funcDefinition);
+  funcDefinition->setAttr("func_hash", builder.getStringAttr(funcHash));
+
+  return funcDefinition;
+}
+
+// Helper function to generate a CPU-hoisted function declaration.
+static func::FuncOp createCPUHoistedFunctionDeclaration(
+    mlir::MLIRContext *context, mlir::Location loc,
+    CPUHoistedOpsDescriptor &descriptor, const ValuesVectorType &inputArguments,
+    const TypesVectorType &resultTypes, llvm::StringRef funcHash) {
+  // Determine argument types from input arguments.
+  const TypesVectorType argumentTypes = llvm::map_to_vector(
+      inputArguments, [](mlir::Value value) { return value.getType(); });
+
+  // Create the function type.
+  mlir::FunctionType funcType =
+      mlir::FunctionType::get(context, argumentTypes, resultTypes);
+
+  // Create the function.
+  auto funcDeclaration =
+      func::FuncOp::create(loc, "temp_cpu_hoisted_func_decl", funcType);
+
+  // Set the type of the function.
+  ttmlir::utils::setFunctionType(
+      funcDeclaration, ttmlir::utils::FunctionType::ForwardCPUDeclaration);
+
+  // Make the declaration private.
+  funcDeclaration.setPrivate();
+
+  // Set the func_hash attribute.
+  funcDeclaration->setAttr("func_hash",
+                           mlir::StringAttr::get(context, funcHash));
+
+  return funcDeclaration;
+}
+
+static std::optional<func::FuncOp>
+lookupCPUHoistedFunction(mlir::ModuleOp module, llvm::StringRef funcHash) {
+  for (auto func : module.getOps<func::FuncOp>()) {
+    auto existingFuncHashAttr =
+        func->getAttrOfType<mlir::StringAttr>("func_hash");
+    if (existingFuncHashAttr && existingFuncHashAttr.getValue() == funcHash) {
+      return func;
+    }
+  }
+  return std::nullopt;
+}
+
+// Helper function to generate a unique function name for the CPU-hoisted
+// function.
+//
+// Hoisted function names will be generated as:
+// cpu_hoisted_<funcNameSuffix>_<hash>, where <hash> is a
+// SHA256 hash of the function implementation.
+//
+static llvm::SmallString<64>
+getUniqueFunctionName(const CPUHoistedOpsDescriptor &descriptor,
+                      const llvm::StringRef hash) {
+  llvm::SmallString<64> uniqueName;
+
+  llvm::raw_svector_ostream os(uniqueName);
+  os << "cpu_hoisted_" << descriptor.funcNameSuffix << "_" << hash;
+
+  std::replace(uniqueName.begin(), uniqueName.end(), '.', '_');
+
+  return uniqueName;
+}
+
 // Helper function to hoist an arbitrary set of ops into a new function in
-// targetModule, generate a matching extern prototype in the sourceModule, and
-// replace the ops in the set with a callOp to the extern function.
+// the CPU module, generate a matching extern prototype (declaration) in the
+// Device module, and replace the ops in the set with a callOp to the extern
+// function declaration.
 static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
-                                      mlir::ModuleOp sourceModule,
-                                      mlir::ModuleOp targetModule) {
-  mlir::MLIRContext *context = sourceModule.getContext();
+                                      mlir::ModuleOp deviceModule,
+                                      mlir::ModuleOp cpuModule) {
+  mlir::MLIRContext *context = deviceModule.getContext();
 
   const OpsVectorType outputProducers =
       collectOutputProducers(descriptor.operations, descriptor.outputValues);
@@ -270,134 +412,64 @@ static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
   const TypesVectorType resultTypes =
       performResultConversions(descriptor.outputValues);
 
-  const ValuesVectorType inputArguments = collectInputArguments(
-      descriptor.operations, descriptor.shouldDeduplicateInputs);
+  const ValuesVectorType inputArguments =
+      collectInputArguments(descriptor.operations);
 
-  // Convert argument and gather types for function signature.
   mlir::OpBuilder opBuilder(descriptor.operations.front());
-  const ValuesVectorType convertedArguments =
+  const ValuesVectorType convertedInputArguments =
       performInputArgumentsConversion(opBuilder, inputArguments);
 
-  const TypesVectorType argumentTypes = llvm::map_to_vector(
-      convertedArguments, [](mlir::Value val) { return val.getType(); });
+  // Create the CPU-hoisted function definition.
+  func::FuncOp funcDefinition = createCPUHoistedFunctionDefinition(
+      cpuModule->getContext(), cpuModule->getLoc(), descriptor, inputArguments,
+      convertedInputArguments, resultTypes, outputProducers);
 
-  // Creating function types.
-  mlir::FunctionType localFuncType =
-      mlir::FunctionType::get(context, argumentTypes, resultTypes);
-  mlir::FunctionType funcType =
-      mlir::FunctionType::get(context, argumentTypes, resultTypes);
+  auto funcHash =
+      funcDefinition->getAttrOfType<mlir::StringAttr>("func_hash").getValue();
 
-  llvm::SmallString<64> localFunctionName(descriptor.funcName);
-  localFunctionName += ttir::kCPUHoistedDeclSuffix;
-  auto localFunc = llvm::dyn_cast_if_present<func::FuncOp>(
-      sourceModule.lookupSymbol(localFunctionName));
+  // Lookup existing function declaration in the Device module by hash.
+  func::FuncOp funcDeclaration =
+      lookupCPUHoistedFunction(deviceModule, funcHash).value_or(nullptr);
 
-  // Create a new hoisted function only if an equivalent one does not exist.
-  //
-  // TODO(dmilinkovic): we should consider a more robust way of deduplicating
-  // function implementations - issue #6465.
-  if (localFunc == nullptr) {
-    // Insert the function and the terminator.
-    auto hoistedFunc = func::FuncOp::create(targetModule->getLoc(),
-                                            descriptor.funcName, funcType);
-    targetModule.push_back(hoistedFunc);
+  // If the function doesn't exist, we need to insert the definition
+  // into the CPU module, and create the declaration in the Device module.
+  if (!funcDeclaration) {
+    // Insert the function definition into the CPU module.
+    cpuModule.push_back(funcDefinition);
 
-    // Add a basic block to the function.
-    mlir::Block *block = hoistedFunc.addEntryBlock();
-    mlir::OpBuilder builder(block, block->end());
+    // Create the function declaration in the Device module.
+    funcDeclaration = createCPUHoistedFunctionDeclaration(
+        deviceModule->getContext(), deviceModule->getLoc(), descriptor,
+        convertedInputArguments, resultTypes, funcHash);
+    deviceModule.push_back(funcDeclaration);
 
-    // Map arguments to block arguments and clone the operation.
-    llvm::SmallVector<mlir::Value> newArguments;
-    for (auto operand : llvm::enumerate(inputArguments)) {
-      newArguments.push_back(block->getArgument(operand.index()));
-    }
+    // Use first 8 characters of the function hash as part of the unique
+    // function name.
+    //
+    auto hashPrefix = funcHash.substr(0, 8);
 
-    mlir::IRMapping mapping;
-    for (auto operands : llvm::zip(inputArguments, newArguments)) {
-      mapping.map(std::get<0>(operands), std::get<1>(operands));
-    }
-
-    // Clone each operation, but modify its type if needed.
-    OpsVectorType clonedOutputProducers;
-
-    for (auto *opToHoist : descriptor.operations) {
-      auto *clonedOp = builder.clone(*opToHoist, mapping);
-
-      // Update operand types to supported tensor types.
-      for (auto operand : clonedOp->getOperands()) {
-        if (auto tensorType =
-                mlir::dyn_cast<mlir::RankedTensorType>(operand.getType())) {
-          auto convertedTensorType = convertTensorType(tensorType);
-          operand.setType(convertedTensorType);
-        }
-      }
-
-      // Update result types to supported tensor types.
-      for (auto result : clonedOp->getResults()) {
-        if (auto tensorType =
-                mlir::dyn_cast<mlir::RankedTensorType>(result.getType())) {
-          auto convertedTensorType = convertTensorType(tensorType);
-          result.setType(convertedTensorType);
-        }
-      }
-
-      // Check if this is the output producing op. If it is, keep track of it
-      // for later.
-      if (llvm::is_contained(outputProducers, opToHoist)) {
-        clonedOutputProducers.push_back(clonedOp);
-      }
-    }
-
-    // Add return op to the function from the cloned output producers.
-    const ValuesVectorType returnValues =
-        llvm::map_to_vector(clonedOutputProducers, [](mlir::Operation *op) {
-          return mlir::dyn_cast<mlir::Value>(op->getResult(0));
-        });
-
-    builder.create<mlir::func::ReturnOp>(targetModule->getLoc(), returnValues);
-
-    // Add bufferization access attributes to function arguments.
-    for (auto [index, argument] : llvm::enumerate(hoistedFunc.getArguments())) {
-      if (auto tensorType =
-              mlir::dyn_cast<mlir::RankedTensorType>(argument.getType())) {
-        hoistedFunc.setArgAttr(index, "bufferization.access",
-                               builder.getStringAttr("read"));
-      }
-    }
-
-    // Declare the function prototype in the source module.
-    localFunc = func::FuncOp::create(sourceModule->getLoc(), localFunctionName,
-                                     localFuncType);
-    localFunc.setPrivate();
-
-    // Add the function to the module first.
-    sourceModule.push_back(localFunc);
-
-    // Set tensor rank attributes for wrapper function generation.
-    hoistedFunc->setAttr(
-        "arg_ranks", builder.getI64ArrayAttr(getTensorRanks(inputArguments)));
-    hoistedFunc->setAttr("result_ranks", builder.getI64ArrayAttr(getTensorRanks(
-                                             descriptor.outputValues)));
-
-    // Set the function type to ForwardCPU.
-    ttmlir::utils::setFunctionType(hoistedFunc,
-                                   ttmlir::utils::FunctionType::ForwardCPU);
+    // Rename the function definition and declaration.
+    auto functionName = getUniqueFunctionName(descriptor, hashPrefix);
+    funcDefinition.setName(functionName);
+    funcDeclaration.setName(functionName);
+  } else {
+    // If the function already exists, we can discard the newly created
+    // definition.
+    funcDefinition.erase();
   }
 
-  // Set the function type to ForwardCPUDeclaration.
-  ttmlir::utils::setFunctionType(
-      localFunc, ttmlir::utils::FunctionType::ForwardCPUDeclaration);
-
   // Create the call using already converted inputs.
+  opBuilder.setInsertionPointAfter(descriptor.operations.back());
+
   auto callOp = opBuilder.create<mlir::func::CallOp>(
-      sourceModule->getLoc(), localFunc, convertedArguments);
+      deviceModule->getLoc(), funcDeclaration, convertedInputArguments);
 
   // Add the hoisted_call attribute.
   callOp->setAttr(CPUHoistedCallAttr::name, UnitAttr::get(context));
 
+  // Convert call results back to original types as needed.
   ValuesVectorType callOpResults = callOp.getResults();
-
-  convertResultsBackToOriginalTypes(opBuilder, sourceModule, callOpResults,
+  convertResultsBackToOriginalTypes(opBuilder, deviceModule, callOpResults,
                                     descriptor.outputValues);
 
   // Erase the original operations in a topologically-reversed order.
@@ -431,17 +503,10 @@ CPUHoistAnalyzerType singleOpHoistAnalyzer(ShouldHoistOpType predicate) {
         OpsVectorType operations{nestedOp};
         ValuesVectorType outputValues{nestedOp->getResult(0)};
 
-        // For single-op hoisting, we should NOT deduplicate input arguments, as
-        // this could lead to incorrect behavior if the op has the same operand
-        // used as multiple inputs.
-        //
-        // Example: %res = ttir.add (%arg, %arg) =>
-        // CPU-hoisted function should have two separate arguments instead of
-        // just one.
-        //
-        hoistedOpsDescriptors.emplace_back(operations, outputValues,
-                                           generateHoistedFuncName({nestedOp}),
-                                           /*deduplicateInputs=*/false);
+        // Using the op name as the CPU-hoisted function's suffix.
+        hoistedOpsDescriptors.emplace_back(
+            operations, outputValues,
+            nestedOp->getName().getIdentifier().getValue());
       }
     });
 
@@ -458,9 +523,8 @@ CPUHoistAnalyzerType constEvalHoistAnalyzer() {
       return hoistedOpsDescriptors;
     }
 
-    llvm::SmallString<64> hoistedFuncName("hoisted_");
-    hoistedFuncName += funcOp.getName();
-    CPUHoistedOpsDescriptor descriptor({}, {}, hoistedFuncName);
+    // Using the containing function name as the CPU-hoisted function's suffix.
+    CPUHoistedOpsDescriptor descriptor({}, {}, funcOp.getName());
 
     auto walkResult = funcOp.walk([&](mlir::Operation *nestedOp) {
       // Skip the FuncOp itself.
@@ -505,8 +569,8 @@ public:
   void runOnOperation() final {
     mlir::ModuleOp rootModule = getOperation();
 
-    // We must run this transform on the root ModuleOp, since we are creating
-    // new Op's within the root.
+    // We must run this transform on the root ModuleOp, since we are
+    // creating new Op's within the root.
     if (rootModule->getParentOp() != nullptr) {
       return;
     }
@@ -539,7 +603,8 @@ public:
       }
     });
 
-    // We don't want to create a CPUModuleOp etc. if we aren't hoisting any ops.
+    // We don't want to create a CPUModuleOp etc. if we aren't hoisting any
+    // ops.
     if (hoistedOpsDescriptors.empty()) {
       return;
     }

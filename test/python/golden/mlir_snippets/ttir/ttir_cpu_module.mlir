@@ -6,12 +6,12 @@ module {
         %1 = ttir.to_layout %arg0, %0 : tensor<32x32xbf16> into tensor<32x32xf32> -> tensor<32x32xf32>
         %2 = ttir.empty() : tensor<32x32xf32>
         %3 = ttir.to_layout %arg1, %2 : tensor<32x32xbf16> into tensor<32x32xf32> -> tensor<32x32xf32>
-        %4 = call @hoisted_shlo_add_32x32_32x32_func_decl(%1, %3) {ttir.cpu_hoisted_call} : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+        %4 = call @hoisted_shlo_add_32x32_32x32_func(%1, %3) {ttir.cpu_hoisted_call} : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
         %5 = ttir.empty() : tensor<32x32xbf16>
         %6 = ttir.to_layout %4, %5 : tensor<32x32xf32> into tensor<32x32xbf16> -> tensor<32x32xbf16>
         return %6 : tensor<32x32xbf16>
       }
-      func.func private @hoisted_shlo_add_32x32_32x32_func_decl(tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32> attributes {tt.function_type = "forward_cpu_declaration"}
+      func.func private @hoisted_shlo_add_32x32_32x32_func(tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32> attributes {tt.function_type = "forward_cpu_declaration"}
     }
   }
   ttcore.cpu_module {

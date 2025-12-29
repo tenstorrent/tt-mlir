@@ -18,12 +18,12 @@ module {
         %19 = ttir.to_layout %arg0, %18 : tensor<1x1x768xbf16> into tensor<1x1x768xf32> -> tensor<1x1x768xf32>
         %20 = ttir.empty() : tensor<i32>
         %21 = ttir.to_layout %8, %20 : tensor<i64> into tensor<i32> -> tensor<i32>
-        %22 = call @hoisted_stablehlo_dynamic_update_slice_1x197x768_1x1x768____func_decl(%17, %19, %21) {ttir.cpu_hoisted_call} : (tensor<1x197x768xf32>, tensor<1x1x768xf32>, tensor<i32>) -> tensor<1x197x768xf32>
+        %22 = call @hoisted_stablehlo_dynamic_update_slice_1x197x768_1x1x768____func(%17, %19, %21) {ttir.cpu_hoisted_call} : (tensor<1x197x768xf32>, tensor<1x1x768xf32>, tensor<i32>) -> tensor<1x197x768xf32>
         %23 = ttir.empty() : tensor<1x197x768xbf16>
         %24 = ttir.to_layout %22, %23 : tensor<1x197x768xf32> into tensor<1x197x768xbf16> -> tensor<1x197x768xbf16>
         return %24 : tensor<1x197x768xbf16>
       }
-    func.func private @hoisted_stablehlo_dynamic_update_slice_1x197x768_1x1x768____func_decl(tensor<1x197x768xf32>, tensor<1x1x768xf32>, tensor<i32>) -> tensor<1x197x768xf32> attributes {tt.function_type = "forward_cpu_declaration"}
+    func.func private @hoisted_stablehlo_dynamic_update_slice_1x197x768_1x1x768____func(tensor<1x197x768xf32>, tensor<1x1x768xf32>, tensor<i32>) -> tensor<1x197x768xf32> attributes {tt.function_type = "forward_cpu_declaration"}
     }
   }
 }
