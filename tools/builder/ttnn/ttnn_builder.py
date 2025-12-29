@@ -457,6 +457,8 @@ class TTNNBuilder(Builder):
 
         return abs_module, abs_builder
 
+    ############### ttnn.CbrtOp ###############
+
     @tag(ttnn.CbrtOp)
     def cbrt(
         self,
@@ -568,6 +570,8 @@ class TTNNBuilder(Builder):
                 ]
 
         return cbrt_module, cbrt_builder
+
+    ############### ttnn.CeilOp ###############
 
     @tag(ttnn.CeilOp)
     def ceil(
@@ -681,6 +685,8 @@ class TTNNBuilder(Builder):
 
         return ceil_module, ceil_builder
 
+    ############### ttnn.CosOp ###############
+
     @tag(ttnn.CosOp)
     def cos(
         self,
@@ -792,6 +798,8 @@ class TTNNBuilder(Builder):
                 ]
 
         return cos_module, cos_builder
+
+    ############### ttnn.ErfOp ###############
 
     @tag(ttnn.ErfOp)
     def erf(
@@ -905,6 +913,8 @@ class TTNNBuilder(Builder):
 
         return erf_module, erf_builder
 
+    ############### ttnn.ErfcOp ###############
+
     @tag(ttnn.ErfcOp)
     def erfc(
         self,
@@ -1016,6 +1026,8 @@ class TTNNBuilder(Builder):
                 ]
 
         return erfc_module, erfc_builder
+
+    ############### ttnn.ExpOp ###############
 
     @tag(ttnn.ExpOp)
     def exp(
@@ -1129,6 +1141,8 @@ class TTNNBuilder(Builder):
 
         return exp_module, exp_builder
 
+    ############### ttnn.FloorOp ###############
+
     @tag(ttnn.FloorOp)
     def floor(
         self,
@@ -1241,6 +1255,8 @@ class TTNNBuilder(Builder):
 
         return floor_module, floor_builder
 
+    ############### ttnn.GeluOp ###############
+
     @tag(ttnn.GeluOp)
     def gelu(
         self,
@@ -1352,6 +1368,8 @@ class TTNNBuilder(Builder):
                 ]
 
         return gelu_module, gelu_builder
+
+    ############### ttnn.IsFiniteOp ###############
 
     @tag(ttnn.IsFiniteOp)
     def isfinite(
@@ -1467,6 +1485,8 @@ class TTNNBuilder(Builder):
 
         return isfinite_module, isfinite_builder
 
+    ############### ttnn.LogicalNotOp ###############
+
     @tag(ttnn.LogicalNotOp)
     def logical_not(
         self,
@@ -1578,6 +1598,8 @@ class TTNNBuilder(Builder):
                 ]
 
         return not_module, not_builder
+
+    ############### ttnn.BitwiseNotOp ###############
 
     @tag(ttnn.BitwiseNotOp)
     def bitwise_not(
@@ -1691,6 +1713,8 @@ class TTNNBuilder(Builder):
 
         return not_module, not_builder
 
+    ############### ttnn.NegOp ###############
+
     @tag(ttnn.NegOp)
     def neg(
         self,
@@ -1802,6 +1826,8 @@ class TTNNBuilder(Builder):
                 ]
 
         return neg_module, neg_builder
+
+    ############### ttnn.TanOp ###############
 
     @tag(ttnn.TanOp)
     def tan(
@@ -1915,6 +1941,8 @@ class TTNNBuilder(Builder):
 
         return tan_module, tan_builder
 
+    ############### ttnn.AtanOp ###############
+
     @tag(ttnn.AtanOp)
     def atan(
         self,
@@ -2027,6 +2055,8 @@ class TTNNBuilder(Builder):
 
         return atan_module, atan_builder
 
+    ############### ttnn.TanhOp ###############
+
     @tag(ttnn.TanhOp)
     def tanh(
         self,
@@ -2138,6 +2168,8 @@ class TTNNBuilder(Builder):
                 ]
 
         return tanh_module, tanh_builder
+
+    ############### ttnn.ReciprocalOp ###############
 
     @tag(ttnn.ReciprocalOp)
     def reciprocal(
@@ -2253,6 +2285,8 @@ class TTNNBuilder(Builder):
 
         return reciprocal_module, reciprocal_builder
 
+    ############### ttnn.ReluOp ###############
+
     @tag(ttnn.ReluOp)
     def relu(
         self,
@@ -2364,6 +2398,8 @@ class TTNNBuilder(Builder):
                 ]
 
         return relu_module, relu_builder
+
+    ############### ttnn.Relu6Op ###############
 
     @tag(ttnn.Relu6Op)
     def relu6(
@@ -2477,6 +2513,8 @@ class TTNNBuilder(Builder):
 
         return relu6_module, relu6_builder
 
+    ############### ttnn.RsqrtOp ###############
+
     @tag(ttnn.RsqrtOp)
     def rsqrt(
         self,
@@ -2588,6 +2626,8 @@ class TTNNBuilder(Builder):
                 ]
 
         return rsqrt_module, rsqrt_builder
+
+    ############### ttnn.SigmoidOp ###############
 
     @tag(ttnn.SigmoidOp)
     def sigmoid(
@@ -2701,6 +2741,8 @@ class TTNNBuilder(Builder):
 
         return sigmoid_module, sigmoid_builder
 
+    ############### ttnn.SiluOp ###############
+
     @tag(ttnn.SiluOp)
     def silu(
         self,
@@ -2812,6 +2854,8 @@ class TTNNBuilder(Builder):
                 ]
 
         return silu_module, silu_builder
+
+    ############### ttnn.SignOp ###############
 
     @tag(ttnn.SignOp)
     def sign(
@@ -2925,6 +2969,8 @@ class TTNNBuilder(Builder):
 
         return sign_module, sign_builder
 
+    ############### ttnn.SinOp ###############
+
     @tag(ttnn.SinOp)
     def sin(
         self,
@@ -3037,6 +3083,8 @@ class TTNNBuilder(Builder):
 
         return sin_module, sin_builder
 
+    ############### ttnn.SqrtOp ###############
+
     @tag(ttnn.SqrtOp)
     def sqrt(
         self,
@@ -3148,6 +3196,8 @@ class TTNNBuilder(Builder):
                 ]
 
         return sqrt_module, sqrt_builder
+
+    ############### ttnn.TypecastOp ###############
 
     @tag(ttnn.TypecastOp)
     def typecast(
@@ -3263,6 +3313,8 @@ class TTNNBuilder(Builder):
 
         return typecast_module, typecast_builder
 
+    ############### ttnn.LogOp ###############
+
     @tag(ttnn.LogOp)
     def log(
         self,
@@ -3374,6 +3426,8 @@ class TTNNBuilder(Builder):
                 ]
 
         return log_module, log_builder
+
+    ############### ttnn.Log1pOp ###############
 
     @tag(ttnn.Log1pOp)
     def log1p(
@@ -3487,6 +3541,8 @@ class TTNNBuilder(Builder):
 
         return log1p_module, log1p_builder
 
+    ############### ttnn.Expm1Op ###############
+
     @tag(ttnn.Expm1Op)
     def expm1(
         self,
@@ -3599,6 +3655,8 @@ class TTNNBuilder(Builder):
                 ]
 
         return expm1_module, expm1_builder
+
+    ############### ttnn.EqualOp ###############
 
     @tag(ttnn.EqualOp)
     def eq(
@@ -3727,6 +3785,8 @@ class TTNNBuilder(Builder):
 
         return eq_module, eq_builder
 
+    ############### ttnn.NotEqualOp ###############
+
     @tag(ttnn.NotEqualOp)
     def ne(
         self,
@@ -3853,6 +3913,8 @@ class TTNNBuilder(Builder):
                 ]
 
         return ne_module, ne_builder
+
+    ############### ttnn.GreaterEqualOp ###############
 
     @tag(ttnn.GreaterEqualOp)
     def ge(
@@ -3981,6 +4043,8 @@ class TTNNBuilder(Builder):
 
         return ge_module, ge_builder
 
+    ############### ttnn.GreaterThanOp ###############
+
     @tag(ttnn.GreaterThanOp)
     def gt(
         self,
@@ -4107,6 +4171,8 @@ class TTNNBuilder(Builder):
                 ]
 
         return gt_module, gt_builder
+
+    ############### ttnn.LessEqualOp ###############
 
     @tag(ttnn.LessEqualOp)
     def le(
@@ -4235,6 +4301,8 @@ class TTNNBuilder(Builder):
 
         return le_module, le_builder
 
+    ############### ttnn.LessThanOp ###############
+
     @tag(ttnn.LessThanOp)
     def lt(
         self,
@@ -4361,6 +4429,8 @@ class TTNNBuilder(Builder):
                 ]
 
         return lt_module, lt_builder
+
+    ############### ttnn.LogicalAndOp ###############
 
     @tag(ttnn.LogicalAndOp)
     def logical_and(
@@ -4489,6 +4559,8 @@ class TTNNBuilder(Builder):
 
         return and_module, and_builder
 
+    ############### ttnn.LogicalLeftShiftOp ###############
+
     @tag(ttnn.LogicalLeftShiftOp)
     def logical_left_shift(
         self,
@@ -4611,6 +4683,8 @@ class TTNNBuilder(Builder):
                 ]
 
         return lshift_module, lshift_builder
+
+    ############### ttnn.LogicalOrOp ###############
 
     @tag(ttnn.LogicalOrOp)
     def logical_or(
@@ -4739,6 +4813,8 @@ class TTNNBuilder(Builder):
 
         return or_module, or_builder
 
+    ############### ttnn.LogicalRightShiftOp ###############
+
     @tag(ttnn.LogicalRightShiftOp)
     def logical_right_shift(
         self,
@@ -4866,6 +4942,8 @@ class TTNNBuilder(Builder):
 
         return rshift_module, rshift_builder
 
+    ############### ttnn.LogicalXorOp ###############
+
     @tag(ttnn.LogicalXorOp)
     def logical_xor(
         self,
@@ -4992,6 +5070,8 @@ class TTNNBuilder(Builder):
                 ]
 
         return xor_module, xor_builder
+
+    ############### ttnn.BitwiseAndOp ###############
 
     @tag(ttnn.BitwiseAndOp)
     def bitwise_and(
@@ -5122,6 +5202,8 @@ class TTNNBuilder(Builder):
 
         return and_module, and_builder
 
+    ############### ttnn.BitwiseOrOp ###############
+
     @tag(ttnn.BitwiseOrOp)
     def bitwise_or(
         self,
@@ -5245,6 +5327,8 @@ class TTNNBuilder(Builder):
                 ]
 
         return or_module, or_builder
+
+    ############### ttnn.BitwiseXorOp ###############
 
     @tag(ttnn.BitwiseXorOp)
     def bitwise_xor(
@@ -5370,6 +5454,8 @@ class TTNNBuilder(Builder):
 
         return xor_module, xor_builder
 
+    ############### ttnn.MinimumOp ###############
+
     @tag(ttnn.MinimumOp)
     def minimum(
         self,
@@ -5493,6 +5579,8 @@ class TTNNBuilder(Builder):
 
         return min_module, min_builder
 
+    ############### ttnn.MaximumOp ###############
+
     @tag(ttnn.MaximumOp)
     def maximum(
         self,
@@ -5615,6 +5703,8 @@ class TTNNBuilder(Builder):
                 ]
 
         return max_module, max_builder
+
+    ############### ttnn.SubtractOp ###############
 
     @tag(ttnn.SubtractOp)
     def subtract(
@@ -5742,6 +5832,8 @@ class TTNNBuilder(Builder):
                 ]
 
         return sub_module, sub_builder
+
+    ############### ttnn.RemainderOp ###############
 
     @tag(ttnn.RemainderOp)
     def remainder(
@@ -5991,6 +6083,8 @@ class TTNNBuilder(Builder):
 
     # class TTNN_GenericElementwiseBinaryOp
 
+    ############### ttnn.Atan2Op ###############
+
     @tag(ttnn.Atan2Op)
     def atan2(
         self,
@@ -6113,6 +6207,8 @@ class TTNNBuilder(Builder):
                 ]
 
         return atan2_module, atan2_builder
+
+    ############### ttnn.MultiplyOp ###############
 
     @tag(ttnn.MultiplyOp)
     def multiply(
@@ -6241,6 +6337,8 @@ class TTNNBuilder(Builder):
 
         return mul_module, mul_builder
 
+    ############### ttnn.DivideOp ###############
+
     @tag(ttnn.DivideOp)
     def divide(
         self,
@@ -6367,6 +6465,8 @@ class TTNNBuilder(Builder):
                 ]
 
         return div_module, div_builder
+
+    ############### ttnn.ClampTensorOp ###############
 
     @tag(ttnn.ClampTensorOp)
     def clamp_tensor(
@@ -6948,6 +7048,8 @@ class TTNNBuilder(Builder):
 
         return where_module, where_builder
 
+    ############### ttnn.MatmulOp ###############
+
     @tag(ttnn.MatmulOp)
     def matmul(
         self,
@@ -7103,6 +7205,8 @@ class TTNNBuilder(Builder):
                 ]
 
         return matmul_module, matmul_builder
+
+    ############### ttnn.LinearOp ###############
 
     @tag(ttnn.LinearOp)
     def linear(
@@ -7279,6 +7383,8 @@ class TTNNBuilder(Builder):
 
         return linear_module, linear_builder
 
+    ############### ttnn.ClampScalarOp ###############
+
     @tag(ttnn.ClampScalarOp)
     def clamp_scalar(
         self,
@@ -7399,6 +7505,8 @@ class TTNNBuilder(Builder):
                 ]
 
         return clamp_scalar_module, clamp_scalar_builder
+
+    ############### ttnn.RepeatInterleaveOp ###############
 
     @tag(ttnn.RepeatInterleaveOp)
     def repeat_interleave(
@@ -7522,6 +7630,8 @@ class TTNNBuilder(Builder):
 
         return ri_module, ri_builder
 
+    ############### ttnn.LeakyReluOp ###############
+
     @tag(ttnn.LeakyReluOp)
     def leaky_relu(
         self,
@@ -7637,6 +7747,8 @@ class TTNNBuilder(Builder):
                 ]
 
         return lr_module, lr_builder
+
+    ############### ttnn.MishOp ###############
 
     @tag(ttnn.MishOp)
     def mish(

@@ -86,7 +86,15 @@ class GoldenMapTensor:
 
     # ----- Methods -----
 
-    def __init__(self, shard_map: Dict[int, torch.Tensor], mesh_shape: Tuple[int, int]):
+    def __init__(
+        self,
+        shard_map: Dict[int, torch.Tensor] | "GoldenMapTensor",
+        mesh_shape: Tuple[int, int],
+    ):
+        # Allow constructing from another GoldenMapTensor for convenience
+        if isinstance(shard_map, GoldenMapTensor):
+            shard_map = shard_map.shard_map
+
         it = iter(shard_map.values())
         first = next(it)
 
@@ -4629,13 +4637,13 @@ def ttnn_concat_golden(
 
 
 def ttnn_repeat_golden(
-    input: GoldenMapTensor,
-    repeat_dims_attr: DenseI64ArrayAttr,
+    input_tensor: GoldenMapTensor,
+    repeat_dims_attr: Attribute,
     output_type_mlir: Type,
 ) -> GoldenMapTensor:
     repeat_dims = unpack_mlir_attr(repeat_dims_attr)
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
-    return input.repeat(repeats=repeat_dims).to(output_dtype)
+    return input_tensor.repeat(repeats=repeat_dims).to(output_dtype)
 
 
 def ttnn_where_golden(
