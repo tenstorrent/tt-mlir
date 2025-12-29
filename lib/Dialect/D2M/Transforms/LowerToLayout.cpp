@@ -433,7 +433,7 @@ public:
                 builder.create<d2m::DMAWaitOp>(innerLoc, dma);
                 builder.create<YieldOp>(innerLoc, outputCB);
               },
-              ThreadType::Datamovement, grid)
+              ThreadType::Compute, grid)
           .getResult(0);
     }
     // DRAM operations use the view directly without immediate
@@ -574,7 +574,7 @@ public:
               builder.create<d2m::DMAWaitOp>(innerLoc, dma);
               builder.create<YieldOp>(innerLoc, yield);
             },
-            ThreadType::Datamovement)
+            ThreadType::Compute)
         .getResult(0);
   }
 
