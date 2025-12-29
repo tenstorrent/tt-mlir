@@ -829,7 +829,7 @@ def D2M_TileTransposeOp : D2M_GenericRegionComputeOp<"tile_transpose", D2M_TileC
 // D2M Generic Region Datamovement Ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//
 
-def D2M_DMAOp : D2M_GenericRegionComputeOp<"dma",
+def D2M_DMAOp : D2M_GenericRegionDatamovementOp<"dma",
   [ AttrSizedOperandSegments
   , DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
   , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
@@ -1104,7 +1104,7 @@ def D2M_DMAReadOp : D2M_GenericRegionDatamovementOp<"dma_read",
     }];
 }
 
-def D2M_NullTxOp : D2M_GenericRegionComputeOp<"null_tx", [Pure]> {
+def D2M_NullTxOp : D2M_GenericRegionDatamovementOp<"null_tx", [Pure]> {
     let summary = "Create a null transaction.";
     let description = [{
       Utility op to create a null transaction.  This is required for creating a sentinel
@@ -1124,7 +1124,7 @@ def D2M_NullTxOp : D2M_GenericRegionComputeOp<"null_tx", [Pure]> {
     let assemblyFormat = [{ attr-dict }];
 }
 
-def D2M_DMAWaitOp : D2M_GenericRegionComputeOp<"dma_wait", [MemoryEffects<[MemRead, MemWrite]>]> {
+def D2M_DMAWaitOp : D2M_GenericRegionDatamovementOp<"dma_wait", [MemoryEffects<[MemRead, MemWrite]>]> {
     let summary = "D2M DMA wait Op";
     let description = [{
       Waits for the producer DMA memory transaction to complete.

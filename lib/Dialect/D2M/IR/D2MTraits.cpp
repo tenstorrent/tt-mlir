@@ -33,6 +33,34 @@ mlir::LogicalResult verifyGenericRegionComputeOp(mlir::Operation *op) {
 }
 
 mlir::LogicalResult verifyGenericRegionDatamovementOp(mlir::Operation *op) {
+  mlir::Region *region =
+      ttmlir::utils::getRegionWithParentOfType<GenericOp>(op);
+  if (!region) {
+    // If not enclosed in a generic op then we forgo verification.
+    return mlir::success();
+  }
+  GenericOp genericOp = mlir::cast<GenericOp>(region->getParentOp());
+  ThreadType regionThreadType =
+      genericOp.getRegionThreadType(region->getRegionNumber());
+
+  // Allow datamovement ops in compute regions if there's exactly one compute
+  // thread and no datamovement threads.
+  if (regionThreadType == ThreadType::Compute) {
+    size_t numComputeThreads =
+        llvm::count_if(genericOp.getThreads(), [](Attribute threadAttr) {
+          return mlir::cast<ThreadAttr>(threadAttr).getThreadType() ==
+                 ThreadType::Compute;
+        });
+    size_t numDatamovementThreads =
+        llvm::count_if(genericOp.getThreads(), [](Attribute threadAttr) {
+          return mlir::cast<ThreadAttr>(threadAttr).getThreadType() ==
+                 ThreadType::Datamovement;
+        });
+    if (numComputeThreads == 1 && numDatamovementThreads == 0) {
+      return mlir::success();
+    }
+  }
+
   return verifyGenericRegionOpThreadType(op, ThreadType::Datamovement);
 }
 
