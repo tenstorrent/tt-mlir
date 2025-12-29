@@ -615,29 +615,29 @@ public:
     int64_t logicalRows = logicalShape[logicalShape.size() - 2];
     int64_t logicalCols = logicalShape[logicalShape.size() - 1];
 
-    auto genericOp = rewriter.create<GenericOp>(
-        loc, input, output,
+    auto genericOp = GenericOp::create(
+        rewriter, loc, input, output,
         [&](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
           Value src =
-              builder.create<WaitOp>(innerLoc, blockArgs[0]).getResult();
+              WaitOp::create(builder, innerLoc, blockArgs[0]).getResult();
           Value dst =
-              builder.create<ReserveOp>(innerLoc, blockArgs[1]).getResult();
+              ReserveOp::create(builder, innerLoc, blockArgs[1]).getResult();
 
           // Create index constants for logical bounds.
           // Note: For multicore, per-core bounds are computed in
           // DecomposeMasking using CoreIndexOp to determine global tile
           // position.
           Value logicalRowsVal =
-              builder.create<arith::ConstantIndexOp>(innerLoc, logicalRows);
+              arith::ConstantIndexOp::create(builder, innerLoc, logicalRows);
           Value logicalColsVal =
-              builder.create<arith::ConstantIndexOp>(innerLoc, logicalCols);
+              arith::ConstantIndexOp::create(builder, innerLoc, logicalCols);
 
           // Apply block-level masking. BlockMaskOp is side-effecting and writes
           // to dst, so we yield dst to propagate the result.
-          builder.create<BlockMaskOp>(innerLoc, src, dst, logicalRowsVal,
-                                      logicalColsVal, fillValue);
+          BlockMaskOp::create(builder, innerLoc, src, dst, logicalRowsVal,
+                              logicalColsVal, fillValue);
 
-          builder.create<YieldOp>(innerLoc, ValueRange{dst});
+          YieldOp::create(builder, innerLoc, ValueRange{dst});
         },
         ThreadType::Compute);
 
@@ -767,11 +767,10 @@ public:
       // buffers via createEmpty().
       auto layout = mlir::dyn_cast<ttcore::MetalLayoutAttr>(
           currentInfo.type.getEncoding());
-      auto maskedEmpty =
-          rewriter
-              .create<d2m::EmptyOp>(op.getLoc(), currentInfo.type.getShape(),
-                                    currentInfo.type.getElementType(), layout)
-              .getResult();
+      auto maskedEmpty = d2m::EmptyOp::create(
+                             rewriter, op.getLoc(), currentInfo.type.getShape(),
+                             currentInfo.type.getElementType(), layout)
+                             .getResult();
       currentValue =
           lowerMaskingGeneric(rewriter, currentValue, maskedEmpty, op.getLoc(),
                               currentInfo.layout->getLogicalShape(),

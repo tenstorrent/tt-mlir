@@ -59,8 +59,8 @@ public:
   mlir::Value createEmptyTensor() {
     ShapeAttr shapeAttr = ShapeAttr::get(&context, getTensorShape());
     return OnesOp::create(builder, builder.getUnknownLoc(),
-                                  getTensorRankedType(), nullptr, shapeAttr,
-                                  nullptr, nullptr, nullptr);
+                          getTensorRankedType(), nullptr, shapeAttr, nullptr,
+                          nullptr, nullptr);
   }
 
   mlir::func::FuncOp createFuncOp() {
@@ -73,7 +73,7 @@ public:
     auto funcType = builder.getType<mlir::FunctionType>(
         mlir::TypeRange(input), mlir::TypeRange(output));
     func = mlir::func::FuncOp::create(builder, builder.getUnknownLoc(), "test",
-                                              funcType);
+                                      funcType);
     mlir::Block *block = func.addEntryBlock();
     block->addArgument(getTensorRankedType(), builder.getUnknownLoc());
     block->addArgument(getTensorRankedType(), builder.getUnknownLoc());

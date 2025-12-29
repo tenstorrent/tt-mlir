@@ -51,7 +51,7 @@ protected:
     // Create a function
     auto funcType = builder.getFunctionType({}, {});
     func = mlir::func::FuncOp::create(builder, builder.getUnknownLoc(),
-                                              "test_func", funcType);
+                                      "test_func", funcType);
 
     // Create a basic block in the function
     mlir::Block *entryBlock = func.addEntryBlock();
@@ -91,8 +91,9 @@ protected:
     // Create function with a test tensor type of the parameterized shape
     auto tensorType = createTensorType(getTensorShape(), f32Type);
 
-    auto device = mlir::tt::ttnn::GetDeviceOp::create(builder,
-        builder.getUnknownLoc(), builder.getType<mlir::tt::ttnn::DeviceType>(),
+    auto device = mlir::tt::ttnn::GetDeviceOp::create(
+        builder, builder.getUnknownLoc(),
+        builder.getType<mlir::tt::ttnn::DeviceType>(),
         mlir::tt::ttnn::MeshShapeAttr::get(builder.getContext(), 1, 1),
         mlir::tt::ttnn::MeshOffsetAttr::get(builder.getContext(), 0, 0));
 
@@ -106,8 +107,8 @@ protected:
         std::nullopt);
 
     // Create an empty op with all required parameters
-    mlir::tt::ttnn::EmptyOp::create(builder,
-        builder.getUnknownLoc(), tensorType, device,
+    mlir::tt::ttnn::EmptyOp::create(
+        builder, builder.getUnknownLoc(), tensorType, device,
         mlir::tt::ttnn::ShapeAttr::get(&context, getTensorShape()),
         mlir::tt::ttcore::DataTypeAttr::get(
             &context, mlir::tt::ttcore::DataType::Float32),

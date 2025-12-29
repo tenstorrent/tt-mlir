@@ -40,7 +40,7 @@ protected:
 
     auto funcType = builder.getFunctionType({}, {});
     func = mlir::func::FuncOp::create(builder, builder.getUnknownLoc(),
-                                              "test_func", funcType);
+                                      "test_func", funcType);
 
     mlir::Block *entryBlock = func.addEntryBlock();
     builder.setInsertionPointToStart(entryBlock);
@@ -115,8 +115,9 @@ GenericOp createGenericOp(mlir::OpBuilder &builder, mlir::MLIRContext &context,
   SmallVector<Value> outputs = {output};
 
   // Create the GenericOp.
-  auto genericOp = mlir::tt::d2m::GenericOp::create(builder,
-      builder.getUnknownLoc(), inputs, outputs, indexingMaps, iteratorTypes);
+  auto genericOp =
+      mlir::tt::d2m::GenericOp::create(builder, builder.getUnknownLoc(), inputs,
+                                       outputs, indexingMaps, iteratorTypes);
   return genericOp;
 }
 

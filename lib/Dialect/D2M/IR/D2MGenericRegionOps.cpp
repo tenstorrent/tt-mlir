@@ -592,8 +592,8 @@ BlockMaskOp::bufferize(mlir::RewriterBase &rewriter,
   }
 
   mlir::Operation *old = getOperation();
-  auto newOp = rewriter.create<mlir::tt::d2m::BlockMaskOp>(
-      old->getLoc(), in, out, getLogicalRows(), getLogicalCols(),
+  auto newOp = mlir::tt::d2m::BlockMaskOp::create(
+      rewriter, old->getLoc(), in, out, getLogicalRows(), getLogicalCols(),
       getFillValue());
   rewriter.replaceOp(old, newOp->getResults());
   return mlir::success();

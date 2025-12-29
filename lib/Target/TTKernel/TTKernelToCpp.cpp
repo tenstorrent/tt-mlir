@@ -150,13 +150,15 @@ public:
           /*isStandard=*/false);
       // Helper for float-to-uint32 bit reinterpretation (used by scalar tile
       // ops).
-      emitc::VerbatimOp::create(builder,
-          loc, "inline uint32_t float_to_bits(float f) { "
-               "uint32_t r; __builtin_memcpy(&r, &f, sizeof(r)); return r; }");
+      emitc::VerbatimOp::create(
+          *builder, loc,
+          "inline uint32_t float_to_bits(float f) { "
+          "uint32_t r; __builtin_memcpy(&r, &f, sizeof(r)); return r; }");
       // Define INFINITY if not available (needed for OOB masking with inf
       // fill).
-      emitc::VerbatimOp::create(builder,
-          loc, "#ifndef INFINITY\n#define INFINITY __builtin_inff()\n#endif");
+      emitc::VerbatimOp::create(
+          *builder, loc,
+          "#ifndef INFINITY\n#define INFINITY __builtin_inff()\n#endif");
       // Must define macros REDUCE_OP and REDUCE_DIM before including reduce.h
       // because they are default template parameters values in reduce api.
       emitc::VerbatimOp::create(*builder, loc,

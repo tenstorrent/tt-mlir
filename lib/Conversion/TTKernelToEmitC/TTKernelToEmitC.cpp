@@ -749,9 +749,9 @@ public:
     // Note that apparently "{{" produces "{" but "}" is not escaped in EmitC.
     std::string code =
         "{{ volatile int32_t __s = {}; " + getOpName(op).str() + "({}, __s); }";
-    rewriter.create<emitc::VerbatimOp>(op->getLoc(),
-                                       rewriter.getStringAttr(code),
-                                       ValueRange{scalarParam, dstIndex});
+    emitc::VerbatimOp::create(rewriter, op->getLoc(),
+                              rewriter.getStringAttr(code),
+                              ValueRange{scalarParam, dstIndex});
     rewriter.eraseOp(op);
 
     return success();

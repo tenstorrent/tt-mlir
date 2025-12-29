@@ -202,8 +202,8 @@ TEST_F(OpConstraintValidationTest, UpdateCacheOpWithInvalidUpdateIndexType) {
 
   // Create UpdateCacheOp (inplace operation, no result type)
   auto updateCacheOp = ttnn::UpdateCacheOp::create(
-      builder, builder.getUnknownLoc(), cacheOp.getResult(), inputOp.getResult(),
-      updateIndexOp.getResult(), /*batch_offset=*/0);
+      builder, builder.getUnknownLoc(), cacheOp.getResult(),
+      inputOp.getResult(), updateIndexOp.getResult(), /*batch_offset=*/0);
 
   // Extract layouts and create config
   auto layouts = ttnn::utils::extractInputLayouts(updateCacheOp);
@@ -233,8 +233,8 @@ TEST_F(OpConstraintValidationTest, UpdateCacheOpWithInvalidUpdateIndexType) {
 
   // Create UpdateCacheOp with correct uint32 type
   auto validUpdateCacheOp = ttnn::UpdateCacheOp::create(
-      builder, builder.getUnknownLoc(), cacheOp.getResult(), inputOp.getResult(),
-      uint32UpdateIndexOp.getResult(), /*batch_offset=*/0);
+      builder, builder.getUnknownLoc(), cacheOp.getResult(),
+      inputOp.getResult(), uint32UpdateIndexOp.getResult(), /*batch_offset=*/0);
 
   // Extract layouts and validate
   auto validLayouts = ttnn::utils::extractInputLayouts(validUpdateCacheOp);
