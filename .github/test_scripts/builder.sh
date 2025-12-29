@@ -22,4 +22,11 @@ for flag in $3; do
     [[ "$flag" == "require-opmodel" ]] && PYTEST_ARGS="$PYTEST_ARGS --require-opmodel"
 done
 
+# Hacky CI fix: EmitC TTNN tests build `libttnn-dylib.so` and link against `_ttnncpp.so`.
+# In CI, tt-metal is provided via the tt-mlir install tree, so the shared libs are
+# under `$INSTALL_DIR/lib` (not `$TT_METAL_RUNTIME_ROOT/build_Debug/lib`).
+if [ -z "${TT_METAL_LIB:-}" ]; then
+    export TT_METAL_LIB="$INSTALL_DIR/lib"
+fi
+
 pytest "$1" -m "$2" $PYTEST_ARGS -v --junit-xml=${TEST_REPORT_PATH%_*}_builder_${TEST_REPORT_PATH##*_}

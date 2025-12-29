@@ -794,10 +794,24 @@ def execute_cpp(
 
     from emitc_compiler import compile_emitc_to_so
 
-    TT_METAL_RUNTIME_ROOT = Path(
-        os.environ.get("TT_METAL_RUNTIME_ROOT", os.getcwd())
-    ).resolve()
-    metal_lib_dir = os.path.join(TT_METAL_RUNTIME_ROOT, "build_Debug/lib")
+    metal_lib_dir = os.environ.get("TT_METAL_LIB")
+    print(f"Attempting to use TT-Metal lib dir: {metal_lib_dir}")
+    if metal_lib_dir is None:
+        TT_METAL_RUNTIME_ROOT = Path(
+            os.environ.get("TT_METAL_RUNTIME_ROOT", os.getcwd())
+        ).resolve()
+        metal_lib_candidates = [
+            p for p in TT_METAL_RUNTIME_ROOT.glob("build*/lib") if p.is_dir()
+        ]
+        print(f"Found TT-Metal lib dirs: {metal_lib_candidates}")
+        if len(metal_lib_candidates) != 1:
+            found = "\n".join(f"- {p}" for p in metal_lib_candidates) or "- <none>"
+            raise TTBuilderRuntimeException(
+                "Expected exactly one TT-Metal build lib directory matching "
+                f"`{TT_METAL_RUNTIME_ROOT}/build*/lib`, but found {len(metal_lib_candidates)}:\n"
+                f"{found}"
+            )
+        metal_lib_dir = str(metal_lib_candidates[0])
 
     output_dir = os.path.dirname(cpp_path)
     compile_emitc_to_so(
