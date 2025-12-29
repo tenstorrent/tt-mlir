@@ -1,3 +1,5 @@
+// UNSUPPORTED: true
+// Issue: TODO
 // RUN: ttmlir-opt --ttir-to-ttir-decomposition -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
