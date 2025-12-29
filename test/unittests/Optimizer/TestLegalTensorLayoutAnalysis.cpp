@@ -50,7 +50,7 @@ protected:
 
     // Create a function
     auto funcType = builder.getFunctionType({}, {});
-    func = builder.create<mlir::func::FuncOp>(builder.getUnknownLoc(),
+    func = mlir::func::FuncOp::create(builder, builder.getUnknownLoc(),
                                               "test_func", funcType);
 
     // Create a basic block in the function
@@ -91,7 +91,7 @@ protected:
     // Create function with a test tensor type of the parameterized shape
     auto tensorType = createTensorType(getTensorShape(), f32Type);
 
-    auto device = builder.create<mlir::tt::ttnn::GetDeviceOp>(
+    auto device = mlir::tt::ttnn::GetDeviceOp::create(builder,
         builder.getUnknownLoc(), builder.getType<mlir::tt::ttnn::DeviceType>(),
         mlir::tt::ttnn::MeshShapeAttr::get(builder.getContext(), 1, 1),
         mlir::tt::ttnn::MeshOffsetAttr::get(builder.getContext(), 0, 0));
@@ -106,7 +106,7 @@ protected:
         std::nullopt);
 
     // Create an empty op with all required parameters
-    builder.create<mlir::tt::ttnn::EmptyOp>(
+    mlir::tt::ttnn::EmptyOp::create(builder,
         builder.getUnknownLoc(), tensorType, device,
         mlir::tt::ttnn::ShapeAttr::get(&context, getTensorShape()),
         mlir::tt::ttcore::DataTypeAttr::get(
@@ -114,7 +114,7 @@ protected:
         mlir::tt::ttnn::LayoutAttr::get(&context, Layout::Tile), memConfig);
 
     // Add return op
-    builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc());
+    mlir::func::ReturnOp::create(builder, builder.getUnknownLoc());
   }
 };
 
