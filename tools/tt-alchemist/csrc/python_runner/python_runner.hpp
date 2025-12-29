@@ -12,8 +12,15 @@
 #pragma clang diagnostic ignored "-Wcovered-switch-default"
 #include "ttnn/device.hpp"
 #include "ttnn/tensor/tensor.hpp"
-#include <pybind11/embed.h>
-#include <pybind11/pybind11.h>
+#pragma clang diagnostic pop
+
+#include <Python.h>
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wcast-qual"
+#pragma clang diagnostic ignored "-Wcovered-switch-default"
+#pragma clang diagnostic ignored "-Wzero-length-array"
+#include <nanobind/nanobind.h>
 #pragma clang diagnostic pop
 
 namespace tt::alchemist {
@@ -43,8 +50,8 @@ public:
                                     ttnn::MeshDevice *device);
 
 private:
-  pybind11::object moduleObject;
-  pybind11::object forwardFunc;
+  nanobind::object moduleObject;
+  nanobind::object forwardFunc;
 };
 
 } // namespace tt::alchemist
