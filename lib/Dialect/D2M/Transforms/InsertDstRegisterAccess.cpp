@@ -237,7 +237,7 @@ public:
     bool modified = false;
     for (unsigned regionIndex = 0; regionIndex < gOp.getNumRegions();
          regionIndex++) {
-      if (gOp.getRegionThreadType(regionIndex) != ThreadType::Compute) {
+      if (gOp.getRegionThreadType(regionIndex) != ThreadType::Unified) {
         continue;
       }
 

@@ -1329,6 +1329,12 @@ static mlir::LogicalResult verifyAffineBlocking(
     llvm::function_ref<mlir::InFlightDiagnostic()> diagFn) {
   assert(indexingMaps.size() == shapes.size());
 
+  // Skip verification if blockingFactors is empty (lowered loop form after
+  // GenerateOuterLoops).
+  if (blockingFactors.empty()) {
+    return mlir::success();
+  }
+
   // Invert the opGridIndexingMap. e.g. matmul map might be:
   //   (m, n, k) -> (m, n)
   //

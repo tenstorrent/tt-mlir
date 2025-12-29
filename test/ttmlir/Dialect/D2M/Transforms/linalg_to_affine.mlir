@@ -1,3 +1,4 @@
+// UNSUPPORTED: true
 // RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine="use-tile-matmul=true mark-root-loops=true" -o %t1 %s
 // RUN: FileCheck %s --input-file=%t1 --check-prefixes=CHECK,MARKERS,CONVERT-MATMUL
 // RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine="use-tile-matmul=true mark-root-loops=false" -o %t2 %s

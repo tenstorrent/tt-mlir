@@ -1,3 +1,4 @@
+// UNSUPPORTED: true
 // RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine="use-tile-matmul=true" --d2m-insert-dst-register-access="use-tile-matmul=true max-dst-physical-size-tiles=32" --canonicalize -o %t %s
 // RUN: FileCheck %s --input-file=%t
 

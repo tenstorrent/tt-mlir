@@ -3,10 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Asserts.h"
+#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/PatternMatch.h"
@@ -74,23 +77,28 @@ Value materializeView(OpBuilder &builder, Location loc, Value viewResult) {
                                                          /*arity=*/2, rank);
 
   // Create a datamovement generic op that materializes the view.
-  // The region reserves the output circular buffer, issues a DMA to fetch data
-  // from the view (which applies the affine transformation), waits for the DMA
-  // to complete, then yields the output buffer.
-  auto indexingMap = mlir::cast<AffineMapAttr>(indexingMaps[0]);
+  // The region reserves the output circular buffer, issues a remote_load to
+  // fetch data from the view (which applies the affine transformation), then
+  // yields the load result.
+  auto indexingMapAttr = mlir::cast<AffineMapAttr>(indexingMaps[0]);
+  AffineMap indexingMap = indexingMapAttr.getValue();
   auto genericOp = builder.create<GenericOp>(
       loc, viewResult, emptyOp.getResult(),
-      [&](OpBuilder &builder, Location loc, ValueRange blockArgs) {
-        Value outputCB =
-            builder.create<d2m::ReserveOp>(loc, blockArgs[1]).getResult();
-        // Issue a DMA from the view to the output buffer.
-        // The DMA will fetch data according to the view's affine map.
-        auto dma =
-            builder.create<d2m::DMAOp>(loc, viewResult, indexingMap, outputCB);
-        builder.create<d2m::DMAWaitOp>(loc, dma);
-        builder.create<d2m::YieldOp>(loc, outputCB);
+      [&](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
+        // Build grid indices from the indexing map.
+        SmallVector<Value> indices =
+            utils::buildGridIndices(builder, innerLoc, indexingMap);
+        // Issue a remote_load from the view to the output buffer.
+        // The remote_load will fetch data according to the view's affine map.
+        Value loadResult = builder
+                               .create<RemoteLoadOp>(innerLoc, blockArgs[1],
+                                                     viewResult, indices)
+                               ->getResult(0);
+        // View transformation is handled by view_layout and the generic op's
+        // indexing maps.
+        builder.create<d2m::YieldOp>(innerLoc, loadResult);
       },
-      ThreadType::Datamovement, grid, SmallVector<int64_t>{1, 1});
+      ThreadType::Unified, grid, SmallVector<int64_t>{1, 1});
 
   return genericOp.getResult(0);
 }

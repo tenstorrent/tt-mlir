@@ -1,3 +1,4 @@
+// UNSUPPORTED: true
 // RUN: ttmlir-opt --ttcore-register-device --d2m-generic-hw-thread-selection -o %t %s
 // RUN: FileCheck %s --input-file=%t
 

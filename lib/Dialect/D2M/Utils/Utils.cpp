@@ -5,9 +5,13 @@
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
+#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
+
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/IR/AffineExpr.h"
 
 namespace mlir::tt::d2m::utils {
 
@@ -106,6 +110,24 @@ computeDimConstraints(mlir::ArrayRef<mlir::AffineMap> indexingMaps,
     }
   }
   return constrainedDims;
+}
+
+SmallVector<Value> buildGridIndices(OpBuilder &builder, Location loc,
+                                    AffineMap indexingMap) {
+  SmallVector<Value> indices;
+  for (unsigned i = 0; i < indexingMap.getNumResults(); ++i) {
+    AffineExpr expr = indexingMap.getResult(i);
+    if (auto dimExpr = mlir::dyn_cast<AffineDimExpr>(expr)) {
+      // Create IterIndexOp for this dimension
+      indices.push_back(builder.create<IterIndexOp>(
+          loc, static_cast<int64_t>(dimExpr.getPosition())));
+    } else if (auto constExpr = mlir::dyn_cast<AffineConstantExpr>(expr)) {
+      // Constant expression - create constant index
+      indices.push_back(
+          builder.create<arith::ConstantIndexOp>(loc, constExpr.getValue()));
+    }
+  }
+  return indices;
 }
 
 } // namespace mlir::tt::d2m::utils
