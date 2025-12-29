@@ -698,7 +698,10 @@ MemoryConfigAttr MemoryConfigAttr::get(
     std::optional<ShardSpecAttr> shardSpec,
     std::optional<NDShardSpecAttr> ndShardSpec) {
 
-  (void)ndShardSpec;
+  if (ndShardSpec && shardSpec) {
+    return emitError() << "Setting both NDShardSpecAttr and ShardSpecAttr is "
+                          "not supported.";
+  }
   // Verify buffer type, memory layout and sharding
   return ::llvm::success(verifyBufferAndMemoryLayout(emitError,
                                                      bufferType.getValue(),
@@ -972,9 +975,9 @@ ShardSpecAttr::getCoreRangeSet(mlir::MLIRContext *context,
   return CoreRangeSetAttr::get(context, coreRangeSet);
 }
 
-NDShardSpecAttr NDShardSpecAttr::get(::mlir::MLIRContext *context,
-                                     TTNNNDLayoutAttr layout) {
+NDShardSpecAttr NDShardSpecAttr::get(TTNNNDLayoutAttr layout) {
   auto shardGrid = layout.getGrid();
+  auto context = layout.getContext();
   auto coreRangeSetAttr = CoreRangeSetAttr::get(
       context, CoreRangeAttr::get(
                    context, CoreCoordAttr::get(context, 0, 0),

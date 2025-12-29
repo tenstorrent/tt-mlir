@@ -24,6 +24,7 @@
 
 #include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/TypeSwitch.h"
+
 #include <cstdint>
 #include <numeric>
 #include <optional>

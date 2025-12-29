@@ -257,8 +257,8 @@ createShardSpecIfNeeded(TTNNLayoutAttr layoutAttr,
 std::optional<NDShardSpecAttr>
 createNDShardSpecIfNeeded(TTNNNDLayoutAttr layoutAttr) {
   std::optional<NDShardSpecAttr> ndShardSpecAttr = std::nullopt;
-  if (layoutAttr.isSharded()) {
-    ndShardSpecAttr = NDShardSpecAttr::get(layoutAttr.getContext(), layoutAttr);
+  if (layoutAttr && layoutAttr.isSharded()) {
+    ndShardSpecAttr = NDShardSpecAttr::get(layoutAttr);
   }
   return ndShardSpecAttr;
 }

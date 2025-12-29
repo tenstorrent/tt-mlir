@@ -198,7 +198,26 @@ def TTNN_ShardSpecAttr : TTNN_Attr<"ShardSpec", "shard_spec"> {
 def TTNN_NDShardSpecAttr : TTNN_Attr<"NDShardSpec", "nd_shard_spec"> {
   let summary = "TTNN ShardSpec attribute";
   let description = [{
+    The `NDShardSpecAttr` defines how a tensor is sharded across multiple cores using ND sharding.
 
+    ND sharding is a superset of legacy sharding expressed by `ShardSpecAttr`:
+    - ND sharded tensors may have N-dimensional shard shapes while legacy sharding only supports
+       2D shard shapes
+    - In ND sharding multiple shards can be assigned to the same core, while in legacy sharding
+       there is always one shard per core
+
+    This attribute specifies:
+    - Which cores the tensor is distributed across (via CoreRangeSet)
+    - The shape of each shard
+    - The orientation of the sharding (row_major, column_major, etc.)
+    - The strategy for distributing shards across the grid (round robin 1D, or grid 2D)
+
+    NDShardSpecAttr is used within MemoryConfigAttr to specify sharding information for ND sharded tensors
+    stored in L1 memory. ND sharded tensors that are not expressable in legacy are considered
+    block sharded by convention.
+
+    This attribute is optional in the MemoryConfigAttr and should only be present
+    when the tensor is ND sharded.
   }];
 
   let parameters = (ins "CoreRangeSetAttr": $coreRangeSet,
@@ -206,7 +225,7 @@ def TTNN_NDShardSpecAttr : TTNN_Attr<"NDShardSpec", "nd_shard_spec"> {
                     "ShardOrientationAttr":$shardOrientation,
                     "ShardDistributionStrategyAttr":$shardDistributionStrategy);
   let extraClassDeclaration = [{
-    static NDShardSpecAttr get(::mlir::MLIRContext *context, TTNNNDLayoutAttr layout);
+    static NDShardSpecAttr get(TTNNNDLayoutAttr layout);
   }];
   let assemblyFormat = "`<` params `>`";
 }
