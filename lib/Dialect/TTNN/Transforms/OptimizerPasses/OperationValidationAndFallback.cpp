@@ -23,6 +23,7 @@
 #include <cassert>
 #include <cstddef>
 #include <optional>
+#include <unordered_set>
 #include <vector>
 
 namespace mlir::tt::ttnn {
@@ -107,12 +108,13 @@ ToLayoutOp createToLayoutOp(OpBuilder &builder, Location loc,
 // Try fallback configurations for a failed operation
 bool tryFallbacks(Operation *operation,
                   const std::vector<TTNNLayoutAttr> &originalInputLayouts,
-                  const OpConfig &config);
+                  const OpConfig &config, uint32_t maxAttempts = 0);
 
 // Try config fallbacks for Conv2d-like operations
 bool tryConfigFallbacks(Operation *operation,
                         const std::vector<TTNNLayoutAttr> &originalInputLayouts,
-                        const OpConfig &originalConfig);
+                        const OpConfig &originalConfig,
+                        uint32_t maxAttempts = 0);
 
 void applyConfigChange(Operation *operation, Conv2dConfigAttr newConfig);
 } // namespace fallbacks
@@ -148,6 +150,7 @@ public:
 
     size_t totalOperationsChecked = 0;
     size_t operationsFixed = 0;
+    bool validationFailed = false;
 
     moduleOp->walk([&](func::FuncOp func) {
       func.walk([&](Operation *operation) -> WalkResult {
@@ -226,14 +229,15 @@ public:
                          "OOM error detected, trying config fallbacks first "
                          "for operation {} at {}",
                          operation->getName(), operation->getLoc());
-            fixed =
-                fallbacks::tryConfigFallbacks(operation, inputLayouts, config);
+            fixed = fallbacks::tryConfigFallbacks(operation, inputLayouts,
+                                                  config, maxFallbackAttempts);
           }
 
           // If config fallbacks didn't work or it wasn't an OOM error, try
           // layout fallbacks
           if (!fixed) {
-            fixed = fallbacks::tryFallbacks(operation, inputLayouts, config);
+            fixed = fallbacks::tryFallbacks(operation, inputLayouts, config,
+                                            maxFallbackAttempts);
           }
 
           if (fixed) {
@@ -242,9 +246,9 @@ public:
                          "Operation {} at {} fixed with fallback configuration",
                          operation->getName(), operation->getLoc());
           } else {
-            operation->emitError()
-                << "OperationValidationAndFallback: Operation failed "
-                   "validation and no fallback configuration worked";
+            emitValidationFailureError(operation, originalResult,
+                                       maxFallbackAttempts);
+            validationFailed = true;
             signalPassFailure();
             return WalkResult::interrupt();
           }
@@ -254,14 +258,41 @@ public:
     });
 
     // Log validation summary
-    TTMLIR_DEBUG(
-        ttmlir::LogComponent::OpValidation,
-        "Operation validation complete: {} operations checked, {} fixed",
-        totalOperationsChecked, operationsFixed);
+    TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+                 "Operation validation {}: {} operations checked{}, {} fixed",
+                 validationFailed ? "FAILED" : "complete",
+                 totalOperationsChecked,
+                 validationFailed ? " before failure" : "", operationsFixed);
 #endif // TTMLIR_ENABLE_OPMODEL
   }
 
 private:
+  // We explicitly include the operation IR in the error message to ensure
+  // visibility across all environments, while automatically added note in
+  // emitError may not always be visible. This helps with debugging validation
+  // failures, as well as the original error message and the maximum fallback
+  // attempts limit.
+  void emitValidationFailureError(
+      Operation *operation,
+      const op_constraint_validation::ValidationResult &originalResult,
+      uint32_t maxAttempts) {
+    std::string opStr;
+    llvm::raw_string_ostream os(opStr);
+    operation->print(os);
+
+    emitError(operation->getLoc())
+        << "OperationValidationAndFallback: Operation " << operation->getName()
+        << " failed validation (original error: "
+        << op_constraint_validation::validationStatusToString(
+               originalResult.status)
+        << (!originalResult.errorMessage.empty()
+                ? " - " + originalResult.errorMessage
+                : "")
+        << "). No fallback configuration worked (tested up to "
+        << std::to_string(maxAttempts) << " combinations)."
+        << "\nOperation IR: " << os.str();
+  }
+
   // Extract OpConfig from operation's IR
   OpConfig extractOpConfigFromIR(Operation *operation) {
     OpConfig config;
@@ -292,7 +323,7 @@ namespace fallbacks {
 
 bool tryFallbacks(Operation *operation,
                   const std::vector<TTNNLayoutAttr> &originalInputLayouts,
-                  const OpConfig &config) {
+                  const OpConfig &config, uint32_t maxAttempts) {
 
   // Extract tensor shapes for all input operands
   std::vector<llvm::ArrayRef<int64_t>> tensorShapes;
@@ -341,14 +372,28 @@ bool tryFallbacks(Operation *operation,
                "Generated {} combinations, testing by distance",
                allCombinations.size());
 
+  // Track failed attempts
+  size_t failedAttempts = 0;
+
   // Test combinations in order of increasing distance
   for (const auto &candidate : allCombinations) {
     auto result = testFallbackCombination(operation, config, candidate.layouts);
 
     if (!result.isSuccess()) {
+      failedAttempts++;
       TTMLIR_TRACE(ttmlir::LogComponent::OpValidation,
                    "Combination failed (status: {}): {}",
                    static_cast<int>(result.status), result.errorMessage);
+
+      // Check if we've exceeded the maximum attempts (if limit is set)
+      if (maxAttempts > 0 &&
+          failedAttempts >= static_cast<size_t>(maxAttempts)) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+                     "Reached maximum fallback attempts ({}) for operation {} "
+                     "at {}. Terminating early.",
+                     maxAttempts, operation->getName(), operation->getLoc());
+        return false;
+      }
       continue;
     }
 
@@ -356,8 +401,9 @@ bool tryFallbacks(Operation *operation,
     applyFallbackTransformations(operation, originalInputLayouts,
                                  candidate.layouts, result, config);
     TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
-                 "Found working fallback combination with {} operands",
-                 candidate.layouts.size());
+                 "Found working fallback combination with {} operands after {} "
+                 "failed attempts",
+                 candidate.layouts.size(), failedAttempts);
     return true;
   }
 
@@ -374,7 +420,21 @@ createFallbackTransforms(TTNNLayoutAttr originalLayout,
   // TODO(rpavlovicTT): Expand to more combinations if needed in the future.
   //                    E.g. Bfp8. At the moment we don't create new
   //                    MemoryLayouts as Interleaved should always work.
-  std::vector<TTNNLayoutAttr> fallbackLayouts;
+  // Use unordered_set to automatically deduplicate during generation, for case
+  // a target configuration isn't viable e.g. bfp8 and row-major combination
+  // isn't possible
+  struct TTNNLayoutAttrHash {
+    size_t operator()(const TTNNLayoutAttr &attr) const {
+      return std::hash<const void *>()(attr.getAsOpaquePointer());
+    }
+  };
+  struct TTNNLayoutAttrEqual {
+    bool operator()(const TTNNLayoutAttr &a, const TTNNLayoutAttr &b) const {
+      return a == b;
+    }
+  };
+  std::unordered_set<TTNNLayoutAttr, TTNNLayoutAttrHash, TTNNLayoutAttrEqual>
+      fallbackLayoutsSet;
 
   // Define the 4 target data types for fallbacks
   std::vector<ttcore::DataType> targetDataTypes = {
@@ -401,28 +461,40 @@ createFallbackTransforms(TTNNLayoutAttr originalLayout,
         // Start with original layout
         TTNNLayoutAttr result = originalLayout;
 
-        // Apply layout transformation if needed
-        if (targetLayout != originalLayout.getLayout()) {
-          result = result.withLayout(targetLayout, tensorShape);
-        }
-
-        // Apply data type transformation if needed
+        // Apply data type transformation first (before layout changes)
+        // This prevents issues where layout changes force incompatible
+        // combinations (e.g., BFP8 requires tile layout, so changing layout to
+        // row-major first would auto-convert back to tile, preventing us from
+        // trying row-major with other data types)
         if (targetDataType != result.getDataType()) {
           auto targetElementType = ttnn::utils::getElementType(
               result.getContext(), result.getLayout(), targetDataType);
           result = result.withElementType(targetElementType, tensorShape);
         }
 
+        // Apply layout transformation if needed (after dtype change)
+        if (targetLayout != result.getLayout()) {
+          result = result.withLayout(targetLayout, tensorShape);
+        }
+
         if (targetBufferType != result.getBufferType()) {
           result = result.withBufferType(targetBufferType);
         }
 
-        fallbackLayouts.push_back(result);
+        fallbackLayoutsSet.insert(result);
       }
     }
   }
 
-  return fallbackLayouts;
+  TTMLIR_TRACE(
+      ttmlir::LogComponent::OpValidation,
+      "Generated {} unique fallback layouts from {} target combinations",
+      fallbackLayoutsSet.size(),
+      targetDataTypes.size() * targetLayouts.size() * targetBufferTypes.size());
+
+  // Convert set to vector for return
+  return std::vector<TTNNLayoutAttr>(fallbackLayoutsSet.begin(),
+                                     fallbackLayoutsSet.end());
 }
 
 // Calculate distance between two data types (lower = more similar)
@@ -477,9 +549,8 @@ double calculateLayoutDistance(Layout from, Layout to) {
     return NO_COST;
   }
 
-  // RowMajor <-> Tile conversion is low cost as it's safer
-  // than changing dtype
-  return LOW_COST;
+  // RowMajor <-> Tile conversion is not cheap since it's not frequently needed
+  return MID_COST;
 }
 
 // Calculate total distance for a layout transformation
@@ -718,7 +789,7 @@ ToLayoutOp createToLayoutOp(OpBuilder &builder, Location loc,
 // Try config fallbacks for Conv2d-like operations
 bool tryConfigFallbacks(Operation *operation,
                         const std::vector<TTNNLayoutAttr> &originalInputLayouts,
-                        const OpConfig &originalConfig) {
+                        const OpConfig &originalConfig, uint32_t maxAttempts) {
   // Only applicable to operations with Conv2dAttrs
   if (!std::holds_alternative<Conv2dAttrs>(originalConfig.opSpecificAttrs)) {
     return false;
@@ -759,6 +830,9 @@ bool tryConfigFallbacks(Operation *operation,
   Conv2dConfigAttr workingConfig = nullptr;
   op_constraint_validation::ValidationResult workingResult;
 
+  // Track failed attempts
+  size_t failedAttempts = 0;
+
   // Use TypeSwitch to handle both Conv2dOp and ConvTranspose2dOp
   bool foundConfig =
       llvm::TypeSwitch<Operation *, bool>(operation)
@@ -781,14 +855,32 @@ bool tryConfigFallbacks(Operation *operation,
               if (result.isSuccess()) {
                 workingConfig = configAttr;
                 workingResult = result;
+                TTMLIR_TRACE(ttmlir::LogComponent::OpValidation,
+                             "Found working config after {} failed attempts",
+                             failedAttempts);
                 return true;
               }
 
+              failedAttempts++;
               TTMLIR_TRACE(ttmlir::LogComponent::OpValidation,
                            "Config fallback failed (status: {}): {}",
                            static_cast<int>(result.status),
                            result.errorMessage);
+
+              // Check if we've exceeded the maximum attempts (if limit is set)
+              if (maxAttempts > 0 &&
+                  failedAttempts >= static_cast<size_t>(maxAttempts)) {
+                TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+                             "Reached maximum fallback attempts ({}) for "
+                             "operation {} at {}. Terminating early.",
+                             maxAttempts, operation->getName(),
+                             operation->getLoc());
+                return false;
+              }
             }
+            TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+                         "No working config found after {} failed attempts",
+                         failedAttempts);
             return false;
           })
           .Default([](Operation *) { return false; });

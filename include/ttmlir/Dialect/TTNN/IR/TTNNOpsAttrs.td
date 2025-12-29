@@ -141,6 +141,10 @@ def TTNN_ShardOrientationAttr : EnumAttr<TTNN_Dialect, TTNN_ShardOrientation, "s
   let assemblyFormat = "`<` $value `>`";
 }
 
+def TTNN_ShardDistributionStrategyAttr : EnumAttr<TTNN_Dialect, TTNN_ShardDistributionStrategy, "shard_distribution_strategy"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
 def TTNN_ShardSpecAttr : TTNN_Attr<"ShardSpec", "shard_spec"> {
   let summary = "TTNN ShardSpec attribute";
   let description = [{
@@ -191,6 +195,75 @@ def TTNN_ShardSpecAttr : TTNN_Attr<"ShardSpec", "shard_spec"> {
   }];
 }
 
+def TTNN_NDShardSpecAttr : TTNN_Attr<"NDShardSpec", "nd_shard_spec"> {
+  let summary = "TTNN ShardSpec attribute";
+  let description = [{
+    The `NDShardSpecAttr` defines how a tensor is sharded across multiple cores using ND sharding.
+
+    ND sharding is a superset of legacy sharding expressed by `ShardSpecAttr`:
+    - ND sharded tensors may have N-dimensional shard shapes while legacy sharding only supports
+       2D shard shapes
+    - In ND sharding multiple shards can be assigned to the same core, while in legacy sharding
+       there is always one shard per core
+
+    This attribute specifies:
+    - Which cores the tensor is distributed across (via CoreRangeSet)
+    - The shape of each shard
+    - The orientation of the sharding (row_major, column_major, etc.)
+    - The strategy for distributing shards across the grid (round robin 1D, or grid 2D)
+
+    NDShardSpecAttr is used within MemoryConfigAttr to specify sharding information for ND sharded tensors
+    stored in L1 memory. ND sharded tensors that are not expressable in legacy are considered
+    block sharded by convention.
+
+    This attribute is optional in the MemoryConfigAttr and should only be present
+    when the tensor is ND sharded.
+  }];
+
+  let parameters = (ins "CoreRangeSetAttr": $coreRangeSet,
+                    "ShapeAttr":$shape,
+                    "ShardOrientationAttr":$shardOrientation,
+                    "ShardDistributionStrategyAttr":$shardDistributionStrategy);
+  let extraClassDeclaration = [{
+    static NDShardSpecAttr get(TTNNNDLayoutAttr layout);
+  }];
+  let assemblyFormat = "`<` params `>`";
+}
+
+def TTNN_TTNNNDLayoutAttr: TTNN_Attr<"TTNNNDLayout", "ttnn_nd_layout"> {
+ let summary = "Tensor encoding attribute used for ND sharded tensors. Used by TTNN JIT.";
+ let description = [{
+  Layout attribute for TTNN tensors, capable of representing ND sharded tensors. This encoding is:
+    - created by TTNN JIT,
+    - consumed by the D2M compilation pipeline,
+    - converted to flatbuffer through the TTNN translation path, and
+    - executed through the TTNN backend of the runtime.
+
+  The purpose of this attribute is to enable ND sharding support for TTNN JIT. While it can coexist
+  with TTNNLayoutAttr in IR, there is no support for it in the TTNN compilation pipeline.
+
+  Only single device tensors are currently supported.
+ }];
+
+ let parameters = (ins
+    AttrParameter<"ttcore::GridAttr", "The grid shape that this tensor is divided onto.">:$grid,
+    AttrParameter<"MemRefType", "A memref that describing a single shard">:$memref,
+    AttrParameter<"TensorMemoryLayoutAttr", "TTNN tensor memory layout">:$mem_layout,
+    OptionalParameter<"ShardOrientationAttr", "The orientation of the sharding">:$shard_orientation,
+    OptionalParameter<"ShardDistributionStrategyAttr", "The distribution strategy of the sharding">:$shard_distribution_strategy);
+
+  let assemblyFormat = "`<` $grid`,` $memref `,` $mem_layout (`,` $shard_orientation^ )? (`,` $shard_distribution_strategy^ )? `>`";
+  let extraClassDeclaration = [{
+   bool isInterleaved() const;
+   bool isSharded() const;
+   BufferType getBufferType() const;
+   bool isTiled() const;
+   llvm::SmallVector<int64_t> getScalarShardShape() const;
+   Layout getLayout() const;
+   ttcore::DataType getDataType() const;
+ }];
+}
+
 def TTNN_MemoryConfigAttr : TTNN_Attr<"MemoryConfig", "memory_config"> {
   let summary = "TTNN MemoryConfig attribute";
   let description = [{
@@ -213,12 +286,14 @@ def TTNN_MemoryConfigAttr : TTNN_Attr<"MemoryConfig", "memory_config"> {
 
   let parameters = (ins OptionalParameter<"TensorMemoryLayoutAttr">:$tensorMemoryLayout,
                     "BufferTypeAttr":$bufferType,
-                    OptionalParameter<"std::optional<ShardSpecAttr>">:$shardSpec);
+                    OptionalParameter<"std::optional<ShardSpecAttr>">:$shardSpec,
+                    OptionalParameter<"std::optional<NDShardSpecAttr>">:$ndShardSpec);
 
-  let assemblyFormat = "`<` $bufferType (`,` $tensorMemoryLayout^ )? (`,` $shardSpec^ )? `>`";
+  let assemblyFormat = "`<` $bufferType (`,` $tensorMemoryLayout^ )? (`,` $shardSpec^ )? (`,` $ndShardSpec^ )? `>`";
 
   let extraClassDeclaration = [{
     class Builder;
+    static MemoryConfigAttr get(::mlir::MLIRContext *context, TensorMemoryLayoutAttr tensorMemoryLayout, BufferTypeAttr bufferType, std::optional<ShardSpecAttr> shardSpec);
     static MemoryConfigAttr get(ttnn::TTNNLayoutAttr layout, ttcore::GridAttr deviceGrid);
     llvm::ArrayRef<int64_t> getShardShape(bool convertTileToScalar = true) const;
   }];

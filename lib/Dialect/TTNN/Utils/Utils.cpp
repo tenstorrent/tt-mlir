@@ -254,6 +254,15 @@ createShardSpecIfNeeded(TTNNLayoutAttr layoutAttr,
   return shardSpecAttr;
 }
 
+std::optional<NDShardSpecAttr>
+createNDShardSpecIfNeeded(TTNNNDLayoutAttr layoutAttr) {
+  std::optional<NDShardSpecAttr> ndShardSpecAttr = std::nullopt;
+  if (layoutAttr && layoutAttr.isSharded()) {
+    ndShardSpecAttr = NDShardSpecAttr::get(layoutAttr);
+  }
+  return ndShardSpecAttr;
+}
+
 // Helper method to create a ShardSpecAttr if needed.
 std::optional<ShardSpecAttr> createShardSpecIfNeeded(
     TensorMemoryLayoutAttr tensorMemoryLayoutAttr, ShapeAttr shardShapeAttr,
