@@ -11,16 +11,13 @@ from ttmlir.dialects import ttkernel
 
 with Context() as ctx, Location.unknown():
     # Create ArgAttr instances for rt_args and ct_args.
-    # ArgAttr.get() returns MlirAttribute, downcast to typed ArgAttr.
-    rt_arg1 = ttkernel.ir.ArgAttr.maybe_downcast(
-        ttkernel.ir.ArgAttr.get(ctx._CAPIPtr, 0, 0, True)
-    )
-    rt_arg2 = ttkernel.ir.ArgAttr.maybe_downcast(
-        ttkernel.ir.ArgAttr.get(ctx._CAPIPtr, 0, 1, False)
-    )
-    ct_arg1 = ttkernel.ir.ArgAttr.maybe_downcast(
-        ttkernel.ir.ArgAttr.get(ctx._CAPIPtr, 1, 2, True)
-    )
+    # ArgAttr.get() returns MlirAttribute for MLIR interop.
+    rt_arg1_attr = ttkernel.ir.ArgAttr.get(ctx._CAPIPtr, 0, 0, True)
+    rt_arg2_attr = ttkernel.ir.ArgAttr.get(ctx._CAPIPtr, 0, 1, False)
+    ct_arg1_attr = ttkernel.ir.ArgAttr.get(ctx._CAPIPtr, 1, 2, True)
+
+    # Downcast to access typed properties.
+    rt_arg1 = ttkernel.ir.ArgAttr.maybe_downcast(rt_arg1_attr)
 
     # Verify ArgAttr properties work on downcast object.
     # CHECK: rt_arg1 operand_index: 0
@@ -28,8 +25,10 @@ with Context() as ctx, Location.unknown():
     # CHECK: rt_arg1 is_uniform: True
     print(f"rt_arg1 is_uniform: {rt_arg1.is_uniform}")
 
-    # ArgSpecAttr.get() returns MlirAttribute for MLIR interop.
-    spec_attr = ttkernel.ir.ArgSpecAttr.get(ctx._CAPIPtr, [rt_arg1, rt_arg2], [ct_arg1])
+    # ArgSpecAttr.get() accepts MlirAttribute objects and returns MlirAttribute.
+    spec_attr = ttkernel.ir.ArgSpecAttr.get(
+        ctx._CAPIPtr, [rt_arg1_attr, rt_arg2_attr], [ct_arg1_attr]
+    )
 
     # Downcast to access typed properties.
     spec = ttkernel.ir.ArgSpecAttr.maybe_downcast(spec_attr)

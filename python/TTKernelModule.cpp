@@ -100,10 +100,22 @@ void populateTTKernelModule(nb::module_ &m) {
 
   tt_attribute_class<tt::ttkernel::ArgSpecAttr>(m, "ArgSpecAttr")
       .def_static("get",
-                  [](MlirContext ctx, std::vector<tt::ttkernel::ArgAttr> rtArgs,
-                     std::vector<tt::ttkernel::ArgAttr> ctArgs) {
-                    return wrap(tt::ttkernel::ArgSpecAttr::get(unwrap(ctx),
-                                                               rtArgs, ctArgs));
+                  [](MlirContext ctx, std::vector<MlirAttribute> rtArgs,
+                     std::vector<MlirAttribute> ctArgs) {
+                    std::vector<tt::ttkernel::ArgAttr> _rt_args, _ct_args;
+
+                    for (const auto &x : rtArgs) {
+                      _rt_args.emplace_back(
+                          mlir::cast<tt::ttkernel::ArgAttr>(unwrap(x)));
+                    }
+
+                    for (const auto &x : ctArgs) {
+                      _ct_args.emplace_back(
+                          mlir::cast<tt::ttkernel::ArgAttr>(unwrap(x)));
+                    }
+
+                    return wrap(tt::ttkernel::ArgSpecAttr::get(
+                        unwrap(ctx), _rt_args, _ct_args));
                   })
       .def_prop_ro_static("name",
                           [](nb::handle) {
