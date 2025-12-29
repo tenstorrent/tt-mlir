@@ -25,9 +25,6 @@ bool isValidTileShape(const ::tt::target::Dim2d *shape);
 bool isSharded(
     const ::tt::target::ttnn::TensorMemoryLayout &tensorMemoryLayout);
 
-bool canTilizeMemoryLayoutOnDevice(
-    const std::optional<::ttnn::MemoryConfig> &memoryConfig);
-
 bool canUntilizeDataTypeOnDevice(const ::ttnn::DataType &dataType);
 
 bool canTilizeOnDevice(const ::ttnn::DataType &dataType,
