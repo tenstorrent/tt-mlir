@@ -92,12 +92,8 @@ void enableTorchConversion(func::FuncOp funcOp) {
 struct ConvertTTNNToEmitPyPass
     : public tt::ttnn::impl::ConvertTTNNToEmitPyBase<ConvertTTNNToEmitPyPass> {
 
-  using BaseConstructor =
-      tt::ttnn::impl::ConvertTTNNToEmitPyBase<ConvertTTNNToEmitPyPass>;
-
-  ConvertTTNNToEmitPyPass() = default;
-  ConvertTTNNToEmitPyPass(const ConvertTTNNToEmitPyOptions &options)
-      : BaseConstructor(options) {}
+  using tt::ttnn::impl::ConvertTTNNToEmitPyBase<
+      ConvertTTNNToEmitPyPass>::ConvertTTNNToEmitPyBase;
 
   void runOnOperation() override {
     mlir::ModuleOp module = getOperation();

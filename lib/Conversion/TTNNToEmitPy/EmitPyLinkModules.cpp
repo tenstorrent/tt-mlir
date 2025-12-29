@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
@@ -112,12 +113,13 @@ public:
           !funcOp.isDeclaration()) {
         continue;
       }
-      constexpr const char *kDeclSuffix = "_decl";
+
       llvm::StringRef declarationName = funcOp.getSymName();
-      assert(declarationName.ends_with(kDeclSuffix) &&
+      assert(declarationName.ends_with(ttir::kCPUHoistedDeclSuffix) &&
              "CPU-hoisted function declaration must end with '_decl'");
 
-      auto definitionName = declarationName.drop_back(strlen(kDeclSuffix));
+      auto definitionName =
+          declarationName.drop_back(strlen(ttir::kCPUHoistedDeclSuffix));
       (void)funcOp.replaceAllSymbolUses(builder.getStringAttr(definitionName),
                                         deviceModule);
 
