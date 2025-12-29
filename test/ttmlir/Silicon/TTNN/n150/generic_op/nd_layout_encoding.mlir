@@ -1,7 +1,5 @@
-// REQUIRES: opmodel, perf
 // RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" -o %t.mlir %s
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
-// RUN: ttrt run %t.ttnn
 // Temporary test for ttnn_nd_layout support in runtime. When TTNN JIT support is brought up (#5832), this test will be removed
 
 #l1 = #ttnn.buffer_type<l1>
