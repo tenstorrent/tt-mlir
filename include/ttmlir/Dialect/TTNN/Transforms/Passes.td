@@ -319,7 +319,11 @@ def TTNNOperationValidationAndFallback: Pass<"ttnn-operation-validation-and-fall
     Option<"tensorL1UsageCap",
            "tensor-l1-usage-cap",
            "float", /*default=*/"1.0",
-           "Limit L1 memory usage to this fraction of available space (0.0-1.0)">
+           "Limit L1 memory usage to this fraction of available space (0.0-1.0)">,
+    Option<"maxFallbackAttempts",
+           "max-fallback-attempts",
+           "uint32_t", /*default=*/"10000",
+           "Maximum number of fallback configurations to try before giving up (0 = unlimited)">
   ];
 }
 
