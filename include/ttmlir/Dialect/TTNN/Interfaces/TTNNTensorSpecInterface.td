@@ -124,7 +124,7 @@ def TTNN_ComputeKernelConfigOpInterface : OpInterface<"TTNNComputeKernelConfigOp
       /*methodName=*/"setComputeConfigAttr",
       /*args=*/(ins "DeviceComputeKernelConfigAttr": $computeConfigAttr),
       /*methodBody=*/[{
-        $_op->setAttr("compute_config", computeConfigAttr);
+        $_op.setComputeConfigAttr(computeConfigAttr);
       }]
     >,
   ];

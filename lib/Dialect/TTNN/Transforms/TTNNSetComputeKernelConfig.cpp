@@ -21,70 +21,69 @@ public:
       TTNNSetComputeKernelConfig>::TTNNSetComputeKernelConfigBase;
 
   void runOnOperation() final {
-    ModuleOp module = getOperation();
+    ModuleOp moduleOp = getOperation();
     MLIRContext *context = &getContext();
 
     std::optional<MathFidelity> mathFidelityOverride = mathFidelity;
 
-    // Walk through all operations in the module
-    module->walk([&](Operation *op) {
+    // Walk through all operations in the moduleOp
+    moduleOp->walk([&](Operation *op) {
       // Check if operation implements ComputeKernelConfigOpInterface
-      if (auto ckConfigOp = dyn_cast<TTNNComputeKernelConfigOpInterface>(op)) {
-        // Get existing compute config attribute (may be nullptr)
-        DeviceComputeKernelConfigAttr config =
-            ckConfigOp.getComputeConfigAttr();
-
-        // Log operation info and config before setting overrides
-        TTMLIR_DEBUG(ttmlir::LogComponent::General,
-                     "TTNNSetComputeKernelConfig - Operation: {0}",
-                     op->getName().getStringRef());
-        if (config) {
-          TTMLIR_DEBUG(ttmlir::LogComponent::General,
-                       "  Existing config before override: {0}", config);
-        } else {
-          TTMLIR_DEBUG(
-              ttmlir::LogComponent::General,
-              "  Existing config before override: nullptr (no config set)");
-        }
-
-        // Start with existing config or create empty one
-        if (!config) {
-          config = DeviceComputeKernelConfigAttr::get(context);
-        }
-
-        // Apply overrides only for parameters that are not already set.
-        // Each withX() method returns a new attribute, so we chain them.
-
-        // Math fidelity: only override if not already set and we have a value.
-        if (!config.getMathFidelity().has_value() &&
-            mathFidelityOverride.has_value()) {
-          config = config.withMathFidelity(*mathFidelityOverride);
-        }
-
-        // Bool options: only override if not already set and option is true.
-        if (!config.getMathApproxMode() && mathApproxMode) {
-          config = config.withMathApproxMode(mathApproxMode);
-        }
-
-        if (!config.getFp32DestAccEn() && fp32DestAccEn) {
-          config = config.withFp32DestAccEn(fp32DestAccEn);
-        }
-
-        if (!config.getPackerL1Acc() && packerL1Acc) {
-          config = config.withPackerL1Acc(packerL1Acc);
-        }
-
-        if (!config.getDstFullSyncEn() && dstFullSyncEn) {
-          config = config.withDstFullSyncEn(dstFullSyncEn);
-        }
-
-        // Log config after applying overrides
-        TTMLIR_DEBUG(ttmlir::LogComponent::General,
-                     "  Config after override: {0}\n", config);
-
-        // Set the updated config back to the operation
-        ckConfigOp.setComputeConfigAttr(config);
+      auto computeConfigOp = dyn_cast<TTNNComputeKernelConfigOpInterface>(op);
+      if (!computeConfigOp) {
+        return;
       }
+
+      // Get existing compute config attribute (may be nullptr)
+      DeviceComputeKernelConfigAttr config =
+          computeConfigOp.getComputeConfigAttr();
+
+      // Log operation info and config before setting overrides
+      TTMLIR_DEBUG(ttmlir::LogComponent::General,
+                   "TTNNSetComputeKernelConfig - Operation: {0}",
+                   op->getName().getStringRef());
+      if (config) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::General,
+                     "  Existing config before override: {0}", config);
+      } else {
+        TTMLIR_DEBUG(
+            ttmlir::LogComponent::General,
+            "  Existing config before override: nullptr (no config set)");
+        config = DeviceComputeKernelConfigAttr::get(context);
+      }
+
+      // Apply overrides only for parameters that are not already set.
+      // Each withX() method returns a new attribute, so we chain them.
+
+      // Math fidelity: only override if not already set and we have a value.
+      if (!config.getMathFidelity().has_value() &&
+          mathFidelityOverride.has_value()) {
+        config = config.withMathFidelity(*mathFidelityOverride);
+      }
+
+      // Bool options: only override if not already set and option is true.
+      if (!config.getMathApproxMode() && mathApproxMode) {
+        config = config.withMathApproxMode(mathApproxMode);
+      }
+
+      if (!config.getFp32DestAccEn() && fp32DestAccEn) {
+        config = config.withFp32DestAccEn(fp32DestAccEn);
+      }
+
+      if (!config.getPackerL1Acc() && packerL1Acc) {
+        config = config.withPackerL1Acc(packerL1Acc);
+      }
+
+      if (!config.getDstFullSyncEn() && dstFullSyncEn) {
+        config = config.withDstFullSyncEn(dstFullSyncEn);
+      }
+
+      // Log config after applying overrides
+      TTMLIR_DEBUG(ttmlir::LogComponent::General,
+                   "  Config after override: {0}\n", config);
+
+      // Set the updated config back to the operation
+      computeConfigOp.setComputeConfigAttr(config);
     });
   }
 };
