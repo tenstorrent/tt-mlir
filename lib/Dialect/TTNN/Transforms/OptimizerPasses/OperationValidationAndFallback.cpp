@@ -246,22 +246,8 @@ public:
                          "Operation {} at {} fixed with fallback configuration",
                          operation->getName(), operation->getLoc());
           } else {
-            std::string opStr;
-            llvm::raw_string_ostream os(opStr);
-            operation->print(os);
-
-            emitError(operation->getLoc())
-                << "OperationValidationAndFallback: Operation "
-                << operation->getName()
-                << " failed validation (original error: "
-                << op_constraint_validation::validationStatusToString(
-                       originalResult.status)
-                << (!originalResult.errorMessage.empty()
-                        ? " - " + originalResult.errorMessage
-                        : "")
-                << "). No fallback configuration worked (tested up to "
-                << std::to_string(maxFallbackAttempts) << " combinations)."
-                << "\nOperation IR: " << os.str();
+            emitValidationFailureError(operation, originalResult,
+                                       maxFallbackAttempts);
             validationFailed = true;
             signalPassFailure();
             return WalkResult::interrupt();
@@ -281,6 +267,32 @@ public:
   }
 
 private:
+  // We explicitly include the operation IR in the error message to ensure
+  // visibility across all environments, while automatically added note in
+  // emitError may not always be visible. This helps with debugging validation
+  // failures, as well as the original error message and the maximum fallback
+  // attempts limit.
+  void emitValidationFailureError(
+      Operation *operation,
+      const op_constraint_validation::ValidationResult &originalResult,
+      uint32_t maxAttempts) {
+    std::string opStr;
+    llvm::raw_string_ostream os(opStr);
+    operation->print(os);
+
+    emitError(operation->getLoc())
+        << "OperationValidationAndFallback: Operation " << operation->getName()
+        << " failed validation (original error: "
+        << op_constraint_validation::validationStatusToString(
+               originalResult.status)
+        << (!originalResult.errorMessage.empty()
+                ? " - " + originalResult.errorMessage
+                : "")
+        << "). No fallback configuration worked (tested up to "
+        << std::to_string(maxAttempts) << " combinations)."
+        << "\nOperation IR: " << os.str();
+  }
+
   // Extract OpConfig from operation's IR
   OpConfig extractOpConfigFromIR(Operation *operation) {
     OpConfig config;
