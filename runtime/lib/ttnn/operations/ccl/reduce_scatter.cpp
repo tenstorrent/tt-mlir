@@ -44,11 +44,14 @@ void run(const ::tt::target::ttnn::ReduceScatterOp *op,
   // Enable it when needed.
 
   std::optional<uint32_t> numLinks = op->num_links();
-  std::optional<::tt::tt_fabric::Topology> topology = std::nullopt;
-  if (op->topology()) {
-    topology = std::make_optional<::tt::tt_fabric::Topology>(
-        ::tt::runtime::common::toMetalTopology(op->topology().value()));
-  }
+  //std::optional<::tt::tt_fabric::Topology> topology = std::nullopt;
+  //if (op->topology()) {
+  //  topology = std::make_optional<::tt::tt_fabric::Topology>(
+  //      ::tt::runtime::common::toMetalTopology(op->topology().value()));
+  //}
+  std::optional<::tt::tt_fabric::Topology> topology = ::tt::tt_fabric::Topology::Ring;
+  std::cout << "ReduceScatter Topology: "
+            << static_cast<int>(topology.value()) << std::endl;
 
   ::ttnn::Tensor out = ::ttnn::reduce_scatter(
       input, scatterDimension, clusterAxis, subDeviceId, outputMemoryConfig,
