@@ -13,6 +13,7 @@
 
 #include "mlir/IR/BuiltinOps.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -21,7 +22,7 @@ namespace mlir::tt::ttnn {
 
 namespace op_constraint_validation {
 
-const char *validationStatusToString(ValidationStatus status) {
+llvm::StringRef validationStatusToString(ValidationStatus status) {
   switch (status) {
   case ValidationStatus::Success:
     return "Success";

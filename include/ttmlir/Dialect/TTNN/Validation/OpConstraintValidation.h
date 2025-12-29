@@ -10,6 +10,7 @@
 
 #include "mlir/IR/Operation.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/StringRef.h"
 
 namespace mlir::tt::ttnn {
 
@@ -26,7 +27,7 @@ enum class ValidationStatus {
 };
 
 // Convert ValidationStatus to string for error messages
-const char *validationStatusToString(ValidationStatus status);
+llvm::StringRef validationStatusToString(ValidationStatus status);
 
 // Result of a single constraint validation test.
 struct ValidationResult {

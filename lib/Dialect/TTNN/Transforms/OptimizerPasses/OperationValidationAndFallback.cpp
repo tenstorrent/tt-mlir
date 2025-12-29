@@ -448,8 +448,8 @@ createFallbackTransforms(TTNNLayoutAttr originalLayout,
   std::vector<BufferType> targetBufferTypes = {BufferType::DRAM,
                                                BufferType::SystemMemory};
 
-  for (ttcore::DataType targetDataType : targetDataTypes) {
-    for (Layout targetLayout : targetLayouts) {
+  for (Layout targetLayout : targetLayouts) {
+    for (ttcore::DataType targetDataType : targetDataTypes) {
       for (BufferType targetBufferType : targetBufferTypes) {
         // Skip if this is the same as original
         if (targetLayout == originalLayout.getLayout() &&
