@@ -11,12 +11,18 @@ from ttmlir.dialects import ttkernel
 
 with Context() as ctx, Location.unknown():
     # Create ArgAttr instances for rt_args and ct_args.
-    # ArgAttr.get() returns typed object directly.
-    rt_arg1 = ttkernel.ir.ArgAttr.get(ctx._CAPIPtr, 0, 0, True)
-    rt_arg2 = ttkernel.ir.ArgAttr.get(ctx._CAPIPtr, 0, 1, False)
-    ct_arg1 = ttkernel.ir.ArgAttr.get(ctx._CAPIPtr, 1, 2, True)
+    # ArgAttr.get() returns MlirAttribute, downcast to typed ArgAttr.
+    rt_arg1 = ttkernel.ir.ArgAttr.maybe_downcast(
+        ttkernel.ir.ArgAttr.get(ctx._CAPIPtr, 0, 0, True)
+    )
+    rt_arg2 = ttkernel.ir.ArgAttr.maybe_downcast(
+        ttkernel.ir.ArgAttr.get(ctx._CAPIPtr, 0, 1, False)
+    )
+    ct_arg1 = ttkernel.ir.ArgAttr.maybe_downcast(
+        ttkernel.ir.ArgAttr.get(ctx._CAPIPtr, 1, 2, True)
+    )
 
-    # Verify ArgAttr.get() returns typed object directly.
+    # Verify ArgAttr properties work on downcast object.
     # CHECK: rt_arg1 operand_index: 0
     print(f"rt_arg1 operand_index: {rt_arg1.operand_index}")
     # CHECK: rt_arg1 is_uniform: True

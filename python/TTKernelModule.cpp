@@ -86,9 +86,9 @@ void populateTTKernelModule(nb::module_ &m) {
           "get",
           [](MlirContext ctx, uint32_t argTypeValue, size_t operandIndex,
              bool isUniform = true) {
-            return tt::ttkernel::ArgAttr::get(
+            return wrap(tt::ttkernel::ArgAttr::get(
                 unwrap(ctx), static_cast<tt::ttkernel::ArgType>(argTypeValue),
-                operandIndex, isUniform);
+                operandIndex, isUniform));
           },
           nb::arg("ctx"), nb::arg("argTypeValue"), nb::arg("operandIndex"),
           nb::arg("isUniform") = true)
