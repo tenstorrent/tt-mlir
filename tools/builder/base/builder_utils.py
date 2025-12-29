@@ -78,16 +78,12 @@ def get_target_path(output_path, builder_dir, filename, target):
     return os.path.join(target_dir, filename)
 
 
-def emitc_to_executable(module, filepath: str, golden_map, module_cache):
-    cpp = translate_to_cpp(module)
-    with open(filepath, "w") as f:
-        f.write(cpp)
+def emitc_to_executable(module):
+    return translate_to_cpp(module)
 
 
-def emitpy_to_executable(module, filepath: str, golden_map, module_cache):
-    py = translate_to_python(module)
-    with open(filepath, "w") as f:
-        f.write(py)
+def emitpy_to_executable(module):
+    return translate_to_python(module)
 
 
 def _convert_to_mlir_value(obj):
