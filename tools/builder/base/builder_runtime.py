@@ -795,7 +795,6 @@ def execute_cpp(
     from emitc_compiler import compile_emitc_to_so
 
     metal_lib_dir = os.environ.get("TT_METAL_LIB")
-    print(f"Attempting to use TT-Metal lib dir: {metal_lib_dir}")
     if metal_lib_dir is None:
         TT_METAL_RUNTIME_ROOT = Path(
             os.environ.get("TT_METAL_RUNTIME_ROOT", os.getcwd())
@@ -803,7 +802,6 @@ def execute_cpp(
         metal_lib_candidates = [
             p for p in TT_METAL_RUNTIME_ROOT.glob("build*/lib") if p.is_dir()
         ]
-        print(f"Found TT-Metal lib dirs: {metal_lib_candidates}")
         if len(metal_lib_candidates) != 1:
             found = "\n".join(f"- {p}" for p in metal_lib_candidates) or "- <none>"
             raise TTBuilderRuntimeException(
@@ -860,6 +858,9 @@ def execute_cpp(
                 inputs,
                 device,
             )
+            outputs = [
+                tt_runtime.runtime.to_host(out, untilize=True)[0] for out in outputs
+            ]
 
             if not disable_golden:
                 for i, output in enumerate(outputs):
