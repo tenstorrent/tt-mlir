@@ -13,6 +13,7 @@ from builder.base.builder_apis import (
 )
 from test_utils import (
     Marks,
+    SkipIf,
     shape_str,
 )
 
@@ -337,12 +338,14 @@ def leaky_relu(
     return builder.leaky_relu(in0, parameter, unit_attrs=unit_attrs)
 
 
-unary_ops_with_float_param = [leaky_relu | Marks(pytest.mark.skip_config(["ttmetal"]))]
+unary_ops_with_float_param = [leaky_relu | SkipIf("ttmetal")]
 
 
 @pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitc", "emitpy"])
+@pytest.mark.parametrize(
+    "target", ["ttnn" | SkipIf("sim"), "ttmetal", "emitc", "emitpy"]
+)
 @pytest.mark.parametrize("test_fn", unary_ops_with_float_param)
 @pytest.mark.parametrize("parameter", [0.01, 0.1, 0.2])
 def test_unary_ops_with_float_param(

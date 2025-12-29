@@ -680,6 +680,83 @@ public:
     return success();
   }
 };
+
+// Convert arith.bitcast to a call to float_to_bits helper.
+// This is needed for scalar tile ops that pass float values as integer params.
+// The helper function is defined in TTKernelToCpp.cpp during code generation.
+class ArithBitcastRewriter : public OpConversionPattern<arith::BitcastOp> {
+public:
+  using OpConversionPattern<arith::BitcastOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(arith::BitcastOp op, arith::BitcastOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Type resultType = getTypeConverter()->convertType(op.getResult().getType());
+    if (!resultType) {
+      return failure();
+    }
+
+    // Call the float_to_bits helper which uses memcpy to bitcast float to int.
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        op, resultType, "float_to_bits",
+        /*args=*/nullptr,
+        /*templateArgs=*/nullptr, adaptor.getOperands());
+
+    return success();
+  }
+};
+
+// Rewriter for scalar unary tile ops (add_unary_tile, mul_unary_tile, etc).
+// These ops take a tile index and a scalar parameter. The custom GCC may not
+// see the data dependency between the scalar value and the SFPU intrinsic,
+// potentially optimizing away the scalar computation.
+//
+// We bounce the scalar through a volatile variable to prevent this:
+//   volatile int32_t __scalar = param;
+//   mul_unary_tile(idx, __scalar);
+template <typename SourceOp, typename Adaptor = typename SourceOp::Adaptor>
+class TTKernelScalarUnaryTileOpRewriter : public OpConversionPattern<SourceOp> {
+public:
+  TTKernelScalarUnaryTileOpRewriter(TTKernelToEmitCTypeConverter &typeConverter,
+                                    MLIRContext *ctx)
+      : OpConversionPattern<SourceOp>(typeConverter, ctx) {}
+
+  StringRef getOpName(SourceOp op) const {
+    auto name = op.getOperation()->getName().getStringRef();
+    if (name.starts_with("ttkernel.")) {
+      return name.drop_front(9);
+    }
+    return name;
+  }
+
+  LogicalResult
+  matchAndRewrite(SourceOp op, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto operands = adaptor.getOperands();
+    // Expect (dst_index, scalar_param).
+    if (operands.size() != 2) {
+      return rewriter.notifyMatchFailure(
+          op, "Expected exactly 2 operands for scalar unary tile op");
+    }
+
+    Value dstIndex = operands[0];
+    Value scalarParam = operands[1];
+
+    // Use verbatim to emit the volatile bounce directly.
+    // This works around EmitC's strict type checking, and avoid sfpi-gcc bug.
+    //
+    // Emits: { volatile int32_t __s = <scalar>; <op>(<idx>, __s); }
+    // Note that apparently "{{" produces "{" but "}" is not escaped in EmitC.
+    std::string code =
+        "{{ volatile int32_t __s = {}; " + getOpName(op).str() + "({}, __s); }";
+    rewriter.create<emitc::VerbatimOp>(op->getLoc(),
+                                       rewriter.getStringAttr(code),
+                                       ValueRange{scalarParam, dstIndex});
+    rewriter.eraseOp(op);
+
+    return success();
+  }
+};
 } // namespace
 
 namespace {
@@ -803,17 +880,16 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::SignTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SignTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::CeilTileOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::CeilTileF32Op>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::CopyDestValuesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::CopyDestValuesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::CosTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::CosTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::AddBinaryTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::AddBinaryTilesOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::AddUnaryTileOp>,
+        TTKernelScalarUnaryTileOpRewriter<ttkernel::AddUnaryTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::DivBinaryTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::DivBinaryTilesOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::DivUnaryTileOp>,
+        TTKernelScalarUnaryTileOpRewriter<ttkernel::DivUnaryTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ErfTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ErfTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ErfcTileInitOp>,
@@ -821,7 +897,6 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExpTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExpTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FloorTileOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::FloorTileF32Op>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FillTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::FillTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GeluTileInitOp>,
@@ -853,10 +928,10 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::LezTileI32Op>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MulBinaryTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MulBinaryTilesOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::MulUnaryTileOp>,
+        TTKernelScalarUnaryTileOpRewriter<ttkernel::MulUnaryTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SubBinaryTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SubBinaryTilesOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::SubUnaryTileOp>,
+        TTKernelScalarUnaryTileOpRewriter<ttkernel::SubUnaryTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryMaxTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryMaxTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryMinTileInitOp>,
@@ -905,10 +980,19 @@ public:
             ttkernel::NocAsyncReadOnePacketSetStateOp>,
         TTKernelToEmitCOpaqueRewriter<
             ttkernel::NocAsyncReadOnePacketWithStateOp>,
+        TTKernelToEmitCOpaqueRewriter<
+            ttkernel::NocAsyncReadOnePacketWithStateWithTridOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncReadSetTridOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncReadBarrierOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncReadBarrierWithTridOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteSetTridOp>,
+        TTKernelToEmitCOpaqueRewriter<
+            ttkernel::NocAsyncWriteOnePacketWithTridOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteBarrierOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::NocAsyncWriteBarrierWithTridOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::ResetNocTridBarrierCounterOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetNocMulticastAddrOp>,
         TTKernelToEmitCOpaqueRewriter<
             ttkernel::ExperimentalGetNocMulticastAddrOp>,
@@ -963,7 +1047,8 @@ public:
             ttkernel::InterleavedAddrGenFastGetNocAddrOp>>(typeConverter,
                                                            funcOp.getContext());
 
-    patterns.add<ArithFloorDivRewriter>(typeConverter, funcOp.getContext());
+    patterns.add<ArithFloorDivRewriter, ArithBitcastRewriter>(
+        typeConverter, funcOp.getContext());
 
     return applyFullConversion(funcOp, target, std::move(patterns));
   }

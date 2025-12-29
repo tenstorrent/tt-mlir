@@ -684,11 +684,24 @@ MemoryConfigAttr MemoryConfigAttr::get(TTNNLayoutAttr layoutAttr,
       utils::createShardSpecIfNeeded(layoutAttr, deviceGrid));
 }
 
+MemoryConfigAttr MemoryConfigAttr::get(
+    ::mlir::MLIRContext *context, TensorMemoryLayoutAttr tensorMemoryLayout,
+    BufferTypeAttr bufferType, std::optional<ShardSpecAttr> shardSpec) {
+  return MemoryConfigAttr::get(context, tensorMemoryLayout, bufferType,
+                               shardSpec, /*ndShardSpec=*/std::nullopt);
+}
+
 // Verify memory config attribute
 ::llvm::LogicalResult MemoryConfigAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
     TensorMemoryLayoutAttr tensorMemoryLayout, BufferTypeAttr bufferType,
-    std::optional<ShardSpecAttr> shardSpec) {
+    std::optional<ShardSpecAttr> shardSpec,
+    std::optional<NDShardSpecAttr> ndShardSpec) {
+
+  if (ndShardSpec && shardSpec) {
+    return emitError() << "Setting both NDShardSpecAttr and ShardSpecAttr is "
+                          "not supported.";
+  }
   // Verify buffer type, memory layout and sharding
   return ::llvm::success(verifyBufferAndMemoryLayout(emitError,
                                                      bufferType.getValue(),
@@ -766,7 +779,8 @@ Conv2dConfigAttr Conv2dConfigAttr::get(::mlir::MLIRContext *context) {
                                /*outputLayout=*/std::nullopt,
                                /*enableActDoubleBuffer=*/nullptr,
                                /*enableWeightsDoubleBuffer=*/nullptr,
-                               /*enableKernelStrideFolding=*/nullptr);
+                               /*enableKernelStrideFolding=*/nullptr,
+                               /*configTensorsInDram=*/nullptr);
 }
 
 // Returns default configuration.
@@ -872,6 +886,12 @@ Conv2dConfigAttr::withEnableKernelStrideFolding(bool value) const {
   return params.buildConv2dConfigAttr(getContext());
 }
 
+Conv2dConfigAttr Conv2dConfigAttr::withConfigTensorsInDram(bool value) const {
+  Conv2dConfigParams params(*this);
+  params.configTensorsInDram = value;
+  return params.buildConv2dConfigAttr(getContext());
+}
+
 bool Conv2dConfigAttr::hasActivation() const {
   return getActivation() != nullptr;
 }
@@ -930,6 +950,10 @@ bool Conv2dConfigAttr::hasEnableKernelStrideFolding() const {
   return getEnableKernelStrideFolding() != nullptr;
 }
 
+bool Conv2dConfigAttr::hasConfigTensorsInDram() const {
+  return getConfigTensorsInDram() != nullptr;
+}
+
 CoreRangeSetAttr
 ShardSpecAttr::getCoreRangeSet(mlir::MLIRContext *context,
                                mlir::tt::ttcore::GridAttr shardGrid,
@@ -949,6 +973,20 @@ ShardSpecAttr::getCoreRangeSet(mlir::MLIRContext *context,
   }
 
   return CoreRangeSetAttr::get(context, coreRangeSet);
+}
+
+NDShardSpecAttr NDShardSpecAttr::get(TTNNNDLayoutAttr layout) {
+  auto shardGrid = layout.getGrid();
+  auto *context = layout.getContext();
+  auto coreRangeSetAttr = CoreRangeSetAttr::get(
+      context, CoreRangeAttr::get(
+                   context, CoreCoordAttr::get(context, 0, 0),
+                   CoreCoordAttr::get(context, shardGrid.getShape()[1] - 1,
+                                      shardGrid.getShape()[0] - 1)));
+  return NDShardSpecAttr::get(
+      context, coreRangeSetAttr,
+      ShapeAttr::get(context, layout.getScalarShardShape()),
+      layout.getShardOrientation(), layout.getShardDistributionStrategy());
 }
 
 struct DeviceComputeKernelConfigAttrParams {
@@ -1043,7 +1081,7 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
 }
 
 ::llvm::LogicalResult KernelSemaphoreAttr::verify(
-    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError, uint32_t id,
     KernelCoreType coreType, ::mlir::tt::ttnn::CoreRangeSetAttr coreRanges,
     uint32_t initialValue) {
   return ::llvm::success();
@@ -1131,4 +1169,55 @@ TTNNLayoutAttr TTNNLayoutAttr::withLayout(Layout layout,
   assert(layout == Layout::RowMajor || layout == Layout::Tile);
   Type elementType = utils::getElementType(getContext(), layout, getDataType());
   return withElementType(elementType, tensorShape);
+}
+
+// Get scalar shard shape
+//
+// If the element type is TileType, this function returns the scalar shape of
+// the shard.
+// Example: memref<2x2x!ttcore.tile<32x32xf32>> -> { 64, 64 }
+// Example: memref<128x128xf32> -> { 128, 128 }
+// Example: memref<2x3!ttcore.tile<32x32xf32>> -> { 64, 96 }
+//
+// return The scalar shape of the shard.
+llvm::SmallVector<int64_t> TTNNNDLayoutAttr::getScalarShardShape() const {
+  SmallVector<int64_t> shardShape(getMemref().getShape());
+  if (isTiled()) {
+    return mlir::cast<mlir::tt::ttcore::TileType>(getMemref().getElementType())
+        .getScalarShape(shardShape);
+  }
+
+  return shardShape;
+}
+
+bool TTNNNDLayoutAttr::isTiled() const {
+  return ::mlir::isa<::mlir::tt::ttcore::TileType>(
+      getMemref().getElementType());
+}
+
+BufferType TTNNNDLayoutAttr::getBufferType() const {
+  return mlir::cast<BufferTypeAttr>(getMemref().getMemorySpace()).getValue();
+}
+
+Layout TTNNNDLayoutAttr::getLayout() const {
+  return isTiled() ? Layout::Tile : Layout::RowMajor;
+}
+
+mlir::tt::ttcore::DataType TTNNNDLayoutAttr::getDataType() const {
+  Type elementType = getMemref().getElementType();
+  if (isTiled()) {
+    mlir::tt::ttcore::TileType tileType =
+        mlir::cast<mlir::tt::ttcore::TileType>(elementType);
+    return tileType.getDataType();
+  }
+
+  return mlir::tt::ttcore::elementTypeToDataType(elementType);
+}
+
+bool TTNNNDLayoutAttr::isInterleaved() const {
+  return getMemLayout().getValue() == TensorMemoryLayout::Interleaved;
+}
+
+bool TTNNNDLayoutAttr::isSharded() const {
+  return getMemLayout().getValue() != TensorMemoryLayout::Interleaved;
 }

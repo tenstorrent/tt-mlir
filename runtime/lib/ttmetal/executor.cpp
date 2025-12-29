@@ -459,12 +459,26 @@ void MCQExecutor::execute(const target::metal::CpuCommand *command) {
 
   common::WrappedFunc func =
       dylibManager.getFunc(command->dylib_id(), command->func_name()->c_str());
-  func(packedInputs.data());
 
-  auto lastInputIt = hostBuffers.find(
-      command->ins()->Get(command->ins()->size() - 1)->global_id());
-  LOG_ASSERT(lastInputIt != hostBuffers.end());
-  hostBuffers.insert({command->out()->global_id(), lastInputIt->second});
+  // Call the CPU function and get returned outputs.
+  common::WrappedTensor *outputArray = func(packedInputs.data());
+
+  common::CreateTensorCallbackType<Tensor, tt::target::metal::BufferRef>
+      createTensor = [](const tt::target::metal::BufferRef *ref,
+                        std::shared_ptr<void> dataPtr) -> Tensor {
+    TensorDesc desc = createTensorDescFromBufferDesc(ref->desc());
+    return ttmetal::createBorrowedHostTensor(dataPtr, desc);
+  };
+
+  // Unpack outputs and insert into hostBuffers.
+  auto outputs = common::unpackTensors<Tensor>(
+      outputArray, command->outs()->size(), command->outs(), createTensor);
+
+  for (size_t i = 0; i < outputs.size(); ++i) {
+    auto [_, inserted] = hostBuffers.try_emplace(
+        command->outs()->Get(i)->global_id(), std::move(outputs[i]));
+    LOG_ASSERT(inserted);
+  }
 }
 
 void MCQExecutor::execute(const target::metal::FinishCommand *) {

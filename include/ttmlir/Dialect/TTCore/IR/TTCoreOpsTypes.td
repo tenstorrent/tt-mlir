@@ -418,7 +418,7 @@ def TTCore_MetalLayoutAttr : TTCore_Attr<"MetalLayout", "metal_layout", [TTCore_
     DefaultValuedParameter<"MemorySpace",
                             "MemorySpace::System">:$memory_space,
 
-   DefaultValuedParameter<"TensorMemoryLayout", "TensorMemoryLayout::Sharded">:$memory_layout,
+   AttrParameter<"TensorMemoryLayout", "Tensor memory layout">:$memory_layout,
 
     // Optional index remapping (e.g., view remap or virtual→physical grid mapping).
     // Defaults to empty, which is treated as identity.
@@ -611,6 +611,10 @@ def TTCore_MemorySpaceAttr : EnumAttr<TTCore_Dialect, TTCore_MemorySpace, "memor
 }
 
 def TTCore_OOBValAttr : EnumAttr<TTCore_Dialect, TTCore_OOBVal, "oob_val"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
+def TTCore_TensorMemoryLayoutAttr : EnumAttr<TTCore_Dialect, TTCore_TensorMemoryLayout, "tensor_memory_layout"> {
   let assemblyFormat = "`<` $value `>`";
 }
 

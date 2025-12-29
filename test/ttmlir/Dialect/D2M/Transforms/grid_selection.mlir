@@ -1,14 +1,19 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --split-input-file %s | FileCheck %s --check-prefix=CHECK-BEFORE
-// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --d2m-grid-selection --canonicalize --split-input-file %s | FileCheck %s --check-prefix=CHECK-AFTER
+// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m %s | FileCheck %s --check-prefix=CHECK-BEFORE
+// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --d2m-grid-selection --canonicalize %s | FileCheck %s --check-prefix=CHECK-AFTER
 #any_device = #ttcore.device<workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
 
 #layout = #ttcore.metal_layout<logical_shape = 256x256, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = map(0)>
 
 // CHECK-AFTER: #[[LAYOUT_STREAM_0:.*]] = #ttcore.metal_layout<logical_shape = 32x2048, dim_alignments = 32x32,  {{.*}} index_map = (d0, d1, d2, d3) -> (d1 floordiv 8, d1 mod 8, d2, d3)>
-// CHECK-AFTER: #[[LAYOUT_STREAM_1:.*]] = #ttcore.metal_layout<logical_shape = 32x2048, dim_alignments = 32x256, {{.*}} index_map = (d0, d1, d2, d3) -> (0, d3 floordiv 4, 0, d3 mod 4)>
+// CHECK-AFTER: #[[LAYOUT_STREAM_1:.*]] = #ttcore.metal_layout<logical_shape = 32x2048, dim_alignments = 32x256, {{.*}} index_map = (d0, d1, d2, d3) -> (d1 floordiv 8, d1 mod 8, d2, d3)>
 // CHECK-AFTER: #[[LAYOUT_STREAM_2:.*]] = #ttcore.metal_layout<logical_shape = 32x2048, dim_alignments = 32x256, {{.*}} index_map = (d0, d1, d2, d3) -> (0, ((d1 + d3) mod 64) floordiv 4, 0, (d1 + d3) mod 4)>
 #layout_stream = #ttcore.metal_layout<logical_shape = 32x2048, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = (d0,d1,d2,d3) -> (d1 floordiv 8, d1 mod 8, d2, d3) >
 #layout_stream2 = #ttcore.metal_layout<logical_shape = 32x2048, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, undef, l1, sharded, index_map = (d0,d1,d2,d3) -> (0, d3 floordiv 4, 0, d3 mod 4) >
+
+#layout_tm_device_input = #ttcore.metal_layout<logical_shape = 33x2x8, dim_alignments = 1x32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3, d4, d5) -> (0, 0, d3, d4, d5)>
+#layout_tm_stream_plain = #ttcore.metal_layout<logical_shape = 2x264, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded, index_map = map(0)>
+// CHECK-AFTER: #[[LAYOUT_TM_STREAM_MAP:.*]] = #ttcore.metal_layout<logical_shape = 2x264, dim_alignments = 32x256, collapsed_intervals = dense<> : tensor<0x2xi64>, {{.*}}, index_map = (d0, d1, d2, d3) -> ({{.*}}floordiv 512{{.*}})>
+#layout_tm_stream_map = #ttcore.metal_layout<logical_shape = 2x264, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, undef, l1, sharded, index_map = (d0, d1, d2, d3) -> (0, d0, d1, d3 floordiv 8, d2, d3 mod 8)>
 
 module attributes {ttcore.device = #any_device} {
   func.func @test_grid_selection(%arg0: tensor<256x256xf32>) -> tensor<256x256xf32> {
@@ -62,7 +67,7 @@ module attributes {ttcore.device = #any_device} {
     %storage = d2m.empty() : tensor<1x1x1x64x!ttcore.tile<32x32,f32>, #layout_stream2>
     %stream  = "d2m.stream_layout" (%physIn, %storage)
           : (tensor<1x16x1x4x!ttcore.tile<32x32,f32>, #layout_stream>,
-            tensor<1x1x1x64x!ttcore.tile<32x32,f32>, #layout_stream2>)
+             tensor<1x1x1x64x!ttcore.tile<32x32,f32>, #layout_stream2>)
           -> tensor<1x1x1x64x!ttcore.tile<32x32,f32>, #layout_stream2>
 
     %5 = d2m.generic {
@@ -83,5 +88,34 @@ module attributes {ttcore.device = #any_device} {
     %empty = d2m.empty() : tensor<32x2048xf32>
     %system = d2m.to_layout %5, %empty : tensor<1x1x1x64x!ttcore.tile<32x32, f32>, #layout_stream2> into tensor<32x2048xf32> -> tensor<32x2048xf32>
     return %system  : tensor<32x2048xf32>
+  }
+
+  // Test to make sure aligned tensor shapes is used in TM affine maps when we start with unaligned stream output.
+  func.func @test_unaligned_tm(%arg0: tensor<33x2x8xf32>) -> tensor<2x264xf32> {
+    // CHECK-AFTER-LABEL: func.func @test_unaligned_tm
+    // CHECK-AFTER-NOT: 288
+    %device_storage = d2m.empty() : tensor<1x1x1x33x32x32xf32, #layout_tm_device_input>
+    %device_input = d2m.to_layout %arg0, %device_storage : tensor<33x2x8xf32> into tensor<1x1x1x33x32x32xf32, #layout_tm_device_input> -> tensor<1x1x1x33x32x32xf32, #layout_tm_device_input>
+    %stream_storage = d2m.empty() : tensor<1x1x32x288xf32, #layout_tm_stream_plain>
+    // CHECK-AFTER: "d2m.stream_layout"{{.*}} -> tensor<1x8x32x64xf32, #[[LAYOUT_TM_STREAM_MAP]]>
+    %stream = "d2m.stream_layout"(%device_input, %stream_storage) : (tensor<1x1x1x33x32x32xf32, #layout_tm_device_input>, tensor<1x1x32x288xf32, #layout_tm_stream_plain>) -> tensor<1x1x32x288xf32, #layout_tm_stream_map>
+    %host_output = d2m.empty() : tensor<2x264xf32>
+    %stream_output = d2m.empty() : tensor<1x1x32x288xf32, #layout_tm_stream_plain>
+    %device_output = d2m.generic {
+      block_factors = [1, 1],
+      grid = #ttcore.grid<1x1>,
+      indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>],
+      iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>],
+      threads = [#d2m.thread<datamovement>]}
+        ins(%stream : tensor<1x1x32x288xf32, #layout_tm_stream_map>)
+        outs(%stream_output : tensor<1x1x32x288xf32, #layout_tm_stream_plain>)  {
+    ^datamovement0(%cb0: !d2m.cb<tensor<32x288xf32>>, %cb1: !d2m.cb<tensor<32x288xf32>>):
+      %0 = d2m.reserve %cb1 : <tensor<32x288xf32>> -> tensor<32x288xf32>
+      %tx = d2m.dma %stream<affine_map<(d0, d1) -> (d0, d1)>>, %0 : (tensor<1x1x32x288xf32, #layout_tm_stream_map>, tensor<32x288xf32>) -> !d2m.mem_tx
+      d2m.dma_wait %tx
+      d2m.yield %0 : (tensor<32x288xf32>)
+    } : tensor<1x1x32x288xf32, #layout_tm_stream_plain>
+    %output = d2m.to_layout %device_output, %host_output : tensor<1x1x32x288xf32, #layout_tm_stream_plain> into tensor<2x264xf32> -> tensor<2x264xf32>
+    return %output : tensor<2x264xf32>
   }
 }

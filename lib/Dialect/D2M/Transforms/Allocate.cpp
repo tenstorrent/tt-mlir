@@ -20,6 +20,7 @@
 #include "mlir/IR/OpDefinition.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/TypeSwitch.h"
 
 #include <algorithm>
@@ -233,8 +234,8 @@ using PlannerProblems =
 
 struct FuncAnalysisData {
   SequenceMapping sequencing;
-  llvm::DenseMap<mlir::Value, MemrefValueContext> memrefs;
-  llvm::DenseMap<d2m::GenericOp, GenericOpContext> generics;
+  llvm::MapVector<mlir::Value, MemrefValueContext> memrefs;
+  llvm::MapVector<d2m::GenericOp, GenericOpContext> generics;
   PlannerProblems problems; // Only using L1 and DRAM slots.
 
   const Planner::Problem &problem(MemorySpace memspace) const {
@@ -641,18 +642,7 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         // For now, disabled `allow-l1-output-spilling` also means
         // "don't insert streams but allow them in the incoming IR".
       } else {
-        if (operandCtx.hasStream) {
-          // Generics in "DMA only" form do not use streams and it is
-          // an error for the incoming IR to have them.
-          TT_assertv(!genericCtx.isDMAOnly,
-                     "[allow-l1-output-spilling: {}] {} operand '{}' of "
-                     "generic op in DMA-only form "
-                     "must not have a stream",
-                     allowL1OutputSpilling,
-                     (operandCtx.isOutput ? "output" : "input"),
-                     asOperand(operandValue));
-
-        } else {
+        if (!operandCtx.hasStream) {
           // Generics in "explicit datamovement" form manage their own
           // streams and it is an error for the incoming IR not to
           // have them.
@@ -1071,9 +1061,9 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       }
 
       for (const OperandContext &operandCtx : genericCtx.operands) {
-        TT_debug(analysis.memrefs.contains(operandCtx.root));
-        const MemrefValueContext &memrefCtx =
-            analysis.memrefs.at(operandCtx.root);
+        const auto *memrefIt = analysis.memrefs.find(operandCtx.root);
+        TT_debug(memrefIt != analysis.memrefs.end());
+        const MemrefValueContext &memrefCtx = memrefIt->second;
 
         const MemorySpace remappedMemSpace = *memrefCtx.remappedMemSpace;
 

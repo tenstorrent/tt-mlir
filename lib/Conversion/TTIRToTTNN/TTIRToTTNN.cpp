@@ -398,22 +398,82 @@ public:
   matchAndRewrite(ttir::EmbeddingBackwardOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
+    Location loc = op.getLoc();
+    Value inputIndices = adaptor.getInput();
+    auto indicesType = mlir::cast<RankedTensorType>(inputIndices.getType());
+
+    // StableHLO scatter produces [batch, seq, 1], but embedding_bw expects
+    // [batch, seq].
+    if (indicesType.getRank() > 2 &&
+        indicesType.getDimSize(indicesType.getRank() - 1) == 1) {
+      llvm::SmallVector<int64_t> squeezedShape(
+          indicesType.getShape().drop_back());
+
+      inputIndices = mlir::tt::ttir_to_ttnn::utils::generateReshape(
+          mlir::cast<TypedValue<RankedTensorType>>(inputIndices), squeezedShape,
+          rewriter,
+          ttmlir::utils::appendLocationSuffix(loc, "_squeeze_indices"));
+      indicesType = mlir::cast<RankedTensorType>(inputIndices.getType());
+    }
+
+    // Pad the sequence length to be divisible by TILE_WIDTH (32).
+    constexpr int64_t TILE_WIDTH = 32;
+    int64_t seqLen = indicesType.getDimSize(indicesType.getRank() - 1);
+    int64_t paddedSeqLen = llvm::divideCeil(seqLen, TILE_WIDTH) * TILE_WIDTH;
+    Value reshapedGrad = adaptor.getInGradient();
     auto gradType = adaptor.getInGradient().getType();
     auto gradTensor = mlir::cast<RankedTensorType>(gradType);
     auto gradShape = gradTensor.getShape();
+
+    if (seqLen != paddedSeqLen) {
+      llvm::SmallVector<int64_t> paddedIndicesShape(indicesType.getShape());
+      paddedIndicesShape[indicesType.getRank() - 1] = paddedSeqLen;
+
+      llvm::SmallVector<int32_t> indicesPadding(2 * indicesType.getRank(), 0);
+      indicesPadding[2 * indicesType.getRank() - 1] = paddedSeqLen - seqLen;
+
+      auto paddedIndicesType = ttnn::utils::RankedTensorTypeFactory::create(
+          indicesType, paddedIndicesShape);
+
+      inputIndices = rewriter.create<ttnn::PadOp>(
+          ttmlir::utils::appendLocationSuffix(loc, "_pad_indices"),
+          paddedIndicesType, inputIndices,
+          rewriter.getDenseI32ArrayAttr(indicesPadding),
+          rewriter.getF32FloatAttr(0.0), rewriter.getBoolAttr(true), nullptr);
+
+      uint64_t dimensionToPad = gradShape.size() - 2;
+      llvm::SmallVector<int64_t> paddedGradShape(gradShape);
+      paddedGradShape[dimensionToPad] = paddedSeqLen;
+
+      llvm::SmallVector<int32_t> gradPadding(2 * gradShape.size(), 0);
+      gradPadding[2 * dimensionToPad + 1] = paddedSeqLen - seqLen;
+
+      auto paddedGradType = ttnn::utils::RankedTensorTypeFactory::create(
+          gradTensor, paddedGradShape);
+
+      reshapedGrad = rewriter.create<ttnn::PadOp>(
+          ttmlir::utils::appendLocationSuffix(loc, "_pad_gradient"),
+          paddedGradType, adaptor.getInGradient(),
+          rewriter.getDenseI32ArrayAttr(gradPadding),
+          rewriter.getF32FloatAttr(0.0), rewriter.getBoolAttr(true), nullptr);
+    }
 
     // Reshape grad tensor to [1, 1, R, C] where R is all the first N-1
     // dimensions of grad tensor squeezed and C is the last dimension of grad
     // tensor. This must be done to obey the constraints of the
     // ttnn::EmbeddingBackwardOp.
-    int32_t R = 1;
-    for (size_t i = 0; i < gradShape.size() - 1; ++i) {
-      R *= gradShape[i];
-    }
-    llvm::SmallVector<int64_t, 4> reshapedGradShape{1, 1, R, gradShape.back()};
+    auto finalGradType = mlir::cast<RankedTensorType>(reshapedGrad.getType());
+    auto finalGradShape = finalGradType.getShape();
 
-    auto reshapedGrad = mlir::tt::ttir_to_ttnn::utils::generateReshape(
-        mlir::cast<TypedValue<mlir::RankedTensorType>>(adaptor.getInGradient()),
+    int32_t R = 1;
+    for (size_t i = 0; i < finalGradShape.size() - 1; ++i) {
+      R *= finalGradShape[i];
+    }
+    llvm::SmallVector<int64_t, 4> reshapedGradShape{1, 1, R,
+                                                    finalGradShape.back()};
+
+    reshapedGrad = mlir::tt::ttir_to_ttnn::utils::generateReshape(
+        mlir::cast<TypedValue<mlir::RankedTensorType>>(reshapedGrad),
         reshapedGradShape, rewriter,
         ttmlir::utils::appendLocationSuffix(op.getLoc(), "_reshaped_grad"));
 
@@ -432,9 +492,8 @@ public:
         ttnn::BufferTypeAttr::get(op.getContext(), bufferType), std::nullopt);
 
     rewriter.replaceOpWithNewOp<ttnn::EmbeddingBackwardOp>(
-        op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getWeight(), reshapedGrad, dTypeAttr,
-        memoryConfigAttr);
+        op, this->getTypeConverter()->convertType(op.getType()), inputIndices,
+        adaptor.getWeight(), reshapedGrad, dTypeAttr, memoryConfigAttr);
     return success();
   }
 };
@@ -1205,7 +1264,8 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::RMSNormOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getWeight(), adaptor.getBias(),
-        adaptor.getEpsilon(), /*memoryConfig*/ nullptr);
+        adaptor.getEpsilon(), /*memoryConfig*/ nullptr,
+        /*computeConfig*/ nullptr);
     return success();
   }
 };
@@ -1296,12 +1356,15 @@ public:
     auto outputDtypeAttr =
         rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
 
+    auto conv2dConfigAttr = ttnn::Conv2dConfigAttr::get(rewriter.getContext())
+                                .withConfigTensorsInDram(true);
+
     rewriter.replaceOpWithNewOp<ttnn::Conv2dOp>(
         op, getTypeConverter()->convertType(op.getResult().getType()),
         adaptor.getInput(), adaptor.getWeight(), adaptor.getBias(), device,
         inChannelsAttr, outChannelsAttr, batchSizeAttr, inputHeightAttr,
         inputWidthAttr, kernelSizeAttr, *strideAttr, paddingAttr, *dilationAttr,
-        groupsAttr, outputDtypeAttr, /*conv2d_config=*/nullptr,
+        groupsAttr, outputDtypeAttr, conv2dConfigAttr,
         /*compute_config=*/nullptr, /*conv2d_slice_config=*/nullptr);
 
     return success();
@@ -2060,15 +2123,122 @@ class CollectivePermuteOpConversionPattern
 public:
   using OpConversionPattern<ttir::CollectivePermuteOp>::OpConversionPattern;
 
+private:
+  // Helper function to create a zero tensor using ClampScalarOp.
+  // We need a zero tensor with the same layout as the input. ttnn::ZerosOp
+  // cannot accept all required layout attributes (specifically, Alignment
+  // attribute), and ttnn::ZerosLikeOp does not exist in the TTNN dialect,
+  // so we use ClampScalarOp as a workaround.
+  mlir::Value createZerosTensor(ttir::CollectivePermuteOp op,
+                                mlir::Value inputTensor,
+                                ttnn::MemoryConfigAttr memoryConfigAttr,
+                                ConversionPatternRewriter &rewriter) const {
+    FloatAttr zeroAttr =
+        FloatAttr::get(Float32Type::get(rewriter.getContext()), 0.0f);
+    return rewriter
+        .create<ttnn::ClampScalarOp>(
+            op.getLoc(), this->getTypeConverter()->convertType(op.getType()),
+            inputTensor, zeroAttr, zeroAttr, memoryConfigAttr)
+        .getResult();
+  }
+
+public:
   LogicalResult
   matchAndRewrite(ttir::CollectivePermuteOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    RankedTensorType inputType =
+        mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    ttnn::TTNNLayoutAttr layoutAttr =
+        mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding());
+    // MemoryConfigAttr only exists if memLayout is not null
+    ttnn::MemoryConfigAttr memoryConfigAttr = ttnn::MemoryConfigAttr::get(
+        op.getContext(), layoutAttr.getMemLayout(),
+        ttnn::BufferTypeAttr::get(op.getContext(), layoutAttr.getBufferType()),
+        std::nullopt);
+    ttcore::DataTypeAttr dTypeAttr = ttcore::DataTypeAttr::get(
+        rewriter.getContext(), layoutAttr.getDataType());
 
-    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+    llvm::SmallVector<int64_t> pairs = llvm::SmallVector<int64_t>(
+        adaptor.getSourceTargetPairs().getValues<int64_t>());
+    if (pairs.empty()) {
+      // Early return with zeros for empty source_target_pairs.
+      // As per StableHLO, the collective permute operation should return zeros
+      // for devices that are not in the source_target_pairs. If
+      // source_target_pairs is empty, we return the input tensor with all
+      // zeros.
+      mlir::Value zerosTensor =
+          createZerosTensor(op, adaptor.getInput(), memoryConfigAttr, rewriter);
+      rewriter.replaceOp(op, zerosTensor);
+      return success();
+    }
 
-    rewriter.replaceOpWithNewOp<ttnn::CollectivePermuteOp>(
-        op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), device, adaptor.getSourceTargetPairs());
+    // Create a cloned tensor to skip P2P ops for self-mapped
+    // source_target_pairs.
+    mlir::Value resultTensor =
+        rewriter
+            .create<ttnn::AssignOp>(
+                op.getLoc(),
+                this->getTypeConverter()->convertType(op.getType()),
+                adaptor.getInput(), memoryConfigAttr, dTypeAttr)
+            .getResult();
+
+    auto meshDevice = ttcore::lookupDevice(op);
+    llvm::SmallVector<int64_t> meshShape{meshDevice.getMeshShape()};
+    int64_t numDevices =
+        std::accumulate(meshShape.begin(), meshShape.end(), int64_t{1},
+                        std::multiplies<int64_t>());
+    // Record visited and unvisited devices
+    llvm::SmallBitVector unvisited(static_cast<unsigned>(numDevices), true);
+
+    // Iterate over each source-target pair and create ttnn::PointToPointOp.
+    constexpr size_t PAIR_SIZE = 2;
+    for (size_t i = 0; i < pairs.size(); i += PAIR_SIZE) {
+      int64_t sourceDevice = pairs[i];
+      int64_t targetDevice = pairs[i + 1];
+      unvisited.reset(static_cast<unsigned>(targetDevice));
+      if (sourceDevice == targetDevice) {
+        // We already cloned the tensor for this device, so we can skip it.
+        continue;
+      }
+      DenseI64ArrayAttr sendCoord = rewriter.getDenseI64ArrayAttr(
+          ttmlir::utils::linearIdToCoord(sourceDevice, meshShape));
+      DenseI64ArrayAttr receiveCoord = rewriter.getDenseI64ArrayAttr(
+          ttmlir::utils::linearIdToCoord(targetDevice, meshShape));
+      resultTensor =
+          rewriter
+              .create<ttnn::PointToPointOp>(
+                  op.getLoc(),
+                  this->getTypeConverter()->convertType(op.getType()),
+                  adaptor.getInput(), sendCoord, receiveCoord, resultTensor)
+              .getResult();
+    }
+
+    // The collective permute operation should return zeros for devices that are
+    // not in the source_target_pairs. Here we handle the unvisited devices.
+    if (unvisited.any()) {
+      mlir::Value zerosTensor =
+          createZerosTensor(op, adaptor.getInput(), memoryConfigAttr, rewriter);
+      // Choose a source device different from the target since PointToPointOp
+      // doesn't support same-device transfers. Use device 0 if target != 0,
+      // otherwise device 1.
+      for (int idx = unvisited.find_first(); idx != -1;
+           idx = unvisited.find_next(idx)) {
+        int64_t sourceDevice = (idx != 0) ? 0 : 1;
+        DenseI64ArrayAttr sendCoord = rewriter.getDenseI64ArrayAttr(
+            ttmlir::utils::linearIdToCoord(sourceDevice, meshShape));
+        DenseI64ArrayAttr receiveCoord = rewriter.getDenseI64ArrayAttr(
+            ttmlir::utils::linearIdToCoord(idx, meshShape));
+        resultTensor =
+            rewriter
+                .create<ttnn::PointToPointOp>(
+                    op.getLoc(),
+                    this->getTypeConverter()->convertType(op.getType()),
+                    zerosTensor, sendCoord, receiveCoord, resultTensor)
+                .getResult();
+      }
+    }
+
+    rewriter.replaceOp(op, resultTensor);
 
     return success();
   }

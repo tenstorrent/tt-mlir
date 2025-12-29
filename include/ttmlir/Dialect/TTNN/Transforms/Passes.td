@@ -179,6 +179,45 @@ def TTNNTuplifyTensors: Pass<"ttnn-tuplify-tensors", "::mlir::ModuleOp"> {
   ];
 }
 
+def TTNNPrepareModuleForExport : Pass<"ttnn-prepare-module-for-export", "::mlir::ModuleOp"> {
+  let summary = "Prepare module for Python module export.";
+  let description = [{
+    This pass prepares the module for export as a Python module by:
+    1. Renaming the first public (non-private, non-const-eval) function to "forward"
+    2. Adding a device argument to the function signature
+    3. Replacing all ttnn.get_device ops with the device function argument
+
+    Given a forward function like this:
+
+    ```mlir
+    func.func @add(%arg0: tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>) -> tuple<tensor<32x32xbf16>> {
+      %0 = ttcore.get_tuple_element %arg0[0] : (tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>) -> tensor<32x32xbf16>
+      %1 = ttcore.get_tuple_element %arg0[1] : (tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>) -> tensor<32x32xbf16>
+      %2 = "ttnn.get_device"() : () -> !ttnn.device
+      %3 = "ttnn.to_device"(%0, %2) : (tensor<32x32xbf16, !ttnn.device) -> tensor<32x32xbf16>
+      %4 = "ttnn.to_device"(%1, %2) : (tensor<32x32xbf16, !ttnn.device) -> tensor<32x32xbf16>
+      %5 = "ttnn.add"(%3, %4) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+      %6 = ttcore.tuple %5 : tuple<tensor<32x32xbf16>>
+      return %6 : tuple<tensor<32x32xbf16>>
+    }
+    ```
+
+    The pass will return:
+
+    ```mlir
+    func.func @forward(%arg0: tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>, %arg1: !ttnn.device) -> tuple<tensor<32x32xbf16>> {
+      %0 = ttcore.get_tuple_element %arg0[0] : (tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>) -> tensor<32x32xbf16>
+      %1 = ttcore.get_tuple_element %arg0[1] : (tuple<tensor<32x32xbf16>, tensor<32x32xbf16>>) -> tensor<32x32xbf16>
+      %2 = "ttnn.to_device"(%0, %arg1) : (tensor<32x32xbf16, !ttnn.device) -> tensor<32x32xbf16>
+      %3 = "ttnn.to_device"(%1, %arg1) : (tensor<32x32xbf16, !ttnn.device) -> tensor<32x32xbf16>
+      %4 = "ttnn.add"(%2, %3) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
+      %5 = ttcore.tuple %4 : tuple<tensor<32x32xbf16>>
+      return %5 : tuple<tensor<32x32xbf16>>
+    }
+    ```
+  }];
+}
+
 def TTNNPrepareConv2dWeightsAndBias : Pass<"ttnn-prepare-conv2d-weights-and-bias", "::mlir::ModuleOp"> {
   let summary = "Optimize Conv2d ops by inserting PrepareConv2dWeights and PrepareConv2dBias ops before them.";
   let description = [{
@@ -280,7 +319,11 @@ def TTNNOperationValidationAndFallback: Pass<"ttnn-operation-validation-and-fall
     Option<"tensorL1UsageCap",
            "tensor-l1-usage-cap",
            "float", /*default=*/"1.0",
-           "Limit L1 memory usage to this fraction of available space (0.0-1.0)">
+           "Limit L1 memory usage to this fraction of available space (0.0-1.0)">,
+    Option<"maxFallbackAttempts",
+           "max-fallback-attempts",
+           "uint32_t", /*default=*/"10000",
+           "Maximum number of fallback configurations to try before giving up (0 = unlimited)">
   ];
 }
 

@@ -110,6 +110,8 @@ Not every operation is supported within the above categories.
   - Height, width, and block sharded tensors in L1.
   - DRAM tensors are not supported.
 
+Note: Only tiled tensors with tile-aligned dimensions are currently supported. Padding is not supported. Row-major layouts are not supported.
+
 ### Supported Datatypes
 | Operation Category | Supported Datatypes |
 |------|------------|

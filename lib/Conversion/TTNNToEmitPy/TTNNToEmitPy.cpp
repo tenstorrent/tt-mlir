@@ -2116,8 +2116,7 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(embeddingOp.getInput()),
         emitter.emit(embeddingOp.getWeight()),
-        emitter.emit(std::nullopt),
-        emitter.emit(layoutAttr),
+        emitter.emit(layoutAttr, "layout"),
     };
 
     emitter.replaceOp(*this, args);
@@ -2548,7 +2547,8 @@ public:
 
 // Func Op conversion pattern
 //
-// This conversion pattern removes attributes from the FuncOp
+// This conversion pattern removes attributes from the FuncOp, but preserves
+// emitpy.name attributes on arguments.
 //
 namespace {
 class FuncOpConversionPattern
@@ -2562,8 +2562,23 @@ public:
   matchAndRewrite(func::FuncOp funcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    rewriter.modifyOpInPlace(funcOp,
-                             [&funcOp]() { funcOp.removeArgAttrsAttr(); });
+    rewriter.modifyOpInPlace(funcOp, [&funcOp]() {
+      // Preserve emitpy.name attributes before removing all argument
+      // attributes.
+      SmallVector<Attribute> emitPyNames;
+      for (unsigned i = 0; i < funcOp.getNumArguments(); ++i) {
+        emitPyNames.push_back(funcOp.getArgAttr(i, "emitpy.name"));
+      }
+
+      funcOp.removeArgAttrsAttr();
+
+      // Restore emitpy.name attributes.
+      for (unsigned i = 0; i < funcOp.getNumArguments(); ++i) {
+        if (emitPyNames[i]) {
+          funcOp.setArgAttr(i, "emitpy.name", emitPyNames[i]);
+        }
+      }
+    });
 
     return success();
   }

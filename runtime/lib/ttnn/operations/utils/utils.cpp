@@ -299,6 +299,10 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
         *config->enable_kernel_stride_folding();
   }
 
+  if (config->config_tensors_in_dram()) {
+    conv2dConfig.config_tensors_in_dram = *config->config_tensors_in_dram();
+  }
+
   return conv2dConfig;
 }
 
@@ -390,6 +394,14 @@ createConv2dSliceConfig(const ::tt::target::ttnn::Conv2dSliceConfig *config) {
 
   if (config->math_approx_mode()) {
     computeKernelConfig.math_approx_mode = *config->math_approx_mode();
+  }
+
+  if (config->fp32_dest_acc_en()) {
+    computeKernelConfig.fp32_dest_acc_en = *config->fp32_dest_acc_en();
+  }
+
+  if (config->packer_l1_acc()) {
+    computeKernelConfig.packer_l1_acc = *config->packer_l1_acc();
   }
 
   if (config->dst_full_sync_en()) {

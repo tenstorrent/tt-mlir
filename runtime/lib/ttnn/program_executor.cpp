@@ -8,7 +8,6 @@
 #include "operations/ccl/aggregate_tensor.h"
 #include "operations/ccl/all_gather.h"
 #include "operations/ccl/all_reduce.h"
-#include "operations/ccl/collective_permute.h"
 #include "operations/ccl/distribute_tensor.h"
 #include "operations/ccl/mesh_shard.h"
 #include "operations/ccl/point_to_point.h"
@@ -90,6 +89,7 @@
 #include "operations/transformer/split_query_key_value_and_split_heads.h"
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
+#include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/perf.h"
 #include "tt/runtime/utils.h"
 
@@ -402,10 +402,6 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::ReduceScatterOp: {
     return operations::ccl::run(op->type_as_ReduceScatterOp(), getContext());
-  }
-  case ::tt::target::ttnn::OpType::CollectivePermuteOp: {
-    return operations::ccl::run(op->type_as_CollectivePermuteOp(),
-                                getContext());
   }
   case ::tt::target::ttnn::OpType::MeshShardOp: {
     return operations::ccl::run(op->type_as_MeshShardOp(), getContext());

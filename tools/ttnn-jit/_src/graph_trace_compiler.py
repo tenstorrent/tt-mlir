@@ -716,5 +716,15 @@ class GraphToIRTranslator:
             # Return the last result
             final_vertex = self.levelized_graph_ir.find_output_vertex()
             if final_vertex is not None:
-                final_result = operation_results[final_vertex.counter]
+                # Final vertex could be either a tensor argument or an operation result
+                if final_vertex.counter in operation_results:
+                    final_result = operation_results[final_vertex.counter]
+                # Edge case: no ops are run and we are returning input tensor.
+                elif final_vertex.counter in tensor_arg_map:
+                    final_result = tensor_arg_map[final_vertex.counter]
+                else:
+                    raise ValueError(
+                        f"Final vertex {final_vertex.counter} not found in "
+                        f"operation_results or tensor_arg_map"
+                    )
                 func.ReturnOp([final_result])
