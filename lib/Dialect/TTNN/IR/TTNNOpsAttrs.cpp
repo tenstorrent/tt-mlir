@@ -977,7 +977,7 @@ ShardSpecAttr::getCoreRangeSet(mlir::MLIRContext *context,
 
 NDShardSpecAttr NDShardSpecAttr::get(TTNNNDLayoutAttr layout) {
   auto shardGrid = layout.getGrid();
-  auto context = layout.getContext();
+  auto *context = layout.getContext();
   auto coreRangeSetAttr = CoreRangeSetAttr::get(
       context, CoreRangeAttr::get(
                    context, CoreCoordAttr::get(context, 0, 0),
