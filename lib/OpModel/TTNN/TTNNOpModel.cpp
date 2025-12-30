@@ -4171,7 +4171,7 @@ llvm::Expected<OpConstraints> OpModel<MatmulOp>::getOpConstraints(
     ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShapeA,
     TTNNLayoutAttr inputLayoutA, llvm::ArrayRef<int64_t> inputShapeB,
     TTNNLayoutAttr inputLayoutB, TTNNLayoutAttr outputLayout, bool transposeA,
-    bool transposeB) {
+    bool transposeB, std::optional<llvm::StringRef> activation) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -4195,11 +4195,18 @@ llvm::Expected<OpConstraints> OpModel<MatmulOp>::getOpConstraints(
   std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
       detail::getNullableMemoryConfig(outputLayout);
 
+  // Convert activation string to ttnn::Activation if present
+  std::optional<::ttnn::Activation> ttnnActivation = std::nullopt;
+  if (activation.has_value()) {
+    ttnnActivation = std::string(activation.value());
+  }
+
   // Create query closure
   auto matmulOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::matmul, device, inputSpecA, inputSpecB, transposeA, transposeB,
-        outputMemoryConfig, outputDType);
+        outputMemoryConfig, outputDType,
+        /*program_config=*/std::nullopt, ttnnActivation);
   };
 
   return operation::getOpConstraints(inputLayoutA.getContext(), deviceGrid,
