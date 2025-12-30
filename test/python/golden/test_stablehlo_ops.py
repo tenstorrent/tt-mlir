@@ -1164,15 +1164,12 @@ def test_constant(shape: Shape, dtype: torch.dtype, target: str, request, device
 
     compile_and_execute_shlo(
         constant_fn,
-        [],
-        [],
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
         device=device,
     )
-
 
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("start_indices_val", [[32, 32]], ids=shape_str)
@@ -1188,15 +1185,16 @@ def test_dynamic_slice(
     request,
     device,
 ):
-    def dynamic_slice_fn(in0: Operand, builder: StableHLOBuilder):
-
-        builder.set_graph_level_check(True)
-        return builder.dynamic_slice(in0, start_indices_val, slice_sizes=slice_sizes)
+    def module(builder: StableHLOBuilder):
+        @builder.func([shape], [dtype])
+        def dynamic_slice(in0: Operand, builder: StableHLOBuilder):
+            builder.set_graph_level_check(True)
+            return builder.dynamic_slice(
+                in0, start_indices_val, slice_sizes=slice_sizes
+            )
 
     compile_and_execute_shlo(
-        dynamic_slice_fn,
-        [shape],
-        [dtype],
+        module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
