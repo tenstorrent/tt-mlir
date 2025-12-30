@@ -148,32 +148,31 @@ def bitwise_xor(a, b):
     return ttnn.bitwise_xor(a, b)
 
 
+# Test pow operation.
+#
+# Background:
+# -----------
+# The pow operation had a naming mismatch issue:
+# - The Python ttnn API has: ttnn.pow(a, b)
+# - The MLIR dialect has: ttnn.pow_tensor (not ttnn.pow)
+#
+# Original Issue:
+# --------------
+# PR #5154 changed the test from ttnn.pow() to ttnn.pow_tensor(), but this failed
+# because ttnn.pow_tensor doesn't exist in the Python API. When computing the
+# golden result (which calls the function directly without JIT), it would error:
+#     AttributeError: module 'ttnn' has no attribute 'pow_tensor'
+#
+# The Fix:
+# --------
+# 1. Use ttnn.pow() in the test (which exists in Python API)
+# 2. Added mapping in graph compiler: "pow" -> "pow_tensor" MLIR op
+# 3. Added mapping in AST compiler: node.attr "pow" -> "pow_tensor" MLIR op
+#
+# Both compilers automatically map ttnn.pow -> ttnn.pow_tensor MLIR operation.
+#
+# Note: float32 tests may xfail due to numerical precision issues.
 def pow(a, b):
-    """Test pow operation.
-
-    Background:
-    -----------
-    The pow operation had a naming mismatch issue:
-    - The Python ttnn API has: ttnn.pow(a, b)
-    - The MLIR dialect has: ttnn.pow_tensor (not ttnn.pow)
-
-    Original Issue:
-    --------------
-    PR #5154 changed the test from ttnn.pow() to ttnn.pow_tensor(), but this failed
-    because ttnn.pow_tensor doesn't exist in the Python API. When computing the
-    golden result (which calls the function directly without JIT), it would error:
-        AttributeError: module 'ttnn' has no attribute 'pow_tensor'
-
-    The Fix:
-    --------
-    1. Use ttnn.pow() in the test (which exists in Python API)
-    2. Added mapping in graph compiler: "pow" -> "pow_tensor" MLIR op
-    3. Added mapping in AST compiler: node.attr "pow" -> "pow_tensor" MLIR op
-
-    Both compilers automatically map ttnn.pow -> ttnn.pow_tensor MLIR operation.
-
-    Note: float32 tests may xfail due to numerical precision issues.
-    """
     return ttnn.pow(a, b)
 
 
@@ -212,8 +211,8 @@ def minimum(a, b):
 # ------------------------------------------------------------
 # Composite ops
 # ------------------------------------------------------------
+# Hyperbolic cosine: 0.5 * (exp(x) + exp(-x))
 def cosh(input_tensor):
-    """Hyperbolic cosine: 0.5 * (exp(x) + exp(-x))"""
     e_pos_x = ttnn.exp(input_tensor)
     e_neg_x = ttnn.exp(ttnn.neg(input_tensor))
     nr_term = ttnn.add(e_pos_x, e_neg_x)
@@ -221,8 +220,8 @@ def cosh(input_tensor):
     return output
 
 
+# Hyperbolic sine: 0.5 * (exp(x) - exp(-x))
 def sinh(input_tensor):
-    """Hyperbolic sine: 0.5 * (exp(x) - exp(-x))"""
     e_pos_x = ttnn.exp(input_tensor)
     e_neg_x = ttnn.exp(ttnn.neg(input_tensor))
     nr_term = ttnn.subtract(e_pos_x, e_neg_x)
@@ -230,8 +229,8 @@ def sinh(input_tensor):
     return output
 
 
+# Fused multiply-add: (b * c) + a
 def mul_add(input_tensor_a, input_tensor_b, input_tensor_c):
-    """Fused multiply-add: (b * c) + a"""
     matmul_result = ttnn.multiply(input_tensor_b, input_tensor_c)
     output = ttnn.add(matmul_result, input_tensor_a)
     return output
@@ -244,6 +243,6 @@ def matmul(input0, input1):
     return ttnn.matmul(input0, input1)
 
 
+# Function that uses ttnn.identity, which should be rejected by return_modifier.
 def identity_op(input_tensor):
-    """Function that uses ttnn.identity, which should be rejected by return_modifier."""
     return ttnn.identity(input_tensor)
