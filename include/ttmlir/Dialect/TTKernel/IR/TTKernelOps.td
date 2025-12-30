@@ -2609,11 +2609,11 @@ def TTKernel_NocSemaphoreSetMulticastLoopbackOp : TTKernel_Op<"noc_semaphore_set
     let arguments = (ins TTKernel_Semaphore:$src_local_l1_addr,
                          TTKernel_NocAddr:$dst_noc_addr_multicast,
                          I32:$num_dests,
-                         BoolAttr:$linked,
-                         BoolAttr:$multicast_path_reserve);
+                         OptionalAttr<BoolAttr>:$linked,
+                         OptionalAttr<BoolAttr>:$multicast_path_reserve);
 
     let assemblyFormat = [{
-      `(` $src_local_l1_addr `,` $dst_noc_addr_multicast `,` $num_dests `,` $linked `,` $multicast_path_reserve `)` attr-dict `:` functional-type(operands, results)
+      `(` $src_local_l1_addr `,` $dst_noc_addr_multicast `,` $num_dests (`,` $linked^)? (`,` $multicast_path_reserve^)? `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 

@@ -438,8 +438,15 @@ memrefTypeToCircularBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
   auto extendedMapping = extendMappingForHigherDimGrid(
       device.getWorkerGrid().getMapping(), memrefGridShape.size());
 
+  SmallVector<int64_t> workerGridShape =
+      llvm::to_vector(device.getWorkerGrid().getShape());
+  if (workerGridShape.size() < memrefGridShape.size()) {
+    workerGridShape.insert(workerGridShape.begin(),
+                           memrefGridShape.size() - workerGridShape.size(), 1);
+  }
+
   std::vector<target::Dim2dRange> coreRangeSet =
-      toFlatbuffer(cache, memrefGridShape, extendedMapping);
+      toFlatbuffer(cache, workerGridShape, extendedMapping);
 
   uint64_t pageSize = device.getMemrefCBPageSizeBytes(memref);
   uint64_t shardSize =
