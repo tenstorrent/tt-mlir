@@ -4004,6 +4004,48 @@ def stablehlo_batch_norm_training_golden(
     )
 
 
+def stablehlo_batch_norm_inference_golden(
+    operand: GoldenMapTensor,
+    scale: GoldenMapTensor,
+    offset: GoldenMapTensor,
+    mean: GoldenMapTensor,
+    variance: GoldenMapTensor,
+    epsilon: FloatAttr,
+    feature_index: IntegerAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    epsilon = unpack_mlir_attr(epsilon)
+    feature_index = unpack_mlir_attr(feature_index)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    output_shards = {}
+    for device_id in operand.shard_map.keys():
+        operand_shard = operand.shard_map[device_id]
+        scale_shard = scale.shard_map[device_id]
+        offset_shard = offset.shard_map[device_id]
+        mean_shard = mean.shard_map[device_id]
+        variance_shard = variance.shard_map[device_id]
+
+        ndim = operand_shard.ndim
+
+        # Reshape for broadcasting
+        broadcast_shape = [1] * ndim
+        broadcast_shape[feature_index] = scale_shard.shape[0]
+
+        mean_bc = mean_shard.reshape(broadcast_shape)
+        var_bc = variance_shard.reshape(broadcast_shape)
+        scale_bc = scale_shard.reshape(broadcast_shape)
+        offset_bc = offset_shard.reshape(broadcast_shape)
+
+        # Normalize: (x - mean) / sqrt(var + eps) * scale + offset
+        std = torch.sqrt(var_bc + epsilon)
+        normalized = (operand_shard - mean_bc) / std
+        output_shard = normalized * scale_bc + offset_bc
+
+        output_shards[device_id] = output_shard.to(output_dtype)
+
+    return GoldenMapTensor(output_shards, operand.mesh_shape)
+
+
 def stablehlo_log_golden(
     input_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -4397,6 +4439,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.ConstantOp: stablehlo_constant_golden,
     stablehlo.BatchNormGradOp: stablehlo_batch_norm_grad_golden,
     stablehlo.BatchNormTrainingOp: stablehlo_batch_norm_training_golden,
+    stablehlo.BatchNormInferenceOp: stablehlo_batch_norm_inference_golden,
     stablehlo.LogOp: stablehlo_log_golden,
     stablehlo.Log1pOp: stablehlo_log1p_golden,
     stablehlo.LogisticOp: stablehlo_logistic_golden,

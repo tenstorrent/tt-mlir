@@ -4667,6 +4667,204 @@ class StableHLOBuilder(Builder):
 
         return batch_norm_training_module, batch_norm_training_builder
 
+    ################ stablehlo.BatchNormInferenceOp ###############
+
+    @tag(stablehlo.BatchNormInferenceOp)
+    def batch_norm_inference(
+        self,
+        operand: Operand,
+        scale: Operand,
+        offset: Operand,
+        mean: Operand,
+        variance: Operand,
+        epsilon: float,
+        feature_index: int,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> OpResult:
+        stablehlo_op = self.get_opview_from_method(
+            StableHLOBuilder.batch_norm_inference
+        )
+        epsilon_attr = FloatAttr.get(F32Type.get(self._ctx), epsilon)
+        feature_index_attr = IntegerAttr.get(
+            IntegerType.get_signless(64, self._ctx), feature_index
+        )
+        op = stablehlo_op(
+            operand,
+            scale,
+            offset,
+            mean,
+            variance,
+            epsilon=epsilon_attr,
+            feature_index=feature_index_attr,
+            loc=loc,
+        )
+        op_output = op.result
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+        if not self._disable_golden_check:
+            operand_golden = self._get_golden_tensor(operand)
+            scale_golden = self._get_golden_tensor(scale)
+            offset_golden = self._get_golden_tensor(offset)
+            mean_golden = self._get_golden_tensor(mean)
+            variance_golden = self._get_golden_tensor(variance)
+            op_golden_function = get_golden_function(stablehlo_op)
+            output_golden = op_golden_function(
+                operand_golden,
+                scale_golden,
+                offset_golden,
+                mean_golden,
+                variance_golden,
+                epsilon_attr,
+                feature_index_attr,
+                op_output.type.element_type,
+            )
+            self._set_golden_tensor(op_output, output_golden)
+        return op_output
+
+    @parse(stablehlo.BatchNormInferenceOp)
+    def batch_norm_inference_parser(
+        self,
+        old_op: stablehlo.BatchNormInferenceOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(
+            StableHLOBuilder.batch_norm_inference_parser
+        )
+        operand = global_dict[old_op.operand]
+        scale = global_dict[old_op.scale]
+        offset = global_dict[old_op.offset]
+        mean = global_dict[old_op.mean]
+        variance = global_dict[old_op.variance]
+        epsilon_attr = old_op.epsilon
+        feature_index_attr = old_op.feature_index
+        new_op = stablehlo_op(
+            operand,
+            scale,
+            offset,
+            mean,
+            variance,
+            epsilon=epsilon_attr,
+            feature_index=feature_index_attr,
+            loc=old_op.location,
+        )
+        new_op_output = new_op.result
+        if not self._disable_golden_check:
+            operand_golden = self._get_golden_tensor(operand)
+            scale_golden = self._get_golden_tensor(scale)
+            offset_golden = self._get_golden_tensor(offset)
+            mean_golden = self._get_golden_tensor(mean)
+            variance_golden = self._get_golden_tensor(variance)
+            op_golden_function = get_golden_function(stablehlo_op)
+            output_golden = op_golden_function(
+                operand_golden,
+                scale_golden,
+                offset_golden,
+                mean_golden,
+                variance_golden,
+                epsilon_attr,
+                feature_index_attr,
+                new_op_output.type.element_type,
+            )
+            self._set_golden_tensor(new_op_output, output_golden)
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_output
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.BatchNormInferenceOp)
+    def batch_norm_inference_split(
+        self,
+        old_op: stablehlo.BatchNormInferenceOp,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        stablehlo_op = self.get_opview_from_split(
+            StableHLOBuilder.batch_norm_inference_split
+        )
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            batch_norm_inference_module = Module.create()
+            batch_norm_inference_builder = StableHLOBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.operand.type,
+                old_op.scale.type,
+                old_op.offset.type,
+                old_op.mean.type,
+                old_op.variance.type,
+            ]
+            with InsertionPoint(batch_norm_inference_module.body):
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="batch_norm_inference_module")
+                def decorated_func(*inputs):
+                    operand = inputs[0]
+                    scale = inputs[1]
+                    offset = inputs[2]
+                    mean = inputs[3]
+                    variance = inputs[4]
+                    epsilon_attr = old_op.epsilon
+                    feature_index_attr = old_op.feature_index
+                    new_op = stablehlo_op(
+                        operand,
+                        scale,
+                        offset,
+                        mean,
+                        variance,
+                        epsilon=epsilon_attr,
+                        feature_index=feature_index_attr,
+                        loc=old_op.location,
+                    )
+                    new_op_output = new_op.result
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(stablehlo_op)
+                        operand_golden = self._get_golden_tensor(old_op.operand)
+                        scale_golden = self._get_golden_tensor(old_op.scale)
+                        offset_golden = self._get_golden_tensor(old_op.offset)
+                        mean_golden = self._get_golden_tensor(old_op.mean)
+                        variance_golden = self._get_golden_tensor(old_op.variance)
+                        output_golden = op_golden_function(
+                            operand_golden,
+                            scale_golden,
+                            offset_golden,
+                            mean_golden,
+                            variance_golden,
+                            epsilon_attr,
+                            feature_index_attr,
+                            new_op_output.type.element_type,
+                        )
+                        batch_norm_inference_builder._set_golden_tensor(
+                            new_op_output, output_golden
+                        )
+                        batch_norm_inference_builder._set_golden_tensor(
+                            operand, operand_golden
+                        )
+                        batch_norm_inference_builder._set_golden_tensor(
+                            scale, scale_golden
+                        )
+                        batch_norm_inference_builder._set_golden_tensor(
+                            offset, offset_golden
+                        )
+                        batch_norm_inference_builder._set_golden_tensor(
+                            mean, mean_golden
+                        )
+                        batch_norm_inference_builder._set_golden_tensor(
+                            variance, variance_golden
+                        )
+                        ordered_inputs.extend([operand, scale, offset, mean, variance])
+                        ordered_outputs.append(new_op_output)
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                batch_norm_inference_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+        return batch_norm_inference_module, batch_norm_inference_builder
+
     # ----- Logical and Bitwise Operations -----
 
     def or_(
