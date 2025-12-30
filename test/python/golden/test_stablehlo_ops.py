@@ -817,6 +817,66 @@ def test_slice(
         device=device,
     )
 
+@pytest.mark.parametrize("shape", [(1, 1, 64, 32), (1, 3, 256, 256)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_constant(shape: Shape, dtype: torch.dtype, target: str, request, device):
+    def constant_fn(builder: StableHLOBuilder):
+        if dtype.is_floating_point:
+            tensor = torch.randn(shape, dtype=dtype)
+        else:
+            tensor = torch.randint(-10, 10, shape, dtype=dtype)
+        builder.set_graph_level_check(True)
+        return builder.constant(tensor)
+
+    compile_and_execute_shlo(
+        constant_fn,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+@pytest.mark.parametrize(
+    "shape,start_indices_val,slice_sizes",
+    [
+        ((128, 128), [0, 0], [64, 64]),
+        ((128, 128), [32, 32], [64, 64]),
+        ((128, 128), [0, 0], [128, 64]),
+        ((256, 256), [64, 64], [128, 128]),
+    ],
+    ids=["dyn_128x128_basic", "dyn_128x128_offset", "dyn_128x128_fullrow", "dyn_256x256_large"],
+)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_dynamic_slice(
+    shape: Shape,
+    start_indices_val: List[int],
+    slice_sizes: List[int],
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: StableHLOBuilder):
+        @builder.func([shape], [dtype])
+        def dynamic_slice(in0: Operand, builder: StableHLOBuilder):
+            builder.set_graph_level_check(True)
+            return builder.dynamic_slice(
+                in0, start_indices_val, slice_sizes=slice_sizes
+            )
+
+    compile_and_execute_shlo(
+        module,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
 
 # Bitwise operations tests (integer tensors)
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
@@ -1149,55 +1209,3 @@ def test_select(target: str, request, device):
         device=device,
     )
 
-
-@pytest.mark.parametrize("shape", [(1, 1, 64, 32), (1, 3, 256, 256)], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
-@pytest.mark.parametrize("target", ["ttnn"])
-def test_constant(shape: Shape, dtype: torch.dtype, target: str, request, device):
-    def constant_fn(builder: StableHLOBuilder):
-        if dtype.is_floating_point:
-            tensor = torch.randn(shape, dtype=dtype)
-        else:
-            tensor = torch.randint(-10, 10, shape, dtype=dtype)
-        builder.set_graph_level_check(True)
-        return builder.constant(tensor)
-
-    compile_and_execute_shlo(
-        constant_fn,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        target=target,
-        device=device,
-    )
-
-@pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
-@pytest.mark.parametrize("start_indices_val", [[32, 32]], ids=shape_str)
-@pytest.mark.parametrize("slice_sizes", [[64, 64]], ids=shape_str)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn"])
-def test_dynamic_slice(
-    shape: Shape,
-    start_indices_val: List[int],
-    slice_sizes: List[int],
-    dtype: torch.dtype,
-    target: str,
-    request,
-    device,
-):
-    def module(builder: StableHLOBuilder):
-        @builder.func([shape], [dtype])
-        def dynamic_slice(in0: Operand, builder: StableHLOBuilder):
-            builder.set_graph_level_check(True)
-            return builder.dynamic_slice(
-                in0, start_indices_val, slice_sizes=slice_sizes
-            )
-
-    compile_and_execute_shlo(
-        module,
-        test_base=request.node.name,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-        target=target,
-        device=device,
-    )
