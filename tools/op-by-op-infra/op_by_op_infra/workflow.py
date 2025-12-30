@@ -79,7 +79,7 @@ def run_op_by_op_workflow(
 
 
 def extract_ops_from_module(
-    module: Module | str, origin_model: str = ""
+    module: Module | str, *, origin_model: str = ""
 ) -> List[OpWrapper]:
     """
     Extracts operations from a module without executing them.
@@ -102,7 +102,7 @@ def extract_ops_from_module(
 
 
 def execute_extracted_ops(
-    ops: List[OpWrapper], compile_only: bool = False
+    ops: List[OpWrapper], *, compile_only: bool = False, frontend: Optional[str] = None
 ) -> List[OpTest]:
     """
     Takes a list of OpWrappers, makes a submodule out of each, compiles and executes them.
@@ -129,4 +129,6 @@ def execute_extracted_ops(
         execution_result = executor.execute(sub_module)
         execution_results.append(execution_result)
 
-    return workflow_internal.convert_results_to_pydantic_models(execution_results)
+    return workflow_internal.convert_results_to_pydantic_models(
+        execution_results, frontend=frontend
+    )
