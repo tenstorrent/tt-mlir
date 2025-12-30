@@ -422,10 +422,10 @@ void populatePassesModule(nb::module_ &m) {
           if (auto threadTypeAttr =
                   funcOp->getAttrOfType<mlir::tt::ttkernel::ThreadTypeAttr>(
                       mlir::tt::ttkernel::ThreadTypeAttr::name)) {
-            kernels.emplace_back(
-                funcOp.getName().str(),
-                mlir::tt::ttkernel::stringifyThreadType(threadTypeAttr.getValue())
-                    .str());
+            kernels.emplace_back(funcOp.getName().str(),
+                                 mlir::tt::ttkernel::stringifyThreadType(
+                                     threadTypeAttr.getValue())
+                                     .str());
           }
         });
         return kernels;
