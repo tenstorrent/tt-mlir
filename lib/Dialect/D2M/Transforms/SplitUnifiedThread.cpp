@@ -45,6 +45,9 @@ public:
 
     // Get the original region
     Region &originalRegion = generic.getRegion(0);
+    if (originalRegion.empty()) {
+      return failure();
+    }
     Block *originalBlock = &originalRegion.front();
 
     // Create blocks for both new regions with the same arguments
@@ -102,50 +105,90 @@ public:
 
         // First pass: identify all operations that should be erased (based on
         // type)
-        block->walk([&](Operation *op) {
+        // Use a non-recursive walk to avoid walking into nested regions
+        for (Operation &op : block->getOperations()) {
+          Operation *opPtr = &op;
+
           // Skip terminators
-          if (op->hasTrait<OpTrait::IsTerminator>()) {
-            return;
+          if (opPtr->hasTrait<OpTrait::IsTerminator>()) {
+            continue;
           }
-          // Preserve loops (they have d2m.outer_loop attribute) - but filter
-          // their contents
-          if (auto forOp = dyn_cast<scf::ForOp>(op)) {
-            if (forOp->hasAttr("d2m.outer_loop")) {
-              // Don't erase the loop itself, but continue walking to filter its
-              // contents
-              return;
+
+          // Never erase scf.for operations - they have nested regions that
+          // would be invalidated. Only erase operations inside them.
+          if (isa<scf::ForOp>(opPtr)) {
+            // Walk into the loop body to filter its contents
+            if (auto forOp = dyn_cast<scf::ForOp>(opPtr)) {
+              Block *loopBody = forOp.getBody();
+              for (Operation &innerOp : loopBody->getOperations()) {
+                Operation *innerOpPtr = &innerOp;
+                if (innerOpPtr->hasTrait<OpTrait::IsTerminator>()) {
+                  continue;
+                }
+                bool isRemoteOp = isa<RemoteLoadOp, RemoteStoreOp>(innerOpPtr);
+                if (keepRemoteOps) {
+                  if (!isRemoteOp) {
+                    eraseSet.insert(innerOpPtr);
+                  }
+                } else {
+                  if (isRemoteOp) {
+                    eraseSet.insert(innerOpPtr);
+                  }
+                }
+              }
             }
+            continue;
           }
-          bool isRemoteOp = isa<RemoteLoadOp, RemoteStoreOp>(op);
+
+          bool isRemoteOp = isa<RemoteLoadOp, RemoteStoreOp>(opPtr);
           if (keepRemoteOps) {
             // In datamovement region: keep RemoteLoadOp and RemoteStoreOp,
             // erase everything else
             if (!isRemoteOp) {
-              eraseSet.insert(op);
+              eraseSet.insert(opPtr);
             }
           } else {
             // In compute region: remove RemoteLoadOp and RemoteStoreOp, keep
             // everything else
             if (isRemoteOp) {
-              eraseSet.insert(op);
+              eraseSet.insert(opPtr);
             }
           }
-        });
+        }
 
         // Second pass: only erase operations that have no uses
         // Operations with uses will be handled by canonicalization
-        block->walk([&](Operation *op) {
-          if (!eraseSet.contains(op)) {
-            return;
+        // Use a non-recursive walk to avoid walking into nested regions
+        for (Operation &op : block->getOperations()) {
+          Operation *opPtr = &op;
+          if (!eraseSet.contains(opPtr)) {
+            continue;
           }
           // Only erase operations that have no uses
           // Operations with uses (like wait/reserve used by tile_matmul_block)
           // will be handled by canonicalization after their users are erased
-          if (op->use_empty()) {
-            toErase.push_back(op);
+          if (opPtr->use_empty()) {
+            toErase.push_back(opPtr);
             changed = true;
           }
-        });
+        }
+
+        // Also check operations inside scf.for loops
+        for (Operation &op : block->getOperations()) {
+          if (auto forOp = dyn_cast<scf::ForOp>(&op)) {
+            Block *loopBody = forOp.getBody();
+            for (Operation &innerOp : loopBody->getOperations()) {
+              Operation *innerOpPtr = &innerOp;
+              if (!eraseSet.contains(innerOpPtr)) {
+                continue;
+              }
+              if (innerOpPtr->use_empty()) {
+                toErase.push_back(innerOpPtr);
+                changed = true;
+              }
+            }
+          }
+        }
 
         // Erase operations in reverse order
         for (Operation *op : llvm::reverse(toErase)) {

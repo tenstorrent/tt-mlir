@@ -109,10 +109,43 @@ public:
         SmallVector<Value> indices =
             buildGridIndices(builder, loc, indexingMap);
         builder.create<RemoteLoadOp>(loc, cbValue, remoteMemref, indices);
+      } else {
+        // Local case: insert reserve and push before wait
+        // Check if reserve already exists before this wait
+        bool hasReserve = false;
+        for (auto &op : waitOp->getBlock()->getOperations()) {
+          if (&op == waitOp.getOperation()) {
+            break;
+          }
+          if (auto existingReserve = dyn_cast<ReserveOp>(op)) {
+            if (existingReserve.getCb() == cbValue) {
+              hasReserve = true;
+              break;
+            }
+          }
+        }
+        // Check if push already exists before this wait
+        bool hasPush = false;
+        for (auto &op : waitOp->getBlock()->getOperations()) {
+          if (&op == waitOp.getOperation()) {
+            break;
+          }
+          if (auto existingPush = dyn_cast<PushOp>(op)) {
+            if (existingPush.getCb() == cbValue) {
+              hasPush = true;
+              break;
+            }
+          }
+        }
+        // Insert operations: reserve first, then push, so they appear as
+        // reserve -> push -> wait
+        if (!hasReserve) {
+          builder.create<ReserveOp>(loc, cbValue);
+        }
+        if (!hasPush) {
+          builder.create<PushOp>(loc, cbValue);
+        }
       }
-      // Local case: No automatic reserve insertion before wait
-      // The reserve/wait pattern should be explicitly managed by the user
-      // or by other passes (e.g., datamovement generation)
     });
 
     // Collect remote reserve operations that need remote_store at end of block
@@ -124,6 +157,14 @@ public:
       Value cbValue;
     };
     SmallVector<RemoteStoreInfo> remoteStores;
+
+    // Collect local reserve operations that need wait and pop at end of block
+    struct LocalWaitPopInfo {
+      Block *block;
+      Location loc;
+      Value cbValue;
+    };
+    SmallVector<LocalWaitPopInfo> localWaitPops;
 
     // Process ReserveOp operations
     getOperation()->walk([&](ReserveOp reserveOp) {
@@ -150,10 +191,10 @@ public:
         Value remoteMemref = streamOp.getInput();
         remoteStores.push_back(
             {reserveOp->getBlock(), loc, remoteMemref, indexingMap, cbValue});
+      } else {
+        // Local case: collect info to insert wait and pop at end of block
+        localWaitPops.push_back({reserveOp->getBlock(), loc, cbValue});
       }
-      // Local case: No additional operation needed after reserve
-      // The compute operations will write to the reserved buffer,
-      // and the circular buffer push happens implicitly at block end
     });
 
     // Insert remote_store operations at the end of their respective blocks
@@ -163,6 +204,52 @@ public:
           buildGridIndices(builder, info.loc, info.indexingMap);
       builder.create<RemoteStoreOp>(info.loc, info.remoteMemref, indices,
                                     info.cbValue);
+    }
+
+    // Insert wait, pop, and push operations at the end of blocks for local
+    // reserve ops Order: wait -> pop -> push
+    for (const auto &info : localWaitPops) {
+      // Check if push already exists in the block
+      bool hasPush = false;
+      for (auto &op : info.block->getOperations()) {
+        if (auto existingPush = dyn_cast<PushOp>(op)) {
+          if (existingPush.getCb() == info.cbValue) {
+            hasPush = true;
+            break;
+          }
+        }
+      }
+      // Check if wait already exists in the block
+      bool hasWait = false;
+      for (auto &op : info.block->getOperations()) {
+        if (auto existingWait = dyn_cast<WaitOp>(op)) {
+          if (existingWait.getCb() == info.cbValue) {
+            hasWait = true;
+            break;
+          }
+        }
+      }
+      // Check if pop already exists in the block
+      bool hasPop = false;
+      for (auto &op : info.block->getOperations()) {
+        if (auto existingPop = dyn_cast<PopOp>(op)) {
+          if (existingPop.getCb() == info.cbValue) {
+            hasPop = true;
+            break;
+          }
+        }
+      }
+      // Insert operations at end: wait -> pop -> push
+      builder.setInsertionPoint(info.block, info.block->end());
+      if (!hasWait) {
+        builder.create<WaitOp>(info.loc, info.cbValue);
+      }
+      if (!hasPop) {
+        builder.create<PopOp>(info.loc, info.cbValue);
+      }
+      if (!hasPush) {
+        builder.create<PushOp>(info.loc, info.cbValue);
+      }
     }
   }
 };

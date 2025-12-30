@@ -51,7 +51,7 @@ module {
     return
   }
 
-  // Test local reserve insertion for local wait operations
+  // Test local reserve and push insertion for local wait operations
   // CHECK-LABEL: func.func @test_local_wait
   func.func @test_local_wait(%arg0: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
     %alloc = memref.alloc() {alignment = 64 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
@@ -60,14 +60,16 @@ module {
         ins(%arg0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>)
         outs(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
     ^compute0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
-      // Local wait: No automatic reserve insertion
+      // Local input CB: reserve and push should be inserted before wait
+      // CHECK: %[[RESERVE:.*]] = d2m.reserve %cb0
+      // CHECK: d2m.push %cb0
       // CHECK: d2m.wait %cb0
       %mem0 = d2m.wait %cb0 : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
     }
     return
   }
 
-  // Test local wait insertion for local reserve operations
+  // Test local wait and pop insertion for local reserve operations
   // CHECK-LABEL: func.func @test_local_reserve
   func.func @test_local_reserve(%arg0: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
     %alloc = memref.alloc() {alignment = 64 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
@@ -76,9 +78,12 @@ module {
         ins(%arg0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>)
         outs(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
     ^compute0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
-      // Local output: reserve is created but no wait is inserted
+      // Local output CB: reserve is created, wait/pop/push should be inserted at end
       // CHECK: %[[RESERVE:.*]] = d2m.reserve %cb1
       %mem0 = d2m.reserve %cb1 : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+      // CHECK: d2m.wait %cb1
+      // CHECK: d2m.pop %cb1
+      // CHECK: d2m.push %cb1
     }
     return
   }
@@ -102,7 +107,9 @@ module {
       // CHECK: d2m.wait %cb0
       %mem0 = d2m.wait %cb0 : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
 
-      // Local wait: No automatic reserve insertion
+      // Local input CB: reserve and push should be inserted before wait
+      // CHECK: %[[RESERVE1:.*]] = d2m.reserve %cb1
+      // CHECK: d2m.push %cb1
       // CHECK: d2m.wait %cb1
       %mem1 = d2m.wait %cb1 : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
     }
@@ -136,10 +143,13 @@ module {
       // CHECK: d2m.wait %cb1
       %rhs = d2m.wait %cb1 : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
 
-      // Output is local, should have reserve only (no wait inserted)
+      // Local output CB: reserve is created, wait/pop/push should be inserted at end
       // CHECK: d2m.reserve %cb2
       %out = d2m.reserve %cb2 : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
       "d2m.tile_matmul_block"(%lhs, %rhs, %out) : (memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) -> ()
+      // CHECK: d2m.wait %cb2
+      // CHECK: d2m.pop %cb2
+      // CHECK: d2m.push %cb2
     }
     return
   }
@@ -167,6 +177,9 @@ module {
       // CHECK-INTERCHANGE: d2m.reserve %cb2
       %out = d2m.reserve %cb2 : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
       "d2m.tile_matmul_block"(%lhs, %rhs, %out) : (memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<4x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) -> ()
+      // CHECK-INTERCHANGE: d2m.wait %cb2
+      // CHECK-INTERCHANGE: d2m.pop %cb2
+      // CHECK-INTERCHANGE: d2m.push %cb2
     }
     return
   }
@@ -182,7 +195,9 @@ module {
         ins(%arg0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>)
         outs(%stream_out : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<map(4)>, #dram>) {
     ^compute0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
-      // Input is local: No automatic reserve insertion
+      // Local input CB: reserve and push should be inserted before wait
+      // CHECK: %[[RESERVE_IN:.*]] = d2m.reserve %cb0
+      // CHECK: d2m.push %cb0
       // CHECK: d2m.wait %cb0
       %in = d2m.wait %cb0 : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
 
