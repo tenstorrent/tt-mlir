@@ -29,9 +29,10 @@ module {
       // CHECK:     d2m.core_index(0)
       // CHECK:     d2m.core_index(1)
       // CHECK:     scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
-      // CHECK:       d2m.reserve %cb0
-      // CHECK:       d2m.dma_read %arg0[%{{.*}}, %{{.*}}, %{{.*}}], %{{.*}}[%{{.*}}], <8>
-      // CHECK:     } {d2m.outer_loop}
+        // CHECK:       d2m.reserve %cb0
+        // CHECK:       d2m.dma_read %arg0[%{{.*}}, %{{.*}}, %{{.*}}], %{{.*}}[%{{.*}}], <8>
+        // CHECK:       d2m.dma_wait %{{.*}}
+        // CHECK:     } {d2m.outer_loop}
       // CHECK:   } {d2m.outer_loop}
       // CHECK: ^compute0
       // CHECK:   scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
@@ -63,9 +64,10 @@ module {
       // CHECK:     d2m.core_index(0)
       // CHECK:     d2m.core_index(1)
       // CHECK:     scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
-      // CHECK:       d2m.wait %cb1
-      // CHECK:       d2m.dma_write %{{.*}}[%{{.*}}], %arg0[%{{.*}}, %{{.*}}, %{{.*}}], <8>
-      // CHECK:     } {d2m.outer_loop}
+        // CHECK:       d2m.wait %cb1
+        // CHECK:       d2m.dma_write %{{.*}}[%{{.*}}], %arg0[%{{.*}}, %{{.*}}, %{{.*}}], <8>
+        // CHECK:       d2m.dma_wait %{{.*}}
+        // CHECK:     } {d2m.outer_loop}
       // CHECK:   } {d2m.outer_loop}
       // CHECK: ^compute0
       // CHECK:   scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
@@ -100,11 +102,13 @@ module {
       // CHECK:     d2m.core_index(0)
       // CHECK:     d2m.core_index(1)
       // CHECK:     scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
-      // CHECK:       d2m.reserve %cb0
-      // CHECK:       d2m.dma_read %arg0[%{{.*}}, %{{.*}}, %{{.*}}], %{{.*}}[%{{.*}}], <8>
-      // CHECK:       d2m.wait %cb2
-      // CHECK:       d2m.dma_write %{{.*}}[%{{.*}}], %arg1[%{{.*}}, %{{.*}}, %{{.*}}], <8>
-      // CHECK:     } {d2m.outer_loop}
+        // CHECK:       d2m.reserve %cb0
+        // CHECK:       d2m.dma_read %arg0[%{{.*}}, %{{.*}}, %{{.*}}], %{{.*}}[%{{.*}}], <8>
+        // CHECK:       d2m.dma_wait %{{.*}}
+        // CHECK:       d2m.wait %cb2
+        // CHECK:       d2m.dma_write %{{.*}}[%{{.*}}], %arg1[%{{.*}}, %{{.*}}, %{{.*}}], <8>
+        // CHECK:       d2m.dma_wait %{{.*}}
+        // CHECK:     } {d2m.outer_loop}
       // CHECK:   } {d2m.outer_loop}
       // CHECK: ^compute0
       // CHECK:   scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
@@ -143,11 +147,13 @@ module {
       // CHECK:     d2m.core_index(1)
       // CHECK:     scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
       // CHECK:       scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
-      // CHECK:         d2m.reserve %cb0
-      // CHECK:         d2m.dma_read %arg0[%{{.*}}, %{{.*}}, %{{.*}}], %{{.*}}[%{{.*}}], <4>
-      // CHECK:         d2m.reserve %cb1
-      // CHECK:         d2m.dma_read %arg1[%{{.*}}, %{{.*}}, %{{.*}}], %{{.*}}[%{{.*}}], <4>
-      // CHECK:       } {d2m.outer_loop}
+        // CHECK:         d2m.reserve %cb0
+        // CHECK:         d2m.dma_read %arg0[%{{.*}}, %{{.*}}, %{{.*}}], %{{.*}}[%{{.*}}], <4>
+        // CHECK:         d2m.dma_wait %{{.*}}
+        // CHECK:         d2m.reserve %cb1
+        // CHECK:         d2m.dma_read %arg1[%{{.*}}, %{{.*}}, %{{.*}}], %{{.*}}[%{{.*}}], <4>
+        // CHECK:         d2m.dma_wait %{{.*}}
+        // CHECK:       } {d2m.outer_loop}
       // CHECK:     } {d2m.outer_loop}
       // CHECK:   } {d2m.outer_loop}
       // CHECK: ^compute0

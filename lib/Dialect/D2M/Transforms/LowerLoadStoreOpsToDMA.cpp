@@ -225,9 +225,12 @@ public:
       // We need to reserve the CB first to get the local memref to write to
       Value localMemref = rewriter.create<ReserveOp>(loc, cb).getResult();
 
-      rewriter.create<DMAReadOp>(loc, remoteMemref, remoteIndices, localMemref,
-                                 localIndices,
-                                 rewriter.getI64IntegerAttr(coalescingFactor));
+      Value dmaTx = rewriter.create<DMAReadOp>(
+          loc, remoteMemref, remoteIndices, localMemref, localIndices,
+          rewriter.getI64IntegerAttr(coalescingFactor));
+
+      // Wait for DMA to complete
+      rewriter.create<DMAWaitOp>(loc, dmaTx);
 
       rewriter.eraseOp(remoteLoad);
       return success();
@@ -294,9 +297,10 @@ public:
               true /*addThenBlock*/, true /*addElseBlock*/);
 
           auto thenBuilder = ifExpr.getThenBodyBuilder();
-          thenBuilder.create<DMAReadOp>(
+          Value dmaTx = thenBuilder.create<DMAReadOp>(
               innerLoc, remoteMemref, remoteIndices, localMemref, localIndices,
               thenBuilder.getI64IntegerAttr(coalescingFactor));
+          thenBuilder.create<DMAWaitOp>(innerLoc, dmaTx);
           thenBuilder.create<scf::YieldOp>(innerLoc, nulltx->getResult(0));
 
           auto elseBuilder = ifExpr.getElseBodyBuilder();
@@ -378,8 +382,12 @@ public:
       // We need to wait on the CB first to get the local memref to read from
       Value localMemref = rewriter.create<WaitOp>(loc, cb).getResult();
 
-      rewriter.create<DMAWriteOp>(loc, localMemref, localIndices, remoteMemref,
-                                  remoteIndices, coalescingFactor);
+      Value dmaTx = rewriter.create<DMAWriteOp>(loc, localMemref, localIndices,
+                                                remoteMemref, remoteIndices,
+                                                coalescingFactor);
+
+      // Wait for DMA to complete
+      rewriter.create<DMAWaitOp>(loc, dmaTx);
 
       rewriter.eraseOp(remoteStore);
       return success();
@@ -446,9 +454,10 @@ public:
               true /*addThenBlock*/, true /*addElseBlock*/);
 
           auto thenBuilder = ifExpr.getThenBodyBuilder();
-          thenBuilder.create<DMAWriteOp>(innerLoc, localMemref, localIndices,
-                                         remoteMemref, remoteIndices,
-                                         coalescingFactor);
+          Value dmaTx = thenBuilder.create<DMAWriteOp>(
+              innerLoc, localMemref, localIndices, remoteMemref, remoteIndices,
+              coalescingFactor);
+          thenBuilder.create<DMAWaitOp>(innerLoc, dmaTx);
           thenBuilder.create<scf::YieldOp>(innerLoc, nulltx->getResult(0));
 
           auto elseBuilder = ifExpr.getElseBodyBuilder();
