@@ -1146,9 +1146,9 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
     let summary = "D2M Remote Load Op";
     let description = [{
       Loads an entire shard from a remote memory location into a circular buffer using affine indexing.
-      This operation operates at shard granularity on remote memrefs (memrefs with device layouts).
+      This operation operates at shard granularity on remote memrefs or tensors (with device layouts).
 
-      D2M device memrefs have a device shape that follows a grid x shard convention:
+      D2M device memrefs and tensors have a device shape that follows a grid x shard convention:
       - For a logical shape with N dimensions, the device shape has 2N dimensions
       - The first N dimensions are grid dimensions (sharding distribution)
       - The last N dimensions are shard dimensions (dimensions of each shard)
@@ -1173,18 +1173,21 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
       // For a 2D device memref with shape P x Q x (N/P) x (M/Q)
       // Index by grid dimensions P x Q only, load into circular buffer
       d2m.remote_load %cb, %memref[%i, %j] : !d2m.cb<memref<(N/P)x(M/Q)xf32, #l1_>>, memref<PxQx(N/P)x(M/Q)xf32, #ttcore.shard<...>, #dram>
+
+      // Can also work with tensors
+      d2m.remote_load %cb, %tensor[%i, %j] : !d2m.cb<tensor<(N/P)x(M/Q)xf32>>, tensor<PxQx(N/P)x(M/Q)xf32, #ttcore.shard<...>, #dram>
       ```
 
       Constraints:
-      - The memref must be remote (have a device layout)
+      - The memref/tensor must be remote (have a device layout)
       - The operation always uses an identity affine map for grid dimensions
-      - The number of indices must equal N/2 where N is the memref rank (grid dimensions)
+      - The number of indices must equal N/2 where N is the memref/tensor rank (grid dimensions)
       - The operation loads the entire shard into the circular buffer
       - The circular buffer's underlying type must match the shard shape
     }];
 
     let arguments = (ins D2M_CB:$cb,
-        Arg<AnyMemRef, "the reference to load from",
+        Arg<AnyRankedTensorOrMemRef, "the reference to load from",
         [MemRead]>:$memref,
         Variadic<Index>:$indices);
 
@@ -1196,16 +1199,16 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
       /// Returns the operand index of the circular buffer.
       unsigned getCbOperandIndex() { return 0; }
 
-      /// Returns the operand index of the memref.
+      /// Returns the operand index of the memref/tensor.
       unsigned getMemRefOperandIndex() { return 1; }
 
       void setMemRef(Value value) { setOperand(getMemRefOperandIndex(), value); }
 
-      /// Returns the identity affine map used to index the memref for this operation.
-      /// The map always has N/2 results where N is the memref rank (grid dimensions).
+      /// Returns the identity affine map used to index the memref/tensor for this operation.
+      /// The map always has N/2 results where N is the memref/tensor rank (grid dimensions).
       AffineMap getAffineMap() {
-        auto memrefType = getMemRefType();
-        int64_t gridRank = memrefType.getRank() / 2;
+        auto shapedType = getShapedType();
+        int64_t gridRank = shapedType.getRank() / 2;
         return AffineMap::getMultiDimIdentityMap(gridRank, getContext());
       }
 
@@ -1213,7 +1216,16 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
         return mlir::cast<CBType>(getCb().getType());
       }
 
-      MemRefType getMemRefType() { return cast<MemRefType>(getMemref().getType()); }
+      /// Returns the shaped type (memref or tensor) of the memref operand.
+      ShapedType getShapedType() { return cast<ShapedType>(getMemref().getType()); }
+
+      /// Returns the memref type, or fails if the operand is a tensor.
+      MemRefType getMemRefType() {
+        if (auto memrefType = dyn_cast<MemRefType>(getMemref().getType())) {
+          return memrefType;
+        }
+        llvm_unreachable("getMemRefType() called on tensor operand, use getShapedType() instead");
+      }
     }];
 }
 
@@ -1224,9 +1236,9 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
     let summary = "D2M Remote Store Op";
     let description = [{
       Stores an entire shard from a circular buffer to a remote memory location using affine indexing.
-      This operation operates at shard granularity on remote memrefs (memrefs with device layouts).
+      This operation operates at shard granularity on remote memrefs or tensors (with device layouts).
 
-      D2M device memrefs have a device shape that follows a grid x shard convention:
+      D2M device memrefs and tensors have a device shape that follows a grid x shard convention:
       - For a logical shape with N dimensions, the device shape has 2N dimensions
       - The first N dimensions are grid dimensions (sharding distribution)
       - The last N dimensions are shard dimensions (dimensions of each shard)
@@ -1251,17 +1263,20 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
       // For a 2D device memref with shape P x Q x (N/P) x (M/Q)
       // Index by grid dimensions P x Q only, store from circular buffer
       d2m.remote_store %memref[%i, %j], %cb : memref<PxQx(N/P)x(M/Q)xf32, #ttcore.shard<...>, #dram>, !d2m.cb<memref<(N/P)x(M/Q)xf32, #l1_>>
+
+      // Can also work with tensors
+      d2m.remote_store %tensor[%i, %j], %cb : tensor<PxQx(N/P)x(M/Q)xf32, #ttcore.shard<...>, #dram>, !d2m.cb<tensor<(N/P)x(M/Q)xf32>>
       ```
 
       Constraints:
-      - The memref must be remote (have a device layout)
+      - The memref/tensor must be remote (have a device layout)
       - The operation always uses an identity affine map for grid dimensions
-      - The number of indices must equal N/2 where N is the memref rank (grid dimensions)
+      - The number of indices must equal N/2 where N is the memref/tensor rank (grid dimensions)
       - The operation stores the entire shard from the circular buffer
       - The circular buffer's underlying type must match the shard shape (last N/2 dimensions)
     }];
 
-    let arguments = (ins Arg<AnyMemRef, "the reference to store to",
+    let arguments = (ins Arg<AnyRankedTensorOrMemRef, "the reference to store to",
         [MemWrite]>:$memref,
         Variadic<Index>:$indices,
         D2M_CB:$cb);
@@ -1271,7 +1286,7 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
     let hasVerifier = 1;
 
     let extraClassDeclaration = [{
-      /// Returns the operand index of the memref.
+      /// Returns the operand index of the memref/tensor.
       unsigned getMemRefOperandIndex() { return 0; }
 
       /// Returns the operand index of the circular buffer.
@@ -1279,11 +1294,11 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
 
       void setMemRef(Value value) { setOperand(getMemRefOperandIndex(), value); }
 
-      /// Returns the identity affine map used to index the memref for this operation.
-      /// The map always has N/2 results where N is the memref rank (grid dimensions).
+      /// Returns the identity affine map used to index the memref/tensor for this operation.
+      /// The map always has N/2 results where N is the memref/tensor rank (grid dimensions).
       AffineMap getAffineMap() {
-        auto memrefType = getMemRefType();
-        int64_t gridRank = memrefType.getRank() / 2;
+        auto shapedType = getShapedType();
+        int64_t gridRank = shapedType.getRank() / 2;
         return AffineMap::getMultiDimIdentityMap(gridRank, getContext());
       }
 
@@ -1291,7 +1306,16 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
         return mlir::cast<CBType>(getCb().getType());
       }
 
-      MemRefType getMemRefType() { return cast<MemRefType>(getMemref().getType()); }
+      /// Returns the shaped type (memref or tensor) of the memref operand.
+      ShapedType getShapedType() { return cast<ShapedType>(getMemref().getType()); }
+
+      /// Returns the memref type, or fails if the operand is a tensor.
+      MemRefType getMemRefType() {
+        if (auto memrefType = dyn_cast<MemRefType>(getMemref().getType())) {
+          return memrefType;
+        }
+        llvm_unreachable("getMemRefType() called on tensor operand, use getShapedType() instead");
+      }
     }];
 }
 

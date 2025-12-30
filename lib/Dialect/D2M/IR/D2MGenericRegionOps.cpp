@@ -342,35 +342,35 @@ DMAOp::bufferize(mlir::RewriterBase &rewriter,
 //===----------------------------------------------------------------------===//
 
 ::mlir::LogicalResult RemoteLoadOp::verify() {
-  auto memrefType = getMemRefType();
+  auto shapedType = getShapedType();
   auto cbType = mlir::cast<CBType>(getCb().getType());
 
-  // Verify that the memref is remote (has device layout)
+  // Verify that the memref/tensor is remote (has device layout)
   if (!ttcore::hasDeviceLayout(getMemref())) {
-    return emitOpError("memref must be remote (have a device layout)");
+    return emitOpError("memref/tensor must be remote (have a device layout)");
   }
 
-  // Verify memref rank is even (grid + shard dimensions)
-  if (memrefType.getRank() % 2 != 0) {
-    return emitOpError(
-        "memref rank must be even for device shape (grid + shard dimensions)");
+  // Verify memref/tensor rank is even (grid + shard dimensions)
+  if (shapedType.getRank() % 2 != 0) {
+    return emitOpError("memref/tensor rank must be even for device shape (grid "
+                       "+ shard dimensions)");
   }
 
   // Verify indices count matches grid dimensions (first N/2 dimensions)
-  int64_t gridRank = memrefType.getRank() / 2;
+  int64_t gridRank = shapedType.getRank() / 2;
   if (static_cast<int64_t>(getIndices().size()) != gridRank) {
     return emitOpError("number of indices must equal grid rank (N/2 where N is "
-                       "memref rank), got ")
+                       "memref/tensor rank), got ")
            << getIndices().size() << " indices but expected " << gridRank;
   }
 
   // Verify CB type matches shard shape
   auto deviceLayout = ttcore::getDeviceLayout(getMemref());
   if (!deviceLayout) {
-    return emitOpError("failed to get device layout from memref");
+    return emitOpError("failed to get device layout from memref/tensor");
   }
 
-  auto shardShape = deviceLayout.getShardShape(memrefType);
+  auto shardShape = deviceLayout.getShardShape(shapedType);
   auto cbUnderlyingType = cbType.getUnderlying();
 
   // Verify CB underlying shape matches shard shape
@@ -394,45 +394,45 @@ DMAOp::bufferize(mlir::RewriterBase &rewriter,
 
   // Verify element types match
   Type cbElementType = cbUnderlyingType.getElementType();
-  Type memrefElementType = memrefType.getElementType();
-  if (cbElementType != memrefElementType) {
+  Type shapedElementType = shapedType.getElementType();
+  if (cbElementType != shapedElementType) {
     return emitOpError(
-        "circular buffer element type must match memref element type");
+        "circular buffer element type must match memref/tensor element type");
   }
 
   return mlir::success();
 }
 
 ::mlir::LogicalResult RemoteStoreOp::verify() {
-  auto memrefType = getMemRefType();
+  auto shapedType = getShapedType();
   auto cbType = mlir::cast<CBType>(getCb().getType());
 
-  // Verify that the memref is remote (has device layout)
+  // Verify that the memref/tensor is remote (has device layout)
   if (!ttcore::hasDeviceLayout(getMemref())) {
-    return emitOpError("memref must be remote (have a device layout)");
+    return emitOpError("memref/tensor must be remote (have a device layout)");
   }
 
-  // Verify memref rank is even (grid + shard dimensions)
-  if (memrefType.getRank() % 2 != 0) {
-    return emitOpError(
-        "memref rank must be even for device shape (grid + shard dimensions)");
+  // Verify memref/tensor rank is even (grid + shard dimensions)
+  if (shapedType.getRank() % 2 != 0) {
+    return emitOpError("memref/tensor rank must be even for device shape (grid "
+                       "+ shard dimensions)");
   }
 
   // Verify indices count matches grid dimensions (first N/2 dimensions)
-  int64_t gridRank = memrefType.getRank() / 2;
+  int64_t gridRank = shapedType.getRank() / 2;
   if (static_cast<int64_t>(getIndices().size()) != gridRank) {
     return emitOpError("number of indices must equal grid rank (N/2 where N is "
-                       "memref rank), got ")
+                       "memref/tensor rank), got ")
            << getIndices().size() << " indices but expected " << gridRank;
   }
 
   // Verify CB type matches shard shape
   auto deviceLayout = ttcore::getDeviceLayout(getMemref());
   if (!deviceLayout) {
-    return emitOpError("failed to get device layout from memref");
+    return emitOpError("failed to get device layout from memref/tensor");
   }
 
-  auto shardShape = deviceLayout.getShardShape(memrefType);
+  auto shardShape = deviceLayout.getShardShape(shapedType);
   auto cbUnderlyingType = cbType.getUnderlying();
 
   // Verify CB underlying shape matches shard shape
@@ -456,10 +456,10 @@ DMAOp::bufferize(mlir::RewriterBase &rewriter,
 
   // Verify element types match
   Type cbElementType = cbUnderlyingType.getElementType();
-  Type memrefElementType = memrefType.getElementType();
-  if (cbElementType != memrefElementType) {
+  Type shapedElementType = shapedType.getElementType();
+  if (cbElementType != shapedElementType) {
     return emitOpError(
-        "circular buffer element type must match memref element type");
+        "circular buffer element type must match memref/tensor element type");
   }
 
   return mlir::success();
