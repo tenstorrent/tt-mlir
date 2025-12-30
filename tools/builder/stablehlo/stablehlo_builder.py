@@ -5517,7 +5517,11 @@ class StableHLOBuilder(Builder):
 
         # Otherwise, ensure every start index is a Value (wrap ints as constants)
         start_indices_vals = [
-            (self.constant(torch.tensor(i, dtype=torch.int64)).result if isinstance(i, int) else i)
+            (
+                self.constant(torch.tensor(i, dtype=torch.int64)).result
+                if isinstance(i, int)
+                else i
+            )
             for i in start_indices
         ]
 
@@ -5603,17 +5607,17 @@ class StableHLOBuilder(Builder):
         self,
         old_op: stablehlo.DynamicSliceOp,
     ) -> Tuple[Module, StableHLOBuilder]:
-        stablehlo_op = self.get_opview_from_split(
-            StableHLOBuilder.dynamic_slice_split
-        )
+        stablehlo_op = self.get_opview_from_split(StableHLOBuilder.dynamic_slice_split)
 
         old_context = old_op.context
         old_loc = Location.unknown(old_context)
         with old_context, old_loc:
             dynamic_slice_module = Module.create()
             dynamic_slice_builder = StableHLOBuilder(old_context, old_loc)
-            
-            op_input_types = [old_op.operand.type] + [idx.type for idx in old_op.start_indices]
+
+            op_input_types = [old_op.operand.type] + [
+                idx.type for idx in old_op.start_indices
+            ]
             slice_sizes = list(old_op.slice_sizes)
 
             with InsertionPoint(dynamic_slice_module.body):
@@ -5626,7 +5630,10 @@ class StableHLOBuilder(Builder):
                     start_indices = inputs[1:]
 
                     new_op = stablehlo_op(
-                        operand, start_indices, slice_sizes=slice_sizes, loc=old_op.location
+                        operand,
+                        start_indices,
+                        slice_sizes=slice_sizes,
+                        loc=old_op.location,
                     )
                     new_op_result = new_op.result
 
@@ -5642,9 +5649,13 @@ class StableHLOBuilder(Builder):
                             slice_sizes,
                             new_op_result.type.element_type,
                         )
-                        dynamic_slice_builder._set_golden_tensor(new_op_result, golden_output)
-                        dynamic_slice_builder._set_golden_tensor(operand, operand_tensor)
-                        
+                        dynamic_slice_builder._set_golden_tensor(
+                            new_op_result, golden_output
+                        )
+                        dynamic_slice_builder._set_golden_tensor(
+                            operand, operand_tensor
+                        )
+
                         ordered_inputs.extend([operand] + list(start_indices))
                         ordered_outputs.append(new_op_result)
 

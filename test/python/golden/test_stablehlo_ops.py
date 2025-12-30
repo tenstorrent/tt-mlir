@@ -817,6 +817,7 @@ def test_slice(
         device=device,
     )
 
+
 @pytest.mark.parametrize("shape", [(1, 1, 64, 32), (1, 3, 256, 256)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
 @pytest.mark.parametrize("target", ["ttnn"])
@@ -838,6 +839,7 @@ def test_constant(shape: Shape, dtype: torch.dtype, target: str, request, device
         device=device,
     )
 
+
 @pytest.mark.parametrize(
     "shape,start_indices_val,slice_sizes",
     [
@@ -846,7 +848,12 @@ def test_constant(shape: Shape, dtype: torch.dtype, target: str, request, device
         ((128, 128), [0, 0], [128, 64]),
         ((256, 256), [64, 64], [128, 128]),
     ],
-    ids=["dyn_128x128_basic", "dyn_128x128_offset", "dyn_128x128_fullrow", "dyn_256x256_large"],
+    ids=[
+        "dyn_128x128_basic",
+        "dyn_128x128_offset",
+        "dyn_128x128_fullrow",
+        "dyn_256x256_large",
+    ],
 )
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn"])
@@ -875,7 +882,6 @@ def test_dynamic_slice(
         target=target,
         device=device,
     )
-
 
 
 # Bitwise operations tests (integer tensors)
@@ -1208,4 +1214,3 @@ def test_select(target: str, request, device):
         target=target,
         device=device,
     )
-
