@@ -197,14 +197,14 @@ module {
       // CHECK:     d2m.core_index(1)
       // CHECK:     scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
       // CHECK:       d2m.reserve %cb0
-      // CHECK:       scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
-      // CHECK:         scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
+      // CHECK:       scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} iter_args
+      // CHECK:         scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} iter_args
       // CHECK:           scf.if
       // CHECK:             d2m.dma_read %arg0[%{{.*}}, %{{.*}}, %{{.*}}], %{{.*}}[%{{.*}}], <{{.*}}>
-      // CHECK:             d2m.dma_wait %{{.*}}
       // CHECK:           }
       // CHECK:         }
       // CHECK:       }
+      // CHECK:       d2m.dma_wait %{{.*}}
       // CHECK:     } {d2m.outer_loop}
       // CHECK:   } {d2m.outer_loop}
       // CHECK: ^compute0

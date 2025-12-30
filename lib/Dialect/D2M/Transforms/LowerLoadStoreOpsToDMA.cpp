@@ -229,10 +229,10 @@ public:
           loc, remoteMemref, remoteIndices, localMemref, localIndices,
           rewriter.getI64IntegerAttr(coalescingFactor));
 
-      // Wait for DMA to complete
-      rewriter.create<DMAWaitOp>(loc, dmaTx);
-
       rewriter.eraseOp(remoteLoad);
+
+      // Wait for DMA to complete after replacing the operation
+      rewriter.create<DMAWaitOp>(loc, dmaTx);
       return success();
     }
 
@@ -247,7 +247,7 @@ public:
     scf::LoopNest loopNest = scf::buildLoopNest(
         rewriter, loc, lbs, ubs, steps, ValueRange(nullDmaTx),
         [&](OpBuilder &builder, Location innerLoc, ValueRange iters,
-            ValueRange /*args*/) {
+            ValueRange args) {
           // Build full indices: grid indices + shard iteration indices
           SmallVector<Value> remoteIndices =
               llvm::to_vector(llvm::concat<Value>(gridIndices, iters));
@@ -300,18 +300,27 @@ public:
           Value dmaTx = thenBuilder.create<DMAReadOp>(
               innerLoc, remoteMemref, remoteIndices, localMemref, localIndices,
               thenBuilder.getI64IntegerAttr(coalescingFactor));
-          thenBuilder.create<DMAWaitOp>(innerLoc, dmaTx);
-          thenBuilder.create<scf::YieldOp>(innerLoc, nulltx->getResult(0));
+          // Yield the DMA transaction to propagate it through loop iterations
+          thenBuilder.create<scf::YieldOp>(innerLoc, dmaTx);
 
           auto elseBuilder = ifExpr.getElseBodyBuilder();
-          elseBuilder.create<scf::YieldOp>(innerLoc, nulltx->getResult(0));
+          // Yield previous transaction when DMA is not executed
+          elseBuilder.create<scf::YieldOp>(innerLoc, args[0]);
 
           return SmallVector<Value>{ifExpr.getResult(0)};
         });
 
     // RemoteLoadOp has no results (it's a side-effect operation), so we just
-    // erase it The loop nest has already been inserted
+    // erase it. The loop nest has already been inserted.
     rewriter.eraseOp(remoteLoad);
+
+    // Wait for DMA to complete after replacing the operation
+    // The loop nest returns the last DMA transaction (or null if none executed)
+    Value lastDmaTx = loopNest.results.front();
+    // Always wait on the result - if it's nulltx, the wait will handle it
+    // appropriately The result propagates through the loop: either the last DMA
+    // transaction or nulltx
+    rewriter.create<DMAWaitOp>(loc, lastDmaTx);
     return success();
   }
 };
@@ -388,10 +397,10 @@ public:
                                                 remoteMemref, remoteIndices,
                                                 coalescingFactor);
 
-      // Wait for DMA to complete
-      rewriter.create<DMAWaitOp>(loc, dmaTx);
-
       rewriter.eraseOp(remoteStore);
+
+      // Wait for DMA to complete after replacing the operation
+      rewriter.create<DMAWaitOp>(loc, dmaTx);
       return success();
     }
 
@@ -406,7 +415,7 @@ public:
     scf::LoopNest loopNest = scf::buildLoopNest(
         rewriter, loc, lbs, ubs, steps, ValueRange(nullDmaTx),
         [&](OpBuilder &builder, Location innerLoc, ValueRange iters,
-            ValueRange /*args*/) {
+            ValueRange args) {
           // Build full indices: grid indices + shard iteration indices
           SmallVector<Value> remoteIndices =
               llvm::to_vector(llvm::concat<Value>(gridIndices, iters));
@@ -459,18 +468,27 @@ public:
           Value dmaTx = thenBuilder.create<DMAWriteOp>(
               innerLoc, localMemref, localIndices, remoteMemref, remoteIndices,
               coalescingFactor);
-          thenBuilder.create<DMAWaitOp>(innerLoc, dmaTx);
-          thenBuilder.create<scf::YieldOp>(innerLoc, nulltx->getResult(0));
+          // Yield the DMA transaction to propagate it through loop iterations
+          thenBuilder.create<scf::YieldOp>(innerLoc, dmaTx);
 
           auto elseBuilder = ifExpr.getElseBodyBuilder();
-          elseBuilder.create<scf::YieldOp>(innerLoc, nulltx->getResult(0));
+          // Yield previous transaction when DMA is not executed
+          elseBuilder.create<scf::YieldOp>(innerLoc, args[0]);
 
           return SmallVector<Value>{ifExpr.getResult(0)};
         });
 
     // RemoteStoreOp has no results (it's a side-effect operation), so we just
-    // erase it The loop nest has already been inserted
+    // erase it. The loop nest has already been inserted.
     rewriter.eraseOp(remoteStore);
+
+    // Wait for DMA to complete after replacing the operation
+    // The loop nest returns the last DMA transaction (or null if none executed)
+    Value lastDmaTx = loopNest.results.front();
+    // Always wait on the result - if it's nulltx, the wait will handle it
+    // appropriately The result propagates through the loop: either the last DMA
+    // transaction or nulltx
+    rewriter.create<DMAWaitOp>(loc, lastDmaTx);
     return success();
   }
 };
