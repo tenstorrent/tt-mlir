@@ -849,7 +849,7 @@ def compile_ttnn_to_flatbuffer(
             "ttnn",
             module_dump=module_dump,
             output_root=output_root,
-            base=test_base + "5",
+            base=test_base,
         )
     except Exception as e:
         raise TTBuilderCompileException(e)

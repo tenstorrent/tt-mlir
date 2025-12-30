@@ -305,12 +305,10 @@ def test_logical_shift_binary_ops_logical_left_shift(
             builder: TTNNBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
-            # Constrain shift amounts to be within valid range
-            shift_tensor_1 = builder._get_golden_tensor(in1)
-            dtype_bits = torch.iinfo(shift_tensor_1.shard_at(0).dtype).bits
-            # Handle uint32 which doesn't support % operator in PyTorch
-            constrained_shift_tensor = shift_tensor_1.apply_shardwise(
-                lambda shard: (shard.to(torch.int64) % dtype_bits).to(shard.dtype)
+            # Create random shift amounts within valid range using torch tensors
+            dtype_bits = torch.iinfo(dtype).bits
+            constrained_shift_tensor = torch.randint(
+                low=0, high=dtype_bits, size=shape, dtype=dtype
             )
             builder.set_goldens({in1: constrained_shift_tensor})
             return builder.logical_left_shift(in0, in1, unit_attrs=unit_attrs)
@@ -341,12 +339,10 @@ def test_logical_shift_binary_ops_logical_right_shift(
             builder: TTNNBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
-            # Constrain shift amounts to be within valid range
-            shift_tensor_1 = builder._get_golden_tensor(in1)
-            dtype_bits = torch.iinfo(shift_tensor_1.shard_at(0).dtype).bits
-            # Handle uint32 which doesn't support % operator in PyTorch
-            constrained_shift_tensor = shift_tensor_1.apply_shardwise(
-                lambda shard: (shard.to(torch.int64) % dtype_bits).to(shard.dtype)
+            # Create random shift amounts within valid range using torch tensors
+            dtype_bits = torch.iinfo(dtype).bits
+            constrained_shift_tensor = torch.randint(
+                low=0, high=dtype_bits, size=shape, dtype=dtype
             )
             builder.set_goldens({in1: constrained_shift_tensor})
             return builder.logical_right_shift(in0, in1, unit_attrs=unit_attrs)

@@ -6627,7 +6627,7 @@ class TTNNBuilder(Builder):
     def concat(
         self,
         ins: List[Operand],
-        dim: int = 0,
+        dim: int,
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
@@ -7636,7 +7636,7 @@ class TTNNBuilder(Builder):
     def leaky_relu(
         self,
         in0: Operand,
-        parameter: float = 0.01,
+        parameter: float,
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,

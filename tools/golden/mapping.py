@@ -86,15 +86,7 @@ class GoldenMapTensor:
 
     # ----- Methods -----
 
-    def __init__(
-        self,
-        shard_map: Dict[int, torch.Tensor] | "GoldenMapTensor",
-        mesh_shape: Tuple[int, int],
-    ):
-        # Allow constructing from another GoldenMapTensor for convenience
-        if isinstance(shard_map, GoldenMapTensor):
-            shard_map = shard_map.shard_map
-
+    def __init__(self, shard_map: Dict[int, torch.Tensor], mesh_shape: Tuple[int, int]):
         it = iter(shard_map.values())
         first = next(it)
 
@@ -365,13 +357,6 @@ def unpack_mlir_attr(attr):
     if isinstance(attr, DenseElementsAttr):
         array = np.array(attr)
         return array
-    if isinstance(attr, Attribute):
-        # Must be a TTNN_ShapeAttr
-        s = str(attr)
-        start = s.find("<")
-        end = s.find(">", start)
-        inner = s[start + 1 : end]
-        return [int(x.strip()) for x in inner.split("x")]
     raise ValueError(f"Unexpected attribute type: {type(attr)}")
 
 
@@ -4203,13 +4188,6 @@ def stablehlo_dynamic_update_slice_golden(
 def ttnn_abs_golden(
     input_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
-    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
-    return torch.abs(input_tensor).to(output_dtype)
-
-
-def ttnn_abs_golden(
-    input_tensor: GoldenMapTensor, output_type_mlir: Type
-) -> GoldenMapTensor:
     dtype = mlir_type_to_torch_dtype(output_type_mlir)
     return torch.abs(input_tensor).to(dtype)
 
@@ -4641,7 +4619,7 @@ def ttnn_repeat_golden(
     repeat_dims_attr: Attribute,
     output_type_mlir: Type,
 ) -> GoldenMapTensor:
-    repeat_dims = unpack_mlir_attr(repeat_dims_attr)
+    repeat_dims = ttnn.ir.ShapeAttr.maybe_downcast(repeat_dims_attr).shape
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     return input_tensor.repeat(repeats=repeat_dims).to(output_dtype)
 
