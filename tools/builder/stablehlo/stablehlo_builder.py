@@ -50,47 +50,6 @@ class StableHLOBuilder(Builder):
                 if op_name is not None:
                     cls.opname_to_opview_map[op_name] = obj
 
-    # ----- Public methods -----
-
-    def create_sharding_attr_from_tuples(
-        self,
-        mesh_name: str,
-        shardings: List[Tuple[str, bool]],
-        replicated_axes: List[sdy.AxisRefAttr] = [],
-        unreduced_axes: List[sdy.AxisRefAttr] = [],
-    ) -> sdy.TensorShardingPerValueAttr:
-        """
-        Creates a tensor sharding per value attribute from a list of tuples.
-        Each tuple contains a mesh name and a boolean indicating whether the sharding is closed.
-
-        Parameters
-        ----------
-        mesh_name : str
-            The name of the mesh to which the tensor sharding applies
-        shardings : List[Tuple[str, bool]]
-            A list of tuples, each containing a mesh name and a boolean indicating whether the sharding is closed
-
-        Returns
-        -------
-        (*sdy.TensorShardingPerValueAttr*)
-            A tensor sharding per value attribute that describes how tensors are distributed across the mesh
-        """
-        dimension_shardings = []
-        for sharding in shardings:
-            axis_ref_name, is_closed = sharding
-            axes = []
-            if axis_ref_name != "":
-                axes = [self.axis_ref_attr(name=axis_ref_name)]
-            dimension_sharding = self.dimension_sharding_attr(
-                axes=axes, is_closed=is_closed
-            )
-            dimension_shardings.append(dimension_sharding)
-
-        tensor_sharding = self.tensor_sharding_attr(
-            mesh_name, dimension_shardings, replicated_axes, unreduced_axes
-        )
-        return self.tensor_sharding_per_value_attr([tensor_sharding])
-
     # ----- Private Methods ----
 
     def _create_mesh_attr_from_ordered_dict(
@@ -6282,17 +6241,67 @@ class StableHLOBuilder(Builder):
             manual_axes_attr,
         )
 
+    def axes_ref_list_attr(
+        self,
+        axis_ref_list: List[sdy.AxisRefAttr],
+    ) -> sdy.AxisRefListAttr:
+        return sdy.AxisRefListAttr.get(axis_ref_list)
+
+    def list_of_axis_ref_lists_attr(
+        self, list_of_axis_ref_lists: List[sdy.AxisRefListAttr]
+    ) -> sdy.ListOfAxisRefListsAttr:
+        return sdy.ListOfAxisRefListsAttr.get(list_of_axis_ref_lists)
+
     # ----- Public Shardy Op Generators ----
 
-    def mesh(self, mesh_name: str, mesh_attr: sdy.MeshAttr) -> sdy.MeshOp:
-        return sdy.MeshOp(sym_name=mesh_name, mesh=mesh_attr)
+    ################ sdy.MeshOp ###############
 
+    @tag(sdy.MeshOp)
+    def mesh(self, mesh_name: str, mesh_attr: sdy.MeshAttr) -> sdy.MeshOp:
+        sdy_op = self.get_opview_from_method(StableHLOBuilder.mesh)
+        return sdy_op(sym_name=mesh_name, mesh=mesh_attr)
+
+    ################ sdy.ShardingConstraintOp ###############
+
+    @tag(sdy.ShardingConstraintOp)
     def sharding_constraint(
         self,
         in0: Operand,
         tensor_sharding_attr: sdy.TensorShardingAttr,
     ) -> sdy.ShardingConstraintOp:
-        return sdy.ShardingConstraintOp(in0, tensor_sharding_attr)
+        sdy_op = self.get_opview_from_method(StableHLOBuilder.sharding_constraint)
+
+        op = sdy_op(in0, tensor_sharding_attr)
+        op_result = op.results[0]
+
+        if not self._disable_golden_check:
+            input_golden = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(sdy_op)
+            golden_output = op_golden_function(input_golden)
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    ################ sdy.ReshardOp ###############
+
+    @tag(sdy.ReshardOp)
+    def reshard(
+        self,
+        in0: Operand,
+        tensor_sharding_attr: sdy.TensorShardingAttr,
+    ) -> sdy.ReshardOp:
+        sdy_op = self.get_opview_from_method(StableHLOBuilder.reshard)
+
+        op = sdy_op(in0, tensor_sharding_attr)
+        op_result = op.results[0]
+
+        if not self._disable_golden_check:
+            input_golden = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(sdy_op)
+            golden_output = op_golden_function(input_golden)
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
 
     ################ sdy.ManualComputationOp ###############
 
@@ -6369,6 +6378,28 @@ class StableHLOBuilder(Builder):
             if len(new_manual_computation_op_results) == 1
             else tuple(new_manual_computation_op_results)
         )
+
+    ################ sdy.AllGatherOp ###############
+
+    @tag(sdy.AllGatherOp)
+    def sdy_all_gather(
+        self,
+        in0: Operand,
+        gathering_axes: sdy.ListOfAxisRefListsAttr,
+        out_sharding: sdy.TensorShardingAttr,
+    ) -> sdy.AllGatherOp:
+        sdy_op = self.get_opview_from_method(StableHLOBuilder.sdy_all_gather)
+
+        op = sdy_op(in0, gathering_axes, out_sharding)
+        op_result = op.results[0]
+
+        if not self._disable_golden_check:
+            input_golden = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(sdy_op)
+            golden_output = op_golden_function(input_golden)
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
 
     # ----- Experimental Mpmd Attribute Generators ----
 
