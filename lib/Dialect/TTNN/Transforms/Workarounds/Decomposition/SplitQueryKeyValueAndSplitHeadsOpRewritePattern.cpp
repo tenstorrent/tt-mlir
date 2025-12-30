@@ -69,7 +69,8 @@ LogicalResult SplitQueryKeyValueAndSplitHeadsOpRewritePattern::matchAndRewrite(
     RankedTensorType reshapedQueryType =
         utils::RankedTensorTypeFactory::create(inputType, reshapedQueryShape);
 
-    auto reshapeQuery = rewriter.create<ttnn::ReshapeOp>(
+    auto reshapeQuery = ttnn::ReshapeOp::create(
+        rewriter,
         ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_reshape_query"),
         reshapedQueryType, srcOp.getInputTensor(), reshapedQueryShapeAttr,
         ttnn::MemoryConfigAttr());
@@ -83,7 +84,8 @@ LogicalResult SplitQueryKeyValueAndSplitHeadsOpRewritePattern::matchAndRewrite(
         llvm::ArrayRef<int64_t>(reshapedQueryShape), permutation);
     RankedTensorType queryOutputType =
         utils::RankedTensorTypeFactory::create(queryType, permutedQueryShape);
-    auto permuteQ = rewriter.create<ttnn::PermuteOp>(
+    auto permuteQ = ttnn::PermuteOp::create(
+        rewriter,
         ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_permute_query"),
         queryOutputType, reshapeQuery.getResult(), permutationAttr,
         ttnn::MemoryConfigAttr(), mlir::FloatAttr());
@@ -105,7 +107,8 @@ LogicalResult SplitQueryKeyValueAndSplitHeadsOpRewritePattern::matchAndRewrite(
             mlir::cast<RankedTensorType>(srcOp.getKvInputTensor().getType()),
             kvIntermediateShape);
 
-    auto sliceK = rewriter.create<ttnn::SliceStaticOp>(
+    auto sliceK = ttnn::SliceStaticOp::create(
+        rewriter,
         ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_slice_k"),
         kvIntermediateType, srcOp.getKvInputTensor(),
         rewriter.getI32ArrayAttr(beginsK), rewriter.getI32ArrayAttr(endsK),
@@ -116,7 +119,8 @@ LogicalResult SplitQueryKeyValueAndSplitHeadsOpRewritePattern::matchAndRewrite(
     SmallVector<int32_t> endsV = {static_cast<int32_t>(batchSize),
                                   static_cast<int32_t>(sequenceSize),
                                   static_cast<int32_t>(2 * kvHiddenSize)};
-    auto sliceV = rewriter.create<ttnn::SliceStaticOp>(
+    auto sliceV = ttnn::SliceStaticOp::create(
+        rewriter,
         ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_slice_v"),
         kvIntermediateType, srcOp.getKvInputTensor(),
         rewriter.getI32ArrayAttr(beginsV), rewriter.getI32ArrayAttr(endsV),
@@ -133,7 +137,8 @@ LogicalResult SplitQueryKeyValueAndSplitHeadsOpRewritePattern::matchAndRewrite(
         rewriter.getI32ArrayAttr(reshapedKShapeI32);
     RankedTensorType reshapedKType = utils::RankedTensorTypeFactory::create(
         kvIntermediateType, reshapedKShape);
-    auto reshapeK = rewriter.create<ttnn::ReshapeOp>(
+    auto reshapeK = ttnn::ReshapeOp::create(
+        rewriter,
         ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_reshape_k"),
         reshapedKType, sliceK.getResult(), reshapedKShapeAttr,
         ttnn::MemoryConfigAttr());
@@ -144,7 +149,8 @@ LogicalResult SplitQueryKeyValueAndSplitHeadsOpRewritePattern::matchAndRewrite(
         llvm::ArrayRef<int64_t>(reshapedKShape), permutation);
     RankedTensorType keyOutputType = utils::RankedTensorTypeFactory::create(
         srcOp.getKey().getType(), permutedKShape);
-    auto permuteK = rewriter.create<ttnn::PermuteOp>(
+    auto permuteK = ttnn::PermuteOp::create(
+        rewriter,
         ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_permute_k"),
         keyOutputType, reshapeK.getResult(), permutationAttr,
         ttnn::MemoryConfigAttr(), mlir::FloatAttr());
@@ -160,7 +166,8 @@ LogicalResult SplitQueryKeyValueAndSplitHeadsOpRewritePattern::matchAndRewrite(
         rewriter.getI32ArrayAttr(reshapedVShapeI32);
     RankedTensorType reshapedVType = utils::RankedTensorTypeFactory::create(
         kvIntermediateType, reshapedVShape);
-    auto reshapeV = rewriter.create<ttnn::ReshapeOp>(
+    auto reshapeV = ttnn::ReshapeOp::create(
+        rewriter,
         ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_reshape_v"),
         reshapedVType, sliceV.getResult(), reshapedVShapeAttr,
         ttnn::MemoryConfigAttr());
@@ -171,7 +178,8 @@ LogicalResult SplitQueryKeyValueAndSplitHeadsOpRewritePattern::matchAndRewrite(
         llvm::ArrayRef<int64_t>(reshapedVShape), permutation);
     RankedTensorType valueOutputType = utils::RankedTensorTypeFactory::create(
         srcOp.getValue().getType(), permutedVShape);
-    auto permuteV = rewriter.create<ttnn::PermuteOp>(
+    auto permuteV = ttnn::PermuteOp::create(
+        rewriter,
         ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_permute_v"),
         valueOutputType, reshapeV.getResult(), permutationAttr,
         ttnn::MemoryConfigAttr(), mlir::FloatAttr());
@@ -187,7 +195,8 @@ LogicalResult SplitQueryKeyValueAndSplitHeadsOpRewritePattern::matchAndRewrite(
           llvm::ArrayRef<int64_t>(permutedKShape), transposePermutation);
       RankedTensorType transposedKType = utils::RankedTensorTypeFactory::create(
           srcOp.getKey().getType(), transposedKShape);
-      auto transposeK = rewriter.create<ttnn::PermuteOp>(
+      auto transposeK = ttnn::PermuteOp::create(
+          rewriter,
           ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_transpose_k"),
           transposedKType, permuteK.getResult(), transposePermutationAttr,
           ttnn::MemoryConfigAttr(), mlir::FloatAttr());
@@ -227,8 +236,8 @@ LogicalResult SplitQueryKeyValueAndSplitHeadsOpRewritePattern::matchAndRewrite(
         utils::RankedTensorTypeFactory::create(queryType, qkvIntermediateShape);
 
     // Slice for Q
-    auto sliceQ = rewriter.create<ttnn::SliceStaticOp>(
-        ttmlir::utils::appendLocationSuffix(loc, "_split_q"),
+    auto sliceQ = ttnn::SliceStaticOp::create(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_split_q"),
         qkvIntermediateType, input, rewriter.getI32ArrayAttr(begins_q),
         rewriter.getI32ArrayAttr(ends_q), rewriter.getI32ArrayAttr(step));
 
@@ -237,8 +246,8 @@ LogicalResult SplitQueryKeyValueAndSplitHeadsOpRewritePattern::matchAndRewrite(
     SmallVector<int32_t> ends_k = {static_cast<int32_t>(batchSize),
                                    static_cast<int32_t>(sequenceSize),
                                    static_cast<int32_t>(hiddenSize * 2)};
-    auto sliceK = rewriter.create<ttnn::SliceStaticOp>(
-        ttmlir::utils::appendLocationSuffix(loc, "_split_k"),
+    auto sliceK = ttnn::SliceStaticOp::create(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_split_k"),
         qkvIntermediateType, input, rewriter.getI32ArrayAttr(begins_k),
         rewriter.getI32ArrayAttr(ends_k), rewriter.getI32ArrayAttr(step));
 
@@ -248,8 +257,8 @@ LogicalResult SplitQueryKeyValueAndSplitHeadsOpRewritePattern::matchAndRewrite(
     SmallVector<int32_t> ends_v = {static_cast<int32_t>(batchSize),
                                    static_cast<int32_t>(sequenceSize),
                                    static_cast<int32_t>(hiddenSize * 3)};
-    auto sliceV = rewriter.create<ttnn::SliceStaticOp>(
-        ttmlir::utils::appendLocationSuffix(loc, "_split_v"),
+    auto sliceV = ttnn::SliceStaticOp::create(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_split_v"),
         qkvIntermediateType, input, rewriter.getI32ArrayAttr(begins_v),
         rewriter.getI32ArrayAttr(ends_v), rewriter.getI32ArrayAttr(step));
 
@@ -265,17 +274,20 @@ LogicalResult SplitQueryKeyValueAndSplitHeadsOpRewritePattern::matchAndRewrite(
     RankedTensorType reshapedType =
         utils::RankedTensorTypeFactory::create(queryType, reshapedShape);
 
-    auto reshapeQ = rewriter.create<ttnn::ReshapeOp>(
-        ttmlir::utils::appendLocationSuffix(loc, "_reshape_q"), reshapedType,
-        sliceQ.getResult(), reshapedShapeAttr, ttnn::MemoryConfigAttr());
+    auto reshapeQ = ttnn::ReshapeOp::create(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_reshape_q"),
+        reshapedType, sliceQ.getResult(), reshapedShapeAttr,
+        ttnn::MemoryConfigAttr());
 
-    auto reshapeK = rewriter.create<ttnn::ReshapeOp>(
-        ttmlir::utils::appendLocationSuffix(loc, "_reshape_k"), reshapedType,
-        sliceK.getResult(), reshapedShapeAttr, ttnn::MemoryConfigAttr());
+    auto reshapeK = ttnn::ReshapeOp::create(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_reshape_k"),
+        reshapedType, sliceK.getResult(), reshapedShapeAttr,
+        ttnn::MemoryConfigAttr());
 
-    auto reshapeV = rewriter.create<ttnn::ReshapeOp>(
-        ttmlir::utils::appendLocationSuffix(loc, "_reshape_v"), reshapedType,
-        sliceV.getResult(), reshapedShapeAttr, ttnn::MemoryConfigAttr());
+    auto reshapeV = ttnn::ReshapeOp::create(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_reshape_v"),
+        reshapedType, sliceV.getResult(), reshapedShapeAttr,
+        ttnn::MemoryConfigAttr());
 
     // Step 3: Permute from [batch, seq, num_heads, head_size] to
     // [batch, num_heads, seq, head_size].
@@ -287,20 +299,20 @@ LogicalResult SplitQueryKeyValueAndSplitHeadsOpRewritePattern::matchAndRewrite(
     RankedTensorType queryOutputType =
         utils::RankedTensorTypeFactory::create(queryType, permutedShape);
 
-    auto permuteQ = rewriter.create<ttnn::PermuteOp>(
-        ttmlir::utils::appendLocationSuffix(loc, "_permute_q"), queryOutputType,
-        reshapeQ.getResult(), permutationAttr, ttnn::MemoryConfigAttr(),
-        mlir::FloatAttr());
+    auto permuteQ = ttnn::PermuteOp::create(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_permute_q"),
+        queryOutputType, reshapeQ.getResult(), permutationAttr,
+        ttnn::MemoryConfigAttr(), mlir::FloatAttr());
 
-    auto permuteK = rewriter.create<ttnn::PermuteOp>(
-        ttmlir::utils::appendLocationSuffix(loc, "_permute_k"), queryOutputType,
-        reshapeK.getResult(), permutationAttr, ttnn::MemoryConfigAttr(),
-        mlir::FloatAttr());
+    auto permuteK = ttnn::PermuteOp::create(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_permute_k"),
+        queryOutputType, reshapeK.getResult(), permutationAttr,
+        ttnn::MemoryConfigAttr(), mlir::FloatAttr());
 
-    auto permuteV = rewriter.create<ttnn::PermuteOp>(
-        ttmlir::utils::appendLocationSuffix(loc, "_permute_v"), queryOutputType,
-        reshapeV.getResult(), permutationAttr, ttnn::MemoryConfigAttr(),
-        mlir::FloatAttr());
+    auto permuteV = ttnn::PermuteOp::create(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_permute_v"),
+        queryOutputType, reshapeV.getResult(), permutationAttr,
+        ttnn::MemoryConfigAttr(), mlir::FloatAttr());
 
     // Step 4: If transpose_key is true, additionally permute K
     // from [batch, num_heads, seq, head_size] to [batch, num_heads, head_size,
@@ -315,8 +327,8 @@ LogicalResult SplitQueryKeyValueAndSplitHeadsOpRewritePattern::matchAndRewrite(
       RankedTensorType keyOutputType = utils::RankedTensorTypeFactory::create(
           srcOp.getKey().getType(), transposedShape);
 
-      auto transposeK = rewriter.create<ttnn::PermuteOp>(
-          ttmlir::utils::appendLocationSuffix(loc, "_transpose_k"),
+      auto transposeK = ttnn::PermuteOp::create(
+          rewriter, ttmlir::utils::appendLocationSuffix(loc, "_transpose_k"),
           keyOutputType, permuteK.getResult(), transposePermutationAttr,
           ttnn::MemoryConfigAttr(), mlir::FloatAttr());
 

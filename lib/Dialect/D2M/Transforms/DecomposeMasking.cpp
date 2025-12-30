@@ -40,12 +40,13 @@ static double getOOBValAsFloat(ttcore::OOBVal oobVal) {
 static Value createScalarConstant(OpBuilder &builder, Location loc, double val,
                                   Type elementType) {
   if (auto floatType = dyn_cast<FloatType>(elementType)) {
-    return builder.create<arith::ConstantOp>(
-        loc, builder.getFloatAttr(floatType, val));
+    return arith::ConstantOp::create(builder, loc,
+                                     builder.getFloatAttr(floatType, val));
   }
   if (auto intType = dyn_cast<IntegerType>(elementType)) {
-    return builder.create<arith::ConstantOp>(
-        loc, builder.getIntegerAttr(intType, static_cast<int64_t>(val)));
+    return arith::ConstantOp::create(
+        builder, loc,
+        builder.getIntegerAttr(intType, static_cast<int64_t>(val)));
   }
   llvm_unreachable("Unsupported element type for constant creation");
 }
@@ -138,8 +139,8 @@ public:
 
     // Create linalg.generic that iterates over tiles in the block.
     // For memref semantics, linalg.generic has no results (side-effecting).
-    rewriter.create<mlir::linalg::GenericOp>(
-        loc,
+    mlir::linalg::GenericOp::create(
+        rewriter, loc,
         /* result types */ TypeRange{},
         /* inputs */ input,
         /* outputs */ output, linalgIndexingMaps, linalgIteratorTypes,
@@ -151,49 +152,51 @@ public:
 
           // Get core indices from the surrounding d2m.generic grid.
           // CoreIndexOp(0) = row, CoreIndexOp(1) = col in the grid.
-          Value coreRowIdx = bbBuilder.create<CoreIndexOp>(bbLoc, int64_t{0});
-          Value coreColIdx = bbBuilder.create<CoreIndexOp>(bbLoc, int64_t{1});
+          Value coreRowIdx = CoreIndexOp::create(bbBuilder, bbLoc, int64_t{0});
+          Value coreColIdx = CoreIndexOp::create(bbBuilder, bbLoc, int64_t{1});
 
           // Get local tile indices within the shard using linalg.index.
           // For a 1x1 shard this is always (0, 0), but for larger shards
           // we iterate over multiple tiles per core. Use the last two dims.
           Value localTileRowIdx =
-              bbBuilder.create<linalg::IndexOp>(bbLoc, blockRank - 2);
+              linalg::IndexOp::create(bbBuilder, bbLoc, blockRank - 2);
           Value localTileColIdx =
-              bbBuilder.create<linalg::IndexOp>(bbLoc, blockRank - 1);
+              linalg::IndexOp::create(bbBuilder, bbLoc, blockRank - 1);
 
           // Compute global tile indices:
           // globalTileRow = coreRowIdx * shardRows + localTileRow
           Value shardRowsConst =
-              bbBuilder.create<arith::ConstantIndexOp>(bbLoc, shardRows);
+              arith::ConstantIndexOp::create(bbBuilder, bbLoc, shardRows);
           Value shardColsConst =
-              bbBuilder.create<arith::ConstantIndexOp>(bbLoc, shardCols);
-          Value coreRowOffset = bbBuilder.create<arith::MulIOp>(
-              bbLoc, coreRowIdx, shardRowsConst);
-          Value coreColOffset = bbBuilder.create<arith::MulIOp>(
-              bbLoc, coreColIdx, shardColsConst);
-          Value globalTileRowIdx = bbBuilder.create<arith::AddIOp>(
-              bbLoc, coreRowOffset, localTileRowIdx);
-          Value globalTileColIdx = bbBuilder.create<arith::AddIOp>(
-              bbLoc, coreColOffset, localTileColIdx);
+              arith::ConstantIndexOp::create(bbBuilder, bbLoc, shardCols);
+          Value coreRowOffset = arith::MulIOp::create(
+              bbBuilder, bbLoc, coreRowIdx, shardRowsConst);
+          Value coreColOffset = arith::MulIOp::create(
+              bbBuilder, bbLoc, coreColIdx, shardColsConst);
+          Value globalTileRowIdx = arith::AddIOp::create(
+              bbBuilder, bbLoc, coreRowOffset, localTileRowIdx);
+          Value globalTileColIdx = arith::AddIOp::create(
+              bbBuilder, bbLoc, coreColOffset, localTileColIdx);
 
           // Compute global element offsets for this tile.
           Value tileHConst =
-              bbBuilder.create<arith::ConstantIndexOp>(bbLoc, tileH);
+              arith::ConstantIndexOp::create(bbBuilder, bbLoc, tileH);
           Value tileWConst =
-              bbBuilder.create<arith::ConstantIndexOp>(bbLoc, tileW);
-          Value globalRowStart = bbBuilder.create<arith::MulIOp>(
-              bbLoc, globalTileRowIdx, tileHConst);
-          Value globalColStart = bbBuilder.create<arith::MulIOp>(
-              bbLoc, globalTileColIdx, tileWConst);
+              arith::ConstantIndexOp::create(bbBuilder, bbLoc, tileW);
+          Value globalRowStart = arith::MulIOp::create(
+              bbBuilder, bbLoc, globalTileRowIdx, tileHConst);
+          Value globalColStart = arith::MulIOp::create(
+              bbBuilder, bbLoc, globalTileColIdx, tileWConst);
 
           // Check if tile is completely out of bounds.
-          Value rowOOB = bbBuilder.create<arith::CmpIOp>(
-              bbLoc, arith::CmpIPredicate::sge, globalRowStart, logicalRows);
-          Value colOOB = bbBuilder.create<arith::CmpIOp>(
-              bbLoc, arith::CmpIPredicate::sge, globalColStart, logicalCols);
+          Value rowOOB =
+              arith::CmpIOp::create(bbBuilder, bbLoc, arith::CmpIPredicate::sge,
+                                    globalRowStart, logicalRows);
+          Value colOOB =
+              arith::CmpIOp::create(bbBuilder, bbLoc, arith::CmpIPredicate::sge,
+                                    globalColStart, logicalCols);
           Value entireTileOOB =
-              bbBuilder.create<arith::OrIOp>(bbLoc, rowOOB, colOOB);
+              arith::OrIOp::create(bbBuilder, bbLoc, rowOOB, colOOB);
 
           // Create constants for blending.
           double fillVal = getOOBValAsFloat(fillValue);
@@ -208,19 +211,19 @@ public:
           //
           // When NOT OOB: result = input * 1 + 0 = input.
           // When OOB:     result = input * 0 + fill = fill.
-          Value mulFactor = bbBuilder.create<arith::SelectOp>(
-              bbLoc, entireTileOOB, zero, one);
-          Value addend = bbBuilder.create<arith::SelectOp>(bbLoc, entireTileOOB,
-                                                           fillConst, zero);
+          Value mulFactor = arith::SelectOp::create(bbBuilder, bbLoc,
+                                                    entireTileOOB, zero, one);
+          Value addend = arith::SelectOp::create(
+              bbBuilder, bbLoc, entireTileOOB, fillConst, zero);
 
           // Multiply output by select result, should be zero if OOB.
-          Value zeroPadded = bbBuilder.create<TileMulOp>(bbLoc, resultType,
-                                                         inputTile, mulFactor);
+          Value zeroPadded = TileMulOp::create(bbBuilder, bbLoc, resultType,
+                                               inputTile, mulFactor);
           // Add fill value if OOB.
-          Value filled = bbBuilder.create<TileAddOp>(bbLoc, resultType,
-                                                     zeroPadded, addend);
+          Value filled = TileAddOp::create(bbBuilder, bbLoc, resultType,
+                                           zeroPadded, addend);
 
-          bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, filled);
+          mlir::linalg::YieldOp::create(bbBuilder, bbLoc, filled);
         });
 
     rewriter.eraseOp(op);

@@ -81,8 +81,8 @@ public:
 
     size_t numNewRegions = threads.size();
 
-    auto newGeneric = rewriter.create<GenericOp>(
-        op.getLoc(), op.getResults().getTypes(), op.getInputs(),
+    auto newGeneric = GenericOp::create(
+        rewriter, op.getLoc(), op.getResults().getTypes(), op.getInputs(),
         op.getOutputs(), op.getGrid(), op.getBlockFactors(),
         op.getIndexingMaps(), op.getIteratorTypes(),
         rewriter.getArrayAttr(threads), numNewRegions);
@@ -149,7 +149,7 @@ public:
       // Wrap the source block's operations in execute_region before merging.
       rewriter.setInsertionPointToEnd(mergeDestBlock);
       auto executeRegionOp =
-          rewriter.create<scf::ExecuteRegionOp>(op.getLoc(), TypeRange{});
+          scf::ExecuteRegionOp::create(rewriter, op.getLoc(), TypeRange{});
       // Prevent canonicalization from inlining the execute_region op.
       executeRegionOp->setAttr("no_inline", rewriter.getUnitAttr());
 
@@ -161,7 +161,7 @@ public:
       rewriter.mergeBlocks(mergeSrcBlock, executeRegionBlock,
                            mergeDestBlock->getArguments());
       rewriter.setInsertionPointToEnd(executeRegionBlock);
-      rewriter.create<scf::YieldOp>(op.getLoc());
+      scf::YieldOp::create(rewriter, op.getLoc());
     }
 
     rewriter.replaceOp(op, newGeneric.getResults());
@@ -173,8 +173,8 @@ public:
                                    Location loc) const {
     Block *executeRegionBlock = rewriter.splitBlock(&block, block.begin());
     rewriter.setInsertionPointToStart(&block);
-    auto executeRegionOp = rewriter.create<scf::ExecuteRegionOp>(
-        loc, TypeRange{}, /*no_inline=*/rewriter.getUnitAttr());
+    auto executeRegionOp = scf::ExecuteRegionOp::create(
+        rewriter, loc, TypeRange{}, /*no_inline=*/rewriter.getUnitAttr());
 
     // splitBlock creates the executeRegionBlock in the parent region of
     // "block".
@@ -182,7 +182,7 @@ public:
     executeRegionOp.getRegion().push_back(executeRegionBlock);
 
     rewriter.setInsertionPointToEnd(executeRegionBlock);
-    rewriter.create<scf::YieldOp>(loc);
+    scf::YieldOp::create(rewriter, loc);
   }
 };
 } // namespace

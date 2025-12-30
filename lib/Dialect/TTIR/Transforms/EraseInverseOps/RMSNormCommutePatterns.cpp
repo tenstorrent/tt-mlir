@@ -43,12 +43,13 @@ public:
 
     // Create reshape before rms_norm
     auto newInputReshape =
-        rewriter.create<ReshapeOp>(op.getLoc(), newInputType, op.getInput(),
-                                   rewriter.getI32ArrayAttr(newInputShape));
+        ReshapeOp::create(rewriter, op.getLoc(), newInputType, op.getInput(),
+                          rewriter.getI32ArrayAttr(newInputShape));
 
-    auto newRmsNorm = rewriter.create<RMSNormOp>(
-        op.getLoc(), outputReshapeType, newInputReshape, op.getWeight(),
-        op.getBias(), op.getNormalizedShapeAttr(), op.getEpsilonAttr());
+    auto newRmsNorm =
+        RMSNormOp::create(rewriter, op.getLoc(), outputReshapeType,
+                          newInputReshape, op.getWeight(), op.getBias(),
+                          op.getNormalizedShapeAttr(), op.getEpsilonAttr());
 
     // All users must be identical TMs. We must not reference `reshapeUser`
     // during/after replacements, as it will be erased on its turn.

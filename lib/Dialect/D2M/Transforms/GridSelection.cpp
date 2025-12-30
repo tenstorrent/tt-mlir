@@ -363,17 +363,17 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
                             optimalGrid, isVirtualGrid, builder);
   builder.setInsertionPoint(emptyOp);
   auto newEmptyOp =
-      builder.create<d2m::EmptyOp>(emptyOp.getLoc(), newTensorType);
+      d2m::EmptyOp::create(builder, emptyOp.getLoc(), newTensorType);
 
   builder.setInsertionPoint(toLayoutOp);
-  auto newToLayoutOp = builder.create<d2m::ToLayoutOp>(
-      toLayoutOp.getLoc(), toLayoutOp.getInput(), newEmptyOp);
+  auto newToLayoutOp = d2m::ToLayoutOp::create(
+      builder, toLayoutOp.getLoc(), toLayoutOp.getInput(), newEmptyOp);
 
   // Reblock it back to original shape to preserve IR correctness.
   auto viewOutputType =
       utils::reblockTensor(newTensorType, oldLayout.getGridShape(outputType));
-  auto view = builder.create<d2m::ViewLayoutOp>(
-      toLayoutOp.getLoc(), viewOutputType, newToLayoutOp.getResult(0));
+  auto view = d2m::ViewLayoutOp::create(
+      builder, toLayoutOp.getLoc(), viewOutputType, newToLayoutOp.getResult(0));
 
   // We expect the ToLayout to be used only by the GenericOp we're optimizing.
   // Assert this assumption to catch unexpected sharing.
@@ -578,8 +578,9 @@ updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
                            ? storageType.getElementType()
                            : ttcore::TileType::get(storageType.getElementType(),
                                                    llvm::ArrayRef(tileShape));
-    auto newStorageEmpty = builder.create<d2m::EmptyOp>(
-        storageEmpty.getLoc(), newStorageShape, elementType, newStorageLayout);
+    auto newStorageEmpty =
+        d2m::EmptyOp::create(builder, storageEmpty.getLoc(), newStorageShape,
+                             elementType, newStorageLayout);
 
     auto outputStreamType =
         mlir::cast<RankedTensorType>(streamLayout.getResult().getType());
@@ -601,9 +602,9 @@ updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
         newStorageShape, outputStreamType.getElementType(), newOutputLayout);
 
     builder.setInsertionPoint(streamLayout);
-    auto newStreamLayout = builder.create<d2m::StreamLayoutOp>(
-        streamLayout.getLoc(), newStreamOutputType, streamLayout.getInput(),
-        newStorageEmpty);
+    auto newStreamLayout = d2m::StreamLayoutOp::create(
+        builder, streamLayout.getLoc(), newStreamOutputType,
+        streamLayout.getInput(), newStorageEmpty);
 
     // We expect the StreamLayout to be used only by the GenericOp we're
     // optimizing. Check that all uses are either the GenericOp itself or
@@ -641,7 +642,7 @@ static void updateEmptyOps(ArrayRef<EmptyUpdateInfo> emptyOpsToUpdate,
                               info.grid, info.isVirtualGrid, builder);
     builder.setInsertionPoint(info.op);
     auto newEmptyOp =
-        builder.create<d2m::EmptyOp>(emptyOp.getLoc(), newTensorType);
+        d2m::EmptyOp::create(builder, emptyOp.getLoc(), newTensorType);
     emptyOp.getResult().replaceAllUsesWith(newEmptyOp.getResult());
     emptyOp.erase();
   }
@@ -688,8 +689,8 @@ recreateGenericOp(d2m::GenericOp genericOp,
     auto tensorType =
         mlir::cast<mlir::RankedTensorType>(operand.get().getType());
     auto viewTensorType = utils::reblockTensor(tensorType, optimalGrid);
-    auto view = builder.create<d2m::ViewLayoutOp>(
-        genericOp.getLoc(), viewTensorType, operand.get());
+    auto view = d2m::ViewLayoutOp::create(builder, genericOp.getLoc(),
+                                          viewTensorType, operand.get());
     newOperands.push_back(view.getResult());
   }
 
@@ -703,9 +704,9 @@ recreateGenericOp(d2m::GenericOp genericOp,
 
     Region &oldRegion = genericOp.getRegion(0);
 
-    auto newGenericOp = builder.create<d2m::GenericOp>(
-        genericOp.getLoc(), newInputs, newOutputs, genericOp.getIndexingMaps(),
-        genericOp.getIteratorTypes(),
+    auto newGenericOp = d2m::GenericOp::create(
+        builder, genericOp.getLoc(), newInputs, newOutputs,
+        genericOp.getIndexingMaps(), genericOp.getIteratorTypes(),
         [&](OpBuilder &b, Location loc, ValueRange blockArgs) {
           IRMapping mapping;
 
@@ -956,9 +957,10 @@ insertTTNNDRAMStreams(d2m::GenericOp genericOp,
 
     builder.setInsertionPointAfter(castOp);
     auto storageOp =
-        builder.create<d2m::EmptyOp>(castOp.getLoc(), storageTensor);
-    auto streamOp = builder.create<d2m::StreamLayoutOp>(
-        castOp.getLoc(), streamOutputTensor, castOp.getResult(), storageOp);
+        d2m::EmptyOp::create(builder, castOp.getLoc(), storageTensor);
+    auto streamOp = d2m::StreamLayoutOp::create(builder, castOp.getLoc(),
+                                                streamOutputTensor,
+                                                castOp.getResult(), storageOp);
     castOp.getResult().replaceAllUsesExcept(streamOp.getResult(), streamOp);
   }
 

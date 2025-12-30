@@ -898,8 +898,8 @@ public:
 
     using ReturnTy = std::vector<::ttnn::Tensor>;
 
-    auto maxPool2dWithIndicesOp = rewriter.create<emitc::CallOpaqueOp>(
-        srcOp.getLoc(),
+    auto maxPool2dWithIndicesOp = emitc::CallOpaqueOp::create(
+        rewriter, srcOp.getLoc(),
         rewriter.getType<emitc::OpaqueType>(ttnn_to_emitc::TypeNameV<ReturnTy>),
         convertOpName(srcOp), rewriter.getArrayAttr(args),
         /*template_args=*/nullptr, adaptor.getOperands());
@@ -908,8 +908,8 @@ public:
     for (unsigned i = 0; i < srcOp.getNumResults(); ++i) {
       // Create index to access i-th element.
       auto indexType = rewriter.getIndexType();
-      auto indexOp = rewriter.create<emitc::LiteralOp>(
-          srcOp.getLoc(), indexType, std::to_string(i));
+      auto indexOp = emitc::LiteralOp::create(rewriter, srcOp.getLoc(),
+                                              indexType, std::to_string(i));
       Value indexVal = indexOp.getResult();
 
       // Create LValue type for the tensor reference.
@@ -918,13 +918,13 @@ public:
           ttnn_to_emitc::TypeNameV<ReturnTy::value_type>));
 
       // Get reference to the i-th element in the result vector.
-      auto subscriptOp = rewriter.create<emitc::SubscriptOp>(
-          srcOp.getLoc(), lvalueType, maxPool2dWithIndicesOp.getResult(0),
-          indexVal);
+      auto subscriptOp = emitc::SubscriptOp::create(
+          rewriter, srcOp.getLoc(), lvalueType,
+          maxPool2dWithIndicesOp.getResult(0), indexVal);
 
       // Load the actual tensor value from the reference.
-      auto loadOp = rewriter.create<emitc::LoadOp>(
-          srcOp.getLoc(),
+      auto loadOp = emitc::LoadOp::create(
+          rewriter, srcOp.getLoc(),
           emitc::OpaqueType::get(
               rewriter.getContext(),
               ttnn_to_emitc::TypeNameV<ReturnTy::value_type>),
@@ -2259,8 +2259,8 @@ public:
     // SubscriptOp requires a Value object as index, which is created by
     // invoking the emitc::LiteralOp.
     //
-    Value indexAsVal = rewriter.create<emitc::LiteralOp>(
-        getTupleElementOp->getLoc(), rewriter.getIndexType(),
+    Value indexAsVal = emitc::LiteralOp::create(
+        rewriter, getTupleElementOp->getLoc(), rewriter.getIndexType(),
         std::to_string(adaptor.getIndex()));
 
     // SubscriptOp also returns an emitc::LValueType, so we wrap the
@@ -2269,9 +2269,9 @@ public:
     emitc::LValueType lvalueReturnType =
         emitc::LValueType::get(emitc::OpaqueType::get(
             rewriter.getContext(), ttnn_to_emitc::TypeNameV<::ttnn::Tensor>));
-    Value subscript = rewriter.create<emitc::SubscriptOp>(
-        getTupleElementOp->getLoc(), lvalueReturnType, adaptor.getOperand(),
-        indexAsVal);
+    Value subscript = emitc::SubscriptOp::create(
+        rewriter, getTupleElementOp->getLoc(), lvalueReturnType,
+        adaptor.getOperand(), indexAsVal);
 
     // As SubscriptOp returns an LValueType, we need to convert it to an
     // OpaqueType - this is done by invoking the emitc::LoadOp.
@@ -2352,8 +2352,9 @@ public:
     rewriter.setInsertionPoint(funcOp);
 
     // Create the global variable using EmitC's GlobalOp
-    rewriter.create<emitc::GlobalOp>(
-        srcOp.getLoc(), StringAttr::get(rewriter.getContext(), globalVarName),
+    emitc::GlobalOp::create(
+        rewriter, srcOp.getLoc(),
+        StringAttr::get(rewriter.getContext(), globalVarName),
         TypeAttr::get(tupleType),
         /*initialValue=*/nullptr,
         /*extern_specifier=*/UnitAttr(),
@@ -2376,40 +2377,41 @@ public:
                   ":std::vector<::ttnn::Tensor>)>");
     auto addressAttr =
         emitc::OpaqueAttr::get(rewriter.getContext(), "&" + callee.str());
-    auto funcPtrValue = rewriter.create<emitc::ConstantOp>(
-        srcOp.getLoc(), funcPtrType, addressAttr);
+    auto funcPtrValue = emitc::ConstantOp::create(rewriter, srcOp.getLoc(),
+                                                  funcPtrType, addressAttr);
 
-    auto tupleOp = rewriter.create<emitc::CallOpaqueOp>(
-        srcOp.getLoc(), tupleType,
+    auto tupleOp = emitc::CallOpaqueOp::create(
+        rewriter, srcOp.getLoc(), tupleType,
         mlir::tt::ttnn_to_emitc::kCreateVectorFunctionName, nullptr, nullptr,
         adaptor.getInputs());
     Value tupleValue = tupleOp.getResult(0);
 
     // Get a reference to the global variable using GetGlobalOp
-    auto globalVar = rewriter.create<emitc::GetGlobalOp>(
-        srcOp.getLoc(), emitc::LValueType::get(tupleType), globalSym);
+    auto globalVar = emitc::GetGlobalOp::create(
+        rewriter, srcOp.getLoc(), emitc::LValueType::get(tupleType), globalSym);
 
     // Create a pointer type for the output parameter
     auto ptrType = emitc::PointerType::get(rewriter.getContext(), tupleType);
 
     // Get the address of the global variable
-    auto addressOfOp = rewriter.create<emitc::ApplyOp>(srcOp.getLoc(), ptrType,
-                                                       "&", globalVar);
+    auto addressOfOp = emitc::ApplyOp::create(rewriter, srcOp.getLoc(), ptrType,
+                                              "&", globalVar);
 
     // Call the wrapper function with the pointer
     if (isZeroArgWrapper) {
-      rewriter.create<emitc::CallOpaqueOp>(
-          srcOp.getLoc(), TypeRange{}, "ttnn::constEvalFuncWrapperZeroArg",
-          ValueRange{funcPtrValue, addressOfOp}, ArrayAttr{});
+      emitc::CallOpaqueOp::create(rewriter, srcOp.getLoc(), TypeRange{},
+                                  "ttnn::constEvalFuncWrapperZeroArg",
+                                  ValueRange{funcPtrValue, addressOfOp},
+                                  ArrayAttr{});
     } else {
-      rewriter.create<emitc::CallOpaqueOp>(
-          srcOp.getLoc(), TypeRange{}, "ttnn::constEvalFuncWrapper",
+      emitc::CallOpaqueOp::create(
+          rewriter, srcOp.getLoc(), TypeRange{}, "ttnn::constEvalFuncWrapper",
           ValueRange{funcPtrValue, tupleValue, addressOfOp}, ArrayAttr{});
     }
 
     // Load the value from the global variable
     auto resultVar =
-        rewriter.create<emitc::LoadOp>(srcOp.getLoc(), tupleType, globalVar);
+        emitc::LoadOp::create(rewriter, srcOp.getLoc(), tupleType, globalVar);
 
     // Unpack the tuple result - extract each element from the tuple
     SmallVector<Value> results;
@@ -2417,8 +2419,8 @@ public:
     for (unsigned i = 0; i < srcOp.getNumResults(); ++i) {
       // Create index value
       auto indexType = rewriter.getIndexType();
-      auto indexOp = rewriter.create<emitc::LiteralOp>(
-          srcOp.getLoc(), indexType, std::to_string(i));
+      auto indexOp = emitc::LiteralOp::create(rewriter, srcOp.getLoc(),
+                                              indexType, std::to_string(i));
       Value indexVal = indexOp.getResult();
 
       // Create LValue type for the tensor reference
@@ -2427,12 +2429,13 @@ public:
 
       // Get reference to the i-th element in the static cache result
       // Use the variable that references our global result
-      auto subscriptOp = rewriter.create<emitc::SubscriptOp>(
-          srcOp.getLoc(), lvalueType, resultVar.getResult(), indexVal);
+      auto subscriptOp =
+          emitc::SubscriptOp::create(rewriter, srcOp.getLoc(), lvalueType,
+                                     resultVar.getResult(), indexVal);
 
       // Load the actual tensor value from the reference
-      auto loadOp = rewriter.create<emitc::LoadOp>(
-          srcOp.getLoc(),
+      auto loadOp = emitc::LoadOp::create(
+          rewriter, srcOp.getLoc(),
           emitc::OpaqueType::get(rewriter.getContext(), "::ttnn::Tensor"),
           subscriptOp.getResult());
       results.push_back(loadOp.getResult());
@@ -2514,8 +2517,8 @@ public:
                   mlir::tt::ttnn::MeshShardOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    rewriter.create<emitc::VerbatimOp>(
-        srcOp.getLoc(),
+    emitc::VerbatimOp::create(
+        rewriter, srcOp.getLoc(),
         "assert(0 && \"Mesh shard operation is "
         "not supported in emitc yet.\"); // ::ttnn::mesh_shard");
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::MeshShardOp> emitter(
@@ -2593,8 +2596,8 @@ public:
         rewriter.getContext(), kDistributedNs + "MeshMapperConfig");
     auto mapperConfigOpaqueAttr =
         rewriter.getAttr<emitc::OpaqueAttr>(configCode);
-    auto mapperConfigOp = rewriter.create<emitc::ConstantOp>(
-        srcOp.getLoc(), mapperConfigType, mapperConfigOpaqueAttr);
+    auto mapperConfigOp = emitc::ConstantOp::create(
+        rewriter, srcOp.getLoc(), mapperConfigType, mapperConfigOpaqueAttr);
 
     auto meshDeviceRef = emitter.dereferenceToRef(
         adaptor.getMeshDevice(), kDistributedNs + "MeshDevice&");
@@ -2602,8 +2605,8 @@ public:
     auto meshMapperType = emitc::OpaqueType::get(
         rewriter.getContext(),
         "::std::unique_ptr<" + kDistributedNs + "TensorToMesh>");
-    auto createMapperOp = rewriter.create<emitc::CallOpaqueOp>(
-        srcOp.getLoc(), meshMapperType,
+    auto createMapperOp = emitc::CallOpaqueOp::create(
+        rewriter, srcOp.getLoc(), meshMapperType,
         rewriter.getStringAttr(kDistributedNs + "create_mesh_mapper"), nullptr,
         nullptr,
         llvm::SmallVector<mlir::Value>{meshDeviceRef,
@@ -2675,8 +2678,8 @@ public:
         rewriter.getContext(), kDistributedNs + "MeshComposerConfig");
     auto composerConfigOpaqueAttr =
         rewriter.getAttr<emitc::OpaqueAttr>(configCode);
-    auto composerConfigOp = rewriter.create<emitc::ConstantOp>(
-        srcOp.getLoc(), composerConfigType, composerConfigOpaqueAttr);
+    auto composerConfigOp = emitc::ConstantOp::create(
+        rewriter, srcOp.getLoc(), composerConfigType, composerConfigOpaqueAttr);
 
     auto meshDeviceRef = emitter.dereferenceToRef(
         adaptor.getMeshDevice(), kDistributedNs + "MeshDevice&");
@@ -2684,8 +2687,8 @@ public:
     auto meshComposerType = emitc::OpaqueType::get(
         rewriter.getContext(),
         "::std::unique_ptr<" + kDistributedNs + "MeshToTensor>");
-    auto createComposerOp = rewriter.create<emitc::CallOpaqueOp>(
-        srcOp.getLoc(), meshComposerType,
+    auto createComposerOp = emitc::CallOpaqueOp::create(
+        rewriter, srcOp.getLoc(), meshComposerType,
         rewriter.getStringAttr(kDistributedNs + "create_mesh_composer"),
         nullptr, nullptr,
         llvm::SmallVector<mlir::Value>{meshDeviceRef,
@@ -2852,15 +2855,15 @@ public:
     // Create SmallVector variable for begins
     auto beginsAttr =
         emitter.emit<::ttsl::SmallVector<int32_t>>(srcOp.getBegins());
-    auto beginsVar = rewriter.create<emitc::ConstantOp>(
-        srcOp.getLoc(),
+    auto beginsVar = emitc::ConstantOp::create(
+        rewriter, srcOp.getLoc(),
         emitc::OpaqueType::get(rewriter.getContext(),
                                "::ttsl::SmallVector<int32_t>"),
         beginsAttr);
 
     // Create span from SmallVector variable using CallOpaqueOp
-    auto beginsSpanVar = rewriter.create<emitc::CallOpaqueOp>(
-        srcOp.getLoc(),
+    auto beginsSpanVar = emitc::CallOpaqueOp::create(
+        rewriter, srcOp.getLoc(),
         emitc::OpaqueType::get(rewriter.getContext(),
                                "::ttsl::Span<const int32_t>"),
         "ttsl::make_const_span", mlir::ArrayAttr{}, nullptr,
@@ -2868,15 +2871,15 @@ public:
 
     // Create SmallVector variable for ends
     auto endsAttr = emitter.emit<::ttsl::SmallVector<int32_t>>(srcOp.getEnds());
-    auto endsVar = rewriter.create<emitc::ConstantOp>(
-        srcOp.getLoc(),
+    auto endsVar = emitc::ConstantOp::create(
+        rewriter, srcOp.getLoc(),
         emitc::OpaqueType::get(rewriter.getContext(),
                                "::ttsl::SmallVector<int32_t>"),
         endsAttr);
 
     // Create span from SmallVector variable using CallOpaqueOp
-    auto endsSpanVar = rewriter.create<emitc::CallOpaqueOp>(
-        srcOp.getLoc(),
+    auto endsSpanVar = emitc::CallOpaqueOp::create(
+        rewriter, srcOp.getLoc(),
         emitc::OpaqueType::get(rewriter.getContext(),
                                "::ttsl::Span<const int32_t>"),
         "ttsl::make_const_span", mlir::ArrayAttr{}, nullptr,
@@ -2884,15 +2887,15 @@ public:
 
     // Create SmallVector variable for step
     auto stepAttr = emitter.emit<::ttsl::SmallVector<int32_t>>(srcOp.getStep());
-    auto stepVar = rewriter.create<emitc::ConstantOp>(
-        srcOp.getLoc(),
+    auto stepVar = emitc::ConstantOp::create(
+        rewriter, srcOp.getLoc(),
         emitc::OpaqueType::get(rewriter.getContext(),
                                "::ttsl::SmallVector<int32_t>"),
         stepAttr);
 
     // Create span from SmallVector variable using CallOpaqueOp
-    auto stepSpanVar = rewriter.create<emitc::CallOpaqueOp>(
-        srcOp.getLoc(),
+    auto stepSpanVar = emitc::CallOpaqueOp::create(
+        rewriter, srcOp.getLoc(),
         emitc::OpaqueType::get(rewriter.getContext(),
                                "::ttsl::Span<const int32_t>"),
         "ttsl::make_const_span", mlir::ArrayAttr{}, nullptr,
@@ -3087,8 +3090,8 @@ public:
     auto resultType =
         this->getTypeConverter()->convertType(srcOp.getResult().getType());
 
-    auto callOp = rewriter.create<emitc::CallOpaqueOp>(
-        srcOp.getLoc(), resultType, "ttnn::batch_norm",
+    auto callOp = emitc::CallOpaqueOp::create(
+        rewriter, srcOp.getLoc(), resultType, "ttnn::batch_norm",
         rewriter.getArrayAttr(args), /*template_args=*/nullptr,
         adaptor.getOperands());
 
@@ -3343,8 +3346,8 @@ public:
                   mlir::tt::ttnn::PointToPointOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    rewriter.create<emitc::VerbatimOp>(
-        srcOp.getLoc(),
+    emitc::VerbatimOp::create(
+        rewriter, srcOp.getLoc(),
         "assert(0 && \"PointToPoint  operation is "
         "not supported in emitc yet.\"); // ::ttnn::PointToPoint");
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::PointToPointOp> emitter(
@@ -3612,8 +3615,8 @@ public:
       operands.push_back(adaptor.getBatchOffset());
     }
 
-    auto nlpCreateQKVHeadsDecodeOp = rewriter.create<emitc::CallOpaqueOp>(
-        srcOp.getLoc(),
+    auto nlpCreateQKVHeadsDecodeOp = emitc::CallOpaqueOp::create(
+        rewriter, srcOp.getLoc(),
         rewriter.getType<emitc::OpaqueType>(
             ttnn_to_emitc::TypeNameV<OpReturnType>),
         convertOpName(srcOp), rewriter.getArrayAttr(args),
@@ -3621,8 +3624,8 @@ public:
 
     llvm::SmallVector<mlir::Value, 3> results;
     for (std::size_t i = 0; i < srcOp.getNumResults(); ++i) {
-      auto tupleGetResult = rewriter.create<emitc::CallOpaqueOp>(
-          srcOp.getLoc(),
+      auto tupleGetResult = emitc::CallOpaqueOp::create(
+          rewriter, srcOp.getLoc(),
           rewriter.getType<emitc::OpaqueType>(
               ttnn_to_emitc::TypeNameV<::ttnn::Tensor>),
           "::std::get", /*args=*/nullptr,
@@ -3678,18 +3681,17 @@ public:
     using OpReturnType =
         std::tuple<::ttnn::Tensor, ::ttnn::Tensor, ::ttnn::Tensor>;
 
-    auto splitQueryKeyValueAndSplitHeadsOp =
-        rewriter.create<emitc::CallOpaqueOp>(
-            srcOp.getLoc(),
-            rewriter.getType<emitc::OpaqueType>(
-                ttnn_to_emitc::TypeNameV<OpReturnType>),
-            convertOpName(srcOp), rewriter.getArrayAttr(args),
-            /*template_args=*/nullptr, adaptor.getOperands());
+    auto splitQueryKeyValueAndSplitHeadsOp = emitc::CallOpaqueOp::create(
+        rewriter, srcOp.getLoc(),
+        rewriter.getType<emitc::OpaqueType>(
+            ttnn_to_emitc::TypeNameV<OpReturnType>),
+        convertOpName(srcOp), rewriter.getArrayAttr(args),
+        /*template_args=*/nullptr, adaptor.getOperands());
 
     llvm::SmallVector<mlir::Value, 3> results;
     for (std::size_t i = 0; i < srcOp.getNumResults(); ++i) {
-      auto tupleGetResult = rewriter.create<emitc::CallOpaqueOp>(
-          srcOp.getLoc(),
+      auto tupleGetResult = emitc::CallOpaqueOp::create(
+          rewriter, srcOp.getLoc(),
           rewriter.getType<emitc::OpaqueType>(
               ttnn_to_emitc::TypeNameV<::ttnn::Tensor>),
           "::std::get", /*args=*/nullptr,
@@ -3871,13 +3873,13 @@ public:
     rewriter.setInsertionPoint(&*insertionPointOp);
 
     // Define global variable to track if this is the first call.
-    auto isFirstCall = rewriter.create<emitc::GlobalOp>(
-        loc, /*sym_name=*/"is_first_call", rewriter.getI1Type(),
+    auto isFirstCall = emitc::GlobalOp::create(
+        rewriter, loc, /*sym_name=*/"is_first_call", rewriter.getI1Type(),
         rewriter.getBoolAttr(true));
 
     // Define global variable to track the trace id.
-    auto traceId = rewriter.create<emitc::GlobalOp>(
-        loc, /*sym_name=*/"trace_id",
+    auto traceId = emitc::GlobalOp::create(
+        rewriter, loc, /*sym_name=*/"trace_id",
         getTypeConverter()->convertType(
             mlir::tt::ttnn::utils::getTraceIdType(srcOp.getContext())),
         /*initial_value=*/nullptr);
@@ -3885,8 +3887,8 @@ public:
     // Define global variables to track the inputs.
     llvm::SmallVector<emitc::GlobalOp> traceInputVariable;
     for (auto [i, input] : llvm::enumerate(adaptor.getInputs())) {
-      traceInputVariable.emplace_back(rewriter.create<emitc::GlobalOp>(
-          loc, /*sym_name=*/"input_" + std::to_string(i),
+      traceInputVariable.emplace_back(emitc::GlobalOp::create(
+          rewriter, loc, /*sym_name=*/"input_" + std::to_string(i),
           getTypeConverter()->convertType(input.getType()),
           /*initial_value=*/nullptr));
     }
@@ -3894,8 +3896,8 @@ public:
     // Define global variables to track the outputs.
     llvm::SmallVector<emitc::GlobalOp> traceOutputVariable;
     for (auto [i, output] : llvm::enumerate(srcOp.getResults())) {
-      traceOutputVariable.emplace_back(rewriter.create<emitc::GlobalOp>(
-          loc, /*sym_name=*/"output_" + std::to_string(i),
+      traceOutputVariable.emplace_back(emitc::GlobalOp::create(
+          rewriter, loc, /*sym_name=*/"output_" + std::to_string(i),
           getTypeConverter()->convertType(output.getType()),
           /*initial_value=*/nullptr));
     }
@@ -3914,7 +3916,7 @@ public:
     auto funcType = rewriter.getFunctionType(inputTypes, resultTypes);
 
     rewriter.setInsertionPoint(srcOp->getParentOfType<func::FuncOp>());
-    auto funcOp = rewriter.create<emitc::FuncOp>(loc, funcName, funcType);
+    auto funcOp = emitc::FuncOp::create(rewriter, loc, funcName, funcType);
 
     auto *block = funcOp.addEntryBlock();
 
@@ -3923,15 +3925,16 @@ public:
     // Define local variables that represent the return values.
     llvm::SmallVector<emitc::VariableOp> returnVariable =
         llvm::map_to_vector(resultTypes, [&](auto resultType) {
-          return rewriter.create<emitc::VariableOp>(
-              loc, emitc::LValueType::get(ttnnTensorType),
+          return emitc::VariableOp::create(
+              rewriter, loc, emitc::LValueType::get(ttnnTensorType),
               emitc::OpaqueAttr::get(rewriter.getContext(),
                                      "::ttnn::Tensor()"));
         });
 
     // Create if statement with then/else blocks
-    auto ifOp = rewriter.create<emitc::IfOp>(
-        loc, loadGlobalVariable(rewriter, srcOp.getLoc(), isFirstCall),
+    auto ifOp = emitc::IfOp::create(
+        rewriter, loc,
+        loadGlobalVariable(rewriter, srcOp.getLoc(), isFirstCall),
         /*add_then_block=*/true,
         /*add_else_block=*/true);
 
@@ -3941,25 +3944,25 @@ public:
       rewriter.setInsertionPointToStart(&thenBlock);
 
       // is_first_call = false;
-      auto falseC = rewriter.create<mlir::arith::ConstantOp>(
-          loc, rewriter.getI1Type(), rewriter.getBoolAttr(false));
-      rewriter.create<emitc::AssignOp>(
-          loc, getGlobalVariable(rewriter, loc, isFirstCall), falseC);
+      auto falseC = mlir::arith::ConstantOp::create(
+          rewriter, loc, rewriter.getI1Type(), rewriter.getBoolAttr(false));
+      emitc::AssignOp::create(
+          rewriter, loc, getGlobalVariable(rewriter, loc, isFirstCall), falseC);
 
       // v = capture_callee(args...)
       // First block argument is the device, so we drop it.
       auto autoTy = emitc::OpaqueType::get(ctx, "auto");
-      auto captureTuple = rewriter.create<emitc::CallOpaqueOp>(
-          loc, autoTy, srcOp.getCaptureCallee(), nullptr, nullptr,
+      auto captureTuple = emitc::CallOpaqueOp::create(
+          rewriter, loc, autoTy, srcOp.getCaptureCallee(), nullptr, nullptr,
           block->getArguments().drop_front());
 
       // trace_id = std::get<0>(v);
-      auto getTraceId = rewriter.create<emitc::CallOpaqueOp>(
-          loc, traceId.getType(), "::std::get<0>", nullptr, nullptr,
+      auto getTraceId = emitc::CallOpaqueOp::create(
+          rewriter, loc, traceId.getType(), "::std::get<0>", nullptr, nullptr,
           captureTuple.getResult(0));
-      rewriter.create<emitc::AssignOp>(
-          loc, getGlobalVariable(rewriter, loc, traceId),
-          getTraceId.getResult(0));
+      emitc::AssignOp::create(rewriter, loc,
+                              getGlobalVariable(rewriter, loc, traceId),
+                              getTraceId.getResult(0));
 
       // local_output_0 = std::get<outputBaseIndex + i>(v);
       // ...
@@ -3968,11 +3971,11 @@ public:
       for (size_t i = 0; i < returnVariable.size(); ++i) {
         std::string getName =
             "::std::get<" + std::to_string(outputBaseIndex + i) + ">";
-        auto getResult = rewriter.create<emitc::CallOpaqueOp>(
-            loc, ttnnTensorType, getName, nullptr, nullptr,
+        auto getResult = emitc::CallOpaqueOp::create(
+            rewriter, loc, ttnnTensorType, getName, nullptr, nullptr,
             captureTuple.getResult(0));
-        rewriter.create<emitc::AssignOp>(loc, returnVariable[i].getResult(),
-                                         getResult.getResult(0));
+        emitc::AssignOp::create(rewriter, loc, returnVariable[i].getResult(),
+                                getResult.getResult(0));
       }
 
       // input_i = std::get<inputBaseIndex + i>(v)
@@ -3980,11 +3983,12 @@ public:
       for (size_t i = 0; i < traceInputVariable.size(); ++i) {
         std::string getName =
             "::std::get<" + std::to_string(inputBaseIndex + i) + ">";
-        auto getResult = rewriter.create<emitc::CallOpaqueOp>(
-            loc, traceInputVariable[i].getType(), getName, nullptr, nullptr,
-            ValueRange{captureTuple.getResult(0)});
-        rewriter.create<emitc::AssignOp>(
-            loc, getGlobalVariable(rewriter, loc, traceInputVariable[i]),
+        auto getResult = emitc::CallOpaqueOp::create(
+            rewriter, loc, traceInputVariable[i].getType(), getName, nullptr,
+            nullptr, ValueRange{captureTuple.getResult(0)});
+        emitc::AssignOp::create(
+            rewriter, loc,
+            getGlobalVariable(rewriter, loc, traceInputVariable[i]),
             getResult.getResult(0));
       }
 
@@ -3993,15 +3997,16 @@ public:
       for (size_t i = 0; i < traceOutputVariable.size(); ++i) {
         std::string getName =
             "::std::get<" + std::to_string(traceOutputBaseIndex + i) + ">";
-        auto getResult = rewriter.create<emitc::CallOpaqueOp>(
-            loc, traceOutputVariable[i].getType(), getName, nullptr, nullptr,
-            captureTuple.getResult(0));
-        rewriter.create<emitc::AssignOp>(
-            loc, getGlobalVariable(rewriter, loc, traceOutputVariable[i]),
+        auto getResult = emitc::CallOpaqueOp::create(
+            rewriter, loc, traceOutputVariable[i].getType(), getName, nullptr,
+            nullptr, captureTuple.getResult(0));
+        emitc::AssignOp::create(
+            rewriter, loc,
+            getGlobalVariable(rewriter, loc, traceOutputVariable[i]),
             getResult.getResult(0));
       }
 
-      rewriter.create<emitc::YieldOp>(loc);
+      emitc::YieldOp::create(rewriter, loc);
     }
 
     // ELSE: execute path
@@ -4010,17 +4015,17 @@ public:
       rewriter.setInsertionPointToStart(&elseBlock);
 
       // execute_callee(trace_id);
-      rewriter.create<emitc::CallOpaqueOp>(
-          loc, TypeRange{}, srcOp.getExecuteCallee(), nullptr, nullptr,
-          loadGlobalVariable(rewriter, loc, traceId));
+      emitc::CallOpaqueOp::create(rewriter, loc, TypeRange{},
+                                  srcOp.getExecuteCallee(), nullptr, nullptr,
+                                  loadGlobalVariable(rewriter, loc, traceId));
 
       // Load the result to the return variable.
       assert(returnVariable.size() == 1 && "expected one return variable");
-      rewriter.create<emitc::AssignOp>(
-          loc, returnVariable[0],
+      emitc::AssignOp::create(
+          rewriter, loc, returnVariable[0],
           loadGlobalVariable(rewriter, loc, traceOutputVariable[0]));
 
-      rewriter.create<emitc::YieldOp>(loc);
+      emitc::YieldOp::create(rewriter, loc);
     }
 
     // After the if-then-else, load the result and return it from the function.
@@ -4028,8 +4033,8 @@ public:
 
     assert(returnVariable.size() == 1 && "expected one return variable");
     auto result =
-        rewriter.create<emitc::LoadOp>(loc, ttnnTensorType, returnVariable[0]);
-    rewriter.create<emitc::ReturnOp>(loc, result.getResult());
+        emitc::LoadOp::create(rewriter, loc, ttnnTensorType, returnVariable[0]);
+    emitc::ReturnOp::create(rewriter, loc, result.getResult());
 
     // Replace the original operation with a call to our new function.
     auto resultType =
@@ -4047,8 +4052,8 @@ private:
   mlir::Value getGlobalVariable(mlir::PatternRewriter &rewriter,
                                 mlir::Location loc,
                                 emitc::GlobalOp globalOp) const {
-    return rewriter.create<emitc::GetGlobalOp>(
-        loc, emitc::LValueType::get(globalOp.getType()),
+    return emitc::GetGlobalOp::create(
+        rewriter, loc, emitc::LValueType::get(globalOp.getType()),
         globalOp.getSymNameAttr());
   }
 
@@ -4056,7 +4061,8 @@ private:
                                  mlir::Location loc,
                                  emitc::GlobalOp globalOp) const {
     auto getGlobalOp = getGlobalVariable(rewriter, loc, globalOp);
-    return rewriter.create<emitc::LoadOp>(loc, globalOp.getType(), getGlobalOp);
+    return emitc::LoadOp::create(rewriter, loc, globalOp.getType(),
+                                 getGlobalOp);
   }
 };
 } // namespace
@@ -4111,12 +4117,11 @@ public:
     // The `update_index` is modeled as a tensor in the IR, but the
     // `ttnn::update_cache` expects a `uint32_t` scalar.
     mlir::Value updateIndex =
-        rewriter
-            .create<emitc::CallOpaqueOp>(
-                srcOp.getLoc(), rewriter.getI32Type(),
-                ttnn_to_emitc::kGetScalarFromTensorFunctionName,
-                /*args=*/nullptr,
-                /*template_args=*/nullptr, adaptor.getUpdateIndex())
+        emitc::CallOpaqueOp::create(
+            rewriter, srcOp.getLoc(), rewriter.getI32Type(),
+            ttnn_to_emitc::kGetScalarFromTensorFunctionName,
+            /*args=*/nullptr,
+            /*template_args=*/nullptr, adaptor.getUpdateIndex())
             .getResult(0);
 
     llvm::SmallVector<mlir::Attribute> args{

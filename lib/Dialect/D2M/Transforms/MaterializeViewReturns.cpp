@@ -59,8 +59,8 @@ Value materializeView(OpBuilder &builder, Location loc, Value viewResult) {
       layout.getCollapsedIntervals(), layout.getOobVal(),
       layout.getMemorySpace(), layout.getMemoryLayout(),
       builder.getEmptyAffineMap());
-  auto emptyOp = builder.create<d2m::EmptyOp>(
-      loc, tensorType.getShape(), tensorType.getElementType(), newLayout);
+  auto emptyOp = d2m::EmptyOp::create(builder, loc, tensorType.getShape(),
+                                      tensorType.getElementType(), newLayout);
 
   // Extract the grid from the tensor's layout to determine core distribution.
   ttcore::GridAttr grid = getGridFromType(tensorType);
@@ -78,17 +78,17 @@ Value materializeView(OpBuilder &builder, Location loc, Value viewResult) {
   // from the view (which applies the affine transformation), waits for the DMA
   // to complete, then yields the output buffer.
   auto indexingMap = mlir::cast<AffineMapAttr>(indexingMaps[0]);
-  auto genericOp = builder.create<GenericOp>(
-      loc, viewResult, emptyOp.getResult(),
+  auto genericOp = GenericOp::create(
+      builder, loc, viewResult, emptyOp.getResult(),
       [&](OpBuilder &builder, Location loc, ValueRange blockArgs) {
         Value outputCB =
-            builder.create<d2m::ReserveOp>(loc, blockArgs[1]).getResult();
+            d2m::ReserveOp::create(builder, loc, blockArgs[1]).getResult();
         // Issue a DMA from the view to the output buffer.
         // The DMA will fetch data according to the view's affine map.
         auto dma =
-            builder.create<d2m::DMAOp>(loc, viewResult, indexingMap, outputCB);
-        builder.create<d2m::DMAWaitOp>(loc, dma);
-        builder.create<d2m::YieldOp>(loc, outputCB);
+            d2m::DMAOp::create(builder, loc, viewResult, indexingMap, outputCB);
+        d2m::DMAWaitOp::create(builder, loc, dma);
+        d2m::YieldOp::create(builder, loc, outputCB);
       },
       ThreadType::Datamovement, grid, SmallVector<int64_t>{1, 1});
 

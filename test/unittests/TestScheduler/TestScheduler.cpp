@@ -68,8 +68,9 @@ public:
   }
 
   mlir::Value createEmptyTensor() {
-    return builder.create<mlir::tt::ttir::EmptyOp>(
-        builder.getUnknownLoc(), getTensorShape(), builder.getF32Type());
+    return mlir::tt::ttir::EmptyOp::create(builder, builder.getUnknownLoc(),
+                                           getTensorShape(),
+                                           builder.getF32Type());
   }
 
   mlir::func::FuncOp createFuncOp() {
@@ -81,8 +82,8 @@ public:
 
     auto funcType = builder.getType<mlir::FunctionType>(
         mlir::TypeRange(input), mlir::TypeRange(output));
-    func = builder.create<mlir::func::FuncOp>(builder.getUnknownLoc(), "test",
-                                              funcType);
+    func = mlir::func::FuncOp::create(builder, builder.getUnknownLoc(), "test",
+                                      funcType);
 
     mlir::Block *block = func.addEntryBlock();
     block->addArgument(getTensorType(), builder.getUnknownLoc());
@@ -104,8 +105,8 @@ TEST_F(SchedulerBase, FixedSchedule) {
   mlir::Value rhs = func.getBody().getBlocks().front().getArgument(1);
 
   // First operation has arg1 and arg2 (no DPS operand needed)
-  ttir::TTIROp op = builder.create<ttir::AddOp>(builder.getUnknownLoc(),
-                                                getTensorType(), lhs, rhs);
+  ttir::TTIROp op = ttir::AddOp::create(builder, builder.getUnknownLoc(),
+                                        getTensorType(), lhs, rhs);
 
   // Create a chain of operations by using the result of the previous operation
   llvm::SmallVector<mlir::Value> operands = {rhs,
@@ -118,8 +119,8 @@ TEST_F(SchedulerBase, FixedSchedule) {
   for (std::size_t i = 1; i < NumberOfOps; i++) {
     mlir::Value lhs = operands[operands.size() - 2];
     mlir::Value rhs = operands[operands.size() - 1];
-    op = builder.create<ttir::AddOp>(builder.getUnknownLoc(), getTensorType(),
-                                     lhs, rhs);
+    op = ttir::AddOp::create(builder, builder.getUnknownLoc(), getTensorType(),
+                             lhs, rhs);
     operands.push_back(op.getOperation()->getResult(0));
     ops.push_back(op);
   }
@@ -153,8 +154,8 @@ TEST_F(SchedulerBase, SingleOp) {
   mlir::Value rhs = func.getBody().getBlocks().front().getArgument(1);
 
   // First operation has arg1 and arg2 (no DPS operand needed)
-  ttir::TTIROp op = builder.create<ttir::AddOp>(builder.getUnknownLoc(),
-                                                getTensorType(), lhs, rhs);
+  ttir::TTIROp op = ttir::AddOp::create(builder, builder.getUnknownLoc(),
+                                        getTensorType(), lhs, rhs);
 
   mlir::tt::scheduler::Scheduler scheduler(&func);
   ASSERT_TRUE(scheduler.hasUnscheduledOps());
@@ -176,8 +177,8 @@ TEST_F(SchedulerBase, VerifyFork) {
   // Create the first operation which works on arg1 and arg2
   mlir::Value lhs = func.getBody().getBlocks().front().getArgument(0);
   mlir::Value rhs = func.getBody().getBlocks().front().getArgument(1);
-  ttir::TTIROp op = builder.create<ttir::AddOp>(builder.getUnknownLoc(),
-                                                getTensorType(), lhs, rhs);
+  ttir::TTIROp op = ttir::AddOp::create(builder, builder.getUnknownLoc(),
+                                        getTensorType(), lhs, rhs);
 
   std::vector<ttir::TTIROp> ops;
   ops.push_back(op);
@@ -187,19 +188,19 @@ TEST_F(SchedulerBase, VerifyFork) {
 
   // Create the second operation which works on the result of the first
   // operation and arg1
-  op = builder.create<ttir::AddOp>(builder.getUnknownLoc(), getTensorType(),
-                                   lhs, rhs);
+  op = ttir::AddOp::create(builder, builder.getUnknownLoc(), getTensorType(),
+                           lhs, rhs);
   ops.push_back(op);
-  op = builder.create<ttir::AddOp>(builder.getUnknownLoc(), getTensorType(),
-                                   lhs, rhs);
+  op = ttir::AddOp::create(builder, builder.getUnknownLoc(), getTensorType(),
+                           lhs, rhs);
   ops.push_back(op);
 
   // Create the third operation which works on the result of the second and
   // third operation
   lhs = ops[ops.size() - 2].getOperation()->getResult(0);
   rhs = ops[ops.size() - 1].getOperation()->getResult(0);
-  op = builder.create<ttir::AddOp>(builder.getUnknownLoc(), getTensorType(),
-                                   lhs, rhs);
+  op = ttir::AddOp::create(builder, builder.getUnknownLoc(), getTensorType(),
+                           lhs, rhs);
   ops.push_back(op);
 
   mlir::tt::scheduler::Scheduler scheduler(&func);
@@ -241,8 +242,8 @@ TEST_F(SchedulerBase, SplitQueryKeyValueAndSplitHeadsOp) {
   llvm::SmallVector<int64_t> outputShape{batchSize, numHeads, sequenceSize,
                                          headDim};
 
-  mlir::Value inputTensor = builder.create<ttir::EmptyOp>(
-      builder.getUnknownLoc(), inputShape, builder.getF32Type());
+  mlir::Value inputTensor = ttir::EmptyOp::create(
+      builder, builder.getUnknownLoc(), inputShape, builder.getF32Type());
 
   mlir::Type queryType =
       mlir::RankedTensorType::get(outputShape, builder.getF32Type());
@@ -251,20 +252,21 @@ TEST_F(SchedulerBase, SplitQueryKeyValueAndSplitHeadsOp) {
   mlir::Type valueType =
       mlir::RankedTensorType::get(outputShape, builder.getF32Type());
 
-  auto splitOp = builder.create<ttir::SplitQueryKeyValueAndSplitHeadsOp>(
-      builder.getUnknownLoc(), queryType, keyType, valueType, inputTensor,
+  auto splitOp = ttir::SplitQueryKeyValueAndSplitHeadsOp::create(
+      builder, builder.getUnknownLoc(), queryType, keyType, valueType,
+      inputTensor,
       /*kv_input_tensor=*/nullptr, builder.getUI32IntegerAttr(numHeads),
       /*num_kv_heads=*/nullptr, builder.getBoolAttr(false));
 
   auto outputType =
       mlir::RankedTensorType::get(getTensorShape(), builder.getF32Type());
   mlir::Value arg0 = func.getBody().getBlocks().front().getArgument(0);
-  auto queryConsumerOp = builder.create<ttir::AddOp>(
-      builder.getUnknownLoc(), outputType, splitOp.getQuery(), arg0);
-  auto keyConsumerOp = builder.create<ttir::AddOp>(
-      builder.getUnknownLoc(), outputType, splitOp.getKey(), arg0);
-  auto valueConsumerOp = builder.create<ttir::AddOp>(
-      builder.getUnknownLoc(), outputType, splitOp.getValue(), arg0);
+  auto queryConsumerOp = ttir::AddOp::create(
+      builder, builder.getUnknownLoc(), outputType, splitOp.getQuery(), arg0);
+  auto keyConsumerOp = ttir::AddOp::create(builder, builder.getUnknownLoc(),
+                                           outputType, splitOp.getKey(), arg0);
+  auto valueConsumerOp = ttir::AddOp::create(
+      builder, builder.getUnknownLoc(), outputType, splitOp.getValue(), arg0);
 
   mlir::tt::scheduler::Scheduler scheduler(&func);
   llvm::SmallVector<mlir::Operation *> scheduleableOps =
