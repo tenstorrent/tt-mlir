@@ -4,16 +4,18 @@
 
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 
+#include "mlir/Pass/Pass.h"
+
 namespace mlir::tt::d2m {
-#define GEN_PASS_DEF_D2MSPLITUNIFIEDTHREAD
+#define GEN_PASS_DEF_D2MINSERTLOADSTOREOPS
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
 
 namespace {
-class D2MSplitUnifiedThread
-    : public impl::D2MSplitUnifiedThreadBase<D2MSplitUnifiedThread> {
+class D2MInsertLoadStoreOps
+    : public impl::D2MInsertLoadStoreOpsBase<D2MInsertLoadStoreOps> {
 public:
-  using impl::D2MSplitUnifiedThreadBase<
-      D2MSplitUnifiedThread>::D2MSplitUnifiedThreadBase;
+  using impl::D2MInsertLoadStoreOpsBase<
+      D2MInsertLoadStoreOps>::D2MInsertLoadStoreOpsBase;
 
   void runOnOperation() final {}
 };

@@ -259,7 +259,7 @@ void createTTIRToTTMetalUnifiedMiddleendPipeline(
   { opSchedulerOptions.enableOpScheduler = true; }
   pm.addPass(d2m::createD2MOpScheduler(opSchedulerOptions));
 
-  pm.addPass(d2m::createD2MInsertDMAOps());
+  pm.addPass(d2m::createD2MInsertLoadStoreOps());
 
   pm.addPass(d2m::createD2MGenerateOuterLoops());
 
@@ -283,7 +283,7 @@ void createTTIRToTTMetalUnifiedMiddleendPipeline(
   pm.addPass(mlir::createLowerAffinePass());
   pm.addPass(d2m::createD2MGenericLinearizeMemref());
   pm.addPass(d2m::createD2MSplitUnifiedThread());
-  pm.addPass(d2m::createD2MLowerDMAOps());
+  pm.addPass(d2m::createD2MInsertLoadStoreOps());
   pm.addPass(createCanonicalizerPassWithOptions(options));
   createOptimizationPasses(pm, options);
   pm.addPass(d2m::createD2MGenericRegionsToFuncs());

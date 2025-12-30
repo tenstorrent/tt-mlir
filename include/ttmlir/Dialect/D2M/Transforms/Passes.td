@@ -837,10 +837,9 @@ def D2MScalarizeConstTensors : Pass<"d2m-scalarize-const-tensors", "::mlir::Modu
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect", "::mlir::arith::ArithDialect"];
 }
 
-def D2MInsertDMAOps : Pass<"d2m-insert-dma-ops", "::mlir::ModuleOp"> {
-  let summary = "Insert DMA operations.";
+def D2MInsertLoadStoreOps : Pass<"d2m-insert-load-store-ops", "::mlir::ModuleOp"> {
+  let summary = "Insert load and store ops corresponding to compute CB operations.";
   let description = [{
-    This pass inserts DMA operations for data movement.
   }];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
 }
