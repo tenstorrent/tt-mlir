@@ -372,7 +372,7 @@ struct TTIRToTTNNDevicePipelineOptions
       *this, "compute-cfg-fp32-dest-acc-en",
       llvm::cl::desc("Set fp32 destination accumulation for all ttnn "
                      "operations exposing compute kernel config."),
-      llvm::cl::init(false)};
+      llvm::cl::init(true)};
 
   Option<bool> ttnnPerfMetricsEnabled{
       *this, "ttnn-perf-metrics-enabled",

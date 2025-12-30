@@ -290,10 +290,8 @@ void createTTIRToTTNNDevicePipeline(
         setConfigOptions.mathFidelity = options.computeCfgMathFidelity;
       }
 
-      // Forward fp32DestAccEn only if true (enable).
-      if (options.computeCfgFp32DestAccEn) {
-        setConfigOptions.fp32DestAccEn = true;
-      }
+      // Forward fp32DestAccEn value (defaults to true).
+      setConfigOptions.fp32DestAccEn = options.computeCfgFp32DestAccEn;
 
       devicePm.addPass(createTTNNSetComputeKernelConfig(setConfigOptions));
     }
