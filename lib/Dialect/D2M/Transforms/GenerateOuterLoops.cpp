@@ -186,7 +186,7 @@ public:
 
     // Create a new GenericOp with the same structure
     // After generating loops, preserve all attributes including block_factors
-    // (needed by LowerDMAOps for stream index computation).
+    // (needed by LowerLoadStoreOpsToDMA for stream index computation).
     auto loopedGeneric = rewriter.create<GenericOp>(
         generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
         generic.getOutputs(), generic.getGrid(),

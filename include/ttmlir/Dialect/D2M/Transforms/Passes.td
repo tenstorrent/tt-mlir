@@ -860,10 +860,10 @@ def D2MSplitUnifiedThread : Pass<"d2m-split-unified-thread", "::mlir::ModuleOp">
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
 }
 
-def D2MLowerDMAOps : Pass<"d2m-lower-dma-ops", "::mlir::ModuleOp"> {
-  let summary = "Lower D2M DMA operations.";
+def D2MLowerLoadStoreOpsToDMA : Pass<"d2m-lower-load-store-ops-to-dma", "::mlir::ModuleOp"> {
+  let summary = "Lower D2M load/store operations to DMA operations.";
   let description = [{
-    This pass performs lowering of D2M DMA operations.
+    This pass performs lowering of D2M load/store operations to DMA operations.
   }];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
 }

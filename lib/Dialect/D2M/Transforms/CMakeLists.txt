@@ -15,7 +15,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         InsertLoadStoreOps.cpp
         InsertStreams.cpp
         LinalgToAffine.cpp
-        LowerDMAOps.cpp
+        LowerLoadStoreOpsToDMA.cpp
         LowerToLayout.cpp
         MaterializeViewReturns.cpp
         ElementwiseFusion.cpp
