@@ -4070,8 +4070,7 @@ llvm::Expected<OpConstraints> OpModel<LinearOp>::getOpConstraints(
     TTNNLayoutAttr inputLayoutB,
     std::optional<llvm::ArrayRef<int64_t>> biasShape,
     std::optional<TTNNLayoutAttr> biasLayout, TTNNLayoutAttr outputLayout,
-    bool transposeA, bool transposeB,
-    std::optional<llvm::StringRef> activation,
+    bool transposeA, bool transposeB, std::optional<llvm::StringRef> activation,
     std::optional<mlir::Attribute> programConfigAttr) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -4108,9 +4107,9 @@ llvm::Expected<OpConstraints> OpModel<LinearOp>::getOpConstraints(
       activation ? std::make_optional(activation->str()) : std::nullopt;
 
   // Convert program config attribute
-  auto programConfig = programConfigAttr
-                           ? conversion::getMatmulProgramConfig(*programConfigAttr)
-                           : std::nullopt;
+  auto programConfig =
+      programConfigAttr ? conversion::getMatmulProgramConfig(*programConfigAttr)
+                        : std::nullopt;
 
   // Create query closure
   auto linearOpQuery = [=]() {
@@ -4213,9 +4212,9 @@ llvm::Expected<OpConstraints> OpModel<MatmulOp>::getOpConstraints(
       activation ? std::make_optional(activation->str()) : std::nullopt;
 
   // Convert program config attribute
-  auto programConfig = programConfigAttr
-                           ? conversion::getMatmulProgramConfig(*programConfigAttr)
-                           : std::nullopt;
+  auto programConfig =
+      programConfigAttr ? conversion::getMatmulProgramConfig(*programConfigAttr)
+                        : std::nullopt;
 
   // Create query closure
   auto matmulOpQuery = [=]() {
