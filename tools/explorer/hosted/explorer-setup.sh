@@ -25,12 +25,19 @@ else
   echo "Cron job for Explorer setup already exists."
 fi
 
-cronexist=$(crontab -l 2>/dev/null | grep docker-cleanup.sh || true)
-if [ -z "$cronexist" ]; then
-  echo "Setting up cron job for daily Docker cleanup..."
-  (crontab -l  2>/dev/null; echo "0 8 * * * /bin/bash /srv/tt-mlir/tools/explorer/hosted/docker-cleanup.sh >> /var/log/docker-cleanup.log 2>&1") | crontab -
+# Get available disk space in GB
+AVAILABLE_SPACE=$(df / | tail -1 | awk '{print $4}')
+AVAILABLE_GB=$((AVAILABLE_SPACE / 1024 / 1024))
+
+echo "Available disk space: ${AVAILABLE_GB}GB"
+
+# Check if available space is less than 50GB
+if [ "$AVAILABLE_GB" -lt 50 ]; then
+    echo "Available space is less than 50GB. Running docker system prune..."
+    docker system prune -af --volumes
+    echo "Docker cleanup completed."
 else
-  echo "Cron job for Docker cleanup already exists."
+    echo "Sufficient disk space available. No cleanup needed."
 fi
 
 cd /srv/tt-mlir/tools/explorer/hosted
