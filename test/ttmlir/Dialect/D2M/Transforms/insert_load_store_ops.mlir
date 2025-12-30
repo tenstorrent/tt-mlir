@@ -145,4 +145,38 @@ module {
     }
     return
   }
+
+  // Test stream output operand generating remote_store
+  // CHECK-LABEL: func.func @test_stream_output
+  func.func @test_stream_output(%arg0: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>,
+                                 %arg1: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>) {
+    %cb_alloc = memref.alloc() {alignment = 64 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
+    %stream_out = "d2m.stream_layout"(%arg1, %cb_alloc) : (memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<map(4)>, #dram>
+
+    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<compute>]}
+        ins(%arg0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>)
+        outs(%stream_out : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<map(4)>, #dram>) {
+    ^compute0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
+      // Input is local, should have reserve/wait pattern
+      // CHECK: d2m.reserve %cb0
+      // CHECK: d2m.wait %cb0
+      %in = d2m.wait %cb0 : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+
+      // Output is remote stream, should have reserve followed by remote_store
+      // CHECK: %[[RESERVE:.*]] = d2m.reserve %cb1
+      // CHECK: d2m.iter_index(0)
+      // CHECK: d2m.iter_index(1)
+      // CHECK: d2m.remote_store %{{.*}}[%{{.*}}, %{{.*}}], %cb1
+      %out = d2m.reserve %cb1 : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+
+      // Simple copy operation
+      affine.for %i = 0 to 2 {
+        affine.for %j = 0 to 4 {
+          %tile = affine.load %in[%i, %j] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+          affine.store %tile, %out[%i, %j] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+        }
+      }
+    }
+    return
+  }
 }
