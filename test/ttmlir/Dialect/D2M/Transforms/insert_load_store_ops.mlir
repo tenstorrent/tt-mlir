@@ -60,7 +60,7 @@ module {
         ins(%arg0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>)
         outs(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
     ^compute0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
-      // CHECK: d2m.reserve %cb0
+      // Local wait: No automatic reserve insertion
       // CHECK: d2m.wait %cb0
       %mem0 = d2m.wait %cb0 : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
     }
@@ -76,8 +76,8 @@ module {
         ins(%arg0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>)
         outs(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
     ^compute0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
+      // Local output: reserve is created but no wait is inserted
       // CHECK: %[[RESERVE:.*]] = d2m.reserve %cb1
-      // CHECK: d2m.wait %cb1
       %mem0 = d2m.reserve %cb1 : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
     }
     return
@@ -102,8 +102,7 @@ module {
       // CHECK: d2m.wait %cb0
       %mem0 = d2m.wait %cb0 : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
 
-      // Local wait should have reserve at start
-      // CHECK: d2m.reserve %cb1
+      // Local wait: No automatic reserve insertion
       // CHECK: d2m.wait %cb1
       %mem1 = d2m.wait %cb1 : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
     }
@@ -137,11 +136,37 @@ module {
       // CHECK: d2m.wait %cb1
       %rhs = d2m.wait %cb1 : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
 
-      // Output is local, should have reserve/wait pattern
+      // Output is local, should have reserve only (no wait inserted)
       // CHECK: d2m.reserve %cb2
-      // CHECK: d2m.wait %cb2
       %out = d2m.reserve %cb2 : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
       "d2m.tile_matmul_block"(%lhs, %rhs, %out) : (memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) -> ()
+    }
+    return
+  }
+
+  // Test matmul with loop interchange
+  // RUN: ttmlir-opt --ttcore-register-device --d2m-generic-apply-interchange="matmul-interchange=2,0,1" --d2m-insert-load-store-ops --loop-invariant-code-motion %s 2>&1 | FileCheck %s --check-prefix=CHECK-INTERCHANGE
+
+  // CHECK-INTERCHANGE-LABEL: func.func @test_matmul_interchange
+  func.func @test_matmul_interchange(%arg0: memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>,
+                                      %arg1: memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #dram>) {
+    %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>
+    %cb0_alloc = memref.alloc() {alignment = 64 : i64} : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
+    %cb1_alloc = memref.alloc() {alignment = 64 : i64} : memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>
+    %stream0 = "d2m.stream_layout"(%arg0, %cb0_alloc) : (memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>, memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) -> memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<map(4)>, #dram>
+    %stream1 = "d2m.stream_layout"(%arg1, %cb1_alloc) : (memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #dram>, memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>) -> memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #ttcore.view<map(4)>, #dram>
+
+    d2m.generic {block_factors = [1, 1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#mapL, #mapR, #mapO], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<compute>]}
+        ins(%stream0, %stream1 : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<map(4)>, #dram>, memref<1x1x4x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #ttcore.view<map(4)>, #dram>)
+        outs(%alloc : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>) {
+    ^compute0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<4x2x!ttcore.tile<32x32, f32>, #l1_>>, %cb2: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>):
+      // CHECK-INTERCHANGE: d2m.wait %cb0
+      %lhs = d2m.wait %cb0 : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+      // CHECK-INTERCHANGE: d2m.wait %cb1
+      %rhs = d2m.wait %cb1 : !d2m.cb<memref<4x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<4x2x!ttcore.tile<32x32, f32>, #l1_>
+      // CHECK-INTERCHANGE: d2m.reserve %cb2
+      %out = d2m.reserve %cb2 : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
+      "d2m.tile_matmul_block"(%lhs, %rhs, %out) : (memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<4x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) -> ()
     }
     return
   }
@@ -157,25 +182,27 @@ module {
         ins(%arg0 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>)
         outs(%stream_out : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<map(4)>, #dram>) {
     ^compute0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
-      // Input is local, should have reserve/wait pattern
-      // CHECK: d2m.reserve %cb0
+      // Input is local: No automatic reserve insertion
       // CHECK: d2m.wait %cb0
       %in = d2m.wait %cb0 : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
 
-      // Output is remote stream, should have reserve followed by remote_store
+      // Output is remote stream, should have reserve followed by compute, then remote_store at end
       // CHECK: %[[RESERVE:.*]] = d2m.reserve %cb1
-      // CHECK: d2m.iter_index(0)
-      // CHECK: d2m.iter_index(1)
-      // CHECK: d2m.remote_store %{{.*}}[%{{.*}}, %{{.*}}], %cb1
       %out = d2m.reserve %cb1 : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
 
       // Simple copy operation
+      // CHECK: affine.for
       affine.for %i = 0 to 2 {
         affine.for %j = 0 to 4 {
           %tile = affine.load %in[%i, %j] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
           affine.store %tile, %out[%i, %j] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
         }
       }
+
+      // Remote store should be at the very end, after all compute
+      // CHECK: d2m.iter_index(0)
+      // CHECK: d2m.iter_index(1)
+      // CHECK: d2m.remote_store %{{.*}}[%{{.*}}, %{{.*}}], %cb1
     }
     return
   }

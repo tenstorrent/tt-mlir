@@ -109,11 +109,21 @@ public:
         SmallVector<Value> indices =
             buildGridIndices(builder, loc, indexingMap);
         builder.create<RemoteLoadOp>(loc, cbValue, remoteMemref, indices);
-      } else {
-        // Local case: insert reserve immediately before wait
-        builder.create<ReserveOp>(loc, cbValue);
       }
+      // Local case: No automatic reserve insertion before wait
+      // The reserve/wait pattern should be explicitly managed by the user
+      // or by other passes (e.g., datamovement generation)
     });
+
+    // Collect remote reserve operations that need remote_store at end of block
+    struct RemoteStoreInfo {
+      Block *block;
+      Location loc;
+      Value remoteMemref;
+      AffineMap indexingMap;
+      Value cbValue;
+    };
+    SmallVector<RemoteStoreInfo> remoteStores;
 
     // Process ReserveOp operations
     getOperation()->walk([&](ReserveOp reserveOp) {
@@ -130,24 +140,30 @@ public:
       }
 
       auto [genericOperand, indexingMap] = *genericInfo;
-
-      builder.setInsertionPointAfter(reserveOp);
       Location loc = reserveOp.getLoc();
 
       if (isRemote(genericOperand)) {
-        // Remote case: insert remote_store after reserve
+        // Remote case: collect info to insert remote_store at end of block
         // Get the input from stream_layout (the physical memref with device
         // layout)
         auto streamOp = cast<StreamLayoutOp>(genericOperand.getDefiningOp());
         Value remoteMemref = streamOp.getInput();
-        SmallVector<Value> indices =
-            buildGridIndices(builder, loc, indexingMap);
-        builder.create<RemoteStoreOp>(loc, remoteMemref, indices, cbValue);
-      } else {
-        // Local case: insert wait immediately after reserve
-        builder.create<WaitOp>(loc, cbValue);
+        remoteStores.push_back(
+            {reserveOp->getBlock(), loc, remoteMemref, indexingMap, cbValue});
       }
+      // Local case: No additional operation needed after reserve
+      // The compute operations will write to the reserved buffer,
+      // and the circular buffer push happens implicitly at block end
     });
+
+    // Insert remote_store operations at the end of their respective blocks
+    for (const auto &info : remoteStores) {
+      builder.setInsertionPoint(info.block, info.block->end());
+      SmallVector<Value> indices =
+          buildGridIndices(builder, info.loc, info.indexingMap);
+      builder.create<RemoteStoreOp>(info.loc, info.remoteMemref, indices,
+                                    info.cbValue);
+    }
   }
 };
 } // namespace
