@@ -1183,6 +1183,11 @@ public:
             op.getLoc(), op.getMcastShape()[0], op.getMcastShape()[1]);
         auto numDests = rewriter.create<arith::IndexCastOp>(
             op.getLoc(), rewriter.getI32Type(), numDestsIdx);
+        auto numDestsMinusOne = rewriter.create<arith::SubIOp>(
+            op.getLoc(), numDests,
+            rewriter.create<arith::ConstantOp>(op.getLoc(),
+                                               rewriter.getI32Type(),
+                                               rewriter.getI32IntegerAttr(1)));
         auto mcastAddr =
             rewriter.create<ttkernel::ExperimentalGetNocMulticastAddrOp>(
                 op.getLoc(), virtX, virtY, virtMcastEndX, virtMcastEndY,
@@ -1191,8 +1196,8 @@ public:
           // If src and dst refer to the same memref, we do not loopback mcast
           // Dests are one less because the sender core is not included
           rewriter.create<ttkernel::NocAsyncWriteMulticastOp>(
-              op.getLoc(), srcL1Start, mcastAddr, transferSize, numDests,
-              nullptr, nullptr, nullptr);
+              op.getLoc(), srcL1Start, mcastAddr, transferSize,
+              numDestsMinusOne, nullptr, nullptr, nullptr);
         } else {
           // If src != dst, we loopback mcast
           rewriter.create<ttkernel::NocAsyncWriteMulticastLoopbackSrcOp>(
@@ -1529,6 +1534,10 @@ public:
           op.getLoc(), op.getMcastShape()[0], op.getMcastShape()[1]);
       Value numDests = rewriter.create<arith::IndexCastOp>(
           op.getLoc(), rewriter.getI32Type(), numDestsIdx);
+      Value numDestsMinusOne = rewriter.create<arith::SubIOp>(
+          op.getLoc(), numDests,
+          rewriter.create<arith::ConstantOp>(op.getLoc(), rewriter.getI32Type(),
+                                             rewriter.getI32IntegerAttr(1)));
       auto mcastAddr =
           rewriter.create<ttkernel::ExperimentalGetNocMulticastAddrOp>(
               op.getLoc(), virtX, virtY, virtMcastEndX, virtMcastEndY,
@@ -1539,7 +1548,7 @@ public:
       rewriter.create<ttkernel::NocSemaphoreSetOp>(op.getLoc(), semaphorePtr,
                                                    value);
       rewriter.replaceOpWithNewOp<ttkernel::NocSemaphoreSetMulticastOp>(
-          op, semaphoreAddr, mcastAddr, numDests, nullptr, nullptr);
+          op, semaphoreAddr, mcastAddr, numDestsMinusOne, nullptr, nullptr);
     }
 
     return success();
