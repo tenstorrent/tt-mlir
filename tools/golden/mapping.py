@@ -4885,6 +4885,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.FloorOp: ttnn_floor_golden,
     ttnn.GeluOp: ttnn_gelu_golden,
     ttnn.IsFiniteOp: ttnn_isfinite_golden,
+    ttnn.MishOp: ttnn_mish_golden,
     ttnn.NegOp: ttnn_neg_golden,
     ttnn.TanOp: ttnn_tan_golden,
     ttnn.AtanOp: ttnn_atan_golden,
@@ -4903,9 +4904,6 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.Expm1Op: ttnn_expm1_golden,
     ttnn.ExpOp: ttnn_exp_golden,
     ttnn.LeakyReluOp: ttnn_leaky_relu_golden,
-    # TTNN elementwise operations
-    ttnn.MultiplyOp: torch.multiply,
-    ttnn.MishOp: ttnn_mish_golden,
     # Elementwise binary operations
     ttnn.AddOp: ttnn_add_golden,
     ttnn.Atan2Op: ttnn_atan2_golden,
