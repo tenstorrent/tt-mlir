@@ -418,9 +418,9 @@ void populatePassesModule(nb::module_ &m) {
 
         std::vector<std::tuple<std::string, std::string>> kernels;
         mod.walk([&](func::FuncOp funcOp) {
-          if (auto threadTypeAttr = funcOp->getAttrOfType<
-                  mlir::tt::ttkernel::ThreadTypeAttr>(
-                  mlir::tt::ttkernel::ThreadTypeAttr::name)) {
+          if (auto threadTypeAttr =
+                  funcOp->getAttrOfType<mlir::tt::ttkernel::ThreadTypeAttr>(
+                      mlir::tt::ttkernel::ThreadTypeAttr::name)) {
             std::string threadType;
             switch (threadTypeAttr.getValue()) {
             case mlir::tt::ttkernel::ThreadType::Noc:
@@ -442,16 +442,17 @@ void populatePassesModule(nb::module_ &m) {
 
   m.def(
       "get_ttkernel_arg_spec",
-      [](MlirModule module, std::string kernelName) -> std::optional<MlirAttribute> {
+      [](MlirModule module,
+         std::string kernelName) -> std::optional<MlirAttribute> {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
         auto mod = mlir::cast<ModuleOp>(moduleOp);
 
         std::optional<MlirAttribute> result;
         mod.walk([&](func::FuncOp funcOp) {
           if (funcOp.getName() == kernelName) {
-            if (auto argSpecAttr = funcOp->getAttrOfType<
-                    mlir::tt::ttkernel::ArgSpecAttr>(
-                    mlir::tt::ttkernel::ArgSpecAttr::name)) {
+            if (auto argSpecAttr =
+                    funcOp->getAttrOfType<mlir::tt::ttkernel::ArgSpecAttr>(
+                        mlir::tt::ttkernel::ArgSpecAttr::name)) {
               result = wrap(argSpecAttr);
             }
           }
