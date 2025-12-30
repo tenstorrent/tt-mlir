@@ -1140,13 +1140,13 @@ def D2M_DMAWaitOp : D2M_GenericRegionDatamovementOp<"dma_wait", [MemoryEffects<[
 //===----------------------------------------------------------------------===//
 
 def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
-  [ MemoryEffects<[MemRead]>
+  [ MemoryEffects<[MemRead, MemWrite]>
   , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
   ]> {
     let summary = "D2M Remote Load Op";
     let description = [{
-      Loads an entire shard from a remote memory location using affine indexing. This operation
-      operates at shard granularity on remote memrefs (memrefs with device layouts).
+      Loads an entire shard from a remote memory location into a circular buffer using affine indexing.
+      This operation operates at shard granularity on remote memrefs (memrefs with device layouts).
 
       D2M device memrefs have a device shape that follows a grid x shard convention:
       - For a logical shape with N dimensions, the device shape has 2N dimensions
@@ -1164,41 +1164,40 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
       - Shard dimensions: A x B x C (last 3 dims)
 
       The `d2m.remote_load` op is indexed by the grid dimensions only (first N/2 dimensions
-      of the device shape) and loads the entire shard (all elements in the last N/2 dimensions).
+      of the device shape) and loads the entire shard (all elements in the last N/2 dimensions)
+      into the circular buffer.
 
       Example:
 
       ```mlir
       // For a 2D device memref with shape P x Q x (N/P) x (M/Q)
-      // Index by grid dimensions P x Q only
-      %shard = d2m.remote_load %0[%i, %j] : memref<PxQx(N/P)x(M/Q)xf32, #ttcore.shard<...>, #dram> -> memref<(N/P)x(M/Q)xf32>
+      // Index by grid dimensions P x Q only, load into circular buffer
+      d2m.remote_load %cb, %memref[%i, %j] : !d2m.cb<memref<(N/P)x(M/Q)xf32, #l1_>>, memref<PxQx(N/P)x(M/Q)xf32, #ttcore.shard<...>, #dram>
       ```
 
       Constraints:
       - The memref must be remote (have a device layout)
       - The operation always uses an identity affine map for grid dimensions
       - The number of indices must equal N/2 where N is the memref rank (grid dimensions)
-      - The operation loads the entire shard, not individual elements
+      - The operation loads the entire shard into the circular buffer
+      - The circular buffer's underlying type must match the shard shape
     }];
 
-    let arguments = (ins Arg<AnyMemRef, "the reference to load from",
+    let arguments = (ins D2M_CB:$cb,
+        Arg<AnyMemRef, "the reference to load from",
         [MemRead]>:$memref,
         Variadic<Index>:$indices);
 
-    let results = (outs AnyType:$result);
-
-    let builders = [
-      /// Builds a remote load op with indices.
-      OpBuilder<(ins "Value":$memref, CArg<"ValueRange", "{}">:$indices)>
-    ];
-
-    let assemblyFormat = [{ $memref `[` $indices `]` attr-dict `:` type($memref) `->` type($result) }];
+    let assemblyFormat = [{ $cb `,` $memref `[` $indices `]` attr-dict `:` type($cb) `,` type($memref) }];
 
     let hasVerifier = 1;
 
     let extraClassDeclaration = [{
+      /// Returns the operand index of the circular buffer.
+      unsigned getCbOperandIndex() { return 0; }
+
       /// Returns the operand index of the memref.
-      unsigned getMemRefOperandIndex() { return 0; }
+      unsigned getMemRefOperandIndex() { return 1; }
 
       void setMemRef(Value value) { setOperand(getMemRefOperandIndex(), value); }
 
@@ -1210,18 +1209,22 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
         return AffineMap::getMultiDimIdentityMap(gridRank, getContext());
       }
 
+      CBType getCbType() {
+        return mlir::cast<CBType>(getCb().getType());
+      }
+
       MemRefType getMemRefType() { return cast<MemRefType>(getMemref().getType()); }
     }];
 }
 
 def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
-  [ MemoryEffects<[MemWrite]>
+  [ MemoryEffects<[MemRead, MemWrite]>
   , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
   ]> {
     let summary = "D2M Remote Store Op";
     let description = [{
-      Stores an entire shard to a remote memory location using affine indexing. This operation
-      operates at shard granularity on remote memrefs (memrefs with device layouts).
+      Stores an entire shard from a circular buffer to a remote memory location using affine indexing.
+      This operation operates at shard granularity on remote memrefs (memrefs with device layouts).
 
       D2M device memrefs have a device shape that follows a grid x shard convention:
       - For a logical shape with N dimensions, the device shape has 2N dimensions
@@ -1239,45 +1242,40 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
       - Shard dimensions: A x B x C (last 3 dims)
 
       The `d2m.remote_store` op is indexed by the grid dimensions only (first N/2 dimensions
-      of the device shape) and stores the entire shard (all elements in the last N/2 dimensions).
+      of the device shape) and stores the entire shard (all elements in the last N/2 dimensions)
+      from the circular buffer.
 
       Example:
 
       ```mlir
       // For a 2D device memref with shape P x Q x (N/P) x (M/Q)
-      // Index by grid dimensions P x Q only, store entire shard
-      d2m.remote_store %shard, %0[%i, %j] : memref<(N/P)x(M/Q)xf32>, memref<PxQx(N/P)x(M/Q)xf32, #ttcore.shard<...>, #dram>
+      // Index by grid dimensions P x Q only, store from circular buffer
+      d2m.remote_store %memref[%i, %j], %cb : memref<PxQx(N/P)x(M/Q)xf32, #ttcore.shard<...>, #dram>, !d2m.cb<memref<(N/P)x(M/Q)xf32, #l1_>>
       ```
 
       Constraints:
       - The memref must be remote (have a device layout)
       - The operation always uses an identity affine map for grid dimensions
       - The number of indices must equal N/2 where N is the memref rank (grid dimensions)
-      - The operation stores the entire shard, not individual elements
-      - The value type must be a memref/tensor matching the shard shape (last N/2 dimensions)
+      - The operation stores the entire shard from the circular buffer
+      - The circular buffer's underlying type must match the shard shape (last N/2 dimensions)
     }];
 
-    let arguments = (ins AnyType:$valueToStore,
-        Arg<AnyMemRef, "the reference to store to",
+    let arguments = (ins Arg<AnyMemRef, "the reference to store to",
         [MemWrite]>:$memref,
-        Variadic<Index>:$indices);
+        Variadic<Index>:$indices,
+        D2M_CB:$cb);
 
-    let skipDefaultBuilders = 1;
-    let builders = [
-      OpBuilder<(ins "Value":$valueToStore, "Value":$memref,
-        "ValueRange":$indices)>
-    ];
-
-    let assemblyFormat = [{ $valueToStore `,` $memref `[` $indices `]` attr-dict `:` type($valueToStore) `,` type($memref) }];
+    let assemblyFormat = [{ $memref `[` $indices `]` `,` $cb attr-dict `:` type($memref) `,` type($cb) }];
 
     let hasVerifier = 1;
 
     let extraClassDeclaration = [{
-      /// Returns the operand index of the value to be stored.
-      unsigned getStoredValOperandIndex() { return 0; }
-
       /// Returns the operand index of the memref.
-      unsigned getMemRefOperandIndex() { return 1; }
+      unsigned getMemRefOperandIndex() { return 0; }
+
+      /// Returns the operand index of the circular buffer.
+      unsigned getCbOperandIndex() { return 1 + getIndices().size(); }
 
       void setMemRef(Value value) { setOperand(getMemRefOperandIndex(), value); }
 
@@ -1287,6 +1285,10 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
         auto memrefType = getMemRefType();
         int64_t gridRank = memrefType.getRank() / 2;
         return AffineMap::getMultiDimIdentityMap(gridRank, getContext());
+      }
+
+      CBType getCbType() {
+        return mlir::cast<CBType>(getCb().getType());
       }
 
       MemRefType getMemRefType() { return cast<MemRefType>(getMemref().getType()); }

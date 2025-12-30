@@ -11,8 +11,8 @@ add_mlir_dialect_library(MLIRD2MTransforms
         GenericReplaceGlobals.cpp
         GenericTileComputeLoops.cpp
         GridSelection.cpp
-        InsertDMAOps.cpp
         InsertDstRegisterAccess.cpp
+        InsertLoadStoreOps.cpp
         InsertStreams.cpp
         LinalgToAffine.cpp
         LowerDMAOps.cpp
