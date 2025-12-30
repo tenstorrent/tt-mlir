@@ -165,7 +165,19 @@ public:
   LogicalResult matchAndRewrite(RemoteLoadOp remoteLoad,
                                 PatternRewriter &rewriter) const final {
     Location loc = remoteLoad.getLoc();
-    MemRefType remoteMemrefType = remoteLoad.getMemRefType();
+    ShapedType remoteShapedType = remoteLoad.getShapedType();
+
+    // Assert that remote operand is a memref (tensors should have been
+    // converted to memrefs before this pass)
+    auto remoteMemrefType = dyn_cast<MemRefType>(remoteShapedType);
+    assert(
+        remoteMemrefType &&
+        "remote_load operand must be a memref at this stage in the pipeline");
+    if (!remoteMemrefType) {
+      return rewriter.notifyMatchFailure(
+          remoteLoad, "remote operand must be a memref, not a tensor");
+    }
+
     CBType cbType = remoteLoad.getCbType();
     MemRefType localMemrefType = cbType.getUnderlyingAs<MemRefType>();
 
@@ -176,9 +188,13 @@ public:
 
     // Get device layout from remote memref
     ttcore::DeviceLayoutInterface deviceLayout =
-        mlir::cast<ttcore::DeviceLayoutInterface>(remoteMemrefType.getLayout());
-    ArrayRef<int64_t> gridShape = deviceLayout.getGridShape(remoteMemrefType);
-    ArrayRef<int64_t> shardShape = deviceLayout.getShardShape(remoteMemrefType);
+        ttcore::getDeviceLayout(remoteLoad.getMemref());
+    if (!deviceLayout) {
+      return rewriter.notifyMatchFailure(
+          remoteLoad, "remote memref must have a device layout");
+    }
+    ArrayRef<int64_t> gridShape = deviceLayout.getGridShape(remoteShapedType);
+    ArrayRef<int64_t> shardShape = deviceLayout.getShardShape(remoteShapedType);
 
     // Get device and calculate memory map
     ttcore::DeviceAttr device = ttcore::lookupDevice(remoteLoad);
@@ -333,7 +349,19 @@ public:
   LogicalResult matchAndRewrite(RemoteStoreOp remoteStore,
                                 PatternRewriter &rewriter) const final {
     Location loc = remoteStore.getLoc();
-    MemRefType remoteMemrefType = remoteStore.getMemRefType();
+    ShapedType remoteShapedType = remoteStore.getShapedType();
+
+    // Assert that remote operand is a memref (tensors should have been
+    // converted to memrefs before this pass)
+    auto remoteMemrefType = dyn_cast<MemRefType>(remoteShapedType);
+    assert(
+        remoteMemrefType &&
+        "remote_store operand must be a memref at this stage in the pipeline");
+    if (!remoteMemrefType) {
+      return rewriter.notifyMatchFailure(
+          remoteStore, "remote operand must be a memref, not a tensor");
+    }
+
     CBType cbType = remoteStore.getCbType();
     MemRefType localMemrefType = cbType.getUnderlyingAs<MemRefType>();
 
@@ -344,9 +372,13 @@ public:
 
     // Get device layout from remote memref
     ttcore::DeviceLayoutInterface deviceLayout =
-        mlir::cast<ttcore::DeviceLayoutInterface>(remoteMemrefType.getLayout());
-    ArrayRef<int64_t> gridShape = deviceLayout.getGridShape(remoteMemrefType);
-    ArrayRef<int64_t> shardShape = deviceLayout.getShardShape(remoteMemrefType);
+        ttcore::getDeviceLayout(remoteStore.getMemref());
+    if (!deviceLayout) {
+      return rewriter.notifyMatchFailure(
+          remoteStore, "remote memref must have a device layout");
+    }
+    ArrayRef<int64_t> gridShape = deviceLayout.getGridShape(remoteShapedType);
+    ArrayRef<int64_t> shardShape = deviceLayout.getShardShape(remoteShapedType);
 
     // Get device and calculate memory map
     ttcore::DeviceAttr device = ttcore::lookupDevice(remoteStore);
