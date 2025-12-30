@@ -330,7 +330,11 @@ void createTTIRToTTMetalPipeline(OpPassManager &pm,
 
   // Run regular ttir to ttmetal pipelines on IR in DeviceModule.
   createTTIRToTTMetalFrontendPipeline(devicePm, options);
-  createTTIRToTTMetalMiddleendPipeline(devicePm, options);
+  if (options.useUnifiedMiddleendPipeline) {
+    createTTIRToTTMetalUnifiedMiddleendPipeline(devicePm, options);
+  } else {
+    createTTIRToTTMetalMiddleendPipeline(devicePm, options);
+  }
   createTTIRToTTMetalBackendPipeline(devicePm, options);
 
   // Run lowering to LLVM pass.
