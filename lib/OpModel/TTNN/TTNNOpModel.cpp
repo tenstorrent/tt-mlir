@@ -4863,6 +4863,13 @@ struct Conv3dSpecs {
   ::ttnn::TensorSpec weightSpec;
   std::optional<::ttnn::TensorSpec> biasSpec;
   ::ttnn::operations::experimental::conv3d::Conv3dConfig config;
+  ::tt::tt_metal::DataType dtype;
+  uint32_t outputChannels;
+  std::array<uint32_t, 3> kernelSize;
+  std::array<uint32_t, 3> stride;
+  std::array<uint32_t, 3> padding;
+  std::string paddingMode;
+  uint32_t groups;
   std::optional<::ttnn::DeviceComputeKernelConfig> deviceComputeKernelConfig;
 };
 
@@ -4942,16 +4949,6 @@ llvm::Expected<Conv3dSpecs> prepareConv3dSpecs(
     dtype = detail::getNullableDataType(outputLayout);
   }
 
-  config.dtype = dtype.value_or(::tt::tt_metal::DataType::BFLOAT16);
-  config.output_channels = out_channels;
-  config.kernel_size =
-      conversion::convertLLVMArrayRefToStdArray<uint32_t, 3>(kernel_size);
-  config.stride =
-      conversion::convertLLVMArrayRefToStdArray<uint32_t, 3>(stride);
-  config.padding =
-      conversion::convertLLVMArrayRefToStdArray<uint32_t, 3>(padding);
-  config.padding_mode = padding_mode.str();
-  config.groups = groups;
   config.compute_with_storage_grid_size =
       device->compute_with_storage_grid_size();
 
@@ -4959,8 +4956,19 @@ llvm::Expected<Conv3dSpecs> prepareConv3dSpecs(
       deviceComputeKernelConfigConverted =
           conversion::getDeviceComputeKernelConfig(deviceComputeKernelConfig);
 
-  return Conv3dSpecs{inputSpec, weightSpec, biasSpec, config,
-                     deviceComputeKernelConfigConverted};
+  return Conv3dSpecs{
+      inputSpec,
+      weightSpec,
+      biasSpec,
+      config,
+      dtype.value_or(::tt::tt_metal::DataType::BFLOAT16),
+      out_channels,
+      conversion::convertLLVMArrayRefToStdArray<uint32_t, 3>(kernel_size),
+      conversion::convertLLVMArrayRefToStdArray<uint32_t, 3>(stride),
+      conversion::convertLLVMArrayRefToStdArray<uint32_t, 3>(padding),
+      padding_mode.str(),
+      groups,
+      deviceComputeKernelConfigConverted};
 }
 } // namespace
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -4997,7 +5005,9 @@ llvm::Expected<OpConstraints> OpModel<Conv3dOp>::getOpConstraints(
   auto conv3dOpQuery = [=, &specs]() {
     return ::ttnn::graph::query_op_constraints(
         ::ttnn::experimental::conv3d, device, specs.inputSpec, specs.weightSpec,
-        specs.biasSpec, specs.config,
+        specs.biasSpec, specs.config, specs.dtype, specs.outputChannels,
+        specs.kernelSize, specs.stride, specs.padding,
+        std::array<uint32_t, 3>{1, 1, 1}, specs.paddingMode, specs.groups,
         detail::getNullableMemoryConfig(outputLayout),
         specs.deviceComputeKernelConfig);
   };
@@ -5040,7 +5050,9 @@ llvm::Expected<size_t> OpModel<Conv3dOp>::getOpRuntime(
   auto conv3dOpRuntime = [=, &specs]() {
     return ::ttnn::graph::query_op_runtime(
         ::ttnn::experimental::conv3d, device, specs.inputSpec, specs.weightSpec,
-        specs.biasSpec, specs.config,
+        specs.biasSpec, specs.config, specs.dtype, specs.outputChannels,
+        specs.kernelSize, specs.stride, specs.padding,
+        std::array<uint32_t, 3>{1, 1, 1}, specs.paddingMode, specs.groups,
         detail::getNullableMemoryConfig(outputLayout),
         specs.deviceComputeKernelConfig);
   };
