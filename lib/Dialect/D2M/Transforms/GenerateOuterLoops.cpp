@@ -207,9 +207,9 @@ public:
     scf::LoopNest loopNest = buildLoopNest(
         rewriter, generic.getLoc(), loopBounds, regionBlock, loopedBlock);
 
-    // Mark the outermost loop with an attribute to prevent re-processing
-    if (!loopNest.loops.empty()) {
-      loopNest.loops.front()->setAttr("d2m.outer_loop", rewriter.getUnitAttr());
+    // Mark all loops in the nest with an attribute to prevent re-processing
+    for (scf::ForOp loop : loopNest.loops) {
+      loop->setAttr("d2m.outer_loop", rewriter.getUnitAttr());
     }
 
     // Replace IterIndexOp uses. We need to do this after the loops are created
