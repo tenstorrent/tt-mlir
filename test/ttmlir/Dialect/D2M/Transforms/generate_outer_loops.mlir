@@ -63,7 +63,6 @@ module {
       // CHECK:       d2m.remote_load %cb1, %arg1[%{{.*}}, %{{.*}}]
       // CHECK:       d2m.wait %cb1
       // CHECK:       d2m.reserve %cb2
-      // CHECK:       d2m.wait %cb2
       // CHECK:     }
       // CHECK:   }
       // CHECK: } {d2m.outer_loop}
@@ -113,8 +112,6 @@ module {
       // CHECK:   d2m.core_index(0)
       // CHECK:   d2m.core_index(1)
       // CHECK:   scf.for %[[IV1:.*]] = %{{.*}} to %{{.*}} step %{{.*}} {
-      // CHECK:     d2m.reserve %cb0
-      // CHECK:     d2m.wait %cb0
       // CHECK:     d2m.wait %cb0
       // CHECK:     %{{.*}} = d2m.reserve %cb1
       // CHECK:     arith.addi %{{.*}}, %{{.*}}
