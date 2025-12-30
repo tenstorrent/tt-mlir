@@ -11,7 +11,7 @@
 #include "mlir/IR/Attributes.h"
 #include "llvm/ADT/DenseMapInfo.h"
 #include "llvm/ADT/Hashing.h"
-#include "llvm/Support/FormatVariadicDetails.h"
+#include "llvm/Support/FormatVariadic.h"
 
 #include <variant>
 
@@ -170,6 +170,18 @@ struct format_provider<mlir::tt::ttnn::OpConfig::OpSpecificAttrs> {
     std::visit([&os](const auto &attr) { os << attr.toString(); }, variant);
   }
 };
+
+template <>
+struct format_provider<mlir::tt::ttnn::OpConfig> {
+  static void format(const mlir::tt::ttnn::OpConfig &config, raw_ostream &os,
+                     StringRef options) {
+    os << "OutputLayout: ";
+    os << config.outputLayout;
+    os << ", OpSpecificAttrs: ";
+    os << llvm::formatv("{0}", config.opSpecificAttrs);
+  }
+};
+
 } // namespace llvm
 
 #endif // TTMLIR_DIALECT_TTNN_ANALYSIS_OPCONFIG_H

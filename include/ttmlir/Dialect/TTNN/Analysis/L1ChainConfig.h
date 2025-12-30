@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/ShardSolver.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/Support/Logger.h"
 
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/Support/raw_ostream.h"
@@ -41,6 +42,12 @@ struct OpL1MemSpec {
 // resolved to a single config.
 //
 enum class L1ChainState { InBuild, Built, Resolved, Completed, Failed };
+
+// Enum to specify where chain output should be spilled after execution.
+// None: No spill needed (output stays in current layout)
+// L1Interleaved: Spill to L1 interleaved (for ops that need interleaved input)
+// DRAM: Spill to DRAM interleaved (default for chain outputs)
+enum class SpillLocation { None, L1Interleaved, DRAM };
 
 class L1ChainConfig {
 private:
@@ -100,7 +107,21 @@ public:
     return opL1MemSpecs.back().op;
   }
 
-  bool spillEndToDRAM = false;
+  void fail() { state = L1ChainState::Failed; }
+
+  // Where to spill the chain's output after execution
+  SpillLocation spillLocation = SpillLocation::None;
+
+  // True if this chain contains only a ConcatOp and requires special handling.
+  // Concat chains are resolved separately without ShardSolver, by validating
+  // that all incoming L1-sharded inputs can be consumed directly.
+  bool isConcatChain = false;
+
+  // Preferred memory layout for the last op's output when this chain feeds
+  // into an op with sharding constraints (e.g., concat). Set by pre-pass
+  // after chain building, used by pickOpShardConfigs to prefer compatible
+  // layouts.
+  std::optional<TensorMemoryLayout> preferredOutputMemLayout = std::nullopt;
 };
 
 inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
@@ -109,8 +130,7 @@ inline llvm::raw_ostream &operator<<(llvm::raw_ostream &os,
   os << "\n\tState: " << config.getStateString();
   for (const auto &opL1MemSpec : config.getOpL1MemSpecs()) {
     os << "\n\t";
-    opL1MemSpec.op->print(os);
-    os << "@ loc: " << utils::getOpLocName(opL1MemSpec.op);
+    os << ttmlir::opToString(opL1MemSpec.op);
     os << "\n\t\t outputLayout: " << opL1MemSpec.config.outputLayout;
   }
   return os;
