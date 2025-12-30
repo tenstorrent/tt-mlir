@@ -735,6 +735,10 @@ def D2MMaterializeViewReturns : Pass<"d2m-materialize-view-returns", "::mlir::Mo
 
     This pass should run after layout lowering and before bufferization.
   }];
+  list<Option> options = [
+    Option<"useUnifiedMiddleendPipeline", "use-unified-middleend-pipeline", "bool", "false",
+           "Use unified middleend pipeline mode (generate remote_load/remote_store instead of DMA ops)">,
+  ];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect", "::mlir::tt::ttcore::TTCoreDialect"];
 }
 

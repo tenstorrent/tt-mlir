@@ -283,7 +283,7 @@ void createTTIRToTTMetalUnifiedMiddleendPipeline(
   pm.addPass(mlir::createLowerAffinePass());
   pm.addPass(d2m::createD2MGenericLinearizeMemref());
   pm.addPass(d2m::createD2MSplitUnifiedThread());
-  pm.addPass(d2m::createD2MInsertLoadStoreOps());
+  pm.addPass(d2m::createD2MLowerLoadStoreOpsToDMA());
   pm.addPass(createCanonicalizerPassWithOptions(options));
   createOptimizationPasses(pm, options);
   pm.addPass(d2m::createD2MGenericRegionsToFuncs());
