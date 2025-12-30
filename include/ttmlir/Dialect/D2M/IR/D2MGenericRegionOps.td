@@ -1136,6 +1136,164 @@ def D2M_DMAWaitOp : D2M_GenericRegionDatamovementOp<"dma_wait", [MemoryEffects<[
 }
 
 //===----------------------------------------------------------------------===//
+// D2M Generic Region Remote Load/Store Ops (Based on Affine Load/Store)
+//===----------------------------------------------------------------------===//
+
+def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
+  [ MemoryEffects<[MemRead]>
+  , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
+  ]> {
+    let summary = "D2M Remote Load Op";
+    let description = [{
+      Loads an entire shard from a remote memory location using affine indexing. This operation
+      operates at shard granularity on remote memrefs (memrefs with device layouts).
+
+      D2M device memrefs have a device shape that follows a grid x shard convention:
+      - For a logical shape with N dimensions, the device shape has 2N dimensions
+      - The first N dimensions are grid dimensions (sharding distribution)
+      - The last N dimensions are shard dimensions (dimensions of each shard)
+
+      Example 1: 2D tensor with logical shape NxM and grid PxQ
+      - Device shape: P x Q x (N/P) x (M/Q)
+      - Grid dimensions: P x Q (first 2 dims)
+      - Shard dimensions: (N/P) x (M/Q) (last 2 dims)
+
+      Example 2: 3D tensor with logical shape NxMxO and shard AxBxC
+      - Device shape: (N/A) x (M/B) x (O/C) x A x B x C
+      - Grid dimensions: (N/A) x (M/B) x (O/C) (first 3 dims)
+      - Shard dimensions: A x B x C (last 3 dims)
+
+      The `d2m.remote_load` op is indexed by the grid dimensions only (first N/2 dimensions
+      of the device shape) and loads the entire shard (all elements in the last N/2 dimensions).
+
+      Example:
+
+      ```mlir
+      // For a 2D device memref with shape P x Q x (N/P) x (M/Q)
+      // Index by grid dimensions P x Q only
+      %shard = d2m.remote_load %0[%i, %j] : memref<PxQx(N/P)x(M/Q)xf32, #ttcore.shard<...>, #dram> -> memref<(N/P)x(M/Q)xf32>
+      ```
+
+      Constraints:
+      - The memref must be remote (have a device layout)
+      - The operation always uses an identity affine map for grid dimensions
+      - The number of indices must equal N/2 where N is the memref rank (grid dimensions)
+      - The operation loads the entire shard, not individual elements
+    }];
+
+    let arguments = (ins Arg<AnyMemRef, "the reference to load from",
+        [MemRead]>:$memref,
+        Variadic<Index>:$indices);
+
+    let results = (outs AnyType:$result);
+
+    let builders = [
+      /// Builds a remote load op with indices.
+      OpBuilder<(ins "Value":$memref, CArg<"ValueRange", "{}">:$indices)>
+    ];
+
+    let assemblyFormat = [{ $memref `[` $indices `]` attr-dict `:` type($memref) `->` type($result) }];
+
+    let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      /// Returns the operand index of the memref.
+      unsigned getMemRefOperandIndex() { return 0; }
+
+      void setMemRef(Value value) { setOperand(getMemRefOperandIndex(), value); }
+
+      /// Returns the identity affine map used to index the memref for this operation.
+      /// The map always has N/2 results where N is the memref rank (grid dimensions).
+      AffineMap getAffineMap() {
+        auto memrefType = getMemRefType();
+        int64_t gridRank = memrefType.getRank() / 2;
+        return AffineMap::getMultiDimIdentityMap(gridRank, getContext());
+      }
+
+      MemRefType getMemRefType() { return cast<MemRefType>(getMemref().getType()); }
+    }];
+}
+
+def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
+  [ MemoryEffects<[MemWrite]>
+  , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
+  ]> {
+    let summary = "D2M Remote Store Op";
+    let description = [{
+      Stores an entire shard to a remote memory location using affine indexing. This operation
+      operates at shard granularity on remote memrefs (memrefs with device layouts).
+
+      D2M device memrefs have a device shape that follows a grid x shard convention:
+      - For a logical shape with N dimensions, the device shape has 2N dimensions
+      - The first N dimensions are grid dimensions (sharding distribution)
+      - The last N dimensions are shard dimensions (dimensions of each shard)
+
+      Example 1: 2D tensor with logical shape NxM and grid PxQ
+      - Device shape: P x Q x (N/P) x (M/Q)
+      - Grid dimensions: P x Q (first 2 dims)
+      - Shard dimensions: (N/P) x (M/Q) (last 2 dims)
+
+      Example 2: 3D tensor with logical shape NxMxO and shard AxBxC
+      - Device shape: (N/A) x (M/B) x (O/C) x A x B x C
+      - Grid dimensions: (N/A) x (M/B) x (O/C) (first 3 dims)
+      - Shard dimensions: A x B x C (last 3 dims)
+
+      The `d2m.remote_store` op is indexed by the grid dimensions only (first N/2 dimensions
+      of the device shape) and stores the entire shard (all elements in the last N/2 dimensions).
+
+      Example:
+
+      ```mlir
+      // For a 2D device memref with shape P x Q x (N/P) x (M/Q)
+      // Index by grid dimensions P x Q only, store entire shard
+      d2m.remote_store %shard, %0[%i, %j] : memref<(N/P)x(M/Q)xf32>, memref<PxQx(N/P)x(M/Q)xf32, #ttcore.shard<...>, #dram>
+      ```
+
+      Constraints:
+      - The memref must be remote (have a device layout)
+      - The operation always uses an identity affine map for grid dimensions
+      - The number of indices must equal N/2 where N is the memref rank (grid dimensions)
+      - The operation stores the entire shard, not individual elements
+      - The value type must be a memref/tensor matching the shard shape (last N/2 dimensions)
+    }];
+
+    let arguments = (ins AnyType:$valueToStore,
+        Arg<AnyMemRef, "the reference to store to",
+        [MemWrite]>:$memref,
+        Variadic<Index>:$indices);
+
+    let skipDefaultBuilders = 1;
+    let builders = [
+      OpBuilder<(ins "Value":$valueToStore, "Value":$memref,
+        "ValueRange":$indices)>
+    ];
+
+    let assemblyFormat = [{ $valueToStore `,` $memref `[` $indices `]` attr-dict `:` type($valueToStore) `,` type($memref) }];
+
+    let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      /// Returns the operand index of the value to be stored.
+      unsigned getStoredValOperandIndex() { return 0; }
+
+      /// Returns the operand index of the memref.
+      unsigned getMemRefOperandIndex() { return 1; }
+
+      void setMemRef(Value value) { setOperand(getMemRefOperandIndex(), value); }
+
+      /// Returns the identity affine map used to index the memref for this operation.
+      /// The map always has N/2 results where N is the memref rank (grid dimensions).
+      AffineMap getAffineMap() {
+        auto memrefType = getMemRefType();
+        int64_t gridRank = memrefType.getRank() / 2;
+        return AffineMap::getMultiDimIdentityMap(gridRank, getContext());
+      }
+
+      MemRefType getMemRefType() { return cast<MemRefType>(getMemref().getType()); }
+    }];
+}
+
+//===----------------------------------------------------------------------===//
 // D2M Generic Region Semaphore Ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//
 

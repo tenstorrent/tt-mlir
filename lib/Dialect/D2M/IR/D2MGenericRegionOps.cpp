@@ -9,6 +9,7 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
+#include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinTypeInterfaces.h"
 #include "mlir/Interfaces/InferIntRangeInterface.h"
 #include "llvm/ADT/APInt.h"
@@ -335,6 +336,180 @@ DMAOp::bufferize(mlir::RewriterBase &rewriter,
       getOptNumElemsAttr(), getMcastStartIndex(), getMcastShape());
 
   return mlir::success();
+}
+
+//===----------------------------------------------------------------------===//
+// Remote Load/Store Operations
+//===----------------------------------------------------------------------===//
+
+void RemoteLoadOp::build(mlir::OpBuilder &builder, mlir::OperationState &state,
+                         mlir::Value memref, mlir::ValueRange indices) {
+  auto memrefType = mlir::cast<mlir::MemRefType>(memref.getType());
+
+  // Get the shard shape from the device layout
+  auto deviceLayout = ttcore::getDeviceLayout(memref);
+  if (!deviceLayout) {
+    // Fallback: create a memref with shard dimensions
+    // This should not happen if verification is correct, but handle gracefully
+    auto shardShape =
+        memrefType.getShape().drop_front(memrefType.getRank() / 2);
+    auto shardMemRefType = mlir::MemRefType::get(
+        llvm::to_vector(shardShape), memrefType.getElementType(),
+        memrefType.getLayout(), memrefType.getMemorySpace());
+    state.addOperands(memref);
+    state.addOperands(indices);
+    state.addTypes(shardMemRefType);
+    return;
+  }
+
+  auto shardShape = deviceLayout.getShardShape(memrefType);
+  auto shardMemRefType = mlir::MemRefType::get(
+      llvm::to_vector(shardShape), memrefType.getElementType(),
+      memrefType.getLayout(), memrefType.getMemorySpace());
+
+  state.addOperands(memref);
+  state.addOperands(indices);
+  state.addTypes(shardMemRefType);
+}
+
+void RemoteStoreOp::build(mlir::OpBuilder &builder, mlir::OperationState &state,
+                          mlir::Value valueToStore, mlir::Value memref,
+                          mlir::ValueRange indices) {
+  state.addOperands(valueToStore);
+  state.addOperands(memref);
+  state.addOperands(indices);
+}
+
+::mlir::LogicalResult RemoteLoadOp::verify() {
+  auto memrefType = getMemRefType();
+
+  // Verify that the memref is remote (has device layout)
+  if (!ttcore::hasDeviceLayout(getMemref())) {
+    return emitOpError("memref must be remote (have a device layout)");
+  }
+
+  // Verify memref rank is even (grid + shard dimensions)
+  if (memrefType.getRank() % 2 != 0) {
+    return emitOpError(
+        "memref rank must be even for device shape (grid + shard dimensions)");
+  }
+
+  // Verify indices count matches grid dimensions (first N/2 dimensions)
+  int64_t gridRank = memrefType.getRank() / 2;
+  if (static_cast<int64_t>(getIndices().size()) != gridRank) {
+    return emitOpError("number of indices must equal grid rank (N/2 where N is "
+                       "memref rank), got ")
+           << getIndices().size() << " indices but expected " << gridRank;
+  }
+
+  // Verify result type matches shard shape
+  auto deviceLayout = ttcore::getDeviceLayout(getMemref());
+  if (!deviceLayout) {
+    return emitOpError("failed to get device layout from memref");
+  }
+
+  auto shardShape = deviceLayout.getShardShape(memrefType);
+  auto resultType = mlir::dyn_cast<mlir::ShapedType>(getResult().getType());
+  if (!resultType) {
+    return emitOpError("result type must be a shaped type (memref or tensor)");
+  }
+
+  // Verify result shape matches shard shape
+  if (resultType.getRank() != static_cast<int64_t>(shardShape.size())) {
+    return emitOpError("result rank must match shard shape rank, got ")
+           << resultType.getRank() << " but expected " << shardShape.size();
+  }
+
+  for (size_t i = 0; i < shardShape.size(); ++i) {
+    if (shardShape[i] != mlir::ShapedType::kDynamic &&
+        resultType.getDimSize(i) != mlir::ShapedType::kDynamic &&
+        shardShape[i] != resultType.getDimSize(i)) {
+      return emitOpError("result shape must match shard shape at dimension ")
+             << i << ", got " << resultType.getDimSize(i) << " but expected "
+             << shardShape[i];
+    }
+  }
+
+  // Verify element types match
+  Type resultElementType = resultType.getElementType();
+  Type memrefElementType = memrefType.getElementType();
+  if (resultElementType != memrefElementType) {
+    return emitOpError("result element type must match memref element type");
+  }
+
+  return mlir::success();
+}
+
+::mlir::LogicalResult RemoteStoreOp::verify() {
+  auto memrefType = getMemRefType();
+
+  // Verify that the memref is remote (has device layout)
+  if (!ttcore::hasDeviceLayout(getMemref())) {
+    return emitOpError("memref must be remote (have a device layout)");
+  }
+
+  // Verify memref rank is even (grid + shard dimensions)
+  if (memrefType.getRank() % 2 != 0) {
+    return emitOpError(
+        "memref rank must be even for device shape (grid + shard dimensions)");
+  }
+
+  // Verify indices count matches grid dimensions (first N/2 dimensions)
+  int64_t gridRank = memrefType.getRank() / 2;
+  if (static_cast<int64_t>(getIndices().size()) != gridRank) {
+    return emitOpError("number of indices must equal grid rank (N/2 where N is "
+                       "memref rank), got ")
+           << getIndices().size() << " indices but expected " << gridRank;
+  }
+
+  // Verify value type matches shard shape
+  auto deviceLayout = ttcore::getDeviceLayout(getMemref());
+  if (!deviceLayout) {
+    return emitOpError("failed to get device layout from memref");
+  }
+
+  auto shardShape = deviceLayout.getShardShape(memrefType);
+  auto valueType =
+      mlir::dyn_cast<mlir::ShapedType>(getValueToStore().getType());
+  if (!valueType) {
+    return emitOpError("value type must be a shaped type (memref or tensor)");
+  }
+
+  // Verify value shape matches shard shape
+  if (valueType.getRank() != static_cast<int64_t>(shardShape.size())) {
+    return emitOpError("value rank must match shard shape rank, got ")
+           << valueType.getRank() << " but expected " << shardShape.size();
+  }
+
+  for (size_t i = 0; i < shardShape.size(); ++i) {
+    if (shardShape[i] != mlir::ShapedType::kDynamic &&
+        valueType.getDimSize(i) != mlir::ShapedType::kDynamic &&
+        shardShape[i] != valueType.getDimSize(i)) {
+      return emitOpError("value shape must match shard shape at dimension ")
+             << i << ", got " << valueType.getDimSize(i) << " but expected "
+             << shardShape[i];
+    }
+  }
+
+  // Verify element types match
+  Type valueElementType = valueType.getElementType();
+  Type memrefElementType = memrefType.getElementType();
+  if (valueElementType != memrefElementType) {
+    return emitOpError("value element type must match memref element type");
+  }
+
+  return mlir::success();
+}
+
+void RemoteLoadOp::getAsmResultNames(
+    function_ref<void(Value, StringRef)> setNameFn) {
+  setNameFn(getResult(), "val");
+}
+
+void RemoteStoreOp::getAsmResultNames(
+    function_ref<void(Value, StringRef)> setNameFn) {
+  // Store operations don't have results, so this is a no-op
+  // but we need to implement it since it's declared in the interface
 }
 
 //===----------------------------------------------------------------------===//
