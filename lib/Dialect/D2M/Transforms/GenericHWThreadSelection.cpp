@@ -19,19 +19,18 @@ class D2MGenericMergeDatamovementThreadsRewritePattern
     : public OpRewritePattern<GenericOp> {
 public:
   using OpRewritePattern<GenericOp>::OpRewritePattern;
-  unsigned numDMAHWThreads;
 
-  D2MGenericMergeDatamovementThreadsRewritePattern(MLIRContext *context,
-                                                   unsigned numDMAHWThreads)
-      : OpRewritePattern<GenericOp>(context), numDMAHWThreads(numDMAHWThreads) {
-    assert(numDMAHWThreads > 0 && "numDMAHWThreads must be greater than 0");
-  }
+  D2MGenericMergeDatamovementThreadsRewritePattern(MLIRContext *context)
+      : OpRewritePattern<GenericOp>(context) {}
 
   // Returns true if the region contains only a d2m.wait
   // associated with the output CB.
   static bool isLocalPopForOutputCB(Region &region,
                                     unsigned outputOperandsIndex) {
-    assert(region.getBlocks().size() == 1);
+    // Only check trivial regions (single block, single operation).
+    if (region.getBlocks().size() != 1) {
+      return false;
+    }
     auto &block = region.front();
     if (block.getOperations().size() != 1) {
       return false;
@@ -54,13 +53,13 @@ public:
   LogicalResult matchAndRewrite(GenericOp op,
                                 PatternRewriter &rewriter) const final {
 
-    // Ops with # threads <= # DMA HW Threads don't need to be merged.
+    // Count datamovement threads - merge if there's more than 1.
     size_t numDatamovementThreads =
         llvm::count_if(op.getThreads(), [](Attribute threadAttr) {
           return mlir::cast<ThreadAttr>(threadAttr).getThreadType() ==
                  ThreadType::Datamovement;
         });
-    if (numDatamovementThreads <= numDMAHWThreads) {
+    if (numDatamovementThreads <= 1) {
       return failure();
     }
 
@@ -70,11 +69,10 @@ public:
     bool hasComputeThread =
         lastThreadAttr && lastThreadAttr.getThreadType() == ThreadType::Compute;
 
-    // The final merged region will always have numDMAHWThreads datamovement
-    // threads and (if present in original op) a compute thread
+    // The final merged region will always have 1 datamovement thread
+    // and (if present in original op) a compute thread
     SmallVector<Attribute> threads(
-        numDMAHWThreads,
-        rewriter.getAttr<ThreadAttr>(ThreadType::Datamovement));
+        1, rewriter.getAttr<ThreadAttr>(ThreadType::Datamovement));
     if (hasComputeThread) {
       threads.push_back(rewriter.getAttr<ThreadAttr>(ThreadType::Compute));
     }
@@ -94,33 +92,31 @@ public:
       });
     }
 
-    // Copy initial dma threads to newGeneric. Merging to an empty block
-    // results in discarding cb block args, so we must copy the first
-    // numDMAHWThreads blocks instead of uniformly merging everything.
-    unsigned regionIndex = 0;
-    for (unsigned i = 0; i < numDMAHWThreads; ++i) {
-      assert(op.getRegion(i).getBlocks().size() == 1 &&
-             "all datamovement regions should have exactly one block");
-      rewriter.modifyOpInPlace(op, [&] {
-        newGeneric.getRegion(regionIndex++).takeBody(op.getRegion(i));
-      });
-    }
+    // Copy the first DMA thread to newGeneric. Merging to an empty block
+    // results in discarding cb block args, so we must copy the first block
+    // instead of uniformly merging everything.
+    rewriter.modifyOpInPlace(
+        op, [&] { newGeneric.getRegion(0).takeBody(op.getRegion(0)); });
 
-    // Track which regions have already had their initial ops wrapped.
-    llvm::DenseSet<unsigned> wrappedRegions;
+    // Track whether we've wrapped the DMA region's initial ops.
+    bool wrappedDmaRegion = false;
 
-    // Merge remaining DMA threads into existing DMA regions in newGeneric.
-    // IMPORTANT: output DMA blocks MUST be merged after all input DMA blocks in
-    // a region.
+    // Merge all remaining DMA threads into the single DMA region.
+    // IMPORTANT: output DMA blocks MUST be merged after all input DMA blocks.
     //
     // When merging threads, ensure the ops from each thread are scoped in an
     // scf.execute_region op. This greatly simplifies the logic for inserting CB
     // ops and avoids deadlocks in reader-writer kernels.
-    unsigned dmaInputThreadsMerged = 0;
     unsigned outputOperandsIndex = op.getOutputs().getBeginOperandIndex();
-    for (unsigned i = numDMAHWThreads; i <= outputOperandsIndex; ++i) {
-      assert(op.getRegion(i).getBlocks().size() == 1 &&
-             "all datamovement regions should have exactly one block");
+    // Iterate through all remaining DMA thread regions (skip region 0 which we
+    // already copied).
+    for (unsigned i = 1; i < numDatamovementThreads; ++i) {
+      // Skip if region doesn't exist or is empty.
+      if (i >= op.getNumRegions() || op.getRegion(i).empty()) {
+        continue;
+      }
+      // Get the entry block of the source region (may have multiple blocks
+      // after lower-dmas pass).
       Block *mergeSrcBlock = &op.getRegion(i).front();
 
       unsigned dmaMergeTargetIndex = 0;
@@ -128,22 +124,18 @@ public:
           isLocalPopForOutputCB(op.getRegion(i), outputOperandsIndex)) {
         // Merge trivial output DMA into compute region, if it exists.
         dmaMergeTargetIndex = newGeneric->getNumRegions() - 1;
-      } else if (i == outputOperandsIndex) {
-        // Always merge output to last DMA region (associated with NOC1).
-        dmaMergeTargetIndex = numDMAHWThreads - 1;
       } else {
-        // Merge input DMA threads to alternate DMA regions.
-        dmaMergeTargetIndex = dmaInputThreadsMerged % numDMAHWThreads;
-        dmaInputThreadsMerged++;
+        // Always merge into the single DMA region (index 0).
+        dmaMergeTargetIndex = 0;
       }
       Block *mergeDestBlock =
           &newGeneric.getRegion(dmaMergeTargetIndex).front();
 
-      // If this is the first merge into this region, wrap the existing ops
+      // If this is the first merge into the DMA region, wrap the existing ops
       // first.
-      if (!wrappedRegions.contains(dmaMergeTargetIndex)) {
+      if (dmaMergeTargetIndex == 0 && !wrappedDmaRegion) {
         wrapBlockOpsInExecuteRegion(rewriter, *mergeDestBlock, op.getLoc());
-        wrappedRegions.insert(dmaMergeTargetIndex);
+        wrappedDmaRegion = true;
       }
 
       // Wrap the source block's operations in execute_region before merging.
@@ -203,7 +195,7 @@ public:
 
     RewritePatternSet patterns(&getContext());
     patterns.add<D2MGenericMergeDatamovementThreadsRewritePattern>(
-        &getContext(), chipDesc.getNumDatamovementThreads());
+        &getContext());
     walkAndApplyPatterns(getOperation(), std::move(patterns));
 
     moduleOp.walk([&](GenericOp op) {
