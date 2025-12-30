@@ -16,6 +16,7 @@ if [ -d "tt-mlir" ]; then
 else
   git clone https://github.com/tenstorrent/tt-mlir.git tt-mlir
 fi
+
 cronexist=$(crontab -l 2>/dev/null | grep explorer-setup.sh || true)
 if [ -z "$cronexist" ]; then
   echo "Setting up cron job for daily Explorer setup..."
@@ -23,6 +24,15 @@ if [ -z "$cronexist" ]; then
 else
   echo "Cron job for Explorer setup already exists."
 fi
+
+cronexist=$(crontab -l 2>/dev/null | grep docker-cleanup.sh || true)
+if [ -z "$cronexist" ]; then
+  echo "Setting up cron job for daily Docker cleanup..."
+  (crontab -l  2>/dev/null; echo "0 8 * * * /bin/bash /srv/tt-mlir/tools/explorer/hosted/docker-cleanup.sh >> /var/log/docker-cleanup.log 2>&1") | crontab -
+else
+  echo "Cron job for Docker cleanup already exists."
+fi
+
 cd /srv/tt-mlir/tools/explorer/hosted
 echo "Building Explorer dockers..."
 make build-full
