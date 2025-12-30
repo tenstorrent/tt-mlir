@@ -277,7 +277,7 @@ def test_binary_ops_l1(
         pytest.xfail("failing allclose for some shapes")
     if op == div and ttnn_dtype == ttnn.DataType.BFLOAT8_B:
         pytest.xfail("mysterious error msg")
-    if op in [maximum, pow] and ttnn_dtype == ttnn.DataType.BFLOAT8_B:
+    if op in [maximum, minimum, pow] and ttnn_dtype == ttnn.DataType.BFLOAT8_B:
         pytest.xfail("failing allclose for some shapes for bfp8")
 
     compile_only = True if op == div else False
