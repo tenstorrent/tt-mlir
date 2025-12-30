@@ -6,7 +6,6 @@
 #include "tt-metalium/program_descriptors.hpp"
 #include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/logger.h"
-#include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/types/program_desc_cache.h"
 
 #include "tt/runtime/detail/ttnn/utils.h"
@@ -178,6 +177,34 @@ static std::vector<uint32_t> createKernelArgs(
   return coreArgs;
 }
 
+template <typename KernelRtArgsT>
+static ::tt::tt_metal::KernelDescriptor::RuntimeArgs
+createRuntimeArgs(const KernelRtArgsT *rtArgs,
+                  const std::vector<::ttnn::Tensor> &ioTensors) {
+  using RuntimeArgsT = ::tt::tt_metal::KernelDescriptor::RuntimeArgs;
+  using CoreRuntimeArgsT = ::tt::tt_metal::KernelDescriptor::CoreRuntimeArgs;
+
+  RuntimeArgsT runtimeArgs;
+  if (!rtArgs || rtArgs->size() == 0) {
+    return runtimeArgs;
+  }
+
+  auto sizeX = rtArgs->size();
+  auto sizeY = rtArgs->Get(0)->args()->size();
+
+  runtimeArgs.reserve(sizeX * sizeY);
+  for (unsigned int x = 0; x < sizeX; x++) {
+    for (unsigned int y = 0; y < sizeY; y++) {
+      CoreRuntimeArgsT coreRuntimeArgs =
+          createKernelArgs(*rtArgs->Get(x)->args()->Get(y), ioTensors);
+      runtimeArgs.emplace_back(::tt::tt_metal::CoreCoord{x, y},
+                               std::move(coreRuntimeArgs));
+    }
+  }
+
+  return runtimeArgs;
+}
+
 static ::tt::tt_metal::KernelDescriptor
 createKernelDescriptor(const ::tt::target::ttnn::KernelDescriptor &kernelDesc,
                        const std::vector<::ttnn::Tensor> &ioTensors) {
@@ -189,22 +216,8 @@ createKernelDescriptor(const ::tt::target::ttnn::KernelDescriptor &kernelDesc,
   ::tt::tt_metal::KernelDescriptor::CompileTimeArgs compileTimeArgs =
       createKernelArgs(*kernelDesc.ct_args());
 
-  ::tt::tt_metal::KernelDescriptor::RuntimeArgs runtimeArgs;
-  if (kernelDesc.rt_args()) {
-    auto sizeX = kernelDesc.rt_args()->size();
-    auto sizeY = kernelDesc.rt_args()->Get(0)->args()->size();
-    runtimeArgs.resize(
-        sizeX,
-        std::vector<::tt::tt_metal::KernelDescriptor::CoreRuntimeArgs>(sizeY));
-    for (unsigned int i = 0; i < sizeX; i++) {
-      for (unsigned int j = 0; j < sizeY; j++) {
-        ::tt::tt_metal::KernelDescriptor::CoreRuntimeArgs coreRuntimeArgs =
-            createKernelArgs(*kernelDesc.rt_args()->Get(i)->args()->Get(j),
-                             ioTensors);
-        runtimeArgs[i][j] = coreRuntimeArgs;
-      }
-    }
-  }
+  ::tt::tt_metal::KernelDescriptor::RuntimeArgs runtimeArgs =
+      createRuntimeArgs(kernelDesc.rt_args(), ioTensors);
   ::tt::tt_metal::KernelDescriptor kernelDescriptor = {
       .kernel_source = kernelSource,
       .source_type = convertSourceType(kernelDesc.source_type()),
@@ -253,21 +266,7 @@ void overrideArgs(
     kernel.common_runtime_args =
         createKernelArgs(*kernelDesc->common_rt_args(), ioTensors);
 
-    if (kernelDesc->rt_args()) {
-      auto sizeX = kernelDesc->rt_args()->size();
-      auto sizeY = kernelDesc->rt_args()->Get(0)->args()->size();
-      kernel.runtime_args.resize(
-          sizeX, std::vector<::tt::tt_metal::KernelDescriptor::CoreRuntimeArgs>(
-                     sizeY));
-      for (unsigned int x = 0; x < sizeX; x++) {
-        for (unsigned int y = 0; y < sizeY; y++) {
-          ::tt::tt_metal::KernelDescriptor::CoreRuntimeArgs coreRuntimeArgs =
-              createKernelArgs(*kernelDesc->rt_args()->Get(x)->args()->Get(y),
-                               ioTensors);
-          kernel.runtime_args[x][y] = coreRuntimeArgs;
-        }
-      }
-    }
+    kernel.runtime_args = createRuntimeArgs(kernelDesc->rt_args(), ioTensors);
   }
   for (size_t i = 0; i < programDescriptor->cbs.size(); ++i) {
     const auto *cbDesc = programDesc->cbs()->Get(i);
@@ -289,7 +288,8 @@ void run(const ::tt::target::ttnn::GenericOp *op, ProgramContext &context) {
         tensorPool.getTTNNTensorAndValidate(op->io_tensors()->Get(i));
   }
 
-  auto programDescCache = context.getExecutableHandle().getProgramDescCache();
+  std::shared_ptr<::tt::runtime::ProgramDescCache> programDescCache =
+      context.getExecutableHandle().getProgramDescCache();
 
   auto *programDesc = op->program();
 
