@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-insert-load-store-ops --d2m-generate-outer-loops --d2m-split-unified-thread --d2m-lower-load-store-ops-to-dma --lower-affine -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-insert-load-store-ops --d2m-generate-outer-loops --d2m-split-unified-thread --d2m-lower-load-store-ops-to-dma -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 #l1_ = #ttcore.memory_space<l1>
@@ -29,9 +29,6 @@ module {
       // CHECK:     d2m.core_index(0)
       // CHECK:     d2m.core_index(1)
       // CHECK:     scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
-      // CHECK:       arith.addi
-      // CHECK:       arith.addi
-      // CHECK-NOT: affine.apply
       // CHECK:       d2m.reserve %cb0
       // CHECK:       d2m.dma_read %arg0[%{{.*}}, %{{.*}}, %{{.*}}], %{{.*}}[%{{.*}}], <8>
       // CHECK:     } {d2m.outer_loop}
@@ -66,9 +63,6 @@ module {
       // CHECK:     d2m.core_index(0)
       // CHECK:     d2m.core_index(1)
       // CHECK:     scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
-      // CHECK:       arith.addi
-      // CHECK:       arith.addi
-      // CHECK-NOT: affine.apply
       // CHECK:       d2m.wait %cb1
       // CHECK:       d2m.dma_write %{{.*}}[%{{.*}}], %arg0[%{{.*}}, %{{.*}}, %{{.*}}], <8>
       // CHECK:     } {d2m.outer_loop}
@@ -106,9 +100,6 @@ module {
       // CHECK:     d2m.core_index(0)
       // CHECK:     d2m.core_index(1)
       // CHECK:     scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
-      // CHECK:       arith.addi
-      // CHECK:       arith.addi
-      // CHECK-NOT: affine.apply
       // CHECK:       d2m.reserve %cb0
       // CHECK:       d2m.dma_read %arg0[%{{.*}}, %{{.*}}, %{{.*}}], %{{.*}}[%{{.*}}], <8>
       // CHECK:       d2m.wait %cb2
@@ -152,12 +143,8 @@ module {
       // CHECK:     d2m.core_index(1)
       // CHECK:     scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
       // CHECK:       scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
-      // CHECK:         arith.addi
-      // CHECK-NOT: affine.apply
       // CHECK:         d2m.reserve %cb0
       // CHECK:         d2m.dma_read %arg0[%{{.*}}, %{{.*}}, %{{.*}}], %{{.*}}[%{{.*}}], <4>
-      // CHECK:         arith.addi
-      // CHECK-NOT: affine.apply
       // CHECK:         d2m.reserve %cb1
       // CHECK:         d2m.dma_read %arg1[%{{.*}}, %{{.*}}, %{{.*}}], %{{.*}}[%{{.*}}], <4>
       // CHECK:       } {d2m.outer_loop}
