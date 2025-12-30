@@ -9,7 +9,6 @@
 #mapL = affine_map<(d0, d1, d2) -> (d0, d2)>
 #mapR = affine_map<(d0, d1, d2) -> (d2, d1)>
 #mapO = affine_map<(d0, d1, d2) -> (d0, d1)>
-
 module {
   // Test 1: Simple case with remote_load - should be lowered to dma_read in datamovement region
   // CHECK-LABEL: func.func @test_simple_remote_load
@@ -172,6 +171,50 @@ module {
       %rhs = d2m.wait %cb1 : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
       %out = d2m.reserve %cb2 : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
       "d2m.tile_matmul_block"(%lhs, %rhs, %out) : (memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) -> ()
+    }
+    return
+  }
+
+  // Test 5: Interleaved DRAM layout with grid 1x1 - should generate inner loops
+  // This test uses an interleaved layout which creates a complex memory access pattern
+  // that requires loops to read individual tile elements forming a single shard.
+  // CHECK-LABEL: func.func @test_interleaved_dram_1x1_grid
+  func.func @test_interleaved_dram_1x1_grid(%arg0: memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.interleaved<16384x4096>, #dram>) {
+    %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
+    %cb_alloc = memref.alloc() {alignment = 64 : i64} : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
+    %stream = "d2m.stream_layout"(%arg0, %cb_alloc) : (memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.interleaved<16384x4096>, #dram>, memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) -> memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<map(4)>, #dram>
+
+    // CHECK: d2m.generic
+    // CHECK-SAME: grid = #ttcore.grid<1x1>
+    // CHECK-SAME: threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]
+    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<compute>]}
+        ins(%stream : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<map(4)>, #dram>)
+        outs(%alloc : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
+    ^compute0(%cb0: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1_>>):
+      // CHECK: ^datamovement0
+      // CHECK:   scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
+      // CHECK:     d2m.core_index(0)
+      // CHECK:     d2m.core_index(1)
+      // CHECK:     scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
+      // CHECK:       d2m.reserve %cb0
+      // CHECK:       scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
+      // CHECK:         scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
+      // CHECK:           scf.if
+      // CHECK:             d2m.dma_read %arg0[%{{.*}}, %{{.*}}, %{{.*}}], %{{.*}}[%{{.*}}], <{{.*}}>
+      // CHECK:             d2m.dma_wait %{{.*}}
+      // CHECK:           }
+      // CHECK:         }
+      // CHECK:       }
+      // CHECK:     } {d2m.outer_loop}
+      // CHECK:   } {d2m.outer_loop}
+      // CHECK: ^compute0
+      // CHECK:   scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
+      // CHECK:     scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
+      // CHECK:       d2m.wait %cb0
+      // CHECK:     } {d2m.outer_loop}
+      // CHECK:   } {d2m.outer_loop}
+      // CHECK-NOT: d2m.remote_load
+      %mem0 = d2m.wait %cb0 : !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<4x4x!ttcore.tile<32x32, f32>, #l1_>
     }
     return
   }

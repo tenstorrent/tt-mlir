@@ -309,7 +309,9 @@ public:
           return SmallVector<Value>{ifExpr.getResult(0)};
         });
 
-    rewriter.replaceOp(remoteLoad, loopNest.loops.front());
+    // RemoteLoadOp has no results (it's a side-effect operation), so we just
+    // erase it The loop nest has already been inserted
+    rewriter.eraseOp(remoteLoad);
     return success();
   }
 };
@@ -466,7 +468,9 @@ public:
           return SmallVector<Value>{ifExpr.getResult(0)};
         });
 
-    rewriter.replaceOp(remoteStore, loopNest.loops.front());
+    // RemoteStoreOp has no results (it's a side-effect operation), so we just
+    // erase it The loop nest has already been inserted
+    rewriter.eraseOp(remoteStore);
     return success();
   }
 };
