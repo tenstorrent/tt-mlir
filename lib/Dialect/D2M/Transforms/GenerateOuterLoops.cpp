@@ -2,10 +2,12 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/IR/AffineExpr.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir::tt::d2m {
@@ -49,12 +51,108 @@ public:
   }
 
   static void replaceIterIndexUses(PatternRewriter &rewriter, Location loc,
-                                   scf::LoopNest &loopNest) {
+                                   scf::LoopNest &loopNest, GenericOp generic) {
+    // Get the output operand indexing map to determine which dimensions
+    // participate in the grid
+    unsigned outputOperandsIndex = generic.getOutputs().getBeginOperandIndex();
+    AffineMap outputOperandIndexingMap =
+        mlir::cast<AffineMapAttr>(
+            generic.getIndexingMaps()[outputOperandsIndex])
+            .getValue();
+
+    // Extract core virtualization map with just grid yx results
+    AffineMap coreVirtualizationMap = generic.getGrid().getMapping();
+    if (!coreVirtualizationMap.isEmpty()) {
+      coreVirtualizationMap = generic.getGrid().getMapping().dropResult(0);
+    }
+
+    SmallVector<int64_t> blockFactors = generic.getBlockFactorsValue();
+
+    // The number of grid dimensions (typically 2 for a 2D grid)
+    constexpr unsigned numPhysicalGridDims = 2;
+    unsigned numGridDims = coreVirtualizationMap.isEmpty()
+                               ? numPhysicalGridDims
+                               : coreVirtualizationMap.getNumResults();
+
+    // Create CoreIndexOp operations lazily - create them the first time we need
+    // them, at the start of the outermost loop body, then reuse them.
+    SmallVector<Value> virtualGridIndices;
+    bool virtualGridIndicesCreated = false;
+
     loopNest.loops.back().walk([&](IterIndexOp index) {
-      uint64_t loopDepth = index.getDim();
-      assert(loopDepth < loopNest.loops.size());
-      scf::ForOp loop = loopNest.loops[loopDepth];
-      rewriter.replaceOp(index, loop.getInductionVar());
+      uint64_t dim = index.getDim();
+      assert(dim < loopNest.loops.size());
+      scf::ForOp loop = loopNest.loops[dim];
+      Value iterIndex = loop.getInductionVar();
+
+      // Set insertion point to before the IterIndexOp so we can create
+      // operations that will be used to replace it
+      rewriter.setInsertionPoint(index);
+
+      // Create CoreIndexOp operations lazily at the start of the outermost loop
+      // body if we haven't created them yet
+      if (!virtualGridIndicesCreated && !loopNest.loops.empty()) {
+        // Set insertion point to the start of the outermost loop body
+        rewriter.setInsertionPointToStart(loopNest.loops.front().getBody());
+        SmallVector<Value> physicalCoreIndices(numPhysicalGridDims);
+        for (unsigned gridIndex = 0; gridIndex < numPhysicalGridDims;
+             gridIndex++) {
+          physicalCoreIndices[gridIndex] = rewriter.create<CoreIndexOp>(
+              loc, rewriter.getIndexType(),
+              rewriter.getI64IntegerAttr(gridIndex));
+        }
+        if (!coreVirtualizationMap.isEmpty()) {
+          virtualGridIndices = ttmlir::utils::fullyApplyAffineMap(
+              rewriter, loc, coreVirtualizationMap, physicalCoreIndices);
+        } else {
+          virtualGridIndices = physicalCoreIndices;
+        }
+        virtualGridIndicesCreated = true;
+        // Reset insertion point back to before the IterIndexOp
+        rewriter.setInsertionPoint(index);
+      }
+
+      // Check if this iteration dimension maps to a grid dimension in the
+      // output operand indexing map. The output operand indexing map maps
+      // iteration dimensions to output dimensions. We need to check if the
+      // expression corresponding to iteration dimension `dim` appears as one of
+      // the first numGridDims results in the output map.
+      //
+      // Create the expression for iteration dimension `dim` (e.g., d0, d1, d2)
+      AffineExpr dimExpr =
+          getAffineDimExpr(dim, outputOperandIndexingMap.getContext());
+
+      // Check if this expression appears in the output operand indexing map
+      // results
+      std::optional<unsigned> gridResult =
+          outputOperandIndexingMap.getResultPosition(dimExpr);
+
+      // If the result position exists and is less than numGridDims, then this
+      // dimension participates in the grid
+      if (gridResult.has_value() && gridResult.value() < numGridDims) {
+        // This dimension participates in the grid. Compute:
+        // gridIndex * blockFactor + iterIndex
+        const unsigned gridDim = gridResult.value();
+        assert(dim < blockFactors.size() && "Block factor index out of bounds");
+        assert(gridDim < virtualGridIndices.size() &&
+               "Grid dimension index out of bounds");
+
+        Value gridIndex = virtualGridIndices[gridDim];
+        Value blockFactor = rewriter.create<arith::ConstantOp>(
+            loc, rewriter.getIndexType(),
+            rewriter.getIndexAttr(blockFactors[dim]));
+
+        Value gridScaled = rewriter.create<arith::MulIOp>(
+            loc, rewriter.getIndexType(), gridIndex, blockFactor);
+        Value combinedIndex = rewriter.create<arith::AddIOp>(
+            loc, rewriter.getIndexType(), gridScaled, iterIndex);
+
+        rewriter.replaceOp(index, combinedIndex);
+      } else {
+        // This dimension does not participate in the grid, just use the loop
+        // induction variable
+        rewriter.replaceOp(index, iterIndex);
+      }
     });
   }
 
@@ -114,9 +212,12 @@ public:
       loopNest.loops.front()->setAttr("d2m.outer_loop", rewriter.getUnitAttr());
     }
 
-    rewriter.modifyOpInPlace(loopedGeneric, [&]() {
-      replaceIterIndexUses(rewriter, generic.getLoc(), loopNest);
-    });
+    // Replace IterIndexOp uses. We need to do this after the loops are created
+    // but before we replace the generic op, so the operations are created in
+    // the right place. Set insertion point back to the start of loopedBlock
+    // so CoreIndexOp operations are created in the right place.
+    rewriter.setInsertionPointToStart(loopedBlock);
+    replaceIterIndexUses(rewriter, generic.getLoc(), loopNest, loopedGeneric);
 
     rewriter.replaceOp(generic, loopedGeneric.getResults());
 
