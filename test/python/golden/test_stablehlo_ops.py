@@ -5,6 +5,7 @@
 import pytest
 import torch
 from typing import Callable, List, Optional, Tuple
+from collections import OrderedDict
 
 from builder.base.builder_utils import Operand, Shape, TypeInfo
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
@@ -1271,4 +1272,55 @@ def test_batch_norm_grad_op(test_fn: Callable, target: str, request, device):
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
         device=device,
+    )
+
+
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_all_gather(target: str, request, device):
+    def module_all_gather(builder: StableHLOBuilder):
+        @builder.func([(1, 1, 32, 32)], [torch.float32])
+        def my_modela(in0: Operand, builder: StableHLOBuilder):
+            def single_device_func(in0: Operand, builder: StableHLOBuilder):
+                all_gather0 = builder.all_gather(in0, 3, [[0]])
+                return all_gather0
+
+            tensor_sharding_attr = builder.tensor_sharding_attr(
+                mesh_name="mesh",
+                dimension_shardings=[
+                    builder.dimension_sharding_attr(
+                        axes=[],
+                        is_closed=True,
+                    ),
+                    builder.dimension_sharding_attr(
+                        axes=[],
+                        is_closed=True,
+                    ),
+                    builder.dimension_sharding_attr(
+                        axes=[builder.axis_ref_attr(name="x")],
+                        is_closed=True,
+                    ),
+                    builder.dimension_sharding_attr(
+                        axes=[builder.axis_ref_attr(name="y")],
+                        is_closed=True,
+                    ),
+                ],
+            )
+
+            manual_computation_op0 = builder.manual_computation(
+                single_device_func,
+                [in0],
+                in_shardings=[tensor_sharding_attr],
+                out_shardings=[tensor_sharding_attr],
+                manual_axes=["x", "y"],
+            )
+            return manual_computation_op0
+
+    compile_and_execute_shlo(
+        module_all_gather,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+        mesh_dict=OrderedDict([("x", 1), ("y", 1)]),
     )

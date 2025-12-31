@@ -133,8 +133,72 @@ def test_input_annotation(
                     ),
                 ],
             )
-            builder.arg_attrs[in0] = {"sdy.sharding": tensor_sharding_attr}
+            builder.set_arg_attribute(in0, "sdy.sharding", tensor_sharding_attr)
             return builder.add(in0, in1)
+
+    compile_and_execute_shlo(
+        module,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        device=device,
+    )
+
+
+@pytest.mark.parametrize("shape", [(1, 1, 32, 32)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("mesh_shape", [(1, 1)])
+def test_manual_computation_op(
+    shape: Shape,
+    dtype: torch.dtype,
+    mesh_shape: Tuple[int, int],
+    request,
+    device,
+):
+    def module(builder: StableHLOBuilder):
+        @builder.func([shape, shape], [dtype, dtype])
+        def my_modela(in0: Operand, in1: Operand, builder: StableHLOBuilder):
+            def single_device_func(
+                inner0: Operand, inner1: Operand, builder: StableHLOBuilder
+            ):
+                add0 = builder.add(inner0, inner1)
+                add1 = builder.add(add0, inner1)
+                cosine0 = builder.cosine(add1)
+                sin0 = builder.sine(add1)
+                return cosine0, sin0
+
+            tensor_sharding_attr = builder.tensor_sharding_attr(
+                mesh_name="mesh",
+                dimension_shardings=[
+                    builder.dimension_sharding_attr(
+                        axes=[],
+                        is_closed=True,
+                    ),
+                    builder.dimension_sharding_attr(
+                        axes=[],
+                        is_closed=True,
+                    ),
+                    builder.dimension_sharding_attr(
+                        axes=[builder.axis_ref_attr(name="x")],
+                        is_closed=True,
+                    ),
+                    builder.dimension_sharding_attr(
+                        axes=[builder.axis_ref_attr(name="y")],
+                        is_closed=True,
+                    ),
+                ],
+            )
+
+            manual_computation_op0, manual_computation_op1 = builder.manual_computation(
+                single_device_func,
+                [in0, in1],
+                in_shardings=[tensor_sharding_attr, tensor_sharding_attr],
+                out_shardings=[tensor_sharding_attr, tensor_sharding_attr],
+                manual_axes=["x", "y"],
+            )
+            return manual_computation_op0, manual_computation_op1
 
     compile_and_execute_shlo(
         module,

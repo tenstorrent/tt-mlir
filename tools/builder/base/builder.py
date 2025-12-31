@@ -281,6 +281,25 @@ class Builder(metaclass=BuilderMeta):
         loc = str(operand.owner.location)
         self._bypass_ops.append(loc)
 
+    def set_arg_attribute(
+        self, operand: Operand, new_attr_name: str, new_attr: Attribute
+    ):
+        func_op = operand.owner.owner
+
+        arg_attr_list = func_op.arg_attrs
+        new_arg_attr_list = []
+        for arg_number, arg_attrs in enumerate(arg_attr_list):
+            if arg_number == operand.arg_number:
+                new_arg_attr = {}
+                for attr in arg_attrs:
+                    new_arg_attr[attr.name.value] = attr
+                new_arg_attr[new_attr_name] = new_attr
+                new_arg_attr_list.append(DictAttr.get(new_arg_attr))
+            else:
+                new_arg_attr_list.append(arg_attrs)
+
+        func_op.arg_attrs = ArrayAttr.get(new_arg_attr_list)
+
     # ----- Private methods -----
 
     def _get_output_shape_and_type(
@@ -609,6 +628,13 @@ class Builder(metaclass=BuilderMeta):
     ) -> List[GoldenMapTensor]:
         return [self._goldens[operand] for operand in operands]
 
+    def _get_location(self) -> Location:
+        stack = inspect.stack()
+        caller_frame = stack[2]
+        filename = caller_frame.filename
+        lineno = caller_frame.lineno
+        return Location.name(f"{filename}:{lineno}")
+
     # ----- Shared Empty Operations -----
 
     def _empty(self, shape: Shape, data_type: Optional[Type] = None) -> OpView:
@@ -675,7 +701,10 @@ class Builder(metaclass=BuilderMeta):
     # ----- Operations -----
 
     def call(
-        self, nested_func: Callable, original_inputs: List[Operand], builder: Builder
+        self,
+        nested_func: Callable,
+        original_inputs: List[Operand],
+        loc: Optional[str] = None,
     ):
         fn_input_types = []
         for operand in original_inputs:
@@ -696,28 +725,33 @@ class Builder(metaclass=BuilderMeta):
                         original_operand
                     )
 
-                builder._set_goldens(input_goldens)
+                self._set_goldens(input_goldens)
                 ordered_inputs.extend(inputs)
 
-                result = nested_func(*inputs, builder)
+                result = nested_func(*inputs, self)
 
                 outputs = result if hasattr(result, "__iter__") else [result]
                 output_goldens: Dict[Operand, GoldenMapTensor] = {}
                 for op in outputs:
-                    output_goldens[op] = builder._get_golden_tensor(op)
-                builder._set_goldens(output_goldens)
+                    output_goldens[op] = self._get_golden_tensor(op)
+                self._set_goldens(output_goldens)
                 ordered_outputs.extend(outputs)
 
                 return process_multi_return_result(result)
 
         new_func_op = decorated_func.func_op
         new_func_op.sym_visibility = StringAttr.get("private")
-        builder._func_ops_generated[new_func_op] = [ordered_inputs, ordered_outputs]
+        self._func_ops_generated[new_func_op] = [ordered_inputs, ordered_outputs]
 
-        call_op = func.CallOp(new_func_op, original_inputs)
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        call_op = func.CallOp(new_func_op, original_inputs, loc=loc)
         for index, output in enumerate(ordered_outputs):
             self._set_golden_tensor(
-                call_op.results[index], builder._get_golden_tensor(output)
+                call_op.results[index], self._get_golden_tensor(output)
             )
 
         return (
@@ -1122,21 +1156,24 @@ class Builder(metaclass=BuilderMeta):
 
             @func.func(*fn_input_types, name=fn.__name__)
             def decorated_func(*inputs):
-                input_goldens: Dict[Operand, GoldenMapTensor] = {}
-                for index, (operand, dtype) in enumerate(zip(inputs, input_types)):
-                    input_goldens[operand] = self._generate_golden_tensor(
-                        operand, dtype
-                    )
-                self._set_goldens(input_goldens)
+                if not self._disable_golden_check:
+                    input_goldens: Dict[Operand, GoldenMapTensor] = {}
+                    for index, (operand, dtype) in enumerate(zip(inputs, input_types)):
+                        input_goldens[operand] = self._generate_golden_tensor(
+                            operand, dtype
+                        )
+                    self._set_goldens(input_goldens)
                 ordered_inputs.extend(inputs)
 
                 result = fn(*inputs, self)
 
                 outputs = result if hasattr(result, "__iter__") else [result]
-                output_goldens: Dict[Operand, GoldenMapTensor] = {}
-                for op in outputs:
-                    output_goldens[op] = self._get_golden_tensor(op)
-                self._set_goldens(output_goldens)
+
+                if not self._disable_golden_check:
+                    output_goldens: Dict[Operand, GoldenMapTensor] = {}
+                    for op in outputs:
+                        output_goldens[op] = self._get_golden_tensor(op)
+                    self._set_goldens(output_goldens)
                 ordered_outputs.extend(outputs)
 
                 return process_multi_return_result(result)
