@@ -113,13 +113,10 @@ public:
 
       if (isRemote(genericOperand)) {
         // Remote case: insert remote_load before wait
-        // Get the input from stream_layout (the physical memref with device
-        // layout)
-        auto streamOp = cast<StreamLayoutOp>(genericOperand.getDefiningOp());
-        Value remoteMemref = streamOp.getInput();
+        // Use the stream_layout result (genericOperand) as the remote memref
         SmallVector<Value> indices =
             buildGridIndices(builder, loc, indexingMap);
-        builder.create<RemoteLoadOp>(loc, cbValue, remoteMemref, indices);
+        builder.create<RemoteLoadOp>(loc, cbValue, genericOperand, indices);
       } else {
         // Local case: insert reserve and push before wait
         // Check if reserve already exists before this wait
@@ -196,12 +193,9 @@ public:
 
       if (isRemote(genericOperand)) {
         // Remote case: collect info to insert remote_store at end of block
-        // Get the input from stream_layout (the physical memref with device
-        // layout)
-        auto streamOp = cast<StreamLayoutOp>(genericOperand.getDefiningOp());
-        Value remoteMemref = streamOp.getInput();
+        // Use the stream_layout result (genericOperand) as the remote memref
         remoteStores.push_back(
-            {reserveOp->getBlock(), loc, remoteMemref, indexingMap, cbValue});
+            {reserveOp->getBlock(), loc, genericOperand, indexingMap, cbValue});
       } else {
         // Local case: collect info to insert wait and pop at end of block
         localWaitPops.push_back({reserveOp->getBlock(), loc, cbValue});

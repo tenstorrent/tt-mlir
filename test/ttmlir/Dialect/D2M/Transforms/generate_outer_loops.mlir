@@ -31,7 +31,7 @@ module {
       // CHECK:   scf.for %[[IV1:.*]] = %{{.*}} to %{{.*}} step %{{.*}} {
       // CHECK:     arith.addi %{{.*}}, %{{.*}}
       // CHECK:     arith.addi %{{.*}}, %[[IV1]]
-      // CHECK:     d2m.remote_load %cb0, %arg0[%{{.*}}, %{{.*}}]
+      // CHECK:     d2m.remote_load %cb0, %stream[%{{.*}}, %{{.*}}]
       // CHECK:     d2m.wait %cb0
       // CHECK:   }
       // CHECK: } {d2m.outer_loop}
@@ -58,9 +58,9 @@ module {
       // CHECK: scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
       // CHECK:   scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
       // CHECK:     scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
-      // CHECK:       d2m.remote_load %cb0, %arg0[%{{.*}}, %{{.*}}]
+      // CHECK:       d2m.remote_load %cb0, %stream[%{{.*}}, %{{.*}}]
       // CHECK:       d2m.wait %cb0
-      // CHECK:       d2m.remote_load %cb1, %arg1[%{{.*}}, %{{.*}}]
+      // CHECK:       d2m.remote_load %cb1, %stream_2[%{{.*}}, %{{.*}}]
       // CHECK:       d2m.wait %cb1
       // CHECK:       d2m.reserve %cb2
       // CHECK:     }
@@ -116,7 +116,7 @@ module {
       // CHECK:     %{{.*}} = d2m.reserve %cb1
       // CHECK:     arith.addi %{{.*}}, %{{.*}}
       // CHECK:     arith.addi %{{.*}}, %[[IV1]]
-      // CHECK:     d2m.remote_store %arg1[%{{.*}}, %{{.*}}], %cb1
+      // CHECK:     d2m.remote_store %stream[%{{.*}}, %{{.*}}], %cb1
       // CHECK:   }
       // CHECK: } {d2m.outer_loop}
       // CHECK-NOT: d2m.iter_index
