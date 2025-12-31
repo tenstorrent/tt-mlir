@@ -1150,6 +1150,130 @@ def test_select(target: str, request, device):
     )
 
 
+def module_batch_norm_training(builder: StableHLOBuilder):
+    @builder.func(
+        [(1, 32, 64, 64), (64,), (64,)],
+        [torch.float32, torch.float32, torch.float32],
+    )
+    def batch_norm_training(
+        operand: Operand,
+        scale: Operand,
+        offset: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.batch_norm_training(
+            operand, scale, offset, epsilon=1e-5, feature_index=3
+        )
+
+
+def module_batch_norm_inference(builder: StableHLOBuilder):
+    @builder.func(
+        [(1, 32, 64, 64), (64,), (64,), (64,), (64,)],
+        [torch.float32] * 5,
+    )
+    def batch_norm_inference(
+        operand: Operand,
+        scale: Operand,
+        offset: Operand,
+        mean: Operand,
+        variance: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.batch_norm_inference(
+            operand,
+            scale,
+            offset,
+            mean,
+            variance,
+            epsilon=1e-5,
+            feature_index=3,
+        )
+
+
+def module_batch_norm_grad(builder: StableHLOBuilder):
+    @builder.func(
+        [(1, 32, 64, 64), (64,), (64,), (64,), (1, 32, 64, 64)],
+        [torch.float32] * 5,
+    )
+    def batch_norm_grad(
+        operand: Operand,
+        scale: Operand,
+        mean: Operand,
+        variance: Operand,
+        grad_output: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.batch_norm_grad(
+            operand,
+            scale,
+            mean,
+            variance,
+            grad_output,
+            epsilon=1e-5,
+            feature_index=3,
+        )
+
+
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize(
+    "test_fn",
+    [
+        module_batch_norm_training,
+    ],
+)
+def test_batch_norm_training_op(test_fn: Callable, target: str, request, device):
+    compile_and_execute_shlo(
+        test_fn,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize(
+    "test_fn",
+    [
+        module_batch_norm_inference,
+    ],
+)
+def test_batch_norm_inference_op(test_fn: Callable, target: str, request, device):
+    compile_and_execute_shlo(
+        test_fn,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize(
+    "test_fn",
+    [
+        module_batch_norm_grad,
+    ],
+)
+def test_batch_norm_grad_op(test_fn: Callable, target: str, request, device):
+    compile_and_execute_shlo(
+        test_fn,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
 def module_iota(builder: StableHLOBuilder):
     @builder.func([], [])
     def iota(
