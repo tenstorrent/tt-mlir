@@ -60,7 +60,7 @@ endif()
 install(
   TARGETS _ttmlir_runtime
   COMPONENT ttrt
-  DESTINATION ${CMAKE_INSTALL_PREFIX}
+  LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}
 )
 
 target_include_directories(_ttmlir_runtime
