@@ -2923,7 +2923,7 @@ TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
       /*enable_act_double_buffer=*/BoolAttr::get(&context, true),
       /*enable_weights_double_buffer=*/BoolAttr::get(&context, true),
       /*enable_kernel_stride_folding=*/BoolAttr::get(&context, false),
-      /*config_tensors_in_dram=*/nullptr);
+      /*config_tensors_in_dram=*/BoolAttr::get(&context, true));
 
   OpModel backend = dyn_cast<OpModel>(convTranspose2d.getOperation());
   auto constraintsExp = backend.getOpConstraints(
