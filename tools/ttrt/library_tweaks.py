@@ -29,10 +29,10 @@ def set_tt_metal_home():
     if "TT_METAL_RUNTIME_ROOT" in os.environ:
         existing_path = os.environ["TT_METAL_RUNTIME_ROOT"]
         if os.path.exists(existing_path):
+            os.environ["TT_METAL_RUNTIME_ROOT_EXTERNAL"] = os.environ.get(
+                "TT_METAL_RUNTIME_ROOT", ""
+            )
             return
-    os.environ["TT_METAL_RUNTIME_ROOT_EXTERNAL"] = os.environ.get(
-        "TT_METAL_RUNTIME_ROOT", ""
-    )
     os.environ["TT_METAL_RUNTIME_ROOT"] = get_ttrt_metal_home_path()
     os.environ["TT_METAL_HOME"] = os.environ["TT_METAL_RUNTIME_ROOT"]
 
@@ -43,3 +43,7 @@ def set_tt_metal_home():
     else:
         updated_ld_library_path = new_linker_path
     os.environ["LD_LIBRARY_PATH"] = updated_ld_library_path
+
+    os.environ["TT_METAL_RUNTIME_ROOT_EXTERNAL"] = os.environ.get(
+        "TT_METAL_RUNTIME_ROOT", ""
+    )
