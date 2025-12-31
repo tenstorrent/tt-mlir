@@ -449,11 +449,6 @@ public:
       bool inputIsRemote = isRemote(input);
       bool outputIsRemote = isRemote(output);
 
-      // At least one operand must be remote (local-to-local transfers are
-      // unsupported)
-      assert((inputIsRemote || outputIsRemote) &&
-             "At least one operand must be remote for mapping change");
-
       return rewriter
           .create<GenericOp>(
               loc, viewOp, output,
@@ -479,12 +474,8 @@ public:
                   // Yield the wait result (output CB is not used, so we yield
                   // input wait result)
                   builder.create<YieldOp>(innerLoc, waitResult);
-                } else {
-                  // Remote input, local output: remote_load then DMA copy
-                  // Input must be remote (output is local, cannot both be
-                  // remote)
-                  assert(inputIsRemote &&
-                         "Input must be remote when output is local");
+                } else if (inputIsRemote) {
+                  // Remote input, local output: remote_load
                   Value outputCB =
                       builder.create<ReserveOp>(innerLoc, blockArgs[1])
                           .getResult();
@@ -497,6 +488,24 @@ public:
                   Value outputCBValue = blockArgs[1]; // CB type for remote_load
                   builder.create<RemoteLoadOp>(innerLoc, outputCBValue,
                                                remoteMemref, indices);
+                  // View transformation is handled by view_layout and the
+                  // generic op's indexing maps
+                  builder.create<YieldOp>(innerLoc, outputCB);
+                } else {
+                  // Local input, local output: treat local input as "remote"
+                  // and use remote_load (conventional approach for
+                  // local-to-local transfers)
+                  Value inputCBValue = blockArgs[0]; // CB type for wait
+                  builder.create<WaitOp>(innerLoc, inputCBValue);
+                  Value outputCB =
+                      builder.create<ReserveOp>(innerLoc, blockArgs[1])
+                          .getResult();
+                  SmallVector<Value> indices =
+                      buildGridIndices(builder, innerLoc, indexingMap);
+                  // Use outputCB (from d2m.reserve) for remote_load
+                  Value outputCBValue = blockArgs[1]; // CB type for remote_load
+                  builder.create<RemoteLoadOp>(innerLoc, outputCBValue, viewOp,
+                                               indices);
                   // View transformation is handled by view_layout and the
                   // generic op's indexing maps
                   builder.create<YieldOp>(innerLoc, outputCB);
@@ -621,7 +630,7 @@ public:
     bool outputIsRemote = isRemote(output);
 
     // At least one operand must be remote (local-to-local transfers are
-    // unsupported)
+    // unsupported in datamovement generic)
     assert((inputIsRemote || outputIsRemote) &&
            "At least one operand must be remote for datamovement");
 
@@ -669,7 +678,7 @@ public:
                                                   indices, outputCBValue);
                   }
                 } else {
-                  // Remote input, local output: remote_load then DMA copy
+                  // Remote input, local output: remote_load
                   assert(inputIsRemote &&
                          "Input must be remote when output is local");
                   auto streamOp = cast<StreamLayoutOp>(input.getDefiningOp());
