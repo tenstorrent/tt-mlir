@@ -9,6 +9,8 @@
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 
+#include "llvm/ADT/DenseSet.h"
+
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MINSERTLOADSTOREOPS
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
@@ -92,7 +94,37 @@ public:
 
     OpBuilder builder(&getContext());
 
-    // Process WaitOp operations
+    // Build a map of pre-existing remote_load and remote_store operations
+    // associated with each CB to avoid inserting duplicates
+    DenseSet<Value> cbsWithRemoteLoad;
+    DenseSet<Value> cbsWithRemoteStore;
+
+    getOperation()->walk([&](RemoteLoadOp remoteLoadOp) {
+      Value cbValue = remoteLoadOp.getCb();
+      cbsWithRemoteLoad.insert(cbValue);
+    });
+
+    getOperation()->walk([&](RemoteStoreOp remoteStoreOp) {
+      Value cbValue = remoteStoreOp.getCb();
+      cbsWithRemoteStore.insert(cbValue);
+    });
+
+    // Collect remote reserve operations that need remote_store at end of block
+    struct RemoteStoreInfo {
+      Block *block;
+      Location loc;
+      Value remoteMemref;
+      AffineMap indexingMap;
+      Value cbValue;
+    };
+    SmallVector<RemoteStoreInfo> remoteStores;
+
+    // PHASE 1: Process all REMOTE operands first
+    // This ensures remote_load/remote_store operations are inserted before
+    // processing local operands, avoiding confusion with existing wait/reserve
+    // operations
+
+    // Process WaitOp operations for remote operands
     getOperation()->walk([&](WaitOp waitOp) {
       // Only process memref types (skip tensor types)
       auto memrefType = waitOp.getCbType().getUnderlyingAs<MemRefType>();
@@ -108,17 +140,91 @@ public:
 
       auto [genericOperand, indexingMap] = *genericInfo;
 
-      builder.setInsertionPoint(waitOp);
-      Location loc = waitOp.getLoc();
+      if (isRemote(genericOperand)) {
+        // Remote case: insert remote_load before wait only if one doesn't
+        // already exist for this CB
+        if (!cbsWithRemoteLoad.contains(cbValue)) {
+          builder.setInsertionPoint(waitOp);
+          Location loc = waitOp.getLoc();
+          SmallVector<Value> indices =
+              buildGridIndices(builder, loc, indexingMap);
+          builder.create<RemoteLoadOp>(loc, cbValue, genericOperand, indices);
+        }
+      }
+      // Local case handled in PHASE 2
+    });
+
+    // Process ReserveOp operations for remote operands
+    getOperation()->walk([&](ReserveOp reserveOp) {
+      // Only process memref types (skip tensor types)
+      auto memrefType = reserveOp.getCbType().getUnderlyingAs<MemRefType>();
+      if (!memrefType) {
+        return;
+      }
+
+      Value cbValue = reserveOp.getCb();
+      auto genericInfo = getGenericOperandAndIndexingMap(reserveOp, cbValue);
+      if (!genericInfo) {
+        return;
+      }
+
+      auto [genericOperand, indexingMap] = *genericInfo;
+      Location loc = reserveOp.getLoc();
 
       if (isRemote(genericOperand)) {
-        // Remote case: insert remote_load before wait
-        // Use the stream_layout result (genericOperand) as the remote memref
-        SmallVector<Value> indices =
-            buildGridIndices(builder, loc, indexingMap);
-        builder.create<RemoteLoadOp>(loc, cbValue, genericOperand, indices);
-      } else {
+        // Remote case: collect info to insert remote_store at end of block
+        // only if one doesn't already exist for this CB
+        if (!cbsWithRemoteStore.contains(cbValue)) {
+          // Use the stream_layout result (genericOperand) as the remote memref
+          remoteStores.push_back({reserveOp->getBlock(), loc, genericOperand,
+                                  indexingMap, cbValue});
+        }
+      }
+      // Local case handled in PHASE 2
+    });
+
+    // Insert remote_store operations at the end of their respective blocks
+    for (const auto &info : remoteStores) {
+      builder.setInsertionPoint(info.block, info.block->end());
+      SmallVector<Value> indices =
+          buildGridIndices(builder, info.loc, info.indexingMap);
+      builder.create<RemoteStoreOp>(info.loc, info.remoteMemref, indices,
+                                    info.cbValue);
+    }
+
+    // PHASE 2: Process all LOCAL operands
+    // Now that all remote operations have been converted, process local
+    // operands without confusion
+
+    // Collect local reserve operations that need wait and pop at end of block
+    struct LocalWaitPopInfo {
+      Block *block;
+      Location loc;
+      Value cbValue;
+    };
+    SmallVector<LocalWaitPopInfo> localWaitPops;
+
+    // Process WaitOp operations for local operands
+    getOperation()->walk([&](WaitOp waitOp) {
+      // Only process memref types (skip tensor types)
+      auto memrefType = waitOp.getCbType().getUnderlyingAs<MemRefType>();
+      if (!memrefType) {
+        return;
+      }
+
+      Value cbValue = waitOp.getCb();
+      auto genericInfo = getGenericOperandAndIndexingMap(waitOp, cbValue);
+      if (!genericInfo) {
+        return;
+      }
+
+      auto [genericOperand, indexingMap] = *genericInfo;
+
+      if (!isRemote(genericOperand)) {
         // Local case: insert reserve and push before wait
+        builder.setInsertionPoint(waitOp);
+        Location loc = waitOp.getLoc();
+
         // Check if reserve already exists before this wait
         bool hasReserve = false;
         for (auto &op : waitOp->getBlock()->getOperations()) {
@@ -156,25 +262,7 @@ public:
       }
     });
 
-    // Collect remote reserve operations that need remote_store at end of block
-    struct RemoteStoreInfo {
-      Block *block;
-      Location loc;
-      Value remoteMemref;
-      AffineMap indexingMap;
-      Value cbValue;
-    };
-    SmallVector<RemoteStoreInfo> remoteStores;
-
-    // Collect local reserve operations that need wait and pop at end of block
-    struct LocalWaitPopInfo {
-      Block *block;
-      Location loc;
-      Value cbValue;
-    };
-    SmallVector<LocalWaitPopInfo> localWaitPops;
-
-    // Process ReserveOp operations
+    // Process ReserveOp operations for local operands
     getOperation()->walk([&](ReserveOp reserveOp) {
       // Only process memref types (skip tensor types)
       auto memrefType = reserveOp.getCbType().getUnderlyingAs<MemRefType>();
@@ -191,25 +279,11 @@ public:
       auto [genericOperand, indexingMap] = *genericInfo;
       Location loc = reserveOp.getLoc();
 
-      if (isRemote(genericOperand)) {
-        // Remote case: collect info to insert remote_store at end of block
-        // Use the stream_layout result (genericOperand) as the remote memref
-        remoteStores.push_back(
-            {reserveOp->getBlock(), loc, genericOperand, indexingMap, cbValue});
-      } else {
+      if (!isRemote(genericOperand)) {
         // Local case: collect info to insert wait and pop at end of block
         localWaitPops.push_back({reserveOp->getBlock(), loc, cbValue});
       }
     });
-
-    // Insert remote_store operations at the end of their respective blocks
-    for (const auto &info : remoteStores) {
-      builder.setInsertionPoint(info.block, info.block->end());
-      SmallVector<Value> indices =
-          buildGridIndices(builder, info.loc, info.indexingMap);
-      builder.create<RemoteStoreOp>(info.loc, info.remoteMemref, indices,
-                                    info.cbValue);
-    }
 
     // Insert wait, pop, and push operations at the end of blocks for local
     // reserve ops Order: wait -> pop -> push
