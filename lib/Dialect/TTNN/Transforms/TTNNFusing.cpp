@@ -14,6 +14,7 @@
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/RoPEFusingPattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Fusing/SplitQKVFusingPatterns.h"
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 #endif
@@ -1144,6 +1145,12 @@ public:
       patterns.add<fusing::RoPEFusing>(&getContext());
       patterns.add<fusing::RoPEDecodeFusing>(&getContext());
       patterns.add<SDPAFusing>(&getContext());
+      patterns.add<NLPConcatHeadsDecodeFusing>(&getContext());
+      patterns.add<fusing::SplitQueryKeyValueAndSplitHeadsFusing<MatmulOp>>(
+          &getContext());
+      patterns.add<fusing::SplitQueryKeyValueAndSplitHeadsFusing<LinearOp>>(
+          &getContext());
+      patterns.add<fusing::NLPCreateQKVHeadsDecodeFusing>(&getContext());
     }
 #endif // TTMLIR_ENABLE_OPMODEL
 
