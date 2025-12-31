@@ -736,6 +736,26 @@ std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
   return hostTensors;
 }
 
+std::vector<::tt::runtime::Tensor>
+getDeviceTensors(::tt::runtime::Tensor tensor) {
+  const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper =
+      tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
+
+  std::vector<::ttnn::Tensor> ttnnTensors =
+      ::ttnn::distributed::get_device_tensors(tensorWrapper.getTensor());
+
+  std::vector<Tensor> runtime_tensors;
+  runtime_tensors.reserve(ttnnTensors.size());
+
+  for (const ::ttnn::Tensor &ttnnTensor : ttnnTensors) {
+    runtime_tensors.emplace_back(utils::createRuntimeTensorFromTTNN(
+        ttnnTensor, tensorWrapper.getMeshEvent(),
+        tensorWrapper.shouldRetain()));
+  }
+
+  return runtime_tensors;
+}
+
 ::tt::runtime::Tensor toLayout(::tt::runtime::Tensor tensor, Device device,
                                Layout layout, std::optional<bool> retain) {
   const std::shared_ptr<LayoutDesc> tensorLayoutDesc =

@@ -4,9 +4,11 @@
 
 import math
 import pytest
+import torch
 import ttrt
 import ttrt.runtime
 from ttrt.common.util import *
+from ..utils import DeviceContext, assert_pcc
 
 
 @pytest.mark.parametrize(
@@ -63,3 +65,93 @@ def test_open_mesh_device(
     assert device.get_dram_size_per_channel() != 0
     assert device.get_l1_size_per_core() != 0
     ttrt.runtime.close_mesh_device(device)
+
+
+# Testing get_device_tensors API.
+@pytest.mark.parametrize("shape", [(64, 128)])
+@pytest.mark.parametrize("dtype", [torch.bfloat16])
+def test_get_device_tensors(shape, dtype):
+    runtime_dtype = Binary.Program.to_data_type(dtype)
+
+    torch_tensor = torch.randn(shape, dtype=dtype)
+    runtime_tensor = ttrt.runtime.create_owned_host_tensor(
+        torch_tensor.data_ptr(),
+        list(torch_tensor.shape),
+        list(torch_tensor.stride()),
+        torch_tensor.element_size(),
+        runtime_dtype,
+    )
+
+    device_layout = ttrt.runtime.test.get_dram_interleaved_tile_layout(runtime_dtype)
+
+    with DeviceContext(mesh_shape=[1, 2]) as device:
+        device_tensor = ttrt.runtime.to_layout(runtime_tensor, device, device_layout)
+        device_tensors = ttrt.runtime.get_device_tensors(device_tensor)
+
+        assert (
+            len(device_tensors) == 2
+        ), f"Expected 2 device tensors, got {len(device_tensors)}"
+
+        for t in device_tensors:
+            host_tensor = ttrt.runtime.to_host(t, untilize=True)
+            assert (
+                len(host_tensor) == 1
+            ), f"Expected 1 host tensor, got {len(host_tensor)}"
+
+            torch_output_tensor = torch.zeros(shape, dtype=dtype)
+            ttrt.runtime.memcpy(torch_output_tensor.data_ptr(), host_tensor[0])
+
+            assert_pcc(torch_tensor, torch_output_tensor, threshold=0.99)
+
+        ttrt.runtime.deallocate_tensor(device_tensor, force=True)
+
+
+# Testing get_device_tensors with create_multi_device_host_tensor API.
+@pytest.mark.parametrize("shape", [(64, 128)])
+@pytest.mark.parametrize("dtype", [torch.bfloat16])
+def test_get_device_tensors_multi_device(shape, dtype):
+    runtime_dtype = Binary.Program.to_data_type(dtype)
+
+    # Create two different tensors for two devices
+    torch_tensor_0 = torch.randn(shape, dtype=dtype)
+    torch_tensor_1 = torch.randn(shape, dtype=dtype)
+
+    # Create multi-device tensor with different data per device
+    multi_device_tensor = ttrt.runtime.create_multi_device_host_tensor(
+        [torch_tensor_0.data_ptr(), torch_tensor_1.data_ptr()],
+        list(shape),
+        list(torch_tensor_0.stride()),
+        torch_tensor_0.element_size(),
+        runtime_dtype,
+        {},
+        [1, 2],
+    )
+
+    device_layout = ttrt.runtime.test.get_dram_interleaved_tile_layout(runtime_dtype)
+
+    with DeviceContext(mesh_shape=[1, 2]) as device:
+        device_tensor = ttrt.runtime.to_layout(
+            multi_device_tensor, device, device_layout
+        )
+        device_tensors = ttrt.runtime.get_device_tensors(device_tensor)
+
+        assert (
+            len(device_tensors) == 2
+        ), f"Expected 2 device tensors, got {len(device_tensors)}"
+
+        # Get shards back from device
+        host_shards = []
+        for t in device_tensors:
+            host_tensor = ttrt.runtime.to_host(t, untilize=True)
+            assert len(host_tensor) == 1
+
+            shard_shape = host_tensor[0].get_shape()
+            torch_shard = torch.zeros(shard_shape, dtype=dtype)
+            ttrt.runtime.memcpy(torch_shard.data_ptr(), host_tensor[0])
+            host_shards.append(torch_shard)
+
+        # Verify each shard matches the original input tensor for that device
+        assert_pcc(torch_tensor_0, host_shards[0], threshold=0.99)
+        assert_pcc(torch_tensor_1, host_shards[1], threshold=0.99)
+
+        ttrt.runtime.deallocate_tensor(device_tensor, force=True)
