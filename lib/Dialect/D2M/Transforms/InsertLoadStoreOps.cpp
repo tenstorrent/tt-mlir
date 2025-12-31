@@ -79,6 +79,17 @@ public:
       D2MInsertLoadStoreOps>::D2MInsertLoadStoreOpsBase;
 
   void runOnOperation() final {
+    // Check for illegal DMAOp operations
+    WalkResult result = getOperation()->walk([&](DMAOp dmaOp) {
+      dmaOp.emitOpError("d2m.dma operations are not supported by this pass");
+      return WalkResult::interrupt();
+    });
+
+    if (result.wasInterrupted()) {
+      signalPassFailure();
+      return;
+    }
+
     OpBuilder builder(&getContext());
 
     // Process WaitOp operations
