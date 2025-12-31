@@ -1394,6 +1394,266 @@ private:
   }
 };
 
+// Fuse multiple MatmulOps that share the same LHS (A operand) into a single
+// MatmulOp with concatenated RHS (B operand) weights and sliced outputs.
+//
+// This pattern is particularly beneficial for transformer architectures where
+// Q, K, V projections (and gate/up projections in MLP) share the same input.
+//
+// Example transformation (QKV fusion with transpose_b=true):
+//
+//   %k = matmul(%input, %k_weight) {transpose_b = true}  // 32x2048 @
+//   512x2048^T %v = matmul(%input, %v_weight) {transpose_b = true}  // 32x2048
+//   @ 512x2048^T %q = matmul(%input, %q_weight) {transpose_b = true}  //
+//   32x2048 @ 2048x2048^T
+//
+// Becomes:
+//
+//   %fused_w = concat(%k_weight, %v_weight, %q_weight, dim=0)  // 3072x2048
+//   %fused = matmul(%input, %fused_w) {transpose_b = true}     // 32x3072
+//   %k = slice(%fused, [0:32, 0:512])
+//   %v = slice(%fused, [0:32, 512:1024])
+//   %q = slice(%fused, [0:32, 1024:3072])
+//
+// If candidates have mixed transpose_b values, permutes are extracted from
+// those with transpose_b=true to normalize all to transpose_b=false.
+//
+class MatmulSharedLHSFusionPattern : public mlir::OpRewritePattern<MatmulOp> {
+public:
+  using mlir::OpRewritePattern<MatmulOp>::OpRewritePattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(MatmulOp rootOp,
+                  mlir::PatternRewriter &rewriter) const final {
+    Value sharedLHS = rootOp.getA();
+
+    // Find all matmul ops sharing the same LHS (A operand)
+    SmallVector<MatmulOp> candidates;
+    for (Operation *user : sharedLHS.getUsers()) {
+      auto matmulOp = dyn_cast<MatmulOp>(user);
+      if (!matmulOp) {
+        continue;
+      }
+      // Must use sharedLHS as the A operand (not B)
+      if (matmulOp.getA() != sharedLHS) {
+        continue;
+      }
+      candidates.push_back(matmulOp);
+    }
+
+    // Need at least 2 candidates for fusion to be worthwhile
+    if (candidates.size() < 2) {
+      return mlir::failure();
+    }
+
+    // Only require transpose_a to match across all candidates
+    bool refTransposeA = rootOp.getTransposeA();
+    for (MatmulOp candidate : candidates) {
+      if (candidate.getTransposeA() != refTransposeA) {
+        return mlir::failure();
+      }
+    }
+
+    // Check if all candidates have the same transpose_b
+    bool allSameTransposeB = true;
+    bool firstTransposeB = candidates[0].getTransposeB();
+    for (MatmulOp candidate : candidates) {
+      if (candidate.getTransposeB() != firstTransposeB) {
+        allSameTransposeB = false;
+        break;
+      }
+    }
+
+    // Determine the target transpose_b for the fused matmul:
+    // - If all same: use that value (no permutes needed)
+    // - If mixed: normalize to false (extract permutes from those with true)
+    bool targetTransposeB = allSameTransposeB ? firstTransposeB : false;
+
+    auto rootOutputType = mlir::cast<RankedTensorType>(rootOp.getType());
+    int64_t outputRank = rootOutputType.getRank();
+
+    // Verify rank compatibility and get K dimension size for validation
+    std::optional<int64_t> kDimSize;
+    for (MatmulOp candidate : candidates) {
+      auto candidateRhsType =
+          mlir::cast<RankedTensorType>(candidate.getB().getType());
+      auto candidateOutputType =
+          mlir::cast<RankedTensorType>(candidate.getType());
+
+      if (candidateOutputType.getRank() != outputRank) {
+        return mlir::failure();
+      }
+
+      // Get K dimension size (contracting dimension)
+      // For transpose_b=true: B is [N, K], K is last dim
+      // For transpose_b=false: B is [K, N], K is second-to-last dim
+      int64_t rhsRank = candidateRhsType.getRank();
+      if (rhsRank < 2) {
+        return mlir::failure(); // Need at least 2D for matmul
+      }
+
+      int64_t candidateKDim = candidate.getTransposeB()
+                                  ? candidateRhsType.getDimSize(rhsRank - 1)
+                                  : candidateRhsType.getDimSize(rhsRank - 2);
+
+      if (!kDimSize) {
+        kDimSize = candidateKDim;
+      } else if (*kDimSize != candidateKDim) {
+        // K dimensions must match
+        return mlir::failure();
+      }
+    }
+
+    // Check output dimensions compatibility (all dims except last must match)
+    for (MatmulOp candidate : candidates) {
+      auto candidateOutputType =
+          mlir::cast<RankedTensorType>(candidate.getType());
+      for (int64_t i = 0; i < outputRank - 1; ++i) {
+        if (rootOutputType.getDimSize(i) != candidateOutputType.getDimSize(i)) {
+          return mlir::failure();
+        }
+      }
+    }
+
+    // Compute slice offsets and total output dimension
+    SmallVector<int64_t> sliceOffsets;
+    int64_t currentOffset = 0;
+    for (MatmulOp candidate : candidates) {
+      sliceOffsets.push_back(currentOffset);
+      auto outputType = mlir::cast<RankedTensorType>(candidate.getType());
+      currentOffset += outputType.getDimSize(outputRank - 1);
+    }
+    int64_t totalOutputDim = currentOffset;
+
+    // Check profitability
+    if (!isProfitableToFuse(candidates, totalOutputDim)) {
+      return mlir::failure();
+    }
+
+    // Collect RHS operands, inserting permutes only when needed
+    SmallVector<Value> rhsOperands;
+    RankedTensorType normalizedRhsType;
+
+    for (MatmulOp candidate : candidates) {
+      Value rhsValue = candidate.getB();
+      auto rhsType = mlir::cast<RankedTensorType>(rhsValue.getType());
+      int64_t rhsRank = rhsType.getRank();
+
+      bool needsPermute =
+          !allSameTransposeB && candidate.getTransposeB() != targetTransposeB;
+
+      if (needsPermute) {
+        // Need to transpose: swap last two dimensions
+        SmallVector<int64_t> permutation;
+        for (int64_t i = 0; i < rhsRank; ++i) {
+          permutation.push_back(i);
+        }
+        std::swap(permutation[rhsRank - 2], permutation[rhsRank - 1]);
+
+        // Compute permuted shape
+        SmallVector<int64_t> permutedShape;
+        for (int64_t i = 0; i < rhsRank; ++i) {
+          permutedShape.push_back(rhsType.getDimSize(permutation[i]));
+        }
+        auto permutedType = RankedTensorType::get(
+            permutedShape, rhsType.getElementType(), rhsType.getEncoding());
+
+        rhsValue = rewriter.create<PermuteOp>(candidate.getLoc(), permutedType,
+                                              rhsValue, permutation);
+        rhsType = permutedType;
+      }
+
+      rhsOperands.push_back(rhsValue);
+
+      // Use the first normalized type as reference
+      if (!normalizedRhsType) {
+        normalizedRhsType = rhsType;
+      }
+    }
+
+    // Determine concat dimension based on target transpose_b:
+    // - transpose_b=true: B is [N, K], concat along dim 0 (N)
+    // - transpose_b=false: B is [K, N], concat along last dim (N)
+    int64_t rhsRank = normalizedRhsType.getRank();
+    int64_t weightConcatDim = targetTransposeB ? (rhsRank - 2) : (rhsRank - 1);
+
+    // Compute the concatenated RHS type
+    SmallVector<int64_t> concatShape(normalizedRhsType.getShape());
+    concatShape[weightConcatDim] = totalOutputDim;
+    auto concatRhsType =
+        RankedTensorType::get(concatShape, normalizedRhsType.getElementType(),
+                              normalizedRhsType.getEncoding());
+
+    // Create concat of all RHS weights
+    auto fusedRHS =
+        rewriter.create<ConcatOp>(rootOp.getLoc(), concatRhsType, rhsOperands,
+                                  rewriter.getSI32IntegerAttr(weightConcatDim));
+
+    // Compute fused output type
+    int64_t outputFusedDim = outputRank - 1;
+    SmallVector<int64_t> fusedOutputShape(rootOutputType.getShape());
+    fusedOutputShape[outputFusedDim] = totalOutputDim;
+    auto fusedOutputType =
+        RankedTensorType::get(fusedOutputShape, rootOutputType.getElementType(),
+                              rootOutputType.getEncoding());
+
+    // Create single fused matmul
+    auto fusedMatmul = rewriter.create<MatmulOp>(
+        rootOp.getLoc(), fusedOutputType, sharedLHS, fusedRHS.getResult(),
+        refTransposeA, targetTransposeB);
+
+    // Create slices and replace uses for each original matmul
+    for (auto [idx, candidate] : llvm::enumerate(candidates)) {
+      auto originalType = mlir::cast<RankedTensorType>(candidate.getType());
+      int64_t sliceSize = originalType.getDimSize(outputFusedDim);
+
+      // Build slice parameters
+      SmallVector<int32_t> begins(outputRank, 0);
+      SmallVector<int32_t> ends;
+      SmallVector<int32_t> steps(outputRank, 1);
+
+      for (int64_t i = 0; i < outputRank; ++i) {
+        if (i == outputFusedDim) {
+          ends.push_back(static_cast<int32_t>(totalOutputDim));
+        } else {
+          ends.push_back(static_cast<int32_t>(originalType.getDimSize(i)));
+        }
+      }
+
+      // Adjust slice bounds for the fused dimension
+      begins[outputFusedDim] = static_cast<int32_t>(sliceOffsets[idx]);
+      ends[outputFusedDim] =
+          static_cast<int32_t>(sliceOffsets[idx] + sliceSize);
+
+      auto sliceOp = rewriter.create<SliceStaticOp>(
+          candidate.getLoc(), originalType, fusedMatmul.getResult(),
+          rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),
+          rewriter.getI32ArrayAttr(steps));
+
+      rewriter.replaceOp(candidate, sliceOp.getResult());
+    }
+
+    return mlir::success();
+  }
+
+private:
+  // Determine if fusion is profitable based on hardware characteristics
+  bool isProfitableToFuse(ArrayRef<MatmulOp> candidates,
+                          int64_t fusedOutputDim) const {
+    // Heuristics:
+    // 1. At least 2 candidates (already checked)
+    // 2. Fused dimension shouldn't be excessively large
+    constexpr int64_t kMaxFusedDim = 32768;
+    if (fusedOutputDim > kMaxFusedDim) {
+      return false;
+    }
+
+    // For Tenstorrent hardware, larger matmuls generally have better
+    // utilization, so fusion is typically beneficial
+    return true;
+  }
+};
+
 // The following OpRewritePattern fuses:
 //     div(sum_pool(act), broadcast(reshape(sum_pool(const))))
 // to:
