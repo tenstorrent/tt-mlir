@@ -1199,7 +1199,16 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
         [MemRead]>:$memref,
         Variadic<Index>:$indices);
 
-    let assemblyFormat = [{ $cb `,` $memref `[` $indices `]` attr-dict `:` type($cb) `,` type($memref) }];
+    let results = (outs AnyRankedTensorOrMemRef:$result);
+
+    let builders = [
+      OpBuilder<(ins "Value":$cb, "Value":$memref, "ValueRange":$indices),
+      [{
+        build($_builder, $_state, mlir::cast<CBType>(cb.getType()).getUnderlying(), cb, memref, indices);
+      }]>
+    ];
+
+    let assemblyFormat = [{ $cb `,` $memref `[` $indices `]` attr-dict `:` type($cb) `,` type($memref) `->` type($result) }];
 
     let hasVerifier = 1;
 
@@ -1297,7 +1306,16 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
         Variadic<Index>:$indices,
         D2M_CB:$cb);
 
-    let assemblyFormat = [{ $memref `[` $indices `]` `,` $cb attr-dict `:` type($memref) `,` type($cb) }];
+    let results = (outs AnyRankedTensorOrMemRef:$result);
+
+    let builders = [
+      OpBuilder<(ins "Value":$memref, "ValueRange":$indices, "Value":$cb),
+      [{
+        build($_builder, $_state, mlir::cast<CBType>(cb.getType()).getUnderlying(), memref, indices, cb);
+      }]>
+    ];
+
+    let assemblyFormat = [{ $memref `[` $indices `]` `,` $cb attr-dict `:` type($memref) `,` type($cb) `->` type($result) }];
 
     let hasVerifier = 1;
 
