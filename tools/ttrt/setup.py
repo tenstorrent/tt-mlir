@@ -27,6 +27,8 @@ def get_cmake_options() -> dict:
     """Get CMake build options from build config."""
     return {
         "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_COMPILER_LAUNCHER": "ccache",
+        "CMAKE_C_COMPILER_LAUNCHER": "ccache",
         "TTMLIR_ENABLE_RUNTIME": "ON",
         "TT_RUNTIME_ENABLE_TTNN": "ON",
         "TT_RUNTIME_ENABLE_TTMETAL": "ON",
@@ -141,6 +143,7 @@ class CMakeBuildPy(build_py):
         """Run CMake configure, build, and install."""
         # Install directory for runtime binaries
         install_dir = (Path(self.build_lib) / "ttrt" / "runtime").resolve()
+        print(f"Installing ttrt runtime to {install_dir}")
         install_dir.mkdir(parents=True, exist_ok=True)
 
         # Get CMake options
@@ -179,26 +182,22 @@ class CMakeBuildPy(build_py):
         print(f"Installing: {' '.join(install_command)}")
         subprocess.check_call(install_command, cwd=REPO_DIR)
 
-        # Copy _ttmlir_runtime.so separately
-        runtime_so = self._find_runtime_module(build_dir)
-        if runtime_so and runtime_so.exists():
-            dest = install_dir / runtime_so.name
-            print(f"Copying {runtime_so.name} to {install_dir}")
-            shutil.copy(runtime_so, dest)
-        else:
-            raise RuntimeError(
-                f"_ttmlir_runtime.so not found in {build_dir}/runtime/python/"
-            )
+        install_command = [
+            "cmake",
+            "--install",
+            str(build_dir),
+            "--component",
+            "ttrt",
+        ]
+        print(f"Installing: {' '.join(install_command)}")
+        subprocess.check_call(install_command, cwd=REPO_DIR)
 
-    def _find_runtime_module(self, build_dir: Path) -> Path:
-        """Find _ttmlir_runtime.cpython-*.so in build directory."""
-        runtime_python_dir = build_dir / "runtime" / "python"
-        if not runtime_python_dir.exists():
-            return None
-
-        for so_file in runtime_python_dir.glob("_ttmlir_runtime.cpython-*.so"):
-            return so_file
-        return None
+        # # Copy _ttmlir_runtime.so separately
+        # runtime_so = self._find_runtime_module(install_dir)
+        # if runtime_so and runtime_so.exists():
+        #     dest = install_dir / runtime_so.name
+        #     print(f"Copying {runtime_so.name} to {install_dir}")
+        #     shutil.copy(runtime_so, dest)
 
 
 # Get version
@@ -213,6 +212,7 @@ requirements = [
     "graphviz",
     "pyyaml",
     "click",
+    "torch",
 ]
 
 # Setup package directories (must be relative paths)
