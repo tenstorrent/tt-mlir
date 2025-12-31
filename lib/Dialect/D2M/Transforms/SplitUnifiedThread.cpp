@@ -93,6 +93,44 @@ public:
       rewriter.clone(*terminator, computeMapping);
     }
 
+    // Helper function to recursively collect all operations in a block and its
+    // nested regions (excluding scf.for ops themselves, but including their
+    // body contents)
+    std::function<void(Block *, DenseSet<Operation *> &, bool)>
+        collectOpsToErase = [&](Block *block, DenseSet<Operation *> &eraseSet,
+                                bool keepRemoteOps) {
+          for (Operation &op : block->getOperations()) {
+            Operation *opPtr = &op;
+
+            // Skip terminators
+            if (opPtr->hasTrait<OpTrait::IsTerminator>()) {
+              continue;
+            }
+
+            // Never erase scf.for operations - they have nested regions.
+            // Recursively process their body instead.
+            if (auto forOp = dyn_cast<scf::ForOp>(opPtr)) {
+              collectOpsToErase(forOp.getBody(), eraseSet, keepRemoteOps);
+              continue;
+            }
+
+            bool isRemoteOp = isa<RemoteLoadOp, RemoteStoreOp>(opPtr);
+            if (keepRemoteOps) {
+              // In datamovement region: keep RemoteLoadOp and RemoteStoreOp,
+              // erase everything else
+              if (!isRemoteOp) {
+                eraseSet.insert(opPtr);
+              }
+            } else {
+              // In compute region: remove RemoteLoadOp and RemoteStoreOp, keep
+              // everything else
+              if (isRemoteOp) {
+                eraseSet.insert(opPtr);
+              }
+            }
+          }
+        };
+
     // Helper function to iteratively erase operations that should be removed
     // We keep erasing operations with no uses (or uses only by ops we're
     // erasing) until no more can be erased
@@ -103,90 +141,19 @@ public:
         DenseSet<Operation *> eraseSet;
         SmallVector<Operation *> toErase;
 
-        // First pass: identify all operations that should be erased (based on
-        // type)
-        // Use a non-recursive walk to avoid walking into nested regions
-        for (Operation &op : block->getOperations()) {
-          Operation *opPtr = &op;
-
-          // Skip terminators
-          if (opPtr->hasTrait<OpTrait::IsTerminator>()) {
-            continue;
-          }
-
-          // Never erase scf.for operations - they have nested regions that
-          // would be invalidated. Only erase operations inside them.
-          if (isa<scf::ForOp>(opPtr)) {
-            // Walk into the loop body to filter its contents
-            if (auto forOp = dyn_cast<scf::ForOp>(opPtr)) {
-              Block *loopBody = forOp.getBody();
-              for (Operation &innerOp : loopBody->getOperations()) {
-                Operation *innerOpPtr = &innerOp;
-                if (innerOpPtr->hasTrait<OpTrait::IsTerminator>()) {
-                  continue;
-                }
-                bool isRemoteOp = isa<RemoteLoadOp, RemoteStoreOp>(innerOpPtr);
-                if (keepRemoteOps) {
-                  if (!isRemoteOp) {
-                    eraseSet.insert(innerOpPtr);
-                  }
-                } else {
-                  if (isRemoteOp) {
-                    eraseSet.insert(innerOpPtr);
-                  }
-                }
-              }
-            }
-            continue;
-          }
-
-          bool isRemoteOp = isa<RemoteLoadOp, RemoteStoreOp>(opPtr);
-          if (keepRemoteOps) {
-            // In datamovement region: keep RemoteLoadOp and RemoteStoreOp,
-            // erase everything else
-            if (!isRemoteOp) {
-              eraseSet.insert(opPtr);
-            }
-          } else {
-            // In compute region: remove RemoteLoadOp and RemoteStoreOp, keep
-            // everything else
-            if (isRemoteOp) {
-              eraseSet.insert(opPtr);
-            }
-          }
-        }
+        // First pass: recursively identify all operations that should be
+        // erased (based on type), walking into all nested scf.for loops
+        collectOpsToErase(block, eraseSet, keepRemoteOps);
 
         // Second pass: only erase operations that have no uses
         // Operations with uses will be handled by canonicalization
-        // Use a non-recursive walk to avoid walking into nested regions
-        for (Operation &op : block->getOperations()) {
-          Operation *opPtr = &op;
-          if (!eraseSet.contains(opPtr)) {
-            continue;
-          }
+        for (Operation *opPtr : eraseSet) {
           // Only erase operations that have no uses
           // Operations with uses (like wait/reserve used by tile_matmul_block)
           // will be handled by canonicalization after their users are erased
           if (opPtr->use_empty()) {
             toErase.push_back(opPtr);
             changed = true;
-          }
-        }
-
-        // Also check operations inside scf.for loops
-        for (Operation &op : block->getOperations()) {
-          if (auto forOp = dyn_cast<scf::ForOp>(&op)) {
-            Block *loopBody = forOp.getBody();
-            for (Operation &innerOp : loopBody->getOperations()) {
-              Operation *innerOpPtr = &innerOp;
-              if (!eraseSet.contains(innerOpPtr)) {
-                continue;
-              }
-              if (innerOpPtr->use_empty()) {
-                toErase.push_back(innerOpPtr);
-                changed = true;
-              }
-            }
           }
         }
 
