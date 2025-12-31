@@ -4223,7 +4223,12 @@ llvm::Expected<OpConstraints> OpModel<MatmulOp>::getOpConstraints(
         outputMemoryConfig, outputDType, programConfig, activationStr);
   };
 
+  return operation::getOpConstraints(inputLayoutA.getContext(), deviceGrid,
+                                     matmulOpQuery);
+#else
+  return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
+}
 
 llvm::Expected<size_t> OpModel<MatmulOp>::getOpRuntime(
     llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
