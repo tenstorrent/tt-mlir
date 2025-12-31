@@ -349,14 +349,18 @@ class Perf:
     def execute(self):
         self.logging.debug(f"------executing perf API")
 
-        profiler_logs_dir = (
-            f"{self.globals.get_ttmetal_home_path()}/generated/profiler/.logs"
-        )
+        os.environ["TT_METAL_PROFILER_DIR"] = f"{os.getcwd()}/generated/profiler"
+
+        profiler_logs_dir = f"{os.getcwd()}/generated/profiler/.logs"
         tracy_file_path = "tracy_profile_log_host.tracy"
         tracy_ops_times_file_path = "tracy_ops_times.csv"
         tracy_ops_data_file_path = "tracy_ops_data.csv"
-        profiler_device_side_log_path = f"{self.globals.get_ttmetal_home_path()}/generated/profiler/.logs/profile_log_device.csv"
-        profiler_csv_file_path = f"{self.globals.get_ttmetal_home_path()}/generated/profiler/reports/ops_perf_results.csv"
+        profiler_device_side_log_path = (
+            f"{os.getcwd()}/generated/profiler/.logs/profile_log_device.csv"
+        )
+        profiler_csv_file_path = (
+            f"{os.getcwd()}/generated/profiler/reports/ops_perf_results.csv"
+        )
 
         self.file_manager.remove_directory(profiler_logs_dir)
         self.file_manager.create_directory(profiler_logs_dir)
@@ -405,6 +409,9 @@ class Perf:
                         env_vars["TT_METAL_DEVICE_PROFILER"] = "1"
                         env_vars["TTNN_OP_PROFILER"] = "1"
                         env_vars["TT_METAL_DEVICE_PROFILER_DISPATCH"] = "0"
+                        env_vars[
+                            "TT_METAL_PROFILER_DIR"
+                        ] = f"{os.getcwd()}/generated/profiler"
 
                     tracy_capture_tool_command = f"{self.tracy_capture_tool_path} -o {tracy_file_path} -f -p {port}"
                     self.tracy_capture_tool_process = subprocess.Popen(
