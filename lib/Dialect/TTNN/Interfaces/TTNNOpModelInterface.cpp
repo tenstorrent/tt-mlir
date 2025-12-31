@@ -2948,7 +2948,7 @@ MatmulOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<MatmulOp>::getOpConstraints, *this, deviceGrid,
       inputShapeA, inputs[0], inputShapeB, inputs[1], opConfig.outputLayout,
-      getTransposeA(), getTransposeB());
+      getTransposeA(), getTransposeB(), getActivation());
 }
 
 llvm::Expected<size_t>

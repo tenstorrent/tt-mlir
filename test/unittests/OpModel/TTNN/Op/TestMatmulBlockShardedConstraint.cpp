@@ -83,4 +83,56 @@ TEST_F(OpModelTest, MatmulBlockShardedInputWithPadding) {
       ".*"); // Match any crash message
 }
 
+// Test that matmul with activation and IgnorePhysicalLayout on sharded output
+// crashes in tt-metal. The workaround in
+// ShardSolver::shouldUseIgnorePhysicalLayout prevents this by using full layout
+// when activation is present.
+//
+// IMPORTANT: If this test FAILS (EXPECT_DEATH fails because code doesn't
+// crash), it means the metal issue (tt-metal#34500) is fixed and uplifted.
+// In that case, the activation check in shouldUseIgnorePhysicalLayout can be
+// removed from: lib/Dialect/TTNN/Analysis/ShardSolver.cpp
+TEST_F(OpModelTest, MatmulActivationWithIgnorePhysicalLayout) {
+  // Create interleaved (non-sharded) input tensors
+  llvm::SmallVector<int64_t> inputShapeA = {64, 128};
+  TTNNLayoutAttr inputLayoutA = CreateTiledLayout(
+      inputShapeA, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  llvm::SmallVector<int64_t> inputShapeB = {128, 64};
+  TTNNLayoutAttr inputLayoutB = CreateTiledLayout(
+      inputShapeB, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  auto inputA = createEmptyTensor(inputShapeA, nullptr, inputLayoutA);
+  auto inputB = createEmptyTensor(inputShapeB, nullptr, inputLayoutB);
+
+  llvm::SmallVector<int64_t> outputShape = {64, 64};
+  auto outputType =
+      createRankedTensorType(outputShape, builder.getBF16Type(), nullptr);
+
+  // Create matmul with activation attribute
+  auto matmul = builder.create<MatmulOp>(builder.getUnknownLoc(), outputType,
+                                         mlir::ValueRange{inputA, inputB});
+  matmul.setActivation(llvm::StringRef("sigmoid"));
+
+  // Create sharded output layout with IgnorePhysicalLayout=true
+  auto outputLayout = CreateTiledLayout(outputShape, BufferType::L1,
+                                        TensorMemoryLayout::BlockSharded,
+                                        llvm::SmallVector<int64_t>{2, 2})
+                          .withIgnorePhysicalLayout(true);
+
+  auto deviceGrid = CreateWorkerGrid();
+
+  // This crashes with "bad optional access" because tt-metal cannot handle
+  // partial memory configs (IgnorePhysicalLayout=true) with fused activations.
+  EXPECT_DEATH(
+      {
+        auto constraintsExp = op_model::OpModel<MatmulOp>::getOpConstraints(
+            deviceGrid, inputShapeA, inputLayoutA, inputShapeB, inputLayoutB,
+            outputLayout, matmul.getTransposeA(), matmul.getTransposeB(),
+            matmul.getActivation());
+        (void)constraintsExp;
+      },
+      ".*"); // Match any crash message
+}
+
 } // namespace mlir::tt::ttnn
