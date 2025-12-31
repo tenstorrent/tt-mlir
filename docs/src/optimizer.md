@@ -22,6 +22,10 @@ ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-optimizer=true" input.mlir
 
 The optimizer provides additional configuration options:
 
+- **`optimization-level`** (default: `0`)
+  - 0: Optimizer disabled, 1: Optimizer enabled without sharding, 2: Full optimization with sharding
+  - Automatically sets `enable-optimizer` and `memory-layout-analysis-enabled` based on level
+
 - **`enable-optimizer`** (default: `false`)
   - Enables the optimizer pass
   - Must be set to `true` to use any other optimizer options

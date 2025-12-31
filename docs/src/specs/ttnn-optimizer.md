@@ -1,15 +1,12 @@
 # TTNN Optimizer
 
-**Component**: TTNNOptimizer
-**Location**: `lib/Dialect/TTNN/Transforms/OptimizerPasses/Optimizer.cpp`
-**Authors**: Compiler Team
-**Status**: Current Design + Future Refactors (WIP)
-
----
-
 ## TL;DR
 
-TTNNOptimizer maximizes L1 memory usage for TTNN operations via:
+TTNNOptimizer performs two key optimizations for TTNN operations:
+1. **Maximizes L1 memory usage** — keeps intermediate tensors in fast on-chip L1 memory instead of slow DRAM
+2. **Optimizes op-specific configurations** — selects optimal parameters for operations (e.g., Conv2d block sizes, activation handling)
+
+It achieves this via:
 1. **Layout Generation**: Enumerate valid tensor layouts per op
 2. **DFShardingPolicy**: Build L1 chains in DFS order
 3. **ShardSolver**: Constraint satisfaction to find compatible configs
@@ -144,15 +141,9 @@ Tenstorrent devices feature a two-level memory hierarchy:
 │  │   │  │    resolution    │     │                      │               │ │ │
 │  │   │  └──────────────────┘     │  • Constraint SAT    │               │ │ │
 │  │   │                           │  • Bitset tracking   │               │ │ │
-│  │   │  ┌──────────────────┐     │  • Reshard insertion │               │ │ │
-│  │   │  │GreedyL1Interleaved│    │  • Core usage max    │               │ │ │
-│  │   │  │ (deprecated)     │     └──────────────────────┘               │ │ │
-│  │   │  └──────────────────┘                                            │ │ │
-│  │   │                                                                  │ │ │
-│  │   │  ┌──────────────────┐                                            │ │ │
-│  │   │  │ BFInterleavedPolicy│                                          │ │ │
-│  │   │  │ (deprecated)     │                                            │ │ │
-│  │   │  └──────────────────┘                                            │ │ │
+│  │   │                           │  • Reshard insertion │               │ │ │
+│  │   │                           │  • Core usage max    │               │ │ │
+│  │   │                           └──────────────────────┘               │ │ │
 │  │   └──────────────────────────────────────────────────────────────────┘ │ │
 │  │                                                                        │ │
 │  └────────────────────────────────────────┬───────────────────────────────┘ │
@@ -178,33 +169,6 @@ Tenstorrent devices feature a two-level memory hierarchy:
 └────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 2.2 Key Files and Responsibilities
-
-| File | Responsibility |
-|------|----------------|
-| `Optimizer.cpp` | Main pass orchestration, applies final configs to IR |
-| `DFShardingPolicy.cpp` | L1 chain identification, DFS scheduling, invokes ShardSolver |
-| `ShardSolver.cpp` | Constraint satisfaction, bitset-based config tracking, reshard insertion |
-| `L1ChainConfig.h` | Data structure for L1 chain state and op specs |
-| `OpConfig.h` | Config structure: `TTNNLayoutAttr` + op-specific attrs |
-| `LegalTensorLayoutAnalysis.cpp` | Generates all possible tensor layouts |
-| `LegalOpLayoutAnalysis.cpp` | Filters layouts via OpModel validation |
-| `LegalOpConfigAnalysis.cpp` | Expands op-specific config search space |
-| `OpConfigAnalysis.cpp` | Picks final single config per op |
-| `MemoryLayoutAnalysis.cpp` | Dispatches to appropriate policy |
-| `OpConstraintValidation.cpp` | Interface to OpModel for validation |
-
-### 2.3 Policy Selection
-
-The optimizer supports pluggable memory layout policies via `--memory-layout-analysis-policy`:
-
-| Policy | Status | Description |
-|--------|--------|-------------|
-| `DFSharding` | **Production** | DFS-based L1 chain building with ShardSolver |
-| `GreedyL1Interleaved` | Deprecated | Greedy L1 interleaved placement |
-| `BFInterleaved` | Deprecated | Breadth-first interleaved placement |
-
-> **Note**: `GreedyL1Interleaved` and `BFInterleaved` remain for experimental purposes only.
 
 ---
 
@@ -217,8 +181,6 @@ The layout generation pipeline creates the search space of valid configurations 
 #### 3.1.1 ScalarDataTypeAnalysis
 
 **Purpose**: Collect all scalar element types used across the graph.
-
-**Location**: `lib/Dialect/TTNN/Analysis/ScalarDataTypeAnalysis.cpp`
 
 ```
 Input Graph:
@@ -236,8 +198,6 @@ This analysis respects layout overrides specified by the user.
 
 **Purpose**: Generate all possible `TTNNLayoutAttr` combinations for each tensor type.
 
-**Location**: `lib/Dialect/TTNN/Analysis/LegalTensorLayoutAnalysis.cpp`
-
 For each `(TensorType, ScalarType)` pair, generates layouts across these dimensions:
 
 ```
@@ -250,82 +210,25 @@ TensorMemoryLayout:
   └── Sharded     (data explicitly partitioned per core)
 
 BufferType:
-  ├── L1    (on-chip SRAM)
-  └── DRAM  (off-chip)
+  ├── L1    (SRAM, local to Tensix core)
+  └── DRAM  (shared, accessed via NoC)
 
 Grid (for sharded only):
   Various grid dimensions based on device worker grid
   e.g., 1x1, 1x8, 8x1, 8x8, etc.
 ```
 
-**Output Structure**:
-
-```cpp
-using TensorTypeLayoutsMap =
-  DenseMap<RankedTensorType,                    // Key: tensor shape + element type
-           DenseMap<Type,                        // Key: scalar type (bf16, f32, ...)
-                    std::array<                  // Index: TensorPageLayout
-                      std::array<                // Index: TensorMemoryLayoutIndex
-                        SmallVector<TTNNLayoutAttr>,  // The layouts
-                      kNumMemLayoutValues>,
-                    kNumPageLayoutValues>>>;
-```
-
 #### 3.1.3 LegalOpLayoutAnalysis
 
-**Purpose**: Filter tensor layouts to those valid for a specific operation.
+**Purpose**: Select tensor layouts for each operation from the pre-generated layout pool.
 
-**Location**: `lib/Dialect/TTNN/Analysis/LegalOpLayoutAnalysis.cpp`
-
-This is a **per-op analysis** that queries the OpModel backend to validate each candidate layout:
-
-```
-for each candidate layout in tensorTypePossibleLayouts[op.outputType]:
-    result = OpModel.validateOperation(op, inputLayouts, OpConfig(layout))
-    if result.isSuccess():
-        legalLayouts.append(layout)
-    # Stop at maxLegalLayouts (default: 8) to bound search space
-```
-
-The validation checks:
-- Can the op produce output with this layout?
-- Does the configuration fit in L1?
-- Are all data type and tiling constraints satisfied?
+This per-op analysis picks layouts from the tensor type layouts generated in the previous step, associating them with specific operations. Results are bounded by `maxLegalLayouts` to limit the search space.
 
 #### 3.1.4 LegalOpConfigAnalysis
 
 **Purpose**: Expand layouts with op-specific configuration parameters.
 
-**Location**: `lib/Dialect/TTNN/Analysis/LegalOpConfigAnalysis.cpp`
-
-For operations like `Conv2d`, there are additional configuration knobs beyond just the output layout:
-
-```cpp
-struct Conv2dAttrs {
-  std::optional<Conv2dConfigAttr> conv2dConfig;
-  std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig;
-};
-
-// Conv2dConfigAttr contains:
-// - actBlockHOverride: activation block height
-// - deallocateActivation: free activation after use
-// - reshardIfNotOptimal: allow reshard within conv
-// - etc.
-```
-
-**Search Space Generation**:
-
-```
-For Conv2d ops:
-  searchSpace.actBlockHOverride = {0, 64, 32}   // 0 = max flexibility
-  searchSpace.deallocateActivation = {true}
-
-  For each layout in legalLayouts:
-    For each (actBlockH, dealloc, ...) in cartesian_product(searchSpace):
-      configs.append(OpConfig(layout, Conv2dAttrs{actBlockH, dealloc, ...}))
-```
-
-The cartesian product uses an "odometer" algorithm to enumerate all combinations.
+For operations like Conv2d, there are additional configuration knobs beyond just the output layout (e.g., activation block sizes, memory deallocation options). This analysis expands each legal layout by generating the cartesian product with op-specific parameter values, producing the full configuration search space.
 
 #### 3.1.5 Configuration Flow Diagram
 
@@ -336,35 +239,33 @@ The cartesian product uses an "odometer" algorithm to enumerate all combinations
           │
           ▼
 ┌─────────────────────────────────────────────────────────┐
-│           LegalTensorLayoutAnalysis                      │
-│                                                          │
+│           LegalTensorLayoutAnalysis                     │
+│                                                         │
 │  Generates ~100s of layouts:                            │
-│  • L1-Sharded-1x8, L1-Sharded-8x1, L1-Sharded-8x8, ... │
+│  • L1-Sharded-1x8, L1-Sharded-8x1, L1-Sharded-8x8, ...  │
 │  • L1-Interleaved                                       │
 │  • DRAM-Interleaved                                     │
 └─────────────────────────────────────────────────────────┘
           │
           ▼
 ┌─────────────────────────────────────────────────────────┐
-│           LegalOpLayoutAnalysis (per-op)                 │
-│                                                          │
+│           LegalOpLayoutAnalysis (per-op)                │
+│                                                         │
 │  For ttnn.matmul:                                       │
 │    Valid: L1-Sharded-8x8, L1-Interleaved, DRAM-Inter... │
 │    Invalid: L1-Sharded-1x1 (not enough parallelism)     │
-│                                                          │
+│                                                         │
 │  Filtered to maxLegalLayouts = 8                        │
 └─────────────────────────────────────────────────────────┘
           │
           ▼
 ┌─────────────────────────────────────────────────────────┐
-│           LegalOpConfigAnalysis (per-op)                 │
-│                                                          │
-│  For ttnn.conv2d:                                       │
-│    Expand each layout with:                             │
-│    • actBlockHOverride ∈ {0, 64, 32}                   │
-│    • deallocateActivation ∈ {true}                     │
-│                                                          │
-│  8 layouts × 3 actBlockH = 24 configs                   │
+│           LegalOpConfigAnalysis (per-op)                │
+│                                                         │
+│  For ops with extra config knobs (e.g., Conv2d):        │
+│    Expand each layout with op-specific parameters       │
+│                                                         │
+│  N layouts × M parameter combinations = configs         │
 └─────────────────────────────────────────────────────────┘
           │
           ▼
@@ -376,8 +277,6 @@ The cartesian product uses an "odometer" algorithm to enumerate all combinations
 ### 3.2 DFShardingPolicy
 
 **Purpose**: Build and resolve L1 chains by processing ops in DFS-schedulable order.
-
-**Location**: `lib/Dialect/TTNN/Analysis/DFShardingPolicy.cpp`
 
 #### 3.2.1 L1 Chain Concept
 
@@ -429,15 +328,8 @@ Algorithm: DFShardingPolicy.run()
 |------|-----------|
 | **Single-use only** | If `currentOp.hasOneUse()` is false (fork), chain breaks to avoid complex dataflow |
 | **First operand** | `nextOp.operand[0]` must be `currentOp` - ensures linear chain structure |
-| **Shardable ops only** | Only specific ops support L1 sharding (Conv2d, Matmul, Add, Relu, etc.) |
+| **Shardable ops only** | Only specific ops support L1 sharding (Conv2d, Matmul, elementwise ops, etc.) |
 | **Has legal configs** | Op must have at least one valid sharded configuration |
-
-**Shardable Operations** (hardcoded list):
-```cpp
-isa<Conv2dOp, ConvTranspose2dOp, AddOp, MultiplyOp, ReluOp, Relu6Op,
-    TypecastOp, SiluOp, MatmulOp, LinearOp, MinimumOp, RMSNormOp,
-    RotaryEmbeddingOp, GeluOp>(currentOp)
-```
 
 #### 3.2.4 L1ChainConfig State Machine
 
@@ -468,8 +360,6 @@ isa<Conv2dOp, ConvTranspose2dOp, AddOp, MultiplyOp, ReluOp, Relu6Op,
 
 **Purpose**: Solve the constraint satisfaction problem of finding compatible sharding configurations for adjacent operations in an L1 chain.
 
-**Location**: `lib/Dialect/TTNN/Analysis/ShardSolver.cpp`
-
 #### 3.3.1 Problem Formulation
 
 Given an L1 chain of N operations, each with K_i valid configurations, find a selection of one configuration per operation such that:
@@ -480,250 +370,70 @@ Given an L1 chain of N operations, each with K_i valid configurations, find a se
 
 #### 3.3.2 Bitset-Based Constraint Tracking
 
-ShardSolver uses 512-bit bitsets to efficiently track which configurations remain valid:
+ShardSolver uses fixed-size bitsets to efficiently track which configurations remain valid for each operation. Each bit position represents a configuration index—a set bit means the config is still valid, a cleared bit means it has been eliminated.
 
-```cpp
-using Bitset = std::bitset<512>;  // kNumBitsetBits = 512
-
-// Each bit position represents a configuration index
-// Bitset[i] = 1 means config[i] is still valid
-// Bitset[i] = 0 means config[i] has been eliminated
-
-// Per-operation bitset tracking
-DenseMap<Operation*, BitsetId> bitsetIds;
-std::vector<Bitset> bitsets;
-```
-
-**Why 512 bits?** While `maxLegalLayouts` defaults to 8, op-specific configuration attributes (e.g., Conv2dConfig) multiply the number of configs. For example, 8 layouts × multiple `actBlockHOverride` values × other Conv2d parameters can produce hundreds of configs per operation.
+The bitset size is chosen to accommodate the expanded configuration space. While `maxLegalLayouts` bounds the number of tensor layouts, op-specific attributes (e.g., Conv2d block sizes) multiply the total configs per operation into the hundreds.
 
 #### 3.3.3 PathSet Graph
 
-The solver maintains a graph of valid paths between adjacent operations:
+The solver maintains a graph of valid "paths" between adjacent operations. A path connects a producer config index to a consumer config index, indicating that the producer's output layout is compatible with the consumer's input requirements for those specific configurations.
 
-```cpp
-struct Path {
-  std::uint64_t producerId;   // Index into producer's config vector
-  std::uint64_t consumerId;   // Index into consumer's config vector
-};
-
-struct PathSet {
-  BitsetId producerBitsetId;
-  BitsetId consumerBitsetId;
-  Operation *producerOp;
-  Operation *consumerOp;
-  Paths paths;  // SmallVector<Path, 16>
-
-  // Update paths based on current bitset state
-  bool update(const std::vector<Bitset> &bitsets);
-};
-```
-
-A `Path(i, j)` means "producer config[i] is compatible with consumer config[j]".
+For each edge in the chain, the solver stores a PathSet containing all valid producer-consumer config pairs. As constraints propagate, paths are removed when either endpoint's config becomes invalid.
 
 #### 3.3.4 Resolution Algorithm
 
-```
-Algorithm: ShardSolver.resolveStep()
+The solver processes the chain in order, building PathSets for each edge:
 
-1. preprocessFirstOp()
-   # Handle chain entry: can first op accept DRAM interleaved input?
+1. **Preprocess first op**: Determine which configs can accept external (typically DRAM interleaved) input
+2. **Build paths**: For each edge, validate all producer-consumer config combinations via OpModel
+3. **Handle incompatibility**: If no valid paths exist for an edge, attempt to insert a reshard
+4. **Update bitsets**: Narrow each operation's valid configs based on which have valid paths
+5. **Propagate constraints**: Iteratively propagate until the constraint graph stabilizes
 
-2. for each op in chain (in order):
-     consumerBitset = getOrInsertBitset(op, ALL_ONES)
-     consumerConfigs = legalConfigs[op]
-
-     for each edge in operandOpEdges[op]:
-       producerOp = edge.producerOp
-       producerBitset = getOrInsertBitset(producerOp, ALL_ONES)
-       producerConfigs = legalConfigs[producerOp]
-
-       if reshardOnEdge:
-         # Reshard handles layout conversion
-         paths = generatePathsFromReshardMap(edge)
-       else:
-         paths = []
-         for producerId in valid(producerBitset):
-           for consumerId in valid(consumerBitset):
-             result = OpModel.validate(op, producerConfigs[producerId],
-                                           consumerConfigs[consumerId])
-             if result.isSuccess():
-               paths.append(Path(producerId, consumerId))
-
-       if paths.isEmpty():
-         # Try inserting reshard
-         if not insertReshard(edge):
-           return FAILED
-         paths = generatePathsFromReshardMap(edge)
-
-       # Update bitsets based on valid paths
-       producerBitset &= pathsToProducerBitset(paths)
-       consumerBitset &= pathsToConsumerBitset(paths)
-
-       pathSets[edge] = PathSet(paths)
-
-3. Propagate constraints through path graph
-   updateSolver(root, expand=false)
-
-4. return SUCCESS
-```
+If any edge ends up with zero valid paths, the entire chain fails.
 
 #### 3.3.5 First Op Preprocessing
 
-The first operation in an L1 chain receives input from outside the chain (typically DRAM interleaved). Special handling determines which configs work with external input:
-
-```
-preprocessFirstOp():
-  firstOpBitset = empty
-
-  # Check which configs accept interleaved input
-  for each config in firstOpConfigs:
-    if OpModel.supportsInterleavedInputShardedOutput(firstOp, config):
-      firstOpBitset.set(config.index)
-
-  if firstOpBitset.any():
-    return SUCCESS
-
-  # No config works with interleaved input - must reshard
-  return insertReshard(chainInputEdge)
-```
+The first operation receives input from outside the chain. The solver checks which of its configs can accept interleaved input and produce sharded output. If none can, a reshard is inserted at chain entry.
 
 #### 3.3.6 Reshard Insertion
 
-When adjacent operations have incompatible layouts, the solver inserts a reshard (ToLayoutOp). This finds all valid (reshardLayout → consumerConfig) combinations:
-
-```
-insertReshard(edge):
-  consumerBitset = empty
-  reshardMap = {}
-
-  # Try all possible sharded layouts as reshard output
-  for each reshardLayout in possibleShardedLayouts(edge.inputTensor):
-    # Check which consumer configs work with this reshard layout
-    for each config in consumerConfigs:
-      if OpModel.validate(consumerOp, reshardLayout, config):
-        consumerBitset.set(config.index)
-        reshardMap[config.index].append(reshardLayout)
-
-  if reshardMap.empty():
-    return FAILED
-
-  memReconfigMap[edge] = reshardMap
-  return SUCCESS
-```
-
-The reshard map stores multiple valid reshard layouts per consumer config, allowing flexibility during final resolution.
+When adjacent operations have incompatible layouts, the solver inserts a reshard (ToLayoutOp). It searches all possible sharded layouts that could bridge the gap, recording which consumer configs each reshard layout enables. Multiple valid reshard layouts may exist per consumer config, providing flexibility during final resolution.
 
 #### 3.3.7 Constraint Propagation
 
-After initial path construction, constraints propagate bidirectionally through the graph until convergence:
+After initial path construction, constraints propagate bidirectionally through the graph until convergence. When a config is eliminated from one operation, all paths involving that config are removed, which may eliminate configs from adjacent operations, triggering further propagation.
 
-```
-updateSolver(root):
-  worklist = [root]
-
-  while worklist not empty:
-    op = worklist.pop()
-    changed = false
-
-    # Propagate to producers (backward)
-    for each incoming edge (producer → op):
-      if pathSet.update() removes any paths:
-        worklist.add(producer)
-        changed = true
-      if pathSet becomes empty:
-        return FAILED  # No valid solution
-
-    # Propagate to consumers (forward)
-    for each outgoing edge (op → consumer):
-      if pathSet.update() removes any paths:
-        worklist.add(consumer)
-        changed = true
-      if pathSet becomes empty:
-        return FAILED
-
-  return SUCCESS
-```
-
-The `pathSet.update()` removes paths where either endpoint's config bit has been cleared, then updates the corresponding bitsets to reflect remaining valid configs.
+This continues until no more changes occur or an edge loses all paths (failure).
 
 #### 3.3.8 Core Usage Maximization
 
-After constraints are resolved, the solver computes accumulated core usage to guide config selection:
-
-```
-Algorithm: produceMaxCoreUsage()
-
-# Walk chain from tail to head (reverse order)
-for op in reversed(shardSpecs):
-  configs = legalConfigs[op]
-
-  # Initialize with own grid volume
-  for i, config in enumerate(configs):
-    accCoreUsage[op][i] = config.outputLayout.getGrid().getGridVolume()
-
-  # Add downstream core usage via valid paths
-  for pathSet in getUserPathSetsPts(op):
-    consumerOp = pathSet.getConsumerOp()
-
-    for path in pathSet.paths:
-      if bitset[op].test(path.producerId):
-        downstream = accCoreUsage[consumerOp][path.consumerId]
-        accCoreUsage[op][path.producerId] = max(
-            accCoreUsage[op][path.producerId],
-            accCoreUsage[op][path.producerId] + downstream / forkFactor
-        )
-
-return accCoreUsage
-```
-
-**Example**:
-
-```
-    Op0 ──── grid: 4x2=8 cores
-     │
-    Op1 ──── grid: 8x8=64 cores
-    / \
-   /   \
-  Op2  Op3 ─ grid: 4x4=16 cores each
-   \   /
-    \ /
-    Op4 ──── grid: 2x2=4 cores
-
-Accumulated (walking backward):
-  Op4: 4
-  Op2: 16 + 4/2 = 18  (fork factor = 2 for join)
-  Op3: 16 + 4/2 = 18
-  Op1: 64 + max(18,18) = 82
-  Op0: 8 + 82 = 90
-
-Config with highest accumulated core usage is selected.
-```
+After constraints are resolved, the solver selects the final configuration for each operation. It computes accumulated core usage by walking the chain backward, summing each operation's grid volume with its downstream usage. The configuration path with highest total core usage is selected, preferring solutions that maximize parallelism across the entire chain.
 
 #### 3.3.9 Shortcomings and Limitations
 
 The current ShardSolver design has several significant limitations:
 
-**1. First Operand Only**
+**1. Reshard Insertion is Reactive (Primary Limitation)**
+
+Reshards are only inserted when direct compatibility fails:
+- No proactive optimization of reshard placement
+- Cannot reason about whether a reshard earlier in the chain would enable better configurations downstream
+- A strategically placed reshard might unlock better overall configurations, but the solver only reacts to failures
+
+**2. First Operand Only**
 
 ShardSolver only tracks and resolves constraints along the **first operand (operand[0])** of each operation. This means:
 - Operations with multiple activation tensor inputs (e.g., binary ops where both inputs come from the chain) cannot have both inputs properly constrained
 - The second operand's layout is not considered during constraint propagation
 - This fundamentally limits the solver to linear chains where data flows through the first operand
 
-**2. Single Edge Failure Breaks Entire Chain**
+**3. Single Edge Failure Breaks Entire Chain**
 
 If constraint resolution fails on **any single edge** in the chain, the entire chain fails:
 - No partial solutions are possible
 - A chain of 10 ops will completely fall back to DRAM if one edge cannot be resolved
 - This leads to suboptimal results for graphs that could benefit from partial L1 placement
-
-**3. Complex Constraint Propagation**
-
-The PathSet-based constraint propagation adds significant complexity:
-- Bidirectional updates between producer and consumer bitsets
-- Iterative propagation until convergence
-- Difficult to reason about and debug when constraints conflict
-- The `updateSolver` loop can visit the same operations multiple times
 
 **4. Local Optimization Only**
 
@@ -732,11 +442,13 @@ Each L1 chain is solved independently:
 - Cannot make trade-offs between chains (e.g., shrink one chain to benefit another)
 - Chains are built greedily without considering downstream implications
 
-**5. Reshard Insertion is Reactive**
+**5. Complex Constraint Propagation**
 
-Reshards are only inserted when direct compatibility fails:
-- No proactive optimization of reshard placement
-- Cannot reason about whether a reshard earlier in the chain would enable better configurations downstream
+The PathSet-based constraint propagation adds significant complexity:
+- Bidirectional updates between producer and consumer bitsets
+- Iterative propagation until convergence
+- Difficult to reason about and debug when constraints conflict
+- The `updateSolver` loop can visit the same operations multiple times
 
 ---
 
@@ -744,46 +456,7 @@ Reshards are only inserted when direct compatibility fails:
 
 **Purpose**: Query the tt-metal backend for operation validity, memory requirements, and actual output layouts.
 
-**Location**: `lib/Dialect/TTNN/Validation/OpConstraintValidation.cpp`
-
-#### 3.4.1 Validation Interface
-
-The OpModel provides a validation interface that checks if an operation can execute with given input layouts and configuration:
-
-```cpp
-struct ValidationResult {
-  enum Status {
-    Success,
-    OutOfMemory,
-    MetalBackendError,
-    NotImplemented
-  };
-
-  Status status;
-  std::string errorMessage;
-  TTNNLayoutAttr actualOutputLayout;  // Backend-determined output layout
-  size_t configIndex;                  // Index of validated config
-};
-
-ValidationResult validateOperation(
-    Operation *op,
-    const std::vector<TTNNLayoutAttr> &inputLayouts,
-    const OpConfig &config);
-```
-
-#### 3.4.2 OpConstraints Structure
-
-The backend returns detailed memory information:
-
-```cpp
-struct OpConstraints {
-  size_t cbL1PeakSize;         // Circular buffer L1 allocation (bytes)
-  size_t tensorL1PeakSize;     // Tensor L1 allocation (bytes)
-  size_t peakL1MemorySize;     // Peak total = CB + tensors
-  size_t outputL1BufferSize;   // Output buffer allocation
-  TTNNLayoutAttr outputLayout; // Actual output layout from backend
-};
-```
+The OpModel provides a validation interface that checks if an operation can execute with given input layouts and configuration. It returns whether the configuration is valid, memory usage information, and the actual output layout the backend will produce. This validation is called extensively during layout generation and constraint resolution to ensure only valid configurations are considered.
 
 ---
 
@@ -791,40 +464,9 @@ struct OpConstraints {
 
 **Purpose**: Apply the chosen configurations to the IR and insert necessary memory reconfiguration operations.
 
-**Location**: `lib/Dialect/TTNN/Transforms/OptimizerPasses/Optimizer.cpp`
+After all analysis phases complete, the optimizer transforms the IR by applying the resolved layout and op-specific configurations to each operation. Where adjacent operations have incompatible layouts (as determined by ShardSolver), `ToLayoutOp` reshards are inserted to bridge the gap. Chain outputs that cannot remain in L1 are spilled to DRAM. Finally, operations are reordered according to the computed schedule to ensure memory-efficient execution.
 
-#### 3.5.1 Transformations Applied
-
-After analysis completes, the optimizer applies the following transformations to the IR:
-
-**1. Configuration Application (per-op)**
-- Update the tensor type encoding with the chosen `TTNNLayoutAttr`
-- Set the layout attribute on ops implementing `TTNNLayoutOpInterface`
-- Set op-specific configuration attributes (e.g., `Conv2dConfigAttr` for Conv2d ops)
-- Update data type attributes on ops implementing `TTNNDtypeOpInterface`
-
-**2. Memory Reconfiguration Insertion**
-- For each edge in `memReconfigEntryMap`, insert a `ToLayoutOp` between producer and consumer
-- Select the best reshard layout that preserves tiling properties when possible
-- If producer is already a `ToLayoutOp`, modify it in-place instead of inserting a new one
-
-**3. Spill Processing**
-- For ops marked in `spillToDramOps`, insert a `ToLayoutOp` that converts output to DRAM interleaved
-- Rewire all uses to read from the spilled DRAM tensor
-- Optimization: if a memory reconfig op exists on one branch, that branch can continue reading from L1
-
-**4. L1 Interleaved Fallback** (optional, via `--l1-interleaved-fallback-analysis-enabled`)
-- After main optimization, scan DRAM-placed ops
-- Upgrade to L1 interleaved layout where the op supports it and L1 capacity allows
-
-**5. Schedule Application**
-- Reorder operations according to the schedule produced by the policy
-- Ensures memory-efficient execution order
-
-**6. Function Type Update**
-- Update function return types to match the transformed operation result types
-
-#### 3.5.2 Transformation Example
+#### Transformation Example
 
 ```
 Before Optimization:
@@ -854,7 +496,6 @@ After Optimization:
 
 ### 4.1 DFSharding 2.0: Chain Merging and L1 Saturation
 
-**Branch**: `origin/rpavlovic/pr1-chain-merging`
 **Goal**: Maximize L1 utilization by keeping chain outputs in L1 when possible, avoiding unnecessary DRAM spills.
 
 #### 4.1.1 Motivation
@@ -952,29 +593,7 @@ Chain 3 ────┘
 
 #### 4.1.3 L1 Reservation Timeline
 
-To validate merges, we need to track L1 memory usage across the schedule timeline.
-
-**L1Reservation Structure**:
-```cpp
-struct L1Reservation {
-  Operation *sourceOp;  // Op whose output is reserved in L1
-  int64_t startPos;     // Schedule position where reservation starts
-  int64_t endPos;       // Schedule position where reservation ends (last user)
-  uint64_t sizeBytes;   // L1 size reserved in bytes
-};
-```
-
-**Querying active reservations**:
-```
-getActiveL1Reservations(schedulePos, reservations):
-  total = 0
-  for each reservation:
-    if schedulePos in [reservation.startPos, reservation.endPos]:
-      total += reservation.sizeBytes
-  return total
-```
-
-When validating an op, total additional L1 = chain merge overhead + active reservations at that schedule position.
+To validate merges, we track L1 memory usage across the schedule timeline. Each reservation records which operation's output is being held in L1, the schedule positions where the reservation is active (from production to last use), and the size in bytes. When validating any operation, we query active reservations at that schedule position to determine total L1 pressure from merged chain outputs.
 
 #### 4.1.4 Fork Op L1 Optimization
 
@@ -997,23 +616,13 @@ For each chain that spills to DRAM with forked output:
   3. If both fail: keep DRAM spill
 ```
 
-**SpillLocation Enum** (replaces `spillEndToDRAM` bool):
-```cpp
-enum class SpillLocation {
-  None,          // No spill - output stays in current layout
-  L1Interleaved, // Spill to L1 interleaved (for reshape consumers, etc.)
-  DRAM           // Spill to DRAM interleaved (default)
-};
-```
 
 #### 4.1.5 Merge Validation Process
 
 **Critical Insight**: Chain merging validation must cover ALL scheduled ops between the source chain's last op and the join point, not just ops in L1 chains. This is implemented via `validateScheduleRangeWithReservation`.
 
 **L1 Residents Layout Map**:
-```cpp
-llvm::DenseMap<Operation *, TTNNLayoutAttr> l1ResidentsLayoutMap;
-```
+
 Tracks layouts of chain outputs that stay in L1 after merging. Updated incrementally as merges are applied, so subsequent validations see actual sharded layouts from merged chains instead of IR's DRAM layouts.
 
 **validateScheduleRangeWithReservation()** (core validation function):
@@ -1146,128 +755,3 @@ Chain merging is a step towards global optimization but still operates on pre-bu
 4. **Deprecate ShardSolver** - replace with simpler per-edge validation
 
 The L1 reservation timeline mechanism introduced here provides the foundation for global memory tracking.
-
----
-
-## Appendix A: Key Data Structures
-
-### OpConfig
-
-```cpp
-struct OpConfig {
-  TTNNLayoutAttr outputLayout;
-
-  using OpSpecificAttrs = std::variant<
-      UninitializedAttrs,  // Default, no op-specific config
-      Conv2dAttrs          // Conv2d-specific parameters
-  >;
-  OpSpecificAttrs opSpecificAttrs;
-};
-```
-
-### TTNNLayoutAttr
-
-```cpp
-// Encoded on tensor types, describes memory placement and layout
-TTNNLayoutAttr {
-  BufferType bufferType;        // L1 or DRAM
-  TensorMemoryLayout memLayout; // Interleaved or Sharded
-  Layout layout;                // Tile or RowMajor
-  GridAttr grid;                // Shard grid (if sharded)
-  DataType dataType;            // bf16, f32, etc.
-}
-```
-
-### L1ChainConfig
-
-```cpp
-class L1ChainConfig {
-  std::vector<OpL1MemSpec> opL1MemSpecs;
-  llvm::DenseSet<Operation *> l1ChainedOps;
-  llvm::DenseMap<Edge, MemReconfigEntry> memReconfigEntryMap;
-  L1ChainState state;  // InBuild, Built, Resolved, Completed, Failed
-  bool spillEndToDRAM;
-};
-
-struct OpL1MemSpec {
-  Operation *op;
-  uint tensorSplitFactor;
-  OpConfig config;
-};
-```
-
-**Proposed additions (Section 4.1)**:
-- `SpillLocation spillLocation` — replaces `spillEndToDRAM` bool
-- `bool isConcatChain` — true for single-op concat chains
-- `std::optional<TensorMemoryLayout> preferredOutputMemLayout`
-
-### Edge
-
-```cpp
-struct Edge {
-  Operation *producerOp;
-  Operation *consumerOp;
-  int64_t operandIndex;  // Which operand of consumer
-};
-```
-
----
-
-## Appendix B: CLI Options
-
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--memory-layout-analysis-enabled` | false | Enable memory layout optimization |
-| `--memory-layout-analysis-policy` | DFSharding | Policy: DFSharding, GreedyL1Interleaved, BFInterleaved |
-| `--l1-interleaved-fallback-analysis-enabled` | false | Try upgrading DRAM to L1 interleaved |
-| `--max-legal-layouts` | 8 | Max sharded layouts to consider per op |
-| `--tensor-l1-usage-cap` | 1.0 | Scale L1 capacity (0.0-1.0) |
-| `--row-major-enabled` | false | Enable row-major layout generation |
-| `--override-output-layout` | "" | Manual layout overrides per op |
-| `--override-conv2d-config` | "" | Manual Conv2d config overrides |
-
----
-
-## Appendix C: Chain Merging Implementation Details
-
-### Helper Data Structures
-
-**Schedule Position Map**:
-```cpp
-llvm::DenseMap<Operation *, int64_t> buildSchedulePositionMap(schedule)
-```
-Maps each operation to its position in the execution schedule for O(1) lookup during validation.
-
-**Op to Chain Map**:
-```cpp
-llvm::DenseMap<Operation *, size_t> buildOpToChainMap(l1ChainConfigs)
-```
-Maps each operation to the index of its containing chain.
-
-**Resolved Layout Map**:
-```cpp
-llvm::DenseMap<Operation *, TTNNLayoutAttr> buildResolvedLayoutMap(chain)
-```
-Maps each op in a chain to its resolved output layout, used for building input layouts during validation.
-
-**All Chain Layout Maps**:
-```cpp
-llvm::DenseMap<size_t, llvm::DenseMap<Operation *, TTNNLayoutAttr>>
-    chainLayoutMaps = buildAllChainLayoutMaps(l1ChainConfigs);
-```
-Pre-built resolved layout maps for all completed chains, used for efficient lookup during `validateScheduleRangeWithReservation`.
-
-### Merge Candidate Selection
-
-- For chains with multiple merge candidates, select the one with largest output size (maximizes L1 utilization benefit)
-- One-level merge limit: a chain can only receive one merge to avoid complex cascading effects
-
-### SpillLocation Transformations
-
-With the `SpillLocation` enum, the optimizer applies:
-
-| SpillLocation | Action |
-|---------------|--------|
-| `None` | No spill - output stays in L1 (sharded or interleaved) |
-| `L1Interleaved` | Insert `ToLayoutOp` converting sharded → L1 interleaved |
-| `DRAM` | Insert `ToLayoutOp` converting to DRAM interleaved |
