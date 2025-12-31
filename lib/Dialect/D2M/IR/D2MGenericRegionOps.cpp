@@ -476,6 +476,156 @@ void RemoteStoreOp::getAsmResultNames(
 }
 
 //===----------------------------------------------------------------------===//
+// RemoteLoadOp Bufferization Interface Implementation
+//===----------------------------------------------------------------------===//
+
+bool RemoteLoadOp::bufferizesToMemoryRead(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  // The memref operand is read from
+  return operand.get() == getMemref();
+}
+
+bool RemoteLoadOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  // The CB operand is written to (loaded into)
+  return operand.get() == getCb();
+}
+
+mlir::bufferization::AliasingValueList
+RemoteLoadOp::getAliasingValues(mlir::OpOperand &,
+                                const mlir::bufferization::AnalysisState &) {
+  mlir::bufferization::AliasingValueList result;
+  return result;
+}
+
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+RemoteLoadOp::getBufferType(
+    mlir::Value value, const mlir::bufferization::BufferizationOptions &options,
+    const mlir::bufferization::BufferizationState &,
+    ::llvm::SmallVector<mlir::Value> &) {
+  if (value == getCb()) {
+    auto cbType = mlir::cast<CBType>(value.getType());
+    return cbType.getBufferType(options, [&]() { return emitOpError(); });
+  }
+  if (value == getMemref()) {
+    return ttcore::getBufferType(value.getType(), /*isView=*/false);
+  }
+  return mlir::failure();
+}
+
+mlir::LogicalResult RemoteLoadOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options,
+    mlir::bufferization::BufferizationState &state) {
+  // Handle the CB operand - similar to PushOp/PopOp using bufferizeCBOp pattern
+  auto cbBufferType =
+      mlir::cast<bufferization::TensorLikeType>(getCbType())
+          .getBufferType(options, [&]() { return emitOpError(); });
+  if (failed(cbBufferType)) {
+    return mlir::failure();
+  }
+
+  auto cbBuffer = rewriter.create<bufferization::ToBufferOp>(
+      getLoc(), *cbBufferType, getCb());
+
+  // Handle the memref/tensor operand - similar to DMAOp
+  mlir::FailureOr<Value> memrefBuffer =
+      mlir::bufferization::getBuffer(rewriter, getMemref(), options, state);
+  if (failed(memrefBuffer)) {
+    return memrefBuffer;
+  }
+
+  // Create a new RemoteLoadOp with bufferized operands
+  mlir::bufferization::replaceOpWithNewBufferizedOp<RemoteLoadOp>(
+      rewriter, *this, cbBuffer.getResult(), *memrefBuffer, getIndices());
+
+  return mlir::success();
+}
+
+bool RemoteLoadOp::hasTensorSemantics() {
+  // Check if the memref operand is a tensor (needs bufferization)
+  bool memrefIsTensor = mlir::isa<RankedTensorType>(getMemref().getType());
+  // Check if the CB wraps a tensor (needs bufferization)
+  bool cbHasTensor = getCbType().hasTensorType();
+  return memrefIsTensor || cbHasTensor;
+}
+
+//===----------------------------------------------------------------------===//
+// RemoteStoreOp Bufferization Interface Implementation
+//===----------------------------------------------------------------------===//
+
+bool RemoteStoreOp::bufferizesToMemoryRead(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  // The CB operand is read from
+  return operand.get() == getCb();
+}
+
+bool RemoteStoreOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  // The memref operand is written to
+  return operand.get() == getMemref();
+}
+
+mlir::bufferization::AliasingValueList
+RemoteStoreOp::getAliasingValues(mlir::OpOperand &,
+                                 const mlir::bufferization::AnalysisState &) {
+  mlir::bufferization::AliasingValueList result;
+  return result;
+}
+
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+RemoteStoreOp::getBufferType(
+    mlir::Value value, const mlir::bufferization::BufferizationOptions &options,
+    const mlir::bufferization::BufferizationState &,
+    ::llvm::SmallVector<mlir::Value> &) {
+  if (value == getCb()) {
+    auto cbType = mlir::cast<CBType>(value.getType());
+    return cbType.getBufferType(options, [&]() { return emitOpError(); });
+  }
+  if (value == getMemref()) {
+    return ttcore::getBufferType(value.getType(), /*isView=*/false);
+  }
+  return mlir::failure();
+}
+
+mlir::LogicalResult RemoteStoreOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options,
+    mlir::bufferization::BufferizationState &state) {
+  // Handle the memref/tensor operand - similar to DMAOp
+  mlir::FailureOr<Value> memrefBuffer =
+      mlir::bufferization::getBuffer(rewriter, getMemref(), options, state);
+  if (failed(memrefBuffer)) {
+    return memrefBuffer;
+  }
+
+  // Handle the CB operand - similar to PushOp/PopOp using bufferizeCBOp pattern
+  auto cbBufferType =
+      mlir::cast<bufferization::TensorLikeType>(getCbType())
+          .getBufferType(options, [&]() { return emitOpError(); });
+  if (failed(cbBufferType)) {
+    return mlir::failure();
+  }
+
+  auto cbBuffer = rewriter.create<bufferization::ToBufferOp>(
+      getLoc(), *cbBufferType, getCb());
+
+  // Create a new RemoteStoreOp with bufferized operands
+  mlir::bufferization::replaceOpWithNewBufferizedOp<RemoteStoreOp>(
+      rewriter, *this, *memrefBuffer, getIndices(), cbBuffer.getResult());
+
+  return mlir::success();
+}
+
+bool RemoteStoreOp::hasTensorSemantics() {
+  // Check if the memref operand is a tensor (needs bufferization)
+  bool memrefIsTensor = mlir::isa<RankedTensorType>(getMemref().getType());
+  // Check if the CB wraps a tensor (needs bufferization)
+  bool cbHasTensor = getCbType().hasTensorType();
+  return memrefIsTensor || cbHasTensor;
+}
+
+//===----------------------------------------------------------------------===//
 // Index Operations
 //===----------------------------------------------------------------------===//
 

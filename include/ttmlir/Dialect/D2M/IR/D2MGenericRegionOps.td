@@ -1142,6 +1142,14 @@ def D2M_DMAWaitOp : D2M_GenericRegionDatamovementOp<"dma_wait", [MemoryEffects<[
 def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
   [ MemoryEffects<[MemRead, MemWrite]>
   , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType",
+      "hasTensorSemantics"
+    ]>
   ]> {
     let summary = "D2M Remote Load Op";
     let description = [{
@@ -1232,6 +1240,14 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
 def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
   [ MemoryEffects<[MemRead, MemWrite]>
   , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType",
+      "hasTensorSemantics"
+    ]>
   ]> {
     let summary = "D2M Remote Store Op";
     let description = [{
