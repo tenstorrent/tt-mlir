@@ -820,15 +820,27 @@ def test_slice(
 
 @pytest.mark.parametrize("shape", [(1, 1, 64, 32), (1, 3, 256, 256)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
+@pytest.mark.parametrize("is_splat", [True, False], ids=["splat", "non-splat"])
 @pytest.mark.parametrize("target", ["ttnn"])
-def test_constant(shape: Shape, dtype: torch.dtype, target: str, request, device):
+def test_constant(
+    shape: Shape, dtype: torch.dtype, is_splat: bool, target: str, request, device
+):
     def constant_fn(builder: StableHLOBuilder):
-        if dtype.is_floating_point:
-            tensor = torch.randn(shape, dtype=dtype)
-        else:
-            tensor = torch.randint(-10, 10, shape, dtype=dtype)
         builder.set_graph_level_check(True)
-        return builder.constant(tensor)
+        if is_splat:
+            if dtype.is_floating_point:
+                splat_value = torch.randn([])
+            else:
+                splat_value = torch.randint(-100, 100, [])
+            tensor = torch.full(shape, splat_value.item(), dtype=dtype)
+        else:
+            if dtype.is_floating_point:
+                tensor = torch.randn(shape, dtype=dtype)
+            else:
+                tensor = torch.randint(-100, 100, shape, dtype=dtype)
+
+        result = builder.constant(tensor)
+        return result
 
     compile_and_execute_shlo(
         constant_fn,
