@@ -1,6 +1,8 @@
 if (TTMLIR_ENABLE_OPMODEL)
         add_definitions(-DTTMLIR_ENABLE_OPMODEL)
-        set(OPMODEL_SRCS Fusing/RoPEFusingPattern.cpp)
+        set(OPMODEL_SRCS
+                Fusing/RoPEFusingPattern.cpp
+                Fusing/SplitQKVFusingPatterns.cpp)
 endif()
 
 add_mlir_dialect_library(MLIRTTNNTransforms
