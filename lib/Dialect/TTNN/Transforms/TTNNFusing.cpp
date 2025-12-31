@@ -1380,6 +1380,661 @@ private:
 
 #endif // TTMLIR_ENABLE_OPMODEL
 
+// ============================================================================
+// SplitQKVFromSlices Pattern
+// ============================================================================
+//
+// This pattern fuses a matmul followed by slices and reshapes into a single
+// SplitQueryKeyValueAndSplitHeadsOp. It detects the common pattern where
+// a fused QKV projection (matmul) is followed by three slices to separate
+// Q, K, V components, each followed by a reshape to split heads.
+//
+// Pattern matched:
+//   matmul -> slice[0:q_size] -> reshape[B,H,S,D] (Q)
+//          -> slice[q_size:q_size+k_size] -> reshape[B,H,S,D] (K)
+//          -> slice[q_size+k_size:total] -> reshape[B,H,S,D] (V)
+//
+// Replaced with:
+//   matmul -> reshape[B,S,total] -> SplitQueryKeyValueAndSplitHeadsOp -> Q, K,
+//   V
+//
+// Role Identification Challenge:
+// -----------------------------
+// The slices can appear in any order in the concat (e.g., K,V,Q instead of
+// Q,K,V), so we need to identify which slice/reshape chain corresponds to
+// Query, Key, or Value. We use two approaches:
+//
+// 1. Name-based identification (fast path):
+//    Check weight tensor names from the concat inputs for patterns like
+//    "q_proj", "k_proj", "v_proj". This works when weights have standard
+//    naming conventions.
+//
+// 2. Role-based identification (fallback):
+//    Trace forward from each reshape output through the IR (including RoPE,
+//    permutes, cache updates) to find SDPA ops. The chain's role is determined
+//    by which SDPA operand (query, key, or value) it eventually feeds into.
+//
+// Once roles are identified, we reorder the concat inputs to Q,K,V order
+// so the fused SplitQueryKeyValueAndSplitHeadsOp produces outputs correctly.
+//
+template <typename MatMulOpType>
+class SplitQKVFromSlicesPattern : public mlir::OpRewritePattern<MatMulOpType> {
+  using mlir::OpRewritePattern<MatMulOpType>::OpRewritePattern;
+
+  static constexpr unsigned kRoleTraceMaxDepth = 20;
+
+  enum OutputDims {
+    O_BATCH = 0,
+    O_NUM_HEADS = 1,
+    O_SEQ_LEN = 2,
+    O_HEAD_DIM = 3,
+  };
+
+  enum class QKVRole { Query, Key, Value };
+
+  struct SliceReshapeChain {
+    SliceStaticOp sliceOp;
+    ReshapeOp reshapeOp;
+    PermuteOp permuteOp; // Optional: present if reshape is [B,S,H,D]
+    int64_t numHeads;
+    int64_t headDim;
+    int64_t seqLen;
+    int64_t sliceStart;
+    int64_t sliceEnd;
+    std::optional<QKVRole> role;
+
+    // Returns the final output op (permute if present, else reshape)
+    Operation *getFinalOp() { return permuteOp ? permuteOp : reshapeOp; }
+
+    // Returns the final output type
+    RankedTensorType getFinalType() {
+      return permuteOp ? permuteOp.getType() : reshapeOp.getType();
+    }
+  };
+
+  // Holds information about the concat feeding the matmul RHS,
+  // regardless of whether it's direct or via load_cached.
+  struct ConcatInfo {
+    ConcatOp concatOp;
+    // The weight values used for name-based identification.
+    // For direct concat: same as concat inputs.
+    // For load_cached: the load_cached operands (which map to block args).
+    llvm::SmallVector<Value> weightInputs;
+  };
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(MatMulOpType matmulOp,
+                  mlir::PatternRewriter &rewriter) const final {
+    // Collect matmul -> slice -> reshape chains for each Q, K, V output.
+    llvm::SmallVector<SliceReshapeChain> chains;
+    size_t sliceDim;
+    if (!collectSliceReshapeChains(matmulOp, chains, sliceDim)) {
+      return mlir::failure();
+    }
+    if (chains.size() != 3) {
+      return mlir::failure();
+    }
+    if (!validateAndSortSlices(matmulOp, chains, sliceDim)) {
+      return mlir::failure();
+    }
+
+    // Get concat info from matmul RHS (direct or via load_cached).
+    std::optional<ConcatInfo> concatInfo = getConcatInfo(matmulOp.getB());
+    if (!concatInfo) {
+      return mlir::failure();
+    }
+
+    // Identify Q, K, V roles by weight names or by tracing to SDPA ops.
+    if (!identifyQKVRoles(chains, *concatInfo)) {
+      return mlir::failure();
+    }
+
+    // Extract chains by role and validate dimensions.
+    auto [qChain, kChain, vChain] = getChainsByRole(chains);
+    if (!qChain || !kChain || !vChain) {
+      return mlir::failure();
+    }
+    if (!validateQKVDimensions(*qChain, *kChain, *vChain)) {
+      return mlir::failure();
+    }
+
+    // Reorder concat inputs to Q, K, V order and create fused op.
+    reorderConcatInputs(rewriter, concatInfo->concatOp, chains);
+
+    return createFusedOp(rewriter, matmulOp, *qChain, *kChain, *vChain);
+  }
+
+private:
+  std::tuple<SliceReshapeChain *, SliceReshapeChain *, SliceReshapeChain *>
+  getChainsByRole(llvm::SmallVector<SliceReshapeChain> &chains) const {
+    SliceReshapeChain *q = nullptr, *k = nullptr, *v = nullptr;
+    for (auto &chain : chains) {
+      if (chain.role == QKVRole::Query) {
+        q = &chain;
+      } else if (chain.role == QKVRole::Key) {
+        k = &chain;
+      } else if (chain.role == QKVRole::Value) {
+        v = &chain;
+      }
+    }
+    return {q, k, v};
+  }
+
+  bool validateQKVDimensions(const SliceReshapeChain &q,
+                             const SliceReshapeChain &k,
+                             const SliceReshapeChain &v) const {
+    return q.headDim == k.headDim && k.headDim == v.headDim &&
+           k.numHeads == v.numHeads;
+  }
+
+  // Find which dimension is being sliced and return its index along with
+  // bounds. Returns nullopt if multiple dimensions are sliced or no dimension
+  // is sliced.
+  std::optional<std::tuple<size_t, int64_t, int64_t>>
+  findSlicedDimensionWithBounds(SliceStaticOp sliceOp,
+                                ArrayRef<int64_t> inputShape) const {
+    auto begins = sliceOp.getBegins();
+    auto ends = sliceOp.getEnds();
+
+    std::optional<std::tuple<size_t, int64_t, int64_t>> result;
+    for (size_t dim = 0; dim < begins.size(); ++dim) {
+      int64_t start = mlir::cast<mlir::IntegerAttr>(begins[dim]).getInt();
+      int64_t end = mlir::cast<mlir::IntegerAttr>(ends[dim]).getInt();
+
+      if (start != 0 || end != inputShape[dim]) {
+        if (result.has_value()) {
+          return std::nullopt; // Multiple dimensions being sliced
+        }
+        result = {dim, start, end};
+      }
+    }
+    return result;
+  }
+
+  // Trace a value back through permutes to find the block argument.
+  std::optional<BlockArgument> traceToBlockArg(Value v) const {
+    while (Operation *defOp = v.getDefiningOp()) {
+      if (auto permuteOp = mlir::dyn_cast<PermuteOp>(defOp)) {
+        v = permuteOp.getInput();
+      } else {
+        break;
+      }
+    }
+    if (auto blockArg = mlir::dyn_cast<BlockArgument>(v)) {
+      return blockArg;
+    }
+    return std::nullopt;
+  }
+
+  // Get ttir.name attribute from a block argument.
+  std::optional<StringRef> getBlockArgName(BlockArgument blockArg) const {
+    if (auto funcOp =
+            mlir::dyn_cast<func::FuncOp>(blockArg.getOwner()->getParentOp())) {
+      if (auto nameAttr = funcOp.getArgAttrOfType<StringAttr>(
+              blockArg.getArgNumber(), "ttir.name")) {
+        return nameAttr.getValue();
+      }
+    }
+    return std::nullopt;
+  }
+
+  // Trace forward from a value to find which QKV role it plays in attention.
+  // Returns the role if the value reaches an SDPA Q/K/V operand. Traces through
+  // intermediate ops (RoPE, permutes, etc.).
+  std::optional<QKVRole> findQKVRole(Value start) const {
+    llvm::SmallVector<std::pair<Value, unsigned>, 32> queue;
+    llvm::DenseSet<Value> visited;
+    size_t queueIdx = 0;
+    queue.push_back({start, 0});
+    visited.insert(start);
+
+    std::optional<QKVRole> foundRole;
+    while (queueIdx < queue.size()) {
+      auto item = queue[queueIdx++];
+      Value v = item.first;
+      unsigned depth = item.second;
+      if (depth >= kRoleTraceMaxDepth) {
+        continue;
+      }
+
+      for (Operation *user : v.getUsers()) {
+        auto role = llvm::TypeSwitch<Operation *, std::optional<QKVRole>>(user)
+                        .template Case<ScaledDotProductAttentionOp,
+                                       ScaledDotProductAttentionDecodeOp,
+                                       PagedScaledDotProductAttentionDecodeOp>(
+                            [&](auto op) -> std::optional<QKVRole> {
+                              if (op.getQuery() == v) {
+                                return QKVRole::Query;
+                              }
+                              if (op.getKey() == v) {
+                                return QKVRole::Key;
+                              }
+                              if (op.getValue() == v) {
+                                return QKVRole::Value;
+                              }
+                              return std::nullopt;
+                            })
+                        .Default([](Operation *) { return std::nullopt; });
+
+        if (role) {
+          // A single value should not simultaneously feed multiple SDPA operand
+          // roles (Q/K/V). If it does, treat it as ambiguous.
+          if (!foundRole) {
+            foundRole = *role;
+          } else if (*foundRole != *role) {
+            return std::nullopt;
+          }
+        }
+
+        // For cache updates, follow the cache tensor to find SDPA consumption
+        if (auto cacheUpdateOp = mlir::dyn_cast<PagedUpdateCacheOp>(user)) {
+          Value cache = cacheUpdateOp.getCache();
+          unsigned nextDepth = depth + 1;
+          if (nextDepth < kRoleTraceMaxDepth && visited.insert(cache).second) {
+            queue.push_back({cache, nextDepth});
+          }
+        }
+
+        // Propagate through all ops to handle RoPE and other intermediate ops
+        for (Value res : user->getResults()) {
+          unsigned nextDepth = depth + 1;
+          if (nextDepth < kRoleTraceMaxDepth && visited.insert(res).second) {
+            queue.push_back({res, nextDepth});
+          }
+        }
+      }
+    }
+
+    return foundRole;
+  }
+
+  // Sets the role field on each chain by tracing forward to SDPA ops.
+  // Returns true if all chains have a unique Q/K/V role assigned.
+  bool identifyQKVByRoles(llvm::SmallVector<SliceReshapeChain> &chains) const {
+    if (chains.size() != 3) {
+      return false;
+    }
+
+    auto roleBit = [](QKVRole r) -> uint8_t {
+      switch (r) {
+      case QKVRole::Query:
+        return 1u << 0;
+      case QKVRole::Key:
+        return 1u << 1;
+      case QKVRole::Value:
+        return 1u << 2;
+      }
+      llvm_unreachable("Unhandled QKVRole");
+    };
+
+    uint8_t seenMask = 0;
+    llvm::SmallVector<QKVRole, 3> roles;
+    roles.reserve(chains.size());
+
+    for (auto &chain : chains) {
+      auto role = findQKVRole(chain.reshapeOp.getResult());
+      if (!role) {
+        return false;
+      }
+
+      // Check for duplicates and track which roles are present.
+      uint8_t bit = roleBit(*role);
+      if (seenMask & bit) {
+        return false;
+      }
+      seenMask |= bit;
+      roles.push_back(*role);
+    }
+
+    // Require Query, Key, Value all present.
+    if (seenMask != ((1u << 0) | (1u << 1) | (1u << 2))) {
+      return false;
+    }
+
+    // Only commit roles once we've validated uniqueness/completeness.
+    for (size_t i = 0; i < chains.size(); ++i) {
+      chains[i].role = roles[i];
+    }
+    return true;
+  }
+
+  // Sets the role field on each chain by matching weight names.
+  // rhsInputs are concat inputs corresponding to chains (same order after
+  // sorting). Returns true if all chains have a unique Q/K/V role assigned.
+  bool identifyQKVByNames(llvm::SmallVector<SliceReshapeChain> &chains,
+                          ArrayRef<Value> rhsInputs) const {
+    if (chains.size() != rhsInputs.size()) {
+      return false;
+    }
+
+    bool hasQ = false, hasK = false, hasV = false;
+    for (size_t i = 0; i < rhsInputs.size(); ++i) {
+      auto blockArg = traceToBlockArg(rhsInputs[i]);
+      if (!blockArg) {
+        return false;
+      }
+
+      auto name = getBlockArgName(*blockArg);
+      if (!name) {
+        return false;
+      }
+
+      if (name->contains("q_proj")) {
+        if (hasQ) {
+          return false;
+        }
+        chains[i].role = QKVRole::Query;
+        hasQ = true;
+      } else if (name->contains("k_proj")) {
+        if (hasK) {
+          return false;
+        }
+        chains[i].role = QKVRole::Key;
+        hasK = true;
+      } else if (name->contains("v_proj")) {
+        if (hasV) {
+          return false;
+        }
+        chains[i].role = QKVRole::Value;
+        hasV = true;
+      }
+    }
+
+    return hasQ && hasK && hasV;
+  }
+
+  // Returns concat info from matmul RHS, handling both direct concat
+  // and load_cached wrapping a const_eval function containing concat.
+  std::optional<ConcatInfo> getConcatInfo(Value matmulRHS) const {
+    // Case 1: Direct concat
+    if (auto concatOp = matmulRHS.getDefiningOp<ConcatOp>()) {
+      return ConcatInfo{concatOp,
+                        llvm::SmallVector<Value>(concatOp.getInputs())};
+    }
+
+    // Case 2: load_cached wrapping concat in const_eval function
+    if (auto loadCached = matmulRHS.getDefiningOp<ttcore::LoadCachedOp>()) {
+      // Ensure load_cached has only one user so we can safely modify the
+      // const_eval function's concat.
+      if (!loadCached->hasOneUse()) {
+        return std::nullopt;
+      }
+
+      auto moduleOp = loadCached->getParentOfType<ModuleOp>();
+      if (!moduleOp) {
+        return std::nullopt;
+      }
+
+      auto funcOp = moduleOp.lookupSymbol<func::FuncOp>(loadCached.getCallee());
+      if (!funcOp) {
+        return std::nullopt;
+      }
+
+      // Find concat inside the const_eval function that feeds the return.
+      // We expect the concat to be the last operation before return.
+      ConcatOp foundConcat = nullptr;
+      funcOp.walk([&](func::ReturnOp returnOp) {
+        if (returnOp.getNumOperands() == 1) {
+          if (auto concat = returnOp.getOperand(0).getDefiningOp<ConcatOp>()) {
+            foundConcat = concat;
+          }
+        }
+        return WalkResult::interrupt();
+      });
+
+      if (!foundConcat) {
+        return std::nullopt;
+      }
+
+      // Build weightInputs by mapping concat inputs to loadCached inputs.
+      // Each concat input traces back to a block arg, whose index corresponds
+      // to the loadCached input at that position.
+      llvm::SmallVector<Value> weightInputs;
+      auto loadCachedInputs = loadCached.getInputs();
+      for (Value concatInput : foundConcat.getInputs()) {
+        // Trace concat input back through permutes to find block arg.
+        Value v = concatInput;
+        while (Operation *defOp = v.getDefiningOp()) {
+          if (auto permuteOp = mlir::dyn_cast<PermuteOp>(defOp)) {
+            v = permuteOp.getInput();
+          } else {
+            break;
+          }
+        }
+
+        auto blockArg = mlir::dyn_cast<BlockArgument>(v);
+        if (!blockArg) {
+          return std::nullopt;
+        }
+
+        unsigned argIndex = blockArg.getArgNumber();
+        if (argIndex >= loadCachedInputs.size()) {
+          return std::nullopt;
+        }
+
+        weightInputs.push_back(loadCachedInputs[argIndex]);
+      }
+
+      return ConcatInfo{foundConcat, std::move(weightInputs)};
+    }
+
+    return std::nullopt;
+  }
+
+  // Identify which chains are Q, K, V and set their role field.
+  // Also sets outConcatInfo with the concat and weight inputs.
+  bool identifyQKVRoles(llvm::SmallVector<SliceReshapeChain> &chains,
+                        ConcatInfo &concatInfo) const {
+    if (concatInfo.weightInputs.size() != 3) {
+      return false;
+    }
+
+    // Try name-based identification first (faster - simple string check on
+    // weight names). Fall back to role-based identification if names don't
+    // match expected patterns (traces outputs to SDPA ops).
+    if (!identifyQKVByNames(chains, concatInfo.weightInputs) &&
+        !identifyQKVByRoles(chains)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  // Reorder concat inputs to match Q, K, V order based on chain roles.
+  // Chains are sorted by slice position, so chain index == concat input index.
+  void reorderConcatInputs(
+      mlir::PatternRewriter &rewriter, ConcatOp concatOp,
+      const llvm::SmallVector<SliceReshapeChain> &chains) const {
+    auto inputs = concatOp.getInputs();
+    SmallVector<Value> reorderedInputs(3);
+    for (size_t i = 0; i < chains.size(); ++i) {
+      if (chains[i].role == QKVRole::Query) {
+        reorderedInputs[0] = inputs[i];
+      } else if (chains[i].role == QKVRole::Key) {
+        reorderedInputs[1] = inputs[i];
+      } else if (chains[i].role == QKVRole::Value) {
+        reorderedInputs[2] = inputs[i];
+      }
+    }
+    rewriter.modifyOpInPlace(concatOp, [&]() {
+      concatOp.getInputsMutable().assign(reorderedInputs);
+    });
+  }
+
+  bool collectSliceReshapeChains(MatMulOpType matmulOp,
+                                 llvm::SmallVector<SliceReshapeChain> &chains,
+                                 size_t &outSliceDim) const {
+    Value matmulResult = matmulOp.getResult();
+    auto matmulShape = matmulOp.getType().getShape();
+    std::optional<size_t> sliceDim;
+
+    for (Operation *user : matmulResult.getUsers()) {
+      auto sliceOp = mlir::dyn_cast<SliceStaticOp>(user);
+      if (!sliceOp) {
+        return false;
+      }
+
+      if (!sliceOp.getResult().hasOneUse()) {
+        return false;
+      }
+
+      auto reshapeOp =
+          mlir::dyn_cast<ReshapeOp>(*sliceOp.getResult().getUsers().begin());
+      if (!reshapeOp) {
+        return false;
+      }
+
+      // Validate reshape output is 4D (batch, heads, seq, head_dim)
+      auto reshapeShape = reshapeOp.getType().getShape();
+      if (reshapeShape.size() != 4) {
+        return false;
+      }
+
+      // Detect dimension ordering: [B,S,H,D] vs [B,H,S,D]
+      // For [B,S,H,D]: B * S == matmul[0]  (dim1 is seq)
+      // For [B,H,S,D]: B * S == matmul[0]  (dim2 is seq)
+      bool isBSHD = (reshapeShape[0] * reshapeShape[1] == matmulShape[0]);
+      bool isBHSD = (reshapeShape[0] * reshapeShape[2] == matmulShape[0]);
+
+      PermuteOp permuteOp = nullptr;
+      ArrayRef<int64_t> finalShape = reshapeShape;
+
+      if (isBSHD && !isBHSD) {
+        // Unambiguously [B,S,H,D] - require permute [0,2,1,3] to get [B,H,S,D]
+        if (!reshapeOp.getResult().hasOneUse()) {
+          return false;
+        }
+        permuteOp =
+            dyn_cast<PermuteOp>(*reshapeOp.getResult().getUsers().begin());
+        if (!permuteOp) {
+          return false;
+        }
+        auto perm = permuteOp.getPermutation();
+        if (perm != ArrayRef<int64_t>{0, 2, 1, 3}) {
+          return false;
+        }
+        finalShape = permuteOp.getType().getShape();
+      } else if (!isBHSD) {
+        // Neither pattern matches
+        return false;
+      }
+      // If both isBSHD and isBHSD (S==H), assume [B,H,S,D] - validation will
+      // catch errors
+
+      // Find sliced dimension and bounds
+      auto dimAndBounds = findSlicedDimensionWithBounds(sliceOp, matmulShape);
+      if (!dimAndBounds.has_value()) {
+        return false;
+      }
+      auto [dim, sliceStart, sliceEnd] = *dimAndBounds;
+
+      // Verify all slices use the same dimension
+      if (!sliceDim.has_value()) {
+        sliceDim = dim;
+      } else if (*sliceDim != dim) {
+        return false;
+      }
+
+      chains.push_back({
+          sliceOp,
+          reshapeOp,
+          permuteOp,
+          finalShape[O_NUM_HEADS],
+          finalShape[O_HEAD_DIM],
+          finalShape[O_SEQ_LEN],
+          sliceStart,
+          sliceEnd,
+          std::nullopt,
+      });
+    }
+
+    if (!sliceDim.has_value()) {
+      return false;
+    }
+
+    outSliceDim = *sliceDim;
+    return true;
+  }
+
+  bool validateAndSortSlices(MatMulOpType matmulOp,
+                             llvm::SmallVector<SliceReshapeChain> &chains,
+                             size_t sliceDim) const {
+    // Sort chains by slice start position
+    llvm::sort(chains,
+               [](const SliceReshapeChain &a, const SliceReshapeChain &b) {
+                 return a.sliceStart < b.sliceStart;
+               });
+
+    // Validate slices are contiguous and cover the full dimension
+    int64_t prevEnd = 0;
+    for (const auto &chain : chains) {
+      if (chain.sliceStart != prevEnd) {
+        return false;
+      }
+      prevEnd = chain.sliceEnd;
+    }
+
+    return prevEnd == matmulOp.getType().getShape()[sliceDim];
+  }
+
+  mlir::LogicalResult createFusedOp(mlir::PatternRewriter &rewriter,
+                                    MatMulOpType matmulOp,
+                                    SliceReshapeChain &qChain,
+                                    SliceReshapeChain &kChain,
+                                    SliceReshapeChain &vChain) const {
+
+    // Get dimensions from chain (already extracted from final shape)
+    auto qFinalShape = qChain.getFinalType().getShape();
+    int64_t batchSize = qFinalShape[O_BATCH];
+    int64_t seqLen = qChain.seqLen;
+
+    // Calculate total hidden dimension from the matmul output
+    auto matmulShape = matmulOp.getType().getShape();
+    int64_t totalHiddenSize = matmulShape.back();
+
+    // Determine if this is GQA (different Q and KV heads) or MHA
+    bool isGQA = (qChain.numHeads != kChain.numHeads);
+
+    rewriter.setInsertionPointAfter(matmulOp);
+
+    // Both MHA and GQA can use a single fused input tensor.
+    // The tt-metal op computes: head_size = total / (num_heads +
+    // num_kv_heads*2) For MHA: head_size = total / (num_heads * 3) since
+    // num_kv_heads==num_heads For GQA: head_size = total / (num_q_heads +
+    // num_kv_heads * 2)
+    SmallVector<int64_t> inputReshapeShape = {batchSize, seqLen,
+                                              totalHiddenSize};
+    SmallVector<int32_t> inputReshapeShapeI32(inputReshapeShape.begin(),
+                                              inputReshapeShape.end());
+
+    RankedTensorType reshapeInputTy = utils::RankedTensorTypeFactory::create(
+        matmulOp.getType(), inputReshapeShape);
+
+    auto inputReshape = rewriter.create<ReshapeOp>(
+        matmulOp.getLoc(), reshapeInputTy, matmulOp.getResult(),
+        rewriter.getI32ArrayAttr(inputReshapeShapeI32), MemoryConfigAttr());
+
+    // For GQA, pass num_kv_heads; for MHA, omit it (op defaults to num_heads)
+    auto splitOp = rewriter.create<SplitQueryKeyValueAndSplitHeadsOp>(
+        matmulOp.getLoc(),
+        TypeRange{qChain.getFinalType(), kChain.getFinalType(),
+                  vChain.getFinalType()},
+        inputReshape.getResult(),
+        Value(), // no separate KV input - use single fused tensor
+        rewriter.getUI32IntegerAttr(qChain.numHeads),
+        isGQA ? rewriter.getUI32IntegerAttr(kChain.numHeads) : IntegerAttr(),
+        rewriter.getBoolAttr(false) /*transpose_key*/, MemoryConfigAttr());
+
+    // Replace final op (permute if present, else reshape)
+    rewriter.replaceOp(qChain.getFinalOp(), splitOp.getQuery());
+    rewriter.replaceOp(kChain.getFinalOp(), splitOp.getKey());
+    rewriter.replaceOp(vChain.getFinalOp(), splitOp.getValue());
+
+    return mlir::success();
+  }
+};
+
 class TTNNFusingPass : public impl::TTNNFusingBase<TTNNFusingPass> {
 public:
   using impl::TTNNFusingBase<TTNNFusingPass>::TTNNFusingBase;
@@ -1402,6 +2057,8 @@ public:
     if (enableOpConstraints) {
       patterns.add<RoPEFusing>(&getContext());
       patterns.add<SDPAFusing>(&getContext());
+      patterns.add<SplitQKVFromSlicesPattern<MatmulOp>>(&getContext());
+      patterns.add<SplitQKVFromSlicesPattern<LinearOp>>(&getContext());
     }
 #endif // TTMLIR_ENABLE_OPMODEL
 
