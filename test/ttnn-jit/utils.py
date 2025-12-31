@@ -51,9 +51,9 @@ def _transform_tan(t: torch.Tensor) -> torch.Tensor:
 
 
 def _transform_div(t: torch.Tensor) -> torch.Tensor:
-    """Avoid divide-by-zero: abs() then replace values close to zero with 0.1."""
+    """Avoid divide-by-zero: abs() then replace values close to zero with 1e-6."""
     t = torch.abs(t)
-    return torch.where(torch.abs(t) < 1e-3, torch.tensor(0.1, dtype=t.dtype), t)
+    return torch.where(t < 1e-3, torch.tensor(1e-6, dtype=t.dtype), t)
 
 
 # Map op names to their input transforms

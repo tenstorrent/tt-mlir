@@ -272,14 +272,12 @@ def test_binary_ops_dram(device, shape, dtype, ttnn_dtype, op, graph_capture):
 def test_binary_ops_l1(
     device, shape, max_grid, shard_strategy, dtype, ttnn_dtype, op, graph_capture
 ):
-    if op in [pow, eq, ne, gt, ge, lt, le] and dtype == torch.float32:
+    if op in [div, pow, eq, ne, gt, ge, lt, le] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes")
     if op in [maximum, minimum, pow] and ttnn_dtype == ttnn.DataType.BFLOAT8_B:
         pytest.xfail("failing allclose for some shapes for bfp8")
     if op == div and ttnn_dtype == ttnn.DataType.BFLOAT8_B:
-        pytest.xfail(
-            "RuntimeError: Input and output tile size should be same, from typecast_sharded_program_factory.cpp:44: input_tile_size == output_tile_size"
-        )
+        pytest.skip("ttnn.div does not support BFLOAT8_B")
 
     run_op_test(
         device,
