@@ -1193,38 +1193,61 @@ private:
   }
 };
 
-class PadPoolingFusionPattern : public mlir::OpRewritePattern<PoolingOp> {
+// Template pattern to fuse Pad + Pool2d ops (MaxPool2d or AvgPool2d)
+template <typename Pool2dOpType>
+class PadPool2dFusionPattern : public mlir::OpRewritePattern<Pool2dOpType> {
 public:
-  using mlir::OpRewritePattern<PoolingOp>::OpRewritePattern;
+  using mlir::OpRewritePattern<Pool2dOpType>::OpRewritePattern;
 
   mlir::LogicalResult
-  matchAndRewrite(PoolingOp op, mlir::PatternRewriter &rewriter) const final {
-    PadOp padToCompare;
-    SmallVector<Value> newInputs;
-    for (Value value : op.getInputs()) {
-      PadOp padOp = value.getDefiningOp<PadOp>();
-      if (!padOp) {
-        return failure();
-      }
-      if (!padToCompare) {
-        padToCompare = padOp;
-      }
-
-      if (padOp.getPadding() != padToCompare.getPadding()) {
-        return failure();
-      }
-      newInputs.push_back(padOp.getInput());
+  matchAndRewrite(Pool2dOpType op,
+                  mlir::PatternRewriter &rewriter) const final {
+    // Pool2d ops have a single input
+    Value inputValue = op.getInput();
+    PadOp padOp = inputValue.getDefiningOp<PadOp>();
+    if (!padOp) {
+      return failure();
     }
 
-    ArrayRef<int32_t> padding = padToCompare.getPadding();
-    SmallVector<int64_t> newPadding;
-    // We add the padding of the input to the ops current padding
-    // in the event the current PoolingOp already has non-zero padding
-    for (const auto [a, b] : llvm::zip_equal(padding, op.getPadding())) {
-      newPadding.push_back(a + b);
+    // Pool2d padding is [top, left, bottom, right] (4 elements)
+    // PadOp padding for 4D tensor is [n_lo, n_hi, c_lo, c_hi, h_lo, h_hi, w_lo,
+    // w_hi] (8 elements) We need to extract the spatial padding (h and w) and
+    // fuse it
+    ArrayRef<int32_t> padOpPadding = padOp.getPadding();
+    if (padOpPadding.size() != 8) {
+      // Only support 4D tensor padding
+      return failure();
     }
+
+    // Check that batch and channel padding are zero
+    if (padOpPadding[0] != 0 || padOpPadding[1] != 0 || padOpPadding[2] != 0 ||
+        padOpPadding[3] != 0) {
+      return failure();
+    }
+
+    // Extract spatial padding: h_lo=top, w_lo=left, h_hi=bottom, w_hi=right
+    int32_t padTop = padOpPadding[4];
+    int32_t padBottom = padOpPadding[5];
+    int32_t padLeft = padOpPadding[6];
+    int32_t padRight = padOpPadding[7];
+
+    // Get current Pool2d padding [top, left, bottom, right]
+    ArrayRef<int32_t> poolPadding = op.getPadding();
+    if (poolPadding.size() != 4) {
+      return failure();
+    }
+
+    // Fuse paddings
+    SmallVector<int32_t> newPadding = {
+        poolPadding[0] + padTop,    // top
+        poolPadding[1] + padLeft,   // left
+        poolPadding[2] + padBottom, // bottom
+        poolPadding[3] + padRight   // right
+    };
+
+    // Update the pool op to use the pad's input and new padding
     rewriter.modifyOpInPlace(op, [&]() {
-      op.getInputsMutable().assign(newInputs);
+      op.getInputMutable().assign(padOp.getInput());
       op.setPadding(newPadding);
     });
 
@@ -1394,286 +1417,10 @@ private:
   }
 };
 
-// The following OpRewritePattern fuses:
-//     div(sum_pool(act), broadcast(reshape(sum_pool(const))))
-// to:
-//     avg_pool(act)
-// when the denominator is such that the division is equivalent to an average
-// pooling.
-class AveragePoolingWithPoolingDenominatorFusionPattern
-    : public mlir::OpRewritePattern<DivOp> {
-public:
-  using mlir::OpRewritePattern<DivOp>::OpRewritePattern;
-
-  mlir::LogicalResult
-  matchAndRewrite(DivOp op, mlir::PatternRewriter &rewriter) const final {
-    // Numerator must be poolingOp.
-    PoolingOp numerator = op.getLhs().getDefiningOp<PoolingOp>();
-    if (!numerator) {
-      return mlir::failure();
-    }
-
-    // Numerator must have the Sum pooling method.
-    if (numerator.getPoolingMethod() != PoolingMethod::Sum) {
-      return mlir::failure();
-    }
-
-    // Denominator must trace through first operands to pooling op.
-    Value currentDenominator = op.getRhs();
-    PoolingOp denominator;
-    while (!currentDenominator.getDefiningOp<PoolingOp>()) {
-      if (!currentDenominator.getDefiningOp()) {
-        return mlir::failure();
-      }
-      // We expect that the pooling denominator is only reshaped (for rank
-      // change) and broadcasted if any ops lies between at all. If any other
-      // ops lie between the denominator pooling op and the div op, then we
-      // cannot fuse.
-      if (!isa<ReshapeOp, BroadcastOp>(currentDenominator.getDefiningOp())) {
-        return mlir::failure();
-      }
-      currentDenominator = currentDenominator.getDefiningOp()->getOperand(0);
-    }
-    denominator = currentDenominator.getDefiningOp<PoolingOp>();
-
-    // The denominator must have the Sum pooling method.
-    if (denominator.getPoolingMethod() != PoolingMethod::Sum) {
-      return mlir::failure();
-    }
-
-    // Denominator pooling op must have the same number of inputs as numerator.
-    if (numerator.getInputs().size() != denominator.getInputs().size()) {
-      return mlir::failure();
-    }
-
-    // Denominator pooling op must have all inputs be either a FullOp or a
-    // ConstantOp, or trace back to one through broadcast/reshape ops.
-    for (Value input : denominator.getInputs()) {
-      if (traceToFullOrConstantOp(input) == nullptr) {
-        return mlir::failure();
-      }
-    }
-
-    // Besides the padding attribute, all attributes of the denominator must
-    // match the rightmost sublist of the numerator's attributes.
-    if (!matchRightMostSubList(numerator.getWindowDimensions(),
-                               denominator.getWindowDimensions())) {
-      return mlir::failure();
-    }
-
-    if (!matchRightMostSubList(numerator.getWindowStrides(),
-                               denominator.getWindowStrides())) {
-      return mlir::failure();
-    }
-
-    if (!matchRightMostSubList(numerator.getBaseDilations(),
-                               denominator.getBaseDilations())) {
-      return mlir::failure();
-    }
-
-    if (!matchRightMostSubList(numerator.getWindowDilations(),
-                               denominator.getWindowDilations())) {
-      return mlir::failure();
-    }
-
-    // The padding attribute of the denominator must
-    // be all zeros.
-    if (denominator.getPadding().empty()) {
-      return mlir::failure();
-    }
-    for (int64_t paddingValue : denominator.getPadding()) {
-      if (paddingValue != 0) {
-        return mlir::failure();
-      }
-    }
-
-    // For each denominator input, trace through broadcast/reshape to find the
-    // underlying FullOp or ConstantOp. If it is a FullOp, its fill value must
-    // be 1. If it is a constant op, its value must be a tensor filled with
-    // ones, and padded with zeroes according to the padding attribute of the
-    // numerator.
-    for (Value input : denominator.getInputs()) {
-      Value tracedInput = traceToFullOrConstantOp(input);
-      if (!tracedInput) {
-        return mlir::failure();
-      }
-
-      if (FullOp inputOp = tracedInput.getDefiningOp<FullOp>()) {
-        // If the denominator is a pool of a full op, then
-        // the numerator must have a padding attribute of all zeros.
-        if (numerator.getPadding().empty()) {
-          return mlir::failure();
-        }
-        if (!llvm::all_of(numerator.getPadding(),
-                          [](int64_t p) { return p == 0; })) {
-          return mlir::failure();
-        }
-
-        if (isa<IntegerAttr>(inputOp.getFillValue())) {
-          int64_t value = dyn_cast<IntegerAttr>(inputOp.getFillValue())
-                              .getValue()
-                              .getSExtValue();
-          if (value != 1) {
-            return mlir::failure();
-          }
-        } else if (isa<FloatAttr>(inputOp.getFillValue())) {
-          float value = dyn_cast<FloatAttr>(inputOp.getFillValue())
-                            .getValue()
-                            .convertToFloat();
-          if (value != 1.0) {
-            return mlir::failure();
-          }
-        } else {
-          return mlir::failure();
-        }
-      } else if (ConstantOp inputOp = tracedInput.getDefiningOp<ConstantOp>()) {
-        Type constantElementType = inputOp.getValue().getElementType();
-        if (isa<IntegerType>(constantElementType)) {
-          auto values = inputOp.getValue().getValues<APInt>();
-          if (!constantTensorAllOnesWithPadding(
-                  values, inputOp.getType().getShape(), numerator.getPadding(),
-                  APInt::getZero(values[0].getBitWidth()),
-                  APInt::getOneBitSet(values[0].getBitWidth(), 0))) {
-            return mlir::failure();
-          }
-        } else if (isa<FloatType>(constantElementType)) {
-          auto values = inputOp.getValue().getValues<APFloat>();
-          if (!constantTensorAllOnesWithPadding(
-                  values, inputOp.getType().getShape(), numerator.getPadding(),
-                  APFloat::getZero(values[0].getSemantics()),
-                  APFloat::getOne(values[0].getSemantics()))) {
-            return mlir::failure();
-          }
-        } else {
-          return mlir::failure();
-        }
-      } else {
-        llvm_unreachable("We should have confirmed that all inputs are either "
-                         "a FullOp or a ConstantOp by this point.");
-      }
-    }
-
-    rewriter.replaceOpWithNewOp<PoolingOp>(
-        op, numerator.getResultTypes(), numerator.getInputs(),
-        PoolingMethod::Average, numerator.getWindowDimensions(),
-        numerator.getWindowStrides(), numerator.getBaseDilations(),
-        numerator.getWindowDilations(), numerator.getPadding());
-
-    return mlir::success();
-  }
-
-private:
-  bool matchRightMostSubList(ArrayRef<int64_t> numeratorAttrs,
-                             ArrayRef<int64_t> denominatorAttrs) const {
-    if (denominatorAttrs.size() > numeratorAttrs.size()) {
-      return false;
-    }
-    ArrayRef<int64_t> subList =
-        numeratorAttrs.take_back(denominatorAttrs.size());
-    return llvm::equal(subList, denominatorAttrs);
-  }
-
-  inline bool indexInPaddedRegion(ArrayRef<int64_t> index,
-                                  ArrayRef<int64_t> shape,
-                                  ArrayRef<int64_t> padding) const {
-    for (size_t i = 0; i < index.size(); ++i) {
-      int64_t lowPadding = padding[2 * i];
-      int64_t highPadding = padding[2 * i + 1];
-
-      if (index[i] < lowPadding || index[i] >= shape[i] - highPadding) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  inline SmallVector<int64_t>
-  getTensorIndexFromBufferIndex(int64_t bufferIndex,
-                                ArrayRef<int64_t> shape) const {
-    SmallVector<int64_t> index;
-    for (size_t i = 0; i < shape.size(); ++i) {
-      index.push_back(bufferIndex % shape[i]);
-      bufferIndex /= shape[i];
-    }
-    return index;
-  }
-
-  // This function will check if a tensor is filled with ones, and padded with
-  // zeros according to `padding`. Example 1:
-  //    padding: [1, 1, 1, 1]
-  //    data with shape: (4, 4):
-  //        [[0.0, 0.0, 0.0, 0.0],
-  //         [0.0, 1.0, 1.0, 0.0],
-  //         [0.0, 1.0, 1.0, 0.0],
-  //         [0.0, 0.0, 0.0, 0.0]]
-  // returns true
-  //
-  // Example 2:
-  //    padding: [0, 0, 0, 0]
-  //    data with shape: (4, 4):
-  //        [[1.0, 1.0, 1.0, 1.0],
-  //         [1.0, 1.0, 1.0, 1.0],
-  //         [1.0, 1.0, 1.0, 1.0],
-  //         [1.0, 1.0, 1.0, 1.0]]
-  // returns true
-  //
-  // Example 3:
-  //    padding: [1, 1, 1, 1]
-  //    data with shape: (4, 4):
-  //        [[1.0, 1.0, 1.0, 1.0],
-  //         [1.0, 1.0, 1.0, 1.0],
-  //         [1.0, 1.0, 1.0, 1.0],
-  //         [1.0, 1.0, 1.0, 1.0]]
-  // returns false
-
-  template <typename NumericType>
-  bool constantTensorAllOnesWithPadding(
-      mlir::detail::ElementsAttrRange<
-          mlir::detail::ElementsAttrIterator<NumericType>>
-          data,
-      ArrayRef<int64_t> shape, ArrayRef<int64_t> padding, NumericType zero,
-      NumericType one) const {
-
-    padding = padding.take_back(shape.size() * 2);
-    for (size_t i = 0; i < data.size(); ++i) {
-      SmallVector<int64_t> index = getTensorIndexFromBufferIndex(i, shape);
-      if (indexInPaddedRegion(index, shape, padding)) {
-        if (data[i] != zero) {
-          return false;
-        }
-      } else if (data[i] != one) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  // Helper function to trace a value through broadcast/reshape ops and return
-  // the underlying FullOp or ConstantOp value.
-  static Value traceToFullOrConstantOp(Value value) {
-    while (value) {
-      Operation *defOp = value.getDefiningOp();
-      if (!defOp) {
-        return nullptr;
-      }
-
-      if (isa<FullOp, ConstantOp>(defOp)) {
-        return value;
-      }
-      if (auto broadcastOp = dyn_cast<BroadcastOp>(defOp)) {
-        value = broadcastOp.getInput();
-        continue;
-      }
-      if (auto reshapeOp = dyn_cast<ReshapeOp>(defOp)) {
-        value = reshapeOp.getInput();
-        continue;
-      }
-      return nullptr;
-    }
-
-    return nullptr;
-  }
-};
+// NOTE: The AveragePoolingWithPoolingDenominatorFusionPattern was removed
+// because PoolingOp has been removed from the TTIR dialect. The pattern's
+// functionality (fusing div(sum_pool(act), sum_pool(const)) -> avg_pool(act))
+// is now handled during StableHLO to TTIR conversion via extractDivisor().
 
 // Scaled sum to mean pattern matcher that transforms:
 //   multiply(sum<dim=[...]>(act), 1/(dim1*dim2*...))
@@ -3570,9 +3317,8 @@ public:
       patterns.add<SplitQueryKeyValueAndSplitHeadsUpdatePattern<LinearOp>>(
           &getContext());
 
-      patterns.add<PadPoolingFusionPattern>(&getContext());
-      patterns.add<AveragePoolingWithPoolingDenominatorFusionPattern>(
-          &getContext());
+      patterns.add<PadPool2dFusionPattern<MaxPool2dOp>>(&getContext());
+      patterns.add<PadPool2dFusionPattern<AvgPool2dOp>>(&getContext());
       patterns.add<ScaledSumToMeanPattern>(&getContext());
       patterns.add<SpatialMeanOptimizationPattern>(&getContext());
       patterns.add<MatmulWithBiasFusionPattern>(&getContext());

@@ -1,11 +1,23 @@
 // RUN: ttmlir-opt -ttir-fusing -o %t %s
 // RUN: FileCheck %s --input-file=%t
 module {
-  func.func @main(%arg0: tensor<1x64x112x112xbf16>) -> tensor<1x64x56x56xbf16>{
+  func.func @max_pool2d_pad_fusion(%arg0: tensor<1x112x112x64xbf16>) -> tensor<1x56x56x64xbf16>{
     // CHECK-NOT: "ttir.pad"
-    // CHECK: padding = array<i64: 0, 0, 0, 0, 1, 1, 1, 1>,
-    %1 = "ttir.pad"(%arg0) <{padding = array<i32: 0, 0, 0, 0, 1, 1, 1, 1>, value = 0xFF800000 : f32}> : (tensor<1x64x112x112xbf16>) -> tensor<1x64x114x114xbf16>
-    %3 = "ttir.pooling"(%1) <{base_dilations = array<i64: 1, 1, 1, 1>, operandSegmentSizes = array<i32: 1, 1>, padding = array<i64: 0, 0, 0, 0, 0, 0, 0, 0>, pooling_method = #ttir<pooling_method Max>, window_dilations = array<i64: 1, 1, 1, 1>, window_dimensions = array<i64: 1, 1, 3, 3>, window_strides = array<i64: 1, 1, 2, 2>}> : (tensor<1x64x114x114xbf16>) -> tensor<1x64x56x56xbf16>
-    return %3: tensor<1x64x56x56xbf16>
+    // CHECK: "ttir.max_pool2d"
+    // CHECK-SAME: padding = array<i32: 1, 1, 1, 1>
+    %1 = "ttir.pad"(%arg0) <{padding = array<i32: 0, 1, 1, 0, 0, 1, 1, 0>, value = 0xFF800000 : f32}> : (tensor<1x112x112x64xbf16>) -> tensor<1x114x114x64xbf16>
+    %3 = "ttir.max_pool2d"(%1) <{kernel = array<i32: 3, 3>, stride = array<i32: 2, 2>, dilation = array<i32: 1, 1>, padding = array<i32: 0, 0, 0, 0>, ceil_mode = false}> : (tensor<1x114x114x64xbf16>) -> tensor<1x56x56x64xbf16>
+    return %3: tensor<1x56x56x64xbf16>
+  }
+}
+
+module {
+  func.func @avg_pool2d_pad_fusion(%arg0: tensor<1x112x112x64xbf16>) -> tensor<1x56x56x64xbf16>{
+    // CHECK-NOT: "ttir.pad"
+    // CHECK: "ttir.avg_pool2d"
+    // CHECK-SAME: padding = array<i32: 1, 1, 1, 1>
+    %1 = "ttir.pad"(%arg0) <{padding = array<i32: 0, 1, 1, 0, 0, 1, 1, 0>, value = 0.0 : f32}> : (tensor<1x112x112x64xbf16>) -> tensor<1x114x114x64xbf16>
+    %3 = "ttir.avg_pool2d"(%1) <{kernel = array<i32: 3, 3>, stride = array<i32: 2, 2>, dilation = array<i32: 1, 1>, padding = array<i32: 0, 0, 0, 0>, ceil_mode = false}> : (tensor<1x114x114x64xbf16>) -> tensor<1x56x56x64xbf16>
+    return %3: tensor<1x56x56x64xbf16>
   }
 }

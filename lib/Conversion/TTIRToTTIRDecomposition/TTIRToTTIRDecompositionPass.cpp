@@ -51,7 +51,6 @@ struct TTIRToTTIRDecompositionPass
       target.addLegalOp<ttir::IndexOp>();
       target.addLegalOp<ttir::ConvolutionOp>();
       target.addLegalOp<ttir::GetDimensionSizeOp>();
-      target.addLegalOp<ttir::PoolingOp>();
       target.addLegalOp<ttir::GatherOp>();
       target.addLegalOp<ttir::IndexSelectOp>();
       target.addLegalOp<ttir::QuantizeOp>();
@@ -70,7 +69,6 @@ struct TTIRToTTIRDecompositionPass
       target.addIllegalOp<ttir::IndexOp>();
       target.addIllegalOp<ttir::ConvolutionOp>();
       target.addIllegalOp<ttir::GetDimensionSizeOp>();
-      target.addIllegalOp<ttir::PoolingOp>();
       target.addIllegalOp<ttir::GatherOp>();
       target.addIllegalOp<ttir::DotGeneralOp>();
       target.addIllegalOp<ttir::IndexSelectOp>();
