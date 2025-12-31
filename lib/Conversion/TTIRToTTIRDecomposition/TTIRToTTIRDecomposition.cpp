@@ -747,8 +747,7 @@ private:
           static_cast<int32_t>(adaptor.getInputDilation()[SPATIAL_DIM_WIDTH]),
       });
 
-      int64_t groups = adaptor.getFeatureGroupCount();
-      if (groups > 1) {
+      if (int64_t groups = adaptor.getFeatureGroupCount(); groups > 1) {
         // Stablehlo.convolution/ttir.convolution op weights are in the format:
         // (C/G, O, K_H, K_W). Torch and TTNN expect the weights to be in the
         // format (C, O/G, K_H, K_W). Therefore it is necessary to transform the
@@ -767,32 +766,35 @@ private:
         int64_t totalInChannels = inChannelsPerGroup * groups;
 
         // Reshape (C/G, O, K_H, K_W) -> (C/G, G, O/G, K_H, K_W)
-        llvm::SmallVector<int64_t> step1Shape = {inChannelsPerGroup, groups,
-                                                 outChannelsPerGroup, kH, kW};
-        auto reshape1 =
-            ttir::utils::createReshapeOp(rewriter,
-                                         ttmlir::utils::appendLocationSuffix(
-                                             op.getLoc(), "_weight_reshape1"),
-                                         permutedWeight, step1Shape);
+        llvm::SmallVector<int64_t> extractedGroupsShape = {
+            inChannelsPerGroup, groups, outChannelsPerGroup, kH, kW};
+        auto extractedGroups = ttir::utils::createReshapeOp(
+            rewriter,
+            ttmlir::utils::appendLocationSuffix(op.getLoc(),
+                                                "_weight_extracted_groups"),
+            permutedWeight, extractedGroupsShape);
 
         // Permute (C/G, G, O/G, K_H, K_W) -> (G, C/G, O/G, K_H, K_W)
         llvm::SmallVector<int64_t> permuteOrder = {1, 0, 2, 3, 4};
-        llvm::SmallVector<int64_t> step2Shape = {groups, inChannelsPerGroup,
-                                                 outChannelsPerGroup, kH, kW};
-        auto permute1 = rewriter.create<ttir::PermuteOp>(
-            ttmlir::utils::appendLocationSuffix(op.getLoc(), "_weight_permute"),
-            permutedWeightType.cloneWith(step2Shape,
+        llvm::SmallVector<int64_t> permutedGroupsShape =
+            ttmlir::utils::applyPermutation(
+                llvm::ArrayRef(extractedGroupsShape),
+                llvm::ArrayRef(permuteOrder));
+        auto permutedGroups = rewriter.create<ttir::PermuteOp>(
+            ttmlir::utils::appendLocationSuffix(op.getLoc(),
+                                                "_weight_permuted_groups"),
+            permutedWeightType.cloneWith(permutedGroupsShape,
                                          permutedWeightType.getElementType()),
-            reshape1, permuteOrder);
+            extractedGroups, permuteOrder);
 
         // Reshape (G, C/G, O/G, K_H, K_W) -> (C, O/G, K_H, K_W)
-        llvm::SmallVector<int64_t> step3Shape = {totalInChannels,
-                                                 outChannelsPerGroup, kH, kW};
-        permutedWeight =
-            ttir::utils::createReshapeOp(rewriter,
-                                         ttmlir::utils::appendLocationSuffix(
-                                             op.getLoc(), "_weight_reshape2"),
-                                         permute1, step3Shape);
+        llvm::SmallVector<int64_t> mergedGroupsShape = {
+            totalInChannels, outChannelsPerGroup, kH, kW};
+        permutedWeight = ttir::utils::createReshapeOp(
+            rewriter,
+            ttmlir::utils::appendLocationSuffix(op.getLoc(),
+                                                "_weight_merged_groups"),
+            permutedGroups, mergedGroupsShape);
       }
       newConv = rewriter.create<ttir::ConvTranspose2dOp>(
           op.getLoc(), outputType, Value(permutedInput), Value(permutedWeight),
