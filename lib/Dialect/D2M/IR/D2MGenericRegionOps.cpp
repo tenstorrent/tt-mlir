@@ -400,6 +400,12 @@ DMAOp::bufferize(mlir::RewriterBase &rewriter,
         "circular buffer element type must match memref/tensor element type");
   }
 
+  // Verify that the result type matches the circular buffer's underlying type
+  if (cbUnderlyingType != getResult().getType()) {
+    return emitOpError() << "result type does not match circular buffer's "
+                            "wrapped memref/tensor type";
+  }
+
   return mlir::success();
 }
 
@@ -460,6 +466,12 @@ DMAOp::bufferize(mlir::RewriterBase &rewriter,
   if (cbElementType != shapedElementType) {
     return emitOpError(
         "circular buffer element type must match memref/tensor element type");
+  }
+
+  // Verify that the result type matches the circular buffer's underlying type
+  if (cbUnderlyingType != getResult().getType()) {
+    return emitOpError() << "result type does not match circular buffer's "
+                            "wrapped memref/tensor type";
   }
 
   return mlir::success();

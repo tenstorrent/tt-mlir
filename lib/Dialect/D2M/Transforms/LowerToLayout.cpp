@@ -461,54 +461,54 @@ public:
                   Value remoteMemref = streamOp.getInput();
                   SmallVector<Value> indices =
                       buildGridIndices(builder, innerLoc, indexingMap);
-                  // Wait on input CB to get transformed data (view
-                  // transformation is in viewOp)
-                  Value inputCBValue = blockArgs[0]; // CB type for wait
-                  Value waitResult =
-                      builder.create<WaitOp>(innerLoc, inputCBValue)
-                          .getResult();
                   // Store to remote output directly from input CB (no DMA
-                  // needed)
-                  builder.create<RemoteStoreOp>(innerLoc, remoteMemref, indices,
-                                                inputCBValue);
-                  // Yield the wait result (output CB is not used, so we yield
-                  // input wait result)
-                  builder.create<YieldOp>(innerLoc, waitResult);
+                  // needed). remote_store returns the underlying memref/tensor
+                  // from the CB (equivalent to wait).
+                  Value inputCBValue = blockArgs[0]; // CB type for remote_store
+                  Value storeResult =
+                      builder
+                          .create<RemoteStoreOp>(innerLoc, remoteMemref,
+                                                 indices, inputCBValue)
+                          ->getResult(0);
+                  // Yield the store result (output CB is not used, so we yield
+                  // input CB result from remote_store)
+                  builder.create<YieldOp>(innerLoc, storeResult);
                 } else if (inputIsRemote) {
                   // Remote input, local output: remote_load
-                  Value outputCB =
-                      builder.create<ReserveOp>(innerLoc, blockArgs[1])
-                          .getResult();
+                  // remote_load returns the underlying memref/tensor from the
+                  // CB (equivalent to reserve)
                   auto streamOp = cast<StreamLayoutOp>(input.getDefiningOp());
                   Value remoteMemref = streamOp.getInput();
                   SmallVector<Value> indices =
                       buildGridIndices(builder, innerLoc, indexingMap);
-                  // Use outputCB (from d2m.reserve) for remote_load, not input
-                  // CB
+                  // Use outputCB for remote_load
                   Value outputCBValue = blockArgs[1]; // CB type for remote_load
-                  builder.create<RemoteLoadOp>(innerLoc, outputCBValue,
-                                               remoteMemref, indices);
+                  Value loadResult =
+                      builder
+                          .create<RemoteLoadOp>(innerLoc, outputCBValue,
+                                                remoteMemref, indices)
+                          ->getResult(0);
                   // View transformation is handled by view_layout and the
                   // generic op's indexing maps
-                  builder.create<YieldOp>(innerLoc, outputCB);
+                  builder.create<YieldOp>(innerLoc, loadResult);
                 } else {
                   // Local input, local output: treat local input as "remote"
                   // and use remote_load (conventional approach for
                   // local-to-local transfers)
-                  Value inputCBValue = blockArgs[0]; // CB type for wait
-                  builder.create<WaitOp>(innerLoc, inputCBValue);
-                  Value outputCB =
-                      builder.create<ReserveOp>(innerLoc, blockArgs[1])
-                          .getResult();
+                  // remote_load returns the underlying memref/tensor from the
+                  // CB (equivalent to reserve)
                   SmallVector<Value> indices =
                       buildGridIndices(builder, innerLoc, indexingMap);
-                  // Use outputCB (from d2m.reserve) for remote_load
+                  // Use outputCB for remote_load
                   Value outputCBValue = blockArgs[1]; // CB type for remote_load
-                  builder.create<RemoteLoadOp>(innerLoc, outputCBValue, viewOp,
-                                               indices);
+                  Value loadResult =
+                      builder
+                          .create<RemoteLoadOp>(innerLoc, outputCBValue, viewOp,
+                                                indices)
+                          ->getResult(0);
                   // View transformation is handled by view_layout and the
                   // generic op's indexing maps
-                  builder.create<YieldOp>(innerLoc, outputCB);
+                  builder.create<YieldOp>(innerLoc, loadResult);
                 }
               },
               ThreadType::Compute, grid)
