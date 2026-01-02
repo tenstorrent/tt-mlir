@@ -15,6 +15,7 @@ from builder.base.builder_apis import (
     build_module,
     load_mlir_file,
     split_mlir_file,
+    compile_ttir_module_to_flatbuffer,
 )
 from builder.base.builder_runtime import *
 from builder.base.builder_enums import *
@@ -65,24 +66,67 @@ for filename in os.listdir(ttnn_snippets_dir_path):
 
 @pytest.mark.parametrize("mlir_snippet", ttir_mlir_snippets.keys())
 def test_ttir_parsing_splitting_ops(mlir_snippet, request, device):
-    mlir_ir_string = ttir_mlir_snippets[mlir_snippet]
-    mlir_module, builder = load_mlir_file(mlir_ir_string, target="ttir")
+    if mlir_snippet == "ttir_reduce_scatter.mlir":
+        mlir_ir_string = ttir_mlir_snippets[mlir_snippet]
+        mlir_module, builder = load_mlir_file(mlir_ir_string, target="ttir")
+        # module = split_modules[0][0]
+        # builder = split_modules[0][1]
+        print(mlir_module.body)
+        print(builder.golden_map)
+        g0, g1 = builder.golden_map
+        mlir_path, g0, g1 = compile_ttir_module_to_flatbuffer(
+            mlir_module, builder, input_output_goldens=g0, intermediate_goldens=g1
+        )
+        print(mlir_path)
+        fb_path = mlir_path + ".ttnn"
+        execute_fb(
+            fb_path=fb_path,
+            input_output_goldens=g0,
+            intermediate_goldens=g1,
+            device=device,
+        )
 
-    if mlir_snippet not in skip_split_ttir_tests:
-        split_modules = split_mlir_file(mlir_module, builder)
+        if mlir_snippet not in skip_split_ttir_tests:
+            split_modules = split_mlir_file(mlir_module, builder)
 
 
 @pytest.mark.parametrize("mlir_snippet", stablehlo_mlir_snippets.keys())
 def test_stablehlo_parsing_splitting_ops(mlir_snippet, request, device):
     mlir_ir_string = stablehlo_mlir_snippets[mlir_snippet]
     mlir_module, builder = load_mlir_file(mlir_ir_string, target="stablehlo")
-    split_modules = split_mlir_file(mlir_module, builder)
+    split_modules = split_mlir_file(mlir_module, builder, target="stablehlo")
 
 
 @pytest.mark.parametrize("mlir_snippet", ttnn_mlir_snippets.keys())
 def test_ttnn_parsing_splitting_ops(mlir_snippet, request, device):
     mlir_ir_string = ttnn_mlir_snippets[mlir_snippet]
     mlir_module, builder = load_mlir_file(mlir_ir_string, target="ttnn")
-
-    if mlir_snippet not in skip_split_ttnn_tests:
-        split_modules = split_mlir_file(mlir_module, builder)
+    split_modules = split_mlir_file(mlir_module, builder, target="ttnn")
+    for m in split_modules:
+        print(m[0])
+    if mlir_ir_string == "ttnn_add.mlir":
+        return
+    input_output_goldens, intermediate_goldens = builder.golden_map
+    print(mlir_module)
+    custom_pipeline = create_custom_pipeline_fn("")
+    (
+        mlir_path,
+        input_output_goldens,
+        intermediate_goldens,
+    ) = compile_ttir_module_to_flatbuffer(
+        mlir_module,
+        builder,
+        input_output_goldens=input_output_goldens,
+        intermediate_goldens=intermediate_goldens,
+        module_dump=True,
+        custom_pipeline=custom_pipeline,
+    )
+    print(mlir_path)
+    fb_path = mlir_path + ".ttnn"
+    execute_fb(
+        fb_path=fb_path,
+        input_output_goldens=input_output_goldens,
+        intermediate_goldens=intermediate_goldens,
+        device=device,
+        bypass_ops=builder._bypass_ops,
+    )

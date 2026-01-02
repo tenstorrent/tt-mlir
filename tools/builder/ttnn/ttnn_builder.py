@@ -266,6 +266,7 @@ class TTNNBuilder(Builder):
         op_map_dictionary: Dict[OpResult, OpResult] = {old_op.result: new_op.result}
         return new_op, op_map_dictionary
 
+    """
     @split(ttnn.GetDeviceOp)
     def get_device_split(
         self,
@@ -314,6 +315,7 @@ class TTNNBuilder(Builder):
                 ]
 
         return get_device_module, get_device_builder
+    """
 
     ############### ttnn.RandOp ###############
 
@@ -448,6 +450,7 @@ class TTNNBuilder(Builder):
     def rand_split(
         self,
         old_op: ttnn.RandOp,
+        get_device_op: ttnn.GetDeviceOp,
     ) -> Tuple[Module, TTNNBuilder]:
         ttnn_op = self.get_opview_from_split(TTNNBuilder.rand_split)
         old_ctx = old_op.context
@@ -464,8 +467,27 @@ class TTNNBuilder(Builder):
 
                 @func.func(*op_input_types, name="rand_module")
                 def decorated_func():
+                    mesh_shape_attr = (
+                        get_device_op.mesh_shape
+                        if hasattr(get_device_op, "mesh_shape")
+                        else ttnn.ir.MeshShapeAttr.get(
+                            old_ctx, *get_device_builder._mesh_shape
+                        )
+                    )
+                    mesh_offset_attr = (
+                        get_device_op.mesh_offset
+                        if hasattr(get_device_op, "mesh_offset")
+                        else ttnn.ir.MeshOffsetAttr.get(old_ctx, 0, 0)
+                    )
+
+                    new_get_device_op = ttnn.GetDeviceOp(
+                        mesh_shape=mesh_shape_attr,
+                        mesh_offset=mesh_offset_attr,
+                        loc=get_device_op.location,
+                    )
+
                     result = old_op.result.type
-                    device = old_op.device
+                    device = new_get_device_op.result
                     size_attr = old_op.size
                     memory_config_attr = old_op.memory_config
                     dtype_attr = old_op.dtype
@@ -502,6 +524,8 @@ class TTNNBuilder(Builder):
             new_func_op = decorated_func.func_op
             rand_builder._func_ops_generated[new_func_op] = [[], ordered_outputs]
 
+        print("RAND SPLIT OUTPUTS")
+        print(rand_module)
         return rand_module, rand_builder
 
     ############### ttnn.AddOp ###############
@@ -3199,8 +3223,11 @@ class TTNNBuilder(Builder):
     def split_op(
         self,
         parsed_op: Operation,
+        get_device_op: Optional[ttnn.GetDeviceOp] = None,
     ) -> Tuple[Module, TTNNBuilder]:
         split_function = self.get_split_from_opview(type(parsed_op))
+        if get_device_op is not None:
+            return split_function(self, parsed_op, get_device_op)
         return split_function(self, parsed_op)
 
     @staticmethod
@@ -3246,9 +3273,13 @@ class TTNNBuilder(Builder):
                         continue
 
                     for block in entry.body:
+                        sub_op_module_builder = None
+                        get_device_op = None
                         for op in block.operations:
                             if isinstance(op, func.ReturnOp):
                                 continue
+                            elif isinstance(op, ttnn.GetDeviceOp):
+                                get_device_op = op
                             elif isinstance(op, func.CallOp):
                                 sub_op_module_builder = builder.split_call_op(op)
                                 if len(sub_op_module_builder) != 0:
@@ -3256,7 +3287,17 @@ class TTNNBuilder(Builder):
                                         sub_op_module_builder
                                     )
                             else:
-                                sub_op_module_builder = builder.split_op(op)
+                                # Reconfig
+                                if (
+                                    hasattr(op, "device")
+                                    and get_device_op is not None
+                                    and op.device is not None
+                                ):
+                                    sub_op_module_builder = builder.split_op(
+                                        op, get_device_op
+                                    )
+                                else:
+                                    sub_op_module_builder = builder.split_op(op)
                                 if len(sub_op_module_builder) != 0:
                                     sub_modules_and_builders.append(
                                         sub_op_module_builder

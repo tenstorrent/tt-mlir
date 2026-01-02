@@ -1363,12 +1363,15 @@ def split_mlir_file(
     builder: Builder,
     target: Literal["ttir", "ttnn", "d2m", "stablehlo"] = "ttir",
 ) -> List[Tuple[Module, Builder]]:
+    print("OPENING SPLIT_MLIR_FILE")
     if target == "ttir":
         modules_and_builders = TTIRBuilder.split_module(module, builder)
     elif target == "stablehlo":
         modules_and_builders = StableHLOBuilder.split_module(module, builder)
     elif target == "ttnn":
+        print("Splitting TTNN module...")
         modules_and_builders = TTNNBuilder.split_module(module, builder)
+        print(f"Split into {len(modules_and_builders)} modules.")
     else:
         raise NotImplementedError(
             "Splitting MLIR files is only supported for ttir, stablehlo and ttnn currently."
