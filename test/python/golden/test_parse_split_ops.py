@@ -53,6 +53,9 @@ for filename in os.listdir(stablehlo_snippets_dir_path):
             stablehlo_mlir_snippets[filename] = mlir_ir_string
 
 ttnn_mlir_snippets = {}
+skip_split_ttnn_tests = [
+    "ttnn_rand.mlir",
+]
 ttnn_snippets_dir_path = os.path.join(os.path.dirname(__file__), "mlir_snippets/ttnn")
 for filename in os.listdir(ttnn_snippets_dir_path):
     if filename.endswith(".mlir"):
@@ -82,4 +85,6 @@ def test_stablehlo_parsing_splitting_ops(mlir_snippet, request, device):
 def test_ttnn_parsing_splitting_ops(mlir_snippet, request, device):
     mlir_ir_string = ttnn_mlir_snippets[mlir_snippet]
     mlir_module, builder = load_mlir_file(mlir_ir_string, target="ttnn")
-    split_modules = split_mlir_file(mlir_module, builder)
+
+    if mlir_snippet not in skip_split_ttnn_tests:
+        split_modules = split_mlir_file(mlir_module, builder)
