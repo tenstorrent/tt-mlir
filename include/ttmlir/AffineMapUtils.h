@@ -222,9 +222,12 @@ inline mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
   auto overallStride = mlir::getAffineConstantExpr(1, ctx);
   for (auto [i, dimStride] :
        utils::iterateInAscendingStrideOrder(outputShape)) {
-    auto dim = mlir::getAffineDimExpr(i, ctx);
-    expr = (dim * overallStride) + expr;
-    overallStride = overallStride * dimStride;
+    // Dims of size 1 contribute nothing.
+    if (dimStride > 1) {
+      auto dim = mlir::getAffineDimExpr(i, ctx);
+      expr = dim * overallStride + expr;
+      overallStride = overallStride * dimStride;
+    }
   }
   auto outputToFlat = mlir::AffineMap::get(outputRank, 0, {expr}, ctx);
 
@@ -234,7 +237,12 @@ inline mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
   overallStride = mlir::getAffineConstantExpr(1, ctx);
   auto dim = mlir::getAffineDimExpr(0, ctx);
   for (auto [i, dimStride] : utils::iterateInAscendingStrideOrder(inputShape)) {
-    toInputExprs[i] = (dim.floorDiv(overallStride)) % dimStride;
+    toInputExprs[i] = dim.floorDiv(overallStride);
+    // Modulo on the outermost grid dim is unnecessary, but we allow "mod 1"
+    // since it reduces the entire term to 0.
+    if (!(i == 0 && dimStride != 1)) {
+      toInputExprs[i] = toInputExprs[i] % dimStride;
+    }
     overallStride = overallStride * dimStride;
   }
   auto flatToInput = mlir::AffineMap::get(1, 0, toInputExprs, ctx);

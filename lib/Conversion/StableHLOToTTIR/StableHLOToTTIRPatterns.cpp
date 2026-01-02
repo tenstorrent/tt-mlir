@@ -3615,6 +3615,22 @@ public:
     auto outputType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(srcOp.getResults()[0].getType()));
 
+    auto scatterIndicesType =
+        mlir::cast<RankedTensorType>(scatterIndices.getType());
+
+    int64_t indexVectorDim =
+        adaptor.getScatterDimensionNumbers().getIndexVectorDim();
+
+    // StableHLO uses vectorized indices for scatter.
+    // TT-metal expects indices to be [B, N] for embedding_backward. If the
+    // indices are 2D and the index vector dim is 1, reshape the indices to 3D.
+    if (scatterIndicesType.getRank() == 2 && indexVectorDim == 1) {
+      llvm::SmallVector<int64_t> newShape{1};
+      llvm::append_range(newShape, scatterIndicesType.getShape());
+      scatterIndices = ttir::utils::createReshapeOp(rewriter, srcOp.getLoc(),
+                                                    scatterIndices, newShape);
+    }
+
     rewriter.replaceOpWithNewOp<ttir::EmbeddingBackwardOp>(
         srcOp, outputType, scatterIndices, operand, update);
 

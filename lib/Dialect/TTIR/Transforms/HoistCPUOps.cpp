@@ -67,7 +67,12 @@ llvm::SmallString<64> generateHoistedFuncName(const OpsVectorType &ops) {
               mlir::dyn_cast<mlir::RankedTensorType>(operand.getType())) {
         uniqueName += "_";
         llvm::raw_svector_ostream os(uniqueName);
-        llvm::interleave(tensorType.getShape(), os, "x");
+        // Emit shape and element type. Example: 2x3xf32.
+        if (!tensorType.getShape().empty()) {
+          llvm::interleave(tensorType.getShape(), os, "x");
+          os << "x";
+        }
+        tensorType.getElementType().print(os);
       }
     }
   }
@@ -79,7 +84,9 @@ llvm::SmallString<64> generateHoistedFuncName(const OpsVectorType &ops) {
 }
 
 // Helper function to collect input arguments to a set of operations.
-static ValuesVectorType collectInputArguments(const OpsVectorType &operations) {
+// If shouldDeduplicate is true, only unique arguments are collected.
+static ValuesVectorType collectInputArguments(const OpsVectorType &operations,
+                                              bool shouldDeduplicate) {
   ValuesVectorType inputArguments;
 
   for (auto *op : operations) {
@@ -90,10 +97,11 @@ static ValuesVectorType collectInputArguments(const OpsVectorType &operations) {
         continue;
       }
 
-      // Insert the argument if not already present.
-      if (!llvm::is_contained(inputArguments, operand)) {
-        inputArguments.push_back(operand);
+      if (shouldDeduplicate && llvm::is_contained(inputArguments, operand)) {
+        continue;
       }
+
+      inputArguments.push_back(operand);
     }
   }
 
@@ -236,11 +244,15 @@ struct CPUHoistedOpsDescriptor {
   ValuesVectorType outputValues;
   // Name of the generated hoisted function.
   llvm::SmallString<64> funcName;
+  // Flag indicating whether to deduplicate input arguments.
+  bool shouldDeduplicateInputs;
 
   CPUHoistedOpsDescriptor(const OpsVectorType &ops,
                           const ValuesVectorType &outputs,
-                          llvm::SmallString<64> name)
-      : operations(ops), outputValues(outputs), funcName(std::move(name)) {}
+                          llvm::SmallString<64> name,
+                          bool deduplicateInputs = true)
+      : operations(ops), outputValues(outputs), funcName(std::move(name)),
+        shouldDeduplicateInputs(deduplicateInputs) {}
 };
 
 // Helper function to hoist an arbitrary set of ops into a new function in
@@ -257,8 +269,8 @@ static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
   const TypesVectorType resultTypes =
       performResultConversions(descriptor.outputValues);
 
-  const ValuesVectorType inputArguments =
-      collectInputArguments(descriptor.operations);
+  const ValuesVectorType inputArguments = collectInputArguments(
+      descriptor.operations, descriptor.shouldDeduplicateInputs);
 
   // Convert argument and gather types for function signature.
   mlir::OpBuilder opBuilder(descriptor.operations.front());
@@ -280,6 +292,9 @@ static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
       sourceModule.lookupSymbol(localFunctionName));
 
   // Create a new hoisted function only if an equivalent one does not exist.
+  //
+  // TODO(dmilinkovic): we should consider a more robust way of deduplicating
+  // function implementations - issue #6465.
   if (localFunc == nullptr) {
     // Insert the function and the terminator.
     auto hoistedFunc = func::FuncOp::create(targetModule->getLoc(),
@@ -414,8 +429,17 @@ CPUHoistAnalyzerType singleOpHoistAnalyzer(ShouldHoistOpType predicate) {
         OpsVectorType operations{nestedOp};
         ValuesVectorType outputValues{nestedOp->getResult(0)};
 
+        // For single-op hoisting, we should NOT deduplicate input arguments, as
+        // this could lead to incorrect behavior if the op has the same operand
+        // used as multiple inputs.
+        //
+        // Example: %res = ttir.add (%arg, %arg) =>
+        // CPU-hoisted function should have two separate arguments instead of
+        // just one.
+        //
         hoistedOpsDescriptors.emplace_back(operations, outputValues,
-                                           generateHoistedFuncName({nestedOp}));
+                                           generateHoistedFuncName({nestedOp}),
+                                           /*deduplicateInputs=*/false);
       }
     });
 

@@ -3413,8 +3413,7 @@ def test_nested_function_calls(target, request, device):
                     return relu0
 
                 sigmoid0 = builder.sigmoid(in0)
-                ttir_builder0 = TTIRBuilder(builder.context, builder.location)
-                nested_func0 = builder.call(nested_func, [sigmoid0], ttir_builder0)
+                nested_func0 = builder.call(nested_func, [sigmoid0])
                 return nested_func0
 
             @builder.func([(32, 32)], [torch.float32])

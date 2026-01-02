@@ -18,7 +18,7 @@ import operator
 import einops
 import torch
 import torch.nn.functional
-from ttmlir.dialects import ttir, stablehlo, d2m, ttnn, ttcore
+from ttmlir.dialects import ttir, stablehlo, d2m, ttnn, ttcore, sdy
 from ttmlir.ir import *
 from ttmlir.passes import DataType
 
@@ -2280,6 +2280,48 @@ def stablehlo_not_golden(input_tensor: GoldenMapTensor, **kwargs) -> GoldenMapTe
         return torch.bitwise_not(input_tensor)
 
 
+################ Golden Utilities ###############
+
+
+def apply_sharding(
+    tensor: GoldenMapTensor,
+    mesh_shape: Tuple[int],
+    shard_dims: Tuple[Union[int, None]],
+) -> GoldenMapTensor:
+    shards = [tensor.shard_at(0).clone()]
+    for dim_size, shard_dim in zip(mesh_shape, shard_dims):
+        temp_shards = []
+        if shard_dim is None or shard_dim == -1:
+            for shard in shards:
+                temp_shards.extend([shard.clone() for _ in range(dim_size)])
+        else:
+            for shard in shards:
+                temp_shards.extend(torch.chunk(shard, dim_size, dim=shard_dim))
+        shards = temp_shards
+
+    shard_dictionary = {i: shard for i, shard in enumerate(shards)}
+    return GoldenMapTensor(shard_dictionary, mesh_shape)
+
+
+def apply_unsharding(
+    tensor: GoldenMapTensor,
+    mesh_shape: Tuple[int],
+    shard_dims: Tuple[Union[int, None]],
+) -> GoldenMapTensor:
+    shards = [tensor.shard_at(i).clone() for i in range(len(tensor.shard_map))]
+    for dim_size, shard_dim in zip(reversed(mesh_shape), reversed(shard_dims)):
+        if shard_dim is None or shard_dim == -1:
+            shards = shards[::dim_size]
+        else:
+            temp_shards = []
+            for i in range(0, len(shards), dim_size):
+                concat_shard = torch.cat(shards[i : i + dim_size], dim=shard_dim)
+                temp_shards.append(concat_shard)
+            shards = temp_shards
+
+    return GoldenMapTensor({0: shards[0]}, mesh_shape)
+
+
 ################ TTIR Op Golden Functions ###############
 
 
@@ -3586,43 +3628,6 @@ def ttir_mesh_shard_golden(
     shard_dims_attr: DenseI64ArrayAttr,
     output_type_mlir: Type,
 ) -> GoldenMapTensor:
-    def _sharding(
-        tensor: GoldenMapTensor,
-        mesh_shape: Tuple[int],
-        shard_dims: Tuple[Union[int, None]],
-    ) -> GoldenMapTensor:
-        shards = [tensor.shard_at(0).clone()]
-        for dim_size, shard_dim in zip(mesh_shape, shard_dims):
-            temp_shards = []
-            if shard_dim is None or shard_dim == -1:
-                for shard in shards:
-                    temp_shards.extend([shard.clone() for _ in range(dim_size)])
-            else:
-                for shard in shards:
-                    temp_shards.extend(torch.chunk(shard, dim_size, dim=shard_dim))
-            shards = temp_shards
-
-        shard_dictionary = {i: shard for i, shard in enumerate(shards)}
-        return GoldenMapTensor(shard_dictionary, mesh_shape)
-
-    def _unsharding(
-        tensor: GoldenMapTensor,
-        mesh_shape: Tuple[int],
-        shard_dims: Tuple[Union[int, None]],
-    ) -> GoldenMapTensor:
-        shards = [tensor.shard_at(i).clone() for i in range(len(tensor.shard_map))]
-        for dim_size, shard_dim in zip(reversed(mesh_shape), reversed(shard_dims)):
-            if shard_dim is None or shard_dim == -1:
-                shards = shards[::dim_size]
-            else:
-                temp_shards = []
-                for i in range(0, len(shards), dim_size):
-                    concat_shard = torch.cat(shards[i : i + dim_size], dim=shard_dim)
-                    temp_shards.append(concat_shard)
-                shards = temp_shards
-
-        return GoldenMapTensor({0: shards[0]}, mesh_shape)
-
     mesh_shape = input.mesh_shape
     shard_type = ttcore.ir.MeshShardTypeAttr.maybe_downcast(shard_type_attr).value
     shard_direction = ttcore.ir.MeshShardDirectionAttr.maybe_downcast(
@@ -3635,12 +3640,12 @@ def ttir_mesh_shard_golden(
     if shard_direction == ttcore.ir.MeshShardDirection.FullToShard:
         if shard_type == ttcore.ir.MeshShardType.Replicate:
             shard_dims = [None] * len(mesh_shape)
-        return _sharding(input, mesh_shape, shard_dims)
+        return apply_sharding(input, mesh_shape, shard_dims)
     elif shard_direction == ttcore.ir.MeshShardDirection.ShardToFull:
         if shard_type == ttcore.ir.MeshShardType.Replicate:
-            return _unsharding(input, [1], [1])
+            return apply_unsharding(input, [1], [1])
         else:
-            return _unsharding(input, mesh_shape, shard_dims)
+            return apply_unsharding(input, mesh_shape, shard_dims)
 
 
 reduce_mapping = {
@@ -4004,6 +4009,48 @@ def stablehlo_batch_norm_training_golden(
     )
 
 
+def stablehlo_batch_norm_inference_golden(
+    operand: GoldenMapTensor,
+    scale: GoldenMapTensor,
+    offset: GoldenMapTensor,
+    mean: GoldenMapTensor,
+    variance: GoldenMapTensor,
+    epsilon: FloatAttr,
+    feature_index: IntegerAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    epsilon = unpack_mlir_attr(epsilon)
+    feature_index = unpack_mlir_attr(feature_index)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    output_shards = {}
+    for device_id in operand.shard_map.keys():
+        operand_shard = operand.shard_map[device_id]
+        scale_shard = scale.shard_map[device_id]
+        offset_shard = offset.shard_map[device_id]
+        mean_shard = mean.shard_map[device_id]
+        variance_shard = variance.shard_map[device_id]
+
+        ndim = operand_shard.ndim
+
+        # Reshape for broadcasting
+        broadcast_shape = [1] * ndim
+        broadcast_shape[feature_index] = scale_shard.shape[0]
+
+        mean_bc = mean_shard.reshape(broadcast_shape)
+        var_bc = variance_shard.reshape(broadcast_shape)
+        scale_bc = scale_shard.reshape(broadcast_shape)
+        offset_bc = offset_shard.reshape(broadcast_shape)
+
+        # Normalize: (x - mean) / sqrt(var + eps) * scale + offset
+        std = torch.sqrt(var_bc + epsilon)
+        normalized = (operand_shard - mean_bc) / std
+        output_shard = normalized * scale_bc + offset_bc
+
+        output_shards[device_id] = output_shard.to(output_dtype)
+
+    return GoldenMapTensor(output_shards, operand.mesh_shape)
+
+
 def stablehlo_log_golden(
     input_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -4228,6 +4275,97 @@ def stablehlo_dynamic_update_slice_golden(
     return GoldenMapTensor(result_shard_map, input_tensor.mesh_shape).to(output_dtype)
 
 
+def stablehlo_all_gather_golden(
+    input: GoldenMapTensor,
+    all_gather_dim_attr: IntegerAttr,
+    replica_groups_attr: DenseElementsAttr,
+) -> GoldenMapTensor:
+    all_gather_dim = unpack_mlir_attr(all_gather_dim_attr)
+    replica_groups = unpack_mlir_attr(replica_groups_attr)
+
+    output_shards = [None] * len(input.shard_map)
+    for group in replica_groups:
+        gathered_tensor = torch.cat(
+            [input.shard_at(dev_id) for dev_id in group], dim=all_gather_dim
+        )
+        for id in group:
+            output_shards[id] = gathered_tensor.clone()
+    return GoldenMapTensor(
+        {i: t for i, t in enumerate(output_shards)}, input.mesh_shape
+    )
+
+
+def stablehlo_all_reduce_golden(
+    input: GoldenMapTensor,
+    replica_groups_attr: DenseElementsAttr,
+) -> GoldenMapTensor:
+    replica_groups = unpack_mlir_attr(replica_groups_attr)
+    raise NotImplementedError("stablehlo_all_reduce_golden is not implemented yet.")
+
+
+def stablehlo_all_to_all_golden(
+    input: GoldenMapTensor,
+    split_dim_attr: IntegerAttr,
+    concat_dim_attr: IntegerAttr,
+    split_count_attr: IntegerAttr,
+    replica_groups_attr: DenseElementsAttr,
+) -> GoldenMapTensor:
+    split_dim = unpack_mlir_attr(split_dim_attr)
+    concat_dim = unpack_mlir_attr(concat_dim_attr)
+    split_count = unpack_mlir_attr(split_count_attr)
+    replica_groups = unpack_mlir_attr(replica_groups_attr)
+    raise NotImplementedError("stablehlo_all_to_all_golden is not implemented yet.")
+
+
+def stablehlo_collective_broadcast_golden(
+    input: GoldenMapTensor,
+    replica_groups_attr: DenseElementsAttr,
+) -> GoldenMapTensor:
+    replica_groups = unpack_mlir_attr(replica_groups_attr)
+    raise NotImplementedError(
+        "stablehlo_collective_broadcast_golden is not implemented yet."
+    )
+
+
+def stablehlo_collective_permute_golden(
+    input: GoldenMapTensor,
+    source_target_pairs_attr: DenseElementsAttr,
+) -> GoldenMapTensor:
+    source_target_pairs = unpack_mlir_attr(source_target_pairs_attr)
+    raise NotImplementedError(
+        "stablehlo_collective_permute_golden is not implemented yet."
+    )
+
+
+def stablehlo_reduce_scatter_golden(
+    input: GoldenMapTensor,
+    scatter_dim_attr: IntegerAttr,
+    replica_groups_attr: DenseElementsAttr,
+) -> GoldenMapTensor:
+    scatter_dim = unpack_mlir_attr(scatter_dim_attr)
+    replica_groups = unpack_mlir_attr(replica_groups_attr)
+    raise NotImplementedError("stablehlo_reduce_scatter_golden is not implemented yet.")
+
+
+################ SDY Op Golden Functions ###############
+
+
+def sdy_sharding_constraint_golden(
+    input: GoldenMapTensor,
+) -> GoldenMapTensor:
+    return input.clone()
+
+
+def sdy_reshard_golden(input: GoldenMapTensor) -> GoldenMapTensor:
+    return input.clone()
+
+
+def sdy_all_gather_golden(
+    input: GoldenMapTensor,
+) -> GoldenMapTensor:
+    return input.clone()
+
+
 ################ TTNN Op Golden Functions ###############
 
 
@@ -4397,6 +4535,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.ConstantOp: stablehlo_constant_golden,
     stablehlo.BatchNormGradOp: stablehlo_batch_norm_grad_golden,
     stablehlo.BatchNormTrainingOp: stablehlo_batch_norm_training_golden,
+    stablehlo.BatchNormInferenceOp: stablehlo_batch_norm_inference_golden,
     stablehlo.LogOp: stablehlo_log_golden,
     stablehlo.Log1pOp: stablehlo_log1p_golden,
     stablehlo.LogisticOp: stablehlo_logistic_golden,
@@ -4424,6 +4563,17 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # StableHLO tensor manipulation operations
     stablehlo.TransposeOp: stablehlo_transpose_golden,
     stablehlo.SelectOp: stablehlo_select_golden,
+    # CCL (Collective Communication Library) operations
+    stablehlo.AllGatherOp: stablehlo_all_gather_golden,
+    stablehlo.AllReduceOp: stablehlo_all_reduce_golden,
+    stablehlo.ReduceScatterOp: stablehlo_reduce_scatter_golden,
+    stablehlo.CollectivePermuteOp: stablehlo_collective_permute_golden,
+    stablehlo.AllToAllOp: stablehlo_all_to_all_golden,
+    stablehlo.CollectiveBroadcastOp: stablehlo_collective_broadcast_golden,
+    # ----- SDY OPS -----
+    sdy.ShardingConstraintOp: sdy_sharding_constraint_golden,
+    sdy.ReshardOp: sdy_reshard_golden,
+    sdy.AllGatherOp: sdy_all_gather_golden,
     # ----- TTNN OPS -----
     # Elementwise unary operations
     ttnn.AbsOp: torch.abs,

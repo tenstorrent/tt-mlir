@@ -4366,11 +4366,27 @@ void mlir::tt::ttir::ReverseOp::getCanonicalizationPatterns(
 
 // PermuteOp with identity permutation is a no-op.
 // The input can be used directly as the output.
+// This includes:
+// 1. Sorted permutations like [0, 1, 2, 3]
+// 2. Permutations where all swapped dimensions have size 1
+//    (e.g., [2, 0, 1, 3] on shape 1x1x1x64 is a no-op)
 static mlir::OpFoldResult foldIdentityPermute(mlir::tt::ttir::PermuteOp op) {
+  // Case 1: True identity permutation (sorted)
   if (llvm::is_sorted(op.getPermutation())) {
     return op.getInput();
   }
-  return nullptr;
+
+  // Case 2: All non-identity dimension swaps are between dims of size 1
+  auto inputShape = op.getInput().getType().getShape();
+  for (auto [index, permuteIndex] : llvm::enumerate(op.getPermutation())) {
+    if (permuteIndex != static_cast<int64_t>(index)) {
+      // This dim position is changed - check if both dims involved are size 1
+      if (inputShape[index] != 1 || inputShape[permuteIndex] != 1) {
+        return nullptr; // Non-trivial swap
+      }
+    }
+  }
+  return op.getInput();
 }
 
 // If the producer is a PermuteOp we can compose the permutation attributes

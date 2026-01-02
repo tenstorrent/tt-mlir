@@ -5,6 +5,7 @@
 import pytest
 import torch
 from typing import Callable, List, Optional, Tuple
+from collections import OrderedDict
 
 from builder.base.builder_utils import Operand, Shape, TypeInfo
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
@@ -791,7 +792,7 @@ def test_logical_unary_ops(
     ids=["128x128_basic", "128x128_offset", "128x128_stride", "256x256_large"],
 )
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_slice(
     shape: Shape,
     start_indices: List[int],
@@ -1147,4 +1148,179 @@ def test_select(target: str, request, device):
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
         device=device,
+    )
+
+
+def module_batch_norm_training(builder: StableHLOBuilder):
+    @builder.func(
+        [(1, 32, 64, 64), (64,), (64,)],
+        [torch.float32, torch.float32, torch.float32],
+    )
+    def batch_norm_training(
+        operand: Operand,
+        scale: Operand,
+        offset: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.batch_norm_training(
+            operand, scale, offset, epsilon=1e-5, feature_index=3
+        )
+
+
+def module_batch_norm_inference(builder: StableHLOBuilder):
+    @builder.func(
+        [(1, 32, 64, 64), (64,), (64,), (64,), (64,)],
+        [torch.float32] * 5,
+    )
+    def batch_norm_inference(
+        operand: Operand,
+        scale: Operand,
+        offset: Operand,
+        mean: Operand,
+        variance: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.batch_norm_inference(
+            operand,
+            scale,
+            offset,
+            mean,
+            variance,
+            epsilon=1e-5,
+            feature_index=3,
+        )
+
+
+def module_batch_norm_grad(builder: StableHLOBuilder):
+    @builder.func(
+        [(1, 32, 64, 64), (64,), (64,), (64,), (1, 32, 64, 64)],
+        [torch.float32] * 5,
+    )
+    def batch_norm_grad(
+        operand: Operand,
+        scale: Operand,
+        mean: Operand,
+        variance: Operand,
+        grad_output: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.batch_norm_grad(
+            operand,
+            scale,
+            mean,
+            variance,
+            grad_output,
+            epsilon=1e-5,
+            feature_index=3,
+        )
+
+
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize(
+    "test_fn",
+    [
+        module_batch_norm_training,
+    ],
+)
+def test_batch_norm_training_op(test_fn: Callable, target: str, request, device):
+    compile_and_execute_shlo(
+        test_fn,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize(
+    "test_fn",
+    [
+        module_batch_norm_inference,
+    ],
+)
+def test_batch_norm_inference_op(test_fn: Callable, target: str, request, device):
+    compile_and_execute_shlo(
+        test_fn,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize(
+    "test_fn",
+    [
+        module_batch_norm_grad,
+    ],
+)
+def test_batch_norm_grad_op(test_fn: Callable, target: str, request, device):
+    compile_and_execute_shlo(
+        test_fn,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_all_gather(target: str, request, device):
+    def module_all_gather(builder: StableHLOBuilder):
+        @builder.func([(1, 1, 32, 32)], [torch.float32])
+        def my_modela(in0: Operand, builder: StableHLOBuilder):
+            def single_device_func(in0: Operand, builder: StableHLOBuilder):
+                all_gather0 = builder.all_gather(in0, 3, [[0]])
+                return all_gather0
+
+            tensor_sharding_attr = builder.tensor_sharding_attr(
+                mesh_name="mesh",
+                dimension_shardings=[
+                    builder.dimension_sharding_attr(
+                        axes=[],
+                        is_closed=True,
+                    ),
+                    builder.dimension_sharding_attr(
+                        axes=[],
+                        is_closed=True,
+                    ),
+                    builder.dimension_sharding_attr(
+                        axes=[builder.axis_ref_attr(name="x")],
+                        is_closed=True,
+                    ),
+                    builder.dimension_sharding_attr(
+                        axes=[builder.axis_ref_attr(name="y")],
+                        is_closed=True,
+                    ),
+                ],
+            )
+
+            manual_computation_op0 = builder.manual_computation(
+                single_device_func,
+                [in0],
+                in_shardings=[tensor_sharding_attr],
+                out_shardings=[tensor_sharding_attr],
+                manual_axes=["x", "y"],
+            )
+            return manual_computation_op0
+
+    compile_and_execute_shlo(
+        module_all_gather,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+        mesh_dict=OrderedDict([("x", 1), ("y", 1)]),
     )
