@@ -261,8 +261,6 @@ void createTTIRToTTMetalUnifiedMiddleendPipeline(
 
   pm.addPass(d2m::createD2MInsertLoadStoreOps());
 
-  pm.addPass(d2m::createD2MGenerateOuterLoops());
-
   d2m::D2MInsertDstRegisterAccessOptions insertDstRegisterAccessOptions;
   {
     insertDstRegisterAccessOptions.useTileMatmul = options.useTileMatmul;
@@ -271,6 +269,8 @@ void createTTIRToTTMetalUnifiedMiddleendPipeline(
   }
   pm.addPass(
       d2m::createD2MInsertDstRegisterAccess(insertDstRegisterAccessOptions));
+
+  pm.addPass(d2m::createD2MGenerateOuterLoops());
 
   pm.addPass(d2m::createD2MSFPUTileLoopFission());
   pm.addPass(mlir::createCanonicalizerPass());
