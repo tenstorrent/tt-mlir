@@ -256,7 +256,8 @@ module {
   }
 
   // Test 7: Multicast matmul with 2x6 grid
-  // Tests multicast on both LHS (mcast on dim 1) and RHS (mcast on dim 0)
+  // Tests multicast on LHS (mcast on dim 1). RHS has mcast[1,1] which is treated as unicast
+  // since all multicast dimensions are 1 (no actual multicast needed).
   // CHECK-LABEL: func.func @test_multicast_matmul_2x6
   func.func @test_multicast_matmul_2x6(
       %arg0: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>,
@@ -273,17 +274,17 @@ module {
         ins(%stream0, %stream1 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<map(4)>, #dram>, memref<4x6x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #ttcore.view<map(4)>, #dram>)
         outs(%alloc : memref<2x6x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
     ^compute0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
-      // CHECK: ^datamovement0(%{{.*}}: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1{{.*}}>>, %{{.*}}: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1{{.*}}>>, %{{.*}}: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1{{.*}}>>, %{{.*}}: !d2m.semaphore, %{{.*}}: !d2m.semaphore, %{{.*}}: !d2m.semaphore, %{{.*}}: !d2m.semaphore):
-      // Verify 4 semaphores are added (2 for each multicast operand)
-      // Verify LHS multicast path
+      // Verify 2 semaphores are added (for LHS multicast only, RHS is unicast)
+      // CHECK: ^datamovement0(%{{.*}}: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1{{.*}}>>, %{{.*}}: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1{{.*}}>>, %{{.*}}: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1{{.*}}>>, %{{.*}}: !d2m.semaphore, %{{.*}}: !d2m.semaphore):
+      // Verify LHS multicast path with correct dimension check (core_index(1) == 0)
+      // CHECK-DAG: arith.cmpi eq, %{{.*}}, %c0
       // CHECK-DAG: d2m.reserve %cb0
       // CHECK-DAG: d2m.dma_read %stream
       // CHECK-DAG: d2m.dma_write {{.*}} core[{{.*}}] mcast[{{.*}}]
-      // Verify RHS multicast path
+      // Verify RHS unicast path (no multicast since mcast dimensions are all 1)
       // CHECK-DAG: d2m.reserve %cb1
       // CHECK-DAG: d2m.dma_read %stream_2
-      // CHECK-DAG: d2m.dma_write {{.*}} core[{{.*}}] mcast[{{.*}}]
-      // Verify semaphore synchronization operations exist
+      // Verify semaphore synchronization operations exist for LHS
       // CHECK-DAG: d2m.semaphore_wait
       // CHECK-DAG: d2m.semaphore_set
       // CHECK-DAG: d2m.semaphore_inc

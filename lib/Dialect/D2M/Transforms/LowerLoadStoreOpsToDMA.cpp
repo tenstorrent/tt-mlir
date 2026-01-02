@@ -203,13 +203,14 @@ public:
   // Returns the last DMA transaction value (for waiting)
   // Handles both contiguous (single DMA) and strided (loop with guarded DMAs)
   // cases
-  static Value
-  generateDMAReads(OpBuilder &builder, Location loc, Value remoteMemref,
-                   SmallVector<Value> gridIndices, ArrayRef<int64_t> shardShape,
-                   AffineMap remoteMemoryMap, AffineMap localMemoryMap,
-                   Value cb, size_t coalescingFactor, size_t shardVolume) {
-    // Reserve CB once to get the local memref
-    Value localMemref = builder.create<ReserveOp>(loc, cb).getResult();
+  // Note: Caller must reserve the CB and pass the resulting localMemref
+  static Value generateDMAReads(OpBuilder &builder, Location loc,
+                                Value remoteMemref, Value localMemref,
+                                SmallVector<Value> gridIndices,
+                                ArrayRef<int64_t> shardShape,
+                                AffineMap remoteMemoryMap,
+                                AffineMap localMemoryMap,
+                                size_t coalescingFactor, size_t shardVolume) {
 
     if (coalescingFactor == shardVolume) {
       // Fully contiguous: single DMA operation
@@ -306,6 +307,61 @@ public:
     return loopNest.results.front();
   }
 
+  // Calculate which dimensions are multicast dimensions based on the parent
+  // GenericOp's indexing maps and iterator types. This matches the logic in
+  // GenericGenerateDatamovement::calculateMcastIterators.
+  // Returns a vector of bools indicating which grid dimensions are multicast.
+  static SmallVector<bool> calculateMcastDimensions(Operation *op,
+                                                    Value operand,
+                                                    ttcore::GridAttr grid) {
+    auto genericOp = op->getParentOfType<GenericOp>();
+    TT_assertv(genericOp, "RemoteLoad/Store must be inside a GenericOp");
+
+    // Find the operand index in the generic op
+    unsigned operandIdx = 0;
+    for (OpOperand &genericOperand : genericOp->getOpOperands()) {
+      // The operand we're looking for is the remote memref, which should
+      // match one of the generic op's operands
+      if (genericOperand.get() == operand) {
+        break;
+      }
+      operandIdx++;
+    }
+
+    // Get the indexing map for this operand
+    ArrayAttr indexingMaps = genericOp.getIndexingMaps();
+    TT_assertv(operandIdx < indexingMaps.size(),
+               "Operand not found in generic op");
+    AffineMap operandIndexingMap =
+        mlir::cast<AffineMapAttr>(indexingMaps[operandIdx]).getValue();
+
+    // Get iterator types
+    ArrayAttr iteratorTypes = genericOp.getIteratorTypes();
+
+    // Determine multicast dimensions based on indexing map and iterator types
+    SmallVector<bool> isMcastDim;
+    isMcastDim.reserve(grid.getShape().size());
+
+    for (unsigned dim = 0; dim < grid.getShape().size(); dim++) {
+      AffineExpr result = operandIndexingMap.getResult(dim);
+
+      bool isReduction = false;
+      if (mlir::isa<AffineConstantExpr>(result)) {
+        // Constant expression means this operand doesn't vary with this grid
+        // dimension - treat as parallel (not multicast)
+        isReduction = false;
+      } else if (auto dimExpr = mlir::dyn_cast<AffineDimExpr>(result)) {
+        unsigned dimPosition = dimExpr.getPosition();
+        auto iterType =
+            mlir::cast<ttcore::IteratorTypeAttr>(iteratorTypes[dimPosition]);
+        isReduction = iterType.getValue() == ttcore::IteratorType::Reduction;
+      }
+      isMcastDim.push_back(isReduction);
+    }
+
+    return isMcastDim;
+  }
+
   // Handle multicast gather pattern for RemoteLoadOp
   static LogicalResult
   handleMcastRemoteLoad(PatternRewriter &rewriter, Location loc,
@@ -316,6 +372,25 @@ public:
                         size_t shardVolume) {
     Value cb = remoteLoad.getCb();
     Value remoteMemref = remoteLoad.getMemref();
+
+    // Get parent generic op and calculate multicast dimensions
+    auto genericOp = remoteLoad->getParentOfType<GenericOp>();
+    TT_assertv(genericOp, "RemoteLoad must be inside a GenericOp");
+
+    // Determine which dimensions are multicast based on iterator types
+    SmallVector<bool> isMcastDim =
+        calculateMcastDimensions(remoteLoad, remoteMemref, genericOp.getGrid());
+
+    // Calculate mcast volume from mcastShape
+    size_t mcastVolume = 1;
+    for (Value mcastDim : remoteLoad.getMcastShape()) {
+      if (auto constantOp = mcastDim.getDefiningOp<arith::ConstantOp>()) {
+        if (auto intAttr = mlir::dyn_cast<IntegerAttr>(constantOp.getValue())) {
+          mcastVolume *= intAttr.getInt();
+        }
+      }
+    }
+
     Value zero = rewriter.create<arith::ConstantOp>(
         loc, rewriter.getIndexType(), rewriter.getIndexAttr(0));
     Value one = rewriter.create<arith::ConstantOp>(loc, rewriter.getIndexType(),
@@ -327,62 +402,68 @@ public:
     auto semResult2 = createSemaphore(rewriter, loc, remoteLoad);
     BlockArgument senderFinishedSemaphore = semResult2.first;
 
-    // Calculate multicast volume
-    size_t mcastVolume = 1;
-    for (Value mcastDim : remoteLoad.getMcastShape()) {
-      if (auto constantOp = mcastDim.getDefiningOp<arith::ConstantOp>()) {
-        if (auto intAttr = mlir::dyn_cast<IntegerAttr>(constantOp.getValue())) {
-          mcastVolume *= intAttr.getInt();
-        }
-      }
-    }
     Value mcastVolumeVal = rewriter.create<arith::ConstantOp>(
         loc, rewriter.getIndexType(), rewriter.getIndexAttr(mcastVolume));
 
-    // Determine if this core is the sender
-    // By convention, core 0 along the multicast dimension is the sender
-    // We need to check the first multicast dimension
-    Value coreIndex = rewriter.create<CoreIndexOp>(
-        loc, rewriter.getIndexType(), rewriter.getI64IntegerAttr(0));
-    Value isSender = rewriter.create<arith::CmpIOp>(
-        loc, rewriter.getI1Type(), mlir::arith::CmpIPredicate::eq, coreIndex,
-        zero);
+    // Determine if this core is the sender.
+    // By convention, core 0 along each multicast dimension is the sender.
+    // We need to check that ALL multicast dimensions have core_index == 0.
+    Value isSender = nullptr;
+    for (size_t i = 0; i < isMcastDim.size(); ++i) {
+      if (isMcastDim[i]) {
+        Value coreIdx = rewriter.create<CoreIndexOp>(
+            loc, rewriter.getIndexType(), rewriter.getI64IntegerAttr(i));
+        Value condition = rewriter.create<arith::CmpIOp>(
+            loc, rewriter.getI1Type(), arith::CmpIPredicate::eq, coreIdx, zero);
+        if (isSender) {
+          isSender = rewriter.create<arith::AndIOp>(loc, isSender, condition)
+                         .getResult();
+        } else {
+          isSender = condition;
+        }
+      }
+    }
+    TT_assertv(isSender, "No multicast dimensions found in mcastShape");
+
+    // Reserve CB unconditionally before branching - both sender and receiver
+    // need to reserve to maintain proper circular buffer semantics
+    Value localMemref = rewriter.create<ReserveOp>(loc, cb).getResult();
 
     rewriter.create<scf::IfOp>(
         loc, isSender,
         [&](OpBuilder &builder, Location loc) {
           // Sender: gather data from remote with proper coalescing
           // This handles both contiguous and strided memory accesses
-          Value dmaTx =
-              generateDMAReads(builder, loc, remoteMemref, gridIndices,
-                               shardShape, remoteMemoryMap, localMemoryMap, cb,
-                               coalescingFactor, shardVolume);
+          Value dmaTx = generateDMAReads(
+              builder, loc, remoteMemref, localMemref, gridIndices, shardShape,
+              remoteMemoryMap, localMemoryMap, coalescingFactor, shardVolume);
           builder.create<DMAWaitOp>(loc, dmaTx);
 
           // Wait for all receivers to be ready
           builder.create<SemaphoreWaitOp>(loc, receiversReadySemaphore,
                                           mcastVolumeVal, zero);
 
-          // Get the local memref for multicast (already reserved during gather)
-          Value localMemref = builder.create<WaitOp>(loc, cb).getResult();
+          // Get the local memref for multicast (already reserved)
+          Value localMemrefForMcast =
+              builder.create<WaitOp>(loc, cb).getResult();
 
           // Build full indices for the local memref
-          SmallVector<Value> localIndices;
+          SmallVector<Value> mcastLocalIndices;
           Value zeroLocal = builder.create<arith::ConstantOp>(
               loc, builder.getIndexType(), builder.getIndexAttr(0));
           for (size_t i = 0; i < shardShape.size(); ++i) {
-            localIndices.push_back(zeroLocal);
+            mcastLocalIndices.push_back(zeroLocal);
           }
-          localIndices =
-              applyMap(builder, loc, localMemoryMap, localIndices, false);
+          mcastLocalIndices =
+              applyMap(builder, loc, localMemoryMap, mcastLocalIndices, false);
 
           // Perform multicast DMA: from local CB to local CB with multicast
           // parameters The multicast parameters specify that the data should be
           // sent to other cores
           Value mcastTx = builder.create<DMAWriteOp>(
-              loc, localMemref, localIndices, localMemref, localIndices,
-              coalescingFactor, remoteLoad.getMcastStartIndex(),
-              remoteLoad.getMcastShape());
+              loc, localMemrefForMcast, mcastLocalIndices, localMemrefForMcast,
+              mcastLocalIndices, coalescingFactor,
+              remoteLoad.getMcastStartIndex(), remoteLoad.getMcastShape());
           builder.create<DMAWaitOp>(loc, mcastTx);
 
           // Signal receivers that sender is finished
@@ -394,8 +475,6 @@ public:
         },
         [&](OpBuilder &builder, Location loc) {
           // Receiver: signal ready and wait for sender to finish
-          // The sender is always at core index 0 for the first multicast
-          // dimension
           SmallVector<Value> senderCoreIndex;
           Value zeroIdx = builder.create<arith::ConstantOp>(
               loc, builder.getIndexType(), builder.getIndexAttr(0));
@@ -403,12 +482,12 @@ public:
           // Build sender core index by reading actual core positions
           // For dimensions that are multicast, sender is at position 0
           // For non-multicast dimensions, use current core position
-          for (size_t i = 0; i < remoteLoad.getMcastShape().size(); ++i) {
-            if (i == 0) {
-              // First multicast dimension - sender is at 0
+          for (size_t i = 0; i < isMcastDim.size(); ++i) {
+            if (isMcastDim[i]) {
+              // Multicast dimension - sender is at 0
               senderCoreIndex.push_back(zeroIdx);
             } else {
-              // Other dimensions - use current core's position
+              // Non-multicast dimension - use current core's position
               Value currentCoreIdx = builder.create<CoreIndexOp>(
                   loc, builder.getIndexType(), builder.getI64IntegerAttr(i));
               senderCoreIndex.push_back(currentCoreIdx);
@@ -420,9 +499,8 @@ public:
           builder.create<SemaphoreWaitOp>(loc, senderFinishedSemaphore, one,
                                           zeroIdx);
 
-          // Reserve CB for receiver to get local memref (data already available
-          // via mcast)
-          builder.create<ReserveOp>(loc, cb);
+          // Note: CB already reserved before the if/else, so receiver has
+          // proper access to the multicast data
 
           builder.create<scf::YieldOp>(loc);
         });
@@ -490,10 +568,11 @@ public:
                                    shardShape, coalescingFactor, shardVolume);
     }
 
-    // Unicast path: generate DMA reads with proper coalescing
-    Value dmaTx = generateDMAReads(rewriter, loc, remoteMemref, gridIndices,
-                                   shardShape, remoteMemoryMap, localMemoryMap,
-                                   cb, coalescingFactor, shardVolume);
+    // Unicast path: reserve CB and generate DMA reads with proper coalescing
+    Value localMemref = rewriter.create<ReserveOp>(loc, cb).getResult();
+    Value dmaTx = generateDMAReads(
+        rewriter, loc, remoteMemref, localMemref, gridIndices, shardShape,
+        remoteMemoryMap, localMemoryMap, coalescingFactor, shardVolume);
 
     rewriter.eraseOp(remoteLoad);
 

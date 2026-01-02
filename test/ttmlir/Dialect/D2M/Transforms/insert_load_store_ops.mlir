@@ -240,14 +240,13 @@ module {
         ins(%stream : memref<1x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<map(4)>, #dram>)
         outs(%alloc : memref<1x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
     ^compute0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
-      // Multicast remote_load: core[d2m.core_index(0), 0] mcast[1, 4]
+      // Multicast remote_load: core[d2m.core_index(0), 1] mcast[1, 3]
       // Since dim 0 is parallel (grid 1), mcast start/shape = core_index(0), 1
-      // Since dim 1 is reduction (grid 4), mcast start/shape = 0, 4
-      // CHECK-DAG: %[[C4:.*]] = arith.constant 4 : index
-      // CHECK-DAG: %[[C0:.*]] = arith.constant 0 : index
+      // Since dim 1 is reduction (grid 4), mcast start = 1, mcast shape = 3 (gridSize - 1)
+      // CHECK-DAG: %[[C3:.*]] = arith.constant 3 : index
       // CHECK-DAG: %[[C1:.*]] = arith.constant 1 : index
       // CHECK-DAG: %[[CORE0:.*]] = d2m.core_index(0)
-      // CHECK: d2m.remote_load %cb0, %{{.*}}[%{{.*}}, %{{.*}}] core[%[[CORE0]], %[[C0]]] mcast[%[[C1]], %[[C4]]]
+      // CHECK: d2m.remote_load %cb0, %{{.*}}[%{{.*}}, %{{.*}}] core[%[[CORE0]], %[[C1]]] mcast[%[[C1]], %[[C3]]]
       // CHECK: d2m.wait %cb0
       %mem0 = d2m.wait %cb0 : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
     }
@@ -284,20 +283,19 @@ module {
     ^compute0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
       // LHS remote_load: map (d0, d2) with iterators [parallel, parallel, reduction]
       // Grid dim 0 = d0 (parallel) -> mcast start = core_index(0), mcast shape = 1
-      // Grid dim 1 = d2 (reduction) -> mcast start = 0, mcast shape = 6 (generic grid dim 1)
-      // CHECK-DAG: %[[C6:.*]] = arith.constant 6 : index
-      // CHECK-DAG: %[[C0:.*]] = arith.constant 0 : index
+      // Grid dim 1 = d2 (reduction) -> mcast start = 1, mcast shape = 5 (gridSize - 1 = 6 - 1)
+      // CHECK-DAG: %[[C5:.*]] = arith.constant 5 : index
       // CHECK-DAG: %[[C1:.*]] = arith.constant 1 : index
       // CHECK-DAG: %[[CORE0:.*]] = d2m.core_index(0)
-      // CHECK: d2m.remote_load %cb0, %{{.*}}[%{{.*}}, %{{.*}}] core[%[[CORE0]], %[[C0]]] mcast[%[[C1]], %[[C6]]]
+      // CHECK: d2m.remote_load %cb0, %{{.*}}[%{{.*}}, %{{.*}}] core[%[[CORE0]], %[[C1]]] mcast[%[[C1]], %[[C5]]]
       // CHECK: d2m.wait %cb0
       %lhs = d2m.wait %cb0 : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
 
       // RHS remote_load: map (d2, d1) with iterators [parallel, parallel, reduction]
-      // Grid dim 0 = d2 (reduction) -> mcast start = 0, mcast shape = 2 (generic grid dim 0)
+      // Grid dim 0 = d2 (reduction) -> mcast start = 1, mcast shape = 1 (gridSize - 1 = 2 - 1)
       // Grid dim 1 = d1 (parallel) -> mcast start = core_index(1), mcast shape = 1
       // CHECK: %[[CORE1:.*]] = d2m.core_index(1)
-      // CHECK: d2m.remote_load %cb1, %{{.*}}[%{{.*}}, %{{.*}}] core[%[[C0]], %[[CORE1]]] mcast[%{{.*}}, %[[C1]]]
+      // CHECK: d2m.remote_load %cb1, %{{.*}}[%{{.*}}, %{{.*}}] core[%[[C1]], %[[CORE1]]] mcast[%[[C1]], %[[C1]]]
       // CHECK: d2m.wait %cb1
       %rhs = d2m.wait %cb1 : !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<4x4x!ttcore.tile<32x32, f32>, #l1_>
 

@@ -75,7 +75,9 @@ struct McastArguments {
 // Calculate gather-multicast arguments for RemoteLoadOp.
 // For the gather-multicast pattern:
 // - Core 0 along each reduction dimension is the sender
-// - Sender multicasts to all other cores in the region
+// - Sender multicasts to all other cores starting at position 1
+// - Multicast shape is grid dimension - 1 to exclude sender from destination
+// range
 static McastArguments
 calculateGatherMcastArguments(OpBuilder &builder, Location loc,
                               ttcore::GridAttr grid,
@@ -95,15 +97,15 @@ calculateGatherMcastArguments(OpBuilder &builder, Location loc,
       args.mcastStartIndex.push_back(core);
       args.mcastShape.push_back(one);
     } else {
-      // Reduction dimension: mcast to all cores (start=0, shape=gridDim)
+      // Reduction dimension: mcast to all other cores (start=1,
+      // shape=gridDim-1) The sender is at position 0, so multicast starts at
+      // position 1 and spans gridDim-1 cores to avoid overlapping with sender
       assert(iteratorType == ttcore::IteratorType::Reduction);
-      Value zero = builder.create<arith::ConstantOp>(
-          loc, builder.getIndexType(), builder.getIndexAttr(0));
-      Value gridDim = builder.create<arith::ConstantOp>(
-          loc, builder.getIndexType(),
-          builder.getIndexAttr(grid.getShape()[dim]));
-      args.mcastStartIndex.push_back(zero);
-      args.mcastShape.push_back(gridDim);
+      int64_t numDests = grid.getShape()[dim] - 1;
+      Value gridDimMinusOne = builder.create<arith::ConstantOp>(
+          loc, builder.getIndexType(), builder.getIndexAttr(numDests));
+      args.mcastStartIndex.push_back(one);
+      args.mcastShape.push_back(gridDimMinusOne);
     }
   }
 
