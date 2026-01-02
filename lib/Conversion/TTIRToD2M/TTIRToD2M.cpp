@@ -580,8 +580,7 @@ private:
             loc,
             /* result tensor types */
             llvm::to_vector(
-                static_cast<mlir::ValueRange>(blockArgs.take_back(numOutputs))
-                    .getTypes()),
+                mlir::ValueRange(blockArgs.take_back(numOutputs)).getTypes()),
             /* inputs */ blockArgs.take_front(numInputs),
             /* outputs */ blockArgs.take_back(numOutputs), linalgIndexingMaps,
             linalgIteratorTypes,
