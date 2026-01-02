@@ -443,11 +443,10 @@ public:
           builder.create<SemaphoreWaitOp>(loc, receiversReadySemaphore,
                                           mcastVolumeVal, zero);
 
-          // Get the local memref for multicast (already reserved)
-          Value localMemrefForMcast =
-              builder.create<WaitOp>(loc, cb).getResult();
-
           // Build full indices for the local memref
+          // Use the localMemref from ReserveOp (Producer) for the multicast.
+          // The sender has already written data into this buffer via DMA read,
+          // so we read from the same Producer buffer for multicast.
           SmallVector<Value> mcastLocalIndices;
           Value zeroLocal = builder.create<arith::ConstantOp>(
               loc, builder.getIndexType(), builder.getIndexAttr(0));
@@ -458,10 +457,12 @@ public:
               applyMap(builder, loc, localMemoryMap, mcastLocalIndices, false);
 
           // Perform multicast DMA: from local CB to local CB with multicast
-          // parameters The multicast parameters specify that the data should be
-          // sent to other cores
+          // parameters. The multicast parameters specify that the data should
+          // be sent to other cores. We use localMemref (from ReserveOp) as both
+          // source and destination - this is the Producer buffer that was just
+          // filled by the DMA read above.
           Value mcastTx = builder.create<DMAWriteOp>(
-              loc, localMemrefForMcast, mcastLocalIndices, localMemrefForMcast,
+              loc, localMemref, mcastLocalIndices, localMemref,
               mcastLocalIndices, coalescingFactor,
               remoteLoad.getMcastStartIndex(), remoteLoad.getMcastShape());
           builder.create<DMAWaitOp>(loc, mcastTx);
