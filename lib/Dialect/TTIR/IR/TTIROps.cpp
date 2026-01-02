@@ -3019,10 +3019,12 @@ mlir::LogicalResult mlir::tt::ttir::TTNNMetalLayoutCastOp::verify() {
 
   const bool inputIsTTNNTensor =
       maybeInputTensor &&
-      mlir::isa<mlir::tt::ttnn::TTNNLayoutAttr>(maybeInputAttr);
+      (mlir::isa<mlir::tt::ttnn::TTNNLayoutAttr>(maybeInputAttr) ||
+       mlir::isa<mlir::tt::ttnn::TTNNNDLayoutAttr>(maybeInputAttr));
   const bool outputIsTTNNTensor =
       maybeOutputTensor &&
-      mlir::isa<mlir::tt::ttnn::TTNNLayoutAttr>(maybeOutputAttr);
+      (mlir::isa<mlir::tt::ttnn::TTNNLayoutAttr>(maybeOutputAttr) ||
+       mlir::isa<mlir::tt::ttnn::TTNNNDLayoutAttr>(maybeOutputAttr));
 
   const bool inputIsMetalTensor =
       maybeInputTensor &&
