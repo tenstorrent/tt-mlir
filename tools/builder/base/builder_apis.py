@@ -132,7 +132,20 @@ def _compile_and_execute(
             check_atol=check_atol,
             check_rtol=check_rtol,
             input_output_goldens=input_output_goldens,
-            intermediate_goldens=intermediate_goldens,
+        )
+
+    elif target == "emitc":
+        cpp_path = mlir_path + ".cpp"
+        execute_cpp(
+            cpp_path=cpp_path,
+            pcc=pcc,
+            atol=atol,
+            rtol=rtol,
+            disable_golden=disable_golden,
+            device=device,
+            check_atol=check_atol,
+            check_rtol=check_rtol,
+            input_output_goldens=input_output_goldens,
         )
 
     return mlir_path
