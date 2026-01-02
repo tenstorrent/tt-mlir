@@ -1140,7 +1140,8 @@ def D2M_DMAWaitOp : D2M_GenericRegionDatamovementOp<"dma_wait", [MemoryEffects<[
 //===----------------------------------------------------------------------===//
 
 def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
-  [ MemoryEffects<[MemRead, MemWrite]>
+  [ AttrSizedOperandSegments
+  , MemoryEffects<[MemRead, MemWrite]>
   , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
   , DeclareOpInterfaceMethods<BufferizableOpInterface, [
       "bufferizesToMemoryRead",
@@ -1186,29 +1187,58 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
       d2m.remote_load %cb, %tensor[%i, %j] : !d2m.cb<tensor<(N/P)x(M/Q)xf32>>, tensor<PxQx(N/P)x(M/Q)xf32, #ttcore.shard<...>, #dram>
       ```
 
+      ## Multicast Gather Mode
+
+      When multicast parameters are provided, this operation performs a gather-multicast pattern:
+      - By convention, core 0 along each multicast dimension is the sender
+      - The sender gathers the remote data into local memory
+      - The sender then multicasts to all cores in the region starting at
+        `mcastStartIndex` with shape `mcastShape`
+      - Receivers wait for the sender to complete
+
+      Example with multicast:
+
+      ```mlir
+      // Core 0 gathers and multicasts to a 1x4 region starting at core[0, 1]
+      d2m.remote_load %cb, %memref[%i, %j] core[%c0, %c1] mcast[%c1, %c4]
+        : !d2m.cb<memref<4x6xf32, #l1_>>, memref<2x4x4x6xf32, #ttcore.shard<...>, #dram>
+        -> memref<4x6xf32, #l1_>
+      ```
+
       Constraints:
       - The memref/tensor must be remote (have a device layout)
       - The operation always uses an identity affine map for grid dimensions
       - The number of indices must equal N/2 where N is the memref/tensor rank (grid dimensions)
       - The operation loads the entire shard into the circular buffer
       - The circular buffer's underlying type must match the shard shape
+      - If mcastStartIndex is provided, mcastShape must also be provided (and vice versa)
     }];
 
     let arguments = (ins D2M_CB:$cb,
         Arg<AnyRankedTensorOrMemRef, "the reference to load from",
         [MemRead]>:$memref,
-        Variadic<Index>:$indices);
+        Variadic<Index>:$indices,
+        Variadic<Index>:$mcastStartIndex,
+        Variadic<Index>:$mcastShape);
 
     let results = (outs AnyRankedTensorOrMemRef:$result);
 
     let builders = [
       OpBuilder<(ins "Value":$cb, "Value":$memref, "ValueRange":$indices),
       [{
-        build($_builder, $_state, mlir::cast<CBType>(cb.getType()).getUnderlying(), cb, memref, indices);
+        build($_builder, $_state, mlir::cast<CBType>(cb.getType()).getUnderlying(),
+              cb, memref, indices, ValueRange(), ValueRange());
+      }]>,
+      // Multicast builder
+      OpBuilder<(ins "Value":$cb, "Value":$memref, "ValueRange":$indices,
+                     "ValueRange":$mcastStartIndex, "ValueRange":$mcastShape),
+      [{
+        build($_builder, $_state, mlir::cast<CBType>(cb.getType()).getUnderlying(),
+              cb, memref, indices, mcastStartIndex, mcastShape);
       }]>
     ];
 
-    let assemblyFormat = [{ $cb `,` $memref `[` $indices `]` attr-dict `:` type($cb) `,` type($memref) `->` type($result) }];
+    let assemblyFormat = [{ $cb `,` $memref `[` $indices `]` (`core` `[` $mcastStartIndex^ `]` `mcast` `[` $mcastShape `]`)? attr-dict `:` type($cb) `,` type($memref) `->` type($result) }];
 
     let hasVerifier = 1;
 
@@ -1243,11 +1273,15 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
         }
         llvm_unreachable("getMemRefType() called on tensor operand, use getShapedType() instead");
       }
+
+      /// Returns true if this is a multicast operation.
+      bool isMcast() { return !getMcastShape().empty(); }
     }];
 }
 
 def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
-  [ MemoryEffects<[MemRead, MemWrite]>
+  [ AttrSizedOperandSegments
+  , MemoryEffects<[MemRead, MemWrite]>
   , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
   , DeclareOpInterfaceMethods<BufferizableOpInterface, [
       "bufferizesToMemoryRead",
@@ -1293,29 +1327,58 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
       d2m.remote_store %tensor[%i, %j], %cb : tensor<PxQx(N/P)x(M/Q)xf32, #ttcore.shard<...>, #dram>, !d2m.cb<tensor<(N/P)x(M/Q)xf32>>
       ```
 
+      ## Multicast Gather Mode
+
+      When multicast parameters are provided, this operation performs a gather-multicast pattern
+      for outputs:
+      - By convention, core 0 along each multicast dimension is the sender
+      - The sender gathers output data from all cores and stores to remote memory
+      - Or the sender multicasts the result to all cores in the region starting at
+        `mcastStartIndex` with shape `mcastShape`
+
+      Example with multicast:
+
+      ```mlir
+      // Core 0 gathers from a 1x4 region starting at core[0, 1] and stores to remote
+      d2m.remote_store %memref[%i, %j], %cb core[%c0, %c1] mcast[%c1, %c4]
+        : memref<2x4x4x6xf32, #ttcore.shard<...>, #dram>, !d2m.cb<memref<4x6xf32, #l1_>>
+        -> memref<4x6xf32, #l1_>
+      ```
+
       Constraints:
       - The memref/tensor must be remote (have a device layout)
       - The operation always uses an identity affine map for grid dimensions
       - The number of indices must equal N/2 where N is the memref/tensor rank (grid dimensions)
       - The operation stores the entire shard from the circular buffer
       - The circular buffer's underlying type must match the shard shape (last N/2 dimensions)
+      - If mcastStartIndex is provided, mcastShape must also be provided (and vice versa)
     }];
 
     let arguments = (ins Arg<AnyRankedTensorOrMemRef, "the reference to store to",
         [MemWrite]>:$memref,
         Variadic<Index>:$indices,
-        D2M_CB:$cb);
+        D2M_CB:$cb,
+        Variadic<Index>:$mcastStartIndex,
+        Variadic<Index>:$mcastShape);
 
     let results = (outs AnyRankedTensorOrMemRef:$result);
 
     let builders = [
       OpBuilder<(ins "Value":$memref, "ValueRange":$indices, "Value":$cb),
       [{
-        build($_builder, $_state, mlir::cast<CBType>(cb.getType()).getUnderlying(), memref, indices, cb);
+        build($_builder, $_state, mlir::cast<CBType>(cb.getType()).getUnderlying(),
+              memref, indices, cb, ValueRange(), ValueRange());
+      }]>,
+      // Multicast builder
+      OpBuilder<(ins "Value":$memref, "ValueRange":$indices, "Value":$cb,
+                     "ValueRange":$mcastStartIndex, "ValueRange":$mcastShape),
+      [{
+        build($_builder, $_state, mlir::cast<CBType>(cb.getType()).getUnderlying(),
+              memref, indices, cb, mcastStartIndex, mcastShape);
       }]>
     ];
 
-    let assemblyFormat = [{ $memref `[` $indices `]` `,` $cb attr-dict `:` type($memref) `,` type($cb) `->` type($result) }];
+    let assemblyFormat = [{ $memref `[` $indices `]` `,` $cb (`core` `[` $mcastStartIndex^ `]` `mcast` `[` $mcastShape `]`)? attr-dict `:` type($memref) `,` type($cb) `->` type($result) }];
 
     let hasVerifier = 1;
 
@@ -1350,6 +1413,9 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
         }
         llvm_unreachable("getMemRefType() called on tensor operand, use getShapedType() instead");
       }
+
+      /// Returns true if this is a multicast operation.
+      bool isMcast() { return !getMcastShape().empty(); }
     }];
 }
 

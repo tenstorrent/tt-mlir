@@ -69,8 +69,8 @@ func.func @remote_load_bufferization() -> tensor<2x2x1x1x!ttcore.tile<32x32, f32
     %reserve_result = d2m.reserve %cb1 : <tensor<1x1x!ttcore.tile<32x32, f32>>> -> tensor<1x1x!ttcore.tile<32x32, f32>>
     %iter0 = d2m.iter_index(0) : index
     %iter1 = d2m.iter_index(1) : index
-    // CHECK: d2m.remote_load {{.*}} : <memref<1x1x!ttcore.tile<32x32, f32>,{{.*}}>>, memref<2x2x1x1x!ttcore.tile<32x32, f32>,
-    d2m.remote_load %cb1, %view[%iter0, %iter1] : <tensor<1x1x!ttcore.tile<32x32, f32>>>, tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #layout_view>
+    // CHECK: d2m.remote_load {{.*}} : <memref<1x1x!ttcore.tile<32x32, f32>,{{.*}}>>, memref<2x2x1x1x!ttcore.tile<32x32, f32>,{{.*}}> -> memref<1x1x!ttcore.tile<32x32, f32>,
+    %load_result = d2m.remote_load %cb1, %view[%iter0, %iter1] : <tensor<1x1x!ttcore.tile<32x32, f32>>>, tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #layout_view> -> tensor<1x1x!ttcore.tile<32x32, f32>>
     d2m.yield %reserve_result : (tensor<1x1x!ttcore.tile<32x32, f32>>)
   } : tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #layout_grid2x2>
   return %result : tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #layout_grid2x2>
@@ -90,8 +90,8 @@ func.func @remote_store_bufferization() -> tensor<2x2x1x1x!ttcore.tile<32x32, f3
     %reserve_result = d2m.reserve %cb1 : <tensor<1x1x!ttcore.tile<32x32, f32>>> -> tensor<1x1x!ttcore.tile<32x32, f32>>
     %iter0 = d2m.iter_index(0) : index
     %iter1 = d2m.iter_index(1) : index
-    // CHECK: d2m.remote_store {{.*}} : memref<2x2x1x1x!ttcore.tile<32x32, f32>,{{.*}}>, <memref<1x1x!ttcore.tile<32x32, f32>,
-    d2m.remote_store %output[%iter0, %iter1], %cb0 : tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #layout_view>, <tensor<1x1x!ttcore.tile<32x32, f32>>>
+    // CHECK: d2m.remote_store {{.*}} : memref<2x2x1x1x!ttcore.tile<32x32, f32>,{{.*}}>, <memref<1x1x!ttcore.tile<32x32, f32>,{{.*}}>> -> memref<1x1x!ttcore.tile<32x32, f32>,
+    %store_result = d2m.remote_store %output[%iter0, %iter1], %cb0 : tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #layout_view>, <tensor<1x1x!ttcore.tile<32x32, f32>>> -> tensor<1x1x!ttcore.tile<32x32, f32>>
     d2m.yield %reserve_result : (tensor<1x1x!ttcore.tile<32x32, f32>>)
   } : tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #layout_view>
   return %result : tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #layout_view>

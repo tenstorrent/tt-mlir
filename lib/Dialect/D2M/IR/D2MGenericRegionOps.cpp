@@ -364,6 +364,14 @@ DMAOp::bufferize(mlir::RewriterBase &rewriter,
            << getIndices().size() << " indices but expected " << gridRank;
   }
 
+  // Verify multicast parameters: both must be provided or neither
+  if (!getMcastStartIndex().empty() && getMcastShape().empty()) {
+    return emitOpError("mcast start index requires mcast shape");
+  }
+  if (!getMcastShape().empty() && getMcastStartIndex().empty()) {
+    return emitOpError("mcast shape requires mcast start index");
+  }
+
   // Verify CB type matches shard shape
   auto deviceLayout = ttcore::getDeviceLayout(getMemref());
   if (!deviceLayout) {
@@ -430,6 +438,14 @@ DMAOp::bufferize(mlir::RewriterBase &rewriter,
     return emitOpError("number of indices must equal grid rank (N/2 where N is "
                        "memref/tensor rank), got ")
            << getIndices().size() << " indices but expected " << gridRank;
+  }
+
+  // Verify multicast parameters: both must be provided or neither
+  if (!getMcastStartIndex().empty() && getMcastShape().empty()) {
+    return emitOpError("mcast start index requires mcast shape");
+  }
+  if (!getMcastShape().empty() && getMcastStartIndex().empty()) {
+    return emitOpError("mcast shape requires mcast start index");
   }
 
   // Verify CB type matches shard shape
@@ -549,7 +565,8 @@ mlir::LogicalResult RemoteLoadOp::bufferize(
 
   // Create a new RemoteLoadOp with bufferized operands
   mlir::bufferization::replaceOpWithNewBufferizedOp<RemoteLoadOp>(
-      rewriter, *this, cbBuffer.getResult(), *memrefBuffer, getIndices());
+      rewriter, *this, cbBuffer.getResult(), *memrefBuffer, getIndices(),
+      getMcastStartIndex(), getMcastShape());
 
   return mlir::success();
 }
@@ -624,7 +641,8 @@ mlir::LogicalResult RemoteStoreOp::bufferize(
 
   // Create a new RemoteStoreOp with bufferized operands
   mlir::bufferization::replaceOpWithNewBufferizedOp<RemoteStoreOp>(
-      rewriter, *this, *memrefBuffer, getIndices(), cbBuffer.getResult());
+      rewriter, *this, *memrefBuffer, getIndices(), cbBuffer.getResult(),
+      getMcastStartIndex(), getMcastShape());
 
   return mlir::success();
 }

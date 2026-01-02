@@ -12,8 +12,8 @@ func.func @test_local_to_local_reblock(%arg0: tensor<1x1x8x8x!ttcore.tile<32x32,
   // CHECK: %[[VIEW:.*]] = d2m.view_layout
   // CHECK: d2m.generic
   // CHECK-SAME: threads = [#d2m.thread<compute>]
-  // CHECK: d2m.wait
-  // CHECK: d2m.reserve
+  // CHECK: d2m.iter_index(0)
+  // CHECK: d2m.iter_index(1)
   // CHECK: d2m.remote_load %{{.*}}, %[[VIEW]][%{{.*}}, %{{.*}}]
   // CHECK-NOT: d2m.dma
   // CHECK: d2m.yield
@@ -34,8 +34,8 @@ func.func @test_multiple_local_reblocks(%arg0: tensor<1x1x8x8x!ttcore.tile<32x32
   // CHECK: %[[VIEW1:.*]] = d2m.view_layout
   // CHECK: d2m.generic
   // CHECK-SAME: threads = [#d2m.thread<compute>]
-  // CHECK: d2m.wait
-  // CHECK: d2m.reserve
+  // CHECK: d2m.iter_index(0)
+  // CHECK: d2m.iter_index(1)
   // CHECK: d2m.remote_load %{{.*}}, %[[VIEW1]][%{{.*}}, %{{.*}}]
   // CHECK-NOT: d2m.dma
 
@@ -46,8 +46,8 @@ func.func @test_multiple_local_reblocks(%arg0: tensor<1x1x8x8x!ttcore.tile<32x32
   // CHECK: %[[VIEW2:.*]] = d2m.view_layout
   // CHECK: d2m.generic
   // CHECK-SAME: threads = [#d2m.thread<compute>]
-  // CHECK: d2m.wait
-  // CHECK: d2m.reserve
+  // CHECK: d2m.iter_index(0)
+  // CHECK: d2m.iter_index(1)
   // CHECK: d2m.remote_load %{{.*}}, %[[VIEW2]][%{{.*}}, %{{.*}}]
   // CHECK-NOT: d2m.dma
 
@@ -67,8 +67,8 @@ func.func @test_simple_reblock_local(%arg0: tensor<2x2x4x4x!ttcore.tile<32x32, f
   // CHECK: %[[VIEW:.*]] = d2m.view_layout
   // CHECK: d2m.generic
   // CHECK-SAME: threads = [#d2m.thread<compute>]
-  // CHECK: d2m.wait
-  // CHECK: d2m.reserve
+  // CHECK: d2m.iter_index(0)
+  // CHECK: d2m.iter_index(1)
   // CHECK: d2m.remote_load %{{.*}}, %[[VIEW]][%{{.*}}, %{{.*}}]
   // CHECK-NOT: d2m.dma
 
@@ -91,10 +91,10 @@ func.func @test_minimal_local_reblock(%arg0: tensor<1x1x4x4x!ttcore.tile<32x32, 
   // CHECK-SAME: grid = #ttcore.grid<2x2
   // CHECK-SAME: threads = [#d2m.thread<compute>]
   // CHECK: ^{{.*}}(%[[CB_IN:.*]]: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>, %[[CB_OUT:.*]]: !d2m.cb<tensor<2x2x!ttcore.tile<32x32, f32>>>):
-  // CHECK-NEXT: d2m.wait %[[CB_IN]]
-  // CHECK-NEXT: %[[RESERVED:.*]] = d2m.reserve %[[CB_OUT]]
+  // CHECK: d2m.iter_index(0)
+  // CHECK: d2m.iter_index(1)
   // CHECK: d2m.remote_load %[[CB_OUT]], %[[VIEW]][%{{.*}}, %{{.*}}]
-  // CHECK-NEXT: d2m.yield %[[RESERVED]]
+  // CHECK: d2m.yield
   // Verify no DMA operations are generated
   // CHECK-NOT: d2m.dma
 
