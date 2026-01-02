@@ -130,8 +130,6 @@ public:
 
   void setTensorRetain(const ::tt::runtime::Tensor &tensorHandle, bool retain);
 
-  ::tt::runtime::Layout getTensorLayout(::tt::runtime::Tensor tensor);
-
   ::tt::runtime::Layout getLayout(const ::tt::runtime::Binary &executableHandle,
                                   std::uint32_t programIndex,
                                   std::uint32_t inputIndex);

@@ -268,6 +268,40 @@ def get_atol_rtol_pcc(golden, calculated, atol, rtol):
     )
 
 
+def check_outputs(
+    golden_tensor, output_tensor, i, pcc, atol, rtol, check_atol, check_rtol
+):
+    cal_atol, cal_rtol, cal_pcc, = get_atol_rtol_pcc(
+        golden_tensor,
+        output_tensor,
+        atol,
+        rtol,
+    )
+
+    if cal_pcc < pcc:
+        raise TTBuilderGoldenException(
+            f"Failed: program-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={pcc}"
+        )
+    else:
+        print(f"Program level golden for output_{i} matched. pcc={cal_pcc}")
+
+    if check_atol:
+        if cal_atol > atol:
+            raise TTBuilderGoldenException(
+                f"Failed: program-level output atol check failed, actual_atol={cal_atol} > expected_atol={atol}"
+            )
+        else:
+            print(f"Program level atol check for output_{i} passed. atol={cal_atol}")
+
+    if check_rtol:
+        if cal_rtol > rtol:
+            raise TTBuilderGoldenException(
+                f"Failed: program-level output rtol check failed, actual_rtol={cal_rtol} > expected_rtol={rtol}"
+            )
+        else:
+            print(f"Program level rtol check for output_{i} passed. rtol={cal_rtol}")
+
+
 def get_original_op_loc(text: str) -> str:
     try:
         segments = re.findall(r'"([^"]*)"', text)
@@ -611,39 +645,16 @@ def execute_fb(
                     dtype=runtime_dtype_to_torch_dtype(outputs[i].get_dtype()),
                 ).reshape(outputs[i].get_shape())
 
-            cal_atol, cal_rtol, cal_pcc, = get_atol_rtol_pcc(
+            check_outputs(
                 golden_outputs_torch[i],
                 output_tensor_torch,
+                i,
+                pcc,
                 atol,
                 rtol,
+                check_atol,
+                check_rtol,
             )
-
-            if cal_pcc < pcc:
-                raise TTBuilderGoldenException(
-                    f"Failed: program-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={pcc}"
-                )
-            else:
-                print(f"Program level golden for output_{i} matched. pcc={cal_pcc}")
-
-            if check_atol:
-                if cal_atol > atol:
-                    raise TTBuilderGoldenException(
-                        f"Failed: program-level output atol check failed, actual_atol={cal_atol} > expected_atol={atol}"
-                    )
-                else:
-                    print(
-                        f"Program level atol check for output_{i} passed. atol={cal_atol}"
-                    )
-
-            if check_rtol:
-                if cal_rtol > rtol:
-                    raise TTBuilderGoldenException(
-                        f"Failed: program-level output rtol check failed, actual_rtol={cal_rtol} > expected_rtol={rtol}"
-                    )
-                else:
-                    print(
-                        f"Program level rtol check for output_{i} passed. rtol={cal_rtol}"
-                    )
 
     return callback_runtime_config.golden_report
 
@@ -736,41 +747,16 @@ def execute_py(
                     output_torch = output_host.to_torch()
                     golden_output_torch = golden_input_outputs[f"output_{i}"][0]
 
-                    cal_atol, cal_rtol, cal_pcc, = get_atol_rtol_pcc(
+                    check_outputs(
                         golden_output_torch,
                         output_torch,
+                        i,
+                        pcc,
                         atol,
                         rtol,
+                        check_atol,
+                        check_rtol,
                     )
-
-                    if cal_pcc < pcc:
-                        raise TTBuilderGoldenException(
-                            f"Failed: program-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={pcc}"
-                        )
-                    else:
-                        print(
-                            f"Program level golden for output_{i} matched. pcc={cal_pcc}"
-                        )
-
-                    if check_atol:
-                        if cal_atol > atol:
-                            raise TTBuilderGoldenException(
-                                f"Failed: program-level output atol check failed, actual_atol={cal_atol} > expected_atol={atol}"
-                            )
-                        else:
-                            print(
-                                f"Program level atol check for output_{i} passed. atol={cal_atol}"
-                            )
-
-                    if check_rtol:
-                        if cal_rtol > rtol:
-                            raise TTBuilderGoldenException(
-                                f"Failed: program-level output rtol check failed, actual_rtol={cal_rtol} > expected_rtol={rtol}"
-                            )
-                        else:
-                            print(
-                                f"Program level rtol check for output_{i} passed. rtol={cal_rtol}"
-                            )
     except Exception as e:
         raise TTBuilderRuntimeException(e) from e
 
@@ -878,40 +864,15 @@ def execute_cpp(
                             dtype=runtime_dtype_to_torch_dtype(output.get_dtype()),
                         ).reshape(output.get_shape())
 
-                    cal_atol, cal_rtol, cal_pcc, = get_atol_rtol_pcc(
+                    check_outputs(
                         golden_output_torch,
                         output_tensor_torch,
+                        i,
+                        pcc,
                         atol,
                         rtol,
+                        check_atol,
+                        check_rtol,
                     )
-
-                    if cal_pcc < pcc:
-                        raise TTBuilderGoldenException(
-                            f"Failed: program-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={pcc}"
-                        )
-                    else:
-                        print(
-                            f"Program level golden for output_{i} matched. pcc={cal_pcc}"
-                        )
-
-                    if check_atol:
-                        if cal_atol > atol:
-                            raise TTBuilderGoldenException(
-                                f"Failed: program-level output atol check failed, actual_atol={cal_atol} > expected_atol={atol}"
-                            )
-                        else:
-                            print(
-                                f"Program level atol check for output_{i} passed. atol={cal_atol}"
-                            )
-
-                    if check_rtol:
-                        if cal_rtol > rtol:
-                            raise TTBuilderGoldenException(
-                                f"Failed: program-level output rtol check failed, actual_rtol={cal_rtol} > expected_rtol={rtol}"
-                            )
-                        else:
-                            print(
-                                f"Program level rtol check for output_{i} passed. rtol={cal_rtol}"
-                            )
     except Exception as e:
         raise TTBuilderRuntimeException(e) from e
