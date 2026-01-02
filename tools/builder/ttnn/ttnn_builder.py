@@ -615,7 +615,7 @@ class TTNNBuilder(Builder):
 
         op_map_dictionary = {}
         op_map_dictionary[old_op.result] = new_op_result
-        return erf_module, erf_builder
+        return new_op, op_map_dictionary
 
     ############### ttnn.ErfcOp ###############
 
