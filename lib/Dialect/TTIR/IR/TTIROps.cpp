@@ -3118,8 +3118,8 @@ mlir::LogicalResult mlir::tt::ttir::TTNNMetalLayoutCastOp::bufferize(
 
   if (mlir::isa<mlir::tt::ttcore::MetalLayoutAttr>(inputEncoding)) {
     // metal_layout -> ttnn_layout becomes memref -> ttnn_layout
-    TT_assertv(mlir::isa<mlir::tt::ttnn::TTNNLayoutAttr>(outputEncoding),
-               "Output tensor must have a ttnn_layout");
+    bool isTTNNLayout = mlir::isa<mlir::tt::ttnn::TTNNLayoutAttr>(outputEncoding) || mlir::isa<mlir::tt::ttnn::TTNNNDLayoutAttr>(outputEncoding);
+    TT_assertv(isTTNNLayout, "Output tensor must have ttnn_layout or ttnn_nd_layout");
     auto maybeInputBuf =
         mlir::bufferization::getBuffer(rewriter, getInput(), options, state);
     if (failed(maybeInputBuf)) {
@@ -3129,8 +3129,8 @@ mlir::LogicalResult mlir::tt::ttir::TTNNMetalLayoutCastOp::bufferize(
                                                        *maybeInputBuf);
   } else if (mlir::isa<mlir::tt::ttcore::MetalLayoutAttr>(outputEncoding)) {
     // ttnn_layout -> metal_layout becomes ttnn_layout -> memref
-    TT_assertv(mlir::isa<mlir::tt::ttnn::TTNNLayoutAttr>(inputEncoding),
-               "Input tensor must have a ttnn_layout");
+    bool isTTNNLayout = mlir::isa<mlir::tt::ttnn::TTNNLayoutAttr>(inputEncoding) || mlir::isa<mlir::tt::ttnn::TTNNNDLayoutAttr>(inputEncoding);
+    TT_assertv(isTTNNLayout, "Input tensor must have ttnn_layout or ttnn_nd_layout");
     ::llvm::SmallVector<mlir::Value> dummy;
     auto bufferType = getBufferType(getResult(), options, state, dummy);
     if (failed(bufferType)) {
