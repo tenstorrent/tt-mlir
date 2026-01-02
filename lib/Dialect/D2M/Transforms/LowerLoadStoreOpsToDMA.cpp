@@ -41,6 +41,42 @@ getLoopBounds(OpBuilder &builder, Location loc, ArrayRef<int64_t> shardShape) {
   return std::make_tuple(lbs, ubs, step);
 }
 
+// Helper to create a semaphore block argument in the parent generic op
+// Returns a pair of (current block's semaphore, region index)
+static std::pair<BlockArgument, unsigned>
+createSemaphore(OpBuilder &builder, Location loc, Operation *op) {
+  // Find the parent GenericOp and add semaphore to all its regions
+  auto genericOp = op->getParentOfType<GenericOp>();
+  TT_assertv(genericOp, "RemoteLoad/Store must be inside a GenericOp");
+
+  // Find which region contains the operation
+  Region *parentRegion = op->getParentRegion();
+  unsigned regionIndex = 0;
+  for (unsigned i = 0; i < genericOp->getNumRegions(); ++i) {
+    if (&genericOp->getRegion(i) == parentRegion) {
+      regionIndex = i;
+      break;
+    }
+  }
+
+  // Add semaphore argument to all regions
+  BlockArgument currentSemaphore = nullptr;
+  for (unsigned i = 0; i < genericOp->getNumRegions(); ++i) {
+    Region &region = genericOp->getRegion(i);
+    if (!region.empty()) {
+      Block &block = region.front();
+      BlockArgument sem =
+          block.addArgument(builder.getType<SemaphoreType>(), loc);
+      if (i == regionIndex) {
+        currentSemaphore = sem;
+      }
+    }
+  }
+
+  TT_assertv(currentSemaphore, "Failed to create semaphore for current region");
+  return {currentSemaphore, regionIndex};
+}
+
 static size_t getElementSizeBytes(MemRefType memref) {
   mlir::Type elementType = memref.getElementType();
   auto tileType = mlir::dyn_cast<ttcore::TileType>(elementType);
@@ -163,6 +199,238 @@ class D2MLowerRemoteLoadRewritePattern : public OpRewritePattern<RemoteLoadOp> {
 public:
   using OpRewritePattern<RemoteLoadOp>::OpRewritePattern;
 
+  // Helper to generate DMA read operations with proper coalescing
+  // Returns the last DMA transaction value (for waiting)
+  // Handles both contiguous (single DMA) and strided (loop with guarded DMAs)
+  // cases
+  static Value
+  generateDMAReads(OpBuilder &builder, Location loc, Value remoteMemref,
+                   SmallVector<Value> gridIndices, ArrayRef<int64_t> shardShape,
+                   AffineMap remoteMemoryMap, AffineMap localMemoryMap,
+                   Value cb, size_t coalescingFactor, size_t shardVolume) {
+    // Reserve CB once to get the local memref
+    Value localMemref = builder.create<ReserveOp>(loc, cb).getResult();
+
+    if (coalescingFactor == shardVolume) {
+      // Fully contiguous: single DMA operation
+      SmallVector<Value> remoteIndices = gridIndices;
+      SmallVector<Value> localIndices;
+
+      Value zero = builder.create<arith::ConstantOp>(
+          loc, builder.getIndexType(), builder.getIndexAttr(0));
+      for (size_t i = 0; i < shardShape.size(); ++i) {
+        remoteIndices.push_back(zero);
+        localIndices.push_back(zero);
+      }
+
+      remoteIndices =
+          applyMap(builder, loc, remoteMemoryMap, remoteIndices, true);
+      localIndices =
+          applyMap(builder, loc, localMemoryMap, localIndices, false);
+
+      return builder.create<DMAReadOp>(
+          loc, remoteMemref, remoteIndices, localMemref, localIndices,
+          builder.getI64IntegerAttr(coalescingFactor));
+    }
+
+    // Strided/non-contiguous: generate loops with guarded DMAs
+    auto [lbs, ubs, steps] = getLoopBounds(builder, loc, shardShape);
+    auto nullDmaTx = builder.create<NullTxOp>(loc);
+
+    scf::LoopNest loopNest = scf::buildLoopNest(
+        builder, loc, lbs, ubs, steps, ValueRange(nullDmaTx),
+        [&](OpBuilder &loopBuilder, Location innerLoc, ValueRange iters,
+            ValueRange args) {
+          // Build full indices: grid indices + shard iteration indices
+          SmallVector<Value> remoteIndices =
+              llvm::to_vector(llvm::concat<Value>(gridIndices, iters));
+          SmallVector<Value> localIndices = llvm::to_vector(iters);
+
+          // Apply memory maps
+          remoteIndices = applyMap(loopBuilder, innerLoc, remoteMemoryMap,
+                                   remoteIndices, true);
+          localIndices = applyMap(loopBuilder, innerLoc, localMemoryMap,
+                                  localIndices, false);
+
+          // Create guarded DMA operation based on coalescing factor
+          Value cfExpr = loopBuilder.create<arith::ConstantOp>(
+              innerLoc, loopBuilder.getIndexType(),
+              loopBuilder.getIndexAttr(coalescingFactor));
+          Value zero = loopBuilder.create<arith::ConstantOp>(
+              innerLoc, loopBuilder.getIndexType(),
+              loopBuilder.getIntegerAttr(loopBuilder.getIndexType(), 0));
+
+          // Construct guard function: flat_index(iters) % coalescingFactor == 0
+          auto totalIterCount = zero;
+          size_t currStride = 1;
+          for (int i = iters.size() - 1; i >= 0; i--) {
+            Value currStrideExpr = loopBuilder.create<arith::ConstantOp>(
+                innerLoc, loopBuilder.getIndexType(),
+                loopBuilder.getIndexAttr(currStride));
+            auto scaledCount =
+                loopBuilder
+                    .create<arith::MulIOp>(innerLoc, currStrideExpr, iters[i])
+                    .getResult();
+            totalIterCount = loopBuilder
+                                 .create<arith::AddIOp>(innerLoc, scaledCount,
+                                                        totalIterCount)
+                                 .getResult();
+            currStride *= shardShape[i];
+          }
+          auto moduloIterCount =
+              loopBuilder
+                  .create<arith::RemSIOp>(innerLoc, totalIterCount, cfExpr)
+                  .getResult();
+          auto predicate = loopBuilder.create<arith::CmpIOp>(
+              innerLoc, arith::CmpIPredicate::eq, moduloIterCount, zero);
+
+          auto nulltx = loopBuilder.create<NullTxOp>(innerLoc);
+
+          // Build guarded DMA
+          auto ifExpr = loopBuilder.create<scf::IfOp>(
+              innerLoc, TypeRange(SmallVector<Value>{nulltx}), predicate,
+              true /*addThenBlock*/, true /*addElseBlock*/);
+
+          auto thenBuilder = ifExpr.getThenBodyBuilder();
+          Value dmaTx = thenBuilder.create<DMAReadOp>(
+              innerLoc, remoteMemref, remoteIndices, localMemref, localIndices,
+              thenBuilder.getI64IntegerAttr(coalescingFactor));
+          thenBuilder.create<scf::YieldOp>(innerLoc, dmaTx);
+
+          auto elseBuilder = ifExpr.getElseBodyBuilder();
+          elseBuilder.create<scf::YieldOp>(innerLoc, args[0]);
+
+          return SmallVector<Value>{ifExpr.getResult(0)};
+        });
+
+    return loopNest.results.front();
+  }
+
+  // Handle multicast gather pattern for RemoteLoadOp
+  static LogicalResult
+  handleMcastRemoteLoad(PatternRewriter &rewriter, Location loc,
+                        RemoteLoadOp remoteLoad, MemRefType remoteMemrefType,
+                        AffineMap remoteMemoryMap, AffineMap localMemoryMap,
+                        SmallVector<Value> gridIndices,
+                        ArrayRef<int64_t> shardShape, size_t coalescingFactor,
+                        size_t shardVolume) {
+    Value cb = remoteLoad.getCb();
+    Value remoteMemref = remoteLoad.getMemref();
+    Value zero = rewriter.create<arith::ConstantOp>(
+        loc, rewriter.getIndexType(), rewriter.getIndexAttr(0));
+    Value one = rewriter.create<arith::ConstantOp>(loc, rewriter.getIndexType(),
+                                                   rewriter.getIndexAttr(1));
+
+    // Create semaphores for synchronization
+    auto semResult1 = createSemaphore(rewriter, loc, remoteLoad);
+    BlockArgument receiversReadySemaphore = semResult1.first;
+    auto semResult2 = createSemaphore(rewriter, loc, remoteLoad);
+    BlockArgument senderFinishedSemaphore = semResult2.first;
+
+    // Calculate multicast volume
+    size_t mcastVolume = 1;
+    for (Value mcastDim : remoteLoad.getMcastShape()) {
+      if (auto constantOp = mcastDim.getDefiningOp<arith::ConstantOp>()) {
+        if (auto intAttr = mlir::dyn_cast<IntegerAttr>(constantOp.getValue())) {
+          mcastVolume *= intAttr.getInt();
+        }
+      }
+    }
+    Value mcastVolumeVal = rewriter.create<arith::ConstantOp>(
+        loc, rewriter.getIndexType(), rewriter.getIndexAttr(mcastVolume));
+
+    // Determine if this core is the sender
+    // By convention, core 0 along the multicast dimension is the sender
+    // We need to check the first multicast dimension
+    Value coreIndex = rewriter.create<CoreIndexOp>(
+        loc, rewriter.getIndexType(), rewriter.getI64IntegerAttr(0));
+    Value isSender = rewriter.create<arith::CmpIOp>(
+        loc, rewriter.getI1Type(), mlir::arith::CmpIPredicate::eq, coreIndex,
+        zero);
+
+    rewriter.create<scf::IfOp>(
+        loc, isSender,
+        [&](OpBuilder &builder, Location loc) {
+          // Sender: gather data from remote with proper coalescing
+          // This handles both contiguous and strided memory accesses
+          Value dmaTx =
+              generateDMAReads(builder, loc, remoteMemref, gridIndices,
+                               shardShape, remoteMemoryMap, localMemoryMap, cb,
+                               coalescingFactor, shardVolume);
+          builder.create<DMAWaitOp>(loc, dmaTx);
+
+          // Wait for all receivers to be ready
+          builder.create<SemaphoreWaitOp>(loc, receiversReadySemaphore,
+                                          mcastVolumeVal, zero);
+
+          // Get the local memref for multicast (already reserved during gather)
+          Value localMemref = builder.create<WaitOp>(loc, cb).getResult();
+
+          // Build full indices for the local memref
+          SmallVector<Value> localIndices;
+          Value zeroLocal = builder.create<arith::ConstantOp>(
+              loc, builder.getIndexType(), builder.getIndexAttr(0));
+          for (size_t i = 0; i < shardShape.size(); ++i) {
+            localIndices.push_back(zeroLocal);
+          }
+          localIndices =
+              applyMap(builder, loc, localMemoryMap, localIndices, false);
+
+          // Perform multicast DMA: from local CB to local CB with multicast
+          // parameters The multicast parameters specify that the data should be
+          // sent to other cores
+          Value mcastTx = builder.create<DMAWriteOp>(
+              loc, localMemref, localIndices, localMemref, localIndices,
+              coalescingFactor, remoteLoad.getMcastStartIndex(),
+              remoteLoad.getMcastShape());
+          builder.create<DMAWaitOp>(loc, mcastTx);
+
+          // Signal receivers that sender is finished
+          builder.create<SemaphoreSetOp>(loc, senderFinishedSemaphore, one,
+                                         remoteLoad.getMcastStartIndex(),
+                                         remoteLoad.getMcastShape());
+
+          builder.create<scf::YieldOp>(loc);
+        },
+        [&](OpBuilder &builder, Location loc) {
+          // Receiver: signal ready and wait for sender to finish
+          // The sender is always at core index 0 for the first multicast
+          // dimension
+          SmallVector<Value> senderCoreIndex;
+          Value zeroIdx = builder.create<arith::ConstantOp>(
+              loc, builder.getIndexType(), builder.getIndexAttr(0));
+
+          // Build sender core index by reading actual core positions
+          // For dimensions that are multicast, sender is at position 0
+          // For non-multicast dimensions, use current core position
+          for (size_t i = 0; i < remoteLoad.getMcastShape().size(); ++i) {
+            if (i == 0) {
+              // First multicast dimension - sender is at 0
+              senderCoreIndex.push_back(zeroIdx);
+            } else {
+              // Other dimensions - use current core's position
+              Value currentCoreIdx = builder.create<CoreIndexOp>(
+                  loc, builder.getIndexType(), builder.getI64IntegerAttr(i));
+              senderCoreIndex.push_back(currentCoreIdx);
+            }
+          }
+
+          builder.create<SemaphoreIncOp>(loc, receiversReadySemaphore, one,
+                                         senderCoreIndex);
+          builder.create<SemaphoreWaitOp>(loc, senderFinishedSemaphore, one,
+                                          zeroIdx);
+
+          // Reserve CB for receiver to get local memref (data already available
+          // via mcast)
+          builder.create<ReserveOp>(loc, cb);
+
+          builder.create<scf::YieldOp>(loc);
+        });
+
+    rewriter.eraseOp(remoteLoad);
+    return success();
+  }
+
   LogicalResult matchAndRewrite(RemoteLoadOp remoteLoad,
                                 PatternRewriter &rewriter) const final {
     Location loc = remoteLoad.getLoc();
@@ -170,7 +438,7 @@ public:
 
     // Assert that remote operand is a memref (tensors should have been
     // converted to memrefs before this pass)
-    auto remoteMemrefType = dyn_cast<MemRefType>(remoteShapedType);
+    auto remoteMemrefType = mlir::dyn_cast<MemRefType>(remoteShapedType);
     assert(
         remoteMemrefType &&
         "remote_load operand must be a memref at this stage in the pipeline");
@@ -215,129 +483,22 @@ public:
     // Get grid indices from the remote_load operation
     SmallVector<Value> gridIndices = remoteLoad.getIndices();
 
-    // Build fully indexed DMA operations
-    if (coalescingFactor == shardVolume) {
-      // Fully contiguous DMA; lower to a single operation
-      // Build full indices: grid indices + shard indices (all zeros for
-      // contiguous)
-      SmallVector<Value> remoteIndices = gridIndices;
-      SmallVector<Value> localIndices;
-
-      // Add zero indices for shard dimensions
-      Value zero = rewriter.create<arith::ConstantOp>(
-          loc, rewriter.getIndexType(), rewriter.getIndexAttr(0));
-      for (size_t i = 0; i < shardShape.size(); ++i) {
-        remoteIndices.push_back(zero);
-        localIndices.push_back(zero);
-      }
-
-      // Apply memory maps
-      remoteIndices =
-          applyMap(rewriter, loc, remoteMemoryMap, remoteIndices, true);
-      localIndices =
-          applyMap(rewriter, loc, localMemoryMap, localIndices, false);
-
-      // Create dma_read operation
-      // For remote_load: src is remote, dst is local (from CB)
-      // We need to reserve the CB first to get the local memref to write to
-      Value localMemref = rewriter.create<ReserveOp>(loc, cb).getResult();
-
-      Value dmaTx = rewriter.create<DMAReadOp>(
-          loc, remoteMemref, remoteIndices, localMemref, localIndices,
-          rewriter.getI64IntegerAttr(coalescingFactor));
-
-      rewriter.eraseOp(remoteLoad);
-
-      // Wait for DMA to complete after replacing the operation
-      rewriter.create<DMAWaitOp>(loc, dmaTx);
-      return success();
+    // Check if this is a multicast operation
+    if (remoteLoad.isMcast()) {
+      return handleMcastRemoteLoad(rewriter, loc, remoteLoad, remoteMemrefType,
+                                   remoteMemoryMap, localMemoryMap, gridIndices,
+                                   shardShape, coalescingFactor, shardVolume);
     }
 
-    // The memory access has some stride/gaps so multiple DMA operations are
-    // needed. Generate loops for shard dimensions.
-    // Reserve CB once before the loop nest to get the local memref
-    Value localMemref = rewriter.create<ReserveOp>(loc, cb).getResult();
+    // Unicast path: generate DMA reads with proper coalescing
+    Value dmaTx = generateDMAReads(rewriter, loc, remoteMemref, gridIndices,
+                                   shardShape, remoteMemoryMap, localMemoryMap,
+                                   cb, coalescingFactor, shardVolume);
 
-    auto [lbs, ubs, steps] = getLoopBounds(rewriter, loc, shardShape);
-
-    auto nullDmaTx = rewriter.create<NullTxOp>(loc);
-    scf::LoopNest loopNest = scf::buildLoopNest(
-        rewriter, loc, lbs, ubs, steps, ValueRange(nullDmaTx),
-        [&](OpBuilder &builder, Location innerLoc, ValueRange iters,
-            ValueRange args) {
-          // Build full indices: grid indices + shard iteration indices
-          SmallVector<Value> remoteIndices =
-              llvm::to_vector(llvm::concat<Value>(gridIndices, iters));
-          SmallVector<Value> localIndices = llvm::to_vector(iters);
-
-          // Apply memory maps
-          remoteIndices =
-              applyMap(builder, innerLoc, remoteMemoryMap, remoteIndices, true);
-          localIndices =
-              applyMap(builder, innerLoc, localMemoryMap, localIndices, false);
-
-          // Create guarded DMA operation based on coalescing factor
-          Value cfExpr = builder.create<arith::ConstantOp>(
-              loc, builder.getIndexType(),
-              builder.getIndexAttr(coalescingFactor));
-          Value zero = builder.create<arith::ConstantOp>(
-              innerLoc, builder.getIndexType(),
-              builder.getIntegerAttr(builder.getIndexType(), 0));
-
-          // Construct guard function
-          auto totalIterCount = zero;
-          size_t currStride = 1;
-          for (int i = iters.size() - 1; i >= 0; i--) {
-            Value currStrideExpr = builder.create<arith::ConstantOp>(
-                loc, builder.getIndexType(), builder.getIndexAttr(currStride));
-            auto scaledCount =
-                builder
-                    .create<arith::MulIOp>(innerLoc, currStrideExpr, iters[i])
-                    .getResult();
-            totalIterCount = builder
-                                 .create<arith::AddIOp>(innerLoc, scaledCount,
-                                                        totalIterCount)
-                                 .getResult();
-            currStride *= shardShape[i];
-          }
-          auto moduloIterCount =
-              builder.create<arith::RemSIOp>(innerLoc, totalIterCount, cfExpr)
-                  .getResult();
-          auto predicate = builder.create<arith::CmpIOp>(
-              innerLoc, arith::CmpIPredicate::eq, moduloIterCount, zero);
-
-          auto nulltx = builder.create<NullTxOp>(loc);
-
-          // Build guarded expression
-          auto ifExpr = builder.create<scf::IfOp>(
-              innerLoc, TypeRange(SmallVector<Value>{nulltx}), predicate,
-              true /*addThenBlock*/, true /*addElseBlock*/);
-
-          auto thenBuilder = ifExpr.getThenBodyBuilder();
-          Value dmaTx = thenBuilder.create<DMAReadOp>(
-              innerLoc, remoteMemref, remoteIndices, localMemref, localIndices,
-              thenBuilder.getI64IntegerAttr(coalescingFactor));
-          // Yield the DMA transaction to propagate it through loop iterations
-          thenBuilder.create<scf::YieldOp>(innerLoc, dmaTx);
-
-          auto elseBuilder = ifExpr.getElseBodyBuilder();
-          // Yield previous transaction when DMA is not executed
-          elseBuilder.create<scf::YieldOp>(innerLoc, args[0]);
-
-          return SmallVector<Value>{ifExpr.getResult(0)};
-        });
-
-    // RemoteLoadOp has no results (it's a side-effect operation), so we just
-    // erase it. The loop nest has already been inserted.
     rewriter.eraseOp(remoteLoad);
 
-    // Wait for DMA to complete after replacing the operation
-    // The loop nest returns the last DMA transaction (or null if none executed)
-    Value lastDmaTx = loopNest.results.front();
-    // Always wait on the result - if it's nulltx, the wait will handle it
-    // appropriately The result propagates through the loop: either the last DMA
-    // transaction or nulltx
-    rewriter.create<DMAWaitOp>(loc, lastDmaTx);
+    // Wait for DMA to complete
+    rewriter.create<DMAWaitOp>(loc, dmaTx);
     return success();
   }
 };
@@ -347,6 +508,142 @@ class D2MLowerRemoteStoreRewritePattern
 public:
   using OpRewritePattern<RemoteStoreOp>::OpRewritePattern;
 
+  // Helper to generate DMA write operations with proper coalescing
+  // Returns the last DMA transaction value (for waiting)
+  // Handles both contiguous (single DMA) and strided (loop with guarded DMAs)
+  // cases
+  static Value generateDMAWrites(OpBuilder &builder, Location loc,
+                                 Value remoteMemref,
+                                 SmallVector<Value> gridIndices,
+                                 ArrayRef<int64_t> shardShape,
+                                 AffineMap remoteMemoryMap,
+                                 AffineMap localMemoryMap, Value cb,
+                                 size_t coalescingFactor, size_t shardVolume,
+                                 ValueRange mcastStartIndex = ValueRange(),
+                                 ValueRange mcastShape = ValueRange()) {
+    // Wait on CB once to get the local memref
+    Value localMemref = builder.create<WaitOp>(loc, cb).getResult();
+
+    if (coalescingFactor == shardVolume) {
+      // Fully contiguous: single DMA operation
+      SmallVector<Value> remoteIndices = gridIndices;
+      SmallVector<Value> localIndices;
+
+      Value zero = builder.create<arith::ConstantOp>(
+          loc, builder.getIndexType(), builder.getIndexAttr(0));
+      for (size_t i = 0; i < shardShape.size(); ++i) {
+        remoteIndices.push_back(zero);
+        localIndices.push_back(zero);
+      }
+
+      remoteIndices =
+          applyMap(builder, loc, remoteMemoryMap, remoteIndices, true);
+      localIndices =
+          applyMap(builder, loc, localMemoryMap, localIndices, false);
+
+      return builder.create<DMAWriteOp>(
+          loc, localMemref, localIndices, remoteMemref, remoteIndices,
+          coalescingFactor, mcastStartIndex, mcastShape);
+    }
+
+    // Strided/non-contiguous: generate loops with guarded DMAs
+    auto [lbs, ubs, steps] = getLoopBounds(builder, loc, shardShape);
+    auto nullDmaTx = builder.create<NullTxOp>(loc);
+
+    scf::LoopNest loopNest = scf::buildLoopNest(
+        builder, loc, lbs, ubs, steps, ValueRange(nullDmaTx),
+        [&](OpBuilder &loopBuilder, Location innerLoc, ValueRange iters,
+            ValueRange args) {
+          // Build full indices: grid indices + shard iteration indices
+          SmallVector<Value> remoteIndices =
+              llvm::to_vector(llvm::concat<Value>(gridIndices, iters));
+          SmallVector<Value> localIndices = llvm::to_vector(iters);
+
+          // Apply memory maps
+          remoteIndices = applyMap(loopBuilder, innerLoc, remoteMemoryMap,
+                                   remoteIndices, true);
+          localIndices = applyMap(loopBuilder, innerLoc, localMemoryMap,
+                                  localIndices, false);
+
+          // Create guarded DMA operation based on coalescing factor
+          Value cfExpr = loopBuilder.create<arith::ConstantOp>(
+              innerLoc, loopBuilder.getIndexType(),
+              loopBuilder.getIndexAttr(coalescingFactor));
+          Value zero = loopBuilder.create<arith::ConstantOp>(
+              innerLoc, loopBuilder.getIndexType(),
+              loopBuilder.getIntegerAttr(loopBuilder.getIndexType(), 0));
+
+          // Construct guard function: flat_index(iters) % coalescingFactor == 0
+          auto totalIterCount = zero;
+          size_t currStride = 1;
+          for (int i = iters.size() - 1; i >= 0; i--) {
+            Value currStrideExpr = loopBuilder.create<arith::ConstantOp>(
+                innerLoc, loopBuilder.getIndexType(),
+                loopBuilder.getIndexAttr(currStride));
+            auto scaledCount =
+                loopBuilder
+                    .create<arith::MulIOp>(innerLoc, currStrideExpr, iters[i])
+                    .getResult();
+            totalIterCount = loopBuilder
+                                 .create<arith::AddIOp>(innerLoc, scaledCount,
+                                                        totalIterCount)
+                                 .getResult();
+            currStride *= shardShape[i];
+          }
+          auto moduloIterCount =
+              loopBuilder
+                  .create<arith::RemSIOp>(innerLoc, totalIterCount, cfExpr)
+                  .getResult();
+          auto predicate = loopBuilder.create<arith::CmpIOp>(
+              innerLoc, arith::CmpIPredicate::eq, moduloIterCount, zero);
+
+          auto nulltx = loopBuilder.create<NullTxOp>(innerLoc);
+
+          // Build guarded DMA
+          auto ifExpr = loopBuilder.create<scf::IfOp>(
+              innerLoc, TypeRange(SmallVector<Value>{nulltx}), predicate,
+              true /*addThenBlock*/, true /*addElseBlock*/);
+
+          auto thenBuilder = ifExpr.getThenBodyBuilder();
+          Value dmaTx = thenBuilder.create<DMAWriteOp>(
+              innerLoc, localMemref, localIndices, remoteMemref, remoteIndices,
+              coalescingFactor, mcastStartIndex, mcastShape);
+          thenBuilder.create<scf::YieldOp>(innerLoc, dmaTx);
+
+          auto elseBuilder = ifExpr.getElseBodyBuilder();
+          elseBuilder.create<scf::YieldOp>(innerLoc, args[0]);
+
+          return SmallVector<Value>{ifExpr.getResult(0)};
+        });
+
+    return loopNest.results.front();
+  }
+
+  // Handle multicast pattern for RemoteStoreOp
+  static LogicalResult
+  handleMcastRemoteStore(PatternRewriter &rewriter, Location loc,
+                         RemoteStoreOp remoteStore, MemRefType remoteMemrefType,
+                         AffineMap remoteMemoryMap, AffineMap localMemoryMap,
+                         SmallVector<Value> gridIndices,
+                         ArrayRef<int64_t> shardShape, size_t coalescingFactor,
+                         size_t shardVolume) {
+    Value cb = remoteStore.getCb();
+    Value remoteMemref = remoteStore.getMemref();
+
+    // For remote_store with multicast, use generateDMAWrites with multicast
+    // parameters This handles both contiguous and strided memory accesses
+    Value dmaTx = generateDMAWrites(
+        rewriter, loc, remoteMemref, gridIndices, shardShape, remoteMemoryMap,
+        localMemoryMap, cb, coalescingFactor, shardVolume,
+        remoteStore.getMcastStartIndex(), remoteStore.getMcastShape());
+
+    rewriter.eraseOp(remoteStore);
+
+    // Wait for DMA to complete
+    rewriter.create<DMAWaitOp>(loc, dmaTx);
+    return success();
+  }
+
   LogicalResult matchAndRewrite(RemoteStoreOp remoteStore,
                                 PatternRewriter &rewriter) const final {
     Location loc = remoteStore.getLoc();
@@ -354,7 +651,7 @@ public:
 
     // Assert that remote operand is a memref (tensors should have been
     // converted to memrefs before this pass)
-    auto remoteMemrefType = dyn_cast<MemRefType>(remoteShapedType);
+    auto remoteMemrefType = mlir::dyn_cast<MemRefType>(remoteShapedType);
     assert(
         remoteMemrefType &&
         "remote_store operand must be a memref at this stage in the pipeline");
@@ -399,129 +696,23 @@ public:
     // Get grid indices from the remote_store operation
     SmallVector<Value> gridIndices = remoteStore.getIndices();
 
-    // Build fully indexed DMA operations
-    if (coalescingFactor == shardVolume) {
-      // Fully contiguous DMA; lower to a single operation
-      // Build full indices: grid indices + shard indices (all zeros for
-      // contiguous)
-      SmallVector<Value> remoteIndices = gridIndices;
-      SmallVector<Value> localIndices;
-
-      // Add zero indices for shard dimensions
-      Value zero = rewriter.create<arith::ConstantOp>(
-          loc, rewriter.getIndexType(), rewriter.getIndexAttr(0));
-      for (size_t i = 0; i < shardShape.size(); ++i) {
-        remoteIndices.push_back(zero);
-        localIndices.push_back(zero);
-      }
-
-      // Apply memory maps
-      remoteIndices =
-          applyMap(rewriter, loc, remoteMemoryMap, remoteIndices, true);
-      localIndices =
-          applyMap(rewriter, loc, localMemoryMap, localIndices, false);
-
-      // Create dma_write operation
-      // For remote_store: src is local (from CB), dst is remote
-      // We need to wait on the CB first to get the local memref to read from
-      Value localMemref = rewriter.create<WaitOp>(loc, cb).getResult();
-
-      Value dmaTx = rewriter.create<DMAWriteOp>(loc, localMemref, localIndices,
-                                                remoteMemref, remoteIndices,
-                                                coalescingFactor);
-
-      rewriter.eraseOp(remoteStore);
-
-      // Wait for DMA to complete after replacing the operation
-      rewriter.create<DMAWaitOp>(loc, dmaTx);
-      return success();
+    // Check if this is a multicast operation
+    if (remoteStore.isMcast()) {
+      return handleMcastRemoteStore(rewriter, loc, remoteStore,
+                                    remoteMemrefType, remoteMemoryMap,
+                                    localMemoryMap, gridIndices, shardShape,
+                                    coalescingFactor, shardVolume);
     }
 
-    // The memory access has some stride/gaps so multiple DMA operations are
-    // needed. Generate loops for shard dimensions.
-    // Wait on CB once before the loop nest to get the local memref
-    Value localMemref = rewriter.create<WaitOp>(loc, cb).getResult();
+    // Unicast path: generate DMA writes with proper coalescing
+    Value dmaTx = generateDMAWrites(rewriter, loc, remoteMemref, gridIndices,
+                                    shardShape, remoteMemoryMap, localMemoryMap,
+                                    cb, coalescingFactor, shardVolume);
 
-    auto [lbs, ubs, steps] = getLoopBounds(rewriter, loc, shardShape);
-
-    auto nullDmaTx = rewriter.create<NullTxOp>(loc);
-    scf::LoopNest loopNest = scf::buildLoopNest(
-        rewriter, loc, lbs, ubs, steps, ValueRange(nullDmaTx),
-        [&](OpBuilder &builder, Location innerLoc, ValueRange iters,
-            ValueRange args) {
-          // Build full indices: grid indices + shard iteration indices
-          SmallVector<Value> remoteIndices =
-              llvm::to_vector(llvm::concat<Value>(gridIndices, iters));
-          SmallVector<Value> localIndices = llvm::to_vector(iters);
-
-          // Apply memory maps
-          remoteIndices =
-              applyMap(builder, innerLoc, remoteMemoryMap, remoteIndices, true);
-          localIndices =
-              applyMap(builder, innerLoc, localMemoryMap, localIndices, false);
-
-          // Create guarded DMA operation based on coalescing factor
-          Value cfExpr = builder.create<arith::ConstantOp>(
-              loc, builder.getIndexType(),
-              builder.getIndexAttr(coalescingFactor));
-          Value zero = builder.create<arith::ConstantOp>(
-              innerLoc, builder.getIndexType(),
-              builder.getIntegerAttr(builder.getIndexType(), 0));
-
-          // Construct guard function
-          auto totalIterCount = zero;
-          size_t currStride = 1;
-          for (int i = iters.size() - 1; i >= 0; i--) {
-            Value currStrideExpr = builder.create<arith::ConstantOp>(
-                loc, builder.getIndexType(), builder.getIndexAttr(currStride));
-            auto scaledCount =
-                builder
-                    .create<arith::MulIOp>(innerLoc, currStrideExpr, iters[i])
-                    .getResult();
-            totalIterCount = builder
-                                 .create<arith::AddIOp>(innerLoc, scaledCount,
-                                                        totalIterCount)
-                                 .getResult();
-            currStride *= shardShape[i];
-          }
-          auto moduloIterCount =
-              builder.create<arith::RemSIOp>(innerLoc, totalIterCount, cfExpr)
-                  .getResult();
-          auto predicate = builder.create<arith::CmpIOp>(
-              innerLoc, arith::CmpIPredicate::eq, moduloIterCount, zero);
-
-          auto nulltx = builder.create<NullTxOp>(loc);
-
-          // Build guarded expression
-          auto ifExpr = builder.create<scf::IfOp>(
-              innerLoc, TypeRange(SmallVector<Value>{nulltx}), predicate,
-              true /*addThenBlock*/, true /*addElseBlock*/);
-
-          auto thenBuilder = ifExpr.getThenBodyBuilder();
-          Value dmaTx = thenBuilder.create<DMAWriteOp>(
-              innerLoc, localMemref, localIndices, remoteMemref, remoteIndices,
-              coalescingFactor);
-          // Yield the DMA transaction to propagate it through loop iterations
-          thenBuilder.create<scf::YieldOp>(innerLoc, dmaTx);
-
-          auto elseBuilder = ifExpr.getElseBodyBuilder();
-          // Yield previous transaction when DMA is not executed
-          elseBuilder.create<scf::YieldOp>(innerLoc, args[0]);
-
-          return SmallVector<Value>{ifExpr.getResult(0)};
-        });
-
-    // RemoteStoreOp has no results (it's a side-effect operation), so we just
-    // erase it. The loop nest has already been inserted.
     rewriter.eraseOp(remoteStore);
 
-    // Wait for DMA to complete after replacing the operation
-    // The loop nest returns the last DMA transaction (or null if none executed)
-    Value lastDmaTx = loopNest.results.front();
-    // Always wait on the result - if it's nulltx, the wait will handle it
-    // appropriately The result propagates through the loop: either the last DMA
-    // transaction or nulltx
-    rewriter.create<DMAWaitOp>(loc, lastDmaTx);
+    // Wait for DMA to complete
+    rewriter.create<DMAWaitOp>(loc, dmaTx);
     return success();
   }
 };
