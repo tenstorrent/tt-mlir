@@ -257,10 +257,12 @@ def TTNN_TTNNNDLayoutAttr: TTNN_Attr<"TTNNNDLayout", "ttnn_nd_layout"> {
    bool isInterleaved() const;
    bool isSharded() const;
    BufferType getBufferType() const;
+   bool isDeviceBufferType() const { return ::mlir::tt::ttnn::isDeviceBufferType(getBufferType()); }
    bool isTiled() const;
    llvm::SmallVector<int64_t> getScalarShardShape() const;
    Layout getLayout() const;
    ttcore::DataType getDataType() const;
+   Type getElementType() const;
  }];
 }
 
