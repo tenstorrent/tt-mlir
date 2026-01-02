@@ -638,118 +638,67 @@ public:
         .create<GenericOp>(
             loc, viewInput, viewOutput,
             [&](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
-              Value yield;
-              if (isSrcDramOrReblock) {
-                // Write pattern: source is viewInput, destination is outputCB
-                Value outputCB =
-                    builder.create<ReserveOp>(innerLoc, blockArgs[1])
-                        .getResult();
-
-                if (outputIsRemote) {
-                  // Remote output: use remote_store instead of DMA write
-                  auto streamOp = cast<StreamLayoutOp>(output.getDefiningOp());
-                  Value remoteMemref = streamOp.getInput();
-                  SmallVector<Value> indices =
-                      buildGridIndices(builder, innerLoc, indexingMap);
-                  Value outputCBValue =
-                      blockArgs[1]; // CB type for remote_store/remote_load
-
-                  if (inputIsRemote) {
-                    // Remote input: load first, then store
-                    auto inputStreamOp =
-                        cast<StreamLayoutOp>(input.getDefiningOp());
-                    Value inputRemoteMemref = inputStreamOp.getInput();
-
-                    // Load from remote input into outputCB (use output CB, not
-                    // input CB)
-                    builder.create<RemoteLoadOp>(innerLoc, outputCBValue,
-                                                 inputRemoteMemref, indices);
-                    // Then store from outputCB to remote output
-                    builder.create<RemoteStoreOp>(innerLoc, remoteMemref,
-                                                  indices, outputCBValue);
-                  } else {
-                    // Local input, remote output: DMA copy then remote_store
-                    assert(!inputIsRemote &&
-                           "Input must be local when output is remote");
-                    auto dma = builder.create<d2m::DMAOp>(
-                        innerLoc, viewInput, indexingMapAttr, outputCB);
-                    builder.create<d2m::DMAWaitOp>(innerLoc, dma);
-                    builder.create<RemoteStoreOp>(innerLoc, remoteMemref,
-                                                  indices, outputCBValue);
-                  }
-                } else {
-                  // Remote input, local output: remote_load
-                  assert(inputIsRemote &&
-                         "Input must be remote when output is local");
-                  auto streamOp = cast<StreamLayoutOp>(input.getDefiningOp());
-                  Value remoteMemref = streamOp.getInput();
-                  SmallVector<Value> indices =
-                      buildGridIndices(builder, innerLoc, indexingMap);
-
-                  // Use outputCB (from d2m.reserve) for remote_load, not input
-                  // CB
-                  Value outputCBValue = blockArgs[1]; // CB type for remote_load
-                  builder.create<RemoteLoadOp>(innerLoc, outputCBValue,
-                                               remoteMemref, indices);
-                }
-                yield = outputCB;
+              if (outputIsRemote) {
+                // Remote output: remote_store directly (no DMA, no reserve
+                // for output CB) Input is guaranteed to be local (cannot both
+                // be remote)
+                auto streamOp =
+                    mlir::dyn_cast<StreamLayoutOp>(output.getDefiningOp());
+                TT_assert(streamOp);
+                Value remoteMemref = streamOp.getInput();
+                SmallVector<Value> indices =
+                    buildGridIndices(builder, innerLoc, indexingMap);
+                // Store to remote output directly from input CB (no DMA
+                // needed). remote_store returns the underlying memref/tensor
+                // from the CB (equivalent to wait).
+                Value inputCBValue = blockArgs[0]; // CB type for remote_store
+                Value storeResult =
+                    builder
+                        .create<RemoteStoreOp>(innerLoc, remoteMemref, indices,
+                                               inputCBValue)
+                        ->getResult(0);
+                // Yield the store result (output CB is not used, so we yield
+                // input CB result from remote_store)
+                builder.create<YieldOp>(innerLoc, storeResult);
+              } else if (inputIsRemote) {
+                // Remote input, local output: remote_load
+                // remote_load returns the underlying memref/tensor from the
+                // CB (equivalent to reserve)
+                auto streamOp =
+                    mlir::dyn_cast<StreamLayoutOp>(input.getDefiningOp());
+                TT_assert(streamOp);
+                Value remoteMemref = streamOp.getInput();
+                SmallVector<Value> indices =
+                    buildGridIndices(builder, innerLoc, indexingMap);
+                // Use outputCB for remote_load
+                Value outputCBValue = blockArgs[1]; // CB type for remote_load
+                Value loadResult =
+                    builder
+                        .create<RemoteLoadOp>(innerLoc, outputCBValue,
+                                              remoteMemref, indices)
+                        ->getResult(0);
+                // View transformation is handled by view_layout and the
+                // generic op's indexing maps
+                builder.create<YieldOp>(innerLoc, loadResult);
               } else {
-                // Read pattern: source is inputCB, destination is viewOutput
-                Value inputCB =
-                    builder.create<ReserveOp>(innerLoc, blockArgs[0])
-                        .getResult();
-
-                if (outputIsRemote) {
-                  // Remote output: DMA copy then remote_store
-                  auto streamOp = cast<StreamLayoutOp>(output.getDefiningOp());
-                  Value remoteMemref = streamOp.getInput();
-                  SmallVector<Value> indices =
-                      buildGridIndices(builder, innerLoc, indexingMap);
-                  Value inputCBValue =
-                      blockArgs[0]; // CB type for remote_store/remote_load
-
-                  if (inputIsRemote) {
-                    // Remote input: load first, then store
-                    auto inputStreamOp =
-                        cast<StreamLayoutOp>(input.getDefiningOp());
-                    Value inputRemoteMemref = inputStreamOp.getInput();
-
-                    // Load from remote input into inputCB
-                    builder.create<RemoteLoadOp>(innerLoc, inputCBValue,
-                                                 inputRemoteMemref, indices);
-                    // Then store from inputCB to remote output
-                    builder.create<RemoteStoreOp>(innerLoc, remoteMemref,
-                                                  indices, inputCBValue);
-                  } else {
-                    // Local input, remote output: DMA copy then remote_store
-                    assert(!inputIsRemote &&
-                           "Input must be local when output is remote");
-                    auto dma = builder.create<d2m::DMAOp>(
-                        innerLoc, inputCB, indexingMapAttr, viewOutput);
-                    builder.create<d2m::DMAWaitOp>(innerLoc, dma);
-                    builder.create<RemoteStoreOp>(innerLoc, remoteMemref,
-                                                  indices, inputCBValue);
-                  }
-                } else {
-                  // Remote input, local output: remote_load then DMA copy
-                  assert(inputIsRemote &&
-                         "Input must be remote when output is local");
-                  auto streamOp = cast<StreamLayoutOp>(input.getDefiningOp());
-                  Value remoteMemref = streamOp.getInput();
-                  SmallVector<Value> indices =
-                      buildGridIndices(builder, innerLoc, indexingMap);
-
-                  // Load from remote into inputCB
-                  builder.create<RemoteLoadOp>(innerLoc, inputCB, remoteMemref,
-                                               indices);
-                  // Then DMA copy to output
-                  auto dma = builder.create<d2m::DMAOp>(
-                      innerLoc, inputCB, indexingMapAttr, viewOutput);
-                  builder.create<d2m::DMAWaitOp>(innerLoc, dma);
-                }
-                yield = inputCB;
+                // Local input, local output: treat local input as "remote"
+                // and use remote_load (conventional approach for
+                // local-to-local transfers)
+                // remote_load returns the underlying memref/tensor from the
+                // CB (equivalent to reserve)
+                SmallVector<Value> indices =
+                    buildGridIndices(builder, innerLoc, indexingMap);
+                // Use outputCB for remote_load
+                Value outputCBValue = blockArgs[1]; // CB type for remote_load
+                Value loadResult =
+                    builder
+                        .create<RemoteLoadOp>(innerLoc, outputCBValue,
+                                              viewInput, indices)
+                        ->getResult(0);
+                // View transformation is handled by view_layout and the
+                // generic op's indexing maps
+                builder.create<YieldOp>(innerLoc, loadResult);
               }
-              builder.create<YieldOp>(innerLoc, yield);
             },
             ThreadType::Compute)
         .getResult(0);

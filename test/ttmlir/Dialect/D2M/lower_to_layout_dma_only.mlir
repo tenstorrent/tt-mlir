@@ -16,7 +16,6 @@ func.func @test_remote_output(%arg0: tensor<2x4x32x32xf32, #layout_src>, %arg1: 
   // CHECK-NOT: d2m.reserve
   // CHECK: d2m.iter_index(0)
   // CHECK: d2m.iter_index(1)
-  // CHECK: d2m.wait
   // CHECK: d2m.remote_store %{{.*}}[%{{.*}}, %{{.*}}], %{{.*}}
   // CHECK-NOT: d2m.dma
   // CHECK: d2m.yield
@@ -36,7 +35,6 @@ func.func @test_remote_input(%arg0: tensor<2x4x32x32xf32, #layout_src>, %arg1: t
   // CHECK: %[[VIEW:.*]] = d2m.view_layout
   // CHECK: d2m.generic
   // CHECK-SAME: threads = [#d2m.thread<compute>]
-  // CHECK: d2m.reserve
   // CHECK: d2m.iter_index(0)
   // CHECK: d2m.iter_index(1)
   // CHECK: d2m.remote_load %{{.*}}, %{{.*}}[%{{.*}}, %{{.*}}]
