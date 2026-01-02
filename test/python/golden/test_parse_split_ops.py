@@ -82,4 +82,3 @@ def test_stablehlo_parsing_splitting_ops(mlir_snippet, request, device):
 def test_ttnn_parsing_splitting_ops(mlir_snippet, request, device):
     mlir_ir_string = ttnn_mlir_snippets[mlir_snippet]
     mlir_module, builder = load_mlir_file(mlir_ir_string, target="ttnn")
-    split_modules = split_mlir_file(mlir_module, builder)
