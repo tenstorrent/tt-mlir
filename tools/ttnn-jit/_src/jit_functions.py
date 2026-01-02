@@ -8,8 +8,6 @@ from functools import partial
 from ttmlir.dialects import ttir
 from ttmlir.ir import InsertionPoint, Location, RankedTensorType
 
-from ttnn_jit._src.operand_resolver import OperandResolver
-
 
 class ResultWrapper:
     """Wrapper to track MLIR operation results."""
@@ -24,7 +22,45 @@ class BaseOpHandler(ABC):
 
     def __init__(self, jit_ctx):
         self.jit_ctx = jit_ctx
-        self.resolver = OperandResolver()
+
+    @staticmethod
+    def _resolve_operand(arg, arg_index, jit_ctx):
+        """
+        Resolve a Python argument to its corresponding MLIR operand.
+
+        Resolution order:
+        1. Check if arg is a ResultWrapper (has mlir_value attribute)
+        2. Check if arg is in value_map (tracked intermediate result)
+        3. Fallback to function block argument (input argument)
+
+        Args:
+            arg: Python argument (tensor or ResultWrapper)
+            arg_index: Index of the argument in the function signature
+            jit_ctx: JIT context containing value_map, func_bb, etc.
+
+        Returns:
+            MLIR Value corresponding to the argument
+        """
+        if arg is None:
+            raise ValueError(f"Argument at index {arg_index} is None")
+
+        # Check if arg is a ResultWrapper (intermediate result with mlir_value)
+        if hasattr(arg, "mlir_value"):
+            return arg.mlir_value
+
+        # Check if arg is in value_map (tracked intermediate result)
+        arg_id = id(arg)
+        if arg_id in jit_ctx.value_map:
+            return jit_ctx.value_map[arg_id]
+
+        # Fallback to function block arguments (input arguments)
+        if arg_index < len(jit_ctx.func_bb.arguments):
+            return jit_ctx.func_bb.arguments[arg_index]
+
+        raise IndexError(
+            f"Argument index {arg_index} out of range. "
+            f"Function has {len(jit_ctx.func_bb.arguments)} arguments."
+        )
 
     def _get_operands(self, args):
         """Get MLIR operands from Python arguments."""
@@ -32,7 +68,7 @@ class BaseOpHandler(ABC):
         for i, arg in enumerate(args):
             if arg is None:
                 raise ValueError(f"Argument at index {i} is None")
-            operand = self.resolver.resolve_operand(arg, i, self.jit_ctx)
+            operand = self._resolve_operand(arg, i, self.jit_ctx)
             operands.append(operand)
         return operands
 
@@ -52,16 +88,31 @@ class BaseOpHandler(ABC):
 
 
 class BinaryOpHandler(BaseOpHandler):
-    """Handler for binary operations: add, subtract, multiply."""
+    """Handler for binary operations."""
+
+    # Map of all supported binary operations to their TTIR constructors
+    OP_MAP = {
+        "add": ttir.add,
+        "subtract": ttir.subtract,
+        "multiply": ttir.multiply,
+        "eq": ttir.eq,
+        "ne": ttir.ne,
+        "gt": ttir.gt,
+        "ge": ttir.ge,
+        "lt": ttir.lt,
+        "le": ttir.le,
+        "maximum": ttir.maximum,
+        "minimum": ttir.minimum,
+        "bitwise_and": ttir.bitwise_and,
+        "bitwise_or": ttir.bitwise_or,
+        "bitwise_xor": ttir.bitwise_xor,
+    }
 
     def __init__(self, jit_ctx, op_name):
         super().__init__(jit_ctx)
         self.op_name = op_name
-        self.op_map = {
-            "add": ttir.add,
-            "subtract": ttir.subtract,
-            "multiply": ttir.multiply,
-        }
+        if op_name not in self.OP_MAP:
+            raise ValueError(f"Unknown binary operation: {op_name}")
 
     def _infer_result_type(self, operand0, operand1):
         """Infer result type from operands (no layout for intermediate results)."""
@@ -76,7 +127,7 @@ class BinaryOpHandler(BaseOpHandler):
             return RankedTensorType.get(shape, element_type, None)
 
     def create_operation(self, *args, **kwargs):
-        """Create binary operation (add, subtract, or multiply)."""
+        """Create binary operation."""
         if len(args) < 2:
             raise ValueError(f"{self.op_name} requires at least 2 arguments")
 
@@ -86,25 +137,11 @@ class BinaryOpHandler(BaseOpHandler):
         # Infer result type (no layout for intermediate results)
         result_type = self._infer_result_type(operand0, operand1)
 
-        # Get the operation constructor
-        op_constructor = self.op_map[self.op_name]
+        # Get the operation constructor and create the operation
+        op_constructor = self.OP_MAP[self.op_name]
 
-        # Create the operation
         with InsertionPoint(self.jit_ctx.func_bb), Location.unknown(self.jit_ctx.ctx):
-            if self.op_name == "add":
-                op_result = op_constructor(
-                    result=result_type, lhs=operand0, rhs=operand1
-                )
-            elif self.op_name == "subtract":
-                op_result = op_constructor(
-                    result=result_type, lhs=operand0, rhs=operand1
-                )
-            elif self.op_name == "multiply":
-                op_result = op_constructor(
-                    result=result_type, lhs=operand0, rhs=operand1
-                )
-            else:
-                raise ValueError(f"Unknown binary operation: {self.op_name}")
+            op_result = op_constructor(result=result_type, lhs=operand0, rhs=operand1)
 
         # Store result if applicable
         if args:
@@ -115,7 +152,21 @@ class BinaryOpHandler(BaseOpHandler):
 
 
 class ReductionOpHandler(BaseOpHandler):
-    """Handler for reduction operations: sum."""
+    """Handler for reduction operations: sum, mean, max, min."""
+
+    # Map of all supported reduction operations to their TTIR constructors
+    OP_MAP = {
+        "sum": ttir.sum,
+        "mean": ttir.mean,
+        "max": ttir.max,
+        "min": ttir.min,
+    }
+
+    def __init__(self, jit_ctx, op_name):
+        super().__init__(jit_ctx)
+        self.op_name = op_name
+        if op_name not in self.OP_MAP:
+            raise ValueError(f"Unknown reduction operation: {op_name}")
 
     def _infer_result_type(self, operand, dim_arg, keep_dim):
         """Infer result type based on reduction parameters."""
@@ -155,9 +206,9 @@ class ReductionOpHandler(BaseOpHandler):
         return result_type
 
     def create_operation(self, *args, **kwargs):
-        """Create sum operation."""
+        """Create reduction operation."""
         if len(args) < 1:
-            raise ValueError("sum requires at least 1 argument")
+            raise ValueError(f"{self.op_name} requires at least 1 argument")
 
         operands = self._get_operands(args)
         operand = operands[0]
@@ -171,9 +222,11 @@ class ReductionOpHandler(BaseOpHandler):
         # Infer result type
         result_type = self._infer_result_type(operand, dim_arg, keep_dim)
 
-        # Create the operation
+        # Get the operation constructor and create the operation
+        op_constructor = self.OP_MAP[self.op_name]
+
         with InsertionPoint(self.jit_ctx.func_bb), Location.unknown(self.jit_ctx.ctx):
-            op_result = ttir.sum(
+            op_result = op_constructor(
                 result=result_type, input=operand, keep_dim=keep_dim, dim_arg=dim_arg
             )
 
@@ -275,18 +328,38 @@ class TTNNJitNamespaceUpdater:
     def __init__(self, jit_ctx):
         self.jit_ctx = jit_ctx
 
-        # Create handlers
-        self._add_handler = BinaryOpHandler(jit_ctx, "add")
-        self._subtract_handler = BinaryOpHandler(jit_ctx, "subtract")
-        self._multiply_handler = BinaryOpHandler(jit_ctx, "multiply")
-        self._sum_handler = ReductionOpHandler(jit_ctx)
+        # Create binary operation handlers
+        self._binary_handlers = {
+            op_name: BinaryOpHandler(jit_ctx, op_name)
+            for op_name in BinaryOpHandler.OP_MAP
+        }
+
+        # Create reduction operation handlers
+        self._reduction_handlers = {
+            op_name: ReductionOpHandler(jit_ctx, op_name)
+            for op_name in ReductionOpHandler.OP_MAP
+        }
+
+        # Create matmul handler
         self._matmul_handler = MatmulOpHandler(jit_ctx)
 
-        # Create bound methods
-        self.add = partial(self._call_handler, self._add_handler)
-        self.subtract = partial(self._call_handler, self._subtract_handler)
-        self.multiply = partial(self._call_handler, self._multiply_handler)
-        self.sum = partial(self._call_handler, self._sum_handler)
+        # Register binary operations as attributes
+        for op_name in BinaryOpHandler.OP_MAP:
+            setattr(
+                self,
+                op_name,
+                partial(self._call_handler, self._binary_handlers[op_name]),
+            )
+
+        # Register reduction operations as attributes
+        for op_name in ReductionOpHandler.OP_MAP:
+            setattr(
+                self,
+                op_name,
+                partial(self._call_handler, self._reduction_handlers[op_name]),
+            )
+
+        # Register matmul
         self.matmul = partial(self._call_handler, self._matmul_handler)
 
     def _call_handler(self, handler, *args, **kwargs):

@@ -17,7 +17,7 @@ def abs_hifi4_graph(input_tensor):
     return ttnn.abs(input_tensor)
 
 
-@ttnn_jit.jit(compile_only=True, graph_capture=False)
+@ttnn_jit.jit(compile_only=True, frontend="ast")
 def abs_hifi4(input_tensor):
     return ttnn.abs(input_tensor)
 

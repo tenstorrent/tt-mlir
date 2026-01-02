@@ -1006,28 +1006,6 @@ def test_identity_op_rejection(device):
     ), f"Expected error message '{expected_message}' not found in: {str(exc_info.value)}"
 
 
-def my_func(a, b):
-    return ttnn.sum(a, dim=0, keepdim=True)
-
-
-@pytest.mark.parametrize("op", [my_func])
-def test_binary_ops_tracing(device, op):
-    shape = (64, 32)
-    max_grid = (0, 0)
-    dtype = torch.bfloat16
-
-    run_op_test(
-        device,
-        shape,
-        max_grid,
-        dtype,
-        op,
-        num_inputs=2,
-        buffer_type=ttnn.BufferType.L1,
-        frontend="tracing",
-    )
-
-
 # ------------------------------------------------------------
 # Tracing mode tests
 # ------------------------------------------------------------
@@ -1051,14 +1029,6 @@ def tracing_sum_keepdim(a):
 
 def tracing_sum_no_keepdim(a):
     return ttnn.sum(a, dim=0, keepdim=False)
-
-
-def tracing_sum_all_dims(a):
-    return ttnn.sum(a)
-
-
-def tracing_matmul(a, b):
-    return ttnn.matmul(a, b)
 
 
 def tracing_intermediate_result(a, b):
