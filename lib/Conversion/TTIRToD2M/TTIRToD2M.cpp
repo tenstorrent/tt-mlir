@@ -1056,12 +1056,25 @@ public:
 
     const int64_t permuteSize = static_cast<int64_t>(permutation.size());
     assert(permuteSize >= 2 && "Permute size must be >= 2");
-    const bool isInnerPermute =
+    // Check if this is a pure inner permute (only last two dims swapped,
+    // all outer dims are identity).
+    const bool innerDimsSwapped =
         (permutation[permuteSize - 2] == permuteSize - 1 &&
          permutation[permuteSize - 1] == permuteSize - 2);
+    bool outerDimsIdentity = true;
+    for (int64_t i = 0; i < permuteSize - 2; ++i) {
+      if (permutation[i] != i) {
+        outerDimsIdentity = false;
+        break;
+      }
+    }
+    const bool isInnerPermute = innerDimsSwapped && outerDimsIdentity;
     if (isInnerPermute) {
       return permuteInnerDims(op, adaptor, rewriter);
     }
+    assert(!(innerDimsSwapped && !outerDimsIdentity) &&
+           "Complex permutes (both inner and outer permutations) are not "
+           "supported.");
     // Unhandled conversion case.
     return failure();
   }
@@ -1398,8 +1411,8 @@ static AffineMap permuteLogicalMap(ttir::PermuteOp op) {
   assert(logicalRank >= 2 && "Permute must have at least 2 dimensions");
   // Verify last dimension is not identity for outer permute handling.
   const bool noInnerPermute =
-      (permutation[logicalRank - 2] != static_cast<int64_t>(logicalRank - 2) &&
-       permutation[logicalRank - 1] == static_cast<int64_t>(logicalRank - 1));
+      !(permutation[logicalRank - 2] == static_cast<int64_t>(logicalRank - 1) &&
+        permutation[logicalRank - 1] == static_cast<int64_t>(logicalRank - 2));
   assert(noInnerPermute && "Complex permutes (both inner and outer "
                            "permutations) are not supported.");
   SmallVector<AffineExpr> results(logicalRank);
