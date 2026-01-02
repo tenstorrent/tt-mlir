@@ -6,6 +6,7 @@
 
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 
@@ -21,6 +22,92 @@ namespace {
 static bool isRemote(Value operand) {
   // Remote operands are those that come from stream_layout ops
   return mlir::isa_and_nonnull<StreamLayoutOp>(operand.getDefiningOp());
+}
+
+// Calculate multicast iterators based on the grid, operand indexing map, and
+// iterator types. Returns an empty vector if all dimensions are parallel
+// (no multicast needed).
+static SmallVector<ttcore::IteratorType>
+calculateMcastIterators(ttcore::GridAttr grid, AffineMap operandIndexingMap,
+                        ArrayAttr iteratorTypes) {
+  assert(grid.getShape().size() == operandIndexingMap.getNumResults());
+
+  bool allParallel = true;
+  SmallVector<ttcore::IteratorType> mcastIterators;
+  mcastIterators.reserve(grid.getShape().size());
+  for (unsigned dim = 0; dim < grid.getShape().size(); dim++) {
+    AffineExpr result = operandIndexingMap.getResult(dim);
+    assert(mlir::isa<AffineDimExpr>(result) ||
+           mlir::isa<AffineConstantExpr>(result));
+
+    ttcore::IteratorType iteratorType;
+    if (auto constant = mlir::dyn_cast<AffineConstantExpr>(result)) {
+      assert(constant.getValue() == 0);
+      iteratorType = ttcore::IteratorType::Parallel;
+    } else {
+      auto dimId = mlir::cast<AffineDimExpr>(result);
+      unsigned dimPosition = dimId.getPosition();
+
+      iteratorType =
+          mlir::cast<ttcore::IteratorTypeAttr>(iteratorTypes[dimPosition])
+              .getValue();
+    }
+    mcastIterators.push_back(iteratorType);
+
+    // If the grid dimension is 1, we can special case it and always safely
+    // fallback to mode parallel. Reduction implies multicast, and while
+    // it'll be functionally correct, a multicast with a single core to
+    // itself is a redundant copy and more complicated than necessary.
+    bool singleCore = grid.getShape()[dim] == 1;
+    allParallel &=
+        (iteratorType == ttcore::IteratorType::Parallel) || singleCore;
+  }
+
+  return allParallel ? SmallVector<ttcore::IteratorType>() : mcastIterators;
+}
+
+// Struct to hold multicast arguments for gather-multicast pattern.
+struct McastArguments {
+  SmallVector<Value> mcastStartIndex;
+  SmallVector<Value> mcastShape;
+};
+
+// Calculate gather-multicast arguments for RemoteLoadOp.
+// For the gather-multicast pattern:
+// - Core 0 along each reduction dimension is the sender
+// - Sender multicasts to all other cores in the region
+static McastArguments
+calculateGatherMcastArguments(OpBuilder &builder, Location loc,
+                              ttcore::GridAttr grid,
+                              ArrayRef<ttcore::IteratorType> mcastIterators) {
+  Value one = builder.create<arith::ConstantOp>(loc, builder.getIndexType(),
+                                                builder.getIndexAttr(1));
+
+  McastArguments args;
+  args.mcastStartIndex.reserve(grid.getShape().size());
+  args.mcastShape.reserve(grid.getShape().size());
+
+  for (auto [dim, iteratorType] : llvm::enumerate(mcastIterators)) {
+    Value core = builder.create<CoreIndexOp>(loc, builder.getIndexType(),
+                                             builder.getI64IntegerAttr(dim));
+    if (iteratorType == ttcore::IteratorType::Parallel) {
+      // Parallel dimension: mcast to self only (start=core, shape=1)
+      args.mcastStartIndex.push_back(core);
+      args.mcastShape.push_back(one);
+    } else {
+      // Reduction dimension: mcast to all cores (start=0, shape=gridDim)
+      assert(iteratorType == ttcore::IteratorType::Reduction);
+      Value zero = builder.create<arith::ConstantOp>(
+          loc, builder.getIndexType(), builder.getIndexAttr(0));
+      Value gridDim = builder.create<arith::ConstantOp>(
+          loc, builder.getIndexType(),
+          builder.getIndexAttr(grid.getShape()[dim]));
+      args.mcastStartIndex.push_back(zero);
+      args.mcastShape.push_back(gridDim);
+    }
+  }
+
+  return args;
 }
 
 // Helper function to build grid dimension indices from indexing map
@@ -144,11 +231,29 @@ public:
         // Remote case: insert remote_load before wait only if one doesn't
         // already exist for this CB
         if (!cbsWithRemoteLoad.contains(cbValue)) {
+          GenericOp generic = waitOp->getParentOfType<GenericOp>();
           builder.setInsertionPoint(waitOp);
           Location loc = waitOp.getLoc();
           SmallVector<Value> indices =
               buildGridIndices(builder, loc, indexingMap);
-          builder.create<RemoteLoadOp>(loc, cbValue, genericOperand, indices);
+
+          // Check if multicast is needed based on iterator types
+          SmallVector<ttcore::IteratorType> mcastIterators =
+              calculateMcastIterators(generic.getGrid(), indexingMap,
+                                      generic.getIteratorTypes());
+
+          if (!mcastIterators.empty()) {
+            // Multicast needed: calculate mcast arguments and create
+            // multicast variant
+            McastArguments mcastArgs = calculateGatherMcastArguments(
+                builder, loc, generic.getGrid(), mcastIterators);
+            builder.create<RemoteLoadOp>(loc, cbValue, genericOperand, indices,
+                                         mcastArgs.mcastStartIndex,
+                                         mcastArgs.mcastShape);
+          } else {
+            // No multicast needed: create simple remote_load
+            builder.create<RemoteLoadOp>(loc, cbValue, genericOperand, indices);
+          }
         }
       }
       // Local case handled in PHASE 2
@@ -184,6 +289,9 @@ public:
     });
 
     // Insert remote_store operations at the end of their respective blocks
+    // Note: multicast inference is not well defined for remote store
+    // operations, so we only create simple (non-multicast) remote_store ops
+    // here.
     for (const auto &info : remoteStores) {
       builder.setInsertionPoint(info.block, info.block->end());
       SmallVector<Value> indices =

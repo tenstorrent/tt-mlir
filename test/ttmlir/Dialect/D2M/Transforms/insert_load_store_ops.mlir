@@ -221,4 +221,91 @@ module {
     }
     return
   }
+
+  // Test multicast remote_load with reduction iterator on multi-core grid
+  // When an operand's indexing map has a reduction dimension mapped to grid,
+  // the data should be gathered by core 0 and multicast to all other cores.
+  // CHECK-LABEL: func.func @test_multicast_remote_load
+  func.func @test_multicast_remote_load(%arg0: memref<1x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>) {
+    %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
+    %cb_alloc = memref.alloc() {alignment = 64 : i64} : memref<1x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
+    // Input has grid 1x4, operand has grid 1x4
+    %stream = "d2m.stream_layout"(%arg0, %cb_alloc) : (memref<1x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>, memref<1x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) -> memref<1x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<map(4)>, #dram>
+
+    // Grid 1x4 with iterator types [parallel, reduction]
+    // Operand indexing map: (d0, d1) -> (d0, d1) - both dims map to grid
+    // Dim 0 is parallel (grid dim 0 = 1), Dim 1 is reduction (grid dim 1 = 4)
+    // Since grid dim 1 > 1 and iterator is reduction, multicast should be generated
+    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #reduction], threads = [#d2m.thread<compute>]}
+        ins(%stream : memref<1x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<map(4)>, #dram>)
+        outs(%alloc : memref<1x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
+    ^compute0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
+      // Multicast remote_load: core[d2m.core_index(0), 0] mcast[1, 4]
+      // Since dim 0 is parallel (grid 1), mcast start/shape = core_index(0), 1
+      // Since dim 1 is reduction (grid 4), mcast start/shape = 0, 4
+      // CHECK-DAG: %[[C4:.*]] = arith.constant 4 : index
+      // CHECK-DAG: %[[C0:.*]] = arith.constant 0 : index
+      // CHECK-DAG: %[[C1:.*]] = arith.constant 1 : index
+      // CHECK-DAG: %[[CORE0:.*]] = d2m.core_index(0)
+      // CHECK: d2m.remote_load %cb0, %{{.*}}[%{{.*}}, %{{.*}}] core[%[[CORE0]], %[[C0]]] mcast[%[[C1]], %[[C4]]]
+      // CHECK: d2m.wait %cb0
+      %mem0 = d2m.wait %cb0 : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+    }
+    return
+  }
+
+  // Test multicast remote_load with 2x6 grid using matmul indexing maps
+  // Generic grid: 2x6 (M x N), iterator types [parallel(M), parallel(N), reduction(K)]
+  // LHS (in0) grid shape: 2x4 (M x K), indexing map (d0, d2)
+  // RHS (in1) grid shape: 4x6 (K x N), indexing map (d2, d1)
+  // Output grid shape: 2x6 (M x N), indexing map (d0, d1)
+  // CHECK-LABEL: func.func @test_multicast_matmul_2x6
+  func.func @test_multicast_matmul_2x6(
+      %arg0: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>,
+      %arg1: memref<4x6x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #dram>) {
+    // Output: grid 2x6 (M x N)
+    %alloc = memref.alloc() {alignment = 64 : i64} : memref<2x6x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
+    // CB for LHS: shard shape matches blocked access
+    %cb0_alloc = memref.alloc() {alignment = 64 : i64} : memref<2x6x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
+    // CB for RHS: shard shape matches blocked access
+    %cb1_alloc = memref.alloc() {alignment = 64 : i64} : memref<2x6x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #l1_>
+    // LHS stream: grid 2x4 (M x K)
+    %stream0 = "d2m.stream_layout"(%arg0, %cb0_alloc) : (memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>, memref<2x6x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<map(4)>, #dram>
+    // RHS stream: grid 4x6 (K x N)
+    %stream1 = "d2m.stream_layout"(%arg1, %cb1_alloc) : (memref<4x6x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #dram>, memref<2x6x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #l1_>) -> memref<4x6x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #ttcore.view<map(4)>, #dram>
+
+    // Generic grid 2x6, iterator types [parallel(M=d0), parallel(N=d1), reduction(K=d2)]
+    // K dimension is blocked with block_factor 4
+    // LHS map (d0, d2): grid dim 0 = d0 (parallel), grid dim 1 = d2 (reduction) -> mcast on dim 1
+    // RHS map (d2, d1): grid dim 0 = d2 (reduction), grid dim 1 = d1 (parallel) -> mcast on dim 0
+    d2m.generic {block_factors = [1, 1, 4], grid = #ttcore.grid<2x6>, indexing_maps = [#mapL, #mapR, #mapO], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<compute>]}
+        ins(%stream0, %stream1 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<map(4)>, #dram>, memref<4x6x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #ttcore.view<map(4)>, #dram>)
+        outs(%alloc : memref<2x6x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
+    ^compute0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
+      // LHS remote_load: map (d0, d2) with iterators [parallel, parallel, reduction]
+      // Grid dim 0 = d0 (parallel) -> mcast start = core_index(0), mcast shape = 1
+      // Grid dim 1 = d2 (reduction) -> mcast start = 0, mcast shape = 6 (generic grid dim 1)
+      // CHECK-DAG: %[[C6:.*]] = arith.constant 6 : index
+      // CHECK-DAG: %[[C0:.*]] = arith.constant 0 : index
+      // CHECK-DAG: %[[C1:.*]] = arith.constant 1 : index
+      // CHECK-DAG: %[[CORE0:.*]] = d2m.core_index(0)
+      // CHECK: d2m.remote_load %cb0, %{{.*}}[%{{.*}}, %{{.*}}] core[%[[CORE0]], %[[C0]]] mcast[%[[C1]], %[[C6]]]
+      // CHECK: d2m.wait %cb0
+      %lhs = d2m.wait %cb0 : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+
+      // RHS remote_load: map (d2, d1) with iterators [parallel, parallel, reduction]
+      // Grid dim 0 = d2 (reduction) -> mcast start = 0, mcast shape = 2 (generic grid dim 0)
+      // Grid dim 1 = d1 (parallel) -> mcast start = core_index(1), mcast shape = 1
+      // CHECK: %[[CORE1:.*]] = d2m.core_index(1)
+      // CHECK: d2m.remote_load %cb1, %{{.*}}[%{{.*}}, %{{.*}}] core[%[[C0]], %[[CORE1]]] mcast[%{{.*}}, %[[C1]]]
+      // CHECK: d2m.wait %cb1
+      %rhs = d2m.wait %cb1 : !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<4x4x!ttcore.tile<32x32, f32>, #l1_>
+
+      // Local output - no multicast (all parallel)
+      // CHECK: d2m.reserve %cb2
+      %out = d2m.reserve %cb2 : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+    }
+    return
+  }
+
 }
