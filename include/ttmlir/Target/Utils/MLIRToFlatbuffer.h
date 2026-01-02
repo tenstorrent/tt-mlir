@@ -19,6 +19,7 @@
 
 #include <optional>
 #include <type_traits>
+#include <iostream>
 
 namespace mlir::tt {
 
@@ -917,13 +918,14 @@ toFlatbuffer(FlatbufferObjectCache &cache,
   ::tt::target::ttnn::TensorMemoryLayout tensorMemoryLayout =
       toFlatbuffer(cache, tensorMemoryLayoutAttr);
   ::flatbuffers::Offset<::tt::target::ttnn::ShardSpec> shardSpec = 0;
+  std::cout << "shardSpec: " << static_cast<bool>(memoryConfigAttr.getShardSpec()) << std::endl;
   if (memoryConfigAttr.getShardSpec()) {
     assert(tensorMemoryLayoutAttr && mlir::tt::ttnn::isShardedMemoryLayout(
                                          tensorMemoryLayoutAttr.getValue()));
     shardSpec = toFlatbuffer(cache, *memoryConfigAttr.getShardSpec());
   }
   ::flatbuffers::Offset<::tt::target::ttnn::NDShardSpec> ndShardSpec = 0;
-  if (memoryConfigAttr.getNdShardSpec()) {
+  if (memoryConfigAttr.getNdShardSpec().has_value()) {
     ndShardSpec = toFlatbuffer(cache, *memoryConfigAttr.getNdShardSpec());
   }
 
