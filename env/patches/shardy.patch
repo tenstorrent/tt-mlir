@@ -746,7 +746,7 @@ index 0000000..fdd50c4
 +  StablehloTypeInference
 +)
 diff --git a/shardy/integrations/c/attributes.cc b/shardy/integrations/c/attributes.cc
-index b683d09..05d5c93 100644
+index b683d09..2ca7d7b 100644
 --- a/shardy/integrations/c/attributes.cc
 +++ b/shardy/integrations/c/attributes.cc
 @@ -66,6 +66,10 @@ int64_t sdyMeshAxisAttrGetSize(MlirAttribute attr) {
@@ -859,7 +859,7 @@ index b683d09..05d5c93 100644
  //===----------------------------------------------------------------------===//
  // ManualAxesAttr
  //===----------------------------------------------------------------------===//
-@@ -446,4 +486,8 @@ MlirStringRef sdyManualAxesAttrGetAxesElem(
+@@ -446,4 +486,56 @@ MlirStringRef sdyManualAxesAttrGetAxesElem(
    return wrap(unwrapAttr<sdy::ManualAxesAttr>(attr)[pos].getValue());
  }
 
@@ -867,9 +867,57 @@ index b683d09..05d5c93 100644
 +  return wrap(mlir::cast<sdy::ManualAxesAttr>(unwrap(attr)));
 +}
 +
++//===----------------------------------------------------------------------===//
++// AxisRefListAttr
++//===----------------------------------------------------------------------===//
++
++bool sdyAttributeIsAAxisRefListAttr(MlirAttribute attr) {
++  return mlir::isa<sdy::AxisRefListAttr>(unwrap(attr));
++}
++
++MlirAttribute sdyAxisRefListAttrGet(MlirContext ctx, intptr_t nAxisRefs, const MlirAttribute* axisRefs) {
++  return wrap(sdy::AxisRefListAttr::get(unwrap(ctx), unwrapAttrs<sdy::AxisRefAttr>(axisRefs, nAxisRefs)));
++}
++
++intptr_t sdyAxisRefListAttrGetAxisRefsSize(MlirAttribute attr) {
++  return unwrapAttr<sdy::AxisRefListAttr>(attr).getValue().size();
++}
++
++MlirAttribute sdyAxisRefListAttrGetAxisRefsElem(MlirAttribute attr, intptr_t pos) {
++  return wrap(unwrapAttr<sdy::AxisRefListAttr>(attr).getValue()[pos]);
++}
++
++MlirAttribute sdyAxisRefListAttrMaybeDowncast(MlirAttribute attr) {
++  return wrap(mlir::cast<sdy::AxisRefListAttr>(unwrap(attr)));
++}
++
++//===----------------------------------------------------------------------===//
++// ListOfAxisRefListsAttr
++//===----------------------------------------------------------------------===//
++
++bool sdyAttributeIsAListOfAxisRefListsAttr(MlirAttribute attr) {
++  return mlir::isa<sdy::ListOfAxisRefListsAttr>(unwrap(attr));
++}
++
++MlirAttribute sdyListOfAxisRefListsAttrGet(MlirContext ctx, intptr_t nAxisRefLists, const MlirAttribute* axisRefLists) {
++  return wrap(sdy::ListOfAxisRefListsAttr::get(unwrap(ctx), unwrapAttrs<sdy::AxisRefListAttr>(axisRefLists, nAxisRefLists)));
++}
++
++intptr_t sdyListOfAxisRefListsAttrGetAxisRefListsSize(MlirAttribute attr) {
++  return unwrapAttr<sdy::ListOfAxisRefListsAttr>(attr).getValue().size();
++}
++
++MlirAttribute sdyListOfAxisRefListsAttrGetAxisRefListsElem(MlirAttribute attr, intptr_t pos) {
++  return wrap(unwrapAttr<sdy::ListOfAxisRefListsAttr>(attr).getValue()[pos]);
++}
++
++MlirAttribute sdyListOfAxisRefListsAttrMaybeDowncast(MlirAttribute attr) {
++  return wrap(mlir::cast<sdy::ListOfAxisRefListsAttr>(unwrap(attr)));
++}
++
  }  // extern "C"
 diff --git a/shardy/integrations/c/attributes.h b/shardy/integrations/c/attributes.h
-index b6e77c9..f36f004 100644
+index b6e77c9..e3a6813 100644
 --- a/shardy/integrations/c/attributes.h
 +++ b/shardy/integrations/c/attributes.h
 @@ -40,6 +40,9 @@ MLIR_CAPI_EXPORTED MlirStringRef sdyMeshAxisAttrGetName(MlirAttribute attr);
@@ -972,12 +1020,40 @@ index b6e77c9..f36f004 100644
  //===----------------------------------------------------------------------===//
  // ManualAxesAttr
  //===----------------------------------------------------------------------===//
-@@ -272,6 +302,9 @@ MLIR_CAPI_EXPORTED intptr_t sdyManualAxesAttrGetAxesSize(MlirAttribute attr);
+@@ -272,6 +302,37 @@ MLIR_CAPI_EXPORTED intptr_t sdyManualAxesAttrGetAxesSize(MlirAttribute attr);
  MLIR_CAPI_EXPORTED MlirStringRef sdyManualAxesAttrGetAxesElem(
    MlirAttribute attr, intptr_t pos);
 
 +MLIR_CAPI_EXPORTED MlirAttribute
 +sdyManualAxesAttrMaybeDowncast(MlirAttribute attr);
++
++//===----------------------------------------------------------------------===//
++// AxisRefListAttr
++//===----------------------------------------------------------------------===//
++
++MLIR_CAPI_EXPORTED bool sdyAttributeIsAAxisRefListAttr(MlirAttribute attr);
++
++MLIR_CAPI_EXPORTED MlirAttribute sdyAxisRefListAttrGet(MlirContext ctx, intptr_t nAxisRefs, const MlirAttribute* axisRefs);
++
++MLIR_CAPI_EXPORTED intptr_t sdyAxisRefListAttrGetAxisRefsSize(MlirAttribute attr);
++
++MLIR_CAPI_EXPORTED MlirAttribute sdyAxisRefListAttrGetAxisRefsElem(MlirAttribute attr, intptr_t pos);
++
++MLIR_CAPI_EXPORTED MlirAttribute sdyAxisRefListAttrMaybeDowncast(MlirAttribute attr);
++
++//===----------------------------------------------------------------------===//
++// ListOfAxisRefListsAttr
++//===----------------------------------------------------------------------===//
++
++MLIR_CAPI_EXPORTED bool sdyAttributeIsAListOfAxisRefListsAttr(MlirAttribute attr);
++
++MLIR_CAPI_EXPORTED MlirAttribute sdyListOfAxisRefListsAttrGet(MlirContext ctx, intptr_t nAxisRefLists, const MlirAttribute* axisRefLists);
++
++MLIR_CAPI_EXPORTED intptr_t sdyListOfAxisRefListsAttrGetAxisRefListsSize(MlirAttribute attr);
++
++MLIR_CAPI_EXPORTED MlirAttribute sdyListOfAxisRefListsAttrGetAxisRefListsElem(MlirAttribute attr, intptr_t pos);
++
++MLIR_CAPI_EXPORTED MlirAttribute sdyListOfAxisRefListsAttrMaybeDowncast(MlirAttribute attr);
 +
  #ifdef __cplusplus
  }
@@ -1099,7 +1175,7 @@ index 0000000..30a5cf9
 +
 +#endif
 diff --git a/shardy/integrations/python/ir/sdy_module.cc b/shardy/integrations/python/ir/sdy_module.cc
-index da451fa..3401ca9 100644
+index da451fa..44c0ea2 100644
 --- a/shardy/integrations/python/ir/sdy_module.cc
 +++ b/shardy/integrations/python/ir/sdy_module.cc
 @@ -109,7 +109,15 @@ NB_MODULE(_sdy, m) {
@@ -1270,7 +1346,7 @@ index da451fa..3401ca9 100644
            });
 
    mlir::python::nanobind_adaptors::mlir_attribute_subclass(
-@@ -417,7 +497,15 @@ NB_MODULE(_sdy, m) {
+@@ -417,7 +497,67 @@ NB_MODULE(_sdy, m) {
             })
        .def("__len__", [](MlirAttribute& self) {
          return sdyManualAxesAttrGetAxesSize(self);
@@ -1281,6 +1357,58 @@ index da451fa..3401ca9 100644
 +          [](nb::object cls, MlirAttribute attr) -> std::variant<MlirAttribute, nb::object> {
 +            if (sdyAttributeIsAManualAxesAttr(attr)) {
 +              return cls(sdyManualAxesAttrMaybeDowncast(attr));
++            }
++            return nb::none();
++          });
++
++  mlir::python::nanobind_adaptors::mlir_attribute_subclass(
++      m, "AxisRefListAttr", sdyAttributeIsAAxisRefListAttr)
++      .def_classmethod(
++          "get",
++          [](nb::object cls, const std::vector<MlirAttribute>& axisRefs,
++             MlirContext ctx) {
++            return cls(sdyAxisRefListAttrGet(ctx, axisRefs.size(),
++                                             axisRefs.data()));
++          },
++          nb::arg("cls"), nb::arg("axis_refs"),
++          nb::arg("context").none() = nb::none(),
++          "Creates an AxisRefListAttr with the given axis references.")
++      .def_property_readonly("axis_refs", [](MlirAttribute self) {
++        return propertyVector<MlirAttribute>(
++            self, sdyAxisRefListAttrGetAxisRefsSize,
++            sdyAxisRefListAttrGetAxisRefsElem);
++      })
++      .def_classmethod(
++          "maybe_downcast",
++          [](nb::object cls, MlirAttribute attr) -> std::variant<MlirAttribute, nb::object> {
++            if (sdyAttributeIsAAxisRefListAttr(attr)) {
++              return cls(sdyAxisRefListAttrMaybeDowncast(attr));
++            }
++            return nb::none();
++          });
++
++  mlir::python::nanobind_adaptors::mlir_attribute_subclass(
++      m, "ListOfAxisRefListsAttr", sdyAttributeIsAListOfAxisRefListsAttr)
++      .def_classmethod(
++          "get",
++          [](nb::object cls, const std::vector<MlirAttribute>& axisRefLists,
++             MlirContext ctx) {
++            return cls(sdyListOfAxisRefListsAttrGet(ctx, axisRefLists.size(),
++                                                  axisRefLists.data()));
++          },
++          nb::arg("cls"), nb::arg("axis_ref_lists"),
++          nb::arg("context").none() = nb::none(),
++          "Creates a ListOfAxisRefListsAttr with the given axis reference lists.")
++      .def_property_readonly("axis_ref_lists", [](MlirAttribute self) {
++        return propertyVector<MlirAttribute>(
++            self, sdyListOfAxisRefListsAttrGetAxisRefListsSize,
++            sdyListOfAxisRefListsAttrGetAxisRefListsElem);
++      })
++      .def_classmethod(
++          "maybe_downcast",
++          [](nb::object cls, MlirAttribute attr) -> std::variant<MlirAttribute, nb::object> {
++            if (sdyAttributeIsAListOfAxisRefListsAttr(attr)) {
++              return cls(sdyListOfAxisRefListsAttrMaybeDowncast(attr));
 +            }
 +            return nb::none();
 +          });

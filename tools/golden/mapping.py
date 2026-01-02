@@ -4347,6 +4347,25 @@ def stablehlo_reduce_scatter_golden(
     raise NotImplementedError("stablehlo_reduce_scatter_golden is not implemented yet.")
 
 
+################ SDY Op Golden Functions ###############
+
+
+def sdy_sharding_constraint_golden(
+    input: GoldenMapTensor,
+) -> GoldenMapTensor:
+    return input.clone()
+
+
+def sdy_reshard_golden(input: GoldenMapTensor) -> GoldenMapTensor:
+    return input.clone()
+
+
+def sdy_all_gather_golden(
+    input: GoldenMapTensor,
+) -> GoldenMapTensor:
+    return input.clone()
+
+
 ################ TTNN Op Golden Functions ###############
 
 
@@ -4551,6 +4570,10 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.CollectivePermuteOp: stablehlo_collective_permute_golden,
     stablehlo.AllToAllOp: stablehlo_all_to_all_golden,
     stablehlo.CollectiveBroadcastOp: stablehlo_collective_broadcast_golden,
+    # ----- SDY OPS -----
+    sdy.ShardingConstraintOp: sdy_sharding_constraint_golden,
+    sdy.ReshardOp: sdy_reshard_golden,
+    sdy.AllGatherOp: sdy_all_gather_golden,
     # ----- TTNN OPS -----
     # Elementwise unary operations
     ttnn.AbsOp: torch.abs,
