@@ -332,6 +332,8 @@ def check_outputs(
     results["root_mean_square_error"] = torch.sqrt(
         torch.mean((golden_tensor.float() - output_tensor.float()) ** 2)
     ).item()
+    golden_tensor = golden_tensor.flatten()
+    output_tensor = output_tensor.flatten()
     results["cosine_similarity"] = torch.nn.functional.cosine_similarity(
         golden_tensor.float().unsqueeze(0),
         output_tensor.float().unsqueeze(0),
@@ -693,8 +695,6 @@ def execute_fb(
                 ).reshape(outputs[i].get_shape())
 
             golden_tensor_torch = golden_outputs_torch[i]
-            golden_tensor_torch = golden_tensor_torch.flatten()
-            output_tensor_torch = output_tensor_torch.flatten()
             results = check_outputs(
                 golden_tensor_torch,
                 output_tensor_torch,
@@ -765,6 +765,7 @@ def execute_py(
     artifact_path: str = ".",
 ):
     import importlib.util
+    import types
 
     # Add tt-alchemist utils.py to path for EmitPy tests
     TT_MLIR_HOME = Path(os.environ.get("TT_MLIR_HOME", os.getcwd())).resolve()
@@ -783,21 +784,11 @@ def execute_py(
     golden_input_output_tensors = convert_golden_input_output_to_torch(
         input_output_goldens
     )
+    golden_report = {}
 
     try:
-        module_name = os.path.splitext(os.path.basename(py_path))[0]
-        spec = importlib.util.spec_from_file_location(module_name, py_path)
-        module = importlib.util.module_from_spec(spec)
-
-        # Add the module to sys.modules so it can be imported by other modules
-        sys.modules[module_name] = module
-        spec.loader.exec_module(module)
-
-        # Parse the AST to find function names
-        with open(py_path, "r") as f:
-            source_code = f.read()
-
-        tree = ast.parse(source_code)
+        # Parse the AST to find function names from the compiled source
+        tree = ast.parse(compiled_bin)
         program_names = []
         for node in ast.walk(tree):
             if (
@@ -807,6 +798,11 @@ def execute_py(
                 and not node.name.__contains__("_const_eval_")
             ):
                 program_names.append(node.name)
+
+        module_name = program_names[0] if program_names else "emitpy_module"
+        module = types.ModuleType(module_name)
+        sys.modules[module_name] = module
+        exec(compile(compiled_bin, filename=module_name, mode="exec"), module.__dict__)
 
         for program_index, program_name in enumerate(program_names):
             create_program_inputs = "create_inputs_for_" + program_name
@@ -842,7 +838,7 @@ def execute_py(
                     output_torch = output_host.to_torch()
                     golden_output_torch = golden_input_outputs[f"output_{i}"][0]
 
-                    device_results = check_outputs(
+                    results = check_outputs(
                         golden_output_torch,
                         output_torch,
                         i,
@@ -853,8 +849,39 @@ def execute_py(
                         check_atol,
                         check_rtol,
                     )
+
+                    # TEMPORARY*****
+                    device_id = 0
+                    device_results = {}
+                    device_results[device_id] = results
+                    golden_report[f"output_{i}"] = device_results
+
+                    if save_artifacts:
+                        program_artifact_path = os.path.join(
+                            artifact_path, f"program_{program_index}"
+                        )
+                        save_torch_tensor(
+                            program_artifact_path,
+                            output_torch,
+                            f"device_output_{i}.pt",
+                        )
+                        save_torch_tensor(
+                            program_artifact_path,
+                            golden_output_torch,
+                            f"golden_output_{i}.pt",
+                        )
+
+            if save_artifacts:
+                artifact_file = os.path.join(
+                    artifact_path, f"program_{program_index}", "golden_report.json"
+                )
+                with open(artifact_file, "w") as f:
+                    json.dump(golden_report, f, indent=4)
+
     except Exception as e:
         raise TTBuilderRuntimeException(e) from e
+
+    return golden_report
 
 
 def execute_cpp(
@@ -907,6 +934,7 @@ def execute_cpp(
     golden_input_output_tensors = convert_golden_input_output_to_torch(
         input_output_goldens
     )
+    golden_report = {}
 
     try:
         emitc_dylib_handle = tt_runtime.runtime.test.open_so(so_path)
@@ -963,7 +991,7 @@ def execute_cpp(
                             dtype=runtime_dtype_to_torch_dtype(output.get_dtype()),
                         ).reshape(output.get_shape())
 
-                    device_results = check_outputs(
+                    results = check_outputs(
                         golden_output_torch,
                         output_tensor_torch,
                         i,
@@ -974,5 +1002,36 @@ def execute_cpp(
                         check_atol,
                         check_rtol,
                     )
+
+                    # TEMPORARY*****
+                    device_id = 0
+                    device_results = {}
+                    device_results[device_id] = results
+                    golden_report[f"output_{i}"] = device_results
+
+                    if save_artifacts:
+                        program_artifact_path = os.path.join(
+                            artifact_path, f"program_{program_index}"
+                        )
+                        save_torch_tensor(
+                            program_artifact_path,
+                            output_tensor_torch,
+                            f"device_output_{i}.pt",
+                        )
+                        save_torch_tensor(
+                            program_artifact_path,
+                            golden_output_torch,
+                            f"golden_output_{i}.pt",
+                        )
+
+            if save_artifacts:
+                artifact_file = os.path.join(
+                    artifact_path, f"program_{program_index}", "golden_report.json"
+                )
+                with open(artifact_file, "w") as f:
+                    json.dump(golden_report, f, indent=4)
+
     except Exception as e:
         raise TTBuilderRuntimeException(e) from e
+
+    return golden_report

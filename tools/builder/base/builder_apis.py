@@ -1350,17 +1350,15 @@ def compile_ttir_module_to_flatbuffer(
     except Exception as e:
         raise TTBuilderCompileException(e)
 
-    """
     if save_artifacts:
-        #MAKE SURE TO SAVE GOLDENS IN BIN?????
-        #Not compatible with emitc/emitpy targets
         output_file_bin = os.path.join(
             artifact_path, target + "_compiled_module." + target_extension
         )
-        to_file(module, output_file_bin, {}, [])
-        #with open(output_file_bin, "w") as f:
-        #    f.write(str(compiled_bin))
-    """
+        if target in ["emitc", "emitpy"]:
+            with open(output_file_bin, "w") as f:
+                f.write(compiled_bin)
+        elif target in ["ttnn", "ttmetal"]:
+            to_file(module, output_file_bin, {}, [])
 
     return compiled_bin, input_output_goldens, intermediate_goldens
 
