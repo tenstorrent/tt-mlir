@@ -269,7 +269,7 @@ def get_atol_rtol_pcc(golden, calculated, atol, rtol):
 
 
 def check_outputs(
-    golden_tensor, output_tensor, i, pcc, atol, rtol, check_atol, check_rtol
+    golden_tensor, output_tensor, i, pcc, atol, rtol, check_pcc, check_atol, check_rtol
 ):
     cal_atol, cal_rtol, cal_pcc, = get_atol_rtol_pcc(
         golden_tensor,
@@ -278,12 +278,13 @@ def check_outputs(
         rtol,
     )
 
-    if cal_pcc < pcc:
-        raise TTBuilderGoldenException(
-            f"Failed: program-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={pcc}"
-        )
-    else:
-        print(f"Program level golden for output_{i} matched. pcc={cal_pcc}")
+    if check_pcc:
+        if cal_pcc < pcc:
+            raise TTBuilderGoldenException(
+                f"Failed: program-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={pcc}"
+            )
+        else:
+            print(f"Program level golden for output_{i} matched. pcc={cal_pcc}")
 
     if check_atol:
         if cal_atol > atol:
@@ -300,6 +301,52 @@ def check_outputs(
             )
         else:
             print(f"Program level rtol check for output_{i} passed. rtol={cal_rtol}")
+
+    result = "pass"
+    if (
+        (check_pcc and cal_pcc < pcc)
+        or (check_atol and cal_atol > atol)
+        or (check_rtol and cal_rtol > rtol)
+    ):
+        result = "fail"
+
+    results = {}
+    results["result"] = result
+    results["expected_pcc"] = pcc
+    results["actual_pcc"] = cal_pcc
+    results["expected_atol"] = atol
+    results["actual_atol"] = cal_atol
+    results["expected_rtol"] = rtol
+    results["actual_rtol"] = cal_rtol
+    results["allclose"] = torch.allclose(
+        golden_tensor,
+        output_tensor,
+        atol=atol,
+        rtol=rtol,
+    )
+    if golden_tensor.dtype != torch.uint16 and golden_tensor.dtype != torch.uint32:
+        results["max"] = torch.max(torch.abs(golden_tensor - output_tensor)).item()
+    results["mean_absolute_error"] = torch.mean(
+        torch.abs(golden_tensor.float() - output_tensor.float())
+    ).item()
+    results["root_mean_square_error"] = torch.sqrt(
+        torch.mean((golden_tensor.float() - output_tensor.float()) ** 2)
+    ).item()
+    results["cosine_similarity"] = torch.nn.functional.cosine_similarity(
+        golden_tensor.float().unsqueeze(0),
+        output_tensor.float().unsqueeze(0),
+    ).item()
+
+    return results
+
+
+def save_torch_tensor(folder_path, torch_tensor, torch_tensor_name):
+    os.makedirs(folder_path, exist_ok=True)
+
+    try:
+        torch.save(torch_tensor, f"{folder_path}/{torch_tensor_name}")
+    except Exception as e:
+        raise Exception(f"an unexpected error occurred: {e}")
 
 
 def get_original_op_loc(text: str) -> str:
@@ -511,6 +558,8 @@ def execute_fb(
     check_rtol: bool = False,
     enable_intermediate_verification: bool = False,
     bypass_ops: List[str] = None,
+    save_artifacts: bool = False,
+    artifact_path: str = ".",
 ):
     golden_report = {}
     fbb = tt_runtime.binary.load_binary_from_capsule(compiled_bin)
@@ -646,61 +695,38 @@ def execute_fb(
             golden_tensor_torch = golden_outputs_torch[i]
             golden_tensor_torch = golden_tensor_torch.flatten()
             output_tensor_torch = output_tensor_torch.flatten()
-            check_outputs(
+            results = check_outputs(
                 golden_tensor_torch,
                 output_tensor_torch,
                 i,
                 pcc,
                 atol,
                 rtol,
+                check_pcc,
+                check_atol,
+                check_rtol,
             )
 
-            result = "pass"
-            if (
-                (check_pcc and cal_pcc < pcc)
-                or (check_atol and cal_atol > atol)
-                or (check_rtol and cal_rtol > rtol)
-            ):
-                result = "fail"
-
-            results = {}
-            results["result"] = result
-            results["expected_pcc"] = pcc
-            results["actual_pcc"] = cal_pcc
-            results["expected_atol"] = atol
-            results["actual_atol"] = cal_atol
-            results["expected_rtol"] = rtol
-            results["actual_rtol"] = cal_rtol
-            results["allclose"] = torch.allclose(
-                golden_tensor_torch,
-                output_tensor_torch,
-                atol=atol,
-                rtol=rtol,
-            )
-            if (
-                golden_tensor_torch.dtype != torch.uint16
-                and golden_tensor_torch.dtype != torch.uint32
-            ):
-                results["max"] = torch.max(
-                    torch.abs(golden_tensor_torch - output_tensor_torch)
-                ).item()
-            results["mean_absolute_error"] = torch.mean(
-                torch.abs(golden_tensor_torch.float() - output_tensor_torch.float())
-            ).item()
-            results["root_mean_square_error"] = torch.sqrt(
-                torch.mean(
-                    (golden_tensor_torch.float() - output_tensor_torch.float()) ** 2
-                )
-            ).item()
-            results["cosine_similarity"] = torch.nn.functional.cosine_similarity(
-                golden_tensor_torch.float().unsqueeze(0),
-                output_tensor_torch.float().unsqueeze(0),
-            ).item()
-
+            # TEMPORARY*****
+            device_id = 0
             device_results = {}
-            device_results[0] = results
-
+            device_results[device_id] = results
             golden_report[f"output_{i}"] = device_results
+
+            if save_artifacts:
+                program_artifact_path = os.path.join(
+                    artifact_path, f"program_{program_index}"
+                )
+                save_torch_tensor(
+                    program_artifact_path,
+                    output_tensor_torch,
+                    f"device_output_{i}.pt",
+                )
+                save_torch_tensor(
+                    program_artifact_path,
+                    golden_tensor_torch,
+                    f"golden_output_{i}.pt",
+                )
 
     for loc, device_results in callback_runtime_config.golden_report.items():
         golden_report[loc] = device_results
@@ -716,18 +742,27 @@ def execute_fb(
     print("Golden verification passed.")
     print(golden_report)
 
+    # Should we save per-program golden reports instead?
+    if save_artifacts:
+        artifact_file = os.path.join(artifact_path, "golden_report.json")
+        with open(artifact_file, "w") as f:
+            json.dump(golden_report, f, indent=4)
+
     return golden_report
 
 
 def execute_py(
-    py_path: str,
+    compiled_bin,
     input_output_goldens: Dict[int, Dict[str, Dict[int, GoldenMapTensor]]],
     pcc: float = 0.99,
     atol: float = 1e-08,
     rtol: float = 1e-05,
     disable_golden: bool = False,
+    check_pcc: bool = False,
     check_atol: bool = False,
     check_rtol: bool = False,
+    save_artifacts: bool = False,
+    artifact_path: str = ".",
 ):
     import importlib.util
 
@@ -807,13 +842,14 @@ def execute_py(
                     output_torch = output_host.to_torch()
                     golden_output_torch = golden_input_outputs[f"output_{i}"][0]
 
-                    check_outputs(
+                    device_results = check_outputs(
                         golden_output_torch,
                         output_torch,
                         i,
                         pcc,
                         atol,
                         rtol,
+                        check_pcc,
                         check_atol,
                         check_rtol,
                     )
@@ -822,15 +858,18 @@ def execute_py(
 
 
 def execute_cpp(
-    cpp_path: str,
+    compiled_bin,
     input_output_goldens: Dict[int, Dict[str, Dict[int, GoldenMapTensor]]],
     pcc: float = 0.99,
     atol: float = 1e-08,
     rtol: float = 1e-05,
     disable_golden: bool = False,
     device=None,
+    check_pcc: bool = False,
     check_atol: bool = False,
     check_rtol: bool = False,
+    save_artifacts: bool = False,
+    artifact_path: str = ".",
 ):
     # Add ttnn-standalone to sys.path for emitc compilation
     TT_MLIR_HOME = Path(os.environ.get("TT_MLIR_HOME", os.getcwd())).resolve()
@@ -924,13 +963,14 @@ def execute_cpp(
                             dtype=runtime_dtype_to_torch_dtype(output.get_dtype()),
                         ).reshape(output.get_shape())
 
-                    check_outputs(
+                    device_results = check_outputs(
                         golden_output_torch,
                         output_tensor_torch,
                         i,
                         pcc,
                         atol,
                         rtol,
+                        check_pcc,
                         check_atol,
                         check_rtol,
                     )
