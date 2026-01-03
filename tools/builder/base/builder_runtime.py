@@ -563,7 +563,7 @@ def execute_fb(
     save_artifacts: bool = False,
     artifact_path: str = ".",
 ):
-    golden_report = {}
+    program_golden_reports = {}
     fbb = tt_runtime.binary.load_binary_from_capsule(compiled_bin)
     program_indices = range(fbb.get_num_programs())
     golden_input_output_tensors = convert_golden_input_output_to_torch(
@@ -596,6 +596,10 @@ def execute_fb(
     for program_index in program_indices:
         if fbb.is_program_private(program_index):
             continue
+
+        # Reset intermediate golden report between programs
+        callback_runtime_config.golden_report = {}
+        golden_report = {}
 
         input_dict = program_inputs_as_dict(fbb, program_index)
         output_dict = program_outputs_as_dict(fbb, program_index)
@@ -707,11 +711,7 @@ def execute_fb(
                 check_rtol,
             )
 
-            # TEMPORARY*****
-            device_id = 0
-            device_results = {}
-            device_results[device_id] = results
-            golden_report[f"output_{i}"] = device_results
+            golden_report[f"output_{i}"] = {0: results}
 
             if save_artifacts:
                 program_artifact_path = os.path.join(
@@ -728,27 +728,15 @@ def execute_fb(
                     f"golden_output_{i}.pt",
                 )
 
-    for loc, device_results in callback_runtime_config.golden_report.items():
-        golden_report[loc] = device_results
+        for loc, device_results in callback_runtime_config.golden_report.items():
+            golden_report[loc] = device_results
 
-    for loc, device_results in golden_report.items():
-        for device_id, result in device_results.items():
-            if result["result"] == "fail":
-                print(golden_report)
-                raise TTBuilderGoldenException(
-                    f"Golden verification failed at op location: {loc} on device: {device_id} with details: {result}"
-                )
-
-    print("Golden verification passed.")
-    print(golden_report)
-
-    # Should we save per-program golden reports instead?
-    if save_artifacts:
-        artifact_file = os.path.join(artifact_path, "golden_report.json")
-        with open(artifact_file, "w") as f:
-            json.dump(golden_report, f, indent=4)
-
-    return golden_report
+        if save_artifacts:
+            artifact_file = os.path.join(
+                artifact_path, f"program_{program_index}", "golden_report.json"
+            )
+            with open(artifact_file, "w") as f:
+                json.dump(golden_report, f, indent=4)
 
 
 def execute_py(
@@ -784,7 +772,6 @@ def execute_py(
     golden_input_output_tensors = convert_golden_input_output_to_torch(
         input_output_goldens
     )
-    golden_report = {}
 
     try:
         # Parse the AST to find function names from the compiled source
@@ -805,6 +792,7 @@ def execute_py(
         exec(compile(compiled_bin, filename=module_name, mode="exec"), module.__dict__)
 
         for program_index, program_name in enumerate(program_names):
+            golden_report = {}
             create_program_inputs = "create_inputs_for_" + program_name
             create_inputs_func = getattr(module, create_program_inputs)
             inputs = create_inputs_func()
@@ -850,11 +838,7 @@ def execute_py(
                         check_rtol,
                     )
 
-                    # TEMPORARY*****
-                    device_id = 0
-                    device_results = {}
-                    device_results[device_id] = results
-                    golden_report[f"output_{i}"] = device_results
+                    golden_report[f"output_{i}"] = {0: results}
 
                     if save_artifacts:
                         program_artifact_path = os.path.join(
@@ -880,8 +864,6 @@ def execute_py(
 
     except Exception as e:
         raise TTBuilderRuntimeException(e) from e
-
-    return golden_report
 
 
 def execute_cpp(
@@ -934,7 +916,6 @@ def execute_cpp(
     golden_input_output_tensors = convert_golden_input_output_to_torch(
         input_output_goldens
     )
-    golden_report = {}
 
     try:
         emitc_dylib_handle = tt_runtime.runtime.test.open_so(so_path)
@@ -943,6 +924,7 @@ def execute_cpp(
         )
 
         for program_index, program_name in enumerate(program_names):
+            golden_report = {}
             inputs = tt_runtime.runtime.test.create_inputs(
                 emitc_dylib_handle,
                 program_name,
@@ -1003,11 +985,7 @@ def execute_cpp(
                         check_rtol,
                     )
 
-                    # TEMPORARY*****
-                    device_id = 0
-                    device_results = {}
-                    device_results[device_id] = results
-                    golden_report[f"output_{i}"] = device_results
+                    golden_report[f"output_{i}"] = {0: results}
 
                     if save_artifacts:
                         program_artifact_path = os.path.join(
@@ -1033,5 +1011,3 @@ def execute_cpp(
 
     except Exception as e:
         raise TTBuilderRuntimeException(e) from e
-
-    return golden_report

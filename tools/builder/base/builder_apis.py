@@ -101,10 +101,8 @@ def _compile_and_execute(
         raise TTBuilderRuntimeException("Manually skipped execution")
 
     # Execute the flatbuffer
-    golden_report = {}
     if target in ["ttnn", "ttmetal"]:
-        # fb_path = mlir_path + "." + ("ttnn" if target == "ttnn" else "ttm")
-        golden_report = execute_fb(
+        execute_fb(
             compiled_bin,
             pcc=pcc,
             atol=atol,
@@ -123,8 +121,7 @@ def _compile_and_execute(
         )
 
     elif target == "emitpy":
-        # py_path = mlir_path + ".py"
-        golden_report = execute_py(
+        execute_py(
             compiled_bin,
             pcc=pcc,
             atol=atol,
@@ -139,8 +136,7 @@ def _compile_and_execute(
         )
 
     elif target == "emitc":
-        # cpp_path = mlir_path + ".cpp"
-        golden_report = execute_cpp(
+        execute_cpp(
             compiled_bin,
             pcc=pcc,
             atol=atol,
@@ -154,8 +150,6 @@ def _compile_and_execute(
             save_artifacts=compile_kwargs.get("save_artifacts", False),
             artifact_path=compile_kwargs.get("artifact_path", "."),
         )
-
-    return golden_report
 
 
 def _compile(root_func: Callable, builder: Builder):
@@ -207,12 +201,7 @@ def build_module(
         new_module = _compile(mod, builder)
 
         print(f"`{mod.__name__}` successfully transformed into a MLIR module.")
-        # base = mod.__name__ if base is None else base
         filename = os.path.join(artifact_path, builder_type + "_module.mlir")
-        print("BUILD_MODULE_PATH:", filename)
-        # filename = get_target_path(
-        #    output_root, dir_name, base + mlir_suffix, builder_type
-        # )
 
         if save_artifacts:
             with open(filename, "w") as f:
@@ -299,12 +288,12 @@ def compile_and_execute_d2m(
     check_rtol : bool
         Whether to check relative tolerance during golden comparison
     """
-    return _compile_and_execute(
+    artifact_path = get_artifact_path(output_root, "D2MBuilder", test_base)
+    _compile_and_execute(
         compile_fn=compile_d2m_to_flatbuffer,
         fn=fn,
         system_desc_path=system_desc_path,
-        test_base=test_base,
-        output_root=output_root,
+        artifact_path=artifact_path,
         target=target,
         mesh_name=mesh_name,
         mesh_dict=mesh_dict,
@@ -409,12 +398,12 @@ def compile_and_execute_shlo(
     check_rtol : bool
         Whether to check relative tolerance during golden comparison
     """
-    return _compile_and_execute(
+    artifact_path = get_artifact_path(output_root, "StableHLOBuilder", test_base)
+    _compile_and_execute(
         compile_fn=compile_stablehlo_to_flatbuffer,
         fn=fn,
         system_desc_path=system_desc_path,
-        test_base=test_base,
-        output_root=output_root,
+        artifact_path=artifact_path,
         target=target,
         mesh_name=mesh_name,
         mesh_dict=mesh_dict,
@@ -518,12 +507,12 @@ def compile_and_execute_ttnn(
     check_rtol : bool
         Whether to check relative tolerance during golden comparison
     """
-    return _compile_and_execute(
+    artifact_path = get_artifact_path(output_root, "TTNNBuilder", test_base)
+    _compile_and_execute(
         compile_fn=compile_ttnn_to_flatbuffer,
         fn=fn,
         system_desc_path=system_desc_path,
-        test_base=test_base,
-        output_root=output_root,
+        artifact_path=artifact_path,
         target=target,
         mesh_name=mesh_name,
         mesh_dict=mesh_dict,
@@ -623,13 +612,11 @@ def compile_and_execute_ttir(
         Whether to check relative tolerance during golden comparison
     """
     artifact_path = get_artifact_path(output_root, "TTIRBuilder", test_base)
-    return _compile_and_execute(
+    _compile_and_execute(
         compile_fn=compile_ttir_to_flatbuffer,
         fn=fn,
         system_desc_path=system_desc_path,
         artifact_path=artifact_path,
-        # test_base=test_base,
-        # output_root=output_root,
         target=target,
         mesh_name=mesh_name,
         mesh_dict=mesh_dict,
@@ -792,8 +779,7 @@ def compile_ttir_to_flatbuffer(
 def compile_ttnn_to_flatbuffer(
     fn: Callable,
     system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
-    test_base: str = "test",
-    output_root: str = ".",
+    artifact_path: str = ".",
     target: Literal["ttnn", "ttmetal", "emitc", "emitpy"] = "ttnn",
     mesh_name: str = "mesh",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
@@ -862,8 +848,7 @@ def compile_ttnn_to_flatbuffer(
             mesh_name=mesh_name,
             mesh_dict=mesh_dict,
             save_artifacts=save_artifacts,
-            output_root=output_root,
-            base=test_base,
+            artifact_path=artifact_path,
         )
     except Exception as e:
         raise TTBuilderCompileException(e)
@@ -872,8 +857,7 @@ def compile_ttnn_to_flatbuffer(
         module,
         builder,
         system_desc_path=system_desc_path,
-        test_base=test_base,
-        output_root=output_root,
+        artifact_path=artifact_path,
         target=target,
         builder_dir="ttnn-builder-artifacts",
         mesh_dict=mesh_dict,
@@ -888,8 +872,7 @@ def compile_ttnn_to_flatbuffer(
 def compile_d2m_to_flatbuffer(
     fn: Callable,
     system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
-    test_base: str = "test",
-    output_root: str = ".",
+    artifact_path: str = ".",
     target: Literal["ttnn", "ttmetal", "emitc", "emitpy"] = "ttnn",
     mesh_name: str = "mesh",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
@@ -980,8 +963,7 @@ def compile_d2m_to_flatbuffer(
             mesh_name=mesh_name,
             mesh_dict=mesh_dict,
             save_artifacts=save_artifacts,
-            output_root=output_root,
-            base=test_base,
+            artifact_path=artifact_path,
         )
     except Exception as e:
         raise TTBuilderCompileException(e)
@@ -990,8 +972,7 @@ def compile_d2m_to_flatbuffer(
         module,
         builder,
         system_desc_path=system_desc_path,
-        test_base=test_base,
-        output_root=output_root,
+        artifact_path=artifact_path,
         target=target,
         mesh_dict=mesh_dict,
         save_artifacts=save_artifacts,
@@ -1005,8 +986,7 @@ def compile_d2m_to_flatbuffer(
 def compile_stablehlo_to_flatbuffer(
     fn: Callable,
     system_desc_path: str = "ttrt-artifacts/system_desc.ttsys",
-    test_base: str = "test",
-    output_root: str = ".",
+    artifact_path: str = ".",
     target: Literal["ttnn", "ttmetal", "emitc", "emitpy"] = "ttnn",
     mesh_name: str = "mesh",
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
@@ -1116,8 +1096,7 @@ def compile_stablehlo_to_flatbuffer(
             mesh_name=mesh_name,
             mesh_dict=mesh_dict,
             save_artifacts=save_artifacts,
-            output_root=output_root,
-            base=test_base,
+            artifact_path=artifact_path,
         )
     except Exception as e:
         raise TTBuilderCompileException(e)
@@ -1129,12 +1108,7 @@ def compile_stablehlo_to_flatbuffer(
     print(f"`{fn.__name__}` successfully ran stablehlo-pipeline.")
     print(module)
 
-    filename = get_target_path(
-        output_root,
-        "stablehlo-builder-artifacts",
-        test_base + "_shlo_pipeline.mlir",
-        "shlo_pipeline",
-    )
+    filename = os.path.join(artifact_path, "stablehlo_compiled.mlir")
     if save_artifacts:
         with open(filename, "w") as f:
             f.write(str(module))
@@ -1143,9 +1117,7 @@ def compile_stablehlo_to_flatbuffer(
     print(f"`{fn.__name__}` successfully transformed into a TTIR MLIR module.")
     print(module)
 
-    filename = get_target_path(
-        output_root, "stablehlo-builder-artifacts", test_base + "_ttir.mlir", "ttir"
-    )
+    filename = os.path.join(artifact_path, "ttir_compiled.mlir")
     if save_artifacts:
         with open(filename, "w") as f:
             f.write(str(module))
@@ -1154,8 +1126,7 @@ def compile_stablehlo_to_flatbuffer(
         module,
         builder,
         system_desc_path=system_desc_path,
-        test_base=test_base,
-        output_root=output_root,
+        artifact_path=artifact_path,
         builder_dir="stablehlo-builder-artifacts",
         target=target,
         mesh_dict=mesh_dict,
@@ -1316,11 +1287,6 @@ def compile_ttir_module_to_flatbuffer(
     else:
         raise ValueError("Unsupported target: " + target)
 
-    # output_file_mlir = get_target_path(
-    #    output_root, builder_dir, test_base + mlir_suffix, target
-    # )
-
-    # output_file_fbb = ".".join([output_file_mlir, target_extension])
     output_file_name = os.path.join(artifact_path, target + "_compiled_module.mlir")
 
     # We need to generate golden dictionary before pipeline run because pipeline run modifies the graph in place.

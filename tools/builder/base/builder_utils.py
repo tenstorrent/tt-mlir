@@ -84,7 +84,7 @@ def get_artifact_path(output_root, builder_type, test_base):
     )
     if not os.path.exists(artifact_path):
         os.makedirs(artifact_path)
-    return artifact_path  # os.path.join(artifact_path, filename)
+    return artifact_path
 
 
 def emitc_to_executable(module):
