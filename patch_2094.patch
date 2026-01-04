@@ -1,0 +1,43 @@
+--- a/tt-mlir/src/Dialects/TensorOps/Ops.td
++++ b/tt-mlir/src/Dialects/TensorOps/Ops.td
+@@ -45,7 +45,7 @@
+   let arguments = (ins Tensor:$input, I32ArrayRef:$shape);
+ 
+   // Verifier ensures that the product of input shape and output shape are equal.
+-  let assemblyFormat = "`(` $input `, ` $shape `)`";
++  let assemblyFormat = "`(` $input `, ` $shape `)`";
+ }
+ 
+ def ReshapeOp : Tensor_Op<"reshape"> {
+@@ -53,7 +53,7 @@
+   let mnemonic = "tt.reshape";
+   let arguments = (ins Tensor:$input, I32ArrayRef:$shape);
+ 
+-  // Verifier ensures that the product of input shape and output shape are equal.
++  // Ensure the product of input and output shapes match.
+   let assemblyFormat = "`(` $input `, ` $shape `)`";
+ }
+ 
+--- a/tt-mlir/src/Dialects/TensorOps/ShapeInference.cpp
++++ b/tt-mlir/src/Dialects/TensorOps/ShapeInference.cpp
+@@ -120,15 +120,17 @@
+   auto input_shape = getInput().getType().cast<TensorType>().getShape();
+   auto output_shape = getOutput().getType().cast<TensorType>().getShape();
+ 
+-  // Check if the product of input and output shapes are equal.
++  // Calculate the product of input dimensions.
+   int64_t input_product = 1;
+   for (auto dim : input_shape) {
+     input_product *= dim;
+   }
+ 
+-  int64_t output_product = 1;
++  // Calculate the product of output dimensions.
+   for (auto dim : output_shape) {
+     output_product *= dim;
+   }
++
++  assert(input_product == output_product && "Reshape requires equal element counts");
+ }
+ 
+ void ReshapeOp::verify() {
