@@ -45,7 +45,7 @@ dylibs = []
 runlibs = []
 perflibs = []
 metallibs = []
-install_requires = []
+install_requires = ["nanobind", "torch", "numpy"]
 install_requires += ["nanobind"]
 
 if enable_ttnn:
