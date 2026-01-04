@@ -1,0 +1,33 @@
+diff --git a/src/optimizer/passes/bug_fix_refactor.cpp b/src/optimizer/passes/bug_fix_refactor.cpp
+--- a/src/optimizer/passes/bug_fix_refactor.cpp
++++ b/src/optimizer/passes/bug_fix_refactor.cpp
+@@ -12,7 +12,7 @@
+ #include "mlir/Dialect/Traits.h"
+ 
+ using namespace mlir;
+-using namespace tt::tt_mlir;
++using namespace tt;
+ 
+ namespace {
+ 
+@@ -50,6 +50,8 @@ struct BugFixRefactorPass : public PassWrapper<BugFixRefactorPass, OperationPass<
+     for (auto func : module.getOps<FuncOp>()) {
+         for (Block &block : func.getBody()) {
+             for (auto &instr : block) {
++                // Ensure proper type casting
++                if (isa<CastOp>(instr)) continue;
+                 if (auto binop = dyn_cast<BinaryOp>(instr)) {
+                     SmallVector<Value> inputs = binop.getOperands();
+                     for (size_t i = 0; i < inputs.size(); ++i) {
+@@ -61,7 +63,9 @@ struct BugFixRefactorPass : public PassWrapper<BugFixRefactorPass, OperationPass<
+                     }
+                 } else if (auto loadOp = dyn_cast<LoadOp>(instr)) {
+                     Value ptr = loadOp.getPtr();
+-                    // Existing logic
++                    auto ptrType = ptr.getType().cast<PointerType>();
++                    if (!ptrType) {
++                        continue;
++                    }
+                 }
+             }
+         }
