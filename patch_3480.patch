@@ -1,0 +1,23 @@
+--- a/path/to/file.cpp
++++ b/path/to/file.cpp
+@@ -123,7 +123,7 @@
+     // existing code
+     int* data = (int*)malloc(size * sizeof(int));
+     if (!data) {
+-        return NULL;
++        return nullptr;
+     }
+     // existing code
+ }
+@@ -150,8 +150,9 @@
+     tensor->shape[rank] = new_dim;
+     tensor->size *= new_dim;
+ 
+-    if (tensor->data == NULL) {
++    if (!tensor->data) {
+         return TT_SUCCESS;
+     }
++
+     // Adjust data pointer or reshape logic as needed
+     return TT_SUCCESS;
+ }
