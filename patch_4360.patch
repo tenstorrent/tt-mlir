@@ -1,0 +1,21 @@
+--- a/path/to/file.cpp
++++ b/path/to/file.cpp
+@@ -10,12 +10,15 @@ void function() {
+   int a = 1;
+   int b = 2;
+   
+-  // Old code that needs refactoring
++  // Refactored code for better performance
+   while (condition) {
+     operation();
+   }
++
++  // Additional optimized operations
++  optimized_operation();
+ }
+
+ void another_function() {
+   // Existing code here
+-
++  
+ }
