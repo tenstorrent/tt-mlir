@@ -1,0 +1,12 @@
+diff --git a/tenstorrent/tt_mlir/conversion/lowering/passes.cc b/tenstorrent/tt_mlir/conversion/lowering/passes.cc
+--- a/tenstorrent/tt_mlir/conversion/lowering/passes.cc
++++ b/tenstorrent/tt_mlir/conversion/lowering/passes.cc
+@@ -123,7 +123,7 @@ struct LowerConvPass : public PassWrapper<LowerConvPass, OperationPass<ModuleOpe
+       auto conv = cast<tt::ConvOp>(op);
+ 
+       // Calculate the stride for each dimension.
+-      SmallVector<int64_t> strides = {conv.stride_h(), conv.stride_w()};
++      SmallVector<int64_t> strides = {conv.stride_d(), conv.stride_h(), conv.stride_w()};
+ 
+       // Create a new Conv2D operation with adjusted attributes.
+       auto newConv = rewriter.create<tt::ConvOp>(
