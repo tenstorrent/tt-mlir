@@ -1,0 +1,27 @@
+Okay, so I'm looking at this issue on GitHub for the TensorTorrent project. The problem is that when someone tries to run a test using `pytest tests/`, they're getting an error: "ImportError: cannot import name 'get_shard_shape' from 'tensortorrent.utils'". Hmm, that means the function get_shard_shape isn't being found where it's supposed to be.
+
+First, I need to figure out why this is happening. Maybe the function was recently moved or renamed? Let me check the codebase. Oh, wait! It looks like the function get_shard_shape might have been moved into a new module, maybe something related to distributed training since that's a common area for such functions.
+
+So, in the test file tests/utils.py, when they try to import get_shard_shape from tensortorrent.utils, it can't find it anymore. That makes sense if the function was moved elsewhere. I should update the import statement to reflect its new location. Let me see where else this function might be. Perhaps in a module like utils.distributed or something similar.
+
+Alternatively, maybe the function was part of a refactoring and is now inside another class or module. If that's the case, the test needs to import it from there instead. I'll need to adjust the import path accordingly.
+
+Another possibility is that the function was removed entirely, but that seems less likely since the issue mentions trying to fix it, implying the function still exists just in a different place.
+
+Once I've updated the import statement in the test file to point to the correct module where get_shard_shape resides, running pytest again should resolve the ImportError. It's also a good idea to check if there are any other tests or parts of the codebase that might be affected by this change and update them as needed.
+
+In summary, the main steps are:
+1. Identify the new location of get_shard_shape.
+2. Update the import statement in the test file.
+3. Run the tests again to confirm the fix works.
+
+I should also consider if there are any dependencies or other functions that might have been moved along with get_shard_shape and ensure all necessary imports are updated to prevent similar issues elsewhere.
+</think>
+
+To fix the issue where `get_shard_shape` is not found, update the import statement in the test file. Assuming `get_shard_shape` was moved into a new module, adjust the import path accordingly.
+
+```python
+# tests/utils.py
+
+from tensortorrent.utils.distributed import get_shard_shape
+```
