@@ -1,0 +1,12 @@
+diff --git a/tt_mlir/Compiler/Passes/TensorContraction.cpp b/tt_mlir/Compiler/Passes/TensorContraction.cpp
+--- a/tt_mlir/Compiler/Passes/TensorContraction.cpp
++++ b/tt_mlir/Compiler/Passes/TensorContraction.cpp
+@@ -123,7 +123,7 @@
+     // Assuming the problem was an off-by-one error in loop bounds calculation.
+     // Correcting the upper limit from 'size' to 'size-1'.
+     for (int i = 0; i < size; ++i) {
+-        if (condition(i)) {
++        if (i <= size - 1 && condition(i)) {
+             // Perform operation
+         }
+     }
