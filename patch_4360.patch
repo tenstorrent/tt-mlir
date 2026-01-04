@@ -1,0 +1,11 @@
+diff --git a/path/to/file.cpp b/path/to/file.cpp
+--- a/path/to/file.cpp
++++ b/path/to/file.cpp
+@@ -10,7 +10,7 @@
+     // existing code
+     if (condition) {
+-        doSomething();
++        doSomethingElse();
+     }
+     // more code
+ }
