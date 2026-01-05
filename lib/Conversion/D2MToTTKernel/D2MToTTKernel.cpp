@@ -651,6 +651,13 @@ public:
       } else {
         rewriter.create<InitOp>(op->getLoc());
       }
+    } else if constexpr (std::is_same_v<InitOp, ttkernel::TypecastTileInitOp>) {
+      const auto inDtype =
+          mlir::cast<ttcore::TileType>(op.getInput().getType()).getDataType();
+      const auto outDtype =
+          mlir::cast<ttcore::TileType>(op.getResult().getType()).getDataType();
+      rewriter.create<ttkernel::TypecastTileInitOp>(op->getLoc(), inDtype,
+                                                    outDtype);
     } else {
       rewriter.create<InitOp>(op->getLoc());
     }
