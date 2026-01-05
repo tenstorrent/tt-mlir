@@ -19,6 +19,19 @@ namespace gtest = ::testing;
 
 namespace {
 
+/// Helper to convert ContiguityBound variant to int64_t for test comparisons.
+/// Maps: UnconstrainedBound -> -1, ConstrainedBound -> value, UnanalyzableBound
+/// -> 1
+int64_t contiguityBoundToInt64(ttmlir::utils::ContiguityBound bound) {
+  if (ttmlir::utils::isUnconstrainedBound(bound)) {
+    return -1;
+  }
+  if (ttmlir::utils::isUnanalyzableBound(bound)) {
+    return 1;
+  }
+  return std::get<ttmlir::utils::ConstrainedBound>(bound).value;
+}
+
 /// Builds an affine expression representing: (sum of (dim_i mod modulus_i) *
 /// multiplier_i) floordiv divisor. Dimension indices are generated
 /// automatically based on position (0, 1, 2, ...). If multipliers is empty or
@@ -376,7 +389,7 @@ getReblockMapAndDeviceShapeMixedRank(mlir::ArrayRef<int64_t> logicalShape,
   mlir::AffineMap reblockMap = ttmlir::utils::calculateReblockMap(
       deviceShapeOutputGrid, deviceShapeInputGrid, context);
   reblockMap = simplifyAffineMapWithRangeAnalysis(
-      simplifyZeroFloorDiv(reblockMap), deviceShapeInputGrid);
+      simplifyZeroFloorDiv(reblockMap), deviceShapeInputGrid, false);
 
   // The layout map converts output device indices to memory addresses
   // (since the underlying memory is laid out according to output device shape).
@@ -427,7 +440,7 @@ TEST(AffineMapUtilsTest, DISABLED_CanDetermineCoalescingFactor) {
         logicalShape, inputRank, outputRank, inputGridShape, outputGridShape,
         &context);
 
-    auto coalescingFactorAnalytical = analyzeShardDimContiguity(
+    auto coalescingFactorAnalytical = computeCoalescingFactorAnalytically(
         memoryMap, deviceShape, memoryMap.getNumDims() / 2, 1);
 
     size_t coalescingFactor = calculateCoalescingFactor(
@@ -518,7 +531,7 @@ TEST(AffineMapUtilsTest, DISABLED_CanDetermineCoalescingFactor) {
 // Pre-cached test cases extracted from CanDetermineCoalescingFactor.
 // Each entry contains reblocking parameters that are used to construct the
 // affine map directly (avoiding string parsing). This validates
-// analyzeShardDimContiguity() against known-good results from
+// computeCoalescingFactorAnalytically() against known-good results from
 // calculateCoalescingFactor() without the runtime cost of sampling.
 TEST(AffineMapUtilsTest, CanDetermineCoalescingFactorCached) {
   using namespace mlir;
@@ -664,7 +677,7 @@ TEST(AffineMapUtilsTest, CanDetermineCoalescingFactorCached) {
     unsigned numGridDims = deviceShape.size() / 2;
 
     // Use the fast analytical method.
-    int64_t analyticalFactor = analyzeShardDimContiguity(
+    int64_t analyticalFactor = computeCoalescingFactorAnalytically(
         memoryMap, deviceShape, numGridDims, /*elemSizeBytes=*/1);
 
     EXPECT_EQ(analyticalFactor, tc.expectedCoalescingFactor)
@@ -719,11 +732,11 @@ TEST(AffineMapUtilsTest, CanDetermineCoalescingFactorForPermutations) {
 
     // Simplify the map using range analysis.
     memoryMap = simplifyAffineMapWithRangeAnalysis(
-        simplifyZeroFloorDiv(memoryMap), deviceShape);
+        simplifyZeroFloorDiv(memoryMap), deviceShape, false);
 
     // Analyze coalescing factor using both methods.
-    auto analyticalFactor =
-        analyzeShardDimContiguity(memoryMap, deviceShape, numGridDims, 1);
+    auto analyticalFactor = computeCoalescingFactorAnalytically(
+        memoryMap, deviceShape, numGridDims, 1);
 
     int64_t samplingFactor =
         calculateCoalescingFactor(memoryMap, deviceShape, 1, numGridDims);
@@ -861,7 +874,7 @@ TEST(AffineMapUtilsTest, CanTestSingleCoalescingFactorMismatch) {
   constexpr int64_t elemSizeBytes = 1;
   unsigned numGridDims = inputDeviceShape.size() / 2; // 4.
 
-  auto coalescingFactorAnalytical = analyzeShardDimContiguity(
+  auto coalescingFactorAnalytical = computeCoalescingFactorAnalytically(
       memoryMap, inputDeviceShape, numGridDims, elemSizeBytes);
 
   int64_t coalescingFactorSampling = calculateCoalescingFactor(
@@ -889,8 +902,9 @@ TEST(AffineMapUtilsTest, AnalyzeGridResultExprForDiscontinuity) {
   {
     AffineExpr d0 = getAffineDimExpr(0, &context);
     auto dimBounds = makeDimBounds({{0, 8}});
-    int64_t result = analyzeGridResultExprForDiscontinuity(d0, dimBounds, 0);
-    EXPECT_EQ(result, 1) << "d0 should require 1 step to change output";
+    auto result = analyzeGridResultExprForDiscontinuity(d0, dimBounds, 0);
+    EXPECT_EQ(contiguityBoundToInt64(result), 1)
+        << "d0 should require 1 step to change output";
   }
 
   // Test 2: d0 floorDiv N -> should return N.
@@ -899,8 +913,9 @@ TEST(AffineMapUtilsTest, AnalyzeGridResultExprForDiscontinuity) {
     AffineExpr d0 = getAffineDimExpr(0, &context);
     AffineExpr expr = d0.floorDiv(4);
     auto dimBounds = makeDimBounds({{0, 16}});
-    int64_t result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
-    EXPECT_EQ(result, 4) << "d0 floorDiv 4 should require 4 steps";
+    auto result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
+    EXPECT_EQ(contiguityBoundToInt64(result), 4)
+        << "d0 floorDiv 4 should require 4 steps";
   }
 
   // Test 3: (d0 * M) floorDiv N where N % M == 0 -> should return 4.
@@ -909,9 +924,10 @@ TEST(AffineMapUtilsTest, AnalyzeGridResultExprForDiscontinuity) {
     AffineExpr d0 = getAffineDimExpr(0, &context);
     AffineExpr expr = (d0 * 2).floorDiv(8);
     auto dimBounds = makeDimBounds({{0, 16}});
-    int64_t result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
+    auto result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
     // d0 * 2 means values 0, 2, 4, 6, 8, ... so crossing 8 takes 4 steps.
-    EXPECT_EQ(result, 4) << "(d0 * 2) floorDiv 8 should require 4 steps";
+    EXPECT_EQ(contiguityBoundToInt64(result), 4)
+        << "(d0 * 2) floorDiv 8 should require 4 steps";
   }
 
   // Test 4: Expression with unrelated dimension -> should return -1.
@@ -920,17 +936,19 @@ TEST(AffineMapUtilsTest, AnalyzeGridResultExprForDiscontinuity) {
     AffineExpr d1 = getAffineDimExpr(1, &context);
     AffineExpr expr = d1.floorDiv(4);
     auto dimBounds = makeDimBounds({{0, 8}, {1, 16}});
-    int64_t result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
-    EXPECT_EQ(result, -1) << "d1 floorDiv 4 should be unconstrained for d0";
+    auto result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
+    EXPECT_EQ(contiguityBoundToInt64(result), -1)
+        << "d1 floorDiv 4 should be unconstrained for d0";
   }
 
   // Test 5: Constant expression -> should return -1 (unconstrained).
   {
     AffineExpr constExpr = getAffineConstantExpr(42, &context);
     auto dimBounds = makeDimBounds({{0, 8}});
-    int64_t result =
+    auto result =
         analyzeGridResultExprForDiscontinuity(constExpr, dimBounds, 0);
-    EXPECT_EQ(result, -1) << "Constant should be unconstrained";
+    EXPECT_EQ(contiguityBoundToInt64(result), -1)
+        << "Constant should be unconstrained";
   }
 
   // Test 6: (A*d0 + B*d1) floorDiv N - multiple dimensions.
@@ -943,9 +961,10 @@ TEST(AffineMapUtilsTest, AnalyzeGridResultExprForDiscontinuity) {
     // Best alignment for d1: 5*8 = 40, plus 7*2 = 14, total 54, gap to 55 is 1.
     AffineExpr expr = (d0 * 7 + d1 * 5).floorDiv(11);
     auto dimBounds = makeDimBounds({{0, 3}, {1, 10}});
-    int64_t result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
+    auto result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
     // The gap is minimized by d1, and we compute ceil(gap / 7).
-    EXPECT_EQ(result, 1) << "(7*d0 + 5*d1) floorDiv 11 should return >= 1";
+    EXPECT_EQ(contiguityBoundToInt64(result), 1)
+        << "(7*d0 + 5*d1) floorDiv 11 should return >= 1";
   }
 
   // Test 7: Add expression combining constrained and unconstrained.
@@ -956,8 +975,9 @@ TEST(AffineMapUtilsTest, AnalyzeGridResultExprForDiscontinuity) {
     // Combined via add should return gcd(1, 4) = 1.
     AffineExpr expr = d0 + d1.floorDiv(4);
     auto dimBounds = makeDimBounds({{0, 8}, {1, 16}});
-    int64_t result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
-    EXPECT_EQ(result, 1) << "d0 + (d1 floorDiv 4) should return 1 for d0";
+    auto result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
+    EXPECT_EQ(contiguityBoundToInt64(result), 1)
+        << "d0 + (d1 floorDiv 4) should return 1 for d0";
   }
 
   // Test 8: Mul expression with target dim (not inside floorDiv).
@@ -965,9 +985,10 @@ TEST(AffineMapUtilsTest, AnalyzeGridResultExprForDiscontinuity) {
     AffineExpr d0 = getAffineDimExpr(0, &context);
     AffineExpr expr = d0 * 3;
     auto dimBounds = makeDimBounds({{0, 8}});
-    int64_t result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
-    EXPECT_EQ(result, 1) << "d0 * 3 should return 1 (any change in d0 changes "
-                            "output)";
+    auto result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
+    EXPECT_EQ(contiguityBoundToInt64(result), 1)
+        << "d0 * 3 should return 1 (any change in d0 changes "
+           "output)";
   }
 
   // Test 9: Larger floorDiv value.
@@ -975,8 +996,9 @@ TEST(AffineMapUtilsTest, AnalyzeGridResultExprForDiscontinuity) {
     AffineExpr d0 = getAffineDimExpr(0, &context);
     AffineExpr expr = d0.floorDiv(32);
     auto dimBounds = makeDimBounds({{0, 128}});
-    int64_t result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
-    EXPECT_EQ(result, 32) << "d0 floorDiv 32 should require 32 steps";
+    auto result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
+    EXPECT_EQ(contiguityBoundToInt64(result), 32)
+        << "d0 floorDiv 32 should require 32 steps";
   }
 
   // Test 10: Complex expression with constant offset.
@@ -985,9 +1007,10 @@ TEST(AffineMapUtilsTest, AnalyzeGridResultExprForDiscontinuity) {
     AffineExpr d0 = getAffineDimExpr(0, &context);
     AffineExpr expr = (d0 * 4 + 2).floorDiv(8);
     auto dimBounds = makeDimBounds({{0, 16}});
-    int64_t result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
+    auto result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
     // With offset 2 and multiplier 4, we need ceil((8-2)/4) = 2 steps.
-    EXPECT_EQ(result, 2) << "(d0 * 4 + 2) floorDiv 8 should require 2 steps";
+    EXPECT_EQ(contiguityBoundToInt64(result), 2)
+        << "(d0 * 4 + 2) floorDiv 8 should require 2 steps";
   }
 
   // Test 11: Two dimensions with multipliers - (2*d0 + 3*d1) floorDiv 10.
@@ -998,9 +1021,9 @@ TEST(AffineMapUtilsTest, AnalyzeGridResultExprForDiscontinuity) {
     AffineExpr d1 = getAffineDimExpr(1, &context);
     AffineExpr expr = (d0 * 2 + d1 * 3).floorDiv(10);
     auto dimBounds = makeDimBounds({{0, 10}, {1, 4}});
-    int64_t result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
+    auto result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
     // d1 can achieve 3*3=9, gap to 10 is 1, ceil(1/2) = 1.
-    EXPECT_EQ(result, 1)
+    EXPECT_EQ(contiguityBoundToInt64(result), 1)
         << "(2*d0 + 3*d1) floorDiv 10 should require 1 step when d1 can align";
   }
 
@@ -1013,11 +1036,12 @@ TEST(AffineMapUtilsTest, AnalyzeGridResultExprForDiscontinuity) {
     AffineExpr d1 = getAffineDimExpr(1, &context);
     AffineExpr expr = (d0 + d1 * 5).floorDiv(10);
     auto dimBounds = makeDimBounds({{0, 20}, {1, 3}});
-    int64_t result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
+    auto result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
     // d1=2 gives 10, which is exact multiple, gap=0 means any step changes.
     // But actually minimizeGap with gap=0 would return bestGap=0, not 1.
     // When gap=0, we still need at least 1 step to change (can't be 0).
-    EXPECT_EQ(result, 5) << "(d0 + 5*d1) floorDiv 10 should return 5";
+    EXPECT_EQ(contiguityBoundToInt64(result), 5)
+        << "(d0 + 5*d1) floorDiv 10 should return 5";
   }
 
   // Test 13: Three dimensions - (d0 + 2*d1 + 3*d2) floorDiv 12.
@@ -1030,8 +1054,8 @@ TEST(AffineMapUtilsTest, AnalyzeGridResultExprForDiscontinuity) {
     AffineExpr d2 = getAffineDimExpr(2, &context);
     AffineExpr expr = (d0 + d1 * 2 + d2 * 3).floorDiv(12);
     auto dimBounds = makeDimBounds({{0, 20}, {1, 5}, {2, 4}});
-    int64_t result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
-    EXPECT_EQ(result, 1)
+    auto result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
+    EXPECT_EQ(contiguityBoundToInt64(result), 1)
         << "(d0 + 2*d1 + 3*d2) floorDiv 12 should require 1 step";
   }
 
@@ -1043,9 +1067,10 @@ TEST(AffineMapUtilsTest, AnalyzeGridResultExprForDiscontinuity) {
     AffineExpr d1 = getAffineDimExpr(1, &context);
     AffineExpr expr = (d0 * 3 + d1 * 2).floorDiv(7);
     auto dimBounds = makeDimBounds({{0, 10}, {1, 4}});
-    int64_t result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
+    auto result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
     // 2*3=6, gap to 7 is 1, ceil(1/3) = 1.
-    EXPECT_EQ(result, 1) << "(3*d0 + 2*d1) floorDiv 7 should require 1 step";
+    EXPECT_EQ(contiguityBoundToInt64(result), 1)
+        << "(3*d0 + 2*d1) floorDiv 7 should require 1 step";
   }
 
   // Test 15: Multiple dims with constant offset.
@@ -1057,9 +1082,9 @@ TEST(AffineMapUtilsTest, AnalyzeGridResultExprForDiscontinuity) {
     AffineExpr d1 = getAffineDimExpr(1, &context);
     AffineExpr expr = (d0 * 2 + d1 * 5 + 3).floorDiv(11);
     auto dimBounds = makeDimBounds({{0, 20}, {1, 3}});
-    int64_t result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
+    auto result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
     // 5*1+3=8, gap to 11 is 3, ceil(3/2) = 2.
-    EXPECT_EQ(result, 2)
+    EXPECT_EQ(contiguityBoundToInt64(result), 2)
         << "(2*d0 + 5*d1 + 3) floorDiv 11 should require 2 steps";
   }
 
@@ -1071,9 +1096,10 @@ TEST(AffineMapUtilsTest, AnalyzeGridResultExprForDiscontinuity) {
     AffineExpr d1 = getAffineDimExpr(1, &context);
     AffineExpr expr = (d0 + d1 * 2).floorDiv(7);
     auto dimBounds = makeDimBounds({{0, 20}, {1, 3}});
-    int64_t result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
+    auto result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
     // 2*2=4, gap to 7 is 3, ceil(3/1) = 3.
-    EXPECT_EQ(result, 3) << "(d0 + 2*d1) floorDiv 7 should require 3 steps";
+    EXPECT_EQ(contiguityBoundToInt64(result), 3)
+        << "(d0 + 2*d1) floorDiv 7 should require 3 steps";
   }
 
   // Test 17: Large bounds allowing perfect alignment.
@@ -1084,9 +1110,10 @@ TEST(AffineMapUtilsTest, AnalyzeGridResultExprForDiscontinuity) {
     AffineExpr d1 = getAffineDimExpr(1, &context);
     AffineExpr expr = (d0 + d1 * 11).floorDiv(11);
     auto dimBounds = makeDimBounds({{0, 20}, {1, 2}});
-    int64_t result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
+    auto result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
     // d1=0: gap=11, d1=1: gap=11 (exact multiple). Min gap=11, result=11.
-    EXPECT_EQ(result, 11) << "(d0 + 11*d1) floorDiv 11 should return 11";
+    EXPECT_EQ(contiguityBoundToInt64(result), 11)
+        << "(d0 + 11*d1) floorDiv 11 should return 11";
   }
 
   // Test 18: Steps exceed target dim bounds - should return -1 (unconstrained).
@@ -1098,8 +1125,8 @@ TEST(AffineMapUtilsTest, AnalyzeGridResultExprForDiscontinuity) {
     AffineExpr d1 = getAffineDimExpr(1, &context);
     AffineExpr expr = (d0 + d1 * 2).floorDiv(100);
     auto dimBounds = makeDimBounds({{0, 5}, {1, 3}});
-    int64_t result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
-    EXPECT_EQ(result, -1)
+    auto result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
+    EXPECT_EQ(contiguityBoundToInt64(result), -1)
         << "(d0 + 2*d1) floorDiv 100 with small d0 bound should return -1";
   }
 
@@ -1110,8 +1137,8 @@ TEST(AffineMapUtilsTest, AnalyzeGridResultExprForDiscontinuity) {
     AffineExpr d0 = getAffineDimExpr(0, &context);
     AffineExpr expr = d0.floorDiv(8);
     auto dimBounds = makeDimBounds({{0, 8}});
-    int64_t result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
-    EXPECT_EQ(result, -1)
+    auto result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
+    EXPECT_EQ(contiguityBoundToInt64(result), -1)
         << "d0 floorDiv 8 with d0 bound 8 should return -1 (never changes)";
   }
 
@@ -1122,8 +1149,9 @@ TEST(AffineMapUtilsTest, AnalyzeGridResultExprForDiscontinuity) {
     AffineExpr d0 = getAffineDimExpr(0, &context);
     AffineExpr expr = d0.floorDiv(8);
     auto dimBounds = makeDimBounds({{0, 9}});
-    int64_t result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
-    EXPECT_EQ(result, 8) << "d0 floorDiv 8 with d0 bound 9 should return 8";
+    auto result = analyzeGridResultExprForDiscontinuity(expr, dimBounds, 0);
+    EXPECT_EQ(contiguityBoundToInt64(result), 8)
+        << "d0 floorDiv 8 with d0 bound 9 should return 8";
   }
 }
 
@@ -1283,17 +1311,18 @@ TEST(AffineMapUtilsTest, AnalyzeShardResultExprForContiguity) {
   {
     AffineExpr d0 = getAffineDimExpr(0, &context);
     auto dimBounds = makeDimBounds({{0, 8}});
-    int64_t result = analyzeShardResultExprForContiguity(d0, dimBounds, 0);
-    EXPECT_EQ(result, -1) << "d0 should be unconstrained";
+    auto result = analyzeShardResultExprForContiguity(d0, dimBounds, 0);
+    EXPECT_EQ(contiguityBoundToInt64(result), -1)
+        << "d0 should be unconstrained";
   }
 
   // Test 2: Constant expression -> should return -1 (unconstrained).
   {
     AffineExpr constExpr = getAffineConstantExpr(42, &context);
     auto dimBounds = makeDimBounds({{0, 8}});
-    int64_t result =
-        analyzeShardResultExprForContiguity(constExpr, dimBounds, 0);
-    EXPECT_EQ(result, -1) << "Constant should be unconstrained";
+    auto result = analyzeShardResultExprForContiguity(constExpr, dimBounds, 0);
+    EXPECT_EQ(contiguityBoundToInt64(result), -1)
+        << "Constant should be unconstrained";
   }
 
   // Test 3: d0 mod N -> should return N (the modulus bounds the contiguity).
@@ -1301,8 +1330,8 @@ TEST(AffineMapUtilsTest, AnalyzeShardResultExprForContiguity) {
     AffineExpr d0 = getAffineDimExpr(0, &context);
     AffineExpr expr = d0 % 8;
     auto dimBounds = makeDimBounds({{0, 32}});
-    int64_t result = analyzeShardResultExprForContiguity(expr, dimBounds, 0);
-    EXPECT_EQ(result, 8) << "d0 mod 8 should return 8";
+    auto result = analyzeShardResultExprForContiguity(expr, dimBounds, 0);
+    EXPECT_EQ(contiguityBoundToInt64(result), 8) << "d0 mod 8 should return 8";
   }
 
   // Test 4: (d0 * M) mod N where N % M == 0 -> should return N/M.
@@ -1310,9 +1339,10 @@ TEST(AffineMapUtilsTest, AnalyzeShardResultExprForContiguity) {
     AffineExpr d0 = getAffineDimExpr(0, &context);
     AffineExpr expr = (d0 * 4) % 16;
     auto dimBounds = makeDimBounds({{0, 32}});
-    int64_t result = analyzeShardResultExprForContiguity(expr, dimBounds, 0);
+    auto result = analyzeShardResultExprForContiguity(expr, dimBounds, 0);
     // Every 4 steps in d0, we cross a mod 16 boundary.
-    EXPECT_EQ(result, 4) << "(d0 * 4) mod 16 should return 4";
+    EXPECT_EQ(contiguityBoundToInt64(result), 4)
+        << "(d0 * 4) mod 16 should return 4";
   }
 
   // Test 5: (d0 + C) mod N - gap from C to next N boundary.
@@ -1321,8 +1351,9 @@ TEST(AffineMapUtilsTest, AnalyzeShardResultExprForContiguity) {
     AffineExpr d0 = getAffineDimExpr(0, &context);
     AffineExpr expr = (d0 + 3) % 8;
     auto dimBounds = makeDimBounds({{0, 32}});
-    int64_t result = analyzeShardResultExprForContiguity(expr, dimBounds, 0);
-    EXPECT_EQ(result, 5) << "(d0 + 3) mod 8 should return 5";
+    auto result = analyzeShardResultExprForContiguity(expr, dimBounds, 0);
+    EXPECT_EQ(contiguityBoundToInt64(result), 5)
+        << "(d0 + 3) mod 8 should return 5";
   }
 
   // Test 6: (d0 * M + C) mod N - combined multiplier and offset.
@@ -1331,8 +1362,9 @@ TEST(AffineMapUtilsTest, AnalyzeShardResultExprForContiguity) {
     AffineExpr d0 = getAffineDimExpr(0, &context);
     AffineExpr expr = (d0 * 2 + 3) % 10;
     auto dimBounds = makeDimBounds({{0, 32}});
-    int64_t result = analyzeShardResultExprForContiguity(expr, dimBounds, 0);
-    EXPECT_EQ(result, 4) << "(d0 * 2 + 3) mod 10 should return 4";
+    auto result = analyzeShardResultExprForContiguity(expr, dimBounds, 0);
+    EXPECT_EQ(contiguityBoundToInt64(result), 4)
+        << "(d0 * 2 + 3) mod 10 should return 4";
   }
 
   // Test 7: (A*d0 + B*d1) mod N - two dimensions, target is d0.
@@ -1343,8 +1375,9 @@ TEST(AffineMapUtilsTest, AnalyzeShardResultExprForContiguity) {
     AffineExpr d1 = getAffineDimExpr(1, &context);
     AffineExpr expr = (d0 + d1 * 3) % 10;
     auto dimBounds = makeDimBounds({{0, 20}, {1, 4}});
-    int64_t result = analyzeShardResultExprForContiguity(expr, dimBounds, 0);
-    EXPECT_EQ(result, 1) << "(d0 + 3*d1) mod 10 should return 1";
+    auto result = analyzeShardResultExprForContiguity(expr, dimBounds, 0);
+    EXPECT_EQ(contiguityBoundToInt64(result), 1)
+        << "(d0 + 3*d1) mod 10 should return 1";
   }
 
   // Test 8: (A*d0 + B*d1 + C) mod N - two dims with constant.
@@ -1356,8 +1389,9 @@ TEST(AffineMapUtilsTest, AnalyzeShardResultExprForContiguity) {
     AffineExpr d1 = getAffineDimExpr(1, &context);
     AffineExpr expr = (d0 * 2 + d1 * 5 + 3) % 11;
     auto dimBounds = makeDimBounds({{0, 20}, {1, 3}});
-    int64_t result = analyzeShardResultExprForContiguity(expr, dimBounds, 0);
-    EXPECT_EQ(result, 2) << "(2*d0 + 5*d1 + 3) mod 11 should return 2";
+    auto result = analyzeShardResultExprForContiguity(expr, dimBounds, 0);
+    EXPECT_EQ(contiguityBoundToInt64(result), 2)
+        << "(2*d0 + 5*d1 + 3) mod 11 should return 2";
   }
 
   // Test 9: Target dim not in expression -> should return -1.
@@ -1365,8 +1399,8 @@ TEST(AffineMapUtilsTest, AnalyzeShardResultExprForContiguity) {
     AffineExpr d1 = getAffineDimExpr(1, &context);
     AffineExpr expr = (d1 + 5) % 10;
     auto dimBounds = makeDimBounds({{0, 20}, {1, 10}});
-    int64_t result = analyzeShardResultExprForContiguity(expr, dimBounds, 0);
-    EXPECT_EQ(result, -1)
+    auto result = analyzeShardResultExprForContiguity(expr, dimBounds, 0);
+    EXPECT_EQ(contiguityBoundToInt64(result), -1)
         << "Expression without d0 should be unconstrained for d0";
   }
 
@@ -1377,8 +1411,9 @@ TEST(AffineMapUtilsTest, AnalyzeShardResultExprForContiguity) {
     AffineExpr d0 = getAffineDimExpr(0, &context);
     AffineExpr expr = d0 % 100;
     auto dimBounds = makeDimBounds({{0, 5}});
-    int64_t result = analyzeShardResultExprForContiguity(expr, dimBounds, 0);
-    EXPECT_EQ(result, -1) << "d0 mod 100 with small d0 bound should return -1";
+    auto result = analyzeShardResultExprForContiguity(expr, dimBounds, 0);
+    EXPECT_EQ(contiguityBoundToInt64(result), -1)
+        << "d0 mod 100 with small d0 bound should return -1";
   }
 
   // Test 11: FloorDiv expression - d0 floorDiv N.
@@ -1387,8 +1422,9 @@ TEST(AffineMapUtilsTest, AnalyzeShardResultExprForContiguity) {
     AffineExpr d0 = getAffineDimExpr(0, &context);
     AffineExpr expr = d0.floorDiv(4);
     auto dimBounds = makeDimBounds({{0, 16}});
-    int64_t result = analyzeShardResultExprForContiguity(expr, dimBounds, 0);
-    EXPECT_EQ(result, 4) << "d0 floorDiv 4 should return 4";
+    auto result = analyzeShardResultExprForContiguity(expr, dimBounds, 0);
+    EXPECT_EQ(contiguityBoundToInt64(result), 4)
+        << "d0 floorDiv 4 should return 4";
   }
 
   // Test 12: (d0 * M) floorDiv N.
@@ -1397,8 +1433,9 @@ TEST(AffineMapUtilsTest, AnalyzeShardResultExprForContiguity) {
     AffineExpr d0 = getAffineDimExpr(0, &context);
     AffineExpr expr = (d0 * 2).floorDiv(8);
     auto dimBounds = makeDimBounds({{0, 16}});
-    int64_t result = analyzeShardResultExprForContiguity(expr, dimBounds, 0);
-    EXPECT_EQ(result, 4) << "(d0 * 2) floorDiv 8 should return 4";
+    auto result = analyzeShardResultExprForContiguity(expr, dimBounds, 0);
+    EXPECT_EQ(contiguityBoundToInt64(result), 4)
+        << "(d0 * 2) floorDiv 8 should return 4";
   }
 
   // Test 13: Add expression at top level (not under mod/floordiv).
@@ -1409,8 +1446,9 @@ TEST(AffineMapUtilsTest, AnalyzeShardResultExprForContiguity) {
     AffineExpr d1 = getAffineDimExpr(1, &context);
     AffineExpr expr = d0 + (d1 % 4);
     auto dimBounds = makeDimBounds({{0, 16}, {1, 16}});
-    int64_t result = analyzeShardResultExprForContiguity(expr, dimBounds, 0);
-    EXPECT_EQ(result, -1) << "d0 + (d1 mod 4) should be unconstrained for d0";
+    auto result = analyzeShardResultExprForContiguity(expr, dimBounds, 0);
+    EXPECT_EQ(contiguityBoundToInt64(result), -1)
+        << "d0 + (d1 mod 4) should be unconstrained for d0";
   }
 
   // Test 14: Mul with parentModulus propagation.
@@ -1420,9 +1458,10 @@ TEST(AffineMapUtilsTest, AnalyzeShardResultExprForContiguity) {
     AffineExpr expr = d0 * 4;
     auto dimBounds = makeDimBounds({{0, 32}});
     // Call with numGridDims=0, parentModulus = 16.
-    int64_t result =
+    auto result =
         analyzeShardResultExprForContiguity(expr, dimBounds, 0, 0, 16);
-    EXPECT_EQ(result, 4) << "(d0 * 4) with parentModulus 16 should return 4";
+    EXPECT_EQ(contiguityBoundToInt64(result), 4)
+        << "(d0 * 4) with parentModulus 16 should return 4";
   }
 
   // Test 15: Three dimensions - (d0 + 2*d1 + 3*d2) mod 12.
@@ -1435,8 +1474,9 @@ TEST(AffineMapUtilsTest, AnalyzeShardResultExprForContiguity) {
     AffineExpr d2 = getAffineDimExpr(2, &context);
     AffineExpr expr = (d0 + d1 * 2 + d2 * 3) % 12;
     auto dimBounds = makeDimBounds({{0, 20}, {1, 5}, {2, 4}});
-    int64_t result = analyzeShardResultExprForContiguity(expr, dimBounds, 0);
-    EXPECT_EQ(result, 1) << "(d0 + 2*d1 + 3*d2) mod 12 should return 1";
+    auto result = analyzeShardResultExprForContiguity(expr, dimBounds, 0);
+    EXPECT_EQ(contiguityBoundToInt64(result), 1)
+        << "(d0 + 2*d1 + 3*d2) mod 12 should return 1";
   }
 
   // Test 16: Simple case - just target dim and constant, no other dims.
@@ -1445,8 +1485,9 @@ TEST(AffineMapUtilsTest, AnalyzeShardResultExprForContiguity) {
     AffineExpr d0 = getAffineDimExpr(0, &context);
     AffineExpr expr = (d0 + 7) % 10;
     auto dimBounds = makeDimBounds({{0, 32}});
-    int64_t result = analyzeShardResultExprForContiguity(expr, dimBounds, 0);
-    EXPECT_EQ(result, 3) << "(d0 + 7) mod 10 should return 3";
+    auto result = analyzeShardResultExprForContiguity(expr, dimBounds, 0);
+    EXPECT_EQ(contiguityBoundToInt64(result), 3)
+        << "(d0 + 7) mod 10 should return 3";
   }
 
   // Test 17: Case where constant is exact multiple of modulus.
@@ -1455,8 +1496,9 @@ TEST(AffineMapUtilsTest, AnalyzeShardResultExprForContiguity) {
     AffineExpr d0 = getAffineDimExpr(0, &context);
     AffineExpr expr = (d0 + 10) % 10;
     auto dimBounds = makeDimBounds({{0, 32}});
-    int64_t result = analyzeShardResultExprForContiguity(expr, dimBounds, 0);
-    EXPECT_EQ(result, 10) << "(d0 + 10) mod 10 should return 10";
+    auto result = analyzeShardResultExprForContiguity(expr, dimBounds, 0);
+    EXPECT_EQ(contiguityBoundToInt64(result), 10)
+        << "(d0 + 10) mod 10 should return 10";
   }
 
   // Test 18: Large multiplier on target dim.
@@ -1467,8 +1509,9 @@ TEST(AffineMapUtilsTest, AnalyzeShardResultExprForContiguity) {
     AffineExpr d1 = getAffineDimExpr(1, &context);
     AffineExpr expr = (d0 * 5 + d1 * 3) % 11;
     auto dimBounds = makeDimBounds({{0, 20}, {1, 4}});
-    int64_t result = analyzeShardResultExprForContiguity(expr, dimBounds, 0);
-    EXPECT_EQ(result, 1) << "(5*d0 + 3*d1) mod 11 should return 1";
+    auto result = analyzeShardResultExprForContiguity(expr, dimBounds, 0);
+    EXPECT_EQ(contiguityBoundToInt64(result), 1)
+        << "(5*d0 + 3*d1) mod 11 should return 1";
   }
 
   // Test 19: FloorDiv with Add - (d0 + 3) floorDiv 8.
@@ -1477,8 +1520,9 @@ TEST(AffineMapUtilsTest, AnalyzeShardResultExprForContiguity) {
     AffineExpr d0 = getAffineDimExpr(0, &context);
     AffineExpr expr = (d0 + 3).floorDiv(8);
     auto dimBounds = makeDimBounds({{0, 32}});
-    int64_t result = analyzeShardResultExprForContiguity(expr, dimBounds, 0);
-    EXPECT_EQ(result, 5) << "(d0 + 3) floorDiv 8 should return 5";
+    auto result = analyzeShardResultExprForContiguity(expr, dimBounds, 0);
+    EXPECT_EQ(contiguityBoundToInt64(result), 5)
+        << "(d0 + 3) floorDiv 8 should return 5";
   }
 
   // Test 20: Other dim can achieve exact multiple.
@@ -1490,9 +1534,10 @@ TEST(AffineMapUtilsTest, AnalyzeShardResultExprForContiguity) {
     AffineExpr d1 = getAffineDimExpr(1, &context);
     AffineExpr expr = (d0 + d1 * 5) % 10;
     auto dimBounds = makeDimBounds({{0, 20}, {1, 3}});
-    int64_t result = analyzeShardResultExprForContiguity(expr, dimBounds, 0);
+    auto result = analyzeShardResultExprForContiguity(expr, dimBounds, 0);
     // d1=0: gap=10, d1=1: gap=5, d1=2: gap=10. Min gap=5.
-    EXPECT_EQ(result, 5) << "(d0 + 5*d1) mod 10 should return 5";
+    EXPECT_EQ(contiguityBoundToInt64(result), 5)
+        << "(d0 + 5*d1) mod 10 should return 5";
   }
 }
 } // namespace ttmlir::utils

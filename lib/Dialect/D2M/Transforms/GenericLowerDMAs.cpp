@@ -305,7 +305,7 @@ private:
     AffineMap memoryMap = device.getMemoryMap(underlyingMemrefAndView,
                                               0 /* use default page size*/);
 
-    auto coalescingFactor = ttmlir::utils::analyzeShardDimContiguity(
+    auto coalescingFactor = ttmlir::utils::computeCoalescingFactorAnalytically(
         memoryMap, memref.getShape(), memrefGridShape.size(), elemSizeBytes);
 
     // If the coalescing factor is less than the sampling fallback threshold,
