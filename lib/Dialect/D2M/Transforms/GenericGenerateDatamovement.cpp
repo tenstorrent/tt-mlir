@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 
@@ -134,48 +135,48 @@ public:
                                 ArrayRef<ttcore::IteratorType> mcastIterators) {
     Value zero = rewriter.create<arith::ConstantOp>(
         loc, rewriter.getIndexType(), rewriter.getIndexAttr(0));
-    Value one = rewriter.create<arith::ConstantOp>(loc, rewriter.getIndexType(),
-                                                   rewriter.getIndexAttr(1));
 
     McastArguments args;
+    SmallVector<int64_t> mcastShape;
     args.senderCoreIndex.reserve(grid.getShape().size());
     args.mcastShape.reserve(grid.getShape().size());
+    mcastShape.reserve(grid.getShape().size());
+    auto outputShardLayout = mlir::cast<ttcore::ShardLayoutAttr>(
+        ttcore::getDeviceLayout(outputOperand));
     for (auto [dim, iteratorType] : llvm::enumerate(mcastIterators)) {
-      Value core = rewriter.create<CoreIndexOp>(
-          loc, rewriter.getIndexType(), rewriter.getI64IntegerAttr(dim));
-      auto outputShardLayout = mlir::cast<ttcore::ShardLayoutAttr>(
-          ttcore::getDeviceLayout(outputOperand));
-      if (outputShardLayout.getCoreVirtualizationMap().isIdentity()) {
-        if (iteratorType == ttcore::IteratorType::Parallel) {
-          args.senderCoreIndex.push_back(Value(core));
-          args.mcastShape.push_back(Value(one));
-        } else {
-          int64_t numDests = grid.getShape()[dim];
-          Value gridDim = rewriter.create<arith::ConstantOp>(
-              loc, rewriter.getIndexType(), rewriter.getIndexAttr(numDests));
-          assert(iteratorType == ttcore::IteratorType::Reduction);
-          args.senderCoreIndex.push_back(zero);
-          args.mcastShape.push_back(gridDim);
-          args.mcastVolume *= numDests;
+      Value virtCore = rewriter.create<VirtualGridCoreIndexOp>(
+          loc, rewriter.getIndexType(), rewriter.getI64IntegerAttr(dim),
+          mlir::AffineMapAttr::get(grid.getMapping()));
 
-          Value condition = rewriter.create<arith::CmpIOp>(
-              loc, rewriter.getI1Type(), mlir::arith::CmpIPredicate::eq, core,
-              zero);
-          args.conditions.push_back(condition);
-        }
+      if (iteratorType == ttcore::IteratorType::Parallel) {
+        args.senderCoreIndex.push_back(Value(virtCore));
+        mcastShape.push_back(1);
       } else {
-        args.senderCoreIndex.push_back(Value(zero));
-        auto outputPhysicalGridShape = outputShardLayout.getPhysicalGridShape(
-            mlir::cast<ShapedType>(outputOperand.getType()));
-        args.mcastShape.push_back(rewriter.create<arith::ConstantOp>(
-            loc, rewriter.getIndexType(),
-            rewriter.getIndexAttr(outputPhysicalGridShape[dim])));
-        args.mcastVolume *= outputPhysicalGridShape[dim];
+        int64_t numDests = grid.getShape()[dim];
+        assert(iteratorType == ttcore::IteratorType::Reduction);
+        args.senderCoreIndex.push_back(zero);
+        mcastShape.push_back(numDests);
+        args.mcastVolume *= numDests;
 
-        args.conditions.push_back(rewriter.create<arith::CmpIOp>(
-            loc, rewriter.getI1Type(), mlir::arith::CmpIPredicate::eq, core,
-            zero));
+        Value condition = rewriter.create<arith::CmpIOp>(
+            loc, rewriter.getI1Type(), mlir::arith::CmpIPredicate::eq, virtCore,
+            zero);
+        args.conditions.push_back(condition);
       }
+    }
+
+    if (!outputShardLayout.getCoreVirtualizationMap().isEmpty()) {
+      auto coreVirtMap = outputShardLayout.getCoreVirtualizationMap();
+      auto dimsToRemove = coreVirtMap.getNumResults() - mcastShape.size();
+      llvm::SmallBitVector projectedDims(coreVirtMap.getNumDims());
+      projectedDims.set(dimsToRemove, coreVirtMap.getNumDims());
+      auto projectedMap = getProjectedMap(coreVirtMap, projectedDims);
+      projectedMap = projectedMap.dropResults(projectedDims);
+      mcastShape = ttmlir::utils::evalShape(projectedMap, mcastShape);
+    }
+    for (int64_t dim : mcastShape) {
+      args.mcastShape.push_back(rewriter.create<arith::ConstantOp>(
+          loc, rewriter.getIndexType(), rewriter.getIndexAttr(dim)));
     }
 
     return args;

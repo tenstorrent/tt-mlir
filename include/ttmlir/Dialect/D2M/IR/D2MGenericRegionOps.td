@@ -1611,6 +1611,30 @@ def D2M_CoreIndexOp : D2M_IndexOp<"core_index"> {
     }];
 }
 
+def D2M_VirtualGridCoreIndexOp : D2M_GenericRegionOp<"vg_core_index", [Pure]> {
+    let summary = "Virtual Grid Core Index op.";
+    let description = [{
+      Return the virtualized core index for the given dimension.
+
+      This is similar to `d2m.core_index`, but additionally applies a provided
+      physical-to-virtual grid affine map to the physical core coordinates and
+      returns the mapped coordinate at `dim`.
+
+      The affine map is stored in the `phys_to_virt_map` attribute.
+    }];
+
+    // The map is expressed over physical grid dims (d0, d1) and is expected to
+    // return a virtual grid dim. This op returns the selected result `dim` of
+    // the map.
+    let arguments = (ins
+      ConfinedAttr<I64Attr, [IntMinValue<0>, IntMaxValue<1>]>:$dim,
+      AffineMapAttr:$phys_to_virt_map
+    );
+
+    let results = (outs Index:$result);
+    let assemblyFormat = [{ `(` $dim `)` attr-dict `:` type($result) }];
+}
+
 //===----------------------------------------------------------------------===//
 // D2M Remote Access ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//
