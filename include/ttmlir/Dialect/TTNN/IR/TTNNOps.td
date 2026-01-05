@@ -1486,6 +1486,12 @@ def TTNN_LinearOp : TTNN_Op<"linear"> {
                          Optional<AnyRankedTensor>:$bias,
                          DefaultValuedAttr<BoolAttr, "false">:$transpose_a,
                          DefaultValuedAttr<BoolAttr, "false">:$transpose_b,
+                         OptionalAttr<AnyAttrOf<[
+                            TTNN_MatmulMultiCoreReuseProgramConfigAttr,
+                            TTNN_MatmulMultiCoreReuseMultiCastProgramConfigAttr,
+                            TTNN_MatmulMultiCoreReuseMultiCast1DProgramConfigAttr,
+                            TTNN_MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr
+                         ]>>:$matmul_program_config,
                          OptionalAttr<StrAttr>:$activation,
                          OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
 
@@ -1497,7 +1503,8 @@ def TTNN_LinearOp : TTNN_Op<"linear"> {
                      "StringAttr":$activation),
       [{
         build($_builder, $_state, result, a, b, bias, transpose_a, transpose_b,
-              activation, /*compute_config=*/nullptr);
+              /*matmul_program_config=*/nullptr, activation,
+              /*compute_config=*/nullptr);
       }]>
     ];
 
