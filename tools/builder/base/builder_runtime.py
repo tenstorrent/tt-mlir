@@ -582,6 +582,8 @@ def execute_fb(
     golden_intermediate_torch_tensors = convert_golden_intermediates_to_torch(
         intermediate_goldens
     )
+    output_tensors = {}
+    golden_report = {}
     if bypass_ops is None:
         bypass_ops = []
 
@@ -612,7 +614,8 @@ def execute_fb(
         callback_runtime_config.start_new_program(
             f"{artifact_dir}/program_{program_index}"
         )
-        golden_report = {}
+        program_golden_report = {}
+        program_output_tensors = {}
 
         input_dict = program_inputs_as_dict(fbb, program_index)
         output_dict = program_outputs_as_dict(fbb, program_index)
@@ -724,7 +727,9 @@ def execute_fb(
                 check_rtol,
             )
 
-            golden_report[f"output_{i}"] = {0: results}
+            program_golden_report[f"output_{i}"] = {0: results}
+            program_output_tensors[f"device_output_{i}"] = output_tensor_torch
+            program_output_tensors[f"golden_output_{i}"] = golden_tensor_torch
 
             if save_artifacts:
                 program_artifact_dir = os.path.join(
@@ -741,15 +746,21 @@ def execute_fb(
                     f"golden_output_{i}.pt",
                 )
 
-        for loc, device_results in callback_runtime_config.golden_report.items():
-            golden_report[loc] = device_results
+        if not disable_golden:
+            for loc, device_results in callback_runtime_config.golden_report.items():
+                program_golden_report[loc] = device_results
 
-        if save_artifacts and not disable_golden:
-            artifact_file = os.path.join(
-                artifact_dir, f"program_{program_index}", "golden_report.json"
-            )
-            with open(artifact_file, "w") as f:
-                json.dump(golden_report, f, indent=4)
+            if save_artifacts:
+                artifact_file = os.path.join(
+                    artifact_dir, f"program_{program_index}", "golden_report.json"
+                )
+                with open(artifact_file, "w") as f:
+                    json.dump(program_golden_report, f, indent=4)
+
+            golden_report[f"program_{program_index}"] = program_golden_report
+            output_tensors[f"program_{program_index}"] = program_output_tensors
+
+    return golden_report, output_tensors
 
 
 def execute_py(
@@ -785,6 +796,8 @@ def execute_py(
     golden_input_output_tensors = convert_golden_input_output_to_torch(
         input_output_goldens
     )
+    output_tensors = {}
+    golden_report = {}
 
     try:
         # Parse the AST to find function names from the compiled source
@@ -805,7 +818,8 @@ def execute_py(
         exec(compile(compiled_bin, filename=module_name, mode="exec"), module.__dict__)
 
         for program_index, program_name in enumerate(program_names):
-            golden_report = {}
+            program_golden_report = {}
+            program_output_tensors = {}
             create_program_inputs = "create_inputs_for_" + program_name
             create_inputs_func = getattr(module, create_program_inputs)
             inputs = create_inputs_func()
@@ -851,7 +865,9 @@ def execute_py(
                         check_rtol,
                     )
 
-                    golden_report[f"output_{i}"] = {0: results}
+                    program_golden_report[f"output_{i}"] = {0: results}
+                    program_output_tensors[f"device_output_{i}"] = output_tensor_torch
+                    program_output_tensors[f"golden_output_{i}"] = golden_tensor_torch
 
                     if save_artifacts:
                         program_artifact_dir = os.path.join(
@@ -875,8 +891,13 @@ def execute_py(
                     with open(artifact_file, "w") as f:
                         json.dump(golden_report, f, indent=4)
 
+                golden_report[f"program_{program_index}"] = program_golden_report
+                output_tensors[f"program_{program_index}"] = program_output_tensors
+
     except Exception as e:
         raise TTBuilderRuntimeException(e) from e
+
+    return golden_report, output_tensors
 
 
 def execute_cpp(
@@ -929,6 +950,8 @@ def execute_cpp(
     golden_input_output_tensors = convert_golden_input_output_to_torch(
         input_output_goldens
     )
+    output_tensors = {}
+    golden_report = {}
 
     try:
         emitc_dylib_handle = tt_runtime.runtime.test.open_so(so_path)
@@ -937,7 +960,9 @@ def execute_cpp(
         )
 
         for program_index, program_name in enumerate(program_names):
-            golden_report = {}
+            program_golden_report = {}
+            program_output_tensors = {}
+
             inputs = tt_runtime.runtime.test.create_inputs(
                 emitc_dylib_handle,
                 program_name,
@@ -998,7 +1023,9 @@ def execute_cpp(
                         check_rtol,
                     )
 
-                    golden_report[f"output_{i}"] = {0: results}
+                    program_golden_report[f"output_{i}"] = {0: results}
+                    program_output_tensors[f"device_output_{i}"] = output_tensor_torch
+                    program_output_tensors[f"golden_output_{i}"] = golden_tensor_torch
 
                     if save_artifacts:
                         program_artifact_dir = os.path.join(
@@ -1022,5 +1049,10 @@ def execute_cpp(
                     with open(artifact_file, "w") as f:
                         json.dump(golden_report, f, indent=4)
 
+                golden_report[f"program_{program_index}"] = program_golden_report
+                output_tensors[f"program_{program_index}"] = program_output_tensors
+
     except Exception as e:
         raise TTBuilderRuntimeException(e) from e
+
+    return golden_report, output_tensors
