@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreTraits.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/FunctionTypes.h"
 #include "ttmlir/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
 
@@ -515,8 +516,8 @@ private:
     auto newFuncOp = builder.create<func::FuncOp>(originalFunc.getLoc(),
                                                   newFuncName, funcType);
     // Mark the new function as const-eval and private.
-    newFuncOp->setAttr(ttmlir::utils::g_constEvalAttrName,
-                       builder.getUnitAttr());
+    ttmlir::utils::setFunctionType(newFuncOp,
+                                   ttmlir::utils::FunctionType::ConstEval);
     newFuncOp.setPrivate();
 
     // Retain connv2dWeight input attributes from original function.

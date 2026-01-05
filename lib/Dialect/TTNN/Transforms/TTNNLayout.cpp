@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/FunctionTypes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
@@ -453,11 +454,11 @@ public:
 private:
   ttcore::GridAttr deviceGrid;
 
-  // Rewrite the function declaration to have system memory in/out types
-  // Func declarations are used by CPU-hoisted functions.
+  // Rewrite the CPU-hoisted function declarations to have system memory in/out
+  // types.
   bool rewriteFuncDecl(mlir::func::FuncOp funcOp,
                        PatternRewriter &rewriter) const {
-    if (!funcOp.isDeclaration()) {
+    if (!ttmlir::utils::isForwardCPUDeclarationFunc(funcOp)) {
       return false;
     }
 
@@ -490,9 +491,9 @@ private:
 
   bool rewriteInput(mlir::func::FuncOp funcOp,
                     PatternRewriter &rewriter) const {
-    // Func declarations are always CPU-hoisted funcs, which means all inputs
-    // should stay in system  memory.
-    if (funcOp.isDeclaration()) {
+    // For CPU-hoisted declarations, all inputs should stay in the system
+    // memory.
+    if (ttmlir::utils::isForwardCPUDeclarationFunc(funcOp)) {
       return false;
     }
     bool modified = false;
@@ -537,9 +538,9 @@ private:
 
   bool rewriteOutput(mlir::func::FuncOp funcOp,
                      PatternRewriter &rewriter) const {
-    // Func declarations are always CPU-hoisted funcs, which means all outputs
-    // should stay in system  memory.
-    if (funcOp.isDeclaration()) {
+    // For CPU-hoisted declarations, all outputs should stay in the system
+    // memory.
+    if (ttmlir::utils::isForwardCPUDeclarationFunc(funcOp)) {
       return false;
     }
 

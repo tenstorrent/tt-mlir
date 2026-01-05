@@ -15,6 +15,7 @@
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/Utils/VerificationUtils.h"
+#include "ttmlir/FunctionTypes.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
@@ -481,7 +482,7 @@ static bool isDefinedByOp(mlir::Value value) {
 
   func::FuncOp funcOp =
       mlir::dyn_cast<func::FuncOp>(arg.getOwner()->getParentOp());
-  if (!funcOp || !utils::isTTNNTraceFunc(funcOp)) {
+  if (!funcOp || !ttmlir::utils::isTraceFunc(funcOp)) {
     return false;
   }
 
