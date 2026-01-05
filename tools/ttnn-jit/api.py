@@ -23,7 +23,7 @@ def jit(
         compile_only: If True, only compile the function to a flatbuffer.
         debug: If True, print debug information during compilation and execution.
         frontend: Frontend to use for IR generation:
-            - "ast": AST-based compiler (TTIR dialect)
+            - "ast": AST-based compiler (TTNN dialect)
             - "graph_capture": Graph trace compiler (TTNN dialect)
             - "tracing": Tracing-based compiler (TTIR dialect)
         math_fidelity: Set the math fidelity level for computations. Options are "LoFi", "HiFi2", "HiFi3", and "HiFi4".

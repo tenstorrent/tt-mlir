@@ -6,7 +6,7 @@ import ast
 import inspect
 
 from ttmlir.dialects import func
-from ttmlir.ir import Context, Location, Module, InsertionPoint
+from ttmlir.ir import Context, Location, Module, InsertionPoint, RankedTensorType
 
 from ttnn_jit._src.utils import cleanup_source_code
 from ttnn_jit._src.tensor_translator import create_tensor_layout
@@ -27,9 +27,8 @@ class JitContext:
 class TracingCompiler:
     """Compiler for generating TTIR from tracing execution."""
 
-    def __init__(self, func, debug, *args, **kwargs):
+    def __init__(self, func, *args, **kwargs):
         self.func = func
-        self.debug = debug
         self.args = args
         self.kwargs = kwargs
         self.tensor_args = kwargs.get("_tensor_args", {})
@@ -86,23 +85,11 @@ class TracingCompiler:
             self._update_function_signature(
                 module, func_op, input_types, [return_type], func_bb, return_value, ctx
             )
-
-            if self.debug:
-                print(f"Module: {module}")
-                print(f"Code executed successfully. Result: {result}")
-
-            # Verify IR
-            if self.debug:
-                print("---- IR Dump after TracingCompiler (Tracing-based) ----")
-                print(module)
-            module.operation.verify()
-
         except Exception as e:
             import traceback
 
-            if self.debug:
-                print(f"Error executing the code: {e}")
-                traceback.print_exc()
+            print(f"Error executing the code: {e}")
+            traceback.print_exc()
             raise e
 
         return module
@@ -127,12 +114,8 @@ class TracingCompiler:
                 if i < len(self.args) and param_name in self.tensor_args:
                     tensor_arg = self.tensor_args[param_name]
                     shape = list(tensor_arg.shape)
-                    # For TTIR with ttnn-mode=false, don't use TTNN layouts
-                    # Use plain RankedTensorType (no encoding)
                     dtype = mlir_dtype_from_ttnn_dtype(tensor_arg.dtype, ctx)
                     encoding = create_tensor_layout(ctx, tensor_arg)
-                    from ttmlir.ir import RankedTensorType
-
                     tensor_type = RankedTensorType.get(shape, dtype, encoding)
                     input_types.append(tensor_type)
 
@@ -145,18 +128,8 @@ class TracingCompiler:
         # Get the source code of the function (without decorators, already dedented)
         source = cleanup_source_code(self.func)
 
-        if self.debug:
-            print("---- Original source code ----")
-            print(source)
-            print("---- End original source code ----\n")
-
         # Replace ttnn with ttnn_jit in the source code
         modified_source = source.replace("ttnn.", "ttnn_jit.")
-
-        if self.debug:
-            print("---- Modified source code (ttnn -> jit) ----")
-            print(modified_source)
-            print("---- End modified source code ----\n")
 
         # Parse the modified source code into an AST
         tree = ast.parse(modified_source)
@@ -183,14 +156,7 @@ class TracingCompiler:
         # Create ttnn_jit module object with jit functions as attributes
         namespace["ttnn_jit"] = TTNNJitNamespaceUpdater(jit_ctx)
 
-        if self.debug:
-            print("ttnn_jit namespace: ", namespace["ttnn_jit"])
-            print("Executing the code in modifier:")
-
         exec(code, namespace)
-
-        if self.debug:
-            print("Code executed in modifier")
 
         # Get the function from the namespace (it will have the same name as the original)
         modified_func = namespace[self.func.__name__]
@@ -247,6 +213,3 @@ class TracingCompiler:
 
         # Erase the old function
         func_op.erase()
-
-        # Update the module's reference to use the new function
-        # The new function is already in the module body, so we're done

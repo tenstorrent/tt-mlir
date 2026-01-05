@@ -34,6 +34,22 @@ def _get_tensor_args(func, *tensors):
 # ============================================================
 
 
+def exp_func(a):
+    return ttnn.exp(a)
+
+
+def neg_func(a):
+    return ttnn.neg(a)
+
+
+def relu_func(a):
+    return ttnn.relu(a)
+
+
+def sqrt_func(a):
+    return ttnn.sqrt(a)
+
+
 def add_func(a, b):
     return ttnn.add(a, b)
 
@@ -44,6 +60,10 @@ def subtract_func(a, b):
 
 def multiply_func(a, b):
     return ttnn.multiply(a, b)
+
+
+def divide_func(a, b):
+    return ttnn.divide(a, b)
 
 
 def sum_func(a):
@@ -89,6 +109,46 @@ if __name__ == "__main__":
     input_c = create_sharded_tile_tensor(device, (64, 128), (0, 0), torch.bfloat16)
 
     # ============================================================
+    # Unary operations tests
+    # ============================================================
+
+    # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
+    # CHECK: func.func @exp_func
+    # CHECK-SAME: (%arg0: [[IN_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout>]])
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<[0-9]+x[0-9]+xbf16>]]
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.exp"(%arg0)
+    # CHECK-SAME: ([[IN_TYPE]]) -> [[OUT_TYPE]]
+    # CHECK: return %[[VAL]] : [[OUT_TYPE]]
+    test_ir_generation(exp_func, input_a)
+
+    # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
+    # CHECK: func.func @neg_func
+    # CHECK-SAME: (%arg0: [[IN_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout>]])
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<[0-9]+x[0-9]+xbf16>]]
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.neg"(%arg0)
+    # CHECK-SAME: ([[IN_TYPE]]) -> [[OUT_TYPE]]
+    # CHECK: return %[[VAL]] : [[OUT_TYPE]]
+    test_ir_generation(neg_func, input_a)
+
+    # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
+    # CHECK: func.func @relu_func
+    # CHECK-SAME: (%arg0: [[IN_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout>]])
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<[0-9]+x[0-9]+xbf16>]]
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.relu"(%arg0)
+    # CHECK-SAME: ([[IN_TYPE]]) -> [[OUT_TYPE]]
+    # CHECK: return %[[VAL]] : [[OUT_TYPE]]
+    test_ir_generation(relu_func, input_a)
+
+    # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
+    # CHECK: func.func @sqrt_func
+    # CHECK-SAME: (%arg0: [[IN_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout>]])
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<[0-9]+x[0-9]+xbf16>]]
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.sqrt"(%arg0)
+    # CHECK-SAME: ([[IN_TYPE]]) -> [[OUT_TYPE]]
+    # CHECK: return %[[VAL]] : [[OUT_TYPE]]
+    test_ir_generation(sqrt_func, input_a)
+
+    # ============================================================
     # Binary operations tests
     # ============================================================
 
@@ -121,6 +181,16 @@ if __name__ == "__main__":
     # CHECK-SAME: ([[IN_TYPE]], [[IN_TYPE]]) -> [[OUT_TYPE]]
     # CHECK: return %[[VAL]] : [[OUT_TYPE]]
     test_ir_generation(multiply_func, input_a, input_b)
+
+    # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
+    # CHECK: func.func @divide_func
+    # CHECK-SAME: (%arg0: [[IN_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout>]]
+    # CHECK-SAME: %arg1: [[IN_TYPE]])
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<[0-9]+x[0-9]+xbf16>]]
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.div"(%arg0, %arg1)
+    # CHECK-SAME: ([[IN_TYPE]], [[IN_TYPE]]) -> [[OUT_TYPE]]
+    # CHECK: return %[[VAL]] : [[OUT_TYPE]]
+    test_ir_generation(divide_func, input_a, input_b)
 
     # ============================================================
     # Reduction operations tests

@@ -67,8 +67,10 @@ def generate_ir_from_graph(f, debug, *args, **kwargs):
 
 
 def generate_ir_from_tracing(f, debug, *args, **kwargs):
-    compiler = TracingCompiler(f, debug, *args, **kwargs)
-    return compiler.compile()
+    compiler = TracingCompiler(f, *args, **kwargs)
+    ir = compiler.compile()
+    print_and_verify_ir(ir, "TracingCompiler (Tracing-based)", debug)
+    return ir
 
 
 # This utility function, though not used in production code, can help in debugging whether both
