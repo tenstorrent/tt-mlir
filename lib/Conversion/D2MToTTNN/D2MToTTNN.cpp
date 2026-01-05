@@ -115,7 +115,8 @@ public:
   createKernelDescriptors(Builder &builder, const ArrayAttr &threads,
                           const ttnn::CoreRangeSetAttr &coreRangeSet,
                           const SymbolTable &symbolTable,
-                          ttmetal::MathFidelity mathFidelity) {
+                          ttmetal::MathFidelity mathFidelity,
+                          mlir::OperandRange operands) {
     SmallVector<mlir::Attribute> kernelConfigs(threads.size());
     int nocIndex = 0;
     for (const auto [i, thread] : llvm::enumerate(threads)) {
@@ -147,10 +148,20 @@ public:
       switch (threadAttr.getThreadType()) {
       case d2m::ThreadType::Compute: {
         // TODO (vtangTT) #5032: support lowering to different compute configs.
+        // Check if any operand is 32-bit to enable fp32 dest accumulator.
+        bool fp32DestAccum = false;
+        for (Value operand : operands) {
+          ttcore::DataType dataType = ttcore::elementTypeToDataType(
+              ttcore::getOperandInnerElementType(operand));
+          if (ttcore::getNumberOfBits(dataType) == 32) {
+            fp32DestAccum = true;
+            break;
+          }
+        }
         kernelConfigs[i] = builder.getAttr<ttnn::ComputeKernelAttr>(
             kernelSymbol, coreRangeSet,
             /*math_fidelity*/ convertMathFidelity(mathFidelity),
-            /*fp32DestAccum*/ false,
+            /*fp32DestAccum*/ fp32DestAccum,
             /*dst_full_sync_en*/ false,
             /*unpack_to_dest_mode*/
             ArrayRef<ttnn::ComputeKernelUnpackToDestMode>{
@@ -290,7 +301,8 @@ public:
     SymbolTable opSymTable(op->getParentOfType<ModuleOp>());
     llvm::SmallVector<mlir::Attribute> kernelDescriptors =
         createKernelDescriptors(rewriter, op.getThreads(), coreRangeSet,
-                                opSymTable, this->mathFidelity);
+                                opSymTable, this->mathFidelity,
+                                op->getOperands());
 
     // Extract semaphore descriptors from kernel functions.
     llvm::SmallVector<ttnn::KernelSemaphoreAttr> semaphoreDescriptors =
