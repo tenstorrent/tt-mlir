@@ -328,8 +328,12 @@ private:
       size_t sampledCoalescingFactor = ttmlir::utils::calculateCoalescingFactor(
           memoryMap, memref.getShape(), elemSizeBytes, memrefGridShape.size());
 
-      if (coalescingFactor != sampledCoalescingFactor &&
-          sampledCoalescingFactor % coalescingFactor == 0) {
+      if (coalescingFactor == sampledCoalescingFactor) {
+        llvm::dbgs() << "[CoalescingFactor] analytical and sampled coalescing "
+                        "factors MATCH = "
+                     << coalescingFactor << "\n";
+      } else if (coalescingFactor != sampledCoalescingFactor &&
+                 sampledCoalescingFactor % coalescingFactor == 0) {
         llvm::dbgs()
             << "[CoalescingFactor] analytical coalescing factor is valid, but "
                "a fraction of the sampled coalescing factor!\n";
