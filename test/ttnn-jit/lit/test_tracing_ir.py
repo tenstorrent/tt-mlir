@@ -57,7 +57,7 @@ def matmul_func(a, b):
 def chained_ops_func(a, b):
     x = ttnn.add(a, b)
     y = ttnn.multiply(x, a)
-    return ttnn.subtract(y, b)
+    return ttnn.subtract(b, y)
 
 
 def max_func(a):
@@ -65,7 +65,7 @@ def max_func(a):
 
 
 def mean_func(a):
-    return ttnn.mean(a, dim=0, keepdim=True)
+    return ttnn.mean(a, dim=0, keepdim=False)
 
 
 # ============================================================
@@ -76,7 +76,6 @@ def mean_func(a):
 def test_ir_generation(func, *tensors, debug=True):
     """Generate and print IR for a function."""
     tensor_args = _get_tensor_args(func, *tensors)
-    # generate_ir_from_tracing(f, debug, *args, **kwargs)
     ir = generate_ir_from_tracing(func, debug, *tensors, _tensor_args=tensor_args)
     return ir
 
@@ -95,20 +94,32 @@ if __name__ == "__main__":
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @add_func
-    # CHECK: ttir.add
-    # CHECK: return
+    # CHECK-SAME: (%arg0: [[IN_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout>]]
+    # CHECK-SAME: %arg1: [[IN_TYPE]])
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<[0-9]+x[0-9]+xbf16>]]
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.add"(%arg0, %arg1)
+    # CHECK-SAME: ([[IN_TYPE]], [[IN_TYPE]]) -> [[OUT_TYPE]]
+    # CHECK: return %[[VAL]] : [[OUT_TYPE]]
     test_ir_generation(add_func, input_a, input_b)
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @subtract_func
-    # CHECK: ttir.subtract
-    # CHECK: return
+    # CHECK-SAME: (%arg0: [[IN_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout>]]
+    # CHECK-SAME: %arg1: [[IN_TYPE]])
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<[0-9]+x[0-9]+xbf16>]]
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.subtract"(%arg0, %arg1)
+    # CHECK-SAME: ([[IN_TYPE]], [[IN_TYPE]]) -> [[OUT_TYPE]]
+    # CHECK: return %[[VAL]] : [[OUT_TYPE]]
     test_ir_generation(subtract_func, input_a, input_b)
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @multiply_func
-    # CHECK: ttir.multiply
-    # CHECK: return
+    # CHECK-SAME: (%arg0: [[IN_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout>]]
+    # CHECK-SAME: %arg1: [[IN_TYPE]])
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<[0-9]+x[0-9]+xbf16>]]
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.multiply"(%arg0, %arg1)
+    # CHECK-SAME: ([[IN_TYPE]], [[IN_TYPE]]) -> [[OUT_TYPE]]
+    # CHECK: return %[[VAL]] : [[OUT_TYPE]]
     test_ir_generation(multiply_func, input_a, input_b)
 
     # ============================================================
@@ -117,26 +128,35 @@ if __name__ == "__main__":
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @sum_func
-    # CHECK: ttir.sum
+    # CHECK-SAME: (%arg0: tensor<64x64xbf16, #ttnn_layout>)
+    # CHECK-SAME: -> tensor<1x64xbf16>
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.sum"(%arg0)
     # CHECK-SAME: dim_arg = [0 : i32]
     # CHECK-SAME: keep_dim = true
-    # CHECK: return
+    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> tensor<1x64xbf16>
+    # CHECK: return %[[VAL]] : tensor<1x64xbf16>
     test_ir_generation(sum_func, input_a)
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @max_func
-    # CHECK: ttir.max
+    # CHECK-SAME: (%arg0: tensor<64x64xbf16, #ttnn_layout>)
+    # CHECK-SAME: -> tensor<64x1xbf16>
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.max"(%arg0)
     # CHECK-SAME: dim_arg = [1 : i32]
     # CHECK-SAME: keep_dim = true
-    # CHECK: return
+    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> tensor<64x1xbf16>
+    # CHECK: return %[[VAL]] : tensor<64x1xbf16>
     test_ir_generation(max_func, input_a)
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @mean_func
-    # CHECK: ttir.mean
+    # CHECK-SAME: (%arg0: tensor<64x64xbf16, #ttnn_layout>)
+    # CHECK-SAME: -> tensor<64xbf16>
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.mean"(%arg0)
     # CHECK-SAME: dim_arg = [0 : i32]
-    # CHECK-SAME: keep_dim = true
-    # CHECK: return
+    # CHECK-SAME: keep_dim = false
+    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>) -> tensor<64xbf16>
+    # CHECK: return %[[VAL]] : tensor<64xbf16>
     test_ir_generation(mean_func, input_a)
 
     # ============================================================
@@ -145,10 +165,14 @@ if __name__ == "__main__":
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @matmul_func
-    # CHECK: ttir.matmul
+    # CHECK-SAME: (%arg0: tensor<64x64xbf16, #ttnn_layout>
+    # CHECK-SAME: %arg1: tensor<64x128xbf16, #ttnn_layout1>)
+    # CHECK-SAME: -> tensor<64x128xbf16>
+    # CHECK: %[[VAL:[0-9]+]] = "ttir.matmul"(%arg0, %arg1)
     # CHECK-SAME: transpose_a = false
     # CHECK-SAME: transpose_b = false
-    # CHECK: return
+    # CHECK-SAME: (tensor<64x64xbf16, #ttnn_layout>, tensor<64x128xbf16, #ttnn_layout1>) -> tensor<64x128xbf16>
+    # CHECK: return %[[VAL]] : tensor<64x128xbf16>
     test_ir_generation(matmul_func, input_a, input_c)
 
     # ============================================================
@@ -157,10 +181,16 @@ if __name__ == "__main__":
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @chained_ops_func
-    # CHECK: ttir.add
-    # CHECK: ttir.multiply
-    # CHECK: ttir.subtract
-    # CHECK: return
+    # CHECK-SAME: (%arg0: [[IN_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout>]]
+    # CHECK-SAME: %arg1: [[IN_TYPE]])
+    # CHECK-SAME: -> [[OUT_TYPE:tensor<[0-9]+x[0-9]+xbf16>]]
+    # CHECK: %[[V0:[0-9]+]] = "ttir.add"(%arg0, %arg1)
+    # CHECK-SAME: ([[IN_TYPE]], [[IN_TYPE]]) -> [[OUT_TYPE]]
+    # CHECK: %[[V1:[0-9]+]] = "ttir.multiply"(%[[V0]], %arg0)
+    # CHECK-SAME: ([[OUT_TYPE]], [[IN_TYPE]]) -> [[OUT_TYPE]]
+    # CHECK: %[[V2:[0-9]+]] = "ttir.subtract"(%arg1, %[[V1]])
+    # CHECK-SAME: ([[IN_TYPE]], [[OUT_TYPE]]) -> [[OUT_TYPE]]
+    # CHECK: return %[[V2]] : [[OUT_TYPE]]
     test_ir_generation(chained_ops_func, input_a, input_b)
 
     ttnn.close_device(device)

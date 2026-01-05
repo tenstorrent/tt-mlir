@@ -100,9 +100,9 @@ def test_height_width_mixed_legacy_sharding_types(
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
 @pytest.mark.parametrize("op", [add])
-@pytest.mark.parametrize("graph_capture", [True, False])
+@pytest.mark.parametrize("frontend", ["ast", "graph_capture"])
 def test_height_block_mixed_legacy_sharding_types(
-    device, shape, max_grid, dtype, op, graph_capture
+    device, shape, max_grid, dtype, op, frontend
 ):
 
     if max_grid == (7, 7):
@@ -124,7 +124,7 @@ def test_height_block_mixed_legacy_sharding_types(
 
     op_jit = ttnn_jit.jit(
         debug=True,
-        graph_capture=graph_capture,
+        frontend=frontend,
     )(op)
     output_tensor = op_jit(input_tensor_a, input_tensor_b)
 
@@ -143,9 +143,9 @@ def test_height_block_mixed_legacy_sharding_types(
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
 @pytest.mark.parametrize("op", [add])
-@pytest.mark.parametrize("graph_capture", [True, False])
+@pytest.mark.parametrize("frontend", ["ast", "graph_capture"])
 def test_width_block_mixed_legacy_sharding_types(
-    device, shape, max_grid, dtype, op, graph_capture
+    device, shape, max_grid, dtype, op, frontend
 ):
 
     if max_grid == (7, 7) or max_grid == (0, 7):
@@ -167,7 +167,7 @@ def test_width_block_mixed_legacy_sharding_types(
 
     op_jit = ttnn_jit.jit(
         debug=True,
-        graph_capture=graph_capture,
+        frontend=frontend,
     )(op)
     output_tensor = op_jit(input_tensor_a, input_tensor_b)
 
