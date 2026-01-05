@@ -10,7 +10,6 @@ import time
 import shutil
 import traceback
 from pathlib import Path
-import ast
 
 from ttrt.common.util import *
 
@@ -333,22 +332,16 @@ class EmitPy:
                     f"module {module_name} loaded and executed successfully"
                 )
 
-                # Parse the AST to find function names
-                with open(dylib.file_path, "r") as f:
-                    source_code = f.read()
-
-                tree = ast.parse(source_code)
+                # Find forward device functions by checking the _tt_function_type attribute
+                # set by the @utils.forward_device decorator.
                 program_names = []
-                for node in ast.walk(tree):
+                for name in dir(module):
+                    obj = getattr(module, name)
                     if (
-                        isinstance(node, ast.FunctionDef)
-                        and node.name != "main"
-                        and node.name[0:18] != "create_inputs_for_"
-                        and not node.name.__contains__("_const_eval_")
-                        # TODO(dmilinkovic): this is getting out of hand, issue #6386.
-                        and not node.name.__contains__("hoisted_")
+                        callable(obj)
+                        and getattr(obj, "_tt_function_type", None) == "forward_device"
                     ):
-                        program_names.append(node.name)
+                        program_names.append(name)
 
                 self.logging.debug(f"Program names found: {program_names}")
 

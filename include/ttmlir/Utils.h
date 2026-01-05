@@ -25,8 +25,6 @@
 
 namespace ttmlir::utils {
 
-constexpr inline llvm::StringLiteral g_constEvalAttrName = "const_eval";
-constexpr inline llvm::StringLiteral g_traceMainAttrName = "trace_main";
 constexpr inline llvm::StringLiteral g_conv2dWeightAttrName =
     "ttir.conv2d_weight";
 constexpr inline llvm::StringLiteral g_cpuHoistFuncCallAttrName =
@@ -602,20 +600,6 @@ inline bool allUsersOfType(mlir::Operation *srcOp) {
 // Count the number of users of a value.
 inline size_t countUsers(mlir::Value value) {
   return std::distance(value.user_begin(), value.user_end());
-}
-
-inline bool isConstEvalFunc(mlir::Operation *op) {
-  if (auto funcOp = mlir::dyn_cast<mlir::func::FuncOp>(op)) {
-    return funcOp->hasAttr(g_constEvalAttrName);
-  }
-  return false;
-}
-
-inline bool isTraceMainFunc(mlir::Operation *op) {
-  if (auto funcOp = mlir::dyn_cast<mlir::func::FuncOp>(op)) {
-    return funcOp->hasAttr(g_traceMainAttrName);
-  }
-  return false;
 }
 
 template <typename T, typename From>

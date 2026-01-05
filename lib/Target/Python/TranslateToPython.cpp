@@ -6,6 +6,7 @@
 
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyAttrs.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
+#include "ttmlir/FunctionTypes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Support/IndentedOstream.h"
@@ -347,6 +348,26 @@ static LogicalResult printFunctionBody(PythonEmitter &emitter, Operation &op,
   return success();
 }
 
+/// Returns the decorator name for a given function type, or empty string if
+/// no decorator should be emitted.
+static StringRef getDecoratorForFunctionType(ttmlir::utils::FunctionType type) {
+  switch (type) {
+  case ttmlir::utils::FunctionType::ForwardDevice:
+    return "utils.forward_device";
+  case ttmlir::utils::FunctionType::ForwardCPU:
+    return "utils.forward_cpu";
+  case ttmlir::utils::FunctionType::ConstEval:
+    return "utils.const_eval";
+  case ttmlir::utils::FunctionType::InputGenerator:
+    return "utils.input_generator";
+  case ttmlir::utils::FunctionType::Main:
+    return "utils.main";
+  default:
+    // No decorator for other function types in EmitPy target.
+    return "";
+  }
+}
+
 static LogicalResult printOperation(PythonEmitter &emitter,
                                     func::FuncOp functionOp) {
   PythonEmitter::Scope scope(emitter);
@@ -354,6 +375,16 @@ static LogicalResult printOperation(PythonEmitter &emitter,
   raw_indented_ostream &os = emitter.ostream();
   StringRef callee = functionOp.getName();
   emitter.reserveName(callee.str());
+
+  // Emit decorator if the function has a function type attribute.
+  auto functionType = ttmlir::utils::getFunctionType(functionOp);
+  if (functionType.has_value()) {
+    StringRef decorator = getDecoratorForFunctionType(*functionType);
+    if (!decorator.empty()) {
+      os << "@" << decorator << "\n";
+    }
+  }
+
   os << "def";
   os << " " << callee;
   os << "(";

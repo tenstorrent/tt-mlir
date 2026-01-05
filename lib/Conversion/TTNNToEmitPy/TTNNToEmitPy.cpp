@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/FunctionTypes.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Value.h"
@@ -2582,6 +2583,10 @@ public:
         emitPyNames.push_back(funcOp.getArgAttr(i, "emitpy.name"));
       }
 
+      // Preserve the function type attribute before removing all attributes.
+      auto functionTypeAttr =
+          funcOp->getAttr(ttmlir::utils::detail::kFunctionTypeAttrName);
+
       funcOp.removeArgAttrsAttr();
 
       // Restore emitpy.name attributes.
@@ -2589,6 +2594,12 @@ public:
         if (emitPyNames[i]) {
           funcOp.setArgAttr(i, "emitpy.name", emitPyNames[i]);
         }
+      }
+
+      // Restore the function type attribute.
+      if (functionTypeAttr) {
+        funcOp->setAttr(ttmlir::utils::detail::kFunctionTypeAttrName,
+                        functionTypeAttr);
       }
     });
 

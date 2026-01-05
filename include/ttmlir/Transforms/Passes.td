@@ -37,7 +37,7 @@ def ConstEvalHoistTransform: Pass<"const-eval-hoist-transform", "::mlir::ModuleO
       %4 = "ttir.add"(%2, %0, %3) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
       return %4 : tensor<32x32xbf16>
     }
-    func.func @forward_const_eval_0(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>) -> tensor<32x32xbf16> attributes {const_eval} {
+    func.func @forward_const_eval_0(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>) -> tensor<32x32xbf16> attributes {tt.function_type = "const_eval"} {
       %0 = tensor.empty() : tensor<32x32xbf16>
       %1 = "ttir.subtract"(%arg0, %arg1, %0) : (tensor<32x32xbf16>, tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
       return %1 : tensor<32x32xbf16>

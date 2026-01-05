@@ -11,12 +11,12 @@ module {
         %6 = ttir.to_layout %4, %5 : tensor<32x32xf32> into tensor<32x32xbf16> -> tensor<32x32xbf16>
         return %6 : tensor<32x32xbf16>
       }
-      func.func private @hoisted_shlo_add_32x32_32x32_func_decl(tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32> attributes {ttir.cpu_hoisted_func}
+      func.func private @hoisted_shlo_add_32x32_32x32_func_decl(tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32> attributes {tt.function_type = "forward_cpu_declaration"}
     }
   }
   ttcore.cpu_module {
     builtin.module {
-      func.func @hoisted_shlo_add_32x32_32x32_func(%arg0: tensor<32x32xf32> {bufferization.access = "read"}, %arg1: tensor<32x32xf32> {bufferization.access = "read"}) -> tensor<32x32xf32> attributes {arg_ranks = [2, 2], ttir.cpu_hoisted_func} {
+      func.func @hoisted_shlo_add_32x32_32x32_func(%arg0: tensor<32x32xf32> {bufferization.access = "read"}, %arg1: tensor<32x32xf32> {bufferization.access = "read"}) -> tensor<32x32xf32> attributes {arg_ranks = [2, 2], tt.function_type = "forward_cpu"} {
         %0 = "stablehlo.add"(%arg0, %arg1) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
         return %0 : tensor<32x32xf32>
       }

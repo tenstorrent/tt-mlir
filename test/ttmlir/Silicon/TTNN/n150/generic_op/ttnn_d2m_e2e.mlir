@@ -20,7 +20,7 @@
 
 module {
   // CHECK-LABEL: func.func @test
-  func.func @test(%arg0: tensor<32x32xf32, #dram_layout>) -> tensor<32x32xf32, #dram_layout> {
+  func.func @test(%arg0: tensor<32x32xf32, #dram_layout>) -> tensor<32x32xf32, #dram_layout> attributes {tt.function_type = "forward_device"} {
     %1 = "ttnn.to_memory_config"(%arg0) <{memory_config = #ttnn.memory_config<#l1, <block_sharded>, #ttnn.shard_spec<<[#ttnn.core_range<(0,0), (0,0)>]>, <32x32>, <row_major>>>}> : (tensor<32x32xf32, #dram_layout>) -> tensor<32x32xf32, #l1_layout>
     // CHECK: "ttnn.generic"
     %2 = "ttnn.abs"(%1) {ttnn.hoist_generic_via_d2m} : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #l1_layout>
@@ -28,7 +28,7 @@ module {
     return %3 : tensor<32x32xf32, #dram_layout>
   }
   // CHECK-LABEL: func.func @test_composite_fuse
-  func.func @test_composite_fuse(%arg0: tensor<32x32xf32, #dram_layout>) -> tensor<32x32xf32, #dram_layout> {
+  func.func @test_composite_fuse(%arg0: tensor<32x32xf32, #dram_layout>) -> tensor<32x32xf32, #dram_layout> attributes {tt.function_type = "forward_device"} {
     %0 = "ttnn.to_memory_config"(%arg0) <{memory_config = #ttnn.memory_config<#l1, <block_sharded>, #ttnn.shard_spec<<[#ttnn.core_range<(0,0), (0,0)>]>, <32x32>, <row_major>>>}> : (tensor<32x32xf32, #dram_layout>) -> tensor<32x32xf32, #l1_layout>
     // CHECK: %[[OUT0:.*]] = "ttnn.to_memory_config"
     %2 = "ttnn.abs"(%0) {ttnn.hoist_generic_via_d2m} : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #l1_layout>
@@ -39,7 +39,7 @@ module {
     return %4 : tensor<32x32xf32, #dram_layout>
   }
   // CHECK-LABEL: func.func @test_composite_no_fuse
-  func.func @test_composite_no_fuse(%arg0: tensor<128x128xf32, #dram_layout_0>, %arg1: tensor<128x128xf32, #dram_layout_0>, %arg2: tensor<128x128xf32, #dram_layout_0>) -> tensor<128x128xf32, #dram_layout_0> {
+  func.func @test_composite_no_fuse(%arg0: tensor<128x128xf32, #dram_layout_0>, %arg1: tensor<128x128xf32, #dram_layout_0>, %arg2: tensor<128x128xf32, #dram_layout_0>) -> tensor<128x128xf32, #dram_layout_0> attributes {tt.function_type = "forward_device"} {
     %0 = "ttnn.to_memory_config"(%arg0) <{memory_config = #ttnn.memory_config<#l1, <block_sharded>, #ttnn.shard_spec<<[#ttnn.core_range<(0,0), (0,0)>]>, <128x128>, <row_major>>>}> : (tensor<128x128xf32, #dram_layout_0>) -> tensor<128x128xf32, #l1_layout_0>
     %1 = "ttnn.to_memory_config"(%arg1) <{memory_config = #ttnn.memory_config<#l1, <block_sharded>, #ttnn.shard_spec<<[#ttnn.core_range<(0,0), (0,0)>]>, <128x128>, <row_major>>>}> : (tensor<128x128xf32, #dram_layout_0>) -> tensor<128x128xf32, #l1_layout_0>
     %2 = "ttnn.to_memory_config"(%arg2) <{memory_config = #ttnn.memory_config<#l1, <block_sharded>, #ttnn.shard_spec<<[#ttnn.core_range<(0,0), (0,0)>]>, <128x128>, <row_major>>>}> : (tensor<128x128xf32, #dram_layout_0>) -> tensor<128x128xf32, #l1_layout_0>
@@ -49,7 +49,7 @@ module {
     return %5 : tensor<128x128xf32, #dram_layout_0>
   }
   // CHECK-LABEL: func.func @test_scalarize
-  func.func @test_scalarize(%arg0: tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #l1_layout> {
+  func.func @test_scalarize(%arg0: tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #l1_layout> attributes {tt.function_type = "forward_device"} {
     %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
     // CHECK-NOT: "ttnn.full"
     %1 = "ttnn.full"(%0) <{dtype = #ttcore.supportedDataTypes<f32>, fill_value = 5.000000e-01 : f32, layout = #ttnn.layout<tile>, shape = #ttnn.shape<32x32>}> {ttnn.hoist_generic_via_d2m} : (!ttnn.device) -> tensor<32x32xf32, #l1_layout>
@@ -57,7 +57,7 @@ module {
     return %2 : tensor<32x32xf32, #l1_layout>
   }
   // CHECK-LABEL: func.func @test_no_scalarize
-  func.func @test_no_scalarize() -> tensor<32x32xf32, #l1_layout> {
+  func.func @test_no_scalarize() -> tensor<32x32xf32, #l1_layout> attributes {tt.function_type = "forward_device"} {
     %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
     // CHECK: "ttnn.full"
     %1 = "ttnn.full"(%0) <{dtype = #ttcore.supportedDataTypes<f32>, fill_value = 5.000000e-01 : f32, layout = #ttnn.layout<tile>, shape = #ttnn.shape<32x32>}> {ttnn.hoist_generic_via_d2m} : (!ttnn.device) -> tensor<32x32xf32, #l1_layout>

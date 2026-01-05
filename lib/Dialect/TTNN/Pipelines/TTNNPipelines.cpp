@@ -215,6 +215,11 @@ void createTTIRToTTNNDevicePipeline(
   // Resolve options controlled by optimization_level.
   options.resolveOptimizationLevelOptions();
 
+  // Mark all public functions without a type assigned to them as Device Forward
+  // functions before any other. This provides a consistent mechanism for
+  // identifying Device Forward functions downstream.
+  pm.addPass(ttcore::createTTCoreMarkFunctionsAsForwardPass());
+
   pm.addPass(mlir::createCanonicalizerPass());
 
   // Add Decomposition pass here to ensure it runs before hoisting.
