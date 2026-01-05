@@ -574,6 +574,47 @@ def execute_fb(
     save_artifacts: bool = False,
     artifact_dir: str = ".",
 ):
+    """
+    Execute a flatbuffer binary on device and compare device outputs against goldens.
+
+    Parameters
+    ----------
+    compiled_bin : Any
+        The compiled flatbuffer capsule/binary for TTNN/TTMetal runtime.
+    input_output_goldens : Dict[int, Dict[str, Dict[int, GoldenMapTensor]]]
+        Per-program map of input/output goldens from the builder.
+    intermediate_goldens : Dict[str, Dict[int, GoldenMapTensor]]
+        Map of intermediate op-location goldens for debug hooks.
+    pcc : float
+        Threshold for PCC comparison.
+    atol : float
+        Absolute tolerance for comparisons.
+    rtol : float
+        Relative tolerance for comparisons.
+    disable_golden : bool
+        When True, skips golden comparison and uses random inputs.
+    device : Optional
+        tt_runtime device handle to execute on.
+    check_pcc : bool
+        Enable PCC check. TTBuilderGoldenException will be raised if PCC is below threshold.
+    check_atol : bool
+        Enable absolute tolerance check. TTBuilderGoldenException will be raised if absolute tolerance is above threshold.
+    check_rtol : bool
+        Enable relative tolerance check. TTBuilderGoldenException will be raised if relative tolerance is above threshold.
+    enable_intermediate_verification : bool
+        Enable runtime callbacks to verify intermediate device outputs match intermediate golden outputs.
+    bypass_ops : List[str]
+        List of op locations to bypass. Runtime outputs will be replaced on device with intermediate golden tensors to allow for continued intermediate golden verification.
+    save_artifacts : bool
+        Save output tensors (and intermediate tensors if intermediate verification is enabled) and golden reports to `artifact_dir`.
+    artifact_dir : str
+        Root directory for artifacts.
+
+    Returns
+    -------
+    Tuple[Dict[str, Dict], Dict[str, Dict]]
+        golden_report, output_tensors
+    """
     fbb = tt_runtime.binary.load_binary_from_capsule(compiled_bin)
     program_indices = range(fbb.get_num_programs())
     golden_input_output_tensors = convert_golden_input_output_to_torch(
@@ -776,6 +817,39 @@ def execute_py(
     save_artifacts: bool = False,
     artifact_dir: str = ".",
 ):
+    """
+    Execute an EmitPy Dylib and compare device outputs against goldens.
+
+    Parameters
+    ----------
+    compiled_bin : str
+        The compiled Python source string (EmitPy) containing program functions.
+    input_output_goldens : Dict[int, Dict[str, Dict[int, GoldenMapTensor]]]
+        Per-program input/output goldens for comparison.
+    pcc : float
+        Threshold for PCC comparison.
+    atol : float
+        Absolute tolerance for comparisons.
+    rtol : float
+        Relative tolerance for comparisons.
+    disable_golden : bool
+        When True, skips golden comparison.
+    check_pcc : bool
+        Enable PCC check. TTBuilderGoldenException will be raised if PCC is below threshold.
+    check_atol : bool
+        Enable absolute tolerance check. TTBuilderGoldenException will be raised if absolute tolerance is above threshold.
+    check_rtol : bool
+        Enable relative tolerance check. TTBuilderGoldenException will be raised if relative tolerance is above threshold.
+    save_artifacts : bool
+        Save output tensors and golden reports to `artifact_dir`.
+    artifact_dir : str
+        Root directory for artifacts.
+
+    Returns
+    -------
+    Tuple[Dict[str, Dict], Dict[str, Dict]]
+        golden_report, output_tensors
+    """
     import importlib.util
     import types
 
@@ -914,6 +988,41 @@ def execute_cpp(
     save_artifacts: bool = False,
     artifact_dir: str = ".",
 ):
+    """
+    Compile EmitC C++ file to a shared object, execute, and compare outputs.
+
+    Parameters
+    ----------
+    cpp_path : str
+        Path to the generated EmitC C++ source.
+    input_output_goldens : Dict[int, Dict[str, Dict[int, GoldenMapTensor]]]
+        Per-program input/output goldens for comparison.
+    pcc : float
+        Threshold for PCC comparison.
+    atol : float
+        Absolute tolerance for comparisons.
+    rtol : float
+        Relative tolerance for comparisons.
+    disable_golden : bool
+        When True, skips golden comparison.
+    device : Optional
+        tt_runtime device handle to execute on.
+    check_pcc : bool
+        Enable PCC check. TTBuilderGoldenException will be raised if PCC is below threshold.
+    check_atol : bool
+        Enable absolute tolerance check. TTBuilderGoldenException will be raised if absolute tolerance is above threshold.
+    check_rtol : bool
+        Enable relative tolerance check. TTBuilderGoldenException will be raised if relative tolerance is above threshold.
+    save_artifacts : bool
+        Save output tensors and golden reports to `artifact_dir`.
+    artifact_dir : str
+        Root directory for artifacts.
+
+    Returns
+    -------
+    Tuple[Dict[str, Dict], Dict[str, Dict]]
+        golden_report, output_tensors
+    """
     # Add ttnn-standalone to sys.path for emitc compilation
     TT_MLIR_HOME = Path(os.environ.get("TT_MLIR_HOME", os.getcwd())).resolve()
     ttnn_standalone_path = os.path.join(TT_MLIR_HOME, "tools/ttnn-standalone")
