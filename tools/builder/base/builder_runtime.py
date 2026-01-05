@@ -574,7 +574,6 @@ def execute_fb(
     save_artifacts: bool = False,
     artifact_dir: str = ".",
 ):
-    program_golden_reports = {}
     fbb = tt_runtime.binary.load_binary_from_capsule(compiled_bin)
     program_indices = range(fbb.get_num_programs())
     golden_input_output_tensors = convert_golden_input_output_to_torch(
