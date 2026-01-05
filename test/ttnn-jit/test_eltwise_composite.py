@@ -270,7 +270,7 @@ def test_digamma_dram(device, shape, dtype):
         digamma_func,
         num_inputs=1,
         buffer_type=ttnn.BufferType.DRAM,
-        graph_capture=True,
+        frontend="graph_capture",
     )
 
 
@@ -294,7 +294,7 @@ def test_complex_composite_dram(device, shape, dtype):
         complex_op,
         num_inputs=2,
         buffer_type=ttnn.BufferType.DRAM,
-        graph_capture=True,
+        frontend="graph_capture",
     )
 
 
@@ -318,7 +318,7 @@ def test_nested_composite_dram(device, shape, dtype):
         nested_op,
         num_inputs=3,
         buffer_type=ttnn.BufferType.DRAM,
-        graph_capture=True,
+        frontend="graph_capture",
     )
 
 

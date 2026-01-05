@@ -46,7 +46,7 @@ def add(a, b):
     "op, num_inputs, check_interop",
     [(exp, 1, False), (add, 2, False), (cosh, 1, False), (cosh, 1, True)],
 )
-@pytest.mark.parametrize("graph_capture", [True])
+@pytest.mark.parametrize("frontend", ["graph_capture"])
 @pytest.mark.parametrize(
     "device_params", [{"dispatch_core_axis": ttnn.DispatchCoreAxis.ROW}], indirect=True
 )  # col dispatch axis fails
@@ -71,7 +71,7 @@ def test_mesh_tensor_eltwise(
     op,
     num_inputs,
     check_interop,
-    graph_capture,
+    frontend,
     mesh_device,
     mesh_mapper_func,
     dim_arg,
@@ -96,7 +96,7 @@ def test_mesh_tensor_eltwise(
     op_jit = ttnn_jit.jit(
         debug=True,
         enable_cache=enable_cache,
-        graph_capture=graph_capture,
+        frontend=frontend,
     )(op)
     interop_result = op_jit(*inputs)
 
