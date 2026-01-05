@@ -890,6 +890,7 @@ struct EmitCTypeConverter<::ttnn::WormholeComputeKernelConfig> {
     rso << TypeNameV<::ttnn::WormholeComputeKernelConfig> << "{";
 
     bool first = true;
+
     // math_fidelity
     if (auto mathFidelity = attr.getMathFidelity()) {
       if (!first) {
