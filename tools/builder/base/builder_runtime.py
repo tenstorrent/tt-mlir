@@ -269,7 +269,16 @@ def get_atol_rtol_pcc(golden, calculated, atol, rtol):
 
 
 def check_outputs(
-    golden_tensor, output_tensor, i, pcc, atol, rtol, check_pcc, check_atol, check_rtol
+    golden_tensor,
+    output_tensor,
+    tensor_name,
+    pcc,
+    atol,
+    rtol,
+    check_pcc,
+    check_atol,
+    check_rtol,
+    raise_exception=True,
 ):
     cal_atol, cal_rtol, cal_pcc, = get_atol_rtol_pcc(
         golden_tensor,
@@ -278,29 +287,34 @@ def check_outputs(
         rtol,
     )
 
-    if check_pcc:
-        if cal_pcc < pcc:
-            raise TTBuilderGoldenException(
-                f"Failed: program-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={pcc}"
-            )
-        else:
-            print(f"Program level golden for output_{i} matched. pcc={cal_pcc}")
+    if raise_exception:
+        if check_pcc:
+            if cal_pcc < pcc:
+                raise TTBuilderGoldenException(
+                    f"Failed: program-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={pcc}"
+                )
+            else:
+                print(f"Program level golden for {tensor_name} matched. pcc={cal_pcc}")
 
-    if check_atol:
-        if cal_atol > atol:
-            raise TTBuilderGoldenException(
-                f"Failed: program-level output atol check failed, actual_atol={cal_atol} > expected_atol={atol}"
-            )
-        else:
-            print(f"Program level atol check for output_{i} passed. atol={cal_atol}")
+        if check_atol:
+            if cal_atol > atol:
+                raise TTBuilderGoldenException(
+                    f"Failed: program-level output atol check failed, actual_atol={cal_atol} > expected_atol={atol}"
+                )
+            else:
+                print(
+                    f"Program level atol check for {tensor_name} passed. atol={cal_atol}"
+                )
 
-    if check_rtol:
-        if cal_rtol > rtol:
-            raise TTBuilderGoldenException(
-                f"Failed: program-level output rtol check failed, actual_rtol={cal_rtol} > expected_rtol={rtol}"
-            )
-        else:
-            print(f"Program level rtol check for output_{i} passed. rtol={cal_rtol}")
+        if check_rtol:
+            if cal_rtol > rtol:
+                raise TTBuilderGoldenException(
+                    f"Failed: program-level output rtol check failed, actual_rtol={cal_rtol} > expected_rtol={rtol}"
+                )
+            else:
+                print(
+                    f"Program level rtol check for {tensor_name} passed. rtol={cal_rtol}"
+                )
 
     result = "pass"
     if (
@@ -354,11 +368,7 @@ def get_sanitized_filename(name: str, replacement: str = "_") -> str:
 def save_torch_tensor(torch_tensor, folder_path, torch_tensor_name):
     torch_tensor_name = get_sanitized_filename(torch_tensor_name)
     os.makedirs(folder_path, exist_ok=True)
-
-    try:
-        torch.save(torch_tensor, f"{folder_path}/{torch_tensor_name}")
-    except Exception as e:
-        raise Exception(f"an unexpected error occurred: {e}")
+    torch.save(torch_tensor, f"{folder_path}/{torch_tensor_name}")
 
 
 def get_original_op_loc(text: str) -> str:
@@ -410,7 +420,7 @@ class CallbackRuntimeConfig:
         self.artifact_dir = artifact_dir
         self.golden_report = {}
 
-    def start_new_callback(self, artifact_dir):
+    def start_new_program(self, artifact_dir):
         self.artifact_dir = artifact_dir
         self.golden_report = {}
 
@@ -482,63 +492,19 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
             )
 
         try:
-            cal_atol, cal_rtol, cal_pcc = get_atol_rtol_pcc(
+            results = check_outputs(
                 golden_tensor_torch,
                 output_tensor_torch,
+                f"{loc}_{device_id}",
+                callback_runtime_config.pcc,
                 callback_runtime_config.atol,
                 callback_runtime_config.rtol,
+                callback_runtime_config.check_pcc,
+                callback_runtime_config.check_atol,
+                callback_runtime_config.check_rtol,
+                raise_exception=False,
             )
-
-            result = "pass"
-            if (
-                (
-                    callback_runtime_config.check_pcc
-                    and cal_pcc < callback_runtime_config.pcc
-                )
-                or (
-                    callback_runtime_config.check_atol
-                    and cal_atol > callback_runtime_config.atol
-                )
-                or (
-                    callback_runtime_config.check_rtol
-                    and cal_rtol > callback_runtime_config.rtol
-                )
-            ):
-                result = "fail"
-
-            results = {}
-            results["result"] = result
-            results["expected_pcc"] = callback_runtime_config.pcc
-            results["actual_pcc"] = cal_pcc
-            results["expected_atol"] = callback_runtime_config.atol
-            results["actual_atol"] = cal_atol
-            results["expected_rtol"] = callback_runtime_config.rtol
-            results["actual_rtol"] = cal_rtol
-            results["allclose"] = torch.allclose(
-                golden_tensor_torch,
-                output_tensor_torch,
-                atol=callback_runtime_config.atol,
-                rtol=callback_runtime_config.rtol,
-            )
-            if (
-                golden_tensor_torch.dtype != torch.uint16
-                and golden_tensor_torch.dtype != torch.uint32
-            ):
-                results["max"] = torch.max(
-                    torch.abs(golden_tensor_torch - output_tensor_torch)
-                ).item()
-            results["mean_absolute_error"] = torch.mean(
-                torch.abs(golden_tensor_torch.float() - output_tensor_torch.float())
-            ).item()
-            results["root_mean_square_error"] = torch.sqrt(
-                torch.mean(
-                    (golden_tensor_torch.float() - output_tensor_torch.float()) ** 2
-                )
-            ).item()
-            results["cosine_similarity"] = torch.nn.functional.cosine_similarity(
-                golden_tensor_torch.float().unsqueeze(0),
-                output_tensor_torch.float().unsqueeze(0),
-            ).item()
+            results["debug_info"] = tt_runtime.runtime.get_op_debug_str(op_context)
 
             # Bypass the runtime tensor by replacing it with the intermediate golden tensor if the op is in the bypass list
             if loc in callback_runtime_config.bypass_ops:
@@ -644,7 +610,7 @@ def execute_fb(
         if fbb.is_program_private(program_index):
             continue
 
-        callback_runtime_config.start_new_callback(
+        callback_runtime_config.start_new_program(
             f"{artifact_dir}/program_{program_index}"
         )
         golden_report = {}
@@ -750,7 +716,7 @@ def execute_fb(
             results = check_outputs(
                 golden_tensor_torch,
                 output_tensor_torch,
-                i,
+                f"output_{i}",
                 pcc,
                 atol,
                 rtol,
@@ -877,7 +843,7 @@ def execute_py(
                     results = check_outputs(
                         golden_tensor_torch,
                         output_tensor_torch,
-                        i,
+                        f"output_{i}",
                         pcc,
                         atol,
                         rtol,
@@ -1024,7 +990,7 @@ def execute_cpp(
                     results = check_outputs(
                         golden_tensor_torch,
                         output_tensor_torch,
-                        i,
+                        f"output_{i}",
                         pcc,
                         atol,
                         rtol,

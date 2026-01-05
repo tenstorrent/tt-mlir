@@ -62,8 +62,7 @@ def _compile_and_execute(
     **compile_kwargs,
 ) -> str:
     """
-    Generic function that compiles a builder module to a binary (flatbuffer or source)
-    and executes it against golden tensors.
+    Generic function that compiles a builder module to flatbuffer and executes it.
 
     This is an internal helper that handles the common logic for all compile-and-execute
     entry points.
@@ -71,8 +70,7 @@ def _compile_and_execute(
     Parameters
     ----------
     compile_fn : Callable
-        The compilation function to use (e.g., compile_ttir_to_flatbuffer). Must return
-        (builder, compiled_bin, input_output_goldens, intermediate_goldens).
+        The compilation function to use (e.g., compile_ttir_to_flatbuffer)
     target : Literal["ttnn", "ttmetal", "emitc", "emitpy"]
         Target backend to use
     pcc : float

@@ -78,11 +78,11 @@ def get_target_path(output_path, builder_dir, filename, target):
     return os.path.join(target_dir, filename)
 
 
-def get_artifact_dir(output_root, builder_type, test_base, create_dir=True):
+def get_artifact_dir(output_root, builder_type, test_base, make_dir=True):
     artifact_path = os.path.join(
         output_root, "builder-artifacts", builder_type, test_base
     )
-    if create_dir and not os.path.exists(artifact_path):
+    if make_dir and not os.path.exists(artifact_path):
         os.makedirs(artifact_path)
     return artifact_path
 
