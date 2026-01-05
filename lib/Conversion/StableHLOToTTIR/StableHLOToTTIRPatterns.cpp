@@ -2018,7 +2018,6 @@ private:
           static_cast<int32_t>(lhsDilation[SPATIAL_DIM_WIDTH]),
       });
 
-
       if (int64_t groups = adaptor.getFeatureGroupCount(); groups > 1) {
         // Stablehlo.convolution/ttir.convolution op weights are in the format:
         // (C/G, O, K_H, K_W). Torch and TTNN expect the weights to be in the
