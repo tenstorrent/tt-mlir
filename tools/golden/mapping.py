@@ -4669,6 +4669,7 @@ def stablehlo_convolution_golden(
 
     return result.to(output_dtype)
 
+
 ################ SDY Op Golden Functions ###############
 
 
