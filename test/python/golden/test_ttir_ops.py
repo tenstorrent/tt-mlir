@@ -2208,7 +2208,6 @@ def test_matmul(
     pipeline_options = []
     compile_and_execute_ttir(
         module,
-        save_artifacts=True,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),

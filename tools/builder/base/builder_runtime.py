@@ -342,7 +342,17 @@ def check_outputs(
     return results
 
 
-def save_torch_tensor(folder_path, torch_tensor, torch_tensor_name):
+def get_sanitized_filename(name: str, replacement: str = "_") -> str:
+    # make string safe for file name
+    forbidden = ':"/\\|?*\0'
+    s = re.sub(f"[{re.escape(forbidden)}\\x00-\\x1F]", replacement, name)
+    if not s:
+        s = "untitled"
+    return s.strip()
+
+
+def save_torch_tensor(torch_tensor, folder_path, torch_tensor_name):
+    torch_tensor_name = get_sanitized_filename(torch_tensor_name)
     os.makedirs(folder_path, exist_ok=True)
 
     try:
@@ -384,6 +394,8 @@ class CallbackRuntimeConfig:
         check_rtol: bool = True,
         goldens={},
         bypass_ops=None,
+        save_artifacts: bool = False,
+        artifact_dir: str = ".",
     ):
         self.device = device
         self.pcc = pcc
@@ -394,6 +406,12 @@ class CallbackRuntimeConfig:
         self.check_rtol = check_rtol
         self.goldens = goldens
         self.bypass_ops = bypass_ops if bypass_ops else []
+        self.save_artifacts = save_artifacts
+        self.artifact_dir = artifact_dir
+        self.golden_report = {}
+
+    def start_new_callback(self, artifact_dir):
+        self.artifact_dir = artifact_dir
         self.golden_report = {}
 
 
@@ -445,6 +463,24 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
         if golden_tensor_torch.shape != output_tensor_torch.shape:
             return
 
+        if callback_runtime_config.save_artifacts:
+            golden_tensor_torch_name = get_sanitized_filename(
+                f"{loc}_{device_id}_golden.pt"
+            )
+            device_tensor_torch_name = get_sanitized_filename(
+                f"{loc}_{device_id}_device.pt"
+            )
+            save_torch_tensor(
+                golden_tensor_torch,
+                callback_runtime_config.artifact_dir,
+                golden_tensor_torch_name,
+            )
+            save_torch_tensor(
+                output_tensor_torch,
+                callback_runtime_config.artifact_dir,
+                golden_tensor_torch_name,
+            )
+
         try:
             cal_atol, cal_rtol, cal_pcc = get_atol_rtol_pcc(
                 golden_tensor_torch,
@@ -455,9 +491,18 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
 
             result = "pass"
             if (
-                (self.check_pcc and cal_pcc < callback_runtime_config.pcc)
-                or (self.check_atol and cal_atol > callback_runtime_config.atol)
-                or (self.check_rtol and cal_rtol > callback_runtime_config.rtol)
+                (
+                    callback_runtime_config.check_pcc
+                    and cal_pcc < callback_runtime_config.pcc
+                )
+                or (
+                    callback_runtime_config.check_atol
+                    and cal_atol > callback_runtime_config.atol
+                )
+                or (
+                    callback_runtime_config.check_rtol
+                    and cal_rtol > callback_runtime_config.rtol
+                )
             ):
                 result = "fail"
 
@@ -561,7 +606,7 @@ def execute_fb(
     enable_intermediate_verification: bool = False,
     bypass_ops: List[str] = None,
     save_artifacts: bool = False,
-    artifact_path: str = ".",
+    artifact_dir: str = ".",
 ):
     program_golden_reports = {}
     fbb = tt_runtime.binary.load_binary_from_capsule(compiled_bin)
@@ -585,6 +630,8 @@ def execute_fb(
         check_rtol=check_rtol,
         goldens=golden_intermediate_torch_tensors,
         bypass_ops=bypass_ops,
+        save_artifacts=save_artifacts,
+        artifact_dir=artifact_dir,
     )
 
     if enable_intermediate_verification or bypass_ops:
@@ -597,8 +644,9 @@ def execute_fb(
         if fbb.is_program_private(program_index):
             continue
 
-        # Reset intermediate golden report between programs
-        callback_runtime_config.golden_report = {}
+        callback_runtime_config.start_new_callback(
+            f"{artifact_dir}/program_{program_index}"
+        )
         golden_report = {}
 
         input_dict = program_inputs_as_dict(fbb, program_index)
@@ -714,26 +762,26 @@ def execute_fb(
             golden_report[f"output_{i}"] = {0: results}
 
             if save_artifacts:
-                program_artifact_path = os.path.join(
-                    artifact_path, f"program_{program_index}"
+                program_artifact_dir = os.path.join(
+                    artifact_dir, f"program_{program_index}"
                 )
                 save_torch_tensor(
-                    program_artifact_path,
                     output_tensor_torch,
+                    program_artifact_dir,
                     f"device_output_{i}.pt",
                 )
                 save_torch_tensor(
-                    program_artifact_path,
                     golden_tensor_torch,
+                    program_artifact_dir,
                     f"golden_output_{i}.pt",
                 )
 
         for loc, device_results in callback_runtime_config.golden_report.items():
             golden_report[loc] = device_results
 
-        if save_artifacts:
+        if save_artifacts and not disable_golden:
             artifact_file = os.path.join(
-                artifact_path, f"program_{program_index}", "golden_report.json"
+                artifact_dir, f"program_{program_index}", "golden_report.json"
             )
             with open(artifact_file, "w") as f:
                 json.dump(golden_report, f, indent=4)
@@ -750,7 +798,7 @@ def execute_py(
     check_atol: bool = False,
     check_rtol: bool = False,
     save_artifacts: bool = False,
-    artifact_path: str = ".",
+    artifact_dir: str = ".",
 ):
     import importlib.util
     import types
@@ -823,12 +871,12 @@ def execute_py(
             if not disable_golden:
                 for i, output in enumerate(outputs):
                     output_host = ttnn.from_device(output)
-                    output_torch = output_host.to_torch()
-                    golden_output_torch = golden_input_outputs[f"output_{i}"][0]
+                    output_tensor_torch = output_host.to_torch()
+                    golden_tensor_torch = golden_input_outputs[f"output_{i}"][0]
 
                     results = check_outputs(
-                        golden_output_torch,
-                        output_torch,
+                        golden_tensor_torch,
+                        output_tensor_torch,
                         i,
                         pcc,
                         atol,
@@ -841,33 +889,33 @@ def execute_py(
                     golden_report[f"output_{i}"] = {0: results}
 
                     if save_artifacts:
-                        program_artifact_path = os.path.join(
-                            artifact_path, f"program_{program_index}"
+                        program_artifact_dir = os.path.join(
+                            artifact_dir, f"program_{program_index}"
                         )
                         save_torch_tensor(
-                            program_artifact_path,
-                            output_torch,
+                            output_tensor_torch,
+                            program_artifact_dir,
                             f"device_output_{i}.pt",
                         )
                         save_torch_tensor(
-                            program_artifact_path,
-                            golden_output_torch,
+                            golden_tensor_torch,
+                            program_artifact_dir,
                             f"golden_output_{i}.pt",
                         )
 
-            if save_artifacts:
-                artifact_file = os.path.join(
-                    artifact_path, f"program_{program_index}", "golden_report.json"
-                )
-                with open(artifact_file, "w") as f:
-                    json.dump(golden_report, f, indent=4)
+                if save_artifacts:
+                    artifact_file = os.path.join(
+                        artifact_dir, f"program_{program_index}", "golden_report.json"
+                    )
+                    with open(artifact_file, "w") as f:
+                        json.dump(golden_report, f, indent=4)
 
     except Exception as e:
         raise TTBuilderRuntimeException(e) from e
 
 
 def execute_cpp(
-    compiled_bin,
+    cpp_path: str,
     input_output_goldens: Dict[int, Dict[str, Dict[int, GoldenMapTensor]]],
     pcc: float = 0.99,
     atol: float = 1e-08,
@@ -878,7 +926,7 @@ def execute_cpp(
     check_atol: bool = False,
     check_rtol: bool = False,
     save_artifacts: bool = False,
-    artifact_path: str = ".",
+    artifact_dir: str = ".",
 ):
     # Add ttnn-standalone to sys.path for emitc compilation
     TT_MLIR_HOME = Path(os.environ.get("TT_MLIR_HOME", os.getcwd())).resolve()
@@ -959,7 +1007,7 @@ def execute_cpp(
 
             if not disable_golden:
                 for i, output in enumerate(outputs):
-                    golden_output_torch = golden_input_outputs[f"output_{i}"][0]
+                    golden_tensor_torch = golden_input_outputs[f"output_{i}"][0]
                     data_buffer = bytearray(output.get_data_buffer())
 
                     if len(data_buffer) == 0:
@@ -974,7 +1022,7 @@ def execute_cpp(
                         ).reshape(output.get_shape())
 
                     results = check_outputs(
-                        golden_output_torch,
+                        golden_tensor_torch,
                         output_tensor_torch,
                         i,
                         pcc,
@@ -988,26 +1036,26 @@ def execute_cpp(
                     golden_report[f"output_{i}"] = {0: results}
 
                     if save_artifacts:
-                        program_artifact_path = os.path.join(
-                            artifact_path, f"program_{program_index}"
+                        program_artifact_dir = os.path.join(
+                            artifact_dir, f"program_{program_index}"
                         )
                         save_torch_tensor(
-                            program_artifact_path,
                             output_tensor_torch,
+                            program_artifact_dir,
                             f"device_output_{i}.pt",
                         )
                         save_torch_tensor(
-                            program_artifact_path,
-                            golden_output_torch,
+                            golden_tensor_torch,
+                            program_artifact_dir,
                             f"golden_output_{i}.pt",
                         )
 
-            if save_artifacts:
-                artifact_file = os.path.join(
-                    artifact_path, f"program_{program_index}", "golden_report.json"
-                )
-                with open(artifact_file, "w") as f:
-                    json.dump(golden_report, f, indent=4)
+                if save_artifacts:
+                    artifact_file = os.path.join(
+                        artifact_dir, f"program_{program_index}", "golden_report.json"
+                    )
+                    with open(artifact_file, "w") as f:
+                        json.dump(golden_report, f, indent=4)
 
     except Exception as e:
         raise TTBuilderRuntimeException(e) from e
