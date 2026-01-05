@@ -80,3 +80,58 @@ func.func @decompose_block_mask_dynamic_bounds(%input: memref<2x2x!ttcore.tile<3
         -> memref<2x2x!ttcore.tile<32x32, f32>>
     return
 }
+
+// CHECK-LABEL: func.func @decompose_block_mask_partial_tile
+// Test partial tile masking: logical shape 50x50 means tile (0,0) has partial data
+// This should generate index tile loads and per-element masking operations
+func.func @decompose_block_mask_partial_tile(%input: memref<2x2x!ttcore.tile<32x32, f32>>,
+                                             %output: memref<2x2x!ttcore.tile<32x32, f32>>) {
+    %c50 = arith.constant 50 : index
+    // CHECK: linalg.generic
+    // CHECK-NOT: d2m.block_mask
+    // CHECK-DAG: memref.get_global @__d2m_row_index_tile
+    // CHECK-DAG: memref.get_global @__d2m_col_index_tile
+    // CHECK-DAG: memref.load
+    // CHECK-DAG: memref.load
+    // CHECK-DAG: arith.subi
+    // CHECK-DAG: arith.cmpi
+    // CHECK-DAG: arith.select
+    // CHECK-DAG: d2m.tile_sub
+    // CHECK-DAG: d2m.tile_ltz
+    // CHECK-DAG: d2m.tile_mul
+    // CHECK-DAG: d2m.tile_sub
+    // CHECK-DAG: d2m.tile_add
+    d2m.block_mask %input, %output, %c50, %c50, <zero>
+        : (memref<2x2x!ttcore.tile<32x32, f32>>, memref<2x2x!ttcore.tile<32x32, f32>>)
+    return
+}
+
+// CHECK-LABEL: func.func @decompose_block_mask_partial_row_only
+// Test partial row masking: logical shape 50x64 means only row dimension is partial
+func.func @decompose_block_mask_partial_row_only(%input: memref<2x2x!ttcore.tile<32x32, f32>>,
+                                                  %output: memref<2x2x!ttcore.tile<32x32, f32>>) {
+    %c50 = arith.constant 50 : index
+    %c64 = arith.constant 64 : index
+    // CHECK: linalg.generic
+    // CHECK-NOT: d2m.block_mask
+    // CHECK-DAG: memref.get_global @__d2m_row_index_tile
+    // CHECK-DAG: d2m.tile_ltz
+    d2m.block_mask %input, %output, %c50, %c64, <zero>
+        : (memref<2x2x!ttcore.tile<32x32, f32>>, memref<2x2x!ttcore.tile<32x32, f32>>)
+    return
+}
+
+// CHECK-LABEL: func.func @decompose_block_mask_partial_col_only
+// Test partial col masking: logical shape 64x50 means only col dimension is partial
+func.func @decompose_block_mask_partial_col_only(%input: memref<2x2x!ttcore.tile<32x32, f32>>,
+                                                  %output: memref<2x2x!ttcore.tile<32x32, f32>>) {
+    %c64 = arith.constant 64 : index
+    %c50 = arith.constant 50 : index
+    // CHECK: linalg.generic
+    // CHECK-NOT: d2m.block_mask
+    // CHECK-DAG: memref.get_global @__d2m_col_index_tile
+    // CHECK-DAG: d2m.tile_ltz
+    d2m.block_mask %input, %output, %c64, %c50, <zero>
+        : (memref<2x2x!ttcore.tile<32x32, f32>>, memref<2x2x!ttcore.tile<32x32, f32>>)
+    return
+}
