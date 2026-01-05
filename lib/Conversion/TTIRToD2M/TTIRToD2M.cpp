@@ -711,7 +711,8 @@ private:
             loc,
             /* result tensor types */
             llvm::to_vector(
-                mlir::ValueRange(blockArgs.take_back(numOutputs)).getTypes()),
+                static_cast<mlir::ValueRange>(blockArgs.take_back(numOutputs))
+                    .getTypes()),
             /* inputs */ blockArgs.take_front(numInputs),
             /* outputs */ blockArgs.take_back(numOutputs), linalgIndexingMaps,
             linalgIteratorTypes,
@@ -1054,11 +1055,26 @@ public:
     auto permutation = op.getPermutation();
 
     const int64_t permuteSize = static_cast<int64_t>(permutation.size());
-    // Transpose pattern on inner dims.
-    if (permutation[permuteSize - 2] == permuteSize - 1 ||
-        permutation[permuteSize - 1] == permuteSize - 2) {
+    assert(permuteSize >= 2 && "Permute size must be >= 2");
+    // Check if this is a pure inner permute (only last two dims swapped,
+    // all outer dims are identity).
+    const bool innerDimsSwapped =
+        (permutation[permuteSize - 2] == permuteSize - 1 &&
+         permutation[permuteSize - 1] == permuteSize - 2);
+    bool outerDimsIdentity = true;
+    for (int64_t i = 0; i < permuteSize - 2; ++i) {
+      if (permutation[i] != i) {
+        outerDimsIdentity = false;
+        break;
+      }
+    }
+    const bool isInnerPermute = innerDimsSwapped && outerDimsIdentity;
+    if (isInnerPermute) {
       return permuteInnerDims(op, adaptor, rewriter);
     }
+    assert(!(innerDimsSwapped && !outerDimsIdentity) &&
+           "Complex permutes (both inner and outer permutations) are not "
+           "supported.");
     // Unhandled conversion case.
     return failure();
   }
@@ -1388,6 +1404,24 @@ static AffineMap sliceLogicalMap(ttir::SliceStaticOp op) {
   return AffineMap::get(exprs.size(), 0, exprs, ctx);
 }
 
+static AffineMap permuteLogicalMap(ttir::PermuteOp op) {
+  auto *ctx = op.getContext();
+  ArrayRef<int64_t> permutation = op.getPermutation();
+  unsigned logicalRank = permutation.size();
+  assert(logicalRank >= 2 && "Permute must have at least 2 dimensions");
+  // Verify last dimension is not identity for outer permute handling.
+  const bool noInnerPermute =
+      !(permutation[logicalRank - 2] == static_cast<int64_t>(logicalRank - 1) &&
+        permutation[logicalRank - 1] == static_cast<int64_t>(logicalRank - 2));
+  assert(noInnerPermute && "Complex permutes (both inner and outer "
+                           "permutations) are not supported.");
+  SmallVector<AffineExpr> results(logicalRank);
+  for (auto [dstIdx, srcIdx] : llvm::enumerate(permutation)) {
+    results[dstIdx] = mlir::getAffineDimExpr(srcIdx, ctx);
+  }
+  return AffineMap::get(logicalRank, /*numSymbols=*/0, results, ctx);
+}
+
 // Compute logical map for ReshapeOp: linearize output coords, delinearize to
 // input coords. This handles rank changes (e.g., 2D -> 3D).
 // Returns a map from output logical coords to input logical coords.
@@ -1505,6 +1539,7 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MTensorManipulationOpRewriter<ttir::ReshapeOp, reshapeLogicalMap>,
     D2MTensorManipulationOpRewriter<ttir::SliceStaticOp, sliceLogicalMap>,
     // Permute (handles tranpose ops, since they're canonicalized into permutes).
+    D2MTensorManipulationOpRewriter<ttir::PermuteOp, permuteLogicalMap>,
     D2MPermuteRewriter
   >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, ttnnMode, collapseTensors);
 

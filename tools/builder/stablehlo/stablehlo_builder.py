@@ -6379,6 +6379,94 @@ class StableHLOBuilder(Builder):
             else tuple(new_manual_computation_op_results)
         )
 
+    @parse(sdy.ManualComputationOp)
+    def manual_computation_parser(
+        self,
+        old_op: stablehlo.ManualComputationOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        sdy_op = self.get_opview_from_parser(StableHLOBuilder.manual_computation_parser)
+
+        tensors = []
+        for old_tensor in old_op.tensors:
+            tensors.append(global_dict[old_tensor])
+        old_op_result_types = [result.type for result in old_op.results_]
+
+        new_op = sdy_op(
+            old_op_result_types,
+            tensors,
+            old_op.in_shardings,
+            old_op.out_shardings,
+            old_op.manual_axes,
+            loc=old_op.location,
+        )
+        new_op_results = new_op.results_
+
+        old_block = old_op.body.blocks[0]
+        new_region = new_op.body
+        new_block = Block.create_at_start(new_region)
+        new_in_shardings = sdy.TensorShardingPerValueAttr.maybe_downcast(
+            new_op.in_shardings
+        )
+        new_out_shardings = sdy.TensorShardingPerValueAttr.maybe_downcast(
+            new_op.out_shardings
+        )
+
+        for old_arg in old_block.arguments:
+            new_arg = new_block.add_argument(
+                old_arg.type, loc=Location.unknown(self._ctx)
+            )
+            global_dict[old_arg] = new_arg
+
+        if not self._disable_golden_check:
+            original_input_goldens = []
+            for old_tensor in old_op.tensors:
+                original_input_goldens.append(
+                    self._get_golden_tensor(global_dict[old_tensor])
+                )
+
+            for new_arg, inp_golden, in_sharding in zip(
+                new_block.arguments,
+                original_input_goldens,
+                new_in_shardings.shardings,
+            ):
+                tensor_sharding = sdy.TensorShardingAttr.maybe_downcast(in_sharding)
+                new_inp_golden = self._apply_sharding_to_golden(
+                    inp_golden, tensor_sharding, is_shard=True
+                )
+                self._set_golden_tensor(new_arg, new_inp_golden)
+
+        local_results = []
+        with InsertionPoint(new_block):
+            for old_inner_op in old_block.operations:
+                if isinstance(old_inner_op, sdy.ReturnOp):
+                    global_result = tuple(
+                        global_dict[result] for result in old_inner_op.results_
+                    )
+                    local_results.extend(old_inner_op.results_)
+                    sdy.ReturnOp(global_result)
+                else:
+                    parsed_op, op_golden_dictionary = self._build_op_from_parsed_op(
+                        old_inner_op, global_dict
+                    )
+                    global_dict.update(op_golden_dictionary)
+
+        if not self._disable_golden_check:
+            for i, (out_sharding, old_result) in enumerate(
+                zip(new_out_shardings.shardings, local_results)
+            ):
+                tensor_sharding = sdy.TensorShardingAttr.maybe_downcast(out_sharding)
+                output_golden = self._get_golden_tensor(global_dict[old_result])
+                new_output_golden = self._apply_sharding_to_golden(
+                    output_golden, tensor_sharding, is_shard=False
+                )
+                self._set_golden_tensor(new_op_results[i], new_output_golden)
+
+        op_map_dictionary = {}
+        for old_op, new_op_result in zip(old_op.results_, new_op_results):
+            op_map_dictionary[old_op] = new_op_result
+        return new_op, op_map_dictionary
+
     ################ sdy.AllGatherOp ###############
 
     @tag(sdy.AllGatherOp)
@@ -6445,8 +6533,28 @@ class StableHLOBuilder(Builder):
         root_module = Module.parse(mlir_text, ctx)
         loc = Location.unknown(ctx)
         with ctx, loc:
-            stablehlo_builder = StableHLOBuilder(ctx, loc)
+            mesh_name = "mesh"
+            mesh_shape = OrderedDict([("x", 1), ("y", 1)])
+
+            for op in root_module.body.operations:
+                if not isinstance(op, sdy.MeshOp):
+                    continue
+
+                mesh_name = op.sym_name.value
+                mesh_attr = sdy.MeshAttr.maybe_downcast(op.mesh)
+                shape = []
+                for axis_attr in mesh_attr.axes:
+                    axis = sdy.MeshAxisAttr.maybe_downcast(axis_attr)
+                    shape.append(axis.size)
+                mesh_shape = OrderedDict(
+                    x=1 if len(shape) == 1 else shape[0],
+                    y=shape[0] if len(shape) == 1 else shape[1],
+                )
+                break
+
+            stablehlo_builder = StableHLOBuilder(ctx, loc, mesh_name, mesh_shape)
             new_module = stablehlo_builder.parse_root_module(root_module, golden_inputs)
+            new_module.body.append(stablehlo_builder._get_mesh())
 
         return new_module, stablehlo_builder
 
