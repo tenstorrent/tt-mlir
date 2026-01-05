@@ -12,6 +12,7 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Affine/ViewLikeInterfaceUtils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -23,6 +24,7 @@
 #include "mlir/IR/Value.h"
 #include "mlir/Transforms/DialectConversion.h"
 
+#include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include <type_traits>
 #include <utility>
 
@@ -1285,6 +1287,46 @@ public:
 } // namespace
 
 namespace {
+class D2MVirtualGridCoreIndexRewriter
+    : public OpConversionPattern<d2m::VirtualGridCoreIndexOp> {
+public:
+  using OpConversionPattern<d2m::VirtualGridCoreIndexOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::VirtualGridCoreIndexOp op,
+                  d2m::VirtualGridCoreIndexOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+
+    Value logicalY = rewriter.create<d2m::CoreIndexOp>(
+        op.getLoc(), /*dim=*/rewriter.getI64IntegerAttr(0));
+    Value logicalX = rewriter.create<d2m::CoreIndexOp>(
+        op.getLoc(), /*dim=*/rewriter.getI64IntegerAttr(1));
+
+    auto mapAttr = op.getPhysToVirtMap();
+    if (mapAttr.isEmpty() && op.getDim() == 0) {
+      rewriter.replaceOp(op, logicalY);
+      return success();
+    }
+    if (mapAttr.isEmpty() && op.getDim() == 1) {
+      rewriter.replaceOp(op, logicalX);
+      return success();
+    }
+    // We add 1 here because the grid mapping includes a leading device index
+    // result
+    auto dimAttr = op.getDim() + 1;
+
+    llvm::SmallBitVector dropDims(mapAttr.getNumResults(), 1);
+    dropDims.reset(dimAttr);
+    auto resultMap = mapAttr.dropResults(dropDims);
+    Value virtDim = rewriter.create<mlir::affine::AffineApplyOp>(
+        op.getLoc(), resultMap, ValueRange{logicalY, logicalX});
+    rewriter.replaceOp(op, virtDim);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class D2MDMAWaitRewriter : public OpConversionPattern<d2m::DMAWaitOp> {
 public:
   using OpConversionPattern<d2m::DMAWaitOp>::OpConversionPattern;
@@ -1670,6 +1712,7 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MCBReleaseOpRewriter<d2m::PushOp, ttkernel::CBPushBackOp>,
                ttkernel::D2MCBReleaseOpRewriter<d2m::PopOp, ttkernel::CBPopFrontOp>,
                ttkernel::D2MDMAWaitRewriter,
+               ttkernel::D2MVirtualGridCoreIndexRewriter,
                ttkernel::D2MCoreIndexRewriter,
                ttkernel::D2MNullTxRewriter,
                ttkernel::D2MPackerMaskResetRewriter,
@@ -1681,6 +1724,7 @@ void populateD2MToTTKernelPatterns(
   patterns.add<ttkernel::D2MGetGlobalOperandRewriter>(typeConverter, ctx, ttnnMode);
   patterns.add<ttkernel::D2MDMAReadRewriter>(typeConverter, ctx, &associatedDMAWaits, &cbProducerConsumer);
   patterns.add<ttkernel::D2MDMAWriteRewriter>(typeConverter, ctx, &associatedDMAWaits, &cbProducerConsumer);
+  populateAffineToStdConversionPatterns(patterns);
   // clang-format on
 }
 
