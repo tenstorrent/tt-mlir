@@ -133,6 +133,13 @@ void Stats::clear() { __builtin_trap(); }
 std::string Stats::toString() const { __builtin_trap(); }
 #endif
 
+void logMemoryState(
+    const std::unordered_map<tt::runtime::MemoryBufferType,
+                             tt::runtime::MemoryView> &memoryState,
+    std::string_view prefix) {
+  __builtin_trap();
+}
+
 } // namespace debug
 
 // Stubs for Flatbuffer methods
@@ -146,7 +153,7 @@ void Flatbuffer::store(const char *path) const { __builtin_trap(); }
 
 // Stubs for Binary methods
 Binary::Binary(std::shared_ptr<void> handle)
-    : Flatbuffer(handle), binaryId(0), tensorCache(nullptr) {}
+    : Flatbuffer(handle), binaryId(0) {}
 std::string Binary::getMlirAsJson() const { __builtin_trap(); }
 std::uint32_t Binary::getNumPrograms() const { __builtin_trap(); }
 std::string Binary::getProgramInputsAsJson(std::uint32_t programIndex) const {

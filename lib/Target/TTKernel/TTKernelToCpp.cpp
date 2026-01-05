@@ -43,12 +43,12 @@ public:
 
     builder->create<emitc::IncludeOp>(loc, "tools/profiler/kernel_profiler.hpp",
                                       /*isStandard=*/false);
-    builder->create<emitc::IncludeOp>(loc, "firmware_common.h",
+    builder->create<emitc::IncludeOp>(loc, "internal/firmware_common.h",
                                       /*isStandard=*/false);
 
     if (threadType == ThreadType::Noc) {
 
-      builder->create<emitc::IncludeOp>(loc, "dataflow_api.h",
+      builder->create<emitc::IncludeOp>(loc, "api/dataflow/dataflow_api.h",
                                         /*isStandard=*/false);
       emitExperimentalLLKs();
       emitDebugPrint(threadType);
@@ -191,7 +191,7 @@ public:
       return;
     }
 
-    builder->create<emitc::IncludeOp>(loc, "debug/dprint.h",
+    builder->create<emitc::IncludeOp>(loc, "api/debug/dprint.h",
                                       /*isStandard=*/false);
 
     builder->create<emitc::VerbatimOp>(loc, R""""(

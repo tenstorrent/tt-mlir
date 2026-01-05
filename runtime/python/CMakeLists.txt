@@ -20,7 +20,6 @@ if (NOT DEFINED Python_VERSION AND DEFINED Python3_VERSION)
   set(Python_VERSION "${Python3_VERSION}" CACHE PATH "" FORCE)
 endif()
 find_package(nanobind CONFIG REQUIRED)
-find_package(pybind11 CONFIG REQUIRED)
 
 set(TTMLIR_RUNTIME_PYTHON_SRCS
   __init__.cpp
@@ -82,10 +81,8 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 
 if (TTMLIR_ENABLE_RUNTIME)
-  # Isolate utils.cpp to a separate TU to avoid pulling in pybinds.
   add_library(_mlir_runtime_utils OBJECT runtime/utils.cpp)
   target_include_directories(_mlir_runtime_utils
-    SYSTEM PRIVATE ${pybind11_INCLUDE_DIRS}
     PRIVATE
       ${PROJECT_SOURCE_DIR}/runtime/include
       ${PROJECT_BINARY_DIR}/runtime/include

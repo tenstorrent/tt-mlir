@@ -15,9 +15,10 @@
 
 namespace mlir::tt::scheduler {
 
-// TTNN op is scheduleable if it is not an EmptyOp and has at least one result.
+// TTNN op is scheduleable if it is not an EmptyOp or GetDeviceOp.
+// This includes in-place ops (like paged_update_cache) that have no results.
 static bool isTTNNScheduleableOp(mlir::Operation *op) {
-  return isa<ttnn::TTNNDialect>(op->getDialect()) && op->getNumResults() > 0 &&
+  return isa<ttnn::TTNNDialect>(op->getDialect()) &&
          !llvm::isa<ttnn::EmptyOp>(op) && !llvm::isa<ttnn::GetDeviceOp>(op);
 }
 

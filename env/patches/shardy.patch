@@ -267,7 +267,7 @@ index 0000000..3b414d1
 +)
 diff --git a/shardy/dialect/sdy/transforms/export/CMakeLists.txt b/shardy/dialect/sdy/transforms/export/CMakeLists.txt
 new file mode 100755
-index 0000000..60f1952
+index 0000000..f23330d
 --- /dev/null
 +++ b/shardy/dialect/sdy/transforms/export/CMakeLists.txt
 @@ -0,0 +1,94 @@
@@ -636,10 +636,10 @@ index 0000000..dc33501
 +  SdyTransformsPropagationShardingProjection
 +)
 diff --git a/shardy/dialect/sdy/transforms/propagation/debugging/source_sharding.cc b/shardy/dialect/sdy/transforms/propagation/debugging/source_sharding.cc
-index 86f16d1..8039a00 100644
+index a73917b..78cc827 100644
 --- a/shardy/dialect/sdy/transforms/propagation/debugging/source_sharding.cc
 +++ b/shardy/dialect/sdy/transforms/propagation/debugging/source_sharding.cc
-@@ -338,6 +338,7 @@ void saveShardingOriginsOnModule(
+@@ -346,6 +346,7 @@ void saveShardingOriginsOnModule(
  // the case for the target of the edge, because if the source appears multiple
  // times, then it's because it effects multiple other operands/results in the
  // op.
@@ -647,6 +647,78 @@ index 86f16d1..8039a00 100644
  bool insertSeenValue(Operation* op, const PropagationEdge& edge,
                       llvm::SmallDenseSet<Value>& seenValues) {
    EdgeNode target = edge.target;
+diff --git a/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc b/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc
+index ab93067..283d6ad 100644
+--- a/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc
++++ b/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc
+@@ -303,6 +303,37 @@ OpShardingRuleAttr createOpShardingRule(Operation* op,
+         }
+         return builder.build();
+       })
++      .Case<stablehlo::BatchNormInferenceOp>(
++        [conservativePropagation](stablehlo::BatchNormInferenceOp bn) {
++          auto inTy  = llvm::cast<mlir::RankedTensorType>(bn.getOperand().getType());
++          auto outTy = llvm::cast<mlir::RankedTensorType>(bn.getResult().getType());
++
++          OpShardingRuleBuilder builder(bn);
++
++          const int64_t numOperands = static_cast<int64_t>(bn->getNumOperands());
++          llvm::SmallVector<int64_t> opDims(numOperands, kNullDim);
++
++          for (auto [dU, dimSize] : llvm::enumerate(inTy.getShape())) {
++            const int64_t d = static_cast<int64_t>(dU);
++            std::fill(opDims.begin(), opDims.end(), kNullDim);
++            opDims[0] = d;
++            builder.addFactor(opDims, d, dimSize);
++          }
++
++          const int64_t featAxis = static_cast<int64_t>(bn.getFeatureIndex());
++          const int64_t C = outTy.getDimSize(featAxis);
++
++          for (int64_t paramIdx : {1LL, 2LL, 3LL, 4LL}) {
++            std::fill(opDims.begin(), opDims.end(), kNullDim);
++            opDims[paramIdx] = 0;
++            auto factorType = conservativePropagation ? FactorType::kNeedReplication
++                                                        : FactorType::kPassThrough;
++            builder.addFactor(opDims, kNullDim, C,
++                  factorType, true);
++          }
++
++          return builder.build();
++        })
+       .Case<stablehlo::BitcastConvertOp>(
+           [](stablehlo::BitcastConvertOp bitcastConvert) {
+             ArrayRef<int64_t> inShape =
+@@ -685,6 +716,12 @@ OpShardingRuleAttr createOpShardingRule(Operation* op,
+                   /*isBlocked=*/usedByRngBitGenerator)
+               .build();
+         }
++        // Check if the custom call implements the ShardingRuleOpInterface.
++        if (auto shardingRuleOp =
++                  llvm::dyn_cast<ShardingRuleOpInterface>(customCall.getOperation())) {
++          return shardingRuleOp.getShardingRule();
++        }
++
+         // TODO(b/327191011): output unregistered op stats instead.
+         static llvm::once_flag onceFlag;
+         emitOpWarningOnce(
+@@ -1093,6 +1130,16 @@ OpShardingRuleAttr createOpShardingRule(Operation* op,
+             return builder.build();
+           })
+       .Case<stablehlo::ScatterOp>([](stablehlo::ScatterOp scatter) {
++        // Check if the scatter op implements the ShardingRuleOpInterface.
++        if (auto shardingRuleOp =
++              llvm::dyn_cast<ShardingRuleOpInterface>(scatter.getOperation())) {
++          // Try to get custom rule - if it returns non-null, use it.
++          if (auto customRule = shardingRuleOp.getShardingRule()) {
++            return customRule;
++          }
++          // If custom rule returns null, fall through to default.
++        }
++
+         OpShardingRuleBuilder builder(scatter);
+
+         // Since all inputs and results have compatible shapes, we can look at
 diff --git a/shardy/integrations/c/CMakeLists.txt b/shardy/integrations/c/CMakeLists.txt
 new file mode 100644
 index 0000000..fdd50c4
@@ -673,6 +745,319 @@ index 0000000..fdd50c4
 +  StablehloOps
 +  StablehloTypeInference
 +)
+diff --git a/shardy/integrations/c/attributes.cc b/shardy/integrations/c/attributes.cc
+index b683d09..2ca7d7b 100644
+--- a/shardy/integrations/c/attributes.cc
++++ b/shardy/integrations/c/attributes.cc
+@@ -66,6 +66,10 @@ int64_t sdyMeshAxisAttrGetSize(MlirAttribute attr) {
+   return unwrapAttr<sdy::MeshAxisAttr>(attr).getSize();
+ }
+
++MlirAttribute sdyMeshAxisAttrMaybeDowncast(MlirAttribute attr) {
++  return wrap(mlir::cast<sdy::MeshAxisAttr>(unwrap(attr)));
++}
++
+ //===----------------------------------------------------------------------===//
+ // MeshAttr
+ //===----------------------------------------------------------------------===//
+@@ -98,6 +102,10 @@ MlirAttribute sdyMeshAttrGetAxesElem(MlirAttribute attr, intptr_t pos) {
+   return wrap(unwrapAttr<sdy::MeshAttr>(attr).getAxes()[pos]);
+ }
+
++MlirAttribute sdyMeshAttrMaybeDowncast(MlirAttribute attr) {
++  return wrap(mlir::cast<sdy::MeshAttr>(unwrap(attr)));
++}
++
+ //===----------------------------------------------------------------------===//
+ // SubAxisInfoAttr
+ //===----------------------------------------------------------------------===//
+@@ -119,6 +127,10 @@ int64_t sdySubAxisInfoAttrGetSize(MlirAttribute attr) {
+   return unwrapAttr<sdy::SubAxisInfoAttr>(attr).getSize();
+ }
+
++MlirAttribute sdySubAxisInfoAttrMaybeDowncast(MlirAttribute attr) {
++  return wrap(mlir::cast<sdy::SubAxisInfoAttr>(unwrap(attr)));
++}
++
+ //===----------------------------------------------------------------------===//
+ // AxisRefAttr
+ //===----------------------------------------------------------------------===//
+@@ -146,6 +158,10 @@ MlirAttribute sdyAxisRefAttrGetSubAxisInfo(MlirAttribute attr) {
+   return subAsisInfo ? wrap(subAsisInfo) : MlirAttribute();
+ }
+
++MlirAttribute sdyAxisRefAttrMaybeDowncast(MlirAttribute attr) {
++  return wrap(mlir::cast<sdy::AxisRefAttr>(unwrap(attr)));
++}
++
+ //===----------------------------------------------------------------------===//
+ // DimensionShardingAttr
+ //===----------------------------------------------------------------------===//
+@@ -182,6 +198,10 @@ int64_t sdyDimensionShardingAttrGetPriority(MlirAttribute attr) {
+   return priority.has_value() ? *priority : -1;
+ }
+
++MlirAttribute sdyDimensionShardingAttrMaybeDowncast(MlirAttribute attr) {
++  return wrap(mlir::cast<sdy::DimensionShardingAttr>(unwrap(attr)));
++}
++
+ //===----------------------------------------------------------------------===//
+ // TensorShardingAttr
+ //===----------------------------------------------------------------------===//
+@@ -238,6 +258,10 @@ MlirAttribute sdyTensorShardingAttrGetUnreducedAxesElem(MlirAttribute attr,
+       unwrapAttr<sdy::TensorShardingAttr>(attr).getUnreducedAxes()[pos]);
+ }
+
++MlirAttribute sdyTensorShardingAttrMaybeDowncast(MlirAttribute attr) {
++  return wrap(mlir::cast<sdy::TensorShardingAttr>(unwrap(attr)));
++}
++
+ //===----------------------------------------------------------------------===//
+ // TensorShardingPerValueAttr
+ //===----------------------------------------------------------------------===//
+@@ -266,6 +290,10 @@ MlirAttribute sdyTensorShardingPerValueAttrGetShardingsElem(MlirAttribute attr,
+       unwrapAttr<sdy::TensorShardingPerValueAttr>(attr).getShardings()[pos]);
+ }
+
++MlirAttribute sdyTensorShardingPerValueAttrMaybeDowncast(MlirAttribute attr) {
++  return wrap(mlir::cast<sdy::TensorShardingPerValueAttr>(unwrap(attr)));
++}
++
+ //===----------------------------------------------------------------------===//
+ // DimMappingAttr
+ //===----------------------------------------------------------------------===//
+@@ -289,6 +317,10 @@ int64_t sdyDimMappingAttrGetFactorIndicesElem(MlirAttribute attr,
+   return unwrapAttr<sdy::DimMappingAttr>(attr).getFactorIndices()[pos];
+ }
+
++MlirAttribute sdyDimMappingAttrMaybeDowncast(MlirAttribute attr) {
++  return wrap(mlir::cast<sdy::DimMappingAttr>(unwrap(attr)));
++}
++
+ //===----------------------------------------------------------------------===//
+ // TensorMappingAttr
+ //===----------------------------------------------------------------------===//
+@@ -316,6 +348,10 @@ MlirAttribute sdyTensorMappingAttrGetDimMappingsElem(MlirAttribute attr,
+   return wrap(unwrapAttr<sdy::TensorMappingAttr>(attr).getDimMappings()[pos]);
+ }
+
++MlirAttribute sdyTensorMappingAttrMaybeDowncast(MlirAttribute attr) {
++  return wrap(mlir::cast<sdy::TensorMappingAttr>(unwrap(attr)));
++}
++
+ //===----------------------------------------------------------------------===//
+ // OpShardingRuleAttr
+ //===----------------------------------------------------------------------===//
+@@ -423,6 +459,10 @@ int64_t sdyOpShardingRuleAttrGetBlockedPropagationFactorsElem(
+       .getBlockedPropagationFactors()[pos];
+ }
+
++MlirAttribute sdyOpShardingRuleAttrMaybeDowncast(MlirAttribute attr) {
++  return wrap(mlir::cast<sdy::OpShardingRuleAttr>(unwrap(attr)));
++}
++
+ //===----------------------------------------------------------------------===//
+ // ManualAxesAttr
+ //===----------------------------------------------------------------------===//
+@@ -446,4 +486,56 @@ MlirStringRef sdyManualAxesAttrGetAxesElem(
+   return wrap(unwrapAttr<sdy::ManualAxesAttr>(attr)[pos].getValue());
+ }
+
++MlirAttribute sdyManualAxesAttrMaybeDowncast(MlirAttribute attr) {
++  return wrap(mlir::cast<sdy::ManualAxesAttr>(unwrap(attr)));
++}
++
++//===----------------------------------------------------------------------===//
++// AxisRefListAttr
++//===----------------------------------------------------------------------===//
++
++bool sdyAttributeIsAAxisRefListAttr(MlirAttribute attr) {
++  return mlir::isa<sdy::AxisRefListAttr>(unwrap(attr));
++}
++
++MlirAttribute sdyAxisRefListAttrGet(MlirContext ctx, intptr_t nAxisRefs, const MlirAttribute* axisRefs) {
++  return wrap(sdy::AxisRefListAttr::get(unwrap(ctx), unwrapAttrs<sdy::AxisRefAttr>(axisRefs, nAxisRefs)));
++}
++
++intptr_t sdyAxisRefListAttrGetAxisRefsSize(MlirAttribute attr) {
++  return unwrapAttr<sdy::AxisRefListAttr>(attr).getValue().size();
++}
++
++MlirAttribute sdyAxisRefListAttrGetAxisRefsElem(MlirAttribute attr, intptr_t pos) {
++  return wrap(unwrapAttr<sdy::AxisRefListAttr>(attr).getValue()[pos]);
++}
++
++MlirAttribute sdyAxisRefListAttrMaybeDowncast(MlirAttribute attr) {
++  return wrap(mlir::cast<sdy::AxisRefListAttr>(unwrap(attr)));
++}
++
++//===----------------------------------------------------------------------===//
++// ListOfAxisRefListsAttr
++//===----------------------------------------------------------------------===//
++
++bool sdyAttributeIsAListOfAxisRefListsAttr(MlirAttribute attr) {
++  return mlir::isa<sdy::ListOfAxisRefListsAttr>(unwrap(attr));
++}
++
++MlirAttribute sdyListOfAxisRefListsAttrGet(MlirContext ctx, intptr_t nAxisRefLists, const MlirAttribute* axisRefLists) {
++  return wrap(sdy::ListOfAxisRefListsAttr::get(unwrap(ctx), unwrapAttrs<sdy::AxisRefListAttr>(axisRefLists, nAxisRefLists)));
++}
++
++intptr_t sdyListOfAxisRefListsAttrGetAxisRefListsSize(MlirAttribute attr) {
++  return unwrapAttr<sdy::ListOfAxisRefListsAttr>(attr).getValue().size();
++}
++
++MlirAttribute sdyListOfAxisRefListsAttrGetAxisRefListsElem(MlirAttribute attr, intptr_t pos) {
++  return wrap(unwrapAttr<sdy::ListOfAxisRefListsAttr>(attr).getValue()[pos]);
++}
++
++MlirAttribute sdyListOfAxisRefListsAttrMaybeDowncast(MlirAttribute attr) {
++  return wrap(mlir::cast<sdy::ListOfAxisRefListsAttr>(unwrap(attr)));
++}
++
+ }  // extern "C"
+diff --git a/shardy/integrations/c/attributes.h b/shardy/integrations/c/attributes.h
+index b6e77c9..e3a6813 100644
+--- a/shardy/integrations/c/attributes.h
++++ b/shardy/integrations/c/attributes.h
+@@ -40,6 +40,9 @@ MLIR_CAPI_EXPORTED MlirStringRef sdyMeshAxisAttrGetName(MlirAttribute attr);
+
+ MLIR_CAPI_EXPORTED int64_t sdyMeshAxisAttrGetSize(MlirAttribute attr);
+
++MLIR_CAPI_EXPORTED MlirAttribute
++sdyMeshAxisAttrMaybeDowncast(MlirAttribute attr);
++
+ //===----------------------------------------------------------------------===//
+ // MeshAttr
+ //===----------------------------------------------------------------------===//
+@@ -61,6 +64,9 @@ MLIR_CAPI_EXPORTED intptr_t sdyMeshAttrGetAxesSize(MlirAttribute attr);
+ MLIR_CAPI_EXPORTED MlirAttribute sdyMeshAttrGetAxesElem(MlirAttribute attr,
+                                                         intptr_t pos);
+
++MLIR_CAPI_EXPORTED MlirAttribute
++sdyMeshAttrMaybeDowncast(MlirAttribute attr);
++
+ //===----------------------------------------------------------------------===//
+ // SubAxisInfoAttr
+ //===----------------------------------------------------------------------===//
+@@ -75,6 +81,9 @@ MLIR_CAPI_EXPORTED int64_t sdySubAxisInfoAttrGetPreSize(MlirAttribute attr);
+
+ MLIR_CAPI_EXPORTED int64_t sdySubAxisInfoAttrGetSize(MlirAttribute attr);
+
++MLIR_CAPI_EXPORTED MlirAttribute
++sdySubAxisInfoAttrMaybeDowncast(MlirAttribute attr);
++
+ //===----------------------------------------------------------------------===//
+ // AxisRefAttr
+ //===----------------------------------------------------------------------===//
+@@ -92,6 +101,9 @@ MLIR_CAPI_EXPORTED MlirStringRef sdyAxisRefAttrGetName(MlirAttribute attr);
+ MLIR_CAPI_EXPORTED MlirAttribute
+ sdyAxisRefAttrGetSubAxisInfo(MlirAttribute attr);
+
++MLIR_CAPI_EXPORTED MlirAttribute
++sdyAxisRefAttrMaybeDowncast(MlirAttribute attr);
++
+ //===----------------------------------------------------------------------===//
+ // DimensionShardingAttr
+ //===----------------------------------------------------------------------===//
+@@ -116,6 +128,9 @@ MLIR_CAPI_EXPORTED bool sdyDimensionShardingAttrGetIsClosed(MlirAttribute attr);
+ MLIR_CAPI_EXPORTED int64_t
+ sdyDimensionShardingAttrGetPriority(MlirAttribute attr);
+
++MLIR_CAPI_EXPORTED MlirAttribute
++sdyDimensionShardingAttrMaybeDowncast(MlirAttribute attr);
++
+ //===----------------------------------------------------------------------===//
+ // TensorShardingAttr
+ //===----------------------------------------------------------------------===//
+@@ -149,6 +164,9 @@ sdyTensorShardingAttrGetUnreducedAxesSize(MlirAttribute attr);
+ MLIR_CAPI_EXPORTED MlirAttribute
+ sdyTensorShardingAttrGetUnreducedAxesElem(MlirAttribute attr, intptr_t pos);
+
++MLIR_CAPI_EXPORTED MlirAttribute
++sdyTensorShardingAttrMaybeDowncast(MlirAttribute attr);
++
+ //===----------------------------------------------------------------------===//
+ // TensorShardingPerValueAttr
+ //===----------------------------------------------------------------------===//
+@@ -165,6 +183,9 @@ sdyTensorShardingPerValueAttrGetShardingsSize(MlirAttribute attr);
+ MLIR_CAPI_EXPORTED MlirAttribute
+ sdyTensorShardingPerValueAttrGetShardingsElem(MlirAttribute attr, intptr_t pos);
+
++MLIR_CAPI_EXPORTED MlirAttribute
++sdyTensorShardingPerValueAttrMaybeDowncast(MlirAttribute attr);
++
+ //===----------------------------------------------------------------------===//
+ // DimMappingAttr
+ //===----------------------------------------------------------------------===//
+@@ -180,6 +201,9 @@ sdyDimMappingAttrGetFactorIndicesSize(MlirAttribute attr);
+ MLIR_CAPI_EXPORTED int64_t
+ sdyDimMappingAttrGetFactorIndicesElem(MlirAttribute attr, intptr_t pos);
+
++MLIR_CAPI_EXPORTED MlirAttribute
++sdyDimMappingAttrMaybeDowncast(MlirAttribute attr);
++
+ //===----------------------------------------------------------------------===//
+ // TensorMappingAttr
+ //===----------------------------------------------------------------------===//
+@@ -197,6 +221,9 @@ sdyTensorMappingAttrGetDimMappingsSize(MlirAttribute attr);
+ MLIR_CAPI_EXPORTED MlirAttribute
+ sdyTensorMappingAttrGetDimMappingsElem(MlirAttribute attr, intptr_t pos);
+
++MLIR_CAPI_EXPORTED MlirAttribute
++sdyTensorMappingAttrMaybeDowncast(MlirAttribute attr);
++
+ //===----------------------------------------------------------------------===//
+ // OpShardingRuleAttr
+ //===----------------------------------------------------------------------===//
+@@ -258,6 +285,9 @@ MLIR_CAPI_EXPORTED int64_t
+ sdyOpShardingRuleAttrGetBlockedPropagationFactorsElem(MlirAttribute attr,
+                                                       intptr_t pos);
+
++MLIR_CAPI_EXPORTED MlirAttribute
++sdyOpShardingRuleAttrMaybeDowncast(MlirAttribute attr);
++
+ //===----------------------------------------------------------------------===//
+ // ManualAxesAttr
+ //===----------------------------------------------------------------------===//
+@@ -272,6 +302,37 @@ MLIR_CAPI_EXPORTED intptr_t sdyManualAxesAttrGetAxesSize(MlirAttribute attr);
+ MLIR_CAPI_EXPORTED MlirStringRef sdyManualAxesAttrGetAxesElem(
+   MlirAttribute attr, intptr_t pos);
+
++MLIR_CAPI_EXPORTED MlirAttribute
++sdyManualAxesAttrMaybeDowncast(MlirAttribute attr);
++
++//===----------------------------------------------------------------------===//
++// AxisRefListAttr
++//===----------------------------------------------------------------------===//
++
++MLIR_CAPI_EXPORTED bool sdyAttributeIsAAxisRefListAttr(MlirAttribute attr);
++
++MLIR_CAPI_EXPORTED MlirAttribute sdyAxisRefListAttrGet(MlirContext ctx, intptr_t nAxisRefs, const MlirAttribute* axisRefs);
++
++MLIR_CAPI_EXPORTED intptr_t sdyAxisRefListAttrGetAxisRefsSize(MlirAttribute attr);
++
++MLIR_CAPI_EXPORTED MlirAttribute sdyAxisRefListAttrGetAxisRefsElem(MlirAttribute attr, intptr_t pos);
++
++MLIR_CAPI_EXPORTED MlirAttribute sdyAxisRefListAttrMaybeDowncast(MlirAttribute attr);
++
++//===----------------------------------------------------------------------===//
++// ListOfAxisRefListsAttr
++//===----------------------------------------------------------------------===//
++
++MLIR_CAPI_EXPORTED bool sdyAttributeIsAListOfAxisRefListsAttr(MlirAttribute attr);
++
++MLIR_CAPI_EXPORTED MlirAttribute sdyListOfAxisRefListsAttrGet(MlirContext ctx, intptr_t nAxisRefLists, const MlirAttribute* axisRefLists);
++
++MLIR_CAPI_EXPORTED intptr_t sdyListOfAxisRefListsAttrGetAxisRefListsSize(MlirAttribute attr);
++
++MLIR_CAPI_EXPORTED MlirAttribute sdyListOfAxisRefListsAttrGetAxisRefListsElem(MlirAttribute attr, intptr_t pos);
++
++MLIR_CAPI_EXPORTED MlirAttribute sdyListOfAxisRefListsAttrMaybeDowncast(MlirAttribute attr);
++
+ #ifdef __cplusplus
+ }
+ #endif
 diff --git a/shardy/integrations/python/ir/CMakeLists.txt b/shardy/integrations/python/ir/CMakeLists.txt
 new file mode 100644
 index 0000000..cbb4d66
@@ -789,75 +1174,244 @@ index 0000000..30a5cf9
 +include "shardy/dialect/sdy/ir/ops.td"
 +
 +#endif
-diff --git a/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc b/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc
-index ab93067..283d6ad 100644
---- a/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc
-+++ b/shardy/dialect/sdy/transforms/propagation/op_sharding_rule_registry.cc
-@@ -303,6 +303,37 @@ OpShardingRuleAttr createOpShardingRule(Operation* op,
-         }
-         return builder.build();
-       })
-+      .Case<stablehlo::BatchNormInferenceOp>(
-+        [conservativePropagation](stablehlo::BatchNormInferenceOp bn) {
-+          auto inTy  = llvm::cast<mlir::RankedTensorType>(bn.getOperand().getType());
-+          auto outTy = llvm::cast<mlir::RankedTensorType>(bn.getResult().getType());
-+
-+          OpShardingRuleBuilder builder(bn);
-+
-+          const int64_t numOperands = static_cast<int64_t>(bn->getNumOperands());
-+          llvm::SmallVector<int64_t> opDims(numOperands, kNullDim);
-+
-+          for (auto [dU, dimSize] : llvm::enumerate(inTy.getShape())) {
-+            const int64_t d = static_cast<int64_t>(dU);
-+            std::fill(opDims.begin(), opDims.end(), kNullDim);
-+            opDims[0] = d;
-+            builder.addFactor(opDims, d, dimSize);
-+          }
-+
-+          const int64_t featAxis = static_cast<int64_t>(bn.getFeatureIndex());
-+          const int64_t C = outTy.getDimSize(featAxis);
-+
-+          for (int64_t paramIdx : {1LL, 2LL, 3LL, 4LL}) {
-+            std::fill(opDims.begin(), opDims.end(), kNullDim);
-+            opDims[paramIdx] = 0;
-+            auto factorType = conservativePropagation ? FactorType::kNeedReplication
-+                                                        : FactorType::kPassThrough;
-+            builder.addFactor(opDims, kNullDim, C,
-+                  factorType, true);
-+          }
-+
-+          return builder.build();
-+        })
-       .Case<stablehlo::BitcastConvertOp>(
-           [](stablehlo::BitcastConvertOp bitcastConvert) {
-             ArrayRef<int64_t> inShape =
-@@ -685,6 +716,12 @@ OpShardingRuleAttr createOpShardingRule(Operation* op,
-                   /*isBlocked=*/usedByRngBitGenerator)
-               .build();
-         }
-+        // Check if the custom call implements the ShardingRuleOpInterface.
-+        if (auto shardingRuleOp =
-+                  llvm::dyn_cast<ShardingRuleOpInterface>(customCall.getOperation())) {
-+          return shardingRuleOp.getShardingRule();
-+        }
-+
-         // TODO(b/327191011): output unregistered op stats instead.
-         static llvm::once_flag onceFlag;
-         emitOpWarningOnce(
-@@ -1093,6 +1130,16 @@ OpShardingRuleAttr createOpShardingRule(Operation* op,
-             return builder.build();
-           })
-       .Case<stablehlo::ScatterOp>([](stablehlo::ScatterOp scatter) {
-+        // Check if the scatter op implements the ShardingRuleOpInterface.
-+        if (auto shardingRuleOp =
-+              llvm::dyn_cast<ShardingRuleOpInterface>(scatter.getOperation())) {
-+          // Try to get custom rule - if it returns non-null, use it.
-+          if (auto customRule = shardingRuleOp.getShardingRule()) {
-+            return customRule;
-+          }
-+          // If custom rule returns null, fall through to default.
-+        }
-+
-         OpShardingRuleBuilder builder(scatter);
+diff --git a/shardy/integrations/python/ir/sdy_module.cc b/shardy/integrations/python/ir/sdy_module.cc
+index da451fa..44c0ea2 100644
+--- a/shardy/integrations/python/ir/sdy_module.cc
++++ b/shardy/integrations/python/ir/sdy_module.cc
+@@ -109,7 +109,15 @@ NB_MODULE(_sdy, m) {
+                              })
+       .def_property_readonly("size", [](MlirAttribute self) {
+         return sdyMeshAxisAttrGetSize(self);
+-      });
++      })
++      .def_classmethod(
++          "maybe_downcast",
++          [](nb::object cls, MlirAttribute attr) -> std::variant<MlirAttribute, nb::object> {
++            if (sdyAttributeIsAMeshAxisAttr(attr)) {
++              return cls(sdyMeshAxisAttrMaybeDowncast(attr));
++            }
++            return nb::none();
++          });
 
-         // Since all inputs and results have compatible shapes, we can look at
+   mlir::python::nanobind_adaptors::mlir_attribute_subclass(
+       m, "MeshAttr", sdyAttributeIsAMeshAttr)
+@@ -133,7 +141,15 @@ NB_MODULE(_sdy, m) {
+       .def_property_readonly("axes", [](MlirAttribute self) {
+         return propertyVector<MlirAttribute>(self, sdyMeshAttrGetAxesSize,
+                                              sdyMeshAttrGetAxesElem);
+-      });
++      })
++      .def_classmethod(
++          "maybe_downcast",
++          [](nb::object cls, MlirAttribute attr) -> std::variant<MlirAttribute, nb::object> {
++            if (sdyAttributeIsAMeshAttr(attr)) {
++              return cls(sdyMeshAttrMaybeDowncast(attr));
++            }
++            return nb::none();
++          });
+
+   mlir::python::nanobind_adaptors::mlir_attribute_subclass(
+       m, "SubAxisInfoAttr", sdyAttributeIsASubAxisInfoAttr)
+@@ -150,7 +166,15 @@ NB_MODULE(_sdy, m) {
+           [](MlirAttribute self) { return sdySubAxisInfoAttrGetPreSize(self); })
+       .def_property_readonly("size", [](MlirAttribute self) {
+         return sdySubAxisInfoAttrGetSize(self);
+-      });
++      })
++      .def_classmethod(
++          "maybe_downcast",
++          [](nb::object cls, MlirAttribute attr) -> std::variant<MlirAttribute, nb::object> {
++            if (sdyAttributeIsASubAxisInfoAttr(attr)) {
++              return cls(sdySubAxisInfoAttrMaybeDowncast(attr));
++            }
++            return nb::none();
++          });
+
+   mlir::python::nanobind_adaptors::mlir_attribute_subclass(
+       m, "AxisRefAttr", sdyAttributeIsAnAxisRefAttr)
+@@ -175,7 +199,15 @@ NB_MODULE(_sdy, m) {
+         MlirAttribute subAxisInfo = sdyAxisRefAttrGetSubAxisInfo(self);
+         return subAxisInfo.ptr == nullptr ? std::nullopt
+                                           : std::optional(subAxisInfo);
+-      });
++      })
++      .def_classmethod(
++          "maybe_downcast",
++          [](nb::object cls, MlirAttribute attr) -> std::variant<MlirAttribute, nb::object> {
++            if (sdyAttributeIsAnAxisRefAttr(attr)) {
++              return cls(sdyAxisRefAttrMaybeDowncast(attr));
++            }
++            return nb::none();
++          });
+
+   mlir::python::nanobind_adaptors::mlir_attribute_subclass(
+       m, "DimensionShardingAttr", sdyAttributeIsADimensionShardingAttr)
+@@ -205,7 +237,15 @@ NB_MODULE(_sdy, m) {
+       .def_property_readonly("priority", [](MlirAttribute self) {
+         int64_t priority = sdyDimensionShardingAttrGetPriority(self);
+         return priority == -1 ? std::nullopt : std::optional(priority);
+-      });
++      })
++      .def_classmethod(
++          "maybe_downcast",
++          [](nb::object cls, MlirAttribute attr) -> std::variant<MlirAttribute, nb::object> {
++            if (sdyAttributeIsADimensionShardingAttr(attr)) {
++              return cls(sdyDimensionShardingAttrMaybeDowncast(attr));
++            }
++            return nb::none();
++          });
+
+   mlir::python::nanobind_adaptors::mlir_attribute_subclass(
+       m, "TensorShardingAttr", sdyAttributeIsATensorShardingAttr)
+@@ -251,7 +291,15 @@ NB_MODULE(_sdy, m) {
+         return propertyVector<MlirAttribute>(
+             self, sdyTensorShardingAttrGetUnreducedAxesSize,
+             sdyTensorShardingAttrGetUnreducedAxesElem);
+-      });
++      })
++      .def_classmethod(
++          "maybe_downcast",
++          [](nb::object cls, MlirAttribute attr) -> std::variant<MlirAttribute, nb::object> {
++            if (sdyAttributeIsATensorShardingAttr(attr)) {
++              return cls(sdyTensorShardingAttrMaybeDowncast(attr));
++            }
++            return nb::none();
++          });
+
+   mlir::python::nanobind_adaptors::mlir_attribute_subclass(
+       m, "TensorShardingPerValueAttr",
+@@ -270,7 +318,15 @@ NB_MODULE(_sdy, m) {
+         return propertyVector<MlirAttribute>(
+             self, sdyTensorShardingPerValueAttrGetShardingsSize,
+             sdyTensorShardingPerValueAttrGetShardingsElem);
+-      });
++      })
++      .def_classmethod(
++          "maybe_downcast",
++          [](nb::object cls, MlirAttribute attr) -> std::variant<MlirAttribute, nb::object> {
++            if (sdyAttributeIsATensorShardingPerValueAttr(attr)) {
++              return cls(sdyTensorShardingPerValueAttrMaybeDowncast(attr));
++            }
++            return nb::none();
++          });
+
+   mlir::python::nanobind_adaptors::mlir_attribute_subclass(
+       m, "DimMappingAttr", sdyAttributeIsADimMappingAttr)
+@@ -288,7 +344,15 @@ NB_MODULE(_sdy, m) {
+         return propertyVector<intptr_t>(self,
+                                         sdyDimMappingAttrGetFactorIndicesSize,
+                                         sdyDimMappingAttrGetFactorIndicesElem);
+-      });
++      })
++      .def_classmethod(
++          "maybe_downcast",
++          [](nb::object cls, MlirAttribute attr) -> std::variant<MlirAttribute, nb::object> {
++            if (sdyAttributeIsADimMappingAttr(attr)) {
++              return cls(sdyDimMappingAttrMaybeDowncast(attr));
++            }
++            return nb::none();
++          });
+
+   mlir::python::nanobind_adaptors::mlir_attribute_subclass(
+       m, "TensorMappingAttr", sdyAttributeIsATensorMappingAttr)
+@@ -310,7 +374,15 @@ NB_MODULE(_sdy, m) {
+                              })
+       .def_property_readonly("rank", [](MlirAttribute self) {
+         return sdyTensorMappingAttrGetRank(self);
+-      });
++      })
++      .def_classmethod(
++          "maybe_downcast",
++          [](nb::object cls, MlirAttribute attr) -> std::variant<MlirAttribute, nb::object> {
++            if (sdyAttributeIsATensorMappingAttr(attr)) {
++              return cls(sdyTensorMappingAttrMaybeDowncast(attr));
++            }
++            return nb::none();
++          });
+
+   mlir::python::nanobind_adaptors::mlir_attribute_subclass(
+       m, "OpShardingRuleAttr", sdyAttributeIsAOpShardingRuleAttr)
+@@ -394,6 +466,14 @@ NB_MODULE(_sdy, m) {
+             return propertyVector<intptr_t>(
+                 self, sdyOpShardingRuleAttrGetBlockedPropagationFactorsSize,
+                 sdyOpShardingRuleAttrGetBlockedPropagationFactorsElem);
++          })
++      .def_classmethod(
++          "maybe_downcast",
++          [](nb::object cls, MlirAttribute attr) -> std::variant<MlirAttribute, nb::object> {
++            if (sdyAttributeIsAOpShardingRuleAttr(attr)) {
++              return cls(sdyOpShardingRuleAttrMaybeDowncast(attr));
++            }
++            return nb::none();
+           });
+
+   mlir::python::nanobind_adaptors::mlir_attribute_subclass(
+@@ -417,7 +497,67 @@ NB_MODULE(_sdy, m) {
+            })
+       .def("__len__", [](MlirAttribute& self) {
+         return sdyManualAxesAttrGetAxesSize(self);
+-      });
++      })
++      .def_classmethod(
++          "maybe_downcast",
++          [](nb::object cls, MlirAttribute attr) -> std::variant<MlirAttribute, nb::object> {
++            if (sdyAttributeIsAManualAxesAttr(attr)) {
++              return cls(sdyManualAxesAttrMaybeDowncast(attr));
++            }
++            return nb::none();
++          });
++
++  mlir::python::nanobind_adaptors::mlir_attribute_subclass(
++      m, "AxisRefListAttr", sdyAttributeIsAAxisRefListAttr)
++      .def_classmethod(
++          "get",
++          [](nb::object cls, const std::vector<MlirAttribute>& axisRefs,
++             MlirContext ctx) {
++            return cls(sdyAxisRefListAttrGet(ctx, axisRefs.size(),
++                                             axisRefs.data()));
++          },
++          nb::arg("cls"), nb::arg("axis_refs"),
++          nb::arg("context").none() = nb::none(),
++          "Creates an AxisRefListAttr with the given axis references.")
++      .def_property_readonly("axis_refs", [](MlirAttribute self) {
++        return propertyVector<MlirAttribute>(
++            self, sdyAxisRefListAttrGetAxisRefsSize,
++            sdyAxisRefListAttrGetAxisRefsElem);
++      })
++      .def_classmethod(
++          "maybe_downcast",
++          [](nb::object cls, MlirAttribute attr) -> std::variant<MlirAttribute, nb::object> {
++            if (sdyAttributeIsAAxisRefListAttr(attr)) {
++              return cls(sdyAxisRefListAttrMaybeDowncast(attr));
++            }
++            return nb::none();
++          });
++
++  mlir::python::nanobind_adaptors::mlir_attribute_subclass(
++      m, "ListOfAxisRefListsAttr", sdyAttributeIsAListOfAxisRefListsAttr)
++      .def_classmethod(
++          "get",
++          [](nb::object cls, const std::vector<MlirAttribute>& axisRefLists,
++             MlirContext ctx) {
++            return cls(sdyListOfAxisRefListsAttrGet(ctx, axisRefLists.size(),
++                                                  axisRefLists.data()));
++          },
++          nb::arg("cls"), nb::arg("axis_ref_lists"),
++          nb::arg("context").none() = nb::none(),
++          "Creates a ListOfAxisRefListsAttr with the given axis reference lists.")
++      .def_property_readonly("axis_ref_lists", [](MlirAttribute self) {
++        return propertyVector<MlirAttribute>(
++            self, sdyListOfAxisRefListsAttrGetAxisRefListsSize,
++            sdyListOfAxisRefListsAttrGetAxisRefListsElem);
++      })
++      .def_classmethod(
++          "maybe_downcast",
++          [](nb::object cls, MlirAttribute attr) -> std::variant<MlirAttribute, nb::object> {
++            if (sdyAttributeIsAListOfAxisRefListsAttr(attr)) {
++              return cls(sdyListOfAxisRefListsAttrMaybeDowncast(attr));
++            }
++            return nb::none();
++          });
+ }
+
+ }  // namespace

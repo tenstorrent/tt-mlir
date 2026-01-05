@@ -337,13 +337,44 @@ def test_cpu_hoistable_reshape_op(
 @pytest.mark.parametrize(
     "shape,begins,ends,step",
     [
+        # Simple 2D
         ((64, 64), [0, 0], [32, 32], None),
+        # Crop 2D
         ((64, 64), [10, 20], [50, 60], [1, 1]),
+        # Every three rows/cols
+        ((192, 64), [2, 0], [192, 64], [3, 1]),
+        ((64, 192), [0, 2], [64, 192], [1, 3]),
+        # Sample large 2D tensors
+        ((32, 131072), [0, 3], [32, 128 * 991], [2, 991]),
+        ((131072, 32), [5, 1], [128 * 997, 32], [997, 2]),
+        ((1024, 1024), [3, 2], [64 * 11, 64 * 13], [11, 13]),
+        # Simple 3D
+        ((2, 64, 32), [0, 0, 0], [1, 64, 32], None),
+        # Interleaved 3D
+        ((2, 64, 32), [0, 1, 0], [1, 64, 32], [1, 2, 1]),
+        ((2, 64, 32), [0, 1, 0], [1, 64, 32], [1, 2, 2]),
+        # Strided crop 3D
+        ((64, 64, 64), [10, 20, 28], [50, 60, 64], [2, 2, 1]),
         ((64, 64, 64), [10, 20, 30], [50, 60, 64], [2, 2, 1]),
+        ((64, 64, 64), [5, 30, 12], [11, 34, 36], [3, 1, 4]),
+        # Minus 1
+        ((3, 512, 256), [0, 1, 0], [3, 512, 255], None),
+        ((5, 65, 1025), [0, 0, 1], [5, 64, 1025], None),
+        # Simple 4D
+        ((2, 24, 32, 128), [1, 8, 3, 64], [2, 16, 7, 128], None),
+        # NCHW: 2nd half - green - down sample & make square
+        ((4, 3, 64, 96), [2, 1, 1, 0], [4, 2, 64, 96], [1, 1, 2, 3]),
+        # NHWC: odd - crop - blue & alpha
+        ((6, 64, 64, 4), [1, 15, 16, 2], [6, 47, 48, 4], [2, 1, 1, 1]),
+        # Simple 5D
+        ((2, 4, 6, 64, 64), [0, 1, 0, 0, 0], [1, 2, 1, 32, 32], None),
+        # Mixed 5D
+        ((3, 4, 5, 128, 128), [1, 0, 3, 32, 64], [3, 4, 4, 96, 128], [1, 2, 1, 1, 1]),
+        # Pick a single element
+        ((3, 20, 14, 64, 64), [1, 5, 6, 31, 32], [2, 6, 7, 32, 33], None),
     ],
-    ids=["basic_slice", "explicit_step", "3d_slice"],
 )
-@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal", "emitpy"])
 def test_slice(
     shape: Shape,
     begins: List[int],
@@ -359,6 +390,15 @@ def test_slice(
             in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
         ):
             return builder.slice(in0, begins, ends, step, unit_attrs=unit_attrs)
+
+    # NoC alignment is at least 16B => must align to 4 floats.
+    special_dma = (begins[-1] % 4 != 0) or (step is not None and step[-1] != 1)
+    if target == "ttmetal" and special_dma:
+        request.node.add_marker(
+            pytest.mark.xfail(
+                reason="Unaligned and/or strided DMA in the last dim #6475", run=True
+            )
+        )
 
     compile_and_execute_ttir(
         module,

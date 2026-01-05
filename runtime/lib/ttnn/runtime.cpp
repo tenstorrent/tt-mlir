@@ -775,6 +775,14 @@ bool hasLayout(::tt::runtime::Tensor tensor, Layout layout) {
   return *tensorLayoutDesc == desiredLayoutDesc;
 }
 
+// Return the layout of a given runtime Tensor as a Layout handle
+Layout getTensorLayout(::tt::runtime::Tensor tensor) {
+  const std::shared_ptr<LayoutDesc> tensorLayoutDesc =
+      LayoutDesc::fromTensor(tensor);
+  return Layout(std::static_pointer_cast<void>(tensorLayoutDesc),
+                DeviceRuntime::TTNN);
+}
+
 Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
                  std::uint32_t inputIndex) {
   const ::tt::target::ttnn::TTNNBinary &fbb =

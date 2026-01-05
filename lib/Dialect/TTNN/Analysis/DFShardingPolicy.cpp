@@ -187,7 +187,7 @@ void DFShardingPolicy::run() {
     // TODO(odjuricic): Add constraint check if op can write to dram.
     if (!resolvedShardSolution.selectedOpConfig[l1ChainConfig.getLastOp()]
              .outputLayout.hasDRAMBufferType()) {
-      l1ChainConfig.spillEndToDRAM = true;
+      l1ChainConfig.spillLocation = SpillLocation::DRAM;
     }
 
     TTMLIR_DEBUG(ttmlir::LogComponent::DFShardingPolicy,

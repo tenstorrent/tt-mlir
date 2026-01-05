@@ -533,29 +533,59 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     if (op.getResult().getUses().empty()) {
       rewriter.eraseOp(op);
-    } else {
-      auto name = op.getOperation()->getName().getStringRef().drop_front(9);
-
-      // cta and crta are both passed through the template instead of operands
-      ValueRange operands;
-      SmallVector<Attribute, 2> template_args;
-      auto cta_base = op.getCtaBase();
-      auto crta_base = op.getCrtaBase();
-      auto cta_base_attr = cta_base.getDefiningOp<arith::ConstantOp>();
-      auto crta_base_attr = crta_base.getDefiningOp<arith::ConstantOp>();
-      if (!cta_base_attr || !crta_base_attr) {
-        llvm_unreachable(
-            "MakeTensorAccessorArgsOp should have constant operands");
-      }
-      template_args.push_back(cta_base_attr.getValue());
-      template_args.push_back(crta_base_attr.getValue());
-
-      rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-          op, this->getTypeConverter()->convertType(op->getResultTypes()[0]),
-          name, nullptr, ArrayAttr::get(op.getContext(), template_args),
-          operands);
+      return success();
     }
 
+    // Generate unique variable name from SSA number (pattern from
+    // TTKernelClassMethodRewriter).
+    std::string ssaName;
+    llvm::raw_string_ostream os(ssaName);
+    mlir::OpPrintingFlags flags;
+    op->getResult(0).printAsOperand(os, flags);
+    os.flush();
+    std::string varName = "tensor_accessor_args_" + ssaName.substr(1);
+
+    // Build CTA/CRTA expression with priority: expr attr > chaining > literal.
+    auto buildArgExpr = [&](StringAttr exprAttr, Value baseValue,
+                            StringRef chainMethodName) -> std::string {
+      if (exprAttr) {
+        // Explicit constexpr string expression (overrides chaining).
+        return exprAttr.getValue().str();
+      }
+      if (op.getPrevArgs()) {
+        // Chaining from previous accessor.
+        auto prevLiteral =
+            adaptor.getPrevArgs().getDefiningOp<emitc::LiteralOp>();
+        TT_assertv(prevLiteral,
+                   "prev_args should be emitc.literal after conversion.");
+        return prevLiteral.getValue().str() + "." + chainMethodName.str() +
+               "()";
+      }
+      // Literal integer constant (verifier ensures this is a constant).
+      auto baseAttr = baseValue.getDefiningOp<arith::ConstantOp>();
+      TT_assertv(baseAttr, "base should be constant.");
+      return std::to_string(cast<IntegerAttr>(baseAttr.getValue()).getInt());
+    };
+
+    std::string ctaArg = buildArgExpr(op.getCtaExprAttr(), op.getCtaBase(),
+                                      "next_compile_time_args_offset");
+    std::string crtaArg = buildArgExpr(op.getCrtaExprAttr(), op.getCrtaBase(),
+                                       "next_common_runtime_args_offset");
+
+    // Emit: auto tensor_accessor_args_N = TensorAccessorArgs<ctaArg,
+    // crtaArg>();
+    std::string code = "auto " + varName + " = TensorAccessorArgs<" + ctaArg +
+                       ", " + crtaArg + ">();";
+    rewriter.create<emitc::VerbatimOp>(op.getLoc(), code);
+
+    // Create literal to reference the variable (pattern from
+    // TTKernelClassMethodRewriter).
+    auto resultType =
+        this->getTypeConverter()->convertType(op->getResultTypes()[0]);
+    auto literalOp =
+        rewriter.create<emitc::LiteralOp>(op.getLoc(), resultType, varName);
+
+    rewriter.replaceOp(op, literalOp.getResult());
     return success();
   }
 };

@@ -8,13 +8,14 @@ import inspect
 import time
 import torch
 from functools import reduce
+import itertools
 import operator
 from typing import Callable, List, Optional, Tuple, Union, Literal, Dict
 from collections import OrderedDict
 import json
 
 from ttmlir.ir import *
-from ttmlir.dialects import func, ttcore, ttnn, ttir
+from ttmlir.dialects import func, ttcore, ttnn, ttir, sdy
 from ttmlir.passmanager import PassManager
 from ttmlir.passes import (
     tt_populate_argument_types,
@@ -30,11 +31,13 @@ from ttmlir.passes import (
     ttir_to_emitpy_pipeline,
 )
 
+from builder.base.builder_enums import *
 from builder.base.builder_utils import *
 from builder.base.builder_runtime import *
 from builder.base.builder import Builder
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
+from builder.stablehlo.shardy_parallelization_utils import *
 from builder.ttnn.ttnn_builder import TTNNBuilder
 from builder.d2m.d2m_builder import D2MBuilder
 
@@ -129,7 +132,20 @@ def _compile_and_execute(
             check_atol=check_atol,
             check_rtol=check_rtol,
             input_output_goldens=input_output_goldens,
-            intermediate_goldens=intermediate_goldens,
+        )
+
+    elif target == "emitc":
+        cpp_path = mlir_path + ".cpp"
+        execute_cpp(
+            cpp_path=cpp_path,
+            pcc=pcc,
+            atol=atol,
+            rtol=rtol,
+            disable_golden=disable_golden,
+            device=device,
+            check_atol=check_atol,
+            check_rtol=check_rtol,
+            input_output_goldens=input_output_goldens,
         )
 
     return mlir_path
@@ -194,7 +210,7 @@ def build_module(
     elif builder_type == "stablehlo":
         builder = StableHLOBuilder(ctx, loc, mesh_name, mesh_dict)
     elif builder_type == "ttnn":
-        builder = TTNNBuilder(ctx, loc)
+        builder = TTNNBuilder(ctx, loc, mesh_name, mesh_dict)
     elif builder_type == "d2m":
         builder = D2MBuilder(ctx, loc, mesh_name, mesh_dict)
     dir_name = builder_type + "-builder-artifacts"
@@ -847,6 +863,9 @@ def compile_ttnn_to_flatbuffer(
         module, builder = build_module(
             fn,
             "ttnn",
+            module_dump=module_dump,
+            output_root=output_root,
+            base=test_base,
         )
     except Exception as e:
         raise TTBuilderCompileException(e)
@@ -1374,6 +1393,26 @@ def split_mlir_file(
         )
 
     return modules_and_builders
+
+
+def generate_all_module_permutations(mlir_text: str, num_devices: int) -> List[Module]:
+    ctx = Context()
+    loc = Location.unknown(ctx)
+
+    with ctx, loc:
+        module = Module.parse(mlir_text)
+        return find_module_permutations(module, num_devices)
+
+
+def get_optimal_module_least_num_collectives(
+    module_permutations: List[Module],
+) -> List[Module]:
+    copied_modules = []
+
+    for module in module_permutations:
+        copied_modules.append(Module.parse(str(module), module.context))
+
+    return optimal_module_least_num_collectives(copied_modules)
 
 
 # ----- Experimental Public APIs -----

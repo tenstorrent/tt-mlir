@@ -2923,7 +2923,7 @@ TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
       /*enable_act_double_buffer=*/BoolAttr::get(&context, true),
       /*enable_weights_double_buffer=*/BoolAttr::get(&context, true),
       /*enable_kernel_stride_folding=*/BoolAttr::get(&context, false),
-      /*config_tensors_in_dram=*/nullptr);
+      /*config_tensors_in_dram=*/BoolAttr::get(&context, true));
 
   OpModel backend = dyn_cast<OpModel>(convTranspose2d.getOperation());
   auto constraintsExp = backend.getOpConstraints(
@@ -2935,7 +2935,7 @@ TEST_F(OpModelBase, ConvTranspose2dInterfaceConfigs) {
       constraintsExp.get();
   EXPECT_GT(cbSize, 0);
   EXPECT_GT(l1PeakSize, 0);
-  EXPECT_GT(outputSize, 0);
+  EXPECT_EQ(outputSize, 0);
 
   auto runtimeExp =
       backend.getOpRuntime(getInputLayouts(convTranspose2d),

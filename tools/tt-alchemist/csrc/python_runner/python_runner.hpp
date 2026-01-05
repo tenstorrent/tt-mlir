@@ -12,8 +12,8 @@
 #pragma clang diagnostic ignored "-Wcovered-switch-default"
 #include "ttnn/device.hpp"
 #include "ttnn/tensor/tensor.hpp"
-#include <pybind11/embed.h>
-#include <pybind11/pybind11.h>
+#pragma clang diagnostic ignored "-Wcast-qual"
+#include <nanobind/nanobind.h>
 #pragma clang diagnostic pop
 
 namespace tt::alchemist {
@@ -29,7 +29,7 @@ namespace tt::alchemist {
 class PythonModelRunner {
 public:
   PythonModelRunner();
-  ~PythonModelRunner() = default;
+  ~PythonModelRunner();
 
   /// Add a directory to Python's sys.path for module imports.
   void addToSysPath(const std::string &path);
@@ -43,8 +43,8 @@ public:
                                     ttnn::MeshDevice *device);
 
 private:
-  pybind11::object moduleObject;
-  pybind11::object forwardFunc;
+  nanobind::object moduleObject;
+  nanobind::object forwardFunc;
 };
 
 } // namespace tt::alchemist

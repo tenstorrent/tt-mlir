@@ -1766,41 +1766,16 @@ public:
   }
 
   mlir::Attribute emitConv3dConfig(
-      uint32_t outChannels, llvm::ArrayRef<int32_t> kernelSize,
-      llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
-      llvm::StringRef paddingMode, uint32_t groups,
-      ttcore::DataType outputDtype,
       std::optional<mlir::tt::ttnn::Conv3dConfigAttr> conv3dConfig =
           std::nullopt) {
     std::string buf;
     llvm::raw_string_ostream rso(buf);
 
-    // for some fields we need default values, so we create a default config and
-    // override the fields
+    // Create config with default values and override only the fields that
+    // remain in the new Conv3dConfig struct
     rso << "[&]() { ";
     rso << "auto config = "
            "ttnn::operations::experimental::conv3d::Conv3dConfig(); ";
-    rso << "config.output_channels = " << outChannels << "; ";
-
-    rso << "config.kernel_size = {";
-    llvm::interleaveComma(kernelSize, rso);
-    rso << "}; ";
-
-    rso << "config.stride = {";
-    llvm::interleaveComma(stride, rso);
-    rso << "}; ";
-
-    rso << "config.padding = {";
-    llvm::interleaveComma(padding, rso);
-    rso << "}; ";
-
-    rso << "config.padding_mode = \"" << paddingMode << "\"; ";
-    rso << "config.groups = " << groups << "; ";
-
-    // Set output dtype
-    rso << "config.dtype = ";
-    rso << EmitCTypeConverter<::ttnn::DataType>::convert(outputDtype);
-    rso << "; ";
 
     // Apply Conv3dConfigAttr overrides if provided
     if (conv3dConfig.has_value()) {

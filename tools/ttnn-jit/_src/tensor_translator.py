@@ -161,12 +161,14 @@ def _create_sharded_tensor_layout(ctx, tensor_arg):
     tensor_mesh = None
     exact_grid = True
 
+    mem_layout = tensor_arg.memory_config().memory_layout.value
+
     return ttnn.ir.TTNNLayoutAttr.get_with_linear(
         ctx,
         affine_map,
         grid,
         memref,
-        tensor_arg.memory_config().memory_layout,
+        mem_layout,
         tensor_mesh,
         exact_grid,
     )
@@ -191,7 +193,7 @@ def _create_dram_tensor_layout(ctx, tensor_arg):
         affine_map,
         grid,
         memref,
-        ttnn.TensorMemoryLayout.Interleaved,
+        ttnn.TensorMemoryLayout.Interleaved.value,
         tensor_mesh,
         exact_grid,
     )
@@ -304,7 +306,7 @@ def _create_tensor_layout_with_shape(
         affine_map,
         grid,
         memref,
-        memory_layout,
+        memory_layout.value,
         tensor_mesh,
         exact_grid,
     )

@@ -141,7 +141,7 @@ class PyKernelOp:
     def create_cb(self, tensor, buffer_index, core_ranges=None, **options):
         # Utility function to create CB given tensor. Returns an OpCircularBuffer Object
         dtype = tensor.dtype
-        page_size = self._tile_bytes_from_ttnn_dtype(int(dtype))
+        page_size = self._tile_bytes_from_ttnn_dtype(dtype.value)
         num_tiles = math.ceil(tensor.volume() / 1024)
         total_size = num_tiles * page_size
 
@@ -161,7 +161,7 @@ class PyKernelOp:
         cb_type = CircularBuffer(
             buffer_index,
             tuple(tensor.shape),
-            dtype=self._mlir_dtype_from_ttnn_dtype(int(dtype)),
+            dtype=self._mlir_dtype_from_ttnn_dtype(dtype.value),
         )
 
         return OpCircularBuffer(cb_type, cb_format, cb_desc)
