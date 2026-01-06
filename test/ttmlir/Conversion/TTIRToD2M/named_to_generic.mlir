@@ -292,9 +292,8 @@ module {
   func.func @named_slice_static(%arg0: tensor<96x96xf32>) -> tensor<32x32xf32> {
     // CHECK-NOT: slice
     // CHECK: %[[DEVICE_TENSOR:.*]] = d2m.to_layout %arg0
-    // CHECK: %[[UNIT_GRID_VIEW:.*]] = d2m.view_layout %[[DEVICE_TENSOR]]
-    // CHECK: "d2m.stream_layout"(%[[UNIT_GRID_VIEW]], %{{.*}})
     // CHECK: d2m.generic
+    // CHECK: d2m.dma
     %0 = "ttir.slice_static"(%arg0) <{begins = [1 : i32, 0 : i32], ends = [96 : i32, 64 : i32], step = [3 : i32, 2 : i32]}> : (tensor<96x96xf32>) -> tensor<32x32xf32>
     return %0 : tensor<32x32xf32>
   }
