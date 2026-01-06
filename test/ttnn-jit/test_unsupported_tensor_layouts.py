@@ -7,9 +7,7 @@ import torch
 
 import pytest
 
-
-def exp(input_tensor_a):
-    return ttnn.exp(input_tensor_a)
+from op_definitions import exp
 
 
 @pytest.mark.parametrize(

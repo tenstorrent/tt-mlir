@@ -549,7 +549,37 @@ public:
                       // resolved, set the deviceComputeKernelConfig here as
                       // well and merge with the Conv2dOp case above.
                     }
-                  });
+                  })
+              .Case<ttnn::MatmulOp, ttnn::LinearOp>([&](auto matmulOp) {
+                auto opAttributes = opConfigAnalysis.getResult().at(op);
+                if (std::holds_alternative<ttnn::MatmulAttrs>(
+                        opAttributes.opSpecificAttrs)) {
+                  ttnn::MatmulAttrs matmulAttrs =
+                      std::get<ttnn::MatmulAttrs>(opAttributes.opSpecificAttrs);
+                  if (matmulAttrs.matmulProgramConfig.has_value()) {
+                    auto programConfig =
+                        matmulAttrs.matmulProgramConfig.value();
+                    matmulOp.setMatmulProgramConfigAttr(programConfig);
+                    // Workaround for tt-metal issue #35060: If the program
+                    // config has a fused activation, remove the activation
+                    // attribute from the op to avoid duplicate activations.
+                    // https://github.com/tenstorrent/tt-metal/issues/35060
+                    bool hasFusedActivation =
+                        llvm::TypeSwitch<mlir::Attribute, bool>(programConfig)
+                            .Case<
+                                MatmulMultiCoreReuseMultiCastProgramConfigAttr,
+                                MatmulMultiCoreReuseMultiCast1DProgramConfigAttr,
+                                MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
+                                [](auto config) {
+                                  return config.getFusedActivation() != nullptr;
+                                })
+                            .Default([](mlir::Attribute) { return false; });
+                    if (hasFusedActivation) {
+                      matmulOp.removeActivationAttr();
+                    }
+                  }
+                }
+              });
         }
       });
 

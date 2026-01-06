@@ -22,38 +22,11 @@ for flag in $3; do
     [[ "$flag" == "require-opmodel" ]] && PYTEST_ARGS="$PYTEST_ARGS --require-opmodel"
 done
 
-pytest "$1" -m "$2" $PYTEST_ARGS -v --junit-xml=${TEST_REPORT_PATH%_*}_builder_${TEST_REPORT_PATH##*_}
-
-# Messy file management temporary until issue #5309 is resolved
-if [[ "$runttrt" == "1" ]]; then
-    if [ -d ttir-builder-artifacts/emitc ]; then
-        touch concat_emitc_results.json
-        export TT_METAL_LIB="${INSTALL_DIR}/lib"
-        ${INSTALL_DIR}/tools/ttnn-standalone/ci_compile_dylib.py --dir ttir-builder-artifacts/emitc
-        # Create renamed copies of ttnn files so emitc can find them for comparison
-        for file in ttir-builder-artifacts/emitc/*; do
-            if [ -f "$file" ] && [[ "$file" == *.so ]]; then
-                # Get the basename of the .so file
-                basename_file=$(basename "$file")
-
-                # Create the corresponding TTNN filename by replacing "emitc" with "ttnn" and ".so" with ".ttnn"
-                ttnn_basename=$(echo "$basename_file" | sed 's/emitc/ttnn/' | sed 's/\.so$/.ttnn/')
-                ttnn_file="ttir-builder-artifacts/ttnn/$ttnn_basename"
-
-                # Check if the corresponding TTNN file exists
-                if [ -f "$ttnn_file" ]; then
-                    echo "Found matching TTNN file: $ttnn_file"
-                    FLATBUFFER=" --flatbuffer $ttnn_file "
-                else
-                    echo "No matching TTNN file found for $basename_file, running without flatbuffer comparison"
-                    FLATBUFFER=""
-                fi
-                ttrt emitc $TTRT_ARGS $FLATBUFFER $file
-                jq -s add emitc_results.json concat_emitc_results.json > temp.json
-                mv temp.json concat_emitc_results.json
-            fi
-        done
-        cp concat_emitc_results.json ${TTRT_REPORT_PATH%_*}_ttir_${TTRT_REPORT_PATH##*_} || true
-        cp ttrt_report.xml ${TEST_REPORT_PATH%_*}_ttir_emitc_${TEST_REPORT_PATH##*_} || true
-    fi
+# Hacky CI fix: EmitC TTNN tests build `libttnn-dylib.so` and link against `_ttnncpp.so`.
+# In CI, tt-metal is provided via the tt-mlir install tree, so the shared libs are
+# under `$INSTALL_DIR/lib` (not `$TT_METAL_RUNTIME_ROOT/build_Debug/lib`).
+if [ -z "${TT_METAL_LIB:-}" ]; then
+    export TT_METAL_LIB="$INSTALL_DIR/lib"
 fi
+
+pytest "$1" -m "$2" $PYTEST_ARGS -v --junit-xml=${TEST_REPORT_PATH%_*}_builder_${TEST_REPORT_PATH##*_}

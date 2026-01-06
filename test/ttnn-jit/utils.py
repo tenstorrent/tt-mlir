@@ -50,12 +50,19 @@ def _transform_tan(t: torch.Tensor) -> torch.Tensor:
     return t.uniform_(-math.pi / 2 + 0.05, math.pi / 2 - 0.05)
 
 
+def _transform_div(t: torch.Tensor) -> torch.Tensor:
+    """Avoid divide-by-zero: abs() then replace values close to zero with 1e-6."""
+    t = torch.abs(t)
+    return torch.where(t < 1e-3, torch.tensor(1e-6, dtype=t.dtype), t)
+
+
 # Map op names to their input transforms
 _INPUT_TRANSFORMS: Dict[str, Callable[[torch.Tensor], torch.Tensor]] = {
     "reciprocal": _transform_reciprocal,
     "digamma_func": _transform_digamma,
     "sqrt": _transform_sqrt,
     "tan": _transform_tan,
+    "div": _transform_div,
 }
 
 

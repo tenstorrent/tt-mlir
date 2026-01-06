@@ -13,6 +13,7 @@ from utils import (
     memory_configs_equal,
     create_dram_tensor,
 )
+from op_definitions import exp, cosh, add
 
 DRAM_INTERLEAVED_SHAPES = [
     (32, 32),
@@ -20,24 +21,6 @@ DRAM_INTERLEAVED_SHAPES = [
     (1024, 32),
     (32, 1024),
 ]
-
-# eltwise unary
-def exp(input_tensor):
-    return ttnn.exp(input_tensor)
-
-
-# eltwise unary composite
-def cosh(input_tensor):
-    e_pos_x = ttnn.exp(input_tensor)
-    e_neg_x = ttnn.exp(ttnn.neg(input_tensor))
-    nr_term = ttnn.add(e_pos_x, e_neg_x)
-    output = ttnn.multiply(nr_term, 0.5)
-    return output
-
-
-# eltwise binary
-def add(a, b):
-    return ttnn.add(a, b)
 
 
 @pytest.mark.parametrize("shape", DRAM_INTERLEAVED_SHAPES)

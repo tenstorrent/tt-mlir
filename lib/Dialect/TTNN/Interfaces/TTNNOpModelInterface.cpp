@@ -2857,6 +2857,29 @@ RequantizeOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // LinearOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+// If a matmul program config has been specified in opConfig, use that.
+// Otherwise, fall back to the op's property.
+// Works with both LinearOp and MatmulOp since they share the same attribute.
+template <typename OpTy>
+static MatmulAttrs unpackMatmulAttrs(const OpConfig::OpSpecificAttrs &attrs,
+                                     OpTy op) {
+  assert((std::holds_alternative<MatmulAttrs>(attrs) ||
+          std::holds_alternative<UninitializedAttrs>(attrs)) &&
+         "Please create a MatmulAttrs or leave it to be uninitialized.");
+
+  if (std::holds_alternative<UninitializedAttrs>(attrs)) {
+    return MatmulAttrs{op.getMatmulProgramConfig()};
+  }
+
+  MatmulAttrs matmulAttrs = std::get<MatmulAttrs>(attrs);
+
+  // Prefer the config from opConfig if it has a valid value.
+  return MatmulAttrs{(matmulAttrs.matmulProgramConfig.has_value() &&
+                      matmulAttrs.matmulProgramConfig.value())
+                         ? matmulAttrs.matmulProgramConfig
+                         : op.getMatmulProgramConfig()};
+}
+
 llvm::Expected<op_model::OpConstraints>
 LinearOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                            const OpConfig &opConfig) {
@@ -2880,10 +2903,19 @@ LinearOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   ttcore::GridAttr deviceGrid =
       ttcore::lookupDevice(getOperation()).getWorkerGrid();
 
+  // Convert activation attribute to optional StringRef
+  std::optional<llvm::StringRef> activation =
+      getActivation() ? std::make_optional(getActivation().value())
+                      : std::nullopt;
+
+  // Get matmul program config from opConfig if present, otherwise from op.
+  MatmulAttrs attr = unpackMatmulAttrs(opConfig.opSpecificAttrs, *this);
+
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<LinearOp>::getOpConstraints, *this, deviceGrid,
       inputShapeA, inputs[0], inputShapeB, inputs[1], biasShape, biasLayout,
-      opConfig.outputLayout, getTransposeA(), getTransposeB());
+      opConfig.outputLayout, getTransposeA(), getTransposeB(), activation,
+      attr.matmulProgramConfig);
 }
 
 llvm::Expected<size_t>
@@ -2945,10 +2977,18 @@ MatmulOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   ttcore::GridAttr deviceGrid =
       ttcore::lookupDevice(getOperation()).getWorkerGrid();
 
+  // Convert activation attribute to optional StringRef
+  std::optional<llvm::StringRef> activation =
+      getActivation() ? std::make_optional(getActivation().value())
+                      : std::nullopt;
+
+  // Get matmul program config from opConfig if present, otherwise from op.
+  MatmulAttrs attr = unpackMatmulAttrs(opConfig.opSpecificAttrs, *this);
+
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<MatmulOp>::getOpConstraints, *this, deviceGrid,
       inputShapeA, inputs[0], inputShapeB, inputs[1], opConfig.outputLayout,
-      getTransposeA(), getTransposeB());
+      getTransposeA(), getTransposeB(), activation, attr.matmulProgramConfig);
 }
 
 llvm::Expected<size_t>
