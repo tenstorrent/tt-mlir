@@ -18,7 +18,6 @@
 #include <atomic>
 #include <numeric>
 #include <thread>
-#include <vector>
 
 namespace ttmlir::utils {
 
@@ -421,107 +420,46 @@ inline size_t calculateCoalescingFactor(mlir::AffineMap map,
   }
 
   size_t shardVolume = volume(shardShape);
+  size_t coalescingFactor = shardVolume;
 
-  // Collect all grid indices first
-  std::vector<llvm::SmallVector<int64_t>> gridIndices;
+  mlir::SmallVector<int64_t> memoryIndex;
+  memoryIndex.resize(gridShape.size() + shardShape.size());
   sample(gridShape, [&](mlir::ArrayRef<int64_t> gridIndex) {
-    gridIndices.push_back(
-        llvm::SmallVector<int64_t>(gridIndex.begin(), gridIndex.end()));
-  });
-
-  // If no grid indices, return shard volume
-  if (gridIndices.empty()) {
-    return shardVolume;
-  }
-
-  // Determine number of threads to use
-  unsigned numThreads = std::min(static_cast<unsigned>(8),
-                                 static_cast<unsigned>(gridIndices.size()));
-  if (numThreads == 0) {
-    numThreads = 1;
-  }
-
-  // Use atomic counter for dynamic work assignment
-  std::atomic<size_t> nextIndex{0};
-  std::vector<size_t> threadResults(numThreads, shardVolume);
-  std::vector<std::thread> threads;
-
-  // Thread pool: each thread dynamically pulls work items
-  for (unsigned threadId = 0; threadId < numThreads; ++threadId) {
-    threads.emplace_back([&, threadId]() {
-      size_t localCoalescingFactor = shardVolume;
-      mlir::SmallVector<int64_t> memoryIndex;
-      memoryIndex.resize(gridShape.size() + shardShape.size());
-
-      // Dynamically pull work items until all are processed
-      while (true) {
-        // Atomically fetch and increment the next index to process
-        size_t i = nextIndex.fetch_add(1, std::memory_order_relaxed);
-
-        // Check if all work is done
-        if (i >= gridIndices.size()) {
-          break;
-        }
-
-        // Early exit optimization: if coalescing factor is already 1, stop
-        if (localCoalescingFactor == 1) {
-          break;
-        }
-
-        const auto &gridIndex = gridIndices[i];
-        size_t currentCoalescingFactor = 0;
-        mlir::SmallVector<int64_t, 4> nextAddress;
-
-        sample(shardShape, [&](mlir::ArrayRef<int64_t> shardIndex) {
-          if (localCoalescingFactor == 1) {
-            return;
-          }
-
-          // Build memory index
-          for (unsigned j = 0; j < gridIndex.size(); j++) {
-            memoryIndex[j] = gridIndex[j];
-          }
-          for (unsigned j = 0; j < shardIndex.size(); j++) {
-            memoryIndex[gridIndex.size() + j] = shardIndex[j];
-          }
-
-          mlir::SmallVector<int64_t, 4> address = map.compose(memoryIndex);
-          if (nextAddress.empty() || nextAddress == address) {
-            ++currentCoalescingFactor;
-          } else {
-            localCoalescingFactor =
-                std::gcd(localCoalescingFactor, currentCoalescingFactor);
-            if (localCoalescingFactor == 1) {
-              return;
-            }
-            currentCoalescingFactor = 1;
-          }
-          nextAddress = address;
-          nextAddress.back() += stride;
-        });
-
-        // Account for final run
-        localCoalescingFactor =
-            std::gcd(localCoalescingFactor, currentCoalescingFactor);
-      }
-
-      threadResults[threadId] = localCoalescingFactor;
-    });
-  }
-
-  // Wait for all threads to complete
-  for (auto &thread : threads) {
-    thread.join();
-  }
-
-  // Merge results from all threads using GCD
-  size_t coalescingFactor = threadResults[0];
-  for (size_t i = 1; i < threadResults.size(); ++i) {
-    coalescingFactor = std::gcd(coalescingFactor, threadResults[i]);
     if (coalescingFactor == 1) {
-      break;
+      return;
     }
-  }
+    size_t currentCoalescingFactor = 0;
+    mlir::SmallVector<int64_t, 4> nextAddress;
+    sample(shardShape, [&](mlir::ArrayRef<int64_t> shardIndex) {
+      if (coalescingFactor == 1) {
+        return;
+      }
+      for (unsigned i = 0; i < gridIndex.size(); i++) {
+        memoryIndex[i] = gridIndex[i];
+      }
+      for (unsigned i = 0; i < shardIndex.size(); i++) {
+        memoryIndex[gridIndex.size() + i] = shardIndex[i];
+      }
+      mlir::SmallVector<int64_t, 4> address = map.compose(memoryIndex);
+      if (nextAddress.empty() || nextAddress == address) {
+        ++currentCoalescingFactor;
+      } else {
+        coalescingFactor = std::gcd(coalescingFactor, currentCoalescingFactor);
+        // If coalescing factor reaches unit size, it cannot change further.
+        // Early exit to save on runtime.
+        if (coalescingFactor == 1) {
+          return;
+        }
+        // current memory access can potentially be coalesced with next
+        // access!
+        currentCoalescingFactor = 1;
+      }
+      nextAddress = address;
+      nextAddress.back() += stride;
+    });
+    // Account for final run
+    coalescingFactor = std::gcd(coalescingFactor, currentCoalescingFactor);
+  });
 
   return coalescingFactor;
 }
