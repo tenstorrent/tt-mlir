@@ -1010,9 +1010,6 @@ def test_identity_op_rejection(device):
     "op",
     [add],
 )
-@pytest.mark.skip(
-    reason="D2M doesn't support ttir ops with ttnn encoding (error in bufferization pass)."
-)
 def test_tracing_binary_ops(device, op):
     """Test binary operations in tracing mode."""
     max_grid = (0, 0)

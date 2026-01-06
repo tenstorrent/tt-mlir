@@ -4,7 +4,10 @@
 
 from ttmlir.ir import *
 from ttmlir.dialects import ttnn, ttcore
-from ttnn_jit._src.conversions import ttcore_dtype_from_ttnn_dtype
+from ttnn_jit._src.conversions import (
+    ttcore_dtype_from_ttnn_dtype,
+    ttcore_dtype_from_mlir_dtype,
+)
 import math
 
 DRAM_GRID_SIZE = [1, 1]
@@ -337,7 +340,8 @@ def create_output_tensor(ctx, op_name, input_types):
     layout = _create_tensor_layout_with_shape(
         ctx, input_layouts[0], shape, grid_shape, mem_space, memory_layout
     )
-    output_type = RankedTensorType.get(shape, input_types[0].element_type, layout)
+    with Location.unknown(ctx):
+        output_type = RankedTensorType.get(shape, input_types[0].element_type, layout)
 
     return output_type
 
@@ -352,3 +356,69 @@ def create_tensor_layout(ctx, tensor_arg):
         return _create_sharded_tensor_layout(ctx, tensor_arg)
     else:
         return _create_dram_tensor_layout(ctx, tensor_arg)
+
+
+def _get_logical_tensor_shape(shape):
+    if len(shape) == 0:
+        return [1, 1]
+    elif len(shape) == 1:
+        return [1, shape[0]]
+    else:
+        return list(shape)
+
+
+def _get_tile_type(ctx, element_type) -> ttcore.ir.TileType:
+    """Create a 32x32 tile type with the appropriate data type for the given element type."""
+    data_type = ttcore_dtype_from_mlir_dtype(element_type)
+    return ttcore.ir.TileType.get(ctx, TILE_WIDTH, TILE_HEIGHT, data_type)
+
+
+def create_default_layout(ctx, shape, element_type):
+    """
+    Create a default valid TTNN layout for a given shape.
+
+    This creates a simple, always-valid layout suitable for shape-changing ops
+    where the input layout cannot be directly reused. The layout uses:
+    - Grid: 1x1 (single core - always valid for any shape)
+    - Buffer type: L1 (device memory)
+    - Memory layout: Block sharded
+    - Shard shape: full tensor shape in tiles
+    This layout is valid but not optimized. The D2M pipeline can optimize
+    the grid and sharding during compilation.
+
+    Args:
+        ctx: MLIR context
+        shape: Output tensor shape (list of ints)
+        element_type: MLIR element type (e.g., bf16)
+
+    Returns:
+        TTNNLayoutAttr for the given shape
+    """
+    ######################## Policy choices ########################
+    # Use 1x1 grid - always valid for any shape
+    grid_shape = [1, 1]
+    # Use block sharded memory layout
+    memory_layout = ttnn.TensorMemoryLayout.BlockSharded.value
+    # Create memref with L1 buffer type
+    buffer_type = ttnn.ir.BufferTypeAttr.get(ctx, ttnn.BufferType.L1)
+    tensor_mesh = None
+    exact_grid = True
+    ###############################################################
+
+    grid = ttcore.ir.GridAttr.get(ctx, grid_shape)
+    logical_shape = _get_logical_tensor_shape(shape)
+    affine_map = _get_collapsed_linear_affine_map(ctx, logical_shape, grid_shape)
+    shard_shape = _calculate_tile_shape(logical_shape)
+    tile_type = _get_tile_type(ctx, element_type)
+    with Location.unknown(ctx):
+        memref = MemRefType.get(shard_shape, tile_type, None, buffer_type)
+
+    return ttnn.ir.TTNNLayoutAttr.get_with_linear(
+        ctx,
+        affine_map,
+        grid,
+        memref,
+        memory_layout,
+        tensor_mesh,
+        exact_grid,
+    )

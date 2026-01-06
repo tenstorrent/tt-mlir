@@ -14,6 +14,7 @@ from ttnn_jit._src.supported_ops import (
     reduction_ops,
     get_ttir_name,
 )
+from ttnn_jit._src.tensor_translator import create_default_layout, create_output_tensor
 
 
 class ResultWrapper:
@@ -121,13 +122,18 @@ class UnaryOpHandler(BaseOpHandler):
         if op_name not in unary_ops:
             raise ValueError(f"Unknown unary operation: {op_name}")
 
+    def _infer_output_layout(self, operand):
+        """Infer output layout for unary ops - preserves input encoding."""
+        return operand.type.encoding
+
     def _infer_result_type(self, operand):
-        """Infer result type from operand (no layout for intermediate results)."""
+        """Infer result type from operand, preserving encoding (layout unchanged)."""
         element_type = operand.type.element_type
         shape = list(operand.type.shape)
+        encoding = self._infer_output_layout(operand)
 
         with Location.unknown(self.jit_ctx.ctx):
-            return RankedTensorType.get(shape, element_type, None)
+            return RankedTensorType.get(shape, element_type, encoding)
 
     def create_operation(self, *args, **kwargs):
         """Create unary operation."""
@@ -158,17 +164,18 @@ class BinaryOpHandler(BaseOpHandler):
         if op_name not in binary_ops:
             raise ValueError(f"Unknown binary operation: {op_name}")
 
-    def _infer_result_type(self, operand0, operand1):
-        """Infer result type from operands (no layout for intermediate results)."""
-        # Use the first operand's element type
-        element_type = operand0.type.element_type
+    def _infer_output_layout(self, operand0, operand1):
+        """Infer output layout for binary ops - preserves first operand's encoding."""
+        return operand0.type.encoding
 
-        # For intermediate results, don't preserve encoding (layout)
-        # Use shape from first operand
+    def _infer_result_type(self, operand0, operand1):
+        """Infer result type from operands, preserving encoding from first operand."""
+        element_type = operand0.type.element_type
         shape = list(operand0.type.shape)
+        encoding = self._infer_output_layout(operand0, operand1)
 
         with Location.unknown(self.jit_ctx.ctx):
-            return RankedTensorType.get(shape, element_type, None)
+            return RankedTensorType.get(shape, element_type, encoding)
 
     def create_operation(self, *args, **kwargs):
         """Create binary operation."""
@@ -199,42 +206,65 @@ class ReductionOpHandler(BaseOpHandler):
         if op_name not in reduction_ops:
             raise ValueError(f"Unknown reduction operation: {op_name}")
 
+    def _infer_output_shape(self, operand_type, dim_arg, keep_dim):
+        """
+        Infer output shape based on reduction parameters.
+
+        Cases:
+        1. dim specified + keepdim=True: dimension becomes 1
+        2. dim specified + keepdim=False: dimension is removed
+        3. dim=None (full reduction) + keepdim=True: all dimensions become 1
+        4. dim=None (full reduction) + keepdim=False: scalar result (empty shape [])
+
+        Returns:
+            List representing the output shape (can be empty for scalar results).
+        """
+        original_shape = list(operand_type.shape)
+
+        if dim_arg is None or len(dim_arg) == 0:
+            # Full reduction over all dimensions
+            if keep_dim:
+                # All dimensions become 1
+                return [1] * len(original_shape)
+            else:
+                # Scalar result - empty shape
+                return []
+
+        # Partial reduction over specified dimensions
+        if keep_dim:
+            # Keep the dimension but set it to 1
+            new_shape = original_shape.copy()
+            for dim in dim_arg:
+                if 0 <= dim < len(new_shape):
+                    new_shape[dim] = 1
+            return new_shape
+        else:
+            # Remove the dimension(s)
+            new_shape = [s for i, s in enumerate(original_shape) if i not in dim_arg]
+            return new_shape  # Can be empty if all dims removed
+
+    def _infer_output_layout(self, element_type, new_shape):
+        """
+        Infer output layout for reductions - creates a default layout.
+
+        For scalar results (empty shape), still creates a valid layout using
+        a [1, 1] logical shape internally.
+        """
+        # create_default_layout handles empty shapes via _get_logical_tensor_shape
+        # which converts [] -> [1, 1] for layout purposes
+        return create_default_layout(self.jit_ctx.ctx, new_shape, element_type)
+
     def _infer_result_type(self, operand, dim_arg, keep_dim):
-        """Infer result type based on reduction parameters."""
+        """Infer result type based on reduction parameters with default layout."""
         operand_type = operand.type
         element_type = operand_type.element_type
 
-        # For intermediate results, don't preserve encoding (layout)
-        encoding = None
+        new_shape = self._infer_output_shape(operand_type, dim_arg, keep_dim)
+        encoding = self._infer_output_layout(element_type, new_shape)
 
         with Location.unknown(self.jit_ctx.ctx):
-            if dim_arg and len(dim_arg) > 0:
-                original_shape = list(operand_type.shape)
-                if keep_dim:
-                    # Keep the dimension but set it to 1
-                    new_shape = original_shape.copy()
-                    for dim in dim_arg:
-                        if 0 <= dim < len(new_shape):
-                            new_shape[dim] = 1
-                    result_type = RankedTensorType.get(
-                        new_shape, element_type, encoding
-                    )
-                else:
-                    # Remove the dimension(s)
-                    new_shape = [
-                        s for i, s in enumerate(original_shape) if i not in dim_arg
-                    ]
-                    result_type = (
-                        RankedTensorType.get(new_shape, element_type, encoding)
-                        if new_shape
-                        else element_type
-                    )
-            else:
-                # No dim specified, use operand type (but without encoding)
-                shape = list(operand_type.shape)
-                result_type = RankedTensorType.get(shape, element_type, encoding)
-
-        return result_type
+            # For scalar results, new_shape is [] which creates a 0D tensor
+            return RankedTensorType.get(new_shape, element_type, encoding)
 
     def create_operation(self, *args, **kwargs):
         """Create reduction operation."""
@@ -267,53 +297,10 @@ class ReductionOpHandler(BaseOpHandler):
 class MatmulOpHandler(BaseOpHandler):
     """Handler for matrix multiplication operation."""
 
-    def _infer_output_shape(self, lhs_shape, rhs_shape):
-        """
-        Infer output shape for matmul: m×k × k×n = m×n.
-
-        For batched matmul: [..., m, k] × [..., k, n] = [..., m, n]
-        """
-        # Handle batched dimensions
-        if len(lhs_shape) > 2 and len(rhs_shape) > 2:
-            # Check if batch dimensions match
-            lhs_batch = lhs_shape[:-2]
-            rhs_batch = rhs_shape[:-2]
-            if lhs_batch != rhs_batch:
-                raise ValueError(
-                    f"Batch dimensions must match: {lhs_batch} != {rhs_batch}"
-                )
-            batch_dims = lhs_batch
-            m, k = lhs_shape[-2:]
-            k_rhs, n = rhs_shape[-2:]
-            if k != k_rhs:
-                raise ValueError(f"Inner dimensions must match: {k} != {k_rhs}")
-            return list(batch_dims) + [m, n]
-        elif len(lhs_shape) == 2 and len(rhs_shape) == 2:
-            # Simple 2D matmul
-            m, k = lhs_shape
-            k_rhs, n = rhs_shape
-            if k != k_rhs:
-                raise ValueError(f"Inner dimensions must match: {k} != {k_rhs}")
-            return [m, n]
-        else:
-            raise ValueError(f"Unsupported matmul shapes: {lhs_shape} × {rhs_shape}")
-
     def _infer_result_type(self, lhs_type, rhs_type):
-        """Infer result type for matmul (no layout for intermediate results)."""
-        lhs_shape = list(lhs_type.shape)
-        rhs_shape = list(rhs_type.shape)
-
-        # Infer output shape
-        output_shape = self._infer_output_shape(lhs_shape, rhs_shape)
-
-        # Use element type from lhs (should match rhs)
-        element_type = lhs_type.element_type
-
-        # No layout for intermediate results
-        encoding = None
-
-        with Location.unknown(self.jit_ctx.ctx):
-            return RankedTensorType.get(output_shape, element_type, encoding)
+        """Infer result type for matmul using create_output_tensor."""
+        # Use create_output_tensor which handles matmul output layout inference
+        return create_output_tensor(self.jit_ctx.ctx, "matmul", [lhs_type, rhs_type])
 
     def create_operation(self, *args, **kwargs):
         """Create matmul operation."""
@@ -327,7 +314,7 @@ class MatmulOpHandler(BaseOpHandler):
         transpose_a = kwargs.get("transpose_a", False)
         transpose_b = kwargs.get("transpose_b", False)
 
-        # Infer result type
+        # Infer result type using create_output_tensor
         result_type = self._infer_result_type(lhs.type, rhs.type)
 
         # Create the operation
