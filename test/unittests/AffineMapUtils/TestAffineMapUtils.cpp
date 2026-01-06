@@ -203,7 +203,7 @@ CoalescingTestResult compareCoalescingFactors(int64_t samplingFactor,
   if (samplingFactor == analyticalFactor) {
     return CoalescingTestResult::Success;
   }
-  if (analyticalFactor < samplingFactor &&
+  if (analyticalFactor != 0 && analyticalFactor < samplingFactor &&
       samplingFactor % analyticalFactor == 0) {
     return CoalescingTestResult::Subset;
   }
