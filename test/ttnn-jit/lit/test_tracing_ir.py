@@ -21,6 +21,19 @@ from utils import create_sharded_tile_tensor
 # Import the IR generator directly
 from ttnn_jit._src.ir_generator import generate_ir_from_tracing
 
+# Import ops from shared definitions (aliased to match FileCheck patterns)
+from op_definitions import (
+    exp as exp_func,
+    neg as neg_func,
+    relu as relu_func,
+    sqrt as sqrt_func,
+    add as add_func,
+    sub as subtract_func,
+    mul as multiply_func,
+    div as divide_func,
+    matmul as matmul_func,
+)
+
 
 def _get_tensor_args(func, *tensors):
     """Create tensor_args dict mapping param names to tensors."""
@@ -30,54 +43,12 @@ def _get_tensor_args(func, *tensors):
 
 
 # ============================================================
-# Test functions - these are the functions we'll compile
+# Reduction operations - kept local due to specific parameters
 # ============================================================
-
-
-def exp_func(a):
-    return ttnn.exp(a)
-
-
-def neg_func(a):
-    return ttnn.neg(a)
-
-
-def relu_func(a):
-    return ttnn.relu(a)
-
-
-def sqrt_func(a):
-    return ttnn.sqrt(a)
-
-
-def add_func(a, b):
-    return ttnn.add(a, b)
-
-
-def subtract_func(a, b):
-    return ttnn.subtract(a, b)
-
-
-def multiply_func(a, b):
-    return ttnn.multiply(a, b)
-
-
-def divide_func(a, b):
-    return ttnn.divide(a, b)
 
 
 def sum_func(a):
     return ttnn.sum(a, dim=0, keepdim=True)
-
-
-def matmul_func(a, b):
-    return ttnn.matmul(a, b)
-
-
-def chained_ops_func(a, b):
-    x = ttnn.add(a, b)
-    y = ttnn.multiply(x, a)
-    return ttnn.subtract(b, y)
 
 
 def max_func(a):
@@ -96,6 +67,17 @@ def sum_all_func(a):
 def sum_all_keepdim_func(a):
     """Full reduction - sum over all dimensions with keepdim=True."""
     return ttnn.sum(a, keepdim=True)
+
+
+# ============================================================
+# Composite/chained operations - kept local due to specific patterns
+# ============================================================
+
+
+def chained_ops_func(a, b):
+    x = ttnn.add(a, b)
+    y = ttnn.multiply(x, a)
+    return ttnn.subtract(b, y)
 
 
 # ============================================================
@@ -166,7 +148,7 @@ if __name__ == "__main__":
     # ============================================================
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
-    # CHECK: func.func @exp_func
+    # CHECK: func.func @exp
     # CHECK-SAME: (%arg0: [[IN_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout>]])
     # CHECK-SAME: -> [[IN_TYPE]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.exp"(%arg0)
@@ -175,7 +157,7 @@ if __name__ == "__main__":
     test_ir_generation(exp_func, input_a)
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
-    # CHECK: func.func @neg_func
+    # CHECK: func.func @neg
     # CHECK-SAME: (%arg0: [[IN_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout>]])
     # CHECK-SAME: -> [[IN_TYPE]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.neg"(%arg0)
@@ -184,7 +166,7 @@ if __name__ == "__main__":
     test_ir_generation(neg_func, input_a)
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
-    # CHECK: func.func @relu_func
+    # CHECK: func.func @relu
     # CHECK-SAME: (%arg0: [[IN_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout>]])
     # CHECK-SAME: -> [[IN_TYPE]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.relu"(%arg0)
@@ -193,7 +175,7 @@ if __name__ == "__main__":
     test_ir_generation(relu_func, input_a)
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
-    # CHECK: func.func @sqrt_func
+    # CHECK: func.func @sqrt
     # CHECK-SAME: (%arg0: [[IN_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout>]])
     # CHECK-SAME: -> [[IN_TYPE]]
     # CHECK: %[[VAL:[0-9]+]] = "ttir.sqrt"(%arg0)
@@ -206,7 +188,7 @@ if __name__ == "__main__":
     # ============================================================
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
-    # CHECK: func.func @add_func
+    # CHECK: func.func @add
     # CHECK-SAME: (%arg0: [[IN_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout>]]
     # CHECK-SAME: %arg1: [[IN_TYPE]])
     # CHECK-SAME: -> [[IN_TYPE]]
@@ -216,7 +198,7 @@ if __name__ == "__main__":
     test_ir_generation(add_func, input_a, input_b)
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
-    # CHECK: func.func @subtract_func
+    # CHECK: func.func @sub
     # CHECK-SAME: (%arg0: [[IN_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout>]]
     # CHECK-SAME: %arg1: [[IN_TYPE]])
     # CHECK-SAME: -> [[IN_TYPE]]
@@ -226,7 +208,7 @@ if __name__ == "__main__":
     test_ir_generation(subtract_func, input_a, input_b)
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
-    # CHECK: func.func @multiply_func
+    # CHECK: func.func @mul
     # CHECK-SAME: (%arg0: [[IN_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout>]]
     # CHECK-SAME: %arg1: [[IN_TYPE]])
     # CHECK-SAME: -> [[IN_TYPE]]
@@ -236,7 +218,7 @@ if __name__ == "__main__":
     test_ir_generation(multiply_func, input_a, input_b)
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
-    # CHECK: func.func @divide_func
+    # CHECK: func.func @div
     # CHECK-SAME: (%arg0: [[IN_TYPE:tensor<[0-9]+x[0-9]+xbf16, #ttnn_layout>]]
     # CHECK-SAME: %arg1: [[IN_TYPE]])
     # CHECK-SAME: -> [[IN_TYPE]]
@@ -309,7 +291,7 @@ if __name__ == "__main__":
     # ============================================================
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
-    # CHECK: func.func @matmul_func
+    # CHECK: func.func @matmul
     # CHECK-SAME: (%arg0: tensor<64x128xbf16, #ttnn_layout>
     # CHECK-SAME: %arg1: tensor<128x32xbf16, #ttnn_layout1>)
     # CHECK-SAME: -> tensor<64x32xbf16, #ttnn_layout2>

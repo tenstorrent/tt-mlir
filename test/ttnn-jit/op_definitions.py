@@ -105,6 +105,10 @@ def hardsigmoid(input_tensor):
     return ttnn.hardsigmoid(input_tensor)
 
 
+def neg(input_tensor):
+    return ttnn.neg(input_tensor)
+
+
 # ------------------------------------------------------------
 # Binary ops
 # ------------------------------------------------------------
