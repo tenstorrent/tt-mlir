@@ -12,6 +12,7 @@ target_include_directories(${TESTSUITE}
 target_link_libraries(${TESTSUITE}
   PRIVATE
     TTMLIRTestUtils
+    MLIRD2MUtils
     MLIRSupport
     MLIRIR
     MLIRAffineDialect
