@@ -10,6 +10,8 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
+#include "llvm/ADT/DenseSet.h"
+
 #include <cassert>
 #include <cstdint>
 #include <numeric>
@@ -1197,6 +1199,23 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
   return ::llvm::success();
 }
 
+::llvm::LogicalResult verifyRuntimeArgs(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    ::llvm::ArrayRef<mlir::tt::ttnn::CoreRuntimeArgsAttr> rtArgs) {
+  // Check for duplicate CoreCoords
+  llvm::DenseSet<std::pair<uint64_t, uint64_t>> seenCoords;
+  for (auto rtArg : rtArgs) {
+    auto coord = rtArg.getCoreCoord();
+    auto coordPair = std::make_pair(coord.getX(), coord.getY());
+    if (!seenCoords.insert(coordPair).second) {
+      return emitError() << "Duplicate CoreCoord (" << coord.getX() << ", "
+                         << coord.getY() << ") in runtime arguments";
+    }
+  }
+
+  return ::llvm::success();
+}
+
 ::llvm::LogicalResult ComputeKernelAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
     SymbolRefAttr symbolRef, ::mlir::tt::ttnn::CoreRangeSetAttr coreRanges,
@@ -1205,8 +1224,10 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
     ::llvm::ArrayRef<ComputeKernelUnpackToDestMode> unpackToDestModes,
     bool bfp8PackPrecise, bool mathApproxMode,
     ::llvm::ArrayRef<mlir::Attribute> commonRtArgs,
+    ::llvm::ArrayRef<mlir::tt::ttnn::CoreRuntimeArgsAttr> rtArgs,
     ::llvm::ArrayRef<mlir::Attribute> ctArgs) {
   if (failed(verifyCommonRuntimeArgs(emitError, commonRtArgs)) ||
+      failed(verifyRuntimeArgs(emitError, rtArgs)) ||
       failed(verifyCompileTimeArgs(emitError, ctArgs))) {
     return ::llvm::failure();
   }
@@ -1218,8 +1239,10 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
     mlir::SymbolRefAttr symbolRef, CoreRangeSetAttr coreRanges,
     ::llvm::ArrayRef<mlir::Attribute> commonRtArgs,
+    ::llvm::ArrayRef<mlir::tt::ttnn::CoreRuntimeArgsAttr> rtArgs,
     ::llvm::ArrayRef<mlir::Attribute> ctArgs) {
   if (failed(verifyCommonRuntimeArgs(emitError, commonRtArgs)) ||
+      failed(verifyRuntimeArgs(emitError, rtArgs)) ||
       failed(verifyCompileTimeArgs(emitError, ctArgs))) {
     return ::llvm::failure();
   }
@@ -1231,8 +1254,10 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
     mlir::SymbolRefAttr symbolRef, CoreRangeSetAttr coreRanges,
     ::llvm::ArrayRef<mlir::Attribute> commonRtArgs,
+    ::llvm::ArrayRef<mlir::tt::ttnn::CoreRuntimeArgsAttr> rtArgs,
     ::llvm::ArrayRef<mlir::Attribute> ctArgs) {
   if (failed(verifyCommonRuntimeArgs(emitError, commonRtArgs)) ||
+      failed(verifyRuntimeArgs(emitError, rtArgs)) ||
       failed(verifyCompileTimeArgs(emitError, ctArgs))) {
     return ::llvm::failure();
   }

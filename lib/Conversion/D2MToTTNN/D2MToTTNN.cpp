@@ -144,6 +144,9 @@ public:
       }
 
       // Create KernelDescriptor.
+      // Empty rt_args since per-core runtime args not used by D2M.
+      ArrayRef<ttnn::CoreRuntimeArgsAttr> emptyRtArgs;
+
       switch (threadAttr.getThreadType()) {
       case d2m::ThreadType::Compute: {
         // TODO (vtangTT) #5032: support lowering to different compute configs.
@@ -156,7 +159,8 @@ public:
             ArrayRef<ttnn::ComputeKernelUnpackToDestMode>{
                 ttnn::ComputeKernelUnpackToDestMode::Default},
             /*bfp8_pack_precise*/ false,
-            /*math_approx_mode*/ false, kernelCRTArgs, kernelCTArgs);
+            /*math_approx_mode*/ false, kernelCRTArgs, emptyRtArgs,
+            kernelCTArgs);
         break;
       }
       // TODO (vtangTT) #5033: fix this assumption that order is
@@ -165,10 +169,12 @@ public:
         TT_assert(nocIndex < 2);
         if (nocIndex == 0) {
           kernelConfigs[i] = builder.getAttr<ttnn::ReadKernelAttr>(
-              kernelSymbol, coreRangeSet, kernelCRTArgs, kernelCTArgs);
+              kernelSymbol, coreRangeSet, kernelCRTArgs, emptyRtArgs,
+              kernelCTArgs);
         } else {
           kernelConfigs[i] = builder.getAttr<ttnn::WriteKernelAttr>(
-              kernelSymbol, coreRangeSet, kernelCRTArgs, kernelCTArgs);
+              kernelSymbol, coreRangeSet, kernelCRTArgs, emptyRtArgs,
+              kernelCTArgs);
         }
         nocIndex++;
         break;

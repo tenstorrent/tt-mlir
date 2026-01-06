@@ -937,6 +937,28 @@ def TTNN_KernelArgSemaphoreAtAttr : TTNN_Attr<"KernelArgSemaphoreAt", "kernel_ar
   let assemblyFormat = "`<` $semaphore_index `>`";
 }
 
+def TTNN_CoreRuntimeArgsAttr : TTNN_Attr<"CoreRuntimeArgs", "core_runtime_args"> {
+  let summary = "Per-core runtime arguments";
+  let description = [{
+    Maps a specific core coordinate to its runtime arguments.
+    This mirrors the C++ RuntimeArgs structure: vector<pair<CoreCoord, vector<uint32_t>>>.
+
+    Parameters:
+    - `core_coord`: The core coordinate for these runtime args
+    - `args`: The runtime arguments for this specific core
+
+    Example:
+
+    ```mlir
+    #rt_args = #ttnn.core_runtime_args<core_coord = #ttnn.core_coord<0, 0>, args = [...]>
+    ```
+  }];
+
+  let parameters = (ins "CoreCoordAttr":$core_coord,
+                        ArrayRefParameter<"mlir::Attribute">:$args);
+  let assemblyFormat = "`<` struct($core_coord) `,` `args` `=` `[` $args `]` `>`";
+}
+
 def TTNN_ComputeKernelAttr: TTNN_Attr<"ComputeKernel", "compute_kernel", [TTNN_KernelInterface]> {
   let summary = "Compute kernel";
   let description = [{
@@ -952,9 +974,10 @@ def TTNN_ComputeKernelAttr: TTNN_Attr<"ComputeKernel", "compute_kernel", [TTNN_K
                         "bool":$bfp8_pack_precise,
                         "bool":$math_approx_mode,
                         OptionalArrayRefParameter<"mlir::Attribute">:$common_rt_args,
+                        OptionalArrayRefParameter<"CoreRuntimeArgsAttr">:$rt_args,
                         OptionalArrayRefParameter<"mlir::Attribute">:$ct_args
                         );
-  let assemblyFormat = "`<` struct($symbol_ref, $core_ranges, $math_fidelity, $fp32_dest_acc_en, $dst_full_sync_en)  `,` `unpack_to_dest_modes` `=` `[` $unpack_to_dest_modes `]` `,` struct($bfp8_pack_precise, $math_approx_mode) `,` `ct_args` `=` `[` (`]`) : ($ct_args^ `]`)?  `,` `common_rt_args` `=` `[` (`]`) : ($common_rt_args^ `]`)? `>`";
+  let assemblyFormat = "`<` struct($symbol_ref, $core_ranges, $math_fidelity, $fp32_dest_acc_en, $dst_full_sync_en)  `,` `unpack_to_dest_modes` `=` `[` $unpack_to_dest_modes `]` `,` struct($bfp8_pack_precise, $math_approx_mode) `,` `ct_args` `=` `[` (`]`) : ($ct_args^ `]`)?  `,` `common_rt_args` `=` `[` (`]`) : ($common_rt_args^ `]`)? `,` `rt_args` `=` `[` (`]`) : ($rt_args^ `]`)? `>`";
 
   let genVerifyDecl = 1;
 }
@@ -968,8 +991,9 @@ def TTNN_ReadKernelAttr: TTNN_Attr<"ReadKernel", "read_kernel", [TTNN_KernelInte
   let parameters = (ins "SymbolRefAttr":$symbol_ref,
                         TTNN_CoreRangeSetAttr:$core_ranges,
                         OptionalArrayRefParameter<"mlir::Attribute">:$common_rt_args,
+                        OptionalArrayRefParameter<"CoreRuntimeArgsAttr">:$rt_args,
                         OptionalArrayRefParameter<"mlir::Attribute">:$ct_args);
-  let assemblyFormat = "`<` struct($symbol_ref, $core_ranges) `,` `ct_args` `=` `[` (`]`) : ($ct_args^ `]`)?  `,` `common_rt_args` `=` `[` (`]`) : ($common_rt_args^ `]`)? `>`";
+  let assemblyFormat = "`<` struct($symbol_ref, $core_ranges) `,` `ct_args` `=` `[` (`]`) : ($ct_args^ `]`)?  `,` `common_rt_args` `=` `[` (`]`) : ($common_rt_args^ `]`)? `,` `rt_args` `=` `[` (`]`) : ($rt_args^ `]`)? `>`";
 
   let genVerifyDecl = 1;
 }
@@ -983,8 +1007,9 @@ def TTNN_WriteKernelAttr: TTNN_Attr<"WriteKernel", "write_kernel", [TTNN_KernelI
   let parameters = (ins "SymbolRefAttr":$symbol_ref,
                         TTNN_CoreRangeSetAttr:$core_ranges,
                         OptionalArrayRefParameter<"mlir::Attribute">:$common_rt_args,
+                        OptionalArrayRefParameter<"CoreRuntimeArgsAttr">:$rt_args,
                         OptionalArrayRefParameter<"mlir::Attribute">:$ct_args);
-  let assemblyFormat = "`<` struct($symbol_ref, $core_ranges) `,` `ct_args` `=` `[` (`]`) : ($ct_args^ `]`)?  `,` `common_rt_args` `=` `[` (`]`) : ($common_rt_args^ `]`)? `>`";
+  let assemblyFormat = "`<` struct($symbol_ref, $core_ranges) `,` `ct_args` `=` `[` (`]`) : ($ct_args^ `]`)?  `,` `common_rt_args` `=` `[` (`]`) : ($common_rt_args^ `]`)? `,` `rt_args` `=` `[` (`]`) : ($rt_args^ `]`)? `>`";
 
   let genVerifyDecl = 1;
 }
