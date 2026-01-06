@@ -2332,12 +2332,12 @@ def ttir_arange_golden(
     result = torch.arange(start=start, end=end, step=step, dtype=torch.float32).to(
         output_dtype
     )
-    if len(shape) == 2 and arange_dimension == 1:
-        unsqueezed = torch.unsqueeze(result, dim=0)
-        result = torch.cat([unsqueezed] * shape[0], dim=0)
-    elif len(shape) == 2 and arange_dimension == 0:
-        unsqueezed = torch.unsqueeze(result, dim=1)
-        result = unsqueezed.expand(shape)
+
+    broadcast_shape = [1] * len(shape)
+    broadcast_shape[arange_dimension] = shape[arange_dimension]
+    result = result.reshape(broadcast_shape)
+
+    result = result.expand(shape).clone()
 
     return GoldenMapTensor({0: result}, (1, 1))
 
