@@ -15,6 +15,448 @@
 
 namespace ttmlir::utils {
 
+//===----------------------------------------------------------------------===//
+// Helper functions (no dependencies on other functions in this file)
+//===----------------------------------------------------------------------===//
+
+bool isUnconstrainedBound(const ContiguityBound &bound) {
+  return std::holds_alternative<UnconstrainedBound>(bound);
+}
+
+bool isUnanalyzableBound(const ContiguityBound &bound) {
+  return std::holds_alternative<UnanalyzableBound>(bound);
+}
+
+bool isConstrainedBound(const ContiguityBound &bound) {
+  return std::holds_alternative<ConstrainedBound>(bound);
+}
+
+std::optional<int64_t> getBoundValue(const ContiguityBound &bound) {
+  if (isUnconstrainedBound(bound)) {
+    return std::nullopt;
+  }
+  if (isUnanalyzableBound(bound)) {
+    return 1; // Treat as ConstrainedBound{1}.
+  }
+  return std::get<ConstrainedBound>(bound).value;
+}
+
+std::optional<mlir::AffineDimExpr> isDimExpr(mlir::AffineExpr expr) {
+  auto dimExpr = llvm::dyn_cast<mlir::AffineDimExpr>(expr);
+  return dimExpr ? std::optional<mlir::AffineDimExpr>(dimExpr) : std::nullopt;
+}
+
+std::optional<int64_t> getSumOfModuli(mlir::AffineExpr expr) {
+  if (auto binOp = llvm::dyn_cast<mlir::AffineBinaryOpExpr>(expr)) {
+    if (binOp.getKind() == mlir::AffineExprKind::Add) {
+      auto lhs = getSumOfModuli(binOp.getLHS());
+      auto rhs = getSumOfModuli(binOp.getRHS());
+      if (lhs.has_value() && rhs.has_value()) {
+        return (lhs.value() + rhs.value());
+      }
+    } else if (binOp.getKind() == mlir::AffineExprKind::Mod) {
+      if (auto rhsConst =
+              llvm::dyn_cast<mlir::AffineConstantExpr>(binOp.getRHS())) {
+        // We need to subtract 1, as the max value of the modulo op is one less
+        // than the modulus value.
+        return (rhsConst.getValue() - 1);
+      }
+    } else if (binOp.getKind() == mlir::AffineExprKind::Mul) {
+      if (auto rhsConst =
+              llvm::dyn_cast<mlir::AffineConstantExpr>(binOp.getRHS())) {
+        auto lhs = getSumOfModuli(binOp.getLHS());
+        if (lhs.has_value()) {
+          return lhs.value() * rhsConst.getValue();
+        }
+      }
+      if (auto lhsConst =
+              llvm::dyn_cast<mlir::AffineConstantExpr>(binOp.getLHS())) {
+        auto rhs = getSumOfModuli(binOp.getRHS());
+        if (rhs.has_value()) {
+          return rhs.value() * lhsConst.getValue();
+        }
+      }
+    }
+  }
+  return std::nullopt;
+}
+
+mlir::AffineExpr simplifyZeroFloorDivExpr(mlir::AffineExpr expr) {
+  if (auto binOp = llvm::dyn_cast<mlir::AffineBinaryOpExpr>(expr)) {
+    auto lhs = simplifyZeroFloorDivExpr(binOp.getLHS());
+    auto rhs = simplifyZeroFloorDivExpr(binOp.getRHS());
+
+    if (binOp.getKind() == mlir::AffineExprKind::FloorDiv) {
+      if (auto rhsConst = llvm::dyn_cast<mlir::AffineConstantExpr>(rhs)) {
+        int64_t divisor = rhsConst.getValue();
+        auto modSum = getSumOfModuli(lhs);
+        if (modSum.has_value() && modSum.value() < divisor) {
+          return mlir::getAffineConstantExpr(0, expr.getContext());
+        }
+      }
+    }
+
+    switch (binOp.getKind()) {
+    case mlir::AffineExprKind::Add:
+      return lhs + rhs;
+    case mlir::AffineExprKind::Mul:
+      return lhs * rhs;
+    case mlir::AffineExprKind::Mod:
+      return lhs % rhs;
+    case mlir::AffineExprKind::FloorDiv:
+      return lhs.floorDiv(rhs);
+    case mlir::AffineExprKind::CeilDiv:
+      return lhs.ceilDiv(rhs);
+    default:
+      return expr;
+    }
+  }
+  return expr;
+}
+
+mlir::AffineMap simplifyZeroFloorDiv(mlir::AffineMap map) {
+  mlir::SmallVector<mlir::AffineExpr> newResults;
+  for (auto result : map.getResults()) {
+    newResults.push_back(simplifyZeroFloorDivExpr(result));
+  }
+  return mlir::AffineMap::get(map.getNumDims(), map.getNumSymbols(), newResults,
+                              map.getContext());
+}
+
+mlir::AffineExpr getIfBinaryAdd(mlir::AffineExpr expr) {
+  auto lhsBinExpr = llvm::dyn_cast<mlir::AffineBinaryOpExpr>(expr);
+  return (lhsBinExpr && lhsBinExpr.getKind() == mlir::AffineExprKind::Add)
+             ? lhsBinExpr
+             : mlir::AffineExpr{};
+}
+
+mlir::AffineExpr getIfBinaryMul(mlir::AffineExpr expr) {
+  auto lhsBinExpr = llvm::dyn_cast<mlir::AffineBinaryOpExpr>(expr);
+  return (lhsBinExpr && lhsBinExpr.getKind() == mlir::AffineExprKind::Mul)
+             ? lhsBinExpr
+             : mlir::AffineExpr{};
+}
+
+bool exprIsSpecificDimExpr(mlir::AffineExpr expr, unsigned dimPos) {
+  return llvm::isa<mlir::AffineDimExpr>(expr) &&
+         llvm::dyn_cast<mlir::AffineDimExpr>(expr).getPosition() == dimPos;
+}
+
+bool exprContainsDim(mlir::AffineExpr expr, unsigned dimPos) {
+  bool foundDim = false;
+  expr.walk([&](mlir::AffineExpr e) {
+    if (auto dimExpr = llvm::dyn_cast<mlir::AffineDimExpr>(e)) {
+      if (dimExpr.getPosition() == dimPos) {
+        foundDim = true;
+      }
+    }
+  });
+  return foundDim;
+}
+
+void collectSumOperandsImpl(mlir::AffineExpr expr,
+                            llvm::SmallVectorImpl<mlir::AffineExpr> &results) {
+  // Add operations have least precedence, so collecting all operands
+  // commutatively gathers the entire expressions; everything else must be a
+  // child expr of the top-level add.
+  if (auto binOp = llvm::dyn_cast<mlir::AffineBinaryOpExpr>(expr)) {
+    if (binOp.getKind() == mlir::AffineExprKind::Add) {
+      collectSumOperandsImpl(binOp.getLHS(), results);
+      collectSumOperandsImpl(binOp.getRHS(), results);
+      return;
+    }
+  }
+  results.push_back(expr);
+}
+
+mlir::SmallVector<mlir::AffineExpr> collectSumOperands(mlir::AffineExpr expr) {
+  mlir::SmallVector<mlir::AffineExpr> ops;
+  collectSumOperandsImpl(expr, ops);
+  return ops;
+}
+
+int64_t minimizeGap(int64_t targetSum, llvm::ArrayRef<int64_t> multipliers,
+                    llvm::ArrayRef<int64_t> bounds, int64_t constOffset) {
+  TT_assertv(multipliers.size() == bounds.size(),
+             "multipliers and bounds must have same size");
+
+  // Compute all possible remainders (mod target) using dynamic programming.
+  // Since we only care about sum % target, track remainders rather than full
+  // sums. This limits the set size to at most 'target' elements, preventing
+  // exponential blowup.
+  llvm::DenseSet<int64_t> possibleRemainders;
+  possibleRemainders.insert(((constOffset % targetSum) + targetSum) %
+                            targetSum);
+
+  for (size_t i = 0; i < multipliers.size(); ++i) {
+    llvm::DenseSet<int64_t> newRemainders;
+    int64_t multiplierMod =
+        ((multipliers[i] % targetSum) + targetSum) % targetSum;
+    for (int64_t remainder : possibleRemainders) {
+      for (int64_t n = 0; n <= bounds[i]; ++n) {
+        int64_t newRemainder = (remainder + multiplierMod * n) % targetSum;
+        newRemainders.insert(newRemainder);
+        // Early exit: if we've covered all remainders, no need to continue
+        if (newRemainders.size() == static_cast<size_t>(targetSum)) {
+          break;
+        }
+      }
+      if (newRemainders.size() == static_cast<size_t>(targetSum)) {
+        break;
+      }
+    }
+    possibleRemainders = std::move(newRemainders);
+    // Early exit: if all remainders are possible, gap will be 1
+    if (possibleRemainders.size() == static_cast<size_t>(targetSum)) {
+      return 1;
+    }
+  }
+
+  // Find the minimum non-zero gap to any integer multiple of targetSum for any
+  // possible remainder.
+  int64_t bestGap = targetSum;
+
+  for (int64_t remainder : possibleRemainders) {
+    int64_t gap = (remainder == 0) ? targetSum : (targetSum - remainder);
+    if (gap < bestGap) {
+      bestGap = gap;
+    }
+    // Early exit if gap is 1 (best possible non-exact alignment)
+    if (bestGap == 1) {
+      break;
+    }
+  }
+
+  return bestGap;
+}
+
+std::optional<int64_t> getExprUpperBound(mlir::AffineExpr expr,
+                                         mlir::ArrayRef<int64_t> dimBounds) {
+
+  if (auto dimExpr = llvm::dyn_cast<mlir::AffineDimExpr>(expr)) {
+    if (dimExpr.getPosition() < dimBounds.size()) {
+      return dimBounds[dimExpr.getPosition()] - 1;
+    }
+    return std::nullopt;
+  }
+  if (auto constExpr = llvm::dyn_cast<mlir::AffineConstantExpr>(expr)) {
+    // We conservatively return nullopt for negative constants to avoid
+    // handling sign issues in Mul/Div for upper bound calculation.
+    if (constExpr.getValue() < 0) {
+      return std::nullopt;
+    }
+    return constExpr.getValue();
+  }
+  if (auto binOp = llvm::dyn_cast<mlir::AffineBinaryOpExpr>(expr)) {
+
+    auto lhs = getExprUpperBound(binOp.getLHS(), dimBounds);
+
+    // Quick check for Mod with constant RHS.
+    if (binOp.getKind() == mlir::AffineExprKind::Mod) {
+
+      auto lhs = getExprUpperBound(binOp.getLHS(), dimBounds);
+      if (auto rhsConst =
+              llvm::dyn_cast<mlir::AffineConstantExpr>(binOp.getRHS())) {
+        int64_t rhsVal = rhsConst.getValue();
+        if (rhsVal <= 0) {
+          return std::nullopt;
+        }
+        if (lhs.has_value()) {
+          auto r = std::min(lhs.value(), rhsVal - 1);
+          return r;
+        }
+        return rhsVal - 1;
+      }
+      return std::nullopt;
+    }
+
+    if (binOp.getKind() == mlir::AffineExprKind::FloorDiv) {
+      if (auto rhsConst =
+              llvm::dyn_cast<mlir::AffineConstantExpr>(binOp.getRHS())) {
+        int64_t rhsVal = rhsConst.getValue();
+        if (rhsVal <= 0) {
+          return std::nullopt;
+        }
+        if (lhs.has_value()) {
+          return lhs.value() / rhsVal;
+        }
+      }
+      return std::nullopt;
+    }
+
+    auto rhs = getExprUpperBound(binOp.getRHS(), dimBounds);
+
+    if (lhs.has_value() && rhs.has_value()) {
+      switch (binOp.getKind()) {
+      case mlir::AffineExprKind::Add: {
+        return lhs.value() + rhs.value();
+      }
+      case mlir::AffineExprKind::Mul: {
+        return lhs.value() * rhs.value();
+      }
+      default:
+        return std::nullopt;
+      }
+    }
+  }
+  return std::nullopt;
+}
+
+//===----------------------------------------------------------------------===//
+// Simplification functions
+//===----------------------------------------------------------------------===//
+
+mlir::AffineExpr
+simplifyAffineExprWithRangeAnalysis(mlir::AffineExpr expr,
+                                    mlir::ArrayRef<int64_t> dimBounds) {
+  if (auto binOp = llvm::dyn_cast<mlir::AffineBinaryOpExpr>(expr)) {
+    auto lhs = simplifyAffineExprWithRangeAnalysis(binOp.getLHS(), dimBounds);
+    auto rhs = simplifyAffineExprWithRangeAnalysis(binOp.getRHS(), dimBounds);
+
+    if (binOp.getKind() == mlir::AffineExprKind::Mod) {
+      if (auto rhsConst = llvm::dyn_cast<mlir::AffineConstantExpr>(rhs)) {
+        auto lhsUB = getExprUpperBound(lhs, dimBounds);
+        if (lhsUB.has_value() && lhsUB.value() < rhsConst.getValue()) {
+          return lhs;
+        }
+      }
+      return lhs % rhs;
+    }
+    if (binOp.getKind() == mlir::AffineExprKind::FloorDiv) {
+      if (auto rhsConst = llvm::dyn_cast<mlir::AffineConstantExpr>(rhs)) {
+        auto lhsUB = getExprUpperBound(lhs, dimBounds);
+        if (lhsUB.has_value() && lhsUB.value() < rhsConst.getValue()) {
+          return mlir::getAffineConstantExpr(0, expr.getContext());
+        }
+      }
+      return lhs.floorDiv(rhs);
+    }
+
+    switch (binOp.getKind()) {
+    case mlir::AffineExprKind::Add:
+      return lhs + rhs;
+    case mlir::AffineExprKind::Mul:
+      return lhs * rhs;
+    case mlir::AffineExprKind::FloorDiv:
+      return lhs.floorDiv(rhs);
+    case mlir::AffineExprKind::CeilDiv:
+      return lhs.ceilDiv(rhs);
+    default:
+      return expr;
+    }
+  }
+  return expr;
+}
+
+mlir::AffineMap
+simplifyAffineMapWithRangeAnalysis(mlir::AffineMap map,
+                                   mlir::ArrayRef<int64_t> dimBounds,
+                                   bool performEquivalenceCheck) {
+  TT_assertv(map.getNumDims() == dimBounds.size(),
+             "Number of dimension bounds must match number of map dimensions");
+  mlir::SmallVector<mlir::AffineExpr> newResults;
+  for (auto result : map.getResults()) {
+    newResults.push_back(
+        simplifyAffineExprWithRangeAnalysis(result, dimBounds));
+  }
+  auto simplifiedMap = mlir::AffineMap::get(
+      map.getNumDims(), map.getNumSymbols(), newResults, map.getContext());
+
+  // Roundtrip equivalence check: sample both maps over the entire domain
+  // and verify they produce identical results at every point.
+  if (performEquivalenceCheck) {
+    bool equivalent = true;
+    sample(dimBounds, [&](llvm::ArrayRef<int64_t> point) {
+      if (map.compose(point) != simplifiedMap.compose(point)) {
+        equivalent = false;
+      }
+    });
+    if (!equivalent) {
+      return map;
+    }
+  }
+
+  return simplifiedMap;
+}
+
+//===----------------------------------------------------------------------===//
+// Analysis functions
+//===----------------------------------------------------------------------===//
+
+int64_t analyzeExprForDimStride(mlir::AffineExpr expr, unsigned dimPos) {
+  // Constant: stride = 0 (doesn't depend on dim).
+  if (llvm::isa<mlir::AffineConstantExpr>(expr)) {
+    return 0;
+  }
+
+  // Dim expression.
+  if (auto dimExpr = llvm::dyn_cast<mlir::AffineDimExpr>(expr)) {
+    return dimExpr.getPosition() == dimPos ? 1 : 0;
+  }
+
+  auto binOp = llvm::dyn_cast<mlir::AffineBinaryOpExpr>(expr);
+  if (!binOp) {
+    return -1; // Cannot analyze.
+  }
+
+  auto lhs = binOp.getLHS();
+  auto rhs = binOp.getRHS();
+
+  switch (binOp.getKind()) {
+  case mlir::AffineExprKind::Add: {
+    int64_t lhsStride = analyzeExprForDimStride(lhs, dimPos);
+    int64_t rhsStride = analyzeExprForDimStride(rhs, dimPos);
+    if (lhsStride < 0 || rhsStride < 0) {
+      return -1;
+    }
+    return lhsStride + rhsStride;
+  }
+
+  case mlir::AffineExprKind::Mul: {
+    auto rhsConst = llvm::dyn_cast<mlir::AffineConstantExpr>(rhs);
+    // To simplify analysis, assert that rhs is always a constant here.
+    TT_assertv(
+        rhsConst,
+        "analyzeExprForDimStride: analysis expects MulOp rhs to be a constant");
+    int64_t lhsStride = analyzeExprForDimStride(lhs, dimPos);
+    if (lhsStride < 0) {
+      return -1;
+    }
+    return lhsStride * rhsConst.getValue();
+  }
+
+  case mlir::AffineExprKind::Mod: {
+    // Mod doesn't change stride, it just limits the range.
+    return analyzeExprForDimStride(lhs, dimPos);
+  }
+
+  case mlir::AffineExprKind::FloorDiv:
+  case mlir::AffineExprKind::CeilDiv: {
+    auto rhsConst = llvm::dyn_cast<mlir::AffineConstantExpr>(rhs);
+    if (!rhsConst || rhsConst.getValue() <= 0) {
+      return -1;
+    }
+
+    int64_t lhsStride = analyzeExprForDimStride(lhs, dimPos);
+    if (lhsStride < 0) {
+      return -1;
+    }
+
+    int64_t divisor = rhsConst.getValue();
+    // If lhsStride >= divisor, output changes by lhsStride/divisor per step.
+    // If lhsStride < divisor, output changes less than once per step (stride
+    // 0).
+    if (lhsStride < divisor) {
+      return 0;
+    }
+    return lhsStride / divisor;
+  }
+
+  default:
+    return -1;
+  }
+}
+
 ContiguityBound analyzeShardResultExprForContiguity(
     mlir::AffineExpr expr, const llvm::DenseMap<int, int64_t> &dimBounds,
     unsigned dimPos, unsigned numGridDims,
@@ -359,147 +801,6 @@ ContiguityBound analyzeShardResultExprForContiguity(
   }
 }
 
-int64_t analyzeExprForDimStride(mlir::AffineExpr expr, unsigned dimPos) {
-  // Constant: stride = 0 (doesn't depend on dim).
-  if (llvm::isa<mlir::AffineConstantExpr>(expr)) {
-    return 0;
-  }
-
-  // Dim expression.
-  if (auto dimExpr = llvm::dyn_cast<mlir::AffineDimExpr>(expr)) {
-    return dimExpr.getPosition() == dimPos ? 1 : 0;
-  }
-
-  auto binOp = llvm::dyn_cast<mlir::AffineBinaryOpExpr>(expr);
-  if (!binOp) {
-    return -1; // Cannot analyze.
-  }
-
-  auto lhs = binOp.getLHS();
-  auto rhs = binOp.getRHS();
-
-  switch (binOp.getKind()) {
-  case mlir::AffineExprKind::Add: {
-    int64_t lhsStride = analyzeExprForDimStride(lhs, dimPos);
-    int64_t rhsStride = analyzeExprForDimStride(rhs, dimPos);
-    if (lhsStride < 0 || rhsStride < 0) {
-      return -1;
-    }
-    return lhsStride + rhsStride;
-  }
-
-  case mlir::AffineExprKind::Mul: {
-    auto rhsConst = llvm::dyn_cast<mlir::AffineConstantExpr>(rhs);
-    // To simplify analysis, assert that rhs is always a constant here.
-    TT_assertv(
-        rhsConst,
-        "analyzeExprForDimStride: analysis expects MulOp rhs to be a constant");
-    int64_t lhsStride = analyzeExprForDimStride(lhs, dimPos);
-    if (lhsStride < 0) {
-      return -1;
-    }
-    return lhsStride * rhsConst.getValue();
-  }
-
-  case mlir::AffineExprKind::Mod: {
-    // Mod doesn't change stride, it just limits the range.
-    return analyzeExprForDimStride(lhs, dimPos);
-  }
-
-  case mlir::AffineExprKind::FloorDiv:
-  case mlir::AffineExprKind::CeilDiv: {
-    auto rhsConst = llvm::dyn_cast<mlir::AffineConstantExpr>(rhs);
-    if (!rhsConst || rhsConst.getValue() <= 0) {
-      return -1;
-    }
-
-    int64_t lhsStride = analyzeExprForDimStride(lhs, dimPos);
-    if (lhsStride < 0) {
-      return -1;
-    }
-
-    int64_t divisor = rhsConst.getValue();
-    // If lhsStride >= divisor, output changes by lhsStride/divisor per step.
-    // If lhsStride < divisor, output changes less than once per step (stride
-    // 0).
-    if (lhsStride < divisor) {
-      return 0;
-    }
-    return lhsStride / divisor;
-  }
-
-  default:
-    return -1;
-  }
-}
-
-std::optional<size_t> analyzeShardDimStrides(mlir::AffineMap map,
-                                             mlir::ArrayRef<int64_t> shape,
-                                             unsigned numGridDims,
-                                             int64_t elemSizeBytes) {
-  int numShardDims = shape.size() - numGridDims;
-  TT_assert(numShardDims > 0);
-
-  mlir::AffineExpr shardResult = map.getResult(map.getNumResults() - 1);
-  size_t innermostDimPos = map.getNumDims() - 1;
-  int64_t innermostStride =
-      analyzeExprForDimStride(shardResult, innermostDimPos);
-
-  // Short circuit if unanalyzable (stride analysis returns -1).
-  if (innermostStride < 0) {
-    return std::nullopt;
-  }
-  // Expect stride for innermost dim to match element size, otherwise it must
-  // be strided non-contiguous access. This is only true if the innermost dim
-  // is non-unit.
-  if (innermostStride > 0 && innermostStride != elemSizeBytes &&
-      shape[innermostDimPos] != 1) {
-    return elemSizeBytes;
-  }
-
-  // If innermost dim has non-unit extent but stride 0 in the shard result,
-  // the dimension must affect a grid result instead. Every step of that
-  // dimension causes a grid discontinuity, so there's no contiguity.
-  if (innermostStride == 0 && shape[innermostDimPos] != 1) {
-    return elemSizeBytes;
-  }
-
-  // When innermost dim has stride 0 with unit extent (can be skipped) or
-  // proper stride, compute the expected accumulated stride.
-  int64_t accumulatedStride;
-  if (shape[innermostDimPos] == 1) {
-    accumulatedStride = elemSizeBytes;
-  } else {
-    accumulatedStride = innermostStride * shape[innermostDimPos];
-  }
-
-  for (int i = map.getNumDims() - 2; i >= static_cast<int>(numGridDims); --i) {
-    unsigned dimPos = i;
-    if (shape[dimPos] == 1) {
-      continue;
-    }
-    int64_t stride = analyzeExprForDimStride(shardResult, dimPos);
-    // Short circuit if unanalyzable (stride analysis returns -1).
-    if (stride < 0) {
-      return std::nullopt;
-    }
-    // If a non-unit shard dim has stride 0 in the shard result, it must
-    // affect a grid result instead. This causes grid discontinuities when
-    // this dim changes, but doesn't prevent coalescing within the innermost
-    // contiguous dimensions. Break here rather than returning elemSizeBytes.
-    if (stride == 0) {
-      break;
-    }
-    if (stride != accumulatedStride) {
-      break;
-    }
-    accumulatedStride = stride * shape[dimPos];
-  }
-
-  TT_assertv(accumulatedStride >= 0u, "Accumulated stride is zero");
-  return accumulatedStride;
-}
-
 ContiguityBound analyzeGridResultExprForDiscontinuity(
     mlir::AffineExpr expr, const llvm::DenseMap<int, int64_t> &dimBounds,
     unsigned dimPos, unsigned numGridDims) {
@@ -829,6 +1130,73 @@ ContiguityBound analyzeGridResultExprForDiscontinuity(
   }
 }
 
+std::optional<size_t> analyzeShardDimStrides(mlir::AffineMap map,
+                                             mlir::ArrayRef<int64_t> shape,
+                                             unsigned numGridDims,
+                                             int64_t elemSizeBytes) {
+  int numShardDims = shape.size() - numGridDims;
+  TT_assert(numShardDims > 0);
+
+  mlir::AffineExpr shardResult = map.getResult(map.getNumResults() - 1);
+  size_t innermostDimPos = map.getNumDims() - 1;
+  int64_t innermostStride =
+      analyzeExprForDimStride(shardResult, innermostDimPos);
+
+  // Short circuit if unanalyzable (stride analysis returns -1).
+  if (innermostStride < 0) {
+    return std::nullopt;
+  }
+  // Expect stride for innermost dim to match element size, otherwise it must
+  // be strided non-contiguous access. This is only true if the innermost dim
+  // is non-unit.
+  if (innermostStride > 0 && innermostStride != elemSizeBytes &&
+      shape[innermostDimPos] != 1) {
+    return elemSizeBytes;
+  }
+
+  // If innermost dim has non-unit extent but stride 0 in the shard result,
+  // the dimension must affect a grid result instead. Every step of that
+  // dimension causes a grid discontinuity, so there's no contiguity.
+  if (innermostStride == 0 && shape[innermostDimPos] != 1) {
+    return elemSizeBytes;
+  }
+
+  // When innermost dim has stride 0 with unit extent (can be skipped) or
+  // proper stride, compute the expected accumulated stride.
+  int64_t accumulatedStride;
+  if (shape[innermostDimPos] == 1) {
+    accumulatedStride = elemSizeBytes;
+  } else {
+    accumulatedStride = innermostStride * shape[innermostDimPos];
+  }
+
+  for (int i = map.getNumDims() - 2; i >= static_cast<int>(numGridDims); --i) {
+    unsigned dimPos = i;
+    if (shape[dimPos] == 1) {
+      continue;
+    }
+    int64_t stride = analyzeExprForDimStride(shardResult, dimPos);
+    // Short circuit if unanalyzable (stride analysis returns -1).
+    if (stride < 0) {
+      return std::nullopt;
+    }
+    // If a non-unit shard dim has stride 0 in the shard result, it must
+    // affect a grid result instead. This causes grid discontinuities when
+    // this dim changes, but doesn't prevent coalescing within the innermost
+    // contiguous dimensions. Break here rather than returning elemSizeBytes.
+    if (stride == 0) {
+      break;
+    }
+    if (stride != accumulatedStride) {
+      break;
+    }
+    accumulatedStride = stride * shape[dimPos];
+  }
+
+  TT_assertv(accumulatedStride >= 0u, "Accumulated stride is zero");
+  return accumulatedStride;
+}
+
 std::optional<int64_t>
 computeCoalescingFactorForShardDim(mlir::AffineMap map,
                                    mlir::ArrayRef<int64_t> shape,
@@ -972,307 +1340,6 @@ size_t computeCoalescingFactorAnalytically(mlir::AffineMap map,
   }
 
   return coalescingFactor;
-}
-
-std::optional<int64_t> getSumOfModuli(mlir::AffineExpr expr) {
-  if (auto binOp = llvm::dyn_cast<mlir::AffineBinaryOpExpr>(expr)) {
-    if (binOp.getKind() == mlir::AffineExprKind::Add) {
-      auto lhs = getSumOfModuli(binOp.getLHS());
-      auto rhs = getSumOfModuli(binOp.getRHS());
-      if (lhs.has_value() && rhs.has_value()) {
-        return (lhs.value() + rhs.value());
-      }
-    } else if (binOp.getKind() == mlir::AffineExprKind::Mod) {
-      if (auto rhsConst =
-              llvm::dyn_cast<mlir::AffineConstantExpr>(binOp.getRHS())) {
-        // We need to subtract 1, as the max value of the modulo op is one less
-        // than the modulus value.
-        return (rhsConst.getValue() - 1);
-      }
-    } else if (binOp.getKind() == mlir::AffineExprKind::Mul) {
-      if (auto rhsConst =
-              llvm::dyn_cast<mlir::AffineConstantExpr>(binOp.getRHS())) {
-        auto lhs = getSumOfModuli(binOp.getLHS());
-        if (lhs.has_value()) {
-          return lhs.value() * rhsConst.getValue();
-        }
-      }
-      if (auto lhsConst =
-              llvm::dyn_cast<mlir::AffineConstantExpr>(binOp.getLHS())) {
-        auto rhs = getSumOfModuli(binOp.getRHS());
-        if (rhs.has_value()) {
-          return rhs.value() * lhsConst.getValue();
-        }
-      }
-    }
-  }
-  return std::nullopt;
-}
-
-mlir::AffineExpr simplifyZeroFloorDivExpr(mlir::AffineExpr expr) {
-  if (auto binOp = llvm::dyn_cast<mlir::AffineBinaryOpExpr>(expr)) {
-    auto lhs = simplifyZeroFloorDivExpr(binOp.getLHS());
-    auto rhs = simplifyZeroFloorDivExpr(binOp.getRHS());
-
-    if (binOp.getKind() == mlir::AffineExprKind::FloorDiv) {
-      if (auto rhsConst = llvm::dyn_cast<mlir::AffineConstantExpr>(rhs)) {
-        int64_t divisor = rhsConst.getValue();
-        auto modSum = getSumOfModuli(lhs);
-        if (modSum.has_value() && modSum.value() < divisor) {
-          return mlir::getAffineConstantExpr(0, expr.getContext());
-        }
-      }
-    }
-
-    switch (binOp.getKind()) {
-    case mlir::AffineExprKind::Add:
-      return lhs + rhs;
-    case mlir::AffineExprKind::Mul:
-      return lhs * rhs;
-    case mlir::AffineExprKind::Mod:
-      return lhs % rhs;
-    case mlir::AffineExprKind::FloorDiv:
-      return lhs.floorDiv(rhs);
-    case mlir::AffineExprKind::CeilDiv:
-      return lhs.ceilDiv(rhs);
-    default:
-      return expr;
-    }
-  }
-  return expr;
-}
-
-std::optional<int64_t> getExprUpperBound(mlir::AffineExpr expr,
-                                         mlir::ArrayRef<int64_t> dimBounds) {
-
-  if (auto dimExpr = llvm::dyn_cast<mlir::AffineDimExpr>(expr)) {
-    if (dimExpr.getPosition() < dimBounds.size()) {
-      return dimBounds[dimExpr.getPosition()] - 1;
-    }
-    return std::nullopt;
-  }
-  if (auto constExpr = llvm::dyn_cast<mlir::AffineConstantExpr>(expr)) {
-    // We conservatively return nullopt for negative constants to avoid
-    // handling sign issues in Mul/Div for upper bound calculation.
-    if (constExpr.getValue() < 0) {
-      return std::nullopt;
-    }
-    return constExpr.getValue();
-  }
-  if (auto binOp = llvm::dyn_cast<mlir::AffineBinaryOpExpr>(expr)) {
-
-    auto lhs = getExprUpperBound(binOp.getLHS(), dimBounds);
-
-    // Quick check for Mod with constant RHS.
-    if (binOp.getKind() == mlir::AffineExprKind::Mod) {
-
-      auto lhs = getExprUpperBound(binOp.getLHS(), dimBounds);
-      if (auto rhsConst =
-              llvm::dyn_cast<mlir::AffineConstantExpr>(binOp.getRHS())) {
-        int64_t rhsVal = rhsConst.getValue();
-        if (rhsVal <= 0) {
-          return std::nullopt;
-        }
-        if (lhs.has_value()) {
-          auto r = std::min(lhs.value(), rhsVal - 1);
-          return r;
-        }
-        return rhsVal - 1;
-      }
-      return std::nullopt;
-    }
-
-    if (binOp.getKind() == mlir::AffineExprKind::FloorDiv) {
-      if (auto rhsConst =
-              llvm::dyn_cast<mlir::AffineConstantExpr>(binOp.getRHS())) {
-        int64_t rhsVal = rhsConst.getValue();
-        if (rhsVal <= 0) {
-          return std::nullopt;
-        }
-        if (lhs.has_value()) {
-          return lhs.value() / rhsVal;
-        }
-      }
-      return std::nullopt;
-    }
-
-    auto rhs = getExprUpperBound(binOp.getRHS(), dimBounds);
-
-    if (lhs.has_value() && rhs.has_value()) {
-      switch (binOp.getKind()) {
-      case mlir::AffineExprKind::Add: {
-        return lhs.value() + rhs.value();
-      }
-      case mlir::AffineExprKind::Mul: {
-        return lhs.value() * rhs.value();
-      }
-      default:
-        return std::nullopt;
-      }
-    }
-  }
-  return std::nullopt;
-}
-
-mlir::AffineExpr
-simplifyAffineExprWithRangeAnalysis(mlir::AffineExpr expr,
-                                    mlir::ArrayRef<int64_t> dimBounds) {
-  if (auto binOp = llvm::dyn_cast<mlir::AffineBinaryOpExpr>(expr)) {
-    auto lhs = simplifyAffineExprWithRangeAnalysis(binOp.getLHS(), dimBounds);
-    auto rhs = simplifyAffineExprWithRangeAnalysis(binOp.getRHS(), dimBounds);
-
-    if (binOp.getKind() == mlir::AffineExprKind::Mod) {
-      if (auto rhsConst = llvm::dyn_cast<mlir::AffineConstantExpr>(rhs)) {
-        auto lhsUB = getExprUpperBound(lhs, dimBounds);
-        if (lhsUB.has_value() && lhsUB.value() < rhsConst.getValue()) {
-          return lhs;
-        }
-      }
-      return lhs % rhs;
-    }
-    if (binOp.getKind() == mlir::AffineExprKind::FloorDiv) {
-      if (auto rhsConst = llvm::dyn_cast<mlir::AffineConstantExpr>(rhs)) {
-        auto lhsUB = getExprUpperBound(lhs, dimBounds);
-        if (lhsUB.has_value() && lhsUB.value() < rhsConst.getValue()) {
-          return mlir::getAffineConstantExpr(0, expr.getContext());
-        }
-      }
-      return lhs.floorDiv(rhs);
-    }
-
-    switch (binOp.getKind()) {
-    case mlir::AffineExprKind::Add:
-      return lhs + rhs;
-    case mlir::AffineExprKind::Mul:
-      return lhs * rhs;
-    case mlir::AffineExprKind::FloorDiv:
-      return lhs.floorDiv(rhs);
-    case mlir::AffineExprKind::CeilDiv:
-      return lhs.ceilDiv(rhs);
-    default:
-      return expr;
-    }
-  }
-  return expr;
-}
-
-mlir::AffineMap
-simplifyAffineMapWithRangeAnalysis(mlir::AffineMap map,
-                                   mlir::ArrayRef<int64_t> dimBounds,
-                                   bool performEquivalenceCheck) {
-  TT_assertv(map.getNumDims() == dimBounds.size(),
-             "Number of dimension bounds must match number of map dimensions");
-  mlir::SmallVector<mlir::AffineExpr> newResults;
-  for (auto result : map.getResults()) {
-    newResults.push_back(
-        simplifyAffineExprWithRangeAnalysis(result, dimBounds));
-  }
-  auto simplifiedMap = mlir::AffineMap::get(
-      map.getNumDims(), map.getNumSymbols(), newResults, map.getContext());
-
-  // Roundtrip equivalence check: sample both maps over the entire domain
-  // and verify they produce identical results at every point.
-  if (performEquivalenceCheck) {
-    bool equivalent = true;
-    sample(dimBounds, [&](llvm::ArrayRef<int64_t> point) {
-      if (map.compose(point) != simplifiedMap.compose(point)) {
-        equivalent = false;
-      }
-    });
-    if (!equivalent) {
-      return map;
-    }
-  }
-
-  return simplifiedMap;
-}
-
-void collectSumOperandsImpl(mlir::AffineExpr expr,
-                            llvm::SmallVectorImpl<mlir::AffineExpr> &results) {
-  // Add operations have least precedence, so collecting all operands
-  // commutatively gathers the entire expressions; everything else must be a
-  // child expr of the top-level add.
-  if (auto binOp = llvm::dyn_cast<mlir::AffineBinaryOpExpr>(expr)) {
-    if (binOp.getKind() == mlir::AffineExprKind::Add) {
-      collectSumOperandsImpl(binOp.getLHS(), results);
-      collectSumOperandsImpl(binOp.getRHS(), results);
-      return;
-    }
-  }
-  results.push_back(expr);
-}
-
-mlir::SmallVector<mlir::AffineExpr> collectSumOperands(mlir::AffineExpr expr) {
-  mlir::SmallVector<mlir::AffineExpr> ops;
-  collectSumOperandsImpl(expr, ops);
-  return ops;
-}
-
-int64_t minimizeGap(int64_t targetSum, llvm::ArrayRef<int64_t> multipliers,
-                    llvm::ArrayRef<int64_t> bounds, int64_t constOffset) {
-  TT_assertv(multipliers.size() == bounds.size(),
-             "multipliers and bounds must have same size");
-
-  // Compute all possible remainders (mod target) using dynamic programming.
-  // Since we only care about sum % target, track remainders rather than full
-  // sums. This limits the set size to at most 'target' elements, preventing
-  // exponential blowup.
-  llvm::DenseSet<int64_t> possibleRemainders;
-  possibleRemainders.insert(((constOffset % targetSum) + targetSum) %
-                            targetSum);
-
-  for (size_t i = 0; i < multipliers.size(); ++i) {
-    llvm::DenseSet<int64_t> newRemainders;
-    int64_t multiplierMod =
-        ((multipliers[i] % targetSum) + targetSum) % targetSum;
-    for (int64_t remainder : possibleRemainders) {
-      for (int64_t n = 0; n <= bounds[i]; ++n) {
-        int64_t newRemainder = (remainder + multiplierMod * n) % targetSum;
-        newRemainders.insert(newRemainder);
-        // Early exit: if we've covered all remainders, no need to continue
-        if (newRemainders.size() == static_cast<size_t>(targetSum)) {
-          break;
-        }
-      }
-      if (newRemainders.size() == static_cast<size_t>(targetSum)) {
-        break;
-      }
-    }
-    possibleRemainders = std::move(newRemainders);
-    // Early exit: if all remainders are possible, gap will be 1
-    if (possibleRemainders.size() == static_cast<size_t>(targetSum)) {
-      return 1;
-    }
-  }
-
-  // Find the minimum non-zero gap to any integer multiple of targetSum for any
-  // possible remainder.
-  int64_t bestGap = targetSum;
-
-  for (int64_t remainder : possibleRemainders) {
-    int64_t gap = (remainder == 0) ? targetSum : (targetSum - remainder);
-    if (gap < bestGap) {
-      bestGap = gap;
-    }
-    // Early exit if gap is 1 (best possible non-exact alignment)
-    if (bestGap == 1) {
-      break;
-    }
-  }
-
-  return bestGap;
-}
-
-bool exprContainsDim(mlir::AffineExpr expr, unsigned dimPos) {
-  bool foundDim = false;
-  expr.walk([&](mlir::AffineExpr e) {
-    if (auto dimExpr = llvm::dyn_cast<mlir::AffineDimExpr>(e)) {
-      if (dimExpr.getPosition() == dimPos) {
-        foundDim = true;
-      }
-    }
-  });
-  return foundDim;
 }
 
 } // namespace ttmlir::utils
