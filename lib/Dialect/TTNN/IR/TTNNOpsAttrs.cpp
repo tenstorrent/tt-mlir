@@ -712,6 +712,83 @@ MemoryConfigAttr MemoryConfigAttr::get(
                              .succeeded());
 }
 
+mlir::Attribute MemoryConfigAttr::parse(::mlir::AsmParser &parser,
+                                        ::mlir::Type type) {
+  ::llvm::SMLoc loc = parser.getCurrentLocation();
+  if (parser.parseLess()) {
+    return {};
+  }
+
+  BufferTypeAttr bufferType;
+  if (parser.parseCustomAttributeWithFallback(bufferType)) {
+    return {};
+  }
+
+  TensorMemoryLayoutAttr tensorMemoryLayout;
+  std::optional<ShardSpecAttr> shardSpec;
+  std::optional<NDShardSpecAttr> ndShardSpec;
+
+  while (parser.parseOptionalComma().succeeded()) {
+    if (parser.parseOptionalKeyword("ndShardSpec").succeeded()) {
+      if (parser.parseEqual()) {
+        return {};
+      }
+      NDShardSpecAttr attr;
+      if (parser.parseCustomAttributeWithFallback(attr)) {
+        return {};
+      }
+      ndShardSpec = attr;
+      continue;
+    }
+
+    // Try parsing ShardSpecAttr first because it's usually a full attribute
+    // with mnemonic
+    ShardSpecAttr ss;
+    OptionalParseResult ssResult = parser.parseOptionalAttribute(ss);
+    if (ssResult.has_value()) {
+      if (succeeded(*ssResult)) {
+        shardSpec = ss;
+        continue;
+      }
+      return {};
+    }
+
+    // Try parsing TensorMemoryLayoutAttr
+    TensorMemoryLayoutAttr tml;
+    if (succeeded(parser.parseCustomAttributeWithFallback(tml))) {
+      tensorMemoryLayout = tml;
+      continue;
+    }
+
+    return {};
+  }
+
+  if (parser.parseGreater()) {
+    return {};
+  }
+
+  return MemoryConfigAttr::getChecked(
+      [loc, &parser]() { return parser.emitError(loc); }, parser.getContext(),
+      tensorMemoryLayout, bufferType, shardSpec, ndShardSpec);
+}
+
+void MemoryConfigAttr::print(::mlir::AsmPrinter &p) const {
+  p << "<";
+  p.printStrippedAttrOrType(getBufferType());
+  if (getTensorMemoryLayout()) {
+    p << ", ";
+    p.printStrippedAttrOrType(getTensorMemoryLayout());
+  }
+  if (getShardSpec()) {
+    p << ", ";
+    p.printStrippedAttrOrType(getShardSpec());
+  } else if (getNdShardSpec()) {
+    p << ", ndShardSpec = ";
+    p.printStrippedAttrOrType(getNdShardSpec());
+  }
+  p << ">";
+}
+
 bool CoreRangeAttr::intersects(CoreRangeAttr other) const {
   bool thisEndsBeforeOtherStarts =
       this->getEndCoord().getX() < other.getStartCoord().getX();
