@@ -209,6 +209,10 @@ def get_atol_rtol_pcc(golden, calculated, atol, rtol):
             return 0.0
         elif torch.all(torch.isnan(golden)) or torch.all(torch.isnan(calculated)):
             return 0.0
+        elif (torch.max(golden) == torch.min(golden)) ^ (
+            torch.max(calculated) == torch.min(calculated)
+        ):
+            return 0.0
         else:
             golden = mask_torch_inf_nan(golden)
             calculated = mask_torch_inf_nan(calculated)
@@ -338,7 +342,10 @@ def check_outputs(
         atol=atol,
         rtol=rtol,
     )
-    if golden_tensor.dtype != torch.uint16 and golden_tensor.dtype != torch.uint32:
+    if (
+        golden_tensor.dtype not in (torch.uint16, torch.uint32)
+        and golden_tensor.numel() > 0
+    ):
         results["max"] = torch.max(torch.abs(golden_tensor - output_tensor)).item()
     results["mean_absolute_error"] = torch.mean(
         torch.abs(golden_tensor.float() - output_tensor.float())

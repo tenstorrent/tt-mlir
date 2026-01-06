@@ -116,6 +116,8 @@ class GoldenMapTensor:
             return dtype
         elif dtype in [torch.qint32, torch.int64]:
             return torch.int32
+        elif dtype == torch.bool:
+            return torch.bfloat16
         else:
             return torch.float32
 
@@ -1770,10 +1772,11 @@ def get_dimension_size_golden(
     dimension = kwargs.get("dimension", 0)
     output_tensor = input_tensor.clone()
 
-    for device_id, shard in output_tensor.shard_map.items():
+    for device_id, shard in input_tensor.shard_map.items():
         shard = torch.tensor(
             [input_tensor.shard_at(device_id).size(dimension)], dtype=torch.int32
         )
+        output_tensor.shard_map[device_id] = shard
 
     return output_tensor
 
@@ -3744,7 +3747,11 @@ def stablehlo_and_golden(
     input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
-    return torch.logical_and(input_tensor, other_tensor).to(output_dtype)
+    if output_dtype == torch.bool:
+        result_bool = torch.logical_or(input_tensor, other_tensor)
+        return result_bool.to(input_tensor.dtype)
+    else:
+        return torch.bitwise_or(input_tensor, other_tensor)
 
 
 def stablehlo_abs_golden(

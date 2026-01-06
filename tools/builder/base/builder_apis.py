@@ -1254,10 +1254,12 @@ def compile_ttir_module_to_flatbuffer(
         with open(output_file_bin, "w") as f:
             f.write(compiled_bin)
     if save_artifacts:
+        print(f"Writing compiled flatbuffer to {output_file_bin}")
         if target == "emitpy":
             with open(output_file_bin, "w") as f:
                 f.write(compiled_bin)
         elif target in ["ttnn", "ttmetal"]:
+
             to_file(module, output_file_bin, {}, [])
 
     return compiled_bin, input_output_goldens, intermediate_goldens

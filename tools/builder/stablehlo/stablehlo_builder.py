@@ -4167,7 +4167,7 @@ class StableHLOBuilder(Builder):
         stablehlo_op = self.get_opview_from_method(StableHLOBuilder.select)
 
         if output_type is None:
-            mlir_output_type = self.get_type(pred)
+            mlir_output_type = self.get_type(on_true)
         else:
             mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
