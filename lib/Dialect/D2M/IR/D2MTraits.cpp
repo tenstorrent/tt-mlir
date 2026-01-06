@@ -10,29 +10,10 @@
 namespace mlir::tt::d2m {
 namespace impl {
 
-// Helper function to verify that an operation is in the correct thread region
-// type
+// Helper function to verify that an operation is in a compatible thread region
 static mlir::LogicalResult
-verifyGenericRegionOpThreadType(mlir::Operation *op, ThreadType threadType) {
-  mlir::Region *region =
-      ttmlir::utils::getRegionWithParentOfType<GenericOp>(op);
-  if (!region) {
-    // If not enclosed in a generic op then we forgo verification.
-    return mlir::success();
-  }
-  GenericOp genericOp = mlir::cast<GenericOp>(region->getParentOp());
-  if (genericOp.getRegionThreadType(region->getRegionNumber()) != threadType) {
-    return op->emitOpError("expected to be in a ")
-           << stringifyEnum(threadType) << " region";
-  }
-  return mlir::success();
-}
-
-mlir::LogicalResult verifyGenericRegionComputeOp(mlir::Operation *op) {
-  return verifyGenericRegionOpThreadType(op, ThreadType::Compute);
-}
-
-mlir::LogicalResult verifyGenericRegionDatamovementOp(mlir::Operation *op) {
+verifyGenericRegionOpThreadType(mlir::Operation *op,
+                                llvm::ArrayRef<ThreadType> allowedThreadTypes) {
   mlir::Region *region =
       ttmlir::utils::getRegionWithParentOfType<GenericOp>(op);
   if (!region) {
@@ -42,26 +23,32 @@ mlir::LogicalResult verifyGenericRegionDatamovementOp(mlir::Operation *op) {
   GenericOp genericOp = mlir::cast<GenericOp>(region->getParentOp());
   ThreadType regionThreadType =
       genericOp.getRegionThreadType(region->getRegionNumber());
-
-  // Allow datamovement ops in compute regions if there's exactly one compute
-  // thread and no datamovement threads.
-  if (regionThreadType == ThreadType::Compute) {
-    size_t numComputeThreads =
-        llvm::count_if(genericOp.getThreads(), [](Attribute threadAttr) {
-          return mlir::cast<ThreadAttr>(threadAttr).getThreadType() ==
-                 ThreadType::Compute;
-        });
-    size_t numDatamovementThreads =
-        llvm::count_if(genericOp.getThreads(), [](Attribute threadAttr) {
-          return mlir::cast<ThreadAttr>(threadAttr).getThreadType() ==
-                 ThreadType::Datamovement;
-        });
-    if (numComputeThreads == 1 && numDatamovementThreads == 0) {
+  for (ThreadType allowed : allowedThreadTypes) {
+    if (regionThreadType == allowed) {
       return mlir::success();
     }
   }
+  std::string expectedTypes;
+  llvm::raw_string_ostream os(expectedTypes);
+  for (size_t i = 0; i < allowedThreadTypes.size(); ++i) {
+    os << stringifyEnum(allowedThreadTypes[i]);
+    if (i + 1 < allowedThreadTypes.size()) {
+      os << " or ";
+    }
+  }
+  os.flush();
+  return op->emitOpError("expected to be in a ") << expectedTypes << " region";
+}
 
-  return verifyGenericRegionOpThreadType(op, ThreadType::Datamovement);
+mlir::LogicalResult verifyGenericRegionComputeOp(mlir::Operation *op) {
+  // Unified threads are treated the same as compute threads
+  return verifyGenericRegionOpThreadType(
+      op, {ThreadType::Compute, ThreadType::Unified});
+}
+
+mlir::LogicalResult verifyGenericRegionDatamovementOp(mlir::Operation *op) {
+  return verifyGenericRegionOpThreadType(
+      op, {ThreadType::Datamovement, ThreadType::Unified});
 }
 
 } // namespace impl

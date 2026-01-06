@@ -61,10 +61,10 @@ func.func @remote_load_bufferization() -> tensor<2x2x1x1x!ttcore.tile<32x32, f32
   %output = d2m.empty() : tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #layout_grid2x2>
   %view = d2m.view_layout %input : tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #layout_grid2x2> -> tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #layout_view>
   // CHECK: d2m.generic
-  %result = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x2>, indexing_maps = [#map3, #map3], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<compute>]}
+  %result = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x2>, indexing_maps = [#map3, #map3], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
       ins(%view : tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #layout_view>)
       outs(%output : tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #layout_grid2x2>)  {
-  ^compute0(%cb0: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>, %cb1: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>):
+  ^unified0(%cb0: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>, %cb1: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>):
     %wait_result = d2m.wait %cb0 : <tensor<1x1x!ttcore.tile<32x32, f32>>> -> tensor<1x1x!ttcore.tile<32x32, f32>>
     %reserve_result = d2m.reserve %cb1 : <tensor<1x1x!ttcore.tile<32x32, f32>>> -> tensor<1x1x!ttcore.tile<32x32, f32>>
     %iter0 = d2m.iter_index(0) : index
@@ -82,10 +82,10 @@ func.func @remote_store_bufferization() -> tensor<2x2x1x1x!ttcore.tile<32x32, f3
   %input = d2m.empty() : tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #layout_grid2x2>
   %output = d2m.empty() : tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #layout_view>
   // CHECK: d2m.generic
-  %result = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x2>, indexing_maps = [#map3, #map3], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<compute>]}
+  %result = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x2>, indexing_maps = [#map3, #map3], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
       ins(%input : tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #layout_grid2x2>)
       outs(%output : tensor<2x2x1x1x!ttcore.tile<32x32, f32>, #layout_view>)  {
-  ^compute0(%cb0: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>, %cb1: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>):
+  ^unified0(%cb0: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>, %cb1: !d2m.cb<tensor<1x1x!ttcore.tile<32x32, f32>>>):
     %wait_result = d2m.wait %cb0 : <tensor<1x1x!ttcore.tile<32x32, f32>>> -> tensor<1x1x!ttcore.tile<32x32, f32>>
     %reserve_result = d2m.reserve %cb1 : <tensor<1x1x!ttcore.tile<32x32, f32>>> -> tensor<1x1x!ttcore.tile<32x32, f32>>
     %iter0 = d2m.iter_index(0) : index

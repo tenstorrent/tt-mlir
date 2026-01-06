@@ -27,8 +27,8 @@ public:
       return failure();
     }
 
-    // Check if the single region is a compute thread
-    if (generic.getRegionThreadType(0) != ThreadType::Compute) {
+    // Check if the single region is a unified thread
+    if (generic.getRegionThreadType(0) != ThreadType::Unified) {
       return failure();
     }
 

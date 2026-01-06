@@ -511,7 +511,7 @@ public:
                   builder.create<YieldOp>(innerLoc, loadResult);
                 }
               },
-              ThreadType::Compute, grid)
+              ThreadType::Unified, grid)
           .getResult(0);
     }
     // DRAM operations use the view directly without immediate
@@ -700,7 +700,7 @@ public:
                 builder.create<YieldOp>(innerLoc, loadResult);
               }
             },
-            ThreadType::Compute)
+            ThreadType::Unified)
         .getResult(0);
   }
 
@@ -728,7 +728,7 @@ public:
               }
               builder.create<YieldOp>(innerLoc, dst);
             },
-            ThreadType::Compute)
+            ThreadType::Unified)
         .getResult(0);
   }
 
@@ -766,7 +766,7 @@ public:
 
           builder.create<YieldOp>(innerLoc, ValueRange{dst});
         },
-        ThreadType::Compute);
+        ThreadType::Unified);
 
     return genericOp.getResult(0);
   }

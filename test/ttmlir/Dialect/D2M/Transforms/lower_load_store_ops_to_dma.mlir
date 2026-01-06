@@ -19,10 +19,10 @@ module {
 
     // CHECK: d2m.generic
     // CHECK-SAME: threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]
-    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<compute>]}
+    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
         ins(%stream : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<map(4)>, #dram>)
         outs(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
-    ^compute0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
+    ^unified0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
       // CHECK: ^datamovement0
       // CHECK:   scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
       // CHECK:     d2m.core_index(0)
@@ -54,10 +54,10 @@ module {
 
     // CHECK: d2m.generic
     // CHECK-SAME: threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]
-    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<compute>]}
+    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
         ins(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>)
         outs(%stream : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<map(4)>, #dram>) {
-    ^compute0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
+    ^unified0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
       // CHECK: ^datamovement0
       // CHECK:   scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
       // CHECK:     d2m.core_index(0)
@@ -92,10 +92,10 @@ module {
 
     // CHECK: d2m.generic
     // CHECK-SAME: threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]
-    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map, #map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<compute>]}
+    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map, #map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
         ins(%stream0, %alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<map(4)>, #dram>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>)
         outs(%stream1 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<map(4)>, #dram>) {
-    ^compute0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
+    ^unified0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
       // CHECK: ^datamovement0
       // CHECK:   scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
       // CHECK:     d2m.core_index(0)
@@ -136,10 +136,10 @@ module {
 
     // CHECK: d2m.generic
     // CHECK-SAME: threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]
-    d2m.generic {block_factors = [1, 1, 2], grid = #ttcore.grid<1x1>, indexing_maps = [#mapL, #mapR, #mapO], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<compute>]}
+    d2m.generic {block_factors = [1, 1, 2], grid = #ttcore.grid<1x1>, indexing_maps = [#mapL, #mapR, #mapO], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<unified>]}
         ins(%stream0, %stream1 : memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #ttcore.view<map(4)>, #dram>, memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #ttcore.view<map(4)>, #dram>)
         outs(%alloc : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>) {
-    ^compute0(%cb0: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>, %cb2: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>):
+    ^unified0(%cb0: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>, %cb2: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>):
       // CHECK: ^datamovement0
       // CHECK:   scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
       // CHECK:     d2m.core_index(0)
@@ -187,10 +187,10 @@ module {
     // CHECK: d2m.generic
     // CHECK-SAME: grid = #ttcore.grid<1x1>
     // CHECK-SAME: threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]
-    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<compute>]}
+    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
         ins(%stream : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<map(4)>, #dram>)
         outs(%alloc : memref<1x1x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
-    ^compute0(%cb0: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1_>>):
+    ^unified0(%cb0: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1_>>):
       // CHECK: ^datamovement0
       // CHECK:   scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
       // CHECK:     d2m.core_index(0)
@@ -229,10 +229,10 @@ module {
 
     // CHECK: d2m.generic
     // CHECK-SAME: threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]
-    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #reduction], threads = [#d2m.thread<compute>]}
+    d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #reduction], threads = [#d2m.thread<unified>]}
         ins(%stream : memref<1x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<map(4)>, #dram>)
         outs(%alloc : memref<1x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
-    ^compute0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
+    ^unified0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
       // CHECK: ^datamovement0(%{{.*}}: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1{{.*}}>>, %{{.*}}: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1{{.*}}>>, %{{.*}}: !d2m.semaphore, %{{.*}}: !d2m.semaphore):
       // Verify semaphores are added for multicast synchronization
       // Verify core index check and multicast branching
@@ -270,10 +270,10 @@ module {
 
     // CHECK: d2m.generic
     // CHECK-SAME: threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]
-    d2m.generic {block_factors = [1, 1, 4], grid = #ttcore.grid<2x6>, indexing_maps = [#mapL, #mapR, #mapO], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<compute>]}
+    d2m.generic {block_factors = [1, 1, 4], grid = #ttcore.grid<2x6>, indexing_maps = [#mapL, #mapR, #mapO], iterator_types = [#parallel, #parallel, #reduction], threads = [#d2m.thread<unified>]}
         ins(%stream0, %stream1 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<map(4)>, #dram>, memref<4x6x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<32768x4096, 1>, #ttcore.view<map(4)>, #dram>)
         outs(%alloc : memref<2x6x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
-    ^compute0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
+    ^unified0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb2: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
       // Verify 2 semaphores are added (for LHS multicast only, RHS is unicast)
       // CHECK: ^datamovement0(%{{.*}}: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1{{.*}}>>, %{{.*}}: !d2m.cb<memref<4x4x!ttcore.tile<32x32, f32>, #l1{{.*}}>>, %{{.*}}: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1{{.*}}>>, %{{.*}}: !d2m.semaphore, %{{.*}}: !d2m.semaphore):
       // Verify LHS multicast path with correct dimension check (core_index(1) == 0)

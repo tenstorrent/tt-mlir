@@ -89,6 +89,12 @@ public:
         ++nocIndex;
         break;
       }
+      case d2m::ThreadType::Unified: {
+        // Unified threads should have been split by SplitUnifiedThread before
+        // reaching this pass.
+        llvm_unreachable(
+            "Unified threads are not supported for TTMetal backend");
+      }
       }
       assert(kernelConfig != nullptr);
       kernelConfigs.push_back(kernelConfig);

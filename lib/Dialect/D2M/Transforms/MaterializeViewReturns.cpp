@@ -90,7 +90,7 @@ Value materializeView(OpBuilder &builder, Location loc, Value viewResult) {
         builder.create<d2m::DMAWaitOp>(loc, dma);
         builder.create<d2m::YieldOp>(loc, outputCB);
       },
-      ThreadType::Compute, grid, SmallVector<int64_t>{1, 1});
+      ThreadType::Unified, grid, SmallVector<int64_t>{1, 1});
 
   return genericOp.getResult(0);
 }

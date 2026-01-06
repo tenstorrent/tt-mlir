@@ -263,7 +263,7 @@ def D2M_GenericOp : D2M_Op<"generic",
                      "ValueRange": $outputs,
                      "ArrayAttr": $indexingMaps,
                      "ArrayAttr": $iteratorTypes,
-                     CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType,
+                     CArg<"ThreadType", "ThreadType::Unified">: $singleThreadType,
                      CArg<"ttcore::GridAttr", "nullptr">: $grid,
                      CArg<"ArrayRef<int64_t>", "{}">: $blockFactors)>,
       OpBuilder<(ins "ValueRange": $inputs,
@@ -271,13 +271,13 @@ def D2M_GenericOp : D2M_Op<"generic",
                      "ArrayAttr": $indexingMaps,
                      "ArrayAttr": $iteratorTypes,
                      "llvm::function_ref<void(OpBuilder&, Location, ValueRange)>": $singleThreadRegionBuilder,
-                     CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType,
+                     CArg<"ThreadType", "ThreadType::Unified">: $singleThreadType,
                      CArg<"ttcore::GridAttr", "nullptr">: $grid,
                      CArg<"ArrayRef<int64_t>", "{}">: $blockFactors)>,
       OpBuilder<(ins "ValueRange": $inputs,
                      "ValueRange": $outputs,
                      "llvm::function_ref<void(OpBuilder&, Location, ValueRange)>": $singleThreadRegionBuilder,
-                     CArg<"ThreadType", "ThreadType::Compute">: $singleThreadType,
+                     CArg<"ThreadType", "ThreadType::Unified">: $singleThreadType,
                      CArg<"ttcore::GridAttr", "nullptr">: $grid,
                      CArg<"ArrayRef<int64_t>", "{}">: $blockFactors)>,
     ];
@@ -300,7 +300,7 @@ def D2M_GenericOp : D2M_Op<"generic",
       SmallVector<ttcore::IteratorType> getIteratorTypesValue();
       bool isComputeOnlyForm() {
         auto threads = getThreads();
-        return threads.size() == 1 && mlir::cast<ThreadAttr>(threads[0]).getThreadType() == ThreadType::Compute;
+        return threads.size() == 1 && mlir::cast<ThreadAttr>(threads[0]).getThreadType() == ThreadType::Unified;
       }
       bool isDMAOnlyForm() {
         return llvm::none_of(getThreads(), [](Attribute attr) {
