@@ -712,6 +712,9 @@ MemoryConfigAttr MemoryConfigAttr::get(
                              .succeeded());
 }
 
+// Manually parse MemoryConfigAttr to avoid various issues with the tablegen
+// parser in dealing with multiple optional parameters. See PR #6512 for more
+// details.
 mlir::Attribute MemoryConfigAttr::parse(::mlir::AsmParser &parser,
                                         ::mlir::Type type) {
   ::llvm::SMLoc loc = parser.getCurrentLocation();
@@ -729,7 +732,7 @@ mlir::Attribute MemoryConfigAttr::parse(::mlir::AsmParser &parser,
   std::optional<NDShardSpecAttr> ndShardSpec;
 
   while (parser.parseOptionalComma().succeeded()) {
-    // Try parsing ShardSpecAttr
+    // Attempt to parse the optional param as a shardSpecAttr.
     ShardSpecAttr maybeShardSpec;
     OptionalParseResult shardSpecResult =
         parser.parseOptionalAttribute(maybeShardSpec);
@@ -740,14 +743,15 @@ mlir::Attribute MemoryConfigAttr::parse(::mlir::AsmParser &parser,
       }
     }
 
-    // Try parsing TensorMemoryLayoutAttr
+    // Attempt to parse the optional param as a tensorMemoryLayoutAttr.
     TensorMemoryLayoutAttr tml;
     if (succeeded(parser.parseCustomAttributeWithFallback(tml))) {
       tensorMemoryLayout = tml;
       continue;
     }
 
-    // Only attempt to parse NDShardSpecAttr if it is explicitly specified.
+    // Only attempt to parse the param as an NDShardSpecAttr if the keyword is
+    // explicitly specified.
     if (parser.parseOptionalKeyword("ndShardSpec").succeeded()) {
       if (parser.parseEqual()) {
         return {};
