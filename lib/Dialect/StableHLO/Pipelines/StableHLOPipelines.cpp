@@ -64,7 +64,10 @@ void createStableHLOPipeline(OpPassManager &pm,
       mlir::sdy::createShardingConstraintToReshardPass());
 
   // Insert explicit reshards conditionally.
-  pm.addPass(createInsertExplicitReshardsPass());
+  mlir::sdy::InsertExplicitReshardsPassOptions reshardsOptions;
+  reshardsOptions.enableFullVersion = false;
+  reshardsOptions.avoidReshardsOnNamedComputations = true;
+  pm.addPass(mlir::sdy::createInsertExplicitReshardsPass(reshardsOptions));
 
   // Wrap all operations under a sdy manual computation op to allow conversion
   // from stablehlo into ttir.
