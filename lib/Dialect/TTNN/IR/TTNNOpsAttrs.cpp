@@ -729,6 +729,25 @@ mlir::Attribute MemoryConfigAttr::parse(::mlir::AsmParser &parser,
   std::optional<NDShardSpecAttr> ndShardSpec;
 
   while (parser.parseOptionalComma().succeeded()) {
+    // Try parsing ShardSpecAttr
+    ShardSpecAttr maybeShardSpec;
+    OptionalParseResult shardSpecResult =
+        parser.parseOptionalAttribute(maybeShardSpec);
+    if (shardSpecResult.has_value()) {
+      if (succeeded(*shardSpecResult)) {
+        shardSpec = maybeShardSpec;
+        continue;
+      }
+    }
+
+    // Try parsing TensorMemoryLayoutAttr
+    TensorMemoryLayoutAttr tml;
+    if (succeeded(parser.parseCustomAttributeWithFallback(tml))) {
+      tensorMemoryLayout = tml;
+      continue;
+    }
+
+    // Only attempt to parse NDShardSpecAttr if it is explicitly specified.
     if (parser.parseOptionalKeyword("ndShardSpec").succeeded()) {
       if (parser.parseEqual()) {
         return {};
@@ -741,25 +760,6 @@ mlir::Attribute MemoryConfigAttr::parse(::mlir::AsmParser &parser,
       continue;
     }
 
-    // Try parsing ShardSpecAttr first because it's usually a full attribute
-    // with mnemonic
-    ShardSpecAttr ss;
-    OptionalParseResult ssResult = parser.parseOptionalAttribute(ss);
-    if (ssResult.has_value()) {
-      if (succeeded(*ssResult)) {
-        shardSpec = ss;
-        continue;
-      }
-      return {};
-    }
-
-    // Try parsing TensorMemoryLayoutAttr
-    TensorMemoryLayoutAttr tml;
-    if (succeeded(parser.parseCustomAttributeWithFallback(tml))) {
-      tensorMemoryLayout = tml;
-      continue;
-    }
-
     return {};
   }
 
@@ -767,6 +767,7 @@ mlir::Attribute MemoryConfigAttr::parse(::mlir::AsmParser &parser,
     return {};
   }
 
+  // getChecked outputs verification errors instead of just crashing.
   return MemoryConfigAttr::getChecked(
       [loc, &parser]() { return parser.emitError(loc); }, parser.getContext(),
       tensorMemoryLayout, bufferType, shardSpec, ndShardSpec);
