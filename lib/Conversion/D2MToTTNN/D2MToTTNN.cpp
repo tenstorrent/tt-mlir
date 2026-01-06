@@ -376,15 +376,18 @@ public:
     if (auto layoutAttr = mlir::dyn_cast<ttnn::TTNNLayoutAttr>(encoding)) {
       dtype = ttcore::DataTypeAttr::get(ctx, layoutAttr.getDataType());
       layout = ttnn::LayoutAttr::get(ctx, layoutAttr.getLayout());
-      memcfg = ttnn::MemoryConfigAttr::get(layoutAttr, deviceAttr.getWorkerGrid());
-    } else if (auto ndLayoutAttr = mlir::dyn_cast<ttnn::TTNNNDLayoutAttr>(encoding)) {
+      memcfg =
+          ttnn::MemoryConfigAttr::get(layoutAttr, deviceAttr.getWorkerGrid());
+    } else if (auto ndLayoutAttr =
+                   mlir::dyn_cast<ttnn::TTNNNDLayoutAttr>(encoding)) {
       dtype = ttcore::DataTypeAttr::get(ctx, ndLayoutAttr.getDataType());
       layout = ttnn::LayoutAttr::get(ctx, ndLayoutAttr.getLayout());
-      auto bufferType = ttnn::BufferTypeAttr::get(ctx, ndLayoutAttr.getBufferType());
+      auto bufferType =
+          ttnn::BufferTypeAttr::get(ctx, ndLayoutAttr.getBufferType());
       auto ndShardSpec = ttnn::NDShardSpecAttr::get(ndLayoutAttr);
-      memcfg = ttnn::MemoryConfigAttr::get(ctx, ndLayoutAttr.getMemLayout(),
-                                           bufferType, /*shardSpec=*/std::nullopt,
-                                           ndShardSpec);
+      memcfg = ttnn::MemoryConfigAttr::get(
+          ctx, ndLayoutAttr.getMemLayout(), bufferType,
+          /*shardSpec=*/std::nullopt, ndShardSpec);
     } else {
       return rewriter.notifyMatchFailure(op, "unsupported encoding type");
     }
@@ -425,15 +428,18 @@ public:
     if (auto layoutAttr = mlir::dyn_cast<ttnn::TTNNLayoutAttr>(encoding)) {
       dtype = ttcore::DataTypeAttr::get(ctx, layoutAttr.getDataType());
       layout = ttnn::LayoutAttr::get(ctx, layoutAttr.getLayout());
-      memcfg = ttnn::MemoryConfigAttr::get(layoutAttr, deviceAttr.getWorkerGrid());
-    } else if (auto ndLayoutAttr = mlir::dyn_cast<ttnn::TTNNNDLayoutAttr>(encoding)) {
+      memcfg =
+          ttnn::MemoryConfigAttr::get(layoutAttr, deviceAttr.getWorkerGrid());
+    } else if (auto ndLayoutAttr =
+                   mlir::dyn_cast<ttnn::TTNNNDLayoutAttr>(encoding)) {
       dtype = ttcore::DataTypeAttr::get(ctx, ndLayoutAttr.getDataType());
       layout = ttnn::LayoutAttr::get(ctx, ndLayoutAttr.getLayout());
-      auto bufferType = ttnn::BufferTypeAttr::get(ctx, ndLayoutAttr.getBufferType());
+      auto bufferType =
+          ttnn::BufferTypeAttr::get(ctx, ndLayoutAttr.getBufferType());
       auto ndShardSpec = ttnn::NDShardSpecAttr::get(ndLayoutAttr);
-      memcfg = ttnn::MemoryConfigAttr::get(ctx, ndLayoutAttr.getMemLayout(),
-                                           bufferType, /*shardSpec=*/std::nullopt,
-                                           ndShardSpec);
+      memcfg = ttnn::MemoryConfigAttr::get(
+          ctx, ndLayoutAttr.getMemLayout(), bufferType,
+          /*shardSpec=*/std::nullopt, ndShardSpec);
     } else {
       return rewriter.notifyMatchFailure(op, "unsupported encoding type");
     }

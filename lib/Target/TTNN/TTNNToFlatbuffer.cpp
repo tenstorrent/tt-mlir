@@ -353,6 +353,7 @@ createOp(FlatbufferObjectCache &cache, EmptyOp op) {
 
   auto output = getOperandThroughDPSOps(op.getResult());
   auto device = getOperandThroughDPSOps(op.getDevice());
+  op.getMemoryConfig().dump();
   auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfig());
 
   return ::tt::target::ttnn::CreateEmptyOp(

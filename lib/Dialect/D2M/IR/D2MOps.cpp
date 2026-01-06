@@ -63,9 +63,10 @@ mlir::LogicalResult d2m::EmptyOp::bufferize(
   }
 
   // Don't bufferize if tensor has a ttnn_layout; lowering to ttnn generic.
-  if (options.allowUnknownOps && (
-      mlir::isa<ttnn::TTNNLayoutAttr>(getResult().getType().getEncoding()) || 
-      mlir::isa<ttnn::TTNNNDLayoutAttr>(getResult().getType().getEncoding()))) {
+  if (options.allowUnknownOps &&
+      (mlir::isa<ttnn::TTNNLayoutAttr>(getResult().getType().getEncoding()) ||
+       mlir::isa<ttnn::TTNNNDLayoutAttr>(
+           getResult().getType().getEncoding()))) {
     return success();
   }
   ::llvm::SmallVector<mlir::Value> invocationStack;
