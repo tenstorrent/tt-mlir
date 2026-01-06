@@ -10,18 +10,7 @@ import random
 from ttnn_jit.api import jit
 
 from utils import create_sharded_tile_tensor, create_dram_tensor, all_close_check
-
-
-def abs(input_tensor):
-    return ttnn.abs(input_tensor)
-
-
-def exp(input_tensor):
-    return ttnn.exp(input_tensor)
-
-
-def cos(input_tensor):
-    return ttnn.cos(input_tensor)
+from op_definitions import abs, exp, cos
 
 
 def test_jit_cache(device):

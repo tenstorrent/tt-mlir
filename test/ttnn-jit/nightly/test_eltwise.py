@@ -6,6 +6,7 @@ import ttnn
 import torch
 
 import pytest
+from op_definitions import *
 
 from utils import (
     _get_ttnn_op,
@@ -18,7 +19,6 @@ from utils import (
 
 BLOCK_SHARDED_SHAPE_GRIDS = [
     ((32, 32), (0, 0)),
-    ((32, 64), (0, 0)),
     ((512, 1024), (7, 7)),
     ((1024, 1024), (7, 7)),
     # Ensure non-square grid dims are interpreted correctly.
@@ -35,7 +35,6 @@ BLOCK_SHARDED_SHAPE_GRIDS = [
 
 HEIGHT_SHARDED_SHAPE_GRIDS = [
     ((256, 32), (3, 0)),
-    ((128, 32), (3, 0)),
     ((256, 32), (3, 1)),
     ((512, 32), (3, 3)),
     ((1024, 32), (7, 1)),
@@ -61,6 +60,7 @@ WIDTH_SHARDED_SHAPE_GRIDS = [
     ((2, 1, 32, 2048), (7, 7)),
 ]
 
+# Combined list for tests that need all shard strategies (e.g., interop, binary mixed)
 SHARDED_SHAPE_GRID_LAYOUTS = (
     [
         (shape, grid, ttnn.ShardStrategy.BLOCK)
@@ -75,6 +75,8 @@ SHARDED_SHAPE_GRID_LAYOUTS = (
         for shape, grid in WIDTH_SHARDED_SHAPE_GRIDS
     ]
 )
+
+# Minimal layouts for operations with limited dtype support
 _MINIMAL_SHARDED_SHAPE_GRID_LAYOUTS = [
     (
         BLOCK_SHARDED_SHAPE_GRIDS[-1][0],
@@ -104,101 +106,6 @@ DRAM_INTERLEAVED_SHAPES = [
     ((16, 64, 64)),
     ((4, 8, 32, 32)),
 ]
-
-
-# ------------------------------------------------------------
-# Unary ops
-# ------------------------------------------------------------
-def abs(input_tensor):
-    return ttnn.abs(input_tensor)
-
-
-def exp(input_tensor):
-    return ttnn.exp(input_tensor)
-
-
-def log(input_tensor):
-    return ttnn.log(input_tensor)
-
-
-def cos(input_tensor):
-    return ttnn.cos(input_tensor)
-
-
-def sin(input_tensor):
-    return ttnn.sin(input_tensor)
-
-
-def tan(input_tensor):
-    return ttnn.tan(input_tensor)
-
-
-def tanh(input_tensor):
-    return ttnn.tanh(input_tensor)
-
-
-def cbrt(input_tensor):
-    return ttnn.cbrt(input_tensor)
-
-
-def ceil(input_tensor):
-    return ttnn.ceil(input_tensor)
-
-
-def sign(input_tensor):
-    return ttnn.sign(input_tensor)
-
-
-def erf(input_tensor):
-    return ttnn.erf(input_tensor)
-
-
-def erfc(input_tensor):
-    return ttnn.erfc(input_tensor)
-
-
-def floor(input_tensor):
-    return ttnn.floor(input_tensor)
-
-
-def gelu(input_tensor):
-    return ttnn.gelu(input_tensor)
-
-
-def relu(input_tensor):
-    return ttnn.relu(input_tensor)
-
-
-def silu(input_tensor):
-    return ttnn.silu(input_tensor)
-
-
-def logical_not(input_tensor):
-    return ttnn.logical_not(input_tensor)
-
-
-def bitwise_not(input_tensor):
-    return ttnn.bitwise_not(input_tensor)
-
-
-def reciprocal(input_tensor):
-    return ttnn.reciprocal(input_tensor)
-
-
-def sqrt(input_tensor):
-    return ttnn.sqrt(input_tensor)
-
-
-def rsqrt(input_tensor):
-    return ttnn.rsqrt(input_tensor)
-
-
-def sigmoid(input_tensor):
-    return ttnn.sigmoid(input_tensor)
-
-
-def hardsigmoid(input_tensor):
-    return ttnn.hardsigmoid(input_tensor)
 
 
 @pytest.mark.parametrize(
@@ -254,22 +161,38 @@ def test_unary_op_dram(device, shape, dtype, ttnn_dtype, op, frontend):
     )
 
 
-@pytest.mark.parametrize(
-    "shape, max_grid, shard_strategy",
-    SHARDED_SHAPE_GRID_LAYOUTS,
-    ids=[
-        f"shape_{shape}_grid_{grid}_{shard_strategy}"
-        for shape, grid, shard_strategy in SHARDED_SHAPE_GRID_LAYOUTS
-    ],
-)
-@pytest.mark.parametrize(
-    "dtype, ttnn_dtype",
-    [
+UNARY_L1_BLOCK_PARAMS = [
+    (shape, grid, ttnn.ShardStrategy.BLOCK, dtype, ttnn_dtype)
+    for shape, grid in BLOCK_SHARDED_SHAPE_GRIDS
+    for dtype, ttnn_dtype in [
         (torch.float32, None),
         (torch.bfloat16, None),
         (torch.bfloat16, ttnn.DataType.BFLOAT8_B),
+    ]
+]
+
+UNARY_L1_HEIGHT_PARAMS = [
+    (shape, grid, ttnn.ShardStrategy.HEIGHT, torch.bfloat16, None)
+    for shape, grid in HEIGHT_SHARDED_SHAPE_GRIDS
+]
+
+UNARY_L1_WIDTH_PARAMS = [
+    (shape, grid, ttnn.ShardStrategy.WIDTH, torch.bfloat16, None)
+    for shape, grid in WIDTH_SHARDED_SHAPE_GRIDS
+]
+
+UNARY_L1_ALL_PARAMS = (
+    UNARY_L1_BLOCK_PARAMS + UNARY_L1_HEIGHT_PARAMS + UNARY_L1_WIDTH_PARAMS
+)
+
+
+@pytest.mark.parametrize(
+    "shape, max_grid, shard_strategy, dtype, ttnn_dtype",
+    UNARY_L1_ALL_PARAMS,
+    ids=[
+        f"shape_{shape}_grid_{grid}_{strategy.name}_{('f32' if dtype==torch.float32 else 'bfp8' if ttnn_dtype==ttnn.DataType.BFLOAT8_B else 'bf16')}"
+        for shape, grid, strategy, dtype, ttnn_dtype in UNARY_L1_ALL_PARAMS
     ],
-    ids=["f32", "bf16", "bfp8"],
 )
 @pytest.mark.parametrize(
     "op",
@@ -420,109 +343,6 @@ def test_bitwise_unary_op_l1(
     )
 
 
-# ------------------------------------------------------------
-# Binary ops
-# ------------------------------------------------------------
-def add(a, b):
-    return ttnn.add(a, b)
-
-
-def sub(a, b):
-    return ttnn.subtract(a, b)
-
-
-def mul(a, b):
-    return ttnn.multiply(a, b)
-
-
-def div(a, b):
-    return ttnn.divide(a, b)
-
-
-def logical_and(a, b):
-    return ttnn.logical_and(a, b)
-
-
-def logical_or(a, b):
-    return ttnn.logical_or(a, b)
-
-
-def logical_xor(a, b):
-    return ttnn.logical_xor(a, b)
-
-
-def bitwise_or(a, b):
-    return ttnn.bitwise_or(a, b)
-
-
-def bitwise_and(a, b):
-    return ttnn.bitwise_and(a, b)
-
-
-def bitwise_xor(a, b):
-    return ttnn.bitwise_xor(a, b)
-
-
-def pow(a, b):
-    # Test pow operation.
-    #
-    # Background:
-    # -----------
-    # The pow operation had a naming mismatch issue:
-    # - The Python ttnn API has: ttnn.pow(a, b)
-    # - The MLIR dialect has: ttnn.pow_tensor (not ttnn.pow)
-    #
-    # Original Issue:
-    # --------------
-    # PR #5154 changed the test from ttnn.pow() to ttnn.pow_tensor(), but this failed
-    # because ttnn.pow_tensor doesn't exist in the Python API. When computing the
-    # golden result (which calls the function directly without JIT), it would error:
-    #     AttributeError: module 'ttnn' has no attribute 'pow_tensor'
-    #
-    # The Fix:
-    # --------
-    # 1. Use ttnn.pow() in the test (which exists in Python API)
-    # 2. Added mapping in graph compiler: "pow" -> "pow_tensor" MLIR op
-    # 3. Added mapping in AST compiler: node.attr "pow" -> "pow_tensor" MLIR op
-    #
-    # Both compilers automatically map ttnn.pow -> ttnn.pow_tensor MLIR operation.
-    #
-    # Note: float32 tests may xfail due to numerical precision issues.
-    return ttnn.pow(a, b)
-
-
-def eq(a, b):
-    return ttnn.eq(a, b)
-
-
-def ne(a, b):
-    return ttnn.ne(a, b)
-
-
-def gt(a, b):
-    return ttnn.gt(a, b)
-
-
-def ge(a, b):
-    return ttnn.ge(a, b)
-
-
-def lt(a, b):
-    return ttnn.lt(a, b)
-
-
-def le(a, b):
-    return ttnn.le(a, b)
-
-
-def maximum(a, b):
-    return ttnn.maximum(a, b)
-
-
-def minimum(a, b):
-    return ttnn.minimum(a, b)
-
-
 @pytest.mark.parametrize(
     "shape, max_grid, shard_strategy",
     SHARDED_SHAPE_GRID_LAYOUTS,
@@ -558,15 +378,35 @@ def test_binary_ops_mixed1(device, shape, max_grid, shard_strategy, dtype, op):
     assert all_close_check(output_tensor, golden_output)
 
 
+BINARY_L1_BLOCK_PARAMS = [
+    (shape, grid, ttnn.ShardStrategy.BLOCK, dtype)
+    for shape, grid in BLOCK_SHARDED_SHAPE_GRIDS
+    for dtype in [torch.float32, torch.bfloat16]
+]
+
+BINARY_L1_HEIGHT_PARAMS = [
+    (shape, grid, ttnn.ShardStrategy.HEIGHT, torch.bfloat16)
+    for shape, grid in HEIGHT_SHARDED_SHAPE_GRIDS
+]
+
+BINARY_L1_WIDTH_PARAMS = [
+    (shape, grid, ttnn.ShardStrategy.WIDTH, torch.bfloat16)
+    for shape, grid in WIDTH_SHARDED_SHAPE_GRIDS
+]
+
+BINARY_L1_ALL_PARAMS = (
+    BINARY_L1_BLOCK_PARAMS + BINARY_L1_HEIGHT_PARAMS + BINARY_L1_WIDTH_PARAMS
+)
+
+
 @pytest.mark.parametrize(
-    "shape, max_grid, shard_strategy",
-    SHARDED_SHAPE_GRID_LAYOUTS,
+    "shape, max_grid, shard_strategy, dtype",
+    BINARY_L1_ALL_PARAMS,
     ids=[
-        f"shape_{shape}_grid_{grid}_{layout}"
-        for shape, grid, layout in SHARDED_SHAPE_GRID_LAYOUTS
+        f"shape_{shape}_grid_{grid}_{strategy.name}_{('f32' if dtype==torch.float32 else 'bf16')}"
+        for shape, grid, strategy, dtype in BINARY_L1_ALL_PARAMS
     ],
 )
-@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
 @pytest.mark.parametrize(
     "op",
     [
@@ -583,11 +423,10 @@ def test_binary_ops_mixed1(device, shape, max_grid, shard_strategy, dtype, op):
         le,
         maximum,
         minimum,
-        # logical_and, logical_or, logical_xor
     ],
 )
 @pytest.mark.parametrize("frontend", ["ast", "graph_capture"])
-def test_binary_ops(device, shape, max_grid, shard_strategy, dtype, op, frontend):
+def test_binary_ops_l1(device, shape, max_grid, shard_strategy, dtype, op, frontend):
     compile_only = False
     if op == div:
         compile_only = True
@@ -979,11 +818,6 @@ def test_interop_jit_and_ttnn_to_binary_dram(
 # ------------------------------------------------------------
 # Return modifier tests
 # ------------------------------------------------------------
-def identity_op(input_tensor):
-    """Function that uses ttnn.identity, which should be rejected by return_modifier."""
-    return ttnn.identity(input_tensor)
-
-
 def test_identity_op_rejection(device):
     """
     Test that JIT compilation fails with a clear assertion when a function

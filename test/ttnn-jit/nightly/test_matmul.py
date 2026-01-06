@@ -14,9 +14,9 @@ from utils import (
     get_block_sharding_grid,
 )
 
-
-def matmul(input0, input1):
-    return ttnn.matmul(input0, input1)
+from op_definitions import (
+    matmul,
+)
 
 
 # Test full grid and high aspect ratio grids

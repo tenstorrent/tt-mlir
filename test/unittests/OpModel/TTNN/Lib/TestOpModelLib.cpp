@@ -2276,7 +2276,8 @@ TEST_P(OpModelLinearParam, LinearParam) {
 
   auto constraintsExp = OpModel<LinearOp>::getOpConstraints(
       CreateWorkerGrid(), inputShapeA, inputLayoutA, inputShapeB, inputLayoutB,
-      biasShape, biasLayout, outputLayout, false, false);
+      biasShape, biasLayout, outputLayout, false, false,
+      /*programConfig=*/std::nullopt);
 
   // Manually cast to bool because EXPECT_TRUE requires a const bool operator
   // which llvm::Expected<T> does not have
@@ -2497,7 +2498,7 @@ TEST_P(OpModelMatmulParam, MatmulParam) {
 
   auto constraintsExp = OpModel<MatmulOp>::getOpConstraints(
       CreateWorkerGrid(), inputShapeA, inputLayoutA, inputShapeB, inputLayoutB,
-      outputLayout, false, false);
+      outputLayout, false, false, /*programConfig=*/std::nullopt);
 
   // Manually cast to bool because EXPECT_TRUE requires a const bool operator
   // which llvm::Expected<T> does not have
