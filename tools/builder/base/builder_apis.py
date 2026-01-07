@@ -195,12 +195,12 @@ def build_module(
         new_module = _compile(mod, builder)
 
         print(f"`{mod.__name__}` successfully transformed into a MLIR module.")
+        print(new_module)
 
         if save_artifacts:
             filename = os.path.join(artifact_dir, builder_type + "_module.mlir")
             with open(filename, "w") as f:
                 f.write(str(new_module))
-                print(new_module)
 
     return new_module, builder
 

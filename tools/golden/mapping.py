@@ -2447,7 +2447,6 @@ def ttir_gather_golden(
     for k, d in enumerate(start_index_map):
         valid_max = x0.size(d) - slice_sizes[d]
         if torch.any(idx_flat0[:, k] < 0) or torch.any(idx_flat0[:, k] > valid_max):
-            print(d)
             raise IndexError(
                 "gather start indices out of bounds for operand dim {}".format(d)
             )
@@ -3754,7 +3753,6 @@ def stablehlo_and_golden(
     input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
-    print("Output dtype:", output_dtype, output_type_mlir)
     if output_dtype == torch.bool:
         result_bool = torch.logical_and(input_tensor, other_tensor)
         return result_bool.to(input_tensor.dtype)
