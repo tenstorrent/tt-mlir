@@ -13,8 +13,12 @@ from ttnn_jit._src.supported_ops import (
     binary_ops,
     reduction_ops,
     get_ttir_name,
+    TTIR_NAME_MAP,
 )
-from ttnn_jit._src.tensor_translator import create_default_layout, create_output_tensor
+from ttnn_jit._src.tensor_translator import (
+    create_default_dram_interleaved_layout,
+    create_output_tensor,
+)
 
 
 class ResultWrapper:
@@ -250,9 +254,11 @@ class ReductionOpHandler(BaseOpHandler):
         For scalar results (empty shape), still creates a valid layout using
         a [1, 1] logical shape internally.
         """
-        # create_default_layout handles empty shapes via _get_logical_tensor_shape
+        # create_default_dram_interleaved_layout handles empty shapes via _get_logical_tensor_shape
         # which converts [] -> [1, 1] for layout purposes
-        return create_default_layout(self.jit_ctx.ctx, new_shape, element_type)
+        return create_default_dram_interleaved_layout(
+            self.jit_ctx.ctx, new_shape, element_type
+        )
 
     def _infer_result_type(self, operand, dim_arg, keep_dim):
         """Infer result type based on reduction parameters with default layout."""
@@ -360,6 +366,14 @@ class TTNNJitNamespaceUpdater:
                 op_name,
                 partial(self._call_handler, self._binary_handlers[op_name]),
             )
+        # Handles the special case for pow and div:
+        for internal_name, ttir_name in TTIR_NAME_MAP.items():
+            if internal_name in binary_ops and ttir_name != internal_name:
+                setattr(
+                    self,
+                    ttir_name,
+                    partial(self._call_handler, self._binary_handlers[internal_name]),
+                )
 
         ######################## Reduction operations ########################
         self._reduction_handlers = {

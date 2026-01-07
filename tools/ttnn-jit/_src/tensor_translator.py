@@ -373,18 +373,18 @@ def _get_tile_type(ctx, element_type) -> ttcore.ir.TileType:
     return ttcore.ir.TileType.get(ctx, TILE_WIDTH, TILE_HEIGHT, data_type)
 
 
-def create_default_layout(ctx, shape, element_type):
+def create_default_dram_interleaved_layout(
+    ctx, shape, element_type
+) -> ttnn.ir.TTNNLayoutAttr:
     """
-    Create a default valid TTNN layout for a given shape.
+    Create a default DRAM interleaved layout for a given shape.
 
     This creates a simple, always-valid layout suitable for shape-changing ops
     where the input layout cannot be directly reused. The layout uses:
-    - Grid: 1x1 (single core - always valid for any shape)
-    - Buffer type: L1 (device memory)
-    - Memory layout: Block sharded
+    - Grid: 1x1 (standard for DRAM interleaved)
+    - Buffer type: DRAM (avoids L1 memory pressure)
+    - Memory layout: Interleaved (spreads data across DRAM banks)
     - Shard shape: full tensor shape in tiles
-    This layout is valid but not optimized. The D2M pipeline can optimize
-    the grid and sharding during compilation.
 
     Args:
         ctx: MLIR context
@@ -394,16 +394,11 @@ def create_default_layout(ctx, shape, element_type):
     Returns:
         TTNNLayoutAttr for the given shape
     """
-    ######################## Policy choices ########################
-    # Use 1x1 grid - always valid for any shape
-    grid_shape = [1, 1]
-    # Use block sharded memory layout
-    memory_layout = ttnn.TensorMemoryLayout.BlockSharded.value
-    # Create memref with L1 buffer type
-    buffer_type = ttnn.ir.BufferTypeAttr.get(ctx, ttnn.BufferType.L1)
+    grid_shape = DRAM_GRID_SIZE  # [1, 1] - standard for interleaved
+    memory_layout = ttnn.TensorMemoryLayout.Interleaved.value
+    buffer_type = ttnn.ir.BufferTypeAttr.get(ctx, ttnn.BufferType.DRAM)
     tensor_mesh = None
     exact_grid = True
-    ###############################################################
 
     grid = ttcore.ir.GridAttr.get(ctx, grid_shape)
     logical_shape = _get_logical_tensor_shape(shape)
