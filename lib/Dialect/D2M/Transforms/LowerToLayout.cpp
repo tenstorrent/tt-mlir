@@ -71,24 +71,6 @@ static Type getScalarType(Type type) {
   return type;
 }
 
-// Helper function to build grid dimension indices from indexing map
-static SmallVector<Value> buildGridIndices(OpBuilder &builder, Location loc,
-                                           AffineMap indexingMap) {
-  SmallVector<Value> indices;
-  for (unsigned i = 0; i < indexingMap.getNumResults(); ++i) {
-    AffineExpr expr = indexingMap.getResult(i);
-    if (auto dimExpr = dyn_cast<AffineDimExpr>(expr)) {
-      // Create IterIndexOp for this dimension
-      indices.push_back(builder.create<IterIndexOp>(
-          loc, static_cast<int64_t>(dimExpr.getPosition())));
-    } else if (auto constExpr = dyn_cast<AffineConstantExpr>(expr)) {
-      // Constant expression - create constant index
-      indices.push_back(
-          builder.create<arith::ConstantIndexOp>(loc, constExpr.getValue()));
-    }
-  }
-  return indices;
-}
 
 // Check if a layout requires masking due to non-trivial OOBVal and padding.
 static bool needsMasking(ttcore::MetalLayoutAttr layout,
@@ -447,7 +429,7 @@ public:
                 // remote_load returns the underlying memref/tensor from the
                 // CB (equivalent to reserve)
                 SmallVector<Value> indices =
-                    buildGridIndices(builder, innerLoc, indexingMap);
+                    utils::buildGridIndices(builder, innerLoc, indexingMap);
                 // Use outputCB for remote_load
                 Value outputCBValue = blockArgs[1]; // CB type for remote_load
                 Value loadResult =
@@ -579,7 +561,7 @@ public:
             [&](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
               if (isSrcDramOrReblock) {
                 SmallVector<Value> indices =
-                    buildGridIndices(builder, innerLoc, indexingMap);
+                    utils::buildGridIndices(builder, innerLoc, indexingMap);
                 // Use outputCB for remote_load
                 Value outputCBValue = blockArgs[1]; // CB type for remote_load
                 Value loadResult =
@@ -592,7 +574,7 @@ public:
                 builder.create<YieldOp>(innerLoc, loadResult);
               } else {
                 SmallVector<Value> indices =
-                    buildGridIndices(builder, innerLoc, indexingMap);
+                    utils::buildGridIndices(builder, innerLoc, indexingMap);
                 // Use outputCB for remote_load
                 Value inputCBValue = blockArgs[0]; // CB type for remote_load
                 Value loadResult =
@@ -607,9 +589,7 @@ public:
             },
             ThreadType::Unified)
         .getResult(0);
-        llvm::dbgs() << "\nresult: \n";
-        result.dump();
-        return result;
+    return result;
   }
 
   Value lowerFormatConversionGeneric(PatternRewriter &rewriter, Value input,

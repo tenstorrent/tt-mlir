@@ -6,6 +6,7 @@
 
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -112,24 +113,6 @@ calculateGatherMcastArguments(OpBuilder &builder, Location loc,
   return args;
 }
 
-// Helper function to build grid dimension indices from indexing map
-static SmallVector<Value> buildGridIndices(OpBuilder &builder, Location loc,
-                                           AffineMap indexingMap) {
-  SmallVector<Value> indices;
-  for (unsigned i = 0; i < indexingMap.getNumResults(); ++i) {
-    AffineExpr expr = indexingMap.getResult(i);
-    if (auto dimExpr = dyn_cast<AffineDimExpr>(expr)) {
-      // Create IterIndexOp for this dimension
-      indices.push_back(builder.create<IterIndexOp>(
-          loc, static_cast<int64_t>(dimExpr.getPosition())));
-    } else if (auto constExpr = dyn_cast<AffineConstantExpr>(expr)) {
-      // Constant expression - create constant index
-      indices.push_back(
-          builder.create<arith::ConstantIndexOp>(loc, constExpr.getValue()));
-    }
-  }
-  return indices;
-}
 
 // Helper function to get generic operand and indexing map from CB block
 // argument
@@ -237,7 +220,7 @@ public:
           builder.setInsertionPoint(waitOp);
           Location loc = waitOp.getLoc();
           SmallVector<Value> indices =
-              buildGridIndices(builder, loc, indexingMap);
+              utils::buildGridIndices(builder, loc, indexingMap);
 
           // Check if multicast is needed based on iterator types
           SmallVector<ttcore::IteratorType> mcastIterators =
@@ -297,7 +280,7 @@ public:
     for (const auto &info : remoteStores) {
       builder.setInsertionPoint(info.block, info.block->end());
       SmallVector<Value> indices =
-          buildGridIndices(builder, info.loc, info.indexingMap);
+          utils::buildGridIndices(builder, info.loc, info.indexingMap);
       builder.create<RemoteStoreOp>(info.loc, info.remoteMemref, indices,
                                     info.cbValue);
     }
