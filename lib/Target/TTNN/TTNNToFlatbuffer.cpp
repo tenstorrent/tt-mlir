@@ -3629,6 +3629,8 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   flatbuffers::Offset<::tt::target::MLIR> binaryMLIR =
       toMLIR(fbb, "ttnn", rootModule);
 
+  assert(moduleOp->hasAttr(ttcore::SystemDescAttr::name) &&
+         "ttcore::SystemDescAttr attribute missing on ModuleOp");
   auto systemDesc =
       toFlatbuffer(cache, mlir::cast<ttcore::SystemDescAttr>(
                               moduleOp->getAttr(ttcore::SystemDescAttr::name)));
