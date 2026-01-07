@@ -437,6 +437,8 @@ public:
                         .create<RemoteLoadOp>(innerLoc, outputCBValue, viewOp,
                                               indices)
                         ->getResult(0);
+                builder.create<WaitOp>(innerLoc, outputCBValue);
+                builder.create<PopOp>(innerLoc, outputCBValue);
                 // View transformation is handled by view_layout and the
                 // generic op's indexing maps
                 builder.create<YieldOp>(innerLoc, loadResult);
@@ -569,14 +571,17 @@ public:
                         .create<RemoteLoadOp>(innerLoc, outputCBValue, viewInput,
                                               indices)
                         ->getResult(0);
+                builder.create<WaitOp>(innerLoc, outputCBValue);
+                builder.create<PopOp>(innerLoc, outputCBValue);
                 // View transformation is handled by view_layout and the
                 // generic op's indexing maps
                 builder.create<YieldOp>(innerLoc, loadResult);
               } else {
                 SmallVector<Value> indices =
                     utils::buildGridIndices(builder, innerLoc, indexingMap);
-                // Use outputCB for remote_load
-                Value inputCBValue = blockArgs[0]; // CB type for remote_load
+                Value inputCBValue = blockArgs[0];
+                builder.create<ReserveOp>(innerLoc, inputCBValue);
+                builder.create<PushOp>(innerLoc, inputCBValue);
                 Value loadResult =
                     builder
                         .create<RemoteStoreOp>(innerLoc, viewOutput,

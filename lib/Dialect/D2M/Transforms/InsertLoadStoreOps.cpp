@@ -128,6 +128,12 @@ getGenericOperandAndIndexingMap(Operation *op, Value cbValue) {
     return std::nullopt;
   }
 
+  // Skip if generic op is in DMA-only form (should not have automatic
+  // insertion of reserve/pop/push/wait ops)
+  if (generic.isDMAOnlyForm()) {
+    return std::nullopt;
+  }
+
   BlockArgument cbArg = dyn_cast<BlockArgument>(cbValue);
   if (!cbArg) {
     return std::nullopt;
