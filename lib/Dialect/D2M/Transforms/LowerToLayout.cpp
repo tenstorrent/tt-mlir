@@ -71,12 +71,6 @@ static Type getScalarType(Type type) {
   return type;
 }
 
-// Helper function to check if an operand is remote (i.e., is a stream op)
-static bool isRemote(Value operand) {
-  // Remote operands are those that come from stream_layout ops
-  return mlir::isa_and_nonnull<StreamLayoutOp>(operand.getDefiningOp());
-}
-
 // Helper function to build grid dimension indices from indexing map
 static SmallVector<Value> buildGridIndices(OpBuilder &builder, Location loc,
                                            AffineMap indexingMap) {
@@ -445,71 +439,25 @@ public:
       auto indexingMapAttr = mlir::cast<AffineMapAttr>(indexingMaps[0]);
       AffineMap indexingMap = indexingMapAttr.getValue();
 
-      // Check if operands are remote
-      bool inputIsRemote = isRemote(input);
-      bool outputIsRemote = isRemote(output);
-
       return rewriter
           .create<GenericOp>(
               loc, viewOp, output,
               [&](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
-                if (outputIsRemote) {
-                  // Remote output: remote_store directly (no DMA, no reserve
-                  // for output CB) Input is guaranteed to be local (cannot both
-                  // be remote)
-                  auto streamOp = cast<StreamLayoutOp>(output.getDefiningOp());
-                  Value remoteMemref = streamOp.getInput();
-                  SmallVector<Value> indices =
-                      buildGridIndices(builder, innerLoc, indexingMap);
-                  // Store to remote output directly from input CB (no DMA
-                  // needed). remote_store returns the underlying memref/tensor
-                  // from the CB (equivalent to wait).
-                  Value inputCBValue = blockArgs[0]; // CB type for remote_store
-                  Value storeResult =
-                      builder
-                          .create<RemoteStoreOp>(innerLoc, remoteMemref,
-                                                 indices, inputCBValue)
-                          ->getResult(0);
-                  // Yield the store result (output CB is not used, so we yield
-                  // input CB result from remote_store)
-                  builder.create<YieldOp>(innerLoc, storeResult);
-                } else if (inputIsRemote) {
-                  // Remote input, local output: remote_load
-                  // remote_load returns the underlying memref/tensor from the
-                  // CB (equivalent to reserve)
-                  auto streamOp = cast<StreamLayoutOp>(input.getDefiningOp());
-                  Value remoteMemref = streamOp.getInput();
-                  SmallVector<Value> indices =
-                      buildGridIndices(builder, innerLoc, indexingMap);
-                  // Use outputCB for remote_load
-                  Value outputCBValue = blockArgs[1]; // CB type for remote_load
-                  Value loadResult =
-                      builder
-                          .create<RemoteLoadOp>(innerLoc, outputCBValue,
-                                                remoteMemref, indices)
-                          ->getResult(0);
-                  // View transformation is handled by view_layout and the
-                  // generic op's indexing maps
-                  builder.create<YieldOp>(innerLoc, loadResult);
-                } else {
-                  // Local input, local output: treat local input as "remote"
-                  // and use remote_load (conventional approach for
-                  // local-to-local transfers)
-                  // remote_load returns the underlying memref/tensor from the
-                  // CB (equivalent to reserve)
-                  SmallVector<Value> indices =
-                      buildGridIndices(builder, innerLoc, indexingMap);
-                  // Use outputCB for remote_load
-                  Value outputCBValue = blockArgs[1]; // CB type for remote_load
-                  Value loadResult =
-                      builder
-                          .create<RemoteLoadOp>(innerLoc, outputCBValue, viewOp,
-                                                indices)
-                          ->getResult(0);
-                  // View transformation is handled by view_layout and the
-                  // generic op's indexing maps
-                  builder.create<YieldOp>(innerLoc, loadResult);
-                }
+                // Remote input, local output: remote_load
+                // remote_load returns the underlying memref/tensor from the
+                // CB (equivalent to reserve)
+                SmallVector<Value> indices =
+                    buildGridIndices(builder, innerLoc, indexingMap);
+                // Use outputCB for remote_load
+                Value outputCBValue = blockArgs[1]; // CB type for remote_load
+                Value loadResult =
+                    builder
+                        .create<RemoteLoadOp>(innerLoc, outputCBValue, viewOp,
+                                              indices)
+                        ->getResult(0);
+                // View transformation is handled by view_layout and the
+                // generic op's indexing maps
+                builder.create<YieldOp>(innerLoc, loadResult);
               },
               ThreadType::Unified, grid)
           .getResult(0);
@@ -625,75 +573,32 @@ public:
     auto indexingMapAttr = mlir::cast<AffineMapAttr>(indexingMaps[0]);
     AffineMap indexingMap = indexingMapAttr.getValue();
 
-    // Check if operands are remote
-    bool inputIsRemote = isRemote(input);
-    bool outputIsRemote = isRemote(output);
-
-    // At least one operand must be remote (local-to-local transfers are
-    // unsupported in datamovement generic)
-    assert((inputIsRemote || outputIsRemote) &&
-           "At least one operand must be remote for datamovement");
-
-    return rewriter
+    auto result = rewriter
         .create<GenericOp>(
             loc, viewInput, viewOutput,
             [&](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
-              if (outputIsRemote) {
-                // Remote output: remote_store directly (no DMA, no reserve
-                // for output CB) Input is guaranteed to be local (cannot both
-                // be remote)
-                auto streamOp =
-                    mlir::dyn_cast<StreamLayoutOp>(output.getDefiningOp());
-                TT_assert(streamOp);
-                Value remoteMemref = streamOp.getInput();
-                SmallVector<Value> indices =
-                    buildGridIndices(builder, innerLoc, indexingMap);
-                // Store to remote output directly from input CB (no DMA
-                // needed). remote_store returns the underlying memref/tensor
-                // from the CB (equivalent to wait).
-                Value inputCBValue = blockArgs[0]; // CB type for remote_store
-                Value storeResult =
-                    builder
-                        .create<RemoteStoreOp>(innerLoc, remoteMemref, indices,
-                                               inputCBValue)
-                        ->getResult(0);
-                // Yield the store result (output CB is not used, so we yield
-                // input CB result from remote_store)
-                builder.create<YieldOp>(innerLoc, storeResult);
-              } else if (inputIsRemote) {
-                // Remote input, local output: remote_load
-                // remote_load returns the underlying memref/tensor from the
-                // CB (equivalent to reserve)
-                auto streamOp =
-                    mlir::dyn_cast<StreamLayoutOp>(input.getDefiningOp());
-                TT_assert(streamOp);
-                Value remoteMemref = streamOp.getInput();
+              if (isSrcDramOrReblock) {
                 SmallVector<Value> indices =
                     buildGridIndices(builder, innerLoc, indexingMap);
                 // Use outputCB for remote_load
                 Value outputCBValue = blockArgs[1]; // CB type for remote_load
                 Value loadResult =
                     builder
-                        .create<RemoteLoadOp>(innerLoc, outputCBValue,
-                                              remoteMemref, indices)
+                        .create<RemoteLoadOp>(innerLoc, outputCBValue, input,
+                                              indices)
                         ->getResult(0);
                 // View transformation is handled by view_layout and the
                 // generic op's indexing maps
                 builder.create<YieldOp>(innerLoc, loadResult);
               } else {
-                // Local input, local output: treat local input as "remote"
-                // and use remote_load (conventional approach for
-                // local-to-local transfers)
-                // remote_load returns the underlying memref/tensor from the
-                // CB (equivalent to reserve)
                 SmallVector<Value> indices =
                     buildGridIndices(builder, innerLoc, indexingMap);
                 // Use outputCB for remote_load
-                Value outputCBValue = blockArgs[1]; // CB type for remote_load
+                Value inputCBValue = blockArgs[0]; // CB type for remote_load
                 Value loadResult =
                     builder
-                        .create<RemoteLoadOp>(innerLoc, outputCBValue,
-                                              viewInput, indices)
+                        .create<RemoteStoreOp>(innerLoc, viewOutput,
+                                               indices, inputCBValue)
                         ->getResult(0);
                 // View transformation is handled by view_layout and the
                 // generic op's indexing maps
@@ -702,6 +607,9 @@ public:
             },
             ThreadType::Unified)
         .getResult(0);
+        llvm::dbgs() << "\nresult: \n";
+        result.dump();
+        return result;
   }
 
   Value lowerFormatConversionGeneric(PatternRewriter &rewriter, Value input,
