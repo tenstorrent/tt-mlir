@@ -116,10 +116,17 @@ public:
 
     RankedTensorType valueTy = mlir::cast<RankedTensorType>(value.getType());
     assert(valueTy.getEncoding());
-    TTNNLayoutAttr layoutAttr =
-        mlir::cast<TTNNLayoutAttr>(valueTy.getEncoding());
+    BufferType bufferType =
+        llvm::TypeSwitch<Attribute, BufferType>(valueTy.getEncoding())
+            .Case<TTNNLayoutAttr, TTNNNDLayoutAttr>(
+                [](auto layoutAttr) { return layoutAttr.getBufferType(); })
+            .Default([](Attribute) {
+              llvm_unreachable("Unsupported layout attribute type");
+              // This returns a default value to avoid a compile error.
+              return BufferType::DRAM;
+            });
 
-    if (layoutAttr.getBufferType() == BufferType::L1) {
+    if (bufferType == BufferType::L1) {
       // deallocate_activation is an option for Conv2d ops to deallocate
       // their input activations only if it is in L1 memory.
 

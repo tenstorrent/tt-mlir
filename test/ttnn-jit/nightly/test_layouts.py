@@ -229,7 +229,7 @@ def test_dram_interleaved_shapes(device, shape, op):
 def create_nd_tensor(device):
     torch.manual_seed(0)
     core_ranges = ttnn.CoreRangeSet(
-        {ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(1, 1))}
+        {ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(1, 3))}
     )
 
     nd_shard_spec = ttnn.NdShardSpec(

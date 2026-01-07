@@ -92,16 +92,16 @@ LayoutConverter::fromDeviceIfNeeded(const ::ttnn::Tensor &input) {
 
 ::ttnn::Tensor LayoutConverter::handleHostInputLayoutNoTypecast(
     const ::ttnn::Tensor &input, OptionalMeshDeviceRef targetDevice) {
-  if (shouldUntilize &&
-      utils::canUntilizeDataTypeOnDevice(outputDesc.dataType)) {
+  if (shouldUntilize && utils::canUntilizeOnDevice(outputDesc.dataType,
+                                                   outputDesc.memoryConfig)) {
     ::ttnn::Tensor out = toDeviceIfNeeded(input, targetDevice);
     out = toLayoutIfNeeded(out);
     out = toMemoryConfigIfNeeded(out);
     return out;
   }
 
-  if (shouldUntilize &&
-      !utils::canUntilizeDataTypeOnDevice(outputDesc.dataType)) {
+  if (shouldUntilize && !utils::canUntilizeOnDevice(outputDesc.dataType,
+                                                    outputDesc.memoryConfig)) {
     ::ttnn::Tensor out = toLayoutIfNeeded(input);
     out = toDeviceIfNeeded(out, targetDevice);
     out = toMemoryConfigIfNeeded(out);
@@ -146,8 +146,8 @@ LayoutConverter::fromDeviceIfNeeded(const ::ttnn::Tensor &input) {
 
 ::ttnn::Tensor LayoutConverter::handleHostInputLayoutTypecast(
     const ::ttnn::Tensor &input, OptionalMeshDeviceRef targetDevice) {
-  if (shouldUntilize &&
-      utils::canUntilizeDataTypeOnDevice(outputDesc.dataType)) {
+  if (shouldUntilize && utils::canUntilizeOnDevice(outputDesc.dataType,
+                                                   outputDesc.memoryConfig)) {
     ::ttnn::Tensor out = toDeviceIfNeeded(input, targetDevice);
     out = typecastIfNeeded(out);
     out = toLayoutIfNeeded(out);
@@ -155,8 +155,8 @@ LayoutConverter::fromDeviceIfNeeded(const ::ttnn::Tensor &input) {
     return out;
   }
 
-  if (shouldUntilize &&
-      !utils::canUntilizeDataTypeOnDevice(outputDesc.dataType)) {
+  if (shouldUntilize && !utils::canUntilizeOnDevice(outputDesc.dataType,
+                                                    outputDesc.memoryConfig)) {
     ::ttnn::Tensor out = typecastIfNeeded(input);
     out = toLayoutIfNeeded(out);
     out = toDeviceIfNeeded(out, targetDevice);
@@ -226,8 +226,8 @@ LayoutConverter::convertHostTensorLayout(const ::ttnn::Tensor &input,
 
 ::ttnn::Tensor LayoutConverter::handleDeviceInputLayoutNoTypecast(
     const ::ttnn::Tensor &input) {
-  if (shouldUntilize &&
-      utils::canUntilizeDataTypeOnDevice(outputDesc.dataType)) {
+  if (shouldUntilize && utils::canUntilizeOnDevice(outputDesc.dataType,
+                                                   outputDesc.memoryConfig)) {
     ::ttnn::Tensor out = toLayoutIfNeeded(input);
     out = toMemoryConfigIfNeeded(out);
     out = fromDeviceIfNeeded(out);
@@ -235,7 +235,8 @@ LayoutConverter::convertHostTensorLayout(const ::ttnn::Tensor &input,
   }
 
   if (shouldUntilize &&
-      !utils::canUntilizeDataTypeOnDevice(outputDesc.dataType) &&
+      !utils::canUntilizeOnDevice(outputDesc.dataType,
+                                  outputDesc.memoryConfig) &&
       shouldFromDevice) {
     ::ttnn::Tensor out = fromDeviceIfNeeded(input);
     out = toLayoutIfNeeded(out);
@@ -243,10 +244,11 @@ LayoutConverter::convertHostTensorLayout(const ::ttnn::Tensor &input,
   }
 
   if (shouldUntilize &&
-      !utils::canUntilizeDataTypeOnDevice(outputDesc.dataType) &&
+      !utils::canUntilizeOnDevice(outputDesc.dataType,
+                                  outputDesc.memoryConfig) &&
       !shouldFromDevice) {
     LOG_FATAL("Currently to_layout does not support device to device untilize "
-              "for output data type: ",
+              "for output data type or memory layout: ",
               debug::toString(outputDesc.dataType));
   }
 
@@ -307,8 +309,8 @@ LayoutConverter::convertHostTensorLayout(const ::ttnn::Tensor &input,
 
 ::ttnn::Tensor
 LayoutConverter::handleDeviceInputLayoutTypecast(const ::ttnn::Tensor &input) {
-  if (shouldUntilize &&
-      utils::canUntilizeDataTypeOnDevice(outputDesc.dataType)) {
+  if (shouldUntilize && utils::canUntilizeOnDevice(outputDesc.dataType,
+                                                   outputDesc.memoryConfig)) {
     ::ttnn::Tensor out = typecastIfNeeded(input);
     out = toLayoutIfNeeded(out);
     out = toMemoryConfigIfNeeded(out);
@@ -317,7 +319,8 @@ LayoutConverter::handleDeviceInputLayoutTypecast(const ::ttnn::Tensor &input) {
   }
 
   if (shouldUntilize &&
-      !utils::canUntilizeDataTypeOnDevice(outputDesc.dataType) &&
+      !utils::canUntilizeOnDevice(outputDesc.dataType,
+                                  outputDesc.memoryConfig) &&
       shouldFromDevice) {
     ::ttnn::Tensor out = typecastIfNeeded(input);
     out = fromDeviceIfNeeded(out);
@@ -326,10 +329,11 @@ LayoutConverter::handleDeviceInputLayoutTypecast(const ::ttnn::Tensor &input) {
   }
 
   if (shouldUntilize &&
-      !utils::canUntilizeDataTypeOnDevice(outputDesc.dataType) &&
+      !utils::canUntilizeOnDevice(outputDesc.dataType,
+                                  outputDesc.memoryConfig) &&
       !shouldFromDevice) {
     LOG_FATAL("Currently to_layout does not support device to device untilize "
-              "and typecast for output data type: ",
+              "and typecast for output data type or memory layout: ",
               debug::toString(outputDesc.dataType));
   }
 
