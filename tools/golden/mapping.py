@@ -3748,10 +3748,10 @@ def stablehlo_and_golden(
 ) -> GoldenMapTensor:
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     if output_dtype == torch.bool:
-        result_bool = torch.logical_or(input_tensor, other_tensor)
+        result_bool = torch.logical_and(input_tensor, other_tensor)
         return result_bool.to(input_tensor.dtype)
     else:
-        return torch.bitwise_or(input_tensor, other_tensor)
+        return torch.bitwise_and(input_tensor, other_tensor).to(output_dtype)
 
 
 def stablehlo_abs_golden(
@@ -4735,7 +4735,7 @@ def ttnn_linear_golden(
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     a = torch.transpose(input_tensor, -2, -1) if transpose_a else input_tensor
     b = torch.transpose(other_tensor, -2, -1) if transpose_b else other_tensor
-    output = torch.matmul(a, b).to(output_dtype)
+    output = torch.matmul(a, b)
 
     if bias_tensor is None:
         bias_tensor = torch.zeros(list(output.shape))
@@ -4745,7 +4745,7 @@ def ttnn_linear_golden(
         if bias_tensor.shape != output.shape
         else bias_tensor
     )
-    return torch.add(output, bias_tensor)
+    return torch.add(output, bias_tensor).to(output_dtype)
 
 
 def ttnn_concat_golden(

@@ -233,6 +233,7 @@ class Builder(metaclass=BuilderMeta):
         return self._get_type(input).shape
 
     def get_type(self, input: Operand) -> Type:
+        print(self._get_type(input).element_type)
         return self._get_type(input).element_type
 
     def set_goldens(
