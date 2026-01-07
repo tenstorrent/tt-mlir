@@ -165,9 +165,9 @@ def test_program_cache_hits(device):
         device, (512, 512), (7, 7), torch.bfloat16
     )
     # Graph capture will +1 to program cache entries
-    jit_abs = jit(enable_cache=True, graph_capture=False)(abs)
-    jit_exp = jit(enable_cache=True, graph_capture=False)(exp)
-    jit_cos = jit(enable_cache=True, graph_capture=False)(cos)
+    jit_abs = jit(enable_cache=True, frontend="ast")(abs)
+    jit_exp = jit(enable_cache=True, frontend="ast")(exp)
+    jit_cos = jit(enable_cache=True, frontend="ast")(cos)
     golden_map = {
         jit_abs: ttnn.abs,
         jit_exp: ttnn.exp,

@@ -139,8 +139,8 @@ DRAM_INTERLEAVED_SHAPES = [
     DRAM_INTERLEAVED_SHAPES,
     ids=[f"{shape}" for shape in DRAM_INTERLEAVED_SHAPES],
 )
-@pytest.mark.parametrize("graph_capture", [True, False])
-def test_unary_op_dram(device, shape, dtype, ttnn_dtype, op, graph_capture):
+@pytest.mark.parametrize("frontend", ["ast", "graph_capture"])
+def test_unary_op_dram(device, shape, dtype, ttnn_dtype, op, frontend):
     if (
         op in [log, ceil, floor, sqrt, reciprocal, logical_not]
         and dtype == torch.float32
@@ -156,7 +156,7 @@ def test_unary_op_dram(device, shape, dtype, ttnn_dtype, op, graph_capture):
         op,
         num_inputs=1,
         buffer_type=ttnn.BufferType.DRAM,
-        graph_capture=graph_capture,
+        frontend=frontend,
         ttnn_dtype=ttnn_dtype,
     )
 
@@ -213,9 +213,9 @@ UNARY_L1_ALL_PARAMS = (
         tan,
     ],
 )
-@pytest.mark.parametrize("graph_capture", [True, False])
+@pytest.mark.parametrize("frontend", ["ast", "graph_capture"])
 def test_unary_op_l1(
-    device, shape, max_grid, shard_strategy, dtype, ttnn_dtype, op, graph_capture
+    device, shape, max_grid, shard_strategy, dtype, ttnn_dtype, op, frontend
 ):
     if op in [log, ceil, floor, sqrt, rsqrt, logical_not] and dtype == torch.float32:
         pytest.xfail("failing allclose for some shapes for float32")
@@ -233,7 +233,7 @@ def test_unary_op_l1(
         op,
         num_inputs=1,
         buffer_type=ttnn.BufferType.L1,
-        graph_capture=graph_capture,
+        frontend=frontend,
         shard_strategy=shard_strategy,
         ttnn_dtype=ttnn_dtype,
     )
@@ -266,9 +266,9 @@ def test_unary_op_l1(
         tan,
     ],
 )
-@pytest.mark.parametrize("graph_capture", [True, False])
+@pytest.mark.parametrize("frontend", ["ast", "graph_capture"])
 def test_unary_op_l1_minimal(
-    device, shape, max_grid, shard_strategy, dtype, ttnn_dtype, op, graph_capture
+    device, shape, max_grid, shard_strategy, dtype, ttnn_dtype, op, frontend
 ):
     run_op_test(
         device,
@@ -278,7 +278,7 @@ def test_unary_op_l1_minimal(
         op,
         num_inputs=1,
         buffer_type=ttnn.BufferType.L1,
-        graph_capture=graph_capture,
+        frontend=frontend,
         shard_strategy=shard_strategy,
         ttnn_dtype=ttnn_dtype,
     )
@@ -296,8 +296,8 @@ def test_unary_op_l1_minimal(
     DRAM_INTERLEAVED_SHAPES,
     ids=[f"{shape}" for shape in DRAM_INTERLEAVED_SHAPES],
 )
-@pytest.mark.parametrize("graph_capture", [True, False])
-def test_bitwise_unary_op_dram(device, shape, dtype, op, graph_capture):
+@pytest.mark.parametrize("frontend", ["ast", "graph_capture"])
+def test_bitwise_unary_op_dram(device, shape, dtype, op, frontend):
     max_grid = (0, 0)
     run_op_test(
         device,
@@ -307,7 +307,7 @@ def test_bitwise_unary_op_dram(device, shape, dtype, op, graph_capture):
         op,
         num_inputs=1,
         buffer_type=ttnn.BufferType.DRAM,
-        graph_capture=graph_capture,
+        frontend=frontend,
     )
 
 
@@ -326,9 +326,9 @@ def test_bitwise_unary_op_dram(device, shape, dtype, op, graph_capture):
         bitwise_not,
     ],
 )
-@pytest.mark.parametrize("graph_capture", [True, False])
+@pytest.mark.parametrize("frontend", ["ast", "graph_capture"])
 def test_bitwise_unary_op_l1(
-    device, shape, max_grid, shard_strategy, dtype, op, graph_capture
+    device, shape, max_grid, shard_strategy, dtype, op, frontend
 ):
     run_op_test(
         device,
@@ -338,7 +338,7 @@ def test_bitwise_unary_op_l1(
         op,
         num_inputs=1,
         buffer_type=ttnn.BufferType.L1,
-        graph_capture=graph_capture,
+        frontend=frontend,
         shard_strategy=shard_strategy,
     )
 
@@ -365,7 +365,7 @@ def test_binary_ops_mixed1(device, shape, max_grid, shard_strategy, dtype, op):
     input1 = create_dram_tensor(device, shape, dtype)
     op_jit = ttnn_jit.jit(
         debug=True,
-        graph_capture=False,
+        frontend="ast",
     )(op)
     output_tensor = op_jit(input0, input1)
     assert memory_configs_equal(output_tensor.memory_config(), input0.memory_config())
@@ -425,10 +425,8 @@ BINARY_L1_ALL_PARAMS = (
         minimum,
     ],
 )
-@pytest.mark.parametrize("graph_capture", [True, False])
-def test_binary_ops_l1(
-    device, shape, max_grid, shard_strategy, dtype, op, graph_capture
-):
+@pytest.mark.parametrize("frontend", ["ast", "graph_capture"])
+def test_binary_ops_l1(device, shape, max_grid, shard_strategy, dtype, op, frontend):
     compile_only = False
     if op == div:
         compile_only = True
@@ -443,7 +441,7 @@ def test_binary_ops_l1(
         op,
         num_inputs=2,
         buffer_type=ttnn.BufferType.L1,
-        graph_capture=graph_capture,
+        frontend=frontend,
         shard_strategy=shard_strategy,
         compile_only=compile_only,
     )
@@ -512,9 +510,9 @@ def test_binary_ops_dram(device, shape, dtype, op):
         bitwise_xor,
     ],
 )
-@pytest.mark.parametrize("graph_capture", [True, False])
+@pytest.mark.parametrize("frontend", ["ast", "graph_capture"])
 def test_bitwise_binary_ops_l1(
-    device, shape, max_grid, shard_strategy, dtype, op, graph_capture
+    device, shape, max_grid, shard_strategy, dtype, op, frontend
 ):
     run_op_test(
         device,
@@ -524,7 +522,7 @@ def test_bitwise_binary_ops_l1(
         op,
         num_inputs=2,
         buffer_type=ttnn.BufferType.L1,
-        graph_capture=graph_capture,
+        frontend=frontend,
         shard_strategy=shard_strategy,
     )
 
@@ -831,7 +829,7 @@ def test_identity_op_rejection(device):
 
     # Attempting to JIT compile a function with ttnn.identity should raise AssertionError
     with pytest.raises(AssertionError) as exc_info:
-        compiled_op = ttnn_jit.jit(graph_capture=True)(identity_op)
+        compiled_op = ttnn_jit.jit(frontend="graph_capture")(identity_op)
         # The error should occur during compilation, not execution
         _ = compiled_op(input_tensor)
 
@@ -840,3 +838,22 @@ def test_identity_op_rejection(device):
     assert expected_message in str(
         exc_info.value
     ), f"Expected error message '{expected_message}' not found in: {str(exc_info.value)}"
+
+
+@pytest.mark.parametrize(
+    "op",
+    [add],
+)
+def test_tracing_binary_ops(device, op):
+    """Test binary operations in tracing mode."""
+    max_grid = (0, 0)
+    run_op_test(
+        device,
+        (64, 32),
+        max_grid,
+        torch.bfloat16,
+        op,
+        num_inputs=2,
+        buffer_type=ttnn.BufferType.L1,
+        frontend="tracing",
+    )

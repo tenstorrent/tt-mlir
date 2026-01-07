@@ -45,8 +45,8 @@ SHARD_SHAPE_GRIDS = [
     ids=["bf16", "f32"],
 )
 @pytest.mark.parametrize("op", [cosh, sinh, mul_add])
-@pytest.mark.parametrize("graph_capture", [False])
-def test_composite_ops_dram(device, shape, dtype, op, graph_capture):
+@pytest.mark.parametrize("frontend", ["ast"])
+def test_composite_ops_dram(device, shape, dtype, op, frontend):
     num_inputs = 3 if op is mul_add else 1
 
     run_op_test(
@@ -57,7 +57,7 @@ def test_composite_ops_dram(device, shape, dtype, op, graph_capture):
         op=op,
         num_inputs=num_inputs,
         buffer_type=ttnn.BufferType.DRAM,
-        graph_capture=graph_capture,
+        frontend=frontend,
     )
 
 
@@ -72,10 +72,8 @@ def test_composite_ops_dram(device, shape, dtype, op, graph_capture):
     ids=["bf16", "f32"],
 )
 @pytest.mark.parametrize("op", [cosh, sinh, mul_add])
-@pytest.mark.parametrize("graph_capture", [False])
-def test_composite_ops_l1(
-    device, shape, max_grid, shard_strategy, dtype, op, graph_capture
-):
+@pytest.mark.parametrize("frontend", ["ast"])
+def test_composite_ops_l1(device, shape, max_grid, shard_strategy, dtype, op, frontend):
     num_inputs = 3 if op is mul_add else 1
 
     run_op_test(
@@ -86,7 +84,7 @@ def test_composite_ops_l1(
         op,
         num_inputs,
         buffer_type=ttnn.BufferType.L1,
-        graph_capture=graph_capture,
+        frontend=frontend,
         shard_strategy=shard_strategy,
     )
 
@@ -102,8 +100,8 @@ def test_composite_ops_l1(
     ids=["64x64", "128x128"],
 )
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("graph_capture", [True])
-def test_digamma_dram(device, shape, dtype, graph_capture):
+@pytest.mark.parametrize("frontend", ["graph_capture"])
+def test_digamma_dram(device, shape, dtype, frontend):
     """Test digamma function (derivative of log gamma)"""
 
     def digamma_func(input_tensor):
@@ -118,7 +116,7 @@ def test_digamma_dram(device, shape, dtype, graph_capture):
         digamma_func,
         num_inputs=1,
         buffer_type=ttnn.BufferType.DRAM,
-        graph_capture=graph_capture,
+        frontend=frontend,
     )
 
 
@@ -128,8 +126,8 @@ def test_digamma_dram(device, shape, dtype, graph_capture):
     ids=["64x64", "128x128"],
 )
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("graph_capture", [True])
-def test_complex_composite_dram(device, shape, dtype, graph_capture):
+@pytest.mark.parametrize("frontend", ["graph_capture"])
+def test_complex_composite_dram(device, shape, dtype, frontend):
     """Test complex composite operation with multiple steps"""
 
     def complex_op(a, b):
@@ -147,7 +145,7 @@ def test_complex_composite_dram(device, shape, dtype, graph_capture):
         complex_op,
         num_inputs=2,
         buffer_type=ttnn.BufferType.DRAM,
-        graph_capture=graph_capture,
+        frontend=frontend,
     )
 
 
@@ -157,8 +155,8 @@ def test_complex_composite_dram(device, shape, dtype, graph_capture):
     ids=["64x64", "128x128"],
 )
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("graph_capture", [True])
-def test_nested_composite_dram(device, shape, dtype, graph_capture):
+@pytest.mark.parametrize("frontend", ["graph_capture"])
+def test_nested_composite_dram(device, shape, dtype, frontend):
     """Test nested composite operations"""
 
     def nested_op(a, b, c):
@@ -176,7 +174,7 @@ def test_nested_composite_dram(device, shape, dtype, graph_capture):
         nested_op,
         num_inputs=3,
         buffer_type=ttnn.BufferType.DRAM,
-        graph_capture=graph_capture,
+        frontend=frontend,
     )
 
 
@@ -209,8 +207,8 @@ def long_unary_chain(input_tensor_a):
     [torch.bfloat16, torch.float32],
     ids=["bf16", "f32"],
 )
-@pytest.mark.parametrize("graph_capture", [False])
-def test_long_unary_chain_dram(device, shape, dtype, graph_capture):
+@pytest.mark.parametrize("frontend", ["ast"])
+def test_long_unary_chain_dram(device, shape, dtype, frontend):
     run_op_test(
         device,
         shape,
@@ -219,7 +217,7 @@ def test_long_unary_chain_dram(device, shape, dtype, graph_capture):
         op=long_unary_chain,
         num_inputs=1,
         buffer_type=ttnn.BufferType.DRAM,
-        graph_capture=graph_capture,
+        frontend=frontend,
     )
 
 
@@ -233,10 +231,8 @@ def test_long_unary_chain_dram(device, shape, dtype, graph_capture):
     [torch.bfloat16, torch.float32],
     ids=["bf16", "f32"],
 )
-@pytest.mark.parametrize("graph_capture", [False])
-def test_long_unary_chain_l1(
-    device, shape, max_grid, shard_strategy, dtype, graph_capture
-):
+@pytest.mark.parametrize("frontend", ["ast"])
+def test_long_unary_chain_l1(device, shape, max_grid, shard_strategy, dtype, frontend):
     run_op_test(
         device,
         shape,
@@ -245,7 +241,7 @@ def test_long_unary_chain_l1(
         long_unary_chain,
         num_inputs=1,
         buffer_type=ttnn.BufferType.L1,
-        graph_capture=graph_capture,
+        frontend=frontend,
         shard_strategy=shard_strategy,
     )
 
@@ -277,8 +273,8 @@ def join_unary_chains(in0, in1):
     [torch.bfloat16, torch.float32],
     ids=["bf16", "f32"],
 )
-@pytest.mark.parametrize("graph_capture", [False])
-def test_join_unary_chains_dram(device, shape, dtype, graph_capture):
+@pytest.mark.parametrize("frontend", ["ast"])
+def test_join_unary_chains_dram(device, shape, dtype, frontend):
     run_op_test(
         device,
         shape,
@@ -287,7 +283,7 @@ def test_join_unary_chains_dram(device, shape, dtype, graph_capture):
         op=join_unary_chains,
         num_inputs=2,
         buffer_type=ttnn.BufferType.DRAM,
-        graph_capture=graph_capture,
+        frontend=frontend,
     )
 
 
@@ -301,10 +297,8 @@ def test_join_unary_chains_dram(device, shape, dtype, graph_capture):
     [torch.bfloat16, torch.float32],
     ids=["bf16", "f32"],
 )
-@pytest.mark.parametrize("graph_capture", [False])
-def test_join_unary_chains_l1(
-    device, shape, max_grid, shard_strategy, dtype, graph_capture
-):
+@pytest.mark.parametrize("frontend", ["ast"])
+def test_join_unary_chains_l1(device, shape, max_grid, shard_strategy, dtype, frontend):
     run_op_test(
         device,
         shape,
@@ -313,7 +307,7 @@ def test_join_unary_chains_l1(
         join_unary_chains,
         num_inputs=2,
         buffer_type=ttnn.BufferType.L1,
-        graph_capture=graph_capture,
+        frontend=frontend,
         shard_strategy=shard_strategy,
     )
 
@@ -346,8 +340,8 @@ def add_tree_7_to_1(in0, in1, in2, in3, in4, in5, in6):
     [torch.bfloat16, torch.float32],
     ids=["bf16", "f32"],
 )
-@pytest.mark.parametrize("graph_capture", [False])
-def test_add_tree_7_to_1_dram(device, shape, dtype, graph_capture):
+@pytest.mark.parametrize("frontend", ["ast"])
+def test_add_tree_7_to_1_dram(device, shape, dtype, frontend):
     run_op_test(
         device,
         shape,
@@ -356,7 +350,7 @@ def test_add_tree_7_to_1_dram(device, shape, dtype, graph_capture):
         op=add_tree_7_to_1,
         num_inputs=7,
         buffer_type=ttnn.BufferType.DRAM,
-        graph_capture=graph_capture,
+        frontend=frontend,
     )
 
 
@@ -370,10 +364,8 @@ def test_add_tree_7_to_1_dram(device, shape, dtype, graph_capture):
     [torch.bfloat16, torch.float32],
     ids=["bf16", "f32"],
 )
-@pytest.mark.parametrize("graph_capture", [False])
-def test_add_tree_7_to_1_l1(
-    device, shape, max_grid, shard_strategy, dtype, graph_capture
-):
+@pytest.mark.parametrize("frontend", ["ast"])
+def test_add_tree_7_to_1_l1(device, shape, max_grid, shard_strategy, dtype, frontend):
     run_op_test(
         device,
         shape,
@@ -382,7 +374,7 @@ def test_add_tree_7_to_1_l1(
         add_tree_7_to_1,
         num_inputs=7,
         buffer_type=ttnn.BufferType.L1,
-        graph_capture=graph_capture,
+        frontend=frontend,
         shard_strategy=shard_strategy,
     )
 
@@ -478,8 +470,8 @@ def add_tree_31_to_1(
     [torch.bfloat16],  # bf16 only
     ids=["bf16"],
 )
-@pytest.mark.parametrize("graph_capture", [False])
-def test_add_tree_31_to_1_dram(device, shape, dtype, graph_capture):
+@pytest.mark.parametrize("frontend", ["ast"])
+def test_add_tree_31_to_1_dram(device, shape, dtype, frontend):
     run_op_test(
         device,
         shape,
@@ -488,7 +480,7 @@ def test_add_tree_31_to_1_dram(device, shape, dtype, graph_capture):
         op=add_tree_31_to_1,
         num_inputs=31,
         buffer_type=ttnn.BufferType.DRAM,
-        graph_capture=graph_capture,
+        frontend=frontend,
     )
 
 
@@ -502,10 +494,8 @@ def test_add_tree_31_to_1_dram(device, shape, dtype, graph_capture):
     [torch.bfloat16],
     ids=["bf16"],
 )
-@pytest.mark.parametrize("graph_capture", [False])
-def test_add_tree_31_to_1_l1(
-    device, shape, max_grid, shard_strategy, dtype, graph_capture
-):
+@pytest.mark.parametrize("frontend", ["ast"])
+def test_add_tree_31_to_1_l1(device, shape, max_grid, shard_strategy, dtype, frontend):
     run_op_test(
         device,
         shape,
@@ -514,7 +504,7 @@ def test_add_tree_31_to_1_l1(
         add_tree_31_to_1,
         num_inputs=31,
         buffer_type=ttnn.BufferType.L1,
-        graph_capture=graph_capture,
+        frontend=frontend,
         shard_strategy=shard_strategy,
     )
 
@@ -610,8 +600,8 @@ def binary_ladder_31(
     [torch.float32],  # f32 only as per original test
     ids=["f32"],
 )
-@pytest.mark.parametrize("graph_capture", [False])
-def test_binary_ladder_31_dram(device, shape, dtype, graph_capture):
+@pytest.mark.parametrize("frontend", ["ast"])
+def test_binary_ladder_31_dram(device, shape, dtype, frontend):
     run_op_test(
         device,
         shape,
@@ -620,7 +610,7 @@ def test_binary_ladder_31_dram(device, shape, dtype, graph_capture):
         op=binary_ladder_31,
         num_inputs=31,
         buffer_type=ttnn.BufferType.DRAM,
-        graph_capture=graph_capture,
+        frontend=frontend,
     )
 
 
@@ -634,10 +624,8 @@ def test_binary_ladder_31_dram(device, shape, dtype, graph_capture):
     [torch.float32],
     ids=["f32"],
 )
-@pytest.mark.parametrize("graph_capture", [False])
-def test_binary_ladder_31_l1(
-    device, shape, max_grid, shard_strategy, dtype, graph_capture
-):
+@pytest.mark.parametrize("frontend", ["ast"])
+def test_binary_ladder_31_l1(device, shape, max_grid, shard_strategy, dtype, frontend):
     run_op_test(
         device,
         shape,
@@ -646,7 +634,7 @@ def test_binary_ladder_31_l1(
         binary_ladder_31,
         num_inputs=31,
         buffer_type=ttnn.BufferType.L1,
-        graph_capture=graph_capture,
+        frontend=frontend,
         shard_strategy=shard_strategy,
     )
 
@@ -659,8 +647,8 @@ def test_binary_ladder_31_l1(
     ],
     ids=["2048x512_bf16", "4096x512_bf16"],
 )
-@pytest.mark.parametrize("graph_capture", [False])
-def test_large_shapes_muladd_l1(device, shape, dtype, graph_capture):
+@pytest.mark.parametrize("frontend", ["ast"])
+def test_large_shapes_muladd_l1(device, shape, dtype, frontend):
     run_op_test(
         device,
         shape,
@@ -669,7 +657,7 @@ def test_large_shapes_muladd_l1(device, shape, dtype, graph_capture):
         op=mul_add,
         num_inputs=3,
         buffer_type=ttnn.BufferType.L1,
-        graph_capture=graph_capture,
+        frontend=frontend,
     )
 
 
@@ -682,8 +670,8 @@ def test_large_shapes_muladd_l1(device, shape, dtype, graph_capture):
     ],
     ids=["2048x512_f32", "2048x512_bf16", "4096x1024_bf16"],
 )
-@pytest.mark.parametrize("graph_capture", [False])
-def test_large_shapes_muladd_dram(device, shape, dtype, graph_capture):
+@pytest.mark.parametrize("frontend", ["ast"])
+def test_large_shapes_muladd_dram(device, shape, dtype, frontend):
     run_op_test(
         device,
         shape,
@@ -692,5 +680,5 @@ def test_large_shapes_muladd_dram(device, shape, dtype, graph_capture):
         op=mul_add,
         num_inputs=3,
         buffer_type=ttnn.BufferType.DRAM,
-        graph_capture=graph_capture,
+        frontend=frontend,
     )
