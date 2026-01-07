@@ -116,6 +116,8 @@ class GoldenMapTensor:
             return dtype
         elif dtype in [torch.qint32, torch.int64]:
             return torch.int32
+        elif dtype == torch.bool:
+            return torch.bfloat16
         else:
             return torch.float32
 
@@ -3731,6 +3733,13 @@ def ttir_all_to_all_golden(
     )
 
 
+def ttir_isfinite_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.isfinite(input_tensor).to(dtype)
+
+
 ################ StableHLO Op Golden Functions ###############
 
 
@@ -3745,6 +3754,7 @@ def stablehlo_and_golden(
     input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    print("Output dtype:", output_dtype, output_type_mlir)
     if output_dtype == torch.bool:
         result_bool = torch.logical_and(input_tensor, other_tensor)
         return result_bool.to(input_tensor.dtype)
@@ -4843,7 +4853,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.FloorOp: ttir_floor_golden,
     ttir.GeluOp: torch.nn.functional.gelu,
     ttir.GeluBackwardOp: torch.ops.aten.gelu_backward,
-    ttir.IsFiniteOp: torch.isfinite,
+    ttir.IsFiniteOp: ttir_isfinite_golden,
     ttir.MishOp: torch.nn.functional.mish,
     ttir.NegOp: ttir_neg_golden,
     ttir.TanOp: torch.tan,
