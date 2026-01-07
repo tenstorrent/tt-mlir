@@ -299,14 +299,23 @@ def D2M_GenericOp : D2M_Op<"generic",
       }
       SmallVector<ttcore::IteratorType> getIteratorTypesValue();
       bool isComputeOnlyForm() {
-        auto threads = getThreads();
-        return threads.size() == 1 && mlir::cast<ThreadAttr>(threads[0]).getThreadType() == ThreadType::Unified;
+        for (unsigned i = 0; i < getNumRegions(); ++i) {
+          if (hasComputeOpsInRegion(i)) {
+            return true;
+          }
+        }
+        return false;
       }
       bool isDMAOnlyForm() {
-        return llvm::none_of(getThreads(), [](Attribute attr) {
-          return mlir::cast<d2m::ThreadAttr>(attr).getThreadType() ==
-                d2m::ThreadType::Compute;
-        });
+        if (getNumRegions() == 0) {
+          return false;
+        }
+        for (unsigned i = 0; i < getNumRegions(); ++i) {
+          if (hasComputeOpsInRegion(i)) {
+            return false;
+          }
+        }
+        return true;
       }
       bool isAffineMapForm() { return !getIndexingMaps().empty(); }
       bool isLoweredLoopForm() { return !isAffineMapForm(); }
