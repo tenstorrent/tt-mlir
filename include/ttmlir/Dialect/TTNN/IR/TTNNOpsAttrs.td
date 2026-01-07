@@ -977,6 +977,25 @@ def TTNN_ComputeKernelAttr: TTNN_Attr<"ComputeKernel", "compute_kernel", [TTNN_K
                         OptionalArrayRefParameter<"CoreRuntimeArgsAttr">:$rt_args,
                         OptionalArrayRefParameter<"mlir::Attribute">:$ct_args
                         );
+
+  let builders = [
+    AttrBuilder<(ins "SymbolRefAttr":$symbol_ref,
+                     "CoreRangeSetAttr":$core_ranges,
+                     "ComputeKernelMathFidelity":$math_fidelity,
+                     "bool":$fp32_dest_acc_en,
+                     "bool":$dst_full_sync_en,
+                     "::llvm::ArrayRef<ComputeKernelUnpackToDestMode>":$unpack_to_dest_modes,
+                     "bool":$bfp8_pack_precise,
+                     "bool":$math_approx_mode,
+                     "::llvm::ArrayRef<mlir::Attribute>":$common_rt_args,
+                     "::llvm::ArrayRef<mlir::Attribute>":$ct_args), [{
+      return $_get($_ctxt, symbol_ref, core_ranges, math_fidelity, fp32_dest_acc_en,
+                   dst_full_sync_en, unpack_to_dest_modes, bfp8_pack_precise,
+                   math_approx_mode, common_rt_args,
+                   ::llvm::ArrayRef<CoreRuntimeArgsAttr>{}, ct_args);
+    }]>
+  ];
+
   let assemblyFormat = "`<` struct($symbol_ref, $core_ranges, $math_fidelity, $fp32_dest_acc_en, $dst_full_sync_en)  `,` `unpack_to_dest_modes` `=` `[` $unpack_to_dest_modes `]` `,` struct($bfp8_pack_precise, $math_approx_mode) `,` `ct_args` `=` `[` (`]`) : ($ct_args^ `]`)?  `,` `common_rt_args` `=` `[` (`]`) : ($common_rt_args^ `]`)? `,` `rt_args` `=` `[` (`]`) : ($rt_args^ `]`)? `>`";
 
   let genVerifyDecl = 1;
@@ -993,6 +1012,17 @@ def TTNN_ReadKernelAttr: TTNN_Attr<"ReadKernel", "read_kernel", [TTNN_KernelInte
                         OptionalArrayRefParameter<"mlir::Attribute">:$common_rt_args,
                         OptionalArrayRefParameter<"CoreRuntimeArgsAttr">:$rt_args,
                         OptionalArrayRefParameter<"mlir::Attribute">:$ct_args);
+
+  let builders = [
+    AttrBuilder<(ins "SymbolRefAttr":$symbol_ref,
+                     "CoreRangeSetAttr":$core_ranges,
+                     "::llvm::ArrayRef<mlir::Attribute>":$common_rt_args,
+                     "::llvm::ArrayRef<mlir::Attribute>":$ct_args), [{
+      return $_get($_ctxt, symbol_ref, core_ranges, common_rt_args,
+                   ::llvm::ArrayRef<CoreRuntimeArgsAttr>{}, ct_args);
+    }]>
+  ];
+
   let assemblyFormat = "`<` struct($symbol_ref, $core_ranges) `,` `ct_args` `=` `[` (`]`) : ($ct_args^ `]`)?  `,` `common_rt_args` `=` `[` (`]`) : ($common_rt_args^ `]`)? `,` `rt_args` `=` `[` (`]`) : ($rt_args^ `]`)? `>`";
 
   let genVerifyDecl = 1;
@@ -1009,6 +1039,17 @@ def TTNN_WriteKernelAttr: TTNN_Attr<"WriteKernel", "write_kernel", [TTNN_KernelI
                         OptionalArrayRefParameter<"mlir::Attribute">:$common_rt_args,
                         OptionalArrayRefParameter<"CoreRuntimeArgsAttr">:$rt_args,
                         OptionalArrayRefParameter<"mlir::Attribute">:$ct_args);
+
+  let builders = [
+    AttrBuilder<(ins "SymbolRefAttr":$symbol_ref,
+                     "CoreRangeSetAttr":$core_ranges,
+                     "::llvm::ArrayRef<mlir::Attribute>":$common_rt_args,
+                     "::llvm::ArrayRef<mlir::Attribute>":$ct_args), [{
+      return $_get($_ctxt, symbol_ref, core_ranges, common_rt_args,
+                   ::llvm::ArrayRef<CoreRuntimeArgsAttr>{}, ct_args);
+    }]>
+  ];
+
   let assemblyFormat = "`<` struct($symbol_ref, $core_ranges) `,` `ct_args` `=` `[` (`]`) : ($ct_args^ `]`)?  `,` `common_rt_args` `=` `[` (`]`) : ($common_rt_args^ `]`)? `,` `rt_args` `=` `[` (`]`) : ($rt_args^ `]`)? `>`";
 
   let genVerifyDecl = 1;

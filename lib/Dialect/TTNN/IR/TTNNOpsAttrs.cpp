@@ -1202,10 +1202,10 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
 ::llvm::LogicalResult verifyRuntimeArgs(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
     ::llvm::ArrayRef<mlir::tt::ttnn::CoreRuntimeArgsAttr> rtArgs) {
-  // Check for duplicate CoreCoords
+  // Check for duplicate CoreCoords.
   llvm::DenseSet<std::pair<uint64_t, uint64_t>> seenCoords;
-  for (auto rtArg : rtArgs) {
-    auto coord = rtArg.getCoreCoord();
+  for (CoreRuntimeArgsAttr rtArg : rtArgs) {
+    CoreCoordAttr coord = rtArg.getCoreCoord();
     auto coordPair = std::make_pair(coord.getX(), coord.getY());
     if (!seenCoords.insert(coordPair).second) {
       return emitError() << "Duplicate CoreCoord (" << coord.getX() << ", "
