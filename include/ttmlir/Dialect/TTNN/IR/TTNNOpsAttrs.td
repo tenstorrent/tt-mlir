@@ -289,7 +289,7 @@ def TTNN_MemoryConfigAttr : TTNN_Attr<"MemoryConfig", "memory_config"> {
                     OptionalParameter<"std::optional<ShardSpecAttr>">:$shardSpec,
                     OptionalParameter<"std::optional<NDShardSpecAttr>">:$ndShardSpec);
 
-  let assemblyFormat = "`<` $bufferType (`,` $tensorMemoryLayout^ )? (`,` $shardSpec^ )? (`,` $ndShardSpec^ )? `>`";
+  let hasCustomAssemblyFormat = 1;
 
   let extraClassDeclaration = [{
     class Builder;
