@@ -438,7 +438,6 @@ public:
               builder, loc, remoteMemref, localMemref, gridIndices, shardShape,
               remoteMemoryMap, localMemoryMap, coalescingFactor, shardVolume);
           builder.create<DMAWaitOp>(loc, dmaTx);
-          builder.create<PushOp>(loc, cb);
 
           // Wait for all receivers to be ready
           builder.create<SemaphoreWaitOp>(loc, receiversReadySemaphore,
@@ -506,6 +505,7 @@ public:
 
           builder.create<scf::YieldOp>(loc);
         });
+    rewriter.create<PushOp>(loc, cb);
 
     rewriter.eraseOp(remoteLoad);
     return success();
