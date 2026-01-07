@@ -584,7 +584,7 @@ public:
                 Value outputCBValue = blockArgs[1]; // CB type for remote_load
                 Value loadResult =
                     builder
-                        .create<RemoteLoadOp>(innerLoc, outputCBValue, input,
+                        .create<RemoteLoadOp>(innerLoc, outputCBValue, viewInput,
                                               indices)
                         ->getResult(0);
                 // View transformation is handled by view_layout and the
