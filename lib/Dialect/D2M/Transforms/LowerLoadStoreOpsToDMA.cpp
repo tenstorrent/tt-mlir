@@ -438,6 +438,7 @@ public:
               builder, loc, remoteMemref, localMemref, gridIndices, shardShape,
               remoteMemoryMap, localMemoryMap, coalescingFactor, shardVolume);
           builder.create<DMAWaitOp>(loc, dmaTx);
+          builder.create<PushOp>(loc, cb);
 
           // Wait for all receivers to be ready
           builder.create<SemaphoreWaitOp>(loc, receiversReadySemaphore,
@@ -579,6 +580,7 @@ public:
 
     // Wait for DMA to complete
     rewriter.create<DMAWaitOp>(loc, dmaTx);
+    rewriter.create<PushOp>(loc, cb);
     return success();
   }
 };
@@ -602,7 +604,7 @@ public:
                                  ValueRange mcastStartIndex = ValueRange(),
                                  ValueRange mcastShape = ValueRange()) {
     // Reserve CB to get the local memref
-    Value localMemref = builder.create<ReserveOp>(loc, cb).getResult();
+    Value localMemref = builder.create<WaitOp>(loc, cb).getResult();
 
     if (coalescingFactor == shardVolume) {
       // Fully contiguous: single DMA operation
