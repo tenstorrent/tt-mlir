@@ -116,7 +116,8 @@ toHostSingleTensor(const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper,
 
   // If untilize is true and the data type can be untilized on device
   bool untilizeOnDevice =
-      untilize && utils::canUntilizeDataTypeOnDevice(inputTensor.dtype());
+      untilize && utils::canUntilizeOnDevice(inputTensor.dtype(),
+                                             inputTensor.memory_config());
   // If blackhole workarounds are enabled, only untilize on device if the
   // architecture is not blackhole
   if (::tt::runtime::workaround::Env::get().blackholeWorkarounds) {

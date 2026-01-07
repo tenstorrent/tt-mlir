@@ -115,6 +115,23 @@ bool canUntilizeDataTypeOnDevice(const ::ttnn::DataType &dataType) {
          dataType == ::ttnn::DataType::INT32;
 }
 
+bool canUntilizeOnDevice(
+    const ::ttnn::DataType &dataType,
+    const std::optional<::ttnn::MemoryConfig> &memoryConfig) {
+  bool notSharded = !memoryConfig.has_value() || !memoryConfig->is_sharded();
+  bool legacySharded =
+      memoryConfig.has_value() && memoryConfig->shard_spec().has_value();
+  bool canUntilize =
+      canUntilizeDataTypeOnDevice(dataType) && (notSharded || legacySharded);
+  LOG_DEBUG("canUntilize: ", canUntilize);
+  LOG_DEBUG("dataType: ", debug::toString(dataType));
+  LOG_DEBUG("notSharded: ", notSharded);
+  LOG_DEBUG("legacySharded: ", legacySharded);
+  LOG_DEBUG("canUntilizeDataTypeOnDevice: ",
+            canUntilizeDataTypeOnDevice(dataType));
+  return canUntilize;
+}
+
 const ::tt::target::ttnn::TTNNBinary *
 getBinary(const ::tt::runtime::Flatbuffer &binary) {
   bool isTTNN = ::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
