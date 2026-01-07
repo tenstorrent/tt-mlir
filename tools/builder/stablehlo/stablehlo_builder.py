@@ -6578,7 +6578,10 @@ class StableHLOBuilder(Builder):
 
         with old_ctx, old_loc:
             for func_op in module.body.operations:
-                if func_op.name.value in builder._nested_funcs:
+                if (
+                    not isinstance(func_op, func.FuncOp)
+                    or func_op.name.value in builder._nested_funcs
+                ):
                     continue
 
                 for block in func_op.body:
