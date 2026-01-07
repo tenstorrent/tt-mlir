@@ -601,8 +601,8 @@ public:
                                  size_t coalescingFactor, size_t shardVolume,
                                  ValueRange mcastStartIndex = ValueRange(),
                                  ValueRange mcastShape = ValueRange()) {
-    // Wait on CB once to get the local memref
-    Value localMemref = builder.create<WaitOp>(loc, cb).getResult();
+    // Reserve CB to get the local memref
+    Value localMemref = builder.create<ReserveOp>(loc, cb).getResult();
 
     if (coalescingFactor == shardVolume) {
       // Fully contiguous: single DMA operation
