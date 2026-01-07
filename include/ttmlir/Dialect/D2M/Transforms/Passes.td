@@ -391,6 +391,11 @@ def D2MGenericLowerDMAs : Pass<"d2m-generic-lower-dmas", "::mlir::ModuleOp"> {
     %tx = d2m.dma %stream [%1, %iter2], %cb0
     ```
   }];
+  let options = [
+    Option<"debugCoalescingInference", "debug-d2m-coalescing-inference", "bool", /*default=*/"false",
+           "Enable debug mode for coalescing inference. Runs both analytical and sampling-based "
+           "coalescing checks and prints debug output comparing them.">,
+  ];
 }
 
 def D2MGenericRegionsToFuncs : Pass<"d2m-generic-regions-to-funcs", "::mlir::ModuleOp"> {
