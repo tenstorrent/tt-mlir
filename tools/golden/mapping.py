@@ -116,8 +116,6 @@ class GoldenMapTensor:
             return dtype
         elif dtype in [torch.qint32, torch.int64]:
             return torch.int32
-        elif dtype == torch.bool:
-            return torch.bfloat16
         else:
             return torch.float32
 
