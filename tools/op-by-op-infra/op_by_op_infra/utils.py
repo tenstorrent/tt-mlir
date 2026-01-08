@@ -146,12 +146,16 @@ class OpWrapper:
 
         # Replace operand and result names in op_string
         for original, standardized in {**result_mapping, **operand_mapping}.items():
-            pattern = re.escape(original) + r'(?=[^a-zA-Z0-9_]|$)'
+            pattern = re.escape(original) + r"(?=[^a-zA-Z0-9_]|$)"
             self.op_string = re.sub(pattern, standardized, self.op_string)
 
         # Store operands and results with standardized names
-        self.operands = [Operand(f"%arg{i}", operand.type) for i, operand in enumerate(op.operands)]
-        self.results = [Result(f"%res{i}", result.type) for i, result in enumerate(op.results)]
+        self.operands = [
+            Operand(f"%arg{i}", operand.type) for i, operand in enumerate(op.operands)
+        ]
+        self.results = [
+            Result(f"%res{i}", result.type) for i, result in enumerate(op.results)
+        ]
         self.attributes = attrs
         self.origin_model = [origin_model]
 
@@ -176,7 +180,6 @@ class OpWrapper:
         """
         if model and model not in self.origin_model:
             self.origin_model.append(model)
-
 
     def as_module_str(self) -> str:
         """
