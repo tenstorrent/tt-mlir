@@ -5,16 +5,11 @@
 #ifndef TT_ALCHEMIST_PYTHON_RUNNER_HPP
 #define TT_ALCHEMIST_PYTHON_RUNNER_HPP
 
+#include "tt/runtime/types.h"
+
+#include <memory>
 #include <string>
 #include <vector>
-
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wcovered-switch-default"
-#include "ttnn/device.hpp"
-#include "ttnn/tensor/tensor.hpp"
-#pragma clang diagnostic ignored "-Wcast-qual"
-#include <nanobind/nanobind.h>
-#pragma clang diagnostic pop
 
 namespace tt::alchemist {
 
@@ -31,6 +26,12 @@ public:
   PythonModelRunner();
   ~PythonModelRunner();
 
+  PythonModelRunner(const PythonModelRunner &) = delete;
+  PythonModelRunner &operator=(const PythonModelRunner &) = delete;
+
+  PythonModelRunner(PythonModelRunner &&) noexcept;
+  PythonModelRunner &operator=(PythonModelRunner &&) noexcept;
+
   /// Add a directory to Python's sys.path for module imports.
   void addToSysPath(const std::string &path);
 
@@ -39,12 +40,13 @@ public:
                   const std::string &functionName = "forward");
 
   /// Execute the loaded model function.
-  std::vector<ttnn::Tensor> forward(const std::vector<ttnn::Tensor> &inputs,
-                                    ttnn::MeshDevice *device);
+  std::vector<tt::runtime::Tensor>
+  forward(const std::vector<tt::runtime::Tensor> &inputs,
+          tt::runtime::Device device);
 
 private:
-  nanobind::object moduleObject;
-  nanobind::object forwardFunc;
+  class Impl;
+  std::unique_ptr<Impl> pImpl;
 };
 
 } // namespace tt::alchemist
