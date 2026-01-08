@@ -39,7 +39,7 @@ def EmitPy_OpaqueType : EmitPy_Type<"Opaque", "opaque"> {
   let genVerifyDecl = 1;
 }
 
-def EmitPy_DictType : EmitPy_Type<"Dict", "dict"> {
+def EmitPy_Dict : EmitPy_Type<"Dict", "dict"> {
   let summary = "EmitPy dictionary type";
 
   let description = [{

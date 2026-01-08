@@ -195,7 +195,7 @@ def EmitPy_CreateDictOp : EmitPy_Op<"create_dict", [Pure]> {
     OptionalAttr<StrAttr>:$literal_expr
   );
 
-  let results = (outs EmitPy_DictType:$result);
+  let results = (outs EmitPy_Dict:$result);
 
   let hasVerifier = 1;
   let assemblyFormat = [{
@@ -221,7 +221,7 @@ def EmitPy_SetValueForDictKeyOp : EmitPy_Op<"set_value_for_dict_key"> {
 
   let arguments = (ins
     Arg<StrAttr>:$dict_name,
-    EmitPy_DictType:$dict,
+    EmitPy_Dict:$dict,
     AnyAttrOf<[StrAttr, IndexAttr]>:$key,
     EmitPy_OpaqueType:$value
   );
@@ -248,7 +248,7 @@ def EmitPy_GetValueForDictKeyOp : EmitPy_Op<"get_value_for_dict_key", [Pure]> {
 
   let arguments = (ins
     Arg<StrAttr>:$dict_name,
-    EmitPy_DictType:$dict,
+    EmitPy_Dict:$dict,
     AnyAttrOf<[StrAttr, IndexAttr]>:$key
   );
 
