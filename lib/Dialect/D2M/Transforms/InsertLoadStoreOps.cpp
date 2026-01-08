@@ -113,7 +113,6 @@ calculateGatherMcastArguments(OpBuilder &builder, Location loc,
   return args;
 }
 
-
 // Helper function to get generic operand and indexing map from CB block
 // argument
 static std::optional<std::pair<Value, AffineMap>>

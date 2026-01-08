@@ -35,7 +35,7 @@ computeDimConstraints(mlir::ArrayRef<mlir::AffineMap> indexingMaps,
 // indexing map, creates an IterIndexOp for dimension expressions or a
 // ConstantIndexOp for constant expressions.
 SmallVector<Value> buildGridIndices(OpBuilder &builder, Location loc,
-                                     AffineMap indexingMap);
+                                    AffineMap indexingMap);
 
 } // namespace mlir::tt::d2m::utils
 

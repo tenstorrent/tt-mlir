@@ -71,7 +71,6 @@ static Type getScalarType(Type type) {
   return type;
 }
 
-
 // Check if a layout requires masking due to non-trivial OOBVal and padding.
 static bool needsMasking(ttcore::MetalLayoutAttr layout,
                          RankedTensorType tensorType) {
@@ -557,43 +556,46 @@ public:
     auto indexingMapAttr = mlir::cast<AffineMapAttr>(indexingMaps[0]);
     AffineMap indexingMap = indexingMapAttr.getValue();
 
-    auto result = rewriter
-        .create<GenericOp>(
-            loc, viewInput, viewOutput,
-            [&](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
-              if (isSrcDramOrReblock) {
-                SmallVector<Value> indices =
-                    utils::buildGridIndices(builder, innerLoc, indexingMap);
-                // Use outputCB for remote_load
-                Value outputCBValue = blockArgs[1]; // CB type for remote_load
-                Value loadResult =
-                    builder
-                        .create<RemoteLoadOp>(innerLoc, outputCBValue, viewInput,
-                                              indices)
-                        ->getResult(0);
-                builder.create<WaitOp>(innerLoc, outputCBValue);
-                builder.create<PopOp>(innerLoc, outputCBValue);
-                // View transformation is handled by view_layout and the
-                // generic op's indexing maps
-                builder.create<YieldOp>(innerLoc, loadResult);
-              } else {
-                SmallVector<Value> indices =
-                    utils::buildGridIndices(builder, innerLoc, indexingMap);
-                Value inputCBValue = blockArgs[0];
-                builder.create<ReserveOp>(innerLoc, inputCBValue);
-                builder.create<PushOp>(innerLoc, inputCBValue);
-                Value loadResult =
-                    builder
-                        .create<RemoteStoreOp>(innerLoc, viewOutput,
-                                               indices, inputCBValue)
-                        ->getResult(0);
-                // View transformation is handled by view_layout and the
-                // generic op's indexing maps
-                builder.create<YieldOp>(innerLoc, loadResult);
-              }
-            },
-            ThreadType::Unified)
-        .getResult(0);
+    auto result =
+        rewriter
+            .create<GenericOp>(
+                loc, viewInput, viewOutput,
+                [&](OpBuilder &builder, Location innerLoc,
+                    ValueRange blockArgs) {
+                  if (isSrcDramOrReblock) {
+                    SmallVector<Value> indices =
+                        utils::buildGridIndices(builder, innerLoc, indexingMap);
+                    // Use outputCB for remote_load
+                    Value outputCBValue =
+                        blockArgs[1]; // CB type for remote_load
+                    Value loadResult =
+                        builder
+                            .create<RemoteLoadOp>(innerLoc, outputCBValue,
+                                                  viewInput, indices)
+                            ->getResult(0);
+                    builder.create<WaitOp>(innerLoc, outputCBValue);
+                    builder.create<PopOp>(innerLoc, outputCBValue);
+                    // View transformation is handled by view_layout and the
+                    // generic op's indexing maps
+                    builder.create<YieldOp>(innerLoc, loadResult);
+                  } else {
+                    SmallVector<Value> indices =
+                        utils::buildGridIndices(builder, innerLoc, indexingMap);
+                    Value inputCBValue = blockArgs[0];
+                    builder.create<ReserveOp>(innerLoc, inputCBValue);
+                    builder.create<PushOp>(innerLoc, inputCBValue);
+                    Value loadResult =
+                        builder
+                            .create<RemoteStoreOp>(innerLoc, viewOutput,
+                                                   indices, inputCBValue)
+                            ->getResult(0);
+                    // View transformation is handled by view_layout and the
+                    // generic op's indexing maps
+                    builder.create<YieldOp>(innerLoc, loadResult);
+                  }
+                },
+                ThreadType::Unified)
+            .getResult(0);
     return result;
   }
 

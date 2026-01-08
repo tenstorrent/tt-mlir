@@ -113,7 +113,7 @@ computeDimConstraints(mlir::ArrayRef<mlir::AffineMap> indexingMaps,
 }
 
 SmallVector<Value> buildGridIndices(OpBuilder &builder, Location loc,
-                                     AffineMap indexingMap) {
+                                    AffineMap indexingMap) {
   SmallVector<Value> indices;
   for (unsigned i = 0; i < indexingMap.getNumResults(); ++i) {
     AffineExpr expr = indexingMap.getResult(i);
