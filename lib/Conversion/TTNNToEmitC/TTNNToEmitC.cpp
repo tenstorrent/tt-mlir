@@ -1189,6 +1189,8 @@ public:
         emitter.template emit<::ttsl::SmallVector<int32_t>>(srcOp.getDimArg()),
         emitter.emit(srcOp.getKeepDim()),
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
+        emitter.template emit<::ttnn::WormholeComputeKernelConfig>(
+            srcOp.getComputeConfig()),
     };
 
     emitter.replaceOp(*this, args);
