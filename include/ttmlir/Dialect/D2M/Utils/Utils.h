@@ -5,6 +5,7 @@
 #ifndef TTMLIR_DIALECT_D2M_UTILS_UTILS_H
 #define TTMLIR_DIALECT_D2M_UTILS_UTILS_H
 
+#include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinTypes.h"
