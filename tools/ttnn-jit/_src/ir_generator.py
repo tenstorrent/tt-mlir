@@ -11,6 +11,9 @@ def print_and_verify_ir(ir, method_name, debug):
         print(ir)
     ir.operation.verify()
 
+def create_output_layout_from_memory_config(
+    ctx, memory_config, tensor_shape, element_type, debug
+):
 
 def generate_ir(f, debug, memory_config, *args, **kwargs):
     """Generate IR from tracing compilation."""
