@@ -177,31 +177,20 @@ static std::vector<uint32_t> createKernelArgs(
   return coreArgs;
 }
 
-template <typename KernelRtArgsT>
-static ::tt::tt_metal::KernelDescriptor::RuntimeArgs
-createRuntimeArgs(const KernelRtArgsT *rtArgs,
-                  const std::vector<::ttnn::Tensor> &ioTensors) {
-  using RuntimeArgsT = ::tt::tt_metal::KernelDescriptor::RuntimeArgs;
-  using CoreRuntimeArgsT = ::tt::tt_metal::KernelDescriptor::CoreRuntimeArgs;
-
-  RuntimeArgsT runtimeArgs;
-  if (!rtArgs || rtArgs->size() == 0) {
-    return runtimeArgs;
-  }
-
-  auto sizeX = rtArgs->size();
-  auto sizeY = rtArgs->Get(0)->args()->size();
-
-  runtimeArgs.reserve(sizeX * sizeY);
-  for (unsigned int x = 0; x < sizeX; x++) {
-    for (unsigned int y = 0; y < sizeY; y++) {
-      CoreRuntimeArgsT coreRuntimeArgs =
-          createKernelArgs(*rtArgs->Get(x)->args()->Get(y), ioTensors);
-      runtimeArgs.emplace_back(::tt::tt_metal::CoreCoord{x, y},
-                               std::move(coreRuntimeArgs));
+static ::tt::tt_metal::KernelDescriptor::RuntimeArgs createRuntimeArgs(
+    const flatbuffers::Vector<
+        flatbuffers::Offset<::tt::target::ttnn::CoreRuntimeArgs>> *rtArgs,
+    const std::vector<::ttnn::Tensor> &ioTensors) {
+  ::tt::tt_metal::KernelDescriptor::RuntimeArgs runtimeArgs;
+  if (rtArgs) {
+    for (const auto *coreRtArgs : *rtArgs) {
+      const auto *coreCoord = coreRtArgs->core_coord();
+      ::tt::tt_metal::CoreCoord coord(coreCoord->x(), coreCoord->y());
+      ::tt::tt_metal::KernelDescriptor::CoreRuntimeArgs coreArgs =
+          createKernelArgs(*coreRtArgs->args(), ioTensors);
+      runtimeArgs.emplace_back(coord, std::move(coreArgs));
     }
   }
-
   return runtimeArgs;
 }
 
@@ -215,9 +204,9 @@ createKernelDescriptor(const ::tt::target::ttnn::KernelDescriptor &kernelDesc,
       createKernelArgs(*kernelDesc.common_rt_args(), ioTensors);
   ::tt::tt_metal::KernelDescriptor::CompileTimeArgs compileTimeArgs =
       createKernelArgs(*kernelDesc.ct_args());
-
   ::tt::tt_metal::KernelDescriptor::RuntimeArgs runtimeArgs =
       createRuntimeArgs(kernelDesc.rt_args(), ioTensors);
+
   ::tt::tt_metal::KernelDescriptor kernelDescriptor = {
       .kernel_source = kernelSource,
       .source_type = convertSourceType(kernelDesc.source_type()),
@@ -265,7 +254,6 @@ void overrideArgs(
     kernel.compile_time_args = createKernelArgs(*kernelDesc->ct_args());
     kernel.common_runtime_args =
         createKernelArgs(*kernelDesc->common_rt_args(), ioTensors);
-
     kernel.runtime_args = createRuntimeArgs(kernelDesc->rt_args(), ioTensors);
   }
   for (size_t i = 0; i < programDescriptor->cbs.size(); ++i) {
