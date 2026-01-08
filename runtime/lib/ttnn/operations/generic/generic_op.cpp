@@ -177,44 +177,18 @@ static std::vector<uint32_t> createKernelArgs(
   return coreArgs;
 }
 
-// TODO(vtangTT): Uncomment once program_descriptors.hpp is updated to use
-// RuntimeArgs = vector<pair<CoreCoord, CoreRuntimeArgs>>
-// static ::tt::tt_metal::KernelDescriptor::RuntimeArgs createRuntimeArgs(
-//     const flatbuffers::Vector<
-//         flatbuffers::Offset<::tt::target::ttnn::CoreRuntimeArgs>> *rtArgs,
-//     const std::vector<::ttnn::Tensor> &ioTensors) {
-//   ::tt::tt_metal::KernelDescriptor::RuntimeArgs runtimeArgs;
-//   if (rtArgs) {
-//     for (const auto *coreRtArgs : *rtArgs) {
-//       const auto *coreCoord = coreRtArgs->core_coord();
-//       ::tt::tt_metal::CoreCoord coord(coreCoord->x(), coreCoord->y());
-//       ::tt::tt_metal::KernelDescriptor::CoreRuntimeArgs coreArgs =
-//           createKernelArgs(*coreRtArgs->args(), ioTensors);
-//       runtimeArgs.emplace_back(coord, std::move(coreArgs));
-//     }
-//   }
-//   return runtimeArgs;
-// }
-
 static ::tt::tt_metal::KernelDescriptor::RuntimeArgs createRuntimeArgs(
     const flatbuffers::Vector<
         flatbuffers::Offset<::tt::target::ttnn::CoreRuntimeArgs>> *rtArgs,
     const std::vector<::ttnn::Tensor> &ioTensors) {
-  // Convert from flatbuffer CoreCoord-based pairs to
-  // vector<vector<CoreRuntimeArgs>>
   ::tt::tt_metal::KernelDescriptor::RuntimeArgs runtimeArgs;
-  if (rtArgs && rtArgs->size() > 0) {
-    ::tt::tt_metal::CoreCoord grid_size =
-        ioTensors[0].device()->compute_with_storage_grid_size();
-    runtimeArgs.resize(
-        grid_size.x,
-        std::vector<::tt::tt_metal::KernelDescriptor::CoreRuntimeArgs>(
-            grid_size.y));
-
+  if (rtArgs) {
     for (const auto *coreRtArgs : *rtArgs) {
       const auto *coreCoord = coreRtArgs->core_coord();
-      runtimeArgs[coreCoord->x()][coreCoord->y()] =
+      ::tt::tt_metal::CoreCoord coord(coreCoord->x(), coreCoord->y());
+      ::tt::tt_metal::KernelDescriptor::CoreRuntimeArgs coreArgs =
           createKernelArgs(*coreRtArgs->args(), ioTensors);
+      runtimeArgs.emplace_back(coord, std::move(coreArgs));
     }
   }
   return runtimeArgs;
