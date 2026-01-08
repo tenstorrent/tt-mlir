@@ -1604,35 +1604,41 @@ def D2M_IterIndexOp : D2M_IndexOp<"iter_index"> {
     }];
 }
 
-def D2M_CoreIndexOp : D2M_IndexOp<"core_index"> {
+def D2M_CoreIndexOp : D2M_GenericRegionOp<"core_index",
+  [ Pure
+  , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
+  , DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>
+  , DeclareOpInterfaceMethods<InferTypeOpInterface, ["inferReturnTypes"]>
+  ]> {
     let summary = "Core Index op.";
     let description = [{
       Return the index of this core's coordinate inside the generic op's grid dimension.
     }];
-}
 
-def D2M_VirtualGridCoreIndexOp : D2M_GenericRegionOp<"vg_core_index", [Pure]> {
-    let summary = "Virtual Grid Core Index op.";
-    let description = [{
-      Return the virtualized core index for the given dimension.
-
-      This is similar to `d2m.core_index`, but additionally applies a provided
-      physical-to-virtual grid affine map to the physical core coordinates and
-      returns the mapped coordinate at `dim`.
-
-      The affine map is stored in the `phys_to_virt_map` attribute.
-    }];
-
-    // The map is expressed over physical grid dims (d0, d1) and is expected to
-    // return a virtual grid dim. This op returns the selected result `dim` of
-    // the map.
+    // Optional physical-to-virtual grid mapping. When present, this op returns
+    // the virtualized core coordinate for `dim`.
     let arguments = (ins
       ConfinedAttr<I64Attr, [IntMinValue<0>, IntMaxValue<1>]>:$dim,
-      AffineMapAttr:$phys_to_virt_map
+      OptionalAttr<AffineMapAttr>:$phys_to_virt_map
     );
 
     let results = (outs Index:$result);
     let assemblyFormat = [{ `(` $dim `)` attr-dict `:` type($result) }];
+    let hasFolder = true;
+
+    let builders =
+    [
+      OpBuilder<(ins "int64_t":$dim),
+      [{
+        build($_builder, $_state, $_builder.getIndexType(),
+              $_builder.getI64IntegerAttr(dim), nullptr);
+      }]>,
+      OpBuilder<(ins "int64_t":$dim, "mlir::AffineMap":$map),
+      [{
+        build($_builder, $_state, $_builder.getIndexType(),
+              $_builder.getI64IntegerAttr(dim), mlir::AffineMapAttr::get(map));
+      }]>
+    ];
 }
 
 //===----------------------------------------------------------------------===//

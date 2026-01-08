@@ -144,12 +144,12 @@ public:
     auto outputShardLayout = mlir::cast<ttcore::ShardLayoutAttr>(
         ttcore::getDeviceLayout(outputOperand));
     for (auto [dim, iteratorType] : llvm::enumerate(mcastIterators)) {
-      Value virtCore = rewriter.create<VirtualGridCoreIndexOp>(
+      Value core = rewriter.create<CoreIndexOp>(
           loc, rewriter.getIndexType(), rewriter.getI64IntegerAttr(dim),
           mlir::AffineMapAttr::get(grid.getMapping()));
 
       if (iteratorType == ttcore::IteratorType::Parallel) {
-        args.senderCoreIndex.push_back(Value(virtCore));
+        args.senderCoreIndex.push_back(Value(core));
         mcastShape.push_back(1);
       } else {
         int64_t numDests = grid.getShape()[dim];
@@ -159,13 +159,16 @@ public:
         args.mcastVolume *= numDests;
 
         Value condition = rewriter.create<arith::CmpIOp>(
-            loc, rewriter.getI1Type(), mlir::arith::CmpIPredicate::eq, virtCore,
+            loc, rewriter.getI1Type(), mlir::arith::CmpIPredicate::eq, core,
             zero);
         args.conditions.push_back(condition);
       }
     }
 
+    // Convert virtual multicast shape to physical shape.
     if (!outputShardLayout.getCoreVirtualizationMap().isEmpty()) {
+      // We project out the shard layout dims and results from the indexing map
+      // before applying since we are only concerned with the grid dimensions.
       auto coreVirtMap = outputShardLayout.getCoreVirtualizationMap();
       auto dimsToRemove = coreVirtMap.getNumResults() - mcastShape.size();
       llvm::SmallBitVector projectedDims(coreVirtMap.getNumDims());

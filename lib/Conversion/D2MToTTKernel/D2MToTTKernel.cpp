@@ -1216,12 +1216,8 @@ public:
       } else {
         // Local L1 to Local L1 local data movement lowering
         // Get local coordinates using myY and myX ops
-        auto myY = rewriter.create<d2m::CoreIndexOp>(
-            op.getLoc(), rewriter.getIndexType(),
-            rewriter.getI64IntegerAttr(0));
-        auto myX = rewriter.create<d2m::CoreIndexOp>(
-            op.getLoc(), rewriter.getIndexType(),
-            rewriter.getI64IntegerAttr(1));
+        auto myY = rewriter.create<ttkernel::MyLogicalYOp>(op.getLoc());
+        auto myX = rewriter.create<ttkernel::MyLogicalXOp>(op.getLoc());
         // Convert local coordinates to virtual coordinates
         auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
             rewriter, op.getLoc(), chipDesc, ValueRange{myY, myX});
@@ -1274,52 +1270,33 @@ public:
     assert(op.getDim() == 0 ||
            op.getDim() == 1 &&
                "Expected core index dim to be in range 0-1, failing.");
-    if (op.getDim()) {
-      auto coreIndex = rewriter.create<ttkernel::MyLogicalXOp>(op.getLoc());
-      rewriter.replaceOp(op, coreIndex);
-    } else {
-      auto coreIndex = rewriter.create<ttkernel::MyLogicalYOp>(op.getLoc());
-      rewriter.replaceOp(op, coreIndex);
-    }
-    return success();
-  }
-};
-} // namespace
 
-namespace {
-class D2MVirtualGridCoreIndexRewriter
-    : public OpConversionPattern<d2m::VirtualGridCoreIndexOp> {
-public:
-  using OpConversionPattern<d2m::VirtualGridCoreIndexOp>::OpConversionPattern;
+    // Base physical (logical) coordinates.
+    Value logicalY = rewriter.create<ttkernel::MyLogicalYOp>(op.getLoc());
+    Value logicalX = rewriter.create<ttkernel::MyLogicalXOp>(op.getLoc());
 
-  LogicalResult
-  matchAndRewrite(d2m::VirtualGridCoreIndexOp op,
-                  d2m::VirtualGridCoreIndexOpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const final {
-
-    Value logicalY = rewriter.create<d2m::CoreIndexOp>(
-        op.getLoc(), /*dim=*/rewriter.getI64IntegerAttr(0));
-    Value logicalX = rewriter.create<d2m::CoreIndexOp>(
-        op.getLoc(), /*dim=*/rewriter.getI64IntegerAttr(1));
-
-    auto mapAttr = op.getPhysToVirtMap();
-    if (mapAttr.isEmpty() && op.getDim() == 0) {
-      rewriter.replaceOp(op, logicalY);
+    // If no virtualization mapping, preserve legacy behavior.
+    // Note: phys_to_virt_map is optional on the op.
+    auto mapAttr = op.getPhysToVirtMapAttr();
+    if (!mapAttr || mapAttr.getValue().isEmpty()) {
+      rewriter.replaceOp(op, op.getDim() ? logicalX : logicalY);
       return success();
     }
-    if (mapAttr.isEmpty() && op.getDim() == 1) {
-      rewriter.replaceOp(op, logicalX);
-      return success();
-    }
-    // We add 1 here because the grid mapping includes a leading device index
-    // result
-    auto dimAttr = op.getDim() + 1;
 
-    llvm::SmallBitVector dropDims(mapAttr.getNumResults(), 1);
-    dropDims.reset(dimAttr);
-    auto resultMap = mapAttr.dropResults(dropDims);
+    mlir::AffineMap map = mapAttr.getValue();
+
+    // The existing grid mapping includes a leading device index result, so we
+    // select (dim + 1).
+    const unsigned resultIdx = static_cast<unsigned>(op.getDim() + 1);
+    // The resultIdx is the index of the result that corresponds to the dim of
+    // the core index op, this new map has one result, required for use with
+    // affine apply op.
+    mlir::AffineMap selectedMap =
+        mlir::AffineMap::get(map.getNumDims(), map.getNumSymbols(),
+                             {map.getResult(resultIdx)}, rewriter.getContext());
+
     Value virtDim = rewriter.create<mlir::affine::AffineApplyOp>(
-        op.getLoc(), resultMap, ValueRange{logicalY, logicalX});
+        op.getLoc(), selectedMap, ValueRange{logicalY, logicalX});
     rewriter.replaceOp(op, virtDim);
     return success();
   }
@@ -1712,7 +1689,6 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MCBReleaseOpRewriter<d2m::PushOp, ttkernel::CBPushBackOp>,
                ttkernel::D2MCBReleaseOpRewriter<d2m::PopOp, ttkernel::CBPopFrontOp>,
                ttkernel::D2MDMAWaitRewriter,
-               ttkernel::D2MVirtualGridCoreIndexRewriter,
                ttkernel::D2MCoreIndexRewriter,
                ttkernel::D2MNullTxRewriter,
                ttkernel::D2MPackerMaskResetRewriter,
@@ -1724,6 +1700,9 @@ void populateD2MToTTKernelPatterns(
   patterns.add<ttkernel::D2MGetGlobalOperandRewriter>(typeConverter, ctx, ttnnMode);
   patterns.add<ttkernel::D2MDMAReadRewriter>(typeConverter, ctx, &associatedDMAWaits, &cbProducerConsumer);
   patterns.add<ttkernel::D2MDMAWriteRewriter>(typeConverter, ctx, &associatedDMAWaits, &cbProducerConsumer);
+
+  // This is needed to lower affine apply ops that may be generated when
+  // `d2m.core_index` is used with a `phys_to_virt_map`.
   populateAffineToStdConversionPatterns(patterns);
   // clang-format on
 }
