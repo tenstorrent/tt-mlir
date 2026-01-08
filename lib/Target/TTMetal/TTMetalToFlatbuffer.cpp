@@ -438,6 +438,10 @@ memrefTypeToCircularBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
   auto extendedMapping = extendMappingForHigherDimGrid(
       device.getWorkerGrid().getMapping(), memrefGridShape.size());
 
+  // We default to the worker grid shape since memrefGridShape may be larger
+  // than the available grid due to block factors. Directly using the
+  // memrefGridShape will lead to crashes when initializing CBs, therefore we
+  // spoof the shape here.
   SmallVector<int64_t> workerGridShape =
       llvm::to_vector(device.getWorkerGrid().getShape());
   if (workerGridShape.size() < memrefGridShape.size()) {
