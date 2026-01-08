@@ -1399,6 +1399,33 @@ private:
 } // namespace
 
 namespace {
+
+struct Conv3dBlockingParams {
+  uint32_t C_in_block;
+  uint32_t C_out_block;
+  uint32_t T_out_block;
+  uint32_t H_out_block;
+  uint32_t W_out_block;
+};
+
+Conv3dBlockingParams getConv3dBlockingForChannels(int64_t inChannels) {
+  // Mapping from tt-metal Mochi implementation
+  // Format: {in_channels: (C_in_block, C_out_block, T_out_block, H_out_block, W_out_block)}
+  switch (inChannels) {
+    case 768:
+      return {128, 96, 1, 2, 16};
+    case 512:
+      return {128, 128, 1, 8, 4};
+    case 256:
+      return {128, 128, 4, 4, 2};
+    case 128:
+      return {128, 128, 1, 2, 16};
+    default:
+      // Default fallback for unknown channel counts
+      return {0, 0, 1, 1, 1};
+  }
+}
+
 class Conv3dOpConversionPattern : public OpConversionPattern<ttir::Conv3dOp> {
 public:
   using OpConversionPattern<ttir::Conv3dOp>::OpConversionPattern;
@@ -1462,13 +1489,26 @@ public:
           rewriter, op.getLoc());
     }
 
+    // Using tt-metal Mochi configuration mapping
+    Conv3dBlockingParams blockingParams = getConv3dBlockingForChannels(inChannelsAttr.getInt());
+
+    auto conv3dConfig = ttnn::Conv3dConfigAttr::get(
+        rewriter.getContext(),
+        /*weights_dtype=*/ttcore::DataType::BFloat16,
+        /*t_out_block=*/blockingParams.T_out_block,
+        /*w_out_block=*/blockingParams.W_out_block,
+        /*h_out_block=*/blockingParams.H_out_block,
+        /*c_out_block=*/blockingParams.C_out_block,
+        /*c_in_block=*/blockingParams.C_in_block
+    );
+
     rewriter.replaceOpWithNewOp<ttnn::Conv3dOp>(
         op, getTypeConverter()->convertType(op.getResult().getType()),
         adaptor.getInput(), reshapedWeight, reshapedBias, device,
         inChannelsAttr, outChannelsAttr, batchSizeAttr, inputDepthAttr,
         inputHeightAttr, inputWidthAttr, kernelSizeAttr, *strideAttr,
         *paddingAttr, paddingModeAttr, groupsAttr, outputDtypeAttr,
-        /*conv3d_config=*/nullptr, /*compute_config=*/nullptr);
+        conv3dConfig, /*compute_config=*/nullptr);
 
     return success();
   }
