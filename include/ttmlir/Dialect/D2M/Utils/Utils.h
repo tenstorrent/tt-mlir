@@ -7,7 +7,6 @@
 
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Builders.h"
-#include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinTypes.h"
 
 namespace mlir::tt::d2m::utils {
