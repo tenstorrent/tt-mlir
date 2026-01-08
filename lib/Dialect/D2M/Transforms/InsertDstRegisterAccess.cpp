@@ -237,7 +237,9 @@ public:
     bool modified = false;
     for (unsigned regionIndex = 0; regionIndex < gOp.getNumRegions();
          regionIndex++) {
-      if (gOp.getRegionThreadType(regionIndex) != ThreadType::Unified) {
+      ThreadType threadType = gOp.getRegionThreadType(regionIndex);
+      if (threadType != ThreadType::Unified &&
+          threadType != ThreadType::Compute) {
         continue;
       }
 
@@ -552,9 +554,20 @@ public:
                memref.getDefiningOp())) {
       memref = subView.getSource();
     }
-    if (auto *definingOp = memref.getDefiningOp();
-        mlir::isa_and_nonnull<d2m::WaitOp, d2m::ReserveOp>(definingOp)) {
-      memref = definingOp->getOperand(0);
+    if (auto *definingOp = memref.getDefiningOp()) {
+      if (mlir::isa<d2m::WaitOp, d2m::ReserveOp>(definingOp)) {
+        memref = definingOp->getOperand(0);
+      } else if (auto allocOp = mlir::dyn_cast<memref::AllocOp>(definingOp)) {
+        // memref.alloc: find the associated operand by tracing uses, then
+        // find the corresponding CB block argument
+        Value assocOperand = GenericOp::findAssocOperand(allocOp);
+        if (!assocOperand) {
+          return nullptr;
+        }
+        Value cb = GenericOp::findAssocCBByOperand(allocOp.getOperation(),
+                                                   assocOperand);
+        return mlir::dyn_cast<BlockArgument>(cb);
+      }
     }
     return mlir::dyn_cast<BlockArgument>(memref);
   }

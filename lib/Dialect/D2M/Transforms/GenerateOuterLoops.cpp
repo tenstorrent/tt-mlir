@@ -2,7 +2,6 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -50,8 +49,8 @@ public:
         });
   }
 
-  static void replaceIterIndexUses(PatternRewriter &rewriter, Location loc,
-                                   scf::LoopNest &loopNest, GenericOp generic) {
+  static void replaceIndexOpUses(PatternRewriter &rewriter, Location loc,
+                                 scf::LoopNest &loopNest, GenericOp generic) {
     // Get the output operand indexing map to determine which dimensions
     // participate in the grid
     unsigned outputOperandsIndex = generic.getOutputs().getBeginOperandIndex();
@@ -60,55 +59,49 @@ public:
             generic.getIndexingMaps()[outputOperandsIndex])
             .getValue();
 
-    // Extract core virtualization map with just grid yx results
-    AffineMap coreVirtualizationMap = generic.getGrid().getMapping();
-    if (!coreVirtualizationMap.isEmpty()) {
-      coreVirtualizationMap = generic.getGrid().getMapping().dropResult(0);
-    }
+    // Get the grid mapping for use with CoreIndexOp. The mapping includes
+    // a leading device index result, so we use the full mapping and let
+    // CoreIndexOp handle dimension selection via (dim + 1).
+    AffineMap gridMapping = generic.getGrid().getMapping();
 
     SmallVector<int64_t> blockFactors = generic.getBlockFactorsValue();
 
-    // The number of grid dimensions (typically 2 for a 2D grid)
+    // The number of grid dimensions (typically 2 for a 2D grid, but could be
+    // more with virtualization)
     constexpr unsigned numPhysicalGridDims = 2;
-    unsigned numGridDims = coreVirtualizationMap.isEmpty()
+    unsigned numGridDims = gridMapping.isEmpty()
                                ? numPhysicalGridDims
-                               : coreVirtualizationMap.getNumResults();
+                               : gridMapping.getNumResults() - 1;
 
     // Create CoreIndexOp operations lazily - create them the first time we need
     // them, at the start of the outermost loop body, then reuse them.
     SmallVector<Value> virtualGridIndices;
     bool virtualGridIndicesCreated = false;
 
-    loopNest.loops.back().walk([&](IterIndexOp index) {
+    // Handle IMIndexOp: apply full grid/block calculation
+    loopNest.loops.back().walk([&](IMIndexOp index) {
       uint64_t dim = index.getDim();
       assert(dim < loopNest.loops.size());
       scf::ForOp loop = loopNest.loops[dim];
       Value iterIndex = loop.getInductionVar();
 
-      // Set insertion point to before the IterIndexOp so we can create
+      // Set insertion point to before the IMIndexOp so we can create
       // operations that will be used to replace it
       rewriter.setInsertionPoint(index);
 
       // Create CoreIndexOp operations lazily at the start of the outermost loop
-      // body if we haven't created them yet
+      // body if we haven't created them yet. Use CoreIndexOp with the grid
+      // mapping directly - the lowering will handle applying the affine map.
       if (!virtualGridIndicesCreated && !loopNest.loops.empty()) {
         // Set insertion point to the start of the outermost loop body
         rewriter.setInsertionPointToStart(loopNest.loops.front().getBody());
-        SmallVector<Value> physicalCoreIndices(numPhysicalGridDims);
-        for (unsigned gridIndex = 0; gridIndex < numPhysicalGridDims;
-             gridIndex++) {
-          physicalCoreIndices[gridIndex] = rewriter.create<CoreIndexOp>(
-              loc, rewriter.getIndexType(),
-              rewriter.getI64IntegerAttr(gridIndex));
-        }
-        if (!coreVirtualizationMap.isEmpty()) {
-          virtualGridIndices = ttmlir::utils::fullyApplyAffineMap(
-              rewriter, loc, coreVirtualizationMap, physicalCoreIndices);
-        } else {
-          virtualGridIndices = physicalCoreIndices;
+        virtualGridIndices.resize(numGridDims);
+        for (unsigned gridDim = 0; gridDim < numGridDims; gridDim++) {
+          virtualGridIndices[gridDim] = rewriter.create<CoreIndexOp>(
+              loc, static_cast<int64_t>(gridDim), gridMapping);
         }
         virtualGridIndicesCreated = true;
-        // Reset insertion point back to before the IterIndexOp
+        // Reset insertion point back to before the IMIndexOp
         rewriter.setInsertionPoint(index);
       }
 
@@ -154,10 +147,26 @@ public:
         rewriter.replaceOp(index, iterIndex);
       }
     });
+
+    // Handle IterIndexOp: simple replacement with loop induction variable
+    loopNest.loops.back().walk([&](IterIndexOp index) {
+      uint64_t dim = index.getDim();
+      assert(dim < loopNest.loops.size());
+      scf::ForOp loop = loopNest.loops[dim];
+      Value iterIndex = loop.getInductionVar();
+
+      rewriter.setInsertionPoint(index);
+      rewriter.replaceOp(index, iterIndex);
+    });
   }
 
   LogicalResult matchAndRewrite(GenericOp generic,
                                 PatternRewriter &rewriter) const final {
+    // Skip explicit datamovement form - users manage loops manually
+    if (generic.isExplicitDatamovementForm()) {
+      return failure();
+    }
+
     // Only match GenericOp with a single region (single region/thread form
     // after DMA insertion)
     if (generic.getNumRegions() != 1) {
@@ -217,7 +226,7 @@ public:
     // the right place. Set insertion point back to the start of loopedBlock
     // so CoreIndexOp operations are created in the right place.
     rewriter.setInsertionPointToStart(loopedBlock);
-    replaceIterIndexUses(rewriter, generic.getLoc(), loopNest, loopedGeneric);
+    replaceIndexOpUses(rewriter, generic.getLoc(), loopNest, loopedGeneric);
 
     rewriter.replaceOp(generic, loopedGeneric.getResults());
 
@@ -236,7 +245,6 @@ public:
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
     patterns.add<D2MGenerateOuterLoopsRewriter>(&getContext());
-    populateAffineToStdConversionPatterns(patterns);
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();
     }

@@ -13,6 +13,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/IRMapping.h"
@@ -324,6 +325,35 @@ static RankedTensorType tensorWithOptimalGrid(
   return RankedTensorType::get(deviceShape, newElementType, newLayout);
 }
 
+// Verify that a StreamLayoutOp result is used by a single GenericOp only.
+// Returns the GenericOp if valid, nullptr otherwise.
+static d2m::GenericOp
+verifyStreamLayoutUsedBySingleGeneric(d2m::StreamLayoutOp streamLayoutOp) {
+  d2m::GenericOp parentGeneric = nullptr;
+
+  for (auto &streamUse : streamLayoutOp.getResult().getUses()) {
+    mlir::Operation *streamUser = streamUse.getOwner();
+
+    d2m::GenericOp streamUseGeneric =
+        mlir::dyn_cast<d2m::GenericOp>(streamUser);
+    if (!streamUseGeneric) {
+      streamUseGeneric = streamUser->getParentOfType<d2m::GenericOp>();
+    }
+
+    TT_assertv(streamUseGeneric,
+               "StreamLayout (fed by ToLayout) must be used by a GenericOp");
+
+    if (!parentGeneric) {
+      parentGeneric = streamUseGeneric;
+    } else if (parentGeneric != streamUseGeneric) {
+      TT_assertv(false, "StreamLayout (fed by ToLayout) should only be "
+                        "used within one GenericOp");
+    }
+  }
+
+  return parentGeneric;
+}
+
 // Update a ToLayoutOp and its associated EmptyOp to use a specified grid by
 // recreating the MetalLayoutAttr with the given grid and proper dimension
 // alignments.
@@ -379,10 +409,52 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
   auto view = builder.create<d2m::ViewLayoutOp>(
       toLayoutOp.getLoc(), viewOutputType, newToLayoutOp.getResult(0));
 
-  // We expect the ToLayout to be used only by the GenericOp we're optimizing.
-  // Assert this assumption to catch unexpected sharing.
-  assert(toLayoutOp.getResult(0).hasOneUse() &&
-         "ToLayout should only be used by the GenericOp being optimized");
+  // We expect the ToLayout to be used in one of two ways:
+  // 1. Directly by a single GenericOp (or operations within its region)
+  // 2. By a stream_layout operation, where the stream_layout result is then
+  //    used by a single GenericOp
+  d2m::GenericOp parentGeneric = nullptr;
+
+  for (auto &use : toLayoutOp.getResult(0).getUses()) {
+    mlir::Operation *user = use.getOwner();
+
+    // Check if this use is by a stream_layout operation
+    if (auto streamLayoutOp = mlir::dyn_cast<d2m::StreamLayoutOp>(user)) {
+      // Verify that the stream_layout result is used by a single GenericOp
+      d2m::GenericOp streamParentGeneric =
+          verifyStreamLayoutUsedBySingleGeneric(streamLayoutOp);
+
+      // Track the GenericOp that uses the stream_layout
+      if (streamParentGeneric) {
+        if (!parentGeneric) {
+          parentGeneric = streamParentGeneric;
+        } else if (parentGeneric != streamParentGeneric) {
+          TT_assertv(false,
+                     "ToLayout should only be used within one GenericOp");
+        }
+      }
+      continue;
+    }
+
+    // Find the parent GenericOp for this use.
+    // The user might be the GenericOp itself (if it's an operand), or
+    // it might be an operation nested within the GenericOp's regions.
+    d2m::GenericOp useGeneric = mlir::dyn_cast<d2m::GenericOp>(user);
+    if (!useGeneric) {
+      useGeneric = user->getParentOfType<d2m::GenericOp>();
+    }
+
+    TT_assertv(useGeneric,
+               "ToLayout result must be used by a single GenericOp or a single "
+               "StreamLayout that is an input to a single GenericOp");
+
+    if (!parentGeneric) {
+      parentGeneric = useGeneric;
+    } else if (parentGeneric != useGeneric) {
+      // Use is within a different GenericOp
+      TT_assertv(false, "ToLayout should only be used within one GenericOp");
+    }
+  }
   toLayoutOp.getResult(0).replaceAllUsesWith(view.getResult());
 
   toLayoutOp.erase();
@@ -876,14 +948,81 @@ recreateGenericOp(d2m::GenericOp genericOp,
                       .getUnderlying());
             } else if (auto remoteLoadOp =
                            llvm::dyn_cast<d2m::RemoteLoadOp>(clonedOp)) {
-              auto cbType =
-                  mlir::cast<d2m::CBType>(remoteLoadOp.getCb().getType());
-              remoteLoadOp.getResult().setType(cbType.getUnderlying());
+              // Only update result type if the result exists (implicit form)
+              if (remoteLoadOp.isImplicitForm()) {
+                // Result exists - get shard shape from the remote tensor
+                // GridSelection operates in tensor space (before bufferization)
+                auto tensorType = mlir::cast<RankedTensorType>(
+                    remoteLoadOp.getMemref().getType());
+                auto deviceLayout =
+                    ttcore::getDeviceLayout(remoteLoadOp.getMemref());
+                if (deviceLayout) {
+                  auto shardShape = deviceLayout.getShardShape(tensorType);
+                  auto elementType = tensorType.getElementType();
+                  auto shardType =
+                      RankedTensorType::get(shardShape, elementType);
+                  remoteLoadOp.getResult().setType(shardType);
+
+                  // Also update the localBuffer's defining operation's result
+                  // type to match the shard shape
+                  Value localBuffer = remoteLoadOp.getLocalBuffer();
+                  if (localBuffer) {
+                    if (auto *defOp = localBuffer.getDefiningOp()) {
+                      if (defOp->getNumResults() == 1) {
+                        defOp->getResult(0).setType(shardType);
+                      }
+                    }
+                  }
+                }
+              }
             } else if (auto remoteStoreOp =
                            llvm::dyn_cast<d2m::RemoteStoreOp>(clonedOp)) {
-              auto cbType =
-                  mlir::cast<d2m::CBType>(remoteStoreOp.getCb().getType());
-              remoteStoreOp.getResult().setType(cbType.getUnderlying());
+              // Only update result type if the result exists (implicit form)
+              if (remoteStoreOp.hasResultForm()) {
+                auto tensorType = mlir::cast<RankedTensorType>(
+                    remoteStoreOp.getMemref().getType());
+                remoteStoreOp.getResult().setType(tensorType);
+              }
+            } else if (auto tensorEmptyOp =
+                           llvm::dyn_cast<mlir::tensor::EmptyOp>(clonedOp)) {
+              // Update tensor.empty result type to match the associated operand
+              // CB Use the original operation (&op) to find the associated
+              // operand and CB from the old generic op.
+              if (auto originalEmptyOp =
+                      mlir::dyn_cast<mlir::tensor::EmptyOp>(&op)) {
+                Value associatedOperand =
+                    d2m::GenericOp::findAssocOperand(originalEmptyOp);
+                if (associatedOperand) {
+                  // Find the CB block argument associated with this operand in
+                  // the old generic.
+                  Value oldCB = d2m::GenericOp::findAssocCBByOperand(
+                      &op, associatedOperand);
+                  if (oldCB) {
+                    // Find the index of the old CB in the old block arguments
+                    auto oldBlockArgs = oldBlock.getArguments();
+                    unsigned cbIndex = UINT_MAX;
+                    for (unsigned i = 0; i < oldBlockArgs.size(); ++i) {
+                      if (oldBlockArgs[i] == oldCB) {
+                        cbIndex = i;
+                        break;
+                      }
+                    }
+                    // Use the index to get the new CB from blockArgs
+                    if (cbIndex != UINT_MAX && cbIndex < blockArgs.size()) {
+                      Value newCB = blockArgs[cbIndex];
+                      // Extract the tensor type from the CB type
+                      if (auto cbType =
+                              mlir::dyn_cast<d2m::CBType>(newCB.getType())) {
+                        auto underlyingType = cbType.getUnderlying();
+                        if (auto tensorType = mlir::dyn_cast<RankedTensorType>(
+                                underlyingType)) {
+                          tensorEmptyOp.getResult().setType(tensorType);
+                        }
+                      }
+                    }
+                  }
+                }
+              }
             }
           }
         },

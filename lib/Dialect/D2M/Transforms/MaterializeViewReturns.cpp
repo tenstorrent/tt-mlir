@@ -77,26 +77,34 @@ Value materializeView(OpBuilder &builder, Location loc, Value viewResult) {
                                                          /*arity=*/2, rank);
 
   // Create a datamovement generic op that materializes the view.
-  // The region reserves the output circular buffer, issues a remote_load to
-  // fetch data from the view (which applies the affine transformation), then
-  // yields the load result.
   auto indexingMapAttr = mlir::cast<AffineMapAttr>(indexingMaps[0]);
   AffineMap indexingMap = indexingMapAttr.getValue();
   auto genericOp = builder.create<GenericOp>(
       loc, viewResult, emptyOp.getResult(),
       [&](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
-        // Build grid indices from the indexing map.
         SmallVector<Value> indices =
             utils::buildGridIndices(builder, innerLoc, indexingMap);
-        // Issue a remote_load from the view to the output buffer.
-        // The remote_load will fetch data according to the view's affine map.
-        Value loadResult = builder
-                               .create<RemoteLoadOp>(innerLoc, blockArgs[1],
-                                                     viewResult, indices)
-                               ->getResult(0);
-        // View transformation is handled by view_layout and the generic op's
-        // indexing maps.
-        builder.create<d2m::YieldOp>(innerLoc, loadResult);
+        auto inputCbType = mlir::cast<d2m::CBType>(blockArgs[0].getType());
+        auto inputShardType = inputCbType.getUnderlying();
+
+        // Create a buffer for the load result
+        auto inputTensorType = mlir::cast<RankedTensorType>(inputShardType);
+        auto inputBufferOp = builder.create<tensor::EmptyOp>(
+            innerLoc, inputTensorType.getShape(),
+            inputTensorType.getElementType());
+        Value inputBuffer = inputBufferOp.getResult();
+
+        Value loadedData =
+            builder
+                .create<RemoteLoadOp>(innerLoc, inputShardType, inputBuffer,
+                                      viewResult, indices)
+                .getResult();
+        Value storeResult =
+            builder
+                .create<RemoteStoreOp>(innerLoc, emptyOp.getType(),
+                                       emptyOp.getResult(), indices, loadedData)
+                .getResult();
+        builder.create<d2m::YieldOp>(innerLoc, storeResult);
       },
       ThreadType::Unified, grid, SmallVector<int64_t>{1, 1});
 

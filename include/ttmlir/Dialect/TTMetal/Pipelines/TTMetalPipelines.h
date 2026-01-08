@@ -169,13 +169,13 @@ struct TTIRToTTMetalPipelineOptions
       llvm::cl::desc("Enable operation scheduling optimization"),
       llvm::cl::init(true)};
 
-  // Option to use unified middleend pipeline instead of regular middleend
-  // pipeline.
-  Option<bool> useUnifiedMiddleendPipeline{
-      *this, "use-unified-middleend-pipeline",
-      llvm::cl::desc("Use unified middleend pipeline instead of regular "
-                     "middleend pipeline"),
-      llvm::cl::init(false)};
+  // Option to enable/disable automatic multicast inference for reduction
+  // operations.
+  Option<bool> enableMulticastInference{
+      *this, "enable-multicast-inference",
+      llvm::cl::desc("Enable automatic multicast inference for reduction "
+                     "operations"),
+      llvm::cl::init(true)};
 
   // Option to enable debug mode for coalescing inference in DMA lowering.
   // When enabled, runs both analytical and sampling-based coalescing checks

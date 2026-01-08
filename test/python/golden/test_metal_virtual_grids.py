@@ -111,7 +111,7 @@ def create_tileid_debug_tensor(shape: Shape, dtype: torch.dtype):
         (4, 32, 32),
         (4, 64, 64),
         (8, 1, 512, 32),
-    ],  # (64, 4096), (8192, 32), (128, 4096), (256, 8192)],
+    ],
     ids=shape_str,
 )
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])

@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-insert-load-store-ops --d2m-generate-outer-loops -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-generate-outer-loops -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 #l1_ = #ttcore.memory_space<l1>
@@ -21,21 +21,31 @@ module {
 
     // CHECK: d2m.generic
     // CHECK-SAME: block_factors = [1, 1]
-    // CHECK: ^{{.*}}(%{{.*}}: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #{{.*}}>>, %{{.*}}: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #{{.*}}>>):
-    // CHECK-NEXT: %[[C0:.*]] = arith.constant 0 : index
-    // CHECK-NEXT: %[[C1:.*]] = arith.constant 1 : index
-    // CHECK-NEXT: scf.for %{{.*}} = %[[C0]] to %[[C1]] step %[[C1]] {
-    // CHECK-NEXT:   scf.for %{{.*}} = %[[C0]] to %[[C1]] step %[[C1]] {
-    // CHECK-NEXT:     d2m.wait
-    // CHECK-NEXT:     d2m.reserve
+    // CHECK: ^{{.*}}(%{{.*}}: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %{{.*}}: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
+    // CHECK-NEXT: %{{.*}} = arith.constant 0 : index
+    // CHECK-NEXT: %{{.*}} = arith.constant 1 : index
+    // CHECK-NEXT: scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
+    // CHECK-NEXT:   %{{.*}} = d2m.core_index(0)
+    // CHECK-NEXT:   %{{.*}} = d2m.core_index(1)
+    // CHECK-NEXT:   scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
+    // CHECK-NEXT:     %{{.*}} = arith.addi %{{.*}}, %{{.*}} : index
+    // CHECK-NEXT:     %{{.*}} = arith.addi %{{.*}}, %{{.*}} : index
+    // CHECK-NEXT:     %{{.*}} = memref.alloc
+    // CHECK-NEXT:     %{{.*}} = d2m.remote_load %{{.*}} %{{.*}}[%{{.*}}, %{{.*}}] : memref<{{.*}}>, memref<{{.*}}> -> memref<{{.*}}>
+    // CHECK-NEXT:     %{{.*}} = memref.alloc
+    // CHECK-NEXT:     %{{.*}} = d2m.remote_store %{{.*}}[%{{.*}}, %{{.*}}] %{{.*}} : memref<{{.*}}>, memref<{{.*}}> -> memref<{{.*}}>
     // CHECK-NEXT:   } {d2m.outer_loop}
     // CHECK-NEXT: } {d2m.outer_loop}
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
         ins(%stream : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<map(4)>, #dram>)
         outs(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
     ^unified0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
-      %in = d2m.wait %cb0 : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
-      %out = d2m.reserve %cb1 : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+      %idx0 = d2m.im_index(0) : index
+      %idx1 = d2m.im_index(1) : index
+      %buffer_in = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+      %in = d2m.remote_load %buffer_in %stream[%idx0, %idx1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<map(4)>, #dram> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+      %buffer = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+      %result = d2m.remote_store %alloc[%idx0, %idx1] %buffer : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>, memref<2x4x!ttcore.tile<32x32, f32>, #l1_> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
     }
     return
   }
@@ -53,26 +63,24 @@ module {
 
     // CHECK: d2m.generic
     // CHECK-SAME: block_factors = [1, 1, 2]
-    // CHECK: ^{{.*}}(%{{.*}}: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #{{.*}}>>, %{{.*}}: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #{{.*}}>>, %{{.*}}: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #{{.*}}>>):
-    // CHECK-NEXT: %[[C0:.*]] = arith.constant 0 : index
-    // CHECK-NEXT: %[[C1:.*]] = arith.constant 1 : index
-    // CHECK-NEXT: %[[C2:.*]] = arith.constant 2 : index
-    // CHECK-NEXT: scf.for %[[I:.*]] = %[[C0]] to %[[C1]] step %[[C1]] {
-    // CHECK-NEXT:   %[[CORE0:.*]] = d2m.core_index(0) : index
-    // CHECK-NEXT:   %[[CORE1:.*]] = d2m.core_index(1) : index
-    // CHECK-NEXT:   scf.for %[[J:.*]] = %[[C0]] to %[[C1]] step %[[C1]] {
-    // CHECK-NEXT:     scf.for %[[K:.*]] = %[[C0]] to %[[C2]] step %[[C1]] {
-    // CHECK-NEXT:       %{{.*}} = arith.addi %[[CORE0]], %[[I]] : index
-    // CHECK-NEXT:       %{{.*}} = d2m.remote_load %{{.*}}, %{{.*}}[%{{.*}}, %[[K]]]
-    // CHECK-NEXT:       %{{.*}} = d2m.wait
-    // CHECK-NEXT:       %{{.*}} = arith.addi %[[CORE1]], %[[J]] : index
-    // CHECK-NEXT:       %{{.*}} = d2m.remote_load %{{.*}}, %{{.*}}[%[[K]], %{{.*}}]
-    // CHECK-NEXT:       %{{.*}} = d2m.wait
-    // CHECK-NEXT:       %{{.*}} = d2m.reserve
-    // CHECK-NEXT:       d2m.tile_matmul_block
-    // CHECK-NEXT:       %{{.*}} = d2m.wait
-    // CHECK-NEXT:       d2m.pop
-    // CHECK-NEXT:       d2m.push
+    // CHECK: ^{{.*}}(%{{.*}}: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>, %{{.*}}: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>, %{{.*}}: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1>>):
+    // CHECK-NEXT: %{{.*}} = arith.constant 0 : index
+    // CHECK-NEXT: %{{.*}} = arith.constant 1 : index
+    // CHECK-NEXT: %{{.*}} = arith.constant 2 : index
+    // CHECK-NEXT: scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
+    // CHECK-NEXT:   %{{.*}} = d2m.core_index(0)
+    // CHECK-NEXT:   %{{.*}} = d2m.core_index(1)
+    // CHECK-NEXT:   scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
+    // CHECK-NEXT:     scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
+    // CHECK-NEXT:       %{{.*}} = arith.addi %{{.*}}, %{{.*}} : index
+    // CHECK-NEXT:       %{{.*}} = arith.addi %{{.*}}, %{{.*}} : index
+    // CHECK-NEXT:       %{{.*}} = memref.alloc
+    // CHECK-NEXT:       %{{.*}} = memref.alloc
+    // CHECK-NEXT:       %{{.*}} = memref.alloc
+    // CHECK-NEXT:       %{{.*}} = d2m.remote_load %{{.*}} %{{.*}}[%{{.*}}, %{{.*}}] : memref<{{.*}}>, memref<{{.*}}> -> memref<{{.*}}>
+    // CHECK-NEXT:       %{{.*}} = d2m.remote_load %{{.*}} %{{.*}}[%{{.*}}, %{{.*}}] : memref<{{.*}}>, memref<{{.*}}> -> memref<{{.*}}>
+    // CHECK-NEXT:       "d2m.tile_matmul_block"
+    // CHECK-NEXT:       %{{.*}} = d2m.remote_store %{{.*}}[%{{.*}}, %{{.*}}] %{{.*}} : memref<{{.*}}>, memref<{{.*}}> -> memref<{{.*}}>
     // CHECK-NEXT:     } {d2m.outer_loop}
     // CHECK-NEXT:   } {d2m.outer_loop}
     // CHECK-NEXT: } {d2m.outer_loop}
@@ -80,10 +88,15 @@ module {
         ins(%stream0, %stream1 : memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #ttcore.view<map(4)>, #dram>, memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #ttcore.view<map(4)>, #dram>)
         outs(%alloc : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>) {
     ^unified0(%cb0: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>, %cb2: !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>>):
-      %lhs = d2m.wait %cb0 : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
-      %rhs = d2m.wait %cb1 : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
-      %out = d2m.reserve %cb2 : !d2m.cb<memref<2x2x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
-      "d2m.tile_matmul_block"(%lhs, %rhs, %out) : (memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) -> ()
+      %idx0 = d2m.im_index(0) : index
+      %idx1 = d2m.im_index(1) : index
+      %buffer_lhs = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
+      %buffer_rhs = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
+      %buffer_out = memref.alloc() : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
+      %lhs = d2m.remote_load %buffer_lhs %stream0[%idx0, %idx1] : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<1x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #ttcore.view<map(4)>, #dram> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
+      %rhs = d2m.remote_load %buffer_rhs %stream1[%idx0, %idx1] : memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #ttcore.view<map(4)>, #dram> -> memref<2x2x!ttcore.tile<32x32, f32>, #l1_>
+      "d2m.tile_matmul_block"(%lhs, %rhs, %buffer_out) : (memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_>) -> ()
+      %result = d2m.remote_store %alloc[%idx0, %idx1] %buffer_out : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>, memref<2x2x!ttcore.tile<32x32, f32>, #l1_> -> memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1_>
     }
     return
   }
@@ -97,19 +110,27 @@ module {
 
     // CHECK: d2m.generic
     // CHECK-SAME: block_factors = [1, 1]
-    // CHECK: ^{{.*}}(%{{.*}}: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #{{.*}}>>, %{{.*}}: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #{{.*}}>>):
-    // CHECK-NEXT: %[[C0:.*]] = arith.constant 0 : index
-    // CHECK-NEXT: %[[C1:.*]] = arith.constant 1 : index
-    // CHECK-NEXT: scf.for %{{.*}} = %[[C0]] to %[[C1]] step %[[C1]] {
-    // CHECK-NEXT:   scf.for %{{.*}} = %[[C0]] to %[[C1]] step %[[C1]] {
-    // CHECK-NEXT:     d2m.wait
+    // CHECK: ^{{.*}}(%{{.*}}: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>, %{{.*}}: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>):
+    // CHECK-NEXT: %{{.*}} = arith.constant 0 : index
+    // CHECK-NEXT: %{{.*}} = arith.constant 1 : index
+    // CHECK-NEXT: scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
+    // CHECK-NEXT:   %{{.*}} = d2m.core_index(0)
+    // CHECK-NEXT:   %{{.*}} = d2m.core_index(1)
+    // CHECK-NEXT:   scf.for %{{.*}} = %{{.*}} to %{{.*}} step %{{.*}} {
+    // CHECK-NEXT:     %{{.*}} = arith.addi %{{.*}}, %{{.*}} : index
+    // CHECK-NEXT:     %{{.*}} = arith.addi %{{.*}}, %{{.*}} : index
+    // CHECK-NEXT:     %{{.*}} = memref.alloc
+    // CHECK-NEXT:     %{{.*}} = d2m.remote_load %{{.*}} %{{.*}}[%{{.*}}, %{{.*}}] : memref<{{.*}}>, memref<{{.*}}> -> memref<{{.*}}>
     // CHECK-NEXT:   } {d2m.outer_loop}
     // CHECK-NEXT: } {d2m.outer_loop}
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<2x4>, indexing_maps = [#map, #map], iterator_types = [#parallel, #parallel], threads = [#d2m.thread<unified>]}
         ins(%stream : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<map(4)>, #dram>)
         outs(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
     ^unified0(%cb0: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>, %cb1: !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>>):
-      %mem0 = d2m.wait %cb0 : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+      %idx0 = d2m.im_index(0) : index
+      %idx1 = d2m.im_index(1) : index
+      %buffer_mem = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+      %mem0 = d2m.remote_load %buffer_mem %stream[%idx0, %idx1] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<map(4)>, #dram> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
     }
     return
   }
