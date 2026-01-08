@@ -102,7 +102,11 @@ def extract_ops_from_module(
 
 
 def execute_extracted_ops(
-    ops: List[OpWrapper], *, compile_only: bool = False, frontend: Optional[str] = None
+    ops: List[OpWrapper],
+    *,
+    compile_only: bool = False,
+    frontend: Optional[str] = None,
+    debug_print: bool = False,
 ) -> List[OpTest]:
     """
     Takes a list of OpWrappers, makes a submodule out of each, compiles and executes them.
@@ -115,13 +119,15 @@ def execute_extracted_ops(
         List of wrapped operations to execute
     compile_only : bool
         If True, only compiles without executing on device
+    debug_print : bool
+        If True, prints module at each compilation step (stablehlo -> ttir -> ttnn)
 
     Returns
     -------
     List[OpTest]
         List of OpTest pydantic models with execution results
     """
-    executor = workflow_internal.MLIRModuleExecutor(compile_only)
+    executor = workflow_internal.MLIRModuleExecutor(compile_only, debug_print=debug_print)
     execution_results = []
 
     for op in workflow_internal.progress_bar(ops, desc="Executing submodules..."):

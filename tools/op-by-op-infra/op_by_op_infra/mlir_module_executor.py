@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import sys
 from datetime import datetime
 from typing import Optional
 
@@ -94,9 +95,10 @@ class MLIRModuleExecutor:
 
     # ----- Private methods -----
 
-    def __init__(self, compile_only: bool = False) -> None:
+    def __init__(self, compile_only: bool = False, debug_print: bool = False) -> None:
         """Constructor."""
         self._compile_only = compile_only
+        self._debug_print = debug_print
         self._module: ModuleWrapper = None
         self._execution_result: ExecutionResult = None
 
@@ -119,6 +121,11 @@ class MLIRModuleExecutor:
             )
 
         self._execution_result = ExecutionResult(starting_execution_phase, module)
+
+    def _debug_print_module(self, module) -> None:
+        """Prints module if debug_print is enabled."""
+        if self._debug_print:
+            print(str(module), flush=True)
 
     def _mark_execution_step(
         self,
@@ -167,6 +174,7 @@ class MLIRModuleExecutor:
         # which it modifies in-place. Also, don't lose track of the origin op.
         try:
             shlo = self._module.module
+            self._debug_print_module(shlo)
 
             ttir = stablehlo_to_ttir(shlo)
             self._mark_execution_step(
@@ -179,6 +187,7 @@ class MLIRModuleExecutor:
                     origin_model=self._module.origin_model,
                 ),
             )
+            self._debug_print_module(ttir)
 
             ttnn = ttir_to_ttnn(ttir)
             self._mark_execution_step(
@@ -191,6 +200,7 @@ class MLIRModuleExecutor:
                     origin_model=self._module.origin_model,
                 ),
             )
+            self._debug_print_module(ttnn)
         finally:
             return self._execution_result.last_generated_module
 
@@ -203,6 +213,7 @@ class MLIRModuleExecutor:
         """
         try:
             ttir = self._module.module
+            self._debug_print_module(ttir)
 
             ttnn = ttir_to_ttnn(ttir)
             self._mark_execution_step(
@@ -215,6 +226,7 @@ class MLIRModuleExecutor:
                     origin_model=self._module.origin_model,
                 ),
             )
+            self._debug_print_module(ttnn)
         finally:
             return self._execution_result.last_generated_module
 
