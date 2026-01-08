@@ -318,6 +318,18 @@ def InsertExplicitReshardsPass : Pass<"insert-explicit-reshards", "::mlir::Modul
   ];
 }
 
+def StablehloFusingPass : Pass<"stablehlo-fusing", "::mlir::ModuleOp">
+{
+  let summary = "Stablehlo fusing pass.";
+  let description = [{
+    This pass tries to fuse operations together with goal to reduce the number of operations in the graph.
+  }];
+
+  let dependentDialects = [
+    "::mlir::stablehlo::StablehloDialect"
+  ];
+}
+
 def ReoutlineCompositePass : Pass<"reoutline-composite", "::mlir::ModuleOp"> {
   let summary = "Reconstruct composite ops from flattened groups marked by reoutline.* attributes.";
   let description = [{
