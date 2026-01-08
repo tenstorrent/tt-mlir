@@ -864,6 +864,64 @@ def D2MSplitUnifiedThread : Pass<"d2m-split-unified-thread", "::mlir::ModuleOp">
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
 }
 
+def D2MScheduleDMA : Pass<"d2m-schedule-dma", "::mlir::ModuleOp"> {
+  let summary = "Schedule DMA operations across multiple hardware threads.";
+  let description = [{
+    This pass takes a single datamovement region from a d2m.generic op and splits
+    it into N separate datamovement regions, distributing remote_load and remote_store
+    operations across hardware datamovement threads for balanced execution.
+
+    The pass runs after d2m-split-unified-thread which produces a generic op with
+    a single datamovement region and a compute region. This pass analyzes the
+    remote_load and remote_store operations in the datamovement region and
+    distributes them across available hardware datamovement threads (typically 2
+    on Wormhole).
+
+    The scheduling strategy aims to balance the workload across threads by:
+    1. Counting the number of DMA operations per operand/CB
+    2. Assigning each operand's DMA operations to a thread to balance total work
+    3. Creating separate regions for each thread's assigned work
+
+    Example transformation:
+    ```mlir
+    // Before (single datamovement region with 2 remote_loads):
+    d2m.generic {threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
+        ins(%stream0, %stream1 : ...) outs(%alloc : ...) {
+    ^datamovement0(%cb0, %cb1, %cb2):
+      scf.for ... {
+        d2m.remote_load %cb0, %stream0[...]  // Load for operand 0
+        d2m.remote_load %cb1, %stream1[...]  // Load for operand 1
+      }
+    }, {
+    ^compute0(...):
+      // compute ops
+    }
+
+    // After (split into 2 datamovement regions):
+    d2m.generic {threads = [#d2m.thread<datamovement>, #d2m.thread<datamovement>, #d2m.thread<compute>]}
+        ins(%stream0, %stream1 : ...) outs(%alloc : ...) {
+    ^datamovement0(%cb0, %cb1, %cb2):
+      scf.for ... {
+        d2m.remote_load %cb0, %stream0[...]  // Thread 0 handles operand 0
+      }
+    }, {
+    ^datamovement1(%cb0, %cb1, %cb2):
+      scf.for ... {
+        d2m.remote_load %cb1, %stream1[...]  // Thread 1 handles operand 1
+      }
+    }, {
+    ^compute0(...):
+      // compute ops
+    }
+    ```
+
+    If there are more DMA operands than available threads, operations are grouped
+    to balance work. If there are fewer operands than threads, some threads may
+    be empty (and can be eliminated by later passes).
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
+}
+
 def D2MLowerLoadStoreOpsToDMA : Pass<"d2m-lower-load-store-ops-to-dma", "::mlir::ModuleOp"> {
   let summary = "Lower D2M load/store operations to DMA operations.";
   let description = [{
