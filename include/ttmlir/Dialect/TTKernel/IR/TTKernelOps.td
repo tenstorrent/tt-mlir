@@ -2622,7 +2622,7 @@ def TTKernel_NocSemaphoreSetMulticastLoopbackOp : TTKernel_Op<"noc_semaphore_set
 
 def TTKernel_ArgResultType : AnyTypeOf<[I32, TTKernel_CB, TTKernel_L1Addr]>;
 
-def TTKernel_GetArgValOp : TTKernel_Op<"get_arg_val"> {
+def TTKernel_GetArgValOp : TTKernel_Op<"get_arg_val", [Pure]> {
     let summary = "Get runtime arg value.";
     let description = [{
       Get runtime argument value at specified index.
@@ -2637,7 +2637,7 @@ def TTKernel_GetArgValOp : TTKernel_Op<"get_arg_val"> {
     }];
 }
 
-def TTKernel_GetCommonArgValOp : TTKernel_Op<"get_common_arg_val"> {
+def TTKernel_GetCommonArgValOp : TTKernel_Op<"get_common_arg_val", [Pure]> {
     let summary = "Get common runtime arg value.";
     let description = [{
       Get runtime argument value at specified index. (Indexes from different location compared to get_arg_val)
