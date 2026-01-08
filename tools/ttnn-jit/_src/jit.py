@@ -121,6 +121,7 @@ class JitFunction:
         ir = generate_ir(
             self.func,
             self.debug,
+            self.memory_config,
             *args,
             **kwargs,
         )
