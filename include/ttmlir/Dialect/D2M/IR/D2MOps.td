@@ -339,6 +339,10 @@ def D2M_GenericOp : D2M_Op<"generic",
       unsigned getNumLoops();
       unsigned getNumDims();
       AffineMap getIndexingMap(int64_t operandIndex);
+      AffineMap getIndexingMapForOperand(Value operand);
+      AffineMap getOutputIndexingMap();
+      SmallVector<int64_t> getOutputGridDimPositions();
+      int64_t getOperandIndex(Value operand);
       bool hasCompatibleBlocking(GenericOp gOp);
       bool hasSkipOpEltwiseFusionTrait();
       bool hasReduction();
@@ -346,6 +350,10 @@ def D2M_GenericOp : D2M_Op<"generic",
       bool isAllParallel();
       bool hasComputeOpsInRegion(unsigned regionIndex = 0);
       bool isNontriviallyEltwiseFused();
+      static Value findAssocOperand(memref::AllocOp allocOp);
+      static Value findAssocOperand(::mlir::tensor::EmptyOp emptyOp);
+      static Value findAssocCBByOperandIndex(Operation *op, unsigned operandIndex);
+      static Value findAssocCBByOperand(Operation *op, Value operand);
     }];
 }
 

@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/AffineMapAnalysis.h"
 #include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
@@ -41,40 +42,47 @@ getLoopBounds(OpBuilder &builder, Location loc, ArrayRef<int64_t> shardShape) {
   return std::make_tuple(lbs, ubs, step);
 }
 
-// Helper to create a semaphore block argument in the parent generic op
-// Returns a pair of (current block's semaphore, region index)
-static std::pair<BlockArgument, unsigned>
-createSemaphore(OpBuilder &builder, Location loc, Operation *op) {
-  // Find the parent GenericOp and add semaphore to all its regions
+// Attribute name for pre-allocated semaphore indices (set by
+// D2MPreallocateMcastSemaphores pass).
+constexpr StringRef kPreallocatedSemaphoresAttr = "preallocated_semaphores";
+
+// Helper to get pre-allocated semaphores for a multicast RemoteLoadOp.
+// Returns a pair of (receiversReady, senderFinished) semaphores.
+// Asserts if the semaphores were not pre-allocated by
+// D2MPreallocateMcastSemaphores.
+static std::pair<BlockArgument, BlockArgument>
+getPreallocatedSemaphores(Operation *op) {
+  auto arrayAttr = op->getAttrOfType<ArrayAttr>(kPreallocatedSemaphoresAttr);
+  TT_assertv(arrayAttr,
+             "Multicast RemoteLoadOp must have preallocated_semaphores "
+             "attribute. Ensure D2MPreallocateMcastSemaphores pass runs before "
+             "D2MLowerLoadStoreOpsToDMA.");
+  TT_assertv(arrayAttr.size() == 2u,
+             "preallocated_semaphores attribute must have exactly 2 elements");
+
   auto genericOp = op->getParentOfType<GenericOp>();
-  TT_assertv(genericOp, "RemoteLoad/Store must be inside a GenericOp");
+  TT_assertv(genericOp, "RemoteLoadOp must be inside a GenericOp");
 
-  // Find which region contains the operation
+  // Find which region contains this operation.
   Region *parentRegion = op->getParentRegion();
-  unsigned regionIndex = 0;
-  for (unsigned i = 0; i < genericOp->getNumRegions(); ++i) {
-    if (&genericOp->getRegion(i) == parentRegion) {
-      regionIndex = i;
-      break;
-    }
+  while (parentRegion && parentRegion->getParentOp() != genericOp) {
+    parentRegion = parentRegion->getParentOp()->getParentRegion();
   }
+  TT_assertv(parentRegion, "Failed to find parent region for RemoteLoadOp");
+  TT_assertv(!parentRegion->empty(), "Parent region is empty");
 
-  // Add semaphore argument to all regions
-  BlockArgument currentSemaphore = nullptr;
-  for (unsigned i = 0; i < genericOp->getNumRegions(); ++i) {
-    Region &region = genericOp->getRegion(i);
-    if (!region.empty()) {
-      Block &block = region.front();
-      BlockArgument sem =
-          block.addArgument(builder.getType<SemaphoreType>(), loc);
-      if (i == regionIndex) {
-        currentSemaphore = sem;
-      }
-    }
-  }
+  Block &block = parentRegion->front();
 
-  TT_assertv(currentSemaphore, "Failed to create semaphore for current region");
-  return {currentSemaphore, regionIndex};
+  unsigned receiversReadyIdx = mlir::cast<IntegerAttr>(arrayAttr[0]).getInt();
+  unsigned senderFinishedIdx = mlir::cast<IntegerAttr>(arrayAttr[1]).getInt();
+
+  TT_assertv(receiversReadyIdx < block.getNumArguments(),
+             "Pre-allocated receiversReady semaphore index is out of bounds");
+  TT_assertv(senderFinishedIdx < block.getNumArguments(),
+             "Pre-allocated senderFinished semaphore index is out of bounds");
+
+  return std::make_pair(block.getArgument(receiversReadyIdx),
+                        block.getArgument(senderFinishedIdx));
 }
 
 static size_t getElementSizeBytes(MemRefType memref) {
@@ -82,40 +90,6 @@ static size_t getElementSizeBytes(MemRefType memref) {
   auto tileType = mlir::dyn_cast<ttcore::TileType>(elementType);
   return tileType ? tileType.getSizeBytes()
                   : elementType.getIntOrFloatBitWidth() / 8;
-}
-
-static size_t calculateCoalescingFactor(AffineMap memoryMap,
-                                        ArrayRef<int64_t> gridShape,
-                                        ArrayRef<int64_t> shardShape,
-                                        size_t elemSizeBytes) {
-  size_t coalescingFactor = ttmlir::utils::volume(shardShape);
-  SmallVector<int64_t> memoryIndex;
-  memoryIndex.resize(gridShape.size() + shardShape.size());
-  ttmlir::utils::sample(gridShape, [&](ArrayRef<int64_t> gridIndex) {
-    size_t currentCoalescingFactor = 0;
-    SmallVector<int64_t, 4> nextAddress;
-    ttmlir::utils::sample(shardShape, [&](ArrayRef<int64_t> shardIndex) {
-      for (unsigned i = 0; i < gridIndex.size(); i++) {
-        memoryIndex[i] = gridIndex[i];
-      }
-      for (unsigned i = 0; i < shardIndex.size(); i++) {
-        memoryIndex[gridIndex.size() + i] = shardIndex[i];
-      }
-      SmallVector<int64_t, 4> address = memoryMap.compose(memoryIndex);
-      if (nextAddress.empty() || nextAddress == address) {
-        ++currentCoalescingFactor;
-      } else {
-        coalescingFactor = std::gcd(coalescingFactor, currentCoalescingFactor);
-        if (coalescingFactor == 1) {
-          return;
-        }
-        currentCoalescingFactor = 1;
-      }
-      nextAddress = address;
-      nextAddress.back() += elemSizeBytes;
-    });
-  });
-  return coalescingFactor;
 }
 
 static AffineMap canonicalStridedMap(MLIRContext *context,
@@ -194,11 +168,102 @@ static SmallVector<Value> applyMap(Builder &builder, Location loc,
   return {affineApply(map, index)};
 }
 
+// Calculates coalescing factor using analytical method with sampling fallback.
+// Mirrors the logic from GenericLowerDMAs::analyzeStream.
+static size_t calculateCoalescingFactorWithFallback(
+    AffineMap memoryMap, ArrayRef<int64_t> gridShape,
+    ArrayRef<int64_t> shardShape, size_t elemSizeBytes,
+    bool debugCoalescingInference) {
+
+  static constexpr size_t coalescingFactorSamplingFallbackThreshold = 16;
+
+  // Compute full shape (grid + shard)
+  SmallVector<int64_t> fullShape;
+  fullShape.append(gridShape.begin(), gridShape.end());
+  fullShape.append(shardShape.begin(), shardShape.end());
+
+  // Try analytical method first
+  size_t coalescingFactor = ttmlir::utils::computeCoalescingFactorAnalytically(
+      memoryMap, fullShape, gridShape.size(), elemSizeBytes);
+
+  // Determine if we should fallback to sampling
+  size_t analyticalChunkSize = coalescingFactor * elemSizeBytes;
+  bool shouldFallbackToSampling =
+      analyticalChunkSize <= coalescingFactorSamplingFallbackThreshold;
+
+  if (shouldFallbackToSampling || debugCoalescingInference) {
+    if (shouldFallbackToSampling) {
+      llvm::dbgs() << "Analytical coalescing factor below threshold, "
+                      "falling back to sampling based coalescing factor...\n";
+    } else {
+      llvm::dbgs() << "--------------------------[CoalescingFactor]------------"
+                      "--------------------\n";
+      llvm::dbgs() << "Computing sampling based coalescing factor...\n";
+    }
+
+    size_t sampledCoalescingFactor = ttmlir::utils::calculateCoalescingFactor(
+        memoryMap, fullShape, elemSizeBytes, gridShape.size());
+
+    if (debugCoalescingInference) {
+      if (coalescingFactor == sampledCoalescingFactor) {
+        llvm::dbgs() << "  [✓] Analytical and sampled coalescing "
+                        "factors MATCH = "
+                     << coalescingFactor << "\n";
+      } else if (coalescingFactor != sampledCoalescingFactor &&
+                 sampledCoalescingFactor % coalescingFactor == 0) {
+        llvm::dbgs() << "  [✓] Analytical coalescing factor is valid, but "
+                        "smaller than the sampled coalescing factor!\n";
+        llvm::dbgs() << "    analytical = " << coalescingFactor
+                     << " vs sampled = " << sampledCoalescingFactor << "\n";
+        llvm::dbgs() << "    Map: " << memoryMap << "\n";
+        llvm::dbgs() << "    Shape: "
+                     << ttmlir::utils::formatIterable(fullShape, "x") << "\n";
+        llvm::dbgs() << "  Setting coalescing factor to fallback sampled "
+                        "value = "
+                     << sampledCoalescingFactor << "\n";
+        coalescingFactor = sampledCoalescingFactor;
+      }
+
+      if (sampledCoalescingFactor % coalescingFactor != 0) {
+        llvm::dbgs() << "  [ERROR] Analytical coalescing factor is not a "
+                        "divisor of sampled coalescing factor! Generated DMA "
+                        "indexing is likely incorrect!\n";
+        llvm::dbgs() << "    Sampled coalescing factor: "
+                     << sampledCoalescingFactor << "\n";
+        llvm::dbgs() << "    Analytical coalescing factor: " << coalescingFactor
+                     << "\n";
+        llvm::dbgs() << "    Map: " << memoryMap << "\n";
+        llvm::dbgs() << "    Shape: "
+                     << ttmlir::utils::formatIterable(fullShape, "x") << "\n";
+        llvm::dbgs() << "  Setting coalescing factor to fallback sampled "
+                        "value = "
+                     << sampledCoalescingFactor << "\n";
+        coalescingFactor = sampledCoalescingFactor;
+      }
+    } else if (shouldFallbackToSampling) {
+      // Not in debug mode but we need to fallback
+      coalescingFactor = sampledCoalescingFactor;
+    }
+
+    llvm::dbgs() << "--------------------------------------------------------"
+                    "-------------\n";
+  }
+
+  return coalescingFactor;
+}
+
 namespace {
 class D2MLowerRemoteLoadRewritePattern : public OpRewritePattern<RemoteLoadOp> {
 public:
-  using OpRewritePattern<RemoteLoadOp>::OpRewritePattern;
+  D2MLowerRemoteLoadRewritePattern(MLIRContext *context,
+                                   bool debugCoalescingInference)
+      : OpRewritePattern<RemoteLoadOp>(context),
+        debugCoalescingInference(debugCoalescingInference) {}
 
+private:
+  bool debugCoalescingInference;
+
+public:
   // Helper to generate DMA read operations with proper coalescing
   // Returns the last DMA transaction value (for waiting)
   // Handles both contiguous (single DMA) and strided (loop with guarded DMAs)
@@ -396,23 +461,27 @@ public:
     Value one = rewriter.create<arith::ConstantOp>(loc, rewriter.getIndexType(),
                                                    rewriter.getIndexAttr(1));
 
-    // Create semaphores for synchronization
-    auto semResult1 = createSemaphore(rewriter, loc, remoteLoad);
-    BlockArgument receiversReadySemaphore = semResult1.first;
-    auto semResult2 = createSemaphore(rewriter, loc, remoteLoad);
-    BlockArgument senderFinishedSemaphore = semResult2.first;
+    // Get pre-allocated semaphores for synchronization.
+    // These must have been set by D2MPreallocateMcastSemaphores pass.
+    auto preallocatedSems = getPreallocatedSemaphores(remoteLoad);
+    BlockArgument receiversReadySemaphore = preallocatedSems.first;
+    BlockArgument senderFinishedSemaphore = preallocatedSems.second;
 
-    Value mcastVolumeVal = rewriter.create<arith::ConstantOp>(
-        loc, rewriter.getIndexType(), rewriter.getIndexAttr(mcastVolume));
+    // Number of receivers is mcastVolume - 1 (excluding sender itself).
+    // The sender waits for this many semaphore increments before multicasting.
+    Value numReceiversVal = rewriter.create<arith::ConstantOp>(
+        loc, rewriter.getIndexType(), rewriter.getIndexAttr(mcastVolume - 1));
 
     // Determine if this core is the sender.
     // By convention, core 0 along each multicast dimension is the sender.
     // We need to check that ALL multicast dimensions have core_index == 0.
+    // Pass grid mapping for proper virtualization support.
     Value isSender = nullptr;
+    AffineMap gridMapping = genericOp.getGrid().getMapping();
     for (size_t i = 0; i < isMcastDim.size(); ++i) {
       if (isMcastDim[i]) {
         Value coreIdx = rewriter.create<CoreIndexOp>(
-            loc, rewriter.getIndexType(), rewriter.getI64IntegerAttr(i));
+            loc, static_cast<int64_t>(i), gridMapping);
         Value condition = rewriter.create<arith::CmpIOp>(
             loc, rewriter.getI1Type(), arith::CmpIPredicate::eq, coreIdx, zero);
         if (isSender) {
@@ -439,9 +508,10 @@ public:
               remoteMemoryMap, localMemoryMap, coalescingFactor, shardVolume);
           builder.create<DMAWaitOp>(loc, dmaTx);
 
-          // Wait for all receivers to be ready
+          // Wait for all receivers to be ready (mcastVolume - 1, excluding
+          // sender)
           builder.create<SemaphoreWaitOp>(loc, receiversReadySemaphore,
-                                          mcastVolumeVal, zero);
+                                          numReceiversVal, zero);
 
           // Build full indices for the local memref
           // Use the localMemref from ReserveOp (Producer) for the multicast.
@@ -483,6 +553,7 @@ public:
           // Build sender core index by reading actual core positions
           // For dimensions that are multicast, sender is at position 0
           // For non-multicast dimensions, use current core position
+          // Pass grid mapping for proper virtualization support.
           for (size_t i = 0; i < isMcastDim.size(); ++i) {
             if (isMcastDim[i]) {
               // Multicast dimension - sender is at 0
@@ -490,7 +561,7 @@ public:
             } else {
               // Non-multicast dimension - use current core's position
               Value currentCoreIdx = builder.create<CoreIndexOp>(
-                  loc, builder.getIndexType(), builder.getI64IntegerAttr(i));
+                  loc, static_cast<int64_t>(i), gridMapping);
               senderCoreIndex.push_back(currentCoreIdx);
             }
           }
@@ -555,8 +626,9 @@ public:
     AffineMap localMemoryMap = getMemoryMap(device, cb, false);
 
     size_t elemSizeBytes = getElementSizeBytes(remoteMemrefType);
-    size_t coalescingFactor = calculateCoalescingFactor(
-        remoteMemoryMap, gridShape, shardShape, elemSizeBytes);
+    size_t coalescingFactor = calculateCoalescingFactorWithFallback(
+        remoteMemoryMap, gridShape, shardShape, elemSizeBytes,
+        debugCoalescingInference);
 
     size_t shardVolume = ttmlir::utils::volume(shardShape);
 
@@ -588,8 +660,15 @@ public:
 class D2MLowerRemoteStoreRewritePattern
     : public OpRewritePattern<RemoteStoreOp> {
 public:
-  using OpRewritePattern<RemoteStoreOp>::OpRewritePattern;
+  D2MLowerRemoteStoreRewritePattern(MLIRContext *context,
+                                    bool debugCoalescingInference)
+      : OpRewritePattern<RemoteStoreOp>(context),
+        debugCoalescingInference(debugCoalescingInference) {}
 
+private:
+  bool debugCoalescingInference;
+
+public:
   // Helper to generate DMA write operations with proper coalescing
   // Returns the last DMA transaction value (for waiting)
   // Handles both contiguous (single DMA) and strided (loop with guarded DMAs)
@@ -600,9 +679,7 @@ public:
                                  ArrayRef<int64_t> shardShape,
                                  AffineMap remoteMemoryMap,
                                  AffineMap localMemoryMap, Value cb,
-                                 size_t coalescingFactor, size_t shardVolume,
-                                 ValueRange mcastStartIndex = ValueRange(),
-                                 ValueRange mcastShape = ValueRange()) {
+                                 size_t coalescingFactor, size_t shardVolume) {
     // Reserve CB to get the local memref
     Value localMemref = builder.create<WaitOp>(loc, cb).getResult();
 
@@ -623,9 +700,9 @@ public:
       localIndices =
           applyMap(builder, loc, localMemoryMap, localIndices, false);
 
-      return builder.create<DMAWriteOp>(
-          loc, localMemref, localIndices, remoteMemref, remoteIndices,
-          coalescingFactor, mcastStartIndex, mcastShape);
+      return builder.create<DMAWriteOp>(loc, localMemref, localIndices,
+                                        remoteMemref, remoteIndices,
+                                        coalescingFactor);
     }
 
     // Strided/non-contiguous: generate loops with guarded DMAs
@@ -689,7 +766,7 @@ public:
           auto thenBuilder = ifExpr.getThenBodyBuilder();
           Value dmaTx = thenBuilder.create<DMAWriteOp>(
               innerLoc, localMemref, localIndices, remoteMemref, remoteIndices,
-              coalescingFactor, mcastStartIndex, mcastShape);
+              coalescingFactor);
           thenBuilder.create<scf::YieldOp>(innerLoc, dmaTx);
 
           auto elseBuilder = ifExpr.getElseBodyBuilder();
@@ -699,31 +776,6 @@ public:
         });
 
     return loopNest.results.front();
-  }
-
-  // Handle multicast pattern for RemoteStoreOp
-  static LogicalResult
-  handleMcastRemoteStore(PatternRewriter &rewriter, Location loc,
-                         RemoteStoreOp remoteStore, MemRefType remoteMemrefType,
-                         AffineMap remoteMemoryMap, AffineMap localMemoryMap,
-                         SmallVector<Value> gridIndices,
-                         ArrayRef<int64_t> shardShape, size_t coalescingFactor,
-                         size_t shardVolume) {
-    Value cb = remoteStore.getCb();
-    Value remoteMemref = remoteStore.getMemref();
-
-    // For remote_store with multicast, use generateDMAWrites with multicast
-    // parameters This handles both contiguous and strided memory accesses
-    Value dmaTx = generateDMAWrites(
-        rewriter, loc, remoteMemref, gridIndices, shardShape, remoteMemoryMap,
-        localMemoryMap, cb, coalescingFactor, shardVolume,
-        remoteStore.getMcastStartIndex(), remoteStore.getMcastShape());
-
-    rewriter.eraseOp(remoteStore);
-
-    // Wait for DMA to complete
-    rewriter.create<DMAWaitOp>(loc, dmaTx);
-    return success();
   }
 
   LogicalResult matchAndRewrite(RemoteStoreOp remoteStore,
@@ -770,23 +822,16 @@ public:
     AffineMap localMemoryMap = getMemoryMap(device, cb, false);
 
     size_t elemSizeBytes = getElementSizeBytes(remoteMemrefType);
-    size_t coalescingFactor = calculateCoalescingFactor(
-        remoteMemoryMap, gridShape, shardShape, elemSizeBytes);
+    size_t coalescingFactor = calculateCoalescingFactorWithFallback(
+        remoteMemoryMap, gridShape, shardShape, elemSizeBytes,
+        debugCoalescingInference);
 
     size_t shardVolume = ttmlir::utils::volume(shardShape);
 
     // Get grid indices from the remote_store operation
     SmallVector<Value> gridIndices = remoteStore.getIndices();
 
-    // Check if this is a multicast operation
-    if (remoteStore.isMcast()) {
-      return handleMcastRemoteStore(rewriter, loc, remoteStore,
-                                    remoteMemrefType, remoteMemoryMap,
-                                    localMemoryMap, gridIndices, shardShape,
-                                    coalescingFactor, shardVolume);
-    }
-
-    // Unicast path: generate DMA writes with proper coalescing
+    // Generate DMA writes with proper coalescing
     Value dmaTx = generateDMAWrites(rewriter, loc, remoteMemref, gridIndices,
                                     shardShape, remoteMemoryMap, localMemoryMap,
                                     cb, coalescingFactor, shardVolume);
@@ -795,6 +840,8 @@ public:
 
     // Wait for DMA to complete
     rewriter.create<DMAWaitOp>(loc, dmaTx);
+    // Pop the circular buffer to signal consumption
+    rewriter.create<PopOp>(loc, cb);
     return success();
   }
 };
@@ -807,8 +854,10 @@ public:
 
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    patterns.add<D2MLowerRemoteLoadRewritePattern,
-                 D2MLowerRemoteStoreRewritePattern>(&getContext());
+    patterns.add<D2MLowerRemoteLoadRewritePattern>(&getContext(),
+                                                   debugCoalescingInference);
+    patterns.add<D2MLowerRemoteStoreRewritePattern>(&getContext(),
+                                                    debugCoalescingInference);
     populateAffineToStdConversionPatterns(patterns);
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();

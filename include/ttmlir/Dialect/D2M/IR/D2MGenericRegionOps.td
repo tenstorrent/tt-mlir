@@ -700,6 +700,7 @@ def D2M_TileTilizeBlockOp : D2M_GenericRegionComputeOp<"tile_tilize_block",
 
     let arguments = (ins AnyRankedTensorOrMemRef:$input,
                          AnyRankedTensorOrMemRef:$output);
+    let results = (outs AnyRankedTensorOrMemRef:$result);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
@@ -725,6 +726,7 @@ def D2M_TileUntilizeBlockOp : D2M_GenericRegionComputeOp<"tile_untilize_block",
 
     let arguments = (ins AnyRankedTensorOrMemRef:$input,
                          AnyRankedTensorOrMemRef:$output);
+    let results = (outs AnyRankedTensorOrMemRef:$result);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
@@ -775,8 +777,9 @@ def D2M_BlockMaskOp : D2M_GenericRegionComputeOp<"block_mask",
 
         Example:
         ```mlir
-        d2m.block_mask %input, %output, %logical_rows, %logical_cols, <zero>
+        %result = d2m.block_mask %input, %output, %logical_rows, %logical_cols, <zero>
             : (memref<2x3x!ttcore.tile<32x32, f32>>, memref<2x3x!ttcore.tile<32x32, f32>>)
+            -> memref<2x3x!ttcore.tile<32x32, f32>>
         ```
     }];
 
@@ -787,9 +790,11 @@ def D2M_BlockMaskOp : D2M_GenericRegionComputeOp<"block_mask",
         Index:$logical_cols,
         TTCore_OOBValAttr:$fill_value);
 
+    let results = (outs AnyRankedTensorOrMemRef:$result);
+
     let assemblyFormat = [{
         $input `,` $output `,` $logical_rows `,` $logical_cols `,` $fill_value attr-dict
-        `:` `(` type($input) `,` type($output) `)`
+        `:` `(` type($input) `,` type($output) `)` `->` type($result)
     }];
 
     let extraClassDeclaration = [{
@@ -861,165 +866,6 @@ def D2M_TileTransposeOp : D2M_GenericRegionComputeOp<"tile_transpose", D2M_TileC
 // D2M Generic Region Datamovement Ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//
 
-def D2M_DMAOp : D2M_GenericRegionDatamovementOp<"dma",
-  [ AttrSizedOperandSegments
-  , DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
-  , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
-  , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
-                                                       , "bufferizesToMemoryWrite"
-                                                       , "isNotConflicting"
-                                                       , "bufferize"
-                                                       , "getAliasingValues"
-                                                       , "getBufferType"
-                                                       ]>
-  ]> {
-    let summary = "D2M DMA Op";
-    let description = [{
-      DMA operation, moves data from src to dst where src and dst are memrefs that may or may not belong to
-      different memory spaces. This op comes in a few flavors and is capable of roughly expressing everything
-      that underlying Noc hardware can do. The op can be used to express a wide range of data movement operations:
-
-      - Local to local
-      ```mlir
-      %tx = d2m.dma %src, %dst : (memref<6x8x!ttcore.tile<32x32, f32>, #l1_>, memref<6x8x!ttcore.tile<32x32, f32>, #l1_>) -> !d2m.mem_tx
-      ```
-
-      - Local to remote dram
-      ```mlir
-      %tx = d2m.dma %src, %dst : (memref<6x8x!ttcore.tile<32x32, f32>, #l1_>, memref<1x1x6x8x!ttcore.tile<32x32, f32>, $ttcore.shard<...>, #dram>) -> !d2m.mem_tx
-      ```
-
-      - Remote dram to local
-      ```mlir
-      %tx = d2m.dma %src, %dst : (memref<1x1x6x8x!ttcore.tile<32x32, f32>, #ttcore.shard<...>, #dram>, memref<6x8x!ttcore.tile<32x32, f32>, #l1_>) -> !d2m.mem_tx
-      ```
-
-      - Local to mcast, e.g. starting at offset core[1, 2] with mcast shape [4, 4] (src and dst have the same SSA value, implies NoC doesn't loopback)
-      ```mlir
-      %tx = d2m.dma %foo, %foo, core[%c1, %c2] mcast[%c4, %c4] : (memref<6x8x!ttcore.tile<32x32, f32>, #l1_>, memref<6x8x!ttcore.tile<32x32, f32>, #l1_>) -> !d2m.mem_tx
-      ```
-
-      - Local to mcast w/ loopback (same as above but src and dst are different SSA values)
-      ```mlir
-      %tx = d2m.dma %src, %dst, core[%c1, %c2] mcast[%c4, %c4] : (memref<6x8x!ttcore.tile<32x32, f32>, #l1_>, memref<6x8x!ttcore.tile<32x32, f32>, #l1_>) -> !d2m.mem_tx
-      ```
-
-      - A lower level form, is "fully indexed" DMA, where the src and dst memrefs have thier ranks fully indexed the additional numElems argument
-        is used to specify the number of elements to transfer. As opposed to the forms above that are not fully indexed which implicitly means to
-        transfer the leftover block.  That is given memref<2x2x3x4x!ttcore.tile<>>, if we indexed by [i, j], since we only indexed a rank of 2, the remaining
-        3x4 block is transferred.  In the fully indexed form, to express the same thing we would need to specify the number of elements to transfer:
-      ```mlir
-      %tx = d2m.dma %src[%i, %j, %k, %l], %dst[%i, %j, %k, %l], 12 : (memref<2x2x3x4x!ttcore.tile<32x32, f32>, #dram>, memref<2x2x3x4x!ttcore.tile<32x32, f32>, #l1_>) -> !d2m.mem_tx
-      ```
-
-      - Conversely, a higher level form is affine form, where the src and dst indices are implied by an affine map shared with the parent generic op.
-        Given some affine map, as demonstrated below, the dma op will be evaluated at each point in the affine map's iteration space.
-      ```mlir
-      #map1 = affine_map<(d0, d1, d2) -> (d0, d2)>
-      %tx = d2m.dma %stream<#map1>, %cb0 : (memref<4x4x6x8x!ttcore.tile<32x32, f32>, #ttcore.view<rank(4)>, #l1_>, memref<6x8x!ttcore.tile<32x32, f32>, #l1_>) -> !d2m.mem_tx
-      ```
-
-      Some constraints:
-      - src and dst must have the same element type.
-      - src and dst cannot both be remote
-    }];
-
-    let arguments = (ins AnyRankedTensorOrMemRef:$src, OptionalAttr<AffineMapAttr>:$srcAffineMap, Variadic<Index>:$srcIndices,
-                         AnyRankedTensorOrMemRef:$dst, OptionalAttr<AffineMapAttr>:$dstAffineMap, Variadic<Index>:$dstIndices,
-                         OptionalAttr<I64Attr>:$optNumElems, Variadic<Index>:$mcastStartIndex, Variadic<Index>:$mcastShape);
-    let results = (outs D2M_MemTx:$result);
-
-    let builders =
-    [
-      // %tx = d2m.dma %src, %dst
-      OpBuilder<(ins "Value": $src, "Value": $dst),
-      [{
-        build($_builder, $_state, src, nullptr, dst);
-      }]>,
-      // %tx = d2m.dma %src<#map>, %dst
-      OpBuilder<(ins "Value": $src, "AffineMapAttr": $srcAffineMap, "Value": $dst),
-      [{
-        build($_builder, $_state, src, srcAffineMap, dst, ValueRange(), ValueRange());
-      }]>,
-      // %tx = d2m.dma %src<#map>, %dst core[%c0, %c1] mcast[%c2, %c3]
-      OpBuilder<(ins "Value": $src, "AffineMapAttr": $srcAffineMap, "Value": $dst, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape),
-      [{
-        build($_builder, $_state, $_builder.getType<MemTxType>(), src, srcAffineMap, ValueRange(), dst, nullptr, ValueRange(), nullptr, mcastStartIndex, mcastShape);
-      }]>,
-      // %tx = d2m.dma %src, %dst<#map> core[%c0, %c1] mcast[%c2, %c3]
-      OpBuilder<(ins "Value": $src, "Value": $dst, "AffineMapAttr": $dstAffineMap, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape),
-      [{
-        build($_builder, $_state, $_builder.getType<MemTxType>(), src, nullptr, ValueRange(), dst, dstAffineMap, ValueRange(), nullptr, mcastStartIndex, mcastShape);
-      }]>,
-      // %tx = d2m.dma %src, %dst<#map>
-      OpBuilder<(ins "Value": $src, "Value": $dst, "AffineMapAttr": $dstAffineMap),
-      [{
-        build($_builder, $_state, $_builder.getType<MemTxType>(), src, nullptr, ValueRange(), dst, dstAffineMap, ValueRange(), nullptr, ValueRange(), ValueRange());
-      }]>,
-      // %tx = d2m.dma %src[%c0, %c1], %dst
-      OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst),
-      [{
-        build($_builder, $_state, src, srcIndices, dst, ValueRange());
-      }]>,
-      // %tx = d2m.dma %src[%c0, %c1], %dst core[%c2, %c3] mcast[%c4, %c5]
-      OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape),
-      [{
-        build($_builder, $_state, $_builder.getType<MemTxType>(), src, nullptr, srcIndices, dst, nullptr, ValueRange(), nullptr, mcastStartIndex, mcastShape);
-      }]>,
-      // %tx = d2m.dma %src, %dst[%c0, %c1]
-      OpBuilder<(ins "Value": $src, "Value": $dst, "ValueRange": $dstIndices),
-      [{
-        build($_builder, $_state, src, ValueRange(), dst, dstIndices);
-      }]>,
-      // %tx = d2m.dma %src[%c0, %c1], %dst[%c2, %c3]
-      OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices),
-      [{
-        build($_builder, $_state, src, srcIndices, dst, dstIndices, ValueRange(), ValueRange());
-      }]>,
-      // %tx = d2m.dma %src[%c0, %c1], %dst[%c2, %c3] core[%c4, %c5] mcast[%c6, %c7]
-      OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape),
-      [{
-        build($_builder, $_state, $_builder.getType<MemTxType>(), src, nullptr, srcIndices, dst, nullptr, dstIndices, nullptr, mcastStartIndex, mcastShape);
-      }]>,
-      // %tx = d2m.dma %src[%c0, %c1], %dst[%c2, %c3], <4>
-      OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "size_t": $numElems),
-      [{
-        build($_builder, $_state, src, srcIndices, dst, dstIndices, ValueRange(), ValueRange(), numElems);
-      }]>,
-      // %tx = d2m.dma %src[%c0, %c1], %dst[%c2, %c3] core[%c4, %c5] mcast[%c6, %c7], <4>
-      OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape, "size_t": $numElems),
-      [{
-        build($_builder, $_state, $_builder.getType<MemTxType>(), src, nullptr, srcIndices, dst, nullptr, dstIndices, $_builder.getI64IntegerAttr(numElems), mcastStartIndex, mcastShape);
-      }]>,
-    ];
-
-    let assemblyFormat = [{ $src (`<` $srcAffineMap^ `>`)? (`[` $srcIndices^ `]`)? `,` $dst (`<` $dstAffineMap^ `>`)? (`[` $dstIndices^ `]`)? (`core` `[` $mcastStartIndex^ `]` `mcast` `[` $mcastShape `]`)? (`,` `<` $optNumElems^ `>`)? attr-dict `:` `(` type($src) `,` type($dst) `)` `->` type($result)}];
-
-    let hasVerifier = 1;
-
-    let extraClassDeclaration = [{
-      MemRefType getSrcMemRefType() { return cast<MemRefType>(getSrc().getType()); }
-      MemRefType getDstMemRefType() { return cast<MemRefType>(getDst().getType()); }
-      int64_t getNumElems();
-      size_t getSizeBytes();
-      bool isSrcLocal() { return !isSrcRemote(); }
-      bool isSrcRemote() { return ttcore::hasDeviceLayout(getSrc()); }
-      bool isDstLocal() { return !isDstRemote(); }
-      bool isDstRemote() { return ttcore::hasDeviceLayout(getDst()); }
-      bool isMcast() { return !getMcastShape().empty(); }
-      bool isAffine() { return (getSrcAffineMap() || getDstAffineMap()) && getSrcIndices().empty() && getDstIndices().empty(); }
-      bool hasExplicitSize() { return getOptNumElems().has_value(); }
-      ::mlir::tt::ttcore::MemorySpace getSrcMemorySpace() {
-        return mlir::cast<::mlir::tt::ttcore::MemorySpaceAttr>(getSrcMemRefType().getMemorySpace()).getValue();
-      }
-      ::mlir::tt::ttcore::MemorySpace getDstMemorySpace() {
-        return mlir::cast<::mlir::tt::ttcore::MemorySpaceAttr>(getDstMemRefType().getMemorySpace()).getValue();
-      }
-
-    }];
-}
-
-
 def D2M_DMAWriteOp : D2M_GenericRegionDatamovementOp<"dma_write",
   [ AttrSizedOperandSegments
   , DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
@@ -1029,9 +875,8 @@ def D2M_DMAWriteOp : D2M_GenericRegionDatamovementOp<"dma_write",
 
     let summary = "Fully indexed and lowered D2M DMA Op for writes";
     let description = [{
-      This op is the fully lowered explicit write form of the higher level `d2m.dma` operation. It corresponds 1:1
-      to a single concrete DMA write operation from src memref to dst memref, where src and dst indices are fully resolved
-      (all view and memspace-specific affine maps applied).
+      This op performs a fully indexed DMA write operation from src memref to dst memref, where src and dst indices are fully resolved
+      (all view and memspace-specific affine maps applied). It corresponds 1:1 to a single concrete DMA write operation.
 
       This operation supports multicast; providing an empty multicast shape argument _implies a unicast write_.
 
@@ -1096,9 +941,8 @@ def D2M_DMAReadOp : D2M_GenericRegionDatamovementOp<"dma_read",
 
     let summary = "Fully indexed and lowered D2M DMA Op for read";
     let description = [{
-      This op is the fully lowered explicit read form of the higher level `d2m.dma` operation. It corresponds 1:1
-      to a single concrete DMA read operation from src memref to dst memref, where src and dst indices are fully resolved
-      (all view and memspace-specific affine maps applied). The dst memref _must_ be local!
+      This op performs a fully indexed DMA read operation from src memref to dst memref, where src and dst indices are fully resolved
+      (all view and memspace-specific affine maps applied). It corresponds 1:1 to a single concrete DMA read operation. The dst memref _must_ be local!
 
       This operation only supports unicast (mulicast are write-only).
 
@@ -1184,102 +1028,168 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
       "hasTensorSemantics"
     ]>
   ]> {
-    let summary = "D2M Remote Load Op";
+    let summary = "D2M Remote/Aliased Load Op";
     let description = [{
-      Loads an entire shard from a remote memory location into a circular buffer using affine indexing.
-      This operation operates at shard granularity on remote memrefs or tensors (with device layouts).
+      Loads an _entire shard_ from remote or local GenericOp operand into a
+      local L1 buffer. The memref/tensor argument _must_ be an operand of the
+      GenericOp.
 
-      D2M device memrefs and tensors have a device shape that follows a grid x shard convention:
-      - For a logical shape with N dimensions, the device shape has 2N dimensions
-      - The first N dimensions are grid dimensions (sharding distribution)
-      - The last N dimensions are shard dimensions (dimensions of each shard)
+      RemoteLoadOp indices correspond to the _grid dimensions only_ (first
+      N/2 dimensions of the device shape). The RemoteLoadOp always loads an
+      entire shard from the corresponding operand.
 
-      Example 1: 2D tensor with logical shape NxM and grid PxQ
-      - Device shape: P x Q x (N/P) x (M/Q)
-      - Grid dimensions: P x Q (first 2 dims)
-      - Shard dimensions: (N/P) x (M/Q) (last 2 dims)
+      This operation is well-defined for both remote and local tensors. Backend
+      DMA passes opportunistically lower this operation to aliased CB operations
+      if possible, but the semantics for remote and local tensors are identical.
 
-      Example 2: 3D tensor with logical shape NxMxO and shard AxBxC
-      - Device shape: (N/A) x (M/B) x (O/C) x A x B x C
-      - Grid dimensions: (N/A) x (M/B) x (O/C) (first 3 dims)
-      - Shard dimensions: A x B x C (last 3 dims)
+      The operation requires an explicit destination buffer parameter. The
+      operation has multiple modes; the explicit CB form and unicast/multicast
+      modes are both orthogonal and can be mixed and matched.
 
-      The `d2m.remote_load` op is indexed by the grid dimensions only (first N/2 dimensions
-      of the device shape) and loads the entire shard (all elements in the last N/2 dimensions)
-      into the circular buffer.
-
-      Example:
+      The basic form takes a local buffer as input and loads data into it:
 
       ```mlir
-      // For a 2D device memref with shape P x Q x (N/P) x (M/Q)
-      // Index by grid dimensions P x Q only, load into circular buffer
-      d2m.remote_load %cb, %memref[%i, %j] : !d2m.cb<memref<(N/P)x(M/Q)xf32, #l1_>>, memref<PxQx(N/P)x(M/Q)xf32, #ttcore.shard<...>, #dram>
-
-      // Can also work with tensors
-      d2m.remote_load %cb, %tensor[%i, %j] : !d2m.cb<tensor<(N/P)x(M/Q)xf32>>, tensor<PxQx(N/P)x(M/Q)xf32, #ttcore.shard<...>, #dram>
+      d2m.remote_load %buffer %generic_operand[%i, %j]
+        : memref<SY x SX x f32, ...>, memref<GY x GX x SY x SX x f32, ...>
+        -> memref<SY x SX x f32, ...>
       ```
 
-      ## Multicast Gather Mode
-
-      When multicast parameters are provided, this operation performs a gather-multicast pattern:
-      - By convention, core 0 along each multicast dimension is the sender
-      - The sender gathers the remote data into local memory
-      - The sender then multicasts to all cores in the region starting at
-        `mcastStartIndex` with shape `mcastShape`
-      - Receivers wait for the sender to complete
-
-      Example with multicast:
+      The explicit CB form takes a CB block arg as additional input; the load is
+      produced into the CB. The CB provided must be the CB block arg associated
+      with the operand. In explicit CB form, no local buffer is required.
 
       ```mlir
-      // Core 0 gathers and multicasts to a 1x4 region starting at core[0, 1]
-      d2m.remote_load %cb, %memref[%i, %j] core[%c0, %c1] mcast[%c1, %c4]
-        : !d2m.cb<memref<4x6xf32, #l1_>>, memref<2x4x4x6xf32, #ttcore.shard<...>, #dram>
+      d2m.remote_load %generic_operand[%i, %j] into %cb
+        : memref<GY x GX x SY x SX x f32, ...> into !d2m.cb<memref<SY x SX x f32, ...>>
+      ```
+
+      In implicit form, the result matches the shard memref/tensor type and aliases
+      the input buffer.
+
+      ## High-Level Multicast Mode
+
+      When a high-level multicast dimension list (mcast) is provided, this
+      operation performs a cooperative multicast along the parallel dimension
+      specified. All locations in the compute grid that share the same mcast dim value
+      will form a multicast group *if all non-mcast dims are reduction dims*.
+
+      The sender vs receiver roles in the multicast group are determined by convention.
+
+      NOTE: If implementing the high-level multicast is not feasible, the
+      operation will be lowered to an equivalent unicast remote load instead.
+
+      Example with high-level multicast (implicit form):
+
+      ```mlir
+      // Cooperative multicast along dimension 0
+      d2m.remote_load %buffer %memref[%i, %j] mcast[%c0]
+        : memref<4x6xf32, #l1_>, memref<2x4x4x6xf32, #ttcore.shard<...>, #dram>
+        -> memref<4x6xf32, #l1_>
+      ```
+
+      ## Low-Level Multicast Mode
+
+      WARNING: This form is currently supported mostly for internal use within
+      middle-end pipeline. Picking a concrete multicast shape implicitly
+      constrains that the layout of the operand, but this isn't handled properly
+      in the frontend grid selection.
+
+      When low-level multicast parameters (mcore/mshape) are provided, this
+      operation performs a gather-multicast pattern:
+        - By convention, core 0 along each multicast dimension is the sender
+        - The sender reads the remote data into local memory
+        - The sender then multicasts to all other cores in the mcast group
+        starting at `mcastStartIndex` with shape `mcastShape`
+        - Receivers wait for the sender to complete
+
+      Example with low-level multicast (implicit form):
+
+      ```mlir
+      // Core 0 gathers and multicasts to a 1x4 region starting at mcore[0, 1]
+      d2m.remote_load %buffer %memref[%i, %j] mcore[%c0, %c1] mshape[%c1, %c4]
+        : memref<4x6xf32, #l1_>, memref<2x4x4x6xf32, #ttcore.shard<...>, #dram>
         -> memref<4x6xf32, #l1_>
       ```
 
       Constraints:
-      - The memref/tensor must be remote (have a device layout)
-      - The operation always uses an identity affine map for grid dimensions
-      - The number of indices must equal N/2 where N is the memref/tensor rank (grid dimensions)
-      - The operation loads the entire shard into the circular buffer
-      - The circular buffer's underlying type must match the shard shape
-      - If mcastStartIndex is provided, mcastShape must also be provided (and vice versa)
+      - The number of indices must equal N/2, where N is the memref/tensor rank.
+      - The operation loads the entire shard into the provided local L1 buffer
+      - If in implicit form (no CB):
+        - The localBuffer type must match the shard shape of the memref operand
+        - The localBuffer is required
+      - If in explicit CB form:
+        - The operand provided must be a memref
+        - The localBuffer must NOT be present
+        - The CB underlying type must match the shard shape
+      - The two multicast forms are mutually exclusive: either use low-level
+      (mcore/mshape) or high-level (mcast dims), not both
     }];
 
-    let arguments = (ins D2M_CB:$cb,
+    let arguments = (ins Optional<AnyRankedTensorOrMemRef>:$localBuffer,
         Arg<AnyRankedTensorOrMemRef, "the reference to load from",
         [MemRead]>:$memref,
         Variadic<Index>:$indices,
+        Optional<D2M_CB>:$cb,
         Variadic<Index>:$mcastStartIndex,
-        Variadic<Index>:$mcastShape);
+        Variadic<Index>:$mcastShape,
+        Variadic<Index>:$mcastDims);
 
-    let results = (outs AnyRankedTensorOrMemRef:$result);
+    let results = (outs Optional<AnyRankedTensorOrMemRef>:$result);
 
     let builders = [
-      OpBuilder<(ins "Value":$cb, "Value":$memref, "ValueRange":$indices),
+      // With CB (no result, no localBuffer)
+      OpBuilder<(ins "Value":$memref, "ValueRange":$indices, "Value":$cb),
       [{
-        build($_builder, $_state, mlir::cast<CBType>(cb.getType()).getUnderlying(),
-              cb, memref, indices, ValueRange(), ValueRange());
+        build($_builder, $_state, /*result=*/TypeRange{}, /*localBuffer=*/Value{}, memref, indices, cb, ValueRange(), ValueRange(), ValueRange());
       }]>,
-      // Multicast builder
-      OpBuilder<(ins "Value":$cb, "Value":$memref, "ValueRange":$indices,
+      // With CB and low-level multicast (no result, no localBuffer)
+      OpBuilder<(ins "Value":$memref, "ValueRange":$indices, "Value":$cb,
                      "ValueRange":$mcastStartIndex, "ValueRange":$mcastShape),
       [{
-        build($_builder, $_state, mlir::cast<CBType>(cb.getType()).getUnderlying(),
-              cb, memref, indices, mcastStartIndex, mcastShape);
+        build($_builder, $_state, /*result=*/TypeRange{}, /*localBuffer=*/Value{}, memref, indices, cb, mcastStartIndex, mcastShape, ValueRange());
+      }]>,
+      // With CB and high-level multicast (no result, no localBuffer)
+      OpBuilder<(ins "Value":$memref, "ValueRange":$indices, "Value":$cb,
+                     "ValueRange":$mcastDims),
+      [{
+        build($_builder, $_state, /*result=*/TypeRange{}, /*localBuffer=*/Value{}, memref, indices, cb, ValueRange(), ValueRange(), mcastDims);
+      }]>,
+      // Without CB (with result, localBuffer required)
+      OpBuilder<(ins "Type":$resultType, "Value":$localBuffer, "Value":$memref, "ValueRange":$indices),
+      [{
+        build($_builder, $_state, resultType, localBuffer, memref, indices, /*cb=*/Value{}, ValueRange(), ValueRange(), ValueRange());
+      }]>,
+      // Without CB, with low-level multicast (with result, localBuffer required)
+      OpBuilder<(ins "Type":$resultType, "Value":$localBuffer, "Value":$memref, "ValueRange":$indices,
+                     "ValueRange":$mcastStartIndex, "ValueRange":$mcastShape),
+      [{
+        build($_builder, $_state, resultType, localBuffer, memref, indices, /*cb=*/Value{}, mcastStartIndex, mcastShape, ValueRange());
+      }]>,
+      // Without CB, with high-level multicast (with result, localBuffer required)
+      OpBuilder<(ins "Type":$resultType, "Value":$localBuffer, "Value":$memref, "ValueRange":$indices,
+                     "ValueRange":$mcastDims),
+      [{
+        build($_builder, $_state, resultType, localBuffer, memref, indices, /*cb=*/Value{}, ValueRange(), ValueRange(), mcastDims);
       }]>
     ];
 
-    let assemblyFormat = [{ $cb `,` $memref `[` $indices `]` (`core` `[` $mcastStartIndex^ `]` `mcast` `[` $mcastShape `]`)? attr-dict `:` type($cb) `,` type($memref) `->` type($result) }];
+    let hasCustomAssemblyFormat = 1;
 
     let hasVerifier = 1;
 
     let extraClassDeclaration = [{
-      /// Returns the operand index of the circular buffer.
-      unsigned getCbOperandIndex() { return 0; }
+      /// Returns the operand index (for this op!) for the local buffer parameter.
+      /// Returns UINT_MAX if localBuffer is not present (explicit CB form).
+      unsigned getLocalBufferOperandIndex() {
+        if (!getLocalBuffer()) return UINT_MAX;
+        return 0;
+      }
 
-      /// Returns the operand index of the memref/tensor.
-      unsigned getMemRefOperandIndex() { return 1; }
+      /// Returns the operand index (for this op!) for the memref/tensor parameter.
+      /// In explicit CB form, this is 0; in implicit form, this is 1.
+      unsigned getMemRefOperandIndex() {
+        return getLocalBuffer() ? 1 : 0;
+      }
 
       void setMemRef(Value value) { setOperand(getMemRefOperandIndex(), value); }
 
@@ -1291,9 +1201,22 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
         return AffineMap::getMultiDimIdentityMap(gridRank, getContext());
       }
 
+      /// Returns the CB type, or null CBType if CB is not present.
+      /// Caller should check getCb() before calling this if null check is needed.
       CBType getCbType() {
-        return mlir::cast<CBType>(getCb().getType());
+        Value cb = getCb();
+        if (!cb) return CBType();
+        return mlir::cast<CBType>(cb.getType());
       }
+
+      /// Returns true if the circular buffer operand is present (explicit CB form).
+      bool isExplicitCBForm() { return static_cast<bool>(getCb()); }
+
+      /// Returns true if the operation is in implicit form (no CB, has localBuffer).
+      bool isImplicitForm() { return static_cast<bool>(getLocalBuffer()); }
+
+      /// Returns true if the result is present (result form).
+      bool hasResultForm() { return static_cast<bool>(getResult()); }
 
       /// Returns the shaped type (memref or tensor) of the memref operand.
       ShapedType getShapedType() { return cast<ShapedType>(getMemref().getType()); }
@@ -1306,15 +1229,20 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
         llvm_unreachable("getMemRefType() called on tensor operand, use getShapedType() instead");
       }
 
-      /// Returns true if this is a multicast operation.
-      bool isMcast() { return !getMcastShape().empty(); }
+      /// Returns true if this is a multicast operation (either form).
+      bool isMcast() { return !getMcastShape().empty() || !getMcastDims().empty(); }
+
+      /// Returns true if using high-level mcast form (dimension indices).
+      bool isHighLevelMcast() { return !getMcastDims().empty(); }
+
+      /// Returns true if using low-level mcast form (mcore/mshape).
+      bool isLowLevelMcast() { return !getMcastShape().empty(); }
     }];
 }
 
 def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
   [ AttrSizedOperandSegments
   , MemoryEffects<[MemRead, MemWrite]>
-  , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
   , DeclareOpInterfaceMethods<BufferizableOpInterface, [
       "bufferizesToMemoryRead",
       "bufferizesToMemoryWrite",
@@ -1324,102 +1252,79 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
       "hasTensorSemantics"
     ]>
   ]> {
-    let summary = "D2M Remote Store Op";
+    let summary = "D2M Remote/Aliased Store Op";
     let description = [{
-      Stores an entire shard from a circular buffer to a remote memory location using affine indexing.
-      This operation operates at shard granularity on remote memrefs or tensors (with device layouts).
+      Stores an _entire shard_ from a local buffer to remote or local GenericOp
+      operand. The memref/tensor argument _must_ be an operand of the GenericOp.
 
-      D2M device memrefs and tensors have a device shape that follows a grid x shard convention:
-      - For a logical shape with N dimensions, the device shape has 2N dimensions
-      - The first N dimensions are grid dimensions (sharding distribution)
-      - The last N dimensions are shard dimensions (dimensions of each shard)
+      RemoteStoreOp indices correspond to the _grid dimensions only_ (first N/2
+      dimensions of the device shape). The RemoteStoreOp always stores an entire
+      shard to the corresponding operand.
 
-      Example 1: 2D tensor with logical shape NxM and grid PxQ
-      - Device shape: P x Q x (N/P) x (M/Q)
-      - Grid dimensions: P x Q (first 2 dims)
-      - Shard dimensions: (N/P) x (M/Q) (last 2 dims)
+      This operation is well-defined for both remote and local tensors. Backend
+      DMA passes opportunistically lower this operation to aliased CB operations
+      if possible, but the semantics for remote and local tensors are identical.
 
-      Example 2: 3D tensor with logical shape NxMxO and shard AxBxC
-      - Device shape: (N/A) x (M/B) x (O/C) x A x B x C
-      - Grid dimensions: (N/A) x (M/B) x (O/C) (first 3 dims)
-      - Shard dimensions: A x B x C (last 3 dims)
-
-      The `d2m.remote_store` op is indexed by the grid dimensions only (first N/2 dimensions
-      of the device shape) and stores the entire shard (all elements in the last N/2 dimensions)
-      from the circular buffer.
-
-      Example:
+      The operation has two forms:
+      - Implicit form takes a plain memref/tensor as input to store; it doesn't
+      assume a particular buffering implementation (CBs, scratchpad, etc).
 
       ```mlir
-      // For a 2D device memref with shape P x Q x (N/P) x (M/Q)
-      // Index by grid dimensions P x Q only, store from circular buffer
-      d2m.remote_store %memref[%i, %j], %cb : memref<PxQx(N/P)x(M/Q)xf32, #ttcore.shard<...>, #dram>, !d2m.cb<memref<(N/P)x(M/Q)xf32, #l1_>>
-
-      // Can also work with tensors
-      d2m.remote_store %tensor[%i, %j], %cb : tensor<PxQx(N/P)x(M/Q)xf32, #ttcore.shard<...>, #dram>, !d2m.cb<tensor<(N/P)x(M/Q)xf32>>
+      // For an operand with device shape (GY x GX) x (SY x SX)
+      d2m.remote_store %generic_operand[%i, %j] %buf
+        : memref<GY x GX x SY x SX x f32, ...>, memref<SY x SX x f32, ...>
+        -> memref<GY x GX x SY x SX x f32, ...>
       ```
 
-      ## Multicast Gather Mode
-
-      When multicast parameters are provided, this operation performs a gather-multicast pattern
-      for outputs:
-      - By convention, core 0 along each multicast dimension is the sender
-      - The sender gathers output data from all cores and stores to remote memory
-      - Or the sender multicasts the result to all cores in the region starting at
-        `mcastStartIndex` with shape `mcastShape`
-
-      Example with multicast:
+      - Explicit CB form stores data from a concrete CB block arg to the remote operand.
 
       ```mlir
-      // Core 0 gathers from a 1x4 region starting at core[0, 1] and stores to remote
-      d2m.remote_store %memref[%i, %j], %cb core[%c0, %c1] mcast[%c1, %c4]
-        : memref<2x4x4x6xf32, #ttcore.shard<...>, #dram>, !d2m.cb<memref<4x6xf32, #l1_>>
-        -> memref<4x6xf32, #l1_>
+      d2m.remote_store %generic_operand[%i, %j] from %cb
+        : memref<GY x GX x SY x SX x f32, ...>, !d2m.cb<memref<SY x SX x f32, ...>>
+        -> memref<GY x GX x SY x SX x f32, ...>
       ```
+
+      In both forms, the result matches the type of the operand memref/tensor.
+      This allows using the result as yield value in a generic region, as well
+      as forming a complete use-chain from remote_load to remote_store.
 
       Constraints:
-      - The memref/tensor must be remote (have a device layout)
-      - The operation always uses an identity affine map for grid dimensions
-      - The number of indices must equal N/2 where N is the memref/tensor rank (grid dimensions)
-      - The operation stores the entire shard from the circular buffer
-      - The circular buffer's underlying type must match the shard shape (last N/2 dimensions)
-      - If mcastStartIndex is provided, mcastShape must also be provided (and vice versa)
+      - The number of indices must equal N/2, where N is the memref/tensor rank.
+      - The operation stores the entire shard from a local buffer or circular buffer
+      - If in explicit CB form:
+        - The operand provided must be a memref
+        - The CB and operand memref must have compatible shard shapes
+      - Exactly one of localBuffer or cb must be present
     }];
 
     let arguments = (ins Arg<AnyRankedTensorOrMemRef, "the reference to store to",
         [MemWrite]>:$memref,
         Variadic<Index>:$indices,
-        D2M_CB:$cb,
-        Variadic<Index>:$mcastStartIndex,
-        Variadic<Index>:$mcastShape);
+        Optional<AnyRankedTensorOrMemRef>:$localBuffer,
+        Optional<D2M_CB>:$cb);
 
-    let results = (outs AnyRankedTensorOrMemRef:$result);
+    let results = (outs Optional<AnyRankedTensorOrMemRef>:$result);
 
     let builders = [
+      // Explicit CB form (with CB, no result)
       OpBuilder<(ins "Value":$memref, "ValueRange":$indices, "Value":$cb),
       [{
-        build($_builder, $_state, mlir::cast<CBType>(cb.getType()).getUnderlying(),
-              memref, indices, cb, ValueRange(), ValueRange());
+        build($_builder, $_state, /*result=*/TypeRange{}, memref, indices, /*localBuffer=*/Value{}, cb);
       }]>,
-      // Multicast builder
-      OpBuilder<(ins "Value":$memref, "ValueRange":$indices, "Value":$cb,
-                     "ValueRange":$mcastStartIndex, "ValueRange":$mcastShape),
+      // Implicit form with local buffer and result (required)
+      OpBuilder<(ins "Type":$resultType, "Value":$memref, "ValueRange":$indices, "Value":$localBuffer),
       [{
-        build($_builder, $_state, mlir::cast<CBType>(cb.getType()).getUnderlying(),
-              memref, indices, cb, mcastStartIndex, mcastShape);
+        build($_builder, $_state, resultType, memref, indices, localBuffer, /*cb=*/Value{});
       }]>
     ];
 
-    let assemblyFormat = [{ $memref `[` $indices `]` `,` $cb (`core` `[` $mcastStartIndex^ `]` `mcast` `[` $mcastShape `]`)? attr-dict `:` type($memref) `,` type($cb) `->` type($result) }];
+    let assemblyFormat = [{ $memref `[` $indices `]` ($localBuffer^)? (`from` $cb^)? attr-dict `:` type($memref) (`,` type($localBuffer)^)? (`from` type($cb)^)? (`->` type($result)^)? }];
 
     let hasVerifier = 1;
 
     let extraClassDeclaration = [{
       /// Returns the operand index of the memref/tensor.
       unsigned getMemRefOperandIndex() { return 0; }
-
-      /// Returns the operand index of the circular buffer.
-      unsigned getCbOperandIndex() { return 1 + getIndices().size(); }
 
       void setMemRef(Value value) { setOperand(getMemRefOperandIndex(), value); }
 
@@ -1431,9 +1336,22 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
         return AffineMap::getMultiDimIdentityMap(gridRank, getContext());
       }
 
+      /// Returns the CB type, or null CBType if CB is not present.
+      /// Caller should check getCb() before calling this if null check is needed.
       CBType getCbType() {
-        return mlir::cast<CBType>(getCb().getType());
+        Value cb = getCb();
+        if (!cb) return CBType();
+        return mlir::cast<CBType>(cb.getType());
       }
+
+      /// Returns true if the circular buffer operand is present (explicit CB form).
+      bool isExplicitCBForm() { return static_cast<bool>(getCb()); }
+
+      /// Returns true if the local buffer operand is present (implicit form).
+      bool isImplicitForm() { return static_cast<bool>(getLocalBuffer()); }
+
+      /// Returns true if the result is present (result form).
+      bool hasResultForm() { return static_cast<bool>(getResult()); }
 
       /// Returns the shaped type (memref or tensor) of the memref operand.
       ShapedType getShapedType() { return cast<ShapedType>(getMemref().getType()); }
@@ -1445,11 +1363,8 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
         }
         llvm_unreachable("getMemRefType() called on tensor operand, use getShapedType() instead");
       }
-
-      /// Returns true if this is a multicast operation.
-      bool isMcast() { return !getMcastShape().empty(); }
     }];
-}
+  }
 
 //===----------------------------------------------------------------------===//
 // D2M Generic Region Semaphore Ops (Used in TTMetal Lowering)
@@ -1920,6 +1835,20 @@ def D2M_IterIndexOp : D2M_IndexOp<"iter_index"> {
     }];
 }
 
+def D2M_IMIndexOp : D2M_IndexOp<"im_index"> {
+    let summary = "Indexing Map Index op.";
+    let description = [{
+      Return the index for the given indexing map dimension. This op represents
+      a high-level symbolic index that requires grid/block calculation during
+      loop generation.
+
+      Unlike IterIndexOp which directly maps to a loop induction variable,
+      IMIndexOp is created when expanding indexing map expressions and requires
+      combining grid indices with block factors and loop indices to compute
+      the final value.
+    }];
+}
+
 def D2M_CoreIndexOp : D2M_GenericRegionOp<"core_index",
   [ Pure
   , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
@@ -1971,7 +1900,9 @@ def D2M_GetGlobalOperandOp : D2M_GenericRegionOp<"get_global_operand", [Pure]> {
       ```mlir
       d2m.generic (%arg0, %arg1, %arg2) {
         ^datamovement(%cb0, %cb1, %cb2)
-          d2m.dma %arg1, %cb1 // Capture %arg1 from parent scope
+          %i = d2m.iter_index(0) : index
+          %j = d2m.iter_index(1) : index
+          d2m.remote_load %arg1[%i, %j] into %cb1 // Capture %arg1 from parent scope
       }
       ```
 
@@ -1980,7 +1911,9 @@ def D2M_GetGlobalOperandOp : D2M_GenericRegionOp<"get_global_operand", [Pure]> {
       d2m.generic (%arg0, %arg1, %arg2) {
         ^datamovement(%cb0, %cb1, %cb2)
           %operand_arg1 = d2m.get_global_operand 1
-          d2m.dma %operand_arg1, %cb0
+          %i = d2m.iter_index(0) : index
+          %j = d2m.iter_index(1) : index
+          d2m.remote_load %operand_arg1[%i, %j] into %cb0
       }
       ```
 
@@ -1992,7 +1925,9 @@ def D2M_GetGlobalOperandOp : D2M_GenericRegionOp<"get_global_operand", [Pure]> {
 
       func.func private @dm0(%cb0, %cb1, %cb2) {
         %operand_arg1 = d2m.get_global_operand 1
-        d2m.dma %operand_arg1, %cb0
+        %i = d2m.iter_index(0) : index
+        %j = d2m.iter_index(1) : index
+        d2m.remote_load %operand_arg1[%i, %j] into %cb0
       }
       ```
     }];

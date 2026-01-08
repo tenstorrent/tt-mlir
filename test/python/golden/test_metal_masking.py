@@ -129,8 +129,8 @@ def test_complete_tile_masking(
     compile_and_execute_d2m(
         module,
         target=target,
-        # d2m-decompose-masking is now part of ttir-to-ttmetal-me-pipeline (after bufferization)
-        custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        # d2m-decompose-masking is now part of ttir-to-ttmetal-ume-pipeline (after bufferization)
+        custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-ume-pipeline,ttir-to-ttmetal-be-pipeline",
         device=device,
         **get_request_kwargs(request),
         print_ir="/tmp/ir_dumps",  # DEBUG: dump IR after each pass to this directory
@@ -183,8 +183,8 @@ def test_tilize_no_masking_when_aligned(shape: Shape, target: str, request, devi
     compile_and_execute_d2m(
         module,
         target=target,
-        # d2m-decompose-masking is now part of ttir-to-ttmetal-me-pipeline (after bufferization)
-        custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        # d2m-decompose-masking is now part of ttir-to-ttmetal-ume-pipeline (after bufferization)
+        custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-ume-pipeline,ttir-to-ttmetal-be-pipeline",
         device=device,
         **get_request_kwargs(request),
     )
@@ -271,7 +271,7 @@ def test_multicore_tile_masking(
         module,
         target=target,
         # Use custom pipeline (skips GridSelection since we set grid explicitly)
-        custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-ume-pipeline,ttir-to-ttmetal-be-pipeline",
         device=device,
         **get_request_kwargs(request),
     )
