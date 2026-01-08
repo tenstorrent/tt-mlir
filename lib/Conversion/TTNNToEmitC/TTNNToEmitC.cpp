@@ -759,6 +759,7 @@ public:
         emitter.emit(/*count_include_pad=*/srcOp.getCountIncludePad()),
         emitter.emit(/*divisor_override=*/std::nullopt),
         emitter.getMemoryConfig(srcOp.getResult()),
+        /*dram_slice_config=*/emitter.emit(std::nullopt),
         emitter.emit(srcOp.getAppliedShardScheme()),
         emitter.emit(/*compute_kernel_config=*/std::nullopt),
         emitter.emit(/*deallocate_input=*/false),
@@ -816,6 +817,7 @@ public:
         emitter.template emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
         emitter.emit(srcOp.getCeilMode()),
         emitter.getMemoryConfig(srcOp.getResult()),
+        /*dram_slice_config=*/emitter.emit(std::nullopt),
         emitter.emit(srcOp.getAppliedShardScheme()),
         emitter.emit(/*deallocate_input=*/false),
         emitter.emit(
@@ -880,6 +882,7 @@ public:
         emitter.template emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
         emitter.emit(srcOp.getCeilMode()),
         emitter.getMemoryConfig(srcOp.getResult()),
+        /*dram_slice_config=*/emitter.emit(std::nullopt),
         emitter.emit(srcOp.getAppliedShardScheme()),
         /*deallocate_input=*/emitter.emit(false),
         /*reallocate_halo_output=*/
