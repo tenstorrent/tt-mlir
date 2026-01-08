@@ -4990,21 +4990,17 @@ mlir::tt::ttir::SplitQueryKeyValueAndSplitHeadsOp::verify() {
   RankedTensorType inputType = getInput().getType();
   RankedTensorType outputType = getResult().getType();
 
-  // Input and output must have the same shape.
   if (inputType.getShape() != outputType.getShape()) {
     return emitOpError("input and output must have the same shape");
   }
 
-  // Verify normalized_shape is valid for the input tensor.
   ArrayRef<int64_t> inputShape = inputType.getShape();
   ArrayRef<int64_t> normalizedShape = getNormalizedShape();
 
-  // Check that normalized_shape is not empty.
   if (normalizedShape.empty()) {
     return emitOpError("normalized_shape cannot be empty");
   }
 
-  // Check that normalized_shape is not larger than input tensor shape.
   if (normalizedShape.size() > inputShape.size()) {
     return emitOpError(
         "normalized_shape has more dimensions than input tensor");
@@ -5022,7 +5018,6 @@ mlir::tt::ttir::SplitQueryKeyValueAndSplitHeadsOp::verify() {
     }
   }
 
-  // Verify weight tensor shape if present.
   if (getWeight()) {
     RankedTensorType weightType = getWeight().getType();
     if (weightType.getShape() != normalizedShape) {
@@ -5030,7 +5025,6 @@ mlir::tt::ttir::SplitQueryKeyValueAndSplitHeadsOp::verify() {
     }
   }
 
-  // Verify bias tensor shape if present.
   if (getBias()) {
     RankedTensorType biasType = getBias().getType();
     if (biasType.getShape() != normalizedShape) {

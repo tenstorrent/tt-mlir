@@ -12206,6 +12206,9 @@ class TTIRBuilder(Builder):
             unit_attrs=unit_attrs,
         )
 
+    ############### ttir.LayerNormOp ###############
+
+    @tag(ttir.LayerNormOp)
     def layer_norm(
         self,
         in0: Operand,
@@ -12213,70 +12216,197 @@ class TTIRBuilder(Builder):
         weight: Optional[Operand] = None,
         bias: Optional[Operand] = None,
         epsilon: float = 1e-5,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> OpView:
-        """
-        Creates ``ttir.layer_norm``.
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.layer_norm)
+        normalized_shape_attr = DenseI64ArrayAttr.get(normalized_shape)
+        epsilon_attr = FloatAttr.get_f32(epsilon)
 
-        *Layer normalization operation.*
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
-        Performs layer normalization on the input tensor. This operation normalizes the
-        input tensor by computing the mean and variance of elements across the specified
-        dimensions, then normalizes by subtracting the mean and dividing by the standard
-        deviation, optionally scaling and shifting the result.
-
-        Mathematical definition: layer_norm(x, weight, bias, epsilon) =
-          ((x - mean(x, dims=normalized_dims)) / sqrt(var(x, dims=normalized_dims) + epsilon)) * weight + bias
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor to be normalized
-        normalized_shape : List[int]
-            Shape over which to normalize (typically the last few dimensions)
-        weight : Optional[Operand], optional
-            Scale parameter (gamma) tensor with shape matching normalized_shape
-        bias : Optional[Operand], optional
-            Shift parameter (beta) tensor with shape matching normalized_shape
-        epsilon : float, optional
-            Small constant for numerical stability (default: 1e-5)
-        unit_attrs : Optional[List[str]], optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-        """
-        # Prepare TTIR kwargs:
-        ttir_kwargs = {
-            "normalized_shape": normalized_shape,
-            "epsilon": epsilon,
-        }
-
-        golden_kwargs = {
-            "normalized_shape": normalized_shape,
-            "epsilon": epsilon,
-        }
-
-        if weight is not None:
-            ttir_kwargs["weight"] = weight
-            golden_kwargs["weight"] = self._get_golden_tensor(weight)
-        if bias is not None:
-            ttir_kwargs["bias"] = bias
-            golden_kwargs["bias"] = self._get_golden_tensor(bias)
-
-        return self._op_proxy(
-            ttir.LayerNormOp,
-            [in0],
-            golden_kwargs=golden_kwargs,
-            ttir_kwargs=ttir_kwargs,
-            organize_ttir_args=lambda i, o: (
-                o,
-                i[0],
-            ),
-            organize_golden_args=lambda i: [self._get_golden_tensor(i[0])],
-            unit_attrs=unit_attrs,
+        input0 = self._get_golden_tensor(in0)
+        weight0 = self._get_golden_tensor(weight) if weight is not None else None
+        bias0 = self._get_golden_tensor(bias) if bias is not None else None
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            input0,
+            mlir_output_type,
+            weight=weight0,
+            bias=bias0,
+            normalized_shape=normalized_shape,
+            epsilon=epsilon,
         )
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            in0,
+            normalized_shape_attr,
+            weight=weight,
+            bias=bias,
+            epsilon=epsilon_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttir.LayerNormOp)
+    def layer_norm_parser(
+        self,
+        old_op: ttir.LayerNormOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.layer_norm_parser)
+        in0 = global_dict[old_op.input]
+        weight = global_dict[old_op.weight] if old_op.weight else None
+        bias = global_dict[old_op.bias] if old_op.bias else None
+        normalized_shape_attr = old_op.normalized_shape
+        epsilon_attr = old_op.epsilon
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            in0,
+            normalized_shape_attr,
+            weight=weight,
+            bias=bias,
+            epsilon=epsilon_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            weight0 = self._get_golden_tensor(weight) if weight is not None else None
+            bias0 = self._get_golden_tensor(bias) if bias is not None else None
+            normalized_shape = list(normalized_shape_attr)
+            epsilon = float(epsilon_attr.value)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(
+                input0,
+                result.element_type,
+                weight=weight0,
+                bias=bias0,
+                normalized_shape=normalized_shape,
+                epsilon=epsilon,
+            )
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttir.LayerNormOp)
+    def layer_norm_split(
+        self,
+        old_op: ttir.LayerNormOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.layer_norm_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            layer_norm_module = Module.create()
+            layer_norm_builder = TTIRBuilder(old_ctx, old_loc)
+            op_input_types = [old_op.input.type]
+            if old_op.weight:
+                op_input_types.append(old_op.weight.type)
+            if old_op.bias:
+                op_input_types.append(old_op.bias.type)
+
+            with InsertionPoint(layer_norm_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="layer_norm_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    idx = 1
+                    weight = None
+                    bias = None
+                    if old_op.weight:
+                        weight = inputs[idx]
+                        idx += 1
+                    if old_op.bias:
+                        bias = inputs[idx]
+                    result = old_op.result.type
+
+                    new_op = ttir_op(
+                        result,
+                        in0,
+                        old_op.normalized_shape,
+                        weight=weight,
+                        bias=bias,
+                        epsilon=old_op.epsilon,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        input0 = self._get_golden_tensor(old_op.input)
+                        weight0 = (
+                            self._get_golden_tensor(old_op.weight)
+                            if old_op.weight
+                            else None
+                        )
+                        bias0 = (
+                            self._get_golden_tensor(old_op.bias)
+                            if old_op.bias
+                            else None
+                        )
+                        normalized_shape = list(old_op.normalized_shape)
+                        epsilon = float(old_op.epsilon.value)
+
+                        op_golden_function = get_golden_function(ttir_op)
+                        golden_output = op_golden_function(
+                            input0,
+                            result.element_type,
+                            weight=weight0,
+                            bias=bias0,
+                            normalized_shape=normalized_shape,
+                            epsilon=epsilon,
+                        )
+                        layer_norm_builder._set_golden_tensor(
+                            new_op_result, golden_output
+                        )
+                        layer_norm_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.append(in0)
+                        if weight is not None:
+                            layer_norm_builder._set_golden_tensor(weight, weight0)
+                            ordered_inputs.append(weight)
+                        if bias is not None:
+                            layer_norm_builder._set_golden_tensor(bias, bias0)
+                            ordered_inputs.append(bias)
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                layer_norm_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return layer_norm_module, layer_norm_builder
 
     # ----- Parse ttir module ----
 
