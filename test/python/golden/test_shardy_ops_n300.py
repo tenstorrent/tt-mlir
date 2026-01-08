@@ -50,7 +50,14 @@ def test_sharding_constraint(
             )
 
             builder.sharding_constraint(in0, tensor_sharding_attr=tensor_sharding_attr)
-            return builder.add(in0, in1)
+
+            sharded_out = builder.add(in0, in1)
+            # Currently, builder doesn't support evaluating graphs that return sharded
+            # tensors. So we all_gather the sharded output to make it fully replicated.
+            # TODO(hshahTT): Remove this once sharded tensor evaluation is supported.
+            partially_sharded_out = builder.all_gather(sharded_out, 0, [[0]])
+            replicated_out = builder.all_gather(partially_sharded_out, 1, [[0]])
+            return replicated_out
 
     compile_and_execute_shlo(
         module,
