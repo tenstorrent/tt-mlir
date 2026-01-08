@@ -47,7 +47,7 @@ void createStableHLOPipeline(OpPassManager &pm,
   pm.addPass(mlir::sdy::createApplyShardingConstraintsPass());
 
   // Apply stablehlo fusing pass.
-  pm.addPass(createStablehloFusingPass());  
+  pm.addPass(createStablehloFusingPass());
 
   // Propagate tensor shardings through the entire graph.
   // This propagation is taken from
