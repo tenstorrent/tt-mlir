@@ -571,29 +571,38 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
 
 bool mlir::tt::ttir::Conv2dOp::isQuantizedRewriteFavorable(
     mlir::ArrayRef<mlir::Value> sourceOperands) {
-  // Conv2dOp currently requires both input and weight to be quantized
-  // TODO(anuragsingh): enable float bias support
-  assert(sourceOperands.size() == 2 &&
-         "Quantized Conv2dOp should have two operands (only input and "
-         "weight).");
-  return llvm::all_of(sourceOperands, [](mlir::Value val) {
-    auto type = mlir::dyn_cast<mlir::RankedTensorType>(val.getType());
+  // Convolution op requires both input and weight to be quantized.
+  // Bias (if present) can be float - it will be quantized in
+  // rewriteWithQuantizedInputs.
+  assert(sourceOperands.size() >= 2 &&
+         "Conv2dOp should have at least two operands (input and weight).");
+  // Only check input and weight operands. If bias exists, it can remain float.
+  size_t numToCheck = getBias() ? 2 : sourceOperands.size();
+  for (size_t i = 0; i < numToCheck; ++i) {
+    auto type =
+        mlir::dyn_cast<mlir::RankedTensorType>(sourceOperands[i].getType());
     if (!type) {
       return false;
     }
     auto qType =
         mlir::dyn_cast<mlir::quant::QuantizedType>(type.getElementType());
-    return qType && qType.getStorageType().getIntOrFloatBitWidth() == 8;
-  });
+    if (!qType || qType.getStorageType().getIntOrFloatBitWidth() != 8) {
+      return false;
+    }
+  }
+  return true;
 }
 
 mlir::Operation *mlir::tt::ttir::Conv2dOp::rewriteWithQuantizedInputs(
     mlir::PatternRewriter &rewriter, mlir::ArrayRef<Value> sourceOperands) {
   // rewrite the convolution op to be quantized.
-  // create the output quantized type, whose scale is input * weight and
-  // storage type is i32.
+  // create the output quantized type, whose scale is input * weight.
+  // If bias is provided, output storage type is i8 (bias addition handles
+  // requantization internally). Otherwise, storage type is i32 (accumulator).
   auto storageType =
-      IntegerType::get(rewriter.getContext(), 32, IntegerType::Signed);
+      getBias()
+          ? IntegerType::get(rewriter.getContext(), 8, IntegerType::Signed)
+          : IntegerType::get(rewriter.getContext(), 32, IntegerType::Signed);
   auto quantInputType = mlir::cast<mlir::quant::QuantizedType>(
       mlir::cast<RankedTensorType>(sourceOperands[0].getType())
           .getElementType());
@@ -624,8 +633,18 @@ mlir::Operation *mlir::tt::ttir::Conv2dOp::rewriteWithQuantizedInputs(
   RankedTensorType newType =
       RankedTensorType::get(oldConvOutputType.getShape(), quantConvOutputType,
                             oldConvOutputType.getEncoding());
+  // we need to quantize the bias if it is provided, the new bias type should be
+  // the same as the quantconvoutput type
+  auto quantBias = getBias();
+  if (quantBias) {
+    RankedTensorType quantBiasType = RankedTensorType::get(
+        getBias().getType().getShape(), quantConvOutputType,
+        getBias().getType().getEncoding());
+    quantBias = rewriter.create<mlir::tt::ttir::QuantizeOp>(
+        getLoc(), quantBiasType, quantBias);
+  }
   auto quantConv = rewriter.create<mlir::tt::ttir::Conv2dOp>(
-      getLoc(), newType, sourceOperands[0], sourceOperands[1], getBias(),
+      getLoc(), newType, sourceOperands[0], sourceOperands[1], quantBias,
       getStrideAttr(), getPaddingAttr(), getDilationAttr(),
       rewriter.getI32IntegerAttr(getGroups()), getBatchDimAttr(),
       getHeightDimAttr(), getWidthDimAttr(), getChannelDimAttr(),
