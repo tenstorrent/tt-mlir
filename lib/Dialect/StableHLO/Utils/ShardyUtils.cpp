@@ -1076,6 +1076,49 @@ std::optional<mlir::DenseElementsAttr> tryGetPeriodicShardSlice(
   return mlir::DenseElementsAttr::get(localType, newValues);
 }
 
+// Check if the operation has Shardy-sharded inputs or outputs.
+// Note: This only detects Shardy TensorShardingAttrs, not legacy GSPMD
+// mhlo.sharding attributes. Should be called after ConvertXlaSdyToSdyPass.
+bool opHasShardySharding(mlir::Operation *op) {
+  // Get the module op to check for mesh ops.
+  mlir::ModuleOp moduleOp = op->getParentOfType<mlir::ModuleOp>();
+  if (!moduleOp) {
+    return false;
+  }
+
+  // Get mesh ops from the module.
+  llvm::SmallVector<mlir::sdy::MeshOp> meshOps = getMeshOps(moduleOp);
+
+  // If no mesh ops exist, there's no sharding.
+  if (meshOps.empty()) {
+    return false;
+  }
+
+  mlir::sdy::MeshOp globalMeshOp = meshOps[0];
+
+  // Check if any input operands are sharded.
+  for (mlir::OpOperand &operand : op->getOpOperands()) {
+    mlir::sdy::TensorShardingAttr shardingAttr =
+        getOperandShardingAttr(operand, globalMeshOp);
+    if (!isFullyReplicatedTensor(shardingAttr)) {
+      return true;
+    }
+  }
+
+  // Check if any output results are sharded.
+  if (auto shardingPerValue =
+          op->getAttrOfType<mlir::sdy::TensorShardingPerValueAttr>(
+              mlir::sdy::TensorShardingAttr::name)) {
+    for (auto shardingAttr : shardingPerValue.getShardings()) {
+      if (!isFullyReplicatedTensor(shardingAttr)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 #endif // #ifdef TTMLIR_ENABLE_STABLEHLO
 
 } // namespace mlir::tt::shardy_utils
