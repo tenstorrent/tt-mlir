@@ -19,12 +19,6 @@ from utils import (
 
 dram_config = ttnn.DRAM_MEMORY_CONFIG
 
-
-@ttnn_jit.jit(debug=True, compile_only=True, memory_config=dram_config)
-def abs_jit(x):
-    return ttnn.abs(x)
-
-
 DRAM_SHAPES = [
     (1024, 1024),
 ]
@@ -116,7 +110,14 @@ def test_unary_op_dram(device, shape, dtype, ttnn_dtype, op, graph_capture):
     )
 
 
-def test_layout(device):
+@pytest.mark.parametrize("frontend", ["tracing", "graph_capture", "ast"])
+def test_layout(device, frontend):
+    @ttnn_jit.jit(
+        frontend=frontend, debug=True, compile_only=True, memory_config=dram_config
+    )
+    def abs_jit(x):
+        return ttnn.abs(x)
+
     input_0_torch = torch.randn(512, 512, dtype=torch.bfloat16)
     memory_config = ttnn.create_sharded_memory_config(
         shape=(512, 512),
@@ -136,3 +137,33 @@ def test_layout(device):
     output_tensor = abs_jit(input_0_ttnn)
     print(output_tensor)
     assert True
+
+
+@pytest.mark.parametrize("frontend", ["tracing", "graph_capture", "ast"])
+def test_layout_double(device, frontend):
+    @ttnn_jit.jit(frontend=frontend, debug=True, compile_only=True, memory_config=None)
+    def abs_jit(x):
+        x = ttnn.abs(x)
+        return ttnn.exp(x)
+
+    input_0_torch = torch.randn(512, 512, dtype=torch.bfloat16)
+    memory_config = ttnn.create_sharded_memory_config(
+        shape=(512, 512),
+        core_grid=ttnn.CoreGrid(x=8, y=8),
+        strategy=ttnn.ShardStrategy.BLOCK,
+        use_height_and_width_as_shard_shape=False,
+    )
+    input_0_ttnn = ttnn.from_torch(
+        input_0_torch,
+        dtype=ttnn.bfloat16,
+        layout=ttnn.TILE_LAYOUT,
+        device=device,
+        memory_config=memory_config,
+    )
+    print(input)
+
+    output_tensor = abs_jit(input_0_ttnn)
+    print("hello", type(output_tensor))
+    golden_tensor = ttnn.exp(ttnn.abs(input_0_ttnn))
+    print(output_tensor)
+    assert all_close_check(output_tensor, golden_tensor)
