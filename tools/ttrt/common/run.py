@@ -121,6 +121,13 @@ class Run:
             help="pcc for golden test",
         )
         Run.register_arg(
+            name="--golden-diff-topk",
+            type=int,
+            default=10,
+            choices=None,
+            help="print the top k golden and output tensor elemtent pairs sorted by absolute/relative difference",
+        )
+        Run.register_arg(
             name="--seed",
             type=int,
             default=0,
@@ -929,6 +936,59 @@ class Run:
                                         self.logging.info(
                                             f"Golden:\n{golden_tensor_torch}"
                                         )
+
+                                # Print the top k differences.
+                                if golden_fail:
+                                    top_k = self["--golden-diff-topk"]
+                                    top_k_list = get_topk_diff(
+                                        golden_tensor_torch,
+                                        output_tensor_torch,
+                                        top_k,
+                                        relative=False,
+                                    )
+                                    self.logging.info(
+                                        f"Top {top_k} absolute differences:"
+                                    )
+                                    for rank, (
+                                        v_golden,
+                                        v_output,
+                                        v_diff,
+                                        idx,
+                                        is_int,
+                                    ) in enumerate(top_k_list):
+                                        if is_int:
+                                            self.logging.info(
+                                                f"{rank}: golden {v_golden:+.0f}, output {v_output:+.0f}, abs diff {v_diff:.0f}, idx {idx}"
+                                            )
+                                        else:
+                                            self.logging.info(
+                                                f"{rank}: golden {v_golden:+.6e}, output {v_output:+.6e}, abs diff {v_diff:.6e}, idx {idx}"
+                                            )
+                                    top_k_list = get_topk_diff(
+                                        golden_tensor_torch,
+                                        output_tensor_torch,
+                                        top_k,
+                                        relative=True,
+                                    )
+                                    self.logging.info(
+                                        f"Top {top_k} relative differences:"
+                                    )
+                                    for rank, (
+                                        v_golden,
+                                        v_output,
+                                        v_diff,
+                                        idx,
+                                        is_int,
+                                    ) in enumerate(top_k_list):
+                                        diff_percent = v_diff * 100
+                                        if is_int:
+                                            self.logging.info(
+                                                f"{rank}: golden {v_golden:+.0f}, output {v_output:+.0f}, rel diff {diff_percent:4.1f}%, idx {idx}"
+                                            )
+                                        else:
+                                            self.logging.info(
+                                                f"{rank}: golden {v_golden:+.6e}, output {v_output:+.6e}, rel diff {diff_percent:4.1f}%, idx {idx}"
+                                            )
 
                                 if pcc_fail:
                                     raise PCCErrorException(

@@ -33,127 +33,6 @@ class TTBuilderGoldenException(Exception):
     pass
 
 
-# Global setting for printing input/output tensors
-_print_input_output_tensors = False
-
-# Global setting for printing top k golden differences
-# None means disabled, any positive integer enables printing that many differences
-_golden_diff_topk = None
-
-
-def set_print_input_output_tensors(enabled: bool):
-    """
-    Set the global print_input_output_tensors setting.
-
-    When enabled, input tensors, output tensors, and golden tensors will be
-    printed during execution. This is useful for debugging golden comparison
-    failures.
-
-    Parameters
-    ----------
-    enabled : bool
-        Whether to enable printing of input/output tensors
-    """
-    global _print_input_output_tensors
-    _print_input_output_tensors = enabled
-
-
-def get_print_input_output_tensors() -> bool:
-    """
-    Get the current print_input_output_tensors setting.
-
-    Returns
-    -------
-    bool
-        Whether printing of input/output tensors is enabled
-    """
-    return _print_input_output_tensors
-
-
-def set_golden_diff_topk(k: Optional[int]):
-    """
-    Set the global golden_diff_topk setting.
-
-    When enabled, the top k differences between golden and output tensors
-    are printed during golden comparison. This is useful for debugging
-    numerical accuracy issues.
-
-    Parameters
-    ----------
-    k : Optional[int]
-        The number of top differences to print. None or 0 disables printing.
-    """
-    global _golden_diff_topk
-    _golden_diff_topk = k if k and k > 0 else None
-
-
-def get_golden_diff_topk() -> Optional[int]:
-    """
-    Get the current golden_diff_topk setting.
-
-    Returns
-    -------
-    Optional[int]
-        The number of top differences to print, or None if disabled
-    """
-    return _golden_diff_topk
-
-
-def print_topk_diff(golden: torch.Tensor, output: torch.Tensor, output_index: int):
-    """
-    Print the top k absolute and relative differences between golden and output tensors.
-    Uses the global golden_diff_topk setting to determine k.
-    """
-    top_k = get_golden_diff_topk()
-    if top_k is None:
-        return
-
-    is_int = not (torch.is_floating_point(golden) or torch.is_floating_point(output))
-    golden_f = golden if torch.is_floating_point(golden) else golden.to(torch.float64)
-    output_f = output if torch.is_floating_point(output) else output.to(torch.float64)
-
-    # Clamp top_k to tensor size
-    top_k = min(top_k, golden_f.numel())
-
-    def print_topk(diff: torch.Tensor, label: str, is_relative: bool):
-        top_vals, top_idxs = torch.topk(diff.flatten(), top_k)
-        print(f"Output {output_index} top {top_k} {label} differences:")
-        for rank in range(top_k):
-            idx = torch.unravel_index(top_idxs[rank], golden.shape)
-            g, o = golden_f[idx].item(), output_f[idx].item()
-            d = top_vals[rank].item()
-            idx_tuple = tuple(i.item() for i in idx)
-            if is_int:
-                if is_relative:
-                    print(
-                        f"  {rank}: golden {g:+.0f} output {o:+.0f} rel-diff {d*100:.1f}% @{idx_tuple}"
-                    )
-                else:
-                    print(
-                        f"  {rank}: golden {g:+.0f} output {o:+.0f} abs-diff {d:.0f} @{idx_tuple}"
-                    )
-            else:
-                if is_relative:
-                    print(
-                        f"  {rank}: golden {g:+.4e} output {o:+.4e} rel-diff {d*100:.1f}% @{idx_tuple}"
-                    )
-                else:
-                    print(
-                        f"  {rank}: golden {g:+.4e} output {o:+.4e} abs-diff {d:.4e} @{idx_tuple}"
-                    )
-
-    # Absolute differences
-    abs_diff = torch.abs(golden_f - output_f)
-    print_topk(abs_diff, "absolute", is_relative=False)
-
-    # Relative differences
-    rel_diff = torch.abs(abs_diff / golden_f)
-    # Handle division by zero: use (output + 1) / (golden + 1) - 1 as fallback
-    rel_diff_fallback = torch.abs((output_f + 1.0) / (golden_f + 1.0)) - 1.0
-    rel_diff = torch.where(torch.isfinite(rel_diff), rel_diff, rel_diff_fallback)
-    print_topk(rel_diff, "relative", is_relative=True)
-
-
 def runtime_dtype_to_torch_dtype(dtype) -> torch.dtype:
     if dtype == tt_runtime.runtime.DataType.Float32:
         return torch.float32
@@ -664,8 +543,6 @@ def execute_fb(
             post_op_get_callback_fn(callback_runtime_config),
         )
 
-    torch.set_printoptions(precision=3, threshold=64, edgeitems=4, linewidth=120)
-
     for program_index in program_indices:
         if fbb.is_program_private(program_index):
             continue
@@ -679,10 +556,6 @@ def execute_fb(
                 golden_inputs_torch.append(
                     golden_input_output_tensors[program_index][f"input_{i}"][0]
                 )
-                if get_print_input_output_tensors():
-                    print(
-                        f"Input {i} {golden_inputs_torch[-1].shape}\n{golden_inputs_torch[-1]}"
-                    )
             else:
                 torch_tensor = torch.randn(
                     i_dict["desc"]["shape"],
@@ -699,10 +572,6 @@ def execute_fb(
                 golden_outputs_torch.append(
                     golden_input_output_tensors[program_index][f"output_{i}"][0]
                 )
-                if get_print_input_output_tensors():
-                    print(
-                        f"Golden {i} {golden_outputs_torch[-1].shape}\n{golden_outputs_torch[-1]}"
-                    )
 
             torch_tensor = torch.zeros(
                 o_dict["desc"]["shape"],
@@ -776,9 +645,6 @@ def execute_fb(
                     dtype=runtime_dtype_to_torch_dtype(outputs[i].get_dtype()),
                 ).reshape(outputs[i].get_shape())
 
-            if get_print_input_output_tensors():
-                print(f"Output {i} {output_tensor_torch.shape}\n{output_tensor_torch}")
-
             check_outputs(
                 golden_outputs_torch[i],
                 output_tensor_torch,
@@ -789,8 +655,6 @@ def execute_fb(
                 check_atol,
                 check_rtol,
             )
-
-            print_topk_diff(golden_outputs_torch[i], output_tensor_torch, i)
 
     return callback_runtime_config.golden_report
 
@@ -824,8 +688,6 @@ def execute_py(
     golden_input_output_tensors = convert_golden_input_output_to_torch(
         input_output_goldens
     )
-
-    torch.set_printoptions(precision=3, threshold=64, edgeitems=4, linewidth=120)
 
     try:
         module_name = os.path.splitext(os.path.basename(py_path))[0]
@@ -863,10 +725,6 @@ def execute_py(
                 for input_index, template_input in enumerate(inputs):
                     # Use the layout and device from the template_input
                     golden_input = golden_input_outputs[f"input_{input_index}"][0]
-                    if get_print_input_output_tensors():
-                        print(
-                            f"Input {input_index} {golden_input.shape}\n{golden_input}"
-                        )
                     corrected_inputs.append(
                         ttnn.as_tensor(
                             golden_input,
@@ -889,12 +747,6 @@ def execute_py(
                     output_torch = output_host.to_torch()
                     golden_output_torch = golden_input_outputs[f"output_{i}"][0]
 
-                    if get_print_input_output_tensors():
-                        print(f"Output {i} {output_torch.shape}\n{output_torch}")
-                        print(
-                            f"Golden {i} {golden_output_torch.shape}\n{golden_output_torch}"
-                        )
-
                     check_outputs(
                         golden_output_torch,
                         output_torch,
@@ -905,9 +757,6 @@ def execute_py(
                         check_atol,
                         check_rtol,
                     )
-
-                    print_topk_diff(golden_output_torch, output_torch, i)
-
     except Exception as e:
         raise TTBuilderRuntimeException(e) from e
 

@@ -257,17 +257,6 @@ def pytest_addoption(parser):
         action="store_true",
         help="Use location info for kernel filenames when dumping",
     )
-    parser.addoption(
-        "--print-input-output-tensors",
-        action="store_true",
-        help="Print input tensors, output tensors, and golden tensors during execution",
-    )
-    parser.addoption(
-        "--golden-diff-topk",
-        type=int,
-        default=None,
-        help="Print the top k golden and output tensor element pairs sorted by absolute/relative difference",
-    )
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -300,49 +289,6 @@ def configure_debug_env(pytestconfig):
             True,  # deviceAddressValidation (safe default)
             False,  # blockingCQ
         )
-
-
-@pytest.fixture(scope="session", autouse=True)
-def configure_print_input_output_tensors(pytestconfig):
-    """
-    Configure the print_input_output_tensors setting for the builder runtime.
-
-    This setting controls whether input tensors, output tensors, and golden
-    tensors are printed during execution. It can be enabled via the
-    --print-input-output-tensors pytest option.
-
-    When enabled:
-        - Input tensors are printed before execution
-        - Output tensors and golden tensors are printed after execution
-        - On golden comparison failure, tensors are always printed regardless
-          of this setting
-    """
-    from builder.base import builder_runtime
-
-    print_tensors = pytestconfig.getoption("--print-input-output-tensors")
-    builder_runtime.set_print_input_output_tensors(print_tensors)
-
-
-@pytest.fixture(scope="session", autouse=True)
-def configure_golden_diff_topk(pytestconfig):
-    """
-    Configure the golden_diff_topk setting for the builder runtime.
-
-    This setting controls whether the top k differences between golden and
-    output tensors are printed during golden comparison. It can be set via
-    the --golden-diff-topk pytest option.
-
-    When set to a positive integer:
-        - The top k absolute differences are printed for each output tensor
-        - The top k relative differences are printed for each output tensor
-        - Each difference shows: golden value, output value, difference, and index
-
-    This is useful for debugging numerical accuracy issues in tests.
-    """
-    from builder.base import builder_runtime
-
-    topk = pytestconfig.getoption("--golden-diff-topk")
-    builder_runtime.set_golden_diff_topk(topk)
 
 
 def get_board_id(system_desc) -> str:
