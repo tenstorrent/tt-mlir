@@ -57,24 +57,24 @@ add_executable(test_python_runner
 
 set_property(TARGET test_python_runner PROPERTY CXX_STANDARD 20)
 
-target_compile_options(test_python_runner
-  PRIVATE
-    -Wno-deprecated-declarations
-    -Wno-gnu-zero-variadic-macro-arguments
-    -Wno-sign-compare
-    -Wno-ctad-maybe-unsupported
-    -Wno-zero-length-array
-    -Wno-c99-extensions
-)
 
 target_include_directories(test_python_runner
   PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../csrc/python_runner
 )
 
+target_include_directories(test_python_runner
+  SYSTEM PRIVATE
+    ${TTMETAL_INCLUDE_DIRS}
+)
+
 target_link_libraries(test_python_runner
   PRIVATE
     tt-alchemist-python-runner
+    ${TTMETAL_LIBRARY_PATH}
+    "LINKER:${TTNN_LIBRARY_PATH}"
+    ${TT_STL_LIBRARY_PATH}
+    ${FMT_LIBRARY_PATH}
 )
 
 # Path to tt-metal source directory
