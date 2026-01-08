@@ -4,6 +4,8 @@
 
 #include "python_runner.hpp"
 
+#include "tt/runtime/detail/ttnn/utils.h"
+
 #include <Python.h>
 
 #pragma clang diagnostic push
@@ -22,6 +24,25 @@ namespace tt::alchemist {
 NB_MODULE(_tt_alchemist_python_runner, m) { (void)m; }
 // NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
 
+class PythonModelRunner::Impl {
+public:
+  nb::object moduleObject;
+  nb::object forwardFunc;
+
+  Impl() = default;
+
+  ~Impl() {
+    if (!Py_IsInitialized()) {
+      return;
+    }
+
+    // Ensure Python refcounts are decremented while holding the GIL.
+    nb::gil_scoped_acquire acquire;
+    forwardFunc = nb::object();
+    moduleObject = nb::object();
+  }
+};
+
 PythonModelRunner::PythonModelRunner() {
   if (!Py_IsInitialized()) {
     // Register the built-in module before initializing the interpreter.
@@ -30,12 +51,13 @@ PythonModelRunner::PythonModelRunner() {
                            &PyInit__tt_alchemist_python_runner);
 
     Py_Initialize();
-    // Initialize thread support and release the GIL. nanobind's
-    // gil_scoped_acquire uses PyGILState_Ensure(), which expects a valid
-    // thread state.
-    PyEval_InitThreads();
+    // Release the GIL. nanobind's gil_scoped_acquire uses PyGILState_Ensure(),
+    // which expects a valid thread state; after Py_Initialize(), the main
+    // thread owns the GIL and can call PyEval_SaveThread().
     PyEval_SaveThread();
   }
+
+  pImpl = std::make_unique<Impl>();
 
   nb::gil_scoped_acquire acquire;
   PyObject *m = PyImport_ImportModule("_tt_alchemist_python_runner");
@@ -45,16 +67,12 @@ PythonModelRunner::PythonModelRunner() {
   Py_DECREF(m);
 }
 
-PythonModelRunner::~PythonModelRunner() {
-  if (!Py_IsInitialized()) {
-    return;
-  }
+PythonModelRunner::~PythonModelRunner() = default;
 
-  // Ensure Python refcounts are decremented while holding the GIL.
-  nb::gil_scoped_acquire acquire;
-  forwardFunc = nb::object();
-  moduleObject = nb::object();
-}
+PythonModelRunner::PythonModelRunner(PythonModelRunner &&) noexcept = default;
+
+PythonModelRunner &
+PythonModelRunner::operator=(PythonModelRunner &&) noexcept = default;
 
 void PythonModelRunner::addToSysPath(const std::string &path) {
   nb::gil_scoped_acquire acquire;
@@ -66,36 +84,52 @@ void PythonModelRunner::addToSysPath(const std::string &path) {
 void PythonModelRunner::loadModule(const std::string &moduleName,
                                    const std::string &functionName) {
   nb::gil_scoped_acquire acquire;
-  moduleObject = nb::module_::import_(moduleName.c_str());
-  forwardFunc = moduleObject.attr(functionName.c_str());
+  pImpl->moduleObject = nb::module_::import_(moduleName.c_str());
+  pImpl->forwardFunc = pImpl->moduleObject.attr(functionName.c_str());
 }
 
-std::vector<ttnn::Tensor>
-PythonModelRunner::forward(const std::vector<ttnn::Tensor> &inputs,
-                           ttnn::MeshDevice *device) {
+std::vector<tt::runtime::Tensor>
+PythonModelRunner::forward(const std::vector<tt::runtime::Tensor> &inputs,
+                           tt::runtime::Device device) {
   nb::gil_scoped_acquire acquire;
 
+  // Ensure TTNN Python bindings are loaded so nanobind can resolve type
+  // conversions for ttnn::Tensor and ttnn::MeshDevice.
+  nb::module_::import_("ttnn");
+
+  // Convert runtime types to TTNN types for the Python model.
   nb::list pyInputs;
   for (const auto &tensor : inputs) {
-    pyInputs.append(tensor);
+    ::ttnn::Tensor &ttnnTensor =
+        ::tt::runtime::ttnn::utils::getTTNNTensorFromRuntimeTensor(tensor);
+    pyInputs.append(ttnnTensor);
   }
 
-  nb::object result =
-      forwardFunc(pyInputs, nb::cast(device, nb::rv_policy::reference));
+  ::ttnn::MeshDevice &meshDevice =
+      device.as<::ttnn::MeshDevice>(tt::runtime::DeviceRuntime::TTNN);
+  nb::object result = pImpl->forwardFunc(
+      pyInputs, nb::cast(&meshDevice, nb::rv_policy::reference));
 
-  std::vector<ttnn::Tensor> outputs;
+  // Convert TTNN outputs back to runtime tensors for the C++ API.
+  std::vector<tt::runtime::Tensor> outputs;
   if (nb::isinstance<nb::list>(result)) {
     nb::list resultList = nb::cast<nb::list>(result);
     for (nb::handle item : resultList) {
-      outputs.push_back(nb::cast<ttnn::Tensor>(item));
+      ::ttnn::Tensor ttnnTensor = nb::cast<::ttnn::Tensor>(item);
+      outputs.push_back(::tt::runtime::ttnn::utils::createRuntimeTensorFromTTNN(
+          ttnnTensor, std::nullopt, /*retain=*/true));
     }
   } else if (nb::isinstance<nb::tuple>(result)) {
     nb::tuple resultTuple = nb::cast<nb::tuple>(result);
     for (nb::handle item : resultTuple) {
-      outputs.push_back(nb::cast<ttnn::Tensor>(item));
+      ::ttnn::Tensor ttnnTensor = nb::cast<::ttnn::Tensor>(item);
+      outputs.push_back(::tt::runtime::ttnn::utils::createRuntimeTensorFromTTNN(
+          ttnnTensor, std::nullopt, /*retain=*/true));
     }
   } else {
-    outputs.push_back(nb::cast<ttnn::Tensor>(result));
+    ::ttnn::Tensor ttnnTensor = nb::cast<::ttnn::Tensor>(result);
+    outputs.push_back(::tt::runtime::ttnn::utils::createRuntimeTensorFromTTNN(
+        ttnnTensor, std::nullopt, /*retain=*/true));
   }
 
   return outputs;
