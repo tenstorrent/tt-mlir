@@ -262,7 +262,9 @@ public:
 
       template_args.push_back(packTileOp.getOutOfOrderAttr());
       return ArrayAttr::get(op.getContext(), template_args);
-    } else if constexpr (std::is_same_v<SourceOp, ttkernel::TypecastTileOp>) {
+    } else if constexpr (std::is_same_v<SourceOp, ttkernel::TypecastTileOp> ||
+                         std::is_same_v<SourceOp,
+                                        ttkernel::TypecastTileInitOp>) {
       SmallVector<Attribute, 2> template_args;
       template_args.push_back(
           datatypeToDataformatEnumValue(builder, op.getInDtype()));

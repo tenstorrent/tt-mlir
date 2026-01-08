@@ -162,10 +162,11 @@ def TTKernel_TypecastTileInitOp : TTKernel_InitOp<"typecast_tile_init"> {
       Must be run before typecast_tile.
     }];
 
-    let arguments = (ins);
+    let arguments = (ins TTCore_DataTypeAttr:$in_dtype,
+                         TTCore_DataTypeAttr:$out_dtype);
 
     let assemblyFormat = [{
-      `(` `)` attr-dict `:` functional-type(operands, results)
+      `(` $in_dtype `,` $out_dtype `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 

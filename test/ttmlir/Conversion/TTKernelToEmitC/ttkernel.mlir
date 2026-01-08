@@ -112,8 +112,10 @@ module {
 
     // CHECK-LABEL: func @typecast_tile_init
     func.func @typecast_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
-      // CHECK: emitc.call_opaque "typecast_tile_init"() : () -> ()
-      "ttkernel.typecast_tile_init"() : () -> ()
+      // CHECK: emitc.call_opaque "typecast_tile_init"() {template_args =
+      // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::Float32)">
+      // CHECK-SAME: #emitc.opaque<"static_cast<std::underlying_type_t<DataFormat>>(DataFormat::Float16_b)">
+      "ttkernel.typecast_tile_init"() <{in_dtype = #ttcore.supportedDataTypes<f32>, out_dtype = #ttcore.supportedDataTypes<bf16>}> : () -> ()
       return
     }
 
