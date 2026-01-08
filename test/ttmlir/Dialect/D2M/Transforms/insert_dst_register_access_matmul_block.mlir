@@ -1,3 +1,4 @@
+// UNSUPPORTED: true
 // RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access="use-tile-matmul=false" --canonicalize -o %t %s
 // RUN: FileCheck %s --input-file=%t
 

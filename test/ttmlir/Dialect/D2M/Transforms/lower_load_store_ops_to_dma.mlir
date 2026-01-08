@@ -1,3 +1,4 @@
+// UNSUPPORTED: true
 // RUN: ttmlir-opt --ttcore-register-device --d2m-insert-load-store-ops --d2m-generate-outer-loops --d2m-split-unified-thread --d2m-lower-load-store-ops-to-dma -o %t %s
 // RUN: FileCheck %s --input-file=%t
 

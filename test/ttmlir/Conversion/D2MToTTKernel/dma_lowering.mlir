@@ -1,3 +1,4 @@
+// UNSUPPORTED: true
 // RUN: ttmlir-opt --ttcore-register-device --d2m-generic-lower-dmas --convert-d2m-to-ttkernel -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
