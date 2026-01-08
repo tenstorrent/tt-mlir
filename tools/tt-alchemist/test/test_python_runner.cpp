@@ -4,15 +4,14 @@
 
 #include "python_runner.hpp"
 
+#include "tt/runtime/detail/ttnn/utils.h"
+#include "tt/runtime/runtime.h"
+#include "ttnn/operations/core/core.hpp"
+#include "ttnn/operations/creation.hpp"
+
 #include <cstdlib>
 #include <iostream>
 #include <vector>
-
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wcovered-switch-default"
-#include "ttnn/operations/core/core.hpp"
-#include "ttnn/operations/creation.hpp"
-#pragma clang diagnostic pop
 
 int main() {
   std::cout << "[C++] Starting PythonModelRunner test..." << std::endl;
@@ -34,7 +33,7 @@ int main() {
   std::cout << "[C++] Loaded test_model module" << std::endl;
 
   // Create a device
-  auto device = ttnn::MeshDevice::create_unit_mesh(0);
+  auto meshDevice = ttnn::MeshDevice::create_unit_mesh(0);
   std::cout << "[C++] Created device" << std::endl;
 
   // Create input tensors
@@ -51,26 +50,34 @@ int main() {
 
   // Move to device
   input1 =
-      ttnn::to_device(input1, device.get(),
+      ttnn::to_device(input1, meshDevice.get(),
                       ttnn::MemoryConfig{ttnn::TensorMemoryLayout::INTERLEAVED,
                                          ttnn::BufferType::DRAM});
   input2 =
-      ttnn::to_device(input2, device.get(),
+      ttnn::to_device(input2, meshDevice.get(),
                       ttnn::MemoryConfig{ttnn::TensorMemoryLayout::INTERLEAVED,
                                          ttnn::BufferType::DRAM});
   std::cout << "[C++] Created and moved input tensors to device" << std::endl;
 
-  // Run forward
-  std::vector<ttnn::Tensor> inputs = {input1, input2};
+  // Convert TTNN inputs/device to runtime types for the runner API.
+  std::vector<tt::runtime::Tensor> inputs = {
+      tt::runtime::ttnn::utils::createRuntimeTensorFromTTNN(input1),
+      tt::runtime::ttnn::utils::createRuntimeTensorFromTTNN(input2),
+  };
+  tt::runtime::Device device =
+      tt::runtime::ttnn::utils::createRuntimeDeviceFromTTNN(meshDevice.get());
   std::cout << "[C++] Calling forward..." << std::endl;
 
-  auto outputs = runner.forward(inputs, device.get());
+  auto outputs = runner.forward(inputs, device);
   std::cout << "[C++] Got " << outputs.size() << " output tensor(s)"
             << std::endl;
 
   if (!outputs.empty()) {
-    std::cout << "[C++] Output logical shape: " << outputs[0].logical_shape()
-              << std::endl;
+    std::cout << "[C++] Output shape: ";
+    for (auto dim : tt::runtime::getTensorShape(outputs[0])) {
+      std::cout << dim << " ";
+    }
+    std::cout << std::endl;
   }
 
   std::cout << "[C++] Test PASSED!" << std::endl;
