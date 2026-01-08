@@ -125,6 +125,7 @@ class JitFunction:
             self.source_code,
             self.func,
             self.debug,
+            self.memory_config,
             *args,
             **kwargs,
         )
