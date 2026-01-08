@@ -17,7 +17,6 @@ nanobind_build_library(nanobind-static)
 
 add_library(${PYTHON_RUNNER_LIBRARY_NAME}
   SHARED
-  EXCLUDE_FROM_ALL
   python_runner.cpp
 )
 
@@ -34,7 +33,8 @@ target_compile_options(${PYTHON_RUNNER_LIBRARY_NAME}
 
 target_include_directories(${PYTHON_RUNNER_LIBRARY_NAME}
   PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}  # For python_runner.hpp
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+    $<INSTALL_INTERFACE:include/tools/tt-alchemist/python_runner>
   SYSTEM PUBLIC
     ${TTMETAL_INCLUDE_DIRS}
 )
@@ -57,5 +57,10 @@ set_target_properties(${PYTHON_RUNNER_LIBRARY_NAME} PROPERTIES
 
 install(FILES $<TARGET_FILE:${PYTHON_RUNNER_LIBRARY_NAME}>
   DESTINATION lib
-  OPTIONAL
+  COMPONENT SharedLib
+)
+
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/python_runner.hpp
+  DESTINATION include/tools/tt-alchemist/python_runner
+  COMPONENT SharedLib
 )
