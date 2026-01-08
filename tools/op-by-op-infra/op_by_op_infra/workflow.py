@@ -127,7 +127,9 @@ def execute_extracted_ops(
     List[OpTest]
         List of OpTest pydantic models with execution results
     """
-    executor = workflow_internal.MLIRModuleExecutor(compile_only, debug_print=debug_print)
+    executor = workflow_internal.MLIRModuleExecutor(
+        compile_only, debug_print=debug_print
+    )
     execution_results = []
 
     for op in workflow_internal.progress_bar(ops, desc="Executing submodules..."):
