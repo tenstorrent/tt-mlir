@@ -564,6 +564,7 @@ mlir::LogicalResult RemoteLoadOp::bufferize(
   }
 
   // Create a new RemoteLoadOp with bufferized operands
+  // NOLINTNEXTLINE
   mlir::bufferization::replaceOpWithNewBufferizedOp<RemoteLoadOp>(
       rewriter, *this, cbBuffer.getResult(), *memrefBuffer, getIndices(),
       getMcastStartIndex(), getMcastShape());
@@ -640,6 +641,7 @@ mlir::LogicalResult RemoteStoreOp::bufferize(
       getLoc(), *cbBufferType, getCb());
 
   // Create a new RemoteStoreOp with bufferized operands
+  // NOLINTNEXTLINE
   mlir::bufferization::replaceOpWithNewBufferizedOp<RemoteStoreOp>(
       rewriter, *this, *memrefBuffer, getIndices(), cbBuffer.getResult(),
       getMcastStartIndex(), getMcastShape());
