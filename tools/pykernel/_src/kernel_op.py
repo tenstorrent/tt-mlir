@@ -178,6 +178,61 @@ class PyKernelOp:
 
         return result
 
+    def _convert_rt_args_to_kernel_descriptor_runtime_args(self, rt_args, core_ranges):
+        """
+        Convert PyKernel's legacy 2D runtime-args format:
+          rt_args[x_offset][y_offset] == list[int]
+        into tt-metal's new KernelDescriptor runtime_args format:
+          Sequence[tuple[CoreCoord, Sequence[int]]]
+
+        """
+        if rt_args is None:
+            return []
+
+        if not isinstance(rt_args, list):
+            # Allow callers to pass-through already-converted runtime args objects.
+            return rt_args
+
+        if not rt_args:
+            return []
+
+        # Expect 2D list: outer is X, inner is Y. Each element is list[int].
+        if not isinstance(rt_args[0], (list, tuple)):
+            raise TypeError(
+                "Internal error: rt_args must be a 2D list (list[list[list[int]]])."
+            )
+
+        bb = core_ranges.bounding_box()
+        expected_x = bb.end.x - bb.start.x + 1
+        expected_y = bb.end.y - bb.start.y + 1
+
+        if len(rt_args) > expected_x:
+            raise ValueError(
+                f"rt_args X dimension ({len(rt_args)}) exceeds core_ranges bounding box ({expected_x})."
+            )
+        for row in rt_args:
+            if len(row) > expected_y:
+                raise ValueError(
+                    f"rt_args Y dimension ({len(row)}) exceeds core_ranges bounding box ({expected_y})."
+                )
+
+        runtime_args_pairs = []
+        for x_offset, row in enumerate(rt_args):
+            for y_offset, vals in enumerate(row):
+                if vals is None:
+                    continue
+                if not isinstance(vals, (list, tuple)):
+                    raise TypeError(
+                        "Internal error: rt_args entries must be list[int]."
+                    )
+                if len(vals) == 0:
+                    continue
+                x = bb.start.x + x_offset
+                y = bb.start.y + y_offset
+                runtime_args_pairs.append((self.ttnn.CoreCoord(x, y), list(vals)))
+
+        return runtime_args_pairs
+
     # Use common runtime args for scalars, otherwise use arg_val for list of lists and template function to resolve this.
     # Who knew function signature theory and resolution order would be relevant one day
     def create_kernel(self, kernel, *args, core_ranges=None, **kwargs):
@@ -240,6 +295,10 @@ class PyKernelOp:
         if rt_args is None:
             rt_args = [[[]]]
 
+        runtime_args = self._convert_rt_args_to_kernel_descriptor_runtime_args(
+            rt_args, core_ranges
+        )
+
         # Get the PyKernel type for cb_args
         cb_args = [x.cb_type for x in args if isinstance(x, OpCircularBuffer)]
 
@@ -254,7 +313,7 @@ class PyKernelOp:
             "kernel_source": kernel_path,
             "core_ranges": self.get_core_ranges(core_ranges),
             "compile_time_args": compile_time_args,
-            "runtime_args": rt_args,
+            "runtime_args": runtime_args,
             "config": config(),
         }
 

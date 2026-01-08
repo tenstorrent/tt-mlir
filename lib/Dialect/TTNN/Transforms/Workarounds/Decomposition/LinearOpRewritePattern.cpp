@@ -177,6 +177,8 @@ LinearOpRewritePattern::matchAndRewrite(ttnn::LinearOp srcOp,
       opName = StringAttr::get(rewriter.getContext(), "ttnn.gelu");
     } else if (activationStr == "tanh") {
       opName = StringAttr::get(rewriter.getContext(), "ttnn.tanh");
+    } else if (activationStr == "silu") {
+      opName = StringAttr::get(rewriter.getContext(), "ttnn.silu");
     } else {
       matmulOp.emitError()
           << "Unsupported activation type in LinearOp decomposition: "
