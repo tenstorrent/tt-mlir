@@ -88,6 +88,76 @@ func.func @test_noc_trid_and_noc_nonconst(%trid: i32, %noc: i8) {
   return
 }
 
+//===----------------------------------------------------------------------===//
+// TensorAccessorArgsOp assembly format round-trip tests.
+//===----------------------------------------------------------------------===//
+
+// CHECK-LABEL: func.func @test_tensor_accessor_args_literal_offsets
+func.func @test_tensor_accessor_args_literal_offsets() -> !ttkernel.TensorAccessorArgs {
+  // CHECK: %[[C0:.*]] = arith.constant 0 : i32
+  %c0 = arith.constant 0 : i32
+  // CHECK: %[[C5:.*]] = arith.constant 5 : i32
+  %c5 = arith.constant 5 : i32
+  // Test: literal offsets without chaining.
+  // CHECK: ttkernel.TensorAccessorArgs(%[[C0]], %[[C5]])
+  %args = ttkernel.TensorAccessorArgs(%c0, %c5)
+  return %args : !ttkernel.TensorAccessorArgs
+}
+
+// CHECK-LABEL: func.func @test_tensor_accessor_args_chaining
+func.func @test_tensor_accessor_args_chaining() -> !ttkernel.TensorAccessorArgs {
+  // CHECK: %[[C0:.*]] = arith.constant 0 : i32
+  %c0 = arith.constant 0 : i32
+  // Test: chaining via prev_args.
+  // CHECK: %[[ARGS1:.*]] = ttkernel.TensorAccessorArgs(%[[C0]], %[[C0]])
+  %args1 = ttkernel.TensorAccessorArgs(%c0, %c0)
+  // CHECK: ttkernel.TensorAccessorArgs(prev = %[[ARGS1]])
+  %args2 = ttkernel.TensorAccessorArgs(prev = %args1)
+  return %args2 : !ttkernel.TensorAccessorArgs
+}
+
+// CHECK-LABEL: func.func @test_tensor_accessor_args_cta_expr
+func.func @test_tensor_accessor_args_cta_expr() -> !ttkernel.TensorAccessorArgs {
+  // CHECK: %[[C0:.*]] = arith.constant 0 : i32
+  %c0 = arith.constant 0 : i32
+  // Test: with cta_expr attribute.
+  // CHECK: ttkernel.TensorAccessorArgs(%[[C0]], %[[C0]]) cta_expr = "get_offset()"
+  %args = ttkernel.TensorAccessorArgs(%c0, %c0) cta_expr = "get_offset()"
+  return %args : !ttkernel.TensorAccessorArgs
+}
+
+// CHECK-LABEL: func.func @test_tensor_accessor_args_crta_expr
+func.func @test_tensor_accessor_args_crta_expr() -> !ttkernel.TensorAccessorArgs {
+  // CHECK: %[[C0:.*]] = arith.constant 0 : i32
+  %c0 = arith.constant 0 : i32
+  // Test: with crta_expr attribute.
+  // CHECK: ttkernel.TensorAccessorArgs(%[[C0]], %[[C0]]) crta_expr = "compute_crta()"
+  %args = ttkernel.TensorAccessorArgs(%c0, %c0) crta_expr = "compute_crta()"
+  return %args : !ttkernel.TensorAccessorArgs
+}
+
+// CHECK-LABEL: func.func @test_tensor_accessor_args_both_exprs
+func.func @test_tensor_accessor_args_both_exprs() -> !ttkernel.TensorAccessorArgs {
+  // CHECK: %[[C0:.*]] = arith.constant 0 : i32
+  %c0 = arith.constant 0 : i32
+  // Test: with both cta_expr and crta_expr.
+  // CHECK: ttkernel.TensorAccessorArgs(%[[C0]], %[[C0]]) cta_expr = "cta_func()" crta_expr = "crta_func()"
+  %args = ttkernel.TensorAccessorArgs(%c0, %c0) cta_expr = "cta_func()" crta_expr = "crta_func()"
+  return %args : !ttkernel.TensorAccessorArgs
+}
+
+// CHECK-LABEL: func.func @test_tensor_accessor_args_chaining_with_crta_override
+func.func @test_tensor_accessor_args_chaining_with_crta_override() -> !ttkernel.TensorAccessorArgs {
+  // CHECK: %[[C0:.*]] = arith.constant 0 : i32
+  %c0 = arith.constant 0 : i32
+  // Test: chaining with crta_expr override.
+  // CHECK: %[[ARGS1:.*]] = ttkernel.TensorAccessorArgs(%[[C0]], %[[C0]])
+  %args1 = ttkernel.TensorAccessorArgs(%c0, %c0)
+  // CHECK: ttkernel.TensorAccessorArgs(prev = %[[ARGS1]]) crta_expr = "0"
+  %args2 = ttkernel.TensorAccessorArgs(prev = %args1) crta_expr = "0"
+  return %args2 : !ttkernel.TensorAccessorArgs
+}
+
 // CHECK-LABEL: func.func @test_noc_trid_with_implicit_noc
 // CHECK-SAME: (%[[TRID:.*]]: i32)
 func.func @test_noc_trid_with_implicit_noc(%trid: i32) {

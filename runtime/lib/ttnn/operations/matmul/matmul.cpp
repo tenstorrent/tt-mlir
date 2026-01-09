@@ -81,9 +81,11 @@ void run(const ::tt::target::ttnn::LinearOp *op, ProgramContext &context) {
         utils::createDeviceComputeKernelConfig(op->compute_config());
   }
 
+  auto programConfig = utils::createMatmulProgramConfigIfNeeded(op);
+
   ::ttnn::Tensor output = ::ttnn::linear(
       lhs, rhs, bias, op->transpose_a(), op->transpose_b(), outputMemoryConfig,
-      outputDataType, /*program_config=*/std::nullopt,
+      outputDataType, programConfig,
       /*activation=*/activation, /*compute_kernel_config=*/computeConfig,
       /*core_grid=*/std::nullopt, /*output_tile=*/std::nullopt,
       /* optional_output_tensor=*/std::nullopt);

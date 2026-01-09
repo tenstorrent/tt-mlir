@@ -66,11 +66,11 @@ class MatmulMulticorePyKernelOp(PyKernelOp):
         num_tiles,
     ):
         in0_tile_bytes = get_tile_size(cb_in0)
-        tensor_accessor_args = TensorAccessorArgs(2, 0)
+        tensor_accessor_args = TensorAccessorArgs(cta_base=2, crta_base=0)
         addr_gen_a = TensorAccessor(tensor_accessor_args, src_addr0, in0_tile_bytes)
 
         in1_tile_bytes = get_tile_size(cb_in1)
-        tensor_accessor_args = TensorAccessorArgs(2, 0)
+        tensor_accessor_args = TensorAccessorArgs(cta_base=2, crta_base=0)
         addr_gen_b = TensorAccessor(tensor_accessor_args, src_addr1, in1_tile_bytes)
 
         for output_tile in range(0, num_tiles, 1):
@@ -103,7 +103,7 @@ class MatmulMulticorePyKernelOp(PyKernelOp):
         start_id,
     ):
         tile_bytes = get_tile_size(cb_out)
-        tensor_accessor_args = TensorAccessorArgs(1, 0)
+        tensor_accessor_args = TensorAccessorArgs(cta_base=1, crta_base=0)
         addr_gen_c = TensorAccessor(tensor_accessor_args, dst_addr, tile_bytes)
 
         end_id = start_id + num_tiles

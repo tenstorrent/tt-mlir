@@ -876,28 +876,28 @@ class TTNN_ReductionOp<string mnemonic, list<Trait> traits = []> : TTNN_Op<mnemo
   let hasVerifier = 1;
 }
 
-def TTNN_SumOp : TTNN_ReductionOp<"sum"> {
+def TTNN_SumOp : TTNN_ReductionOp<"sum", [TTNN_ComputeKernelConfigOpInterface]> {
     let summary = "Sum reduction op.";
     let description = [{
       Sum reduction op.
     }];
 }
 
-def TTNN_MeanOp : TTNN_ReductionOp<"mean"> {
+def TTNN_MeanOp : TTNN_ReductionOp<"mean", [TTNN_ComputeKernelConfigOpInterface]> {
   let summary = "Mean reduction op.";
   let description = [{
     Mean reduction op.
   }];
 }
 
-def TTNN_MaxOp : TTNN_ReductionOp<"max"> {
+def TTNN_MaxOp : TTNN_ReductionOp<"max", [TTNN_ComputeKernelConfigOpInterface]> {
   let summary = "Max reduction op.";
   let description = [{
     Max reduction op.
   }];
 }
 
-def TTNN_MinOp : TTNN_ReductionOp<"min"> {
+def TTNN_MinOp : TTNN_ReductionOp<"min", [TTNN_ComputeKernelConfigOpInterface]> {
   let summary = "Min reduction op.";
   let description = [{
     This op computes the minimum of all elements of the tensor or along
@@ -1208,7 +1208,7 @@ def TTNN_SplitQueryKeyValueAndSplitHeadsOp: TTNN_Op<"split_query_key_value_and_s
     let hasVerifier = 1;
 }
 
-def TTNN_SoftmaxOp : TTNN_Op<"softmax"> {
+def TTNN_SoftmaxOp : TTNN_Op<"softmax", [TTNN_ComputeKernelConfigOpInterface]> {
 
     let summary = "Softmax op.";
     let description = [{
@@ -1467,7 +1467,7 @@ def TTNN_SliceDynamicOp: TTNN_Op<"slice_dynamic"> {
     let hasVerifier = 1;
 }
 
-def TTNN_LinearOp : TTNN_Op<"linear"> {
+def TTNN_LinearOp : TTNN_Op<"linear", [TTNN_ComputeKernelConfigOpInterface]> {
     let summary = "Linear transformation of inputs.";
 
     let description = [{
@@ -1487,6 +1487,12 @@ def TTNN_LinearOp : TTNN_Op<"linear"> {
                          DefaultValuedAttr<BoolAttr, "false">:$transpose_a,
                          DefaultValuedAttr<BoolAttr, "false">:$transpose_b,
                          OptionalAttr<StrAttr>:$activation,
+                         OptionalAttr<AnyAttrOf<[
+                            TTNN_MatmulMultiCoreReuseProgramConfigAttr,
+                            TTNN_MatmulMultiCoreReuseMultiCastProgramConfigAttr,
+                            TTNN_MatmulMultiCoreReuseMultiCast1DProgramConfigAttr,
+                            TTNN_MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr
+                         ]>>:$matmul_program_config,
                          OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config);
 
     let results = (outs AnyRankedTensor:$result);
@@ -1497,7 +1503,7 @@ def TTNN_LinearOp : TTNN_Op<"linear"> {
                      "StringAttr":$activation),
       [{
         build($_builder, $_state, result, a, b, bias, transpose_a, transpose_b,
-              activation, /*compute_config=*/nullptr);
+              activation, /*matmul_program_config=*/nullptr, /*compute_config=*/nullptr);
       }]>
     ];
 
@@ -1506,7 +1512,7 @@ def TTNN_LinearOp : TTNN_Op<"linear"> {
 
 
 // ANCHOR: adding_an_op_matmul_ttnn
-def TTNN_MatmulOp : TTNN_Op<"matmul"> {
+def TTNN_MatmulOp : TTNN_Op<"matmul", [TTNN_ComputeKernelConfigOpInterface]> {
     let arguments = (ins AnyRankedTensor:$a,
                          AnyRankedTensor:$b,
                          DefaultValuedAttr<BoolAttr, "false">:$transpose_a,
@@ -1537,7 +1543,7 @@ def TTNN_MatmulOp : TTNN_Op<"matmul"> {
 }
 // ANCHOR_END: adding_an_op_matmul_ttnn
 
-def TTNN_PrepareConv2dWeightsOp : TTNN_Op<"prepare_conv2d_weights"> {
+def TTNN_PrepareConv2dWeightsOp : TTNN_Op<"prepare_conv2d_weights", [TTNN_ComputeKernelConfigOpInterface]> {
     let summary = "Prepares conv2d weights so that they can be consumed by the conv2d op.";
 
     let arguments = (ins AnyRankedTensor:$weight_tensor,
@@ -1567,7 +1573,7 @@ def TTNN_PrepareConv2dWeightsOp : TTNN_Op<"prepare_conv2d_weights"> {
     let hasVerifier = 1;
 }
 
-def TTNN_PrepareConv2dBiasOp : TTNN_Op<"prepare_conv2d_bias"> {
+def TTNN_PrepareConv2dBiasOp : TTNN_Op<"prepare_conv2d_bias", [TTNN_ComputeKernelConfigOpInterface]> {
     let summary = "Prepares conv2d bias so that it can be consumed by the conv2d op.";
 
     let arguments = (ins AnyRankedTensor:$bias_tensor,
@@ -1595,7 +1601,7 @@ def TTNN_PrepareConv2dBiasOp : TTNN_Op<"prepare_conv2d_bias"> {
     let hasVerifier = 1;
 }
 
-def TTNN_PrepareConvTranspose2dWeightsOp : TTNN_Op<"prepare_conv_transpose2d_weights"> {
+def TTNN_PrepareConvTranspose2dWeightsOp : TTNN_Op<"prepare_conv_transpose2d_weights", [TTNN_ComputeKernelConfigOpInterface]> {
     let summary = "Prepares conv_transpose2d weights so that they can be consumed by the conv_transpose2d op.";
 
     let arguments = (ins AnyRankedTensor:$weight_tensor,
@@ -1625,7 +1631,7 @@ def TTNN_PrepareConvTranspose2dWeightsOp : TTNN_Op<"prepare_conv_transpose2d_wei
     let hasVerifier = 1;
 }
 
-def TTNN_PrepareConvTranspose2dBiasOp : TTNN_Op<"prepare_conv_transpose2d_bias"> {
+def TTNN_PrepareConvTranspose2dBiasOp : TTNN_Op<"prepare_conv_transpose2d_bias", [TTNN_ComputeKernelConfigOpInterface]> {
     let summary = "Prepares conv_transpose2d bias so that it can be consumed by the conv_transpose2d op.";
 
     let arguments = (ins AnyRankedTensor:$bias_tensor,
@@ -1652,7 +1658,7 @@ def TTNN_PrepareConvTranspose2dBiasOp : TTNN_Op<"prepare_conv_transpose2d_bias">
     let hasVerifier = 1;
 }
 
-def TTNN_Conv2dOp : TTNN_Op<"conv2d", [TTNN_DtypeOpInterface]> {
+def TTNN_Conv2dOp : TTNN_Op<"conv2d", [TTNN_DtypeOpInterface, TTNN_ComputeKernelConfigOpInterface]> {
     let summary = "Conv2d operation.";
     let description = [{
       Applies a 2D convolution over an input image composed of several input planes.
@@ -1743,7 +1749,7 @@ def TTNN_Conv2dOp : TTNN_Op<"conv2d", [TTNN_DtypeOpInterface]> {
     }];
 }
 
-def TTNN_Conv3dOp : TTNN_Op<"conv3d", [TTNN_DtypeOpInterface]> {
+def TTNN_Conv3dOp : TTNN_Op<"conv3d", [TTNN_DtypeOpInterface, TTNN_ComputeKernelConfigOpInterface]> {
     let summary = "Conv3d operation.";
     let description = [{
       Applies a 3D convolution over an input volume composed of several input planes.
@@ -1831,7 +1837,7 @@ def TTNN_Conv3dOp : TTNN_Op<"conv3d", [TTNN_DtypeOpInterface]> {
     let hasVerifier = 1;
 }
 
-def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d", [TTNN_DtypeOpInterface]> {
+def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d", [TTNN_DtypeOpInterface, TTNN_ComputeKernelConfigOpInterface]> {
     let summary = "ConvTranspose2d operation.";
     let description = [{
       Applies a 2D transposed convolution operator over an input image composed of several input planes.
@@ -2031,7 +2037,7 @@ def TTNN_MaxPool2dWithIndicesOp : TTNN_Op<"max_pool2d_with_indices", [TTNN_Memor
     let hasVerifier = 1;
 }
 
-def TTNN_BatchNormInferenceOp : TTNN_Op<"batch_norm_inference", [AttrSizedOperandSegments]> {
+def TTNN_BatchNormInferenceOp : TTNN_Op<"batch_norm_inference", [AttrSizedOperandSegments, TTNN_ComputeKernelConfigOpInterface]> {
     let summary = "Batch normalization inference op.";
     let description = [{
       Batch normalization operation for inference over each channel on input tensor.
@@ -2064,7 +2070,7 @@ def TTNN_BatchNormInferenceOp : TTNN_Op<"batch_norm_inference", [AttrSizedOperan
     let hasVerifier = 1;
 }
 
-def TTNN_BatchNormTrainingOp : TTNN_Op<"batch_norm_training", [AttrSizedOperandSegments]> {
+def TTNN_BatchNormTrainingOp : TTNN_Op<"batch_norm_training", [AttrSizedOperandSegments, TTNN_ComputeKernelConfigOpInterface]> {
     let summary = "Batch normalization training op.";
     let description = [{
       Batch normalization operation for training over each channel on input tensor.
@@ -2098,7 +2104,7 @@ def TTNN_BatchNormTrainingOp : TTNN_Op<"batch_norm_training", [AttrSizedOperandS
     let hasVerifier = 1;
 }
 
-def TTNN_RMSNormOp : TTNN_Op<"rms_norm", [AttrSizedOperandSegments, TTNN_MemoryConfigOpInterface]> {
+def TTNN_RMSNormOp : TTNN_Op<"rms_norm", [AttrSizedOperandSegments, TTNN_MemoryConfigOpInterface, TTNN_ComputeKernelConfigOpInterface]> {
     let summary = "RMS normalization op.";
     let description = [{
       RMS (Root Mean Square) normalization operation over the input tensor.
@@ -2849,7 +2855,7 @@ def TTNN_GenericOp : TTNN_Op<"generic", [TTNN_MemoryConfigOpInterface, MemoryEff
     let hasVerifier = 1;
 }
 
-def TTNN_RotaryEmbeddingLlamaOp : TTNN_Op<"rotary_embedding_llama", [TTNN_MemoryConfigOpInterface]> {
+def TTNN_RotaryEmbeddingLlamaOp : TTNN_Op<"rotary_embedding_llama", [TTNN_MemoryConfigOpInterface, TTNN_ComputeKernelConfigOpInterface]> {
     let summary = "Rotary embedding llama operation.";
     let description = [{
       Applies rotary embedding to the input tensor using precomputed cosine and sine caches along with a transformation matrix.
@@ -2880,7 +2886,7 @@ def TTNN_RotaryEmbeddingLlamaOp : TTNN_Op<"rotary_embedding_llama", [TTNN_Memory
     let hasVerifier = 1;
 }
 
-def TTNN_RotaryEmbeddingOp : TTNN_Op<"rotary_embedding", [TTNN_MemoryConfigOpInterface]> {
+def TTNN_RotaryEmbeddingOp : TTNN_Op<"rotary_embedding", [TTNN_MemoryConfigOpInterface, TTNN_ComputeKernelConfigOpInterface]> {
   let summary = "Rotary embedding op in TTNN dialect.";
   let description = [{
     Applies rotary embedding to the input tensor using precomputed cosine and sine caches.

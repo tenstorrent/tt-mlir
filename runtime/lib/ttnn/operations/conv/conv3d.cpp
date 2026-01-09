@@ -34,7 +34,7 @@ void run(const ::tt::target::ttnn::Conv3dOp *op, ProgramContext &context) {
   std::copy_n(op->stride()->begin(), 3, stride.begin());
   std::copy_n(op->padding()->begin(), 3, padding.begin());
 
-  std::optional<::ttnn::DataType> outputDtype;
+  ::ttnn::DataType outputDtype = ::ttnn::DataType::BFLOAT16;
   if (op->output_dtype()) {
     outputDtype =
         ::tt::runtime::ttnn::utils::toTTNNDataType(*(op->output_dtype()));
@@ -42,9 +42,8 @@ void run(const ::tt::target::ttnn::Conv3dOp *op, ProgramContext &context) {
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
-  auto conv3dConfig = utils::createConv3dConfig(
-      op->conv3d_config(), op->out_channels(), kernelSize, stride, padding,
-      op->padding_mode()->str(), op->groups(), outputDtype, targetDevice);
+  auto conv3dConfig =
+      utils::createConv3dConfig(op->conv3d_config(), targetDevice);
 
   std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig;
   if (op->compute_config()) {
@@ -60,7 +59,10 @@ void run(const ::tt::target::ttnn::Conv3dOp *op, ProgramContext &context) {
              "Memory config must exist for device tensors");
 
   ::ttnn::Tensor out = ::ttnn::experimental::conv3d(
-      input, weight, bias, conv3dConfig, outputMemoryConfig, computeConfig);
+      input, weight, bias, conv3dConfig, outputDtype, op->out_channels(),
+      kernelSize, stride, padding, std::array<uint32_t, 3>{1, 1, 1},
+      op->padding_mode()->str(), op->groups(), outputMemoryConfig,
+      computeConfig);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

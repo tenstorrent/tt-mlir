@@ -18,6 +18,7 @@ declare_mlir_python_sources(BuilderSources
     # stablehlo subpackage files
     stablehlo/__init__.py
     stablehlo/stablehlo_builder.py
+    stablehlo/shardy_parallelization_utils.py
 
     # d2m subpackage files
     d2m/__init__.py

@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <nanobind/stl/bind_map.h>
 #include <nanobind/stl/bind_vector.h>
+#include <nanobind/stl/optional.h>
 #include <nanobind/stl/shared_ptr.h>
 
 // Make Opaque so Casts & Copies don't occur
@@ -383,6 +384,74 @@ void populatePassesModule(nb::module_ &m) {
         });
       },
       nb::arg("module"), nb::arg("filepath"));
+
+  m.def(
+      "ttkernel_to_cpp_by_name",
+      [](MlirModule module, std::string symbolName) {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+
+        // Convert to EmitC
+        mlir::PassManager pm(moduleOp->getName());
+        pm.addPass(mlir::tt::createConvertTTKernelToEmitC());
+        if (mlir::failed(pm.run(moduleOp))) {
+          throw std::runtime_error("Failed to run pass manager");
+        }
+
+        // Translate single kernel to C++
+        std::string output;
+        llvm::raw_string_ostream output_stream(output);
+        if (mlir::failed(mlir::tt::ttkernel::translateTopLevelKernelToCpp(
+                mlir::cast<ModuleOp>(moduleOp), output_stream, symbolName))) {
+          throw std::runtime_error("Failed to generate cpp for kernel: " +
+                                   symbolName);
+        }
+        output_stream.flush();
+        return output;
+      },
+      nb::arg("module"), nb::arg("symbol_name"));
+
+  m.def(
+      "get_ttkernel_names",
+      [](MlirModule module) {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        auto mod = mlir::cast<ModuleOp>(moduleOp);
+
+        // Vector of (kernel_name, thread_type) tuples for each kernel function
+        std::vector<std::tuple<std::string, std::string>> kernels;
+        mod.walk([&](func::FuncOp funcOp) {
+          if (auto threadTypeAttr =
+                  funcOp->getAttrOfType<mlir::tt::ttkernel::ThreadTypeAttr>(
+                      mlir::tt::ttkernel::ThreadTypeAttr::name)) {
+            kernels.emplace_back(funcOp.getName().str(),
+                                 mlir::tt::ttkernel::stringifyThreadType(
+                                     threadTypeAttr.getValue())
+                                     .str());
+          }
+        });
+        return kernels;
+      },
+      nb::arg("module"));
+
+  m.def(
+      "get_ttkernel_arg_spec",
+      [](MlirModule module,
+         std::string kernelName) -> std::optional<MlirAttribute> {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        auto mod = mlir::cast<ModuleOp>(moduleOp);
+
+        std::optional<MlirAttribute> result;
+        mod.walk([&](func::FuncOp funcOp) {
+          if (funcOp.getName() == kernelName) {
+            if (auto argSpecAttr =
+                    funcOp->getAttrOfType<mlir::tt::ttkernel::ArgSpecAttr>(
+                        mlir::tt::ttkernel::ArgSpecAttr::name)) {
+              result = wrap(argSpecAttr);
+            }
+          }
+        });
+        return result;
+      },
+      nb::arg("module"), nb::arg("kernel_name"));
 
   m.def(
       "pykernel_compile_pipeline",

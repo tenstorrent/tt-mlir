@@ -78,7 +78,7 @@ This demo is available [here](../../test/ttnn-jit/test_jit_demos.py).
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `enable_cache` | `bool` | `False` | Enables caching for compiled JIT graphs. |
-| `graph_capture` | `bool` | `True` | Selects the ttnn.jit frontend for processing a TTNN graph. Op support varies by backend. |
+| `frontend` | `Literal["ast", "graph_capture", "tracing"]` | `"graph_capture"` | Frontend to use for IR generation: "ast" (AST-based compiler, TTIR dialect), "graph_capture" (Graph trace compiler, TTNN dialect), or "tracing" (Tracing-based compiler, TTIR dialect). Op support varies by frontend. |
 | `math_fidelity` | `ttnn.MathFidelity` | `ttnn.MathFidelity.HiFi4` | Sets the math fidelity setting for the JIT graph. |
 | `debug` | `bool` | `False` | Enables debug prints during compilation and execution. |
 | `compile_only` | `bool` | `False` | Only compile runtime without execution. The resulting flatbuffer and kernel source files will be dumped to `generated/jit`. |
@@ -91,8 +91,8 @@ The following major categories of operations are supported:
 - Binary Elementwise
 - Unary Bitwise
 - Binary Bitwise
-- Matrix Multiplication: only supported in `graph_capture = False` mode
-- Reductions: only supported in `graph_capture = True` mode
+- Matrix Multiplication: only supported in `frontend="ast"` mode
+- Reductions: only supported in `frontend="graph_capture"` mode
 
 Not every operation is supported within the above categories.
 

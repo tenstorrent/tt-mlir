@@ -438,4 +438,40 @@ def TTNNCollectPerfMetrics: Pass<"ttnn-collect-perf-metrics", "::mlir::ModuleOp"
   ];
 }
 
+def TTNNSetComputeKernelConfig: Pass<"ttnn-set-compute-kernel-config", "::mlir::ModuleOp"> {
+  let summary = "Set default ComputeKernelConfig attributes for operations.";
+  let description = [{
+    This pass sets default ComputeKernelConfig attributes for TTNN operations that support
+    the ComputeKernelConfigOpInterface. It only sets parameter values that are not already
+    defined, preserving any existing configuration decisions made by earlier compiler passes.
+
+    Behaviour:
+    - If an operation has no compute_config attribute, a new compute config is created with override values
+    - If an operation has a compute_config but a specific parameter (e.g., math_fidelity) is
+      unset (std::nullopt), the override value is applied for that parameter only
+    - If a parameter is already set in the compute_config, it is not overridden, preserving
+      the existing compiler decision
+
+    This allows setting default values for ComputeKernelConfig parameters while respecting
+    any explicit configuration choices made by prior passes.
+
+    Example usage:
+    ttmlir-opt --ttnn-set-compute-kernel-config="math-fidelity=hifi4" input.mlir
+    ttmlir-opt --ttnn-set-compute-kernel-config="math-fidelity=lofi fp32-dest-acc-en=true" input.mlir
+  }];
+
+  let options = [
+    Option<"mathFidelity", "math-fidelity", "std::optional<::mlir::tt::ttnn::MathFidelity>", /*default=*/"std::nullopt",
+           "Set default math_fidelity (lofi, hifi2, hifi3, hifi4)">,
+    Option<"mathApproxMode", "math-approx-mode", "bool", /*default=*/"false",
+           "Set default math_approx_mode">,
+    Option<"fp32DestAccEn", "fp32-dest-acc-en", "bool", /*default=*/"false",
+           "Set default fp32_dest_acc_en">,
+    Option<"packerL1Acc", "packer-l1-acc", "bool", /*default=*/"false",
+           "Set default packer_l1_acc">,
+    Option<"dstFullSyncEn", "dst-full-sync-en", "bool", /*default=*/"false",
+           "Set default dst_full_sync_en">
+  ];
+}
+
 #endif

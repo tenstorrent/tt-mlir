@@ -15,6 +15,20 @@ endif()
 
 set(NB_USE_SUBMODULE_DEPS ON CACHE BOOL "Use nanobind bundled dependencies")
 
+# nanobind uses cmake_parse_arguments() to parse keywords like NB_DOMAIN.
+# When the keyword is provided but the value is empty, CMake policy CMP0174
+# controls whether it is preserved as empty or treated as "not provided".
+# StableHLO's embedded python bindings can hit this path during configuration.
+if(POLICY CMP0174)
+  cmake_policy(SET CMP0174 NEW)
+endif()
+
+# Ensure MLIR's AddMLIRPython passes a non-empty NB_DOMAIN to nanobind for all
+# embedded python bindings (e.g. StableHLO), even when those projects are
+# configured before our own `python/` subdirectory is processed.
+set(MLIR_BINDINGS_PYTHON_NB_DOMAIN "ttmlir" CACHE STRING
+  "Domain name used for nanobind-based MLIR python extensions")
+
 option(TT_RUNTIME_ENABLE_PERF_TRACE "Enable performance mode" OFF)
 option(TTMLIR_ENABLE_RUNTIME "Enable runtime" OFF)
 option(TTMLIR_ENABLE_PYKERNEL "Enable python kernels" OFF)

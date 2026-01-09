@@ -50,12 +50,19 @@ def _transform_tan(t: torch.Tensor) -> torch.Tensor:
     return t.uniform_(-math.pi / 2 + 0.05, math.pi / 2 - 0.05)
 
 
+def _transform_div(t: torch.Tensor) -> torch.Tensor:
+    """Avoid divide-by-zero: abs() then replace values close to zero with 1e-6."""
+    t = torch.abs(t)
+    return torch.where(t < 1e-3, torch.tensor(1e-6, dtype=t.dtype), t)
+
+
 # Map op names to their input transforms
 _INPUT_TRANSFORMS: Dict[str, Callable[[torch.Tensor], torch.Tensor]] = {
     "reciprocal": _transform_reciprocal,
     "digamma_func": _transform_digamma,
     "sqrt": _transform_sqrt,
     "tan": _transform_tan,
+    "div": _transform_div,
 }
 
 
@@ -171,7 +178,7 @@ def run_op_test(
     op,
     num_inputs,
     buffer_type=ttnn.BufferType.L1,
-    graph_capture=True,
+    frontend="graph_capture",
     enable_cache=False,
     shard_strategy=ttnn.ShardStrategy.BLOCK,
     ttnn_dtype=None,
@@ -192,7 +199,7 @@ def run_op_test(
         op: Operation to test
         num_inputs: Number of input tensors
         buffer_type: Buffer type (L1 or DRAM)
-        graph_capture: Whether to use graph capture compiler (default: True)
+        frontend: Frontend to use ("ast", "graph_capture", or "tracing") (default: "graph_capture")
         enable_cache: Whether to enable cache for the JIT-compiled function (default: False)
         ttnn_dtype: Optional ttnn.DataType override (e.g., ttnn.DataType.BFLOAT8_B)
         check_pcc: Whether to check PCC (default: True)
@@ -230,7 +237,7 @@ def run_op_test(
         compile_only=compile_only,
         debug=True,
         enable_cache=enable_cache,
-        graph_capture=graph_capture,
+        frontend=frontend,
         math_fidelity=math_fidelity,
     )(op)
 

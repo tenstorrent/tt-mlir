@@ -55,27 +55,45 @@ NOC_ISSUE_SKIP = pytest.mark.skip(
         [(1, 32, 12, 100), [0, 1, 3, 2]],
         [(1, 32, 11, 64), [0, 1, 3, 2]],
         [(1, 8, 11, 64), [0, 1, 3, 2]],
+        # 3d outer permutes
+        [(3, 32, 32), [1, 0, 2]],
+        [(3, 32, 64), [1, 0, 2]],
+        [(1, 32, 64), [1, 0, 2]],
+        # 3d outer permutes (llama-like)
+        [(18, 24, 128), [1, 0, 2]],
+        [(18, 8, 128), [1, 0, 2]],
+        [(128, 24, 128), [1, 0, 2]],
+        [(128, 8, 128), [1, 0, 2]],
+        # 4d outer permutes
+        [(1, 32, 31, 32), [0, 2, 1, 3]],
+        [(1, 32, 1, 32), [0, 2, 1, 3]],
+        [(5, 7, 2, 32), [0, 2, 1, 3]],
+        # 4d outer permutes (llama-like)
+        [(1, 18, 24, 128), [0, 2, 1, 3]],
+        [(1, 18, 8, 128), [0, 2, 1, 3]],
+        [(1, 128, 24, 128), [0, 2, 1, 3]],
+        [(1, 128, 8, 128), [0, 2, 1, 3]],
+        # 5d outer permutes
+        [(1, 3, 3, 3, 3), [0, 2, 1, 3, 4]],
+        [(1, 3, 3, 3, 3), [0, 2, 1, 3, 4]],
+        [(5, 7, 2, 3, 3), [0, 2, 1, 3, 4]],
     ],
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
-def test_permute_abs(
-    shape: Shape, permutation: List[int], target: str, request, device
-):
+def test_permute(shape: Shape, permutation: List[int], target: str, request, device):
     """Test permute operations with abs on TTMetal backend."""
 
-    def permute_with_abs_module(builder: TTIRBuilder):
+    def permute_module(builder: TTIRBuilder):
         @builder.func([shape], [torch.float32])
-        def permute_with_abs(
+        def permute(
             in0: Operand,
             builder: TTIRBuilder,
             unit_attrs: List[str] = None,
         ):
-            res = builder.permute(in0, permutation=permutation)
-            res = builder.abs(res)
-            return res
+            return builder.permute(in0, permutation=permutation)
 
     compile_and_execute_ttir(
-        permute_with_abs_module,
+        permute_module,
         target=target,
         device=device,
         test_base=request.node.name,

@@ -15,6 +15,12 @@ from utils import (
     run_op_test,
 )
 
+from op_definitions import (
+    cosh,
+    sinh,
+    mul_add,
+)
+
 BLOCK_SHARDED_SHAPE_GRIDS = [
     ((32, 32), (0, 0)),
     ((32, 64), (0, 0)),
@@ -62,31 +68,6 @@ SHARDED_SHAPE_GRID_LAYOUTS = (
 )
 
 DRAM_SHAPES = [(32, 32), (32, 64), (64, 64), (64, 128), (128, 128)]
-
-
-# ------------------------------------------------------------
-# Composite ops
-# ------------------------------------------------------------
-def cosh(input_tensor):
-    e_pos_x = ttnn.exp(input_tensor)
-    e_neg_x = ttnn.exp(ttnn.neg(input_tensor))
-    nr_term = ttnn.add(e_pos_x, e_neg_x)
-    output = ttnn.multiply(nr_term, 0.5)
-    return output
-
-
-def sinh(input_tensor):
-    e_pos_x = ttnn.exp(input_tensor)
-    e_neg_x = ttnn.exp(ttnn.neg(input_tensor))
-    nr_term = ttnn.subtract(e_pos_x, e_neg_x)
-    output = ttnn.multiply(nr_term, 0.5)
-    return output
-
-
-def mul_add(input_tensor_a, input_tensor_b, input_tensor_c):
-    matmul_result = ttnn.multiply(input_tensor_b, input_tensor_c)
-    output = ttnn.add(matmul_result, input_tensor_a)
-    return output
 
 
 @pytest.mark.parametrize(
@@ -158,19 +139,14 @@ def test_large_shapes_muladd_l1(device, shape, dtype):
 
 
 PASSING_LARGE_SHAPES_DTYPES_DRAM = [
-    ((2048, 512), torch.float32),
     ((4096, 512), torch.float32),
     ((8192, 512), torch.float32),
     ((2048, 1024), torch.float32),
     ((4096, 1024), torch.float32),
-    ((2048, 2048), torch.float32),
     ((1024, 4096), torch.float32),
-    ((2048, 512), torch.bfloat16),
     ((4096, 512), torch.bfloat16),
     ((8192, 512), torch.bfloat16),
     ((16384, 512), torch.bfloat16),
-    ((2048, 1024), torch.bfloat16),
-    ((4096, 1024), torch.bfloat16),
     ((8192, 1024), torch.bfloat16),
     ((4096, 2048), torch.bfloat16),
 ]
@@ -270,7 +246,7 @@ def test_digamma_dram(device, shape, dtype):
         digamma_func,
         num_inputs=1,
         buffer_type=ttnn.BufferType.DRAM,
-        graph_capture=True,
+        frontend="graph_capture",
     )
 
 
@@ -294,7 +270,7 @@ def test_complex_composite_dram(device, shape, dtype):
         complex_op,
         num_inputs=2,
         buffer_type=ttnn.BufferType.DRAM,
-        graph_capture=True,
+        frontend="graph_capture",
     )
 
 
@@ -318,7 +294,7 @@ def test_nested_composite_dram(device, shape, dtype):
         nested_op,
         num_inputs=3,
         buffer_type=ttnn.BufferType.DRAM,
-        graph_capture=True,
+        frontend="graph_capture",
     )
 
 

@@ -12,6 +12,10 @@ from utils import (
     run_op_test,
 )
 
+from op_definitions import (
+    abs,
+)
+
 
 BLOCK_SHARDED_SHAPE_GRIDS = []
 
@@ -81,10 +85,6 @@ DRAM_INTERLEAVED_SHAPE_GRIDS.extend(
         )
     ]
 )
-
-
-def abs(input_tensor):
-    return ttnn.abs(input_tensor)
 
 
 @pytest.mark.parametrize(

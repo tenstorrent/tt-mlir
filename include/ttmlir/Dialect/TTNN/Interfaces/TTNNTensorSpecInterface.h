@@ -160,6 +160,19 @@ mlir::LogicalResult verifyTTNNMemoryConfigInterface(mlir::Operation *op) {
         return op->emitOpError() << "Unsupported layout encoding type";
       });
 }
+// Verifies the TTNNComputeKernelConfigInterface
+template <typename ConcreteType>
+mlir::LogicalResult
+verifyTTNNComputeKernelConfigInterface(mlir::Operation *op) {
+  // ComputeKernelConfig is a runtime execution hint that doesn't affect IR
+  // semantics, so there are no invariants to verify at the IR
+  // level. Unlike MemoryConfig which must match tensor layouts in the type
+  // system, ComputeKernelConfig parameters (math_fidelity, fp32_dest_acc_en,
+  // etc.) are purely optimization hints for the backend runtime. If specific
+  // validation is needed in the future (e.g., checking compatibility with
+  // operation types), it can be added here.
+  return mlir::success();
+}
 } // namespace mlir::tt::ttnn
 
 #include "ttmlir/Dialect/TTNN/Interfaces/TTNNTensorSpecInterface.h.inc"

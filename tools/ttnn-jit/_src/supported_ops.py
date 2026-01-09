@@ -3,8 +3,25 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Supported TTNN operations organized by category (Used by GraphToIRTranslator).
+Supported TTNN operations organized by category.
+
+Used by:
+- GraphToIRTranslator (graph trace compiler)
+- JIT tracing compiler (jit_functions.py)
 """
+
+# Mapping from user-facing op names to TTIR dialect function names.
+# Most ops have the same name, but some differ (e.g., divide -> div).
+TTIR_NAME_MAP = {
+    "divide": "div",
+    "pow_tensor": "pow",
+}
+
+
+def get_ttir_name(op_name: str) -> str:
+    """Get the TTIR dialect function name for a given operation."""
+    return TTIR_NAME_MAP.get(op_name, op_name)
+
 
 # Unary operations - single input tensor
 unary_ops = [

@@ -27,6 +27,15 @@ def clear_program_cache_after_test(device):
     conftest = sys.modules.get("conftest")
     if conftest and conftest._current_device is not None:
         conftest._current_device.clear_program_cache()
+    else:
+        # For emitpy tests, clear the DeviceGetter singleton's device
+        utils = sys.modules.get("utils")
+        if (
+            utils
+            and hasattr(utils, "DeviceGetter")
+            and utils.DeviceGetter._instance is not None
+        ):
+            utils.DeviceGetter._instance.clear_program_cache()
 
 
 @pytest.mark.parametrize(

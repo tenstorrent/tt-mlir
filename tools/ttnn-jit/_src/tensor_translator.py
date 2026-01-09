@@ -4,7 +4,10 @@
 
 from ttmlir.ir import *
 from ttmlir.dialects import ttnn, ttcore
-from ttnn_jit._src.conversions import ttcore_dtype_from_ttnn_dtype
+from ttnn_jit._src.conversions import (
+    ttcore_dtype_from_ttnn_dtype,
+    ttcore_dtype_from_mlir_dtype,
+)
 import math
 
 DRAM_GRID_SIZE = [1, 1]
@@ -155,17 +158,20 @@ def _create_sharded_tensor_layout(ctx, tensor_arg):
 
     data_type = ttcore_dtype_from_ttnn_dtype(tensor_arg.dtype)
     tile_type = ttcore.ir.TileType.get(ctx, TILE_WIDTH, TILE_HEIGHT, data_type)
-    memref = MemRefType.get(shard_shape_tile, tile_type, None, buffer_type)
+    with Location.unknown(ctx):
+        memref = MemRefType.get(shard_shape_tile, tile_type, None, buffer_type)
 
     tensor_mesh = None
     exact_grid = True
+
+    mem_layout = tensor_arg.memory_config().memory_layout.value
 
     return ttnn.ir.TTNNLayoutAttr.get_with_linear(
         ctx,
         affine_map,
         grid,
         memref,
-        tensor_arg.memory_config().memory_layout,
+        mem_layout,
         tensor_mesh,
         exact_grid,
     )
@@ -180,7 +186,8 @@ def _create_dram_tensor_layout(ctx, tensor_arg):
     tile_type = ttcore.ir.TileType.get(ctx, TILE_WIDTH, TILE_HEIGHT, data_type)
     shape = _calculate_tile_shape(tensor_arg.shape)
 
-    memref = MemRefType.get(shape, tile_type, None, buffer_type)
+    with Location.unknown(ctx):
+        memref = MemRefType.get(shape, tile_type, None, buffer_type)
 
     tensor_mesh = None
     exact_grid = True
@@ -189,7 +196,7 @@ def _create_dram_tensor_layout(ctx, tensor_arg):
         affine_map,
         grid,
         memref,
-        ttnn.TensorMemoryLayout.Interleaved,
+        ttnn.TensorMemoryLayout.Interleaved.value,
         tensor_mesh,
         exact_grid,
     )
@@ -289,9 +296,10 @@ def _create_tensor_layout_with_shape(
         new_shape[1] // new_grid_shape[1] // 32,
     ]
     buffer_type = ttnn.ir.BufferTypeAttr.get(ctx, mem_space)
-    memref = MemRefType.get(
-        new_shard_shape, base_layout.memref.element_type, None, buffer_type
-    )
+    with Location.unknown(ctx):
+        memref = MemRefType.get(
+            new_shard_shape, base_layout.memref.element_type, None, buffer_type
+        )
     grid = ttcore.ir.GridAttr.get(ctx, new_grid_shape)
 
     tensor_mesh = None
@@ -301,7 +309,7 @@ def _create_tensor_layout_with_shape(
         affine_map,
         grid,
         memref,
-        memory_layout,
+        memory_layout.value,
         tensor_mesh,
         exact_grid,
     )
@@ -332,7 +340,8 @@ def create_output_tensor(ctx, op_name, input_types):
     layout = _create_tensor_layout_with_shape(
         ctx, input_layouts[0], shape, grid_shape, mem_space, memory_layout
     )
-    output_type = RankedTensorType.get(shape, input_types[0].element_type, layout)
+    with Location.unknown(ctx):
+        output_type = RankedTensorType.get(shape, input_types[0].element_type, layout)
 
     return output_type
 
@@ -347,3 +356,64 @@ def create_tensor_layout(ctx, tensor_arg):
         return _create_sharded_tensor_layout(ctx, tensor_arg)
     else:
         return _create_dram_tensor_layout(ctx, tensor_arg)
+
+
+def _get_logical_tensor_shape(shape):
+    if len(shape) == 0:
+        return [1, 1]
+    elif len(shape) == 1:
+        return [1, shape[0]]
+    else:
+        return list(shape)
+
+
+def _get_tile_type(ctx, element_type) -> ttcore.ir.TileType:
+    """Create a 32x32 tile type with the appropriate data type for the given element type."""
+    data_type = ttcore_dtype_from_mlir_dtype(element_type)
+    return ttcore.ir.TileType.get(ctx, TILE_WIDTH, TILE_HEIGHT, data_type)
+
+
+def create_default_dram_interleaved_layout(
+    ctx, shape, element_type
+) -> ttnn.ir.TTNNLayoutAttr:
+    """
+    Create a default DRAM interleaved layout for a given shape.
+
+    This creates a simple, always-valid layout suitable for shape-changing ops
+    where the input layout cannot be directly reused. The layout uses:
+    - Grid: 1x1 (standard for DRAM interleaved)
+    - Buffer type: DRAM (avoids L1 memory pressure)
+    - Memory layout: Interleaved (spreads data across DRAM banks)
+    - Shard shape: full tensor shape in tiles
+
+    Args:
+        ctx: MLIR context
+        shape: Output tensor shape (list of ints)
+        element_type: MLIR element type (e.g., bf16)
+
+    Returns:
+        TTNNLayoutAttr for the given shape
+    """
+    grid_shape = DRAM_GRID_SIZE  # [1, 1] - standard for interleaved
+    memory_layout = ttnn.TensorMemoryLayout.Interleaved.value
+    buffer_type = ttnn.ir.BufferTypeAttr.get(ctx, ttnn.BufferType.DRAM)
+    tensor_mesh = None
+    exact_grid = True
+
+    grid = ttcore.ir.GridAttr.get(ctx, grid_shape)
+    logical_shape = _get_logical_tensor_shape(shape)
+    affine_map = _get_collapsed_linear_affine_map(ctx, logical_shape, grid_shape)
+    shard_shape = _calculate_tile_shape(logical_shape)
+    tile_type = _get_tile_type(ctx, element_type)
+    with Location.unknown(ctx):
+        memref = MemRefType.get(shard_shape, tile_type, None, buffer_type)
+
+    return ttnn.ir.TTNNLayoutAttr.get_with_linear(
+        ctx,
+        affine_map,
+        grid,
+        memref,
+        memory_layout,
+        tensor_mesh,
+        exact_grid,
+    )

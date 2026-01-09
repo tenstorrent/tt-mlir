@@ -6,6 +6,7 @@
 #l1 = #ttnn.buffer_type<l1>
 
 // Use single core
+#core = #ttnn.core_coord<0, 0>
 #core_range = #ttnn.core_range<(0,0), (0,0)>
 #core_ranges = #ttnn.core_range_set<[#core_range]>
 
@@ -45,8 +46,8 @@
   symbol_ref = @read_kernel,
   core_ranges = #core_ranges,
   ct_args = [#in_cb_arg],
-  // Pass tensor address and CB as runtime arguments
-  common_rt_args = [#in_addr_arg]>
+  common_rt_args = [#in_addr_arg],
+  rt_args = []>
 
 #compute_kernel = #ttnn.compute_kernel<
   symbol_ref = @compute_kernel,
@@ -61,13 +62,15 @@
       #in_cb_arg,
       #out_cb_arg
   ],
-  common_rt_args = []>
+  common_rt_args = [],
+  rt_args = []>
 
 #write_kernel = #ttnn.write_kernel<
   symbol_ref = @write_kernel,
   core_ranges = #core_ranges,
   ct_args = [#out_cb_arg],
-  common_rt_args = [#out_addr_arg]>
+  common_rt_args = [],
+  rt_args = [#ttnn.core_runtime_args<core_coord = #core, args = [#out_addr_arg]>]>
 
 #program = #ttnn.program<
   kernels = [#read_kernel, #compute_kernel, #write_kernel],
@@ -159,7 +162,7 @@ module {
     %1 = "emitc.constant"() <{value = 4096 : i32}> : () -> i32
 
     %zero = "emitc.constant"() <{value = 0 : i32}> : () -> i32
-    %2 = emitc.call_opaque "get_common_arg_val"(%zero) {template_args = [#emitc.opaque<"uint32_t">]} : (i32) -> i32
+    %2 = emitc.call_opaque "get_arg_val"(%zero) {template_args = [#emitc.opaque<"uint32_t">]} : (i32) -> i32
     %3 = emitc.literal "get_compile_time_arg_val(0)" : !emitc.opaque<"::tt::CB">
     %4 = emitc.literal "my_x[noc_index]" : !emitc.size_t
     %5 = emitc.literal "my_y[noc_index]" : !emitc.size_t

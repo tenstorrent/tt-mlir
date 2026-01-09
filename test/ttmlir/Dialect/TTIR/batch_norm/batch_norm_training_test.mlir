@@ -7,7 +7,7 @@ module @jit_batch_norm_training {
     // CHECK: [[VAL2:%[0-9]+]] = "ttnn.reshape"(%arg3)
     // CHECK: [[VAL3:%[0-9]+]] = "ttnn.reshape"(%arg4)
     %3:3 = "ttir.batch_norm_training"(%arg0, %arg1, %arg2, %arg3, %arg4) <{dimension = 1 : i32, epsilon = 1.000000e-05 : f32, momentum = 1.000000e-01 : f32}> : (tensor<2x2x2x2xf32>, tensor<2xf32>, tensor<2xf32>, tensor<2xf32>, tensor<2xf32>) -> (tensor<2x2x2x2xf32>, tensor<2xf32>, tensor<2xf32>)
-    // CHECK: [[RESULT:%[0-9]+]] = "ttnn.batch_norm_training"(%arg0, [[VAL2]], [[VAL3]], [[VAL0]], [[VAL1]]) <{epsilon = {{.*}}, momentum = {{.*}}, operandSegmentSizes = array<i32: 1, 1, 1, 1, 1>}>
+    // CHECK: [[RESULT:%[0-9]+]] = "ttnn.batch_norm_training"(%arg0, [[VAL2]], [[VAL3]], [[VAL0]], [[VAL1]]) <{{{.*}}epsilon = {{.*}}, momentum = {{.*}}, operandSegmentSizes = array<i32: 1, 1, 1, 1, 1>}>
     // CHECK: [[VAL4:%[0-9]+]] = "ttnn.reshape"([[VAL2]])
     // CHECK: [[VAL5:%[0-9]+]] = "ttnn.reshape"([[VAL3]])
     return %3#0, %3#1, %3#2 : tensor<2x2x2x2xf32>, tensor<2xf32>, tensor<2xf32>

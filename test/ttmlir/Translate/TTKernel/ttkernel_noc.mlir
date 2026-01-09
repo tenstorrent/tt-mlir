@@ -2,7 +2,7 @@
 // RUN: ttmlir-translate --ttkernel-to-cpp -o %t.cpp %t
 // RUN: FileCheck %s --input-file=%t.cpp
 
-// CHECK: #include "dataflow_api.h"
+// CHECK: #include "api/dataflow/dataflow_api.h"
 // CHECK: void kernel_main
 func.func @ttkernel_noc() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
     // CHECK: int32_t [[B0:.*]] = 262432

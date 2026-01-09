@@ -73,6 +73,32 @@ struct Conv2dAttrs {
   void dump() const { llvm::outs() << toString(); }
 };
 
+struct MatmulAttrs {
+  std::optional<mlir::Attribute> matmulProgramConfig;
+
+  bool operator==(const MatmulAttrs &other) const {
+    return matmulProgramConfig == other.matmulProgramConfig;
+  }
+  bool operator!=(const MatmulAttrs &other) const { return !(*this == other); }
+
+  std::string toString() const {
+    std::string result = "MatmulAttrs{";
+    if (matmulProgramConfig.has_value() && matmulProgramConfig.value()) {
+      std::string attrStr;
+      llvm::raw_string_ostream stream(attrStr);
+      stream << matmulProgramConfig.value();
+      stream.flush();
+      result += "matmulProgramConfig=" + attrStr;
+    } else {
+      result += "matmulProgramConfig=<null>";
+    }
+    result += "}";
+    return result;
+  }
+
+  void dump() const { llvm::outs() << toString(); }
+};
+
 } // namespace mlir::tt::ttnn
 
 #endif // TTMLIR_DIALECT_TTNN_ANALYSIS_OPCONFIGATTRS_H

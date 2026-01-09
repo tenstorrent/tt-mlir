@@ -85,15 +85,15 @@ def test_linear(shapes: List[Shape], request, device):
 
 
 @pytest.mark.parametrize("shape", [(1, 32, 32), (2, 16, 16), (1, 1, 64)], ids=shape_str)
-@pytest.mark.parametrize("dims", [[32, 1, 1], [1, 2, 2], [2, 3, 4], [1, 1, 1]])
+@pytest.mark.parametrize("repeat_dims", [[32, 1, 1], [1, 2, 2], [2, 3, 4], [1, 1, 1]])
 @pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
-def test_repeat(shape: Shape, dims: List[int], dtype, request, device):
+def test_repeat(shape: Shape, repeat_dims: List[int], dtype, request, device):
     def module(builder: TTNNBuilder):
         @builder.func([shape], [dtype])
         def repeat(
             in0: Operand, builder: TTNNBuilder, unit_attrs: Optional[List[str]] = None
         ):
-            return builder.repeat(in0, dims=dims, unit_attrs=unit_attrs)
+            return builder.repeat(in0, repeat_dims, unit_attrs=unit_attrs)
 
     compile_and_execute_ttnn(
         module,

@@ -13,6 +13,7 @@ from utils import (
     memory_configs_equal,
     create_dram_tensor,
 )
+from op_definitions import exp, cosh, add
 
 DRAM_INTERLEAVED_SHAPES = [
     (32, 32),
@@ -21,24 +22,6 @@ DRAM_INTERLEAVED_SHAPES = [
     (32, 1024),
 ]
 
-# eltwise unary
-def exp(input_tensor):
-    return ttnn.exp(input_tensor)
-
-
-# eltwise unary composite
-def cosh(input_tensor):
-    e_pos_x = ttnn.exp(input_tensor)
-    e_neg_x = ttnn.exp(ttnn.neg(input_tensor))
-    nr_term = ttnn.add(e_pos_x, e_neg_x)
-    output = ttnn.multiply(nr_term, 0.5)
-    return output
-
-
-# eltwise binary
-def add(a, b):
-    return ttnn.add(a, b)
-
 
 @pytest.mark.parametrize("shape", DRAM_INTERLEAVED_SHAPES)
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
@@ -46,7 +29,7 @@ def add(a, b):
     "op, num_inputs, check_interop",
     [(exp, 1, False), (add, 2, False), (cosh, 1, False), (cosh, 1, True)],
 )
-@pytest.mark.parametrize("graph_capture", [True])
+@pytest.mark.parametrize("frontend", ["graph_capture"])
 @pytest.mark.parametrize(
     "device_params", [{"dispatch_core_axis": ttnn.DispatchCoreAxis.ROW}], indirect=True
 )  # col dispatch axis fails
@@ -71,7 +54,7 @@ def test_mesh_tensor_eltwise(
     op,
     num_inputs,
     check_interop,
-    graph_capture,
+    frontend,
     mesh_device,
     mesh_mapper_func,
     dim_arg,
@@ -96,7 +79,7 @@ def test_mesh_tensor_eltwise(
     op_jit = ttnn_jit.jit(
         debug=True,
         enable_cache=enable_cache,
-        graph_capture=graph_capture,
+        frontend=frontend,
     )(op)
     interop_result = op_jit(*inputs)
 

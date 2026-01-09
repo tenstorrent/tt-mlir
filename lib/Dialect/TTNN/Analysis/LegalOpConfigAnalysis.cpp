@@ -3,10 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Analysis/LegalOpConfigAnalysis.h"
+
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
+#include "ttmlir/Dialect/TTNN/Analysis/MatmulProgramConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfigAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
-#include "ttmlir/Dialect/TTNN/Types/Types.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Support/Logger.h"
 
 #include "llvm/ADT/TypeSwitch.h"
@@ -18,7 +21,8 @@ namespace mlir::tt::ttnn {
 
 static bool isOpEnabledForAnalysis(Operation *op) {
   // Enable only for specific ops.
-  if (llvm::isa<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp>(op)) {
+  if (llvm::isa<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp, ttnn::MatmulOp,
+                ttnn::LinearOp>(op)) {
     return true;
   }
 
@@ -156,6 +160,10 @@ bool LegalOpConfigAnalysis::applyOverrides() {
         // configs.
         return conv2dConfigOverrides.fullConfigOverride();
       })
+      .Case<ttnn::MatmulOp, ttnn::LinearOp>([](auto) {
+        // Matmul/Linear ops don't use conv2d config overrides.
+        return false;
+      })
       .Default([](Operation *op) {
         llvm::llvm_unreachable_internal("Unsupported op type");
         return false;
@@ -236,6 +244,20 @@ void LegalOpConfigAnalysis::fillOpSpecificAttrs() {
             ttmlir::LogComponent::Optimizer,
             "Filled op specific attrs for conv2d op {}, ending with {} configs",
             convOp, analysisResult.size());
+      })
+      .Case<ttnn::MatmulOp, ttnn::LinearOp>([&](auto matmulOp) {
+        // Generate matmul program config for each output layout.
+        for (OpConfig &opConfig : analysisResult) {
+          auto programConfig =
+              generateMatmulProgramConfig(op, opConfig.outputLayout);
+          if (programConfig.has_value()) {
+            opConfig.opSpecificAttrs = MatmulAttrs{programConfig.value()};
+          }
+          TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                       "Filled op specific attrs for matmul/linear op {}, "
+                       "\n\t op config: {}",
+                       ttmlir::opToString(matmulOp), opConfig);
+        }
       })
       .Default([](Operation *op) -> void {
         op->emitError("Unsupported op type");

@@ -40,14 +40,15 @@ llvm::StringRef validationStatusToString(ValidationStatus status) {
 
 static ValidationResult
 validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
-                    const OpConfig &config);
+                    const OpConfig &config, uint64_t additionalL1Usage);
 
 //----------- Public API implementations ----------
 
 ValidationResult validateOperation(Operation *op,
                                    llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
-                                   const OpConfig &config) {
-  return validateConstraints(op, inputLayouts, config);
+                                   const OpConfig &config,
+                                   uint64_t additionalL1Usage) {
+  return validateConstraints(op, inputLayouts, config, additionalL1Usage);
 }
 
 std::vector<ValidationResult>
@@ -59,8 +60,8 @@ validateWithMultipleAttributes(Operation *op,
   std::vector<ValidationResult> results;
   for (const auto &testConfig : opConfigs) {
     // 1. Call core constraint checking.
-    ValidationResult constraintResult =
-        validateConstraints(op, inputLayouts, testConfig);
+    ValidationResult constraintResult = validateConstraints(
+        op, inputLayouts, testConfig, /*additionalL1Usage=*/0);
 
     // If not supported, backend error, or validation error - add to results
     // and continue (don't fail early, collect all results)
@@ -100,7 +101,7 @@ validateWithMultipleAttributes(Operation *op,
 
 static ValidationResult
 validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
-                    const OpConfig &config) {
+                    const OpConfig &config, uint64_t additionalL1Usage) {
 
   // Get tensorL1UsageCap from module attribute
   const float tensorL1UsageCap = utils::getTensorL1UsageCap(op);
@@ -122,8 +123,8 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
   }
 
   TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
-               "About to call getOpConstraints with {} input layouts",
-               inputLayouts.size());
+               "About to call getOpConstraints for {} with {} input layouts",
+               ttmlir::opToString(op), inputLayouts.size());
 
   for (size_t i = 0; i < inputLayouts.size(); ++i) {
     TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
@@ -131,6 +132,7 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
                  inputLayouts[i], static_cast<int>(inputLayouts[i].getLayout()),
                  static_cast<int>(inputLayouts[i].getDataType()));
   }
+  TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation, "Output config {}", config);
 
   llvm::Expected<ttnn::op_model::OpConstraints> l1UsageExp =
       backend.getOpConstraints(inputLayouts, config);
@@ -172,15 +174,18 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
   ttcore::ChipDescAttr chipDesc = systemDesc.getChipDescs()[0];
   uint64_t usableL1CacheSize = chipDesc.getUsableL1Size();
 
-  if (overallPeakL1Usage > tensorL1UsageCap * usableL1CacheSize) {
+  uint64_t effectiveL1Limit =
+      static_cast<uint64_t>(tensorL1UsageCap * usableL1CacheSize);
+  uint64_t totalL1Usage = overallPeakL1Usage + additionalL1Usage;
+
+  if (totalL1Usage > effectiveL1Limit) {
     TTMLIR_DEBUG(
         ttmlir::LogComponent::OpValidation,
-        "Not enough L1 memory. OpModel constraints failed for op {} \n"
-        "overallPeakL1Usage: {} [cbPeakUsage={}, l1BuffersPeakUsage={}] "
-        "limit: {}",
-        ttmlir::opToString(op), overallPeakL1Usage, cbPeakUsage,
-        l1BuffersPeakUsage,
-        static_cast<uint64_t>(tensorL1UsageCap * usableL1CacheSize));
+        "Not enough L1 memory. OpModel constraints failed for op {}\n"
+        "totalL1Usage: {} [overallPeakL1Usage={}, additionalL1Usage={}]"
+        " [cbPeakUsage={}, l1BuffersPeakUsage={}] limit: {}",
+        ttmlir::opToString(op), totalL1Usage, overallPeakL1Usage,
+        additionalL1Usage, cbPeakUsage, l1BuffersPeakUsage, effectiveL1Limit);
     return ValidationResult::outOfMemoryError("Not enough L1 memory");
   }
 
@@ -191,7 +196,7 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
                ttmlir::opToString(op), outputLayout, overallPeakL1Usage,
                cbPeakUsage, l1BuffersPeakUsage, outputTensorUsagePerCore);
 
-  return ValidationResult::success(0, outputLayout);
+  return ValidationResult::success(0, outputLayout, outputTensorUsagePerCore);
 }
 
 } // namespace op_constraint_validation

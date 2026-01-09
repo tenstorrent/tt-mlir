@@ -111,6 +111,19 @@ uint32_t getNumShards(Tensor tensor) {
       });
 }
 } // namespace detail
+Layout getTensorLayout(Tensor tensor) {
+  using RetType = Layout;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType { return ::tt::runtime::ttnn::getTensorLayout(tensor); },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getTensorLayout", DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getTensorLayout",
+                                    HostRuntime::Distributed);
+      });
+}
 
 void setMlirHome(std::string_view mlirHome) {
 #if defined(DEVICE_RUNTIME_ENABLED)

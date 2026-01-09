@@ -3,8 +3,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import ast
+from typing import Literal
+
 from ttnn_jit._src.ttir_ast import TTIRCompiler
 from ttnn_jit._src.graph_trace_compiler import GraphToIRTranslator
+from ttnn_jit._src.tracing_compiler import TracingCompiler
 from ttnn_jit._src.return_modifier import create_modified_function
 
 from ttnn._ttnn.graph import (
@@ -63,6 +66,13 @@ def generate_ir_from_graph(f, debug, *args, **kwargs):
     return ir
 
 
+def generate_ir_from_tracing(f, debug, *args, **kwargs):
+    compiler = TracingCompiler(f, *args, **kwargs)
+    ir = compiler.compile()
+    print_and_verify_ir(ir, "TracingCompiler (Tracing-based)", debug)
+    return ir
+
+
 # This utility function, though not used in production code, can help in debugging whether both
 # compilers (AST based and Graph based) are generating the same IR or not.
 def compare_ir(ir_graph, ir_ast):
@@ -85,8 +95,17 @@ def compare_ir(ir_graph, ir_ast):
     assert ir_str_graph == ir_str_ast, "IRs are different"
 
 
-def generate_ir(graph_capture, source_code, f, debug, *args, **kwargs):
-    if graph_capture:
+def generate_ir(
+    frontend: Literal["ast", "graph_capture", "tracing"],
+    source_code,
+    f,
+    debug,
+    *args,
+    **kwargs,
+):
+    if frontend == "tracing":
+        return generate_ir_from_tracing(f, debug, *args, **kwargs)
+    elif frontend == "graph_capture":
         return generate_ir_from_graph(f, debug, *args, **kwargs)
-    else:
+    else:  # frontend == "ast"
         return generate_ir_from_ast(source_code, debug, *args, **kwargs)

@@ -102,8 +102,9 @@ table KernelCoreArgs {
   args: [KernelArg];
 }
 
-table KernelCoreRTArgs {
-  args: [KernelCoreArgs];
+table CoreRuntimeArgs {
+  core_coord: tt.target.ttnn.CoreCoord;
+  args: KernelCoreArgs;
 }
 
 table KernelDescriptor {
@@ -112,7 +113,7 @@ table KernelDescriptor {
   config: KernelConfig;
   core_ranges: tt.target.ttnn.CoreRangeSet;
   ct_args: KernelCoreArgs;
-  rt_args: [KernelCoreRTArgs];
+  rt_args: [CoreRuntimeArgs];
   common_rt_args: KernelCoreArgs;
 }
 

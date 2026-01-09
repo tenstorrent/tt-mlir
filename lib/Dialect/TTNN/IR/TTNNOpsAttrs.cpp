@@ -10,6 +10,8 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
+#include "llvm/ADT/DenseSet.h"
+
 #include <cassert>
 #include <cstdint>
 #include <numeric>
@@ -712,6 +714,88 @@ MemoryConfigAttr MemoryConfigAttr::get(
                              .succeeded());
 }
 
+// Manually parse MemoryConfigAttr to avoid various issues with the tablegen
+// parser in dealing with multiple optional parameters. See PR #6512 for more
+// details.
+mlir::Attribute MemoryConfigAttr::parse(::mlir::AsmParser &parser,
+                                        ::mlir::Type type) {
+  ::llvm::SMLoc loc = parser.getCurrentLocation();
+  if (parser.parseLess()) {
+    return {};
+  }
+
+  BufferTypeAttr bufferType;
+  if (parser.parseCustomAttributeWithFallback(bufferType)) {
+    return {};
+  }
+
+  TensorMemoryLayoutAttr tensorMemoryLayout;
+  std::optional<ShardSpecAttr> shardSpec;
+  std::optional<NDShardSpecAttr> ndShardSpec;
+
+  while (parser.parseOptionalComma().succeeded()) {
+    // Attempt to parse the optional param as a shardSpecAttr.
+    ShardSpecAttr maybeShardSpec;
+    OptionalParseResult shardSpecResult =
+        parser.parseOptionalAttribute(maybeShardSpec);
+    if (shardSpecResult.has_value()) {
+      if (succeeded(*shardSpecResult)) {
+        shardSpec = maybeShardSpec;
+        continue;
+      }
+    }
+
+    // Attempt to parse the optional param as a tensorMemoryLayoutAttr.
+    TensorMemoryLayoutAttr tml;
+    if (succeeded(parser.parseCustomAttributeWithFallback(tml))) {
+      tensorMemoryLayout = tml;
+      continue;
+    }
+
+    // Only attempt to parse the param as an NDShardSpecAttr if the keyword is
+    // explicitly specified.
+    if (parser.parseOptionalKeyword("ndShardSpec").succeeded()) {
+      if (parser.parseEqual()) {
+        return {};
+      }
+      NDShardSpecAttr attr;
+      if (parser.parseCustomAttributeWithFallback(attr)) {
+        return {};
+      }
+      ndShardSpec = attr;
+      continue;
+    }
+
+    return {};
+  }
+
+  if (parser.parseGreater()) {
+    return {};
+  }
+
+  // getChecked outputs verification errors instead of just crashing.
+  return MemoryConfigAttr::getChecked(
+      [loc, &parser]() { return parser.emitError(loc); }, parser.getContext(),
+      tensorMemoryLayout, bufferType, shardSpec, ndShardSpec);
+}
+
+void MemoryConfigAttr::print(::mlir::AsmPrinter &p) const {
+  p << "<";
+  p.printStrippedAttrOrType(getBufferType());
+  if (getTensorMemoryLayout()) {
+    p << ", ";
+    p.printStrippedAttrOrType(getTensorMemoryLayout());
+  }
+  if (getShardSpec()) {
+    p << ", ";
+    p.printStrippedAttrOrType(getShardSpec());
+  } else if (getNdShardSpec()) {
+    p << ", ndShardSpec = ";
+    p.printStrippedAttrOrType(getNdShardSpec());
+  }
+  p << ">";
+}
+
 bool CoreRangeAttr::intersects(CoreRangeAttr other) const {
   bool thisEndsBeforeOtherStarts =
       this->getEndCoord().getX() < other.getStartCoord().getX();
@@ -1115,6 +1199,23 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
   return ::llvm::success();
 }
 
+::llvm::LogicalResult verifyRuntimeArgs(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    ::llvm::ArrayRef<mlir::tt::ttnn::CoreRuntimeArgsAttr> rtArgs) {
+  // Check for duplicate CoreCoords.
+  llvm::DenseSet<std::pair<uint64_t, uint64_t>> seenCoords;
+  for (CoreRuntimeArgsAttr rtArg : rtArgs) {
+    CoreCoordAttr coord = rtArg.getCoreCoord();
+    auto coordPair = std::make_pair(coord.getX(), coord.getY());
+    if (!seenCoords.insert(coordPair).second) {
+      return emitError() << "Duplicate CoreCoord (" << coord.getX() << ", "
+                         << coord.getY() << ") in runtime arguments";
+    }
+  }
+
+  return ::llvm::success();
+}
+
 ::llvm::LogicalResult ComputeKernelAttr::verify(
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
     SymbolRefAttr symbolRef, ::mlir::tt::ttnn::CoreRangeSetAttr coreRanges,
@@ -1123,8 +1224,10 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
     ::llvm::ArrayRef<ComputeKernelUnpackToDestMode> unpackToDestModes,
     bool bfp8PackPrecise, bool mathApproxMode,
     ::llvm::ArrayRef<mlir::Attribute> commonRtArgs,
+    ::llvm::ArrayRef<mlir::tt::ttnn::CoreRuntimeArgsAttr> rtArgs,
     ::llvm::ArrayRef<mlir::Attribute> ctArgs) {
   if (failed(verifyCommonRuntimeArgs(emitError, commonRtArgs)) ||
+      failed(verifyRuntimeArgs(emitError, rtArgs)) ||
       failed(verifyCompileTimeArgs(emitError, ctArgs))) {
     return ::llvm::failure();
   }
@@ -1136,8 +1239,10 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
     mlir::SymbolRefAttr symbolRef, CoreRangeSetAttr coreRanges,
     ::llvm::ArrayRef<mlir::Attribute> commonRtArgs,
+    ::llvm::ArrayRef<mlir::tt::ttnn::CoreRuntimeArgsAttr> rtArgs,
     ::llvm::ArrayRef<mlir::Attribute> ctArgs) {
   if (failed(verifyCommonRuntimeArgs(emitError, commonRtArgs)) ||
+      failed(verifyRuntimeArgs(emitError, rtArgs)) ||
       failed(verifyCompileTimeArgs(emitError, ctArgs))) {
     return ::llvm::failure();
   }
@@ -1149,8 +1254,10 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
     mlir::SymbolRefAttr symbolRef, CoreRangeSetAttr coreRanges,
     ::llvm::ArrayRef<mlir::Attribute> commonRtArgs,
+    ::llvm::ArrayRef<mlir::tt::ttnn::CoreRuntimeArgsAttr> rtArgs,
     ::llvm::ArrayRef<mlir::Attribute> ctArgs) {
   if (failed(verifyCommonRuntimeArgs(emitError, commonRtArgs)) ||
+      failed(verifyRuntimeArgs(emitError, rtArgs)) ||
       failed(verifyCompileTimeArgs(emitError, ctArgs))) {
     return ::llvm::failure();
   }

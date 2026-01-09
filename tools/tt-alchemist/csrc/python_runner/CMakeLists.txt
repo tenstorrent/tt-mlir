@@ -8,8 +8,12 @@
 
 set(PYTHON_RUNNER_LIBRARY_NAME tt-alchemist-python-runner)
 
-# Find pybind11 for Python embedding support (used by python runner)
-find_package(pybind11 CONFIG REQUIRED)
+# We embed CPython (Py_Initialize, etc.), so request the "embed" development
+# target. nanobind additionally expects FindPython-provided variables/targets.
+find_package(Python REQUIRED COMPONENTS Interpreter Development.Module Development.Embed)
+
+find_package(nanobind CONFIG REQUIRED)
+nanobind_build_library(nanobind-static)
 
 add_library(${PYTHON_RUNNER_LIBRARY_NAME}
   SHARED
@@ -32,17 +36,13 @@ target_include_directories(${PYTHON_RUNNER_LIBRARY_NAME}
   PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}  # For python_runner.hpp
   SYSTEM PUBLIC
-    ${pybind11_INCLUDE_DIRS}
     ${TTMETAL_INCLUDE_DIRS}
 )
 
-# Find Python for linking
-find_package(Python3 COMPONENTS Development REQUIRED)
-
 target_link_libraries(${PYTHON_RUNNER_LIBRARY_NAME}
   PUBLIC
-    pybind11::embed
-    Python3::Python
+    nanobind-static
+    Python::Python
     ${TTMETAL_LIBRARY_DIR}/libtt_metal.so
     ${TTMETAL_LIBRARY_DIR}/_ttnncpp.so
     ${TTMETAL_LIBRARY_DIR}/libtt_stl.so

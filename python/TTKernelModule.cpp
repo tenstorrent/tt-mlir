@@ -117,8 +117,24 @@ void populateTTKernelModule(nb::module_ &m) {
                     return wrap(tt::ttkernel::ArgSpecAttr::get(
                         unwrap(ctx), _rt_args, _ct_args));
                   })
-      .def_prop_ro_static("name", [](nb::handle) {
-        return std::string(tt::ttkernel::ArgSpecAttr::name);
+      .def_prop_ro_static("name",
+                          [](nb::handle) {
+                            return std::string(tt::ttkernel::ArgSpecAttr::name);
+                          })
+      .def_prop_ro("rt_args",
+                   [](tt::ttkernel::ArgSpecAttr &self) {
+                     std::vector<tt::ttkernel::ArgAttr> result;
+                     for (const auto &arg : self.getRtArgs()) {
+                       result.push_back(arg);
+                     }
+                     return result;
+                   })
+      .def_prop_ro("ct_args", [](tt::ttkernel::ArgSpecAttr &self) {
+        std::vector<tt::ttkernel::ArgAttr> result;
+        for (const auto &arg : self.getCtArgs()) {
+          result.push_back(arg);
+        }
+        return result;
       });
 }
 } // namespace mlir::ttmlir::python

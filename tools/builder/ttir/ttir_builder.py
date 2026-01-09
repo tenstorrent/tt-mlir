@@ -8493,6 +8493,7 @@ class TTIRBuilder(Builder):
         return ne_module, ne_builder
 
     ############### ttir.WhereOp ###############
+
     @tag(ttir.WhereOp)
     def where(
         self,

@@ -414,7 +414,7 @@ def test_attributes():
     # TEST: Define variables
     # CHECK: %[[BANK_ID:.*]] = arith.constant
     bank_id = 1
-    args = TensorAccessorArgs(2, 0)
+    args = TensorAccessorArgs(cta_base=2, crta_base=0)
 
     # TEST: Check member function is called correctly
     # CHECK: %[[TA:.*]] = ttkernel.TensorAccessor({{.*}})

@@ -38,6 +38,22 @@
 
 namespace mlir::tt::ttnn {
 
+// Helper to check if matmul/linear op should use IgnorePhysicalLayout.
+// When activation is present, we need full layout because the internal unary op
+// for activation cannot handle partial memory configs (crashes in
+// validate_shard_spec).
+// TODO(tt-metal#34500): Remove activation check once tt-metal handles partial
+// memory configs in fused activations.
+static bool shouldUseIgnorePhysicalLayout(Operation *op) {
+  if (auto matmulOp = mlir::dyn_cast<ttnn::MatmulOp>(op)) {
+    return !matmulOp.getActivation().has_value();
+  }
+  if (auto linearOp = mlir::dyn_cast<ttnn::LinearOp>(op)) {
+    return !linearOp.getActivation().has_value();
+  }
+  return false;
+}
+
 ShardSolver::Bitset ShardSolver::kBitsetAll = ~kBitsetNone;
 
 ShardSolver::ShardSolver(
@@ -161,8 +177,7 @@ bool ShardSolver::resolveStep() {
       } else {
         llvm::SmallVector<OpConfig> testConfigs =
             optimizer_utils::getUniqueTestConfigs(
-                consumerConfigs,
-                mlir::isa<ttnn::MatmulOp, ttnn::LinearOp>(consumerOp));
+                consumerConfigs, shouldUseIgnorePhysicalLayout(consumerOp));
 
         // Extract input layouts template once
         std::vector<TTNNLayoutAttr> inputLayouts =
@@ -197,6 +212,25 @@ bool ShardSolver::resolveStep() {
           for (std::size_t i = 0; i < results.size(); ++i) {
             const auto &result = results[i];
             if (result.isSuccess()) {
+              // For elementwise binary ops with sharded input, reject configs
+              // that shrink the core count. Implicit resharding in these ops
+              // causes hangs. See: github.com/tenstorrent/tt-metal/issues/34765
+              if (inputLayout.hasShardedL1TensorMemoryLayout() &&
+                  result.actualOutputLayout.hasShardedL1TensorMemoryLayout() &&
+                  llvm::isa<ttnn::AddOp, ttnn::MultiplyOp, ttnn::MinimumOp>(
+                      consumerOp)) {
+                int64_t inputCores = inputLayout.getGrid().getGridVolume();
+                int64_t outputCores =
+                    result.actualOutputLayout.getGrid().getGridVolume();
+                if (outputCores < inputCores) {
+                  TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                               "Rejecting {} config: elementwise binary op "
+                               "cannot shrink cores from {} to {}",
+                               consumerOp->getName(), inputCores, outputCores);
+                  continue;
+                }
+              }
+
               TTMLIR_TRACE(
                   ttmlir::LogComponent::Optimizer,
                   "Backend chose valid consumer layout {}, consumerId {}",
@@ -422,7 +456,9 @@ bool ShardSolver::preprocessFirstOp() {
     TTNNLayoutAttr firstOpLayout = firstOpConfigs[i].outputLayout;
     assert(firstOpLayout.hasShardedL1TensorMemoryLayout());
 
-    if (mlir::isa<ttnn::MatmulOp, ttnn::LinearOp>(firstOp)) {
+    TTNNLayoutAttr layoutForComparison = firstOpLayout;
+
+    if (shouldUseIgnorePhysicalLayout(firstOp)) {
       firstOpLayout = firstOpLayout.withIgnorePhysicalLayout(true);
     }
 
@@ -448,7 +484,7 @@ bool ShardSolver::preprocessFirstOp() {
     }
 
     TTNNLayoutAttr actualLayout = result.get();
-    if (actualLayout == firstOpLayout) {
+    if (actualLayout == layoutForComparison) {
       TTMLIR_TRACE(
           ttmlir::LogComponent::Optimizer,
           "[preprocessing first op {}] Backend actual layout matches "
@@ -458,8 +494,9 @@ bool ShardSolver::preprocessFirstOp() {
     } else {
       TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
                    "[preprocessing first op {}] Backend actual layout does not "
-                   "match given output config layout {}",
-                   firstOp->getName(), firstOpLayout);
+                   "match given output config layout\n\t actual layout: {}\n\t "
+                   "expected layout: {}",
+                   firstOp->getName(), actualLayout, layoutForComparison);
     }
   }
 
@@ -490,6 +527,14 @@ bool ShardSolver::insertReshard(const Edge &edge) {
 
   const std::vector<OpConfig> &consumerConfigs = getLegalConfigs(consumerOp);
 
+  TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer,
+               "insertReshard: consumerConfigs for {} (count: {})",
+               consumerOp->getName(), consumerConfigs.size());
+  for (size_t i = 0; i < consumerConfigs.size(); ++i) {
+    TTMLIR_DEBUG(ttmlir::LogComponent::Optimizer, "  consumerConfig[{}]: {}", i,
+                 consumerConfigs[i].outputLayout);
+  }
+
   auto inputTensor = mlir::cast<RankedTensorType>(
       consumerOp->getOperand(edge.operandIndex).getType());
 
@@ -509,8 +554,7 @@ bool ShardSolver::insertReshard(const Edge &edge) {
 
   llvm::SmallVector<OpConfig> testConfigs =
       optimizer_utils::getUniqueTestConfigs(
-          consumerConfigs,
-          mlir::isa<ttnn::MatmulOp, ttnn::LinearOp>(consumerOp));
+          consumerConfigs, shouldUseIgnorePhysicalLayout(consumerOp));
 
   // Extract and set input layouts for validation
   std::vector<TTNNLayoutAttr> consumerInputOperandLayouts =
