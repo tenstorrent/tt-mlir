@@ -38,11 +38,11 @@ mkdir -p "$LLM_TESTS_DIR"
 create_test_file_if_missing() {
     local model_name="$1"
     local test_file="${LLM_TESTS_DIR}/${model_name}.mlir"
-    
+
     if [ -f "$test_file" ]; then
         return 0  # Test existed
     fi
-    
+
     cat > "$test_file" << EOF
 // REQUIRES: opmodel, perf
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% optimization-level=1 experimental-bfp8-weights=true enable-permute-matmul-fusion=false" -o ${model_name}_ttnn.mlir %models/llm_blocks_and_layers/${model_name}.mlir
@@ -98,7 +98,7 @@ updated_count=0
 for model_file in "${SOURCE_DIR}"/*.mlir; do
     if [ -f "$model_file" ]; then
         model_name=$(basename "$model_file" .mlir)
-        
+
         # Only process block and layer models
         if [[ "$model_name" == *_block ]] || [[ "$model_name" == *_layer ]]; then
             cp "$model_file" "$LLM_MODELS_DIR/"
