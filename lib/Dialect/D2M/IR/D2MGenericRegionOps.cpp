@@ -363,6 +363,20 @@ DMAOp::bufferize(mlir::RewriterBase &rewriter,
         "present");
   }
 
+  // Verify that tensor parameters are not allowed in explicit CB form
+  if (isExplicitCBForm()) {
+    if (mlir::isa<RankedTensorType>(getMemref().getType())) {
+      return emitOpError(
+          "tensor parameters are not allowed in explicit CB form; memref "
+          "operand must be a memref type");
+    }
+    if (hasResultValue && mlir::isa<RankedTensorType>(getResult().getType())) {
+      return emitOpError(
+          "tensor parameters are not allowed in explicit CB form; result must "
+          "be a memref type");
+    }
+  }
+
   // Verify that the memref/tensor is remote (has device layout)
   if (!ttcore::hasDeviceLayout(getMemref())) {
     return emitOpError("memref/tensor must be remote (have a device layout)");
@@ -450,6 +464,21 @@ DMAOp::bufferize(mlir::RewriterBase &rewriter,
     return emitOpError(
         "must have either circular buffer or local buffer; exactly one must be "
         "present");
+  }
+
+  // Verify that tensor parameters are not allowed in explicit CB form
+  if (isExplicitCBForm()) {
+    if (mlir::isa<RankedTensorType>(getMemref().getType())) {
+      return emitOpError(
+          "tensor parameters are not allowed in explicit CB form; memref "
+          "operand must be a memref type");
+    }
+    if (hasLocalBufferOperand &&
+        mlir::isa<RankedTensorType>(getLocalBuffer().getType())) {
+      return emitOpError(
+          "tensor parameters are not allowed in explicit CB form; localBuffer "
+          "operand must be a memref type");
+    }
   }
 
   // Verify that the memref/tensor is remote (has device layout)
@@ -565,15 +594,15 @@ void RemoteLoadOp::getAsmResultNames(
 
 bool RemoteLoadOp::bufferizesToMemoryRead(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  // Only result-form (no CB) operations should exist during bufferization
   // The memref operand is read from
   return operand.get() == getMemref();
 }
 
 bool RemoteLoadOp::bufferizesToMemoryWrite(
-    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
-  // The CB operand is written to (loaded into), if present
-  Value cb = getCb();
-  return cb && operand.get() == cb;
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  // Only result-form (no CB) operations should exist during bufferization
+  return false;
 }
 
 mlir::bufferization::AliasingValueList
@@ -584,14 +613,13 @@ RemoteLoadOp::getAliasingValues(mlir::OpOperand &,
 }
 
 mlir::FailureOr<mlir::bufferization::BufferLikeType>
-RemoteLoadOp::getBufferType(
-    mlir::Value value, const mlir::bufferization::BufferizationOptions &options,
-    const mlir::bufferization::BufferizationState &,
-    ::llvm::SmallVector<mlir::Value> &) {
-  Value cb = getCb();
-  if (cb && value == cb) {
-    auto cbType = mlir::cast<CBType>(value.getType());
-    return cbType.getBufferType(options, [&]() { return emitOpError(); });
+RemoteLoadOp::getBufferType(mlir::Value value,
+                            const mlir::bufferization::BufferizationOptions &,
+                            const mlir::bufferization::BufferizationState &,
+                            ::llvm::SmallVector<mlir::Value> &) {
+  // CB-form operations should not exist during bufferization
+  if (getCb()) {
+    return mlir::failure();
   }
   if (value == getMemref()) {
     return ttcore::getBufferType(value.getType(), /*isView=*/false);
@@ -603,7 +631,19 @@ mlir::LogicalResult RemoteLoadOp::bufferize(
     mlir::RewriterBase &rewriter,
     const mlir::bufferization::BufferizationOptions &options,
     mlir::bufferization::BufferizationState &state) {
-  // Handle the memref/tensor operand - similar to DMAOp
+  // CB-form operations should not exist during bufferization
+  if (getCb()) {
+    return emitOpError(
+        "RemoteLoadOp with CB should not exist during bufferization");
+  }
+
+  // Result-only mode: no CB, just the result
+  Value result = getResult();
+  if (!result) {
+    return emitOpError("Expected result when CB is not present");
+  }
+
+  // Bufferize the memref/tensor operand
   mlir::FailureOr<Value> memrefBuffer =
       mlir::bufferization::getBuffer(rewriter, getMemref(), options, state);
   // NOLINTNEXTLINE
@@ -611,50 +651,31 @@ mlir::LogicalResult RemoteLoadOp::bufferize(
     return memrefBuffer;
   }
 
-  Value cb = getCb();
-  if (cb) {
-    // Handle the CB operand - similar to PushOp/PopOp using bufferizeCBOp
-    // pattern
-    auto cbBufferType =
-        mlir::cast<bufferization::TensorLikeType>(getCbType())
-            .getBufferType(options, [&]() { return emitOpError(); });
-    // NOLINTNEXTLINE
-    if (failed(cbBufferType)) {
-      return mlir::failure();
-    }
+  // Convert result type to memref type
+  Type resultBufferType =
+      ttcore::getBufferType(result.getType(), /*isView=*/false);
 
-    auto cbBuffer =
-        rewriter.create<bufferization::ToBufferOp>(getLoc(), *cbBufferType, cb);
-
-    // Create a new RemoteLoadOp with bufferized operands (with CB, no result)
-    // NOLINTNEXTLINE
-    mlir::bufferization::replaceOpWithNewBufferizedOp<RemoteLoadOp>(
-        rewriter, *this, cbBuffer.getResult(), *memrefBuffer, getIndices(),
-        getMcastStartIndex(), getMcastShape());
-  } else {
-    // Result-only mode: no CB, just the result
-    Value result = getResult();
-    assert(result && "Expected result when CB is not present");
-    // Create a new RemoteLoadOp with bufferized operands (no CB, with result)
-    // NOLINTNEXTLINE
-    mlir::bufferization::replaceOpWithNewBufferizedOp<RemoteLoadOp>(
-        rewriter, *this, result.getType(), *memrefBuffer, getIndices(),
-        getMcastStartIndex(), getMcastShape());
-  }
+  // Create a new RemoteLoadOp with bufferized operands (no CB, with result)
+  // NOLINTNEXTLINE
+  mlir::bufferization::replaceOpWithNewBufferizedOp<RemoteLoadOp>(
+      rewriter, *this, resultBufferType, *memrefBuffer, getIndices(),
+      getMcastStartIndex(), getMcastShape());
 
   return mlir::success();
 }
 
 bool RemoteLoadOp::hasTensorSemantics() {
+  // CB-form operations should not exist during bufferization
+  if (getCb()) {
+    return false;
+  }
+
   // Check if the memref operand is a tensor (needs bufferization)
   bool memrefIsTensor = mlir::isa<RankedTensorType>(getMemref().getType());
-  // Check if the CB wraps a tensor (needs bufferization), if CB is present
-  CBType cbType = getCbType();
-  bool cbHasTensor = cbType && cbType.hasTensorType();
-  // Check if the result is a tensor (needs bufferization), if result is present
+  // Check if the result is a tensor (needs bufferization)
   Value result = getResult();
   bool resultIsTensor = result && mlir::isa<RankedTensorType>(result.getType());
-  return memrefIsTensor || cbHasTensor || resultIsTensor;
+  return memrefIsTensor || resultIsTensor;
 }
 
 //===----------------------------------------------------------------------===//
@@ -663,16 +684,9 @@ bool RemoteLoadOp::hasTensorSemantics() {
 
 bool RemoteStoreOp::bufferizesToMemoryRead(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
-  // The CB or localBuffer operand is read from
-  Value cb = getCb();
-  if (cb && operand.get() == cb) {
-    return true;
-  }
-  Value localBuffer = getLocalBuffer();
-  if (localBuffer && operand.get() == localBuffer) {
-    return true;
-  }
-  return false;
+  // Only localBuffer-form (no CB) operations should exist during bufferization
+  // The localBuffer operand is read from
+  return operand.get() == getLocalBuffer();
 }
 
 bool RemoteStoreOp::bufferizesToMemoryWrite(
@@ -689,17 +703,21 @@ RemoteStoreOp::getAliasingValues(mlir::OpOperand &,
 }
 
 mlir::FailureOr<mlir::bufferization::BufferLikeType>
-RemoteStoreOp::getBufferType(
-    mlir::Value value, const mlir::bufferization::BufferizationOptions &options,
-    const mlir::bufferization::BufferizationState &,
-    ::llvm::SmallVector<mlir::Value> &) {
-  Value cb = getCb();
-  if (cb && value == cb) {
-    auto cbType = mlir::cast<CBType>(value.getType());
-    return cbType.getBufferType(options, [&]() { return emitOpError(); });
+RemoteStoreOp::getBufferType(mlir::Value value,
+                             const mlir::bufferization::BufferizationOptions &,
+                             const mlir::bufferization::BufferizationState &,
+                             ::llvm::SmallVector<mlir::Value> &) {
+  // CB-form operations should not exist during bufferization
+  if (getCb()) {
+    return mlir::failure();
   }
+
   Value localBuffer = getLocalBuffer();
-  if (localBuffer && value == localBuffer) {
+  if (!localBuffer) {
+    return mlir::failure();
+  }
+
+  if (value == localBuffer) {
     return ttcore::getBufferType(value.getType(), /*isView=*/false);
   }
   if (value == getMemref()) {
@@ -712,7 +730,19 @@ mlir::LogicalResult RemoteStoreOp::bufferize(
     mlir::RewriterBase &rewriter,
     const mlir::bufferization::BufferizationOptions &options,
     mlir::bufferization::BufferizationState &state) {
-  // Handle the memref/tensor operand - similar to DMAOp
+  // CB-form operations should not exist during bufferization
+  if (getCb()) {
+    return emitOpError(
+        "RemoteStoreOp with CB should not exist during bufferization");
+  }
+
+  // Form I: localBuffer mode
+  Value localBuffer = getLocalBuffer();
+  if (!localBuffer) {
+    return emitOpError("Expected localBuffer when CB is not present");
+  }
+
+  // Bufferize the memref/tensor operand
   mlir::FailureOr<Value> memrefBuffer =
       mlir::bufferization::getBuffer(rewriter, getMemref(), options, state);
   // NOLINTNEXTLINE
@@ -720,58 +750,36 @@ mlir::LogicalResult RemoteStoreOp::bufferize(
     return memrefBuffer;
   }
 
-  Value cb = getCb();
-  if (cb) {
-    // Handle the CB operand - similar to PushOp/PopOp using bufferizeCBOp
-    // pattern
-    auto cbBufferType =
-        mlir::cast<bufferization::TensorLikeType>(getCbType())
-            .getBufferType(options, [&]() { return emitOpError(); });
-    // NOLINTNEXTLINE
-    if (failed(cbBufferType)) {
-      return mlir::failure();
-    }
-
-    auto cbBuffer =
-        rewriter.create<bufferization::ToBufferOp>(getLoc(), *cbBufferType, cb);
-
-    // Create a new RemoteStoreOp with bufferized operands (Form II: with CB)
-    rewriter.replaceOpWithNewOp<RemoteStoreOp>(
-        *this, *memrefBuffer, getIndices(), /*localBuffer=*/Value{},
-        cbBuffer.getResult(), getMcastStartIndex(), getMcastShape());
-  } else {
-    // Form I: localBuffer mode
-    Value localBuffer = getLocalBuffer();
-    assert(localBuffer && "Expected localBuffer when CB is not present");
-
-    mlir::FailureOr<Value> localBufferBufferized =
-        mlir::bufferization::getBuffer(rewriter, localBuffer, options, state);
-    // NOLINTNEXTLINE
-    if (failed(localBufferBufferized)) {
-      return localBufferBufferized;
-    }
-
-    // Create a new RemoteStoreOp with bufferized operands (Form I: with
-    // localBuffer)
-    rewriter.replaceOpWithNewOp<RemoteStoreOp>(
-        *this, *memrefBuffer, getIndices(), *localBufferBufferized,
-        /*cb=*/Value{}, getMcastStartIndex(), getMcastShape());
+  // Bufferize the localBuffer operand
+  mlir::FailureOr<Value> localBufferBufferized =
+      mlir::bufferization::getBuffer(rewriter, localBuffer, options, state);
+  // NOLINTNEXTLINE
+  if (failed(localBufferBufferized)) {
+    return localBufferBufferized;
   }
+
+  // Create a new RemoteStoreOp with bufferized operands (Form I: with
+  // localBuffer) NOLINTNEXTLINE
+  rewriter.replaceOpWithNewOp<RemoteStoreOp>(
+      *this, *memrefBuffer, getIndices(), *localBufferBufferized,
+      /*cb=*/Value{}, getMcastStartIndex(), getMcastShape());
 
   return mlir::success();
 }
 
 bool RemoteStoreOp::hasTensorSemantics() {
+  // CB-form operations should not exist during bufferization
+  if (getCb()) {
+    return false;
+  }
+
   // Check if the memref operand is a tensor (needs bufferization)
   bool memrefIsTensor = mlir::isa<RankedTensorType>(getMemref().getType());
-  // Check if the CB wraps a tensor (needs bufferization), if CB is present
-  CBType cbType = getCbType();
-  bool cbHasTensor = cbType && cbType.hasTensorType();
-  // Check if the localBuffer is a tensor (needs bufferization), if present
+  // Check if the localBuffer is a tensor (needs bufferization)
   Value localBuffer = getLocalBuffer();
   bool localBufferIsTensor =
       localBuffer && mlir::isa<RankedTensorType>(localBuffer.getType());
-  return memrefIsTensor || cbHasTensor || localBufferIsTensor;
+  return memrefIsTensor || localBufferIsTensor;
 }
 
 //===----------------------------------------------------------------------===//
