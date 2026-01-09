@@ -170,14 +170,7 @@ class OpWrapper:
         return self.op_name
 
     def add_origin_model(self, model: str) -> None:
-        """
-        Adds a new origin model to the list if it's not already present.
-
-        Parameters
-        ----------
-        model : str
-            The name of the model to add
-        """
+        """Adds a new origin model to the list if it's not already present."""
         if model and model not in self.origin_model:
             self.origin_model.append(model)
 

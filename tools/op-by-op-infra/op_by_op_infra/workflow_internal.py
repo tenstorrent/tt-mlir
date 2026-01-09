@@ -86,7 +86,7 @@ def add_missing_attributes(
     """
     Sets additional attributes of `pydantic_model` in-place.
 
-    Only sets attributes if they are provided and not already set.
+    Only sets attributes if they are provided.
 
     Parameters
     ----------
