@@ -12,7 +12,6 @@
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/Location.h"
-#include "stablehlo/dialect/StablehloOps.h"
 #include "llvm/ADT/STLForwardCompat.h"
 #include "llvm/ADT/SmallVector.h"
 
@@ -269,35 +268,6 @@ inline void addShouldHoistAttr(mlir::Operation *op,
 /// Check if the "ttir.should_hoist" attribute is present on an operation.
 inline bool hasShouldHoistAttr(mlir::Operation *op) {
   return op->hasAttr("ttir.should_hoist");
-}
-
-// Helper to check if this convolution is a transposed convolution.
-// Determine if the stablehlo.convolution op represents a regular or
-// transposed convolution, based on Torch-MLIR lowering patterns:
-// https://github.com/llvm/torch-mlir/blob/main/lib/Conversion/TorchToStablehlo/Linear.cpp
-// Only transposed convolutions can have input dilation greater than 1.
-// Transposed convolutions always have a window stride of 1.
-inline bool isTransposedConv(::mlir::stablehlo::ConvolutionOp convolutionOp) {
-  // If lhs_dilation is not set, it defaults to 1 (not transposed).
-  // Transposed convolutions have input dilation > 1 for at least one dimension.
-  auto lhsDilationAttr = convolutionOp.getLhsDilationAttr();
-  if (!lhsDilationAttr) {
-    return false;
-  }
-
-  bool isTransposed = llvm::any_of(lhsDilationAttr.asArrayRef(),
-                                   [](int64_t d) { return d > 1; });
-
-  // Transposed convolutions always have window stride of 1.
-  // If window_strides is not set, it defaults to 1, so isTransposed remains the
-  // same.
-  auto windowStridesAttr = convolutionOp.getWindowStridesAttr();
-  if (windowStridesAttr) {
-    isTransposed &= llvm::all_of(windowStridesAttr.asArrayRef(),
-                                 [](int64_t s) { return s == 1; });
-  }
-
-  return isTransposed;
 }
 
 // Helper function to create a reshape operation.
