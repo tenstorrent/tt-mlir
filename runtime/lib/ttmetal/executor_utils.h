@@ -9,8 +9,6 @@
 #include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/ttmetal/ttmetal.h"
 
-#include "ttmlir/Target/TTMetal/Target.h"
-
 #include <filesystem>
 #include <functional>
 #include <variant>
@@ -242,17 +240,21 @@ inline std::string kernelConfigTypeString(
   // return a string representation of the kernel config type
   if (const auto *dataMovementConfig =
           std::get_if<tt_metal::DataMovementConfig>(&kernelConfig)) {
-    return "data_movement" +
-           std::to_string(
-               static_cast<
-                   std::underlying_type_t<tt_metal::DataMovementProcessor>>(
-                   dataMovementConfig->processor)) +
-           "_noc" + std::to_string(dataMovementConfig->noc);
+    std::string dataMovementCore = "";
+    switch (dataMovementConfig->processor) {
+    case (tt_metal::DataMovementProcessor::RISCV_0):
+      dataMovementCore = "brisc";
+      break;
+    case (tt_metal::DataMovementProcessor::RISCV_1):
+      dataMovementCore = "ncrisc";
+      break;
+    }
+    return dataMovementCore + "_noc" + std::to_string(dataMovementConfig->noc);
   } else if (std::holds_alternative<tt_metal::ComputeConfig>(kernelConfig)) {
-    return "compute";
+    return "trisc";
   } else if (const auto *ethernetConfig =
                  std::get_if<tt_metal::EthernetConfig>(&kernelConfig)) {
-    return "ethernet" +
+    return "erisc" +
            std::to_string(
                static_cast<
                    std::underlying_type_t<tt_metal::DataMovementProcessor>>(
@@ -285,14 +287,11 @@ inline std::string
 coreRangeToString(const tt::tt_metal::CoreRangeSet &coreRanges) {
   std::string result;
   for (const auto &coreRange : coreRanges.ranges()) {
-    result += std::to_string(coreRange.start_coord.y) + "_" +
-              std::to_string(coreRange.start_coord.x) + "-" +
-              std::to_string(coreRange.end_coord.y) + "_" +
+    result += "__y" + std::to_string(coreRange.start_coord.y) + "x" +
+              std::to_string(coreRange.start_coord.x) + "-y" +
+              std::to_string(coreRange.end_coord.y) + "x" +
               std::to_string(coreRange.end_coord.x);
-    result += "__";
   }
-  result.pop_back();
-  result.pop_back();
 
   return result;
 }
@@ -319,9 +318,6 @@ inline std::string createKernelFilePath(
     path += kernelDebugInfo;
     path += "_";
     path += kernelConfigTypeString(kernelConfig);
-
-    // Double underscore to visually separate core ranges from the rest.
-    path += "__";
     path += coreRangeToString(coreRangeSet);
   }
   path += extention;

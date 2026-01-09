@@ -2687,13 +2687,27 @@ createOp(FlatbufferObjectCache &cache, GenericOp op) {
         common_rt_args =
             createKernelArgs(cache, kernelInterface.getCommonRtArgs());
 
+    std::vector<::flatbuffers::Offset<::tt::target::ttnn::CoreRuntimeArgs>>
+        rt_args;
+    for (auto coreRtArgsAttr : kernelInterface.getRtArgs()) {
+      auto coreCoordAttr = coreRtArgsAttr.getCoreCoord();
+      ::tt::target::ttnn::CoreCoord coreCoord(coreCoordAttr.getX(),
+                                              coreCoordAttr.getY());
+      std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelArg>>
+          coreArgs = createKernelArgs(cache, coreRtArgsAttr.getArgs());
+      rt_args.push_back(::tt::target::ttnn::CreateCoreRuntimeArgs(
+          *cache.fbb, &coreCoord,
+          ::tt::target::ttnn::CreateKernelCoreArgsDirect(*cache.fbb,
+                                                         &coreArgs)));
+    }
+
     kernels.push_back(::tt::target::ttnn::CreateKernelDescriptorDirect(
         *cache.fbb, source.data(), ::tt::target::ttnn::SourceType::SOURCE_CODE,
         configType, config,
         toFlatbuffer(cache, llvm::cast<ttnn::CoreRangeSetAttr>(
                                 kernelInterface.getCoreRanges())),
         ::tt::target::ttnn::CreateKernelCoreArgsDirect(*cache.fbb, &ct_args),
-        nullptr, // TODO (#4827): Support non-common runtime arguments
+        &rt_args,
         ::tt::target::ttnn::CreateKernelCoreArgsDirect(*cache.fbb,
                                                        &common_rt_args)));
   }
@@ -3629,6 +3643,8 @@ std::shared_ptr<void> ttnnToFlatbuffer(
   flatbuffers::Offset<::tt::target::MLIR> binaryMLIR =
       toMLIR(fbb, "ttnn", rootModule);
 
+  assert(moduleOp->hasAttr(ttcore::SystemDescAttr::name) &&
+         "ttcore::SystemDescAttr attribute missing on ModuleOp");
   auto systemDesc =
       toFlatbuffer(cache, mlir::cast<ttcore::SystemDescAttr>(
                               moduleOp->getAttr(ttcore::SystemDescAttr::name)));

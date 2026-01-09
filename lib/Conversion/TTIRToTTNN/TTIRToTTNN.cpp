@@ -2276,7 +2276,11 @@ public:
 
     ttcore::DataTypeAttr dtypeAttr = rewriter.getAttr<ttcore::DataTypeAttr>(
         ttcore::elementTypeToDataType(outputType.getElementType()));
-    Value device = mlir::tt::ttnn::utils::getOrInsertDevice(rewriter, op);
+
+    mlir::Value device =
+        ttnnLayoutAttr.isDeviceBufferType()
+            ? mlir::Value(::ttnn::utils::getOrInsertDevice(rewriter, op))
+            : nullptr;
 
     ttnn::Layout ttnnLayoutEnum = ttnn::Layout::RowMajor;
 
