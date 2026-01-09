@@ -812,7 +812,6 @@ recreateGenericOp(d2m::GenericOp genericOp,
                 }
               }
             }
-            // RemoteStoreOp has no result, no type update needed
           }
         },
         /*singleThreadType=*/genericOp.getRegionThreadType(0));
