@@ -844,7 +844,7 @@ def D2MDecomposeComplexPermute: Pass<"d2m-decompose-complex-permute", "::mlir::M
     permutes. An inner permute swaps only the last two dimensions, while an outer permute
     handles any other permutation on the outer dimensions.
 
-    The current heuristic is to maximize the number of inner permutes.
+    The permute will at most be decomposed into an Outer -> Inner -> Outer permute.
 
     Example:
       Before:

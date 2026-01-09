@@ -1411,8 +1411,8 @@ static AffineMap permuteLogicalMap(ttir::PermuteOp op) {
   assert(logicalRank >= 2 && "Permute must have at least 2 dimensions");
   // Verify last dimension is not identity for outer permute handling.
   const bool noInnerPermute =
-      (permutation[logicalRank - 2] != static_cast<int64_t>(logicalRank - 2) &&
-       permutation[logicalRank - 1] == static_cast<int64_t>(logicalRank - 1));
+      !(permutation[logicalRank - 2] == static_cast<int64_t>(logicalRank - 1) &&
+        permutation[logicalRank - 1] == static_cast<int64_t>(logicalRank - 2));
   assert(noInnerPermute && "Complex permutes (both inner and outer "
                            "permutations) are not supported.");
   SmallVector<AffineExpr> results(logicalRank);

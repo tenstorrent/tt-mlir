@@ -39,93 +39,87 @@ llvm::SmallVector<int64_t> createInnerPermute(size_t rank) {
   return perm;
 }
 
-// Create an outer permute that swaps positions i and j, keeping last position
-// fixed. Acts on positions [0..n-2], keeps last position fixed.
-llvm::SmallVector<int64_t> createOuterSwap(size_t rank, size_t i, size_t j) {
-  llvm::SmallVector<int64_t> perm(rank);
-  int64_t *data = perm.data();
-  for (size_t k = 0; k < rank; ++k) {
-    data[k] = (k == i) ? j : (k == j ? i : k);
+// Check if permutation is identity.
+bool isIdentity(llvm::ArrayRef<int64_t> perm) {
+  for (size_t i = 0; i < perm.size(); ++i) {
+    if (perm[i] != static_cast<int64_t>(i)) {
+      return false;
+    }
   }
-  return perm;
+  return true;
 }
 
-// Apply permutation p to array arr: result[i] = arr[p[i]].
-llvm::SmallVector<int64_t> applyPerm(llvm::ArrayRef<int64_t> arr,
-                                     llvm::ArrayRef<int64_t> p) {
-  llvm::SmallVector<int64_t> result;
-  for (size_t i = 0; i < p.size(); ++i) {
-    result.push_back(arr[p[i]]);
-  }
-  return result;
-}
-
-// Decompose a complex permutation into a sequence of inner and outer permutes.
-// Inner permute: only swaps the last two positions (n-2, n-1).
+// Decompose a complex permutation into at most, a sequence of Outer -> Inner ->
+// Outer permute. Inner permute: only swaps the last two positions (n-2, n-1).
 // Outer permute: acts on positions [0..n-2], keeps last position fixed.
 //
-// Algorithm: greedy left-to-right placement.
-// 1. For each position i from 0 to n-3:
-//    - If current[i] != target[i], find where target[i] is.
-//    - If it's at position n-1, do an inner swap first.
-//    - Then do an outer swap to place it correctly.
-// 2. After fixing positions 0..n-3, fix last two with an inner swap if needed.
 llvm::SmallVector<llvm::SmallVector<int64_t>>
 decomposePermutation(llvm::ArrayRef<int64_t> permutation) {
   llvm::SmallVector<llvm::SmallVector<int64_t>> result;
-  size_t rank = permutation.size();
+  size_t n = permutation.size();
 
-  // Trivial case: 0 or 1 dimension, no permutation needed.
-  if (rank < 2) {
+  // Outer permute: last dimension is identity.
+  if (permutation[n - 1] == static_cast<int64_t>(n - 1)) {
     return result;
   }
 
-  // If last dimension stays fixed, this is just an outer permute.
-  if (permutation[rank - 1] == static_cast<int64_t>(rank - 1)) {
+  // Case 1: P[n-2] == n-1, can do with just Outer + Inner.
+  if (permutation[n - 2] == static_cast<int64_t>(n - 1)) {
+    llvm::SmallVector<int64_t> outer(n);
+    for (size_t i = 0; i + 2 < n; ++i) {
+      outer[i] = permutation[i];
+    }
+    // Move outer[n-2] where it needs to be for the inner permute.
+    outer[n - 2] = permutation[n - 1];
+    outer[n - 1] = n - 1;
+
+    if (!isIdentity(outer)) {
+      result.push_back(outer);
+    }
+    result.push_back(createInnerPermute(n));
     return result;
   }
 
-  // Start with identity as current state.
-  llvm::SmallVector<int64_t> current;
-  for (size_t i = 0; i < rank; ++i) {
-    current.push_back(i);
+  // General case: need Outer1 + Inner + Outer2.
+  // Let k = P[n-1] (value that should go to position n-1).
+  //
+  // Outer1: Puts k at position n-2 so Inner can move it to n-1.
+  //   Swap positions (n-2) and (k) in the identity.
+  //
+  // Outer2: Rearranges [0..n-2] to match P[0..n-2].
+  //   Outer2[i] = position of P[i] in current state.
+  int64_t k = permutation[n - 1];
+
+  // Build Outer1: swap positions n-2 and k.
+  llvm::SmallVector<int64_t> outer1(n);
+  for (size_t i = 0; i < n; ++i) {
+    outer1[i] = i;
   }
-  llvm::SmallVector<int64_t> target(permutation.begin(), permutation.end());
+  outer1[n - 2] = k;
+  outer1[k] = n - 2;
 
-  for (size_t i = 0; i + 2 < rank; ++i) {
-    if (current[i] == target[i]) {
-      continue;
+  // Build Outer2: for each position i in [0..n-2], find where P[i] is.
+  llvm::SmallVector<int64_t> outer2(n);
+  for (size_t i = 0; i + 1 < n; ++i) {
+    int64_t targetVal = permutation[i];
+    size_t pos;
+    if (targetVal == static_cast<int64_t>(n - 2)) {
+      pos = k;
+    } else if (targetVal == static_cast<int64_t>(n - 1)) {
+      pos = n - 2;
+    } else {
+      pos = targetVal;
     }
-
-    // Find where target[i] is in current.
-    size_t j = i;
-    for (size_t k = i; k < rank; ++k) {
-      if (current[k] == target[i]) {
-        j = k;
-        break;
-      }
-    }
-
-    // Inner swap first if needed.
-    if (j == rank - 1) {
-      auto innerPerm = createInnerPermute(rank);
-      current = applyPerm(current, innerPerm);
-      result.push_back(innerPerm);
-      j = rank - 2;
-    }
-
-    // Outer swap to place it at position i.
-    if (i != j) {
-      auto outerPerm = createOuterSwap(rank, i, j);
-      current = applyPerm(current, outerPerm);
-      result.push_back(outerPerm);
-    }
+    outer2[i] = pos;
   }
+  outer2[n - 1] = n - 1;
 
-  // Fix the last two positions if needed.
-  if (current[rank - 2] != target[rank - 2]) {
-    auto innerPerm = createInnerPermute(rank);
-    result.push_back(innerPerm);
+  if (!isIdentity(outer1)) {
+    result.push_back(outer1);
+  }
+  result.push_back(createInnerPermute(n));
+  if (!isIdentity(outer2)) {
+    result.push_back(outer2);
   }
 
   return result;
