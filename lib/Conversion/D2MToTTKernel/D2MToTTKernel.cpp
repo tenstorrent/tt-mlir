@@ -386,7 +386,7 @@ using ComputeOpMap = OpMap<
   std::pair<d2m::TileTypecastOp,    std::pair<ttkernel::TypecastTileInitOp,        ttkernel::TypecastTileOp>>,
 
   // Elementwise SFPU Binary (can also handle scalar operands).
-  std::pair<d2m::TileAddOp,         std::pair<ttkernel::AddBinaryTilesInitOp,      ttkernel::AddBinaryTilesOp>>,
+  // NOTE: TileAddOp is NOT here - it uses FPU path via D2MFPUBinaryWithScalarRewriter.
   std::pair<d2m::TileBitwiseAndOp,  std::pair<ttkernel::BinaryBitwiseTileInitOp,   ttkernel::BitwiseAndBinaryTilesOp>>,
   std::pair<d2m::TileBitwiseOrOp,   std::pair<ttkernel::BinaryBitwiseTileInitOp,   ttkernel::BitwiseOrBinaryTilesOp>>,
   std::pair<d2m::TileBitwiseXorOp,  std::pair<ttkernel::BinaryBitwiseTileInitOp,   ttkernel::BitwiseXorBinaryTilesOp>>,
@@ -809,6 +809,76 @@ public:
   }
 };
 
+} // namespace
+
+namespace {
+
+// Specialized rewriter for binary ops that use FPU for tile-tile but SFPU for
+// tile-scalar operations. This is needed because:
+// 1. D2MFPUOpsRewriter doesn't support scalar operands (always calls getCB())
+// 2. D2MSFPUOpsRewriter uses SFPU binary ops, but we want FPU ops for tile-tile
+// 3. Hardware constraint: FPU reads from CBs, scalars must go through SFPU
+template <typename ConcreteOp>
+class D2MFPUBinaryWithScalarRewriter : public OpConversionPattern<ConcreteOp> {
+public:
+  using OpConversionPattern<ConcreteOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto rhsType = adaptor.getRhs().getType();
+    bool isScalarRhs = rhsType.isIntOrFloat();
+    auto loc = op->getLoc();
+
+    if (isScalarRhs) {
+      // Scalar operand - use SFPU unary path
+      // LHS is already in DST
+      auto inCB = getInCB(rewriter, op);
+      auto outCB = getOutCB(rewriter, op);
+
+      auto insertionPoint = rewriter.getInsertionPoint();
+      rewriter.setInsertionPointToStart(rewriter.getInsertionBlock());
+      setInsertionPointAfterOperands(rewriter, {inCB, outCB},
+                                     /*allowHoisting*/ true);
+      rewriter.create<ttkernel::InitSFPUOp>(loc, inCB, outCB);
+      rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
+
+      rewriter.create<ttkernel::BinopWithScalarTileInitOp>(loc);
+
+      const auto dstIdx = adaptor.getLhs();
+
+      if constexpr (std::is_same_v<ConcreteOp, d2m::TileAddOp>) {
+        auto scalarParam = rewriter.create<arith::BitcastOp>(
+            loc, rewriter.getI32Type(), adaptor.getRhs());
+        rewriter.create<ttkernel::AddUnaryTileOp>(loc, dstIdx, scalarParam);
+      }
+      // TODO: Add other scalar ops here (sub, mul)
+    } else {
+      // Tile-tile operation - use FPU path (reads directly from CBs)
+      auto cbA = getCB(rewriter, op.getLhs());
+      auto cbB = getCB(rewriter, op.getRhs());
+      auto outCB = getOutCB(rewriter, op);
+
+      auto insertionPoint = rewriter.getInsertionPoint();
+      setInsertionPointAfterOperands(rewriter, {cbA, cbB, outCB},
+                                     /*allowHoisting*/ true);
+      rewriter.create<ttkernel::BinaryOpInitCommonOp>(loc, cbA, cbB, outCB);
+      rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
+
+      auto dstIdx = getDstIdxFromResult(op.getResult());
+
+      if constexpr (std::is_same_v<ConcreteOp, d2m::TileAddOp>) {
+        rewriter.create<ttkernel::AddTilesInitOp>(loc, cbA, cbB);
+        rewriter.create<ttkernel::AddTilesOp>(loc, cbA, cbB, adaptor.getLhs(),
+                                              adaptor.getRhs(), dstIdx);
+      }
+      // TODO: Add other FPU binary ops here (sub, mul)
+    }
+
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
 } // namespace
 
 namespace {
@@ -1663,8 +1733,10 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MSFPUOpsRewriter<d2m::TileLezOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileTypecastOp>,
 
+               // FPU Binary with scalar option (uses FPU for tile-tile, SFPU for tile-scalar).
+               ttkernel::D2MFPUBinaryWithScalarRewriter<d2m::TileAddOp>,
+
                // Elementwise SFPU Binary (also handles scalar operands).
-               ttkernel::D2MSFPUOpsRewriter<d2m::TileAddOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileBitwiseAndOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileBitwiseOrOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileBitwiseXorOp>,
