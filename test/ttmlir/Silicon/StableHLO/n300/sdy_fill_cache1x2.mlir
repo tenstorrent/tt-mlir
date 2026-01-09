@@ -20,7 +20,7 @@ module @ClosedUpdateOpenInput {
     ^bb0(%arg4: tensor<f32>, %arg5: tensor<f32>):
       stablehlo.return %arg5 : tensor<f32>
     }) : (tensor<1x8x1024x128xf32>, tensor<64x1xi64>, tensor<1x8x64x128xf32>) -> tensor<1x8x1024x128xf32>
-    %9 = stablehlo.custom_call @Sharding(%8) {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding_per_value<[<@mesh, [{}, {\22model\22}, {}, {}]>]>"}, mhlo.sharding = "{devices=[1,2,1,1]<=[2]}"} : (tensor<1x8x1024x128xf32>) -> tensor<1x8x1024x128xf32>
+    %9 = stablehlo.custom_call @Sharding(%8) {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding_per_value<[<@mesh, [{}, {}, {}, {}]>]>"}, mhlo.sharding = "{devices=[1,2,1,1]<=[2]}"} : (tensor<1x8x1024x128xf32>) -> tensor<1x8x1024x128xf32>
     return %9 : tensor<1x8x1024x128xf32>
   }
 }
