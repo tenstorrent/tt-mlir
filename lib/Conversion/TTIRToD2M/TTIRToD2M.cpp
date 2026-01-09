@@ -304,7 +304,7 @@ protected:
 
     SmallVector<Value> operands;
 
-    // Process input operands - create remote_load operations
+    // Process input operands - create remote_load operations using result form
     for (size_t i = 0; i < inputs.size(); ++i) {
       auto cbArg = block->getArgument(i);
       auto cbType = mlir::cast<d2m::CBType>(cbArg.getType());
@@ -320,13 +320,12 @@ protected:
       // Get the generic operand (the remote memref/tensor)
       Value genericOperand = generic->getOperand(i);
 
-      // Create remote_load operation
-      Value loaded = builder
-                         .create<d2m::RemoteLoadOp>(loc, shardType,
-                                                    genericOperand, indices)
-                         .getResult();
+      Value loadResult = builder
+                             .create<d2m::RemoteLoadOp>(loc, shardType,
+                                                        genericOperand, indices)
+                             .getResult();
 
-      operands.push_back(loaded);
+      operands.push_back(loadResult);
     }
 
     // Process output operands - create acquire_buffer operations

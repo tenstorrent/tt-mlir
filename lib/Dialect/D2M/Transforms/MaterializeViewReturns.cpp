@@ -89,11 +89,12 @@ Value materializeView(OpBuilder &builder, Location loc, Value viewResult) {
         SmallVector<Value> indices =
             utils::buildGridIndices(builder, innerLoc, indexingMap);
         // Issue a remote_load from the view to the output buffer.
-        // The remote_load will fetch data according to the view's affine map.
-        Value loadResult = builder
-                               .create<RemoteLoadOp>(innerLoc, blockArgs[1],
-                                                     viewResult, indices)
-                               ->getResult(0);
+        auto cbType = mlir::cast<d2m::CBType>(blockArgs[1].getType());
+        auto shardType = cbType.getUnderlying();
+        Value loadResult =
+            builder
+                .create<RemoteLoadOp>(innerLoc, shardType, viewResult, indices)
+                .getResult();
         // View transformation is handled by view_layout and the generic op's
         // indexing maps.
         builder.create<d2m::YieldOp>(innerLoc, loadResult);
