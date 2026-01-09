@@ -87,6 +87,7 @@ def _compile_and_execute(
             enable_intermediate_verification=enable_intermediate_verification,
             save_artifacts=compile_kwargs.get("save_artifacts", False),
             artifact_dir=compile_kwargs.get("artifact_dir", "."),
+            dump_memory=compile_kwargs.get("dump_memory", False),
         )
 
     elif target == "emitpy":
@@ -148,6 +149,7 @@ def build_module(
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
     save_artifacts: bool = False,
     artifact_dir: str = ".",
+    dump_memory: bool = False,
 ) -> Tuple[Module, Union[TTIRBuilder, StableHLOBuilder, TTNNBuilder, D2MBuilder]]:
     """
     Build an MLIR `Module` from a Python emission function using the chosen builder.
@@ -167,6 +169,8 @@ def build_module(
         When True, writes the emitted module to `artifact_dir`.
     artifact_dir : str
         Directory to write artifacts if `save_artifacts` is True.
+    dump_memory : bool
+        Dump a per-op memory report into the artifact_dir.
 
     Returns
     -------
@@ -194,13 +198,13 @@ def build_module(
     with ctx, loc:
         new_module = _compile(mod, builder)
 
-        print(f"`{mod.__name__}` successfully transformed into a MLIR module.")
-        print(new_module)
+    print(f"`{mod.__name__}` successfully transformed into a MLIR module.")
+    print(new_module)
 
-        if save_artifacts:
-            filename = os.path.join(artifact_dir, builder_type + "_module.mlir")
-            with open(filename, "w") as f:
-                f.write(str(new_module))
+    if save_artifacts:
+        filename = os.path.join(artifact_dir, builder_type + "_module.mlir")
+        with open(filename, "w") as f:
+            f.write(str(new_module))
 
     return new_module, builder
 
@@ -228,6 +232,7 @@ def compile_and_execute_d2m(
     check_atol: bool = False,
     check_rtol: bool = False,
     enable_intermediate_verification: bool = False,
+    dump_memory: bool = False,
 ) -> str:
     """
     Compiles and executes a D2MBuilder function through the complete pipeline.
@@ -281,6 +286,8 @@ def compile_and_execute_d2m(
         Whether to check absolute tolerance during golden comparison
     check_rtol : bool
         Whether to check relative tolerance during golden comparison
+    dump_memory : bool
+        Dump a per-op memory report into the artifact_dir.
     """
     artifact_dir = get_artifact_dir(
         output_root, "D2MBuilder", test_base, save_artifacts
@@ -308,6 +315,7 @@ def compile_and_execute_d2m(
         check_atol=check_atol,
         check_rtol=check_rtol,
         enable_intermediate_verification=enable_intermediate_verification,
+        dump_memory=dump_memory,
     )
 
 
@@ -336,6 +344,7 @@ def compile_and_execute_shlo(
     check_atol: bool = False,
     check_rtol: bool = False,
     enable_intermediate_verification: bool = False,
+    dump_memory: bool = False,
 ) -> str:
     """
     Compiles and executes a StableHLO function through the complete pipeline.
@@ -393,6 +402,8 @@ def compile_and_execute_shlo(
         Whether to check absolute tolerance during golden comparison
     check_rtol : bool
         Whether to check relative tolerance during golden comparison
+    dump_memory : bool
+        Dump a per-op memory report into the artifact_dir.
     """
     artifact_dir = get_artifact_dir(
         output_root, "StableHLOBuilder", test_base, save_artifacts
@@ -422,6 +433,7 @@ def compile_and_execute_shlo(
         check_atol=check_atol,
         check_rtol=check_rtol,
         enable_intermediate_verification=enable_intermediate_verification,
+        dump_memory=dump_memory,
     )
 
 
@@ -448,6 +460,7 @@ def compile_and_execute_ttnn(
     check_atol: bool = False,
     check_rtol: bool = False,
     enable_intermediate_verification: bool = False,
+    dump_memory: bool = False,
 ) -> str:
     """
     Compiles and executes a TTNNBuilder function through the complete pipeline.
@@ -504,6 +517,8 @@ def compile_and_execute_ttnn(
         Whether to check absolute tolerance during golden comparison
     check_rtol : bool
         Whether to check relative tolerance during golden comparison
+    dump_memory : bool
+        Dump a per-op memory report into the artifact_dir.
     """
     artifact_dir = get_artifact_dir(
         output_root, "TTNNBuilder", test_base, save_artifacts
@@ -531,6 +546,7 @@ def compile_and_execute_ttnn(
         check_atol=check_atol,
         check_rtol=check_rtol,
         enable_intermediate_verification=enable_intermediate_verification,
+        dump_memory=dump_memory,
     )
 
 
@@ -557,6 +573,7 @@ def compile_and_execute_ttir(
     check_atol: bool = False,
     check_rtol: bool = False,
     enable_intermediate_verification: bool = False,
+    dump_memory: bool = False,
 ) -> str:
     """
     Compiles and executes a TTIR function through the complete pipeline.
@@ -610,6 +627,8 @@ def compile_and_execute_ttir(
         Whether to check absolute tolerance during golden comparison
     check_rtol : bool
         Whether to check relative tolerance during golden comparison
+    dump_memory : bool
+        Dump a per-op memory report into the artifact_dir.
     """
     artifact_dir = get_artifact_dir(
         output_root, "TTIRBuilder", test_base, save_artifacts
@@ -637,6 +656,7 @@ def compile_and_execute_ttir(
         check_atol=check_atol,
         check_rtol=check_rtol,
         enable_intermediate_verification=enable_intermediate_verification,
+        dump_memory=dump_memory,
     )
 
 
@@ -652,6 +672,7 @@ def compile_ttir_to_flatbuffer(
     custom_pipeline: Optional[Union[Callable, str]] = None,
     pipeline_options: Optional[List[str]] = None,
     print_ir: Union[bool, str] = False,
+    dump_memory: bool = False,
 ) -> str:
     """
     Compiles a TTIRBuilder function `fn` to TTIR MLIR -> TT{Metal,NN} MLIR -> Flatbuffer.
@@ -731,6 +752,11 @@ def compile_ttir_to_flatbuffer(
     -------
     Tuple[Builder, Any, Dict[int, Dict[str, Dict[int, GoldenMapTensor]]], Dict[str, Dict[int, GoldenMapTensor]]]
         Builder, compiled_bin, input/output goldens, intermediate goldens
+
+    Other Parameters
+    ----------------
+    dump_memory : bool
+        Dump a per-op memory report into the artifact_dir.
     """
 
     # Compile model to TTIR MLIR
@@ -742,6 +768,7 @@ def compile_ttir_to_flatbuffer(
             mesh_dict=mesh_dict,
             save_artifacts=save_artifacts,
             artifact_dir=artifact_dir,
+            dump_memory=dump_memory,
         )
     except Exception as e:
         raise TTBuilderCompileException(e)
@@ -758,6 +785,7 @@ def compile_ttir_to_flatbuffer(
         custom_pipeline=custom_pipeline,
         pipeline_options=pipeline_options,
         print_ir=print_ir,
+        dump_memory=dump_memory,
     )
 
 
@@ -773,6 +801,7 @@ def compile_ttnn_to_flatbuffer(
     custom_pipeline: Optional[Union[Callable, str]] = None,
     pipeline_options: Optional[List[str]] = None,
     print_ir: Union[bool, str] = False,
+    dump_memory: bool = False,
 ) -> str:
     """
     Compiles a TTNN function to flatbuffer format.
@@ -814,6 +843,11 @@ def compile_ttnn_to_flatbuffer(
         If inputs_shapes and inputs_types have different lengths
     TTBuilderCompileException
         If compilation fails at any stage
+
+    Other Parameters
+    ----------------
+    dump_memory : bool
+        Dump a per-op memory report into the artifact_dir.
     """
 
     # Create module containing TTNN ops
@@ -825,6 +859,7 @@ def compile_ttnn_to_flatbuffer(
             mesh_dict=mesh_dict,
             save_artifacts=save_artifacts,
             artifact_dir=artifact_dir,
+            dump_memory=dump_memory,
         )
     except Exception as e:
         raise TTBuilderCompileException(e)
@@ -841,6 +876,7 @@ def compile_ttnn_to_flatbuffer(
         save_artifacts=save_artifacts,
         argument_types_string=argument_types_string,
         custom_pipeline=custom_pipeline,
+        dump_memory=dump_memory,
     )
 
 
@@ -857,6 +893,7 @@ def compile_d2m_to_flatbuffer(
     pipeline_options: Optional[List[str]] = None,
     print_ir: Union[bool, str] = False,
     device=None,
+    dump_memory: bool = False,
 ) -> str:
     """
     Compiles a D2MBuilder function `fn` to D2M MLIR -> TTMetal MLIR -> Flatbuffer.
@@ -914,6 +951,11 @@ def compile_d2m_to_flatbuffer(
     -------
     Tuple[Builder, Any, Dict[int, Dict[str, Dict[int, GoldenMapTensor]]], Dict[str, Dict[int, GoldenMapTensor]]]
         Builder, compiled_bin, input/output goldens, intermediate goldens
+
+    Other Parameters
+    ----------------
+    dump_memory : bool
+        Dump a per-op memory report into the artifact_dir.
     """
 
     # Compile model to D2M MLIR
@@ -925,6 +967,7 @@ def compile_d2m_to_flatbuffer(
             mesh_dict=mesh_dict,
             save_artifacts=save_artifacts,
             artifact_dir=artifact_dir,
+            dump_memory=dump_memory,
         )
     except Exception as e:
         raise TTBuilderCompileException(e)
@@ -941,6 +984,7 @@ def compile_d2m_to_flatbuffer(
         custom_pipeline=custom_pipeline,
         pipeline_options=pipeline_options,
         print_ir=print_ir,
+        dump_memory=dump_memory,
     )
 
 
@@ -958,6 +1002,7 @@ def compile_stablehlo_to_flatbuffer(
     shlo_pipeline_options: Optional[List[str]] = None,
     shlo_to_ttir_pipeline_options: Optional[List[str]] = None,
     print_ir: Union[bool, str] = False,
+    dump_memory: bool = False,
 ) -> str:
     """
     Compiles a StableHLO function to flatbuffer format.
@@ -1028,6 +1073,11 @@ def compile_stablehlo_to_flatbuffer(
     ------
     ValueError
         If inputs_shapes and inputs_types have different lengths
+
+    Other Parameters
+    ----------------
+    dump_memory : bool
+        Dump a per-op memory report into the artifact_dir.
     """
     if shlo_pipeline_options is None:
         shlo_pipeline_options = []
@@ -1044,6 +1094,7 @@ def compile_stablehlo_to_flatbuffer(
             mesh_dict=mesh_dict,
             save_artifacts=save_artifacts,
             artifact_dir=artifact_dir,
+            dump_memory=dump_memory,
         )
     except Exception as e:
         raise TTBuilderCompileException(e)
@@ -1083,6 +1134,7 @@ def compile_stablehlo_to_flatbuffer(
         print_ir=print_ir,
         input_output_goldens=input_output_goldens,
         intermediate_goldens=intermediate_goldens,
+        dump_memory=dump_memory,
     )
 
 
@@ -1102,6 +1154,7 @@ def compile_ttir_module_to_flatbuffer(
         Dict[int, Dict[str, Dict[int, GoldenMapTensor]]]
     ] = None,
     intermediate_goldens: Optional[Dict[str, Dict[int, GoldenMapTensor]]] = None,
+    dump_memory: bool = False,
 ):
     """
     Compiles a TTIR MLIR module to flatbuffer format.
@@ -1158,6 +1211,11 @@ def compile_ttir_module_to_flatbuffer(
             (e.g. `pytest -s` or `python -u`) and/or use pdb to reliably see
             dumps before a crash.
         Default is False (no IR printed).
+
+    Other Parameters
+    ----------------
+    dump_memory : bool
+        Dump a per-op memory report into the artifact_dir.
 
     goldens : *Optional[Dict[Operand, GoldenMapTensor]]*, optional
         Dictionary of golden tensors to use for comparison. If None, the golden

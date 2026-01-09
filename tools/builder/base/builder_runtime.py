@@ -409,6 +409,7 @@ class CallbackRuntimeConfig:
         bypass_ops=None,
         save_artifacts: bool = False,
         artifact_dir: str = ".",
+        dump_memory: bool = False,
     ):
         self.device = device
         self.pcc = pcc
@@ -421,22 +422,23 @@ class CallbackRuntimeConfig:
         self.bypass_ops = bypass_ops if bypass_ops else []
         self.save_artifacts = save_artifacts
         self.artifact_dir = artifact_dir
+        self.dump_memory = dump_memory
+        self.memory_report = {}
         self.golden_report = {}
+        self.counter = -1
 
     def start_new_program(self, artifact_dir):
         self.artifact_dir = artifact_dir
         self.golden_report = {}
+        self.memory_report = {}
+        self.counter = -1
+
+    def callback_counter(self):
+        self.counter = self.counter + 1
+        return self.counter
 
 
-def pre_op_callback(callback_runtime_config, binary, program_context, op_context):
-    pass
-
-
-def pre_op_get_callback_fn(callback_runtime_config):
-    return partial(pre_op_callback, callback_runtime_config)
-
-
-def post_op_callback(callback_runtime_config, binary, program_context, op_context):
+def golden(callback_runtime_config, binary, program_context, op_context):
     loc = tt_runtime.runtime.get_op_loc_info(op_context)
     op_output_tensor_map = tt_runtime.runtime.get_op_output_tensor(
         op_context, program_context
@@ -491,7 +493,7 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
             save_torch_tensor(
                 output_tensor_torch,
                 callback_runtime_config.artifact_dir,
-                golden_tensor_torch_name,
+                device_tensor_torch_name,
             )
 
         try:
@@ -528,6 +530,62 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
             return
 
     callback_runtime_config.golden_report[loc] = device_results
+
+
+def create_memory_dictionary(memory_view):
+    memory_dict = {}
+    memory_dict["num_banks"] = memory_view.num_banks
+    memory_dict["total_bytes_per_bank"] = memory_view.total_bytes_per_bank
+    memory_dict[
+        "total_bytes_allocated_per_bank"
+    ] = memory_view.total_bytes_allocated_per_bank
+    memory_dict["total_bytes_free_per_bank"] = memory_view.total_bytes_free_per_bank
+    memory_dict[
+        "largest_contiguous_bytes_free_per_bank"
+    ] = memory_view.largest_contiguous_bytes_free_per_bank
+    memory_dict["block_table"] = memory_view.block_table
+
+    return memory_dict
+
+
+def memory(callback_runtime_config, binary, program_context, op_context):
+    device = callback_runtime_config.device
+    loc = tt_runtime.runtime.get_op_loc_info(op_context)
+    debug_str = tt_runtime.runtime.get_op_debug_str(op_context)
+
+    memory_views = device.get_memory_view()
+    dram_memory_view = memory_views[tt_runtime.runtime.MemoryBufferType.DRAM]
+    l1_memory_view = memory_views[tt_runtime.runtime.MemoryBufferType.L1]
+    l1_small_memory_view = memory_views[tt_runtime.runtime.MemoryBufferType.L1_SMALL]
+    trace_memory_view = memory_views[tt_runtime.runtime.MemoryBufferType.TRACE]
+
+    op_memory_report = {}
+    op_memory_report["loc"] = loc
+    op_memory_report["debug_str"] = debug_str
+    op_memory_report["dram"] = create_memory_dictionary(dram_memory_view)
+    op_memory_report["l1"] = create_memory_dictionary(l1_memory_view)
+    op_memory_report["l1_small"] = create_memory_dictionary(l1_small_memory_view)
+    op_memory_report["trace"] = create_memory_dictionary(trace_memory_view)
+
+    callback_runtime_config.memory_report[
+        callback_runtime_config.callback_counter()
+    ] = op_memory_report
+
+
+def pre_op_callback(callback_runtime_config, binary, program_context, op_context):
+    pass
+
+
+def pre_op_get_callback_fn(callback_runtime_config):
+    return partial(pre_op_callback, callback_runtime_config)
+
+
+def post_op_callback(callback_runtime_config, binary, program_context, op_context):
+    # if callback_runtime_config.save:
+    golden(callback_runtime_config, binary, program_context, op_context)
+
+    if callback_runtime_config.dump_memory:
+        memory(callback_runtime_config, binary, program_context, op_context)
 
 
 def post_op_get_callback_fn(callback_runtime_config):
@@ -576,6 +634,7 @@ def execute_fb(
     bypass_ops: List[str] = None,
     save_artifacts: bool = False,
     artifact_dir: str = ".",
+    dump_memory: bool = False,
 ):
     """
     Execute a flatbuffer binary on device and compare device outputs against goldens.
@@ -612,6 +671,8 @@ def execute_fb(
         Save output tensors (and intermediate tensors if intermediate verification is enabled) and golden reports to `artifact_dir`.
     artifact_dir : str
         Root directory for artifacts.
+    dump_memory : bool
+        Dump a per-op memory report into the artifact_dir.
 
     Returns
     -------
@@ -643,9 +704,10 @@ def execute_fb(
         bypass_ops=bypass_ops,
         save_artifacts=save_artifacts,
         artifact_dir=artifact_dir,
+        dump_memory=dump_memory,
     )
 
-    if enable_intermediate_verification or bypass_ops:
+    if enable_intermediate_verification or bypass_ops or dump_memory:
         tt_runtime.runtime.DebugHooks.get(
             pre_op_get_callback_fn(callback_runtime_config),
             post_op_get_callback_fn(callback_runtime_config),
@@ -795,11 +857,22 @@ def execute_fb(
                 program_golden_report[loc] = device_results
 
             if save_artifacts:
-                artifact_file = os.path.join(
+                golden_file = os.path.join(
                     artifact_dir, f"program_{program_index}", "golden_report.json"
                 )
-                with open(artifact_file, "w") as f:
+                os.makedirs(os.path.dirname(golden_file), exist_ok=True)
+                with open(golden_file, "w") as f:
                     json.dump(program_golden_report, f, indent=4)
+
+            if dump_memory:
+                memory_file = os.path.join(
+                    artifact_dir,
+                    f"program_{program_index}",
+                    "memory_report.json",
+                )
+                os.makedirs(os.path.dirname(memory_file), exist_ok=True)
+                with open(memory_file, "w") as f:
+                    json.dump(callback_runtime_config.memory_report, f, indent=4)
 
             golden_report[f"program_{program_index}"] = program_golden_report
             output_tensors[f"program_{program_index}"] = program_output_tensors
@@ -819,6 +892,7 @@ def execute_py(
     check_rtol: bool = False,
     save_artifacts: bool = False,
     artifact_dir: str = ".",
+    dump_memory: bool = False,
 ):
     """
     Execute an EmitPy Dylib and compare device outputs against goldens.
@@ -968,7 +1042,7 @@ def execute_py(
                         artifact_dir, f"program_{program_index}", "golden_report.json"
                     )
                     with open(artifact_file, "w") as f:
-                        json.dump(golden_report, f, indent=4)
+                        json.dump(program_golden_report, f, indent=4)
 
                 golden_report[f"program_{program_index}"] = program_golden_report
                 output_tensors[f"program_{program_index}"] = program_output_tensors
@@ -1161,7 +1235,7 @@ def execute_cpp(
                         artifact_dir, f"program_{program_index}", "golden_report.json"
                     )
                     with open(artifact_file, "w") as f:
-                        json.dump(golden_report, f, indent=4)
+                        json.dump(program_golden_report, f, indent=4)
 
                 golden_report[f"program_{program_index}"] = program_golden_report
                 output_tensors[f"program_{program_index}"] = program_output_tensors
