@@ -273,8 +273,6 @@ void createTTIRToTTMetalUnifiedMiddleendPipeline(
   pm.addPass(
       d2m::createD2MInsertDstRegisterAccess(insertDstRegisterAccessOptions));
 
-  pm.addPass(d2m::createD2MGenerateOuterLoops());
-
   pm.addPass(d2m::createD2MSFPUTileLoopFission());
   pm.addPass(mlir::createCanonicalizerPass());
 
@@ -285,6 +283,9 @@ void createTTIRToTTMetalUnifiedMiddleendPipeline(
   pm.addPass(memref::createFoldMemRefAliasOpsPass());
   pm.addPass(mlir::createLowerAffinePass());
   pm.addPass(d2m::createD2MGenericLinearizeMemref());
+
+  pm.addPass(d2m::createD2MGenerateOuterLoops());
+  pm.addPass(d2m::createD2MDecoupleLoadStoreOpsFromCompute());
   pm.addPass(d2m::createD2MSplitUnifiedThread());
   pm.addPass(d2m::createD2MPreallocateMcastSemaphores());
   pm.addPass(d2m::createD2MScheduleDMA());
