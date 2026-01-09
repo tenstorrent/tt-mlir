@@ -491,7 +491,7 @@ def post_op_callback(callback_runtime_config, binary, program_context, op_contex
             save_torch_tensor(
                 output_tensor_torch,
                 callback_runtime_config.artifact_dir,
-                golden_tensor_torch_name,
+                device_tensor_torch_name,
             )
 
         try:
@@ -968,7 +968,7 @@ def execute_py(
                         artifact_dir, f"program_{program_index}", "golden_report.json"
                     )
                     with open(artifact_file, "w") as f:
-                        json.dump(golden_report, f, indent=4)
+                        json.dump(program_golden_report, f, indent=4)
 
                 golden_report[f"program_{program_index}"] = program_golden_report
                 output_tensors[f"program_{program_index}"] = program_output_tensors
@@ -1161,7 +1161,7 @@ def execute_cpp(
                         artifact_dir, f"program_{program_index}", "golden_report.json"
                     )
                     with open(artifact_file, "w") as f:
-                        json.dump(golden_report, f, indent=4)
+                        json.dump(program_golden_report, f, indent=4)
 
                 golden_report[f"program_{program_index}"] = program_golden_report
                 output_tensors[f"program_{program_index}"] = program_output_tensors
