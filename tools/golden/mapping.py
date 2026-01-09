@@ -4301,6 +4301,42 @@ def stablehlo_reduce_scatter_golden(
     raise NotImplementedError("stablehlo_reduce_scatter_golden is not implemented yet.")
 
 
+def stablehlo_pad_golden(
+    input_tensor: GoldenMapTensor,
+    value: GoldenMapTensor,
+    edge_padding_low: DenseI64ArrayAttr,
+    edge_padding_high: DenseI64ArrayAttr,
+    interior_padding: DenseI64ArrayAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    padding_low = unpack_mlir_attr(edge_padding_low)
+    padding_high = unpack_mlir_attr(edge_padding_high)
+    interior = unpack_mlir_attr(interior_padding)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    # padding value is a 0-rank tensor, but torch expects the
+    # value to be python scalar (float). Hence, extract the value by first
+    # converting golden tensor to torch tensors, then
+    # obtain the pad_value
+    pad_value = value.contiguous().shard_map[0].item()
+
+    rank = len(padding_low)
+    assert len(padding_high) == rank
+    assert len(interior) == rank
+
+    # Reverse the padding values as torch expects the
+    # padding in the reverse order (i.e from last dimension moving
+    # leftwards).
+    # [low_last, high_last, low_prev, high_prev, ..., low0, high0]
+    golden_padding = []
+    for d in reversed(range(rank)):
+        golden_padding.extend([padding_low[d], padding_high[d]])
+
+    return torch.nn.functional.pad(
+        input_tensor, pad=golden_padding, mode="constant", value=pad_value
+    ).to(output_dtype)
+
+
 ################ SDY Op Golden Functions ###############
 
 
@@ -5013,6 +5049,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # StableHLO tensor manipulation operations
     stablehlo.TransposeOp: stablehlo_transpose_golden,
     stablehlo.SelectOp: stablehlo_select_golden,
+    stablehlo.PadOp: stablehlo_pad_golden,
     # CCL (Collective Communication Library) operations
     stablehlo.AllGatherOp: stablehlo_all_gather_golden,
     stablehlo.AllReduceOp: stablehlo_all_reduce_golden,

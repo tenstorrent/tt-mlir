@@ -658,6 +658,50 @@ def test_transpose(
     )
 
 
+@pytest.mark.parametrize("shape", [(2, 3)], ids=shape_str)
+@pytest.mark.parametrize("padding", [[1, 1, 1, 1], [1, 0, 0, 1]])
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize(
+    "target",
+    [
+        "ttnn",
+        pytest.param(
+            "ttmetal",
+            marks=pytest.mark.skip(
+                reason="ttir.pad lowering not supported on ttmetal, failed to legalize"
+            ),
+        ),
+    ],
+)
+def test_pad(
+    shape: Shape,
+    padding: List[int],
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: StableHLOBuilder):
+        @builder.func([shape], [dtype])
+        def pad(
+            in0: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            # 0-rank tensor constant
+            padding_value = builder.constant(torch.tensor(0.0, dtype=dtype))
+            return builder.pad(in0, padding_value, padding, unit_attrs=unit_attrs)
+
+    compile_and_execute_shlo(
+        module,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
 @pytest.mark.parametrize(
     "shapes,dim",
     [
