@@ -137,10 +137,6 @@ void createTTIRToTTMetalMiddleendPipeline(
     allocateOptions.testBufferSizePolicy = options.testBufferSizePolicy;
   }
   pm.addPass(d2m::createD2MAllocate(allocateOptions));
-
-  // Decompose block_mask ops now that we're in memref space.
-  pm.addPass(d2m::createD2MDecomposeMasking());
-
   pm.addPass(createCanonicalizerPassWithOptions(options));
   d2m::D2MGenericApplyInterchangeOptions applyInterchangeOptions;
   {
@@ -170,6 +166,12 @@ void createTTIRToTTMetalMiddleendPipeline(
     ;
   }
   pm.addPass(d2m::createD2MOpScheduler(opSchedulerOptions));
+
+  // Decompose block_mask ops AFTER op-scheduler. The scheduler doesn't handle
+  // scalar arithmetic ops correctly and would break dominance in our masking
+  // code. DecomposeMasking emits affine loops with d2m.linalg_root so
+  // InsertDstRegisterAccess can process them.
+  pm.addPass(d2m::createD2MDecomposeMasking());
 
   d2m::D2MInsertDstRegisterAccessOptions insertDstRegisterAccessOptions;
   {

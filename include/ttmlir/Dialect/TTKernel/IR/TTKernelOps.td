@@ -2204,6 +2204,103 @@ def TTKernel_ExperimentalUntilizeBlockOp : TTKernel_Op<"experimental::untilize_b
     }];
 }
 
+def TTKernel_ExperimentalPaddingMaskOp : TTKernel_SFPUOp<"experimental::padding_mask", [TTKernel_UnaryOpTrait]> {
+    let summary = "Experimental Padding Mask Op";
+    let description = [{
+      Generates a padding mask tile in DST where rows 0 to validRows-1 and cols 0 to
+      validCols-1 are set to 1.0, and all other elements are 0.0. This creates a
+      rectangular mask for valid data regions. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call. This call is blocking and is only
+      available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$dst_index, I32:$validRows, I32:$validCols);
+
+    let assemblyFormat = [{
+      `(` $dst_index `,` $validRows `,` $validCols `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_ExperimentalRowMaskOp : TTKernel_SFPUOp<"experimental::row_mask", [TTKernel_UnaryOpTrait]> {
+    let summary = "Experimental Row Mask Op";
+    let description = [{
+      Generates a row mask tile in DST where rows 0 to validRows-1 are set to 1.0,
+      and all other rows are 0.0. All columns are set to 1.0 (full width). This creates
+      a mask for row-based padding. The DST register buffer must be in acquired state
+      via *tile_regs_acquire* call. This call is blocking and is only available on the
+      compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$dst_index, I32:$validRows);
+
+    let assemblyFormat = [{
+      `(` $dst_index `,` $validRows `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_ExperimentalColMaskOp : TTKernel_SFPUOp<"experimental::col_mask", [TTKernel_UnaryOpTrait]> {
+    let summary = "Experimental Col Mask Op";
+    let description = [{
+      Generates a col mask tile in DST where cols 0 to validCols-1 are set to 1.0,
+      and all other cols are 0.0. All rows are set to 1.0 (full height). This creates
+      a mask for col-based padding. The DST register buffer must be in acquired state
+      via *tile_regs_acquire* call. This call is blocking and is only available on the
+      compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$dst_index, I32:$validCols);
+
+    let assemblyFormat = [{
+      `(` $dst_index `,` $validCols `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_ExperimentalTileFillOp : TTKernel_SFPUOp<"experimental::tile_fill", [TTKernel_UnaryOpTrait]> {
+    let summary = "Experimental Tile Fill Op";
+    let description = [{
+      Creates a tile in DST filled with a constant scalar value. All elements in the
+      resulting tile will have the same value as the input scalar. The DST register
+      buffer must be in acquired state via *tile_regs_acquire* call. This call is
+      blocking and is only available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$dst_index, F32:$value);
+
+    let assemblyFormat = [{
+      `(` $dst_index `,` $value `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_ExperimentalWriteRowIndexTileOp : TTKernel_Op<"experimental::write_row_index_tile"> {
+    let summary = "Experimental Write Row Index Tile Op";
+    let description = [{
+      Writes a row index tile pattern to a CB, where element[i,j] = i (row index 0-31).
+      This is used in dataflow kernels to generate index tiles for partial tile masking.
+      The resulting tile can be used with tile_sub and tile_ltz to create row-based masks.
+    }];
+
+    let arguments = (ins TTKernel_CB:$cb);
+
+    let assemblyFormat = [{
+      `(` $cb `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_ExperimentalWriteColIndexTileOp : TTKernel_Op<"experimental::write_col_index_tile"> {
+    let summary = "Experimental Write Col Index Tile Op";
+    let description = [{
+      Writes a column index tile pattern to a CB, where element[i,j] = j (col index 0-31).
+      This is used in dataflow kernels to generate index tiles for partial tile masking.
+      The resulting tile can be used with tile_sub and tile_ltz to create column-based masks.
+    }];
+
+    let arguments = (ins TTKernel_CB:$cb);
+
+    let assemblyFormat = [{
+      `(` $cb `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_UntilizeInitOp : TTKernel_Op<"untilize_init"> {
     let summary = "UntilizeInitOp call.";
     let description = [{

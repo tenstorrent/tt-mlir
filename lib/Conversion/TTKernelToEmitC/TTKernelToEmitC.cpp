@@ -1071,6 +1071,13 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::TanhTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TypecastTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TypecastTileOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalPaddingMaskOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalRowMaskOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalColMaskOp>,
+        TTKernelToEmitCOpaqueRewriter<
+            ttkernel::ExperimentalWriteRowIndexTileOp>,
+        TTKernelToEmitCOpaqueRewriter<
+            ttkernel::ExperimentalWriteColIndexTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::UnaryBcastInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::UnaryBcastTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::WhereTileInitOp>,

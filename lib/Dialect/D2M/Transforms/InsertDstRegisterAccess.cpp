@@ -383,32 +383,30 @@ public:
     return types;
   }
 
-  static std::pair<MemRefType, int>
-  inferCbInfoFromAllAccesses(const CopyInfoMap &copyInfos) {
-    MemRefType canonicalType = nullptr;
+  // Returns the element type and max DST slot index needed.
+  static std::pair<Type, int>
+  inferDstInfoFromAllAccesses(const CopyInfoMap &copyInfos) {
+    Type elemType = nullptr;
     int maxDstSlice = -1;
 
-    auto updateCanonicalType = [&](MemRefType memref, int idx) {
-      if (canonicalType == nullptr) {
-        canonicalType = memref;
-      } else {
-        TT_assertv(memref.getShape() == canonicalType.getShape(),
-                   "Multiple interpretations of DST not supported.");
+    auto updateInfo = [&](MemRefType memref, int idx) {
+      if (elemType == nullptr) {
+        elemType = memref.getElementType();
       }
       maxDstSlice = std::max(maxDstSlice, idx);
     };
 
     for (auto [loopNest, copyInfo] : copyInfos) {
       for (auto &[loadOp, bcastOp, idx, guardDims] : copyInfo.loads) {
-        updateCanonicalType(loadOp.getMemRefType(), idx);
+        updateInfo(loadOp.getMemRefType(), idx);
       }
       for (auto &[storeOp, bcastOp, idx, guardDims] : copyInfo.stores) {
-        updateCanonicalType(storeOp.getMemRefType(), idx);
+        updateInfo(storeOp.getMemRefType(), idx);
       }
     }
-    TT_assert(canonicalType != nullptr);
+    TT_assert(elemType != nullptr);
     TT_assert(maxDstSlice >= 0);
-    return {canonicalType, maxDstSlice};
+    return {elemType, maxDstSlice};
   }
 
   static AcquireDstOp insertAcquireDst(PatternRewriter &rewriter, Location loc,
@@ -423,21 +421,17 @@ public:
       rewriter.setInsertionPointToStart(&region.front());
     }
 
-    auto [cbType, maxDstSlice] = inferCbInfoFromAllAccesses(copyInfos);
-    // Calculate dst shape as N slices of cb shape.
-    const int64_t volume = ttmlir::utils::volume(cbType.getShape());
-    TT_assert(volume <= dstCapacity);
-    const int64_t numDstSlices = dstCapacity / volume;
-    TT_assertv(maxDstSlice < numDstSlices,
+    auto [elemType, maxDstSlice] = inferDstInfoFromAllAccesses(copyInfos);
+    // Use flat 1D DST indexing - each slot holds 1 tile.
+    // CB shape doesn't affect DST allocation; we process 1 tile at a time.
+    TT_assertv(maxDstSlice <= static_cast<int>(dstCapacity),
                "Insufficient DST capacity for all operands.");
-    SmallVector<int64_t> dstShape({numDstSlices});
-    dstShape.append(cbType.getShape().begin(), cbType.getShape().end());
-    MemRefType dstType =
-        MemRefType::get(dstShape, cbType.getElementType(),
-                        mlir::AffineMap::getMultiDimIdentityMap(
-                            dstShape.size(), rewriter.getContext()),
-                        rewriter.getAttr<ttcore::MemorySpaceAttr>(
-                            ttcore::MemorySpace::RegisterDst));
+    // DST is 1D array of tile slots.
+    MemRefType dstType = MemRefType::get(
+        {static_cast<int64_t>(dstCapacity)}, elemType,
+        mlir::AffineMap::getMultiDimIdentityMap(1, rewriter.getContext()),
+        rewriter.getAttr<ttcore::MemorySpaceAttr>(
+            ttcore::MemorySpace::RegisterDst));
 
     return rewriter.create<AcquireDstOp>(loc, dstType);
   }
@@ -457,6 +451,10 @@ public:
     CopyInfoMap copyInfos;
     DstSliceAllocationState dstSliceAllocationState;
     DstIntermediatesMap dstIntermediates;
+    // Track already-collected loads to avoid allocating multiple DST slots
+    // for the same load when it's used by multiple compute ops.
+    DenseSet<Operation *> collectedLoads;
+
     region.walk([&](OperandLoadStoreRegisterOpInterface computeOp) {
       // Filter out non CB<->DST loads & stores.
       auto notDstMemspace = [](auto op) {
@@ -474,6 +472,12 @@ public:
         auto potentialLoad = computeOp->getOperand(operandIdx)
                                  .getDefiningOp<affine::AffineLoadOp>();
         if (potentialLoad && notDstMemspace(potentialLoad)) {
+          // Skip if this load was already collected (same load used by
+          // multiple compute ops should only get one DST slot).
+          if (collectedLoads.contains(potentialLoad.getOperation())) {
+            continue;
+          }
+          collectedLoads.insert(potentialLoad.getOperation());
           collectDstLoadOrStore<affine::AffineLoadOp>(
               gOp, potentialLoad, copyInfos, dstSliceAllocationState.allocate(),
               outermostInnerComputeLoop);
@@ -490,7 +494,9 @@ public:
                  "Multiple stores from last op to dst not supported");
 
           // For ops that support tile+scalar, check if rhs is a scalar.
-          const bool rhsIsScalar = computeOp.isScalarOperand(1);
+          // Only check isScalarOperand(1) if the op actually has 2+ operands.
+          const bool rhsIsScalar =
+              computeOp->getNumOperands() > 1 && computeOp.isScalarOperand(1);
 
           int dstSlice = -1;
           // If op has scalar rhs, treat it as in-place (unary-like behavior).
@@ -514,10 +520,9 @@ public:
           collectDstLoadOrStore<affine::AffineStoreOp>(
               gOp, potentialStore, copyInfos, dstSlice,
               outermostInnerComputeLoop);
-        } else {
+        } else if (user->hasTrait<D2MGenericRegionComputeOpTrait>()) {
           // The consumer is another compute op, set or allocate an intermediate
           // DST slice for it.
-          assert(user->hasTrait<D2MGenericRegionComputeOpTrait>());
           assert(computeOp->hasOneUse() &&
                  "Currently we do not support multiple "
                  "users in the same compute dst region.");
@@ -526,10 +531,12 @@ public:
 
           // If op stores to dst in place or has scalar rhs, we don't need to
           // allocate a new dst register, just use the current dst index.
-          int dstSlice =
-              (computeOp.getDstRegInPlace() || computeOp.isScalarOperand(1))
-                  ? dstSliceAllocationState.getCurrSliceIndex()
-                  : dstSliceAllocationState.allocate();
+          // Only check isScalarOperand(1) if the op actually has 2+ operands.
+          bool reuseSlot =
+              computeOp.getDstRegInPlace() ||
+              (computeOp->getNumOperands() > 1 && computeOp.isScalarOperand(1));
+          int dstSlice = reuseSlot ? dstSliceAllocationState.getCurrSliceIndex()
+                                   : dstSliceAllocationState.allocate();
 
           // Exception: the CB load of the load-bcast pair won't be captured by
           // the CB->DST load handling loop above.
@@ -592,10 +599,20 @@ public:
           gOp.getNonParticipatingLoopDims(blockArg.getArgNumber());
       auto iteratorTypes = gOp.getIteratorTypesValue();
 
-      for (int64_t dim : nonParticipatingLoopDims) {
-        TT_assert(iteratorTypes[dim] == ttcore::IteratorType::Reduction);
-        guardDims.insert(dim);
+      // If ALL dimensions are non-participating, this is a constant-indexed
+      // operand (e.g., scratch buffer with AffineMap (d0, d1) -> (0, 0)).
+      // Such operands are intentionally shared across iterations and don't
+      // need guards or the reduction iterator check.
+      bool isConstantIndexed =
+          nonParticipatingLoopDims.size() == iteratorTypes.size();
+
+      if (!isConstantIndexed) {
+        for (int64_t dim : nonParticipatingLoopDims) {
+          TT_assert(iteratorTypes[dim] == ttcore::IteratorType::Reduction);
+          guardDims.insert(dim);
+        }
       }
+      // For constant-indexed operands, guardDims remains empty
     }
 
     iter->second.record(loadOrStore, dstSlice, guardDims);
@@ -622,10 +639,20 @@ public:
           gOp.getNonParticipatingLoopDims(blockArg.getArgNumber());
       auto iteratorTypes = gOp.getIteratorTypesValue();
 
-      for (int64_t dim : nonParticipatingLoopDims) {
-        TT_assert(iteratorTypes[dim] == ttcore::IteratorType::Parallel);
-        guardDims.insert(dim);
+      // If ALL dimensions are non-participating, this is a constant-indexed
+      // operand (e.g., scratch buffer with AffineMap (d0, d1) -> (0, 0)).
+      // Such operands are intentionally shared across iterations and don't
+      // need guards or the parallel iterator check.
+      bool isConstantIndexed =
+          nonParticipatingLoopDims.size() == iteratorTypes.size();
+
+      if (!isConstantIndexed) {
+        for (int64_t dim : nonParticipatingLoopDims) {
+          TT_assert(iteratorTypes[dim] == ttcore::IteratorType::Parallel);
+          guardDims.insert(dim);
+        }
       }
+      // For constant-indexed operands, guardDims remains empty
     }
 
     iter->second.record(loadOp, bcastOp, dstSlice, guardDims);
@@ -833,6 +860,35 @@ public:
     return rewriter.create<scf::IfOp>(loc, guard);
   }
 
+  // Build a fresh loop nest mirroring the structure of the original, but with
+  // empty bodies. Returns the innermost loop's body block and populates
+  // irMapper with old->new IV mappings.
+  static Block *buildFreshLoopNest(PatternRewriter &rewriter,
+                                   affine::AffineForOp originalOuterLoop,
+                                   mlir::IRMapping &irMapper) {
+    // Collect all nested affine.for ops from outermost to innermost.
+    SmallVector<affine::AffineForOp> originalLoops;
+    originalOuterLoop->walk<WalkOrder::PreOrder>(
+        [&](affine::AffineForOp loop) { originalLoops.push_back(loop); });
+
+    Block *innermostBody = nullptr;
+    for (auto originalLoop : originalLoops) {
+      auto newLoop = rewriter.create<affine::AffineForOp>(
+          originalLoop.getLoc(), originalLoop.getLowerBoundOperands(),
+          originalLoop.getLowerBoundMap(), originalLoop.getUpperBoundOperands(),
+          originalLoop.getUpperBoundMap(), originalLoop.getStepAsInt());
+
+      // Map the original IV to the new IV.
+      irMapper.map(originalLoop.getInductionVar(), newLoop.getInductionVar());
+
+      // Set insertion point inside the new loop for the next nested loop.
+      rewriter.setInsertionPointToStart(newLoop.getBody());
+      innermostBody = newLoop.getBody();
+    }
+
+    return innermostBody;
+  }
+
   template <typename LoadOrStoreTy>
   static void createCopyLoop(
       PatternRewriter &rewriter, Operation *loopNestOrOp,
@@ -895,7 +951,7 @@ public:
         if (terminator) {
           rewriter.setInsertionPoint(terminator);
         } else {
-          rewriter.setInsertionPointToEnd(toScope);
+          rewriter.setInsertionPointToEnd(insertionBlock);
         }
       }
 
@@ -925,24 +981,6 @@ public:
     }
   }
 
-  // Extract loop induction variables from the outermost loop operation.
-  // This collects induction variables from all nested loops in the nest.
-  static SmallVector<Value> extractLoopInductionVars(Operation *outermostLoop) {
-    SmallVector<Value> loopInductionVars;
-    if (!outermostLoop) {
-      return loopInductionVars;
-    }
-
-    // Collect induction variables from all loops in the nest.
-    outermostLoop->walk([&](affine::AffineForOp loop) {
-      loopInductionVars.push_back(loop.getBody()->getArgument(0));
-    });
-
-    // Reverse to get innermost loops first.
-    std::reverse(loopInductionVars.begin(), loopInductionVars.end());
-    return loopInductionVars;
-  }
-
   // Rewrite stores to use dst register based on allocation map.
   static void
   fixDstIntermediateResults(PatternRewriter &rewriter, Location loc, Value dst,
@@ -951,42 +989,21 @@ public:
     if (!dstType) {
       return;
     }
-    const unsigned dstRank = dstType.getRank();
 
     // Iterate directly through dst register allocation entries.
     for (const auto &[op, dstInfo] : dstIntermediates) {
       int dstSlice = dstInfo.dstSlice;
-      SmallVector<Value> loopInductionVars =
-          extractLoopInductionVars(dstInfo.outermostLoop);
 
       // Store the result of this operation to dst register.
       rewriter.setInsertionPoint(op);
 
+      // Flat 1D DST indexing: just the slot number.
       SmallVector<Value> storeIndices;
-
-      // Build store indices: [dstSlice, loop_vars..., 0, 0, ...] using loop
-      // induction variables for the dimensions that correspond to loops.
       storeIndices.push_back(
           rewriter.create<arith::ConstantIndexOp>(loc, dstSlice));
 
-      // Use induction variables from the allocation.
-      storeIndices.append(loopInductionVars);
-
-      // Pad with zeros for remaining dimensions.
-      while (storeIndices.size() < dstRank) {
-        storeIndices.push_back(rewriter.create<arith::ConstantIndexOp>(loc, 0));
-      }
-
-      // Ensure storeIndices matches the destination memref rank.
-      assert(storeIndices.size() == dstRank &&
-             "storeIndices size must match destination memref rank. If it's "
-             "greater, probably need to use getNonParticipatingLoopDims to "
-             "skip loop dimensions: "
-             "https://github.com/tenstorrent/tt-mlir/pull/"
-             "5081#discussion_r2376709558");
-
       auto storeMap =
-          AffineMap::getMultiDimIdentityMap(dstRank, rewriter.getContext());
+          AffineMap::getMultiDimIdentityMap(1, rewriter.getContext());
 
       rewriter.setInsertionPointAfter(op);
 
@@ -1046,9 +1063,11 @@ public:
           return irMapper.lookupOrDefault(index);
         }));
 
-    AffineMap dstAccessMap = map.insertResult(
-        getAffineConstantExpr(dstSlice, rewriter.getContext()), 0);
-    SmallVector<Value> dstAccessIndices = l1AccessIndices;
+    // Flat 1D DST indexing: just the slot number, no CB indices.
+    // DST is [numSlots] and each operand gets one slot.
+    AffineMap dstAccessMap =
+        AffineMap::getConstantMap(dstSlice, rewriter.getContext());
+    SmallVector<Value> dstAccessIndices; // empty - constant map needs no inputs
     return {l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices};
   }
 
@@ -1067,27 +1086,21 @@ public:
     }
 
     mlir::IRMapping irMapper;
-    // Only Clone loop nests if a loop exists.
-    if (mlir::isa<affine::AffineForOp>(loopNestOrOp)) {
-      rewriter.clone(*loopNestOrOp, irMapper)->walk([&](Operation *op) {
-        // Erase the loop bodies except for other nested loops / yields.
-        if (!mlir::isa<affine::AffineForOp, affine::AffineYieldOp,
-                       affine::AffineApplyOp>(op)) {
-          op->dropAllUses();
-          rewriter.eraseOp(op);
-        }
-      });
+    Block *insertionBlock = nullptr;
+
+    // Build fresh loop nest instead of cloning to avoid greedy rewriter issues.
+    if (auto outerLoop = mlir::dyn_cast<affine::AffineForOp>(loopNestOrOp)) {
+      insertionBlock = buildFreshLoopNest(rewriter, outerLoop, irMapper);
     }
 
     for (auto [loadStore, bcast, dstSliceIndex, guardDims] : loadStoreOps) {
-      Block *fromScope = loadStore->getBlock();
-      Block *toScope = irMapper.lookupOrNull(fromScope);
-      if (toScope) {
-        Operation *terminator = toScope->getTerminator();
+      // Set insertion point in the fresh loop's innermost body.
+      if (insertionBlock) {
+        Operation *terminator = insertionBlock->getTerminator();
         if (terminator) {
           rewriter.setInsertionPoint(terminator);
         } else {
-          rewriter.setInsertionPointToEnd(toScope);
+          rewriter.setInsertionPointToEnd(insertionBlock);
         }
       }
 
@@ -1206,15 +1219,16 @@ public:
       for (auto *user : computeOp->getUsers()) {
         if (auto potentialStore = mlir::dyn_cast<affine::AffineStoreOp>(user);
             notDstMemspace(potentialStore)) {
-
           // Collect DST->CB stores for this op's operands.
           assert(!dstStackAllocator.didStoreToDst() &&
                  "Multiple stores from last op to dst not supported");
 
           bool dstRegInPlace = computeOp.getDstRegInPlace();
 
-          // For ops that support tile+scalar, check if rhs is a scalar
-          bool rhsIsScalar = computeOp.isScalarOperand(1);
+          // For ops that support tile+scalar, check if rhs is a scalar.
+          // Only check isScalarOperand(1) if the op actually has 2+ operands.
+          bool rhsIsScalar =
+              computeOp->getNumOperands() > 1 && computeOp.isScalarOperand(1);
 
           int64_t dstSliceIndex = -1;
           // If op has scalar rhs, treat it as in-place (unary-like behavior)
@@ -1240,18 +1254,20 @@ public:
               outermostInnerComputeLoop);
 
         }
-        // If the user isn't a store, it must be another compute consumer and we
-        // need to set or allocate a dest register intermediate for it.
-        else {
-          assert(user->hasTrait<D2MGenericRegionComputeOpTrait>());
+        // If the user isn't a store, it might be another compute consumer and
+        // we need to set or allocate a dest register intermediate for it. Skip
+        // non-compute users (e.g., scf.yield, control flow ops).
+        else if (user->hasTrait<D2MGenericRegionComputeOpTrait>()) {
           assert(computeOp->hasOneUse() &&
                  "Currently we do not support multiple "
                  "users in the same compute dst region.");
           assert(computeOp->getNumResults() == 1);
           assert(!dstIntermediates.contains(computeOp));
 
+          // Only check isScalarOperand(1) if the op actually has 2+ operands.
           bool overwriteInput =
-              computeOp.getDstRegInPlace() || computeOp.isScalarOperand(1);
+              computeOp.getDstRegInPlace() ||
+              (computeOp->getNumOperands() > 1 && computeOp.isScalarOperand(1));
 
           // If op stores to dst in place or has scalar rhs, we don't need to
           // allocate a new dst register, just use the current dst index.

@@ -750,6 +750,134 @@ def D2M_TileTypecastOp : D2M_GenericRegionComputeUnaryDstOp<"tile_typecast", [D2
 // D2M Masking Ops
 //===----------------------------------------------------------------------===//
 
+def D2M_ExperimentalTilePadOp : D2M_GenericRegionComputeOp<"experimental::tile_pad", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Experimental Tile Pad Op";
+    let description = [{
+        The `experimental::tile_pad` operation generates a padding mask tile where
+        rows 0 to validRows-1 and cols 0 to validCols-1 are set to 1.0, and all
+        other elements are 0.0. This creates a rectangular mask for valid data regions.
+
+        The operation abstracts away the complexity of mask generation, providing
+        a simple interface that takes x, y coordinates (validRows, validCols) and
+        produces a mask tile suitable for element-wise masking operations.
+    }];
+
+    let arguments = (ins AnyTypeOf<[Index, AnyInteger]>:$validRows,
+                         AnyTypeOf<[Index, AnyInteger]>:$validCols);
+    let results = (outs TTCore_Tile:$result);
+
+    let assemblyFormat = [{
+        `(` $validRows `,` $validCols `)` attr-dict `:` type($validRows) `,` type($validCols) `->` type($result)
+    }];
+
+    let extraClassDeclaration = [{
+        // This operation doesn't load from DST (it generates a new tile)
+        mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
+          return {};
+        }
+        bool getDstRegInPlace() { return false; }
+        // All operands are scalars (integers/indices), not tiles
+        bool isScalarOperand(int64_t operandIdx) {
+          return true;
+        }
+    }];
+}
+
+def D2M_ExperimentalTileFillOp : D2M_GenericRegionComputeOp<"experimental::tile_fill", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Experimental Tile Fill Op";
+    let description = [{
+        The `experimental::tile_fill` operation creates a tile filled with a constant scalar value.
+        All elements in the resulting tile will have the same value as the input scalar.
+
+        This operation abstracts away the complexity of creating a constant-filled tile,
+        providing a simple interface that takes a scalar value and produces a tile suitable
+        for element-wise operations.
+    }];
+
+    let arguments = (ins AnyFloat:$value);
+    let results = (outs TTCore_Tile:$result);
+
+    let assemblyFormat = [{
+        `(` $value `)` attr-dict `:` type($value) `->` type($result)
+    }];
+
+    let extraClassDeclaration = [{
+        // This operation doesn't load from DST (it generates a new tile)
+        mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
+          return {};
+        }
+        bool getDstRegInPlace() { return false; }
+        // The operand is a scalar (float), not a tile
+        bool isScalarOperand(int64_t operandIdx) {
+          return true;
+        }
+    }];
+}
+
+def D2M_ExperimentalTileRowMaskOp : D2M_GenericRegionComputeOp<"experimental::tile_row_mask", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Experimental Tile Row Mask Op";
+    let description = [{
+        The `experimental::tile_row_mask` operation generates a row mask tile where
+        rows 0 to validRows-1 are set to 1.0, and all other rows are 0.0. All columns
+        are set to 1.0 (full width). This creates a mask for row-based padding.
+
+        This operation abstracts away the complexity of row mask generation, providing
+        a simple interface that takes validRows and produces a mask tile suitable for
+        element-wise masking operations.
+    }];
+
+    let arguments = (ins AnyTypeOf<[Index, AnyInteger]>:$validRows);
+    let results = (outs TTCore_Tile:$result);
+
+    let assemblyFormat = [{
+        `(` $validRows `)` attr-dict `:` type($validRows) `->` type($result)
+    }];
+
+    let extraClassDeclaration = [{
+        // This operation doesn't load from DST (it generates a new tile)
+        mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
+          return {};
+        }
+        bool getDstRegInPlace() { return false; }
+        // The operand is a scalar (integer/index), not a tile
+        bool isScalarOperand(int64_t operandIdx) {
+          return true;
+        }
+    }];
+}
+
+def D2M_ExperimentalTileColMaskOp : D2M_GenericRegionComputeOp<"experimental::tile_col_mask", D2M_TileComputeOpTraitBundle> {
+    let summary = "D2M Experimental Tile Col Mask Op";
+    let description = [{
+        The `experimental::tile_col_mask` operation generates a col mask tile where
+        cols 0 to validCols-1 are set to 1.0, and all other cols are 0.0. All rows
+        are set to 1.0 (full height). This creates a mask for col-based padding.
+
+        This operation abstracts away the complexity of col mask generation, providing
+        a simple interface that takes validCols and produces a mask tile suitable for
+        element-wise masking operations.
+    }];
+
+    let arguments = (ins AnyTypeOf<[Index, AnyInteger]>:$validCols);
+    let results = (outs TTCore_Tile:$result);
+
+    let assemblyFormat = [{
+        `(` $validCols `)` attr-dict `:` type($validCols) `->` type($result)
+    }];
+
+    let extraClassDeclaration = [{
+        // This operation doesn't load from DST (it generates a new tile)
+        mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
+          return {};
+        }
+        bool getDstRegInPlace() { return false; }
+        // The operand is a scalar (integer/index), not a tile
+        bool isScalarOperand(int64_t operandIdx) {
+          return true;
+        }
+    }];
+}
+
 def D2M_BlockMaskOp : D2M_GenericRegionComputeOp<"block_mask",
   [ DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
   , DeclareOpInterfaceMethods<BufferizableOpInterface, [ "bufferizesToMemoryRead"
@@ -759,6 +887,7 @@ def D2M_BlockMaskOp : D2M_GenericRegionComputeOp<"block_mask",
                                                        , "getBufferType"
                                                        ]>
   , D2M_SkipOpEltwiseFusionTrait
+  , AttrSizedOperandSegments
   ]> {
     let summary = "Mask block elements outside logical bounds with fill value";
     let description = [{
@@ -772,6 +901,11 @@ def D2M_BlockMaskOp : D2M_GenericRegionComputeOp<"block_mask",
         The logical_rows and logical_cols are Index values specifying the logical
         dimensions for this core's shard. These can be computed dynamically based on
         the core's position in the grid, enabling multicore support.
+
+        For partial tile masking (tiles straddling boundaries), row_index_tile and
+        col_index_tile CBs can be provided. These contain pre-computed index patterns
+        where element[i,j] = i (row) or j (col). If not provided (tile-aligned shapes),
+        only scalar ops are used for full OOB tiles.
 
         This is a high-level op that gets decomposed in a later pass into tile iteration
         with per-tile masking logic.
@@ -787,6 +921,8 @@ def D2M_BlockMaskOp : D2M_GenericRegionComputeOp<"block_mask",
     let arguments = (ins
         AnyRankedTensorOrMemRef:$input,
         AnyRankedTensorOrMemRef:$output,
+        Variadic<AnyRankedTensorOrMemRef>:$index_tiles,
+        Optional<AnyRankedTensorOrMemRef>:$scratch,
         Index:$logical_rows,
         Index:$logical_cols,
         TTCore_OOBValAttr:$fill_value);
@@ -800,6 +936,16 @@ def D2M_BlockMaskOp : D2M_GenericRegionComputeOp<"block_mask",
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() { return getOutputMutable(); }
+      bool hasIndexTiles() { return getIndexTiles().size() == 2; }
+      bool hasScratch() { return getScratch() != nullptr; }
+      Value getRowIndexTile() {
+        auto tiles = getIndexTiles();
+        return tiles.size() >= 1 ? tiles[0] : nullptr;
+      }
+      Value getColIndexTile() {
+        auto tiles = getIndexTiles();
+        return tiles.size() >= 2 ? tiles[1] : nullptr;
+      }
     }];
 
     let hasVerifier = 1;
@@ -1948,6 +2094,46 @@ def D2M_GetGlobalOperandOp : D2M_GenericRegionOp<"get_global_operand", [Pure]> {
     let results = (outs DeviceMemRef:$result);
 
     let assemblyFormat = [{ `(` $operand_index `)` attr-dict `:` type($result) }];
+}
+
+//===----------------------------------------------------------------------===//
+// D2M Experimental Index Tile Ops (Used for partial tile masking)
+//===----------------------------------------------------------------------===//
+
+def D2M_ExperimentalWriteRowIndexTileOp : D2M_GenericRegionDatamovementOp<"experimental::write_row_index_tile",
+  [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+    let summary = "Write row index pattern to a tile CB";
+    let description = [{
+        The `experimental::write_row_index_tile` operation writes a row index pattern
+        to a tile CB, where element[i,j] = i (the row index, 0-31).
+
+        This is used for partial tile masking to generate row-based masks by comparing
+        the index pattern against a threshold.
+
+        The operation runs in the dataflow kernel and writes directly to L1 memory.
+    }];
+
+    let arguments = (ins AnyRankedTensorOrMemRef:$output);
+
+    let assemblyFormat = [{ $output attr-dict `:` type($output) }];
+}
+
+def D2M_ExperimentalWriteColIndexTileOp : D2M_GenericRegionDatamovementOp<"experimental::write_col_index_tile",
+  [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+    let summary = "Write column index pattern to a tile CB";
+    let description = [{
+        The `experimental::write_col_index_tile` operation writes a column index pattern
+        to a tile CB, where element[i,j] = j (the column index, 0-31).
+
+        This is used for partial tile masking to generate column-based masks by comparing
+        the index pattern against a threshold.
+
+        The operation runs in the dataflow kernel and writes directly to L1 memory.
+    }];
+
+    let arguments = (ins AnyRankedTensorOrMemRef:$output);
+
+    let assemblyFormat = [{ $output attr-dict `:` type($output) }];
 }
 
 #endif // TTMLIR_TTMLIR_DIALECT_D2M_D2MGENERICREGIONOPS_TD

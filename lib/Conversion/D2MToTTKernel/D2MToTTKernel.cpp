@@ -15,6 +15,7 @@
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Affine/ViewLikeInterfaceUtils.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -272,12 +273,42 @@ public:
   matchAndRewrite(d2m::AcquireDstOp op, d2m::AcquireDstOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     rewriter.create<ttkernel::TileRegsAcquireOp>(op.getLoc());
-    // Dst is an implicit resource in TTKernel, so we can just erase it.
-    rewriter.eraseOp(op);
+    // DST is an implicit resource in TTKernel. The type converter converts
+    // DST memrefs to index type. We replace with a dummy index since the
+    // actual DST slot indices come from load/store operations.
+    Value dummyIndex = rewriter.create<arith::ConstantIndexOp>(op.getLoc(), 0);
+    rewriter.replaceOp(op, dummyIndex);
     return success();
   };
 };
 } // namespace
+
+// Helper to compute linear index from multi-dimensional indices.
+// For shape <d0, d1, d2, ...> and indices [i0, i1, i2, ...]:
+// linear = i0 * (d1*d2*...) + i1 * (d2*d3*...) + ... + i_last
+static Value computeLinearIndex(Location loc, ArrayRef<int64_t> shape,
+                                ValueRange indices,
+                                ConversionPatternRewriter &rewriter) {
+  if (indices.size() == 1) {
+    return indices.front();
+  }
+
+  Value linearIdx = rewriter.create<arith::ConstantIndexOp>(loc, 0);
+  for (size_t i = 0; i < indices.size(); ++i) {
+    int64_t stride = 1;
+    for (size_t j = i + 1; j < shape.size(); ++j) {
+      stride *= shape[j];
+    }
+
+    Value contribution = indices[i];
+    if (stride != 1) {
+      auto strideVal = rewriter.create<arith::ConstantIndexOp>(loc, stride);
+      contribution = rewriter.create<arith::MulIOp>(loc, indices[i], strideVal);
+    }
+    linearIdx = rewriter.create<arith::AddIOp>(loc, linearIdx, contribution);
+  }
+  return linearIdx;
+}
 
 namespace {
 class MemrefLoadRewriter : public OpConversionPattern<memref::LoadOp> {
@@ -287,9 +318,12 @@ public:
   LogicalResult
   matchAndRewrite(memref::LoadOp op, memref::LoadOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    assert(adaptor.getIndices().size() == 1 &&
-           "Expected single index in load op, failing.");
-    rewriter.replaceOp(op, adaptor.getIndices().front());
+    // For DST loads, the indices give us the DST slot.
+    // For multi-index accesses (e.g., memref<4x1x1x...>), compute linear index.
+    Value linearIdx =
+        computeLinearIndex(op.getLoc(), op.getMemRefType().getShape(),
+                           adaptor.getIndices(), rewriter);
+    rewriter.replaceOp(op, linearIdx);
     return success();
   };
 };
@@ -303,10 +337,11 @@ public:
   static LogicalResult lowerCopyTile(memref::LoadOp load, memref::StoreOp store,
                                      memref::StoreOpAdaptor adaptor,
                                      ConversionPatternRewriter &rewriter) {
-    assert(adaptor.getIndices().size() == 1);
     auto cb = rewriter.getRemappedValue(load.getMemref());
     auto cbIndex = adaptor.getValue();
-    auto dstIndex = adaptor.getIndices().front();
+    auto dstIndex =
+        computeLinearIndex(store.getLoc(), store.getMemRefType().getShape(),
+                           adaptor.getIndices(), rewriter);
     rewriter.create<ttkernel::CopyTileInitOp>(store.getLoc(), cb);
     rewriter.replaceOpWithNewOp<ttkernel::CopyTileOp>(store, cb, cbIndex,
                                                       dstIndex);
@@ -316,10 +351,11 @@ public:
   static LogicalResult lowerPackTile(memref::StoreOp store,
                                      memref::StoreOpAdaptor adaptor,
                                      ConversionPatternRewriter &rewriter) {
-    assert(adaptor.getIndices().size() == 1);
     auto dst = adaptor.getValue();
     auto cb = adaptor.getMemref();
-    auto storeIdx = adaptor.getIndices().front();
+    auto storeIdx =
+        computeLinearIndex(store.getLoc(), store.getMemRefType().getShape(),
+                           adaptor.getIndices(), rewriter);
     rewriter.replaceOpWithNewOp<ttkernel::PackTileOp>(
         store, dst, cb, storeIdx, rewriter.getBoolAttr(true));
     return success();
@@ -820,6 +856,10 @@ public:
               loc, rewriter.getI32Type(), adaptor.getRhs());
           rewriter.create<ttkernel::PowUnaryTileOp>(loc, dstIdx, scalarParam);
         }
+        // Scalar ops operate in-place on DST slot - replace with the same
+        // dstIdx
+        rewriter.replaceOp(op, dstIdx);
+        return success();
       } else {
         // Binary tile operation
         OpBuilder::InsertionGuard guard(rewriter);
@@ -1048,6 +1088,140 @@ public:
 
     return success();
   };
+};
+
+class D2MExperimentalTilePadRewriter
+    : public OpConversionPattern<d2m::ExperimentalTilePadOp> {
+public:
+  using OpConversionPattern<d2m::ExperimentalTilePadOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::ExperimentalTilePadOp op,
+                  d2m::ExperimentalTilePadOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    // Get the DST index from the result usage
+    Value dstIdx = getDstIdxFromResult(op.getResult());
+
+    // Convert validRows and validCols to I32 if needed
+    Value validRows = adaptor.getValidRows();
+    Value validCols = adaptor.getValidCols();
+
+    // Ensure they are I32 type (handle both Index and integer types)
+    Location loc = op->getLoc();
+    Type validRowsType = validRows.getType();
+    Type validColsType = validCols.getType();
+    if (!validRowsType.isInteger(32)) {
+      // Convert Index or other integer types to I32
+      validRows = rewriter.create<arith::IndexCastOp>(
+          loc, rewriter.getI32Type(), validRows);
+    }
+    if (!validColsType.isInteger(32)) {
+      // Convert Index or other integer types to I32
+      validCols = rewriter.create<arith::IndexCastOp>(
+          loc, rewriter.getI32Type(), validCols);
+    }
+
+    // Create the TTKernel experimental padding mask operation
+    rewriter.create<ttkernel::ExperimentalPaddingMaskOp>(loc, dstIdx, validRows,
+                                                         validCols);
+
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+class D2MExperimentalTileRowMaskRewriter
+    : public OpConversionPattern<d2m::ExperimentalTileRowMaskOp> {
+public:
+  using OpConversionPattern<
+      d2m::ExperimentalTileRowMaskOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::ExperimentalTileRowMaskOp op,
+                  d2m::ExperimentalTileRowMaskOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    // Get the DST index from the result usage
+    Value dstIdx = getDstIdxFromResult(op.getResult());
+
+    // Convert validRows to I32 if needed
+    Value validRows = adaptor.getValidRows();
+    Location loc = op->getLoc();
+    if (!validRows.getType().isInteger(32)) {
+      validRows = rewriter.create<arith::IndexCastOp>(
+          loc, rewriter.getI32Type(), validRows);
+    }
+
+    // Create the TTKernel experimental row mask operation
+    rewriter.create<ttkernel::ExperimentalRowMaskOp>(loc, dstIdx, validRows);
+
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+class D2MExperimentalTileColMaskRewriter
+    : public OpConversionPattern<d2m::ExperimentalTileColMaskOp> {
+public:
+  using OpConversionPattern<
+      d2m::ExperimentalTileColMaskOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::ExperimentalTileColMaskOp op,
+                  d2m::ExperimentalTileColMaskOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    // Get the DST index from the result usage
+    Value dstIdx = getDstIdxFromResult(op.getResult());
+
+    // Convert validCols to I32 if needed
+    Value validCols = adaptor.getValidCols();
+    Location loc = op->getLoc();
+    if (!validCols.getType().isInteger(32)) {
+      validCols = rewriter.create<arith::IndexCastOp>(
+          loc, rewriter.getI32Type(), validCols);
+    }
+
+    // Create the TTKernel experimental col mask operation
+    rewriter.create<ttkernel::ExperimentalColMaskOp>(loc, dstIdx, validCols);
+
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+class D2MExperimentalWriteRowIndexTileRewriter
+    : public OpConversionPattern<d2m::ExperimentalWriteRowIndexTileOp> {
+public:
+  using OpConversionPattern<
+      d2m::ExperimentalWriteRowIndexTileOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::ExperimentalWriteRowIndexTileOp op,
+                  d2m::ExperimentalWriteRowIndexTileOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    // Create the TTKernel experimental write row index tile operation
+    rewriter.create<ttkernel::ExperimentalWriteRowIndexTileOp>(
+        op->getLoc(), adaptor.getOutput());
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+class D2MExperimentalWriteColIndexTileRewriter
+    : public OpConversionPattern<d2m::ExperimentalWriteColIndexTileOp> {
+public:
+  using OpConversionPattern<
+      d2m::ExperimentalWriteColIndexTileOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::ExperimentalWriteColIndexTileOp op,
+                  d2m::ExperimentalWriteColIndexTileOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    // Create the TTKernel experimental write col index tile operation
+    rewriter.create<ttkernel::ExperimentalWriteColIndexTileOp>(
+        op->getLoc(), adaptor.getOutput());
+    rewriter.eraseOp(op);
+    return success();
+  }
 };
 } // namespace
 
@@ -1877,6 +2051,11 @@ void populateD2MToTTKernelPatterns(
 
                ttkernel::D2MTilizeUntilizeRewriter<d2m::TileTilizeBlockOp, ttkernel::ExperimentalTilizeBlockOp>,
                ttkernel::D2MTilizeUntilizeRewriter<d2m::TileUntilizeBlockOp, ttkernel::ExperimentalUntilizeBlockOp>,
+               ttkernel::D2MExperimentalTilePadRewriter,
+               ttkernel::D2MExperimentalTileRowMaskRewriter,
+               ttkernel::D2MExperimentalTileColMaskRewriter,
+               ttkernel::D2MExperimentalWriteRowIndexTileRewriter,
+               ttkernel::D2MExperimentalWriteColIndexTileRewriter,
                ttkernel::D2MTileTransposeRewriter,
                ttkernel::D2MDstReinterpretCastRewriter,
                ttkernel::AcquireDstRewriter,
