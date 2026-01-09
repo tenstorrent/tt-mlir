@@ -62,6 +62,7 @@ void populateTTIRModule(nb::module_ &m);
 void populateD2MModule(nb::module_ &m);
 void populateTTKernelModule(nb::module_ &m);
 void populateTTNNModule(nb::module_ &m);
+void populateDebugModule(nb::module_ &m);
 void populateOverridesModule(nb::module_ &m);
 void populateOptimizerOverridesModule(nb::module_ &m);
 void populatePassesModule(nb::module_ &m);

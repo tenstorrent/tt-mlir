@@ -18,7 +18,7 @@ import operator
 import einops
 import torch
 import torch.nn.functional
-from ttmlir.dialects import ttir, stablehlo, d2m, ttnn, ttcore, sdy
+from ttmlir.dialects import ttir, stablehlo, d2m, ttnn, ttcore, sdy, debug
 from ttmlir.ir import *
 from ttmlir.passes import DataType
 
@@ -4862,6 +4862,29 @@ def ttnn_mish_golden(
     return torch.nn.functional.mish(input_tensor).to(output_dtype)
 
 
+################ Debug Op Golden Functions ###############
+
+
+def debug_annotate_golden(
+    input_tensor: GoldenMapTensor,
+    annotation_attr: StringAttr,
+) -> GoldenMapTensor:
+    return input_tensor.clone()
+
+
+def debug_breakpoint_golden(
+    input_tensor: GoldenMapTensor,
+) -> GoldenMapTensor:
+    return input_tensor.clone()
+
+
+def debug_memory_snapshot_golden(
+    input_tensor: GoldenMapTensor,
+    file_path_attr: StringAttr,
+) -> GoldenMapTensor:
+    return input_tensor.clone()
+
+
 GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # ----- TTIR OPS -----
     # Elementwise unary operations
@@ -5134,6 +5157,10 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.RepeatInterleaveOp: ttnn_repeat_interleave_golden,
     ttnn.ClampScalarOp: ttnn_clamp_scalar_golden,
     ttnn.ClampTensorOp: ttnn_clamp_tensor_golden,
+    # ----- DEBUG OPS -----
+    debug.AnnotateOp: debug_annotate_golden,
+    debug.BreakpointOp: debug_breakpoint_golden,
+    debug.MemorySnapshotOp: debug_memory_snapshot_golden,
 }
 
 

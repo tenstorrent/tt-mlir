@@ -4,6 +4,8 @@
 
 #include "ttmlir/Target/TTNN/TTNNToFlatbuffer.h"
 
+#include "ttmlir/Dialect/Debug/IR/Debug.h"
+#include "ttmlir/Dialect/Debug/IR/DebugOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
@@ -2947,6 +2949,37 @@ createOp(FlatbufferObjectCache &cache, AggregateTensorOp op) {
       cache.at<::tt::target::DeviceRef>(device));
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::AnnotateOp>
+createOp(FlatbufferObjectCache &cache, debug::AnnotateOp op) {
+  auto operand = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getOperand()));
+  auto result = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+  auto annotation = toFlatbuffer(cache, op.getAnnotation());
+
+  return ::tt::target::ttnn::CreateAnnotateOp(*cache.fbb, operand, result,
+                                              annotation);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::BreakpointOp>
+createOp(FlatbufferObjectCache &cache, debug::BreakpointOp op) {
+  auto operand = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getOperand()));
+  auto result = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+
+  return ::tt::target::ttnn::CreateBreakpointOp(*cache.fbb, operand, result);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::MemorySnapshotOp>
+createOp(FlatbufferObjectCache &cache, debug::MemorySnapshotOp op) {
+  auto operand = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getOperand()));
+  auto result = cache.getOrCreate(op.getResult(), tensorValueToFlatbuffer);
+  auto filePath = toFlatbuffer(cache, op.getFilePath());
+
+  return ::tt::target::ttnn::CreateMemorySnapshotOp(*cache.fbb, operand, result,
+                                                    filePath);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::Operation>
 emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
                   const llvm::StringMap<uint32_t> &programIndexMap,
@@ -3608,6 +3641,20 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto assignOp = dyn_cast<AssignOp>(op); assignOp) {
     return createOperation(cache, createOp(cache, assignOp), debugString,
                            locInfo);
+  }
+
+  if (auto annotateOp = dyn_cast<debug::AnnotateOp>(op); annotateOp) {
+    return createOperation(cache, createOp(cache, annotateOp), debugString,
+                           locInfo);
+  }
+  if (auto breakpointOp = dyn_cast<debug::BreakpointOp>(op); breakpointOp) {
+    return createOperation(cache, createOp(cache, breakpointOp), debugString,
+                           locInfo);
+  }
+  if (auto memorySnapshotOp = dyn_cast<debug::MemorySnapshotOp>(op);
+      memorySnapshotOp) {
+    return createOperation(cache, createOp(cache, memorySnapshotOp),
+                           debugString, locInfo);
   }
 
   llvm_unreachable("unhandled op in emitTTNNOperation");
