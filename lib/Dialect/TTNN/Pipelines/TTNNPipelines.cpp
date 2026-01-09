@@ -120,14 +120,14 @@ void createTTNNPipelineAnalysisPasses(
   }
 }
 
-void createTTNNPipelineLoweringPasses(
-    OpPassManager &pm, const TTIRToTTNNDevicePipelineOptions &options) {
+void createTTNNPipelineLoweringPasses(OpPassManager &pm,
+                                      bool removeDeadValuesEnabled = false) {
   // Add pass to add layout information.
   pm.addPass(createTTNNLayout());
   // Add pass to convert TTIR to TTNN.
   pm.addPass(createConvertTTIRToTTNNPass());
   // Add pass to remove unused values.
-  if (options.removeDeadValuesEnabled) {
+  if (removeDeadValuesEnabled) {
     pm.addPass(mlir::createRemoveDeadValuesPass());
   }
 }
@@ -263,7 +263,7 @@ void createTTIRToTTNNDevicePipeline(
     auto &devicePm = pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
 
     // Run TTNN lowering passes on Device module.
-    createTTNNPipelineLoweringPasses(devicePm, options);
+    createTTNNPipelineLoweringPasses(devicePm, options.removeDeadValuesEnabled);
     createTTNNFusingPass(devicePm, options);
 
     createTTNNPipelineWorkaroundPass(devicePm, options);
@@ -378,18 +378,12 @@ void createTTNNToEmitCDevicePipeline(
 //
 void createTTNNToEmitPyDevicePipeline(
     OpPassManager &pm, const TTNNToEmitPyDevicePipelineOptions &options) {
-  pm.addPass(createTTNNAdjustDeallocs());
+  auto &devicePm = pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
 
-  // Unwrapping the device module.
-  //
-  // TODO(dmilinkovic): Should be replaced by merging device and CPU modules
-  // by linking CPU-hoisted function declarations in Device module
-  // with their definitions from CPU module - issue #6099.
-  //
-  pm.addPass(ttcore::createTTCoreUnwrapDeviceModulePass());
+  devicePm.addPass(createTTNNAdjustDeallocs());
 
   // Apply EmitPy-specific workarounds before conversion
-  pm.addPass(createTTNNEmitPyWorkarounds());
+  devicePm.addPass(createTTNNEmitPyWorkarounds());
 
   if (options.targetModule) {
     // In module path, run tuplification with forced settings and add device
@@ -399,26 +393,52 @@ void createTTNNToEmitPyDevicePipeline(
     //
     TTNNTuplifyTensorsOptions tuplifyOptions;
     tuplifyOptions.tuplifyInputIfEmpty = true;
-    pm.addPass(createTTNNTuplifyTensors(tuplifyOptions));
-    pm.addPass(createTTNNPrepareModuleForExport());
+    devicePm.addPass(createTTNNTuplifyTensors(tuplifyOptions));
+    devicePm.addPass(createTTNNPrepareModuleForExport());
   } else {
     // In canonical path, run tuplification + input generation/loading.
     //
-    pm.addPass(createTTNNTuplifyTensors());
+    devicePm.addPass(createTTNNTuplifyTensors());
 
     if (options.loadInputTensorsFromDisk) {
       TTNNLoadInputTensorsOptions loadOptions;
       loadOptions.tensorLoadDirectory = options.tensorLoadDirectory;
       loadOptions.tensorLoadFilePrefix = options.tensorLoadFilePrefix;
-      pm.addPass(createTTNNLoadInputTensors(loadOptions));
+      devicePm.addPass(createTTNNLoadInputTensors(loadOptions));
     } else {
-      pm.addPass(createTTNNCreateInputGenerators());
+      devicePm.addPass(createTTNNCreateInputGenerators());
     }
   }
 
-  pm.addPass(createConvertTTNNToEmitPyPass());
+  devicePm.addPass(createConvertTTNNToEmitPyPass());
 
-  pm.addPass(createEmitPyNameVarsPass());
+  devicePm.addPass(createEmitPyNameVarsPass());
+}
+
+// Pipeline which lowers the CPU module from TTIR to EmitPy using
+// TTNN golden functions.
+//
+void createTTIRToEmitPyCPUPipeline(OpPassManager &pm) {
+  auto &cpuPm = pm.nest<ttcore::CPUModuleOp>().nest<mlir::ModuleOp>();
+
+  // Prepare CPU module TTIR ops for TTNN lowering.
+  //
+  cpuPm.addPass(mlir::tt::ttir::createTTIRFusing());
+  cpuPm.addPass(mlir::tt::createTTIRToTTIRDecompositionPass());
+  cpuPm.addPass(mlir::tt::ttir::createTTIRFusing());
+  cpuPm.addPass(ttir::createTTIRFlattenSlidingWindow());
+
+  // Lower CPU module to TTNN.
+  //
+  createTTNNPipelineLoweringPasses(cpuPm);
+
+  // Lower CPU module to EmitPy.
+  //
+  ConvertTTNNToEmitPyOptions options;
+  options.enableGoldenMode = true;
+  cpuPm.addPass(createConvertTTNNToEmitPyPass(options));
+
+  cpuPm.addPass(createEmitPyNameVarsPass());
 }
 
 //===----------------------------------------------------------------------===//
@@ -471,11 +491,13 @@ void createTTIRToEmitPyPipeline(OpPassManager &pm,
   createTTIRToTTNNDevicePipeline(pm, options);
   createTTNNToEmitPyDevicePipeline(pm, options);
 
-  // TODO(dmilinkovic): Lower CPU module to EmitPy using TTNN golden functions -
-  // issue #6099.
+  // Lower CPU module to EmitPy using TTNN golden functions.
   //
+  createTTIRToEmitPyCPUPipeline(pm);
 
-  // TODO(dmilinkovic): Merge Device and CPU modules - issue #6099.
+  // Link Device and CPU modules into the root module.
+  //
+  pm.addPass(createEmitPyLinkModulesPass());
 }
 
 //===----------------------------------------------------------------------===//
