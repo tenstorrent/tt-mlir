@@ -79,6 +79,9 @@ public:
 
       llvm::DenseMap<Operation *, Layout> opLayoutConstraints;
       propagateRowMajorLayout(func, rowMajorArgs, opLayoutConstraints);
+
+      // After propagation, insert ToLayoutOps before returns where needed
+      insertToLayoutOpsBeforeReturns(func, rewriter);
     });
 #endif // TTMLIR_ENABLE_OPMODEL
   }
@@ -331,6 +334,104 @@ private:
         });
 
     return config;
+  }
+
+  // Insert ToLayoutOps before return statements where the actual tensor layout
+  // (row-major) doesn't match the expected function return type (tiled).
+  void insertToLayoutOpsBeforeReturns(func::FuncOp func, IRRewriter &rewriter) {
+    // Skip const_eval functions - their prepared outputs (e.g., conv2d weights)
+    // should not be converted as they have special layouts
+    if (func->hasAttr("const_eval")) {
+      llvm::errs()
+          << "[RowMajorLayoutPropagation] Skipping const_eval function: "
+          << func.getName() << "\n";
+      return;
+    }
+
+    llvm::errs() << "[RowMajorLayoutPropagation] Checking returns in function: "
+                 << func.getName() << "\n";
+
+    // Get function return types
+    FunctionType funcType = func.getFunctionType();
+
+    // Find all return operations
+    func.walk([&](func::ReturnOp returnOp) {
+      llvm::errs() << "[RowMajorLayoutPropagation] Found return op with "
+                   << returnOp.getNumOperands() << " operands\n";
+
+      // Check each return operand
+      for (unsigned i = 0; i < returnOp.getNumOperands(); ++i) {
+        Value returnValue = returnOp.getOperand(i);
+
+        // Get actual layout of the value being returned
+        auto actualTensorType =
+            mlir::dyn_cast<RankedTensorType>(returnValue.getType());
+        if (!actualTensorType) {
+          continue;
+        }
+
+        auto actualLayout = mlir::dyn_cast_or_null<TTNNLayoutAttr>(
+            actualTensorType.getEncoding());
+        if (!actualLayout) {
+          continue;
+        }
+
+        // Get expected layout from function signature
+        if (i >= funcType.getNumResults()) {
+          continue;
+        }
+
+        Type expectedReturnType = funcType.getResult(i);
+        auto expectedTensorType =
+            mlir::dyn_cast<RankedTensorType>(expectedReturnType);
+        if (!expectedTensorType) {
+          continue;
+        }
+
+        auto expectedLayout = mlir::dyn_cast_or_null<TTNNLayoutAttr>(
+            expectedTensorType.getEncoding());
+        if (!expectedLayout) {
+          continue;
+        }
+
+        // Check if we need to insert a ToLayoutOp
+        // If actual is row-major and expected is tiled, insert ToLayoutOp
+        if (!actualLayout.isTiled() && expectedLayout.isTiled()) {
+          llvm::errs() << "[RowMajorLayoutPropagation] INSERTING ToLayoutOp "
+                          "before return for operand "
+                       << i << " (RM -> Tile)\n";
+
+          // Create ToLayoutOp to convert from row-major to tiled (following
+          // OperationValidationAndFallback pattern)
+          OpBuilder builder(returnOp->getContext());
+          builder.setInsertionPoint(returnOp);
+
+          // Create the target type with tiled layout
+          Type scalarElementType = ttcore::dataTypeToElementType(
+              builder.getContext(), expectedLayout.getDataType());
+          RankedTensorType targetType = RankedTensorType::get(
+              actualTensorType.getShape(), scalarElementType, expectedLayout);
+
+          auto toLayoutOp = builder.create<ttnn::ToLayoutOp>(
+              returnOp.getLoc(), targetType, returnValue,
+              ttnn::LayoutAttr::get(builder.getContext(),
+                                    expectedLayout.getLayout()),
+              ttcore::DataTypeAttr::get(builder.getContext(),
+                                        expectedLayout.getDataType()),
+              ttnn::MemoryConfigAttr::get(
+                  builder.getContext(), expectedLayout.getMemLayout(),
+                  ttnn::BufferTypeAttr::get(builder.getContext(),
+                                            expectedLayout.getBufferType()),
+                  /*shardSpec=*/std::nullopt));
+
+          // Update the return to use the new ToLayoutOp result
+          returnOp.setOperand(i, toLayoutOp.getResult());
+
+          llvm::errs() << "[RowMajorLayoutPropagation] Inserted ToLayoutOp: "
+                       << toLayoutOp << "\n";
+        }
+      }
+    });
   }
 };
 
