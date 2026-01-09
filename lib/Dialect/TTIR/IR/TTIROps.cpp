@@ -571,10 +571,10 @@ mlir::tt::ttir::GetDimensionSizeOp::fold(FoldAdaptor adaptor) {
 
 bool mlir::tt::ttir::Conv2dOp::isQuantizedRewriteFavorable(
     mlir::ArrayRef<mlir::Value> sourceOperands) {
-  // convolution op currently requires both input and weight to be quantized
+  // Conv2dOp currently requires both input and weight to be quantized
   // TODO(anuragsingh): enable float bias support
   assert(sourceOperands.size() == 2 &&
-         "Quantized ConvolutionOp should have two operands (only input and "
+         "Quantized Conv2dOp should have two operands (only input and "
          "weight).");
   return llvm::all_of(sourceOperands, [](mlir::Value val) {
     auto type = mlir::dyn_cast<mlir::RankedTensorType>(val.getType());

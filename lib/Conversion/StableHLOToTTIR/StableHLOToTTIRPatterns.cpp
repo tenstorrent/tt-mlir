@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/StableHLO/Utils/GSPMDUtils.h"
 #include "ttmlir/Dialect/StableHLO/Utils/ShardingUtils.h"
 #include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
+#include "ttmlir/Dialect/StableHLO/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
@@ -1352,8 +1353,8 @@ static PaddingMatrix<NDims> getPaddingMatrix(ArrayRef<int64_t> padding) {
 
   PaddingMatrix<NDims> paddingMatrix;
 
-  for (uint32_t i = 0; i < 2 * NDims; i += 2) {
-    paddingMatrix[i / 2] = {padding[i], padding[i + 1]};
+  for (std::size_t i = 0; i < NDims; ++i) {
+    paddingMatrix[i] = {padding[i * 2], padding[i * 2 + 1]};
   }
   return paddingMatrix;
 }
@@ -1385,14 +1386,6 @@ protected:
   }
 
   static bool isSupportedConv(mlir::stablehlo::ConvolutionOp op) {
-    assert(op.getDimensionNumbers().getInputSpatialDimensions().size() ==
-               op.getDimensionNumbers().getOutputSpatialDimensions().size() &&
-           "Convolution input, output, and kernel must have the same number of "
-           "spatial dimensions");
-    assert(op.getDimensionNumbers().getInputSpatialDimensions().size() ==
-               op.getDimensionNumbers().getKernelSpatialDimensions().size() &&
-           "Convolution input, output, and kernel must have the same number of "
-           "spatial dimensions");
 
     if (op.getWindowReversal() &&
         llvm::any_of(*op.getWindowReversal(), ttmlir::utils::identity<bool>)) {
@@ -1863,7 +1856,7 @@ private:
                              OpAdaptor adaptor, Value input, Value weight,
                              llvm::ArrayRef<int64_t> outputShape) const {
 
-    bool isTransposed = ttir::utils::isTransposedConv(op);
+    bool isTransposed = tt::stablehlo::utils::isTransposedConv(op);
 
     auto windowStrides = getI64ArrayOrDefault(adaptor.getWindowStridesAttr(),
                                               NUM_SPATIAL_DIMS, 1);
