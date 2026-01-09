@@ -4,6 +4,7 @@
 
 #ifndef TTMLIR_TARGET_UTILS_UTILS_H
 #define TTMLIR_TARGET_UTILS_UTILS_H
+#include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
 
 #include "mlir/IR/BuiltinOps.h"
 
@@ -21,9 +22,9 @@ inline OpType findOpAtTopLevel(mlir::ModuleOp module) {
 
 inline llvm::SmallString<24> convertDylibFuncName(llvm::StringRef oldName) {
   llvm::SmallString<24> result;
-  if (oldName.ends_with("_decl")) {
+  if (oldName.ends_with(ttir::kCPUHoistedDeclSuffix)) {
     // Remove the "_decl" suffix and add the "_helper" suffix
-    result = oldName.drop_back(5);
+    result = oldName.drop_back(strlen(ttir::kCPUHoistedDeclSuffix));
   }
   result += "_helper";
   return result;

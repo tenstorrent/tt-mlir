@@ -716,11 +716,12 @@ def pytest_collection_modifyitems(config, items):
 def pytest_sessionfinish(session):
     global _current_device, _current_device_target, _current_device_mesh_shape
     if _current_device is not None:
-        print("Closing device for end of session")
+        print("\nClosing device for end of session")
         if _current_device_target == "emitpy":
             ttnn.close_mesh_device(_current_device)
         else:
             tt_runtime.runtime.close_mesh_device(_current_device)
+
         _current_device = None
         _current_device_target = None
         _current_device_mesh_shape = None

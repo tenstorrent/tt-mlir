@@ -1143,7 +1143,8 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::LinearOp>(
         op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),
         adaptor.getB(), adaptor.getBias(), adaptor.getTransposeA(),
-        adaptor.getTransposeB(), /*activation=*/nullptr);
+        adaptor.getTransposeB(), /*activation=*/nullptr,
+        /*matmul_program_config=*/nullptr, /*compute_config=*/nullptr);
     return success();
   }
 };
@@ -2275,7 +2276,11 @@ public:
 
     ttcore::DataTypeAttr dtypeAttr = rewriter.getAttr<ttcore::DataTypeAttr>(
         ttcore::elementTypeToDataType(outputType.getElementType()));
-    Value device = mlir::tt::ttnn::utils::getOrInsertDevice(rewriter, op);
+
+    mlir::Value device =
+        ttnnLayoutAttr.isDeviceBufferType()
+            ? mlir::Value(::ttnn::utils::getOrInsertDevice(rewriter, op))
+            : nullptr;
 
     ttnn::Layout ttnnLayoutEnum = ttnn::Layout::RowMajor;
 

@@ -196,6 +196,10 @@ def ConvertTTNNToEmitPy : Pass<"convert-ttnn-to-emitpy", "::mlir::ModuleOp"> {
   let summary = "Convert TTNN dialect to EmitPy dialect.";
   let constructor = "createConvertTTNNToEmitPyPass()";
   let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect", "mlir::tt::ttnn::TTNNDialect"];
+  let options = [
+    Option<"enableGoldenMode", "enable-golden-mode", "bool", /*default=*/"false",
+    "Enable golden mode for EmitPy conversion. In golden mode, ttnn ops are executed on CPU using golden functions attached to ttnn ops. These golden functions perform Torch library calls.">
+  ];
 }
 
 def EmitPyNameVars : Pass<"emitpy-name-vars", "::mlir::ModuleOp"> {
@@ -204,6 +208,48 @@ def EmitPyNameVars : Pass<"emitpy-name-vars", "::mlir::ModuleOp"> {
     This pass adds suggested names for operands based on operations on EmitPy IR.
   }];
   let constructor = "createEmitPyNameVarsPass()";
+  let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect"];
+}
+
+def EmitPyLinkModules : Pass<"emitpy-link-modules", "::mlir::ModuleOp"> {
+  let summary = "Link ttcore.cpu_module and ttcore.device_module contents into top-level builtin.module";
+  let description = [{
+    This pass links the CPU and Device modules by moving all operations from both modules into
+    the root module. CPU-hoisted function declarations in the Device module are skipped (not moved),
+    and call sites are updated to call the actual function definitions from the CPU module.
+
+    Example:
+
+    Input:
+    module {
+      ttcore.cpu_module {
+        module {
+          func.func @hoisted_function() { ... }  // Definition of hoisted function
+        }
+      }
+      ttcore.device_module {
+        module {
+          emitpy.import "ttnn"
+          func.func private @hoisted_function_decl()  // Stub declaration
+          func.func @device_function() {
+            call @hoisted_function_decl()  // Call to hoisted function
+          }
+        }
+      }
+    }
+
+    Output:
+    module {
+      emitpy.import "ttnn"
+      func.func @hoisted_function() { ... }
+
+      func.func @device_function() {
+        call @hoisted_function  // Call updated to the hoisted function definition
+      }
+    }
+  }];
+
+  let constructor = "createEmitPyLinkModulesPass()";
   let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect"];
 }
 
