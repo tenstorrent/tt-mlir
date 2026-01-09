@@ -283,6 +283,22 @@ void DMAWriteOp::getEffects(
                        true, mlir::SideEffects::DefaultResource::get());
 }
 
+void ExperimentalWriteRowIndexTileOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Write::get(), &getOutputMutable(),
+                       0, true, mlir::SideEffects::DefaultResource::get());
+}
+
+void ExperimentalWriteColIndexTileOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Write::get(), &getOutputMutable(),
+                       0, true, mlir::SideEffects::DefaultResource::get());
+}
+
 bool DMAOp::bufferizesToMemoryRead(mlir::OpOperand &operand,
                                    const mlir::bufferization::AnalysisState &) {
   return operand.get() == getSrc();
@@ -597,10 +613,36 @@ BlockMaskOp::bufferize(mlir::RewriterBase &rewriter,
     out = *maybe;
   }
 
+  // Bufferize index tiles if present
+  SmallVector<mlir::Value> bufferizedIndexTiles;
+  for (auto tile : getIndexTiles()) {
+    if (mlir::isa<mlir::RankedTensorType>(tile.getType())) {
+      auto maybe =
+          mlir::bufferization::getBuffer(rewriter, tile, options, state);
+      if (failed(maybe)) {
+        return maybe;
+      }
+      bufferizedIndexTiles.push_back(*maybe);
+    } else {
+      bufferizedIndexTiles.push_back(tile);
+    }
+  }
+
+  // Bufferize scratch if present
+  mlir::Value scratch = getScratch();
+  if (scratch && mlir::isa<mlir::RankedTensorType>(scratch.getType())) {
+    auto maybe =
+        mlir::bufferization::getBuffer(rewriter, scratch, options, state);
+    if (failed(maybe)) {
+      return maybe;
+    }
+    scratch = *maybe;
+  }
+
   mlir::Operation *old = getOperation();
   auto newOp = rewriter.create<mlir::tt::d2m::BlockMaskOp>(
-      old->getLoc(), in, out, getLogicalRows(), getLogicalCols(),
-      getFillValue());
+      old->getLoc(), in, out, bufferizedIndexTiles, scratch, getLogicalRows(),
+      getLogicalCols(), getFillValue());
   rewriter.replaceOp(old, newOp->getResults());
   return mlir::success();
   // NOLINTEND(clang-analyzer-core.StackAddressEscape)
@@ -608,12 +650,14 @@ BlockMaskOp::bufferize(mlir::RewriterBase &rewriter,
 
 bool BlockMaskOp::bufferizesToMemoryRead(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
-  return operand.get() == getInput();
+  // Input and scratch (if present) are read.
+  return operand.get() == getInput() || operand.get() == getScratch();
 }
 
 bool BlockMaskOp::bufferizesToMemoryWrite(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
-  return operand.get() == getOutput();
+  // Output and scratch (if present) are written.
+  return operand.get() == getOutput() || operand.get() == getScratch();
 }
 
 mlir::bufferization::AliasingValueList
@@ -651,6 +695,13 @@ mlir::LogicalResult BlockMaskOp::verify() {
 
   if (inShapedType.getElementType() != outShapedType.getElementType()) {
     return emitOpError("input and output must have the same element type");
+  }
+
+  // Index tiles must be either both provided (2) or both absent (0).
+  auto indexTiles = getIndexTiles();
+  if (indexTiles.size() != 0 && indexTiles.size() != 2) {
+    return emitOpError("index_tiles must contain exactly 0 or 2 operands (row "
+                       "and col index tiles)");
   }
 
   return success();

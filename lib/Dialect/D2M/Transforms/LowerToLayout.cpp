@@ -616,13 +616,147 @@ public:
     int64_t logicalRows = logicalShape[logicalShape.size() - 2];
     int64_t logicalCols = logicalShape[logicalShape.size() - 1];
 
+    // Check if partial masking is needed (non-tile-aligned shape).
+    constexpr int64_t tileH = 32;
+    constexpr int64_t tileW = 32;
+    bool needsPartialMasking =
+        (logicalRows % tileH != 0) || (logicalCols % tileW != 0);
+
+    // Index tile CBs and scratch CB - only created if partial masking is
+    // needed.
+    Value rowIndexTile;
+    Value colIndexTile;
+    Value scratchTile; // Scratch CB for intermediate mask storage
+    SmallVector<Value> indexTilesVec; // Persistent storage for index tiles
+
+    if (needsPartialMasking) {
+      // Create index tile CBs. These are single-tile CBs containing
+      // pre-computed index patterns: row_index_tile[i,j] = i,
+      // col_index_tile[i,j] = j.
+      auto inputType = mlir::cast<RankedTensorType>(input.getType());
+      auto tileType = mlir::cast<ttcore::TileType>(inputType.getElementType());
+      auto layout =
+          mlir::cast<ttcore::MetalLayoutAttr>(inputType.getEncoding());
+
+      // Create a single-tile tensor type for index tiles and scratch.
+      // The system expects 4D shapes: {grid_r, grid_c, shard_r, shard_c}.
+      // For a single tile: 1x1 grid with 1x1 shard (one tile).
+      SmallVector<int64_t> singleTileShape = {1, 1, 1, 1};
+      // Logical shape for layout is 2D (single tile dimensions).
+      SmallVector<int64_t> singleTileLogicalShape = {1, 1};
+      auto singleTileLayout = ttcore::MetalLayoutAttr::get(
+          rewriter.getContext(),
+          singleTileLogicalShape,    // logicalShape (2D for single tile)
+          ttcore::OOBVal::Undef,     // oobVal (not used)
+          layout.getMemorySpace(),   // same memory space
+          layout.getMemoryLayout()); // same memory layout
+
+      rowIndexTile = rewriter
+                         .create<d2m::EmptyOp>(loc, singleTileShape, tileType,
+                                               singleTileLayout)
+                         .getResult();
+      colIndexTile = rewriter
+                         .create<d2m::EmptyOp>(loc, singleTileShape, tileType,
+                                               singleTileLayout)
+                         .getResult();
+
+      // Create scratch CB for intermediate mask storage during two-phase
+      // masking. This CB stores the computed mask between the mask computation
+      // and mask application phases, reducing DST pressure.
+      scratchTile = rewriter
+                        .create<d2m::EmptyOp>(loc, singleTileShape, tileType,
+                                              singleTileLayout)
+                        .getResult();
+
+      // Emit dataflow generics to fill the index tiles.
+      // These write to the empty buffers, which the masking generic will read.
+      // Note: We pass the original empty ops (not the generic results) to the
+      // masking generic. The allocator can trace empty ops to memref::AllocOp,
+      // but can't trace GenericOp results. The scheduler will ensure the
+      // dataflow generics run before the masking generic reads the buffers.
+      rewriter.create<GenericOp>(
+          loc,
+          /*inputs=*/ValueRange{},
+          /*outputs=*/ValueRange{rowIndexTile},
+          [&](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
+            Value rowOut =
+                builder.create<ReserveOp>(innerLoc, blockArgs[0]).getResult();
+            builder.create<ExperimentalWriteRowIndexTileOp>(innerLoc, rowOut);
+            builder.create<YieldOp>(innerLoc, ValueRange{rowOut});
+          },
+          ThreadType::Datamovement);
+
+      rewriter.create<GenericOp>(
+          loc,
+          /*inputs=*/ValueRange{},
+          /*outputs=*/ValueRange{colIndexTile},
+          [&](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
+            Value colOut =
+                builder.create<ReserveOp>(innerLoc, blockArgs[0]).getResult();
+            builder.create<ExperimentalWriteColIndexTileOp>(innerLoc, colOut);
+            builder.create<YieldOp>(innerLoc, ValueRange{colOut});
+          },
+          ThreadType::Datamovement);
+
+      // Pass the original empty ops to the masking generic.
+      // The allocator can trace these to memref::AllocOp.
+      indexTilesVec = {rowIndexTile, colIndexTile};
+    }
+
+    // Build inputs list: main input + optional index tiles + optional scratch.
+    // Scratch is an input (intermediate storage), not an output.
+    SmallVector<Value> allInputs = {input};
+    allInputs.append(indexTilesVec.begin(), indexTilesVec.end());
+    if (scratchTile) {
+      allInputs.push_back(scratchTile);
+    }
+
+    // Output is just the main output.
+    SmallVector<Value> allOutputs = {output};
+
+    // Build indexing maps. The main input and output use identity maps.
+    // The index tiles and scratch use constant maps (0, 0) since they're
+    // single tiles that should be broadcast/reused across all iterations.
+    auto inputType = mlir::cast<RankedTensorType>(input.getType());
+    auto inputLayout =
+        mlir::cast<ttcore::MetalLayoutAttr>(inputType.getEncoding());
+    const size_t rank = inputLayout.getShardShape(inputType).size();
+
+    // Identity map for data operands: (d0, d1) -> (d0, d1)
+    AffineMap identityMap = rewriter.getMultiDimIdentityMap(rank);
+    // Constant map for single-tile operands: (d0, d1) -> (0, 0)
+    AffineMap constantMap = AffineMap::get(
+        rank, 0,
+        {rewriter.getAffineConstantExpr(0), rewriter.getAffineConstantExpr(0)},
+        rewriter.getContext());
+
+    SmallVector<AffineMap> indexingMaps;
+    indexingMaps.push_back(identityMap); // input
+    for (size_t i = 1; i < allInputs.size(); ++i) {
+      indexingMaps.push_back(constantMap); // index tiles use constant map
+    }
+    indexingMaps.push_back(identityMap); // output
+
+    Attribute parallel = rewriter.getAttr<ttcore::IteratorTypeAttr>(
+        ttcore::IteratorType::Parallel);
+    ArrayAttr indexingMapsAttr = rewriter.getAffineMapArrayAttr(indexingMaps);
+    ArrayAttr iteratorTypesAttr =
+        rewriter.getArrayAttr(SmallVector<Attribute>(rank, parallel));
+
+    size_t numInputs = allInputs.size();
+    bool hasIndexTiles = indexTilesVec.size() > 0;
+    bool hasScratch = scratchTile != nullptr;
     auto genericOp = rewriter.create<GenericOp>(
-        loc, input, output,
+        loc, ValueRange(allInputs), ValueRange(allOutputs), indexingMapsAttr,
+        iteratorTypesAttr,
         [&](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
+          // Block args are ordered:
+          // [input, rowIndexTile?, colIndexTile?, scratch?, output]
+          // Inputs first, then outputs.
           Value src =
               builder.create<WaitOp>(innerLoc, blockArgs[0]).getResult();
-          Value dst =
-              builder.create<ReserveOp>(innerLoc, blockArgs[1]).getResult();
+          Value dst = builder.create<ReserveOp>(innerLoc, blockArgs[numInputs])
+                          .getResult();
 
           // Create index constants for logical bounds.
           // Note: For multicore, per-core bounds are computed in
@@ -635,10 +769,31 @@ public:
 
           // Apply block-level masking. BlockMaskOp is side-effecting and writes
           // to dst, so we yield dst to propagate the result.
-          builder.create<BlockMaskOp>(innerLoc, src, dst, logicalRowsVal,
-                                      logicalColsVal, fillValue);
+          // Access index tiles and scratch via block arguments (if present).
+          SmallVector<Value> indexTileArgs;
+          Value scratchArg;
+          if (hasIndexTiles) {
+            // We have index tiles: blockArgs[1] = rowIndexTile, blockArgs[2] =
+            // colIndexTile. Wait on them to get the tensor values.
+            Value rowIdxTile =
+                builder.create<WaitOp>(innerLoc, blockArgs[1]).getResult();
+            Value colIdxTile =
+                builder.create<WaitOp>(innerLoc, blockArgs[2]).getResult();
+            indexTileArgs = {rowIdxTile, colIdxTile};
+            // Scratch is input after index tiles (if present).
+            // Use WaitOp since scratch is an input (temporary storage buffer).
+            if (hasScratch) {
+              scratchArg =
+                  builder.create<WaitOp>(innerLoc, blockArgs[3]).getResult();
+            }
+          }
+          builder.create<BlockMaskOp>(
+              innerLoc, src, dst, ValueRange(indexTileArgs), scratchArg,
+              logicalRowsVal, logicalColsVal, fillValue);
 
-          builder.create<YieldOp>(innerLoc, ValueRange{dst});
+          // Yield just the main output.
+          SmallVector<Value> yieldValues = {dst};
+          builder.create<YieldOp>(innerLoc, ValueRange(yieldValues));
         },
         ThreadType::Compute);
 
