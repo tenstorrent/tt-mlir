@@ -976,4 +976,12 @@ def D2MDecoupleLoadStoreOpsFromCompute : Pass<"d2m-decouple-load-store-ops-from-
   }];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
 }
+
+def D2MConvertLocalLoadStoreOpsToAliasedCBs : Pass<"d2m-convert-local-load-store-ops-to-aliased-cbs", "::mlir::ModuleOp"> {
+  let summary = "Convert local load/store operations to aliased circular buffers.";
+  let description = [{
+    This pass converts local load/store operations to aliased circular buffers.
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
+}
 #endif
