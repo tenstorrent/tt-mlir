@@ -41,40 +41,47 @@ getLoopBounds(OpBuilder &builder, Location loc, ArrayRef<int64_t> shardShape) {
   return std::make_tuple(lbs, ubs, step);
 }
 
-// Helper to create a semaphore block argument in the parent generic op
-// Returns a pair of (current block's semaphore, region index)
-static std::pair<BlockArgument, unsigned>
-createSemaphore(OpBuilder &builder, Location loc, Operation *op) {
-  // Find the parent GenericOp and add semaphore to all its regions
+// Attribute name for pre-allocated semaphore indices (set by
+// D2MPreallocateMcastSemaphores pass).
+constexpr StringRef kPreallocatedSemaphoresAttr = "preallocated_semaphores";
+
+// Helper to get pre-allocated semaphores for a multicast RemoteLoadOp.
+// Returns a pair of (receiversReady, senderFinished) semaphores.
+// Asserts if the semaphores were not pre-allocated by
+// D2MPreallocateMcastSemaphores.
+static std::pair<BlockArgument, BlockArgument>
+getPreallocatedSemaphores(Operation *op) {
+  auto arrayAttr = op->getAttrOfType<ArrayAttr>(kPreallocatedSemaphoresAttr);
+  TT_assertv(arrayAttr,
+             "Multicast RemoteLoadOp must have preallocated_semaphores "
+             "attribute. Ensure D2MPreallocateMcastSemaphores pass runs before "
+             "D2MLowerLoadStoreOpsToDMA.");
+  TT_assertv(arrayAttr.size() == 2u,
+             "preallocated_semaphores attribute must have exactly 2 elements");
+
   auto genericOp = op->getParentOfType<GenericOp>();
-  TT_assertv(genericOp, "RemoteLoad/Store must be inside a GenericOp");
+  TT_assertv(genericOp, "RemoteLoadOp must be inside a GenericOp");
 
-  // Find which region contains the operation
+  // Find which region contains this operation.
   Region *parentRegion = op->getParentRegion();
-  unsigned regionIndex = 0;
-  for (unsigned i = 0; i < genericOp->getNumRegions(); ++i) {
-    if (&genericOp->getRegion(i) == parentRegion) {
-      regionIndex = i;
-      break;
-    }
+  while (parentRegion && parentRegion->getParentOp() != genericOp) {
+    parentRegion = parentRegion->getParentOp()->getParentRegion();
   }
+  TT_assertv(parentRegion, "Failed to find parent region for RemoteLoadOp");
+  TT_assertv(!parentRegion->empty(), "Parent region is empty");
 
-  // Add semaphore argument to all regions
-  BlockArgument currentSemaphore = nullptr;
-  for (unsigned i = 0; i < genericOp->getNumRegions(); ++i) {
-    Region &region = genericOp->getRegion(i);
-    if (!region.empty()) {
-      Block &block = region.front();
-      BlockArgument sem =
-          block.addArgument(builder.getType<SemaphoreType>(), loc);
-      if (i == regionIndex) {
-        currentSemaphore = sem;
-      }
-    }
-  }
+  Block &block = parentRegion->front();
 
-  TT_assertv(currentSemaphore, "Failed to create semaphore for current region");
-  return {currentSemaphore, regionIndex};
+  unsigned receiversReadyIdx = mlir::cast<IntegerAttr>(arrayAttr[0]).getInt();
+  unsigned senderFinishedIdx = mlir::cast<IntegerAttr>(arrayAttr[1]).getInt();
+
+  TT_assertv(receiversReadyIdx < block.getNumArguments(),
+             "Pre-allocated receiversReady semaphore index is out of bounds");
+  TT_assertv(senderFinishedIdx < block.getNumArguments(),
+             "Pre-allocated senderFinished semaphore index is out of bounds");
+
+  return std::make_pair(block.getArgument(receiversReadyIdx),
+                        block.getArgument(senderFinishedIdx));
 }
 
 static size_t getElementSizeBytes(MemRefType memref) {
@@ -396,11 +403,11 @@ public:
     Value one = rewriter.create<arith::ConstantOp>(loc, rewriter.getIndexType(),
                                                    rewriter.getIndexAttr(1));
 
-    // Create semaphores for synchronization
-    auto semResult1 = createSemaphore(rewriter, loc, remoteLoad);
-    BlockArgument receiversReadySemaphore = semResult1.first;
-    auto semResult2 = createSemaphore(rewriter, loc, remoteLoad);
-    BlockArgument senderFinishedSemaphore = semResult2.first;
+    // Get pre-allocated semaphores for synchronization.
+    // These must have been set by D2MPreallocateMcastSemaphores pass.
+    auto preallocatedSems = getPreallocatedSemaphores(remoteLoad);
+    BlockArgument receiversReadySemaphore = preallocatedSems.first;
+    BlockArgument senderFinishedSemaphore = preallocatedSems.second;
 
     Value mcastVolumeVal = rewriter.create<arith::ConstantOp>(
         loc, rewriter.getIndexType(), rewriter.getIndexAttr(mcastVolume));

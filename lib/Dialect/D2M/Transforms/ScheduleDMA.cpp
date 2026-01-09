@@ -165,16 +165,6 @@ public:
       return failure();
     }
 
-    // Skip generics with reduction iterators (e.g., matmul).
-    // These have more complex semaphore requirements that need special handling
-    // in downstream passes.
-    for (auto iterType : generic.getIteratorTypes()) {
-      auto iterTypeAttr = mlir::cast<ttcore::IteratorTypeAttr>(iterType);
-      if (iterTypeAttr.getValue() == ttcore::IteratorType::Reduction) {
-        return failure();
-      }
-    }
-
     Region &dmRegion = generic.getRegion(0);
     if (dmRegion.empty()) {
       return failure();

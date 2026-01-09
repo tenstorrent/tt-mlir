@@ -751,15 +751,22 @@ recreateGenericOp(d2m::GenericOp genericOp,
                       .getUnderlying());
             } else if (auto remoteLoadOp =
                            llvm::dyn_cast<d2m::RemoteLoadOp>(clonedOp)) {
-              auto cbType =
-                  mlir::cast<d2m::CBType>(remoteLoadOp.getCb().getType());
-              remoteLoadOp.getResult().setType(cbType.getUnderlying());
-            } else if (auto remoteStoreOp =
-                           llvm::dyn_cast<d2m::RemoteStoreOp>(clonedOp)) {
-              auto cbType =
-                  mlir::cast<d2m::CBType>(remoteStoreOp.getCb().getType());
-              remoteStoreOp.getResult().setType(cbType.getUnderlying());
+              // Only update result type if the result exists (implicit form)
+              if (remoteLoadOp.isImplicitForm()) {
+                // Result exists - get shard type from the remote memref
+                auto memrefType =
+                    mlir::cast<ShapedType>(remoteLoadOp.getMemref().getType());
+                auto deviceLayout =
+                    ttcore::getDeviceLayout(remoteLoadOp.getMemref());
+                if (deviceLayout) {
+                  auto shardShape = deviceLayout.getShardShape(memrefType);
+                  auto elementType = memrefType.getElementType();
+                  auto shardType = MemRefType::get(shardShape, elementType);
+                  remoteLoadOp.getResult().setType(shardType);
+                }
+              }
             }
+            // RemoteStoreOp has no result, no type update needed
           }
         },
         /*singleThreadType=*/genericOp.getRegionThreadType(0));

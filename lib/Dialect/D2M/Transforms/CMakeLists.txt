@@ -25,6 +25,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         ScalarizeConstTensors.cpp
         GenerateOuterLoops.cpp
         SplitUnifiedThread.cpp
+        PreallocateMcastSemaphores.cpp
         ScheduleDMA.cpp
 
         ADDITIONAL_HEADER_DIRS

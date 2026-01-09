@@ -864,6 +864,45 @@ def D2MSplitUnifiedThread : Pass<"d2m-split-unified-thread", "::mlir::ModuleOp">
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
 }
 
+def D2MPreallocateMcastSemaphores : Pass<"d2m-preallocate-mcast-semaphores", "::mlir::ModuleOp"> {
+  let summary = "Pre-allocate semaphores for multicast DMA operations.";
+  let description = [{
+    This pass pre-allocates semaphores for RemoteLoadOp operations that will
+    require multicast synchronization. It runs before d2m-schedule-dma to ensure
+    that each multicast operation has its own dedicated semaphores that are
+    correctly mapped across all regions of the generic op.
+
+    The pass identifies RemoteLoadOps that have multicast parameters (mcastStartIndex
+    and mcastShape) and creates two semaphore block arguments for each:
+    - receiversReadySemaphore: used by receivers to signal they are ready
+    - senderFinishedSemaphore: used by sender to signal completion
+
+    The indices of these semaphores are stored as attributes on the RemoteLoadOp
+    so that downstream passes (d2m-schedule-dma and d2m-lower-load-store-ops-to-dma)
+    can correctly use them even after region cloning/splitting.
+
+    Example:
+    ```mlir
+    // Before:
+    d2m.generic {threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]} {
+    ^dm0(%cb0: !d2m.cb<...>, %cb1: !d2m.cb<...>):
+      d2m.remote_load %cb0, %memref[%i] core[%c0] mcast[%c4] : ...
+    }, { ... }
+
+    // After (semaphores pre-allocated):
+    d2m.generic {threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]} {
+    ^dm0(%cb0: !d2m.cb<...>, %cb1: !d2m.cb<...>, %sem0: !d2m.semaphore, %sem1: !d2m.semaphore):
+      d2m.remote_load %cb0, %memref[%i] core[%c0] mcast[%c4]
+        {preallocated_semaphores = [2, 3]} : ...
+    }, {
+    ^compute0(%cb0: !d2m.cb<...>, %cb1: !d2m.cb<...>, %sem0: !d2m.semaphore, %sem1: !d2m.semaphore):
+      ...
+    }
+    ```
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
+}
+
 def D2MScheduleDMA : Pass<"d2m-schedule-dma", "::mlir::ModuleOp"> {
   let summary = "Schedule DMA operations across multiple hardware threads.";
   let description = [{
