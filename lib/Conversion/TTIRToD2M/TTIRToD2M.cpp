@@ -580,7 +580,7 @@ private:
             loc,
             /* result tensor types */
             llvm::to_vector(
-                mlir::ValueRange(blockArgs.take_back(numOutputs)).getTypes()),
+                mlir::ValueRange(blockArgs.take_back(numOutputs)).getTypes(),
             /* inputs */ blockArgs.take_front(numInputs),
             /* outputs */ blockArgs.take_back(numOutputs), linalgIndexingMaps,
             linalgIteratorTypes,
@@ -1045,7 +1045,7 @@ public:
                      ttcore::MemorySpace defaultInputMemSpace,
                      ttcore::MemorySpace defaultOutputMemSpace, bool ttnnMode,
                      bool /*collapseTensors*/)
-      : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
+      : OpConversionPattern<ConcreteOp>(typeConverter, ctx, /*benefit=*/2),
         D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
                                ttnnMode, /*collapseTensors*/ false) {}
 
@@ -1411,8 +1411,8 @@ static AffineMap permuteLogicalMap(ttir::PermuteOp op) {
   assert(logicalRank >= 2 && "Permute must have at least 2 dimensions");
   // Verify last dimension is not identity for outer permute handling.
   const bool noInnerPermute =
-      !(permutation[logicalRank - 2] == static_cast<int64_t>(logicalRank - 1) &&
-        permutation[logicalRank - 1] == static_cast<int64_t>(logicalRank - 2));
+      (permutation[logicalRank - 2] != static_cast<int64_t>(logicalRank - 2) &&
+       permutation[logicalRank - 1] == static_cast<int64_t>(logicalRank - 1));
   assert(noInnerPermute && "Complex permutes (both inner and outer "
                            "permutations) are not supported.");
   SmallVector<AffineExpr> results(logicalRank);
@@ -1538,9 +1538,9 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MTensorManipulationOpRewriter<ttir::RearrangeOp, rearrangeLogicalMap>,
     D2MTensorManipulationOpRewriter<ttir::ReshapeOp, reshapeLogicalMap>,
     D2MTensorManipulationOpRewriter<ttir::SliceStaticOp, sliceLogicalMap>,
-    // Permute (handles tranpose ops, since they're canonicalized into permutes).
-    D2MTensorManipulationOpRewriter<ttir::PermuteOp, permuteLogicalMap>,
-    D2MPermuteRewriter
+    // Permute (handles transpose ops, since they're canonicalized into permutes).
+    D2MPermuteRewriter,
+    D2MTensorManipulationOpRewriter<ttir::PermuteOp, permuteLogicalMap>
   >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, ttnnMode, collapseTensors);
 
 
