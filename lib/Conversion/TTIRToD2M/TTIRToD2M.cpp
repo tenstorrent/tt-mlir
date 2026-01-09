@@ -7,6 +7,7 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
@@ -30,26 +31,6 @@
 namespace mlir::tt {
 
 namespace {
-// Helper function to build grid indices from an affine indexing map.
-// Similar to d2m::utils::buildGridIndices but local to this file.
-static SmallVector<Value> buildGridIndices(OpBuilder &builder, Location loc,
-                                           AffineMap indexingMap) {
-  SmallVector<Value> indices;
-  for (unsigned i = 0; i < indexingMap.getNumResults(); ++i) {
-    AffineExpr expr = indexingMap.getResult(i);
-    if (auto dimExpr = mlir::dyn_cast<AffineDimExpr>(expr)) {
-      indices.push_back(builder.create<d2m::IterIndexOp>(
-          loc, static_cast<int64_t>(dimExpr.getPosition())));
-    } else if (auto constExpr = mlir::dyn_cast<AffineConstantExpr>(expr)) {
-      indices.push_back(
-          builder.create<arith::ConstantIndexOp>(loc, constExpr.getValue()));
-    } else {
-      llvm_unreachable("Unsupported affine expression in indexing map");
-    }
-  }
-  return indices;
-}
-
 class D2MNamedRewriterCommon {
 protected:
   using base = D2MNamedRewriterCommon;
@@ -333,7 +314,8 @@ protected:
       AffineMap indexingMap = generic.getIndexingMap(i);
 
       // Build grid indices from the indexing map
-      SmallVector<Value> indices = buildGridIndices(builder, loc, indexingMap);
+      SmallVector<Value> indices =
+          d2m::utils::buildGridIndices(builder, loc, indexingMap);
 
       // Get the generic operand (the remote memref/tensor)
       Value genericOperand = generic->getOperand(i);
@@ -647,7 +629,7 @@ private:
           size_t operandIdx = numInputs + outputIdx;
           AffineMap indexingMap = generic.getIndexingMap(operandIdx);
           SmallVector<Value> indices =
-              buildGridIndices(rewriter, loc, indexingMap);
+              d2m::utils::buildGridIndices(rewriter, loc, indexingMap);
           Value genericOperand = generic->getOperand(operandIdx);
           Value result = linalgGeneric->getResult(outputIdx);
           rewriter.create<d2m::RemoteStoreOp>(loc, genericOperand, indices,
@@ -795,7 +777,7 @@ private:
           size_t operandIdx = numInputs + outputIdx;
           AffineMap indexingMap = generic.getIndexingMap(operandIdx);
           SmallVector<Value> indices =
-              buildGridIndices(rewriter, loc, indexingMap);
+              d2m::utils::buildGridIndices(rewriter, loc, indexingMap);
           Value genericOperand = generic->getOperand(operandIdx);
           Value result = linalgGeneric->getResult(outputIdx);
           rewriter.create<d2m::RemoteStoreOp>(loc, genericOperand, indices,
@@ -1035,7 +1017,7 @@ private:
             size_t operandIdx = numInputs + outputIdx;
             AffineMap indexingMap = generic.getIndexingMap(operandIdx);
             SmallVector<Value> indices =
-                buildGridIndices(rewriter, loc, indexingMap);
+                d2m::utils::buildGridIndices(rewriter, loc, indexingMap);
             Value genericOperand = generic->getOperand(operandIdx);
             Value result = blockArgs[numInputs + outputIdx];
             rewriter.create<d2m::RemoteStoreOp>(loc, genericOperand, indices,
@@ -1078,7 +1060,7 @@ private:
             size_t operandIdx = numInputs + outputIdx;
             AffineMap indexingMap = generic.getIndexingMap(operandIdx);
             SmallVector<Value> indices =
-                buildGridIndices(rewriter, loc, indexingMap);
+                d2m::utils::buildGridIndices(rewriter, loc, indexingMap);
             Value genericOperand = generic->getOperand(operandIdx);
             Value result = linalgGeneric->getResult(outputIdx);
             rewriter.create<d2m::RemoteStoreOp>(loc, genericOperand, indices,
@@ -1253,7 +1235,7 @@ public:
           // Create remote_load for input
           AffineMap inputIndexingMap = identityMap;
           SmallVector<Value> inputIndices =
-              buildGridIndices(builder, bodyLoc, inputIndexingMap);
+              d2m::utils::buildGridIndices(builder, bodyLoc, inputIndexingMap);
           Value input =
               builder
                   .create<d2m::RemoteLoadOp>(bodyLoc, inputShardType,
@@ -1281,7 +1263,7 @@ public:
           // Insert remote_store for output before yield
           AffineMap outputIndexingMap = identityMap;
           SmallVector<Value> outputIndices =
-              buildGridIndices(builder, bodyLoc, outputIndexingMap);
+              d2m::utils::buildGridIndices(builder, bodyLoc, outputIndexingMap);
           Value result = linalgGeneric->getResult(0);
           builder.create<d2m::RemoteStoreOp>(bodyLoc, outputOperand,
                                              outputIndices, result);
