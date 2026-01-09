@@ -169,10 +169,12 @@ private:
     if (op->hasTrait<mlir::OpTrait::IsTerminator>()) {
       return;
     }
-    // Skip mesh_shard ops. Identity mesh_shard ops are just forwarding their
-    // input, so they don't need to be included in const-eval subgraphs.
-    if (isa<mlir::tt::ttnn::MeshShardOp>(op)) {
-      return;
+
+    // Skip non-identity mesh shard ops.
+    if (auto meshShardOp = mlir::dyn_cast<mlir::tt::ttnn::MeshShardOp>(op)) {
+      if (meshShardOp.getShardType() != ttcore::MeshShardType::Identity) {
+        return;
+      }
     }
 
     // Handle shared ops separately as well.
