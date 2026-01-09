@@ -1744,12 +1744,16 @@ def D2M_AcquireBufferOp : D2M_GenericRegionOp<"acquire_buffer",
     Acquire buffer operation that returns a buffer without taking a circular buffer as input.
     This operation returns an AnyRankedTensorOrMemRef type similar to d2m.reserve.
 
+    The optional operand_index attribute tracks which generic operand this buffer corresponds to,
+    enabling later passes to establish the connection between circular buffers and operands.
+
     Example:
     ```mlir
-    %buffer = d2m.acquire_buffer() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+    %buffer = d2m.acquire_buffer() {operand_index = 1} : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
     ```
   }];
 
+  let arguments = (ins OptionalAttr<I64Attr>:$operand_index);
   let results = (outs AnyRankedTensorOrMemRef:$result);
 
   let assemblyFormat = [{ `(` `)` attr-dict `:` type($result) }];

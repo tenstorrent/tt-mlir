@@ -30,6 +30,26 @@
 namespace mlir::tt {
 
 namespace {
+// Helper function to build grid indices from an affine indexing map.
+// Similar to d2m::utils::buildGridIndices but local to this file.
+static SmallVector<Value> buildGridIndices(OpBuilder &builder, Location loc,
+                                           AffineMap indexingMap) {
+  SmallVector<Value> indices;
+  for (unsigned i = 0; i < indexingMap.getNumResults(); ++i) {
+    AffineExpr expr = indexingMap.getResult(i);
+    if (auto dimExpr = mlir::dyn_cast<AffineDimExpr>(expr)) {
+      indices.push_back(builder.create<d2m::IterIndexOp>(
+          loc, static_cast<int64_t>(dimExpr.getPosition())));
+    } else if (auto constExpr = mlir::dyn_cast<AffineConstantExpr>(expr)) {
+      indices.push_back(
+          builder.create<arith::ConstantIndexOp>(loc, constExpr.getValue()));
+    } else {
+      llvm_unreachable("Unsupported affine expression in indexing map");
+    }
+  }
+  return indices;
+}
+
 class D2MNamedRewriterCommon {
 protected:
   using base = D2MNamedRewriterCommon;
@@ -284,11 +304,10 @@ protected:
     return r;
   }
 
-  static SmallVector<Value> createBlockArguments(mlir::OpBuilder &builder,
-                                                 mlir::Block *block,
-                                                 mlir::Location loc,
-                                                 mlir::TypeRange inputs,
-                                                 mlir::TypeRange outputs) {
+  static SmallVector<Value>
+  createBlockArguments(mlir::OpBuilder &builder, mlir::Block *block,
+                       mlir::Location loc, mlir::TypeRange inputs,
+                       mlir::TypeRange outputs, d2m::GenericOp generic) {
     auto fn = [&](Type t) {
       mlir::RankedTensorType tensorType = mlir::cast<mlir::RankedTensorType>(t);
       ttcore::MetalLayoutAttr layout =
@@ -303,13 +322,45 @@ protected:
     llvm::for_each(mlir::TypeRange(outputs), fn);
 
     SmallVector<Value> operands;
-    for (auto arg : block->getArguments()) {
-      Value acquire =
-          (arg.getArgNumber() < inputs.size())
-              ? builder.create<d2m::WaitOp>(loc, arg).getResult()
-              : builder.create<d2m::ReserveOp>(loc, arg).getResult();
-      operands.push_back(acquire);
+
+    // Process input operands - create remote_load operations
+    for (size_t i = 0; i < inputs.size(); ++i) {
+      auto cbArg = block->getArgument(i);
+      auto cbType = mlir::cast<d2m::CBType>(cbArg.getType());
+      auto shardType = cbType.getUnderlying();
+
+      // Get the indexing map for this operand
+      AffineMap indexingMap = generic.getIndexingMap(i);
+
+      // Build grid indices from the indexing map
+      SmallVector<Value> indices = buildGridIndices(builder, loc, indexingMap);
+
+      // Get the generic operand (the remote memref/tensor)
+      Value genericOperand = generic->getOperand(i);
+
+      // Create remote_load operation
+      Value loaded = builder
+                         .create<d2m::RemoteLoadOp>(loc, shardType,
+                                                    genericOperand, indices)
+                         .getResult();
+
+      operands.push_back(loaded);
     }
+
+    // Process output operands - create acquire_buffer operations
+    for (size_t i = 0; i < outputs.size(); ++i) {
+      auto cbArg = block->getArgument(inputs.size() + i);
+      auto cbType = mlir::cast<d2m::CBType>(cbArg.getType());
+      auto shardType = cbType.getUnderlying();
+
+      // Create acquire_buffer with operand_index attribute
+      auto operandIndexAttr = builder.getI64IntegerAttr(inputs.size() + i);
+      auto acquireOp = builder.create<d2m::AcquireBufferOp>(loc, shardType,
+                                                            operandIndexAttr);
+
+      operands.push_back(acquireOp.getResult());
+    }
+
     return operands;
   }
 
@@ -563,8 +614,9 @@ private:
 
       // Populate 'block'.
       {
-        auto blockArgsVec = createBlockArguments(
-            rewriter, block, loc, TypeRange(inputs), TypeRange(outputs));
+        auto blockArgsVec =
+            createBlockArguments(rewriter, block, loc, TypeRange(inputs),
+                                 TypeRange(outputs), generic);
         ArrayRef<Value> blockArgs(blockArgsVec);
 
         // Create 'linalg.generic' accepting 'blockArgs'.
@@ -589,6 +641,18 @@ private:
               createComputeRegion(bbBuilder, bbLoc, bbArgs, rewriter, loc,
                                   numInputs, numOutputs, tileBcastTypes);
             });
+
+        // Insert remote_store operations for each output before yield
+        for (size_t outputIdx = 0; outputIdx < numOutputs; ++outputIdx) {
+          size_t operandIdx = numInputs + outputIdx;
+          AffineMap indexingMap = generic.getIndexingMap(operandIdx);
+          SmallVector<Value> indices =
+              buildGridIndices(rewriter, loc, indexingMap);
+          Value genericOperand = generic->getOperand(operandIdx);
+          Value result = linalgGeneric->getResult(outputIdx);
+          rewriter.create<d2m::RemoteStoreOp>(loc, genericOperand, indices,
+                                              result);
+        }
 
         rewriter.create<d2m::YieldOp>(loc, linalgGeneric->getResults());
       }
@@ -684,8 +748,9 @@ private:
 
       // Populate 'block'.
       {
-        auto blockArgsVec = createBlockArguments(
-            rewriter, block, loc, TypeRange(inputs), TypeRange(outputs));
+        auto blockArgsVec =
+            createBlockArguments(rewriter, block, loc, TypeRange(inputs),
+                                 TypeRange(outputs), generic);
         ArrayRef<Value> blockArgs(blockArgsVec);
         assert(blockArgs.size() == numOperands);
 
@@ -724,6 +789,18 @@ private:
                   /* operands */ bbArgs, attributes);
               bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
             });
+
+        // Insert remote_store operations for each output before yield
+        for (size_t outputIdx = 0; outputIdx < numOutputs; ++outputIdx) {
+          size_t operandIdx = numInputs + outputIdx;
+          AffineMap indexingMap = generic.getIndexingMap(operandIdx);
+          SmallVector<Value> indices =
+              buildGridIndices(rewriter, loc, indexingMap);
+          Value genericOperand = generic->getOperand(operandIdx);
+          Value result = linalgGeneric->getResult(outputIdx);
+          rewriter.create<d2m::RemoteStoreOp>(loc, genericOperand, indices,
+                                              result);
+        }
 
         rewriter.create<d2m::YieldOp>(loc, linalgGeneric->getResults());
       }
@@ -941,8 +1018,9 @@ private:
 
       // Populate 'block'.
       {
-        auto blockArgsVec = createBlockArguments(
-            rewriter, block, loc, TypeRange(inputs), TypeRange(outputs));
+        auto blockArgsVec =
+            createBlockArguments(rewriter, block, loc, TypeRange(inputs),
+                                 TypeRange(outputs), generic);
         ArrayRef<Value> blockArgs(blockArgsVec);
 
         // Delegate next level of nesting to a "block" op.
@@ -951,6 +1029,19 @@ private:
           rewriter.create<TileOp>(loc,
                                   /* resultTypes */ mlir::TypeRange(),
                                   /* operands */ blockArgs);
+
+          // Insert remote_store operations for each output before yield
+          for (size_t outputIdx = 0; outputIdx < numOutputs; ++outputIdx) {
+            size_t operandIdx = numInputs + outputIdx;
+            AffineMap indexingMap = generic.getIndexingMap(operandIdx);
+            SmallVector<Value> indices =
+                buildGridIndices(rewriter, loc, indexingMap);
+            Value genericOperand = generic->getOperand(operandIdx);
+            Value result = blockArgs[numInputs + outputIdx];
+            rewriter.create<d2m::RemoteStoreOp>(loc, genericOperand, indices,
+                                                result);
+          }
+
           // In pure tensor semantics, explicitly yield the output shard.
           rewriter.create<d2m::YieldOp>(loc, blockArgs.take_back(numOutputs));
 
@@ -981,6 +1072,18 @@ private:
 
                 bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
               });
+
+          // Insert remote_store operations for each output before yield
+          for (size_t outputIdx = 0; outputIdx < numOutputs; ++outputIdx) {
+            size_t operandIdx = numInputs + outputIdx;
+            AffineMap indexingMap = generic.getIndexingMap(operandIdx);
+            SmallVector<Value> indices =
+                buildGridIndices(rewriter, loc, indexingMap);
+            Value genericOperand = generic->getOperand(operandIdx);
+            Value result = linalgGeneric->getResult(outputIdx);
+            rewriter.create<d2m::RemoteStoreOp>(loc, genericOperand, indices,
+                                                result);
+          }
 
           rewriter.create<d2m::YieldOp>(loc, linalgGeneric->getResults());
         }
@@ -1127,18 +1230,41 @@ public:
     unsigned logicalRank = deviceRank / 2;
     // For inner permute, we alse need a GenericOp to transpose each individual
     // tile.
+
+    // Capture values explicitly to avoid C++20 structured binding capture issue
+    Value inputOperand = inputs[0];
+    Value outputOperand = outputs[0];
+
     auto generic = rewriter.create<d2m::GenericOp>(
         loc, inputs, outputs,
-        [&](OpBuilder &builder, Location bodyLoc, ValueRange blockArgs) {
+        [&, inputOperand, outputOperand](OpBuilder &builder, Location bodyLoc,
+                                         ValueRange blockArgs) {
           assert(blockArgs.size() == 2);
           auto identityMap = builder.getMultiDimIdentityMap(logicalRank);
           SmallVector<mlir::utils::IteratorType> linalgIteratorTypes(
               logicalRank, mlir::utils::IteratorType::parallel);
 
-          auto input =
-              builder.create<d2m::WaitOp>(bodyLoc, blockArgs[0]).getResult();
-          auto output =
-              builder.create<d2m::ReserveOp>(bodyLoc, blockArgs[1]).getResult();
+          // Get CB types and shard shapes
+          auto cbInputType = mlir::cast<d2m::CBType>(blockArgs[0].getType());
+          auto cbOutputType = mlir::cast<d2m::CBType>(blockArgs[1].getType());
+          auto inputShardType = cbInputType.getUnderlying();
+          auto outputShardType = cbOutputType.getUnderlying();
+
+          // Create remote_load for input
+          AffineMap inputIndexingMap = identityMap;
+          SmallVector<Value> inputIndices =
+              buildGridIndices(builder, bodyLoc, inputIndexingMap);
+          Value input =
+              builder
+                  .create<d2m::RemoteLoadOp>(bodyLoc, inputShardType,
+                                             inputOperand, inputIndices)
+                  .getResult();
+
+          // Create acquire_buffer for output
+          auto operandIndexAttr = builder.getI64IntegerAttr(1);
+          auto acquireOp = builder.create<d2m::AcquireBufferOp>(
+              bodyLoc, outputShardType, operandIndexAttr);
+          Value output = acquireOp.getResult();
 
           auto linalgGeneric = builder.create<mlir::linalg::GenericOp>(
               bodyLoc, output.getType(), input, output,
@@ -1151,6 +1277,14 @@ public:
                     bbArgs.take_front(1));
                 bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
               });
+
+          // Insert remote_store for output before yield
+          AffineMap outputIndexingMap = identityMap;
+          SmallVector<Value> outputIndices =
+              buildGridIndices(builder, bodyLoc, outputIndexingMap);
+          Value result = linalgGeneric->getResult(0);
+          builder.create<d2m::RemoteStoreOp>(bodyLoc, outputOperand,
+                                             outputIndices, result);
 
           builder.create<d2m::YieldOp>(bodyLoc, linalgGeneric->getResults());
         });
@@ -1603,6 +1737,7 @@ public:
     target.addLegalDialect<::mlir::BuiltinDialect>();
     target.addLegalDialect<::mlir::func::FuncDialect>();
     target.addLegalDialect<::mlir::linalg::LinalgDialect>();
+    target.addLegalDialect<::mlir::arith::ArithDialect>();
     target.addLegalDialect<mlir::tt::d2m::D2MDialect>();
     target.addLegalDialect<mlir::tt::ttcore::TTCoreDialect>();
 
