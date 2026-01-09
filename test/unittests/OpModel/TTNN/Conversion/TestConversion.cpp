@@ -600,6 +600,36 @@ TEST_F(Conversion, TensorSpecToLayout) {
   }
 }
 
+// Test for conversion involving SystemMemory buffer type. Memory layout
+// is not allowed for SystemMemory buffer type, so memLayout should be null.
+TEST_F(Conversion, TensorSpecToLayoutSystemMemory) {
+  const llvm::SmallVector<int64_t> tensorShape = {1, 1, 1, 320};
+
+  // Create a SystemMemory row-major layout
+  const TTNNLayoutAttr systemMemLayout = CreateRowMajorLayout(
+      tensorShape, BufferType::SystemMemory, TensorMemoryLayout::Interleaved);
+
+  // Create the TensorSpec from the layout
+  const ::tt::tt_metal::TensorSpec tensorSpec =
+      conversion::getTensorSpec(tensorShape, systemMemLayout);
+
+  // Convert back to layout
+  const TTNNLayoutAttr reconvertedLayout =
+      conversion::getLayoutAttrFromTensorSpec(&context, tensorSpec,
+                                              /*deviceGrid=*/{8, 8});
+
+  // Verify the reconverted layout matches the original
+  EXPECT_EQ(systemMemLayout.getLayout(), reconvertedLayout.getLayout());
+  EXPECT_EQ(systemMemLayout.getBufferType(), reconvertedLayout.getBufferType());
+  EXPECT_EQ(systemMemLayout.getElementType(),
+            reconvertedLayout.getElementType());
+  EXPECT_EQ(systemMemLayout.getDataType(), reconvertedLayout.getDataType());
+
+  // For SystemMemory, memLayout should be null for both
+  EXPECT_FALSE(static_cast<bool>(systemMemLayout.getMemLayout()));
+  EXPECT_FALSE(static_cast<bool>(reconvertedLayout.getMemLayout()));
+}
+
 TEST_F(Conversion, TensorSpecToLayoutReversed) {
   const ::ttnn::Shape tensorShape{56 * 32, 56 * 32};
   const std::vector<::tt::tt_metal::TensorSpec> tensorSpecs = {
