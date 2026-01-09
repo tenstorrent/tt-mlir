@@ -4527,6 +4527,7 @@ def stablehlo_pad_golden(
         input_tensor, pad=golden_padding, mode="constant", value=pad_value
     ).to(output_dtype)
 
+
 def stablehlo_convolution_golden(
     lhs: GoldenMapTensor,
     rhs: GoldenMapTensor,
