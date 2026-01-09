@@ -968,4 +968,12 @@ def D2MLowerLoadStoreOpsToDMA : Pass<"d2m-lower-load-store-ops-to-dma", "::mlir:
   }];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
 }
+
+def D2MDecoupleLoadStoreOpsFromCompute : Pass<"d2m-decouple-load-store-ops-from-compute", "::mlir::ModuleOp"> {
+  let summary = "Decouple load/store operations from compute.";
+  let description = [{
+    This pass decouples load/store operations from compute operations.
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
+}
 #endif

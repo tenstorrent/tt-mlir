@@ -27,6 +27,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         SplitUnifiedThread.cpp
         PreallocateMcastSemaphores.cpp
         ScheduleDMA.cpp
+        DecoupleLoadStoreOpsFromCompute.cpp
 
         ADDITIONAL_HEADER_DIRS
         ${PROJECT_SOURCE_DIR}/include/ttmlir
