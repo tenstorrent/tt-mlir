@@ -163,7 +163,7 @@ def compile_split_and_execute(module: Module | str) -> List[ExecutionResult]:
     progress_msg("Compiling module...")
     ttnn_module = executor.compile(module)
     progress_msg("Splitting module...")
-    sub_ops = splitter.split(module)
+    sub_ops = splitter.split(ttnn_module)
     sub_modules = splitter.sub_modules
 
     for sub_module in progress_bar(sub_modules, desc="Executing submodules..."):
