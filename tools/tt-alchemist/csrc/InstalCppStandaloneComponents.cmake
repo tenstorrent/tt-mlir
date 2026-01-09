@@ -53,12 +53,7 @@ add_custom_command(
 add_custom_command(
   OUTPUT ${TTNN_INSTALL_DIR}/.all-components-installed
   DEPENDS ${TTNN_INSTALL_DIR}/.ttnn-dev-installed
-  # Ensure all necessary directories exist before installing to avoid "No such file or directory" errors
-  COMMAND ${CMAKE_COMMAND} -E make_directory ${TTNN_INSTALL_DIR}/include/tt-metalium
-  COMMAND ${CMAKE_COMMAND} -E make_directory ${TTNN_INSTALL_DIR}/lib
-  COMMAND ${CMAKE_COMMAND} -E make_directory ${TTNN_INSTALL_DIR}/bin
-  # Install all components (may fail on timestamp setting for already-installed files, but that's ok)
-  COMMAND cmake --install ${TTMETAL_BUILD_DIR} --prefix ${TTNN_INSTALL_DIR} || true
+  COMMAND cmake --install ${TTMETAL_BUILD_DIR} --prefix ${TTNN_INSTALL_DIR}
   COMMAND ${CMAKE_COMMAND} -E touch ${TTNN_INSTALL_DIR}/.all-components-installed
   COMMENT "DEBUG: Installing all available components"
 )
