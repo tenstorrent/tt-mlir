@@ -77,10 +77,44 @@ public:
     auto &rootBody = rootModule.getBodyRegion().front();
     auto &deviceBody = deviceModule.getBodyRegion().front();
 
-    // Move imports to the beginning of the root module.
+    // Collect imports from Device module and CPU module (if it exists).
     //
-    llvm::SmallVector<emitpy::ImportOp> imports(
-        deviceModule.getOps<emitpy::ImportOp>());
+    llvm::SmallVector<emitpy::ImportOp, 8> imports;
+
+    // Helper to collect imports from a module, erasing duplicates from the
+    // module.
+    //
+    auto collectImports = [&imports](mlir::ModuleOp module) {
+      llvm::SmallVector<emitpy::ImportOp> moduleImports(
+          module.getOps<emitpy::ImportOp>());
+
+      for (auto importOp : moduleImports) {
+        if (!llvm::any_of(imports, [&](emitpy::ImportOp existingImportOp) {
+              return existingImportOp.getModuleName() ==
+                     importOp.getModuleName();
+            })) {
+          // Add unique import to the collection.
+          // The import will be moved to the root module later.
+          //
+          imports.push_back(importOp);
+        } else {
+          // Erase duplicate import from the module.
+          //
+          importOp->erase();
+        }
+      }
+    };
+
+    collectImports(deviceModule);
+
+    if (cpuModuleOp) {
+      auto cpuModule =
+          mlir::cast<mlir::ModuleOp>(cpuModuleOp.getBody()->front());
+      collectImports(cpuModule);
+    }
+
+    // Move all collected imports to the root module.
+    //
     for (auto importOp : llvm::reverse(imports)) {
       importOp->moveBefore(&rootBody, rootBody.begin());
     }
