@@ -77,6 +77,10 @@ NOC_ISSUE_SKIP = pytest.mark.skip(
         [(1, 3, 3, 3, 3), [0, 2, 1, 3, 4]],
         [(1, 3, 3, 3, 3), [0, 2, 1, 3, 4]],
         [(5, 7, 2, 3, 3), [0, 2, 1, 3, 4]],
+        # # 4d inner, then outer permute
+        [(3, 32, 32, 32), [0, 3, 1, 2]],
+        # # 5d inner, then outer permute
+        [(1, 3, 3, 3, 3), [0, 2, 1, 3, 4]],
     ],
 )
 @pytest.mark.parametrize("target", ["ttmetal"])

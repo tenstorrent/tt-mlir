@@ -836,4 +836,30 @@ def D2MScalarizeConstTensors : Pass<"d2m-scalarize-const-tensors", "::mlir::Modu
   }];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect", "::mlir::arith::ArithDialect"];
 }
+
+def D2MDecomposeComplexPermute: Pass<"d2m-decompose-complex-permute", "::mlir::ModuleOp"> {
+  let summary = "Decompose complex permute operations into inner/outer permutes.";
+  let description = [{
+    This pass decomposes complex permute operations into a sequence of inner and outer
+    permutes. An inner permute swaps only the last two dimensions, while an outer permute
+    handles any other permutation on the outer dimensions.
+
+    The permute will at most be decomposed into an Outer -> Inner -> Outer permute.
+
+    Example:
+      Before:
+        %0 = "ttir.permute"(%input, %output) {permutation = array<i64: 0, 3, 1, 2>}
+            : (tensor<2x3x4x5xf32>, tensor<2x5x3x4xf32>) -> tensor<2x5x3x4xf32>
+
+      After:
+        // First: inner permute (swap last two dimensions)
+        %1 = "ttir.permute"(%input, %tmp1) {permutation = array<i64: 0, 1, 3, 2>}
+            : (tensor<2x3x4x5xf32>, tensor<2x3x5x4xf32>) -> tensor<2x3x5x4xf32>
+        // Then: outer permute
+        %2 = "ttir.permute"(%1, %output) {permutation = array<i64: 0, 3, 1, 2>}
+            : (tensor<2x3x5x4xf32>, tensor<2x5x3x4xf32>) -> tensor<2x5x3x4xf32>
+  }];
+}
+
+
 #endif

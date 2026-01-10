@@ -4392,6 +4392,10 @@ static mlir::OpFoldResult foldIdentityPermute(mlir::tt::ttir::PermuteOp op) {
 // If the producer is a PermuteOp we can compose the permutation attributes
 // into `op`, and set the input to the producers input.
 static mlir::OpFoldResult foldConsecutivePermute(mlir::tt::ttir::PermuteOp op) {
+  // Don't fold decomposed permutes - they were intentionally split.
+  if (op->hasAttr("decomposed")) {
+    return nullptr;
+  }
   if (auto producerOp =
           op.getInput().getDefiningOp<mlir::tt::ttir::PermuteOp>()) {
     llvm::SmallVector<int64_t> composedPermutation =
