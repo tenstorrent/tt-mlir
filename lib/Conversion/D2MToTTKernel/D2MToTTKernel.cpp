@@ -1267,10 +1267,6 @@ public:
   matchAndRewrite(d2m::CoreIndexOp op, d2m::CoreIndexOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
 
-    assert(op.getDim() == 0 ||
-           op.getDim() == 1 &&
-               "Expected core index dim to be in range 0-1, failing.");
-
     // Base physical (logical) coordinates.
     Value logicalY = rewriter.create<ttkernel::MyLogicalYOp>(op.getLoc());
     Value logicalX = rewriter.create<ttkernel::MyLogicalXOp>(op.getLoc());
@@ -1279,6 +1275,9 @@ public:
     // Note: phys_to_virt_map is optional on the op.
     auto mapAttr = op.getPhysToVirtMapAttr();
     if (!mapAttr || mapAttr.getValue().isEmpty()) {
+      TT_assertv((op.getDim() == 0 || op.getDim() == 1),
+                 "Expected core index dim to be in range 0-1 with no "
+                 "virtualization mapping, failing.");
       rewriter.replaceOp(op, op.getDim() ? logicalX : logicalY);
       return success();
     }
