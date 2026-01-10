@@ -183,6 +183,9 @@ def mask_torch_inf_nan(tensor):
 
 
 def get_atol_rtol_pcc(golden, calculated, atol, rtol):
+    # Clone tensors to avoid modifying the originals
+    golden = golden.clone()
+    calculated = calculated.clone()
     if not torch.is_floating_point(golden):
         golden = golden.to(torch.float64)
     if not torch.is_floating_point(calculated):
