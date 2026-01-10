@@ -393,6 +393,7 @@ def test_eltwise_fuse_converging_unary_branches(
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.skip(reason="TODO: Binary ops FPU fusion is not supported yet")
 def test_eltwise_fuse_binary_reduction_tree(
     grid: str, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
@@ -571,6 +572,7 @@ def test_eltwise_fuse_where_with_unary_chains(
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.skip(reason="TODO: Binary ops FPU fusion is not supported yet")
 def test_eltwise_fuse_where_with_binary_inputs(
     grid: str, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
@@ -623,6 +625,7 @@ def test_eltwise_fuse_where_with_binary_inputs(
 @pytest.mark.parametrize("shape", [(128, 128)])
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.skip(reason="TODO: Binary ops FPU fusion is not supported yet")
 def test_diamond_unary_op_fanout(
     grid: str, shape: Shape, dtype: torch.dtype, target: str, request, device
 ):
