@@ -3824,15 +3824,12 @@ def stablehlo_constant_golden(value: DenseElementsAttr) -> GoldenMapTensor:
 
 
 def stablehlo_iota_golden(
-    output_shape: List[int],
-    iota_dimension: int,
+    iota_dimension_attr: IntegerAttr,
     output_type_mlir: Type,
 ) -> GoldenMapTensor:
-    """
-    Golden function for stablehlo.IotaOp.
-    Creates a tensor with incrementing values along the specified dimension.
-    """
+    iota_dimension = unpack_mlir_attr(iota_dimension_attr)
     dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    output_shape = list(output_type_mlir.shape)
 
     dim_size = output_shape[iota_dimension]
     iota_values = torch.arange(0, dim_size, dtype=dtype)
@@ -3847,19 +3844,15 @@ def stablehlo_iota_golden(
 
 
 def stablehlo_dynamic_iota_golden(
-    output_shape: Operand,
-    iota_dimension: int,
+    output_shape: GoldenMapTensor,
+    iota_dimension_attr: IntegerAttr,
     output_type_mlir: Type,
 ) -> GoldenMapTensor:
-    """
-    Golden function for stablehlo.DynamicIotaOp.
-    Creates a tensor with incrementing values along the specified dimension.
-    The output shape is determined dynamically from the output_shape operand.
-    """
+    iota_dimension = unpack_mlir_attr(iota_dimension_attr)
     dtype = mlir_type_to_torch_dtype(output_type_mlir)
 
     if isinstance(output_shape, GoldenMapTensor):
-        shape_tensor = output_shape.data[0]
+        shape_tensor = output_shape.shard_map[0]
         shape_list = shape_tensor.tolist()
     else:
         shape_list = list(output_shape)

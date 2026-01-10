@@ -4848,7 +4848,7 @@ class StableHLOBuilder(Builder):
 
         op = stablehlo_op(
             result,
-            iota_dimension=iota_dimension_attr,
+            iota_dimension_attr,
             loc=loc,
         )
         op_result = op.result
@@ -4862,9 +4862,7 @@ class StableHLOBuilder(Builder):
 
         if not self._disable_golden_check:
             op_golden_function = get_golden_function(stablehlo_op)
-            golden_output = op_golden_function(
-                output_shape, iota_dimension, mlir_output_type
-            )
+            golden_output = op_golden_function(iota_dimension_attr, result)
             self._set_golden_tensor(op_result, golden_output)
 
         return op_result
@@ -4882,19 +4880,14 @@ class StableHLOBuilder(Builder):
 
         new_op = stablehlo_op(
             result,
-            iota_dimension=iota_dimension_attr,
+            iota_dimension_attr,
             loc=old_op.location,
         )
         new_op_result = new_op.result
 
         if not self._disable_golden_check:
             op_golden_function = get_golden_function(stablehlo_op)
-            output_shape = list(result.shape)
-            mlir_output_type = result.element_type
-            iota_dimension = iota_dimension_attr.value
-            golden_output = op_golden_function(
-                output_shape, iota_dimension, mlir_output_type
-            )
+            golden_output = op_golden_function(iota_dimension_attr, result)
             self._set_golden_tensor(new_op_result, golden_output)
 
         op_map_dictionary = {}
@@ -4926,19 +4919,14 @@ class StableHLOBuilder(Builder):
                 def decorated_func():
                     new_op = stablehlo_op(
                         result,
-                        iota_dimension=iota_dimension_attr,
+                        iota_dimension_attr,
                         loc=old_op.location,
                     )
                     new_op_result = new_op.result
 
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(stablehlo_op)
-                        output_shape = list(result.shape)
-                        mlir_output_type = result.element_type
-                        iota_dimension = iota_dimension_attr.value
-                        golden_output = op_golden_function(
-                            output_shape, iota_dimension, mlir_output_type
-                        )
+                        golden_output = op_golden_function(iota_dimension_attr, result)
                         iota_builder._set_golden_tensor(new_op_result, golden_output)
                         ordered_outputs.append(new_op_result)
 
@@ -4987,7 +4975,7 @@ class StableHLOBuilder(Builder):
         op = stablehlo_op(
             result,
             output_shape,
-            iota_dimension=iota_dimension_attr,
+            iota_dimension_attr,
             loc=loc,
         )
         op_result = op.result
@@ -5001,8 +4989,9 @@ class StableHLOBuilder(Builder):
 
         if not self._disable_golden_check:
             op_golden_function = get_golden_function(stablehlo_op)
+            output_shape_golden = self._get_golden_tensor(output_shape)
             golden_output = op_golden_function(
-                output_shape, iota_dimension, mlir_output_type
+                output_shape_golden, iota_dimension_attr, result
             )
             self._set_golden_tensor(op_result, golden_output)
 
@@ -5023,17 +5012,16 @@ class StableHLOBuilder(Builder):
         new_op = stablehlo_op(
             result,
             output_shape,
-            iota_dimension=iota_dimension_attr,
+            iota_dimension_attr,
             loc=old_op.location,
         )
         new_op_result = new_op.result
 
         if not self._disable_golden_check:
             op_golden_function = get_golden_function(stablehlo_op)
-            mlir_output_type = result.element_type
-            iota_dimension = iota_dimension_attr.value
+            output_shape_golden = self._get_golden_tensor(output_shape)
             golden_output = op_golden_function(
-                output_shape, iota_dimension, mlir_output_type
+                output_shape_golden, iota_dimension_attr, result
             )
             self._set_golden_tensor(new_op_result, golden_output)
 
@@ -5072,17 +5060,18 @@ class StableHLOBuilder(Builder):
                     new_op = stablehlo_op(
                         result,
                         output_shape,
-                        iota_dimension=iota_dimension_attr,
+                        iota_dimension_attr,
                         loc=old_op.location,
                     )
                     new_op_result = new_op.result
 
                     if not self._disable_golden_check:
                         op_golden_function = get_golden_function(stablehlo_op)
-                        mlir_output_type = result.element_type
-                        iota_dimension = iota_dimension_attr.value
+                        output_shape_golden = dynamic_iota_builder._get_golden_tensor(
+                            output_shape
+                        )
                         golden_output = op_golden_function(
-                            output_shape, iota_dimension, mlir_output_type
+                            output_shape_golden, iota_dimension_attr, result
                         )
                         dynamic_iota_builder._set_golden_tensor(
                             new_op_result, golden_output
