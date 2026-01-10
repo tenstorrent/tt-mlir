@@ -4639,13 +4639,6 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 
 // ArgMaxOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::ArgMaxOp::verify() {
-  auto dimArg = getDimArg();
-  if (dimArg && dimArg->size() > 1) {
-    return emitOpError() << "can only reduce one dimension; number of "
-                            "specified dimensions: "
-                         << dimArg->size() << ".";
-  }
-
   return verifyReduceOp([&]() { return emitOpError(); }, getInput().getType(),
                         getDimArg(), getKeepDim(), getType().getShape());
 }
