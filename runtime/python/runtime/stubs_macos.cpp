@@ -260,6 +260,7 @@ void shutdownDistributedRuntime() { __builtin_trap(); }
 std::vector<Tensor> toHost(Tensor tensor, bool untilize, bool blocking) {
   __builtin_trap();
 }
+std::vector<Tensor> getDeviceTensors(Tensor tensor) { __builtin_trap(); }
 void updateTensorInPool(CallbackContext programContextHandle,
                         TensorRef tensorRef, Tensor srcTensor) {
   __builtin_trap();

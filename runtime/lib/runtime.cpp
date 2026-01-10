@@ -879,6 +879,22 @@ std::vector<Tensor> toHost(Tensor tensor, bool untilize, bool blocking) {
       });
 }
 
+std::vector<Tensor> getDeviceTensors(Tensor tensor) {
+  using RetType = std::vector<Tensor>;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::getDeviceTensors(tensor);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getDeviceTensors", DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("getDeviceTensors",
+                                    HostRuntime::Distributed);
+      });
+}
+
 Tensor toLayout(Tensor tensor, Device device, Layout layout,
                 std::optional<bool> retain) {
   using RetType = Tensor;
