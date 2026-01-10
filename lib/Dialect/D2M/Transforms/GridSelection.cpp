@@ -375,10 +375,8 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
   auto view = builder.create<d2m::ViewLayoutOp>(
       toLayoutOp.getLoc(), viewOutputType, newToLayoutOp.getResult(0));
 
-  // We expect the ToLayout to be used only by the GenericOp we're optimizing.
-  // Assert this assumption to catch unexpected sharing.
-  assert(toLayoutOp.getResult(0).hasOneUse() &&
-         "ToLayout should only be used by the GenericOp being optimized");
+  // Replace all uses of the old ToLayoutOp with the new view. This handles
+  // both direct uses by GenericOp and indirect uses through ViewLayoutOp.
   toLayoutOp.getResult(0).replaceAllUsesWith(view.getResult());
 
   toLayoutOp.erase();
@@ -464,6 +462,17 @@ analyzeOperandsAndComputeGrids(d2m::GenericOp genericOp,
 
           toLayoutsToUpdate.push_back(
               {toLayoutOp, inputOptimalGrid, isVirtualGrid});
+        }
+      }
+    } else if (auto viewLayoutOp = operand.getDefiningOp<d2m::ViewLayoutOp>()) {
+      // For view_layout ops, trace through to find the underlying ToLayoutOp.
+      // This enables patterns where a view is used for reblocking without
+      // requiring StreamLayoutOp.
+      if (auto toLayoutOp =
+              viewLayoutOp.getInput().getDefiningOp<d2m::ToLayoutOp>()) {
+        if (!toLayoutOp.getInput()
+                 .getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
+          toLayoutsToUpdate.push_back({toLayoutOp, optimalGrid, isVirtualGrid});
         }
       }
     } else if (auto toLayoutOp = operand.getDefiningOp<d2m::ToLayoutOp>()) {

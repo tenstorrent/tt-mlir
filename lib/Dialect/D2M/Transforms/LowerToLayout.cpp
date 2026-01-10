@@ -345,15 +345,10 @@ public:
                                                    outputInfo.type.getShape(),
                                                    rewriter.getContext());
     } else {
-      // Complex mapping: layout properties differ (padding, collapse, etc).
-      // Use buildLayoutTransformMap which goes through logical space.
-      // For tilized tensors, this should only be called from the untilized
-      // decomposition path in step 5.
-
-      // Build an affine map that transforms input device coordinates to output
-      // device coordinates via the shared logical space. This map handles grid
-      // redistribution, collapse changes, padding changes, and virtual grid
-      // index_maps.
+      // Complex mapping: layout properties differ (padding, collapse, etc),
+      // or logical shape permutation (transpose).
+      // Use buildLayoutTransformMap which goes through logical space and
+      // handles permutations.
       viewMap = ttcore::utils::buildLayoutTransformMap(
           inputLayout, inputInfo.type, outputLayout, outputInfo.type);
     }
