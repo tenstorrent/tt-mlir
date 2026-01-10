@@ -81,7 +81,8 @@ private:
     SmallVector<Value> physicalCoreIndices(numPhysicalGridDims);
     for (unsigned gridIndex = 0; gridIndex < numPhysicalGridDims; gridIndex++) {
       physicalCoreIndices[gridIndex] = builder.create<CoreIndexOp>(
-          loc, builder.getIndexType(), builder.getI64IntegerAttr(gridIndex));
+          loc, builder.getIndexType(), builder.getI64IntegerAttr(gridIndex),
+          nullptr);
     }
     SmallVector<Value> virtualGridIndices;
     if (!coreVirtualizationMap.isEmpty()) {
