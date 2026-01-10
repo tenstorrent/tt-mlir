@@ -119,6 +119,9 @@ struct PythonEmitter {
   /// Insert the op result into the value cache.
   void cacheDeferredOpResult(Value value, StringRef str);
 
+  /// Register the result value with a name so it can be referenced later.
+  void registerResultValueName(Value value, std::string name);
+
   /// RAII helper function to manage entering/exiting Python scopes.
   struct Scope {
     Scope(PythonEmitter &emitter)
@@ -191,6 +194,12 @@ std::string PythonEmitter::getSubscriptName(SubscriptOp op) {
 void PythonEmitter::cacheDeferredOpResult(Value value, StringRef str) {
   if (!valueMapper.count(value)) {
     valueMapper.insert(value, str.str());
+  }
+}
+
+void PythonEmitter::registerResultValueName(Value value, std::string name) {
+  if (!valueMapper.count(value)) {
+    valueMapper.insert(value, name);
   }
 }
 
@@ -460,6 +469,73 @@ static LogicalResult printOperation(PythonEmitter &emitter,
   return emitter.emitGlobalStatement(globalStatementOp);
 }
 
+static LogicalResult printOperation(PythonEmitter &emitter,
+                                    CreateDictOp createDictOp) {
+  raw_indented_ostream &os = emitter.ostream();
+  StringRef dictName = createDictOp.getDictName();
+
+  emitter.registerResultValueName(createDictOp.getResult(), dictName.str());
+
+  os << dictName << " = ";
+
+  if (createDictOp.getLiteralExpr()) {
+    os << *createDictOp.getLiteralExpr();
+    return success();
+  }
+
+  os << "{";
+  auto items = createDictOp.getItems();
+  for (size_t i = 0; i < items.size(); i += 2) {
+    if (i > 0) {
+      os << ", ";
+    }
+    if (failed(emitter.emitOperand(items[i], "dict_key"))) {
+      return failure();
+    }
+    os << ": ";
+    if (failed(emitter.emitOperand(items[i + 1], "dict_value"))) {
+      return failure();
+    }
+  }
+  os << "}";
+
+  return success();
+}
+
+static LogicalResult printOperation(PythonEmitter &emitter,
+                                    SetValueForDictKeyOp op) {
+  raw_indented_ostream &os = emitter.ostream();
+
+  os << op.getDictName() << "[";
+
+  if (failed(emitter.emitAttribute(op.getLoc(), op.getKey()))) {
+    return failure();
+  }
+
+  os << "] = ";
+  if (failed(emitter.emitOperand(op.getValue(), "dict_value"))) {
+    return failure();
+  }
+  return success();
+}
+
+static LogicalResult printOperation(PythonEmitter &emitter,
+                                    GetValueForDictKeyOp op) {
+  if (failed(emitter.emitAssignPrefix(*op))) {
+    return failure();
+  }
+
+  raw_indented_ostream &os = emitter.ostream();
+  os << op.getDictName() << "[";
+
+  if (failed(emitter.emitAttribute(op.getLoc(), op.getKey()))) {
+    return failure();
+  }
+
+  os << "]";
+  return success();
+}
+
 LogicalResult PythonEmitter::emitOperation(Operation &op) {
   LogicalResult status =
       llvm::TypeSwitch<Operation *, LogicalResult>(&op)
@@ -467,7 +543,8 @@ LogicalResult PythonEmitter::emitOperation(Operation &op) {
           .Case<ModuleOp>([&](auto op) { return printOperation(*this, op); })
           // EmitPy ops.
           .Case<CallOpaqueOp, ImportOp, AssignOp, ConstantOp, SubscriptOp,
-                GlobalOp, AssignGlobalOp, GlobalStatementOp>(
+                GlobalOp, AssignGlobalOp, GlobalStatementOp, CreateDictOp,
+                SetValueForDictKeyOp, GetValueForDictKeyOp>(
               [&](auto op) { return printOperation(*this, op); })
           .Case<GetGlobalOp>([&](auto op) {
             cacheDeferredOpResult(op.getResult(), op.getName());
@@ -524,7 +601,11 @@ LogicalResult PythonEmitter::emitAttribute(Location loc, Attribute attr) {
     os << printInt(iAttr.getValue());
     return success();
   }
-
+  // Print string attributes.
+  if (auto sAttr = dyn_cast<StringAttr>(attr)) {
+    os << "\"" << sAttr.getValue() << "\"";
+    return success();
+  }
   // Print opaque attributes.
   if (auto oAttr = dyn_cast<mlir::tt::emitpy::OpaqueAttr>(attr)) {
     os << oAttr.getValue();
