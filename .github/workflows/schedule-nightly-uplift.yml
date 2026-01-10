@@ -148,7 +148,7 @@ jobs:
             ### Checklist
             - **Frontend CI passing links**
               - [ ] [tt-forge-fe](https://github.com/tenstorrent/tt-forge-fe/actions/workflows/on-pr.yml):
-              - [ ] [tt-xla (basic + models)](https://github.com/tenstorrent/tt-xla/actions/workflows/manual-test.yml):
+              - [ ] [tt-xla (mlir-uplift-qualification)](https://github.com/tenstorrent/tt-xla/actions/workflows/manual-test.yml):
             - **Follow-up Actions**
               - [ ] **Issues filed** to follow up on incomplete changes (if any):
               - [ ] **Frontend fix PRs** ready (if needed by this uplift):
