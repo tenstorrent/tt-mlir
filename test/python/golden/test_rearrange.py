@@ -80,7 +80,7 @@ def test_rearrange(
         device=device,
         custom_pipeline=f"ttir-to-ttmetal-pipeline",
         test_base=request.node.name,
-        module_dump=True,
+        save_artifacts=True,
         print_ir=True,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),

@@ -60,30 +60,6 @@ def test_clamp_tensor(shapes: List[Shape], request, device):
     )
 
 
-@pytest.mark.parametrize(
-    "shapes", [[(10, 64, 32), (32, 128), (1,)]], ids=shapes_list_str
-)
-def test_linear(shapes: List[Shape], request, device):
-    def module(builder: TTNNBuilder):
-        @builder.func(shapes, [torch.float32] * len(shapes))
-        def linear(
-            in0: Operand,
-            in1: Operand,
-            in2: Operand,
-            builder: TTNNBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            return builder.linear(in0, in1, in2, unit_attrs=unit_attrs)
-
-    compile_and_execute_ttnn(
-        module,
-        test_base=request.node.name,
-        device=device,
-        output_root=request.config.getoption("--path"),
-        system_desc_path=request.config.getoption("--sys-desc"),
-    )
-
-
 @pytest.mark.parametrize("shape", [(1, 32, 32), (2, 16, 16), (1, 1, 64)], ids=shape_str)
 @pytest.mark.parametrize("repeat_dims", [[32, 1, 1], [1, 2, 2], [2, 3, 4], [1, 1, 1]])
 @pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])

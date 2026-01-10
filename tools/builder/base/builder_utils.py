@@ -78,16 +78,21 @@ def get_target_path(output_path, builder_dir, filename, target):
     return os.path.join(target_dir, filename)
 
 
-def emitc_to_executable(module, filepath: str, golden_map, module_cache):
-    cpp = translate_to_cpp(module)
-    with open(filepath, "w") as f:
-        f.write(cpp)
+def get_artifact_dir(output_root, builder_type, test_base, make_dir=True):
+    artifact_path = os.path.join(
+        output_root, "builder-artifacts", builder_type, test_base
+    )
+    if make_dir and not os.path.exists(artifact_path):
+        os.makedirs(artifact_path)
+    return artifact_path
 
 
-def emitpy_to_executable(module, filepath: str, golden_map, module_cache):
-    py = translate_to_python(module)
-    with open(filepath, "w") as f:
-        f.write(py)
+def emitc_to_executable(module):
+    return translate_to_cpp(module)
+
+
+def emitpy_to_executable(module):
+    return translate_to_python(module)
 
 
 def _convert_to_mlir_value(obj):
@@ -142,7 +147,7 @@ def run_ttir_pipeline(
     module,
     pipeline_fn: Callable,
     pipeline_options: Optional[List[str]] = None,
-    dump_to_file: bool = True,
+    save_artifacts: bool = False,
     output_file_name: str = "test.mlir",
     system_desc_path: Optional[str] = None,
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
@@ -170,7 +175,7 @@ def run_ttir_pipeline(
     pipeline_fn(module, " ".join(pipeline_options))
 
     # Optionally dump to file.
-    if dump_to_file:
+    if save_artifacts:
         with open(output_file_name, "w") as f:
             f.write(str(module))
 
