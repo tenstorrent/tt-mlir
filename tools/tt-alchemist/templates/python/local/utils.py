@@ -3,6 +3,85 @@
 # SPDX-License-Identifier: Apache-2.0
 import ttnn
 import math
+from functools import wraps
+
+
+# Function type decorators for marking different function categories.
+# These decorators provide metadata about the function's role in the
+# compilation pipeline.
+
+
+def forward_device(func):
+    """Decorator marking a function as a forward device function.
+
+    Forward device functions represent the main computational graph intended
+    for device execution.
+    """
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        return func(*args, **kwargs)
+
+    wrapper._tt_function_type = "forward_device"
+    return wrapper
+
+
+def const_eval(func):
+    """Decorator marking a function as a const-eval function.
+
+    Const-eval functions perform constant evaluation at runtime,
+    typically for weight preprocessing or other compile-time computations.
+    """
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        return func(*args, **kwargs)
+
+    wrapper._tt_function_type = "const_eval"
+    return wrapper
+
+
+def forward_cpu(func):
+    """Decorator marking a function as a forward CPU function.
+
+    Forward CPU functions have been hoisted from the device graph to
+    execute on the CPU instead of the accelerator.
+    """
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        return func(*args, **kwargs)
+
+    wrapper._tt_function_type = "forward_cpu"
+    return wrapper
+
+
+def input_generator(func):
+    """Decorator marking a function as an input generator function.
+
+    Input generator functions create input data for testing and execution.
+    """
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        return func(*args, **kwargs)
+
+    wrapper._tt_function_type = "input_generator"
+    return wrapper
+
+
+def main(func):
+    """Decorator marking a function as a main function.
+
+    Main functions are the entry point for the generated program.
+    """
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        return func(*args, **kwargs)
+
+    wrapper._tt_function_type = "main"
+    return wrapper
 
 
 class DeviceGetter:

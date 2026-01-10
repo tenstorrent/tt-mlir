@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/FunctionTypes.h"
 
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Location.h"

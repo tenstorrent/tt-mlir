@@ -18,7 +18,7 @@ module {
       ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, (d0, d1) -> (0, d0, d1)>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5, s6] -> (0, 0, (((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) mod 12, ((((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) floordiv 12) * s4 + ((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) mod s4 + s5), meshShape = , chipIds = [0]>
 
       // CHECK-LABEL: func.func @main
-      func.func @main(%arg0: tensor<1x1x1x64xbf16, #ttnn_layout>, %arg1: tensor<1x1x32x64xbf16, #ttnn_layout1>, %arg2: tensor<1x1x1x64xbf16, #ttnn_layout>) -> tensor<1x1x32x64xbf16, #ttnn_layout1> {
+      func.func @main(%arg0: tensor<1x1x1x64xbf16, #ttnn_layout>, %arg1: tensor<1x1x32x64xbf16, #ttnn_layout1>, %arg2: tensor<1x1x1x64xbf16, #ttnn_layout>) -> tensor<1x1x32x64xbf16, #ttnn_layout1> attributes {tt.function_type = "forward_device"} {
         %0 = "ttnn.reshape"(%arg2) <{shape = [1 : i32, 1 : i32, 1 : i32, 64 : i32]}> : (tensor<1x1x1x64xbf16, #ttnn_layout>) -> tensor<1x1x1x64xbf16, #ttnn_layout2>
         %1 = "ttnn.reshape"(%arg0) <{shape = [1 : i32, 1 : i32, 1 : i32, 64 : i32]}> : (tensor<1x1x1x64xbf16, #ttnn_layout>) -> tensor<1x1x1x64xbf16, #ttnn_layout2>
         // CHECK: "ttnn.rotary_embedding"{{.*}}height_sharded

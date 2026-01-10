@@ -10,7 +10,7 @@ module attributes {} {
   // CHECK-LABEL: func.func private @main_const_eval_0
 
   // CHECK-LABEL: func.func @main(
-  func.func @main(%arg0: tensor<1x32x32xf32, #ttnn_layout>, %arg1: tensor<1x32x32xf32, #ttnn_layout> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> tensor<1x32x32xf32, #ttnn_layout1> {
+  func.func @main(%arg0: tensor<1x32x32xf32, #ttnn_layout>, %arg1: tensor<1x32x32xf32, #ttnn_layout> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> tensor<1x32x32xf32, #ttnn_layout1> attributes {tt.function_type = "forward_device"} {
     // CHECK: "ttnn.to_layout"
     %0 = "ttnn.to_layout"(%arg1) <{dtype = #ttcore.supportedDataTypes<f32>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<<dram>, <interleaved>>}> : (tensor<1x32x32xf32, #ttnn_layout>) -> tensor<1x32x32xf32, #ttnn_layout1>
     %1 = "ttnn.add"(%arg0, %0) <{dtype = #ttcore.supportedDataTypes<f32>}> : (tensor<1x32x32xf32, #ttnn_layout>, tensor<1x32x32xf32, #ttnn_layout1>) -> tensor<1x32x32xf32, #ttnn_layout1> loc(#loc1)

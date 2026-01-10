@@ -3,7 +3,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
-import ast
 import time
 import torch
 import numpy as np
@@ -698,22 +697,16 @@ def execute_py(
         sys.modules[module_name] = module
         spec.loader.exec_module(module)
 
-        # Parse the AST to find function names
-        with open(py_path, "r") as f:
-            source_code = f.read()
-
-        tree = ast.parse(source_code)
+        # Find forward functions by checking the _tt_function_type attribute
+        # set by the @utils.forward_device decorator.
         program_names = []
-        for node in ast.walk(tree):
+        for name in dir(module):
+            obj = getattr(module, name)
             if (
-                isinstance(node, ast.FunctionDef)
-                and node.name != "main"
-                and node.name[0:18] != "create_inputs_for_"
-                and not node.name.__contains__("_const_eval_")
-                # TODO(dmilinkovic): this is getting out of hand, issue #6386.
-                and not node.name.__contains__("hoisted_")
+                callable(obj)
+                and getattr(obj, "_tt_function_type", None) == "forward_device"
             ):
-                program_names.append(node.name)
+                program_names.append(name)
 
         for program_index, program_name in enumerate(program_names):
             create_program_inputs = "create_inputs_for_" + program_name
