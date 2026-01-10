@@ -551,9 +551,9 @@ public:
     SmallVector<func::FuncOp, 1> targetFuncOpsInput;
     SmallVector<func::FuncOp, 1> targetFuncOpsResult;
     block->walk([&](func::FuncOp funcOp) {
-      // Skip function declarations (CPU-hoisted functions).
+      // Skip private functions that are not const-eval functions.
       //
-      if (funcOp.isDeclaration()) {
+      if (funcOp.isPrivate() && !ttmlir::utils::isConstEvalFunc(funcOp)) {
         return mlir::WalkResult::skip();
       }
 

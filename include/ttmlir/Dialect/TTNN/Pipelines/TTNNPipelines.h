@@ -492,6 +492,12 @@ struct TTNNToEmitPyDevicePipelineOptions
   Option<std::string> tensorLoadFilePrefix{
       *this, "tensor-load-file-prefix",
       llvm::cl::desc("Prefix for input tensor files"), llvm::cl::init("arg")};
+
+  Option<bool> enablePrettify{
+      *this, "enable-prettify",
+      llvm::cl::desc("Enable pipelines and passes that \"prettify\" the IR for "
+                     "code generation."),
+      llvm::cl::init(false)};
 };
 
 // TTIR to TTNN backend pipeline options.
@@ -518,6 +524,15 @@ struct TTIRToEmitCPipelineOptions : public TTIRToTTNNDevicePipelineOptions,
 //
 struct TTIRToEmitPyPipelineOptions : public TTIRToTTNNDevicePipelineOptions,
                                      public TTNNToEmitPyDevicePipelineOptions {
+};
+
+// Prettify XLA/Torch pipeline options.
+// This pipeline applies prettification passes to make TTNN IR more readable
+// for code generation from XLA/Torch frontends.
+//
+struct PrettifyXLATorchPipelineOptions
+    : public PassPipelineOptions<PrettifyXLATorchPipelineOptions> {
+  // Add any future options here if needed
 };
 
 //===----------------------------------------------------------------------===//
