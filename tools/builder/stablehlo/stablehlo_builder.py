@@ -4826,8 +4826,7 @@ class StableHLOBuilder(Builder):
     @tag(stablehlo.IotaOp)
     def iota(
         self,
-        output_shape: List[int],
-        output_type: torch.dtype,
+        output: Operand,
         iota_dimension: int,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
@@ -4835,8 +4834,6 @@ class StableHLOBuilder(Builder):
     ) -> OpResult:
         stablehlo_op = self.get_opview_from_method(StableHLOBuilder.iota)
 
-        mlir_output_type = self._get_type_from_torch_dtype(output_type)
-        result = self._create_ranked_tensor_type(output_shape, mlir_output_type)
         iota_dimension_attr = IntegerAttr.get(
             IntegerType.get_signless(64, self._ctx), iota_dimension
         )
@@ -4847,7 +4844,7 @@ class StableHLOBuilder(Builder):
             loc = Location.name(loc)
 
         op = stablehlo_op(
-            result,
+            output,
             iota_dimension_attr,
             loc=loc,
         )
@@ -4862,7 +4859,7 @@ class StableHLOBuilder(Builder):
 
         if not self._disable_golden_check:
             op_golden_function = get_golden_function(stablehlo_op)
-            golden_output = op_golden_function(iota_dimension_attr, result)
+            golden_output = op_golden_function(iota_dimension_attr, output)
             self._set_golden_tensor(op_result, golden_output)
 
         return op_result
@@ -4945,8 +4942,8 @@ class StableHLOBuilder(Builder):
     @tag(stablehlo.DynamicIotaOp)
     def dynamic_iota(
         self,
+        output: Operand,
         output_shape: Operand,
-        output_type: torch.dtype,
         iota_dimension: int,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
@@ -4954,15 +4951,6 @@ class StableHLOBuilder(Builder):
     ) -> OpResult:
         stablehlo_op = self.get_opview_from_method(StableHLOBuilder.dynamic_iota)
 
-        # Get the shape from the output_shape operand
-        output_shape_type = output_shape.type
-        shape_size = output_shape_type.shape[0]
-
-        mlir_output_type = self._get_type_from_torch_dtype(output_type)
-        # For dynamic iota, we create a result type with dynamic dimensions
-        result = RankedTensorType.get(
-            [ShapedType.get_dynamic_size()] * shape_size, mlir_output_type
-        )
         iota_dimension_attr = IntegerAttr.get(
             IntegerType.get_signless(64, self._ctx), iota_dimension
         )
@@ -4973,7 +4961,7 @@ class StableHLOBuilder(Builder):
             loc = Location.name(loc)
 
         op = stablehlo_op(
-            result,
+            output,
             output_shape,
             iota_dimension_attr,
             loc=loc,
@@ -4991,7 +4979,7 @@ class StableHLOBuilder(Builder):
             op_golden_function = get_golden_function(stablehlo_op)
             output_shape_golden = self._get_golden_tensor(output_shape)
             golden_output = op_golden_function(
-                output_shape_golden, iota_dimension_attr, result
+                output_shape_golden, iota_dimension_attr, output
             )
             self._set_golden_tensor(op_result, golden_output)
 

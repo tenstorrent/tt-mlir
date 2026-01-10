@@ -1330,9 +1330,11 @@ def module_iota(builder: StableHLOBuilder):
         unit_attrs: Optional[List[str]] = None,
     ):
         builder.set_graph_level_check(True)
+        output = builder._create_ranked_tensor_type(
+            [4, 5], builder._get_type_from_torch_dtype(torch.float32)
+        )
         return builder.iota(
-            output_shape=[4, 5],
-            output_type=torch.float32,
+            output=output,
             iota_dimension=0,
             unit_attrs=unit_attrs,
         )
@@ -1375,9 +1377,11 @@ def test_iota(
             unit_attrs: Optional[List[str]] = None,
         ):
             builder.set_graph_level_check(True)
+            output = builder._create_ranked_tensor_type(
+                output_shape, builder._get_type_from_torch_dtype(output_type)
+            )
             return builder.iota(
-                output_shape=output_shape,
-                output_type=output_type,
+                output=output,
                 iota_dimension=iota_dimension,
                 unit_attrs=unit_attrs,
             )
