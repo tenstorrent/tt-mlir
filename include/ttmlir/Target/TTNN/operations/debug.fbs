@@ -1,0 +1,21 @@
+include "ttmlir/Target/Common/types.fbs";
+include "ttmlir/Target/TTNN/types.fbs";
+
+namespace tt.target.ttnn;
+
+table AnnotateOp {
+  operand: tt.target.ttnn.TensorRef;
+  result: tt.target.ttnn.TensorRef;
+  annotation: string;
+}
+
+table BreakpointOp {
+  operand: tt.target.ttnn.TensorRef;
+  result: tt.target.ttnn.TensorRef;
+}
+
+table MemorySnapshotOp {
+  operand: tt.target.ttnn.TensorRef;
+  result: tt.target.ttnn.TensorRef;
+  file_path: string;
+}

@@ -681,17 +681,12 @@ public:
               AffineMap dstAccessMap, ValueRange dstAccessIndices) {
             auto loc = record.loadStore.getLoc();
             Value cb = record.loadStore.getMemref();
-            const bool isBcastGuard = record.bcast.has_value();
-            auto guard = createLoadLoopGuard(rewriter, loc, record.guardDims,
-                                             isBcastGuard);
-            if (guard) {
-              rewriter.setInsertionPointToStart(&guard.getThenRegion().front());
-            }
+
             auto cbLoad = rewriter.create<affine::AffineLoadOp>(
                 loc, cb, l1AccessMap, l1AccessIndices);
             Value valueToStore = cbLoad.getResult();
 
-            if (isBcastGuard) {
+            if (record.bcast.has_value()) {
               rewriter.setInsertionPointAfter(cbLoad);
               auto *clonedBcast =
                   rewriter.clone(*(record.bcast->getOperation()));
@@ -701,10 +696,6 @@ public:
 
             rewriter.create<affine::AffineStoreOp>(
                 loc, valueToStore, dst, dstAccessMap, dstAccessIndices);
-
-            if (guard) {
-              rewriter.setInsertionPointAfter(guard);
-            }
           };
 
       // Replace the original load with one from the DST.
@@ -843,20 +834,46 @@ public:
       return;
     }
 
-    mlir::IRMapping irMapper;
-    // Only Clone loop nests if a loop exists.
-    if (mlir::isa<affine::AffineForOp>(loopNestOrOp)) {
-      rewriter.clone(*loopNestOrOp, irMapper)->walk([&](Operation *op) {
-        // Erase the loop bodies except for other nested loops / yields.
-        if (!mlir::isa<affine::AffineForOp, affine::AffineYieldOp,
-                       affine::AffineApplyOp>(op)) {
-          op->dropAllUses();
-          rewriter.eraseOp(op);
-        }
-      });
-    }
+    auto cloneLoopSkeleton =
+        [](PatternRewriter &rewriter,
+           Operation *loopNestOrOp) -> std::pair<Operation *, mlir::IRMapping> {
+      Operation *skeleton = nullptr;
+      mlir::IRMapping mapper;
+      // Only Clone loop nests if a loop exists.
+      if (mlir::isa<affine::AffineForOp>(loopNestOrOp)) {
+        skeleton = rewriter.clone(*loopNestOrOp, mapper);
+        skeleton->walk([&](Operation *op) {
+          // Erase the loop bodies except for other nested loops / yields.
+          if (!mlir::isa<affine::AffineForOp, affine::AffineYieldOp,
+                         affine::AffineApplyOp>(op)) {
+            op->dropAllUses();
+            rewriter.eraseOp(op);
+          }
+        });
+      }
+      return {skeleton, mapper};
+    };
+
+    auto [copyLoop, copyLoopMapper] = cloneLoopSkeleton(rewriter, loopNestOrOp);
 
     for (auto record : loadStoreRecords) {
+      mlir::IRMapping irMapper = copyLoopMapper;
+      if (!record.guardDims.empty()) {
+        const bool isBcastGuard = record.bcast.has_value();
+        // TODO(wenbinlyuTT): #6516 WA to put all bcast inits to the top of the
+        // compute tiling loops.
+        if (isBcastGuard && copyLoop) {
+          rewriter.setInsertionPoint(copyLoop);
+        }
+        // Guarded loads live in their own loop nest under that guard.
+        auto guard = createLoadLoopGuard(rewriter, record.loadStore.getLoc(),
+                                         record.guardDims, isBcastGuard);
+        rewriter.setInsertionPointToStart(&guard.getThenRegion().front());
+        auto [_, guardedMapper] = cloneLoopSkeleton(rewriter, loopNestOrOp);
+        irMapper = guardedMapper;
+        rewriter.setInsertionPointAfter(guard);
+      }
+
       // Find insertion point in the cloned loop.
       Block *fromScope = record.loadStore->getBlock();
       Block *toScope = irMapper.lookupOrNull(fromScope);

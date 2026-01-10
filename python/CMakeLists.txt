@@ -71,6 +71,14 @@ declare_mlir_dialect_python_bindings(
   DIALECT_NAME ttnn
 )
 
+declare_mlir_dialect_python_bindings(
+  ADD_TO_PARENT TTMLIRPythonSources.Dialects
+  ROOT_DIR "${TTMLIR_PYTHON_ROOT_DIR}"
+  TD_FILE dialects/DebugBinding.td
+  SOURCES dialects/debug.py
+  DIALECT_NAME debug
+)
+
 declare_mlir_python_sources(TTMLIRPythonSources.OptimizerOverrides
   ROOT_DIR "${TTMLIR_PYTHON_ROOT_DIR}"
   ADD_TO_PARENT TTMLIRPythonSources
@@ -112,6 +120,7 @@ declare_mlir_python_extension(TTMLIRPythonExtensions.Main
     D2MModule.cpp
     TTKernelModule.cpp
     TTNNModule.cpp
+    DebugModule.cpp
     OptimizerOverrides.cpp
     Passes.cpp
     Util.cpp
