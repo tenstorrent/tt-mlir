@@ -2332,12 +2332,12 @@ def ttir_arange_golden(
     result = torch.arange(start=start, end=end, step=step, dtype=torch.float32).to(
         output_dtype
     )
-    if len(shape) == 2 and arange_dimension == 1:
-        unsqueezed = torch.unsqueeze(result, dim=0)
-        result = torch.cat([unsqueezed] * shape[0], dim=0)
-    elif len(shape) == 2 and arange_dimension == 0:
-        unsqueezed = torch.unsqueeze(result, dim=1)
-        result = unsqueezed.expand(shape)
+
+    broadcast_shape = [1] * len(shape)
+    broadcast_shape[arange_dimension] = shape[arange_dimension]
+    result = result.reshape(broadcast_shape)
+
+    result = result.expand(shape).clone()
 
     return GoldenMapTensor({0: result}, (1, 1))
 
@@ -2930,9 +2930,9 @@ def ttir_convolution_golden(
         weight,
         bias=bias,
         stride=tuple(stride) if isinstance(stride, list) else stride,
-        padding=tuple(torch_padding)
-        if isinstance(torch_padding, list)
-        else torch_padding,
+        padding=(
+            tuple(torch_padding) if isinstance(torch_padding, list) else torch_padding
+        ),
         dilation=tuple(dilation) if isinstance(dilation, list) else dilation,
         groups=groups,
     )
@@ -3821,6 +3821,60 @@ def stablehlo_constant_golden(value: DenseElementsAttr) -> GoldenMapTensor:
         torch_tensor = torch.tensor(flat_values, dtype=dtype).reshape(shape)
 
     return GoldenMapTensor({0: torch_tensor.reshape(shape)}, (1, 1))
+
+
+def stablehlo_iota_golden(
+    output_shape: List[int],
+    iota_dimension: int,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    """
+    Golden function for stablehlo.IotaOp.
+    Creates a tensor with incrementing values along the specified dimension.
+    """
+    dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    dim_size = output_shape[iota_dimension]
+    iota_values = torch.arange(0, dim_size, dtype=dtype)
+
+    broadcast_shape = [1] * len(output_shape)
+    broadcast_shape[iota_dimension] = dim_size
+    iota_values = iota_values.reshape(broadcast_shape)
+
+    result = iota_values.expand(output_shape).clone()
+
+    return GoldenMapTensor({0: result}, (1, 1))
+
+
+def stablehlo_dynamic_iota_golden(
+    output_shape: Operand,
+    iota_dimension: int,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    """
+    Golden function for stablehlo.DynamicIotaOp.
+    Creates a tensor with incrementing values along the specified dimension.
+    The output shape is determined dynamically from the output_shape operand.
+    """
+    dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    if isinstance(output_shape, GoldenMapTensor):
+        shape_tensor = output_shape.data[0]
+        shape_list = shape_tensor.tolist()
+    else:
+        shape_list = list(output_shape)
+
+    dim_size = int(shape_list[iota_dimension])
+    iota_values = torch.arange(0, dim_size, dtype=dtype)
+
+    broadcast_shape = [1] * len(shape_list)
+    broadcast_shape[iota_dimension] = dim_size
+    iota_values = iota_values.reshape(broadcast_shape)
+
+    full_shape = [int(s) for s in shape_list]
+    result = iota_values.expand(full_shape).clone()
+
+    return GoldenMapTensor({0: result}, (1, 1))
 
 
 def stablehlo_batch_norm_grad_golden(
@@ -5042,6 +5096,8 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.ExpOp: stablehlo_exp_golden,
     stablehlo.FloorOp: stablehlo_floor_golden,
     stablehlo.ConstantOp: stablehlo_constant_golden,
+    stablehlo.IotaOp: stablehlo_iota_golden,
+    stablehlo.DynamicIotaOp: stablehlo_dynamic_iota_golden,
     stablehlo.BatchNormGradOp: stablehlo_batch_norm_grad_golden,
     stablehlo.BatchNormTrainingOp: stablehlo_batch_norm_training_golden,
     stablehlo.BatchNormInferenceOp: stablehlo_batch_norm_inference_golden,
