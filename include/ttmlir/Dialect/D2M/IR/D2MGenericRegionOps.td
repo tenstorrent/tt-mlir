@@ -1136,6 +1136,317 @@ def D2M_DMAWaitOp : D2M_GenericRegionDatamovementOp<"dma_wait", [MemoryEffects<[
 }
 
 //===----------------------------------------------------------------------===//
+// D2M Generic Region Remote Load/Store Ops (Based on Affine Load/Store)
+//===----------------------------------------------------------------------===//
+
+def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
+  [ AttrSizedOperandSegments
+  , MemoryEffects<[MemRead, MemWrite]>
+  , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType",
+      "hasTensorSemantics"
+    ]>
+  ]> {
+    let summary = "D2M Remote Load Op";
+    let description = [{
+      Loads an entire shard from a remote memory location into a circular buffer using affine indexing.
+      This operation operates at shard granularity on remote memrefs or tensors (with device layouts).
+
+      D2M device memrefs and tensors have a device shape that follows a grid x shard convention:
+      - For a logical shape with N dimensions, the device shape has 2N dimensions
+      - The first N dimensions are grid dimensions (sharding distribution)
+      - The last N dimensions are shard dimensions (dimensions of each shard)
+
+      Example 1: 2D tensor with logical shape NxM and grid PxQ
+      - Device shape: P x Q x (N/P) x (M/Q)
+      - Grid dimensions: P x Q (first 2 dims)
+      - Shard dimensions: (N/P) x (M/Q) (last 2 dims)
+
+      Example 2: 3D tensor with logical shape NxMxO and shard AxBxC
+      - Device shape: (N/A) x (M/B) x (O/C) x A x B x C
+      - Grid dimensions: (N/A) x (M/B) x (O/C) (first 3 dims)
+      - Shard dimensions: A x B x C (last 3 dims)
+
+      The `d2m.remote_load` op is indexed by the grid dimensions only (first N/2 dimensions
+      of the device shape) and loads the entire shard (all elements in the last N/2 dimensions)
+      into the circular buffer.
+
+      Example:
+
+      ```mlir
+      // For a 2D device memref with shape P x Q x (N/P) x (M/Q)
+      // Index by grid dimensions P x Q only, load into circular buffer
+      d2m.remote_load %cb, %memref[%i, %j] : !d2m.cb<memref<(N/P)x(M/Q)xf32, #l1_>>, memref<PxQx(N/P)x(M/Q)xf32, #ttcore.shard<...>, #dram>
+
+      // Can also work with tensors
+      d2m.remote_load %cb, %tensor[%i, %j] : !d2m.cb<tensor<(N/P)x(M/Q)xf32>>, tensor<PxQx(N/P)x(M/Q)xf32, #ttcore.shard<...>, #dram>
+      ```
+
+      ## Multicast Gather Mode
+
+      When multicast parameters are provided, this operation performs a gather-multicast pattern:
+      - By convention, core 0 along each multicast dimension is the sender
+      - The sender gathers the remote data into local memory
+      - The sender then multicasts to all cores in the region starting at
+        `mcastStartIndex` with shape `mcastShape`
+      - Receivers wait for the sender to complete
+
+      Example with multicast:
+
+      ```mlir
+      // Core 0 gathers and multicasts to a 1x4 region starting at core[0, 1]
+      d2m.remote_load %cb, %memref[%i, %j] core[%c0, %c1] mcast[%c1, %c4]
+        : !d2m.cb<memref<4x6xf32, #l1_>>, memref<2x4x4x6xf32, #ttcore.shard<...>, #dram>
+        -> memref<4x6xf32, #l1_>
+      ```
+
+      Constraints:
+      - The memref/tensor must be remote (have a device layout)
+      - The operation always uses an identity affine map for grid dimensions
+      - The number of indices must equal N/2 where N is the memref/tensor rank (grid dimensions)
+      - The operation loads the entire shard into the circular buffer
+      - The circular buffer's underlying type must match the shard shape
+      - If mcastStartIndex is provided, mcastShape must also be provided (and vice versa)
+    }];
+
+    let arguments = (ins Optional<D2M_CB>:$cb,
+        Arg<AnyRankedTensorOrMemRef, "the reference to load from",
+        [MemRead]>:$memref,
+        Variadic<Index>:$indices,
+        Variadic<Index>:$mcastStartIndex,
+        Variadic<Index>:$mcastShape);
+
+    let results = (outs Optional<AnyRankedTensorOrMemRef>:$result);
+
+    let builders = [
+      // With CB (no result)
+      OpBuilder<(ins "Value":$cb, "Value":$memref, "ValueRange":$indices),
+      [{
+        build($_builder, $_state, /*result=*/TypeRange{}, cb, memref, indices, ValueRange(), ValueRange());
+      }]>,
+      // With CB and multicast (no result)
+      OpBuilder<(ins "Value":$cb, "Value":$memref, "ValueRange":$indices,
+                     "ValueRange":$mcastStartIndex, "ValueRange":$mcastShape),
+      [{
+        build($_builder, $_state, /*result=*/TypeRange{}, cb, memref, indices, mcastStartIndex, mcastShape);
+      }]>,
+      // Without CB (with result)
+      OpBuilder<(ins "Type":$resultType, "Value":$memref, "ValueRange":$indices),
+      [{
+        build($_builder, $_state, resultType, /*cb=*/Value{}, memref, indices, ValueRange(), ValueRange());
+      }]>,
+      // Without CB, with multicast (with result)
+      OpBuilder<(ins "Type":$resultType, "Value":$memref, "ValueRange":$indices,
+                     "ValueRange":$mcastStartIndex, "ValueRange":$mcastShape),
+      [{
+        build($_builder, $_state, resultType, /*cb=*/Value{}, memref, indices, mcastStartIndex, mcastShape);
+      }]>
+    ];
+
+    let assemblyFormat = [{ $memref `[` $indices `]` (`into` $cb^)? (`core` `[` $mcastStartIndex^ `]` `mcast` `[` $mcastShape `]`)? attr-dict `:` type($memref) (`into` type($cb)^)? (`->` type($result)^)? }];
+
+    let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      /// Returns the operand index of the circular buffer (if present).
+      unsigned getCbOperandIndex() { return 0; }
+
+      /// Returns the operand index of the memref/tensor.
+      unsigned getMemRefOperandIndex() { return getCb() ? 1 : 0; }
+
+      void setMemRef(Value value) { setOperand(getMemRefOperandIndex(), value); }
+
+      /// Returns the identity affine map used to index the memref/tensor for this operation.
+      /// The map always has N/2 results where N is the memref/tensor rank (grid dimensions).
+      AffineMap getAffineMap() {
+        auto shapedType = getShapedType();
+        int64_t gridRank = shapedType.getRank() / 2;
+        return AffineMap::getMultiDimIdentityMap(gridRank, getContext());
+      }
+
+      /// Returns the CB type, or null CBType if CB is not present.
+      /// Caller should check getCb() before calling this if null check is needed.
+      CBType getCbType() {
+        Value cb = getCb();
+        if (!cb) return CBType();
+        return mlir::cast<CBType>(cb.getType());
+      }
+
+      /// Returns true if the circular buffer operand is present (explicit CB form).
+      bool isExplicitCBForm() { return static_cast<bool>(getCb()); }
+
+      /// Returns true if the result is present (implicit form without CB).
+      bool isImplicitForm() { return static_cast<bool>(getResult()); }
+
+      /// Returns the shaped type (memref or tensor) of the memref operand.
+      ShapedType getShapedType() { return cast<ShapedType>(getMemref().getType()); }
+
+      /// Returns the memref type, or fails if the operand is a tensor.
+      MemRefType getMemRefType() {
+        if (auto memrefType = dyn_cast<MemRefType>(getMemref().getType())) {
+          return memrefType;
+        }
+        llvm_unreachable("getMemRefType() called on tensor operand, use getShapedType() instead");
+      }
+
+      /// Returns true if this is a multicast operation.
+      bool isMcast() { return !getMcastShape().empty(); }
+    }];
+}
+
+def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
+  [ AttrSizedOperandSegments
+  , MemoryEffects<[MemRead, MemWrite]>
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType",
+      "hasTensorSemantics"
+    ]>
+  ]> {
+    let summary = "D2M Remote Store Op";
+    let description = [{
+      Stores an entire shard to a remote memory location using affine indexing.
+      This operation operates at shard granularity on remote memrefs or tensors (with device layouts).
+
+      The operation has two forms:
+      - Form I (local buffer): `remote_store %memref[indices] %local_buffer` - stores from a local buffer
+      - Form II (circular buffer): `remote_store %memref[indices] from %cb` - stores from a CB
+
+      D2M device memrefs and tensors have a device shape that follows a grid x shard convention:
+      - For a logical shape with N dimensions, the device shape has 2N dimensions
+      - The first N dimensions are grid dimensions (sharding distribution)
+      - The last N dimensions are shard dimensions (dimensions of each shard)
+
+      Example 1: 2D tensor with logical shape NxM and grid PxQ
+      - Device shape: P x Q x (N/P) x (M/Q)
+      - Grid dimensions: P x Q (first 2 dims)
+      - Shard dimensions: (N/P) x (M/Q) (last 2 dims)
+
+      Example 2: 3D tensor with logical shape NxMxO and shard AxBxC
+      - Device shape: (N/A) x (M/B) x (O/C) x A x B x C
+      - Grid dimensions: (N/A) x (M/B) x (O/C) (first 3 dims)
+      - Shard dimensions: A x B x C (last 3 dims)
+
+      The `d2m.remote_store` op is indexed by the grid dimensions only (first N/2 dimensions
+      of the device shape) and stores the entire shard (all elements in the last N/2 dimensions).
+
+      Example (Form I - local buffer):
+
+      ```mlir
+      // Store from local buffer to remote memref
+      d2m.remote_store %remote_memref[%i, %j] %local_buffer : memref<PxQx(N/P)x(M/Q)xf32, #ttcore.shard<...>, #dram>, memref<(N/P)x(M/Q)xf32, #l1_>
+      ```
+
+      Example (Form II - circular buffer):
+
+      ```mlir
+      // Store from circular buffer to remote memref
+      d2m.remote_store %remote_memref[%i, %j] from %cb : memref<PxQx(N/P)x(M/Q)xf32, #ttcore.shard<...>, #dram> from !d2m.cb<memref<(N/P)x(M/Q)xf32, #l1_>>
+      ```
+
+      ## Multicast Mode
+
+      When multicast parameters are provided, this operation performs a multicast pattern:
+      - By convention, core 0 along each multicast dimension is the sender
+      - The sender multicasts the data to all cores in the region starting at
+        `mcastStartIndex` with shape `mcastShape`
+
+      Example with multicast:
+
+      ```mlir
+      // Core 0 multicasts to a 1x4 region starting at core[0, 1] and stores to remote
+      d2m.remote_store %memref[%i, %j] %local_buffer core[%c0, %c1] mcast[%c1, %c4]
+        : memref<2x4x4x6xf32, #ttcore.shard<...>, #dram>, memref<4x6xf32, #l1_>
+      ```
+
+      Constraints:
+      - The memref/tensor must be remote (have a device layout)
+      - The operation always uses an identity affine map for grid dimensions
+      - The number of indices must equal N/2 where N is the memref/tensor rank (grid dimensions)
+      - Exactly one of localBuffer or cb must be present
+      - The local buffer or circular buffer's underlying type must match the shard shape
+      - If mcastStartIndex is provided, mcastShape must also be provided (and vice versa)
+    }];
+
+    let arguments = (ins Arg<AnyRankedTensorOrMemRef, "the reference to store to",
+        [MemWrite]>:$memref,
+        Variadic<Index>:$indices,
+        Optional<AnyRankedTensorOrMemRef>:$localBuffer,
+        Optional<D2M_CB>:$cb,
+        Variadic<Index>:$mcastStartIndex,
+        Variadic<Index>:$mcastShape);
+
+    let builders = [
+      // With local buffer (Form I)
+      OpBuilder<(ins "Value":$memref, "ValueRange":$indices, "Value":$localBuffer),
+      [{
+        build($_builder, $_state, memref, indices, localBuffer, /*cb=*/Value{}, ValueRange(), ValueRange());
+      }]>,
+      // With local buffer and multicast (Form I)
+      OpBuilder<(ins "Value":$memref, "ValueRange":$indices, "Value":$localBuffer,
+                     "ValueRange":$mcastStartIndex, "ValueRange":$mcastShape),
+      [{
+        build($_builder, $_state, memref, indices, localBuffer, /*cb=*/Value{}, mcastStartIndex, mcastShape);
+      }]>
+    ];
+
+    let assemblyFormat = [{ $memref `[` $indices `]` ($localBuffer^)? (`from` $cb^)? (`core` `[` $mcastStartIndex^ `]` `mcast` `[` $mcastShape `]`)? attr-dict `:` type($memref) (`,` type($localBuffer)^)? (`from` type($cb)^)? }];
+
+    let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      /// Returns the operand index of the memref/tensor.
+      unsigned getMemRefOperandIndex() { return 0; }
+
+      void setMemRef(Value value) { setOperand(getMemRefOperandIndex(), value); }
+
+      /// Returns the identity affine map used to index the memref/tensor for this operation.
+      /// The map always has N/2 results where N is the memref/tensor rank (grid dimensions).
+      AffineMap getAffineMap() {
+        auto shapedType = getShapedType();
+        int64_t gridRank = shapedType.getRank() / 2;
+        return AffineMap::getMultiDimIdentityMap(gridRank, getContext());
+      }
+
+      /// Returns the CB type, or null CBType if CB is not present.
+      /// Caller should check getCb() before calling this if null check is needed.
+      CBType getCbType() {
+        Value cb = getCb();
+        if (!cb) return CBType();
+        return mlir::cast<CBType>(cb.getType());
+      }
+
+      /// Returns true if the circular buffer operand is present (explicit CB form).
+      bool isExplicitCBForm() { return static_cast<bool>(getCb()); }
+
+      /// Returns true if the local buffer operand is present (implicit form).
+      bool isImplicitForm() { return static_cast<bool>(getLocalBuffer()); }
+
+      /// Returns the shaped type (memref or tensor) of the memref operand.
+      ShapedType getShapedType() { return cast<ShapedType>(getMemref().getType()); }
+
+      /// Returns the memref type, or fails if the operand is a tensor.
+      MemRefType getMemRefType() {
+        if (auto memrefType = dyn_cast<MemRefType>(getMemref().getType())) {
+          return memrefType;
+        }
+        llvm_unreachable("getMemRefType() called on tensor operand, use getShapedType() instead");
+      }
+
+      /// Returns true if this is a multicast operation.
+      bool isMcast() { return !getMcastShape().empty(); }
+    }];
+}
+
+//===----------------------------------------------------------------------===//
 // D2M Generic Region Semaphore Ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//
 
@@ -1421,6 +1732,31 @@ def D2M_ReserveOp : D2M_CBOp<"reserve"> {
     %memref = d2m.reserve %cb : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1_>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
     ```
   }];
+}
+
+def D2M_AcquireBufferOp : D2M_GenericRegionOp<"acquire_buffer",
+  [ MemoryEffects<[MemRead, MemWrite]>
+  , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
+  , Pure
+  ]> {
+  let summary = "Acquire a buffer.";
+  let description = [{
+    Acquire buffer operation that returns a buffer without taking a circular buffer as input.
+    This operation returns an AnyRankedTensorOrMemRef type similar to d2m.reserve.
+
+    The optional operand_index attribute tracks which generic operand this buffer corresponds to,
+    enabling later passes to establish the connection between circular buffers and operands.
+
+    Example:
+    ```mlir
+    %buffer = d2m.acquire_buffer() {operand_index = 1} : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+    ```
+  }];
+
+  let arguments = (ins OptionalAttr<I64Attr>:$operand_index);
+  let results = (outs AnyRankedTensorOrMemRef:$result);
+
+  let assemblyFormat = [{ `(` `)` attr-dict `:` type($result) }];
 }
 
 def D2M_PushOp : D2M_GenericRegionOp<"push",

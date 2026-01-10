@@ -57,7 +57,7 @@ def test_tilize(shape: Shape, target: str, request, device):
     compile_and_execute_d2m(
         module,
         target=target,
-        custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-ume-pipeline,ttir-to-ttmetal-be-pipeline",
         device=device,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
@@ -113,7 +113,7 @@ def test_untilize(shape: Shape, target: str, request, device):
     compile_and_execute_d2m(
         module,
         target=target,
-        custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-ume-pipeline,ttir-to-ttmetal-be-pipeline",
         device=device,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
@@ -148,7 +148,7 @@ def test_tilize_untilize(shape: Shape, target: str, request, device):
     compile_and_execute_d2m(
         module,
         target=target,
-        custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-ume-pipeline,ttir-to-ttmetal-be-pipeline",
         device=device,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),

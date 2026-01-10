@@ -375,10 +375,31 @@ static void optimizeToLayoutGrid(d2m::ToLayoutOp toLayoutOp,
   auto view = builder.create<d2m::ViewLayoutOp>(
       toLayoutOp.getLoc(), viewOutputType, newToLayoutOp.getResult(0));
 
-  // We expect the ToLayout to be used only by the GenericOp we're optimizing.
-  // Assert this assumption to catch unexpected sharing.
-  assert(toLayoutOp.getResult(0).hasOneUse() &&
-         "ToLayout should only be used by the GenericOp being optimized");
+  // We expect the ToLayout to be used only within a single GenericOp.
+  // A GenericOp may reference the same to_layout result multiple times
+  // (e.g., same operand used twice, or used in multiple operations within
+  // the GenericOp's regions), which all count as one logical use.
+  d2m::GenericOp parentGeneric = nullptr;
+  for (auto &use : toLayoutOp.getResult(0).getUses()) {
+    mlir::Operation *user = use.getOwner();
+    // Find the parent GenericOp for this use.
+    // The user might be the GenericOp itself (if it's an operand), or
+    // it might be an operation nested within the GenericOp's regions.
+    d2m::GenericOp useGeneric = mlir::dyn_cast<d2m::GenericOp>(user);
+    if (!useGeneric) {
+      useGeneric = user->getParentOfType<d2m::GenericOp>();
+    }
+    if (!useGeneric) {
+      // Use is not within or by a GenericOp at all
+      TT_assertv(false, "ToLayout use found outside of any GenericOp");
+    }
+    if (!parentGeneric) {
+      parentGeneric = useGeneric;
+    } else if (parentGeneric != useGeneric) {
+      // Use is within a different GenericOp
+      TT_assertv(false, "ToLayout should only be used within one GenericOp");
+    }
+  }
   toLayoutOp.getResult(0).replaceAllUsesWith(view.getResult());
 
   toLayoutOp.erase();
@@ -749,6 +770,47 @@ recreateGenericOp(d2m::GenericOp genericOp,
               clonedOp->getResult(0).setType(
                   mlir::cast<d2m::CBType>(clonedOp->getOperand(0).getType())
                       .getUnderlying());
+            } else if (auto remoteLoadOp =
+                           llvm::dyn_cast<d2m::RemoteLoadOp>(clonedOp)) {
+              // Only update result type if the result exists (implicit form)
+              if (remoteLoadOp.isImplicitForm()) {
+                // Result exists - get shard shape from the remote tensor
+                // GridSelection operates in tensor space (before bufferization)
+                auto tensorType = mlir::cast<RankedTensorType>(
+                    remoteLoadOp.getMemref().getType());
+                auto deviceLayout =
+                    ttcore::getDeviceLayout(remoteLoadOp.getMemref());
+                if (deviceLayout) {
+                  auto shardShape = deviceLayout.getShardShape(tensorType);
+                  auto elementType = tensorType.getElementType();
+                  auto shardType =
+                      RankedTensorType::get(shardShape, elementType);
+                  remoteLoadOp.getResult().setType(shardType);
+                }
+              }
+            } else if (auto acquireBufferOp =
+                           llvm::dyn_cast<d2m::AcquireBufferOp>(clonedOp)) {
+              // Update acquire_buffer result type to match the reblocked grid
+              // The operand_index attribute tells us which generic operand this
+              // corresponds to
+              if (acquireBufferOp.getOperandIndex().has_value()) {
+                auto operandIdx = acquireBufferOp.getOperandIndex().value();
+                if (operandIdx < newOperands.size()) {
+                  auto operandType = newOperands[operandIdx].getType();
+                  if (auto tensorType =
+                          mlir::dyn_cast<RankedTensorType>(operandType)) {
+                    auto deviceLayout =
+                        ttcore::getDeviceLayout(newOperands[operandIdx]);
+                    if (deviceLayout) {
+                      auto shardShape = deviceLayout.getShardShape(tensorType);
+                      auto elementType = tensorType.getElementType();
+                      auto shardType =
+                          RankedTensorType::get(shardShape, elementType);
+                      acquireBufferOp.getResult().setType(shardType);
+                    }
+                  }
+                }
+              }
             }
           }
         },

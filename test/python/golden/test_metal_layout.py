@@ -74,7 +74,7 @@ def test_to_layout(
     compile_and_execute_d2m(
         module,
         target=target,
-        custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-ume-pipeline,ttir-to-ttmetal-be-pipeline",
         device=device,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
@@ -138,7 +138,7 @@ def test_view_materialization_on_return(
     compile_and_execute_d2m(
         module,
         target=target,
-        custom_pipeline="d2m-lower-to-layout,d2m-materialize-view-returns,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        custom_pipeline="d2m-lower-to-layout,d2m-materialize-view-returns,ttir-to-ttmetal-ume-pipeline,ttir-to-ttmetal-be-pipeline",
         device=device,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
@@ -227,7 +227,7 @@ def test_chained_view_composition(
     compile_and_execute_d2m(
         module,
         target=target,
-        custom_pipeline="d2m-lower-to-layout,d2m-materialize-view-returns,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        custom_pipeline="d2m-lower-to-layout,d2m-materialize-view-returns,ttir-to-ttmetal-ume-pipeline,ttir-to-ttmetal-be-pipeline",
         device=device,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
@@ -297,7 +297,7 @@ def test_view_with_padding(
     compile_and_execute_d2m(
         module,
         target=target,
-        custom_pipeline="d2m-lower-to-layout,d2m-materialize-view-returns,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        custom_pipeline="d2m-lower-to-layout,d2m-materialize-view-returns,ttir-to-ttmetal-ume-pipeline,ttir-to-ttmetal-be-pipeline",
         device=device,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
@@ -366,7 +366,7 @@ def test_multiple_grid_reblocks(
     compile_and_execute_d2m(
         module,
         target=target,
-        custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-ume-pipeline,ttir-to-ttmetal-be-pipeline",
         device=device,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
@@ -457,7 +457,7 @@ def test_tiled_grid_reblocking(
     compile_and_execute_d2m(
         module,
         target=target,
-        custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-me-pipeline,ttir-to-ttmetal-be-pipeline",
+        custom_pipeline="d2m-lower-to-layout,ttir-to-ttmetal-ume-pipeline,ttir-to-ttmetal-be-pipeline",
         device=device,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),

@@ -1407,6 +1407,11 @@ public:
     case d2m::ThreadType::Datamovement: {
       return ThreadType::Noc;
     }
+    case d2m::ThreadType::Unified: {
+      // Unified threads should have been split by SplitUnifiedThread before
+      // reaching this pass.
+      llvm_unreachable("Unexpected thread type in backend conversion");
+    }
     }
   }
 
