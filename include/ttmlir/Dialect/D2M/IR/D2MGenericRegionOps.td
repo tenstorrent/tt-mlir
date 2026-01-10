@@ -1618,7 +1618,7 @@ def D2M_CoreIndexOp : D2M_GenericRegionOp<"core_index",
     // Optional physical-to-virtual grid mapping. When present, this op returns
     // the virtualized core coordinate for `dim`.
     let arguments = (ins
-      ConfinedAttr<I64Attr, [IntMinValue<0>, IntMaxValue<1>]>:$dim,
+      ConfinedAttr<I64Attr, [IntMinValue<0>]>:$dim,
       OptionalAttr<AffineMapAttr>:$phys_to_virt_map
     );
 
