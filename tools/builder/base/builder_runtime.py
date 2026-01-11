@@ -14,6 +14,7 @@ from typing import Callable, List, Optional, Tuple, Union, Literal, Dict
 from collections import OrderedDict
 import json
 from functools import partial
+from contextlib import nullcontext
 
 from builder.base.builder import *
 from builder.base.builder_utils import *
@@ -398,6 +399,14 @@ def update_device_tensor(program_context, tensor_ref, dst_tensor, src_tensor):
     tt_runtime.runtime.update_tensor_in_pool(program_context, tensor_ref, tensor)
 
 
+def _maybe_trace(enabled: bool, log_dir: str, port: int):
+    if enabled:
+        from profiler import trace
+
+        return trace(log_dir, port)
+    return nullcontext()
+
+
 class CallbackRuntimeConfig:
     def __init__(
         self,
@@ -579,6 +588,8 @@ def execute_fb(
     bypass_ops: List[str] = None,
     save_artifacts: bool = False,
     artifact_dir: str = ".",
+    enable_trace=False,
+    port: int = None,
 ):
     """
     Execute a flatbuffer binary on device and compare device outputs against goldens.
@@ -655,6 +666,7 @@ def execute_fb(
         )
 
     for program_index in program_indices:
+        program_artifact_dir = f"{artifact_dir}/program_{program_index}"
         if fbb.is_program_private(program_index):
             continue
 
@@ -716,13 +728,16 @@ def execute_fb(
 
         start_submit = time.perf_counter_ns()
         try:
-            runtime_outputs = tt_runtime.runtime.submit(
-                device,
-                fbb,
-                program_index,
-                converted_inputs,
-            )
-            tt_runtime.runtime.wait(runtime_outputs)
+            with _maybe_trace(enable_trace, program_artifact_dir, port):
+                print("******")
+                runtime_outputs = tt_runtime.runtime.submit(
+                    device,
+                    fbb,
+                    program_index,
+                    converted_inputs,
+                )
+                tt_runtime.runtime.wait(runtime_outputs)
+                print("******")
         except Exception as e:
             raise TTBuilderRuntimeException(e)
         finally:
@@ -779,9 +794,6 @@ def execute_fb(
             program_output_tensors[f"golden_output_{i}"] = golden_tensor_torch
 
             if save_artifacts:
-                program_artifact_dir = os.path.join(
-                    artifact_dir, f"program_{program_index}"
-                )
                 save_torch_tensor(
                     output_tensor_torch,
                     program_artifact_dir,
@@ -822,6 +834,8 @@ def execute_py(
     check_rtol: bool = False,
     save_artifacts: bool = False,
     artifact_dir: str = ".",
+    enable_trace=False,
+    port: int = None,
 ):
     """
     Execute an EmitPy Dylib and compare device outputs against goldens.
@@ -900,6 +914,9 @@ def execute_py(
         exec(compile(compiled_bin, filename=module_name, mode="exec"), module.__dict__)
 
         for program_index, program_name in enumerate(program_names):
+            program_artifact_dir = os.path.join(
+                artifact_dir, f"program_{program_index}"
+            )
             program_golden_report = {}
             program_output_tensors = {}
             create_program_inputs = "create_inputs_for_" + program_name
@@ -927,7 +944,8 @@ def execute_py(
                 inputs = corrected_inputs
 
             program_func = getattr(module, program_name)
-            outputs = program_func(inputs)
+            with _maybe_trace(enable_trace, program_artifact_dir, port):
+                outputs = program_func(inputs)
 
             if not disable_golden:
                 for i, output in enumerate(outputs):
@@ -952,9 +970,6 @@ def execute_py(
                     program_output_tensors[f"golden_output_{i}"] = golden_tensor_torch
 
                     if save_artifacts:
-                        program_artifact_dir = os.path.join(
-                            artifact_dir, f"program_{program_index}"
-                        )
                         save_torch_tensor(
                             output_tensor_torch,
                             program_artifact_dir,
@@ -995,6 +1010,8 @@ def execute_cpp(
     check_rtol: bool = False,
     save_artifacts: bool = False,
     artifact_dir: str = ".",
+    enable_trace=False,
+    port: int = None,
 ):
     """
     Compile EmitC C++ file to a shared object, execute, and compare outputs.
@@ -1077,6 +1094,9 @@ def execute_cpp(
         )
 
         for program_index, program_name in enumerate(program_names):
+            program_artifact_dir = os.path.join(
+                artifact_dir, f"program_{program_index}"
+            )
             program_golden_report = {}
             program_output_tensors = {}
 
@@ -1102,12 +1122,13 @@ def execute_cpp(
                     template_inputs=inputs,
                 )
 
-            outputs = tt_runtime.runtime.test.run_so_program(
-                emitc_dylib_handle,
-                program_name,
-                inputs,
-                device,
-            )
+            with _maybe_trace(enable_trace, program_artifact_dir, port):
+                outputs = tt_runtime.runtime.test.run_so_program(
+                    emitc_dylib_handle,
+                    program_name,
+                    inputs,
+                    device,
+                )
             outputs = [
                 tt_runtime.runtime.to_host(out, untilize=True)[0] for out in outputs
             ]
@@ -1145,9 +1166,6 @@ def execute_cpp(
                     program_output_tensors[f"golden_output_{i}"] = golden_tensor_torch
 
                     if save_artifacts:
-                        program_artifact_dir = os.path.join(
-                            artifact_dir, f"program_{program_index}"
-                        )
                         save_torch_tensor(
                             output_tensor_torch,
                             program_artifact_dir,

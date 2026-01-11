@@ -59,6 +59,8 @@ def _compile_and_execute(
     check_atol: bool = False,
     check_rtol: bool = False,
     enable_intermediate_verification: bool = False,
+    enable_trace: bool = False,
+    port: int = None,
     **compile_kwargs,
 ) -> str:
     builder, compiled_bin, input_output_goldens, intermediate_goldens = compile_fn(
@@ -87,6 +89,8 @@ def _compile_and_execute(
             enable_intermediate_verification=enable_intermediate_verification,
             save_artifacts=compile_kwargs.get("save_artifacts", False),
             artifact_dir=compile_kwargs.get("artifact_dir", "."),
+            enable_trace=enable_trace,
+            port=port,
         )
 
     elif target == "emitpy":
@@ -102,6 +106,8 @@ def _compile_and_execute(
             input_output_goldens=input_output_goldens,
             save_artifacts=compile_kwargs.get("save_artifacts", False),
             artifact_dir=compile_kwargs.get("artifact_dir", "."),
+            enable_trace=enable_trace,
+            port=port,
         )
 
     elif target == "emitc":
@@ -121,6 +127,8 @@ def _compile_and_execute(
             input_output_goldens=input_output_goldens,
             save_artifacts=compile_kwargs.get("save_artifacts", False),
             artifact_dir=compile_kwargs.get("artifact_dir", "."),
+            enable_trace=enable_trace,
+            port=port,
         )
 
 
@@ -228,6 +236,8 @@ def compile_and_execute_d2m(
     check_atol: bool = False,
     check_rtol: bool = False,
     enable_intermediate_verification: bool = False,
+    enable_trace: bool = False,
+    port: int = None,
 ) -> str:
     """
     Compiles and executes a D2MBuilder function through the complete pipeline.
@@ -308,6 +318,8 @@ def compile_and_execute_d2m(
         check_atol=check_atol,
         check_rtol=check_rtol,
         enable_intermediate_verification=enable_intermediate_verification,
+        enable_trace=enable_trace,
+        port=port,
     )
 
 
@@ -336,6 +348,8 @@ def compile_and_execute_shlo(
     check_atol: bool = False,
     check_rtol: bool = False,
     enable_intermediate_verification: bool = False,
+    enable_trace: bool = False,
+    port: int = None,
 ) -> str:
     """
     Compiles and executes a StableHLO function through the complete pipeline.
@@ -422,6 +436,8 @@ def compile_and_execute_shlo(
         check_atol=check_atol,
         check_rtol=check_rtol,
         enable_intermediate_verification=enable_intermediate_verification,
+        enable_trace=enable_trace,
+        port=port,
     )
 
 
@@ -448,6 +464,8 @@ def compile_and_execute_ttnn(
     check_atol: bool = False,
     check_rtol: bool = False,
     enable_intermediate_verification: bool = False,
+    enable_trace: bool = False,
+    port: int = None,
 ) -> str:
     """
     Compiles and executes a TTNNBuilder function through the complete pipeline.
@@ -531,6 +549,8 @@ def compile_and_execute_ttnn(
         check_atol=check_atol,
         check_rtol=check_rtol,
         enable_intermediate_verification=enable_intermediate_verification,
+        enable_trace=enable_trace,
+        port=port,
     )
 
 
@@ -557,6 +577,8 @@ def compile_and_execute_ttir(
     check_atol: bool = False,
     check_rtol: bool = False,
     enable_intermediate_verification: bool = False,
+    enable_trace: bool = False,
+    port: int = None,
 ) -> str:
     """
     Compiles and executes a TTIR function through the complete pipeline.
@@ -637,6 +659,8 @@ def compile_and_execute_ttir(
         check_atol=check_atol,
         check_rtol=check_rtol,
         enable_intermediate_verification=enable_intermediate_verification,
+        enable_trace=enable_trace,
+        port=port,
     )
 
 
