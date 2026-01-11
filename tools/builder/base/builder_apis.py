@@ -1276,8 +1276,8 @@ def compile_ttir_module_to_flatbuffer(
             f.write(compiled_bin)
     if save_artifacts:
         print(f"Writing compiled flatbuffer to {output_file_bin}")
+        os.makedirs(artifact_dir, exist_ok=True)
         if target == "emitpy":
-            os.makedirs(artifact_dir, exist_ok=True)
             with open(output_file_bin, "w") as f:
                 f.write(compiled_bin)
         elif target in ["ttnn", "ttmetal"]:
