@@ -318,7 +318,7 @@ def test_conv_silu_decomposed_fusing(
             conv_weight_data = torch.randn(shapes[1], dtype=dtypes[1])
             conv_bias_data = torch.randn(shapes[2], dtype=dtypes[2])
 
-            # Calculate golden output_path using torch operations
+            # Calculate golden output using torch operations
             input_tensor_data_rs = input_tensor_data.transpose(-2, -1).transpose(-3, -2)
             conv_result = torch.nn.functional.conv2d(
                 input_tensor_data_rs,
@@ -330,7 +330,7 @@ def test_conv_silu_decomposed_fusing(
                 groups=groups,
             )
             conv_result = conv_result.transpose(-3, -2).transpose(-2, -1)
-            golden_conv_result * torch.sigmoid(conv_result)
+            golden_output = conv_result * torch.sigmoid(conv_result)
 
             # Create conv2d builder op
             conv = builder.conv2d(
