@@ -21,7 +21,7 @@ setup(
     packages=["chisel", "chisel.core", "chisel.utils"],
     python_requires=">=3.8",
     install_requires=[
-        "torch",
+        "torch==2.3.0",
     ],
     author="Nikola Drakulic",
     author_email="ndrakulic@tenstorrent.com",
