@@ -373,7 +373,6 @@ def get_sanitized_filename(name: str, replacement: str = "_") -> str:
 
 def save_torch_tensor(torch_tensor, folder_path, torch_tensor_name):
     torch_tensor_name = get_sanitized_filename(torch_tensor_name)
-    os.makedirs(folder_path, exist_ok=True)
     torch.save(torch_tensor, f"{folder_path}/{torch_tensor_name}")
 
 
@@ -724,9 +723,11 @@ def execute_fb(
         if fbb.is_program_private(program_index):
             continue
 
-        callback_runtime_config.start_new_program(
-            f"{artifact_dir}/program_{program_index}"
-        )
+        program_artifact_dir = os.path.join(artifact_dir, f"program_{program_index}")
+        if save_artifacts or dump_memory:
+            os.makedirs(program_artifact_dir, exist_ok=True)
+
+        callback_runtime_config.start_new_program(program_artifact_dir)
         program_golden_report = {}
         program_output_tensors = {}
 
@@ -845,9 +846,6 @@ def execute_fb(
             program_output_tensors[f"golden_output_{i}"] = golden_tensor_torch
 
             if save_artifacts:
-                program_artifact_dir = os.path.join(
-                    artifact_dir, f"program_{program_index}"
-                )
                 save_torch_tensor(
                     output_tensor_torch,
                     program_artifact_dir,
@@ -859,25 +857,19 @@ def execute_fb(
                     f"golden_output_{i}.pt",
                 )
 
-        if not disable_golden:
             for loc, device_results in callback_runtime_config.golden_report.items():
                 program_golden_report[loc] = device_results
 
             if save_artifacts:
-                golden_file = os.path.join(
-                    artifact_dir, f"program_{program_index}", "golden_report.json"
-                )
-                os.makedirs(os.path.dirname(golden_file), exist_ok=True)
+                golden_file = os.path.join(program_artifact_dir, "golden_report.json")
                 with open(golden_file, "w") as f:
                     json.dump(program_golden_report, f, indent=4)
 
             if dump_memory:
                 memory_file = os.path.join(
-                    artifact_dir,
-                    f"program_{program_index}",
+                    program_artifact_dir,
                     "memory_report.json",
                 )
-                os.makedirs(os.path.dirname(memory_file), exist_ok=True)
                 with open(memory_file, "w") as f:
                     json.dump(callback_runtime_config.memory_report, f, indent=4)
 
@@ -1032,6 +1024,7 @@ def execute_py(
                         program_artifact_dir = os.path.join(
                             artifact_dir, f"program_{program_index}"
                         )
+                        os.makedirs(program_artifact_dir, exist_ok=True)
                         save_torch_tensor(
                             output_tensor_torch,
                             program_artifact_dir,
@@ -1225,6 +1218,7 @@ def execute_cpp(
                         program_artifact_dir = os.path.join(
                             artifact_dir, f"program_{program_index}"
                         )
+                        os.makedirs(program_artifact_dir, exist_ok=True)
                         save_torch_tensor(
                             output_tensor_torch,
                             program_artifact_dir,
