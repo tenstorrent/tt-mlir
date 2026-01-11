@@ -4,8 +4,9 @@
 
 import pytest
 import torch
+import os
 from typing import List, Optional
-from builder.base.builder_utils import Operand, Shape
+from builder.base.builder_utils import Operand, Shape, get_artifact_dir
 from builder.ttnn.ttnn_builder import TTNNBuilder
 from builder.base.builder_apis import compile_and_execute_ttnn
 
@@ -70,17 +71,24 @@ def test_matmul_activation_fusing(
             )
             return activation_op
 
-    output = compile_and_execute_ttnn(
+    compile_and_execute_ttnn(
         module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         device=device,
+        save_artifacts=True,
+    )
+    output_path = os.path.join(
+        get_artifact_dir(
+            request.config.getoption("--path"), "TTNNBuilder", request.node.name
+        ),
+        "ttnn_compiled.mlir",
     )
 
-    assert check_op(output, "matmul"), "Matmul operation should exist"
+    assert check_op(output_path, "matmul"), "Matmul operation should exist"
     assert not check_op(
-        output, activation_name
+        output_path, activation_name
     ), f"Standalone {activation_name} operation should be fused"
 
 
@@ -137,15 +145,22 @@ def test_linear_activation_fusing(
             builder.set_goldens(goldens, {activation_op: golden_output})
             return activation_op
 
-    output = compile_and_execute_ttnn(
+    compile_and_execute_ttnn(
         module,
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         device=device,
+        save_artifacts=True,
+    )
+    output_path = os.path.join(
+        get_artifact_dir(
+            request.config.getoption("--path"), "TTNNBuilder", request.node.name
+        ),
+        "ttnn_compiled.mlir",
     )
 
-    assert check_op(output, "linear"), "Linear operation should exist"
+    assert check_op(output_path, "linear"), "Linear operation should exist"
     assert not check_op(
-        output, activation_name
+        output_path, activation_name
     ), f"Standalone {activation_name} operation should be fused"
