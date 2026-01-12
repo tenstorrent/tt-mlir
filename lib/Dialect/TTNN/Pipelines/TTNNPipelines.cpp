@@ -403,7 +403,7 @@ void createTTNNToEmitPyDevicePipeline(
   auto &devicePm = pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
 
   devicePm.addPass(createTTNNAdjustDeallocs());
-  if (options.enablePrettify) {
+  if (options.codegenEnablePrettify) {
     createPrettifyXLATorchPipeline(pm, PrettifyXLATorchPipelineOptions());
   }
 
