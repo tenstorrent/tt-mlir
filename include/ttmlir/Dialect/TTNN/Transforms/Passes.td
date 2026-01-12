@@ -323,7 +323,11 @@ def TTNNOperationValidationAndFallback: Pass<"ttnn-operation-validation-and-fall
     Option<"maxFallbackAttempts",
            "max-fallback-attempts",
            "uint32_t", /*default=*/"10000",
-           "Maximum number of fallback configurations to try before giving up (0 = unlimited)">
+           "Maximum number of fallback configurations to try before giving up (0 = unlimited)">,
+    Option<"d2mFallbackEnabled",
+           "d2m-fallback-enabled",
+           "bool", /*default=*/"false",
+           "Enable D2M fallback: mark ops for D2M compilation instead of failing when all fallback configurations are exhausted">
   ];
 }
 
