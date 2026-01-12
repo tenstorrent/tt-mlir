@@ -574,28 +574,6 @@ GetGlobalOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
 }
 
 //===----------------------------------------------------------------------===//
-// YieldOp
-//===----------------------------------------------------------------------===//
-
-LogicalResult YieldOp::verify() {
-  auto *parentOp = getOperation()->getParentOp();
-  auto expressionOp = dyn_cast<ExpressionOp>(parentOp);
-  if (!expressionOp) {
-    return emitOpError("must be nested in an emitpy.expression");
-  }
-
-  Type yieldType = getResult().getType();
-  Type expressionType = expressionOp.getResult().getType();
-  if (yieldType != expressionType) {
-    return emitOpError("yielded type ")
-           << yieldType << " does not match expression result type "
-           << expressionType;
-  }
-
-  return success();
-}
-
-//===----------------------------------------------------------------------===//
 // ExpressionOp
 //===----------------------------------------------------------------------===//
 

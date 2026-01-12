@@ -107,15 +107,9 @@ def EmitPy_LiteralOp : EmitPy_Op<"literal", [Pure, PyExpressionInterface]> {
 
   let hasVerifier = 1;
   let assemblyFormat = "$value attr-dict `:` type($result)";
-
-  let extraClassDeclaration = [{
-    bool hasSideEffects() {
-      return false;
-    }
-  }];
 }
 
-def EmitPy_SubscriptOp : EmitPy_Op<"subscript", [PyExpressionInterface]> {
+def EmitPy_SubscriptOp : EmitPy_Op<"subscript", [Pure, PyExpressionInterface]> {
   let summary = "Subscript operation";
   let description = [{
     With the `emitpy.subscript` operation the subscript operator `[]` can be applied
@@ -137,12 +131,6 @@ def EmitPy_SubscriptOp : EmitPy_Op<"subscript", [PyExpressionInterface]> {
 
   // TODO (amilovanovic) : add custom verify method
   let assemblyFormat = "$value `[` $index `]` attr-dict `:` functional-type(operands, results)";
-
-  let extraClassDeclaration = [{
-    bool hasSideEffects() {
-      return false;
-    }
-  }];
 }
 
 def EmitPy_AssignOp : EmitPy_Op<"assign"> {
@@ -320,7 +308,6 @@ def EmitPy_YieldOp : EmitPy_Op<"yield", [Pure, ReturnLike, Terminator,
 
   let arguments = (ins AnyType:$result);
   let assemblyFormat = "$result attr-dict `:` type($result)";
-  let hasVerifier = 1;
 }
 
 def EmitPy_ExpressionOp : EmitPy_Op<"expression", [
@@ -329,9 +316,10 @@ def EmitPy_ExpressionOp : EmitPy_Op<"expression", [
   let summary = "Expression operation to inline Python code";
   let description = [{
     The `emitpy.expression` operation returns a single SSA value yielded by its
-    single-basic-block region. The operations inside the region must form a single
-    Def-Use tree. The expression's operands are mapped to block arguments and can
-    be used within the expression body.
+    single-basic-block region. The operations inside the region must form a DAG
+    (directed acyclic graph) of computations that produces a single result value.
+    The expression's operands are mapped to block arguments and can be used
+    within the expression body.
 
     When generating Python code, operations within the expression body are emitted
     inline without intermediate variable assignments, producing cleaner code.

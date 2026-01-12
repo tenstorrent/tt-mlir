@@ -24,7 +24,7 @@ def PyExpressionInterface : OpInterface<"PyExpressionInterface"> {
 
       By default operation is marked as having side effects.
 
-       ```c++
+      ```c++
       class ConcreteOp ... {
       public:
         bool hasSideEffects() {
@@ -36,7 +36,9 @@ def PyExpressionInterface : OpInterface<"PyExpressionInterface"> {
     }],
       "bool", "hasSideEffects", (ins), /*methodBody=*/[{}],
        /*defaultImplementation=*/[{
-        return true;
+        // Check if the operation has memory effects
+        // Operations without memory effects are considered pure
+        return !::mlir::isMemoryEffectFree($_op);
     }]>,
   ];
 }
