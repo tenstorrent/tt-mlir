@@ -211,7 +211,7 @@ def EmitPy_SetValueForDictKeyOp : EmitPy_Op<"set_value_for_dict_key"> {
     Example:
     ```mlir
     %dict = emitpy.global_statement @_CONST_EVAL_CACHE : !emitpy.dict
-    emitpy.set_value_for_dict_key "_CONST_EVAL_CACHE" %dict[5 : index] = %tensors : (!emitpy.dict) -> !emitpy.opaque<"[ttnn.Tensor]">
+    emitpy.set_value_for_dict_key %dict[5 : index] = %tensors : (!emitpy.dict) -> !emitpy.opaque<"[ttnn.Tensor]">
     ```
     ```python
     // Code emitted:
@@ -220,13 +220,12 @@ def EmitPy_SetValueForDictKeyOp : EmitPy_Op<"set_value_for_dict_key"> {
   }];
 
   let arguments = (ins
-    Arg<StrAttr>:$dict_name,
     EmitPy_Dict:$dict,
     AnyAttrOf<[StrAttr, IndexAttr]>:$key,
     EmitPy_Type:$value
   );
 
-  let assemblyFormat = "$dict_name $dict `[` qualified($key) `]` `=` $value attr-dict `:` functional-type($dict, $value)";
+  let assemblyFormat = "$dict `[` qualified($key) `]` `=` $value attr-dict `:` functional-type($dict, $value)";
 }
 
 def EmitPy_GetValueForDictKeyOp : EmitPy_Op<"get_value_for_dict_key", [Pure]> {
@@ -238,7 +237,7 @@ def EmitPy_GetValueForDictKeyOp : EmitPy_Op<"get_value_for_dict_key", [Pure]> {
     Example:
     ```mlir
     %dict = emitpy.global_statement @_CONST_EVAL_CACHE : !emitpy.dict
-    %tensors = emitpy.get_value_for_dict_key "_CONST_EVAL_CACHE" %dict[5 : index] : (!emitpy.dict) -> !emitpy.opaque<"[ttnn.Tensor]">
+    %tensors = emitpy.get_value_for_dict_key %dict[5 : index] : (!emitpy.dict) -> !emitpy.opaque<"[ttnn.Tensor]">
     ```
     ```python
     // Code emitted:
@@ -247,14 +246,13 @@ def EmitPy_GetValueForDictKeyOp : EmitPy_Op<"get_value_for_dict_key", [Pure]> {
   }];
 
   let arguments = (ins
-    Arg<StrAttr>:$dict_name,
     EmitPy_Dict:$dict,
     AnyAttrOf<[StrAttr, IndexAttr]>:$key
   );
 
   let results = (outs EmitPy_Type:$result);
 
-  let assemblyFormat = "$dict_name $dict `[` qualified($key) `]` attr-dict `:` functional-type($dict, $result)";
+  let assemblyFormat = "$dict `[` qualified($key) `]` attr-dict `:` functional-type($dict, $result)";
 }
 
 def EmitPy_VerbatimOp : EmitPy_Op<"verbatim"> {

@@ -2482,12 +2482,11 @@ public:
       return failure();
     }
     auto keyValue = std::stoi(calleeName.substr(lastUnderscoreIndex + 1).str());
-    mlir::Value globalVar =
-        rewriter
-            .create<emitpy::GetValueForDictKeyOp>(
-                loadCachedOp.getLoc(), tensorListType, globalDictName,
-                globalDict, rewriter.getIndexAttr(keyValue))
-            ->getResult(0);
+    mlir::Value globalVar = rewriter
+                                .create<emitpy::GetValueForDictKeyOp>(
+                                    loadCachedOp.getLoc(), tensorListType,
+                                    globalDict, rewriter.getIndexAttr(keyValue))
+                                ->getResult(0);
     operands.push_back(globalVar);
 
     // Call into the callee.
@@ -2504,8 +2503,8 @@ public:
     mlir::Value cacheResult = cacheOp->getResult(0);
 
     rewriter.create<emitpy::SetValueForDictKeyOp>(
-        loadCachedOp.getLoc(), globalDictName, globalDict,
-        rewriter.getIndexAttr(keyValue), cacheResult);
+        loadCachedOp.getLoc(), globalDict, rewriter.getIndexAttr(keyValue),
+        cacheResult);
 
     // Unpack the result list of tensors.
     //

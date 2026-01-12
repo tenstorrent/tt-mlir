@@ -69,7 +69,7 @@ module {
     // CHECK: global _CONST_EVAL_CACHE
     %dict = emitpy.global_statement @_CONST_EVAL_CACHE : !emitpy.dict
     // CHECK: _CONST_EVAL_CACHE[5] = {{.*}}
-    emitpy.set_value_for_dict_key "_CONST_EVAL_CACHE" %dict[5 : index] = %arg0 : (!emitpy.dict) -> !emitpy.opaque<"[ttnn.Tensor]">
+    emitpy.set_value_for_dict_key %dict[5 : index] = %arg0 : (!emitpy.dict) -> !emitpy.opaque<"[ttnn.Tensor]">
     return
   }
 }
@@ -88,7 +88,7 @@ module {
     // CHECK: global _CONST_EVAL_CACHE
     %dict = emitpy.global_statement @_CONST_EVAL_CACHE : !emitpy.dict
     // CHECK: {{.*}} = _CONST_EVAL_CACHE[5]
-    %tensors = emitpy.get_value_for_dict_key "_CONST_EVAL_CACHE" %dict[5 : index] : (!emitpy.dict) -> !emitpy.opaque<"[ttnn.Tensor]">
+    %tensors = emitpy.get_value_for_dict_key %dict[5 : index] : (!emitpy.dict) -> !emitpy.opaque<"[ttnn.Tensor]">
     // CHECK: return {{.*}}
     return %tensors : !emitpy.opaque<"[ttnn.Tensor]">
   }
@@ -108,9 +108,9 @@ module {
     // CHECK: global tensor_cache
     %dict = emitpy.global_statement @tensor_cache : !emitpy.dict
     // CHECK: tensor_cache[42] = {{.*}}
-    emitpy.set_value_for_dict_key "tensor_cache" %dict[42 : index] = %arg0 : (!emitpy.dict) -> !emitpy.opaque<"ttnn.Tensor">
+    emitpy.set_value_for_dict_key %dict[42 : index] = %arg0 : (!emitpy.dict) -> !emitpy.opaque<"ttnn.Tensor">
     // CHECK: {{.*}} = tensor_cache[42]
-    %output = emitpy.get_value_for_dict_key "tensor_cache" %dict[42 : index] : (!emitpy.dict) -> !emitpy.opaque<"ttnn.Tensor">
+    %output = emitpy.get_value_for_dict_key %dict[42 : index] : (!emitpy.dict) -> !emitpy.opaque<"ttnn.Tensor">
     // CHECK: return {{.*}}
     return %output : !emitpy.opaque<"ttnn.Tensor">
   }

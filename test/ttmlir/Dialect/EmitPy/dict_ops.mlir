@@ -89,8 +89,8 @@ module {
   // CHECK-LABEL: func.func @test_set_value_index_key
   func.func @test_set_value_index_key(%value: !emitpy.opaque<"[ttnn.Tensor]">) {
     %dict = emitpy.global_statement @_CONST_EVAL_CACHE : !emitpy.dict
-    // CHECK: emitpy.set_value_for_dict_key "_CONST_EVAL_CACHE" %{{.*}}[5 : index] = %{{.*}} : (!emitpy.dict) -> !emitpy.opaque<"[ttnn.Tensor]">
-    emitpy.set_value_for_dict_key "_CONST_EVAL_CACHE" %dict[5 : index] = %value : (!emitpy.dict) -> !emitpy.opaque<"[ttnn.Tensor]">
+    // CHECK: emitpy.set_value_for_dict_key %{{.*}}[5 : index] = %{{.*}} : (!emitpy.dict) -> !emitpy.opaque<"[ttnn.Tensor]">
+    emitpy.set_value_for_dict_key %dict[5 : index] = %value : (!emitpy.dict) -> !emitpy.opaque<"[ttnn.Tensor]">
     return
   }
 }
@@ -104,8 +104,8 @@ module {
   // CHECK-LABEL: func.func @test_set_value_string_key
   func.func @test_set_value_string_key(%value: !emitpy.opaque<"ttnn.Tensor">) {
     %dict = emitpy.global_statement @my_cache : !emitpy.dict
-    // CHECK: emitpy.set_value_for_dict_key "my_cache" %{{.*}}["tensor_key"] = %{{.*}} : (!emitpy.dict) -> !emitpy.opaque<"ttnn.Tensor">
-    emitpy.set_value_for_dict_key "my_cache" %dict["tensor_key"] = %value : (!emitpy.dict) -> !emitpy.opaque<"ttnn.Tensor">
+    // CHECK: emitpy.set_value_for_dict_key %{{.*}}["tensor_key"] = %{{.*}} : (!emitpy.dict) -> !emitpy.opaque<"ttnn.Tensor">
+    emitpy.set_value_for_dict_key %dict["tensor_key"] = %value : (!emitpy.dict) -> !emitpy.opaque<"ttnn.Tensor">
     return
   }
 }
@@ -123,8 +123,8 @@ module {
   // CHECK-LABEL: func.func @test_get_value_index_key
   func.func @test_get_value_index_key() -> !emitpy.opaque<"[ttnn.Tensor]"> {
     %dict = emitpy.global_statement @_CONST_EVAL_CACHE : !emitpy.dict
-    // CHECK: emitpy.get_value_for_dict_key "_CONST_EVAL_CACHE" %{{.*}}[5 : index] : (!emitpy.dict) -> !emitpy.opaque<"[ttnn.Tensor]">
-    %tensors = emitpy.get_value_for_dict_key "_CONST_EVAL_CACHE" %dict[5 : index] : (!emitpy.dict) -> !emitpy.opaque<"[ttnn.Tensor]">
+    // CHECK: emitpy.get_value_for_dict_key %{{.*}}[5 : index] : (!emitpy.dict) -> !emitpy.opaque<"[ttnn.Tensor]">
+    %tensors = emitpy.get_value_for_dict_key %dict[5 : index] : (!emitpy.dict) -> !emitpy.opaque<"[ttnn.Tensor]">
     return %tensors : !emitpy.opaque<"[ttnn.Tensor]">
   }
 }
@@ -138,8 +138,8 @@ module {
   // CHECK-LABEL: func.func @test_get_value_string_key
   func.func @test_get_value_string_key() -> !emitpy.opaque<"ttnn.Tensor"> {
     %dict = emitpy.global_statement @my_cache : !emitpy.dict
-    // CHECK: emitpy.get_value_for_dict_key "my_cache" %{{.*}}["tensor_key"] : (!emitpy.dict) -> !emitpy.opaque<"ttnn.Tensor">
-    %tensor = emitpy.get_value_for_dict_key "my_cache" %dict["tensor_key"] : (!emitpy.dict) -> !emitpy.opaque<"ttnn.Tensor">
+    // CHECK: emitpy.get_value_for_dict_key %{{.*}}["tensor_key"] : (!emitpy.dict) -> !emitpy.opaque<"ttnn.Tensor">
+    %tensor = emitpy.get_value_for_dict_key %dict["tensor_key"] : (!emitpy.dict) -> !emitpy.opaque<"ttnn.Tensor">
     return %tensor : !emitpy.opaque<"ttnn.Tensor">
   }
 }
@@ -157,10 +157,10 @@ module {
   // CHECK-LABEL: func.func @test_set_then_get
   func.func @test_set_then_get(%input: !emitpy.opaque<"ttnn.Tensor">) -> !emitpy.opaque<"ttnn.Tensor"> {
     %dict = emitpy.global_statement @tensor_cache : !emitpy.dict
-    // CHECK: emitpy.set_value_for_dict_key "tensor_cache" %{{.*}}[42 : index] = %{{.*}}
-    emitpy.set_value_for_dict_key "tensor_cache" %dict[42 : index] = %input : (!emitpy.dict) -> !emitpy.opaque<"ttnn.Tensor">
-    // CHECK: emitpy.get_value_for_dict_key "tensor_cache" %{{.*}}[42 : index]
-    %output = emitpy.get_value_for_dict_key "tensor_cache" %dict[42 : index] : (!emitpy.dict) -> !emitpy.opaque<"ttnn.Tensor">
+    // CHECK: emitpy.set_value_for_dict_key %{{.*}}[42 : index] = %{{.*}}
+    emitpy.set_value_for_dict_key %dict[42 : index] = %input : (!emitpy.dict) -> !emitpy.opaque<"ttnn.Tensor">
+    // CHECK: emitpy.get_value_for_dict_key %{{.*}}[42 : index]
+    %output = emitpy.get_value_for_dict_key %dict[42 : index] : (!emitpy.dict) -> !emitpy.opaque<"ttnn.Tensor">
     return %output : !emitpy.opaque<"ttnn.Tensor">
   }
 }

@@ -116,11 +116,8 @@ struct PythonEmitter {
   // Return the textual representation of a subscript operation.
   std::string getSubscriptName(SubscriptOp op);
 
-  /// Insert the op result into the value cache.
-  void cacheDeferredOpResult(Value value, StringRef str);
-
-  /// Register the result value with a name so it can be referenced later.
-  void registerResultValueName(Value value, std::string name);
+  /// Register a value with a name so it can be referenced later.
+  void registerDeferredValue(Value value, StringRef str);
 
   /// RAII helper function to manage entering/exiting Python scopes.
   struct Scope {
@@ -139,7 +136,7 @@ struct PythonEmitter {
     PythonEmitter &emitter;
   };
 
-  /// Returns wether the Value is assigned to a Python variable in the scope.
+  /// Returns whether the Value is assigned to a Python variable in the scope.
   bool hasValueInScope(Value value) { return valueMapper.count(value); };
 
   /// Reserve a name to prevent collisions.
@@ -191,15 +188,9 @@ std::string PythonEmitter::getSubscriptName(SubscriptOp op) {
   return name;
 }
 
-void PythonEmitter::cacheDeferredOpResult(Value value, StringRef str) {
+void PythonEmitter::registerDeferredValue(Value value, StringRef str) {
   if (!valueMapper.count(value)) {
     valueMapper.insert(value, str.str());
-  }
-}
-
-void PythonEmitter::registerResultValueName(Value value, std::string name) {
-  if (!valueMapper.count(value)) {
-    valueMapper.insert(value, name);
   }
 }
 
@@ -466,6 +457,9 @@ static LogicalResult printOperation(PythonEmitter &emitter,
 
 static LogicalResult printOperation(PythonEmitter &emitter,
                                     GlobalStatementOp globalStatementOp) {
+  emitter.registerDeferredValue(globalStatementOp.getResult(),
+                                globalStatementOp.getName());
+
   return emitter.emitGlobalStatement(globalStatementOp);
 }
 
@@ -474,7 +468,7 @@ static LogicalResult printOperation(PythonEmitter &emitter,
   raw_indented_ostream &os = emitter.ostream();
   StringRef dictName = createDictOp.getDictName();
 
-  emitter.registerResultValueName(createDictOp.getResult(), dictName.str());
+  emitter.registerDeferredValue(createDictOp.getResult(), dictName);
 
   os << dictName << " = ";
 
@@ -506,13 +500,16 @@ static LogicalResult printOperation(PythonEmitter &emitter,
                                     SetValueForDictKeyOp op) {
   raw_indented_ostream &os = emitter.ostream();
 
-  os << op.getDictName() << "[";
-
-  if (failed(emitter.emitAttribute(op.getLoc(), op.getKey()))) {
+  if (failed(emitter.emitOperand(op.getDict(), "dict_arg"))) {
     return failure();
   }
 
+  os << "[";
+  if (failed(emitter.emitAttribute(op.getLoc(), op.getKey()))) {
+    return failure();
+  }
   os << "] = ";
+
   if (failed(emitter.emitOperand(op.getValue(), "dict_value"))) {
     return failure();
   }
@@ -526,13 +523,17 @@ static LogicalResult printOperation(PythonEmitter &emitter,
   }
 
   raw_indented_ostream &os = emitter.ostream();
-  os << op.getDictName() << "[";
 
-  if (failed(emitter.emitAttribute(op.getLoc(), op.getKey()))) {
+  if (failed(emitter.emitOperand(op.getDict(), "dict_arg"))) {
     return failure();
   }
 
+  os << "[";
+  if (failed(emitter.emitAttribute(op.getLoc(), op.getKey()))) {
+    return failure();
+  }
   os << "]";
+
   return success();
 }
 
@@ -547,11 +548,11 @@ LogicalResult PythonEmitter::emitOperation(Operation &op) {
                 SetValueForDictKeyOp, GetValueForDictKeyOp>(
               [&](auto op) { return printOperation(*this, op); })
           .Case<GetGlobalOp>([&](auto op) {
-            cacheDeferredOpResult(op.getResult(), op.getName());
+            registerDeferredValue(op.getResult(), op.getName());
             return success();
           })
           .Case<LiteralOp>([&](auto op) {
-            cacheDeferredOpResult(op.getResult(), op.getValue());
+            registerDeferredValue(op.getResult(), op.getValue());
             return success();
           })
           // Func ops.

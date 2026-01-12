@@ -12,8 +12,8 @@ module {
   // CHECK-LABEL: func.func @forward
   func.func @forward(%arg0: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<input>}, %arg1: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg2: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<parameter>}, %arg3: tensor<32x32xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> tensor<32x32xbf16> {
     // CHECK: %{{.*}} = emitpy.global_statement @_CONST_EVAL_CACHE : !emitpy.dict<index, !emitpy.opaque<"[ttnn.Tensor]">>
-    // CHECK: %{{.*}} = emitpy.get_value_for_dict_key "_CONST_EVAL_CACHE" %{{.*}}[0 : index] : (!emitpy.dict<index, !emitpy.opaque<"[ttnn.Tensor]">>) -> !emitpy.opaque<"[ttnn.Tensor]">
-    // CHECK: emitpy.set_value_for_dict_key "_CONST_EVAL_CACHE" %{{.*}}[0 : index] = %{{.*}} : (!emitpy.dict<index, !emitpy.opaque<"[ttnn.Tensor]">>) -> !emitpy.opaque<"[ttnn.Tensor]">
+    // CHECK: %{{.*}} = emitpy.get_value_for_dict_key %{{.*}}[0 : index] : (!emitpy.dict<index, !emitpy.opaque<"[ttnn.Tensor]">>) -> !emitpy.opaque<"[ttnn.Tensor]">
+    // CHECK: emitpy.set_value_for_dict_key %{{.*}}[0 : index] = %{{.*}} : (!emitpy.dict<index, !emitpy.opaque<"[ttnn.Tensor]">>) -> !emitpy.opaque<"[ttnn.Tensor]">
     %1 = "ttir.add"(%arg0, %arg1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
     %3 = "ttir.add"(%arg1, %arg2) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
     %5 = "ttir.add"(%arg2, %arg3) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
