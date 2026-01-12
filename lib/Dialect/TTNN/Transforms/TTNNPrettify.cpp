@@ -80,7 +80,7 @@ public:
     // Create new functions based on boundary information.
     //
     auto newFunctions =
-        createNewFunctions(rewriter, candidateFn, boundaryInfos);
+        createNewFunctions(rewriter, candidateFn, boundaryInfos, funcGroups);
     logNewFunctions(newFunctions);
 
     // Populate function bodies with operations.
@@ -511,16 +511,41 @@ private:
 
   // Create new function declarations based on boundary information.
   //
-  llvm::StringMap<func::FuncOp> createNewFunctions(
-      IRRewriter &rewriter, func::FuncOp candidateFn,
-      const llvm::StringMap<FunctionBoundaryInfo> &boundaryInfos) {
+  llvm::StringMap<func::FuncOp>
+  createNewFunctions(IRRewriter &rewriter, func::FuncOp candidateFn,
+                     const llvm::StringMap<FunctionBoundaryInfo> &boundaryInfos,
+                     const llvm::StringMap<FuncGroup>
+                         &funcGroups) { // Needed for the execution order
+
     llvm::StringMap<func::FuncOp> newFunctions;
 
     // Track function name counts to generate unique names.
     //
     llvm::StringMap<unsigned> funcNameCounts;
 
-    for (const auto &[funcPath, info] : boundaryInfos) {
+    // Vector for sorting the keys by index in ascending order
+    //
+    SmallVector<StringRef> sortedFuncPaths;
+    for (const auto &entry : boundaryInfos) {
+      sortedFuncPaths.push_back(entry.getKey());
+    }
+    std::sort(sortedFuncPaths.begin(), sortedFuncPaths.end(),
+              [&](StringRef a, StringRef b) {
+                // Using .find() since the key always exists
+                //
+                return funcGroups.find(a)->second.index <
+                       funcGroups.find(b)->second.index;
+              });
+
+    // Setting insertion point to start after _main function
+    //
+    rewriter.setInsertionPointAfter(candidateFn);
+
+    // Iterate through sorted vector
+    //
+    for (const auto &funcPath : sortedFuncPaths) {
+      const auto &info = boundaryInfos.lookup(funcPath);
+
       // Generate unique function name with suffix.
       //
       unsigned count = funcNameCounts[info.funcName]++;
@@ -545,11 +570,6 @@ private:
       FunctionType funcType =
           FunctionType::get(rewriter.getContext(), inputTypes, outputTypes);
 
-      // Set insertion point to after the candidate function in the same parent
-      // module.
-      //
-      rewriter.setInsertionPointAfter(candidateFn);
-
       // Create the new function.
       //
       func::FuncOp newFunc = rewriter.create<func::FuncOp>(
@@ -562,6 +582,10 @@ private:
       // Store the function in the map.
       //
       newFunctions[funcPath] = newFunc;
+
+      // Set insertion point after the new function
+      //
+      rewriter.setInsertionPointAfter(newFunc);
     }
 
     return newFunctions;
