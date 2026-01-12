@@ -7,19 +7,6 @@
 
 include "mlir/IR/EnumAttr.td"
 
-def TTIR_PoolingMethodAverage : I32EnumAttrCase<"Average", 0>;
-def TTIR_PoolingMethodMax : I32EnumAttrCase<"Max", 1>;
-def TTIR_PoolingMethodSum : I32EnumAttrCase<"Sum", 2>;
-
-def TTIR_PoolingMethod : I32EnumAttr<"PoolingMethod", "TTIR PoolingMethod", [
-                                      TTIR_PoolingMethodAverage,
-                                      TTIR_PoolingMethodMax,
-                                      TTIR_PoolingMethodSum
-                                    ]> {
-  let genSpecializedAttr = 0;
-  let cppNamespace = "::mlir::tt::ttir";
-}
-
 def TTIR_ReduceDimRow : I32EnumAttrCase<"R", 0>;
 def TTIR_ReduceDimCol : I32EnumAttrCase<"C", 1>;
 def TTIR_ReduceDimRowCol : I32EnumAttrCase<"RC", 2>;

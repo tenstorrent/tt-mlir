@@ -2445,10 +2445,10 @@ enum StableHLOChannelType {
   kChannelTypeHostToDevice = 3,
 };
 
-// Decompose SelectAndScatter into MaxPool2dWithIndices + ScatterInDim:
+// Decompose SelectAndScatter into MaxPool2dWithIndices + Scatter:
 // 1. MaxPool2dWithIndices finds the maximum values and their flattened indices
 // within each pooling window.
-// 2. ScatterInDim scatters the corresponding source values back into those
+// 2. Scatter scatters the corresponding source values back into those
 // positions.
 //
 // This decomposition currently supports only SelectAndScatter operations where
@@ -2457,7 +2457,7 @@ enum StableHLOChannelType {
 // workloads.
 //
 // If multiple windows overlap (e.g., stride < window size), several source
-// values may map to the same index. In that case, ScatterInDim reduces them
+// values may map to the same index. In that case, Scatter reduces them
 // using the reduction function specified in the scatter operation (e.g., add,
 // multiply, etc.).
 //
@@ -2488,7 +2488,7 @@ enum StableHLOChannelType {
 //   - Indices:    [[ 4,  6],
 //                  [13, 15]]
 //
-// Step 2: ScatterInDim
+// Step 2: Scatter
 //   - Scatter the source values [[10,20],[30,40]] into the flattened positions
 //   above.
 //   - Result (reshaped back to 4x4):
@@ -2644,7 +2644,7 @@ public:
         permutation, "_permuteFullTensor");
 
     // Calling MaxPool2dWithIndices op on operand
-    // and obtaining indices which will be used for ScatterInDim
+    // and obtaining indices which will be used for Scatter
     auto pooledType = RankedTensorType::get(sourcePermShape,
                                             source.getType().getElementType());
     auto indicesType =
