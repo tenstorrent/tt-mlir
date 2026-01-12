@@ -17,6 +17,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNFusing.cpp
         TTNNLayout.cpp
         TTNNPrettify.cpp
+        TTNNPrettifyUtils.cpp
         TTNNSetComputeKernelConfig.cpp
         TTNNToCpp.cpp
         TTNNToPython.cpp
