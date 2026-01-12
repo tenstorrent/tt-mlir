@@ -3263,7 +3263,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::LayerNormOp> emitter(
-        srcOp, adaptor, rewriter);
+        srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
@@ -3823,7 +3823,8 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   //
   patterns.add<BatchNormInferenceOpConversionPattern,
                BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
-               LayerNormOpConversionPattern>(typeConverter, ctx, enableGoldenMode);
+               LayerNormOpConversionPattern>(typeConverter, ctx,
+                                             enableGoldenMode);
 
   // Transformers ops
   //
