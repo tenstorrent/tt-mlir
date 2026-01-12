@@ -41,7 +41,7 @@ public:
 
 private:
   // Effective L1 cache size scaled by tensorL1UsageCap from module attribute.
-  // Calculated in constructor using utils::getTensorL1UsageCap().
+  // Calculated once at the start of run() using utils::getTensorL1UsageCap().
   uint64_t usableL1CacheSize;
 
   // Check if the op is analyzable. Op is analyzable if it has at least one
