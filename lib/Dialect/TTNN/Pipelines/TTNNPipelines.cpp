@@ -13,6 +13,7 @@
 #include "ttmlir/Dialect/TTCore/Utils/PopulateArgumentTypes.h"
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTMetal/Pipelines/TTMetalPipelines.h"
 #include "ttmlir/Dialect/TTNN/Transforms/DevicePassesWrapper.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Transforms/Passes.h"
@@ -96,6 +97,7 @@ void createTTNNPipelineAnalysisPasses(
     ttnn::TTNNOperationValidationAndFallbackOptions validationOptions;
     validationOptions.tensorL1UsageCap = options.tensorL1UsageCap;
     validationOptions.maxFallbackAttempts = options.maxFallbackAttempts;
+    validationOptions.d2mFallbackEnabled = options.d2mFallbackEnabled;
 
     pm.addPass(createDevicePassesWrapper(
         [optimizerOptions, validationOptions](OpPassManager &innerPm) {
@@ -326,6 +328,26 @@ void createTTIRToTTNNDevicePipeline(
       devicePm.addPass(
           mlir::tt::ttnn::createTTNNCollectPerfMetrics(metricsOptions));
     }
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+    if (options.d2mFallbackEnabled) {
+      devicePm.addPass(createConvertTTNNToTTIRPass());
+
+      // Run the D2M frontend/middleend/backend pipelines directly.
+      // We can't use createTTIRToTTMetalPipeline because we're already nested
+      // inside DeviceModuleOp.ModuleOp and that function tries to create its
+      // own DeviceModuleOp wrapper.
+      ttmetal::TTIRToTTMetalPipelineOptions ttmetalOptions;
+      ttmetalOptions.systemDescPath = options.systemDescPath;
+      ttmetalOptions.mockSystemDescArch = options.mockSystemDescArch;
+      ttmetalOptions.meshShape = llvm::to_vector(options.meshShape);
+      ttmetalOptions.ttnnMode = true;
+
+      ttmetal::createTTIRToTTMetalFrontendPipeline(devicePm, ttmetalOptions);
+      ttmetal::createTTIRToTTMetalMiddleendPipeline(devicePm, ttmetalOptions);
+      ttmetal::createTTIRToTTMetalBackendPipeline(devicePm, ttmetalOptions);
+    }
+#endif
   }
 }
 

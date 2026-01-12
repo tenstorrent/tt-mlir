@@ -399,6 +399,13 @@ struct TTIRToTTNNDevicePipelineOptions
           "Validation and Fallback pass. 0 means unlimited attempts."),
       llvm::cl::init(10000)};
 
+  Option<bool> d2mFallbackEnabled{
+      *this, "d2m-fallback-enabled",
+      llvm::cl::desc(
+          "Enable D2M fallback: mark ops for D2M compilation instead of "
+          "failing when all fallback configurations are exhausted."),
+      llvm::cl::init(false)};
+
   // Option to provide a pointer to an already opened device. When provided,
   // the optimizer will use this device instead of opening a new one.
   // This allows frontends to pass in an active device without closing it.

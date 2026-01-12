@@ -191,11 +191,17 @@ struct TTIRToTTMetalPipelineOptions
 void createTTIRBufferizationPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options);
 
-void createTTIRToTTMetalBackendPipeline(
+void createTTIRToTTMetalFrontendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options);
 
 void createTTIRToTTMetalMiddleendPipeline(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options);
+
+void createTTIRToTTMetalBackendPipeline(
+    OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options);
+
+void createTTIRToTTMetalPipeline(OpPassManager &pm,
+                                 const TTIRToTTMetalPipelineOptions &options);
 
 void createTTIRToTTMetalPipelineDebug(
     OpPassManager &pm, const TTIRToTTMetalPipelineOptions &options);
