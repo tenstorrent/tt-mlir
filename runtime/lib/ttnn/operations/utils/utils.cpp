@@ -226,6 +226,102 @@ createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::MatmulOp *op) {
   }
 }
 
+std::optional<::ttnn::operations::matmul::MatmulProgramConfig>
+createMatmulProgramConfigIfNeeded(const ::tt::target::ttnn::LinearOp *op) {
+  if (!op->matmul_program_config()) {
+    return std::nullopt;
+  }
+
+  ::ttnn::operations::matmul::MatmulProgramConfig matmulProgramConfig;
+  switch (op->matmul_program_config_type()) {
+  case ::tt::target::ttnn::MatmulProgramConfig::
+      MatmulMultiCoreReuseProgramConfig: {
+    auto *config =
+        op->matmul_program_config_as_MatmulMultiCoreReuseProgramConfig();
+    return ::ttnn::operations::matmul::MatmulMultiCoreReuseProgramConfig{
+        .compute_with_storage_grid_size =
+            ::tt::runtime::ttnn::utils::toTTNNCoreCoord(
+                *config->compute_with_storage_grid_size()),
+        .in0_block_w = config->in0_block_w(),
+        .out_subblock_h = config->out_subblock_h(),
+        .out_subblock_w = config->out_subblock_w(),
+        .per_core_M = config->per_core_m(),
+        .per_core_N = config->per_core_n()};
+  }
+  case ::tt::target::ttnn::MatmulProgramConfig::
+      MatmulMultiCoreReuseMultiCastProgramConfig: {
+    auto *config =
+        op->matmul_program_config_as_MatmulMultiCoreReuseMultiCastProgramConfig();
+    return ::ttnn::operations::matmul::
+        MatmulMultiCoreReuseMultiCastProgramConfig{
+            .compute_with_storage_grid_size =
+                ::tt::runtime::ttnn::utils::toTTNNCoreCoord(
+                    *config->compute_with_storage_grid_size()),
+            .in0_block_w = config->in0_block_w(),
+            .out_subblock_h = config->out_subblock_h(),
+            .out_subblock_w = config->out_subblock_w(),
+            .out_block_h = config->out_block_h(),
+            .out_block_w = config->out_block_w(),
+            .per_core_M = config->per_core_m(),
+            .per_core_N = config->per_core_n(),
+            .transpose_mcast = config->transpose_mcast(),
+            .fused_activation =
+                config->fused_activation()
+                    ? std::optional<::ttnn::operations::unary::UnaryWithParam>(
+                          toTTNNUnaryWithParam(*config->fused_activation()))
+                    : std::nullopt,
+            .fuse_batch = config->fuse_batch()};
+  }
+  case ::tt::target::ttnn::MatmulProgramConfig::
+      MatmulMultiCoreReuseMultiCast1DProgramConfig: {
+    auto *config =
+        op->matmul_program_config_as_MatmulMultiCoreReuseMultiCast1DProgramConfig();
+    return ::ttnn::operations::matmul::
+        MatmulMultiCoreReuseMultiCast1DProgramConfig{
+            .compute_with_storage_grid_size =
+                ::tt::runtime::ttnn::utils::toTTNNCoreCoord(
+                    *config->compute_with_storage_grid_size()),
+            .in0_block_w = config->in0_block_w(),
+            .out_subblock_h = config->out_subblock_h(),
+            .out_subblock_w = config->out_subblock_w(),
+            .out_block_h = config->out_block_h(),
+            .out_block_w = config->out_block_w(),
+            .per_core_M = config->per_core_m(),
+            .per_core_N = config->per_core_n(),
+            .fuse_batch = config->fuse_batch(),
+            .fused_activation =
+                config->fused_activation()
+                    ? std::optional<::ttnn::operations::unary::UnaryWithParam>(
+                          toTTNNUnaryWithParam(*config->fused_activation()))
+                    : std::nullopt,
+            .mcast_in0 = config->mcast_in0(),
+            .gather_in0 = config->gather_in0(),
+            .hop_cores = ::tt::runtime::ttnn::utils::toTTNNCoreRangeSet(
+                *config->hop_cores()),
+            .num_global_cb_receivers = config->num_global_cb_receivers(),
+            .untilize_out = config->untilize_out()};
+  }
+  case ::tt::target::ttnn::MatmulProgramConfig::
+      MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig: {
+    auto *config =
+        op->matmul_program_config_as_MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig();
+    return ::ttnn::operations::matmul::
+        MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig{
+            .in0_block_w = config->in0_block_w(),
+            .per_core_M = config->per_core_m(),
+            .per_core_N = config->per_core_n(),
+            .fused_activation =
+                config->fused_activation()
+                    ? std::optional<::ttnn::operations::unary::UnaryWithParam>(
+                          toTTNNUnaryWithParam(*config->fused_activation()))
+                    : std::nullopt,
+        };
+  }
+  default:
+    LOG_FATAL("Unsupported MatmulProgramConfig type");
+  }
+}
+
 ::ttnn::operations::conv::conv2d::Conv2dConfig
 createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
   ::ttnn::operations::conv::conv2d::Conv2dConfig conv2dConfig;
@@ -299,9 +395,14 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
         *config->enable_kernel_stride_folding();
   }
 
-  if (config->config_tensors_in_dram()) {
-    conv2dConfig.config_tensors_in_dram = *config->config_tensors_in_dram();
-  }
+  // TODO(vkovacevic): Failing with tt-metal error:
+  // "CB page size 64 should be greater than the config tensor page size 132"
+  // Disabled until fixed in tt-metal
+  // https://github.com/tenstorrent/tt-metal/issues/35207
+
+  // if (config->config_tensors_in_dram()) {
+  //   conv2dConfig.config_tensors_in_dram = *config->config_tensors_in_dram();
+  // }
 
   return conv2dConfig;
 }
@@ -331,27 +432,14 @@ createConv2dSliceConfig(const ::tt::target::ttnn::Conv2dSliceConfig *config) {
   return sliceConfig;
 }
 
-::ttnn::operations::experimental::conv3d::Conv3dConfig createConv3dConfig(
-    const ::tt::target::ttnn::Conv3dConfig *config, uint32_t outChannels,
-    const std::array<uint32_t, 3> &kernelSize,
-    const std::array<uint32_t, 3> &stride,
-    const std::array<uint32_t, 3> &padding, const std::string &paddingMode,
-    uint32_t groups, const std::optional<::ttnn::DataType> &outputDtype,
-    ::ttnn::MeshDevice &targetDevice) {
+::ttnn::operations::experimental::conv3d::Conv3dConfig
+createConv3dConfig(const ::tt::target::ttnn::Conv3dConfig *config,
+                   ::ttnn::MeshDevice &targetDevice) {
 
   ::ttnn::operations::experimental::conv3d::Conv3dConfig conv3dConfig;
 
-  // Set basic parameters
-  conv3dConfig.output_channels = outChannels;
-  conv3dConfig.kernel_size = kernelSize;
-  conv3dConfig.stride = stride;
-  conv3dConfig.padding = padding;
-  conv3dConfig.padding_mode = paddingMode;
-  conv3dConfig.groups = groups;
-  conv3dConfig.dtype = outputDtype.value_or(::ttnn::DataType::BFLOAT16);
   conv3dConfig.compute_with_storage_grid_size =
       targetDevice.compute_with_storage_grid_size();
-  conv3dConfig.weights_dtype = ::ttnn::DataType::BFLOAT16;
 
   // Apply config overrides from flatbuffer if provided
   if (config) {
@@ -375,9 +463,6 @@ createConv2dSliceConfig(const ::tt::target::ttnn::Conv2dSliceConfig *config) {
       conv3dConfig.C_in_block = *config->c_in_block();
     }
   }
-
-  // Default output layout (ROW_MAJOR required by conv3d device op)
-  conv3dConfig.output_layout = ::ttnn::Layout::ROW_MAJOR;
 
   return conv3dConfig;
 }

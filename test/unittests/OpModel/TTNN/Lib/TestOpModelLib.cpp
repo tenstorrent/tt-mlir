@@ -2276,7 +2276,8 @@ TEST_P(OpModelLinearParam, LinearParam) {
 
   auto constraintsExp = OpModel<LinearOp>::getOpConstraints(
       CreateWorkerGrid(), inputShapeA, inputLayoutA, inputShapeB, inputLayoutB,
-      biasShape, biasLayout, outputLayout, false, false);
+      biasShape, biasLayout, outputLayout, false, false,
+      /*programConfig=*/std::nullopt);
 
   // Manually cast to bool because EXPECT_TRUE requires a const bool operator
   // which llvm::Expected<T> does not have
@@ -2497,7 +2498,7 @@ TEST_P(OpModelMatmulParam, MatmulParam) {
 
   auto constraintsExp = OpModel<MatmulOp>::getOpConstraints(
       CreateWorkerGrid(), inputShapeA, inputLayoutA, inputShapeB, inputLayoutB,
-      outputLayout, false, false);
+      outputLayout, false, false, /*programConfig=*/std::nullopt);
 
   // Manually cast to bool because EXPECT_TRUE requires a const bool operator
   // which llvm::Expected<T> does not have
@@ -2815,6 +2816,9 @@ class OpModelConvTranspose2dParam
                      detail::ExpectedResult>> {};
 
 TEST_P(OpModelConvTranspose2dParam, ConvTranspose2d) {
+  GTEST_SKIP()
+      << "Skipping ConvTranspose2d test until metal fix lands."
+      << "Tracked here: https://github.com/tenstorrent/tt-metal/issues/35028";
   auto params = GetParam();
   const auto [inputShape, inputTensorLayout, inputBufferType,
               inputVirtualGrid] = std::get<0>(params);

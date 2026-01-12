@@ -1,6 +1,7 @@
 include(BuildFlatbuffers)
 
 set(TTNN_OPERATIONS_FBS_GEN_SOURCES
+  operations/debug.fbs
   operations/ccl.fbs
   operations/get_device.fbs
   operations/configs.fbs

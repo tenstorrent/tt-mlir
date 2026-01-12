@@ -8493,6 +8493,7 @@ class TTIRBuilder(Builder):
         return ne_module, ne_builder
 
     ############### ttir.WhereOp ###############
+
     @tag(ttir.WhereOp)
     def where(
         self,
@@ -9734,43 +9735,121 @@ class TTIRBuilder(Builder):
             ttir_kwargs={"approximate": approximate},
         )
 
-    def is_finite(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
-        """
-        Creates ``ttir.is_finite``.
+    ############### ttir.IsFiniteOp ###############
 
-        *Elementwise finite check operation.*
+    @tag(ttir.IsFiniteOp)
+    def is_finite(
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.is_finite)
 
-        Checks if each element in the input tensor is finite (neither infinite nor NaN).
-        For each element, returns a boolean value indicating whether the element is finite.
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
-        Mathematical definition: isfinite(x) = x ∈ ℝ
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
-        .. code-block:: mlir
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
 
-            // Check if elements are finite
-            %result = ttir.is_finite(%input, %output) : tensor<4xf32>, tensor<4xi1> -> tensor<4xi1>
-            // Input tensor:
-            // [1.0, inf, -inf, nan]
-            // Output tensor:
-            // [true, false, false, false]
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-        """
-        return self._op_proxy(
-            ttir.IsFiniteOp,
-            [in0],
-            unit_attrs,
-            output_type=F32Type.get(self._ctx),
+        op = ttir_op(
+            result,
+            in0,
+            loc=loc,
         )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttir.IsFiniteOp)
+    def is_finite_parser(
+        self,
+        old_op: ttir.IsFiniteOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.is_finite_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttir_op(result, in0, loc=old_op.location)
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(input0, result.element_type)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttir.IsFiniteOp)
+    def is_finite_split(
+        self,
+        old_op: ttir.IsFiniteOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.is_finite_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            is_finite_module = Module.create()
+            is_finite_builder = TTIRBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.input.type,
+            ]
+
+            with InsertionPoint(is_finite_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="is_finite_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttir_op(result, in0, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttir_op)
+                        input0 = self._get_golden_tensor(old_op.input)
+                        golden_output = op_golden_function(input0, result.element_type)
+                        is_finite_builder._set_golden_tensor(
+                            new_op_result, golden_output
+                        )
+                        is_finite_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.extend([in0])
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                is_finite_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return is_finite_module, is_finite_builder
 
     def bitwise_not(
         self, in0: Operand, unit_attrs: Optional[List[str]] = None

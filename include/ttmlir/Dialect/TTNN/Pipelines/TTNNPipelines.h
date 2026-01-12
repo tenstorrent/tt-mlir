@@ -348,6 +348,32 @@ struct TTIRToTTNNDevicePipelineOptions
           "matrix multiplication and convolution operations to bfp8_b."),
       llvm::cl::init(false)};
 
+  // ComputeKernelConfig options
+  // Note: computeCfgMathFidelity default value (HiFi4) is not used unless
+  // computeCfgMathFidelitySet is true. The default exists only to satisfy
+  // Option<T>'s requirement for an initialized value.
+  Option<MathFidelity> computeCfgMathFidelity{
+      *this, "compute-cfg-math-fidelity",
+      llvm::cl::desc("Set math fidelity for all ttnn operations exposing "
+                     "compute kernel config."),
+      llvm::cl::values(
+          clEnumValN(MathFidelity::LoFi, "lofi", "Low fidelity math"),
+          clEnumValN(MathFidelity::HiFi2, "hifi2", "High fidelity 2"),
+          clEnumValN(MathFidelity::HiFi3, "hifi3", "High fidelity 3"),
+          clEnumValN(MathFidelity::HiFi4, "hifi4", "High fidelity 4")),
+      llvm::cl::init(MathFidelity::HiFi4)};
+
+  // Internal flag to track whether computeCfgMathFidelity was explicitly set.
+  // This enables distinguishing "unset" from "explicitly set to any value".
+  // Frontend propagation must use setComputeCfgMathFidelity() to set this flag.
+  bool computeCfgMathFidelitySet = false;
+
+  Option<bool> computeCfgFp32DestAccEn{
+      *this, "compute-cfg-fp32-dest-acc-en",
+      llvm::cl::desc("Set fp32 destination accumulation for all ttnn "
+                     "operations exposing compute kernel config."),
+      llvm::cl::init(false)};
+
   Option<bool> ttnnPerfMetricsEnabled{
       *this, "ttnn-perf-metrics-enabled",
       llvm::cl::desc("Enable performance metrics collection."),
@@ -366,6 +392,13 @@ struct TTIRToTTNNDevicePipelineOptions
       llvm::cl::desc(
           "Enable verbose output with per-operation details in metrics."),
       llvm::cl::init(true)};
+
+  Option<uint32_t> maxFallbackAttempts{
+      *this, "max-fallback-attempts",
+      llvm::cl::desc(
+          "Maximum number of fallback attempts per operation in Operation "
+          "Validation and Fallback pass. 0 means unlimited attempts."),
+      llvm::cl::init(10000)};
 
   // Option to provide a pointer to an already opened device. When provided,
   // the optimizer will use this device instead of opening a new one.
@@ -392,6 +425,14 @@ struct TTIRToTTNNDevicePipelineOptions
     if (memoryLayoutAnalysisEnabled.getNumOccurrences() == 0) {
       memoryLayoutAnalysisEnabled = (optimizationLevel >= 2);
     }
+  }
+
+  // Helper to set computeCfgMathFidelity programmatically (e.g., from
+  // frontend). This setter ensures both the value and the presence flag are
+  // updated together.
+  void setComputeCfgMathFidelity(MathFidelity v) {
+    computeCfgMathFidelity = v;
+    computeCfgMathFidelitySet = true;
   }
 };
 

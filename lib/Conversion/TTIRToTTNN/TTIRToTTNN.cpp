@@ -1143,7 +1143,8 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::LinearOp>(
         op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),
         adaptor.getB(), adaptor.getBias(), adaptor.getTransposeA(),
-        adaptor.getTransposeB(), /*activation=*/nullptr);
+        adaptor.getTransposeB(), /*activation=*/nullptr,
+        /*matmul_program_config=*/nullptr, /*compute_config=*/nullptr);
     return success();
   }
 };
@@ -1356,6 +1357,8 @@ public:
     auto outputDtypeAttr =
         rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
 
+    // Config tensors are allocated in L1 by default in Metal.
+    // In the general path, we want to allocate them in DRAM to prevent OOM.
     auto conv2dConfigAttr = ttnn::Conv2dConfigAttr::get(rewriter.getContext())
                                 .withConfigTensorsInDram(true);
 
@@ -1621,12 +1624,17 @@ public:
     auto outputDtypeAttr =
         rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
 
+    // Config tensors are allocated in L1 by default in Metal.
+    // In the general path, we want to allocate them in DRAM to prevent OOM.
+    auto conv2dConfigAttr = ttnn::Conv2dConfigAttr::get(rewriter.getContext())
+                                .withConfigTensorsInDram(true);
+
     rewriter.replaceOpWithNewOp<ttnn::ConvTranspose2dOp>(
         op, getTypeConverter()->convertType(outputTy), adaptor.getInput(),
         adaptor.getWeight(), adaptor.getBias(), device, inChannelsAttr,
         outChannelsAttr, batchSizeAttr, inputHeightAttr, inputWidthAttr,
         kernelSizeAttr, *strideAttr, reducedPaddingAttr, *outputPaddingAttr,
-        *dilationAttr, groupsAttr, outputDtypeAttr, /*conv2d_config=*/nullptr,
+        *dilationAttr, groupsAttr, outputDtypeAttr, conv2dConfigAttr,
         /*compute_config=*/nullptr, /*memoryConfig=*/nullptr);
 
     return success();
@@ -2268,7 +2276,11 @@ public:
 
     ttcore::DataTypeAttr dtypeAttr = rewriter.getAttr<ttcore::DataTypeAttr>(
         ttcore::elementTypeToDataType(outputType.getElementType()));
-    Value device = mlir::tt::ttnn::utils::getOrInsertDevice(rewriter, op);
+
+    mlir::Value device =
+        ttnnLayoutAttr.isDeviceBufferType()
+            ? mlir::Value(::ttnn::utils::getOrInsertDevice(rewriter, op))
+            : nullptr;
 
     ttnn::Layout ttnnLayoutEnum = ttnn::Layout::RowMajor;
 

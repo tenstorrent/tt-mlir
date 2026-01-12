@@ -9,11 +9,15 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
+
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
+#include <atomic>
+#include <numeric>
+#include <thread>
 
 namespace ttmlir::utils {
 
@@ -222,9 +226,12 @@ inline mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
   auto overallStride = mlir::getAffineConstantExpr(1, ctx);
   for (auto [i, dimStride] :
        utils::iterateInAscendingStrideOrder(outputShape)) {
-    auto dim = mlir::getAffineDimExpr(i, ctx);
-    expr = (dim * overallStride) + expr;
-    overallStride = overallStride * dimStride;
+    // Dims of size 1 contribute nothing.
+    if (dimStride > 1) {
+      auto dim = mlir::getAffineDimExpr(i, ctx);
+      expr = dim * overallStride + expr;
+      overallStride = overallStride * dimStride;
+    }
   }
   auto outputToFlat = mlir::AffineMap::get(outputRank, 0, {expr}, ctx);
 
@@ -234,7 +241,12 @@ inline mlir::AffineMap calculateReblockMap(mlir::ArrayRef<int64_t> inputShape,
   overallStride = mlir::getAffineConstantExpr(1, ctx);
   auto dim = mlir::getAffineDimExpr(0, ctx);
   for (auto [i, dimStride] : utils::iterateInAscendingStrideOrder(inputShape)) {
-    toInputExprs[i] = (dim.floorDiv(overallStride)) % dimStride;
+    toInputExprs[i] = dim.floorDiv(overallStride);
+    // Modulo on the outermost grid dim is unnecessary, but we allow "mod 1"
+    // since it reduces the entire term to 0.
+    if (!(i == 0 && dimStride != 1)) {
+      toInputExprs[i] = toInputExprs[i] % dimStride;
+    }
     overallStride = overallStride * dimStride;
   }
   auto flatToInput = mlir::AffineMap::get(1, 0, toInputExprs, ctx);
@@ -363,6 +375,93 @@ buildPhysicalToDeviceMap(mlir::ArrayRef<int64_t> physicalShape,
   }
 
   return mlir::AffineMap::get(rank, 0, deviceExprs, context);
+}
+
+/// Calculates the coalescing factor for an affine map by sampling over the
+/// given input shape. The coalescing factor is the greatest common divisor of
+/// all contiguous run lengths, representing the maximum number of elements that
+/// can be transferred in a single coalesced operation.
+///
+/// When numGridDims > 0, the first numGridDims dimensions are treated as "grid"
+/// dimensions. For each grid coordinate, a shard coalescing factor is computed
+/// by sampling over the remaining "shard" dimensions. The combined coalescing
+/// factor is the GCD of all shard coalescing factors across all grid points.
+///
+/// This is useful for determining how to break up DMA transfers - a coalescing
+/// factor equal to the shard volume means fully contiguous access within
+/// shards, while a factor of 1 means each element must be transferred
+/// individually.
+///
+/// Example: For a row-major 2D layout map (d0, d1) -> (d0 * 4 + d1)
+///          with shape [2, 4], stride 1, and numGridDims=0, returns 8
+///          (fully contiguous) because consecutive elements produce
+///          addresses: 0,1,2,3,4,5,6,7.
+///
+/// Example: For a column-major map (d0, d1) -> (d1 * 2 + d0)
+///          with shape [2, 4], stride 1, and numGridDims=0, returns 1
+///          because consecutive row-major indices produce addresses:
+///          0,2,4,6,1,3,5,7 (no consecutive runs longer than 1).
+inline size_t calculateCoalescingFactor(mlir::AffineMap map,
+                                        mlir::ArrayRef<int64_t> shape,
+                                        int64_t stride,
+                                        unsigned numGridDims = 0) {
+  TT_assertv(map.getNumDims() == shape.size(),
+             "Map dimensions must match shape size");
+  TT_assertv(numGridDims <= shape.size(),
+             "Number of grid dims cannot exceed shape size");
+
+  // Extract grid and shard shapes
+  mlir::ArrayRef<int64_t> gridShape = shape.take_front(numGridDims);
+  mlir::ArrayRef<int64_t> shardShape = shape.drop_front(numGridDims);
+
+  // If no shard dims, trivially contiguous (volume is 1)
+  if (shardShape.empty()) {
+    return 1;
+  }
+
+  size_t shardVolume = volume(shardShape);
+  size_t coalescingFactor = shardVolume;
+
+  mlir::SmallVector<int64_t> memoryIndex;
+  memoryIndex.resize(gridShape.size() + shardShape.size());
+  sample(gridShape, [&](mlir::ArrayRef<int64_t> gridIndex) {
+    if (coalescingFactor == 1) {
+      return;
+    }
+    size_t currentCoalescingFactor = 0;
+    mlir::SmallVector<int64_t, 4> nextAddress;
+    sample(shardShape, [&](mlir::ArrayRef<int64_t> shardIndex) {
+      if (coalescingFactor == 1) {
+        return;
+      }
+      for (unsigned i = 0; i < gridIndex.size(); i++) {
+        memoryIndex[i] = gridIndex[i];
+      }
+      for (unsigned i = 0; i < shardIndex.size(); i++) {
+        memoryIndex[gridIndex.size() + i] = shardIndex[i];
+      }
+      mlir::SmallVector<int64_t, 4> address = map.compose(memoryIndex);
+      if (nextAddress.empty() || nextAddress == address) {
+        ++currentCoalescingFactor;
+      } else {
+        coalescingFactor = std::gcd(coalescingFactor, currentCoalescingFactor);
+        // If coalescing factor reaches unit size, it cannot change further.
+        // Early exit to save on runtime.
+        if (coalescingFactor == 1) {
+          return;
+        }
+        // current memory access can potentially be coalesced with next
+        // access!
+        currentCoalescingFactor = 1;
+      }
+      nextAddress = address;
+      nextAddress.back() += stride;
+    });
+    // Account for final run
+    coalescingFactor = std::gcd(coalescingFactor, currentCoalescingFactor);
+  });
+
+  return coalescingFactor;
 }
 
 } // namespace ttmlir::utils

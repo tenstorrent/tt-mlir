@@ -5,6 +5,7 @@
 #include "ttmlir/Conversion/TTIRToTTNN/TTIRToTTNN.h"
 
 #include "ttmlir/Conversion/TTIRToTTIRDecomposition/TTIRToTTIRDecomposition.h"
+#include "ttmlir/Dialect/Debug/IR/Debug.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIR.h"
@@ -41,6 +42,7 @@ struct ConvertTTIRToTTNNPass
     target.addLegalDialect<func::FuncDialect>();
     target.addLegalDialect<ttnn::TTNNDialect>();
     target.addLegalDialect<quant::QuantDialect>();
+    target.addLegalDialect<debug::DebugDialect>();
     target.addIllegalDialect<ttir::TTIRDialect>();
     target.addLegalOp<ttcore::DeviceOp>();
     target.addLegalOp<ttcore::OptimizationBarrierOp>();

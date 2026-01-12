@@ -38,6 +38,7 @@
 #include "operations/data_movement/sort.h"
 #include "operations/data_movement/transpose.h"
 #include "operations/data_movement/write_tensor.h"
+#include "operations/debug/debug.h"
 #include "operations/deletion/deallocate.h"
 #include "operations/eltwise/binary/binary.h"
 #include "operations/eltwise/binary/binary_composite.h"
@@ -489,6 +490,15 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::DistributeTensorOp: {
     return operations::ccl::run(op->type_as_DistributeTensorOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::AnnotateOp: {
+    return operations::debug::run(op->type_as_AnnotateOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::BreakpointOp: {
+    return operations::debug::run(op->type_as_BreakpointOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::MemorySnapshotOp: {
+    return operations::debug::run(op->type_as_MemorySnapshotOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::NONE: {
     LOG_FATAL("Unsupported operation type: ",

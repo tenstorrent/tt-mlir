@@ -4,9 +4,10 @@
 
 import pytest
 import torch
+import os
 from typing import List, Optional
 
-from builder.base.builder_utils import Operand
+from builder.base.builder_utils import Operand, get_artifact_dir
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
 
@@ -89,18 +90,25 @@ def test_permute_matmul_lhs_fusion_enabled(
     device,
 ):
     """Test that permute on LHS is fused into matmul when flag is enabled (default)."""
-    output = compile_and_execute_ttir(
+    compile_and_execute_ttir(
         create_permute_matmul_lhs(lhs_shape, rhs_shape),
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         device=device,
         system_desc_path=request.config.getoption("--sys-desc"),
         pipeline_options=["enable-permute-matmul-fusion=true"],
+        save_artifacts=True,
+    )
+    output_path = os.path.join(
+        get_artifact_dir(
+            request.config.getoption("--path"), "TTIRBuilder", request.node.name
+        ),
+        "ttnn_compiled.mlir",
     )
 
     # When fusion is enabled, permute should NOT appear (it's fused into matmul)
-    assert not check_op(output, "permute"), "Permute should be fused into matmul"
-    assert check_op(output, "matmul"), "Matmul should exist"
+    assert not check_op(output_path, "permute"), "Permute should be fused into matmul"
+    assert check_op(output_path, "matmul"), "Matmul should exist"
 
 
 @pytest.mark.parametrize(
@@ -116,20 +124,27 @@ def test_permute_matmul_lhs_fusion_disabled(
     device,
 ):
     """Test that permute on LHS is NOT fused into matmul when flag is disabled."""
-    output = compile_and_execute_ttir(
+    compile_and_execute_ttir(
         create_permute_matmul_lhs(lhs_shape, rhs_shape),
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         device=device,
         system_desc_path=request.config.getoption("--sys-desc"),
         pipeline_options=["enable-permute-matmul-fusion=false"],
+        save_artifacts=True,
+    )
+    output_path = os.path.join(
+        get_artifact_dir(
+            request.config.getoption("--path"), "TTIRBuilder", request.node.name
+        ),
+        "ttnn_compiled.mlir",
     )
 
     # When fusion is disabled, permute should still appear
     assert check_op(
-        output, "permute"
+        output_path, "permute"
     ), "Permute should NOT be fused when flag is disabled"
-    assert check_op(output, "matmul"), "Matmul should exist"
+    assert check_op(output_path, "matmul"), "Matmul should exist"
 
 
 @pytest.mark.parametrize(
@@ -146,15 +161,22 @@ def test_permute_matmul_rhs_fusion_enabled(
     device,
 ):
     """Test that permute on RHS is fused into matmul when flag is enabled."""
-    output = compile_and_execute_ttir(
+    compile_and_execute_ttir(
         create_permute_matmul_rhs(lhs_shape, rhs_shape),
         test_base=request.node.name,
         output_root=request.config.getoption("--path"),
         device=device,
         system_desc_path=request.config.getoption("--sys-desc"),
         pipeline_options=["enable-permute-matmul-fusion=true"],
+        save_artifacts=True,
+    )
+    output_path = os.path.join(
+        get_artifact_dir(
+            request.config.getoption("--path"), "TTIRBuilder", request.node.name
+        ),
+        "ttnn_compiled.mlir",
     )
 
     # When fusion is enabled, permute should NOT appear (it's fused into matmul)
-    assert not check_op(output, "permute"), "Permute should be fused into matmul"
-    assert check_op(output, "matmul"), "Matmul should exist"
+    assert not check_op(output_path, "permute"), "Permute should be fused into matmul"
+    assert check_op(output_path, "matmul"), "Matmul should exist"

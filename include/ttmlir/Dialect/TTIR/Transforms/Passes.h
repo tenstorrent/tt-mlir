@@ -20,6 +20,9 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_DECL
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
+// Suffix used for CPU-hoisted function declarations.
+constexpr const char *kCPUHoistedDeclSuffix = "_decl";
+
 // Creates a CPU hoist transform pass which hoists ops manually tagged
 // with ttir.should_hoist attribute.
 std::unique_ptr<Pass> createCPUHoistManuallyTaggedOpsTransform();

@@ -7,6 +7,7 @@ add_subdirectory(SFPI)
 add_subdirectory(LLVM)
 add_subdirectory(EmitPy)
 add_subdirectory(D2M)
+add_subdirectory(Debug)
 
 if (TTMLIR_ENABLE_STABLEHLO)
   add_subdirectory(StableHLO)

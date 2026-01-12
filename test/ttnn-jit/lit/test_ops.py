@@ -12,22 +12,22 @@ import torch
 from utils import create_sharded_tile_tensor, create_dram_tensor
 
 
-@ttnn_jit.jit(compile_only=True, graph_capture=False)
+@ttnn_jit.jit(compile_only=True, frontend="ast")
 def abs(input_tensor):
     return ttnn.abs(input_tensor)
 
 
-@ttnn_jit.jit(compile_only=True, graph_capture=False)
+@ttnn_jit.jit(compile_only=True, frontend="ast")
 def add(input_tensor_a, input_tensor_b):
     return ttnn.add(input_tensor_a, input_tensor_b)
 
 
-@ttnn_jit.jit(compile_only=True, graph_capture=True)
+@ttnn_jit.jit(compile_only=True, frontend="graph_capture")
 def reduce_max(input_tensor):
     return ttnn.max(input_tensor, dim=1, keepdim=True)
 
 
-@ttnn_jit.jit(compile_only=True, graph_capture=False)
+@ttnn_jit.jit(compile_only=True, frontend="ast")
 def matmul(input_tensor_a, input_tensor_b):
     return ttnn.matmul(input_tensor_a, input_tensor_b)
 

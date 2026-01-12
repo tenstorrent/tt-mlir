@@ -134,6 +134,9 @@ void createTTIRToTTMetalMiddleendPipeline(
   }
   pm.addPass(d2m::createD2MAllocate(allocateOptions));
 
+  // Decompose block_mask ops now that we're in memref space.
+  pm.addPass(d2m::createD2MDecomposeMasking());
+
   pm.addPass(createCanonicalizerPassWithOptions(options));
   d2m::D2MGenericApplyInterchangeOptions applyInterchangeOptions;
   {
@@ -184,7 +187,12 @@ void createTTIRToTTMetalMiddleendPipeline(
   pm.addPass(mlir::createLowerAffinePass());
   pm.addPass(d2m::createD2MGenericLinearizeMemref());
   pm.addPass(d2m::createD2MGenericGenerateDatamovement());
-  pm.addPass(d2m::createD2MGenericLowerDMAs());
+  d2m::D2MGenericLowerDMAsOptions lowerDMAsOptions;
+  {
+    lowerDMAsOptions.debugCoalescingInference =
+        options.debugD2mCoalescingInference;
+  }
+  pm.addPass(d2m::createD2MGenericLowerDMAs(lowerDMAsOptions));
   pm.addPass(d2m::createD2MGenericHWThreadSelection());
   pm.addPass(d2m::createD2MGenericGenerateLoops());
   createOptimizationPasses(pm, options);

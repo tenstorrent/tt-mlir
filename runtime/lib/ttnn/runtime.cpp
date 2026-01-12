@@ -775,6 +775,14 @@ bool hasLayout(::tt::runtime::Tensor tensor, Layout layout) {
   return *tensorLayoutDesc == desiredLayoutDesc;
 }
 
+// Return the layout of a given runtime Tensor as a Layout handle
+Layout getTensorLayout(::tt::runtime::Tensor tensor) {
+  const std::shared_ptr<LayoutDesc> tensorLayoutDesc =
+      LayoutDesc::fromTensor(tensor);
+  return Layout(std::static_pointer_cast<void>(tensorLayoutDesc),
+                DeviceRuntime::TTNN);
+}
+
 Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
                  std::uint32_t inputIndex) {
   const ::tt::target::ttnn::TTNNBinary &fbb =
@@ -1271,6 +1279,18 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_DistributeTensorOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::AnnotateOp: {
+    tensorRef = opContext.type_as_AnnotateOp()->result();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::BreakpointOp: {
+    tensorRef = opContext.type_as_BreakpointOp()->result();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MemorySnapshotOp: {
+    tensorRef = opContext.type_as_MemorySnapshotOp()->result();
+    break;
+  }
   case ::tt::target::ttnn::OpType::NONE: {
     LOG_FATAL("Invalid op type");
     break;
@@ -1714,6 +1734,18 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::DistributeTensorOp: {
     tensorRefs = {opContext.type_as_DistributeTensorOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AnnotateOp: {
+    tensorRefs = {opContext.type_as_AnnotateOp()->operand()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::BreakpointOp: {
+    tensorRefs = {opContext.type_as_BreakpointOp()->operand()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MemorySnapshotOp: {
+    tensorRefs = {opContext.type_as_MemorySnapshotOp()->operand()};
     break;
   }
   case ::tt::target::ttnn::OpType::NONE: {
