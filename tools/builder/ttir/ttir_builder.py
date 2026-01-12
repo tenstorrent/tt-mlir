@@ -12235,11 +12235,11 @@ class TTIRBuilder(Builder):
         op_golden_function = get_golden_function(ttir_op)
         golden_output = op_golden_function(
             input0,
-            mlir_output_type,
             weight=weight0,
             bias=bias0,
             normalized_shape=normalized_shape,
             epsilon=epsilon,
+            output_type_mlir=mlir_output_type,
         )
         result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 

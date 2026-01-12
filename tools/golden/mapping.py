@@ -350,7 +350,7 @@ def unpack_mlir_attr(attr):
         return [unpack_mlir_attr(item) for item in attr]
     if isinstance(attr, (list, tuple)):
         return list(attr)
-    if isinstance(attr, (int, bool)):
+    if isinstance(attr, (int, bool, float)):
         return attr
     if isinstance(attr, FloatAttr):
         return attr.value
@@ -828,12 +828,14 @@ def rms_norm_golden(
 
 def ttir_layer_norm_golden(
     input: GoldenMapTensor,
-    output_type_mlir: Type,
     weight: Optional[GoldenMapTensor] = None,
     bias: Optional[GoldenMapTensor] = None,
-    normalized_shape: List[int] = None,
-    epsilon: float = 1e-5,
+    normalized_shape: ArrayAttr = None,
+    epsilon: FloatAttr = None,
+    output_type_mlir: Type = None,
 ) -> GoldenMapTensor:
+    normalized_shape = unpack_mlir_attr(normalized_shape)
+    epsilon = unpack_mlir_attr(epsilon)
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     input_float = input.float()
 
