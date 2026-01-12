@@ -126,17 +126,6 @@ struct ConvertTTNNToEmitPyPass
     builder.create<emitpy::ImportOp>(module->getLoc(), "utils", nullptr,
                                      nullptr, nullptr, nullptr);
 
-    // Unwrap device_module into top-level ModuleOp (if present)
-    {
-      OpPassManager pm(ModuleOp::getOperationName());
-      pm.addPass(tt::ttcore::createTTCoreUnwrapDeviceModulePass());
-
-      if (failed(runPipeline(pm, module))) {
-        signalPassFailure();
-        return;
-      }
-    }
-
     // Count load_cached ops to determine the size of the global cache
     // dictionary
     //
