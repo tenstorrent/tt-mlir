@@ -159,6 +159,10 @@ void FuncGroup::generateFuncName() {
 }
 
 bool CompareOpPyLoc::operator()(const OpPyLoc &a, const OpPyLoc &b) const {
+  // C++ priority_queue convention: return true means b has higher priority
+  constexpr bool A_HAS_PRIORITY = false;
+  constexpr bool B_HAS_PRIORITY = true;
+
   bool comparatorDebug = false;
 
   bool isASameGroup = a.pyLoc.funcPath == *currentFuncName;
@@ -186,16 +190,13 @@ bool CompareOpPyLoc::operator()(const OpPyLoc &a, const OpPyLoc &b) const {
   bool result;
   std::string reason;
 
-  // return false - a wins
-  // return true - b wins
-
   // First break by group
   //
   if (isASameGroup && !isBSameGroup) {
-    result = false; // a wins
+    result = A_HAS_PRIORITY;
     reason = "a is same group, b is different (a has higher priority)";
   } else if (!isASameGroup && isBSameGroup) {
-    result = true; // b wins
+    result = B_HAS_PRIORITY;
     reason = "b is same group, a is different (b has higher priority)";
   } else if (isASameGroup == isBSameGroup) {
     // Now break by deallocate ops
@@ -203,10 +204,10 @@ bool CompareOpPyLoc::operator()(const OpPyLoc &a, const OpPyLoc &b) const {
     bool aIsDeallocate = isa<ttnn::DeallocateOp>(a.op);
     bool bIsDeallocate = isa<ttnn::DeallocateOp>(b.op);
     if (aIsDeallocate && !bIsDeallocate) {
-      result = true;
+      result = B_HAS_PRIORITY;
       reason = "a is deallocate, b is not (b has higher priority)";
     } else if (!aIsDeallocate && bIsDeallocate) {
-      result = false;
+      result = A_HAS_PRIORITY;
       reason = "b is deallocate, a is not (a has higher priority)";
     } else {
       // Now break by distance to root
