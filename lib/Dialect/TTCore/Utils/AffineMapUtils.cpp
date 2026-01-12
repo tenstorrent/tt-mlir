@@ -276,11 +276,22 @@ mlir::AffineMap buildLayoutTransformMap(MetalLayoutAttr fromLayout,
                                         mlir::RankedTensorType toType) {
   MLIRContext *context = fromLayout.getContext();
 
-  // Precondition: Both layouts must have the same logical shape.
-  assert(fromLayout.getLogicalShape() == toLayout.getLogicalShape() &&
-         "ToLayoutOp requires same logical shape");
+  ArrayRef<int64_t> fromLogicalShape = fromLayout.getLogicalShape();
+  ArrayRef<int64_t> toLogicalShape = toLayout.getLogicalShape();
 
-  ArrayRef<int64_t> logicalShape = fromLayout.getLogicalShape();
+  // Allow same logical shape OR permutation (same dims, different order).
+  bool sameLogicalShape = (fromLogicalShape == toLogicalShape);
+  bool isPermutation = false;
+  if (!sameLogicalShape) {
+    auto sortedFrom = llvm::to_vector(fromLogicalShape);
+    auto sortedTo = llvm::to_vector(toLogicalShape);
+    llvm::sort(sortedFrom);
+    llvm::sort(sortedTo);
+    isPermutation = (sortedFrom == sortedTo);
+  }
+  assert((sameLogicalShape || isPermutation) &&
+         "Logical shape change must be identity or permutation");
+
   ArrayRef<int64_t> fromTileShape = getTensorTileShapeOrEmpty(fromType);
   ArrayRef<int64_t> toTileShape = getTensorTileShapeOrEmpty(toType);
 
@@ -303,41 +314,38 @@ mlir::AffineMap buildLayoutTransformMap(MetalLayoutAttr fromLayout,
   auto toPhysicalShapeVec = toLayout.getPhysicalShape({}); // Scalars
   ArrayRef<int64_t> toPhysicalShape = toPhysicalShapeVec;
 
-  // Logical shape is always in scalars.
-  ArrayRef<int64_t> logicalShapeInUnits = logicalShape;
-
   // Grid shape is the number of shards, independent of units.
   // The shard size will be computed as physical_shape / grid_shape in the
   // correct units (scalars).
   ArrayRef<int64_t> fromGridShape = fromLayout.getGridShape(fromType);
   ArrayRef<int64_t> toGridShape = toLayout.getGridShape(toType);
 
-  // Build OUTPUT device → logical map.
+  // Build OUTPUT device → OUTPUT logical map.
   // OUTPUT device → OUTPUT physical.
   auto toDeviceToToPhysical = ttmlir::utils::buildDeviceToPhysicalMap(
       toPhysicalShape, toGridShape, context);
 
-  // OUTPUT physical → logical (inverse of collapse).
+  // OUTPUT physical → OUTPUT logical (inverse of collapse).
   auto toAlignments = toLayout.getDimAlignments();
-  auto toPhysicalToLogical = buildPhysicalToLogicalMap(
-      logicalShapeInUnits, toPhysicalShape, toAlignments,
-      toLayout.getCollapsedIntervals(), context);
+  auto toPhysicalToLogical =
+      buildPhysicalToLogicalMap(toLogicalShape, toPhysicalShape, toAlignments,
+                                toLayout.getCollapsedIntervals(), context);
 
-  // Compose: OUTPUT device → OUTPUT physical → logical.
+  // Compose: OUTPUT device → OUTPUT physical → OUTPUT logical.
   auto toDeviceToLogical = toPhysicalToLogical.compose(toDeviceToToPhysical);
 
-  // Build logical → INPUT device map.
-  // logical → INPUT physical (collapse).
+  // Build INPUT logical → INPUT device map.
+  // INPUT logical → INPUT physical (collapse).
   auto fromAlignments = fromLayout.getDimAlignments();
   auto logicalToFromPhysical = buildLogicalToPhysicalMap(
-      logicalShapeInUnits, fromPhysicalShape, fromAlignments,
+      fromLogicalShape, fromPhysicalShape, fromAlignments,
       fromLayout.getCollapsedIntervals(), context);
 
   // INPUT physical → INPUT device.
   auto fromPhysicalToFromDevice = ttmlir::utils::buildPhysicalToDeviceMap(
       fromPhysicalShape, fromGridShape, context);
 
-  // Compose: logical → INPUT physical → INPUT device.
+  // Compose: INPUT logical → INPUT physical → INPUT device.
   auto logicalToFromDevice =
       fromPhysicalToFromDevice.compose(logicalToFromPhysical);
 
@@ -345,13 +353,50 @@ mlir::AffineMap buildLayoutTransformMap(MetalLayoutAttr fromLayout,
   // complexity growth.
   logicalToFromDevice = mlir::simplifyAffineMap(logicalToFromDevice);
 
+  // For permutation, build OUTPUT logical → INPUT logical map.
+  // This maps coordinates from the output's logical space to the input's.
+  mlir::AffineMap toLogicalToFromLogical;
+  if (isPermutation) {
+    // Find permutation: which input dim corresponds to each output dim.
+    SmallVector<mlir::AffineExpr> permExprs;
+    for (int64_t toDim : toLogicalShape) {
+      // Find the input dimension with this size.
+      for (size_t fromIdx = 0; fromIdx < fromLogicalShape.size(); ++fromIdx) {
+        if (fromLogicalShape[fromIdx] == toDim) {
+          // Check if this fromIdx is already used.
+          bool alreadyUsed = false;
+          for (auto expr : permExprs) {
+            if (auto dimExpr = mlir::dyn_cast<mlir::AffineDimExpr>(expr)) {
+              if (dimExpr.getPosition() == fromIdx) {
+                alreadyUsed = true;
+                break;
+              }
+            }
+          }
+          if (!alreadyUsed) {
+            permExprs.push_back(mlir::getAffineDimExpr(fromIdx, context));
+            break;
+          }
+        }
+      }
+    }
+    toLogicalToFromLogical =
+        mlir::AffineMap::get(toLogicalShape.size(), 0, permExprs, context);
+  } else {
+    // Identity: same logical shape.
+    toLogicalToFromLogical =
+        mlir::AffineMap::getMultiDimIdentityMap(toLogicalShape.size(), context);
+  }
+
   // NOTE: Do NOT compose the INPUT index_map here. The index_map (core
   // virtualization map) will be composed later in DeviceAttr::getMemoryMap
   // when generating the actual DMA. Composing it here would apply it twice,
   // causing incorrect virtual-to-physical coordinate translation.
 
-  // Compose: OUTPUT device → logical → INPUT device.
-  auto result = logicalToFromDevice.compose(toDeviceToLogical);
+  // Compose: OUTPUT device → OUTPUT logical → INPUT logical → INPUT device.
+  auto toLogicalToFromDevice =
+      logicalToFromDevice.compose(toLogicalToFromLogical);
+  auto result = toLogicalToFromDevice.compose(toDeviceToLogical);
 
   // Simplify and return.
   return mlir::simplifyAffineMap(result);

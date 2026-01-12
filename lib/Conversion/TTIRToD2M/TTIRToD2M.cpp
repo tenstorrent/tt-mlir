@@ -4,6 +4,7 @@
 
 #include "ttmlir/Conversion/TTIRToD2M/TTIRToD2M.h"
 
+#include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
@@ -1029,10 +1030,72 @@ private:
 };
 } // namespace
 
+// Helper function to create a GenericOp in "explicit datamovement form" which
+// allows mismatched input/output shapes. This bypasses the convenience builders
+// that assert non-empty indexing maps.
+// The explicit datamovement form has empty indexing_maps, iterator_types, and
+// block_factors, which makes the verifier skip shape consistency checks.
+static d2m::GenericOp createExplicitDMAGenericOp(
+    ConversionPatternRewriter &rewriter, Location loc, Value input,
+    Value output, AffineMap srcAffineMap,
+    d2m::ThreadType threadType = d2m::ThreadType::Datamovement) {
+  auto inputType = mlir::cast<RankedTensorType>(input.getType());
+  auto outputType = mlir::cast<RankedTensorType>(output.getType());
+  auto inputLayout = ttcore::getDeviceLayout(inputType);
+  auto outputLayout = ttcore::getDeviceLayout(outputType);
+
+  auto gridShape = outputLayout.getGridShape(outputType);
+  auto grid = rewriter.getAttr<ttcore::GridAttr>(gridShape);
+  auto threads =
+      rewriter.getArrayAttr(rewriter.getAttr<d2m::ThreadAttr>(threadType));
+
+  // Compute CB types from shard shapes
+  auto inputCBType = d2m::CBType::get(RankedTensorType::get(
+      inputLayout.getShardShape(inputType), inputType.getElementType()));
+  auto outputCBType = d2m::CBType::get(RankedTensorType::get(
+      outputLayout.getShardShape(outputType), outputType.getElementType()));
+
+  // Build the operation directly using OperationState to bypass builder asserts
+  OperationState state(loc, d2m::GenericOp::getOperationName());
+  state.addTypes({outputType});
+  state.addOperands({input});
+  state.addOperands({output});
+  state.addAttribute("grid", grid);
+  state.addAttribute("block_factors", rewriter.getI64ArrayAttr({}));
+  state.addAttribute("indexing_maps", rewriter.getArrayAttr({}));
+  state.addAttribute("iterator_types", rewriter.getArrayAttr({}));
+  state.addAttribute("threads", threads);
+  state.addAttribute("operandSegmentSizes", rewriter.getDenseI32ArrayAttr(
+                                                {1, 1})); // 1 input, 1 output
+  state.addRegion();
+
+  Operation *op = rewriter.create(state);
+  auto genericOp = mlir::cast<d2m::GenericOp>(op);
+
+  // Build the region with DMA operations
+  {
+    OpBuilder::InsertionGuard guard(rewriter);
+    Region &region = genericOp->getRegion(0);
+    Block *block = rewriter.createBlock(&region);
+    block->addArgument(inputCBType, loc);
+    block->addArgument(outputCBType, loc);
+
+    rewriter.setInsertionPointToStart(block);
+    Value outputCB =
+        rewriter.create<d2m::ReserveOp>(loc, block->getArgument(1)).getResult();
+    auto dma = rewriter.create<d2m::DMAOp>(
+        loc, input, AffineMapAttr::get(srcAffineMap), outputCB);
+    rewriter.create<d2m::DMAWaitOp>(loc, dma);
+    rewriter.create<d2m::YieldOp>(loc, outputCB);
+  }
+
+  return genericOp;
+}
+
 // ----------------------------------------------------------------------------
 //
-// Lower PermuteOp into a D2M StreamLayoutOp (to reblock into new tile-level
-// shape) + GenericOp (to transpose individual tiles).
+// Lower PermuteOp into explicit DMA GenericOp (to reblock into new tile-level
+// shape) + ComputeGenericOp (to transpose individual tiles).
 namespace {
 class D2MPermuteRewriter final
     : public mlir::OpConversionPattern<ttir::PermuteOp>,
@@ -1045,7 +1108,8 @@ public:
                      ttcore::MemorySpace defaultInputMemSpace,
                      ttcore::MemorySpace defaultOutputMemSpace, bool ttnnMode,
                      bool /*collapseTensors*/)
-      : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
+      : OpConversionPattern<ConcreteOp>(typeConverter, ctx,
+                                        /*benefit=*/PatternBenefit(2)),
         D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
                                ttnnMode, /*collapseTensors*/ false) {}
 
@@ -1072,19 +1136,20 @@ public:
     if (isInnerPermute) {
       return permuteInnerDims(op, adaptor, rewriter);
     }
-    assert(!(innerDimsSwapped && !outerDimsIdentity) &&
-           "Complex permutes (both inner and outer permutations) are not "
-           "supported.");
-    // Unhandled conversion case.
+    // Outer permutation only (inner dims unchanged).
+    if (!innerDimsSwapped) {
+      return permuteOuterDims(op, adaptor, rewriter);
+    }
+    // Complex permutes (both inner and outer) are not yet supported.
     return failure();
   }
 
-  // Handler for permutation of inner dims (i.e. transpose).
+  // Handler for permutation of outer dims only (inner 2 dims stay in place).
+  // Only needs ViewLayoutOp + ToLayoutOp for tile rearrangement, no
+  // TileTranspose.
   LogicalResult
-  permuteInnerDims(ttir::PermuteOp op, typename ConcreteOp::Adaptor adaptor,
+  permuteOuterDims(ttir::PermuteOp op, typename ConcreteOp::Adaptor adaptor,
                    mlir::ConversionPatternRewriter &rewriter) const {
-    auto permutation = op.getPermutation();
-    mlir::MLIRContext *ctx = rewriter.getContext();
     mlir::Location loc = op->getLoc();
 
     auto origInputs = adaptor.getOperands();
@@ -1095,41 +1160,117 @@ public:
         toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
                                    /*tiled*/ true);
 
+    Value inputValue = inputs[0];
+    Value outputValue = outputs[0];
+
     const auto inputTensorType =
-        mlir::cast<mlir::RankedTensorType>(inputs[0].getType());
-    const ArrayRef<int64_t> inputShape = inputTensorType.getShape();
-    const unsigned deviceRank = static_cast<unsigned>(inputShape.size());
-    auto inputLayout =
-        mlir::cast<ttcore::MetalLayoutAttr>(inputTensorType.getEncoding());
+        mlir::cast<mlir::RankedTensorType>(inputValue.getType());
+    const auto outputTensorType =
+        mlir::cast<mlir::RankedTensorType>(outputValue.getType());
 
-    // Compute permutation for all relevant attributes.
-    auto permuted = computePermutation(
-        rewriter, permutation, inputShape, deviceRank,
-        inputLayout.getLogicalShape(), inputLayout.getDimAlignments());
+    auto outputLayout =
+        mlir::cast<ttcore::MetalLayoutAttr>(outputTensorType.getEncoding());
 
-    // Create the result layout by composing with input layout.
-    auto resultLayout = ttcore::MetalLayoutAttr::get(
-        ctx, permuted.logicalShape, inputLayout.getOobVal(),
-        inputLayout.getMemorySpace(), inputLayout.getMemoryLayout(),
-        inputLayout.getCollapsedIntervals(), permuted.dimAlignments,
-        permuted.transposeMap);
+    // 1. ViewLayoutOp: presents input data in output device shape.
+    // The view's reblock map transforms output device coords to input coords.
+    auto reblockMap = ttmlir::utils::calculateReblockMap(
+        outputTensorType.getShape(), inputTensorType.getShape(),
+        rewriter.getContext());
 
-    auto viewType = mlir::RankedTensorType::get(
-        permuted.physicalShape, inputTensorType.getElementType(), resultLayout);
+    auto viewLayout = ttcore::MetalLayoutAttr::get(
+        rewriter.getContext(), outputLayout.getLogicalShape(),
+        outputLayout.getOobVal(), outputLayout.getMemorySpace(),
+        outputLayout.getMemoryLayout(), outputLayout.getCollapsedIntervals(),
+        outputLayout.getDimAlignments(), reblockMap);
 
-    // For inner permute, we need a streamLayout to do reblocking.
-    auto storage = rewriter.create<d2m::EmptyOp>(
-        loc, permuted.physicalShape, inputTensorType.getElementType(),
-        resultLayout);
-    auto stream =
-        rewriter.create<d2m::StreamLayoutOp>(loc, viewType, inputs[0], storage);
-    inputs[0] = stream.getResult();
+    auto viewTensorType =
+        RankedTensorType::get(outputTensorType.getShape(),
+                              inputTensorType.getElementType(), viewLayout);
+
+    auto viewOp = rewriter.create<d2m::ViewLayoutOp>(
+        loc, viewTensorType, inputValue, /*reinterpretLayout=*/false);
+
+    // 2. ToLayoutOp: LowerToLayout will convert this to DMA generic.
+    // For outer permutation, no additional compute step needed.
+    auto toLayoutOp =
+        rewriter.create<d2m::ToLayoutOp>(loc, viewOp.getResult(), outputValue);
+
+    rewriter.replaceOp(op, unLayoutResult(rewriter, toLayoutOp.getResult(0),
+                                          op->getResult(0).getType()));
+    return success();
+  }
+
+  // Handler for permutation of inner dims (i.e. transpose).
+  // Emits: ViewLayoutOp (reblock) + ToLayoutOp (DMA) + TileTransposeOp
+  // (compute). LowerToLayout handles ViewLayoutOp + ToLayoutOp, TileTransposeOp
+  // is orthogonal.
+  LogicalResult
+  permuteInnerDims(ttir::PermuteOp op, typename ConcreteOp::Adaptor adaptor,
+                   mlir::ConversionPatternRewriter &rewriter) const {
+    mlir::Location loc = op->getLoc();
+
+    auto origInputs = adaptor.getOperands();
+    auto origOutputs =
+        createDpsOutputs(loc, rewriter, {op.getResult().getType()});
+
+    auto [inputs, outputs] =
+        toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
+                                   /*tiled*/ true);
+
+    Value inputValue = inputs[0];
+    Value outputValue = outputs[0];
+
+    const auto inputTensorType =
+        mlir::cast<mlir::RankedTensorType>(inputValue.getType());
+    const auto outputTensorType =
+        mlir::cast<mlir::RankedTensorType>(outputValue.getType());
+    const unsigned deviceRank =
+        static_cast<unsigned>(outputTensorType.getShape().size());
     unsigned logicalRank = deviceRank / 2;
-    // For inner permute, we alse need a GenericOp to transpose each individual
-    // tile.
-    auto generic = rewriter.create<d2m::GenericOp>(
-        loc, inputs, outputs,
-        [&](OpBuilder &builder, Location bodyLoc, ValueRange blockArgs) {
+
+    auto outputLayout =
+        mlir::cast<ttcore::MetalLayoutAttr>(outputTensorType.getEncoding());
+
+    // 1. ViewLayoutOp: presents input data in output device shape.
+    // The view's reblock map transforms output device coords to input coords.
+    auto reblockMap = ttmlir::utils::calculateReblockMap(
+        outputTensorType.getShape(), inputTensorType.getShape(),
+        rewriter.getContext());
+
+    auto viewLayout = ttcore::MetalLayoutAttr::get(
+        rewriter.getContext(), outputLayout.getLogicalShape(),
+        outputLayout.getOobVal(), outputLayout.getMemorySpace(),
+        outputLayout.getMemoryLayout(), outputLayout.getCollapsedIntervals(),
+        outputLayout.getDimAlignments(), reblockMap);
+
+    auto viewTensorType =
+        RankedTensorType::get(outputTensorType.getShape(),
+                              inputTensorType.getElementType(), viewLayout);
+
+    auto viewOp = rewriter.create<d2m::ViewLayoutOp>(
+        loc, viewTensorType, inputValue, /*reinterpretLayout=*/false);
+
+    // 2. ToLayoutOp: LowerToLayout will convert this to DMA generic.
+    // Create intermediate storage for the DMA result.
+    auto dmaStorage = rewriter.create<d2m::EmptyOp>(loc, outputValue.getType());
+    auto toLayoutOp =
+        rewriter.create<d2m::ToLayoutOp>(loc, viewOp.getResult(), dmaStorage);
+
+    // 3. Compute GenericOp with TileTransposeOp: transposes data within tiles.
+    SmallVector<Attribute> iteratorTypes(
+        logicalRank, rewriter.getAttr<ttcore::IteratorTypeAttr>(
+                         ttcore::IteratorType::Parallel));
+
+    auto computeGeneric = rewriter.create<d2m::GenericOp>(
+        loc,
+        /*inputs=*/ValueRange{toLayoutOp.getResult(0)},
+        /*outputs=*/ValueRange{outputValue},
+        rewriter.getAffineMapArrayAttr(
+            {rewriter.getMultiDimIdentityMap(logicalRank),
+             rewriter.getMultiDimIdentityMap(logicalRank)}),
+        rewriter.getArrayAttr(iteratorTypes),
+        [logicalRank](OpBuilder &builder, Location bodyLoc,
+                      ValueRange blockArgs) {
           assert(blockArgs.size() == 2);
           auto identityMap = builder.getMultiDimIdentityMap(logicalRank);
           SmallVector<mlir::utils::IteratorType> linalgIteratorTypes(
@@ -1155,8 +1296,9 @@ public:
           builder.create<d2m::YieldOp>(bodyLoc, linalgGeneric->getResults());
         });
 
-    rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
-                                          op->getResult(0).getType()));
+    rewriter.replaceOp(op,
+                       unLayoutResult(rewriter, computeGeneric->getResult(0),
+                                      op->getResult(0).getType()));
     return success();
   }
 
@@ -1307,21 +1449,17 @@ public:
                                    /*tiled*/ false);
     assert(outputs.size() == 1);
 
-    auto outTy = mlir::cast<RankedTensorType>(outputs[0].getType());
-    auto layout = mlir::cast<ttcore::MetalLayoutAttr>(outTy.getEncoding());
-    auto newLayout = ttcore::MetalLayoutAttr::get(
-        layout.getContext(), layout.getLogicalShape(), layout.getOobVal(),
-        layout.getMemorySpace(), layout.getMemoryLayout(),
-        layout.getCollapsedIntervals(), layout.getDimAlignments(), deviceMap);
-    auto newOutTy = RankedTensorType::get(outTy.getShape(),
-                                          outTy.getElementType(), newLayout);
-
+    // Create storage for the output
     auto storage =
         rewriter.create<d2m::EmptyOp>(op.getLoc(), outputs[0].getType());
-    auto view = rewriter.create<d2m::StreamLayoutOp>(
-        op.getLoc(), newOutTy, inputs[0], storage.getResult());
 
-    rewriter.replaceOp(op, unLayoutResult(rewriter, view->getResult(0),
+    // Create a DMA GenericOp in explicit datamovement form.
+    // The deviceMap is used as srcAffineMap to transform coordinates from
+    // output space to input space during the DMA.
+    auto dmaGeneric = createExplicitDMAGenericOp(
+        rewriter, op.getLoc(), inputs[0], storage.getResult(), deviceMap);
+
+    rewriter.replaceOp(op, unLayoutResult(rewriter, dmaGeneric->getResult(0),
                                           op->getResult(0).getType()));
 
     return success();

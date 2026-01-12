@@ -235,6 +235,38 @@ struct ToLayoutFoldRedundantPattern : public OpRewritePattern<ToLayoutOp> {
     if (!producerLayoutOp) {
       return failure();
     }
+
+    // Don't fold if the producer performs a shape change (e.g., transpose).
+    // Folding would skip the device-space transformation and potentially
+    // create an invalid system→system shape change.
+    //
+    // For device tensors: compare logical shapes from MetalLayoutAttr.
+    // For system tensors: compare tensor shapes directly.
+    auto producerInputType =
+        mlir::cast<RankedTensorType>(producerLayoutOp.getInput().getType());
+    auto producerOutputType =
+        mlir::cast<RankedTensorType>(producerLayoutOp.getOutput().getType());
+
+    auto producerInputLayout =
+        mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+            producerInputType.getEncoding());
+    auto producerOutputLayout =
+        mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+            producerOutputType.getEncoding());
+
+    // Get logical shape for each side (tensor shape for system, layout's
+    // logical shape for device).
+    ArrayRef<int64_t> producerInputLogical =
+        producerInputLayout ? producerInputLayout.getLogicalShape()
+                            : producerInputType.getShape();
+    ArrayRef<int64_t> producerOutputLogical =
+        producerOutputLayout ? producerOutputLayout.getLogicalShape()
+                             : producerOutputType.getShape();
+
+    if (producerInputLogical != producerOutputLogical) {
+      return failure();
+    }
+
     rewriter.replaceOpWithNewOp<ToLayoutOp>(op, producerLayoutOp.getInput(),
                                             op.getOutput());
     return success();
@@ -300,13 +332,46 @@ verifyLayoutOp(mlir::Operation *op, const char *aName, const char *bName,
 
 // ToLayoutOp verification
 ::mlir::LogicalResult ToLayoutOp::verify() {
-  return verifyLayoutOp(*this, "input", "output", getInput().getType(),
-                        getOutput().getType(),
-                        /*checkSameElementType*/ false,
-                        /*checkSameMemorySpace*/ false,
-                        /*checkSameRank*/ false,
-                        /*checkSameGridShape*/ false,
-                        /*checkSameShardShape*/ false);
+  auto result = verifyLayoutOp(*this, "input", "output", getInput().getType(),
+                               getOutput().getType(),
+                               /*checkSameElementType*/ false,
+                               /*checkSameMemorySpace*/ false,
+                               /*checkSameRank*/ false,
+                               /*checkSameGridShape*/ false,
+                               /*checkSameShardShape*/ false);
+  if (failed(result)) {
+    return result;
+  }
+
+  // If both have MetalLayoutAttr, check that logical shape is either unchanged
+  // or is a permutation (same dimensions, possibly reordered).
+  auto inputTensor =
+      mlir::dyn_cast<mlir::RankedTensorType>(getInput().getType());
+  auto outputTensor =
+      mlir::dyn_cast<mlir::RankedTensorType>(getOutput().getType());
+  if (inputTensor && outputTensor) {
+    auto inputLayout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+        inputTensor.getEncoding());
+    auto outputLayout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+        outputTensor.getEncoding());
+    if (inputLayout && outputLayout) {
+      auto inputLogical = inputLayout.getLogicalShape();
+      auto outputLogical = outputLayout.getLogicalShape();
+      if (inputLogical != outputLogical) {
+        // Logical shape changed - verify it's a permutation (same sorted dims).
+        auto sortedInput = llvm::to_vector(inputLogical);
+        auto sortedOutput = llvm::to_vector(outputLogical);
+        llvm::sort(sortedInput);
+        llvm::sort(sortedOutput);
+        if (sortedInput != sortedOutput) {
+          return emitOpError("logical shape change must be a permutation, got ")
+                 << inputLogical << " -> " << outputLogical;
+        }
+      }
+    }
+  }
+
+  return mlir::success();
 }
 
 mlir::LogicalResult
@@ -887,9 +952,20 @@ mlir::LogicalResult d2m::ViewLayoutOp::verify() {
               resultTensor.getEncoding());
 
       if (inputLayout && resultLayout) {
-        // Both have layouts: verify logical shapes match.
-        if (inputLayout.getLogicalShape() != resultLayout.getLogicalShape()) {
-          return emitOpError("view must preserve logical shape");
+        // Both have layouts: verify total element count is preserved.
+        // This allows permutations (e.g., transpose) where logical shape
+        // changes but volume is the same.
+        auto inputLogicalShape = inputLayout.getLogicalShape();
+        auto resultLogicalShape = resultLayout.getLogicalShape();
+        int64_t inputVolume = 1, resultVolume = 1;
+        for (auto d : inputLogicalShape) {
+          inputVolume *= d;
+        }
+        for (auto d : resultLogicalShape) {
+          resultVolume *= d;
+        }
+        if (inputVolume != resultVolume) {
+          return emitOpError("view must preserve total number of elements");
         }
       } else if (!inputLayout && !resultLayout) {
         // Neither has layout: verify device tensor shapes match.
@@ -917,8 +993,20 @@ mlir::LogicalResult d2m::ViewLayoutOp::verify() {
           inputTensor.getEncoding());
       auto resultLayout = mlir::cast<mlir::tt::ttcore::MetalLayoutAttr>(
           resultTensor.getEncoding());
-      if (inputLayout.getLogicalShape() != resultLayout.getLogicalShape()) {
-        return emitOpError("view cannot change logical shape");
+
+      // Allow shape permutations (e.g., transpose) - just verify volume
+      // matches.
+      auto inputLogicalShape = inputLayout.getLogicalShape();
+      auto resultLogicalShape = resultLayout.getLogicalShape();
+      int64_t inputVolume = 1, resultVolume = 1;
+      for (auto d : inputLogicalShape) {
+        inputVolume *= d;
+      }
+      for (auto d : resultLogicalShape) {
+        resultVolume *= d;
+      }
+      if (inputVolume != resultVolume) {
+        return emitOpError("view must preserve total number of elements");
       }
 
       if (inputLayout.getOobVal() != resultLayout.getOobVal()) {
