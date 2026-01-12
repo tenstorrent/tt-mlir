@@ -1287,6 +1287,9 @@ public:
     // The existing grid mapping includes a leading device index result, so we
     // select (dim + 1).
     const unsigned resultIdx = static_cast<unsigned>(op.getDim() + 1);
+    TT_assertv(resultIdx < map.getNumResults(),
+               "Expected result index to be less than the number of results, "
+               "failing.");
     // The resultIdx is the index of the result that corresponds to the dim of
     // the core index op, this new map has one result, required for use with
     // affine apply op.
