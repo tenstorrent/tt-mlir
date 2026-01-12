@@ -65,4 +65,7 @@ def EmitPy_Dict : EmitPy_Type<"Dict", "dict"> {
   let hasCustomAssemblyFormat = 1;
 }
 
+// Type constraint that matches any EmitPy dialect type
+def EmitPy_Type : AnyTypeOf<[EmitPy_OpaqueType, EmitPy_Dict]>;
+
 #endif // TTMLIR_TTMLIR_DIALECT_EMITPY_IR_EMITPYTYPES_TD

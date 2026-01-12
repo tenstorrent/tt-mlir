@@ -223,7 +223,7 @@ def EmitPy_SetValueForDictKeyOp : EmitPy_Op<"set_value_for_dict_key"> {
     Arg<StrAttr>:$dict_name,
     EmitPy_Dict:$dict,
     AnyAttrOf<[StrAttr, IndexAttr]>:$key,
-    EmitPy_OpaqueType:$value
+    EmitPy_Type:$value
   );
 
   let assemblyFormat = "$dict_name $dict `[` qualified($key) `]` `=` $value attr-dict `:` functional-type($dict, $value)";
@@ -252,7 +252,7 @@ def EmitPy_GetValueForDictKeyOp : EmitPy_Op<"get_value_for_dict_key", [Pure]> {
     AnyAttrOf<[StrAttr, IndexAttr]>:$key
   );
 
-  let results = (outs EmitPy_OpaqueType:$result);
+  let results = (outs EmitPy_Type:$result);
 
   let assemblyFormat = "$dict_name $dict `[` qualified($key) `]` attr-dict `:` functional-type($dict, $result)";
 }
