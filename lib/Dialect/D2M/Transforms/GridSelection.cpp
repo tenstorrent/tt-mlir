@@ -20,6 +20,8 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include <cstdint>
+
 namespace mlir::tt::d2m {
 
 //--------------------------------------------------------
@@ -430,14 +432,14 @@ normalizeOperandGridsForGeneric(
   llvm::SmallVector<llvm::SmallVector<int64_t>> normalizedOperandGrids(
       optimalOperandGrids.begin(), optimalOperandGrids.end());
 
-  unsigned numInputs = genericOp.getNumDpsInputs();
+  uint64_t numInputs = genericOp.getNumDpsInputs();
   // Map: loopDim -> list of (operandIndex, operandDimIdx) pairs that reference
   // this loop dimension in their indexing maps.
-  llvm::DenseMap<int64_t, llvm::SmallVector<std::pair<unsigned, unsigned>>>
+  llvm::DenseMap<int64_t, llvm::SmallVector<std::pair<uint64_t, uint64_t>>>
       dimToInputOperandDims;
 
   auto indexingMaps = genericOp.getIndexingMapsValue();
-  for (unsigned operandIndex = 0; operandIndex < numInputs; ++operandIndex) {
+  for (uint64_t operandIndex = 0; operandIndex < numInputs; ++operandIndex) {
     AffineMap operandIndexingMap = indexingMaps[operandIndex];
     auto results = operandIndexingMap.getResults();
     for (auto [operandDimIdx, expr] : llvm::enumerate(results)) {
@@ -447,7 +449,7 @@ normalizeOperandGridsForGeneric(
       }
       int64_t loopDim = dimExpr.getPosition();
       dimToInputOperandDims[loopDim].push_back(
-          std::make_pair(operandIndex, static_cast<unsigned>(operandDimIdx)));
+          std::make_pair(operandIndex, static_cast<uint64_t>(operandDimIdx)));
     }
   }
 
@@ -501,9 +503,9 @@ normalizeOperandGridsForGeneric(
 
       AffineMap indexingMap = genericOp.getIndexingMap(operandIndex);
       auto results = indexingMap.getResults();
-      if (results.size() != normalizedOperandGrids[operandIndex].size()) {
-        continue;
-      }
+      TT_assertv(results.size() == normalizedOperandGrids[operandIndex].size(),
+                 "indexing map results size does not match normalized operand "
+                 "grids size");
 
       for (auto [resultIdx, expr] : llvm::enumerate(results)) {
         auto dimExpr = mlir::dyn_cast<AffineDimExpr>(expr);

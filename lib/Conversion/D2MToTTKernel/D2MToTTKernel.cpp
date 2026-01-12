@@ -12,6 +12,7 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Affine/ViewLikeInterfaceUtils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -24,7 +25,6 @@
 #include "mlir/IR/Value.h"
 #include "mlir/Transforms/DialectConversion.h"
 
-#include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include <type_traits>
 #include <utility>
 
@@ -1267,7 +1267,6 @@ public:
   matchAndRewrite(d2m::CoreIndexOp op, d2m::CoreIndexOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
 
-    // Base physical (logical) coordinates.
     Value logicalY = rewriter.create<ttkernel::MyLogicalYOp>(op.getLoc());
     Value logicalX = rewriter.create<ttkernel::MyLogicalXOp>(op.getLoc());
 
