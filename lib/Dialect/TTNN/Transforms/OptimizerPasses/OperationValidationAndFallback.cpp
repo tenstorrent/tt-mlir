@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/Conv2dConfigParams.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
@@ -151,6 +152,7 @@ public:
 
     size_t totalOperationsChecked = 0;
     size_t operationsFixed = 0;
+    size_t operationsMarkedForD2M = 0;
     bool validationFailed = false;
 
     moduleOp->walk([&](func::FuncOp func) {
@@ -247,11 +249,25 @@ public:
                          "Operation {} at {} fixed with fallback configuration",
                          operation->getName(), operation->getLoc());
           } else {
-            emitValidationFailureError(operation, originalResult,
-                                       maxFallbackAttempts);
-            validationFailed = true;
-            signalPassFailure();
-            return WalkResult::interrupt();
+            // All fallback configurations exhausted
+            if (d2mFallbackEnabled) {
+              // Mark operation for D2M compilation instead of failing
+              operation->setAttr(g_TTNNHoistGenericViaD2MAttrName,
+                                 UnitAttr::get(operation->getContext()));
+              operationsMarkedForD2M++;
+              TTMLIR_DEBUG(
+                  ttmlir::LogComponent::OpValidation,
+                  "Operation {} at {} marked for D2M compilation (no valid "
+                  "fallback found after {} attempts, original error: {})",
+                  operation->getName(), operation->getLoc(),
+                  maxFallbackAttempts, originalResult.errorMessage);
+            } else {
+              emitValidationFailureError(operation, originalResult,
+                                         maxFallbackAttempts);
+              validationFailed = true;
+              signalPassFailure();
+              return WalkResult::interrupt();
+            }
           }
         }
         return WalkResult::advance();
@@ -260,10 +276,12 @@ public:
 
     // Log validation summary
     TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
-                 "Operation validation {}: {} operations checked{}, {} fixed",
+                 "Operation validation {}: {} operations checked{}, {} fixed, "
+                 "{} marked for D2M",
                  validationFailed ? "FAILED" : "complete",
                  totalOperationsChecked,
-                 validationFailed ? " before failure" : "", operationsFixed);
+                 validationFailed ? " before failure" : "", operationsFixed,
+                 operationsMarkedForD2M);
 #endif // TTMLIR_ENABLE_OPMODEL
   }
 
