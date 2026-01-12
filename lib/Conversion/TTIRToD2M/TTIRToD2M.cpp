@@ -68,40 +68,6 @@ protected:
         "Only default tile shape is supported");
   }
 
-  // static llvm::SmallVector<int64_t>
-  // computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
-  //                           ArrayRef<int64_t> targetSquareGridShape) {
-
-  //   int64_t targetGridVolume = ttmlir::utils::volume(targetSquareGridShape);
-  //     // Compute factors for all dims.
-  //     SmallVector<SmallVector<int64_t>> factors =
-  //         llvm::to_vector(llvm::map_range(physicalShape, [](int64_t dim) {
-  //           return ttmlir::utils::getFactors(dim);
-  //         }));
-
-  //     auto factorCombinations =
-  //         ttmlir::utils::computeCartesianProduct<int64_t>(factors);
-
-  //     // Find grid with the greatest volume that is less than or equal to the
-  //     // target grid volume.
-  //     SmallVector<int64_t> bestGrid = {0};
-  //     int64_t bestGridVolume = 0;
-  //     for (const auto &grid : factorCombinations) {
-  //       int64_t gridVolume = ttmlir::utils::volume<int64_t>(grid);
-  //       if (gridVolume <= targetGridVolume && gridVolume > bestGridVolume) {
-  //         auto physGrid =
-  //             findLegalPhysicalGridForVolume(gridVolume,
-  //             targetSquareGridShape);
-  //         if (!physGrid.empty()) {
-
-  //           bestGrid = grid;
-  //           bestGridVolume = ttmlir::utils::volume<int64_t>(bestGrid);
-  //         }
-  //       }
-  //     }
-  //     return bestGrid;
-  // }
-
   static llvm::SmallVector<int64_t>
   getImpliedNDGridShape(llvm::ArrayRef<int64_t> shardShape,
                         llvm::ArrayRef<int64_t> tensorShape) {
@@ -118,8 +84,6 @@ protected:
     // Divide out the tile shape for the last two dimensions
     impliedGrid[impliedGrid.size() - 1] /= 32;
     impliedGrid[impliedGrid.size() - 2] /= 32;
-    std::cout << "Implied grid: "
-              << ttmlir::utils::formatIterable(impliedGrid, "x") << std::endl;
 
     return impliedGrid;
   }
@@ -194,13 +158,8 @@ protected:
     llvm::SmallVector<int64_t> unshardedShape =
         metalLayout.getPhysicalShape(ttcore::TileType::getDefaultShape());
 
-    std::cout << "unsharded shape: "
-              << ttmlir::utils::formatIterable(unshardedShape, "x")
-              << std::endl;
     llvm::SmallVector<int64_t> shardedShape = metalLayout.getDeviceShape(
         optimalGrid, ttcore::TileType::getDefaultShape());
-    std::cout << "sharded shape: "
-              << ttmlir::utils::formatIterable(shardedShape, "x") << std::endl;
 
     Type elementType = ttnnLayout.getElementType();
     return mlir::RankedTensorType::get(shardedShape, elementType, metalLayout);
@@ -213,13 +172,11 @@ protected:
                               bool tiled, bool noCollapse,
                               mlir::ConversionPatternRewriter &rewriter) const {
     bool isTTNN = isTTNNTensor(value.getType());
-    std::cout << "isTTNNTensor: " << isTTNN << std::endl;
     if (isTTNN) {
       assert(ttnnMode && "Unexpected TTNN tensor as op operand");
       auto tensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
       bool isNDLayout = mlir::isa_and_nonnull<ttnn::TTNNNDLayoutAttr>(
           tensorType.getEncoding());
-      std::cout << "isNDLayout: " << isNDLayout << std::endl;
       auto metalTensorType =
           isNDLayout
               ? getMetalTensorFromTTNNTensor<ttnn::TTNNNDLayoutAttr>(rewriter,

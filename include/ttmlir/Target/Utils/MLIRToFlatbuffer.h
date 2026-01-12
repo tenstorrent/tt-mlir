@@ -17,7 +17,6 @@
 #include "flatbuffers/buffer.h"
 #include "llvm/ADT/STLForwardCompat.h"
 
-#include <iostream>
 #include <optional>
 #include <type_traits>
 
@@ -918,12 +917,6 @@ toFlatbuffer(FlatbufferObjectCache &cache,
   ::tt::target::ttnn::TensorMemoryLayout tensorMemoryLayout =
       toFlatbuffer(cache, tensorMemoryLayoutAttr);
   ::flatbuffers::Offset<::tt::target::ttnn::ShardSpec> shardSpec = 0;
-  std::cout << "shardSpec: "
-            << static_cast<bool>(memoryConfigAttr.getShardSpec()) << std::endl;
-  std::cout << "ndShardSpec: "
-            << static_cast<bool>(memoryConfigAttr.getNdShardSpec())
-            << std::endl;
-
   if (memoryConfigAttr.getShardSpec()) {
     assert(tensorMemoryLayoutAttr && mlir::tt::ttnn::isShardedMemoryLayout(
                                          tensorMemoryLayoutAttr.getValue()));

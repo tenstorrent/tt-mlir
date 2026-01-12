@@ -115,21 +115,15 @@ bool canUntilizeDataTypeOnDevice(const ::ttnn::DataType &dataType) {
          dataType == ::ttnn::DataType::INT32;
 }
 
+// tt-metal untilize does not support ND sharding. See:
+// https://github.com/tenstorrent/tt-metal/issues/35418
 bool canUntilizeOnDevice(
     const ::ttnn::DataType &dataType,
     const std::optional<::ttnn::MemoryConfig> &memoryConfig) {
   bool notSharded = !memoryConfig.has_value() || !memoryConfig->is_sharded();
   bool legacySharded =
       memoryConfig.has_value() && memoryConfig->shard_spec().has_value();
-  bool canUntilize =
-      canUntilizeDataTypeOnDevice(dataType) && (notSharded || legacySharded);
-  LOG_DEBUG("canUntilize: ", canUntilize);
-  LOG_DEBUG("dataType: ", debug::toString(dataType));
-  LOG_DEBUG("notSharded: ", notSharded);
-  LOG_DEBUG("legacySharded: ", legacySharded);
-  LOG_DEBUG("canUntilizeDataTypeOnDevice: ",
-            canUntilizeDataTypeOnDevice(dataType));
-  return canUntilize;
+  return canUntilizeDataTypeOnDevice(dataType) && (notSharded || legacySharded);
 }
 
 const ::tt::target::ttnn::TTNNBinary *
