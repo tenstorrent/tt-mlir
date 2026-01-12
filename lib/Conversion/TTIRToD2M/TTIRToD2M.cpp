@@ -1045,7 +1045,7 @@ public:
                      ttcore::MemorySpace defaultInputMemSpace,
                      ttcore::MemorySpace defaultOutputMemSpace, bool ttnnMode,
                      bool /*collapseTensors*/)
-      : OpConversionPattern<ConcreteOp>(typeConverter, ctx),
+      : OpConversionPattern<ConcreteOp>(typeConverter, ctx, /*benefit=*/2),
         D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
                                ttnnMode, /*collapseTensors*/ false) {}
 
@@ -1538,9 +1538,9 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MTensorManipulationOpRewriter<ttir::RearrangeOp, rearrangeLogicalMap>,
     D2MTensorManipulationOpRewriter<ttir::ReshapeOp, reshapeLogicalMap>,
     D2MTensorManipulationOpRewriter<ttir::SliceStaticOp, sliceLogicalMap>,
-    // Permute (handles tranpose ops, since they're canonicalized into permutes).
-    D2MTensorManipulationOpRewriter<ttir::PermuteOp, permuteLogicalMap>,
-    D2MPermuteRewriter
+    // Permute (handles transpose ops, since they're canonicalized into permutes).
+    D2MPermuteRewriter,
+    D2MTensorManipulationOpRewriter<ttir::PermuteOp, permuteLogicalMap>
   >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, ttnnMode, collapseTensors);
 
 

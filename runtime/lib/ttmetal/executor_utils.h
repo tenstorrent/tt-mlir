@@ -9,6 +9,8 @@
 #include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/ttmetal/ttmetal.h"
 
+#include "tt-metalium/allocator.hpp"
+
 #include <filesystem>
 #include <functional>
 #include <variant>
