@@ -126,22 +126,11 @@ struct ConvertTTNNToEmitPyPass
     builder.create<emitpy::ImportOp>(module->getLoc(), "utils", nullptr,
                                      nullptr, nullptr, nullptr);
 
-    // Count load_cached ops to determine the size of the global cache
-    // dictionary
+    // Create a global cache dictionary
     //
-    size_t loadCachedCount = 0;
-    module.walk([&](ttcore::LoadCachedOp) { ++loadCachedCount; });
-
-    // Create global cache dictionary if any load_cached ops exist
-    //
-    if (loadCachedCount > 0) {
-      std::string literalExpr =
-          "{i: None for i in range(" + std::to_string(loadCachedCount) + ")}";
-      auto opaqueAttr =
-          emitpy::OpaqueAttr::get(&getContext(), StringRef(literalExpr));
-      builder.create<emitpy::GlobalOp>(module->getLoc(), "_CONST_EVAL_CACHE",
-                                       opaqueAttr);
-    }
+    auto opaqueAttr = emitpy::OpaqueAttr::get(&getContext(), "{}");
+    builder.create<emitpy::GlobalOp>(module->getLoc(), "_CONST_EVAL_CACHE",
+                                     opaqueAttr);
 
     // TTNN -> EmitPy
     //
