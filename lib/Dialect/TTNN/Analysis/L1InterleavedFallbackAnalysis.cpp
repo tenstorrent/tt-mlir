@@ -319,11 +319,16 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
   std::vector<TTNNLayoutAttr> inputLayouts =
       utils::extractInputLayouts(consumerOp);
 
+  size_t layoutIdx = 0;
   for (uint32_t i = 0; i < consumerOp->getNumOperands(); i++) {
     auto operand = consumerOp->getOperand(i);
 
     if (mlir::isa<TypedValue<mlir::tt::ttnn::DeviceType>>(operand)) {
-      // Skip device type operand.
+      // Skip device type operand - don't increment layoutIdx.
+      // NOTE: Current TTNN ops always have device operands after all tensor
+      // operands (e.g., conv2d: input, weight, device), so indices naturally
+      // align. This separate layoutIdx counter is defensive for any future ops
+      // with different operand ordering.
       continue;
     }
 
@@ -331,15 +336,15 @@ L1InterleavedFallbackAnalysis::checkUpgradeToL1Interleaved(
       if (operand.getDefiningOp() == upgradedProducerOp) {
         // If it's a nested check of update candidate's (producer in this
         // scope) consumer's storage.
-        inputLayouts[i] = upgradedProducerLayout;
-        continue;
-      }
-      auto it = analysisResult.upgradedConfigs.find(operand.getDefiningOp());
-      if (it != analysisResult.upgradedConfigs.end()) {
-        inputLayouts[i] = it->second.outputLayout;
-        continue;
+        inputLayouts[layoutIdx] = upgradedProducerLayout;
+      } else {
+        auto it = analysisResult.upgradedConfigs.find(operand.getDefiningOp());
+        if (it != analysisResult.upgradedConfigs.end()) {
+          inputLayouts[layoutIdx] = it->second.outputLayout;
+        }
       }
     }
+    layoutIdx++;
   }
 
   // Delegate validation to op_constraint_validation (handles tensorL1UsageCap
