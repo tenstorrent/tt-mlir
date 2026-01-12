@@ -84,6 +84,9 @@ struct MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig;
 struct WormholeComputeKernelConfig;
 struct GrayskullComputeKernelConfig;
 
+// Math fidelity enum (mock for EmitPy conversion)
+struct MathFidelity;
+
 } // namespace ttnn
 
 namespace mlir {
@@ -1698,38 +1701,56 @@ struct EmitPyTypeConverter<
   }
 };
 
+// Specialization for MathFidelity enum
+template <>
+struct EmitPyTypeConverter<::ttnn::MathFidelity> {
+  static std::string convert(ttnn::MathFidelity mathFidelity) {
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+    rso << "ttnn.MathFidelity.";
+    switch (mathFidelity) {
+    case ttnn::MathFidelity::LoFi:
+      rso << "LoFi";
+      break;
+    case ttnn::MathFidelity::HiFi2:
+      rso << "HiFi2";
+      break;
+    case ttnn::MathFidelity::HiFi3:
+      rso << "HiFi3";
+      break;
+    case ttnn::MathFidelity::HiFi4:
+      rso << "HiFi4";
+      break;
+    }
+    return buf;
+  }
+};
+
 // Specialization for DeviceComputeKernelConfig (as WormholeComputeKernelConfig)
 template <>
 struct EmitPyTypeConverter<::ttnn::WormholeComputeKernelConfig> {
-  static std::string convert(ttnn::DeviceComputeKernelConfigAttr attr) {
+  static std::optional<std::string>
+  convert(ttnn::DeviceComputeKernelConfigAttr attr) {
+    if (!attr) {
+      return std::nullopt;
+    }
+
     std::string buf;
     llvm::raw_string_ostream rso(buf);
     rso << TypeNameV<::ttnn::WormholeComputeKernelConfig> << "(";
 
     bool first = true;
+
     // math_fidelity
     if (auto mathFidelity = attr.getMathFidelity()) {
       if (!first) {
         rso << ", ";
       }
       first = false;
-      // Convert enum to Python representation
-      rso << "math_fidelity=ttnn.MathFidelity.";
-      switch (*mathFidelity) {
-      case ttnn::MathFidelity::LoFi:
-        rso << "LoFi";
-        break;
-      case ttnn::MathFidelity::HiFi2:
-        rso << "HiFi2";
-        break;
-      case ttnn::MathFidelity::HiFi3:
-        rso << "HiFi3";
-        break;
-      case ttnn::MathFidelity::HiFi4:
-        rso << "HiFi4";
-        break;
-      }
+      rso << "math_fidelity="
+          << EmitPyTypeConverter<::ttnn::MathFidelity>::convert(*mathFidelity);
     }
+
     // math_approx_mode
     if (auto mathApproxMode = attr.getMathApproxMode()) {
       if (!first) {
@@ -1739,6 +1760,7 @@ struct EmitPyTypeConverter<::ttnn::WormholeComputeKernelConfig> {
       rso << "math_approx_mode="
           << (mathApproxMode.getValue() ? "True" : "False");
     }
+
     // fp32_dest_acc_en
     if (auto fp32DestAccEn = attr.getFp32DestAccEn()) {
       if (!first) {
@@ -1748,6 +1770,7 @@ struct EmitPyTypeConverter<::ttnn::WormholeComputeKernelConfig> {
       rso << "fp32_dest_acc_en="
           << (fp32DestAccEn.getValue() ? "True" : "False");
     }
+
     // packer_l1_acc
     if (auto packerL1Acc = attr.getPackerL1Acc()) {
       if (!first) {
@@ -1756,12 +1779,12 @@ struct EmitPyTypeConverter<::ttnn::WormholeComputeKernelConfig> {
       first = false;
       rso << "packer_l1_acc=" << (packerL1Acc.getValue() ? "True" : "False");
     }
+
     // dst_full_sync_en
     if (auto dstFullSyncEn = attr.getDstFullSyncEn()) {
       if (!first) {
         rso << ", ";
       }
-      first = false;
       rso << "dst_full_sync_en="
           << (dstFullSyncEn.getValue() ? "True" : "False");
     }
@@ -1770,55 +1793,6 @@ struct EmitPyTypeConverter<::ttnn::WormholeComputeKernelConfig> {
     return buf;
   }
 };
-
-// Helper function to convert DeviceComputeKernelConfigAttr to Python string
-inline std::optional<std::string> convertDeviceComputeKernelConfig(
-    std::optional<ttnn::DeviceComputeKernelConfigAttr> optAttr) {
-  if (!optAttr) {
-    return std::nullopt;
-  }
-  return EmitPyTypeConverter<::ttnn::WormholeComputeKernelConfig>::convert(
-      *optAttr);
-}
-
-// Helper function to convert any matmul program config attribute
-inline std::optional<std::string>
-convertMatmulProgramConfig(std::optional<mlir::Attribute> optAttr) {
-  if (!optAttr || !*optAttr) {
-    return std::nullopt;
-  }
-  mlir::Attribute attr = *optAttr;
-
-  if (auto configAttr =
-          mlir::dyn_cast<ttnn::MatmulMultiCoreReuseProgramConfigAttr>(attr)) {
-    return EmitPyTypeConverter<
-        ::ttnn::operations::matmul::MatmulMultiCoreReuseProgramConfig>::
-        convert(configAttr);
-  }
-  if (auto configAttr =
-          mlir::dyn_cast<ttnn::MatmulMultiCoreReuseMultiCastProgramConfigAttr>(
-              attr)) {
-    return EmitPyTypeConverter<
-        ::ttnn::operations::matmul::
-            MatmulMultiCoreReuseMultiCastProgramConfig>::convert(configAttr);
-  }
-  if (auto configAttr = mlir::dyn_cast<
-          ttnn::MatmulMultiCoreReuseMultiCast1DProgramConfigAttr>(attr)) {
-    return EmitPyTypeConverter<
-        ::ttnn::operations::matmul::
-            MatmulMultiCoreReuseMultiCast1DProgramConfig>::convert(configAttr);
-  }
-  if (auto configAttr = mlir::dyn_cast<
-          ttnn::MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
-          attr)) {
-    return EmitPyTypeConverter<
-        ::ttnn::operations::matmul::
-            MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig>::
-        convert(configAttr);
-  }
-
-  return std::nullopt;
-}
 
 // This template struct retrieves the most relevant C++ type with a one-to-one
 // Python type correspondence for a given template type.
@@ -1908,6 +1882,55 @@ struct TTNNTarget<mlir::tt::ttnn::Conv2dConfigAttr> {
 template <>
 struct TTNNTarget<tt::ttnn::Conv2dSliceConfigAttr> {
   using type = ::ttnn::operations::conv::conv2d::Conv2dSliceConfig;
+};
+
+template <>
+struct TTNNTarget<tt::ttnn::DeviceComputeKernelConfigAttr> {
+  using type = ::ttnn::WormholeComputeKernelConfig;
+};
+
+// Marker type for matmul program config union (AnyAttrOf<[...]>)
+// Used with emit<MatmulProgramConfig>(attr, ...) to convert matmul program
+// configs
+struct MatmulProgramConfig {};
+
+template <>
+struct EmitPyTypeConverter<MatmulProgramConfig> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    if (!attr) {
+      return std::nullopt;
+    }
+
+    if (auto configAttr =
+            mlir::dyn_cast<ttnn::MatmulMultiCoreReuseProgramConfigAttr>(attr)) {
+      return EmitPyTypeConverter<
+          ::ttnn::operations::matmul::MatmulMultiCoreReuseProgramConfig>::
+          convert(configAttr);
+    }
+    if (auto configAttr = mlir::dyn_cast<
+            ttnn::MatmulMultiCoreReuseMultiCastProgramConfigAttr>(attr)) {
+      return EmitPyTypeConverter<
+          ::ttnn::operations::matmul::
+              MatmulMultiCoreReuseMultiCastProgramConfig>::convert(configAttr);
+    }
+    if (auto configAttr = mlir::dyn_cast<
+            ttnn::MatmulMultiCoreReuseMultiCast1DProgramConfigAttr>(attr)) {
+      return EmitPyTypeConverter<
+          ::ttnn::operations::matmul::
+              MatmulMultiCoreReuseMultiCast1DProgramConfig>::
+          convert(configAttr);
+    }
+    if (auto configAttr = mlir::dyn_cast<
+            ttnn::MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
+            attr)) {
+      return EmitPyTypeConverter<
+          ::ttnn::operations::matmul::
+              MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig>::
+          convert(configAttr);
+    }
+
+    return std::nullopt;
+  }
 };
 
 template <typename T>
@@ -2103,15 +2126,6 @@ public:
       return rewriter.getType<emitpy::OpaqueAttr>(*result);
     }
     return rewriter.getType<emitpy::OpaqueAttr>(result);
-  }
-
-  // Emits an opaque Python code string as a keyword argument.
-  // Use this for values that have already been converted to Python code
-  // strings.
-  mlir::Attribute emitOpaque(const std::string &code,
-                             std::string attrName = "") {
-    addKeywordArgument(attrName);
-    return rewriter.getAttr<emitpy::OpaqueAttr>(code);
   }
 
   // This is a temporary solution for handling the case when

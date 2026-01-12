@@ -664,7 +664,6 @@ public:
         emitter.emit(std::nullopt) | emitter.getMemoryConfig(srcOp.getResult()),
         /*dtype=*/emitter.emit(std::nullopt),
         /*program_config=*/emitter.emit(std::nullopt),
-        emitter.emit(std::nullopt),
         emitter.emit(srcOp.getActivation()),
     };
 
