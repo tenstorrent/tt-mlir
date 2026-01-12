@@ -4342,7 +4342,7 @@ class StableHLOBuilder(Builder):
         stablehlo_op = self.get_opview_from_method(StableHLOBuilder.select)
 
         if output_type is None:
-            mlir_output_type = self.get_type(pred)
+            mlir_output_type = self.get_type(on_true)
         else:
             mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
@@ -7008,7 +7008,10 @@ class StableHLOBuilder(Builder):
 
         with old_ctx, old_loc:
             for func_op in module.body.operations:
-                if func_op.name.value in builder._nested_funcs:
+                if (
+                    not isinstance(func_op, func.FuncOp)
+                    or func_op.name.value in builder._nested_funcs
+                ):
                     continue
 
                 for block in func_op.body:

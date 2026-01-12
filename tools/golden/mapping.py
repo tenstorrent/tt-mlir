@@ -116,6 +116,8 @@ class GoldenMapTensor:
             return dtype
         elif dtype in [torch.qint32, torch.int64]:
             return torch.int32
+        elif dtype == torch.bool:
+            return torch.bfloat16
         else:
             return torch.float32
 
@@ -1770,10 +1772,11 @@ def get_dimension_size_golden(
     dimension = kwargs.get("dimension", 0)
     output_tensor = input_tensor.clone()
 
-    for device_id, shard in output_tensor.shard_map.items():
+    for device_id, shard in input_tensor.shard_map.items():
         shard = torch.tensor(
             [input_tensor.shard_at(device_id).size(dimension)], dtype=torch.int32
         )
+        output_tensor.shard_map[device_id] = shard
 
     return output_tensor
 
@@ -2444,7 +2447,6 @@ def ttir_gather_golden(
     for k, d in enumerate(start_index_map):
         valid_max = x0.size(d) - slice_sizes[d]
         if torch.any(idx_flat0[:, k] < 0) or torch.any(idx_flat0[:, k] > valid_max):
-            print(d)
             raise IndexError(
                 "gather start indices out of bounds for operand dim {}".format(d)
             )
@@ -3730,6 +3732,13 @@ def ttir_all_to_all_golden(
     )
 
 
+def ttir_isfinite_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.isfinite(input_tensor).to(dtype)
+
+
 ################ StableHLO Op Golden Functions ###############
 
 
@@ -3744,7 +3753,11 @@ def stablehlo_and_golden(
     input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
-    return torch.logical_and(input_tensor, other_tensor).to(output_dtype)
+    if output_dtype == torch.bool:
+        result_bool = torch.logical_and(input_tensor, other_tensor)
+        return result_bool.to(input_tensor.dtype)
+    else:
+        return torch.bitwise_and(input_tensor, other_tensor).to(output_dtype)
 
 
 def stablehlo_abs_golden(
@@ -4811,7 +4824,7 @@ def ttnn_linear_golden(
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     a = torch.transpose(input_tensor, -2, -1) if transpose_a else input_tensor
     b = torch.transpose(other_tensor, -2, -1) if transpose_b else other_tensor
-    output = torch.matmul(a, b).to(output_dtype)
+    output = torch.matmul(a, b)
 
     if bias_tensor is None:
         bias_tensor = torch.zeros(list(output.shape))
@@ -4821,7 +4834,7 @@ def ttnn_linear_golden(
         if bias_tensor.shape != output.shape
         else bias_tensor
     )
-    return torch.add(output, bias_tensor)
+    return torch.add(output, bias_tensor).to(output_dtype)
 
 
 def ttnn_concat_golden(
@@ -4944,7 +4957,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.FloorOp: ttir_floor_golden,
     ttir.GeluOp: torch.nn.functional.gelu,
     ttir.GeluBackwardOp: torch.ops.aten.gelu_backward,
-    ttir.IsFiniteOp: torch.isfinite,
+    ttir.IsFiniteOp: ttir_isfinite_golden,
     ttir.MishOp: torch.nn.functional.mish,
     ttir.NegOp: ttir_neg_golden,
     ttir.TanOp: torch.tan,
