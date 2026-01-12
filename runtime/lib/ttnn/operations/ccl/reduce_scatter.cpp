@@ -21,7 +21,8 @@ void run(const ::tt::target::ttnn::ReduceScatterOp *op,
   const ::ttnn::Tensor &input = tensorPool.getTTNNTensorAndValidate(op->in());
 
   int32_t scatterDimension = op->scatter_dim();
-  uint32_t clusterAxis = op->cluster_axis();
+  std::optional<uint32_t> clusterAxis =
+      std::make_optional<uint32_t>(op->cluster_axis());
   //   auto reduceType =
   //       ::tt::runtime::ttnn::utils::getReduceType(op->reduce_type());
   // TODO(hkwon): Enable reduce_type again once the issue is resolved.
@@ -51,7 +52,8 @@ void run(const ::tt::target::ttnn::ReduceScatterOp *op,
 
   ::ttnn::Tensor out = ::ttnn::reduce_scatter(
       input, scatterDimension, clusterAxis, subDeviceId, outputMemoryConfig,
-      optionalOutputTensor, numLinks, topology);
+      /*intermediate_memory_config=*/std::nullopt, optionalOutputTensor,
+      numLinks, topology);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
