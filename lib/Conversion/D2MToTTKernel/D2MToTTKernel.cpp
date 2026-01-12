@@ -874,11 +874,17 @@ public:
       // Ternary tile operation (arity == 3)
       OpBuilder::InsertionGuard guard(rewriter);
       const auto dstIdx = getDstIdxFromResult(op.getResult());
-      setInsertionPointAfterOperands(rewriter,
-                                     {adaptor.getCondition(),
-                                      adaptor.getTrueValue(),
-                                      adaptor.getFalseValue(), dstIdx},
-                                     /*allowHoisting*/ false);
+
+      // For ternary ops like TileWhereOp, get DST indices directly from the
+      // source operands' stores to DST, not from the adaptor. This ensures
+      // correct indices regardless of conversion order.
+      Value condDstIdx = getDstIdxFromResult(op.getCondition());
+      Value trueDstIdx = getDstIdxFromResult(op.getTrueValue());
+      Value falseDstIdx = getDstIdxFromResult(op.getFalseValue());
+
+      setInsertionPointAfterOperands(
+          rewriter, {condDstIdx, trueDstIdx, falseDstIdx, dstIdx},
+          /*allowHoisting*/ false);
       const auto elemType =
           mlir::cast<ttcore::TileType>(op.getTrueValue().getType())
               .getElementType();
@@ -886,13 +892,11 @@ public:
       if (isCBF32) {
         if (std::is_same_v<ConcreteOp, d2m::TileWhereOp>) {
           rewriter.create<ttkernel::WhereTileF32Op>(
-              op->getLoc(), adaptor.getCondition(), adaptor.getTrueValue(),
-              adaptor.getFalseValue(), dstIdx);
+              op->getLoc(), condDstIdx, trueDstIdx, falseDstIdx, dstIdx);
         }
       } else {
-        rewriter.create<SFPUOp>(op->getLoc(), adaptor.getCondition(),
-                                adaptor.getTrueValue(), adaptor.getFalseValue(),
-                                dstIdx);
+        rewriter.create<SFPUOp>(op->getLoc(), condDstIdx, trueDstIdx,
+                                falseDstIdx, dstIdx);
       }
     }
 
@@ -1125,7 +1129,8 @@ public:
     rewriter.create<ttkernel::ExperimentalPaddingMaskOp>(loc, dstIdx, validRows,
                                                          validCols);
 
-    rewriter.eraseOp(op);
+    // Replace the op with its DST index so users get the correct operand value.
+    rewriter.replaceOp(op, dstIdx);
     return success();
   }
 };
@@ -1154,7 +1159,9 @@ public:
     // Create the TTKernel experimental row mask operation
     rewriter.create<ttkernel::ExperimentalRowMaskOp>(loc, dstIdx, validRows);
 
-    rewriter.eraseOp(op);
+    // Replace the op with its DST index so users (like TileWhereOp) get the
+    // correct operand value.
+    rewriter.replaceOp(op, dstIdx);
     return success();
   }
 };
@@ -1183,7 +1190,35 @@ public:
     // Create the TTKernel experimental col mask operation
     rewriter.create<ttkernel::ExperimentalColMaskOp>(loc, dstIdx, validCols);
 
-    rewriter.eraseOp(op);
+    // Replace the op with its DST index so users (like TileWhereOp) get the
+    // correct operand value.
+    rewriter.replaceOp(op, dstIdx);
+    return success();
+  }
+};
+
+class D2MExperimentalTileFillRewriter
+    : public OpConversionPattern<d2m::ExperimentalTileFillOp> {
+public:
+  using OpConversionPattern<d2m::ExperimentalTileFillOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::ExperimentalTileFillOp op,
+                  d2m::ExperimentalTileFillOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    // Get the DST index from the result usage
+    Value dstIdx = getDstIdxFromResult(op.getResult());
+
+    // Get the fill value - should already be F32
+    Value fillValue = adaptor.getValue();
+    Location loc = op->getLoc();
+
+    // Create the TTKernel experimental tile fill operation
+    rewriter.create<ttkernel::ExperimentalTileFillOp>(loc, dstIdx, fillValue);
+
+    // Replace the op with its DST index so users (like TileWhereOp) get the
+    // correct operand value.
+    rewriter.replaceOp(op, dstIdx);
     return success();
   }
 };
@@ -1219,6 +1254,80 @@ public:
     // Create the TTKernel experimental write col index tile operation
     rewriter.create<ttkernel::ExperimentalWriteColIndexTileOp>(
         op->getLoc(), adaptor.getOutput());
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+class D2MExperimentalWriteRowMaskTileRewriter
+    : public OpConversionPattern<d2m::ExperimentalWriteRowMaskTileOp> {
+public:
+  using OpConversionPattern<
+      d2m::ExperimentalWriteRowMaskTileOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::ExperimentalWriteRowMaskTileOp op,
+                  d2m::ExperimentalWriteRowMaskTileOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Location loc = op->getLoc();
+    Value validRows = adaptor.getValidRows();
+    if (!validRows.getType().isInteger(32)) {
+      validRows = rewriter.create<arith::IndexCastOp>(
+          loc, rewriter.getI32Type(), validRows);
+    }
+    rewriter.create<ttkernel::ExperimentalWriteRowMaskTileOp>(
+        loc, validRows, adaptor.getOutput());
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+class D2MExperimentalWriteColMaskTileRewriter
+    : public OpConversionPattern<d2m::ExperimentalWriteColMaskTileOp> {
+public:
+  using OpConversionPattern<
+      d2m::ExperimentalWriteColMaskTileOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::ExperimentalWriteColMaskTileOp op,
+                  d2m::ExperimentalWriteColMaskTileOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Location loc = op->getLoc();
+    Value validCols = adaptor.getValidCols();
+    if (!validCols.getType().isInteger(32)) {
+      validCols = rewriter.create<arith::IndexCastOp>(
+          loc, rewriter.getI32Type(), validCols);
+    }
+    rewriter.create<ttkernel::ExperimentalWriteColMaskTileOp>(
+        loc, validCols, adaptor.getOutput());
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+class D2MExperimentalWriteCombinedMaskTileRewriter
+    : public OpConversionPattern<d2m::ExperimentalWriteCombinedMaskTileOp> {
+public:
+  using OpConversionPattern<
+      d2m::ExperimentalWriteCombinedMaskTileOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::ExperimentalWriteCombinedMaskTileOp op,
+                  d2m::ExperimentalWriteCombinedMaskTileOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Location loc = op->getLoc();
+    Value validRows = adaptor.getValidRows();
+    Value validCols = adaptor.getValidCols();
+    if (!validRows.getType().isInteger(32)) {
+      validRows = rewriter.create<arith::IndexCastOp>(
+          loc, rewriter.getI32Type(), validRows);
+    }
+    if (!validCols.getType().isInteger(32)) {
+      validCols = rewriter.create<arith::IndexCastOp>(
+          loc, rewriter.getI32Type(), validCols);
+    }
+    rewriter.create<ttkernel::ExperimentalWriteCombinedMaskTileOp>(
+        loc, validRows, validCols, adaptor.getOutput());
     rewriter.eraseOp(op);
     return success();
   }
@@ -2054,8 +2163,12 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MExperimentalTilePadRewriter,
                ttkernel::D2MExperimentalTileRowMaskRewriter,
                ttkernel::D2MExperimentalTileColMaskRewriter,
+               ttkernel::D2MExperimentalTileFillRewriter,
                ttkernel::D2MExperimentalWriteRowIndexTileRewriter,
                ttkernel::D2MExperimentalWriteColIndexTileRewriter,
+               ttkernel::D2MExperimentalWriteRowMaskTileRewriter,
+               ttkernel::D2MExperimentalWriteColMaskTileRewriter,
+               ttkernel::D2MExperimentalWriteCombinedMaskTileRewriter,
                ttkernel::D2MTileTransposeRewriter,
                ttkernel::D2MDstReinterpretCastRewriter,
                ttkernel::AcquireDstRewriter,

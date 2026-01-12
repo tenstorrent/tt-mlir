@@ -21,7 +21,12 @@ llvm::SmallVector<int64_t>
 getSquareTargetGrid(mlir::ArrayRef<int64_t> targetGridShape);
 
 // Get the largest destination element type used in a region.
+// Asserts if no DST-using ops are found.
 Type getRegionLargestDstElemType(Region &region);
+
+// Get the largest destination element type used in a region.
+// Returns nullptr if no DST-using ops are found.
+Type getRegionLargestDstElemTypeOrNull(Region &region);
 
 // Computes dim constraints implied by the indexing maps and shapes. If
 // successful, returns a vector of dim constraints for each dimension; a '0'

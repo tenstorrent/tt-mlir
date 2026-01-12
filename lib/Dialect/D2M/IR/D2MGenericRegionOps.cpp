@@ -391,6 +391,90 @@ void ExperimentalWriteColIndexTileOp::getEffects(
                        0, true, mlir::SideEffects::DefaultResource::get());
 }
 
+void ExperimentalWriteRowMaskTileOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Write::get(), &getOutputMutable(),
+                       0, true, mlir::SideEffects::DefaultResource::get());
+}
+
+void ExperimentalWriteColMaskTileOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Write::get(), &getOutputMutable(),
+                       0, true, mlir::SideEffects::DefaultResource::get());
+}
+
+void ExperimentalWriteCombinedMaskTileOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Write::get(), &getOutputMutable(),
+                       0, true, mlir::SideEffects::DefaultResource::get());
+}
+
+void BlockMaskWriteOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       &getRowMaskCbMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       &getColMaskCbMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+}
+
+bool BlockMaskWriteOp::bufferizesToMemoryRead(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  return false; // Only writes, no reads.
+}
+
+bool BlockMaskWriteOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getRowMaskCb() || operand.get() == getColMaskCb();
+}
+
+mlir::bufferization::AliasingValueList BlockMaskWriteOp::getAliasingValues(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  mlir::bufferization::AliasingValueList result;
+  return result;
+}
+
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+BlockMaskWriteOp::getBufferType(
+    mlir::Value value, const mlir::bufferization::BufferizationOptions &,
+    const mlir::bufferization::BufferizationState &,
+    ::llvm::SmallVector<mlir::Value> &) {
+  auto rankedTensorType = mlir::cast<mlir::RankedTensorType>(value.getType());
+  return mlir::tt::ttcore::getBufferType(rankedTensorType, /*isView=*/true);
+}
+
+mlir::LogicalResult BlockMaskWriteOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options,
+    mlir::bufferization::BufferizationState &state) {
+  mlir::FailureOr<Value> rowMaskCb =
+      mlir::bufferization::getBuffer(rewriter, getRowMaskCb(), options, state);
+  if (failed(rowMaskCb)) {
+    return rowMaskCb;
+  }
+
+  mlir::FailureOr<Value> colMaskCb =
+      mlir::bufferization::getBuffer(rewriter, getColMaskCb(), options, state);
+  if (failed(colMaskCb)) {
+    return colMaskCb;
+  }
+
+  mlir::bufferization::replaceOpWithNewBufferizedOp<
+      mlir::tt::d2m::BlockMaskWriteOp>(rewriter, *this, *rowMaskCb, *colMaskCb,
+                                       getLogicalRows(), getLogicalCols());
+
+  return mlir::success();
+}
+
 bool DMAOp::bufferizesToMemoryRead(mlir::OpOperand &operand,
                                    const mlir::bufferization::AnalysisState &) {
   return operand.get() == getSrc();
@@ -1410,35 +1494,30 @@ BlockMaskOp::bufferize(mlir::RewriterBase &rewriter,
     out = *maybe;
   }
 
-  // Bufferize index tiles if present
-  SmallVector<mlir::Value> bufferizedIndexTiles;
-  for (auto tile : getIndexTiles()) {
-    if (mlir::isa<mlir::RankedTensorType>(tile.getType())) {
-      auto maybe =
-          mlir::bufferization::getBuffer(rewriter, tile, options, state);
-      if (failed(maybe)) {
-        return maybe;
-      }
-      bufferizedIndexTiles.push_back(*maybe);
-    } else {
-      bufferizedIndexTiles.push_back(tile);
-    }
-  }
-
-  // Bufferize scratch if present
-  mlir::Value scratch = getScratch();
-  if (scratch && mlir::isa<mlir::RankedTensorType>(scratch.getType())) {
+  // Bufferize mask CBs if present
+  mlir::Value rowMaskCb = getRowMaskCb();
+  if (rowMaskCb && mlir::isa<mlir::RankedTensorType>(rowMaskCb.getType())) {
     auto maybe =
-        mlir::bufferization::getBuffer(rewriter, scratch, options, state);
+        mlir::bufferization::getBuffer(rewriter, rowMaskCb, options, state);
     if (failed(maybe)) {
       return maybe;
     }
-    scratch = *maybe;
+    rowMaskCb = *maybe;
+  }
+
+  mlir::Value colMaskCb = getColMaskCb();
+  if (colMaskCb && mlir::isa<mlir::RankedTensorType>(colMaskCb.getType())) {
+    auto maybe =
+        mlir::bufferization::getBuffer(rewriter, colMaskCb, options, state);
+    if (failed(maybe)) {
+      return maybe;
+    }
+    colMaskCb = *maybe;
   }
 
   mlir::Operation *old = getOperation();
   auto newOp = rewriter.create<mlir::tt::d2m::BlockMaskOp>(
-      old->getLoc(), in, out, bufferizedIndexTiles, scratch, getLogicalRows(),
+      old->getLoc(), in, out, rowMaskCb, colMaskCb, getLogicalRows(),
       getLogicalCols(), getFillValue());
   // DPS-style op: replace uses of result with the output buffer, not the new
   // op's result. This ensures downstream ops correctly use the original buffer
@@ -1451,14 +1530,15 @@ BlockMaskOp::bufferize(mlir::RewriterBase &rewriter,
 
 bool BlockMaskOp::bufferizesToMemoryRead(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
-  // Input and scratch (if present) are read.
-  return operand.get() == getInput() || operand.get() == getScratch();
+  // Input and mask CBs (if present) are read.
+  return operand.get() == getInput() || operand.get() == getRowMaskCb() ||
+         operand.get() == getColMaskCb();
 }
 
 bool BlockMaskOp::bufferizesToMemoryWrite(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
-  // Output and scratch (if present) are written.
-  return operand.get() == getOutput() || operand.get() == getScratch();
+  // Only output is written.
+  return operand.get() == getOutput();
 }
 
 mlir::bufferization::AliasingValueList
@@ -1504,11 +1584,12 @@ mlir::LogicalResult BlockMaskOp::verify() {
     return emitOpError("input and output must have the same element type");
   }
 
-  // Index tiles must be either both provided (2) or both absent (0).
-  auto indexTiles = getIndexTiles();
-  if (indexTiles.size() != 0 && indexTiles.size() != 2) {
-    return emitOpError("index_tiles must contain exactly 0 or 2 operands (row "
-                       "and col index tiles)");
+  // Mask CBs must be either both provided or both absent.
+  bool hasRowMask = getRowMaskCb() != nullptr;
+  bool hasColMask = getColMaskCb() != nullptr;
+  if (hasRowMask != hasColMask) {
+    return emitOpError("row_mask_cb and col_mask_cb must both be provided or "
+                       "both be absent");
   }
 
   return success();
@@ -1522,6 +1603,9 @@ void BlockMaskOp::getEffects(
                        true, mlir::SideEffects::DefaultResource::get());
   effects.emplace_back(mlir::MemoryEffects::Write::get(), &getOutputMutable(),
                        0, true, mlir::SideEffects::DefaultResource::get());
+  // Mask CBs are read-only inputs. Since they're optional and tracked via
+  // AttrSizedOperandSegments, we handle them via bufferizesToMemoryRead()
+  // rather than effects, which is sufficient for bufferization analysis.
 }
 
 //===----------------------------------------------------------------------===//

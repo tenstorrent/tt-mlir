@@ -43,19 +43,80 @@ static double getFillValueAsDouble(ttcore::OOBVal oobVal) {
   return 0.0;
 }
 
-/// Decompose BlockMaskOp into affine loops with tile operations.
+/// Decompose BlockMaskWriteOp (DM region) into ops that write
+/// row_mask and col_mask tiles to scratch CBs.
 ///
-/// For each tile in the block:
-/// - Generate row mask (1.0 for valid rows, 0.0 for OOB rows)
-/// - Generate col mask (1.0 for valid cols, 0.0 for OOB cols)
-/// - Combine masks via multiplication (AND operation)
-/// - Use TileWhereOp to select between input and fill based on mask
+/// The DM region writes exactly 2 tiles:
+/// - Row mask tile at scratch[0] with validRows
+/// - Col mask tile at scratch[1] with validCols
 ///
-/// This approach avoids control flow (scf.if) which doesn't work well with
-/// DST register management. The mask values naturally handle edge cases:
-/// - Fully valid tile: mask is all 1.0, TileWhereOp returns input
-/// - Fully OOB tile: mask is all 0.0, TileWhereOp returns fill
-/// - Partial tile: mask has 1.0s and 0.0s as expected
+/// These are computed once based on the logical shape and reused
+/// across all tiles in the compute region.
+struct DecomposeBlockMaskWritePattern : OpRewritePattern<BlockMaskWriteOp> {
+  using OpRewritePattern<BlockMaskWriteOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(BlockMaskWriteOp op,
+                                PatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    Value rowMaskCB = op.getRowMaskCb();
+    Value colMaskCB = op.getColMaskCb();
+    Value logicalRowsVal = op.getLogicalRows();
+    Value logicalColsVal = op.getLogicalCols();
+
+    // Compute validRows and validCols for this shard.
+    // For single-core: validRows = logicalRows % 32 (or 32 if aligned)
+    //                  validCols = logicalCols % 32 (or 32 if aligned)
+    // The mask tiles represent the partial tile at the boundary.
+
+    Value tileHeightVal =
+        rewriter.create<arith::ConstantIndexOp>(loc, kTileHeight);
+    Value tileWidthVal =
+        rewriter.create<arith::ConstantIndexOp>(loc, kTileWidth);
+    Value zeroIdx = rewriter.create<arith::ConstantIndexOp>(loc, 0);
+
+    // validRows = logicalRows % tileHeight
+    // If validRows == 0, it means the last tile is fully valid, so use
+    // tileHeight.
+    Value rowRemainder =
+        rewriter.create<arith::RemUIOp>(loc, logicalRowsVal, tileHeightVal);
+    Value rowRemIsZero = rewriter.create<arith::CmpIOp>(
+        loc, arith::CmpIPredicate::eq, rowRemainder, zeroIdx);
+    Value validRows = rewriter.create<arith::SelectOp>(
+        loc, rowRemIsZero, tileHeightVal, rowRemainder);
+
+    // validCols = logicalCols % tileWidth
+    Value colRemainder =
+        rewriter.create<arith::RemUIOp>(loc, logicalColsVal, tileWidthVal);
+    Value colRemIsZero = rewriter.create<arith::CmpIOp>(
+        loc, arith::CmpIPredicate::eq, colRemainder, zeroIdx);
+    Value validCols = rewriter.create<arith::SelectOp>(
+        loc, colRemIsZero, tileWidthVal, colRemainder);
+
+    // Write row mask tile to rowMaskCB.
+    rewriter.create<ExperimentalWriteRowMaskTileOp>(loc, validRows, rowMaskCB);
+
+    // Write col mask tile to colMaskCB.
+    rewriter.create<ExperimentalWriteColMaskTileOp>(loc, validCols, colMaskCB);
+
+    // Erase the original op.
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+/// Decompose BlockMaskOp (compute region) into multiple affine loop nests
+/// that handle different tile regions with appropriate masking.
+///
+/// Loop structure:
+/// 1. Interior tiles: [0, lastValidRow) x [0, lastValidCol) - passthrough
+/// 2. Last row tiles: [lastValidRow] x [0, lastValidCol) - apply row_mask
+/// 3. Last col tiles: [0, lastValidRow) x [lastValidCol] - apply col_mask
+/// 4. Corner tile: [lastValidRow, lastValidCol] - apply both masks
+/// 5. OOB row tiles: [lastValidRow+1, shardRows) x [0, shardCols) - fill
+/// 6. OOB col tiles: [0, lastValidRow+1) x [lastValidCol+1, shardCols) - fill
+///
+/// Each loop nest is marked with d2m.linalg_root for independent DST
+/// management.
 struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
   using OpRewritePattern<BlockMaskOp>::OpRewritePattern;
 
@@ -64,6 +125,8 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
     Location loc = op.getLoc();
     Value input = op.getInput();
     Value output = op.getOutput();
+    Value rowMaskCB = op.getRowMaskCb();
+    Value colMaskCB = op.getColMaskCb();
     Value logicalRowsVal = op.getLogicalRows();
     Value logicalColsVal = op.getLogicalCols();
     ttcore::OOBVal fillOOBVal = op.getFillValue();
@@ -92,99 +155,378 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
     Value fillScalar = rewriter.create<arith::ConstantOp>(
         loc, elemType, rewriter.getFloatAttr(elemType, fillValueDouble));
 
-    // Create tile dimension constants.
-    Value tileHeightVal =
-        rewriter.create<arith::ConstantIndexOp>(loc, kTileHeight);
-    Value tileWidthVal =
-        rewriter.create<arith::ConstantIndexOp>(loc, kTileWidth);
+    // Create index constants for mask CB loading.
     Value zeroIdx = rewriter.create<arith::ConstantIndexOp>(loc, 0);
 
-    // Create nested affine loops over tiles.
-    // Mark the outer loop with d2m.linalg_root so InsertDstRegisterAccess
-    // processes it for DST management.
-    auto outerLoop =
-        rewriter.create<affine::AffineForOp>(loc, 0, shardTileRows, 1);
-    outerLoop->setAttr("d2m.linalg_root", rewriter.getUnitAttr());
+    // For static bounds, we know at compile time if masking is needed.
+    // For dynamic bounds, we use the computed values.
 
-    rewriter.setInsertionPointToStart(outerLoop.getBody());
-    Value tileRowIdx = outerLoop.getInductionVar();
+    // Load mask tiles from scratch CBs once (outside all loops).
+    // These are single-tile CBs, so we load from [0, 0].
+    Value rowMaskTile;
+    Value colMaskTile;
 
-    auto innerLoop =
-        rewriter.create<affine::AffineForOp>(loc, 0, shardTileCols, 1);
-    rewriter.setInsertionPointToStart(innerLoop.getBody());
-    Value tileColIdx = innerLoop.getInductionVar();
+    if (rowMaskCB) {
+      rowMaskTile = rewriter
+                        .create<affine::AffineLoadOp>(
+                            loc, rowMaskCB, ValueRange{zeroIdx, zeroIdx})
+                        .getResult();
+    }
+    if (colMaskCB) {
+      colMaskTile = rewriter
+                        .create<affine::AffineLoadOp>(
+                            loc, colMaskCB, ValueRange{zeroIdx, zeroIdx})
+                        .getResult();
+    }
 
-    // Calculate global element start positions for this tile.
-    // globalStartRow = tileRowIdx * kTileHeight
-    // globalStartCol = tileColIdx * kTileWidth
-    Value globalStartRow =
-        rewriter.create<arith::MulIOp>(loc, tileRowIdx, tileHeightVal);
-    Value globalStartCol =
-        rewriter.create<arith::MulIOp>(loc, tileColIdx, tileWidthVal);
+    // Helper to create a fill tile using ExperimentalTileFillOp.
+    auto createFillTile = [&]() {
+      return rewriter.create<ExperimentalTileFillOp>(loc, tileType, fillScalar)
+          .getResult();
+    };
 
-    // Calculate valid rows/cols within this tile.
-    // validRows = max(0, min(kTileHeight, logicalRows - globalStartRow))
-    // validCols = max(0, min(kTileWidth, logicalCols - globalStartCol))
-    Value rowsRemaining =
-        rewriter.create<arith::SubIOp>(loc, logicalRowsVal, globalStartRow);
-    Value colsRemaining =
-        rewriter.create<arith::SubIOp>(loc, logicalColsVal, globalStartCol);
+    // Helper to create a nested affine loop and return the innermost body's
+    // insertion point along with the loop IVs.
+    auto createNestedLoop = [&](int64_t rowStart, int64_t rowEnd,
+                                int64_t colStart, int64_t colEnd,
+                                StringRef loopName)
+        -> std::tuple<affine::AffineForOp, Value, Value> {
+      // Skip if bounds are empty.
+      if (rowStart >= rowEnd || colStart >= colEnd) {
+        return {nullptr, nullptr, nullptr};
+      }
 
-    // Clamp to [0, tileSize] using cmpi + select (arith.minsi/maxsi don't
-    // lower). min(a, b) = select(a < b, a, b) max(a, b) = select(a > b, a, b)
-    Value rowsLtTileH = rewriter.create<arith::CmpIOp>(
-        loc, arith::CmpIPredicate::slt, rowsRemaining, tileHeightVal);
-    Value validRowsRaw = rewriter.create<arith::SelectOp>(
-        loc, rowsLtTileH, rowsRemaining, tileHeightVal);
-    Value rowsGtZero = rewriter.create<arith::CmpIOp>(
-        loc, arith::CmpIPredicate::sgt, validRowsRaw, zeroIdx);
-    Value validRows = rewriter.create<arith::SelectOp>(loc, rowsGtZero,
-                                                       validRowsRaw, zeroIdx);
+      auto outerLoop =
+          rewriter.create<affine::AffineForOp>(loc, rowStart, rowEnd, 1);
+      outerLoop->setAttr("d2m.linalg_root", rewriter.getUnitAttr());
+      outerLoop->setAttr("d2m.scheduled", rewriter.getUnitAttr());
 
-    Value colsLtTileW = rewriter.create<arith::CmpIOp>(
-        loc, arith::CmpIPredicate::slt, colsRemaining, tileWidthVal);
-    Value validColsRaw = rewriter.create<arith::SelectOp>(
-        loc, colsLtTileW, colsRemaining, tileWidthVal);
-    Value colsGtZero = rewriter.create<arith::CmpIOp>(
-        loc, arith::CmpIPredicate::sgt, validColsRaw, zeroIdx);
-    Value validCols = rewriter.create<arith::SelectOp>(loc, colsGtZero,
-                                                       validColsRaw, zeroIdx);
+      rewriter.setInsertionPointToStart(outerLoop.getBody());
+      Value tileRowIdx = outerLoop.getInductionVar();
 
-    // Load tile from input.
-    auto inputTile = rewriter.create<affine::AffineLoadOp>(
-        loc, input, ValueRange{tileRowIdx, tileColIdx});
+      auto innerLoop =
+          rewriter.create<affine::AffineForOp>(loc, colStart, colEnd, 1);
+      rewriter.setInsertionPointToStart(innerLoop.getBody());
+      Value tileColIdx = innerLoop.getInductionVar();
 
-    // Generate row mask: 1.0 for rows 0..validRows-1, 0.0 otherwise.
-    // Generate col mask: 1.0 for cols 0..validCols-1, 0.0 otherwise.
-    auto rowMask =
-        rewriter.create<ExperimentalTileRowMaskOp>(loc, tileType, validRows);
-    auto colMask =
-        rewriter.create<ExperimentalTileColMaskOp>(loc, tileType, validCols);
+      return {outerLoop, tileRowIdx, tileColIdx};
+    };
 
-    // Combined mask = rowMask * colMask (element-wise AND).
-    // mask[i,j] = 1.0 if (i < validRows && j < validCols), else 0.0
-    auto combinedMask = rewriter.create<TileMulOp>(
-        loc, tileType, rowMask.getResult(), colMask.getResult());
+    // Helper to create a single-iteration loop (for edge cases).
+    auto createSingleRowLoop = [&](int64_t row, int64_t colStart,
+                                   int64_t colEnd, StringRef loopName)
+        -> std::tuple<affine::AffineForOp, Value, Value> {
+      if (colStart >= colEnd) {
+        return {nullptr, nullptr, nullptr};
+      }
 
-    // Create fill tile: input * 0 + fill_value.
-    // This gives us a tile with all elements = fill_value.
-    Value zero = rewriter.create<arith::ConstantOp>(
-        loc, elemType, rewriter.getFloatAttr(elemType, 0.0));
-    auto zeros =
-        rewriter.create<TileMulOp>(loc, tileType, inputTile.getResult(), zero);
-    auto fillTile = rewriter.create<TileAddOp>(loc, tileType, zeros.getResult(),
-                                               fillScalar);
+      // Use a 1-iteration outer loop so we still have a loop nest structure.
+      auto outerLoop =
+          rewriter.create<affine::AffineForOp>(loc, row, row + 1, 1);
+      outerLoop->setAttr("d2m.linalg_root", rewriter.getUnitAttr());
+      outerLoop->setAttr("d2m.scheduled", rewriter.getUnitAttr());
 
-    // Apply mask: result = where(mask != 0, input, fill)
-    // - Where mask is 1.0 (valid region): select input
-    // - Where mask is 0.0 (OOB region): select fill
-    auto result = rewriter.create<TileWhereOp>(
-        loc, tileType, combinedMask.getResult(), inputTile.getResult(),
-        fillTile.getResult());
+      rewriter.setInsertionPointToStart(outerLoop.getBody());
+      Value tileRowIdx = outerLoop.getInductionVar();
 
-    // Store result to output.
-    rewriter.create<affine::AffineStoreOp>(loc, result.getResult(), output,
-                                           ValueRange{tileRowIdx, tileColIdx});
+      auto innerLoop =
+          rewriter.create<affine::AffineForOp>(loc, colStart, colEnd, 1);
+      rewriter.setInsertionPointToStart(innerLoop.getBody());
+      Value tileColIdx = innerLoop.getInductionVar();
+
+      return {outerLoop, tileRowIdx, tileColIdx};
+    };
+
+    auto createSingleColLoop = [&](int64_t rowStart, int64_t rowEnd,
+                                   int64_t col, StringRef loopName)
+        -> std::tuple<affine::AffineForOp, Value, Value> {
+      if (rowStart >= rowEnd) {
+        return {nullptr, nullptr, nullptr};
+      }
+
+      auto outerLoop =
+          rewriter.create<affine::AffineForOp>(loc, rowStart, rowEnd, 1);
+      outerLoop->setAttr("d2m.linalg_root", rewriter.getUnitAttr());
+      outerLoop->setAttr("d2m.scheduled", rewriter.getUnitAttr());
+
+      rewriter.setInsertionPointToStart(outerLoop.getBody());
+      Value tileRowIdx = outerLoop.getInductionVar();
+
+      // Single-iteration inner loop.
+      auto innerLoop =
+          rewriter.create<affine::AffineForOp>(loc, col, col + 1, 1);
+      rewriter.setInsertionPointToStart(innerLoop.getBody());
+      Value tileColIdx = innerLoop.getInductionVar();
+
+      return {outerLoop, tileRowIdx, tileColIdx};
+    };
+
+    // For single-core with static shapes, compute bounds at compile time.
+    // lastValidTileRow and lastValidTileCol are compile-time computable if
+    // logicalRows/logicalCols are constants.
+
+    // For now, extract static values from the ops if possible.
+    // This is a simplification - a full implementation would handle dynamic
+    // cases.
+    auto getConstantIndex = [](Value v) -> std::optional<int64_t> {
+      if (auto constOp = v.getDefiningOp<arith::ConstantIndexOp>()) {
+        return constOp.value();
+      }
+      return std::nullopt;
+    };
+
+    std::optional<int64_t> logicalRowsOpt = getConstantIndex(logicalRowsVal);
+    std::optional<int64_t> logicalColsOpt = getConstantIndex(logicalColsVal);
+
+    if (!logicalRowsOpt || !logicalColsOpt) {
+      return rewriter.notifyMatchFailure(
+          op, "dynamic logical shape not yet supported");
+    }
+
+    int64_t logicalRows = *logicalRowsOpt;
+    int64_t logicalCols = *logicalColsOpt;
+
+    // Compute static bounds.
+    int64_t lastValidRow = (logicalRows - 1) / kTileHeight;
+    int64_t lastValidCol = (logicalCols - 1) / kTileWidth;
+    bool needsRowMask = (logicalRows % kTileHeight) != 0;
+    bool needsColMask = (logicalCols % kTileWidth) != 0;
+
+    // Clamp to shard bounds.
+    lastValidRow = std::min(lastValidRow, shardTileRows - 1);
+    lastValidCol = std::min(lastValidCol, shardTileCols - 1);
+
+    // Track the insertion point to restore after each loop nest.
+    OpBuilder::InsertionGuard guard(rewriter);
+    Operation *insertAfter = op;
+
+    // Helper to emit loop body for passthrough (interior tiles).
+    auto emitPassthrough = [&](Value rowIdx, Value colIdx) {
+      auto inputTile = rewriter.create<affine::AffineLoadOp>(
+          loc, input, ValueRange{rowIdx, colIdx});
+      rewriter.create<affine::AffineStoreOp>(loc, inputTile.getResult(), output,
+                                             ValueRange{rowIdx, colIdx});
+    };
+
+    // Compute validRows/validCols for partial tiles (when no mask CBs
+    // provided). These are the remainders: logicalRows % 32 (or 32 if aligned).
+    int64_t validRowsStatic = logicalRows % kTileHeight;
+    if (validRowsStatic == 0) {
+      validRowsStatic = kTileHeight;
+    }
+    int64_t validColsStatic = logicalCols % kTileWidth;
+    if (validColsStatic == 0) {
+      validColsStatic = kTileWidth;
+    }
+
+    // Helper to emit row-masked tiles (last row, not corner).
+    auto emitRowMasked = [&](Value rowIdx, Value colIdx) {
+      auto inputTile = rewriter.create<affine::AffineLoadOp>(
+          loc, input, ValueRange{rowIdx, colIdx});
+      auto fillTile = createFillTile();
+
+      // Generate row mask dynamically.
+      Value validRowsVal;
+      if (rowMaskTile) {
+        // Use pre-loaded mask.
+        auto result = rewriter.create<TileWhereOp>(
+            loc, tileType, rowMaskTile, inputTile.getResult(), fillTile);
+        rewriter.create<affine::AffineStoreOp>(loc, result.getResult(), output,
+                                               ValueRange{rowIdx, colIdx});
+      } else {
+        // Generate mask dynamically.
+        validRowsVal =
+            rewriter.create<arith::ConstantIndexOp>(loc, validRowsStatic);
+        auto mask = rewriter.create<ExperimentalTileRowMaskOp>(loc, tileType,
+                                                               validRowsVal);
+        auto result = rewriter.create<TileWhereOp>(
+            loc, tileType, mask.getResult(), inputTile.getResult(), fillTile);
+        rewriter.create<affine::AffineStoreOp>(loc, result.getResult(), output,
+                                               ValueRange{rowIdx, colIdx});
+      }
+    };
+
+    // Helper to emit col-masked tiles (last col, not corner).
+    auto emitColMasked = [&](Value rowIdx, Value colIdx) {
+      auto inputTile = rewriter.create<affine::AffineLoadOp>(
+          loc, input, ValueRange{rowIdx, colIdx});
+      auto fillTile = createFillTile();
+
+      if (colMaskTile) {
+        // Use pre-loaded mask.
+        auto result = rewriter.create<TileWhereOp>(
+            loc, tileType, colMaskTile, inputTile.getResult(), fillTile);
+        rewriter.create<affine::AffineStoreOp>(loc, result.getResult(), output,
+                                               ValueRange{rowIdx, colIdx});
+      } else {
+        // Generate mask dynamically.
+        Value validColsVal =
+            rewriter.create<arith::ConstantIndexOp>(loc, validColsStatic);
+        auto mask = rewriter.create<ExperimentalTileColMaskOp>(loc, tileType,
+                                                               validColsVal);
+        auto result = rewriter.create<TileWhereOp>(
+            loc, tileType, mask.getResult(), inputTile.getResult(), fillTile);
+        rewriter.create<affine::AffineStoreOp>(loc, result.getResult(), output,
+                                               ValueRange{rowIdx, colIdx});
+      }
+    };
+
+    // Helper to emit loop body for corner (both masks).
+    auto emitCorner = [&](Value rowIdx, Value colIdx) {
+      auto inputTile = rewriter.create<affine::AffineLoadOp>(
+          loc, input, ValueRange{rowIdx, colIdx});
+      auto fillTile = createFillTile();
+
+      // Generate row and col masks, then combine.
+      Value rowMask;
+      Value colMask;
+
+      if (rowMaskTile) {
+        rowMask = rowMaskTile;
+      } else if (needsRowMask) {
+        Value validRowsVal =
+            rewriter.create<arith::ConstantIndexOp>(loc, validRowsStatic);
+        rowMask =
+            rewriter
+                .create<ExperimentalTileRowMaskOp>(loc, tileType, validRowsVal)
+                .getResult();
+      }
+
+      if (colMaskTile) {
+        colMask = colMaskTile;
+      } else if (needsColMask) {
+        Value validColsVal =
+            rewriter.create<arith::ConstantIndexOp>(loc, validColsStatic);
+        colMask =
+            rewriter
+                .create<ExperimentalTileColMaskOp>(loc, tileType, validColsVal)
+                .getResult();
+      }
+
+      // Combine masks: combined = row_mask * col_mask.
+      Value combinedMask;
+      if (rowMask && colMask) {
+        combinedMask =
+            rewriter.create<TileMulOp>(loc, tileType, rowMask, colMask)
+                .getResult();
+      } else if (rowMask) {
+        combinedMask = rowMask;
+      } else if (colMask) {
+        combinedMask = colMask;
+      } else {
+        // No masking needed, just passthrough.
+        rewriter.create<affine::AffineStoreOp>(
+            loc, inputTile.getResult(), output, ValueRange{rowIdx, colIdx});
+        return;
+      }
+
+      auto result = rewriter.create<TileWhereOp>(
+          loc, tileType, combinedMask, inputTile.getResult(), fillTile);
+      rewriter.create<affine::AffineStoreOp>(loc, result.getResult(), output,
+                                             ValueRange{rowIdx, colIdx});
+    };
+
+    // Helper to emit loop body for OOB fill.
+    auto emitFill = [&](Value rowIdx, Value colIdx) {
+      auto fillTile = createFillTile();
+      rewriter.create<affine::AffineStoreOp>(loc, fillTile, output,
+                                             ValueRange{rowIdx, colIdx});
+    };
+
+    // === LOOP 1: Interior tiles (no masking needed) ===
+    // Bounds: [0, lastValidRow) x [0, lastValidCol)
+    if (lastValidRow > 0 && lastValidCol > 0) {
+      rewriter.setInsertionPointAfter(insertAfter);
+      auto [loop, rowIdx, colIdx] =
+          createNestedLoop(0, lastValidRow, 0, lastValidCol, "interior");
+      if (loop) {
+        emitPassthrough(rowIdx, colIdx);
+        insertAfter = loop;
+      }
+    }
+
+    // === LOOP 2: Last row tiles (row mask only, excluding corner) ===
+    // Bounds: [lastValidRow] x [0, lastValidCol)
+    if (needsRowMask && lastValidCol > 0) {
+      rewriter.setInsertionPointAfter(insertAfter);
+      auto [loop, rowIdx, colIdx] =
+          createSingleRowLoop(lastValidRow, 0, lastValidCol, "last_row");
+      if (loop) {
+        emitRowMasked(rowIdx, colIdx);
+        insertAfter = loop;
+      }
+    } else if (!needsRowMask && lastValidCol > 0 && lastValidRow >= 0) {
+      // Row is fully valid, just passthrough.
+      rewriter.setInsertionPointAfter(insertAfter);
+      auto [loop, rowIdx, colIdx] =
+          createSingleRowLoop(lastValidRow, 0, lastValidCol, "last_row_full");
+      if (loop) {
+        emitPassthrough(rowIdx, colIdx);
+        insertAfter = loop;
+      }
+    }
+
+    // === LOOP 3: Last col tiles (col mask only, excluding corner) ===
+    // Bounds: [0, lastValidRow) x [lastValidCol]
+    if (needsColMask && lastValidRow > 0) {
+      rewriter.setInsertionPointAfter(insertAfter);
+      auto [loop, rowIdx, colIdx] =
+          createSingleColLoop(0, lastValidRow, lastValidCol, "last_col");
+      if (loop) {
+        emitColMasked(rowIdx, colIdx);
+        insertAfter = loop;
+      }
+    } else if (!needsColMask && lastValidRow > 0 && lastValidCol >= 0) {
+      // Col is fully valid, just passthrough.
+      rewriter.setInsertionPointAfter(insertAfter);
+      auto [loop, rowIdx, colIdx] =
+          createSingleColLoop(0, lastValidRow, lastValidCol, "last_col_full");
+      if (loop) {
+        emitPassthrough(rowIdx, colIdx);
+        insertAfter = loop;
+      }
+    }
+
+    // === LOOP 4: Corner tile (both masks) ===
+    // Single tile at [lastValidRow, lastValidCol].
+    {
+      rewriter.setInsertionPointAfter(insertAfter);
+      auto [loop, rowIdx, colIdx] = createSingleRowLoop(
+          lastValidRow, lastValidCol, lastValidCol + 1, "corner");
+      if (loop) {
+        if (needsRowMask || needsColMask) {
+          emitCorner(rowIdx, colIdx);
+        } else {
+          emitPassthrough(rowIdx, colIdx);
+        }
+        insertAfter = loop;
+      }
+    }
+
+    // === LOOP 5: OOB row tiles (full fill) ===
+    // Bounds: [lastValidRow+1, shardTileRows) x [0, shardTileCols)
+    if (lastValidRow + 1 < shardTileRows) {
+      rewriter.setInsertionPointAfter(insertAfter);
+      auto [loop, rowIdx, colIdx] = createNestedLoop(
+          lastValidRow + 1, shardTileRows, 0, shardTileCols, "oob_rows");
+      if (loop) {
+        emitFill(rowIdx, colIdx);
+        insertAfter = loop;
+      }
+    }
+
+    // === LOOP 6: OOB col tiles (full fill, excluding OOB rows already handled)
+    // ===
+    // Bounds: [0, lastValidRow+1) x [lastValidCol+1, shardTileCols)
+    if (lastValidCol + 1 < shardTileCols) {
+      rewriter.setInsertionPointAfter(insertAfter);
+      auto [loop, rowIdx, colIdx] = createNestedLoop(
+          0, lastValidRow + 1, lastValidCol + 1, shardTileCols, "oob_cols");
+      if (loop) {
+        emitFill(rowIdx, colIdx);
+        insertAfter = loop;
+      }
+    }
 
     rewriter.replaceOp(op, op.getOutput());
     return success();
@@ -196,6 +538,7 @@ struct D2MDecomposeMasking
   void runOnOperation() override {
     MLIRContext *ctx = &getContext();
     RewritePatternSet patterns(ctx);
+    patterns.add<DecomposeBlockMaskWritePattern>(ctx);
     patterns.add<DecomposeBlockMaskPattern>(ctx);
 
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {

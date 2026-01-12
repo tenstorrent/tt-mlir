@@ -253,7 +253,14 @@ public:
         return failure();
       }
 
-      Type largestDstType = utils::getRegionLargestDstElemType(*genericRegion);
+      // Check if there are any DST-using ops. If not (e.g., passthrough loops
+      // with only affine.load/store), skip this region.
+      Type largestDstType =
+          utils::getRegionLargestDstElemTypeOrNull(*genericRegion);
+      if (!largestDstType) {
+        // No DST-using ops in this region, skip processing.
+        continue;
+      }
       const unsigned dstCapacity =
           ttcore::getOpChipDescAttr(gOp).getDstLogicalSizeTiles(
               largestDstType, false, maxDstPhysicalSizeTiles);
@@ -1197,6 +1204,22 @@ public:
       int numLoads = 0;
 
       // Collect CB->DST loads for this op's operands.
+      // First, count how many operands come from intermediate results
+      // (mask/fill ops) so we can skip those slots when allocating for loads.
+      SmallVector<int32_t> intermediateSlots;
+      for (int64_t operandIdx : computeOp.getOperandsLoadFromDstRegister()) {
+        if (computeOp.isScalarOperand(operandIdx)) {
+          continue;
+        }
+        Value operand = computeOp->getOperand(operandIdx);
+        Operation *defOp = operand.getDefiningOp();
+        // Check if this operand comes from an op that was already allocated
+        // a DST slot as an intermediate result.
+        if (defOp && dstIntermediates.contains(defOp)) {
+          intermediateSlots.push_back(dstIntermediates[defOp].dstSlice);
+        }
+      }
+
       for (int64_t operandIdx : computeOp.getOperandsLoadFromDstRegister()) {
         // Skip scalar operands - they don't need to be loaded from dst
         if (computeOp.isScalarOperand(operandIdx)) {
@@ -1209,9 +1232,14 @@ public:
                                  .getDefiningOp<affine::AffineLoadOp>();
 
         if (potentialLoad && notDstMemspace(potentialLoad)) {
+          // Allocate a slot that doesn't conflict with intermediate results.
+          int32_t slot = dstStackAllocator.allocate();
+          // If this slot conflicts with an intermediate, keep allocating.
+          while (llvm::is_contained(intermediateSlots, slot)) {
+            slot = dstStackAllocator.allocate();
+          }
           collectDstLoadOrStore<affine::AffineLoadOp>(
-              op, potentialLoad, copyInfos, dstStackAllocator.allocate(),
-              outermostInnerComputeLoop);
+              op, potentialLoad, copyInfos, slot, outermostInnerComputeLoop);
         }
       }
 
@@ -1287,6 +1315,51 @@ public:
         }
       }
     });
+
+    // Handle passthrough case: AffineLoad→AffineStore with no compute op.
+    // These are tiles that just need to be copied through DST without any
+    // transformation. We detect stores to L1 whose value comes from a load
+    // from L1 (not DST), and collect the load for DST management.
+    // The store will be handled automatically when D2MToTTKernel sees the
+    // store value is now a DST index.
+    region.walk([&](affine::AffineStoreOp storeOp) {
+      // Only handle stores to L1 (not DST).
+      if (ttcore::getMemorySpace(storeOp.getMemRef()) ==
+          ttcore::MemorySpace::RegisterDst) {
+        return WalkResult::advance();
+      }
+
+      // Check if the stored value comes from an AffineLoadOp.
+      auto loadOp = storeOp.getValue().getDefiningOp<affine::AffineLoadOp>();
+      if (!loadOp) {
+        return WalkResult::advance();
+      }
+
+      // Only handle loads from L1 (not DST).
+      if (ttcore::getMemorySpace(loadOp.getMemRef()) ==
+          ttcore::MemorySpace::RegisterDst) {
+        return WalkResult::advance();
+      }
+
+      // Check if this is a tile type.
+      auto memrefType = mlir::cast<MemRefType>(loadOp.getMemRef().getType());
+      if (!mlir::isa<ttcore::TileType>(memrefType.getElementType())) {
+        return WalkResult::advance();
+      }
+
+      // This is a passthrough - L1 tile load followed by L1 tile store.
+      // Allocate a DST slot and collect the load. The store's value will
+      // automatically update to the DST index when the load is replaced.
+      int dstSlice = dstStackAllocator.allocate();
+
+      // Only collect the load (CB→DST). The store stays as L1 store but its
+      // value will be the DST index after load replacement.
+      collectDstLoadOrStore<affine::AffineLoadOp>(
+          op, loadOp, copyInfos, dstSlice, outermostInnerComputeLoop);
+
+      return WalkResult::advance();
+    });
+
     return {copyInfos, dstIntermediates};
   }
 
