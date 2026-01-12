@@ -234,7 +234,7 @@ public:
           // each device from having the same redundant full copy of the tensor.
           // This mesh_shard op will eventually fully be removed in the future.
           // See: https://github.com/tenstorrent/tt-xla/issues/2375
-          mlir::tt::ttcore::MeshShardType::Identity,
+          shardyMeshSharding->getShardType(),
           shardyMeshSharding->getShardDirection(),
           shardyMeshSharding->getShardShape(),
           shardyMeshSharding->getShardDims());
