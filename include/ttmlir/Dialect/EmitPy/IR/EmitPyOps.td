@@ -206,12 +206,14 @@ def EmitPy_CreateDictOp : EmitPy_Op<"create_dict", [Pure]> {
 def EmitPy_SetValueForDictKeyOp : EmitPy_Op<"set_value_for_dict_key"> {
   let summary = "Set dictionary value for a given key";
   let description = [{
-    Changes or inserts a value in the dictionary for a given string or index integer key.
+    Changes or inserts a value in the dictionary for a given key.
+    The key must be either an index type or an opaque type representing a string.
 
     Example:
     ```mlir
     %dict = emitpy.global_statement @_CONST_EVAL_CACHE : !emitpy.dict
-    emitpy.set_value_for_dict_key %dict[5 : index] = %tensors : (!emitpy.dict) -> !emitpy.opaque<"[ttnn.Tensor]">
+    %key = emitpy.literal "5" : index
+    emitpy.set_value_for_dict_key %dict[%key] = %tensors : (!emitpy.dict, index, !emitpy.opaque<"[ttnn.Tensor]">)
     ```
     ```python
     // Code emitted:
@@ -221,23 +223,26 @@ def EmitPy_SetValueForDictKeyOp : EmitPy_Op<"set_value_for_dict_key"> {
 
   let arguments = (ins
     EmitPy_Dict:$dict,
-    AnyAttrOf<[StrAttr, IndexAttr]>:$key,
+    AnyTypeOf<[Index, EmitPy_OpaqueType]>:$key,
     EmitPy_Type:$value
   );
 
-  let assemblyFormat = "$dict `[` qualified($key) `]` `=` $value attr-dict `:` functional-type($dict, $value)";
+  let hasVerifier = 1;
+
+  let assemblyFormat = "$dict `[` $key `]` `=` $value attr-dict `:` `(` type($dict) `,` type($key) `,` type($value) `)`";
 }
 
 def EmitPy_GetValueForDictKeyOp : EmitPy_Op<"get_value_for_dict_key", [Pure]> {
   let summary = "Get dictionary value for a given key";
   let description = [{
     Retrieves a value for a given key in a dictionary.
-    Values are list of tensors and keys are strings or index integers.
+    The key must be either an index type or an opaque type representing a string.
 
     Example:
     ```mlir
     %dict = emitpy.global_statement @_CONST_EVAL_CACHE : !emitpy.dict
-    %tensors = emitpy.get_value_for_dict_key %dict[5 : index] : (!emitpy.dict) -> !emitpy.opaque<"[ttnn.Tensor]">
+    %key = emitpy.literal "5" : index
+    %tensors = emitpy.get_value_for_dict_key %dict[%key] : (!emitpy.dict, index) -> !emitpy.opaque<"[ttnn.Tensor]">
     ```
     ```python
     // Code emitted:
@@ -247,12 +252,14 @@ def EmitPy_GetValueForDictKeyOp : EmitPy_Op<"get_value_for_dict_key", [Pure]> {
 
   let arguments = (ins
     EmitPy_Dict:$dict,
-    AnyAttrOf<[StrAttr, IndexAttr]>:$key
+    AnyTypeOf<[Index, EmitPy_OpaqueType]>:$key
   );
 
   let results = (outs EmitPy_Type:$result);
 
-  let assemblyFormat = "$dict `[` qualified($key) `]` attr-dict `:` functional-type($dict, $result)";
+  let hasVerifier = 1;
+
+  let assemblyFormat = "$dict `[` $key `]` attr-dict `:` functional-type(operands, results)";
 }
 
 def EmitPy_VerbatimOp : EmitPy_Op<"verbatim"> {

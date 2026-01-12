@@ -505,7 +505,7 @@ static LogicalResult printOperation(PythonEmitter &emitter,
   }
 
   os << "[";
-  if (failed(emitter.emitAttribute(op.getLoc(), op.getKey()))) {
+  if (failed(emitter.emitOperand(op.getKey(), "dict_key"))) {
     return failure();
   }
   os << "] = ";
@@ -529,7 +529,7 @@ static LogicalResult printOperation(PythonEmitter &emitter,
   }
 
   os << "[";
-  if (failed(emitter.emitAttribute(op.getLoc(), op.getKey()))) {
+  if (failed(emitter.emitOperand(op.getKey(), "dict_key"))) {
     return failure();
   }
   os << "]";

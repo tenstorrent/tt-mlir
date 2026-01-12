@@ -602,5 +602,45 @@ LogicalResult CreateDictOp::verify() {
   return success();
 }
 
+//===----------------------------------------------------------------------===//
+// SetValueForDictKeyOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult SetValueForDictKeyOp::verify() {
+  Type keyType = getKey().getType();
+
+  // If key is an opaque type, verify it represents a string
+  if (auto opaqueType = dyn_cast<OpaqueType>(keyType)) {
+    StringRef value = opaqueType.getValue();
+    if (value != "str") {
+      return emitOpError()
+             << "key with opaque type must represent a string type "
+             << "(!emitpy.opaque<\"str\">), but got: " << opaqueType;
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// GetValueForDictKeyOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult GetValueForDictKeyOp::verify() {
+  Type keyType = getKey().getType();
+
+  // If key is an opaque type, verify it represents a string
+  if (auto opaqueType = dyn_cast<OpaqueType>(keyType)) {
+    StringRef value = opaqueType.getValue();
+    if (value != "str") {
+      return emitOpError()
+             << "key with opaque type must represent a string type "
+             << "(!emitpy.opaque<\"str\">), but got: " << opaqueType;
+    }
+  }
+
+  return success();
+}
+
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.cpp.inc"

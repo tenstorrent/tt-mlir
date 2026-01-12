@@ -68,8 +68,9 @@ module {
   func.func @test_set_value_index_key(%arg0: !emitpy.opaque<"[ttnn.Tensor]">) {
     // CHECK: global _CONST_EVAL_CACHE
     %dict = emitpy.global_statement @_CONST_EVAL_CACHE : !emitpy.dict
+    %key = emitpy.literal "5" : index
     // CHECK: _CONST_EVAL_CACHE[5] = {{.*}}
-    emitpy.set_value_for_dict_key %dict[5 : index] = %arg0 : (!emitpy.dict) -> !emitpy.opaque<"[ttnn.Tensor]">
+    emitpy.set_value_for_dict_key %dict[%key] = %arg0 : (!emitpy.dict, index, !emitpy.opaque<"[ttnn.Tensor]">)
     return
   }
 }
@@ -87,8 +88,9 @@ module {
   func.func @test_get_value_index_key() -> !emitpy.opaque<"[ttnn.Tensor]"> {
     // CHECK: global _CONST_EVAL_CACHE
     %dict = emitpy.global_statement @_CONST_EVAL_CACHE : !emitpy.dict
+    %key = emitpy.literal "5" : index
     // CHECK: {{.*}} = _CONST_EVAL_CACHE[5]
-    %tensors = emitpy.get_value_for_dict_key %dict[5 : index] : (!emitpy.dict) -> !emitpy.opaque<"[ttnn.Tensor]">
+    %tensors = emitpy.get_value_for_dict_key %dict[%key] : (!emitpy.dict, index) -> !emitpy.opaque<"[ttnn.Tensor]">
     // CHECK: return {{.*}}
     return %tensors : !emitpy.opaque<"[ttnn.Tensor]">
   }
@@ -107,10 +109,11 @@ module {
   func.func @test_set_then_get(%arg0: !emitpy.opaque<"ttnn.Tensor">) -> !emitpy.opaque<"ttnn.Tensor"> {
     // CHECK: global tensor_cache
     %dict = emitpy.global_statement @tensor_cache : !emitpy.dict
+    %key = emitpy.literal "42" : index
     // CHECK: tensor_cache[42] = {{.*}}
-    emitpy.set_value_for_dict_key %dict[42 : index] = %arg0 : (!emitpy.dict) -> !emitpy.opaque<"ttnn.Tensor">
+    emitpy.set_value_for_dict_key %dict[%key] = %arg0 : (!emitpy.dict, index, !emitpy.opaque<"ttnn.Tensor">)
     // CHECK: {{.*}} = tensor_cache[42]
-    %output = emitpy.get_value_for_dict_key %dict[42 : index] : (!emitpy.dict) -> !emitpy.opaque<"ttnn.Tensor">
+    %output = emitpy.get_value_for_dict_key %dict[%key] : (!emitpy.dict, index) -> !emitpy.opaque<"ttnn.Tensor">
     // CHECK: return {{.*}}
     return %output : !emitpy.opaque<"ttnn.Tensor">
   }
