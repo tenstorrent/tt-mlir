@@ -113,6 +113,24 @@ static Value getDstIdxFromResult(Value d2mOpResult) {
   return storeOp.getIndices().front();
 }
 
+// Get DST index for an operand value. The operand can either be:
+// 1. The result of a compute op that stores to DST (look at users for store)
+// 2. An affine.load from DST (look at defining op for load index)
+static Value getDstIdxFromOperand(Value operand) {
+  // Case 1: Check if it's an affine.load from DST
+  if (auto loadOp = operand.getDefiningOp<affine::AffineLoadOp>()) {
+    if (ttcore::getMemorySpace(loadOp.getMemRef()) ==
+        ttcore::MemorySpace::RegisterDst) {
+      auto indices = loadOp.getMapOperands();
+      assert(indices.size() == 1 && "Expected single index in DST load");
+      return indices.front();
+    }
+  }
+
+  // Case 2: Look for store to DST in users (for compute op results)
+  return getDstIdxFromResult(operand);
+}
+
 // This is a workaround special case for getting an in/out CB. This whole
 // routine should go away with issue:
 // https://github.com/tenstorrent/tt-mlir/issues/3602
@@ -876,11 +894,13 @@ public:
       const auto dstIdx = getDstIdxFromResult(op.getResult());
 
       // For ternary ops like TileWhereOp, get DST indices directly from the
-      // source operands' stores to DST, not from the adaptor. This ensures
-      // correct indices regardless of conversion order.
-      Value condDstIdx = getDstIdxFromResult(op.getCondition());
-      Value trueDstIdx = getDstIdxFromResult(op.getTrueValue());
-      Value falseDstIdx = getDstIdxFromResult(op.getFalseValue());
+      // source operands, not from the adaptor. This ensures correct indices
+      // regardless of conversion order. Operands can be either:
+      // - Results of compute ops (stored to DST)
+      // - affine.load from DST (for copied input tiles)
+      Value condDstIdx = getDstIdxFromOperand(op.getCondition());
+      Value trueDstIdx = getDstIdxFromOperand(op.getTrueValue());
+      Value falseDstIdx = getDstIdxFromOperand(op.getFalseValue());
 
       setInsertionPointAfterOperands(
           rewriter, {condDstIdx, trueDstIdx, falseDstIdx, dstIdx},
