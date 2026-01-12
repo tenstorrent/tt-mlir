@@ -44,9 +44,9 @@ def _test_pattern_map(pattern, shape, pattern_map):
         ((2, 4, 250), "z y x -> y z x"),
         ((2, 7, 180), "z y x -> (y z) x"),
         ((25, 7, 8), "z y x -> y (z x)"),
-        ((50, 7, 8), "z y x -> y (z x)")
-        | Marks(pytest.mark.xfail(reason="PCC error #6268")),
+        ((50, 7, 8), "z y x -> y (z x)"),
         ((50, 15, 8), "z y x -> z (y x)"),
+        ((4, 85, 1055), "z y x -> (z y) x"),
         # 4d
         ((2, 3, 4, 32), "w z y x -> y w z x"),
         ((2, 3, 4, 32), "w z y x -> y (w z) x"),
@@ -80,7 +80,7 @@ def test_rearrange(
         device=device,
         custom_pipeline=f"ttir-to-ttmetal-pipeline",
         test_base=request.node.name,
-        module_dump=True,
+        save_artifacts=True,
         print_ir=True,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),

@@ -6,7 +6,6 @@
 
 #include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
-#include "ttmlir/Dialect/D2M/IR/D2M.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
@@ -14,15 +13,10 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
-#include "mlir/Dialect/Linalg/IR/Linalg.h"
-#include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/Pass/Pass.h"
-#include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/Support/Debug.h"
 
 namespace mlir::tt::d2m {
 
@@ -562,6 +556,23 @@ updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
         newStorageLayout.getDeviceShape(
             optimalGrid, llvm::ArrayRef(tileShape.data(), tileShape.size()));
 
+    // The application of a grid shape to the unit grid stream storage above
+    // could result in an increase of dimAlignments, this breaks the reblock map
+    // calculation from the old unit grid storage shape to the new optimal grid
+    // storage shape (different strides & volumes). In this case, align-up the
+    // old storage shape by overwriting it with the new storage's shape on a
+    // unit grid.
+    llvm::SmallVector<int64_t> oldStorageShape(storageType.getShape());
+    if (!llvm::equal(storageLayout.getDimAlignments(),
+                     newStorageLayout.getDimAlignments())) {
+      TT_assert(
+          ttmlir::utils::volume(storageLayout.getGridShape(storageType)) == 1);
+      oldStorageShape = newStorageLayout.getDeviceShape(
+          storageLayout.getGridShape(storageType), tileShape);
+    }
+    TT_assert(ttmlir::utils::volume<int64_t>(oldStorageShape) ==
+              ttmlir::utils::volume<int64_t>(newStorageShape));
+
     builder.setInsertionPoint(storageEmpty);
     Type elementType = tileShape.empty()
                            ? storageType.getElementType()
@@ -575,7 +586,7 @@ updateStreamLayoutOps(ArrayRef<StreamLayoutUpdateInfo> streamLayoutsToUpdate,
     auto outputLayout =
         mlir::cast<ttcore::MetalLayoutAttr>(outputStreamType.getEncoding());
     mlir::AffineMap reblockMap = ttmlir::utils::calculateReblockMap(
-        outputStreamType.getShape(), newStorageShape, builder.getContext());
+        oldStorageShape, newStorageShape, builder.getContext());
     auto newOutputIndexMap =
         outputLayout.getIndexAffineMapOrIdentity(outputStreamType.getRank())
             .compose(reblockMap);
@@ -697,6 +708,15 @@ recreateGenericOp(d2m::GenericOp genericOp,
         genericOp.getIteratorTypes(),
         [&](OpBuilder &b, Location loc, ValueRange blockArgs) {
           IRMapping mapping;
+
+          // Map old operands to new operands for ops that capture external
+          // values (e.g., DMAs that reference views outside the region).
+          for (auto [oldOp, newOp] :
+               llvm::zip(genericOp.getOperands(), newOperands)) {
+            mapping.map(oldOp, newOp);
+          }
+
+          // Map block arguments.
           Block &oldBlock = oldRegion.front();
           for (auto [oldArg, newArg] :
                llvm::zip(oldBlock.getArguments(), blockArgs)) {

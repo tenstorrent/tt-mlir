@@ -3209,8 +3209,8 @@ public:
                               startIndicesTensorType.getEncoding()),
         startIndicesTensor, sliceSizesConstant);
 
-    rewriter.create<mlir::tt::ttir::SliceDynamicOp>(
-        srcOp.getLoc(), outputType, adaptor.getOperand(), startIndicesTensor,
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::SliceDynamicOp>(
+        srcOp, outputType, adaptor.getOperand(), startIndicesTensor,
         endIndicesTensor, ArrayAttr());
 
     return success();
@@ -3532,6 +3532,112 @@ private:
 
   static bool isEffectively1D(ArrayRef<int64_t> shape) {
     return llvm::count_if(shape, [](int64_t dim) { return dim != 1; }) <= 1;
+  }
+};
+} // namespace
+
+namespace {
+class StableHLOToTTIREmbeddingBackwardOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::ScatterOp> {
+
+  using OpConversionPattern<mlir::stablehlo::ScatterOp>::OpConversionPattern;
+
+public:
+  StableHLOToTTIREmbeddingBackwardOpConversionPattern(
+      TypeConverter &typeConverter, MLIRContext *ctx)
+      : OpConversionPattern<mlir::stablehlo::ScatterOp>(typeConverter, ctx,
+                                                        /*benefit=*/2) {}
+
+  // Benefit is 2 to ensure this pattern is tried before generic scatter.
+  // This is because embedding_backward is a more specific pattern than scatter.
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::ScatterOp srcOp,
+                  mlir::stablehlo::ScatterOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Check if this scatter can be converted to embedding_backward.
+    // embedding_backward requires:
+    // 1. Add reduction (for gradient accumulation)
+    // 2. Specific dimension configuration matching embedding semantics
+
+    llvm::ErrorOr<ttcore::ReduceType> reduceType =
+        getReduceTypeFromRegion(srcOp.getRegion());
+    if (!reduceType || *reduceType != ttcore::ReduceType::Sum) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "EmbeddingBackward requires sum reduction in update computation");
+    }
+
+    assert(adaptor.getInputs().size() == 1 &&
+           "EmbeddingBackward requires 1 inputs");
+    assert(adaptor.getUpdates().size() == 1 &&
+           "EmbeddingBackward requires 1 update");
+
+    Value operand = adaptor.getInputs()[0];
+    Value scatterIndices = adaptor.getScatterIndices();
+    Value update = adaptor.getUpdates()[0];
+
+    auto operandType = mlir::cast<RankedTensorType>(operand.getType());
+    auto updateType = mlir::cast<RankedTensorType>(update.getType());
+
+    if (operandType.getRank() != 2) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "EmbeddingBackward requires 2D weight table (operand)");
+    }
+
+    auto scatterDimsToOperandDims =
+        adaptor.getScatterDimensionNumbers().getScatterDimsToOperandDims();
+    auto insertedWindowDims =
+        adaptor.getScatterDimensionNumbers().getInsertedWindowDims();
+
+    // embedding_backward requires:
+    // 1. scatterDimsToOperandDims = [0] (scatter into first dim)
+    // 2. insertedWindowDims = [0] (first dim is scatter dim)
+    // 3. updateWindowDims should cover the embedding dimension
+    if (scatterDimsToOperandDims.size() != 1 ||
+        scatterDimsToOperandDims[0] != 0) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "EmbeddingBackward requires scattering into first dimension only");
+    }
+
+    if (insertedWindowDims.size() != 1 || insertedWindowDims[0] != 0) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "EmbeddingBackward requires first dimension as scatter dim");
+    }
+
+    int64_t embeddingDim = operandType.getDimSize(1);
+    int64_t updateLastDim = updateType.getDimSize(updateType.getRank() - 1);
+    if (embeddingDim != updateLastDim) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "EmbeddingBackward update tensor last dimension must match "
+                 "embedding dimension");
+    }
+
+    assert(srcOp.getResults().size() == 1 &&
+           "EmbeddingBackward requires 1 result");
+    auto outputType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(srcOp.getResults()[0].getType()));
+
+    auto scatterIndicesType =
+        mlir::cast<RankedTensorType>(scatterIndices.getType());
+
+    int64_t indexVectorDim =
+        adaptor.getScatterDimensionNumbers().getIndexVectorDim();
+
+    // StableHLO uses vectorized indices for scatter.
+    // TT-metal expects indices to be [B, N] for embedding_backward. If the
+    // indices are 2D and the index vector dim is 1, reshape the indices to 3D.
+    if (scatterIndicesType.getRank() == 2 && indexVectorDim == 1) {
+      llvm::SmallVector<int64_t> newShape{1};
+      llvm::append_range(newShape, scatterIndicesType.getShape());
+      scatterIndices = ttir::utils::createReshapeOp(rewriter, srcOp.getLoc(),
+                                                    scatterIndices, newShape);
+    }
+
+    rewriter.replaceOpWithNewOp<ttir::EmbeddingBackwardOp>(
+        srcOp, outputType, scatterIndices, operand, update);
+
+    return success();
   }
 };
 } // namespace
@@ -5413,7 +5519,9 @@ static void addIotaOpConversionPattern(MLIRContext *ctx,
 static void addScatterOpConversionPatterns(MLIRContext *ctx,
                                            RewritePatternSet &patterns,
                                            TypeConverter &typeConverter) {
-  patterns.add<StableHLOToTTIRScatterOpConversionPattern>(typeConverter, ctx);
+  patterns.add<StableHLOToTTIREmbeddingBackwardOpConversionPattern,
+               StableHLOToTTIRScatterOpConversionPattern>(typeConverter, ctx);
+  ;
 }
 
 static void addReverseOpConversionPattern(MLIRContext *ctx,

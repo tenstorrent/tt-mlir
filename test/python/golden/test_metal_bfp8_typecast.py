@@ -25,6 +25,10 @@ pytestmark = pytest.mark.frontend("ttir")
 
 @pytest.mark.parametrize("shape", [(512, 512)])
 @pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.xfail(
+    reason="fp32->bf16 typecast fails due to LLK tiling issue. "
+    "See comment at: https://github.com/tenstorrent/tt-metal/issues/35302"
+)
 def test_triple_exp_f32(shape: Shape, target: str, request, device):
     pipeline_options = ["global-data-format-target=bfp_bf8"]
 
@@ -54,7 +58,7 @@ def test_triple_exp_f32(shape: Shape, target: str, request, device):
         device=device,
         pipeline_options=pipeline_options,
         test_base=request.node.name,
-        module_dump=True,
+        save_artifacts=True,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         print_ir=True,
@@ -85,7 +89,7 @@ def test_exp_f32(shape: Shape, target: str, request, device):
         device=device,
         pipeline_options=pipeline_options,
         test_base=request.node.name,
-        module_dump=True,
+        save_artifacts=True,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         print_ir=True,
@@ -115,7 +119,7 @@ def test_cos_bf16(shape: Shape, target: str, request, device):
         device=device,
         pipeline_options=pipeline_options,
         test_base=request.node.name,
-        module_dump=True,
+        save_artifacts=True,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),
         print_ir=True,
@@ -162,7 +166,7 @@ def test_matmul_f32(
         device=device,
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         test_base=request.node.name,
-        module_dump=True,
+        save_artifacts=True,
         print_ir=True,
         output_root=request.config.getoption("--path"),
         system_desc_path=request.config.getoption("--sys-desc"),

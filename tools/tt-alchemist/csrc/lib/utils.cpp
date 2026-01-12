@@ -30,13 +30,13 @@ std::string getPipelineName(mlir::ModuleOp module,
   switch (target) {
   case CodeGenerationTarget::Cpp:
     if (isOnlyTTNN) {
-      return "ttnn-backend-to-emitc-pipeline";
+      return "ttnn-to-emitc-device-pipeline";
     } else {
       return "ttir-to-emitc-pipeline";
     }
   case CodeGenerationTarget::Python:
     if (isOnlyTTNN) {
-      return "ttnn-backend-to-emitpy-pipeline";
+      return "ttnn-to-emitpy-device-pipeline";
     } else {
       return "ttir-to-emitpy-pipeline";
     }

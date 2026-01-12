@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
+#include "ttmlir/Dialect/TTCore/Utils/CoreRangeSet.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Utils.h"
@@ -254,6 +255,15 @@ createShardSpecIfNeeded(TTNNLayoutAttr layoutAttr,
   return shardSpecAttr;
 }
 
+std::optional<NDShardSpecAttr>
+createNDShardSpecIfNeeded(TTNNNDLayoutAttr layoutAttr) {
+  std::optional<NDShardSpecAttr> ndShardSpecAttr = std::nullopt;
+  if (layoutAttr && layoutAttr.isSharded()) {
+    ndShardSpecAttr = NDShardSpecAttr::get(layoutAttr);
+  }
+  return ndShardSpecAttr;
+}
+
 // Helper method to create a ShardSpecAttr if needed.
 std::optional<ShardSpecAttr> createShardSpecIfNeeded(
     TensorMemoryLayoutAttr tensorMemoryLayoutAttr, ShapeAttr shardShapeAttr,
@@ -368,6 +378,37 @@ mlir::RankedTensorType getTraceIdType(MLIRContext *ctx) {
       /*shape=*/{},
       ::mlir::IntegerType::get(ctx, /*width=*/32, IntegerType::Unsigned),
       ttnn::TraceIdAttr::get(ctx));
+}
+
+UnaryWithParamAttr getActivationAttr(MLIRContext *ctx,
+                                     std::optional<StringRef> activation) {
+  if (!activation.has_value() || activation->empty()) {
+    return nullptr;
+  }
+  auto unaryOpType = symbolizeUnaryOpType(*activation);
+  if (!unaryOpType.has_value()) {
+    return nullptr;
+  }
+  return UnaryWithParamAttr::get(ctx, *unaryOpType,
+                                 llvm::ArrayRef<FloatAttr>{});
+}
+
+std::pair<int64_t, int64_t> getPhysicalGridDimensions(TTNNLayoutAttr layout) {
+  ttcore::GridAttr shardGrid = layout.getGrid();
+  AffineMap mapping = shardGrid.getMapping();
+
+  auto coreRanges =
+      ttcore::utils::toCoreRangeSet(shardGrid.getShape(), mapping);
+
+  int64_t maxX = 0;
+  int64_t maxY = 0;
+  for (const auto &[loc, size] : coreRanges) {
+    // loc is [x, y] per toCoreRangeSet convention
+    maxX = std::max(maxX, static_cast<int64_t>(loc[0] + size[0]));
+    maxY = std::max(maxY, static_cast<int64_t>(loc[1] + size[1]));
+  }
+
+  return {maxX, maxY};
 }
 
 } // namespace mlir::tt::ttnn::utils

@@ -558,7 +558,7 @@ getPhysicalGridShapeFromShapeAndMap(ArrayRef<int64_t> overallDeviceShape,
   TT_assert(map.getNumResults() >= 2u);
   auto gridResultMap = ttmlir::utils::affineMapTakeFrontResults(map, 2);
   TT_assert(overallDeviceShape.size() == gridResultMap.getNumDims());
-  return ttmlir::utils::applyMapToGrid(overallDeviceShape, gridResultMap);
+  return ttmlir::utils::evalShape(gridResultMap, overallDeviceShape);
 }
 
 ShardLayoutAttr ShardLayoutAttr::get(mlir::MLIRContext *context,

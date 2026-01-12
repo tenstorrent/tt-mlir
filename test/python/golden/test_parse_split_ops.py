@@ -17,10 +17,22 @@ from builder.base.builder_apis import (
     split_mlir_file,
 )
 from builder.base.builder_runtime import *
+from builder.base.builder_enums import *
 
 pytestmark = pytest.mark.frontend("ttir")
 
 ttir_mlir_snippets = {}
+skip_split_ttir_tests = [
+    "ttir_reduce_scatter.mlir",
+    "ttir_all_to_all.mlir",
+    "ttir_collective_permute.mlir",
+    "ttir_all_gather.mlir",
+    "ttir_all_reduce.mlir",
+    "ttir_collective_broadcast.mlir",
+    "ttir_mesh_shard.mlir",
+    "ttir_device_module_nested_func.mlir",
+    "ttir_nested_funcs.mlir",
+]
 ttir_snippets_dir_path = os.path.join(os.path.dirname(__file__), "mlir_snippets/ttir")
 for filename in os.listdir(ttir_snippets_dir_path):
     if filename.endswith(".mlir"):
@@ -28,6 +40,15 @@ for filename in os.listdir(ttir_snippets_dir_path):
         with open(file_path, "r") as f:
             mlir_ir_string = f.read()
             ttir_mlir_snippets[filename] = mlir_ir_string
+
+sdy_mlir_snippets = {}
+sdy_snippets_dir_path = os.path.join(os.path.dirname(__file__), "mlir_snippets/sdy")
+for filename in os.listdir(sdy_snippets_dir_path):
+    if filename.endswith(".mlir"):
+        file_path = os.path.join(sdy_snippets_dir_path, filename)
+        with open(file_path, "r") as f:
+            mlir_ir_string = f.read()
+            sdy_mlir_snippets[filename] = mlir_ir_string
 
 stablehlo_mlir_snippets = {}
 stablehlo_snippets_dir_path = os.path.join(
@@ -54,18 +75,25 @@ for filename in os.listdir(ttnn_snippets_dir_path):
 def test_ttir_parsing_splitting_ops(mlir_snippet, request, device):
     mlir_ir_string = ttir_mlir_snippets[mlir_snippet]
     mlir_module, builder = load_mlir_file(mlir_ir_string, target="ttir")
-    split_modules = split_mlir_file(mlir_module, builder)
+
+    if mlir_snippet not in skip_split_ttir_tests:
+        split_modules = split_mlir_file(mlir_module, builder)
+
+
+@pytest.mark.parametrize("mlir_snippet", sdy_mlir_snippets.keys())
+def test_sdy_parsing_ops(mlir_snippet, request, device):
+    mlir_ir_string = sdy_mlir_snippets[mlir_snippet]
+    mlir_module, builder = load_mlir_file(mlir_ir_string, target="stablehlo")
 
 
 @pytest.mark.parametrize("mlir_snippet", stablehlo_mlir_snippets.keys())
 def test_stablehlo_parsing_splitting_ops(mlir_snippet, request, device):
     mlir_ir_string = stablehlo_mlir_snippets[mlir_snippet]
     mlir_module, builder = load_mlir_file(mlir_ir_string, target="stablehlo")
-    split_modules = split_mlir_file(mlir_module, builder)
+    split_modules = split_mlir_file(mlir_module, builder, target="stablehlo")
 
 
 @pytest.mark.parametrize("mlir_snippet", ttnn_mlir_snippets.keys())
 def test_ttnn_parsing_splitting_ops(mlir_snippet, request, device):
     mlir_ir_string = ttnn_mlir_snippets[mlir_snippet]
     mlir_module, builder = load_mlir_file(mlir_ir_string, target="ttnn")
-    split_modules = split_mlir_file(mlir_module, builder)

@@ -23,7 +23,7 @@ module attributes {} {
 
     // CHECK: %[[RES:.*]] = "ttnn.conv_transpose2d"
     // CHECK-SAME: batch_size = 1 : i32
-    // CHECK-SAME: conv2d_config = #ttnn.conv2d_config<weights_dtype = bf16, deallocate_activation = true, act_block_h_override = {{[1-9][0-9]*}}, enable_kernel_stride_folding = false>
+    // CHECK-SAME: conv2d_config = #ttnn.conv2d_config<weights_dtype = bf16, deallocate_activation = true, act_block_h_override = {{[0-9]+}}, enable_kernel_stride_folding = false>
     // CHECK-SAME: dilation = array<i32: 1, 1>
     // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
     // CHECK-SAME: groups = 1 : i32

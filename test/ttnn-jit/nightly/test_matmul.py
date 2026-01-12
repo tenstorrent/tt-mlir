@@ -14,9 +14,9 @@ from utils import (
     get_block_sharding_grid,
 )
 
-
-def matmul(input0, input1):
-    return ttnn.matmul(input0, input1)
+from op_definitions import (
+    matmul,
+)
 
 
 # Test full grid and high aspect ratio grids
@@ -45,8 +45,8 @@ MATMUL_SHAPE_GRIDS_SINGLE_OR_FULL = [
     ],
     ids=["f32", "bf16", "bfp8"],
 )
-@pytest.mark.parametrize("graph_capture", [False])
-def test_matmul_with_dtypes(device, shape_grids, dtype, ttnn_dtype, graph_capture):
+@pytest.mark.parametrize("frontend", ["ast"])
+def test_matmul_with_dtypes(device, shape_grids, dtype, ttnn_dtype, frontend):
     shapes, grids = shape_grids
     # shape is (m, k, n)
     shape0 = [shapes[0], shapes[1]]
@@ -57,7 +57,7 @@ def test_matmul_with_dtypes(device, shape_grids, dtype, ttnn_dtype, graph_captur
 
     compiled_op = ttnn_jit.jit(
         debug=True,
-        graph_capture=graph_capture,
+        frontend=frontend,
         compile_only=False,
     )(matmul)
     input0_tensor = create_sharded_tile_tensor(
@@ -112,15 +112,13 @@ INPUT_LAYOUTS = [
     ],
     ids=["bf16"],
 )
-@pytest.mark.parametrize("graph_capture", [False])
+@pytest.mark.parametrize("frontend", ["ast"])
 @pytest.mark.parametrize(
     "input_layouts",
     INPUT_LAYOUTS,
     ids=[f"{str(layout)}" for layout in INPUT_LAYOUTS],
 )
-def test_matmul_with_grids(
-    device, shapes, dtype, ttnn_dtype, graph_capture, input_layouts
-):
+def test_matmul_with_grids(device, shapes, dtype, ttnn_dtype, frontend, input_layouts):
     shapes = [(shapes[0], shapes[1]), (shapes[1], shapes[2])]
     input_tensors = []
     for shape, layout in zip(shapes, input_layouts):
@@ -143,7 +141,7 @@ def test_matmul_with_grids(
 
     compiled_op = ttnn_jit.jit(
         debug=True,
-        graph_capture=graph_capture,
+        frontend=frontend,
         compile_only=False,
     )(matmul)
     output = compiled_op(*input_tensors)

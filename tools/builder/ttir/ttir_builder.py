@@ -161,6 +161,652 @@ class TTIRBuilder(Builder):
 
     # ----- Public Op Generators ----
 
+    ############### ttir.AllToAllOp ###############
+
+    @tag(ttir.AllToAllOp)
+    def all_to_all(
+        self,
+        input: Operand,
+        split_dim: int,
+        concat_dim: int,
+        split_count: int,
+        replica_groups: List[List[int]],
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.all_to_all)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(input)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(input)
+        split_dim_attr = IntegerAttr.get(IntegerType.get_signed(32), split_dim)
+        concat_dim_attr = IntegerAttr.get(IntegerType.get_signed(32), concat_dim)
+        split_count_attr = IntegerAttr.get(IntegerType.get_signed(32), split_count)
+        replica_groups_attr = DenseElementsAttr.get(np.array(replica_groups))
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            input0,
+            split_dim_attr,
+            concat_dim_attr,
+            split_count_attr,
+            replica_groups_attr,
+            mlir_output_type,
+        )
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            input,
+            split_dim_attr,
+            concat_dim_attr,
+            split_count_attr,
+            replica_groups_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttir.AllToAllOp)
+    def all_to_all_parser(
+        self,
+        old_op: ttir.AllToAllOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.all_to_all_parser)
+
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+        split_dim_attr = old_op.split_dim
+        concat_dim_attr = old_op.concat_dim
+        split_count_attr = old_op.split_count
+        replica_groups_attr = old_op.replica_groups
+
+        new_op = ttir_op(
+            result,
+            in0,
+            split_dim_attr,
+            concat_dim_attr,
+            split_count_attr,
+            replica_groups_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(
+                input0,
+                split_dim_attr,
+                concat_dim_attr,
+                split_count_attr,
+                replica_groups_attr,
+                old_op.result.type.element_type,
+            )
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    ############### ttir.CollectiveBroadcastOp ###############
+
+    @tag(ttir.CollectiveBroadcastOp)
+    def collective_broadcast(
+        self,
+        input: Operand,
+        replica_groups: List[Tuple[int, int]],
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.collective_broadcast)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(input)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(input)
+        replica_groups_attr = DenseElementsAttr.get(np.array(replica_groups))
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            input0, replica_groups_attr, mlir_output_type
+        )
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            input,
+            replica_groups_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttir.CollectiveBroadcastOp)
+    def collective_broadcast_parser(
+        self,
+        old_op: ttir.CollectiveBroadcastOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.collective_broadcast_parser)
+
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+        replica_groups_attr = old_op.replica_groups
+
+        new_op = ttir_op(
+            result,
+            in0,
+            replica_groups_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(
+                input0, replica_groups_attr, old_op.result.type.element_type
+            )
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    ############### ttir.CollectivePermuteOp ###############
+
+    @tag(ttir.CollectivePermuteOp)
+    def collective_permute(
+        self,
+        input: Operand,
+        source_target_pairs: List[Tuple[int, int]],
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.collective_permute)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(input)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(input)
+        source_target_pairs_attr = DenseElementsAttr.get(np.array(source_target_pairs))
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            input0, source_target_pairs_attr, mlir_output_type
+        )
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            input,
+            source_target_pairs_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttir.CollectivePermuteOp)
+    def collective_permute_parser(
+        self,
+        old_op: ttir.CollectivePermuteOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.collective_permute_parser)
+
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+        source_target_pairs_attr = old_op.source_target_pairs
+        new_op = ttir_op(
+            result,
+            in0,
+            source_target_pairs_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(
+                input0, source_target_pairs_attr, old_op.result.type.element_type
+            )
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    ############### ttir.ReduceScatterOp ###############
+
+    @tag(ttir.ReduceScatterOp)
+    def reduce_scatter(
+        self,
+        input: Operand,
+        reduce_type: ReduceType,
+        scatter_dim: int,
+        cluster_axis: int,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.reduce_scatter)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(input)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(input)
+        reduce_type_attr = ttcore.ir.ReduceTypeAttr.get(self._ctx, reduce_type.value)
+        scatter_dim_attr = IntegerAttr.get(IntegerType.get_signed(32), scatter_dim)
+        cluster_axis_attr = IntegerAttr.get(IntegerType.get_unsigned(32), cluster_axis)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            input0,
+            reduce_type_attr,
+            scatter_dim_attr,
+            cluster_axis_attr,
+            mlir_output_type,
+        )
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            input,
+            reduce_type_attr,
+            scatter_dim_attr,
+            cluster_axis_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttir.ReduceScatterOp)
+    def reduce_scatter_parser(
+        self,
+        old_op: ttir.ReduceScatterOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.reduce_scatter_parser)
+
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+        reduce_type_attr = old_op.reduce_type
+        scatter_dim_attr = old_op.scatter_dim
+        cluster_axis_attr = old_op.cluster_axis
+
+        new_op = ttir_op(
+            result,
+            in0,
+            reduce_type_attr,
+            scatter_dim_attr,
+            cluster_axis_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(
+                input0,
+                reduce_type_attr,
+                scatter_dim_attr,
+                cluster_axis_attr,
+                old_op.result.type.element_type,
+            )
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    ############### ttir.AllReduceOp ###############
+
+    @tag(ttir.AllReduceOp)
+    def all_reduce(
+        self,
+        input: Operand,
+        cluster_axis: int,
+        reduce_type: ReduceType,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.all_reduce)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(input)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(input)
+        reduce_type_attr = ttcore.ir.ReduceTypeAttr.get(self._ctx, reduce_type.value)
+        cluster_axis_attr = IntegerAttr.get(IntegerType.get_unsigned(32), cluster_axis)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            input0, reduce_type_attr, cluster_axis_attr, mlir_output_type
+        )
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            input,
+            reduce_type_attr,
+            cluster_axis_attr,
+            loc=loc,
+        )
+        new_op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        return new_op_result
+
+    @parse(ttir.AllReduceOp)
+    def all_reduce_parser(
+        self,
+        old_op: ttir.AllReduceOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.all_reduce_parser)
+
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+        reduce_type_attr = old_op.reduce_type
+        cluster_axis_attr = old_op.cluster_axis
+
+        new_op = ttir_op(
+            result,
+            in0,
+            reduce_type_attr,
+            cluster_axis_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(
+                input0,
+                reduce_type_attr,
+                cluster_axis_attr,
+                old_op.result.type.element_type,
+            )
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    ############### ttir.MeshShardOp ###############
+
+    @tag(ttir.MeshShardOp)
+    def mesh_shard(
+        self,
+        input: Operand,
+        shard_type: MeshShardType,
+        shard_direction: MeshShardDirection,
+        shard_shape: List[int],
+        shard_dims: List[int],
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.mesh_shard)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(input)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(input)
+        shard_type_attr = ttcore.ir.MeshShardTypeAttr.get(self._ctx, shard_type.value)
+        shard_direction_attr = ttcore.ir.MeshShardDirectionAttr.get(
+            self._ctx, shard_direction.value
+        )
+        shard_shape_attr = DenseI64ArrayAttr.get(shard_shape)
+        shard_dims_attr = DenseI64ArrayAttr.get(shard_dims)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            input0,
+            shard_type_attr,
+            shard_direction_attr,
+            shard_shape_attr,
+            shard_dims_attr,
+            mlir_output_type,
+        )
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            input,
+            shard_type_attr,
+            shard_direction_attr,
+            shard_shape_attr,
+            shard_dims_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttir.MeshShardOp)
+    def mesh_shard_parser(
+        self,
+        old_op: ttir.MeshShardOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.mesh_shard_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+        shard_type_attr = old_op.shard_type
+        shard_direction_attr = old_op.shard_direction
+        shard_shape_attr = old_op.shard_shape
+        shard_dims_attr = old_op.shard_dims
+
+        new_op = ttir_op(
+            result,
+            in0,
+            shard_type_attr,
+            shard_direction_attr,
+            shard_shape_attr,
+            shard_dims_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(
+                input0,
+                shard_type_attr,
+                shard_direction_attr,
+                shard_shape_attr,
+                shard_dims_attr,
+                old_op.result.type.element_type,
+            )
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    ############### ttir.AllGatherOp ###############
+
+    @tag(ttir.AllGatherOp)
+    def all_gather(
+        self,
+        input: Operand,
+        all_gather_dim: int,
+        cluster_axis: int,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.all_gather)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(input)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(input)
+        all_gather_dim_attr = IntegerAttr.get(
+            IntegerType.get_signed(32), all_gather_dim
+        )
+        cluster_axis_attr = IntegerAttr.get(IntegerType.get_unsigned(32), cluster_axis)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            input0, all_gather_dim_attr, cluster_axis_attr, mlir_output_type
+        )
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            input,
+            all_gather_dim_attr,
+            cluster_axis_attr,
+            loc=loc,
+        )
+        new_op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        return new_op_result
+
+    @parse(ttir.AllGatherOp)
+    def all_gather_parser(
+        self,
+        old_op: ttir.AllGatherOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.all_gather_parser)
+
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+        all_gather_dim_attr = old_op.all_gather_dim
+        cluster_axis_attr = old_op.cluster_axis
+
+        new_op = ttir_op(
+            result,
+            in0,
+            all_gather_dim_attr,
+            cluster_axis_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(
+                input0,
+                all_gather_dim_attr,
+                cluster_axis_attr,
+                old_op.result.type.element_type,
+            )
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
     ############### ttir.ToLayoutOp ###############
 
     @tag(ttir.ToLayoutOp)
@@ -6998,27 +7644,6 @@ class TTIRBuilder(Builder):
 
         return add_module, add_builder
 
-    ############### ttir.EmptyOp ###############
-
-    @parse(ttir.EmptyOp)
-    def empty_parser(
-        self,
-        old_op: ttir.EmptyOp,
-        global_dict: Dict[Operand, Operand],
-    ) -> Tuple[Operation, Dict[Operand, GoldenMapTensor]]:
-        ttir_op = self.get_opview_from_parser(TTIRBuilder.empty_parser)
-        result = old_op.result.type
-
-        new_op = ttir_op(
-            result,
-            loc=old_op.location,
-        )
-        new_op_result = new_op.result
-
-        op_map_dictionary = {}
-        op_map_dictionary[new_op_result] = new_op.result
-        return new_op, op_map_dictionary
-
     ############### ttir.SigmoidOp ###############
 
     @tag(ttir.SigmoidOp)
@@ -7868,6 +8493,7 @@ class TTIRBuilder(Builder):
         return ne_module, ne_builder
 
     ############### ttir.WhereOp ###############
+
     @tag(ttir.WhereOp)
     def where(
         self,
@@ -9109,43 +9735,121 @@ class TTIRBuilder(Builder):
             ttir_kwargs={"approximate": approximate},
         )
 
-    def is_finite(self, in0: Operand, unit_attrs: Optional[List[str]] = None) -> OpView:
-        """
-        Creates ``ttir.is_finite``.
+    ############### ttir.IsFiniteOp ###############
 
-        *Elementwise finite check operation.*
+    @tag(ttir.IsFiniteOp)
+    def is_finite(
+        self,
+        in0: Operand,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.is_finite)
 
-        Checks if each element in the input tensor is finite (neither infinite nor NaN).
-        For each element, returns a boolean value indicating whether the element is finite.
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
-        Mathematical definition: isfinite(x) = x ∈ ℝ
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(input0, mlir_output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
 
-        .. code-block:: mlir
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
 
-            // Check if elements are finite
-            %result = ttir.is_finite(%input, %output) : tensor<4xf32>, tensor<4xi1> -> tensor<4xi1>
-            // Input tensor:
-            // [1.0, inf, -inf, nan]
-            // Output tensor:
-            // [true, false, false, false]
-
-        Parameters
-        ----------
-        in0 : Operand
-            Input tensor
-        unit_attrs : *Optional[List[str]]*, optional
-            Optional list of unit attributes
-
-        Returns
-        -------
-        (*OpView*)
-        """
-        return self._op_proxy(
-            ttir.IsFiniteOp,
-            [in0],
-            unit_attrs,
-            output_type=F32Type.get(self._ctx),
+        op = ttir_op(
+            result,
+            in0,
+            loc=loc,
         )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        if not self._disable_golden_check:
+            self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttir.IsFiniteOp)
+    def is_finite_parser(
+        self,
+        old_op: ttir.IsFiniteOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.is_finite_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+
+        new_op = ttir_op(result, in0, loc=old_op.location)
+        new_op_result = new_op.result
+
+        if not self._disable_golden_check:
+            input0 = self._get_golden_tensor(in0)
+            op_golden_function = get_golden_function(ttir_op)
+            golden_output = op_golden_function(input0, result.element_type)
+            self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttir.IsFiniteOp)
+    def is_finite_split(
+        self,
+        old_op: ttir.IsFiniteOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.is_finite_split)
+
+        old_context = old_op.context
+        old_loc = Location.unknown(old_context)
+        with old_context, old_loc:
+            is_finite_module = Module.create()
+            is_finite_builder = TTIRBuilder(old_context, old_loc)
+            op_input_types = [
+                old_op.input.type,
+            ]
+
+            with InsertionPoint(is_finite_module.body):
+
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="is_finite_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttir_op(result, in0, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    if not self._disable_golden_check:
+                        op_golden_function = get_golden_function(ttir_op)
+                        input0 = self._get_golden_tensor(old_op.input)
+                        golden_output = op_golden_function(input0, result.element_type)
+                        is_finite_builder._set_golden_tensor(
+                            new_op_result, golden_output
+                        )
+                        is_finite_builder._set_golden_tensor(in0, input0)
+                        ordered_inputs.extend([in0])
+                        ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                is_finite_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return is_finite_module, is_finite_builder
 
     def bitwise_not(
         self, in0: Operand, unit_attrs: Optional[List[str]] = None
@@ -11271,338 +11975,6 @@ class TTIRBuilder(Builder):
             golden_kwargs={"tilize": False},
         )
 
-    # CCL ops
-
-    def mesh_shard(
-        self,
-        input: Operand,
-        shard_type: str,
-        shard_direction: str,
-        shard_shape: Tuple[int, ...],
-        shard_dims: Tuple[int, ...],
-    ) -> OpView:
-        """
-        Creates ``ttir.mesh_shard``.
-
-        *Shard a tensor across a device mesh.*
-
-        Distributes a tensor across multiple devices in a mesh according to the specified
-        sharding configuration. The sharding can be performed along one or more dimensions
-        of the tensor.
-
-        .. code-block:: mlir
-
-            // Shard a tensor across a 2x2 device mesh
-            %result = ttir.mesh_shard(%input) {
-                shard_type = "block",
-                shard_direction = "row",
-                shard_shape = [2, 2],
-                shard_dims = [0, 1]
-            } : tensor<128x128xf32> -> tensor<64x64xf32>
-            // Input tensor on single device:
-            // [[1.0, 2.0, ...],
-            //  [3.0, 4.0, ...]]
-            // Output tensor sharded across devices:
-            // Device 0: [[1.0, 2.0], [3.0, 4.0]]
-            // Device 1: [[1.1, 2.1], [3.1, 4.1]]
-            // Device 2: [[1.2, 2.2], [3.2, 4.2]]
-            // Device 3: [[1.3, 2.3], [3.3, 4.3]]
-
-        Parameters
-        ----------
-        input : Operand
-            Input tensor to be sharded
-        shard_type : str
-            Type of sharding (e.g., "block", "cyclic")
-        shard_direction : str
-            Direction of sharding (e.g., "row", "col")
-        shard_shape : Tuple[int, ...]
-            Shape of the device mesh
-        shard_dims : Tuple[int, ...]
-            Tensor dimensions to shard along
-
-        Returns
-        -------
-        (*OpView*)
-        """
-        ttir_kwargs = {
-            "shard_type": Attribute.parse(shard_type),
-            "shard_direction": Attribute.parse(shard_direction),
-            "shard_shape": shard_shape,
-            "shard_dims": shard_dims,
-        }
-        golden_kwargs = dict(ttir_kwargs, mesh_shape=self.mesh_shape)
-        return self._op_proxy(
-            ttir.MeshShardOp,
-            [input],
-            organize_ttir_args=lambda i, o: (o, i[0]),
-            ttir_kwargs=ttir_kwargs,
-            golden_kwargs=golden_kwargs,
-        )
-
-    def all_gather(
-        self,
-        input: Operand,
-        all_gather_dim: int = None,
-        cluster_axis: int = None,
-    ) -> OpView:
-        """
-        Creates ``ttir.all_gather``.
-
-        *Gather tensor data from all devices.*
-
-        Collects tensor data from all devices in the system and concatenates them along
-        the specified dimension. The gather operation can be performed along different
-        axes of the device mesh.
-
-        For a mesh shape of [2,4] with device IDs:
-        [[0, 1, 2, 3],
-        [4, 5, 6, 7]]
-
-        - If cluster_axis=0: Gathers along columns (0,4), (1,5), (2,6), (3,7)
-        - If cluster_axis=1: Gathers along rows (0,1,2,3), (4,5,6,7)
-
-        .. code-block:: mlir
-
-            // Gather tensor data from all devices along dimension 0
-            %result = ttir.all_gather(%input) {all_gather_dim = 0, cluster_axis = 1} : tensor<32x64xf32> -> tensor<128x64xf32>
-            // Input tensor on device 0:
-            // [[1.0, 2.0],
-            //  [3.0, 4.0]]
-            // Output tensor after gathering:
-            // [[1.0, 2.0],  // from device 0
-            //  [5.0, 6.0],  // from device 1
-            //  [9.0, 10.0], // from device 2
-            //  [13.0, 14.0]] // from device 3
-
-        Parameters
-        ----------
-        input : Operand
-            Input tensor to be gathered
-        all_gather_dim : int, optional
-            Dimension along which to concatenate gathered tensors
-        cluster_axis : int, optional
-            Axis of device mesh for gathering (0 or 1)
-
-        Returns
-        -------
-        (*OpView*)
-        """
-        kwargs = {"all_gather_dim": all_gather_dim, "cluster_axis": cluster_axis}
-        return self._op_proxy(
-            ttir.AllGatherOp,
-            [input],
-            golden_kwargs=kwargs,
-            ttir_kwargs=kwargs,
-        )
-
-    def all_reduce(
-        self,
-        input: Operand,
-        reduce_type: str,
-        cluster_axis: int,
-    ) -> OpView:
-        """
-        Creates ``ttir.all_reduce``.
-
-        *AllReduce operation.*
-
-        AllReduce op.
-
-        Parameters
-        ----------
-        input : Operand
-            Input tensor to be reduced
-        reduce_type : str
-            Type of reduction operation (e.g., "sum", "max")
-        cluster_axis : int
-            Axis of device mesh for reduction (0 or 1)
-
-        Returns
-        -------
-        (*OpView*)
-        """
-        kwargs = {
-            "reduce_type": Attribute.parse(reduce_type),
-            "cluster_axis": cluster_axis,
-        }
-        return self._op_proxy(
-            ttir.AllReduceOp,
-            [input],
-            golden_kwargs=kwargs,
-            ttir_kwargs=kwargs,
-        )
-
-    def reduce_scatter(
-        self,
-        input: Operand,
-        reduce_type: str,
-        scatter_dim: int,
-        cluster_axis: int,
-    ) -> OpView:
-        """
-        Creates ``ttir.reduce_scatter``.
-
-        *Reduce scatter operation.*
-
-        Reduce scatter op.
-
-        Parameters
-        ----------
-        input : Operand
-            Input tensor to be reduced and scattered
-        reduce_type : str
-            Type of reduction operation (e.g., "sum", "max")
-        scatter_dim : int
-            Dimension along which to scatter the reduced results
-        cluster_axis : int
-            Axis of device mesh for reduction (0 or 1)
-
-        Returns
-        -------
-        (*OpView*)
-        """
-        kwargs = {
-            "reduce_type": Attribute.parse(reduce_type),
-            "scatter_dim": scatter_dim,
-            "cluster_axis": cluster_axis,
-        }
-        return self._op_proxy(
-            ttir.ReduceScatterOp,
-            [input],
-            golden_kwargs=kwargs,
-            ttir_kwargs=kwargs,
-        )
-
-    def collective_permute(
-        self,
-        input: Operand,
-        source_target_pairs: List[Tuple[int, int]],
-    ) -> OpView:
-        """
-        Creates ``ttir.collective_permute``.
-
-        *Collective permute operation.*
-
-        Collective permute op. This operation ingests a multi-device tensor spread across multi-devices and will shuffle the data according to source_target_pairs [['src', 'dest']].
-
-        Example:
-            For a 1x2 mesh, the following will take the device shard living in device 0 and move it to device 1. The device shard living in device 1 will move to device 0.
-        %source_target_pairs: [[0, 1], [1, 0]]
-
-        In the case of missing 'dest', the device shard living on that device will contain values of 0. For example, device shard living in device 0 will contain 0 values.
-        %source_target_pairs: [[0, 1]]
-
-        Parameters
-        ----------
-        input : Operand
-            The input tensor to be permuted
-        source_target_pairs : *List[Tuple[int, int]]*
-            List of pairs of source and target device ids
-
-        Returns
-        -------
-        (*OpView*)
-        """
-        kwargs = {
-            "source_target_pairs": source_target_pairs,
-        }
-        return self._op_proxy(
-            ttir.CollectivePermuteOp,
-            [input],
-            golden_kwargs=kwargs,
-            ttir_kwargs=kwargs,
-        )
-
-    def all_to_all(
-        self,
-        input: Operand,
-        split_dim: int,
-        concat_dim: int,
-        split_count: int,
-        replica_groups: List[List[int]],
-    ) -> OpView:
-        """
-        Creates ``ttir.all_to_all``.
-
-        *all to all operation.*
-
-        The all_to_all operation redistributes slices of a tensor across a cluster of devices. It splits each local tensor along split_dimension, sends the resulting slices to other devices along cluster_axis, and then concatenates the received slices along concat_dimension.
-
-        Example:
-            For a 1x2 mesh and a local input of shape [8, 4]:
-            - split_dimension = 1
-            - concat_dimension = 0
-            - split_count = 2
-            - cluster_axis = 1
-
-            Each device splits its [8, 4] tensor into two [8, 2] slices. After the exchange, each device concatenates the two received [8, 2] slices into a [16, 2] output tensor.
-
-        Parameters
-        ----------
-        input : Operand
-            Input tensor to be redistributed
-        split_dim : int
-            Dimension along which to split the input tensor
-        concat_dim : int
-            Dimension along which to concatenate the reorganized tensors
-        split_count : int
-            Number of splits to perform
-        replica_groups : List[List[int]]
-            List of replica group indices
-
-        Returns
-        -------
-        (*OpView*)
-        """
-        kwargs = {
-            "split_dim": split_dim,
-            "concat_dim": concat_dim,
-            "split_count": split_count,
-            "replica_groups": replica_groups,
-        }
-        return self._op_proxy(
-            ttir.AllToAllOp,
-            [input],
-            golden_kwargs=kwargs,
-            ttir_kwargs=kwargs,
-        )
-
-    def collective_broadcast(
-        self,
-        input: Operand,
-        replica_groups: List[Tuple[int, int]],
-    ) -> OpView:
-        """
-        Creates ``ttir.collective_broadcast``.
-        *Collective broadcast operation.*
-        The collective_broadcast operation distributes a tensor from a single source device to all
-        other devices within each replica group. Each replica group defines a subset of devices that
-        participate in the broadcast, and the operation is applied independently within each group.
-        By convention, the first device listed in each replica group is treated as the broadcast source.
-        The value of the `input` tensor on that source device is sent to all other devices in the same
-        group. The `input` tensor values on non-source devices are ignored and will be overwritten
-        during the operation.
-        Parameters
-        ----------
-        input: The tensor to broadcast. Only the value on the first device of each replica group
-              (the source) is used; values on other devices are ignored.
-        replica_groups: A list of replica groups. Each group is a list of device IDs, and the first
-                        ID in each group is treated as the broadcast source for that group.
-        Returns
-        -------
-        (*OpView*)
-        """
-        kwargs = {
-            "replica_groups": replica_groups,
-        }
-        return self._op_proxy(
-            ttir.CollectiveBroadcastOp,
-            [input],
-            golden_kwargs=kwargs,
-            ttir_kwargs=kwargs,
-        )
-
     def rms_norm(
         self,
         in0: Operand,
@@ -11689,7 +12061,24 @@ class TTIRBuilder(Builder):
         root_module = Module.parse(mlir_text, ctx)
         loc = Location.unknown(ctx)
         with ctx, loc:
-            ttir_builder = TTIRBuilder(ctx, loc)
+            mesh_name = "mesh"
+            mesh_shape = OrderedDict([("x", 1), ("y", 1)])
+
+            for named_attr in root_module.operation.attributes:
+                if named_attr.name != "ttcore.meshes":
+                    continue
+
+                meshes = ttcore.ir.MeshesAttr.maybe_downcast(named_attr.attr)
+                mesh = meshes.meshes[0]
+                mesh_name = mesh.name
+                shape = mesh.shape
+                mesh_shape = OrderedDict(
+                    x=1 if len(shape) == 1 else shape[0],
+                    y=shape[0] if len(shape) == 1 else shape[1],
+                )
+                break
+
+            ttir_builder = TTIRBuilder(ctx, loc, mesh_name, mesh_shape)
             new_module = ttir_builder.parse_root_module(root_module, golden_inputs)
 
         return new_module, ttir_builder

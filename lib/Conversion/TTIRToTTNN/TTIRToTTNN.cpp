@@ -398,22 +398,82 @@ public:
   matchAndRewrite(ttir::EmbeddingBackwardOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
+    Location loc = op.getLoc();
+    Value inputIndices = adaptor.getInput();
+    auto indicesType = mlir::cast<RankedTensorType>(inputIndices.getType());
+
+    // StableHLO scatter produces [batch, seq, 1], but embedding_bw expects
+    // [batch, seq].
+    if (indicesType.getRank() > 2 &&
+        indicesType.getDimSize(indicesType.getRank() - 1) == 1) {
+      llvm::SmallVector<int64_t> squeezedShape(
+          indicesType.getShape().drop_back());
+
+      inputIndices = mlir::tt::ttir_to_ttnn::utils::generateReshape(
+          mlir::cast<TypedValue<RankedTensorType>>(inputIndices), squeezedShape,
+          rewriter,
+          ttmlir::utils::appendLocationSuffix(loc, "_squeeze_indices"));
+      indicesType = mlir::cast<RankedTensorType>(inputIndices.getType());
+    }
+
+    // Pad the sequence length to be divisible by TILE_WIDTH (32).
+    constexpr int64_t TILE_WIDTH = 32;
+    int64_t seqLen = indicesType.getDimSize(indicesType.getRank() - 1);
+    int64_t paddedSeqLen = llvm::divideCeil(seqLen, TILE_WIDTH) * TILE_WIDTH;
+    Value reshapedGrad = adaptor.getInGradient();
     auto gradType = adaptor.getInGradient().getType();
     auto gradTensor = mlir::cast<RankedTensorType>(gradType);
     auto gradShape = gradTensor.getShape();
+
+    if (seqLen != paddedSeqLen) {
+      llvm::SmallVector<int64_t> paddedIndicesShape(indicesType.getShape());
+      paddedIndicesShape[indicesType.getRank() - 1] = paddedSeqLen;
+
+      llvm::SmallVector<int32_t> indicesPadding(2 * indicesType.getRank(), 0);
+      indicesPadding[2 * indicesType.getRank() - 1] = paddedSeqLen - seqLen;
+
+      auto paddedIndicesType = ttnn::utils::RankedTensorTypeFactory::create(
+          indicesType, paddedIndicesShape);
+
+      inputIndices = rewriter.create<ttnn::PadOp>(
+          ttmlir::utils::appendLocationSuffix(loc, "_pad_indices"),
+          paddedIndicesType, inputIndices,
+          rewriter.getDenseI32ArrayAttr(indicesPadding),
+          rewriter.getF32FloatAttr(0.0), rewriter.getBoolAttr(true), nullptr);
+
+      uint64_t dimensionToPad = gradShape.size() - 2;
+      llvm::SmallVector<int64_t> paddedGradShape(gradShape);
+      paddedGradShape[dimensionToPad] = paddedSeqLen;
+
+      llvm::SmallVector<int32_t> gradPadding(2 * gradShape.size(), 0);
+      gradPadding[2 * dimensionToPad + 1] = paddedSeqLen - seqLen;
+
+      auto paddedGradType = ttnn::utils::RankedTensorTypeFactory::create(
+          gradTensor, paddedGradShape);
+
+      reshapedGrad = rewriter.create<ttnn::PadOp>(
+          ttmlir::utils::appendLocationSuffix(loc, "_pad_gradient"),
+          paddedGradType, adaptor.getInGradient(),
+          rewriter.getDenseI32ArrayAttr(gradPadding),
+          rewriter.getF32FloatAttr(0.0), rewriter.getBoolAttr(true), nullptr);
+    }
 
     // Reshape grad tensor to [1, 1, R, C] where R is all the first N-1
     // dimensions of grad tensor squeezed and C is the last dimension of grad
     // tensor. This must be done to obey the constraints of the
     // ttnn::EmbeddingBackwardOp.
-    int32_t R = 1;
-    for (size_t i = 0; i < gradShape.size() - 1; ++i) {
-      R *= gradShape[i];
-    }
-    llvm::SmallVector<int64_t, 4> reshapedGradShape{1, 1, R, gradShape.back()};
+    auto finalGradType = mlir::cast<RankedTensorType>(reshapedGrad.getType());
+    auto finalGradShape = finalGradType.getShape();
 
-    auto reshapedGrad = mlir::tt::ttir_to_ttnn::utils::generateReshape(
-        mlir::cast<TypedValue<mlir::RankedTensorType>>(adaptor.getInGradient()),
+    int32_t R = 1;
+    for (size_t i = 0; i < finalGradShape.size() - 1; ++i) {
+      R *= finalGradShape[i];
+    }
+    llvm::SmallVector<int64_t, 4> reshapedGradShape{1, 1, R,
+                                                    finalGradShape.back()};
+
+    reshapedGrad = mlir::tt::ttir_to_ttnn::utils::generateReshape(
+        mlir::cast<TypedValue<mlir::RankedTensorType>>(reshapedGrad),
         reshapedGradShape, rewriter,
         ttmlir::utils::appendLocationSuffix(op.getLoc(), "_reshaped_grad"));
 
@@ -432,9 +492,8 @@ public:
         ttnn::BufferTypeAttr::get(op.getContext(), bufferType), std::nullopt);
 
     rewriter.replaceOpWithNewOp<ttnn::EmbeddingBackwardOp>(
-        op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getWeight(), reshapedGrad, dTypeAttr,
-        memoryConfigAttr);
+        op, this->getTypeConverter()->convertType(op.getType()), inputIndices,
+        adaptor.getWeight(), reshapedGrad, dTypeAttr, memoryConfigAttr);
     return success();
   }
 };
@@ -1084,7 +1143,8 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::LinearOp>(
         op, this->getTypeConverter()->convertType(op.getType()), adaptor.getA(),
         adaptor.getB(), adaptor.getBias(), adaptor.getTransposeA(),
-        adaptor.getTransposeB(), /*activation=*/nullptr);
+        adaptor.getTransposeB(), /*activation=*/nullptr,
+        /*matmul_program_config=*/nullptr, /*compute_config=*/nullptr);
     return success();
   }
 };
@@ -1205,7 +1265,8 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::RMSNormOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getWeight(), adaptor.getBias(),
-        adaptor.getEpsilon(), /*memoryConfig*/ nullptr);
+        adaptor.getEpsilon(), /*memoryConfig*/ nullptr,
+        /*computeConfig*/ nullptr);
     return success();
   }
 };
@@ -1296,6 +1357,8 @@ public:
     auto outputDtypeAttr =
         rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
 
+    // Config tensors are allocated in L1 by default in Metal.
+    // In the general path, we want to allocate them in DRAM to prevent OOM.
     auto conv2dConfigAttr = ttnn::Conv2dConfigAttr::get(rewriter.getContext())
                                 .withConfigTensorsInDram(true);
 
@@ -1561,12 +1624,17 @@ public:
     auto outputDtypeAttr =
         rewriter.getAttr<ttcore::DataTypeAttr>(outputLayoutAttr.getDataType());
 
+    // Config tensors are allocated in L1 by default in Metal.
+    // In the general path, we want to allocate them in DRAM to prevent OOM.
+    auto conv2dConfigAttr = ttnn::Conv2dConfigAttr::get(rewriter.getContext())
+                                .withConfigTensorsInDram(true);
+
     rewriter.replaceOpWithNewOp<ttnn::ConvTranspose2dOp>(
         op, getTypeConverter()->convertType(outputTy), adaptor.getInput(),
         adaptor.getWeight(), adaptor.getBias(), device, inChannelsAttr,
         outChannelsAttr, batchSizeAttr, inputHeightAttr, inputWidthAttr,
         kernelSizeAttr, *strideAttr, reducedPaddingAttr, *outputPaddingAttr,
-        *dilationAttr, groupsAttr, outputDtypeAttr, /*conv2d_config=*/nullptr,
+        *dilationAttr, groupsAttr, outputDtypeAttr, conv2dConfigAttr,
         /*compute_config=*/nullptr, /*memoryConfig=*/nullptr);
 
     return success();
@@ -2208,7 +2276,11 @@ public:
 
     ttcore::DataTypeAttr dtypeAttr = rewriter.getAttr<ttcore::DataTypeAttr>(
         ttcore::elementTypeToDataType(outputType.getElementType()));
-    Value device = mlir::tt::ttnn::utils::getOrInsertDevice(rewriter, op);
+
+    mlir::Value device =
+        ttnnLayoutAttr.isDeviceBufferType()
+            ? mlir::Value(::ttnn::utils::getOrInsertDevice(rewriter, op))
+            : nullptr;
 
     ttnn::Layout ttnnLayoutEnum = ttnn::Layout::RowMajor;
 

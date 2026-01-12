@@ -6,6 +6,7 @@
 #define TTMLIR_DIALECT_TTNN_PIPELINES_TTNNPIPELINES_H
 
 #include "ttmlir/Dialect/TTCore/Utils/PopulateArgumentTypes.h"
+#include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTNN/Utils/MemoryLayoutAnalysisParams.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 
@@ -17,10 +18,10 @@ class MeshDevice;
 } // namespace tt::tt_metal::distributed
 
 namespace mlir::tt::ttnn {
-// Options for the TTIR to TTNN backend pipeline.
+// TTIR to TTNN Device pipeline options.
 //
-struct TTIRToTTNNBackendPipelineOptions
-    : public PassPipelineOptions<TTIRToTTNNBackendPipelineOptions> {
+struct TTIRToTTNNDevicePipelineOptions
+    : public PassPipelineOptions<TTIRToTTNNDevicePipelineOptions> {
   // Optimization level controls multiple optimization passes.
   // Level 0 (default): All optimizer passes disabled.
   // Level 1: All optimizer passes enabled. Memory layout analysis is disabled.
@@ -347,6 +348,32 @@ struct TTIRToTTNNBackendPipelineOptions
           "matrix multiplication and convolution operations to bfp8_b."),
       llvm::cl::init(false)};
 
+  // ComputeKernelConfig options
+  // Note: computeCfgMathFidelity default value (HiFi4) is not used unless
+  // computeCfgMathFidelitySet is true. The default exists only to satisfy
+  // Option<T>'s requirement for an initialized value.
+  Option<MathFidelity> computeCfgMathFidelity{
+      *this, "compute-cfg-math-fidelity",
+      llvm::cl::desc("Set math fidelity for all ttnn operations exposing "
+                     "compute kernel config."),
+      llvm::cl::values(
+          clEnumValN(MathFidelity::LoFi, "lofi", "Low fidelity math"),
+          clEnumValN(MathFidelity::HiFi2, "hifi2", "High fidelity 2"),
+          clEnumValN(MathFidelity::HiFi3, "hifi3", "High fidelity 3"),
+          clEnumValN(MathFidelity::HiFi4, "hifi4", "High fidelity 4")),
+      llvm::cl::init(MathFidelity::HiFi4)};
+
+  // Internal flag to track whether computeCfgMathFidelity was explicitly set.
+  // This enables distinguishing "unset" from "explicitly set to any value".
+  // Frontend propagation must use setComputeCfgMathFidelity() to set this flag.
+  bool computeCfgMathFidelitySet = false;
+
+  Option<bool> computeCfgFp32DestAccEn{
+      *this, "compute-cfg-fp32-dest-acc-en",
+      llvm::cl::desc("Set fp32 destination accumulation for all ttnn "
+                     "operations exposing compute kernel config."),
+      llvm::cl::init(false)};
+
   Option<bool> ttnnPerfMetricsEnabled{
       *this, "ttnn-perf-metrics-enabled",
       llvm::cl::desc("Enable performance metrics collection."),
@@ -365,6 +392,13 @@ struct TTIRToTTNNBackendPipelineOptions
       llvm::cl::desc(
           "Enable verbose output with per-operation details in metrics."),
       llvm::cl::init(true)};
+
+  Option<uint32_t> maxFallbackAttempts{
+      *this, "max-fallback-attempts",
+      llvm::cl::desc(
+          "Maximum number of fallback attempts per operation in Operation "
+          "Validation and Fallback pass. 0 means unlimited attempts."),
+      llvm::cl::init(10000)};
 
   // Option to provide a pointer to an already opened device. When provided,
   // the optimizer will use this device instead of opening a new one.
@@ -392,12 +426,20 @@ struct TTIRToTTNNBackendPipelineOptions
       memoryLayoutAnalysisEnabled = (optimizationLevel >= 2);
     }
   }
+
+  // Helper to set computeCfgMathFidelity programmatically (e.g., from
+  // frontend). This setter ensures both the value and the presence flag are
+  // updated together.
+  void setComputeCfgMathFidelity(MathFidelity v) {
+    computeCfgMathFidelity = v;
+    computeCfgMathFidelitySet = true;
+  }
 };
 
-// TTNN Backend to EmitC PipelineOptions.
+// TTNN to EmitC Device pipeline options.
 //
-struct TTNNBackendToEmitCPipelineOptions
-    : public PassPipelineOptions<TTNNBackendToEmitCPipelineOptions> {
+struct TTNNToEmitCDevicePipelineOptions
+    : public PassPipelineOptions<TTNNToEmitCDevicePipelineOptions> {
   Option<bool> targetDylib{*this, "target-dylib",
                            llvm::cl::desc("Tailor passes for dylib target."),
                            llvm::cl::init(false)};
@@ -425,10 +467,10 @@ struct TTNNBackendToEmitCPipelineOptions
       llvm::cl::desc("Prefix for input tensor files"), llvm::cl::init("arg")};
 };
 
-// TTNN Backend to EmitPy PipelineOptions.
+// TTNN to EmitPy Device pipeline options.
 //
-struct TTNNBackendToEmitPyPipelineOptions
-    : public PassPipelineOptions<TTNNBackendToEmitPyPipelineOptions> {
+struct TTNNToEmitPyDevicePipelineOptions
+    : public PassPipelineOptions<TTNNToEmitPyDevicePipelineOptions> {
   Option<bool> targetModule{
       *this, "target-module",
       llvm::cl::desc("Tailor passes for Python module target. When enabled, "
@@ -452,48 +494,38 @@ struct TTNNBackendToEmitPyPipelineOptions
       llvm::cl::desc("Prefix for input tensor files"), llvm::cl::init("arg")};
 };
 
-// TTIR to EmitC pipeline options.
-// Inherit from TTIRToTTNNBackendPipelineOptions and
-// TTNNBackendToEmitCPipelineOptions to reuse the options.
+// TTIR to TTNN backend pipeline options.
 //
-struct TTIRToEmitCPipelineOptions : public TTIRToTTNNBackendPipelineOptions,
-                                    public TTNNBackendToEmitCPipelineOptions {};
+// Inherits from TTIRToTTNNDevicePipelineOptions and
+// TTIRToLLVMCPUPipelineOptions to reuse the options.
+//
+struct TTIRToTTNNBackendPipelineOptions
+    : public TTIRToTTNNDevicePipelineOptions,
+      public ttir::TTIRToLLVMCPUPipelineOptions {};
+
+// TTIR to EmitC end-to-end pipeline options.
+//
+// Inherits from TTIRToTTNNDevicePipelineOptions and
+// TTNNToEmitCDevicePipelineOptions to reuse the options.
+//
+struct TTIRToEmitCPipelineOptions : public TTIRToTTNNDevicePipelineOptions,
+                                    public TTNNToEmitCDevicePipelineOptions {};
 
 // TTIR to EmitPy pipeline options.
-// Inherit from TTIRToTTNNBackendPipelineOptions and
-// TTNNBackendToEmitPyPipelineOptions to reuse the options.
 //
-struct TTIRToEmitPyPipelineOptions : public TTIRToTTNNBackendPipelineOptions,
-                                     public TTNNBackendToEmitPyPipelineOptions {
+// Inherits from TTIRToTTNNDevicePipelineOptions and
+// TTNNToEmitPyDevicePipelineOptions to reuse the options.
+//
+struct TTIRToEmitPyPipelineOptions : public TTIRToTTNNDevicePipelineOptions,
+                                     public TTNNToEmitPyDevicePipelineOptions {
 };
 
 //===----------------------------------------------------------------------===//
-// Passes and pipelines
+// End-to-end pipelines, which lower TTIR to various TTNN targets.
 //===----------------------------------------------------------------------===//
-
-void createTTNNPipelineTTIRPasses(
-    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
-
-void createTTNNPipelineAnalysisPasses(
-    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
-
-void createTTNNPipelineLoweringPasses(
-    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
-
-void createTTNNPipelineLayoutDecompositionPass(
-    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
-
-void createTTNNPipelineDeallocPass(
-    OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
 
 void createTTIRToTTNNBackendPipeline(
     OpPassManager &pm, const TTIRToTTNNBackendPipelineOptions &options);
-
-void createTTNNBackendToEmitCPipeline(
-    OpPassManager &pm, const TTNNBackendToEmitCPipelineOptions &options);
-
-void createTTNNBackendToEmitPyPipeline(
-    OpPassManager &pm, const TTNNBackendToEmitPyPipelineOptions &options);
 
 void createTTIRToEmitCPipeline(OpPassManager &pm,
                                const TTIRToEmitCPipelineOptions &options);
@@ -501,8 +533,6 @@ void createTTIRToEmitCPipeline(OpPassManager &pm,
 void createTTIRToEmitPyPipeline(OpPassManager &pm,
                                 const TTIRToEmitPyPipelineOptions &options);
 
-/// Registers all pipelines for the `bufferization` dialect. Currently,
-/// this includes only the "ttir-to-ttnn-backend-pipeline".
 void registerTTNNPipelines();
 } // namespace mlir::tt::ttnn
 

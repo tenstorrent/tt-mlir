@@ -60,6 +60,8 @@ struct BufferType;
 
 struct QueueId;
 
+struct WormholeComputeKernelConfig;
+
 namespace types {
 struct ShardOrientation;
 } // namespace types
@@ -234,6 +236,11 @@ struct TypeName<::ttnn::operations::creation::detail::OptionalMeshDevice> {
 template <>
 struct TypeName<::ttnn::Tensor> {
   inline static const std::string value = "::ttnn::Tensor";
+};
+
+template <>
+struct TypeName<::ttnn::WormholeComputeKernelConfig> {
+  inline static const std::string value = "::ttnn::WormholeComputeKernelConfig";
 };
 
 template <>
@@ -862,6 +869,87 @@ struct EmitCTypeConverter<::ttnn::QueueId> {
   convert(T &&value) {
     return TypeNameV<::ttnn::QueueId> + "(" +
            std::to_string(static_cast<uint8_t>(value)) + ")";
+  }
+};
+
+// Specialization for DeviceComputeKernelConfig (as WormholeComputeKernelConfig)
+template <>
+struct EmitCTypeConverter<::ttnn::WormholeComputeKernelConfig> {
+  static std::optional<std::string> convert(mlir::Attribute attr) {
+    auto configAttr =
+        mlir::dyn_cast_if_present<ttnn::DeviceComputeKernelConfigAttr>(attr);
+    if (!configAttr) {
+      return {};
+    }
+    return convert(configAttr);
+  }
+
+  static std::string convert(ttnn::DeviceComputeKernelConfigAttr attr) {
+    std::string buf;
+    llvm::raw_string_ostream rso(buf);
+    rso << TypeNameV<::ttnn::WormholeComputeKernelConfig> << "{";
+
+    bool first = true;
+
+    // math_fidelity
+    if (auto mathFidelity = attr.getMathFidelity()) {
+      if (!first) {
+        rso << ", ";
+      }
+      first = false;
+      rso << ".math_fidelity = ::ttnn::MathFidelity::";
+      switch (*mathFidelity) {
+      case ttnn::MathFidelity::LoFi:
+        rso << "LoFi";
+        break;
+      case ttnn::MathFidelity::HiFi2:
+        rso << "HiFi2";
+        break;
+      case ttnn::MathFidelity::HiFi3:
+        rso << "HiFi3";
+        break;
+      case ttnn::MathFidelity::HiFi4:
+        rso << "HiFi4";
+        break;
+      }
+    }
+    // math_approx_mode
+    if (auto mathApproxMode = attr.getMathApproxMode()) {
+      if (!first) {
+        rso << ", ";
+      }
+      first = false;
+      rso << ".math_approx_mode = "
+          << (mathApproxMode.getValue() ? "true" : "false");
+    }
+    // fp32_dest_acc_en
+    if (auto fp32DestAccEn = attr.getFp32DestAccEn()) {
+      if (!first) {
+        rso << ", ";
+      }
+      first = false;
+      rso << ".fp32_dest_acc_en = "
+          << (fp32DestAccEn.getValue() ? "true" : "false");
+    }
+    // packer_l1_acc
+    if (auto packerL1Acc = attr.getPackerL1Acc()) {
+      if (!first) {
+        rso << ", ";
+      }
+      first = false;
+      rso << ".packer_l1_acc = " << (packerL1Acc.getValue() ? "true" : "false");
+    }
+    // dst_full_sync_en
+    if (auto dstFullSyncEn = attr.getDstFullSyncEn()) {
+      if (!first) {
+        rso << ", ";
+      }
+      rso << ".dst_full_sync_en = "
+          << (dstFullSyncEn.getValue() ? "true" : "false");
+    }
+
+    rso << "}";
+    return buf;
   }
 };
 
@@ -1766,41 +1854,16 @@ public:
   }
 
   mlir::Attribute emitConv3dConfig(
-      uint32_t outChannels, llvm::ArrayRef<int32_t> kernelSize,
-      llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
-      llvm::StringRef paddingMode, uint32_t groups,
-      ttcore::DataType outputDtype,
       std::optional<mlir::tt::ttnn::Conv3dConfigAttr> conv3dConfig =
           std::nullopt) {
     std::string buf;
     llvm::raw_string_ostream rso(buf);
 
-    // for some fields we need default values, so we create a default config and
-    // override the fields
+    // Create config with default values and override only the fields that
+    // remain in the new Conv3dConfig struct
     rso << "[&]() { ";
     rso << "auto config = "
            "ttnn::operations::experimental::conv3d::Conv3dConfig(); ";
-    rso << "config.output_channels = " << outChannels << "; ";
-
-    rso << "config.kernel_size = {";
-    llvm::interleaveComma(kernelSize, rso);
-    rso << "}; ";
-
-    rso << "config.stride = {";
-    llvm::interleaveComma(stride, rso);
-    rso << "}; ";
-
-    rso << "config.padding = {";
-    llvm::interleaveComma(padding, rso);
-    rso << "}; ";
-
-    rso << "config.padding_mode = \"" << paddingMode << "\"; ";
-    rso << "config.groups = " << groups << "; ";
-
-    // Set output dtype
-    rso << "config.dtype = ";
-    rso << EmitCTypeConverter<::ttnn::DataType>::convert(outputDtype);
-    rso << "; ";
 
     // Apply Conv3dConfigAttr overrides if provided
     if (conv3dConfig.has_value()) {

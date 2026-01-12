@@ -187,7 +187,7 @@ private:
           convOp.getDilationAttr(),
           rewriter.getBoolAttr(convOp.getBias() != nullptr),
           convOp.getGroupsAttr(), convOp.getDevice(), inputDtypeAttr,
-          outputDtypeAttr, conv2dConfig, /*compute_config=*/nullptr,
+          outputDtypeAttr, conv2dConfig, convOp.getComputeConfigAttr(),
           convOp.getConv2dSliceConfigAttr());
     } else {
       return rewriter.create<PrepareWeightsOp>(
@@ -204,7 +204,7 @@ private:
           convOp.getDilationAttr(),
           rewriter.getBoolAttr(convOp.getBias() != nullptr),
           convOp.getGroupsAttr(), convOp.getDevice(), inputDtypeAttr,
-          outputDtypeAttr, conv2dConfig, /*compute_config=*/nullptr,
+          outputDtypeAttr, conv2dConfig, convOp.getComputeConfigAttr(),
           /*mirror_kernel=*/rewriter.getBoolAttr(true));
     }
   }
@@ -230,7 +230,7 @@ private:
           convOp.getStrideAttr(), convOp.getPaddingAttr(),
           convOp.getDilationAttr(), convOp.getGroupsAttr(), convOp.getDevice(),
           inputDtypeAttr, outputDtypeAttr, conv2dConfig,
-          /*compute_config=*/nullptr, convOp.getConv2dSliceConfigAttr());
+          convOp.getComputeConfigAttr(), convOp.getConv2dSliceConfigAttr());
     } else {
       return rewriter.create<PrepareBiasOp>(
           ttmlir::utils::appendLocationSuffix(convOp.getLoc(),
@@ -244,7 +244,7 @@ private:
           convOp.getStrideAttr(), convOp.getPaddingAttr(),
           convOp.getDilationAttr(), convOp.getGroupsAttr(), convOp.getDevice(),
           inputDtypeAttr, outputDtypeAttr, conv2dConfig,
-          /*compute_config=*/nullptr);
+          convOp.getComputeConfigAttr());
     }
   }
 };
