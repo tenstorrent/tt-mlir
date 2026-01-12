@@ -233,18 +233,18 @@ def _create_nd_sharded_tensor_layout(context, tensor_arg):
         ),
     )  # ND Layouts are denoted as block sharded by default in TTNN, even when not equivalent to legacy block sharding
     shard_orientation = ttnn.ir.ShardOrientationAttr.get(
-        context, int(shard_spec.orientation)
+        context, int(shard_spec.orientation.value)
     )
     shard_distribution_strategy = ttnn.ir.ShardDistributionStrategyAttr.get(
-        context, int(shard_spec.shard_distribution_strategy)
+        context, int(shard_spec.shard_distribution_strategy.value)
     )
     ttnn_layout = ttnn.ir.TTNNNDLayoutAttr.get(
         context,
         grid,
         memref,
         mem_layout,
-        int(shard_spec.orientation),
-        int(shard_spec.shard_distribution_strategy),
+        int(shard_spec.orientation.value),
+        int(shard_spec.shard_distribution_strategy.value),
     )
     return ttnn_layout
 
@@ -264,9 +264,30 @@ def _check_layout_supported(tensor_arg):
         )
 
     mem_config = tensor_arg.memory_config()
+    legacy_sharded = mem_config.shard_spec is not None
+    nd_sharded = mem_config.is_sharded() and mem_config.nd_shard_spec is not None
+
     if mem_config.is_sharded():
         if mem_config.buffer_type.value == ttnn.BufferType.DRAM:
             raise ValueError("Sharded DRAM tensors are not supported.")
+        if (
+            legacy_sharded
+            and mem_config.shard_spec.orientation.value
+            == ttnn.ShardOrientation.ColMajor
+        ):
+            raise ValueError("Column major sharding is not supported.")
+        if (
+            nd_sharded
+            and mem_config.nd_shard_spec.orientation.value
+            == ttnn.ShardOrientation.ColMajor
+        ):
+            raise ValueError("Column major sharding is not supported.")
+        if (
+            nd_sharded
+            and mem_config.nd_shard_spec.shard_distribution_strategy.value
+            == ttnn.ShardDistributionStrategy.Grid2D
+        ):
+            raise ValueError("Grid2D distribution strategy is not supported.")
 
     if mem_config.buffer_type.value == ttnn.BufferType.L1:
         if mem_config.memory_layout == ttnn.TensorMemoryLayout.Interleaved:
