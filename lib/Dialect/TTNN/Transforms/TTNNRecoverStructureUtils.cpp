@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTNN/Transforms/TTNNPrettifyUtils.h"
+#include "ttmlir/Dialect/TTNN/Transforms/TTNNRecoverStructureUtils.h"
 
 #include "ttmlir/Support/Logger.h"
 #include "llvm/Support/raw_ostream.h"
@@ -49,7 +49,7 @@ PyLoc::PyLoc(Operation *op) {
   // Get location without "loc(" and ")" characters.
   std::string locStr = locationToStr(op->getLoc());
 
-  TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "Parsing loc: {}",
+  TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "Parsing loc: {}",
                locStr);
 
   // Split locStr by "|" character.
@@ -105,19 +105,19 @@ void FuncGroup::generateFuncName() {
   //
   // clang-format on
   //
-  TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "Func name: {}",
+  TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "Func name: {}",
                funcName);
   for ([[maybe_unused]] const OpPyLoc &opPyLoc : opPyLocs) {
     TTMLIR_DEBUG(
-        ttmlir::LogComponent::PrettifyForCodegen, "\t- modules: {}",
+        ttmlir::LogComponent::RecoverStructure, "\t- modules: {}",
         llvm::join(llvm::map_range(opPyLoc.pyLoc.modules,
                                    [](const auto &m) { return m.toString(); }),
                    ", "));
     for ([[maybe_unused]] const PyLoc::Module &module : opPyLoc.pyLoc.modules) {
-      TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "\t\t- {}",
+      TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "\t\t- {}",
                    module.moduleClass);
     }
-    TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "\n");
+    TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "\n");
   }
 
   if (opPyLocs.empty()) {
@@ -169,21 +169,21 @@ bool CompareOpPyLoc::operator()(const OpPyLoc &a, const OpPyLoc &b) const {
   bool isBSameGroup = b.pyLoc.funcPath == *currentFuncName;
 
   if (comparatorDebug) {
-    TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
-                 "Comparing {} and {}", a.op->getName(), b.op->getName());
-    TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+    TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "Comparing {} and {}",
+                 a.op->getName(), b.op->getName());
+    TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
                  "\ta.pyLoc.funcPath: {}", a.pyLoc.funcPath);
-    TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+    TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
                  "\tb.pyLoc.funcPath: {}", b.pyLoc.funcPath);
-    TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+    TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
                  "\t*currentFuncName: {}", *currentFuncName);
-    TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+    TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
                  "\ta.distanceFromRoot: {}", a.distanceFromRoot);
-    TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+    TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
                  "\tb.distanceFromRoot: {}", b.distanceFromRoot);
-    TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "\tisASameGroup: {}",
+    TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "\tisASameGroup: {}",
                  isASameGroup);
-    TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "\tisBSameGroup: {}",
+    TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "\tisBSameGroup: {}",
                  isBSameGroup);
   }
 
@@ -223,7 +223,7 @@ bool CompareOpPyLoc::operator()(const OpPyLoc &a, const OpPyLoc &b) const {
   }
 
   if (comparatorDebug) {
-    TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+    TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
                  "\tWinner (closer to front): {} ({})",
                  (result ? b.op->getName() : a.op->getName()), reason);
   }

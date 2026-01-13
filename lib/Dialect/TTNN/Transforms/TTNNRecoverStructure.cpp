@@ -5,7 +5,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
-#include "ttmlir/Dialect/TTNN/Transforms/TTNNPrettifyUtils.h"
+#include "ttmlir/Dialect/TTNN/Transforms/TTNNRecoverStructureUtils.h"
 #include "ttmlir/Support/Logger.h"
 #include "ttmlir/Utils.h"
 
@@ -18,19 +18,19 @@
 #include <queue>
 
 namespace mlir::tt::ttnn {
-#define GEN_PASS_DEF_TTNNPRETTIFYFORCODEGEN
+#define GEN_PASS_DEF_TTNNRECOVERSTRUCTURE
 #define GEN_PASS_DEF_TTNNSIMPLIFYLOCSFORCODEGEN
 #define GEN_PASS_DEF_TTNNREMOVEDEALLOCS
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
 namespace {
 
-class TTNNPrettifyForCodegen
-    : public impl::TTNNPrettifyForCodegenBase<TTNNPrettifyForCodegen> {
+class TTNNRecoverStructure
+    : public impl::TTNNRecoverStructureBase<TTNNRecoverStructure> {
 
 public:
-  using impl::TTNNPrettifyForCodegenBase<
-      TTNNPrettifyForCodegen>::TTNNPrettifyForCodegenBase;
+  using impl::TTNNRecoverStructureBase<
+      TTNNRecoverStructure>::TTNNRecoverStructureBase;
 
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
@@ -40,11 +40,10 @@ public:
     //
     SmallVector<func::FuncOp> candidateFns = findCandidateFns(moduleOp);
     if (candidateFns.size() != 1) {
-      TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+      TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
                    "Only one candidate fn is supported now, but got {}",
                    candidateFns.size());
-      TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
-                   "Candidate fns: {}",
+      TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "Candidate fns: {}",
                    llvm::join(llvm::map_range(
                                   candidateFns,
                                   [](func::FuncOp fn) { return fn.getName(); }),
@@ -62,8 +61,8 @@ public:
     //
     std::string errorMessage = validateLocations(opToLocation);
     if (!errorMessage.empty()) {
-      TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
-                   "PrettifyForCodegen error: {}", errorMessage);
+      TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
+                   "RecoverStructure error: {}", errorMessage);
       signalPassFailure();
     }
 
@@ -110,7 +109,7 @@ private:
       logFnInfo(funcOp);
 
       if (isCandidateFn(funcOp)) {
-        TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+        TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
                      "Adding candidate fn: {}", funcOp.getName());
         candidateFns.push_back(funcOp);
       }
@@ -120,24 +119,24 @@ private:
 
   llvm::DenseMap<Operation *, PyLoc>
   parseOpsAndGatherLocations(func::FuncOp funcOp) {
-    TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+    TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
                  "Parsing ops and gathering locations for function: {}",
                  funcOp.getName());
 
     llvm::DenseMap<Operation *, PyLoc> opToLocation;
 
     funcOp.walk([&](Operation *op) {
-      TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "Parsing op: {}",
+      TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "Parsing op: {}",
                    op->getName());
       if (!isCandidateOp(op)) {
-        TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+        TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
                      "\tOp is not a candidate op: {}", op->getName());
         return WalkResult::advance();
       }
 
       PyLoc pyLoc(op);
       if (pyLoc.isValid) {
-        TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+        TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
                      "\tPyLoc is valid for op: {}", op->getName());
         opToLocation.insert({op, pyLoc});
       }
@@ -211,7 +210,7 @@ private:
         funcPath + "_group_" + std::to_string(groupIndexCounter++);
     funcGroups[uniqueKey] = group;
 
-    TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+    TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
                  "Saved group: {}, unique key: {}", group.funcName, uniqueKey);
   }
 
@@ -244,7 +243,7 @@ private:
       }
     }
 
-    TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+    TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
                  "Initialized {} root operations", inQueue.size());
   }
 
@@ -298,10 +297,10 @@ private:
 
     // Log all ops in queue.
     //
-    TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+    TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
                  "Root ops in queue: {}", opsInQueueSet.size());
     for ([[maybe_unused]] Operation *op : opsInQueueSet) {
-      TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "\t- {}",
+      TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "\t- {}",
                    op->getName());
     }
 
@@ -310,7 +309,7 @@ private:
       assert(it != opToOpPyLoc.end() && "DIDN'T FIND OP IN OPTOOPPYLOC");
 
       [[maybe_unused]] const OpPyLoc &opPyLoc = it->second;
-      TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "\t- {} - {} - {}",
+      TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "\t- {} - {} - {}",
                    opPyLoc.op->getName(), opPyLoc.distanceFromRoot,
                    opPyLoc.pyLoc.funcPath);
     }
@@ -337,13 +336,13 @@ private:
           pyLoc.funcPath != currentGroupFuncPath) {
         // Log current group.
         //
-        TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+        TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
                      "Current group: {}", currentGroup.opPyLocs.size());
-        TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
-                     "\tFunc path: {}", currentGroupFuncPath);
+        TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "\tFunc path: {}",
+                     currentGroupFuncPath);
         for ([[maybe_unused]] const OpPyLoc &opPyLoc : currentGroup.opPyLocs) {
           // Log pyloc op name and modules
-          TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+          TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
                        "\t- {} (modules: {})", opPyLoc.op->getName(),
                        llvm::join(llvm::map_range(opPyLoc.pyLoc.modules,
                                                   [](const auto &m) {
@@ -351,9 +350,9 @@ private:
                                                   }),
                                   ", "));
         }
-        TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+        TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
                      "\tOps currently in queue: {}", opsInQueueSet.size());
-        TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+        TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
                      "\t\t- {} - {} - {}", opPyLoc.op->getName(),
                      opPyLoc.distanceFromRoot, opPyLoc.pyLoc.funcPath);
 
@@ -362,13 +361,13 @@ private:
         for (Operation *op : opsInQueueSet) {
           auto it = opToOpPyLoc.find(op);
           if (it == opToOpPyLoc.end()) {
-            TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+            TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
                          "DIDNT FIND OP IN OPTOOPPYLOC");
             signalPassFailure();
           }
 
           [[maybe_unused]] const OpPyLoc &opPyLoc = it->second;
-          TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+          TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
                        "\t\t- {} - {} - {}", opPyLoc.op->getName(),
                        opPyLoc.distanceFromRoot, opPyLoc.pyLoc.funcPath);
         }
@@ -876,62 +875,61 @@ private:
   // Logging and debugging methods
   //
   void logFnInfo(func::FuncOp funcOp) {
-    TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "Fn: {}",
+    TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "Fn: {}",
                  funcOp.getName());
-    TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "\tInputs count: {}",
+    TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "\tInputs count: {}",
                  funcOp.getFunctionType().getInputs().size());
-    TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
-                 "\tResults count: {}",
+    TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "\tResults count: {}",
                  funcOp.getFunctionType().getResults().size());
-    TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "\tIs private: {}",
+    TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "\tIs private: {}",
                  funcOp.isPrivate());
-    TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
-                 "\tIs const-eval: {}", ttmlir::utils::isConstEvalFunc(funcOp));
-    TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "\tIs candidate: {}",
+    TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "\tIs const-eval: {}",
+                 ttmlir::utils::isConstEvalFunc(funcOp));
+    TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "\tIs candidate: {}",
                  isCandidateFn(funcOp));
   }
 
   void logPyLocs(func::FuncOp candidateFn,
                  const llvm::DenseMap<Operation *, PyLoc> &opToLocation) {
-    TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+    TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
                  "Printing PyLocs for function: {}", candidateFn.getName());
     for (const auto &entry : opToLocation) {
       const PyLoc &pyLoc = entry.second;
-      TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "\tPyLoc: {}",
+      TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "\tPyLoc: {}",
                    pyLoc.op->getName());
-      TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "\t\tLoc: {}",
+      TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "\t\tLoc: {}",
                    pyLoc.op->getLoc());
-      TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
-                   "\t\tFunc path: {}", pyLoc.funcPath);
-      TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
-                   "\t\tFunc name: {}", pyLoc.funcName);
-      TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+      TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "\t\tFunc path: {}",
+                   pyLoc.funcPath);
+      TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "\t\tFunc name: {}",
+                   pyLoc.funcName);
+      TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
                    "\t\tOp line num: {}", pyLoc.opLineNum);
-      TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "\t\tOp name: {}",
+      TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "\t\tOp name: {}",
                    pyLoc.opName);
-      TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "\t\tModules: {}",
+      TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "\t\tModules: {}",
                    pyLoc.modules.size());
       for ([[maybe_unused]] const PyLoc::Module &module : pyLoc.modules) {
-        TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+        TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
                      "\t\t\t\tModule class: {}", module.moduleClass);
-        TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+        TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
                      "\t\t\t\tModule name: {}", module.moduleName);
       }
     }
   }
 
   void logFunctionGroups(const llvm::StringMap<FuncGroup> &funcGroups) {
-    TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+    TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
                  "=== Function Groups ===");
     for ([[maybe_unused]] const auto &[funcPath, funcGroup] : funcGroups) {
-      TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "Function: {}",
+      TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "Function: {}",
                    funcGroup.funcName);
-      TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "\tPath: {}",
+      TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "\tPath: {}",
                    funcPath);
-      TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "\tOperations: {}",
+      TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "\tOperations: {}",
                    funcGroup.opPyLocs.size());
       for ([[maybe_unused]] const OpPyLoc &opPyLoc : funcGroup.opPyLocs) {
-        TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+        TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
                      "\t\t- {} (line {})", opPyLoc.op->getName(),
                      opPyLoc.pyLoc.opLineNum);
       }
@@ -940,55 +938,53 @@ private:
 
   void logFunctionBoundaries(
       const llvm::StringMap<FunctionBoundaryInfo> &boundaryInfos) {
-    TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+    TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
                  "=== Function Boundary Analysis ===");
     for ([[maybe_unused]] const auto &[funcPath, info] : boundaryInfos) {
-      TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "Function: {}",
+      TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "Function: {}",
                    info.funcName);
-      TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "\tPath: {}",
+      TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "\tPath: {}",
                    info.funcPath);
-      TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
-                   "\tInput values: {}", info.inputValues.size());
+      TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "\tInput values: {}",
+                   info.inputValues.size());
       for ([[maybe_unused]] const Value &input : info.inputValues) {
-        TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+        TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
                      "\t\t- {} (type: {})", input, input.getType());
       }
-      TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+      TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
                    "\tOutput values: {}", info.outputValues.size());
       for ([[maybe_unused]] const Value &output : info.outputValues) {
-        TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+        TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
                      "\t\t- {} (type: {})", output, output.getType());
       }
     }
   }
 
   void logNewFunctions(const llvm::StringMap<func::FuncOp> &newFunctions) {
-    TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
+    TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
                  "=== Created Functions ===");
     for (const auto &entry : newFunctions) {
       [[maybe_unused]] llvm::StringRef funcPath = entry.getKey();
       [[maybe_unused]] func::FuncOp funcOp = entry.getValue();
 
-      TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "Function: {}",
+      TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "Function: {}",
                    funcOp.getName());
-      TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "\tPath: {}",
+      TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "\tPath: {}",
                    funcPath);
-      TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "\tSignature: {}",
+      TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "\tSignature: {}",
                    funcOp.getFunctionType());
-      TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
-                   "\tInput types: {}",
+      TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "\tInput types: {}",
                    funcOp.getFunctionType().getInputs().size());
       for ([[maybe_unused]] const Type &inputType :
            funcOp.getFunctionType().getInputs()) {
-        TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "\t\t- {}",
+        TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "\t\t- {}",
                      inputType);
       }
-      TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen,
-                   "\tOutput types: {}",
+      TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "\tOutput types: {}",
                    funcOp.getFunctionType().getResults().size());
       for ([[maybe_unused]] const Type &outputType :
            funcOp.getFunctionType().getResults()) {
-        TTMLIR_DEBUG(ttmlir::LogComponent::PrettifyForCodegen, "\t\t- {}",
+        TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "\t\t- {}",
                      outputType);
       }
     }

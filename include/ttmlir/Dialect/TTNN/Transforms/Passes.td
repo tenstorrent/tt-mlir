@@ -474,11 +474,13 @@ def TTNNSetComputeKernelConfig: Pass<"ttnn-set-compute-kernel-config", "::mlir::
   ];
 }
 
-def TTNNPrettifyForCodegen: Pass<"ttnn-prettify-for-codegen", "::mlir::ModuleOp"> {
-  let summary = "Adjust previously inserted tensor deallocation ops.";
+def TTNNRecoverStructure: Pass<"ttnn-recover-structure", "::mlir::ModuleOp"> {
+  let summary = "Recover program structure by splitting IR into multiple functions based on source locations.";
   let description = [{
-    This pass will adjust previously inserted tensor deallocation ops. It will
-    remove deallocations of parameter and constant tensors.
+    This pass analyzes TTNN operations and extracts Python source location information
+    from each operation. It then groups operations by their originating Python functions
+    and creates new MLIR functions based on these groups, effectively recovering the
+    original program structure from the flattened MLIR representation.
   }];
 }
 
