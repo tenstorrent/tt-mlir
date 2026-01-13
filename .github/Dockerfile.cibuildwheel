@@ -4,6 +4,9 @@ ARG TT_METAL_VERSION=7ff1f25a5fcd0bdac22eb469880b727129041f1b
 FROM quay.io/pypa/manylinux_2_34_x86_64 AS ciwheel-base
 SHELL ["/bin/bash", "-c"]
 
+# Re-declare ARGs in this stage to make them available
+ARG TT_METAL_VERSION
+
 # # Force dnf to stop being mean
 # RUN FILES=(/etc/yum.repos.d/almalinux*.repo) && \
 #     sed --in-place -e 's/^mirrorlist=/# mirrorlist=/g' -e "s/^# baseurl=/baseurl=/" "${FILES[@]}"
