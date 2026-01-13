@@ -362,6 +362,45 @@ public:
 
     bool modified = false;
 
+    // Rewrite operand types to match function signature.
+    // LoadCachedOp has callee as first operand, followed by inputs.
+    auto funcArgTypes = funcOp.getArgumentTypes();
+    auto inputs = loadCachedOp.getInputs();
+    for (auto [idx, operand] : llvm::enumerate(inputs)) {
+      if (idx >= funcArgTypes.size()) {
+        break;
+      }
+      auto operandType = operand.getType();
+      auto funcArgType = funcArgTypes[idx];
+      if (operandType != funcArgType) {
+        // Convert operand to match function signature type using ToLayoutOp.
+        // This is necessary when the function signature has been updated
+        // (e.g., to SystemMemory for mesh_shard ops) but the LoadCachedOp
+        // operand still has the original layout (e.g., Tiled/DRAM).
+        Location newLoc = appendInputSuffix(loadCachedOp.getLoc(), idx);
+        // Determine buffer type and tiled flag from function argument type.
+        BufferType desiredBufferType = g_defaultMemorySpaceDevice;
+        bool tiled = true;
+        if (auto rankedType = mlir::dyn_cast<RankedTensorType>(funcArgType)) {
+          if (auto layout = mlir::dyn_cast_if_present<TTNNLayoutAttr>(
+                  rankedType.getEncoding())) {
+            desiredBufferType = layout.getBufferType();
+            tiled = mlir::isa<ttcore::TileType>(layout.getElementType());
+          }
+        }
+        std::optional<Value> updatedOperand = createToLayoutOp(
+            rewriter, newLoc, operand, desiredBufferType, tiled);
+        if (updatedOperand) {
+          // getInputs() returns inputs starting from index 1 (after callee)
+          unsigned operandIdx = idx + 1;
+          rewriter.modifyOpInPlace(loadCachedOp, [&]() {
+            loadCachedOp->setOperand(operandIdx, *updatedOperand);
+          });
+          modified = true;
+        }
+      }
+    }
+
     // Rewrite result types to match function signature.
     for (auto [idx, callResultType] :
          llvm::enumerate(loadCachedOp->getResultTypes())) {
@@ -521,7 +560,7 @@ private:
       }
 
       inputTypes.push_back(newType);
-      modified |= arg.getType() != newType;
+      modified |= (arg.getType() != newType);
     }
 
     if (modified) {
@@ -584,6 +623,36 @@ private:
     for (Operation *user : arg.getUsers()) {
       if (shouldMeshShardOpForceSystemMemory(user)) {
         return true;
+      }
+
+      // Check if the argument is used as an operand to LoadCachedOp, and
+      // if the callee function expects SystemMemory for that operand.
+      if (auto loadCachedOp = dyn_cast<ttcore::LoadCachedOp>(user)) {
+        // Find which operand index this argument corresponds to.
+        auto inputs = loadCachedOp.getInputs();
+        for (auto [idx, input] : llvm::enumerate(inputs)) {
+          if (input == arg) {
+            // Look up the callee function.
+            func::FuncOp calleeFunc =
+                dyn_cast<func::FuncOp>(SymbolTable::lookupNearestSymbolFrom(
+                    loadCachedOp, loadCachedOp.getCalleeAttr()));
+            if (calleeFunc && idx < calleeFunc.getArgumentTypes().size()) {
+              auto calleeArgType = calleeFunc.getArgumentTypes()[idx];
+              if (auto rankedType =
+                      mlir::dyn_cast<RankedTensorType>(calleeArgType)) {
+                if (auto layout = mlir::dyn_cast_if_present<TTNNLayoutAttr>(
+                        rankedType.getEncoding())) {
+                  // If the callee function expects SystemMemory, this argument
+                  // should also be SystemMemory.
+                  if (layout.getBufferType() == BufferType::SystemMemory) {
+                    return true;
+                  }
+                }
+              }
+            }
+            break;
+          }
+        }
       }
     }
 
