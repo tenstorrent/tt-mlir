@@ -13,51 +13,6 @@ namespace mlir::tt::stablehlo {
 #define GEN_PASS_DEF_STABLEHLOFUSINGPASS
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h.inc"
 
-namespace {
-// Check if the operation has sharded inputs or outputs.
-// Works for any StableHLO operation.
-static bool isOpSharded(mlir::Operation *op) {
-  // Get the module op to check for mesh ops.
-  mlir::ModuleOp moduleOp = op->getParentOfType<mlir::ModuleOp>();
-  if (!moduleOp) {
-    return false;
-  }
-
-  // Get mesh ops from the module.
-  llvm::SmallVector<mlir::sdy::MeshOp> meshOps =
-      shardy_utils::getMeshOps(moduleOp);
-
-  // If no mesh ops exist, there's no sharding.
-  if (meshOps.empty()) {
-    return false;
-  }
-
-  mlir::sdy::MeshOp globalMeshOp = meshOps[0];
-
-  // Check if any input operands are sharded.
-  for (mlir::OpOperand &operand : op->getOpOperands()) {
-    mlir::sdy::TensorShardingAttr shardingAttr =
-        shardy_utils::getOperandShardingAttr(operand, globalMeshOp);
-    if (!shardy_utils::isFullyReplicatedTensor(shardingAttr)) {
-      return true;
-    }
-  }
-
-  // Check if any output results are sharded.
-  if (auto shardingPerValue =
-          op->getAttrOfType<mlir::sdy::TensorShardingPerValueAttr>(
-              mlir::sdy::TensorShardingAttr::name)) {
-    for (auto shardingAttr : shardingPerValue.getShardings()) {
-      if (!shardy_utils::isFullyReplicatedTensor(shardingAttr)) {
-        return true;
-      }
-    }
-  }
-
-  return false;
-}
-} // namespace
-
 class ConcatenateToBroadcastInDimFusionPattern
     : public OpRewritePattern<::mlir::stablehlo::ConcatenateOp> {
   using OpRewritePattern<::mlir::stablehlo::ConcatenateOp>::OpRewritePattern;
@@ -104,7 +59,7 @@ private:
     }
 
     // Check if any inputs or outputs of concat are sharded. If so, don't fuse.
-    if (isOpSharded(concatOp.getOperation())) {
+    if (shardy_utils::isOpSharded(concatOp.getOperation())) {
       return false;
     }
 
@@ -117,7 +72,7 @@ private:
           return false;
         }
         // Check if the reshape output is sharded. If so, don't fuse.
-        if (isOpSharded(reshapeOp.getOperation())) {
+        if (shardy_utils::isOpSharded(reshapeOp.getOperation())) {
           return false;
         }
         return true;
