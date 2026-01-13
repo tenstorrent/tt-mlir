@@ -102,12 +102,12 @@ private:
         return false;
       }
     }
-    
+
     // Check if any inputs or outputs of concat are sharded. If so, don't fuse.
     if (isOpSharded(concatOp.getOperation())) {
       return false;
     }
-    
+
     // Case 1: concat -> reshape.
     // Check concat has one user and that user is a reshape op.
     if (concatOp.getResult().hasOneUse()) {

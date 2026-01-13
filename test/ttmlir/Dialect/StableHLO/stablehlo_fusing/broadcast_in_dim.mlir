@@ -34,7 +34,7 @@ module {
     // CHECK-NOT: stablehlo.broadcast_in_dim
     return %1 : tensor<3x128x2880xbf16>
   }
-  
+
   // Test that fusion does NOT occur when concatenate output is sharded.
   func.func @concatenate_reshape_sharded_output(%arg0: tensor<128x2880xbf16> {sdy.sharding = #sdy.sharding<@mesh, [{}, {}]>}) -> tensor<3x128x2880xbf16> {
     %0 = stablehlo.concatenate %arg0, %arg0, %arg0, dim = 0 {sdy.sharding = #sdy.sharding_per_value<[<@mesh, [{"_axis_0"}, {}]>]>} : (tensor<128x2880xbf16>, tensor<128x2880xbf16>, tensor<128x2880xbf16>) -> tensor<384x2880xbf16>
