@@ -839,10 +839,12 @@ bool tryConfigFallbacks(Operation *operation,
           .Case<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp>([&](auto convOp) {
             // Set DRAM slice config to avoid L1 memory usage during OOM
             // fallback. This is set here because tryConfigFallbacks is only
-            // called for OOM errors.
-            auto conv2dSliceConfig = Conv2dSliceConfigAttr::get(
-                operation->getContext(), Conv2dSliceType::DramHeight, 0);
-            operation->setAttr("conv2d_slice_config", conv2dSliceConfig);
+            // called for OOM errors. Only Conv2dOp supports slice config.
+            if constexpr (std::is_same_v<decltype(convOp), ttnn::Conv2dOp>) {
+              auto conv2dSliceConfig = Conv2dSliceConfigAttr::get(
+                  convOp->getContext(), Conv2dSliceType::DramHeight, 0);
+              convOp.setConv2dSliceConfigAttr(conv2dSliceConfig);
+            }
 
             Conv2dConfigGenerator configGenerator(&convOp, baseConfig,
                                                   searchSpace, filterOutFn);
