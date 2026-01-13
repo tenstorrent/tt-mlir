@@ -22,6 +22,24 @@ from ttmlir.dialects import func, ttir
 # Operations matching these names will be excluded from analysis.
 OP_IGNORELIST = [
     "func.return",
+    # ttcore
+    "ttcore.load_cached",
+    # ttnn
+    "ttnn.get_device",
+    "ttnn.paged_update_cache",
+    "ttnn.softmax",
+    "ttnn.assign",  # This op is used for ccl workaround
+    "ttnn.all_gather",
+    "ttnn.reduce_scatter",
+    "ttnn.all_reduce",
+    "ttnn.mesh_shard",
+    "ttnn.point_to_point",
+    # ttir
+    "ttir.mesh_shard",
+    "ttir.all_gather",
+    "ttir.reduce_scatter",
+    "ttir.all_reduce",
+    "ttir.point_to_point",
 ]
 
 
@@ -152,12 +170,19 @@ def print_components(components):
 
     print(f"Found {len(components)} connected component(s) of size > 1:\n")
 
+    unique_ops = set()
+
     for i, ops in enumerate(components, 1):
         print(f"Component {i} ({len(ops)} operations):")
         for op in ops:
             loc_str = get_location_str(op.location)
+            unique_ops.add(op.name)
             print(f"  - {op.name} @ {loc_str}")
         print()
+
+    print("Unique operations across all components:")
+    for op_name in sorted(unique_ops):
+        print(f"  - {op_name}")
 
 
 def topological_sort(ops):
