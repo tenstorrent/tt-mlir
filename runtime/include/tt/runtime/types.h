@@ -233,6 +233,10 @@ public:
   MultiProcessArgs &
   withExtraMpiArgs(const std::vector<std::string> &extraMpiArgs);
 
+  MultiProcessArgs &withControllerHostname(std::string_view hostname);
+
+  std::string getControllerHostname() const;
+
   std::string toArgString() const;
 
 private:
@@ -252,6 +256,8 @@ private:
   bool allowRunAsRoot_ = false;
 
   std::vector<std::string> extraMpiArgs_;
+
+  std::string controllerHostname_;
 };
 
 struct DistributedOptions {

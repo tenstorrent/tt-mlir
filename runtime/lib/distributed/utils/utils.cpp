@@ -7,12 +7,18 @@
 #include "tt/runtime/detail/common/runtime_context.h"
 
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <optional>
+#include <sstream>
+#include <string>
 
 namespace tt::runtime::distributed::utils {
 
 std::string
 getWorkerExecutableCommand(std::uint16_t port,
-                           const std::optional<std::string> &workerPathOpt) {
+                           const std::optional<std::string> &workerPathOpt,
+                           const std::optional<std::string> &hostnameOpt) {
   std::string workerPath = workerPathOpt.value_or(
       std::filesystem::path(RuntimeContext::instance().getMlirHome()) /
       "build/runtime/bin/distributed/worker");
@@ -21,8 +27,13 @@ getWorkerExecutableCommand(std::uint16_t port,
              "Distributed worker path does not exist: ", workerPath);
 
   std::string portString = std::to_string(port);
+  std::string command = workerPath + " --port " + portString;
 
-  return workerPath + " --port " + portString;
+  if (hostnameOpt.has_value() && !hostnameOpt->empty()) {
+    command += " --host " + hostnameOpt.value();
+  }
+
+  return command;
 }
 
 uint32_t getNumProcesses(const std::string &rankBindingPath) {
@@ -54,10 +65,16 @@ getTTRunCommand(uint16_t port,
 
   oss << "cd " << RuntimeContext::instance().getMetalHome() << " && ";
 
+  std::string controllerHostname = multiProcessArgs.getControllerHostname();
+  std::optional<std::string> hostnameOpt =
+      controllerHostname.empty() ? std::nullopt
+                                 : std::make_optional(controllerHostname);
+
   oss << "./ttnn/ttnn/distributed/ttrun.py " << multiProcessArgs.toArgString()
       << " "
       << "bash -c "
-      << "\"" << getWorkerExecutableCommand(port, workerPathOpt) << "\"";
+      << "\"" << getWorkerExecutableCommand(port, workerPathOpt, hostnameOpt)
+      << "\"";
 
   return oss.str();
 }

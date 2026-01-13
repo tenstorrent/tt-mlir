@@ -149,6 +149,9 @@ void registerRuntimeBindings(nb::module_ &m) {
       .def("with_extra_mpi_args",
            &tt::runtime::MultiProcessArgs::withExtraMpiArgs,
            nb::rv_policy::reference_internal)
+      .def("with_controller_hostname",
+           &tt::runtime::MultiProcessArgs::withControllerHostname,
+           nb::rv_policy::reference_internal)
       .def("to_arg_string", &tt::runtime::MultiProcessArgs::toArgString);
 
   nb::class_<tt::runtime::DistributedOptions>(m, "DistributedOptions")
