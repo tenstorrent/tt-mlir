@@ -136,9 +136,10 @@ private:
 
       PyLoc pyLoc(op);
       if (pyLoc.isValid) {
-        TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
-                     "\tPyLoc is valid for op: {}", op->getName());
         opToLocation.insert({op, pyLoc});
+      } else {
+        TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
+                     "\tPyLoc is INVALID for op: {}", op->getName());
       }
       return WalkResult::advance();
     });

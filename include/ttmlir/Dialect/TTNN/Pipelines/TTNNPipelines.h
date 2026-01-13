@@ -494,7 +494,7 @@ struct TTNNToEmitPyDevicePipelineOptions
       llvm::cl::desc("Prefix for input tensor files"), llvm::cl::init("arg")};
 
   Option<bool> tryRecoverStructure{
-      *this, "tryRecoverStructure",
+      *this, "try-recover-structure",
       llvm::cl::desc("Enable pipelines and passes that try to recover "
                      "structure of the original IR/code."),
       llvm::cl::init(false)};
