@@ -13,6 +13,31 @@ namespace mlir::tt::stablehlo {
 #define GEN_PASS_DEF_STABLEHLOFUSINGPASS
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h.inc"
 
+// Fuses concatenate + reshape patterns into broadcast_in_dim operations.
+//
+// Example transformation:
+//   Input:
+//     %0 = stablehlo.concatenate %arg0, %arg0, %arg0, dim = 0 :
+//            (tensor<2x4xbf16>, tensor<2x4xbf16>, tensor<2x4xbf16>) ->
+//            tensor<6x4xbf16>
+//     %1 = stablehlo.reshape %0 : (tensor<6x4xbf16>) -> tensor<3x2x4xbf16>
+//
+//   Output:
+//     %0 = stablehlo.broadcast_in_dim %arg0, dims = [1, 2] :
+//            (tensor<2x4xbf16>) -> tensor<3x2x4xbf16>
+//
+// The concatenate -> reshape fusion pattern is valid when the number of repeats
+// (3 in this example) appears in the reshape output shape before the
+// concatenate dimension. Here, the repeat count 3 appears at dimension 0 in the
+// output shape <3x2x4xbf16>, which comes before the original concatenate
+// dimension 0 (now dimension 1 in the output: <3x2x4xbf16>). The broadcast dims
+// [1, 2] correspond to the original tensor dimensions, while dimension 0
+// handles the repeat.
+//
+// Fusion is skipped if any of the operations involved have sharded inputs or
+// outputs, as sharding adds complexity that requires separate handling.
+//
+// TODO(@ddilbazTT): Add support for reshape -> concat fusion.
 class ConcatenateToBroadcastInDimFusionPattern
     : public OpRewritePattern<::mlir::stablehlo::ConcatenateOp> {
   using OpRewritePattern<::mlir::stablehlo::ConcatenateOp>::OpRewritePattern;
@@ -79,7 +104,7 @@ private:
       }
     }
 
-    // todo(@ddilbazTT): add support for reshape -> concat.
+    // Note: Not yet added support for reshape -> concat fusion.
     return false;
   }
   bool checkConcatThenReshape(::mlir::stablehlo::ConcatenateOp concatOp,
