@@ -1604,11 +1604,41 @@ def D2M_IterIndexOp : D2M_IndexOp<"iter_index"> {
     }];
 }
 
-def D2M_CoreIndexOp : D2M_IndexOp<"core_index"> {
+def D2M_CoreIndexOp : D2M_GenericRegionOp<"core_index",
+  [ Pure
+  , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>
+  , DeclareOpInterfaceMethods<InferIntRangeInterface, ["inferResultRanges"]>
+  , DeclareOpInterfaceMethods<InferTypeOpInterface, ["inferReturnTypes"]>
+  ]> {
     let summary = "Core Index op.";
     let description = [{
       Return the index of this core's coordinate inside the generic op's grid dimension.
     }];
+
+    // Optional physical-to-virtual grid mapping. When present, this op returns
+    // the virtualized core coordinate for `dim`.
+    let arguments = (ins
+      ConfinedAttr<I64Attr, [IntMinValue<0>]>:$dim,
+      OptionalAttr<AffineMapAttr>:$phys_to_virt_map
+    );
+
+    let results = (outs Index:$result);
+    let assemblyFormat = [{ `(` $dim `)` attr-dict `:` type($result) }];
+    let hasFolder = true;
+
+    let builders =
+    [
+      OpBuilder<(ins "int64_t":$dim),
+      [{
+        build($_builder, $_state, $_builder.getIndexType(),
+              $_builder.getI64IntegerAttr(dim), nullptr);
+      }]>,
+      OpBuilder<(ins "int64_t":$dim, "mlir::AffineMap":$map),
+      [{
+        build($_builder, $_state, $_builder.getIndexType(),
+              $_builder.getI64IntegerAttr(dim), mlir::AffineMapAttr::get(map));
+      }]>
+    ];
 }
 
 //===----------------------------------------------------------------------===//
