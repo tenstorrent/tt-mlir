@@ -5,7 +5,7 @@
 // LoadCachedOp is converted from TTNN to EmitPy.
 
 module {
-  // CHECK: emitpy.global @_CONST_EVAL_CACHE = #emitpy.opaque<"{i: None for i in range(1)}">
+  // CHECK: emitpy.global @_CONST_EVAL_CACHE = #emitpy.opaque<"{}">
 
   // CHECK-LABEL: func.func private @forward_const_eval_0
 
