@@ -33,12 +33,12 @@ flattenOneComposite(mlir::stablehlo::CompositeOp comp,
 
   // 1) Resolve callee from 'decomposition' (SymbolRefAttr).
   // stablehlo.composite "name" %arg {decomposition = @foo}
-  auto decompAttr = op->getAttrOfType<mlir::SymbolRefAttr>(
-      sharding_utils::kDecompositionAttr);
+  auto decompAttr =
+      op->getAttrOfType<mlir::SymbolRefAttr>(sharding_utils::kDecompositionKey);
   if (!decompAttr) {
     comp.emitOpError()
         << "missing required SymbolRefAttr attribute '"
-        << sharding_utils::kDecompositionAttr
+        << sharding_utils::kDecompositionKey
         << "' (stablehlo.composite requires a 'decomposition' target).";
     return mlir::failure();
   }
@@ -50,7 +50,7 @@ flattenOneComposite(mlir::stablehlo::CompositeOp comp,
   if (!callee) {
     comp.emitOpError() << "failed to resolve callee function '" << leaf
                        << "' referenced by attribute '"
-                       << sharding_utils::kDecompositionAttr << "' (full ref: '"
+                       << sharding_utils::kDecompositionKey << "' (full ref: '"
                        << decompAttr
                        << "'). Please ensure the symbol is defined and visible "
                           "to the symbol table.";
@@ -104,14 +104,14 @@ flattenOneComposite(mlir::stablehlo::CompositeOp comp,
   for (mlir::Operation &inner : calleeEntry.without_terminator()) {
     mlir::Operation *cloned = builder.clone(inner, mapping);
     // Tag the cloned operation with the group marker.
-    cloned->setAttr(sharding_utils::kGroupAttr, groupAttr);
+    cloned->setAttr(sharding_utils::kReoutlineGroupAttr, groupAttr);
 
     if (!seeded) {
-      cloned->setAttr(sharding_utils::kSeedAttr, seedAttr);
+      cloned->setAttr(sharding_utils::kReoutlineSeedAttr, seedAttr);
       // "tenstorrent.gelu_tanh"
-      cloned->setAttr(sharding_utils::kOrigNameAttr, origName);
+      cloned->setAttr(sharding_utils::kReoutlineOrigNameAttr, origName);
       // { approximate = "tanh" }
-      cloned->setAttr(sharding_utils::kCompAttrsAttr, origCompAttrs);
+      cloned->setAttr(sharding_utils::kReoutlineCompAttrsAttr, origCompAttrs);
       seeded = true;
     }
     clonedOps.push_back(cloned);

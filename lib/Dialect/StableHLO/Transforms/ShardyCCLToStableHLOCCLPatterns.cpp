@@ -3,12 +3,22 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/StableHLO/Transforms/ShardyCCLToStableHLOCCL.h"
+#include "ttmlir/Dialect/StableHLO/Utils/ShardingUtils.h"
 #include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
+#include "ttmlir/Dialect/StableHLO/Utils/StableHLOUtils.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/MLIRContext.h"
+#include "mlir/IR/OperationSupport.h"
+#include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
 #include "stablehlo/dialect/StablehloOps.h"
+#include "llvm/ADT/SmallVector.h"
 #include <cassert>
 #include <shardy/dialect/sdy/ir/constants.h>
 #include <shardy/dialect/sdy/ir/dialect.h>
@@ -396,6 +406,7 @@ public:
   matchAndRewrite(mlir::sdy::AllSliceOp srcOp,
                   mlir::PatternRewriter &rewriter) const override {
     MLIRContext *context = getContext();
+    llvm::outs() << "[HET DEBUG] matchAndRewrite AllSliceOp\n";
 
     // Mesh axis -> parts mapping.
     mlir::tt::shardy_utils::MeshMap meshMap =
@@ -405,19 +416,20 @@ public:
     auto ch = mlir::stablehlo::ChannelHandleAttr::get(context, /*handle=*/1,
                                                       /*type=*/1);
 
-    // Current tensor value/type threaded through the loop.
-    mlir::Value inputOperand = srcOp.getOperand();
-    mlir::Value result = inputOperand;
+    // Check if the input is fully replicated.
+    mlir::OpOperand &inputOperand = srcOp->getOpOperand(0);
+    mlir::ModuleOp moduleOp = srcOp->getParentOfType<mlir::ModuleOp>();
+    mlir::sdy::MeshOp globalMeshOp = shardy_utils::getMeshOps(moduleOp)[0];
+    auto inputShardingAttr =
+        shardy_utils::getOperandShardingAttr(inputOperand, globalMeshOp);
 
-    auto inputShardingAttr = getTensorShardingAttr(inputOperand);
-    if (!inputShardingAttr) {
-      return rewriter.notifyMatchFailure(
-          srcOp, "input tensor does not have a `sdy.sharding` attribute");
-    }
     bool input_is_fully_replicated =
-        shardy_utils::isFullyReplicatedTensor(*inputShardingAttr);
+        shardy_utils::isFullyReplicatedTensor(inputShardingAttr);
     llvm::outs() << "[HET DEBUG] input_is_fully_replicated: "
                  << input_is_fully_replicated << "\n";
+
+    // Current tensor value/type threaded through the loop.
+    mlir::Value result = srcOp.getOperand();
 
     auto prevType = mlir::cast<mlir::RankedTensorType>(result.getType());
 
@@ -536,52 +548,133 @@ public:
       prevType = finalType;
     }
 
-    // if (input_is_fully_replicated) {
-    //   // Wrap the result in a stablehlo.composite op for marking/wiring
-    //   purposes. mlir::OperationState state(srcOp.getLoc(),
-    //   mlir::stablehlo::CompositeOp::getOperationName());
-    //   state.addOperands(inputOperand);
-    //   state.addTypes(inputType);
-    // }
+    if (input_is_fully_replicated) {
+      // Wrap the result in a stablehlo.composite op for marking/wiring
+      // purposes.
+      mlir::Operation *lastOp = ops.back();
+      mlir::OpBuilder builder(lastOp);
+      builder.setInsertionPointAfter(lastOp);
+      mlir::MLIRContext *ctx = builder.getContext();
 
-    llvm::outs() << "[HET DEBUG] ops: \n";
-    for (auto *op : ops) {
-      op->print(llvm::outs());
-      llvm::outs() << "\n";
+      // Get the sharding requirements for the result tensor.
+      mlir::sdy::TensorShardingAttr resultShardingAttr =
+          srcOp.getOutShardingAttr();
+      llvm::Expected<mlir::tt::shardy_utils::ShardyMeshSharding>
+          shardyMeshSharding =
+              mlir::tt::shardy_utils::ShardyMeshSharding::generate(
+                  globalMeshOp.getMeshAttr(), resultShardingAttr,
+                  mlir::tt::ttcore::ShardStatus::Unsharded,
+                  ttcore::MeshShardDirection::FullToShard);
+      if (auto err = shardyMeshSharding.takeError()) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "Error trying to parse shardy annotation when lower "
+                   "sdy.all_slice op.");
+      }
+      llvm::SmallVector<mlir::NamedAttribute> compAttrsVec;
+      compAttrsVec.push_back(mlir::NamedAttribute(
+          builder.getStringAttr("shard_dims"),
+          builder.getI64ArrayAttr(shardyMeshSharding->getShardDims())));
+      compAttrsVec.push_back(mlir::NamedAttribute(
+          builder.getStringAttr("shard_shape"),
+          builder.getI64ArrayAttr(shardyMeshSharding->getShardShape())));
+
+      // Build decomposition attributes
+      mlir::func::FuncOp callee = utils::createPrivateFunction(
+          moduleOp, "composite_all_slice_", srcOp->getName().getStringRef(),
+          inputOperand.get(), result, ops);
+      callee->dumpPretty();
+      mlir::SymbolRefAttr decomp =
+          mlir::SymbolRefAttr::get(ctx, callee.getSymName());
+      mlir::DictionaryAttr compAttrs =
+          mlir::DictionaryAttr::get(ctx, compAttrsVec);
+      mlir::StringAttr targetName = builder.getStringAttr(callee.getSymName());
+
+      mlir::Location callee_loc = callee.getLoc();
+
+      mlir::OperationState state(
+          callee_loc, mlir::stablehlo::CompositeOp::getOperationName());
+      state.addOperands(inputOperand.get());
+      state.addTypes(prevType);
+      state.addAttribute(sharding_utils::kDecompositionKey, decomp);
+      state.addAttribute(sharding_utils::kCompAttrsKey, compAttrs);
+      state.addAttribute(sharding_utils::kNameKey, targetName);
+
+      mlir::Operation *newOp = mlir::Operation::create(state);
+      builder.insert(newOp);
+      auto comp = llvm::cast<mlir::stablehlo::CompositeOp>(newOp);
+      result.replaceAllUsesWith(comp.getResult(0));
+      // Erase the original ops.
+      for (auto *op : llvm::reverse(ops)) {
+        // if (op == firstOp) {
+        //   continue;
+        // }
+        auto results = op->getResults();
+        bool opHasUsers = false;
+        for (auto result : results) {
+          if (!result.use_empty()) {
+            llvm::outs() << "Result has users: " << result << "\n";
+            for (auto &use : result.getUses()) {
+              llvm::outs() << "  User: " << *(use.getOwner()) << "\n";
+            }
+            opHasUsers = true;
+          }
+        }
+        if (!opHasUsers) {
+          op->erase();
+        }
+      }
+      // for (auto *op : llvm::reverse(ops)) {
+      //   // Erase each op in reverse order.
+      //   op->erase();
+      // }
+      rewriter.replaceOp(srcOp, comp.getResult(0));
+    } else {
+      rewriter.replaceOp(srcOp, result);
     }
-    llvm::outs() << "[HET DEBUG] end ops\n";
 
-    rewriter.replaceOp(srcOp, result);
+    // llvm::outs() << "[HET DEBUG] ops: \n";
+    // for (auto *op : ops) {
+    //   op->print(llvm::outs());
+    //   llvm::outs() << "\n";
+    // }
+    // llvm::outs() << "[HET DEBUG] end ops\n";
+
     return mlir::success();
   }
 
 private:
-  //   mlir::func::FuncOp createDecompFunction() {
+  // mlir::func::FuncOp createDecompFunction(mlir::ArrayRef<mlir::Operation *>
+  // ops) {
 
-  //   }
+  // }
 
   std::optional<mlir::sdy::TensorShardingAttr>
   getTensorShardingAttr(mlir::Value value) const {
     if (auto *defOp = value.getDefiningOp()) {
+      llvm::outs() << "[HET DEBUG] defOp \n";
       if (auto shardingAttr =
               defOp->getAttrOfType<mlir::sdy::TensorShardingAttr>(
                   mlir::sdy::TensorShardingAttr::name)) {
+        llvm::outs() << "[HET DEBUG] defOp has shardingAttr \n";
         return shardingAttr;
       }
+      llvm::outs() << "[HET DEBUG] defOp does not have shardingAttr \n";
       return std::nullopt;
     }
 
     if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(value)) {
+      llvm::outs() << "[HET DEBUG] blockArg \n";
       mlir::Operation *parentOp = blockArg.getOwner()->getParentOp();
-      if (auto func = llvm::dyn_cast_or_null<mlir::func::FuncOp>(parentOp)) {
+      llvm::outs() << "[HET DEBUG] parentOp: " << parentOp->getName() << "\n";
+      if (auto func = llvm::dyn_cast_or_null<mlir::sdy::ManualComputationOp>(
+              parentOp)) {
+        llvm::outs() << "[HET DEBUG] blockArg is a manual computation op \n";
         unsigned argNo = blockArg.getArgNumber();
-        mlir::DictionaryAttr argAttrs = func.getArgAttrDict(argNo);
-        if (auto shardingAttr =
-                argAttrs.get(mlir::sdy::TensorShardingAttr::name)) {
-          return mlir::cast<mlir::sdy::TensorShardingAttr>(shardingAttr);
-        }
+        llvm::outs() << "[HET DEBUG] blockArg argNo: " << argNo << "\n";
+        return func.getInSharding(argNo);
       }
     }
+    llvm::outs() << "[HET DEBUG] ideally should not reach here \n";
     return std::nullopt;
   }
 };
