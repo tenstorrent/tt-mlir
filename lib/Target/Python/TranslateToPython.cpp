@@ -103,7 +103,8 @@ private:
 
 /// Emitter that uses dialect specific emitters to emit Python code.
 struct PythonEmitter {
-  explicit PythonEmitter(raw_ostream &os) : os(os) {
+  explicit PythonEmitter(raw_ostream &os, std::string &fileId)
+      : os(os), fileId(fileId) {
     valueInScopeCount.push(0);
     usedNames.push(std::set<std::string>());
   }
@@ -149,6 +150,8 @@ struct PythonEmitter {
   /// Insert the op result into the value cache.
   void cacheDeferredOpResult(Value value, StringRef str);
 
+  bool shouldEmitFile(FileOp fileOp);
+
   /// RAII helper function to manage entering/exiting Python scopes.
   struct Scope {
     Scope(PythonEmitter &emitter)
@@ -190,6 +193,10 @@ private:
 
   /// The set of names used in the current scope.
   std::stack<std::set<std::string>> usedNames;
+
+  /// The id of the current file. Only files with this id are emitted. If empty,
+  /// all files are emitted as one.
+  std::string fileId;
 };
 } // namespace
 
@@ -309,6 +316,10 @@ void PythonEmitter::cacheDeferredOpResult(Value value, StringRef str) {
   if (!valueMapper.count(value)) {
     valueMapper.insert(value, str.str());
   }
+}
+
+bool PythonEmitter::shouldEmitFile(FileOp fileOp) {
+  return fileId.empty() || fileId == fileOp.getId();
 }
 
 static LogicalResult printOperation(PythonEmitter &emitter,
@@ -655,6 +666,20 @@ static LogicalResult printOperation(PythonEmitter &emitter,
   return success();
 }
 
+static LogicalResult printOperation(PythonEmitter &emitter, FileOp fileOp) {
+  if (!emitter.shouldEmitFile(fileOp)) {
+    return success();
+  }
+
+  for (Operation &op : fileOp.getRegion().getOps()) {
+    if (failed(emitter.emitOperation(op))) {
+      return failure();
+    }
+  }
+
+  return success();
+}
+
 LogicalResult PythonEmitter::emitOperation(Operation &op) {
   LogicalResult status =
       llvm::TypeSwitch<Operation *, LogicalResult>(&op)
@@ -662,8 +687,9 @@ LogicalResult PythonEmitter::emitOperation(Operation &op) {
           .Case<ModuleOp>([&](auto op) { return printOperation(*this, op); })
           // EmitPy ops.
           .Case<CallOpaqueOp, ImportOp, AssignOp, ConstantOp, SubscriptOp,
-                GlobalOp, AssignGlobalOp, GlobalStatementOp, ExpressionOp,
-                YieldOp>([&](auto op) { return printOperation(*this, op); })
+                GlobalOp, AssignGlobalOp, GlobalStatementOp, FileOp,
+                ExpressionOp, YieldOp>(
+              [&](auto op) { return printOperation(*this, op); })
           .Case<GetGlobalOp>([&](auto op) {
             cacheDeferredOpResult(op.getResult(), op.getName());
             return success();
@@ -823,7 +849,8 @@ LogicalResult PythonEmitter::emitVariableAssignment(OpResult result,
 }
 
 LogicalResult mlir::tt::emitpy::translateToPython(Operation *op,
-                                                  raw_ostream &os) {
-  PythonEmitter emitter(os);
+                                                  raw_ostream &os,
+                                                  std::string &fileId) {
+  PythonEmitter emitter(os, fileId);
   return emitter.emitOperation(*op);
 }
