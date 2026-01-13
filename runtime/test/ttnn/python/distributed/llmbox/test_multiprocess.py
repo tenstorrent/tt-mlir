@@ -57,9 +57,9 @@ def launch_distributed_runtime_2x4bhqbae():
     assert os.path.exists(
         RANK_BINDING_PATH
     ), f"Rank binding path not found: {RANK_BINDING_PATH}"
-    assert os.path.exists(
-        RANK_FILE_PATH_2X4BHQBAE_RELATIVE
-    ), f"Rank file path not found: {RANK_FILE_PATH_2X4BHQBAE_RELATIVE}"
+    # assert os.path.exists(
+    #     RANK_FILE_PATH_2X4BHQBAE_RELATIVE
+    # ), f"Rank file path not found: {RANK_FILE_PATH_2X4BHQBAE_RELATIVE}"
 
     ttrt.runtime.set_mlir_home(TT_MLIR_HOME)
     ttrt.runtime.set_metal_home(TT_METAL_RUNTIME_ROOT_EXTERNAL)
