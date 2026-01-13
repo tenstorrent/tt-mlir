@@ -31,6 +31,7 @@ FLATBUFFER_BASE_PATH = (
 RANK_BINDING_PATH = f"{TT_METAL_RUNTIME_ROOT_EXTERNAL}/tests/scale_out/4x_bh_quietbox/rank_bindings/2x4.yaml"
 
 RANK_FILE_PATH_2X4BHQBAE = f"{TT_METAL_RUNTIME_ROOT_EXTERNAL}/tests/scale_out/4x_bh_quietbox/rankfile/2x4.txt"
+RANK_FILE_PATH_2X4BHQBAE_RELATIVE = "tests/scale_out/4x_bh_quietbox/rankfile/2x4.txt"
 
 
 def launch_distributed_runtime_llmbox():
@@ -56,8 +57,8 @@ def launch_distributed_runtime_2x4bhqbae():
         RANK_BINDING_PATH
     ), f"Rank binding path not found: {RANK_BINDING_PATH}"
     assert os.path.exists(
-        RANK_FILE_PATH_2X4BHQBAE
-    ), f"Rank file path not found: {RANK_FILE_PATH_2X4BHQBAE}"
+        RANK_FILE_PATH_2X4BHQBAE_RELATIVE
+    ), f"Rank file path not found: {RANK_FILE_PATH_2X4BHQBAE_RELATIVE}"
 
     ttrt.runtime.set_mlir_home(TT_MLIR_HOME)
     ttrt.runtime.set_metal_home(TT_METAL_RUNTIME_ROOT_EXTERNAL)
@@ -66,7 +67,15 @@ def launch_distributed_runtime_2x4bhqbae():
     mp_args.with_allow_run_as_root(True)
     mp_args.with_tag_output(True)
     mp_args.with_hosts(["forge-qbae-01", "forge-qbae-02"])
-    mp_args.with_rank_file_path(RANK_FILE_PATH_2X4BHQBAE)
+    
+    # This needs a relative path for some reason. Otherwise fails
+    mp_args.with_rank_file_path(RANK_FILE_PATH_2X4BHQBAE_RELATIVE) 
+    """
+    The map-by directive contains an unrecognized qualifier:
+
+  Qualifier: file=/home/ttuser/tt-mlir/third_party/tt-metal/src/tt-metal/tests/scale_out/4x_bh_quietbox/rankfile/2x4.txt
+  Valid qualifiers: pe=,span,oversubscribe,nooversubscribe,nolocal,hwtcpus,corecpus,inherit,noinherit,file=,ordered
+    """
     mp_args.with_mca_options({"btl": "self,tcp", "btl_tcp_if_include": "enp10s0f1np1"})
 
     distributed_options = ttrt.runtime.DistributedOptions()
