@@ -29,6 +29,8 @@ SHELL ["/bin/bash", "-c"]
 
 RUN dnf install --refresh -y wget
 
+RUN echo "TT_METAL_VERSION: ${TT_METAL_VERSION}"
+
 # Setup / install metal dependencies
 RUN wget https://raw.githubusercontent.com/tenstorrent/tt-metal/${TT_METAL_VERSION}/{install_dependencies.sh,tt_metal/sfpi-info.sh,tt_metal/sfpi-version} && \
     chmod u+x sfpi-info.sh && \
