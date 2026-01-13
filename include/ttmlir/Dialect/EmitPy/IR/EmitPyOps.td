@@ -10,6 +10,7 @@ include "EmitPyBase.td"
 include "EmitPyInterfaces.td"
 include "EmitPyTypes.td"
 
+include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/IR/BuiltinAttributes.td"
 include "mlir/IR/CommonTypeConstraints.td"
@@ -108,7 +109,7 @@ def EmitPy_LiteralOp : EmitPy_Op<"literal", [Pure, PyExpressionInterface]> {
   let assemblyFormat = "$value attr-dict `:` type($result)";
 }
 
-def EmitPy_SubscriptOp : EmitPy_Op<"subscript", [PyExpressionInterface]> {
+def EmitPy_SubscriptOp : EmitPy_Op<"subscript", [Pure, PyExpressionInterface]> {
   let summary = "Subscript operation";
   let description = [{
     With the `emitpy.subscript` operation the subscript operator `[]` can be applied
@@ -387,6 +388,88 @@ def EmitPy_AssignGlobalOp : EmitPy_Op<"assign_global",
 
   let arguments = (ins FlatSymbolRefAttr:$name,
                        AnyType:$value);
+
+  let hasVerifier = 1;
+  let hasCustomAssemblyFormat = 1;
+}
+
+def EmitPy_YieldOp : EmitPy_Op<"yield", [Pure, ReturnLike, Terminator,
+                                          ParentOneOf<["ExpressionOp"]>]> {
+  let summary = "Yield operation for expression termination";
+  let description = [{
+    The `emitpy.yield` terminates its parent EmitPy operation's region, optionally yielding
+    an SSA value. The semantics of how the values are yielded is defined by the
+    parent operation.
+
+    Example:
+
+    ```mlir
+    %0 = emitpy.expression(%arg0, %arg1) : (!emitpy.opaque, !emitpy.opaque) -> !emitpy.opaque {
+    ^bb0(%a: !emitpy.opaque, %b: !emitpy.opaque):
+      %1 = emitpy.call_opaque "foo"(%a, %b) : (!emitpy.opaque, !emitpy.opaque) -> !emitpy.opaque
+      emitpy.yield %1 : !emitpy.opaque
+    }
+    ```
+  }];
+
+  let arguments = (ins AnyType:$result);
+  let assemblyFormat = "$result attr-dict `:` type($result)";
+}
+
+def EmitPy_ExpressionOp : EmitPy_Op<"expression", [
+    HasOnlyGraphRegion, IsolatedFromAbove,
+    SingleBlockImplicitTerminator<"YieldOp">]> {
+  let summary = "Expression operation to inline Python code";
+  let description = [{
+    The `emitpy.expression` operation returns a single SSA value yielded by its
+    single-basic-block region. The operations inside the region must form a DAG
+    (directed acyclic graph) of computations that produces a single result value.
+    The expression's operands are mapped to block arguments and can be used
+    within the expression body.
+
+    When generating Python code, operations within the expression body are emitted
+    inline without intermediate variable assignments, producing cleaner code.
+
+    The optional `do_not_inline` attribute can be used to force the translator to
+    emit the expression as separate statements rather than inline.
+
+    Example:
+
+    ```mlir
+    %expression = emitpy.expression(%a, %b) : (!emitpy.opaque, !emitpy.opaque) -> !emitpy.opaque {
+    ^bb0(%arg0: !emitpy.opaque, %arg1: !emitpy.opaque):
+      %0 = emitpy.call_opaque "ttnn.mul"(%arg0, %arg1) : (!emitpy.opaque, !emitpy.opaque) -> !emitpy.opaque
+      %1 = emitpy.call_opaque "ttnn.add"(%0, %arg1) : (!emitpy.opaque, !emitpy.opaque) -> !emitpy.opaque
+      emitpy.yield %1 : !emitpy.opaque
+    }
+    return %expression : !emitpy.opaque
+    ```
+
+    This would generate:
+    ```python
+    return ttnn.add(ttnn.mul(a, b), b)
+    ```
+
+    If the `do_not_inline` attribute is set:
+    ```python
+    %expression = ttnn.add(ttnn.mul(a, b), b)
+    return %expression
+    ```
+
+  }];
+
+  let arguments = (ins Variadic<AnyType>:$operands,
+                       UnitAttr:$do_not_inline);
+  let results = (outs AnyType:$result);
+  let regions = (region SizedRegion<1>:$body);
+
+  let extraClassDeclaration = [{
+    /// Get the body region of the expression.
+    Region &getBodyRegion() { return getBody(); }
+
+    /// Get the block of the body region.
+    Block *getBodyBlock() { return &getBody().front(); }
+  }];
 
   let hasVerifier = 1;
   let hasCustomAssemblyFormat = 1;

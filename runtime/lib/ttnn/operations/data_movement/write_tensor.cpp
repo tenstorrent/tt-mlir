@@ -7,6 +7,7 @@
 #include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/utils.h"
+#include "ttnn/tensor/tensor_impl.hpp"
 
 namespace tt::runtime::ttnn::operations::data_movement {
 void run(const ::tt::target::ttnn::WriteTensorOp *op, ProgramContext &context) {
@@ -20,9 +21,11 @@ void run(const ::tt::target::ttnn::WriteTensorOp *op, ProgramContext &context) {
       tensorPool.getTTNNTensorAndValidate(op->host_tensor());
   ::ttnn::Tensor &deviceTensor =
       tensorPool.getTTNNTensorAndValidate(op->device_tensor());
-  bool blocking = op->blocking();
   ::ttnn::QueueId ttnnCqId = ::ttnn::QueueId(op->cq_id());
 
-  ::tt::tt_metal::write_tensor(hostTensor, deviceTensor, blocking, ttnnCqId);
+  // Note: copy_to_device replaced write_tensor and does not have a blocking
+  // parameter. The operation is always blocking.
+  ::tt::tt_metal::tensor_impl::copy_to_device(hostTensor, deviceTensor,
+                                              ttnnCqId);
 }
 } // namespace tt::runtime::ttnn::operations::data_movement

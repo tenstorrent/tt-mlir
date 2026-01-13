@@ -599,7 +599,7 @@ allocateTensorOnDevice(const ::tt::target::ttnn::TensorRef *tensorRef,
       ::ttnn::TensorLayout(ttnnDataType, ::ttnn::PageConfig(ttnnLayout),
                            *memoryConfig));
   ::ttnn::Tensor deviceTensor =
-      ::tt::tt_metal::allocate_tensor_on_device(tensorSpec, &meshDevice);
+      ::tt::tt_metal::create_device_tensor(tensorSpec, &meshDevice);
   return deviceTensor;
 }
 

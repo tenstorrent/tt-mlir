@@ -662,9 +662,13 @@ TTNNLayoutAttr getLayoutAttrFromTensorSpec(MLIRContext *context,
 
   BufferType bufferType =
       getBufferType(tensorSpec.memory_config().buffer_type());
-  auto memoryLayoutAttr = TensorMemoryLayoutAttr::get(
-      context,
-      getTensorMemoryLayout(tensorSpec.memory_config().memory_layout()));
+
+  auto memoryLayoutAttr =
+      bufferType == BufferType::SystemMemory
+          ? TensorMemoryLayoutAttr{}
+          : TensorMemoryLayoutAttr::get(
+                context, getTensorMemoryLayout(
+                             tensorSpec.memory_config().memory_layout()));
 
   ttcore::GridAttr gridAttr = ttcore::GridAttr::get(context);
   if (isL1BufferType(bufferType)) {
