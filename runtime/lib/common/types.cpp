@@ -125,7 +125,7 @@ std::string MultiProcessArgs::toArgString() const {
   // Rank file
   if (!rankFilePath_.empty()) {
     oss << " ";
-    oss << "--map-by rankfile:file=" << rankFilePath_;
+    oss << "--map-by rankfile:file=" << rankFilePath_.string();
   }
 
   // MCA options
