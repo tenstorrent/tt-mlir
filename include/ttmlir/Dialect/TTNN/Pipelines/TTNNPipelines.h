@@ -493,10 +493,10 @@ struct TTNNToEmitPyDevicePipelineOptions
       *this, "tensor-load-file-prefix",
       llvm::cl::desc("Prefix for input tensor files"), llvm::cl::init("arg")};
 
-  Option<bool> codegenEnablePrettify{
-      *this, "codegen-enable-prettify",
-      llvm::cl::desc("Enable pipelines and passes that \"prettify\" the IR for "
-                     "code generation."),
+  Option<bool> tryRecoverStructure{
+      *this, "tryRecoverStructure",
+      llvm::cl::desc("Enable pipelines and passes that try to recover "
+                     "structure of the original IR/code."),
       llvm::cl::init(false)};
 };
 
@@ -526,12 +526,9 @@ struct TTIRToEmitPyPipelineOptions : public TTIRToTTNNDevicePipelineOptions,
                                      public TTNNToEmitPyDevicePipelineOptions {
 };
 
-// Prettify XLA/Torch pipeline options.
-// This pipeline applies prettification passes to make TTNN IR more readable
-// for code generation from XLA/Torch frontends.
-//
-struct PrettifyXLATorchPipelineOptions
-    : public PassPipelineOptions<PrettifyXLATorchPipelineOptions> {
+// Recover Structure XLA/Torch pipeline options.
+struct RecoverStructureXLATorchPipelineOptions
+    : public PassPipelineOptions<RecoverStructureXLATorchPipelineOptions> {
   // Add any future options here if needed
 };
 
@@ -550,6 +547,9 @@ void createTTIRToEmitPyPipeline(OpPassManager &pm,
 
 void createTTNNToEmitPyPipeline(
     OpPassManager &pm, const TTNNToEmitPyDevicePipelineOptions &options);
+
+void createRecoverStructureXLATorchPipeline(
+    OpPassManager &pm, const RecoverStructureXLATorchPipelineOptions &options);
 
 void registerTTNNPipelines();
 } // namespace mlir::tt::ttnn

@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#ifndef TTMLIR_DIALECT_TTNN_TRANSFORMS_TTNNPRETTIFYUTILS_H
-#define TTMLIR_DIALECT_TTNN_TRANSFORMS_TTNNPRETTIFYUTILS_H
+#ifndef TTMLIR_DIALECT_TTNN_TRANSFORMS_TTNNRECOVERSTRUCTUREUTILS_H
+#define TTMLIR_DIALECT_TTNN_TRANSFORMS_TTNNRECOVERSTRUCTUREUTILS_H
 
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Location.h"
@@ -58,7 +58,7 @@ struct PyLoc {
 };
 
 // This structure is used to store the operation, its PyLoc information, and
-// other metadata relevant for the "prettification" algorithm.
+// other metadata relevant for the structure recovery algorithm.
 //
 struct OpPyLoc {
   Operation *op;
