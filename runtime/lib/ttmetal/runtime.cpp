@@ -6,6 +6,7 @@
 #include <variant>
 
 #include "tracy/Tracy.hpp"
+#include "tt-metalium/allocator.hpp"
 #include "tt-metalium/experimental/fabric/fabric.hpp"
 #include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/dylib.h"
