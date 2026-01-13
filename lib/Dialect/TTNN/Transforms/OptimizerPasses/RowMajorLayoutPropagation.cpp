@@ -368,9 +368,8 @@ private:
         }
 
         // Get expected layout from function signature
-        if (i >= funcType.getNumResults()) {
-          continue;
-        }
+        assert(returnOp.getNumOperands() == funcType.getNumResults() &&
+               "Return operand count must match function result count");
 
         Type expectedReturnType = funcType.getResult(i);
         auto expectedTensorType =
@@ -418,9 +417,6 @@ private:
 
           // Update the return to use the new ToLayoutOp result
           returnOp.setOperand(i, toLayoutOp.getResult());
-
-          llvm::errs() << "[RowMajorLayoutPropagation] Inserted ToLayoutOp: "
-                       << toLayoutOp << "\n";
         }
       }
     });
