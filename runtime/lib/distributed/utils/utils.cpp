@@ -6,6 +6,8 @@
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/common/runtime_context.h"
 
+#include <cstdlib>
+
 namespace tt::runtime::distributed::utils {
 
 std::string
@@ -43,6 +45,11 @@ std::string
 getTTRunCommand(uint16_t port,
                 const ::tt::runtime::MultiProcessArgs &multiProcessArgs,
                 const std::optional<std::string> &workerPathOpt) {
+  const char *overrideCmd = std::getenv("TTRUN_CMD_OVERRIDE");
+  if (overrideCmd != nullptr) {
+    return std::string(overrideCmd);
+  }
+
   std::ostringstream oss;
 
   oss << "cd " << RuntimeContext::instance().getMetalHome() << " && ";
