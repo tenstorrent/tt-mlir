@@ -3,6 +3,10 @@ name: Build Wheels
 on:
   workflow_dispatch:
 
+permissions:
+  checks: write
+  packages: write
+
 jobs:
   build-image:
     uses: ./.github/workflows/call-build-docker.yml
