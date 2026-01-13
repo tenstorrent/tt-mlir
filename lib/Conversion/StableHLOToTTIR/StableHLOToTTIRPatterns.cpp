@@ -1481,7 +1481,7 @@ public:
 //  - Generalize to other reduction ops
 //  - Extract and match nested operations in reduction blocks
 //===----------------------------------------------------------------------===//
-
+/*
 namespace {
 class StableHLOToTTIRReduceWindowOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ReduceWindowOp> {
@@ -1985,7 +1985,7 @@ private:
   }
 };
 } // namespace
-
+*/
 namespace {
 class StableHLOToTTIRBroadcastInDimOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::BroadcastInDimOp> {
@@ -5410,12 +5410,13 @@ static void addQuantizeOpsConversionPattern(MLIRContext *ctx,
                                                              ctx);
 }
 
-static void addReduceWindowOpConversionPattern(MLIRContext *ctx,
-                                               RewritePatternSet &patterns,
-                                               TypeConverter &typeConverter) {
-  patterns.add<StableHLOToTTIRReduceWindowOpConversionPattern>(typeConverter,
-                                                               ctx);
-}
+// static void addReduceWindowOpConversionPattern(MLIRContext *ctx,
+//                                                RewritePatternSet &patterns,
+//                                                TypeConverter &typeConverter)
+//                                                {
+//   patterns.add<StableHLOToTTIRReduceWindowOpConversionPattern>(typeConverter,
+//                                                                ctx);
+// }
 
 static void addCompareOpsConversionPatterns(MLIRContext *ctx,
                                             RewritePatternSet &patterns,
@@ -5609,7 +5610,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addTensorCreationOpsConversionPatterns(ctx, patterns, typeConverter);
   addBroadcastOpConversionPattern(ctx, patterns, typeConverter);
   addConv2dOpConversionPattern(ctx, patterns, typeConverter);
-  addReduceWindowOpConversionPattern(ctx, patterns, typeConverter);
+  // addReduceWindowOpConversionPattern(ctx, patterns, typeConverter);
   addCompareOpsConversionPatterns(ctx, patterns, typeConverter);
   addConcatOpsConversionPatterns(ctx, patterns, typeConverter);
   addTransposeOpConversionPattern(ctx, patterns, typeConverter);

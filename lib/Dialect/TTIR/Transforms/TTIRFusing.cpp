@@ -9,12 +9,14 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/Analysis/TopologicalSortUtils.h"
+#include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/TypeSwitch.h"
+#include <cstdint>
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRFUSING
@@ -1220,6 +1222,8 @@ private:
   static constexpr size_t POOL_OP_W_HIGH = 3;
 
 public:
+  using mlir::OpRewritePattern<Pool2dOp>::OpRewritePattern;
+
   mlir::LogicalResult
   matchAndRewrite(Pool2dOp op, mlir::PatternRewriter &rewriter) const final {
     PadOp padOp = op.getInput().template getDefiningOp<PadOp>();
@@ -1258,8 +1262,17 @@ public:
     // - array<4xi32>: [pTop, pLeft, pBottom, pRight]
     // Combine PadOp spatial padding with Pool2dOp padding into
     // [pTop, pLeft, pBottom, pRight] format.
-    SmallVector<int64_t> newPadding;
-    ArrayRef<int64_t> opPadding = op.getPadding();
+    SmallVector<int32_t> opPadding;
+    mlir::Attribute paddingAttr = op.getPaddingAttr();
+    if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(
+            paddingAttr)) { // TODO: Can this be I32Attr?
+      opPadding.push_back(static_cast<int32_t>(intAttr.getInt()));
+    } else if (auto arrayAttr =
+                   mlir::dyn_cast<mlir::DenseI32ArrayAttr>(paddingAttr)) {
+      opPadding = SmallVector<int32_t>(arrayAttr.asArrayRef());
+    }
+
+    SmallVector<int32_t> newPadding;
     switch (opPadding.size()) {
     case 1: {
       // Same padding for all sides.
@@ -1286,7 +1299,7 @@ public:
 
     rewriter.modifyOpInPlace(op, [&]() {
       op.getInputMutable().assign(padOp.getInput());
-      op.setPadding(newPadding);
+      op.setPaddingAttr(rewriter.getDenseI32ArrayAttr(newPadding));
     });
 
     return success();
