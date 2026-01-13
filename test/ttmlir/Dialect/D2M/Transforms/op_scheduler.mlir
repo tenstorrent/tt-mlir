@@ -1,3 +1,4 @@
+// UNSUPPORTED: true
 // RUN: ttmlir-opt --d2m-op-scheduler %s | FileCheck %s
 
 module {

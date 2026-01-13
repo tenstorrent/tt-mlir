@@ -852,7 +852,7 @@ public:
             loc, rewriter.getI32Type(), adaptor.getRhs());
         rewriter.create<ttkernel::AddUnaryTileOp>(loc, dstIdx, scalarParam);
       }
-      // TODO: Add other scalar ops here (sub, mul)
+      // TODO(ckaravasilisTT): Add other scalar ops here (sub, mul)
     } else {
       // Tile-tile operation - use FPU path (reads directly from CBs)
       auto cbA = getCB(rewriter, op.getLhs());
@@ -872,7 +872,7 @@ public:
         rewriter.create<ttkernel::AddTilesOp>(loc, cbA, cbB, adaptor.getLhs(),
                                               adaptor.getRhs(), dstIdx);
       }
-      // TODO: Add other FPU binary ops here (sub, mul)
+      // TODO(ckaravasilisTT): Add other FPU binary ops here (sub, mul)
     }
 
     rewriter.eraseOp(op);
