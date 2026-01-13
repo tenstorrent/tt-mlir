@@ -3739,6 +3739,47 @@ def ttir_isfinite_golden(
     return torch.isfinite(input_tensor).to(dtype)
 
 
+def ttir_embedding_backward_golden(
+    indices_tensor: GoldenMapTensor,
+    weight_tensor: GoldenMapTensor,
+    in_gradient_tensor: GoldenMapTensor,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    # Get the shape of the weight tensor (num_embeddings, embedding_dim)
+    num_embeddings = weight_tensor.size()[0]
+    embedding_dim = weight_tensor.size()[1]
+
+    def compute_embedding_backward(
+        indices_shard: torch.Tensor,
+        in_gradient_shard: torch.Tensor,
+    ) -> torch.Tensor:
+        # Initialize output gradient with zeros
+        grad_weight = torch.zeros(
+            num_embeddings, embedding_dim, dtype=in_gradient_shard.dtype
+        )
+
+        # Flatten indices and gradients for easier accumulation
+        indices_flat = indices_shard.to(torch.int64).flatten()
+        grad_flat = in_gradient_shard.reshape(-1, embedding_dim)
+
+        # Accumulate gradients at the corresponding indices
+        grad_weight.index_add_(0, indices_flat, grad_flat)
+
+        return grad_weight.to(dtype)
+
+    # Apply the computation shard-wise and return a GoldenMapTensor
+    result_shards = {}
+    for device_id in indices_tensor.shard_map.keys():
+        indices_shard = indices_tensor.shard_map[device_id]
+        in_gradient_shard = in_gradient_tensor.shard_map[device_id]
+        result_shards[device_id] = compute_embedding_backward(
+            indices_shard, in_gradient_shard
+        )
+
+    return GoldenMapTensor(result_shards, indices_tensor.mesh_shape)
+
+
 ################ StableHLO Op Golden Functions ###############
 
 
@@ -4994,6 +5035,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.SoftmaxOp: softmax_golden,
     ttir.MatmulOp: matmul_golden,
     ttir.EmbeddingOp: embedding_golden,
+    ttir.EmbeddingBackwardOp: ttir_embedding_backward_golden,
     ttir.Upsample2dOp: upsample2d_golden,
     ttir.BatchNormInferenceOp: ttir_batch_norm_inference_golden,
     ttir.BatchNormTrainingOp: ttir_batch_norm_training_golden,
