@@ -255,7 +255,7 @@ struct TTIRToTTNNDevicePipelineOptions
 
   Option<bool> eraseInverseOpsEnabled{
       *this, "enable-erase-inverse-ops-pass",
-      llvm::cl::desc("Enable erase inverse ops pass."), llvm::cl::init(true)};
+      llvm::cl::desc("Enable erase inverse ops pass."), llvm::cl::init(false)};
 
   Option<bool> enableQuantDequantConversion{
       *this, "enable-quant-dequant-conversion-pass",
