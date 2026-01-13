@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h"
 #include "ttmlir/Dialect/StableHLO/Utils/ShardingUtils.h"
 #include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
+#include "ttmlir/Dialect/StableHLO/Utils/StableHLOUtils.h"
 #include "llvm/Support/Error.h"
 
 namespace mlir::tt::stablehlo {
@@ -21,8 +22,8 @@ static void collectGroups(
     mlir::func::FuncOp func,
     llvm::DenseMap<GroupKey, llvm::SmallVector<mlir::Operation *>> &groups) {
   func.walk([&](mlir::Operation *op) {
-    if (auto attr =
-            op->getAttrOfType<mlir::StringAttr>(sharding_utils::kGroupAttr)) {
+    if (auto attr = op->getAttrOfType<mlir::StringAttr>(
+            sharding_utils::kReoutlineGroupAttr)) {
       groups[attr].push_back(op);
     }
   });
@@ -130,61 +131,63 @@ static bool analyzeBoundary(const llvm::SmallVector<mlir::Operation *> &ops,
 // - Captures become function arguments (in declared order).
 // - Escapes become function results (in declared order).
 // Returns the new callee symbol and also fills 'mapping' from old->new values.
-static mlir::func::FuncOp outlineToFunc(
-    mlir::ModuleOp module, mlir::StringRef baseName,
-    mlir::ArrayRef<mlir::Value> captures, mlir::ArrayRef<mlir::Value> escapes,
-    mlir::ArrayRef<mlir::Operation *> opsToClone, mlir::IRMapping &mapping) {
-  mlir::OpBuilder builder(module.getContext());
+// static mlir::func::FuncOp outlineToFunc(
+//     mlir::ModuleOp module, mlir::StringRef namePrefix, mlir::StringRef
+//     baseName, mlir::ArrayRef<mlir::Value> captures,
+//     mlir::ArrayRef<mlir::Value> escapes, mlir::ArrayRef<mlir::Operation *>
+//     opsToClone) {
+//   mlir::OpBuilder builder(module.getContext());
+//   mlir::IRMapping mapping;
 
-  // Build function type: (captures) -> (escapes types)
-  llvm::SmallVector<mlir::Type> argumentTypes, resultTypes;
-  argumentTypes.reserve(captures.size());
-  resultTypes.reserve(escapes.size());
-  for (mlir::Value v : captures) {
-    argumentTypes.push_back(v.getType());
-  }
-  for (mlir::Value v : escapes) {
-    resultTypes.push_back(v.getType());
-  }
+//   // Build function type: (captures) -> (escapes types)
+//   llvm::SmallVector<mlir::Type> argumentTypes, resultTypes;
+//   argumentTypes.reserve(captures.size());
+//   resultTypes.reserve(escapes.size());
+//   for (mlir::Value v : captures) {
+//     argumentTypes.push_back(v.getType());
+//   }
+//   for (mlir::Value v : escapes) {
+//     resultTypes.push_back(v.getType());
+//   }
 
-  std::string fnName;
-  {
-    llvm::raw_string_ostream os(fnName);
-    os << "outlined_" << baseName;
-  }
+//   std::string fnName;
+//   {
+//     llvm::raw_string_ostream os(fnName);
+//     os << namePrefix << baseName;
+//   }
 
-  auto fnType = builder.getFunctionType(argumentTypes, resultTypes);
-  auto func = mlir::func::FuncOp::create(module.getLoc(), fnName, fnType);
-  func.setPrivate();
-  module.push_back(func);
+//   auto fnType = builder.getFunctionType(argumentTypes, resultTypes);
+//   auto func = mlir::func::FuncOp::create(module.getLoc(), fnName, fnType);
+//   func.setPrivate();
+//   module.push_back(func);
 
-  // Create entry block and map captures to block arguments.
-  mlir::Block *entry = func.addEntryBlock();
-  for (auto it : llvm::enumerate(captures)) {
-    mapping.map(it.value(),
-                entry->getArgument(static_cast<unsigned>(it.index())));
-  }
+//   // Create entry block and map captures to block arguments.
+//   mlir::Block *entry = func.addEntryBlock();
+//   for (auto it : llvm::enumerate(captures)) {
+//     mapping.map(it.value(),
+//                 entry->getArgument(static_cast<unsigned>(it.index())));
+//   }
 
-  // Clone ops in order into the new function.
-  mlir::OpBuilder internalBuilder(entry, entry->end());
-  for (mlir::Operation *op : opsToClone) {
-    mlir::Operation *cloned = internalBuilder.clone(*op, mapping);
-    // Strip the reoutline attrs inside the callee.
-    cloned->removeAttr(sharding_utils::kGroupAttr);
-    cloned->removeAttr(sharding_utils::kSeedAttr);
-  }
+//   // Clone ops in order into the new function.
+//   mlir::OpBuilder internalBuilder(entry, entry->end());
+//   for (mlir::Operation *op : opsToClone) {
+//     mlir::Operation *cloned = internalBuilder.clone(*op, mapping);
+//     // Strip the reoutline attrs inside the callee.
+//     cloned->removeAttr(sharding_utils::kGroupAttr);
+//     cloned->removeAttr(sharding_utils::kSeedAttr);
+//   }
 
-  // Emit return with remapped escape values.
-  llvm::SmallVector<mlir::Value> retVals;
-  retVals.reserve(escapes.size());
-  for (mlir::Value esc : escapes) {
-    mlir::Value escVal = mapping.lookupOrNull(esc);
-    retVals.push_back(escVal);
-  }
-  internalBuilder.create<mlir::func::ReturnOp>(func.getLoc(), retVals);
+//   // Emit return with remapped escape values.
+//   llvm::SmallVector<mlir::Value> retVals;
+//   retVals.reserve(escapes.size());
+//   for (mlir::Value esc : escapes) {
+//     mlir::Value escVal = mapping.lookupOrNull(esc);
+//     retVals.push_back(escVal);
+//   }
+//   internalBuilder.create<mlir::func::ReturnOp>(func.getLoc(), retVals);
 
-  return func;
-}
+//   return func;
+// }
 
 static mlir::Operation *
 computeSafeInsertAfter(llvm::ArrayRef<mlir::Value> captures,
@@ -256,28 +259,25 @@ void replaceWithComposite(mlir::func::FuncOp parentFunc,
   mlir::DictionaryAttr compAttrs = mlir::DictionaryAttr::get(ctx);
   mlir::StringAttr targetName = builder.getStringAttr(callee.getSymName());
   for (mlir::Operation *op : opsToErase) {
-    if (op->hasAttr(sharding_utils::kSeedAttr)) {
+    if (op->hasAttr(sharding_utils::kReoutlineSeedAttr)) {
       if (auto origName = op->getAttrOfType<mlir::StringAttr>(
-              sharding_utils::kOrigNameAttr)) {
+              sharding_utils::kReoutlineOrigNameAttr)) {
         targetName = origName;
       }
       if (auto compAttr = op->getAttrOfType<mlir::DictionaryAttr>(
-              sharding_utils::kCompAttrsAttr)) {
+              sharding_utils::kReoutlineCompAttrsAttr)) {
         compAttrs = compAttr;
       }
     }
   }
 
-  constexpr llvm::StringLiteral kCompAttrsKey("composite_attributes");
-  constexpr llvm::StringLiteral kNameKey("name");
-
   mlir::OperationState state(loc,
                              mlir::stablehlo::CompositeOp::getOperationName());
   state.addOperands(operands);
   state.addTypes(resultTypes);
-  state.addAttribute(sharding_utils::kDecompositionAttr, decomp);
-  state.addAttribute(kCompAttrsKey, compAttrs);
-  state.addAttribute(kNameKey, targetName);
+  state.addAttribute(sharding_utils::kDecompositionKey, decomp);
+  state.addAttribute(sharding_utils::kCompAttrsKey, compAttrs);
+  state.addAttribute(sharding_utils::kNameKey, targetName);
 
   mlir::Operation *newOp = mlir::Operation::create(state);
   builder.insert(newOp);
@@ -300,8 +300,8 @@ void replaceWithComposite(mlir::func::FuncOp parentFunc,
       continue;
     }
     if (groupKey) {
-      auto attr =
-          op->getAttrOfType<mlir::StringAttr>(sharding_utils::kGroupAttr);
+      auto attr = op->getAttrOfType<mlir::StringAttr>(
+          sharding_utils::kReoutlineGroupAttr);
       if (!attr || attr != groupKey) {
         continue;
       }
@@ -354,9 +354,10 @@ public:
         mlir::StringAttr base = group;
 
         // Outline to a new callee function.
-        mlir::IRMapping mapping;
-        mlir::func::FuncOp callee = outlineToFunc(
-            module, base.getValue(), captures, escapes, ops, mapping);
+        // mlir::func::FuncOp callee = outlineToFunc(
+        //     module, "outlined_", base.getValue(), captures, escapes, ops);
+        mlir::func::FuncOp callee = utils::createPrivateFunction(
+            module, "outlined_", base.getValue(), captures, escapes, ops);
 
         // Replace range with a call and erase the grouped ops.
         replaceWithComposite(func, firstOp, firstOp, lastOp, callee, captures,

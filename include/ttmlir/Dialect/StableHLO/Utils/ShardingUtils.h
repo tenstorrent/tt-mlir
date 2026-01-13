@@ -20,11 +20,17 @@ inline constexpr llvm::StringRef kTTShardingConstraintTargetName =
     "tt.sharding_constraint";
 
 // Composite op flattening/re-outlining related string definitions.
-inline constexpr llvm::StringLiteral kGroupAttr("reoutline.group");
-inline constexpr llvm::StringLiteral kSeedAttr("reoutline.seed");
-inline constexpr llvm::StringLiteral kOrigNameAttr("reoutline.orig_name");
-inline constexpr llvm::StringLiteral kCompAttrsAttr("reoutline.comp_attrs");
-inline constexpr llvm::StringLiteral kDecompositionAttr("decomposition");
+inline constexpr llvm::StringLiteral kReoutlineGroupAttr("reoutline.group");
+inline constexpr llvm::StringLiteral kReoutlineSeedAttr("reoutline.seed");
+inline constexpr llvm::StringLiteral
+    kReoutlineOrigNameAttr("reoutline.orig_name");
+inline constexpr llvm::StringLiteral
+    kReoutlineCompAttrsAttr("reoutline.comp_attrs");
+
+// Composite op related string definitions.
+inline constexpr llvm::StringLiteral kDecompositionKey("decomposition");
+inline constexpr llvm::StringLiteral kCompAttrsKey("composite_attributes");
+inline constexpr llvm::StringLiteral kNameKey("name");
 
 inline const llvm::SmallVector<llvm::SmallVector<int64_t, 2>, 7>
     SupportedMeshes = {{{1, 1},

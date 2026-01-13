@@ -364,7 +364,7 @@ convertShardyCCLToStableHLOCCL(MLIRContext *context,
   const bool hasProtectedConst = [&] {
     bool found = false;
     rootModule.walk([&](mlir::stablehlo::ConstantOp cst) {
-      if (cst->hasAttr(sharding_utils::kGroupAttr)) {
+      if (cst->hasAttr(sharding_utils::kReoutlineGroupAttr)) {
         found = true;
         return mlir::WalkResult::interrupt();
       }
