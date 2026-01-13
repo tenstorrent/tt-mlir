@@ -7,12 +7,17 @@ import ttnn
 import ttnn_jit
 
 LAYER_SIZE = 1024
-DEPTH = 2
-BATCH_SIZE = 32
+DEPTH = 4
+BATCH_SIZE = 1024
 TRACE_REGION_SIZE = 675840
 
 
-@ttnn_jit.jit(debug=True, graph_capture=False, enable_cache=True)
+@ttnn_jit.jit(
+    debug=True,
+    graph_capture=False,
+    enable_cache=True,
+    math_fidelity=ttnn.MathFidelity.HiFi4,
+)
 def jit_call(x, w1, b1, w2, b2):
 
     out = ttnn.matmul(x, w1)

@@ -6,8 +6,8 @@ import torch
 import ttnn
 
 LAYER_SIZE = 1024
-DEPTH = 2
-BATCH_SIZE = 32
+DEPTH = 4
+BATCH_SIZE = 1024
 TRACE_REGION_SIZE = 675840
 
 # this file works for collecting perf with no jit
@@ -30,17 +30,33 @@ class LinearResNetBlock:
 
         # Convert to TTNN tensors (TILE_LAYOUT is critical for matmul speed)
         self.w1 = ttnn.from_torch(
-            torch_w1, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device
+            torch_w1,
+            dtype=ttnn.bfloat16,
+            layout=ttnn.TILE_LAYOUT,
+            device=device,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
         )
         self.b1 = ttnn.from_torch(
-            torch_b1, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device
+            torch_b1,
+            dtype=ttnn.bfloat16,
+            layout=ttnn.TILE_LAYOUT,
+            device=device,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
         )
 
         self.w2 = ttnn.from_torch(
-            torch_w2, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device
+            torch_w2,
+            dtype=ttnn.bfloat16,
+            layout=ttnn.TILE_LAYOUT,
+            device=device,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
         )
         self.b2 = ttnn.from_torch(
-            torch_b2, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device
+            torch_b2,
+            dtype=ttnn.bfloat16,
+            layout=ttnn.TILE_LAYOUT,
+            device=device,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
         )
 
         self.activation_name = activation
@@ -48,14 +64,19 @@ class LinearResNetBlock:
     def __call__(self, x):
         identity = x
 
-        # Layer 1: Linear + Fused Activation
+        # # Layer 1: Linear + Fused Activation
         out = ttnn.linear(x, self.w1, bias=self.b1, activation=self.activation_name)
 
-        # Layer 2: Linear
+        # # Layer 2: Linear
         out = ttnn.linear(out, self.w2, bias=self.b2)
 
-        # Residual connection
+        # # Residual connection
         out = ttnn.add(out, identity)
+
+        # using matmul add
+        # out = ttnn.relu(ttnn.add(ttnn.matmul(x, self.w1), self.b1))
+        # out = ttnn.add(ttnn.matmul(out, self.w2), self.b2)
+        # out = ttnn.add(out, identity)
 
         return out
 
