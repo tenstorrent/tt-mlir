@@ -12310,8 +12310,7 @@ class TTIRBuilder(Builder):
             )
             self._set_golden_tensor(new_op_result, golden_output)
 
-        op_map_dictionary = {}
-        op_map_dictionary[old_op.result] = new_op_result
+        op_map_dictionary = {old_op.result: new_op_result}
         return new_op, op_map_dictionary
 
     @split(ttir.LayerNormOp)
@@ -12327,9 +12326,9 @@ class TTIRBuilder(Builder):
             layer_norm_module = Module.create()
             layer_norm_builder = TTIRBuilder(old_ctx, old_loc)
             op_input_types = [old_op.input.type]
-            if old_op.weight:
+            if old_op.weight is not None:
                 op_input_types.append(old_op.weight.type)
-            if old_op.bias:
+            if old_op.bias is not None:
                 op_input_types.append(old_op.bias.type)
 
             with InsertionPoint(layer_norm_module.body):
@@ -12343,10 +12342,10 @@ class TTIRBuilder(Builder):
                     idx = 1
                     weight = None
                     bias = None
-                    if old_op.weight:
+                    if old_op.weight is not None:
                         weight = inputs[idx]
                         idx += 1
-                    if old_op.bias:
+                    if old_op.bias is not None:
                         bias = inputs[idx]
                     result = old_op.result.type
 
@@ -12365,12 +12364,12 @@ class TTIRBuilder(Builder):
                         input0 = self._get_golden_tensor(old_op.input)
                         weight0 = (
                             self._get_golden_tensor(old_op.weight)
-                            if old_op.weight
+                            if old_op.weight is not None
                             else None
                         )
                         bias0 = (
                             self._get_golden_tensor(old_op.bias)
-                            if old_op.bias
+                            if old_op.bias is not None
                             else None
                         )
                         normalized_shape = list(old_op.normalized_shape)
