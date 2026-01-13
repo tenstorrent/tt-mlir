@@ -186,9 +186,8 @@ bool isFullyReplicatedTensor(mlir::sdy::TensorShardingAttr tsh);
 // not fully replicated.
 bool isShardedModule(mlir::ModuleOp &module);
 
-// Check if the operation has sharded inputs or outputs.
-// Works for any StableHLO operation.
-bool isOpSharded(mlir::Operation *op);
+// Check if the operation has Shardy-sharded inputs or outputs.
+bool opHasShardySharding(mlir::Operation *op);
 
 #endif // #ifdef TTMLIR_ENABLE_STABLEHLO
 

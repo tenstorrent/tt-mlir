@@ -984,9 +984,10 @@ convertCustomCallToShardingConstraint(mlir::ModuleOp &rootModule,
   return mlir::success();
 }
 
-// Check if the operation has sharded inputs or outputs.
-// Works for any StableHLO operation.
-bool isOpSharded(mlir::Operation *op) {
+// Check if the operation has Shardy-sharded inputs or outputs.
+// Note: This only detects Shardy TensorShardingAttrs, not legacy GSPMD
+// mhlo.sharding attributes. Should be called after ConvertXlaSdyToSdyPass.
+bool opHasShardySharding(mlir::Operation *op) {
   // Get the module op to check for mesh ops.
   mlir::ModuleOp moduleOp = op->getParentOfType<mlir::ModuleOp>();
   if (!moduleOp) {

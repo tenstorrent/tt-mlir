@@ -84,7 +84,7 @@ private:
     }
 
     // Check if any inputs or outputs of concat are sharded. If so, don't fuse.
-    if (shardy_utils::isOpSharded(concatOp.getOperation())) {
+    if (shardy_utils::opHasShardySharding(concatOp.getOperation())) {
       return false;
     }
 
@@ -97,7 +97,7 @@ private:
           return false;
         }
         // Check if the reshape output is sharded. If so, don't fuse.
-        if (shardy_utils::isOpSharded(reshapeOp.getOperation())) {
+        if (shardy_utils::opHasShardySharding(reshapeOp.getOperation())) {
           return false;
         }
         return true;
