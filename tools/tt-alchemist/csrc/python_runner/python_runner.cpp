@@ -44,7 +44,9 @@ public:
 };
 
 PythonModelRunner::PythonModelRunner() {
-  if (!Py_IsInitialized()) {
+  bool pythonWasAlreadyInitialized = Py_IsInitialized();
+
+  if (!pythonWasAlreadyInitialized) {
     // Register the built-in module before initializing the interpreter.
     // `PyImport_AppendInittab()` must be called before `Py_Initialize()`.
     PyImport_AppendInittab("_tt_alchemist_python_runner",
@@ -60,11 +62,35 @@ PythonModelRunner::PythonModelRunner() {
   pImpl = std::make_unique<Impl>();
 
   nb::gil_scoped_acquire acquire;
-  PyObject *m = PyImport_ImportModule("_tt_alchemist_python_runner");
-  if (m == nullptr) {
-    nb::raise_python_error();
+
+  // Check if module is already available in sys.modules.
+  PyObject *sysModules = PyImport_GetModuleDict();
+  PyObject *existingModule =
+      PyDict_GetItemString(sysModules, "_tt_alchemist_python_runner");
+
+  if (existingModule == nullptr) {
+    if (pythonWasAlreadyInitialized) {
+      // Python was already initialized by an external process, so we couldn't
+      // use PyImport_AppendInittab(). Manually create and register the module.
+      PyObject *m = PyInit__tt_alchemist_python_runner();
+      if (m == nullptr) {
+        nb::raise_python_error();
+      }
+      if (PyDict_SetItemString(sysModules, "_tt_alchemist_python_runner", m) <
+          0) {
+        Py_DECREF(m);
+        nb::raise_python_error();
+      }
+      Py_DECREF(m);
+    } else {
+      // Normal import path when we registered via PyImport_AppendInittab().
+      PyObject *m = PyImport_ImportModule("_tt_alchemist_python_runner");
+      if (m == nullptr) {
+        nb::raise_python_error();
+      }
+      Py_DECREF(m);
+    }
   }
-  Py_DECREF(m);
 }
 
 PythonModelRunner::~PythonModelRunner() = default;
