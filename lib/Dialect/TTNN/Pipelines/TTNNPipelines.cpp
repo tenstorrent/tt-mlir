@@ -308,23 +308,6 @@ void createTTIRToTTNNDevicePipeline(
         devicePm.addPass(mlir::createCanonicalizerPass());
       }
     }
-    createTTNNPipelineLayoutDecompositionPass(devicePm, options);
-    if (options.enableTrace) {
-      devicePm.addPass(tt::ttnn::createTTNNTraceHoistTransform());
-    }
-    // Fold ttcore.optimization_barrier ops before deallocation.
-    devicePm.addPass(ttcore::createTTCoreOptimizationBarrierFold());
-
-    createTTNNPipelineDeallocPass(devicePm, options);
-
-    if (options.ttnnPerfMetricsEnabled) {
-      ttnn::TTNNCollectPerfMetricsOptions metricsOptions{
-          options.ttnnPerfMetricsOutputFile,
-          options.ttnnPerfMetricsVerboseOutputEnabled, options.enableTrace};
-
-      devicePm.addPass(
-          mlir::tt::ttnn::createTTNNCollectPerfMetrics(metricsOptions));
-    }
 
 #ifdef TTMLIR_ENABLE_OPMODEL
     if (options.d2mFallbackEnabled) {
@@ -345,6 +328,24 @@ void createTTIRToTTNNDevicePipeline(
       ttmetal::createTTIRToTTMetalBackendPipeline(devicePm, ttmetalOptions);
     }
 #endif
+
+    createTTNNPipelineLayoutDecompositionPass(devicePm, options);
+    if (options.enableTrace) {
+      devicePm.addPass(tt::ttnn::createTTNNTraceHoistTransform());
+    }
+    // Fold ttcore.optimization_barrier ops before deallocation.
+    devicePm.addPass(ttcore::createTTCoreOptimizationBarrierFold());
+
+    createTTNNPipelineDeallocPass(devicePm, options);
+
+    if (options.ttnnPerfMetricsEnabled) {
+      ttnn::TTNNCollectPerfMetricsOptions metricsOptions{
+          options.ttnnPerfMetricsOutputFile,
+          options.ttnnPerfMetricsVerboseOutputEnabled, options.enableTrace};
+
+      devicePm.addPass(
+          mlir::tt::ttnn::createTTNNCollectPerfMetrics(metricsOptions));
+    }
   }
 }
 
