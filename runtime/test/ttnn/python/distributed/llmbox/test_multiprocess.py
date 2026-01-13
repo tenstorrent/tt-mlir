@@ -30,8 +30,10 @@ FLATBUFFER_BASE_PATH = (
 # RANK_BINDING_PATH = f"{TT_METAL_RUNTIME_ROOT_EXTERNAL}/tests/tt_metal/distributed/config/2x4_multiprocess_rank_bindings.yaml"
 RANK_BINDING_PATH = f"{TT_METAL_RUNTIME_ROOT_EXTERNAL}/tests/scale_out/4x_bh_quietbox/rank_bindings/2x4.yaml"
 
+RANK_FILE_PATH_2X4BHQBAE = f"{TT_METAL_RUNTIME_ROOT_EXTERNAL}/tests/scale_out/4x_bh_quietbox/rankfile/2x4.txt"
 
-def launch_distributed_runtime():
+
+def launch_distributed_runtime_llmbox():
     assert os.path.exists(
         RANK_BINDING_PATH
     ), f"Rank binding path not found: {RANK_BINDING_PATH}"
@@ -47,6 +49,36 @@ def launch_distributed_runtime():
     distributed_options.multi_process_args = mp_args
     ttrt.runtime.set_current_host_runtime(ttrt.runtime.HostRuntime.Distributed)
     ttrt.runtime.launch_distributed_runtime(distributed_options)
+
+
+def launch_distributed_runtime_2x4bhqbae():
+    assert os.path.exists(
+        RANK_BINDING_PATH
+    ), f"Rank binding path not found: {RANK_BINDING_PATH}"
+    assert os.path.exists(
+        RANK_FILE_PATH_2X4BHQBAE
+    ), f"Rank file path not found: {RANK_FILE_PATH_2X4BHQBAE}"
+
+    ttrt.runtime.set_mlir_home(TT_MLIR_HOME)
+    ttrt.runtime.set_metal_home(TT_METAL_RUNTIME_ROOT_EXTERNAL)
+
+    mp_args = ttrt.runtime.MultiProcessArgs.create(RANK_BINDING_PATH)
+    mp_args.with_allow_run_as_root(True)
+    mp_args.with_tag_output(True)
+    mp_args.with_hosts(["forge-qbae-01", "forge-qbae-02"])
+    mp_args.with_rank_file_path(RANK_FILE_PATH_2X4BHQBAE)
+    mp_args.with_mca_options({"btl": "self,tcp", "btl_tcp_if_include": "enp10s0f1np1"})
+
+    distributed_options = ttrt.runtime.DistributedOptions()
+    distributed_options.mode = ttrt.runtime.DistributedMode.MultiProcess
+    distributed_options.multi_process_args = mp_args
+    ttrt.runtime.set_current_host_runtime(ttrt.runtime.HostRuntime.Distributed)
+    ttrt.runtime.launch_distributed_runtime(distributed_options)
+
+
+def launch_distributed_runtime():
+    # launch_distributed_runtime_llmbox()
+    launch_distributed_runtime_2x4bhqbae()
 
 
 def shutdown_distributed_runtime():
