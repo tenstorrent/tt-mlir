@@ -27,7 +27,8 @@ FLATBUFFER_BASE_PATH = (
     f"{TT_MLIR_HOME}/build/test/ttmlir/Runtime/TTNN/llmbox/binary/Output"
 )
 
-RANK_BINDING_PATH = f"{TT_METAL_RUNTIME_ROOT_EXTERNAL}/tests/tt_metal/distributed/config/2x4_multiprocess_rank_bindings.yaml"
+# RANK_BINDING_PATH = f"{TT_METAL_RUNTIME_ROOT_EXTERNAL}/tests/tt_metal/distributed/config/2x4_multiprocess_rank_bindings.yaml"
+RANK_BINDING_PATH = f"{TT_METAL_RUNTIME_ROOT_EXTERNAL}/tests/scale_out/4x_bh_quietbox/mesh_graph_descriptors/2x4_bh_mesh_graph_descriptor.textproto"
 
 
 def launch_distributed_runtime():
