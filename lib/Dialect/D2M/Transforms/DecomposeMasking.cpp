@@ -326,7 +326,6 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
       auto fillTile = createFillTile();
 
       // Generate row mask dynamically.
-      Value validRowsVal;
       if (rowMaskTile) {
         // Use pre-loaded mask.
         auto result = rewriter.create<TileWhereOp>(
@@ -335,7 +334,7 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
                                                ValueRange{rowIdx, colIdx});
       } else {
         // Generate mask dynamically.
-        validRowsVal =
+        Value validRowsVal =
             rewriter.create<arith::ConstantIndexOp>(loc, validRowsStatic);
         auto mask = rewriter.create<ExperimentalTileRowMaskOp>(loc, tileType,
                                                                validRowsVal);
@@ -371,61 +370,6 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
       }
     };
 
-    // Helper to emit loop body for corner (both masks).
-    auto emitCorner = [&](Value rowIdx, Value colIdx) {
-      auto inputTile = rewriter.create<affine::AffineLoadOp>(
-          loc, input, ValueRange{rowIdx, colIdx});
-      auto fillTile = createFillTile();
-
-      // Generate row and col masks, then combine.
-      Value rowMask;
-      Value colMask;
-
-      if (rowMaskTile) {
-        rowMask = rowMaskTile;
-      } else if (needsRowMask) {
-        Value validRowsVal =
-            rewriter.create<arith::ConstantIndexOp>(loc, validRowsStatic);
-        rowMask =
-            rewriter
-                .create<ExperimentalTileRowMaskOp>(loc, tileType, validRowsVal)
-                .getResult();
-      }
-
-      if (colMaskTile) {
-        colMask = colMaskTile;
-      } else if (needsColMask) {
-        Value validColsVal =
-            rewriter.create<arith::ConstantIndexOp>(loc, validColsStatic);
-        colMask =
-            rewriter
-                .create<ExperimentalTileColMaskOp>(loc, tileType, validColsVal)
-                .getResult();
-      }
-
-      // Combine masks: combined = row_mask * col_mask.
-      Value combinedMask;
-      if (rowMask && colMask) {
-        combinedMask =
-            rewriter.create<TileMulOp>(loc, tileType, rowMask, colMask)
-                .getResult();
-      } else if (rowMask) {
-        combinedMask = rowMask;
-      } else if (colMask) {
-        combinedMask = colMask;
-      } else {
-        // No masking needed, just passthrough.
-        rewriter.create<affine::AffineStoreOp>(
-            loc, inputTile.getResult(), output, ValueRange{rowIdx, colIdx});
-        return;
-      }
-
-      auto result = rewriter.create<TileWhereOp>(
-          loc, tileType, combinedMask, inputTile.getResult(), fillTile);
-      rewriter.create<affine::AffineStoreOp>(loc, result.getResult(), output,
-                                             ValueRange{rowIdx, colIdx});
-    };
-
     // Helper to emit loop body for OOB fill.
     auto emitFill = [&](Value rowIdx, Value colIdx) {
       auto fillTile = createFillTile();
@@ -445,60 +389,119 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
       }
     }
 
-    // === LOOP 2: Last row tiles (row mask only, excluding corner) ===
-    // Bounds: [lastValidRow] x [0, lastValidCol)
-    if (needsRowMask && lastValidCol > 0) {
+    // === LOOP 2: Last row tiles (row mask, EXCLUDING corner if col mask
+    // needed) === When col mask is needed, corner is handled separately to
+    // avoid DST conflicts. Bounds: [lastValidRow] x [0, lastValidCol) when
+    // needsColMask
+    //         [lastValidRow] x [0, lastValidCol+1) when !needsColMask
+    if (needsRowMask) {
+      int colEnd = needsColMask ? lastValidCol : lastValidCol + 1;
+      if (colEnd > 0) {
+        rewriter.setInsertionPointAfter(insertAfter);
+        auto [loop, rowIdx, colIdx] =
+            createSingleRowLoop(lastValidRow, 0, colEnd, "last_row");
+        if (loop) {
+          emitRowMasked(rowIdx, colIdx);
+          insertAfter = loop;
+        }
+      }
+    } else if (lastValidRow >= 0) {
+      // Row is fully valid, just passthrough.
+      int colEnd = needsColMask ? lastValidCol : lastValidCol + 1;
+      if (colEnd > 0) {
+        rewriter.setInsertionPointAfter(insertAfter);
+        auto [loop, rowIdx, colIdx] =
+            createSingleRowLoop(lastValidRow, 0, colEnd, "last_row_full");
+        if (loop) {
+          emitPassthrough(rowIdx, colIdx);
+          insertAfter = loop;
+        }
+      }
+    }
+
+    // === LOOP 3a: Non-corner col tiles (col mask, reads from INPUT) ===
+    // Bounds: [0, lastValidRow) x [lastValidCol] when needsRowMask (corner
+    // handled separately) Bounds: [0, lastValidRow+1) x [lastValidCol] when
+    // !needsRowMask (no corner special case)
+    if (needsColMask) {
+      int rowEnd = needsRowMask ? lastValidRow : lastValidRow + 1;
+      if (rowEnd > 0) {
+        rewriter.setInsertionPointAfter(insertAfter);
+        auto [loop, rowIdx, colIdx] =
+            createSingleColLoop(0, rowEnd, lastValidCol, "last_col");
+        if (loop) {
+          emitColMasked(rowIdx, colIdx);
+          insertAfter = loop;
+        }
+      }
+    } else if (lastValidCol >= 0) {
+      // Col is fully valid, just passthrough.
+      int rowEnd = needsRowMask ? lastValidRow : lastValidRow + 1;
+      if (rowEnd > 0) {
+        rewriter.setInsertionPointAfter(insertAfter);
+        auto [loop, rowIdx, colIdx] =
+            createSingleColLoop(0, rowEnd, lastValidCol, "last_col_full");
+        if (loop) {
+          emitPassthrough(rowIdx, colIdx);
+          insertAfter = loop;
+        }
+      }
+    }
+
+    // === LOOP 3b: Corner tile - first apply row mask ===
+    // When both row and col masking apply, corner needs both masks applied
+    // sequentially. First apply row mask (reads from input, writes to output).
+    if (needsRowMask && needsColMask && lastValidRow >= 0 &&
+        lastValidCol >= 0) {
       rewriter.setInsertionPointAfter(insertAfter);
-      auto [loop, rowIdx, colIdx] =
-          createSingleRowLoop(lastValidRow, 0, lastValidCol, "last_row");
+      auto [loop, rowIdx, colIdx] = createSingleColLoop(
+          lastValidRow, lastValidRow + 1, lastValidCol, "corner_row");
       if (loop) {
         emitRowMasked(rowIdx, colIdx);
         insertAfter = loop;
       }
-    } else if (!needsRowMask && lastValidCol > 0 && lastValidRow >= 0) {
-      // Row is fully valid, just passthrough.
-      rewriter.setInsertionPointAfter(insertAfter);
-      auto [loop, rowIdx, colIdx] =
-          createSingleRowLoop(lastValidRow, 0, lastValidCol, "last_row_full");
-      if (loop) {
-        emitPassthrough(rowIdx, colIdx);
-        insertAfter = loop;
-      }
     }
 
-    // === LOOP 3: Last col tiles (col mask only, excluding corner) ===
-    // Bounds: [0, lastValidRow) x [lastValidCol]
-    if (needsColMask && lastValidRow > 0) {
+    // === LOOP 3c: Corner tile - then apply col mask ===
+    // Reads from OUTPUT where row mask was written, applies col mask.
+    if (needsRowMask && needsColMask && lastValidRow >= 0 &&
+        lastValidCol >= 0) {
       rewriter.setInsertionPointAfter(insertAfter);
-      auto [loop, rowIdx, colIdx] =
-          createSingleColLoop(0, lastValidRow, lastValidCol, "last_col");
+      auto [loop, rowIdx, colIdx] = createSingleColLoop(
+          lastValidRow, lastValidRow + 1, lastValidCol, "corner_col");
       if (loop) {
-        emitColMasked(rowIdx, colIdx);
-        insertAfter = loop;
-      }
-    } else if (!needsColMask && lastValidRow > 0 && lastValidCol >= 0) {
-      // Col is fully valid, just passthrough.
-      rewriter.setInsertionPointAfter(insertAfter);
-      auto [loop, rowIdx, colIdx] =
-          createSingleColLoop(0, lastValidRow, lastValidCol, "last_col_full");
-      if (loop) {
-        emitPassthrough(rowIdx, colIdx);
-        insertAfter = loop;
-      }
-    }
+        // Read from OUTPUT (row-masked result), not INPUT!
+        auto inputTile = rewriter.create<affine::AffineLoadOp>(
+            loc, output, ValueRange{rowIdx, colIdx});
+        auto fillTile = createFillTile();
 
-    // === LOOP 4: Corner tile (both masks) ===
-    // Single tile at [lastValidRow, lastValidCol].
-    {
-      rewriter.setInsertionPointAfter(insertAfter);
-      auto [loop, rowIdx, colIdx] = createSingleRowLoop(
-          lastValidRow, lastValidCol, lastValidCol + 1, "corner");
-      if (loop) {
-        if (needsRowMask || needsColMask) {
-          emitCorner(rowIdx, colIdx);
+        if (colMaskTile) {
+          auto result = rewriter.create<TileWhereOp>(
+              loc, tileType, colMaskTile, inputTile.getResult(), fillTile);
+          rewriter.create<affine::AffineStoreOp>(
+              loc, result.getResult(), output, ValueRange{rowIdx, colIdx});
         } else {
-          emitPassthrough(rowIdx, colIdx);
+          // Generate mask dynamically.
+          Value validColsVal =
+              rewriter.create<arith::ConstantIndexOp>(loc, validColsStatic);
+          auto mask = rewriter.create<ExperimentalTileColMaskOp>(loc, tileType,
+                                                                 validColsVal);
+          auto result = rewriter.create<TileWhereOp>(
+              loc, tileType, mask.getResult(), inputTile.getResult(), fillTile);
+          rewriter.create<affine::AffineStoreOp>(
+              loc, result.getResult(), output, ValueRange{rowIdx, colIdx});
         }
+        insertAfter = loop;
+      }
+    } else if (needsRowMask && !needsColMask && lastValidRow >= 0 &&
+               lastValidCol >= 0) {
+      // Row mask only - corner already handled by LOOP 2, but we still need
+      // to process the corner column for non-masked passthrough.
+      rewriter.setInsertionPointAfter(insertAfter);
+      auto [loop, rowIdx, colIdx] = createSingleColLoop(
+          lastValidRow, lastValidRow + 1, lastValidCol, "corner_passthrough");
+      if (loop) {
+        emitPassthrough(rowIdx, colIdx);
         insertAfter = loop;
       }
     }

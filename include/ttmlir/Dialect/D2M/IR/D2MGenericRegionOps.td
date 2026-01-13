@@ -123,6 +123,7 @@ defvar D2M_TileComputeOpTraitBundle = [
   Pure
 ];
 
+
 //===----------------------------------------------------------------------===//
 // D2M Generic Region Math Ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//
@@ -748,7 +749,8 @@ def D2M_ExperimentalTilePadOp : D2M_GenericRegionComputeOp<"experimental::tile_p
     }];
 }
 
-def D2M_ExperimentalTileFillOp : D2M_GenericRegionComputeOp<"experimental::tile_fill", D2M_TileComputeOpTraitBundle> {
+// Note: No Pure trait - prevents LICM from hoisting this op out of loops
+def D2M_ExperimentalTileFillOp : D2M_GenericRegionComputeOp<"experimental::tile_fill"> {
     let summary = "D2M Experimental Tile Fill Op";
     let description = [{
         The `experimental::tile_fill` operation creates a tile filled with a constant scalar value.
@@ -779,7 +781,8 @@ def D2M_ExperimentalTileFillOp : D2M_GenericRegionComputeOp<"experimental::tile_
     }];
 }
 
-def D2M_ExperimentalTileRowMaskOp : D2M_GenericRegionComputeOp<"experimental::tile_row_mask", D2M_TileComputeOpTraitBundle> {
+// Note: No Pure trait - prevents LICM from hoisting this op out of loops
+def D2M_ExperimentalTileRowMaskOp : D2M_GenericRegionComputeOp<"experimental::tile_row_mask"> {
     let summary = "D2M Experimental Tile Row Mask Op";
     let description = [{
         The `experimental::tile_row_mask` operation generates a row mask tile where
@@ -811,7 +814,8 @@ def D2M_ExperimentalTileRowMaskOp : D2M_GenericRegionComputeOp<"experimental::ti
     }];
 }
 
-def D2M_ExperimentalTileColMaskOp : D2M_GenericRegionComputeOp<"experimental::tile_col_mask", D2M_TileComputeOpTraitBundle> {
+// Note: No Pure trait - prevents LICM from hoisting this op out of loops
+def D2M_ExperimentalTileColMaskOp : D2M_GenericRegionComputeOp<"experimental::tile_col_mask"> {
     let summary = "D2M Experimental Tile Col Mask Op";
     let description = [{
         The `experimental::tile_col_mask` operation generates a col mask tile where

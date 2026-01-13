@@ -97,25 +97,88 @@ static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
   llvm_unreachable("Expected load or subview op");
 }
 
+// // Find the DST memref from a store operation.
+// static Value getDstMemrefFromStore(Operation *storeOp) {
+//   if (auto affineStore = mlir::dyn_cast<affine::AffineStoreOp>(storeOp)) {
+//     return affineStore.getMemRef();
+//   }
+//   if (auto memrefStore = mlir::dyn_cast<memref::StoreOp>(storeOp)) {
+//     return memrefStore.getMemRef();
+//   }
+//   return nullptr;
+// }
+
+// Find the DST index from a store operation.
+static Value getDstIdxFromStore(Operation *storeOp) {
+  if (auto affineStore = mlir::dyn_cast<affine::AffineStoreOp>(storeOp)) {
+    auto indices = affineStore.getMapOperands();
+    assert(indices.size() == 1 && "Expected single index in DST store");
+    return indices.front();
+  }
+  if (auto memrefStore = mlir::dyn_cast<memref::StoreOp>(storeOp)) {
+    auto indices = memrefStore.getIndices();
+    assert(indices.size() == 1 && "Expected single index in DST store");
+    return indices.front();
+  }
+  llvm_unreachable("Expected affine.store or memref.store");
+}
+
+// Check if a store operation stores to DST.
+static bool isStoreToDst(Operation *op) {
+  if (auto affineStore = mlir::dyn_cast<affine::AffineStoreOp>(op)) {
+    return ttcore::getMemorySpace(affineStore.getMemRef()) ==
+           ttcore::MemorySpace::RegisterDst;
+  }
+  if (auto memrefStore = mlir::dyn_cast<memref::StoreOp>(op)) {
+    return ttcore::getMemorySpace(memrefStore.getMemRef()) ==
+           ttcore::MemorySpace::RegisterDst;
+  }
+  return false;
+}
+
+// Get DST index from where a compute op result is stored.
+// Handles both affine.store (before lower-affine) and memref.store (after).
+// When a value has multiple stores to different DST memrefs (due to value
+// reuse across DST regions after LICM), we prefer stores in the same block
+// as the defining op. This ensures we get the DST index for the correct
+// allocation context.
 static Value getDstIdxFromResult(Value d2mOpResult) {
-  memref::StoreOp storeOp;
+  Operation *defOp = d2mOpResult.getDefiningOp();
+  Block *defBlock = defOp ? defOp->getBlock() : nullptr;
+
+  // Collect stores, preferring same-block stores
+  Operation *sameBlockStore = nullptr;
+  Operation *anyStore = nullptr;
+
   for (Operation *op : d2mOpResult.getUsers()) {
-    auto maybeStore = mlir::dyn_cast<memref::StoreOp>(op);
-    if (maybeStore && ttcore::getMemorySpace(maybeStore.getMemRef()) ==
-                          ttcore::MemorySpace::RegisterDst) {
-      storeOp = mlir::cast<memref::StoreOp>(op);
-      break;
+    if (isStoreToDst(op)) {
+      anyStore = op;
+      if (defBlock && op->getBlock() == defBlock) {
+        // Found a store in the same block - prefer this one
+        if (!sameBlockStore) {
+          sameBlockStore = op;
+        } else {
+          // Multiple same-block stores - pick the one that comes first
+          if (op->isBeforeInBlock(sameBlockStore)) {
+            sameBlockStore = op;
+          }
+        }
+      }
     }
   }
-  assert(storeOp && "Expected store op.");
-  assert(storeOp.getIndices().size() == 1 &&
-         "Expected single index in store op");
-  return storeOp.getIndices().front();
+
+  // Prefer same-block store, fall back to any store
+  Operation *selectedStore = sameBlockStore ? sameBlockStore : anyStore;
+  if (!selectedStore) {
+    llvm_unreachable("Expected at least one store to DST");
+  }
+  return getDstIdxFromStore(selectedStore);
 }
 
 // Get DST index for an operand value. The operand can either be:
 // 1. The result of a compute op that stores to DST (look at users for store)
 // 2. An affine.load from DST (look at defining op for load index)
+// 3. A memref.load from DST (after lower-affine converts affine.load)
 static Value getDstIdxFromOperand(Value operand) {
   // Case 1: Check if it's an affine.load from DST
   if (auto loadOp = operand.getDefiningOp<affine::AffineLoadOp>()) {
@@ -127,7 +190,17 @@ static Value getDstIdxFromOperand(Value operand) {
     }
   }
 
-  // Case 2: Look for store to DST in users (for compute op results)
+  // Case 2: Check if it's a memref.load from DST (after lower-affine)
+  if (auto loadOp = operand.getDefiningOp<memref::LoadOp>()) {
+    if (ttcore::getMemorySpace(loadOp.getMemRef()) ==
+        ttcore::MemorySpace::RegisterDst) {
+      auto indices = loadOp.getIndices();
+      assert(indices.size() == 1 && "Expected single index in DST load");
+      return indices.front();
+    }
+  }
+
+  // Case 3: Look for store to DST in users (for compute op results)
   return getDstIdxFromResult(operand);
 }
 
