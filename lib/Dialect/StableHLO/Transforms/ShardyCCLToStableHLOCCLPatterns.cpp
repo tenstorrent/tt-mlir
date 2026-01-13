@@ -6,7 +6,12 @@
 #include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Support/LLVM.h"
 #include "stablehlo/dialect/StablehloOps.h"
+#include <cassert>
+#include <shardy/dialect/sdy/ir/constants.h>
+#include <shardy/dialect/sdy/ir/dialect.h>
 
 namespace mlir::tt::stablehlo {
 
@@ -401,12 +406,26 @@ public:
                                                       /*type=*/1);
 
     // Current tensor value/type threaded through the loop.
-    mlir::Value result = srcOp.getOperand();
+    mlir::Value inputOperand = srcOp.getOperand();
+    mlir::Value result = inputOperand;
+
+    auto inputShardingAttr = getTensorShardingAttr(inputOperand);
+    if (!inputShardingAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "input tensor does not have a `sdy.sharding` attribute");
+    }
+    bool input_is_fully_replicated =
+        shardy_utils::isFullyReplicatedTensor(*inputShardingAttr);
+    llvm::outs() << "[HET DEBUG] input_is_fully_replicated: "
+                 << input_is_fully_replicated << "\n";
+
     auto prevType = mlir::cast<mlir::RankedTensorType>(result.getType());
 
     // Per-dimension slicing axes (we support at most one mesh axis per tensor
     // dim).
     auto axesPerDim = srcOp.getSlicingAxes();
+
+    mlir::SmallVector<mlir::Operation *> ops;
 
     for (auto it = axesPerDim.begin(), e = axesPerDim.end(); it != e; ++it) {
       int64_t sliceDim =
@@ -461,6 +480,7 @@ public:
           mlir::RankedTensorType::get(reshapeShape, prevType.getElementType());
       auto reshaped = rewriter.create<mlir::stablehlo::ReshapeOp>(
           srcOp.getLoc(), reshapedType, result);
+      ops.push_back(reshaped.getOperation());
 
       // 2) Replica groups for the target mesh axis.
       auto groups = createDenseAttrFromReplicaGroups(
@@ -478,6 +498,7 @@ public:
           /*split_count=*/parts,
           /*replica_groups=*/groups,
           /*channel_handle=*/ch);
+      ops.push_back(allToAll.getOperation());
 
       // 4) Static slice the "parts" axis to take index 0 only.
       llvm::SmallVector<int64_t> startIdx(reshapeShape.size(), 0);
@@ -500,6 +521,7 @@ public:
       auto slice = rewriter.create<mlir::stablehlo::SliceOp>(
           srcOp.getLoc(), slicedType, allToAllOut, startAttr, limitAttr,
           stridesAttr);
+      ops.push_back(slice.getOperation());
 
       // 5) Remove the singleton "parts" axis → final shape with chunkLen at
       // sliceDim.
@@ -508,14 +530,59 @@ public:
           mlir::RankedTensorType::get(shape, prevType.getElementType());
       auto squeezed = rewriter.create<mlir::stablehlo::ReshapeOp>(
           srcOp.getLoc(), finalType, slice.getResult());
-
+      ops.push_back(squeezed.getOperation());
       // Thread through for the next dimension (if any).
       result = squeezed.getResult();
       prevType = finalType;
     }
 
+    // if (input_is_fully_replicated) {
+    //   // Wrap the result in a stablehlo.composite op for marking/wiring
+    //   purposes. mlir::OperationState state(srcOp.getLoc(),
+    //   mlir::stablehlo::CompositeOp::getOperationName());
+    //   state.addOperands(inputOperand);
+    //   state.addTypes(inputType);
+    // }
+
+    llvm::outs() << "[HET DEBUG] ops: \n";
+    for (auto *op : ops) {
+      op->print(llvm::outs());
+      llvm::outs() << "\n";
+    }
+    llvm::outs() << "[HET DEBUG] end ops\n";
+
     rewriter.replaceOp(srcOp, result);
     return mlir::success();
+  }
+
+private:
+  //   mlir::func::FuncOp createDecompFunction() {
+
+  //   }
+
+  std::optional<mlir::sdy::TensorShardingAttr>
+  getTensorShardingAttr(mlir::Value value) const {
+    if (auto *defOp = value.getDefiningOp()) {
+      if (auto shardingAttr =
+              defOp->getAttrOfType<mlir::sdy::TensorShardingAttr>(
+                  mlir::sdy::TensorShardingAttr::name)) {
+        return shardingAttr;
+      }
+      return std::nullopt;
+    }
+
+    if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(value)) {
+      mlir::Operation *parentOp = blockArg.getOwner()->getParentOp();
+      if (auto func = llvm::dyn_cast_or_null<mlir::func::FuncOp>(parentOp)) {
+        unsigned argNo = blockArg.getArgNumber();
+        mlir::DictionaryAttr argAttrs = func.getArgAttrDict(argNo);
+        if (auto shardingAttr =
+                argAttrs.get(mlir::sdy::TensorShardingAttr::name)) {
+          return mlir::cast<mlir::sdy::TensorShardingAttr>(shardingAttr);
+        }
+      }
+    }
+    return std::nullopt;
   }
 };
 
