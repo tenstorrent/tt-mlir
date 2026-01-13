@@ -7,6 +7,7 @@
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Tools/mlir-translate/Translation.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 
 namespace mlir::tt::emitpy {
 
@@ -19,7 +20,8 @@ void registerToPythonTranslation() {
       [](DialectRegistry &registry) {
         // clang-format off
         registry.insert<emitpy::EmitPyDialect,
-                        func::FuncDialect>();
+                        func::FuncDialect,
+                        ttcore::TTCoreDialect>();
         // clang-format on
       });
 }
