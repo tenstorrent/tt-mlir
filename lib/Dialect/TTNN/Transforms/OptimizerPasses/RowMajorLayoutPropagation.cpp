@@ -341,24 +341,15 @@ private:
   void insertToLayoutOpsBeforeReturns(func::FuncOp func, IRRewriter &rewriter) {
     // Skip const_eval functions - their prepared outputs (e.g., conv2d weights)
     // should not be converted as they have special layouts
-    if (func->hasAttr("const_eval")) {
-      llvm::errs()
-          << "[RowMajorLayoutPropagation] Skipping const_eval function: "
-          << func.getName() << "\n";
+    if (ttmlir::utils::isConstEvalFunc(func)) {
       return;
     }
-
-    llvm::errs() << "[RowMajorLayoutPropagation] Checking returns in function: "
-                 << func.getName() << "\n";
 
     // Get function return types
     FunctionType funcType = func.getFunctionType();
 
     // Find all return operations
     func.walk([&](func::ReturnOp returnOp) {
-      llvm::errs() << "[RowMajorLayoutPropagation] Found return op with "
-                   << returnOp.getNumOperands() << " operands\n";
-
       // Check each return operand
       for (unsigned i = 0; i < returnOp.getNumOperands(); ++i) {
         Value returnValue = returnOp.getOperand(i);
@@ -397,9 +388,10 @@ private:
         // Check if we need to insert a ToLayoutOp
         // If actual is row-major and expected is tiled, insert ToLayoutOp
         if (!actualLayout.isTiled() && expectedLayout.isTiled()) {
-          llvm::errs() << "[RowMajorLayoutPropagation] INSERTING ToLayoutOp "
-                          "before return for operand "
-                       << i << " (RM -> Tile)\n";
+          TTMLIR_DEBUG(ttmlir::LogComponent::RMPropagation,
+                       "Inserting ToLayoutOp before return for operand {}: "
+                       "actual layout {} -> expected layout {}",
+                       i, actualLayout, expectedLayout);
 
           // Create ToLayoutOp to convert from row-major to tiled (following
           // OperationValidationAndFallback pattern)
