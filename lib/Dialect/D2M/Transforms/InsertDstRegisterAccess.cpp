@@ -431,7 +431,7 @@ public:
     auto [elemType, maxDstSlice] = inferDstInfoFromAllAccesses(copyInfos);
     // Use flat 1D DST indexing - each slot holds 1 tile.
     // CB shape doesn't affect DST allocation; we process 1 tile at a time.
-    TT_assertv(maxDstSlice <= static_cast<int>(dstCapacity),
+    TT_assertv(maxDstSlice < static_cast<int>(dstCapacity),
                "Insufficient DST capacity for all operands.");
     // DST is 1D array of tile slots.
     MemRefType dstType = MemRefType::get(
@@ -1192,6 +1192,10 @@ public:
     CopyInfoMap copyInfos;
     DstStackAllocator dstStackAllocator(dstCapacity);
     DstIntermediatesMap dstIntermediates;
+    // #region agent log
+    LDBG() << "=== collectDstAccessesScheduled START (capacity=" << dstCapacity
+           << ") ===";
+    // #endregion
     region.walk<WalkOrder::PreOrder>([&](OperandLoadStoreRegisterOpInterface
                                              computeOp) {
       // Filter out non CB<->DST loads & stores.
@@ -1204,19 +1208,44 @@ public:
       int numLoads = 0;
 
       // Collect CB->DST loads for this op's operands.
-      // First, count how many operands come from intermediate results
-      // (mask/fill ops) so we can skip those slots when allocating for loads.
+      // We must skip intermediate slots that are still LIVE (have unprocessed
+      // users). An intermediate is dead once all its users have been visited.
       SmallVector<int32_t> intermediateSlots;
-      for (int64_t operandIdx : computeOp.getOperandsLoadFromDstRegister()) {
-        if (computeOp.isScalarOperand(operandIdx)) {
-          continue;
+      // #region agent log
+      LDBG() << "Processing: " << computeOp->getName().getStringRef().str();
+      // #endregion
+
+      // Helper to check if an intermediate is still live (has unprocessed
+      // users)
+      auto isIntermediateLive = [&](Operation *intermediateOp) -> bool {
+        for (Operation *user : intermediateOp->getUsers()) {
+          // If user is the current op, it's about to be processed → still live
+          if (user == computeOp.getOperation()) {
+            return true;
+          }
+          // If user hasn't been added to dstIntermediates yet and it's a
+          // compute op, it hasn't been processed → intermediate is live
+          if (user->hasTrait<D2MGenericRegionComputeOpTrait>() &&
+              !dstIntermediates.contains(user)) {
+            return true;
+          }
         }
-        Value operand = computeOp->getOperand(operandIdx);
-        Operation *defOp = operand.getDefiningOp();
-        // Check if this operand comes from an op that was already allocated
-        // a DST slot as an intermediate result.
-        if (defOp && dstIntermediates.contains(defOp)) {
-          intermediateSlots.push_back(dstIntermediates[defOp].dstSlice);
+        return false;
+      };
+
+      // Only reserve slots for LIVE intermediates
+      for (const auto &[op, info] : dstIntermediates) {
+        if (isIntermediateLive(op)) {
+          intermediateSlots.push_back(info.dstSlice);
+          // #region agent log
+          LDBG() << "  Reserved LIVE intermediate slot DST[" << info.dstSlice
+                 << "] from " << op->getName().getStringRef().str();
+          // #endregion
+        } else {
+          // #region agent log
+          LDBG() << "  Intermediate DST[" << info.dstSlice << "] from "
+                 << op->getName().getStringRef().str() << " is DEAD, can reuse";
+          // #endregion
         }
       }
 
@@ -1302,6 +1331,12 @@ public:
           int32_t allocatedIndex = (overwriteInput)
                                        ? dstStackAllocator.getCurrSliceIndex()
                                        : dstStackAllocator.allocate(true);
+
+          // #region agent log
+          LDBG() << "INTERMEDIATE: "
+                 << computeOp->getName().getStringRef().str() << " -> DST["
+                 << allocatedIndex << "]";
+          // #endregion
 
           dstIntermediates[computeOp] = {allocatedIndex,
                                          outermostInnerComputeLoop};
