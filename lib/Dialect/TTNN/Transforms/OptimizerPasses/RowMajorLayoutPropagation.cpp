@@ -341,18 +341,12 @@ private:
   // Insert ToLayoutOps before return statements where the actual tensor layout
   // (row-major) doesn't match the expected function return type (tiled).
   void insertToLayoutOpsBeforeReturns(func::FuncOp func, IRRewriter &rewriter) {
-    // Skip const_eval functions - their prepared outputs (e.g., conv2d weights)
-    // should not be converted as they have special layouts
-    if (ttmlir::utils::isConstEvalFunc(func)) {
-      return;
-    }
-
-    // Get function return types
     FunctionType funcType = func.getFunctionType();
 
-    // Find all return operations
     func.walk([&](func::ReturnOp returnOp) {
-      // Check each return operand
+      assert(returnOp.getNumOperands() == funcType.getNumResults() &&
+             "Return operand count must match function result count");
+
       for (unsigned i = 0; i < returnOp.getNumOperands(); ++i) {
         Value returnValue = returnOp.getOperand(i);
 
@@ -370,9 +364,6 @@ private:
         }
 
         // Get expected layout from function signature
-        assert(returnOp.getNumOperands() == funcType.getNumResults() &&
-               "Return operand count must match function result count");
-
         Type expectedReturnType = funcType.getResult(i);
         auto expectedTensorType =
             mlir::dyn_cast<RankedTensorType>(expectedReturnType);
@@ -388,14 +379,13 @@ private:
 
         // Check if we need to insert a ToLayoutOp
         // If actual is row-major and expected is tiled, insert ToLayoutOp
+        // (following OperationValidationAndFallback pattern)
         if (!actualLayout.isTiled() && expectedLayout.isTiled()) {
           TTMLIR_DEBUG(ttmlir::LogComponent::RMPropagation,
                        "Inserting ToLayoutOp before return for operand {}: "
                        "actual layout {} -> expected layout {}",
                        i, actualLayout, expectedLayout);
 
-          // Create ToLayoutOp to convert from row-major to tiled (following
-          // OperationValidationAndFallback pattern)
           OpBuilder builder(returnOp->getContext());
           builder.setInsertionPoint(returnOp);
 
