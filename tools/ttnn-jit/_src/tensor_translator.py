@@ -263,7 +263,7 @@ def _check_layout_supported(tensor_arg):
 
     mem_config = tensor_arg.memory_config()
     legacy_sharded = mem_config.shard_spec is not None
-    nd_sharded = mem_config.is_sharded() and mem_config.nd_shard_spec is not None
+    nd_sharded = mem_config.is_sharded() and mem_config.shard_spec is None
 
     if mem_config.is_sharded():
         if mem_config.buffer_type.value == ttnn.BufferType.DRAM:
