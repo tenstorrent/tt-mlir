@@ -40,6 +40,7 @@ OP_IGNORELIST = [
     "ttir.reduce_scatter",
     "ttir.all_reduce",
     "ttir.point_to_point",
+    "ttir.all_to_all",
 ]
 
 
@@ -138,7 +139,7 @@ def find_connected_components(module):
     # Recurse into top-level func.func ops and func.func ops inside ttcore.device_module
     for entry in module.body.operations:
         op_name = entry.operation.name
-        if op_name == "func.func":
+        if op_name == "func.func" and entry.operation.is_public():
             process_func_op(entry, uf, op_map)
         elif op_name == "ttcore.device_module":
             # Recurse into device_module to find nested func.func ops
@@ -149,7 +150,11 @@ def find_connected_components(module):
                         for region in nested_op.operation.regions:
                             for block in region:
                                 for nested_op in block.operations:
-                                    if nested_op.operation.name == "func.func":
+                                    if nested_op.operation.name == "func.func" and (
+                                        "sym_visibility" not in nested_op.attributes
+                                        or nested_op.attributes["sym_visibility"]
+                                        == "public"
+                                    ):
                                         process_func_op(nested_op, uf, op_map)
 
     # Group operations by their component representative
