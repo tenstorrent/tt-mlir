@@ -20,11 +20,68 @@ public:
   using impl::TTNNSetComputeKernelConfigBase<
       TTNNSetComputeKernelConfig>::TTNNSetComputeKernelConfigBase;
 
+  std::unique_ptr<::mlir::Pass> clonePass() const override {
+    TTNNSetComputeKernelConfigOptions opts;
+    llvm::errs() << "[DEBUG CLONE] src=" << (void *)this
+                 << " hasValue=" << (mathFidelity.hasValue() ? "true" : "false")
+                 << " value="
+                 << (mathFidelity.getValue()
+                         ? stringifyMathFidelity(*mathFidelity.getValue())
+                         : "nullopt")
+                 << "\n";
+    opts.mathFidelity = this->mathFidelity.getValue();
+    opts.mathApproxMode = this->mathApproxMode.getValue();
+    opts.fp32DestAccEn = this->fp32DestAccEn.getValue();
+    opts.packerL1Acc = this->packerL1Acc.getValue();
+    opts.dstFullSyncEn = this->dstFullSyncEn.getValue();
+    auto pass = std::make_unique<TTNNSetComputeKernelConfig>(std::move(opts));
+    llvm::errs() << "[DEBUG CLONE] Created pass ptr=" << (void *)pass.get()
+                 << "\n";
+    llvm::errs() << "[DEBUG CLONE] config_pass textual pipeline: ";
+    pass->printAsTextualPipeline(llvm::errs());
+    llvm::errs() << "\n";
+    llvm::errs() << "-------\n";
+    return std::move(pass);
+  }
+
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
     MLIRContext *context = &getContext();
 
+    llvm::errs() << "[DEBUG PASS] this ptr=" << (void *)this << "\n";
+    llvm::errs() << "[DEBUG PASS] option mathFidelity:\n";
+    llvm::errs() << "  hasValue() = "
+                 << (mathFidelity.hasValue() ? "true" : "false") << "\n";
+
+    auto v = mathFidelity.getValue();
+    llvm::errs() << "  getValue() = ";
+    if (v) {
+      llvm::errs() << stringifyMathFidelity(*v) << "\n";
+    } else {
+      llvm::errs() << "nullopt\n";
+    }
+
+    llvm::errs() << "  textual pipeline for *this* pass: ";
+    this->printAsTextualPipeline(llvm::errs());
+    llvm::errs() << "\n";
+
     std::optional<MathFidelity> mathFidelityOverride = mathFidelity;
+    llvm::errs()
+        << "[DEBUG PASS] mathFidelityOverride after implicit conversion: ";
+    if (mathFidelityOverride.has_value()) {
+      llvm::errs() << "has value: "
+                   << stringifyMathFidelity(*mathFidelityOverride) << "\n";
+      std::cout << "*** mathFidelityOverride.has_value() is TRUE" << std::endl;
+    } else {
+      llvm::errs() << "nullopt\n";
+      std::cout << "*** mathFidelityOverride.has_value() is FALSE" << std::endl;
+    }
+
+    // Debug: Check fp32 option for comparison
+    llvm::errs() << "[DEBUG PASS] fp32DestAccEn Option member:\n";
+    llvm::errs() << "  getValue() -> " << fp32DestAccEn.getValue() << "\n";
+    llvm::errs() << "  implicit bool conversion -> "
+                 << (fp32DestAccEn ? "true" : "false") << "\n";
 
     // Walk through all operations in the moduleOp
     moduleOp->walk([&](Operation *op) {

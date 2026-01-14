@@ -274,27 +274,71 @@ void createTTIRToTTNNDevicePipeline(
     }
 
     // Apply ComputeKernelConfig settings before analysis passes.
-    // This ensures that analysis passes see the configured values.
-    // Check if math fidelity is explicitly set (CLI or programmatic).
-    bool mathFidelityExplicitlySet =
-        options.computeCfgMathFidelitySet ||
-        (options.computeCfgMathFidelity.getNumOccurrences() > 0);
+    // Create options struct and forward pipeline options.
+    TTNNSetComputeKernelConfigOptions setConfigOptions;
 
-    // Run pass only when at least one compute config option is explicitly set.
-    if (mathFidelityExplicitlySet || options.computeCfgFp32DestAccEn) {
-      // Create options struct and forward pipeline options.
-      TTNNSetComputeKernelConfigOptions setConfigOptions;
+    // Explicitly extract value from pipeline Option using getValue()
+    // This ensures the default value is properly transferred even when not set
+    // via command line
+    setConfigOptions.mathFidelity = options.computeCfgMathFidelity.getValue();
 
-      // Forward math fidelity only if explicitly set.
-      if (mathFidelityExplicitlySet) {
-        setConfigOptions.mathFidelity = options.computeCfgMathFidelity;
+    // Debug: Check what value is being set
+    llvm::errs() << "[DEBUG] Pipeline option computeCfgMathFidelity: ";
+    if (options.computeCfgMathFidelity.hasValue()) {
+      llvm::errs() << "hasValue=true, ";
+      auto val = options.computeCfgMathFidelity.getValue();
+      if (val.has_value()) {
+        llvm::errs() << "value=" << stringifyMathFidelity(*val) << "\n";
+      } else {
+        llvm::errs() << "value=nullopt\n";
       }
-
-      // Forward fp32DestAccEn value (defaults to true).
-      setConfigOptions.fp32DestAccEn = options.computeCfgFp32DestAccEn;
-
-      devicePm.addPass(createTTNNSetComputeKernelConfig(setConfigOptions));
+    } else {
+      llvm::errs() << "hasValue=false\n";
     }
+
+    llvm::errs() << "[DEBUG] Pass option setConfigOptions.mathFidelity: ";
+    if (setConfigOptions.mathFidelity.has_value()) {
+      llvm::errs() << "value="
+                   << stringifyMathFidelity(*setConfigOptions.mathFidelity)
+                   << "\n";
+    } else {
+      llvm::errs() << "value=nullopt\n";
+    }
+
+    // Debug: Check what value is being set
+    llvm::errs() << "[DEBUG] Pipeline option computeCfgFp32DestAccEn: ";
+    if (options.computeCfgFp32DestAccEn.hasValue()) {
+      llvm::errs() << "hasValue=true, ";
+      auto val = options.computeCfgFp32DestAccEn.getValue();
+      if (val) {
+        llvm::errs() << "value=True" << "\n";
+      } else {
+        llvm::errs() << "value=False\n";
+      }
+    } else {
+      llvm::errs() << "hasValue=false\n";
+    }
+
+    // Also use getValue() for fp32 to be consistent
+    setConfigOptions.fp32DestAccEn = options.computeCfgFp32DestAccEn.getValue();
+
+    llvm::errs() << "[DEBUG PIPELINE] About to create pass with "
+                    "setConfigOptions.mathFidelity = ";
+    if (setConfigOptions.mathFidelity.has_value()) {
+      llvm::errs() << stringifyMathFidelity(*setConfigOptions.mathFidelity)
+                   << "\n";
+    } else {
+      llvm::errs() << "nullopt\n";
+    }
+
+    auto config_pass = createTTNNSetComputeKernelConfig(setConfigOptions);
+    llvm::errs() << "[DEBUG PIPELINE] config_pass ptr="
+                 << (void *)config_pass.get() << "\n";
+    llvm::errs() << "[DEBUG PIPELINE] config_pass textual pipeline: ";
+    config_pass->printAsTextualPipeline(llvm::errs());
+    llvm::errs() << "\n";
+
+    devicePm.addPass(std::move(config_pass));
 
     createTTNNPipelineAnalysisPasses(devicePm, options);
     // We need to re-run const-eval to pick up const prepare conv2d weight ops

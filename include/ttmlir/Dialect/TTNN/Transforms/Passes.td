@@ -461,11 +461,11 @@ def TTNNSetComputeKernelConfig: Pass<"ttnn-set-compute-kernel-config", "::mlir::
   }];
 
   let options = [
-    Option<"mathFidelity", "math-fidelity", "std::optional<::mlir::tt::ttnn::MathFidelity>", /*default=*/"std::nullopt",
+    Option<"mathFidelity", "math-fidelity", "std::optional<::mlir::tt::ttnn::MathFidelity>", /*default=*/"std::optional<::mlir::tt::ttnn::MathFidelity>(::mlir::tt::ttnn::MathFidelity::HiFi4)",
            "Set default math_fidelity (lofi, hifi2, hifi3, hifi4)">,
     Option<"mathApproxMode", "math-approx-mode", "bool", /*default=*/"false",
            "Set default math_approx_mode">,
-    Option<"fp32DestAccEn", "fp32-dest-acc-en", "bool", /*default=*/"false",
+    Option<"fp32DestAccEn", "fp32-dest-acc-en", "bool", /*default=*/"true",
            "Set default fp32_dest_acc_en">,
     Option<"packerL1Acc", "packer-l1-acc", "bool", /*default=*/"false",
            "Set default packer_l1_acc">,
