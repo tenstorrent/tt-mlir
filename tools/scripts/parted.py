@@ -11,8 +11,8 @@ uid = -1
 
 
 def filter_dialect_ops(block, dialects=["ttir", "ttnn"], op_filter={}):
-    for entry in block.operations:
-        regions = entry.regions
+    for op in block.operations:
+        regions = op.regions
         if len(regions) > 0:
             assert len(regions) == 1
             blocks = regions[0].blocks
@@ -21,10 +21,9 @@ def filter_dialect_ops(block, dialects=["ttir", "ttnn"], op_filter={}):
                 blocks[0], dialects=dialects, op_filter=op_filter
             )
         else:
-            for op in block.operations:
-                dialect = op.name.split(".")[0]
-                if dialect in dialects and (not op_filter or op.name in op_filter):
-                    yield op
+            dialect = op.name.split(".")[0]
+            if dialect in dialects and (not op_filter or op.name in op_filter):
+                yield op
 
 
 def get_line_number(location):
