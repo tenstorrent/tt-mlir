@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
@@ -17,62 +18,114 @@ namespace mlir::tt::ttkernel {
 
 namespace {
 
-class TTKernelTileRegsRewriter : public OpRewritePattern<ttkernel::PackTileOp> {
+// Check if a loop contains multiple pack_tile operations (indicating reuse)
+// static bool hasMultiplePacksInLoop(scf::ForOp forOp) {
+//   int packCount = 0;
+//   forOp.walk([&](ttkernel::PackTileOp) {
+//     packCount++;
+//   });
+//   return packCount > 1;
+// }
+
+// Pattern to handle loops with DST register reuse
+class TTKernelLoopDstRewriter : public OpRewritePattern<scf::ForOp> {
 public:
-  using OpRewritePattern<ttkernel::PackTileOp>::OpRewritePattern;
+  using OpRewritePattern<scf::ForOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(ttkernel::PackTileOp op,
+  LogicalResult matchAndRewrite(scf::ForOp forOp,
                                 PatternRewriter &rewriter) const final {
-    // Skip if this pack already has commit/wait before it.
-    if (op->hasAttr("ttkernel.dst_managed")) {
+    // Skip if already processed
+    if (forOp->hasAttr("ttkernel.dst_managed")) {
       return failure();
     }
 
-    // Find the nearest preceding TileRegsAcquireOp in the same block or
-    // ancestor blocks. We need to find the specific acquire that governs
-    // this pack, not just any acquire.
-    ttkernel::TileRegsAcquireOp acquire = findPrecedingAcquire(op);
+    // Check if this loop has pack operations
+    SmallVector<ttkernel::PackTileOp> packOps;
+    forOp.walk([&](ttkernel::PackTileOp packOp) { packOps.push_back(packOp); });
+
+    if (packOps.empty()) {
+      return failure();
+    }
+
+    // Find preceding acquire
+    ttkernel::TileRegsAcquireOp acquire = findPrecedingAcquire(forOp);
     if (!acquire) {
-      // No acquire found - this pack doesn't have DST management.
       return failure();
     }
 
-    // Check if there's already a commit between the acquire and this pack.
-    // If the acquire has a "committed" marker, we've already processed it.
+    // Check if already committed
     if (acquire->hasAttr("ttkernel.committed")) {
       return failure();
     }
 
-    // Find the loop/parent op that contains the pack and is at the same level
-    // as the acquire. We want to wrap the entire loop with commit/release.
-    Operation *packParent = findLoopOrParent(op, acquire);
+    // Determine if we need per-iteration sync
+    // Conservative approach: always use per-iteration sync for loops containing
+    // packs This handles:
+    // - Multiple packs in one iteration
+    // - Single pack but register reused across iterations
+    // - Nested loops where inner loop reuses registers
+    bool needsPerIterationSync = true;
 
-    // Insert commit/wait before the parent op.
-    rewriter.setInsertionPoint(packParent);
-    rewriter.create<ttkernel::TileRegsCommitOp>(op->getLoc());
-    rewriter.create<ttkernel::TileRegsWaitOp>(op->getLoc());
+    if (needsPerIterationSync) {
+      // Insert acquire at the start of the loop body
+      Block *loopBody = forOp.getBody();
+      rewriter.setInsertionPointToStart(loopBody);
+      rewriter.create<ttkernel::TileRegsAcquireOp>(forOp->getLoc());
 
-    // Insert release after the parent op.
-    rewriter.setInsertionPointAfter(packParent);
-    rewriter.create<ttkernel::TileRegsReleaseOp>(op->getLoc());
+      // Insert commit/wait/release around EACH pack inside the loop
+      for (auto packOp : packOps) {
+        if (packOp->hasAttr("ttkernel.dst_managed")) {
+          continue;
+        }
 
-    // Mark the acquire as committed so we don't process it again.
-    acquire->setAttr("ttkernel.committed", rewriter.getUnitAttr());
+        rewriter.setInsertionPoint(packOp);
+        rewriter.create<ttkernel::TileRegsCommitOp>(packOp->getLoc());
+        rewriter.create<ttkernel::TileRegsWaitOp>(packOp->getLoc());
 
-    // Mark this pack as managed.
-    op->setAttr("ttkernel.dst_managed", rewriter.getUnitAttr());
+        rewriter.setInsertionPointAfter(packOp);
+        rewriter.create<ttkernel::TileRegsReleaseOp>(packOp->getLoc());
+
+        packOp->setAttr("ttkernel.dst_managed", rewriter.getUnitAttr());
+      }
+
+      // Only erase the acquire if it's in the immediate parent block
+      // (not if it's an outer acquire governing multiple loops)
+      if (acquire->getBlock() == forOp->getBlock()) {
+        rewriter.eraseOp(acquire);
+      } else {
+        // Mark it so we don't try to use it again for other loops
+        acquire->setAttr("ttkernel.committed", rewriter.getUnitAttr());
+      }
+
+      // Mark loop as processed
+      forOp->setAttr("ttkernel.dst_managed", rewriter.getUnitAttr());
+
+    } else {
+      // Single pack in loop - wrap the entire loop
+      rewriter.setInsertionPoint(forOp);
+      rewriter.create<ttkernel::TileRegsCommitOp>(forOp->getLoc());
+      rewriter.create<ttkernel::TileRegsWaitOp>(forOp->getLoc());
+
+      rewriter.setInsertionPointAfter(forOp);
+      rewriter.create<ttkernel::TileRegsReleaseOp>(forOp->getLoc());
+
+      // Mark everything as processed
+      acquire->setAttr("ttkernel.committed", rewriter.getUnitAttr());
+      forOp->setAttr("ttkernel.dst_managed", rewriter.getUnitAttr());
+      for (auto packOp : packOps) {
+        packOp->setAttr("ttkernel.dst_managed", rewriter.getUnitAttr());
+      }
+    }
 
     return success();
-  };
+  }
 
-  // Find the nearest preceding TileRegsAcquireOp that governs this op.
+private:
   static ttkernel::TileRegsAcquireOp findPrecedingAcquire(Operation *op) {
-    // Walk backwards in the block to find an acquire.
     Block *block = op->getBlock();
     Operation *current = op;
 
     while (block) {
-      // Walk backwards from current op in this block.
       for (auto it = Block::reverse_iterator(current); it != block->rend();
            ++it) {
         if (auto acquire = dyn_cast<ttkernel::TileRegsAcquireOp>(&*it)) {
@@ -80,7 +133,6 @@ public:
         }
       }
 
-      // Move to parent block.
       Operation *parentOp = block->getParentOp();
       if (!parentOp) {
         return nullptr;
@@ -90,19 +142,78 @@ public:
     }
     return nullptr;
   }
+};
 
-  // Find the loop or parent op that should be wrapped with commit/release.
-  static Operation *findLoopOrParent(Operation *pack,
-                                     ttkernel::TileRegsAcquireOp acquire) {
-    Operation *parent = pack;
-    Block *acquireBlock = acquire->getBlock();
+// Fallback pattern for packs outside of loops
+class TTKernelTileRegsRewriter : public OpRewritePattern<ttkernel::PackTileOp> {
+public:
+  using OpRewritePattern<ttkernel::PackTileOp>::OpRewritePattern;
 
-    // Walk up until we find an op in the same block as the acquire.
-    while (parent->getBlock() != acquireBlock) {
-      parent = parent->getParentOp();
-      assert(parent && "pack should be nested under acquire's block");
+  LogicalResult matchAndRewrite(ttkernel::PackTileOp op,
+                                PatternRewriter &rewriter) const final {
+    // Skip if already managed
+    if (op->hasAttr("ttkernel.dst_managed")) {
+      return failure();
     }
-    return parent;
+
+    // Find the nearest preceding acquire
+    ttkernel::TileRegsAcquireOp acquire = findPrecedingAcquire(op);
+    if (!acquire) {
+      return failure();
+    }
+
+    // Skip if already committed
+    if (acquire->hasAttr("ttkernel.committed")) {
+      return failure();
+    }
+
+    // Check if this pack is inside a loop - if so, let the loop pattern handle
+    // it
+    Operation *parent = op->getParentOp();
+    while (parent && !isa<func::FuncOp>(parent)) {
+      if (isa<scf::ForOp>(parent)) {
+        // Inside a loop, let TTKernelLoopDstRewriter handle it
+        return failure();
+      }
+      parent = parent->getParentOp();
+    }
+
+    // Not in a loop - wrap just this pack operation
+    rewriter.setInsertionPoint(op);
+    rewriter.create<ttkernel::TileRegsCommitOp>(op->getLoc());
+    rewriter.create<ttkernel::TileRegsWaitOp>(op->getLoc());
+
+    rewriter.setInsertionPointAfter(op);
+    rewriter.create<ttkernel::TileRegsReleaseOp>(op->getLoc());
+
+    // Mark as processed
+    acquire->setAttr("ttkernel.committed", rewriter.getUnitAttr());
+    op->setAttr("ttkernel.dst_managed", rewriter.getUnitAttr());
+
+    return success();
+  }
+
+private:
+  static ttkernel::TileRegsAcquireOp findPrecedingAcquire(Operation *op) {
+    Block *block = op->getBlock();
+    Operation *current = op;
+
+    while (block) {
+      for (auto it = Block::reverse_iterator(current); it != block->rend();
+           ++it) {
+        if (auto acquire = dyn_cast<ttkernel::TileRegsAcquireOp>(&*it)) {
+          return acquire;
+        }
+      }
+
+      Operation *parentOp = block->getParentOp();
+      if (!parentOp) {
+        return nullptr;
+      }
+      current = parentOp;
+      block = parentOp->getBlock();
+    }
+    return nullptr;
   }
 };
 
@@ -117,6 +228,9 @@ public:
 
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
+
+    // Process loops first, then individual packs
+    patterns.add<TTKernelLoopDstRewriter>(&getContext());
     patterns.add<TTKernelTileRegsRewriter>(&getContext());
 
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {

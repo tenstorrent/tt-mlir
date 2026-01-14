@@ -187,10 +187,12 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
     // The masks will be loaded INSIDE each loop body to ensure they're within
     // the scope of that loop's DST acquire.
     if (rowMaskCB) {
-      rewriter.create<ExperimentalWriteRowMaskTileOp>(loc, validRows, rowMaskCB);
+      rewriter.create<ExperimentalWriteRowMaskTileOp>(loc, validRows,
+                                                      rowMaskCB);
     }
     if (colMaskCB) {
-      rewriter.create<ExperimentalWriteColMaskTileOp>(loc, validCols, colMaskCB);
+      rewriter.create<ExperimentalWriteColMaskTileOp>(loc, validCols,
+                                                      colMaskCB);
     }
 
     // Helper to create a fill tile using ExperimentalTileFillOp.
@@ -343,9 +345,9 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
         // Load mask from CB inside the loop body (within DST acquire scope).
         auto rowMaskTile = rewriter.create<affine::AffineLoadOp>(
             loc, rowMaskCB, ValueRange{zeroIdx, zeroIdx});
-        auto result = rewriter.create<TileWhereOp>(
-            loc, tileType, rowMaskTile.getResult(), inputTile.getResult(),
-            fillTile);
+        auto result =
+            rewriter.create<TileWhereOp>(loc, tileType, rowMaskTile.getResult(),
+                                         inputTile.getResult(), fillTile);
         rewriter.create<affine::AffineStoreOp>(loc, result.getResult(), output,
                                                ValueRange{rowIdx, colIdx});
       } else {
@@ -371,9 +373,9 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
         // Load mask from CB inside the loop body (within DST acquire scope).
         auto colMaskTile = rewriter.create<affine::AffineLoadOp>(
             loc, colMaskCB, ValueRange{zeroIdx, zeroIdx});
-        auto result = rewriter.create<TileWhereOp>(
-            loc, tileType, colMaskTile.getResult(), inputTile.getResult(),
-            fillTile);
+        auto result =
+            rewriter.create<TileWhereOp>(loc, tileType, colMaskTile.getResult(),
+                                         inputTile.getResult(), fillTile);
         rewriter.create<affine::AffineStoreOp>(loc, result.getResult(), output,
                                                ValueRange{rowIdx, colIdx});
       } else {
@@ -412,9 +414,9 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
           loc, rowMaskCB, ValueRange{zeroIdx, zeroIdx});
 
       // Apply row mask: where(rowMask, input, fill) -> rowMaskedResult
-      auto rowMaskedResult = rewriter.create<TileWhereOp>(
-          loc, tileType, rowMaskTile.getResult(), inputTile.getResult(),
-          fillTile1);
+      auto rowMaskedResult =
+          rewriter.create<TileWhereOp>(loc, tileType, rowMaskTile.getResult(),
+                                       inputTile.getResult(), fillTile1);
 
       // Second fill for col mask
       auto fillTile2 = createFillTile();
@@ -424,13 +426,13 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
           loc, colMaskCB, ValueRange{zeroIdx, zeroIdx});
 
       // Apply col mask: where(colMask, rowMaskedResult, fill) -> finalResult
-      auto finalResult = rewriter.create<TileWhereOp>(
-          loc, tileType, colMaskTile.getResult(), rowMaskedResult.getResult(),
-          fillTile2);
+      auto finalResult =
+          rewriter.create<TileWhereOp>(loc, tileType, colMaskTile.getResult(),
+                                       rowMaskedResult.getResult(), fillTile2);
 
       // Store final result
-      rewriter.create<affine::AffineStoreOp>(loc, finalResult.getResult(),
-                                             output, ValueRange{rowIdx, colIdx});
+      rewriter.create<affine::AffineStoreOp>(
+          loc, finalResult.getResult(), output, ValueRange{rowIdx, colIdx});
     };
 
     // === LOOP 1: Interior tiles (no masking needed) ===

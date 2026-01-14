@@ -5,8 +5,8 @@
 #ifndef TTMLIR_TARGET_TTKERNEL_LLKS_EXPERIMENTAL_PADDING_LLKS_H
 #define TTMLIR_TARGET_TTKERNEL_LLKS_EXPERIMENTAL_PADDING_LLKS_H
 
-// Include CB API for pack-side functions (llk_wait_for_free_tiles, llk_push_tiles)
-// and get_local_cb_interface
+// Include CB API for pack-side functions (llk_wait_for_free_tiles,
+// llk_push_tiles) and get_local_cb_interface
 #include "compute_kernel_api/cb_api.h"
 
 namespace experimental {
@@ -31,9 +31,9 @@ inline void _write_mask_tile_to_l1_(volatile uint32_t *ptr, uint32_t validRows,
   constexpr uint32_t ONE_F32 = 0x3F800000;  // 1.0f in F32
   constexpr uint32_t ZERO_F32 = 0x00000000; // 0.0f in F32
 
-  for (uint32_t i = 0; i < 2; ++i) {       // Face row (0-1)
-    for (uint32_t j = 0; j < 2; ++j) {     // Face col (0-1)
-      for (uint32_t k = 0; k < 16; ++k) {  // Row within face
+  for (uint32_t i = 0; i < 2; ++i) {      // Face row (0-1)
+    for (uint32_t j = 0; j < 2; ++j) {    // Face col (0-1)
+      for (uint32_t k = 0; k < 16; ++k) { // Row within face
         uint32_t global_row = k + 16 * i;
         bool row_valid = global_row < validRows;
 
@@ -56,9 +56,9 @@ inline void _write_row_mask_to_l1_(volatile uint32_t *ptr, uint32_t validRows) {
   constexpr uint32_t ONE_F32 = 0x3F800000;  // 1.0f in F32
   constexpr uint32_t ZERO_F32 = 0x00000000; // 0.0f in F32
 
-  for (uint32_t i = 0; i < 2; ++i) {       // Face row (0-1)
-    for (uint32_t j = 0; j < 2; ++j) {     // Face col (0-1)
-      for (uint32_t k = 0; k < 16; ++k) {  // Row within face
+  for (uint32_t i = 0; i < 2; ++i) {      // Face row (0-1)
+    for (uint32_t j = 0; j < 2; ++j) {    // Face col (0-1)
+      for (uint32_t k = 0; k < 16; ++k) { // Row within face
         uint32_t global_row = k + 16 * i;
         uint32_t val = (global_row < validRows) ? ONE_F32 : ZERO_F32;
         for (uint32_t l = 0; l < 16; ++l) { // 16 cols per face row
@@ -77,9 +77,9 @@ inline void _write_col_mask_to_l1_(volatile uint32_t *ptr, uint32_t validCols) {
   constexpr uint32_t ONE_F32 = 0x3F800000;  // 1.0f in F32
   constexpr uint32_t ZERO_F32 = 0x00000000; // 0.0f in F32
 
-  for (uint32_t i = 0; i < 2; ++i) {       // Face row (0-1)
-    for (uint32_t j = 0; j < 2; ++j) {     // Face col (0-1)
-      for (uint32_t k = 0; k < 16; ++k) {  // Row within face
+  for (uint32_t i = 0; i < 2; ++i) {        // Face row (0-1)
+    for (uint32_t j = 0; j < 2; ++j) {      // Face col (0-1)
+      for (uint32_t k = 0; k < 16; ++k) {   // Row within face
         for (uint32_t l = 0; l < 16; ++l) { // Col within face
           uint32_t global_col = l + 16 * j;
           uint32_t val = (global_col < validCols) ? ONE_F32 : ZERO_F32;
@@ -106,7 +106,7 @@ using namespace sfpi;
 // The standard framework calls sfpu_func 4 times (once per face)
 // Each call does ITERATIONS=8 writes, with SETRWC(8)+SETRWC(8) between calls
 //
-// Total: 4 faces × 8 writes = 32 writes × 8 lanes = 256 elements... 
+// Total: 4 faces × 8 writes = 32 writes × 8 lanes = 256 elements...
 // But a 32x32 tile has 1024 elements!
 //
 // Looking at VectorMode::RC more carefully:
@@ -115,16 +115,16 @@ using namespace sfpi;
 // - So sfpu_func writes 8 elements, advance 16, repeat 4 times
 // - 8×4 = 32 writes, + 4×16 = 64 advance = 96 total positions covered?
 //
-// This doesn't make sense for a full tile. Let me look at what's ACTUALLY happening:
-// The key insight: SFPU can only fill 1/4 of the tile per "compute phase"
-// The framework is designed for operations that are applied per-element
+// This doesn't make sense for a full tile. Let me look at what's ACTUALLY
+// happening: The key insight: SFPU can only fill 1/4 of the tile per "compute
+// phase" The framework is designed for operations that are applied per-element
 // For fill_tile, it fills 256 elements (1/4 tile), then needs another call
 //
 // But looking at our usage: we call row_mask(dst_index, validRows) once
 // and expect the whole DST[dst_index] tile to be filled.
 //
-// The standard fill_tile works because it's called from tile_regs_acquire context
-// and the framework handles the full tile iteration internally.
+// The standard fill_tile works because it's called from tile_regs_acquire
+// context and the framework handles the full tile iteration internally.
 //
 // Let me try matching the EXACT pattern of the standard VectorMode::RC:
 // 4 iterations, each: 8 writes + SETRWC(8) + SETRWC(8)
@@ -132,9 +132,11 @@ using namespace sfpi;
 // Row mask - SIMPLE approach: treat DST as flat 1024-element buffer
 // 32 rows × 32 cols = 1024 elements = 128 writes × 8 lanes
 ALWI void _row_mask_sfpu(uint32_t dst_index, uint32_t validRows) {
-  DPRINT << ">>> _row_mask_sfpu SIMPLE: dst_index=" << dst_index << " validRows=" << validRows << ENDL();
-  
-  math::set_dst_write_addr<DstTileLayout::Default, DstTileShape::Tile32x32>(dst_index);
+  DPRINT << ">>> _row_mask_sfpu SIMPLE: dst_index=" << dst_index
+         << " validRows=" << validRows << ENDL();
+
+  math::set_dst_write_addr<DstTileLayout::Default, DstTileShape::Tile32x32>(
+      dst_index);
   math::set_addr_mod_base();
   TTI_STALLWAIT(p_stall::STALL_SFPU, p_stall::MATH);
 
@@ -149,7 +151,7 @@ ALWI void _row_mask_sfpu(uint32_t dst_index, uint32_t validRows) {
       dst_reg++;
     }
   }
-  
+
   DPRINT << ">>> _row_mask_sfpu SIMPLE done" << ENDL();
 
   math::clear_dst_reg_addr();
@@ -161,19 +163,22 @@ ALWI void _row_mask_sfpu(uint32_t dst_index, uint32_t validRows) {
 // Each SFPU write covers 8 columns (8 lanes), all get same value
 // Col granularity is 8 columns (we can't mask individual cols within a group)
 ALWI void _col_mask_sfpu(uint32_t dst_index, uint32_t validCols) {
-  DPRINT << ">>> _col_mask_sfpu SIMPLE: dst_index=" << dst_index << " validCols=" << validCols << ENDL();
-  
-  math::set_dst_write_addr<DstTileLayout::Default, DstTileShape::Tile32x32>(dst_index);
+  DPRINT << ">>> _col_mask_sfpu SIMPLE: dst_index=" << dst_index
+         << " validCols=" << validCols << ENDL();
+
+  math::set_dst_write_addr<DstTileLayout::Default, DstTileShape::Tile32x32>(
+      dst_index);
   math::set_addr_mod_base();
   TTI_STALLWAIT(p_stall::STALL_SFPU, p_stall::MATH);
 
   // 32 rows, 4 col_groups per row
-  // col_group 0: cols 0-7, group 1: cols 8-15, group 2: cols 16-23, group 3: cols 24-31
+  // col_group 0: cols 0-7, group 1: cols 8-15, group 2: cols 16-23, group 3:
+  // cols 24-31
 #pragma GCC unroll 0
   for (int row = 0; row < 32; row++) {
 #pragma GCC unroll 0
     for (int cg = 0; cg < 4; cg++) {
-      int col_start = cg * 8;  // First col of this group
+      int col_start = cg * 8; // First col of this group
       vFloat val = (col_start < (int)validCols) ? 1.0f : 0.0f;
       dst_reg[0] = val;
       dst_reg++;
@@ -186,8 +191,10 @@ ALWI void _col_mask_sfpu(uint32_t dst_index, uint32_t validCols) {
 }
 
 // Combined mask - SIMPLE approach
-ALWI void _padding_mask_sfpu(uint32_t dst_index, uint32_t validRows, uint32_t validCols) {
-  math::set_dst_write_addr<DstTileLayout::Default, DstTileShape::Tile32x32>(dst_index);
+ALWI void _padding_mask_sfpu(uint32_t dst_index, uint32_t validRows,
+                             uint32_t validCols) {
+  math::set_dst_write_addr<DstTileLayout::Default, DstTileShape::Tile32x32>(
+      dst_index);
   math::set_addr_mod_base();
   TTI_STALLWAIT(p_stall::STALL_SFPU, p_stall::MATH);
 
@@ -230,55 +237,45 @@ ALWI void padding_mask(uint32_t dst_index, uint32_t validRows,
 // Fill a tile in DST with a constant scalar value.
 // Uses the standard fill_tile API from compute_kernel_api.
 ALWI void tile_fill(uint32_t dst_index, float value) {
-  DPRINT << ">>> tile_fill called: dst_index=" << dst_index << " value=" << value << ENDL();
+  DPRINT << ">>> tile_fill called: dst_index=" << dst_index
+         << " value=" << value << ENDL();
   MATH((ckernel::fill_tile(dst_index, value)));
 }
 
 // CB-based mask write functions - write mask patterns directly to CB memory
-// Only compiled for TRISC_PACK since fifo_wr_ptr is only valid in the packer thread
-// These functions: reserve CB space, write the mask pattern, and push to CB
+// Compiled for TRISC_UNPACK so UNPACK thread blocks until mask is written.
+// NO cb_reserve_back/push_back - DM kernel handles CB allocation.
+// Uses (fifo_rd_ptr - 1) << 4 to match LLK address calculation convention.
 
 ALWI void write_row_mask_tile(uint32_t validRows, uint32_t cb_id) {
-#ifdef TRISC_PACK
-  DPRINT << ">>> write_row_mask_tile: validRows=" << validRows << " cb_id=" << cb_id << ENDL();
-  ckernel::cb_reserve_back(cb_id, 1);
-  uint32_t write_addr = get_local_cb_interface(cb_id).fifo_wr_ptr << 4;
-  DPRINT << ">>> write_row_mask_tile: write_addr=0x" << HEX() << write_addr << ENDL();
+#ifdef TRISC_UNPACK
+  // Write directly to L1 at CB read pointer location
+  // Use (fifo_rd_ptr - 1) to match LLK address calculation convention
+  uint32_t write_addr = (get_local_cb_interface(cb_id).fifo_rd_ptr) << 4;
   volatile tt_l1_ptr uint32_t *ptr =
       reinterpret_cast<volatile tt_l1_ptr uint32_t *>(write_addr);
   _write_row_mask_to_l1_(ptr, validRows);
-  // Print first few values written
-  DPRINT << ">>> row mask first 4 words: " << HEX() << ptr[0] << " " << ptr[1] << " " << ptr[2] << " " << ptr[3] << ENDL();
-  ckernel::cb_push_back(cb_id, 1);
-  DPRINT << ">>> write_row_mask_tile: done push_back" << ENDL();
 #endif
 }
 
 ALWI void write_col_mask_tile(uint32_t validCols, uint32_t cb_id) {
-#ifdef TRISC_PACK
-  DPRINT << ">>> write_col_mask_tile: validCols=" << validCols << " cb_id=" << cb_id << ENDL();
-  ckernel::cb_reserve_back(cb_id, 1);
-  uint32_t write_addr = get_local_cb_interface(cb_id).fifo_wr_ptr << 4;
-  DPRINT << ">>> write_col_mask_tile: write_addr=0x" << HEX() << write_addr << ENDL();
+#ifdef TRISC_UNPACK
+  // Write directly to L1 at CB read pointer location
+  uint32_t write_addr = (get_local_cb_interface(cb_id).fifo_rd_ptr) << 4;
   volatile tt_l1_ptr uint32_t *ptr =
       reinterpret_cast<volatile tt_l1_ptr uint32_t *>(write_addr);
   _write_col_mask_to_l1_(ptr, validCols);
-  // Print first few values written
-  DPRINT << ">>> col mask first 4 words: " << HEX() << ptr[0] << " " << ptr[1] << " " << ptr[2] << " " << ptr[3] << ENDL();
-  ckernel::cb_push_back(cb_id, 1);
-  DPRINT << ">>> write_col_mask_tile: done push_back" << ENDL();
 #endif
 }
 
 ALWI void write_combined_mask_tile(uint32_t validRows, uint32_t validCols,
                                    uint32_t cb_id) {
-#ifdef TRISC_PACK
-  ckernel::cb_reserve_back(cb_id, 1);
-  uint32_t write_addr = get_local_cb_interface(cb_id).fifo_wr_ptr << 4;
+#ifdef TRISC_UNPACK
+  // Write directly to L1 at CB read pointer location
+  uint32_t write_addr = (get_local_cb_interface(cb_id).fifo_rd_ptr) << 4;
   volatile tt_l1_ptr uint32_t *ptr =
       reinterpret_cast<volatile tt_l1_ptr uint32_t *>(write_addr);
   _write_mask_tile_to_l1_(ptr, validRows, validCols);
-  ckernel::cb_push_back(cb_id, 1);
 #endif
 }
 
