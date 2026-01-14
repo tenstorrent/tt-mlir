@@ -11,6 +11,10 @@
 #include "tt/runtime/detail/distributed/utils/utils.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/utils.h"
+
+#include <cstdlib>
+#include <iomanip>
+#include <iostream>
 namespace tt::runtime::distributed::controller {
 
 namespace fb = ::tt::runtime::distributed::flatbuffer;
@@ -34,9 +38,19 @@ static bool isResponseType(const SizedBuffer &response,
 // Everything else should be the same across system descriptors
 static ::tt::runtime::SystemDesc
 mergeSystemDescs(const std::vector<::tt::runtime::SystemDesc> &systemDescs) {
+  const char *jamesDebugEnv = std::getenv("JAMES_DEBUG");
+  const bool jamesDebugEnabled = (jamesDebugEnv != nullptr && *jamesDebugEnv != '\0');
+
   LOG_ASSERT(systemDescs.size() > 0, "No response buffers to merge");
   if (systemDescs.size() == 1) {
+    if (jamesDebugEnabled) {
+      std::cerr << "[JAMES_DEBUG] mergeSystemDescs: Only one system desc, returning as-is\n";
+    }
     return systemDescs[0];
+  }
+
+  if (jamesDebugEnabled) {
+    std::cerr << "[JAMES_DEBUG] mergeSystemDescs: Merging " << systemDescs.size() << " system descriptors\n";
   }
 
   auto unpackSystemDesc = [](const ::tt::runtime::SystemDesc &systemDesc)
@@ -53,10 +67,16 @@ mergeSystemDescs(const std::vector<::tt::runtime::SystemDesc> &systemDescs) {
   std::vector<std::unique_ptr<::tt::target::ChipDescT>> mmioChipDescs;
   std::vector<std::unique_ptr<::tt::target::ChipDescT>> nonMmioChipDescs;
 
-  for (const ::tt::runtime::SystemDesc &systemDesc : systemDescs) {
+  for (size_t descIdx = 0; descIdx < systemDescs.size(); ++descIdx) {
+    const ::tt::runtime::SystemDesc &systemDesc = systemDescs[descIdx];
     std::unique_ptr<::tt::target::SystemDescRootT> systemDescRoot =
         unpackSystemDesc(systemDesc);
     ::tt::target::SystemDescT &systemDescObj = *(systemDescRoot->system_desc);
+
+    if (jamesDebugEnabled) {
+      std::cerr << "[JAMES_DEBUG] mergeSystemDescs: SystemDesc[" << descIdx 
+                << "] has " << systemDescObj.chip_desc_indices.size() << " chip descriptors\n";
+    }
 
     for (size_t i = 0; i < systemDescObj.chip_desc_indices.size(); i++) {
       const ::tt::target::ChipCapability chipCapability =
@@ -64,10 +84,21 @@ mergeSystemDescs(const std::vector<::tt::runtime::SystemDesc> &systemDescs) {
       if ((chipCapability & ::tt::target::ChipCapability::HostMMIO) !=
           ::tt::target::ChipCapability::NONE) {
         mmioChipDescs.emplace_back(std::move(systemDescObj.chip_descs[i]));
+        if (jamesDebugEnabled) {
+          std::cerr << "[JAMES_DEBUG] mergeSystemDescs: Added MMIO chip desc from SystemDesc[" << descIdx << "]\n";
+        }
       } else {
         nonMmioChipDescs.emplace_back(std::move(systemDescObj.chip_descs[i]));
+        if (jamesDebugEnabled) {
+          std::cerr << "[JAMES_DEBUG] mergeSystemDescs: Added non-MMIO chip desc from SystemDesc[" << descIdx << "]\n";
+        }
       }
     }
+  }
+
+  if (jamesDebugEnabled) {
+    std::cerr << "[JAMES_DEBUG] mergeSystemDescs: Total MMIO chip descs: " << mmioChipDescs.size() 
+              << ", non-MMIO chip descs: " << nonMmioChipDescs.size() << "\n";
   }
 
   std::vector<std::unique_ptr<::tt::target::ChipDescT>> allChipDescs;
@@ -95,6 +126,10 @@ mergeSystemDescs(const std::vector<::tt::runtime::SystemDesc> &systemDescs) {
   mergedSystemDesc->system_desc->chip_desc_indices =
       std::move(allChipDescIndices);
 
+  if (jamesDebugEnabled) {
+    std::cerr << "[JAMES_DEBUG] mergeSystemDescs: Packing merged system desc into flatbuffer\n";
+  }
+
   auto systemDescRoot =
       ::tt::target::SystemDescRoot::Pack(*fbb, mergedSystemDesc.get());
   ::tt::target::FinishSizePrefixedSystemDescRootBuffer(*fbb, systemDescRoot);
@@ -104,6 +139,10 @@ mergeSystemDescs(const std::vector<::tt::runtime::SystemDesc> &systemDescs) {
 
   uint8_t *buf = fbb->GetBufferPointer();
   size_t size = fbb->GetSize();
+
+  if (jamesDebugEnabled) {
+    std::cerr << "[JAMES_DEBUG] mergeSystemDescs: Merged flatbuffer size: " << size << " bytes\n";
+  }
 
   return ::tt::runtime::SystemDesc::loadFromMemory(buf, size);
 }
@@ -963,10 +1002,16 @@ void Controller::handleGetSystemDescResponse(
     const std::vector<SizedBuffer> &responseBuffers,
     std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
 
-  debug::checkResponsesIdentical(responseBuffers);
+  const char *jamesDebugEnv = std::getenv("JAMES_DEBUG");
+  const bool jamesDebugEnabled = (jamesDebugEnv != nullptr && *jamesDebugEnv != '\0');
 
-  debug::checkResponseTypes(responseBuffers,
-                            fb::ResponseType::GetSystemDescResponse);
+  if (!jamesDebugEnabled) {
+    debug::checkResponsesIdentical(responseBuffers);
+    debug::checkResponseTypes(responseBuffers,
+                              fb::ResponseType::GetSystemDescResponse);
+  } else {
+    std::cerr << "[JAMES_DEBUG] Skipping debug assertions (checkResponsesIdentical, checkResponseTypes)\n";
+  }
 
   auto [awaitingHandles, awaitingPromise] =
       awaitingResponse->popAwaitingState();
@@ -977,23 +1022,93 @@ void Controller::handleGetSystemDescResponse(
 
   DEBUG_ASSERT(awaitingPromise, "Awaiting promise must be populated");
 
+  if (jamesDebugEnabled) {
+    std::cerr << "[JAMES_DEBUG] Processing " << responseBuffers.size() << " response buffers\n";
+  }
+
   std::vector<::tt::runtime::SystemDesc> systemDescs;
-  for (const SizedBuffer &responseBuffer : responseBuffers) {
+  for (size_t i = 0; i < responseBuffers.size(); ++i) {
+    const SizedBuffer &responseBuffer = responseBuffers[i];
+    
+    if (jamesDebugEnabled) {
+      std::cerr << "[JAMES_DEBUG] Response buffer[" << i << "] size: " << responseBuffer.size() << " bytes\n";
+    }
+
     const fb::GetSystemDescResponse *response =
         getResponse(responseBuffer)->type_as_GetSystemDescResponse();
 
+    const size_t systemDescSize = response->system_desc()->size();
+    if (jamesDebugEnabled) {
+      std::cerr << "[JAMES_DEBUG] SystemDesc[" << i << "] flatbuffer size: " << systemDescSize << " bytes\n";
+    }
+
     ::tt::runtime::SystemDesc systemDesc =
         ::tt::runtime::SystemDesc::loadFromMemory(
-            response->system_desc()->data(), response->system_desc()->size());
+            response->system_desc()->data(), systemDescSize);
     systemDescs.push_back(systemDesc);
+
+    if (jamesDebugEnabled) {
+      // Serialize and print the system desc
+      std::vector<uint8_t> serialized;
+      systemDesc.storeToMemory(serialized);
+      std::cerr << "[JAMES_DEBUG] SystemDesc[" << i << "] serialized size: " << serialized.size() << " bytes\n";
+      std::cerr << "[JAMES_DEBUG] SystemDesc[" << i << "] serialized data (hex):\n";
+      for (size_t j = 0; j < serialized.size(); ++j) {
+        std::cerr << std::hex << std::setfill('0') << std::setw(2) 
+                  << static_cast<unsigned>(serialized[j]);
+        if ((j + 1) % 32 == 0) {
+          std::cerr << '\n';
+        } else if ((j + 1) % 16 == 0) {
+          std::cerr << ' ';
+        }
+      }
+      if (serialized.size() % 32 != 0) {
+        std::cerr << '\n';
+      }
+      std::cerr << std::dec;
+      // Also print raw bytes to stdout
+      std::cout.write(reinterpret_cast<const char*>(serialized.data()), serialized.size());
+      std::cout.flush();
+    }
+  }
+
+  if (jamesDebugEnabled) {
+    std::cerr << "[JAMES_DEBUG] Calling mergeSystemDescs with " << systemDescs.size() << " system descriptors\n";
   }
 
   ::tt::runtime::SystemDesc mergedSystemDesc = mergeSystemDescs(systemDescs);
+
+  if (jamesDebugEnabled) {
+    std::vector<uint8_t> mergedSerialized;
+    mergedSystemDesc.storeToMemory(mergedSerialized);
+    std::cerr << "[JAMES_DEBUG] Merged SystemDesc serialized size: " << mergedSerialized.size() << " bytes\n";
+    std::cerr << "[JAMES_DEBUG] Merged SystemDesc serialized data (hex):\n";
+    for (size_t j = 0; j < mergedSerialized.size(); ++j) {
+      std::cerr << std::hex << std::setfill('0') << std::setw(2) 
+                << static_cast<unsigned>(mergedSerialized[j]);
+      if ((j + 1) % 32 == 0) {
+        std::cerr << '\n';
+      } else if ((j + 1) % 16 == 0) {
+        std::cerr << ' ';
+      }
+    }
+    if (mergedSerialized.size() % 32 != 0) {
+      std::cerr << '\n';
+    }
+    std::cerr << std::dec;
+    // Also print raw bytes to stdout
+    std::cout.write(reinterpret_cast<const char*>(mergedSerialized.data()), mergedSerialized.size());
+    std::cout.flush();
+  }
 
   std::shared_ptr<::tt::runtime::SystemDesc> pendingSystemDesc =
       std::static_pointer_cast<::tt::runtime::SystemDesc>(
           awaitingHandles->at(0));
   pendingSystemDesc->handle = std::move(mergedSystemDesc.handle);
+
+  if (jamesDebugEnabled) {
+    std::cerr << "[JAMES_DEBUG] Setting promise value, handleGetSystemDescResponse complete\n";
+  }
 
   awaitingPromise->set_value();
 }
