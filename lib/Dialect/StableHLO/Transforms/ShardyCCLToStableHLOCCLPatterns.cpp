@@ -406,7 +406,6 @@ public:
   matchAndRewrite(mlir::sdy::AllSliceOp srcOp,
                   mlir::PatternRewriter &rewriter) const override {
     MLIRContext *context = getContext();
-    llvm::outs() << "[HET DEBUG] matchAndRewrite AllSliceOp\n";
 
     // Mesh axis -> parts mapping.
     mlir::tt::shardy_utils::MeshMap meshMap =
@@ -425,8 +424,6 @@ public:
 
     bool input_is_fully_replicated =
         shardy_utils::isFullyReplicatedTensor(inputShardingAttr);
-    llvm::outs() << "[HET DEBUG] input_is_fully_replicated: "
-                 << input_is_fully_replicated << "\n";
 
     // Current tensor value/type threaded through the loop.
     mlir::Value result = srcOp.getOperand();
@@ -437,6 +434,8 @@ public:
     // dim).
     auto axesPerDim = srcOp.getSlicingAxes();
 
+    // Operations to be outlined in the composite op (if input is fully
+    // replicated).
     mlir::SmallVector<mlir::Operation *> ops;
 
     for (auto it = axesPerDim.begin(), e = axesPerDim.end(); it != e; ++it) {
@@ -549,14 +548,18 @@ public:
     }
 
     if (input_is_fully_replicated) {
-      // Wrap the result in a stablehlo.composite op for marking/wiring
-      // purposes.
-      mlir::Operation *lastOp = ops.back();
-      mlir::OpBuilder builder(lastOp);
-      builder.setInsertionPointAfter(lastOp);
+      // Wrap the result in a stablehlo.composite op. During the SHLO->TTIR
+      // lowering pass, this op will be directly replaced with a ttir.mesh_shard
+      // FullToShard op.
+      if (ops.empty()) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "Cannot create composite op: no operations to outline.");
+      }
+      mlir::OpBuilder builder(ops.front());
       mlir::MLIRContext *ctx = builder.getContext();
 
-      // Get the sharding requirements for the result tensor.
+      // Step 1: Calculate the shard_dims and shard_shape based on the
+      // out_sharding attribute.
       mlir::sdy::TensorShardingAttr resultShardingAttr =
           srcOp.getOutShardingAttr();
       llvm::Expected<mlir::tt::shardy_utils::ShardyMeshSharding>
@@ -578,11 +581,10 @@ public:
           builder.getStringAttr("shard_shape"),
           builder.getI64ArrayAttr(shardyMeshSharding->getShardShape())));
 
-      // Build decomposition attributes
+      // Step 2: Create a private function for the composite op.
       mlir::func::FuncOp callee = utils::createPrivateFunction(
-          moduleOp, "composite_all_slice_", srcOp->getName().getStringRef(),
-          inputOperand.get(), result, ops);
-      callee->dumpPretty();
+          moduleOp, "", srcOp->getName().getStringRef(), inputOperand.get(),
+          result, ops);
       mlir::SymbolRefAttr decomp =
           mlir::SymbolRefAttr::get(ctx, callee.getSymName());
       mlir::DictionaryAttr compAttrs =
@@ -591,6 +593,7 @@ public:
 
       mlir::Location callee_loc = callee.getLoc();
 
+      // Step 3: Create the composite op.
       mlir::OperationState state(
           callee_loc, mlir::stablehlo::CompositeOp::getOperationName());
       state.addOperands(inputOperand.get());
@@ -599,83 +602,19 @@ public:
       state.addAttribute(sharding_utils::kCompAttrsKey, compAttrs);
       state.addAttribute(sharding_utils::kNameKey, targetName);
 
-      mlir::Operation *newOp = mlir::Operation::create(state);
-      builder.insert(newOp);
+      mlir::Operation *newOp = rewriter.create(state);
       auto comp = llvm::cast<mlir::stablehlo::CompositeOp>(newOp);
-      result.replaceAllUsesWith(comp.getResult(0));
-      // Erase the original ops.
-      for (auto *op : llvm::reverse(ops)) {
-        // if (op == firstOp) {
-        //   continue;
-        // }
-        auto results = op->getResults();
-        bool opHasUsers = false;
-        for (auto result : results) {
-          if (!result.use_empty()) {
-            llvm::outs() << "Result has users: " << result << "\n";
-            for (auto &use : result.getUses()) {
-              llvm::outs() << "  User: " << *(use.getOwner()) << "\n";
-            }
-            opHasUsers = true;
-          }
-        }
-        if (!opHasUsers) {
-          op->erase();
-        }
-      }
-      // for (auto *op : llvm::reverse(ops)) {
-      //   // Erase each op in reverse order.
-      //   op->erase();
-      // }
       rewriter.replaceOp(srcOp, comp.getResult(0));
+      result.replaceAllUsesWith(comp.getResult(0));
+
+      // Step 4: Erase the original ops.
+      for (auto *op : llvm::reverse(ops)) {
+        rewriter.eraseOp(op);
+      }
     } else {
       rewriter.replaceOp(srcOp, result);
     }
-
-    // llvm::outs() << "[HET DEBUG] ops: \n";
-    // for (auto *op : ops) {
-    //   op->print(llvm::outs());
-    //   llvm::outs() << "\n";
-    // }
-    // llvm::outs() << "[HET DEBUG] end ops\n";
-
     return mlir::success();
-  }
-
-private:
-  // mlir::func::FuncOp createDecompFunction(mlir::ArrayRef<mlir::Operation *>
-  // ops) {
-
-  // }
-
-  std::optional<mlir::sdy::TensorShardingAttr>
-  getTensorShardingAttr(mlir::Value value) const {
-    if (auto *defOp = value.getDefiningOp()) {
-      llvm::outs() << "[HET DEBUG] defOp \n";
-      if (auto shardingAttr =
-              defOp->getAttrOfType<mlir::sdy::TensorShardingAttr>(
-                  mlir::sdy::TensorShardingAttr::name)) {
-        llvm::outs() << "[HET DEBUG] defOp has shardingAttr \n";
-        return shardingAttr;
-      }
-      llvm::outs() << "[HET DEBUG] defOp does not have shardingAttr \n";
-      return std::nullopt;
-    }
-
-    if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(value)) {
-      llvm::outs() << "[HET DEBUG] blockArg \n";
-      mlir::Operation *parentOp = blockArg.getOwner()->getParentOp();
-      llvm::outs() << "[HET DEBUG] parentOp: " << parentOp->getName() << "\n";
-      if (auto func = llvm::dyn_cast_or_null<mlir::sdy::ManualComputationOp>(
-              parentOp)) {
-        llvm::outs() << "[HET DEBUG] blockArg is a manual computation op \n";
-        unsigned argNo = blockArg.getArgNumber();
-        llvm::outs() << "[HET DEBUG] blockArg argNo: " << argNo << "\n";
-        return func.getInSharding(argNo);
-      }
-    }
-    llvm::outs() << "[HET DEBUG] ideally should not reach here \n";
-    return std::nullopt;
   }
 };
 
