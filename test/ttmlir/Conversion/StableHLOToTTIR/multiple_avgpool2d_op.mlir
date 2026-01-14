@@ -2,8 +2,6 @@
 // RUN: ttmlir-opt --stablehlo-to-ttir-pipeline -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
-
-
 func.func @test_multiple_avgpool2d(%arg0: tensor<1x32x128x128xbf16>) -> tensor<1x32x32x32xbf16> {
     %cst = stablehlo.constant dense<0.000000e+00> : tensor<bf16>
     %c = stablehlo.constant dense<9> : tensor<i64>

@@ -3576,7 +3576,7 @@ def TTIR_GatherOp: TTIR_NamedOp<"gather"> {
     let results = (outs AnyRankedTensor:$result);
 }
 
-def TTIR_AvgPool2dOp : TTIR_NamedOp<"avg_pool2d"> {
+def TTIR_AvgPool2dOp : TTIR_NamedOp<"avg_pool2d", [DeclareOpInterfaceMethods<TTIR_QuantizableOpInterface, ["rewriteWithQuantizedInputs"]>]> {
   let summary = "2D average pooling operation.";
   let description = [{
     The `avg_pool2d` operation applies a 2D average pooling over an input tensor composed of several input planes.
@@ -3644,7 +3644,7 @@ def TTIR_AvgPool2dOp : TTIR_NamedOp<"avg_pool2d"> {
   let hasFolder = 1;
 }
 
-def TTIR_MaxPool2dOp : TTIR_NamedOp<"max_pool2d"> {
+def TTIR_MaxPool2dOp : TTIR_NamedOp<"max_pool2d", [DeclareOpInterfaceMethods<TTIR_QuantizableOpInterface, ["rewriteWithQuantizedInputs"]>]> {
     let summary = "2D maximum pooling operation.";
     let description = [{
       The `max_pool2d` operation applies a 2D maximum pooling over an input tensor composed of several input planes.

@@ -36,6 +36,7 @@
 #include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/LogicalResult.h"
 
+#include "mlir/IR/Value.h"
 #include "llvm/ADT/STLExtras.h"
 #include <cstdint>
 #include <numeric>
@@ -1362,9 +1363,20 @@ static mlir::LogicalResult verifyPooling2dOp(Pool2dOp *op) {
   return {};
 }
 
+::mlir::Operation *mlir::tt::ttir::AvgPool2dOp::rewriteWithQuantizedInputs(
+    mlir::PatternRewriter &rewriter,
+    mlir::ArrayRef<mlir::Value> sourceOperands) {
+  return nullptr; // TODO(acicovic): Explain.
+}
+
 //===----------------------------------------------------------------------===//
 // MaxPool2dOp
 //===----------------------------------------------------------------------===//
+
+// MaxPool2dOp verification
+::mlir::LogicalResult mlir::tt::ttir::MaxPool2dOp::verify() {
+  return verifyPooling2dOp(this);
+}
 
 // Folds MaxPool2dOp when it is an identity operation.
 ::mlir::OpFoldResult mlir::tt::ttir::MaxPool2dOp::fold(FoldAdaptor adaptor) {
@@ -1374,10 +1386,34 @@ static mlir::LogicalResult verifyPooling2dOp(Pool2dOp *op) {
   return {};
 }
 
-// MaxPool2dOp verification
-::mlir::LogicalResult mlir::tt::ttir::MaxPool2dOp::verify() {
-  return verifyPooling2dOp(this);
+::mlir::Operation *mlir::tt::ttir::MaxPool2dOp::rewriteWithQuantizedInputs(
+    mlir::PatternRewriter &rewriter,
+    mlir::ArrayRef<mlir::Value> sourceOperands) {
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+  mlir::Value input = sourceOperands[0];
+  if (mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(
+          input.getType())) {
+    return nullptr;
+  }
+  RankedTensorType inType = mlir::cast<RankedTensorType>(input.getType());
+  RankedTensorType outType =
+      mlir::cast<RankedTensorType>(getResult().getType());
+  RankedTensorType newResultType = RankedTensorType::get(
+      outType.getShape(), inType.getElementType(), outType.getEncoding());
+
+  return rewriter
+      .create<mlir::tt::ttir::MaxPool2dOp>(
+          getLoc(), newResultType, input, getKernelAttr(), getStrideAttrName(),
+          getDilationAttr(), getPaddingAttr(), getCeilModeAttr())
+      .getOperation();
+  // TODO(acicovic): Check if this is correct type generation
+  // TODO(acicovic): Is NOLINT... needed?
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 }
+
+//===----------------------------------------------------------------------===//
+// MaxPool2dWithIndicesOp
+//===----------------------------------------------------------------------===//
 
 // MaxPool2dWithIndicesOp verification
 ::mlir::LogicalResult mlir::tt::ttir::MaxPool2dWithIndicesOp::verify() {
