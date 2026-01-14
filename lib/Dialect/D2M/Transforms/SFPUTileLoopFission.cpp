@@ -261,6 +261,11 @@ struct D2MSFPUTileLoopFission
       if (scfInnermost) {
         for (Operation &op : *scfInnermost.getBody()) {
           if (auto forOp = dyn_cast<affine::AffineForOp>(&op)) {
+            // Skip loops marked with d2m.no_fission - these have in-place
+            // stores that must stay fused with compute to avoid DST overwrites.
+            if (forOp->hasAttr("d2m.no_fission")) {
+              continue;
+            }
             if (containsD2MGenericComputeOp(forOp)) {
               IRRewriter rewriter(ctx);
               rewriter.setInsertionPoint(forOp);
