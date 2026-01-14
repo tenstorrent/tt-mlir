@@ -7,6 +7,7 @@
 #include "ttmlir/Conversion/Passes.h"
 #include "ttmlir/Conversion/TTNNToEmitC/TTNNToEmitC.h"
 #include "ttmlir/Conversion/TTNNToEmitPy/TTNNToEmitPy.h"
+#include "ttmlir/Dialect/EmitPy/Transforms/Passes.h"
 #include "ttmlir/Dialect/LLVM/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/Transforms/Passes.h"
@@ -412,6 +413,8 @@ void createTTNNToEmitPyDevicePipeline(
 
   devicePm.addPass(createConvertTTNNToEmitPyPass());
 
+  devicePm.addPass(mlir::tt::emitpy::createEmitPySplitFiles());
+
   devicePm.addPass(createEmitPyNameVarsPass());
 }
 
@@ -437,6 +440,8 @@ void createTTIRToEmitPyCPUPipeline(OpPassManager &pm) {
   ConvertTTNNToEmitPyOptions options;
   options.enableGoldenMode = true;
   cpuPm.addPass(createConvertTTNNToEmitPyPass(options));
+
+  cpuPm.addPass(mlir::tt::emitpy::createEmitPySplitFiles());
 
   cpuPm.addPass(createEmitPyNameVarsPass());
 }

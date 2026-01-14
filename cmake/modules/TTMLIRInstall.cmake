@@ -42,6 +42,7 @@ set(ttmlir_export_targets
   MLIRLLVMTransforms
   MLIREmitPyDialect
   MLIREmitPyInterfaces
+  MLIREmitPyTransforms
   MLIRD2MDialect
   MLIRD2MAllocation
   MLIRD2MAnalysis
