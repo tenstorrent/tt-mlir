@@ -204,3 +204,58 @@ def test_matmul_ttnn_shapes_double_buffered(
         system_desc_path=request.config.getoption("--sys-desc"),
         skip_exec=getattr(request.node, "skip_exec", False),
     )
+
+
+@pytest.mark.skip_config(["ttmetal", "p150"], reason="See issue #5341")
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (32, 4096, 2048),  # width sharded in0, block sharded in1
+        (32768, 32, 32),  # height sharded in0, block sharded in1
+        (32, 32, 32768),  # block sharded in0, width sharded in1
+        (2048, 4096, 32),  # block sharded in0, height sharded in1
+    ],
+    ids=shape_str,
+)
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_matmul_1d_shapes(
+    shape: tuple[int, ...],
+    target: str,
+    request,
+    device,
+):
+    lhs = (
+        shape[0],
+        shape[1],
+    )
+    rhs = (
+        shape[1],
+        shape[2],
+    )
+
+    def module(builder: TTIRBuilder):
+        @builder.func([lhs, rhs], [torch.float32, torch.float32])
+        def matmul_1d(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: List[str] = None,
+        ):
+            return builder.matmul(in0, in1, unit_attrs=unit_attrs)
+
+    options = [
+        f"matmul-interchange=2,0,1",
+        f"use-tile-matmul=false",
+    ]
+    compile_and_execute_ttir(
+        module,
+        target=target,
+        device=device,
+        custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+        test_base=request.node.name,
+        save_artifacts=True,
+        print_ir=True,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        skip_exec=getattr(request.node, "skip_exec", False),
+    )
