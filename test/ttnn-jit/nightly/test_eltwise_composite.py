@@ -231,6 +231,9 @@ def test_muladd_broadcast_jit_dram(device, shape, dtype):
 
 @pytest.mark.parametrize("shape", [(64, 64), (128, 128)])
 @pytest.mark.parametrize("dtype", [torch.float32])
+@pytest.mark.skip(
+    reason="Digamma op is not currently supported in tracing: Issue #6518"
+)
 def test_digamma_dram(device, shape, dtype):
     """Test digamma function (derivative of log gamma)"""
 

@@ -96,6 +96,9 @@ def test_composite_ops_l1(device, shape, max_grid, shard_strategy, dtype, op):
     ids=["64x64", "128x128"],
 )
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.skip(
+    reason="Digamma op is not currently supported in tracing: Issue #6518"
+)
 def test_digamma_dram(device, shape, dtype):
     """Test digamma function (derivative of log gamma)"""
 

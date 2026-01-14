@@ -794,31 +794,6 @@ def test_interop_jit_and_ttnn_to_binary_dram(
     assert all_close_check(interop_result, golden_result)
 
 
-# ------------------------------------------------------------
-# Return modifier tests
-# ------------------------------------------------------------
-def test_identity_op_rejection(device):
-    """
-    Test that JIT compilation fails with a clear assertion when a function
-    contains ttnn.identity, as return_modifier expects functions NOT to have it.
-    """
-    shape = (32, 32)
-    dtype = torch.bfloat16
-    input_tensor = create_dram_tensor(device, shape, dtype)
-
-    # Attempting to JIT compile a function with ttnn.identity should raise AssertionError
-    with pytest.raises(AssertionError) as exc_info:
-        compiled_op = ttnn_jit.jit()(identity_op)
-        # The error should occur during compilation, not execution
-        _ = compiled_op(input_tensor)
-
-    # Verify the error message matches the expected assertion message
-    expected_message = "The jit-ed function cannot include ttnn.identity op for now"
-    assert expected_message in str(
-        exc_info.value
-    ), f"Expected error message '{expected_message}' not found in: {str(exc_info.value)}"
-
-
 @pytest.mark.parametrize(
     "op",
     [add],

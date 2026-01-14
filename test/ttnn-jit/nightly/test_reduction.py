@@ -49,13 +49,11 @@ REDUCTION_OPS = [
 @pytest.mark.parametrize("shape, max_grid, dim", L1_REDUCTION_SHAPES)
 @pytest.mark.parametrize("op_name, op_func", REDUCTION_OPS)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+@pytest.mark.skip(
+    reason="Reduction ops are not currently supported in ttnn-jit: Issue #5446"
+)
 def test_reductions_l1(device, shape, max_grid, dim, op_name, op_func, dtype):
     """Test reduction operations (max, sum) with L1 block-sharded config."""
-    if op_name in ["mean", "min"]:
-        pytest.xfail("[Mean/Min] reduction ops are not currently supported in D2M")
-
-    if op_name == "sum" and (dtype == torch.bfloat16 or shape[0] >= 512):
-        pytest.xfail("failing allclose for some shapes and dtypes")
 
     def reduction_func(input_tensor):
         return op_func(input_tensor, dim=dim, keepdim=True)

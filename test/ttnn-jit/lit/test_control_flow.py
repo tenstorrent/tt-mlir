@@ -129,119 +129,119 @@ if __name__ == "__main__":
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @if_else_branch
-    # CHECK: "ttnn.exp"
+    # CHECK: "ttir.exp"
     _ = if_else_branch(input_tensor_a_l1)
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @if_else_branch
-    # CHECK: "ttnn.log"
+    # CHECK: "ttir.log"
     _ = if_else_branch(input_tensor_a_l1, use_exp=False)
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @nested_if
-    # CHECK: "ttnn.abs"
+    # CHECK: "ttir.abs"
     _ = nested_if(input_tensor_a_l1)
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @nested_if
-    # CHECK: "ttnn.exp"
+    # CHECK: "ttir.exp"
     _ = nested_if(input_tensor_a_l1, mode=1)
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @nested_if
-    # CHECK: "ttnn.sin"
+    # CHECK: "ttir.sin"
     _ = nested_if(input_tensor_a_l1, mode=2)
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @if_with_ops_before_after
-    # CHECK: "ttnn.abs"
-    # CHECK: "ttnn.exp"
-    # CHECK: "ttnn.multiply"
+    # CHECK: "ttir.abs"
+    # CHECK: "ttir.exp"
+    # CHECK: "ttir.multiply"
     _ = if_with_ops_before_after(input_tensor_a_l1)
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @if_with_ops_before_after
-    # CHECK: "ttnn.abs"
-    # CHECK: "ttnn.sin"
-    # CHECK: "ttnn.multiply"
+    # CHECK: "ttir.abs"
+    # CHECK: "ttir.sin"
+    # CHECK: "ttir.multiply"
     _ = if_with_ops_before_after(input_tensor_a_l1, apply_exp=False)
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @multiple_sequential_ifs
-    # CHECK-NOT: "ttnn.exp"
-    # CHECK-NOT: "ttnn.cos"
+    # CHECK-NOT: "ttir.exp"
+    # CHECK-NOT: "ttir.cos"
     _ = multiple_sequential_ifs(input_tensor_a_l1)
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @multiple_sequential_ifs
-    # CHECK: "ttnn.exp"
-    # CHECK: "ttnn.cos"
+    # CHECK: "ttir.exp"
+    # CHECK: "ttir.cos"
     _ = multiple_sequential_ifs(input_tensor_a_l1, apply_exp=True, apply_cos=True)
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @for_loop_simple
-    # CHECK: "ttnn.add"
-    # CHECK: "ttnn.add"
-    # CHECK: "ttnn.add"
+    # CHECK: "ttir.add"
+    # CHECK: "ttir.add"
+    # CHECK: "ttir.add"
     _ = for_loop_simple(input_tensor_a_l1)
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @for_loop_simple
-    # CHECK: "ttnn.add"
-    # CHECK: "ttnn.add"
+    # CHECK: "ttir.add"
+    # CHECK: "ttir.add"
     _ = for_loop_simple(input_tensor_a_l1, iterations=2)
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @for_loop_with_index
-    # CHECK: "ttnn.multiply"
-    # CHECK: "ttnn.add"
-    # CHECK: "ttnn.add"
+    # CHECK: "ttir.multiply"
+    # CHECK: "ttir.add"
+    # CHECK: "ttir.add"
     _ = for_loop_with_index(input_tensor_a_l1)
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @for_loop_with_index
-    # CHECK: "ttnn.multiply"
-    # CHECK: "ttnn.add"
-    # CHECK: "ttnn.add"
-    # CHECK: "ttnn.add"
-    # CHECK: "ttnn.add"
+    # CHECK: "ttir.multiply"
+    # CHECK: "ttir.add"
+    # CHECK: "ttir.add"
+    # CHECK: "ttir.add"
+    # CHECK: "ttir.add"
     _ = for_loop_with_index(input_tensor_a_l1, iterations=5)
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @nested_for_loops
-    # CHECK: "ttnn.multiply"
-    # CHECK: "ttnn.multiply"
-    # CHECK: "ttnn.multiply"
-    # CHECK: "ttnn.multiply"
+    # CHECK: "ttir.multiply"
+    # CHECK: "ttir.multiply"
+    # CHECK: "ttir.multiply"
+    # CHECK: "ttir.multiply"
     _ = nested_for_loops(input_tensor_a_l1)
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @nested_for_loops
-    # CHECK: "ttnn.multiply"
+    # CHECK: "ttir.multiply"
     _ = nested_for_loops(input_tensor_a_l1, outer=1, inner=1)
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @for_loop_with_if
-    # CHECK: "ttnn.add"
-    # CHECK: "ttnn.multiply"
-    # CHECK: "ttnn.add"
-    # CHECK: "ttnn.multiply"
+    # CHECK: "ttir.add"
+    # CHECK: "ttir.multiply"
+    # CHECK: "ttir.add"
+    # CHECK: "ttir.multiply"
     _ = for_loop_with_if(input_tensor_a_l1)
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @if_inside_for_multiple_branches
-    # CHECK: "ttnn.exp"
-    # CHECK: "ttnn.sin"
-    # CHECK: "ttnn.cos"
+    # CHECK: "ttir.exp"
+    # CHECK: "ttir.sin"
+    # CHECK: "ttir.cos"
     _ = if_inside_for_multiple_branches(input_tensor_a_l1)
 
     # CHECK: ---- IR Dump after TracingCompiler (Tracing-based) ----
     # CHECK: func.func @if_inside_for_multiple_branches
-    # CHECK: "ttnn.exp"
-    # CHECK: "ttnn.sin"
-    # CHECK: "ttnn.cos"
-    # CHECK: "ttnn.cos"
-    # CHECK: "ttnn.cos"
+    # CHECK: "ttir.exp"
+    # CHECK: "ttir.sin"
+    # CHECK: "ttir.cos"
+    # CHECK: "ttir.cos"
+    # CHECK: "ttir.cos"
     _ = if_inside_for_multiple_branches(input_tensor_a_l1, iterations=5)
 
     ttnn.close_device(device)
