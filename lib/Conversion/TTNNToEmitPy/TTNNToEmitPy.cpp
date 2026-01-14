@@ -2659,8 +2659,6 @@ public:
       }
     });
 
-    funcOp.removeResAttrsAttr();
-
     return success();
   }
 };
