@@ -1011,14 +1011,10 @@ def test_batch_norm_training(
     "shapes",
     [
         [
-            (2, 3),  # input
-            (10, 4),  # weight
-            (2, 3, 4),  # in_gradient
-        ],
-        [
-            (2, 3, 4),  # input
-            (10, 5),  # weight
-            (2, 3, 4, 5),  # in_gradient
+            # Matches working silicon test: embedding_backward.mlir
+            (1, 32),  # input (indices) - batch=1, seq_len divisible by TILE_WIDTH (32)
+            (512, 128),  # weight (vocab_size, embedding_dim)
+            (1, 32, 128),  # in_gradient (indices_shape + embedding_dim)
         ],
     ],
 )
@@ -1038,6 +1034,10 @@ def test_embedding_backward(
             builder,
             unit_attrs: Optional[List[str]] = None,
         ):
+            # Generate valid indices within [0, vocab_size) range
+            vocab_size = shapes[1][0]  # First dim of weight tensor
+            valid_indices = torch.randint(0, vocab_size, shapes[0], dtype=torch.int32)
+            builder.set_goldens(inputs={input: valid_indices})
 
             return builder.embedding_backward(
                 input,
