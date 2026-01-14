@@ -828,22 +828,21 @@ class Run:
                                 start_get_output = time.perf_counter_ns()
                                 output_host = ttrt.runtime.to_host(
                                     runtime_output_tensor, untilize=True
-                                )
+                                )[0]
                                 end_get_output = time.perf_counter_ns()
                                 e2e_duration_nanoseconds_output += (
                                     end_get_output - start_get_output
                                 )
 
-                                # (todo: tapspatel) Temporary workaround for getting multi-device tensors back to host.
-                                # Currently, ttrt.runtime.to_host will return back a list of tensors, outputs[i] is a single multi-device tensor (with multiple device shards).
-                                if (
-                                    self["--print-input-output-tensors"]
-                                    or self["--enable-golden"]
-                                ):
-                                    ttrt.runtime.memcpy(
-                                        outputs[i],
-                                        output_host,
+                                combined_output_tensor = output_host
+                                if bin.extension != ".ttm":
+                                    combined_output_tensor = ttrt.runtime.create_multi_device_host_tensor_from_shards(
+                                        [output_host], {}, (1, 1)
                                     )
+                                ttrt.runtime.memcpy(
+                                    outputs[i],
+                                    combined_output_tensor,
+                                )
                                 ttrt.runtime.deallocate_tensor(
                                     runtime_output_tensor, force=True
                                 )
