@@ -161,22 +161,36 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
     // For static bounds, we know at compile time if masking is needed.
     // For dynamic bounds, we use the computed values.
 
-    // Load mask tiles from scratch CBs once (outside all loops).
-    // These are single-tile CBs, so we load from [0, 0].
-    Value rowMaskTile;
-    Value colMaskTile;
+    // Compute validRows and validCols for this shard.
+    Value tileHeightVal =
+        rewriter.create<arith::ConstantIndexOp>(loc, kTileHeight);
+    Value tileWidthVal =
+        rewriter.create<arith::ConstantIndexOp>(loc, kTileWidth);
 
+    // validRows = logicalRows % tileHeight (0 means full tile, use tileHeight)
+    Value rowRemainder =
+        rewriter.create<arith::RemUIOp>(loc, logicalRowsVal, tileHeightVal);
+    Value rowRemIsZero = rewriter.create<arith::CmpIOp>(
+        loc, arith::CmpIPredicate::eq, rowRemainder, zeroIdx);
+    Value validRows = rewriter.create<arith::SelectOp>(
+        loc, rowRemIsZero, tileHeightVal, rowRemainder);
+
+    // validCols = logicalCols % tileWidth (0 means full tile, use tileWidth)
+    Value colRemainder =
+        rewriter.create<arith::RemUIOp>(loc, logicalColsVal, tileWidthVal);
+    Value colRemIsZero = rewriter.create<arith::CmpIOp>(
+        loc, arith::CmpIPredicate::eq, colRemainder, zeroIdx);
+    Value validCols = rewriter.create<arith::SelectOp>(
+        loc, colRemIsZero, tileWidthVal, colRemainder);
+
+    // Write mask tiles to scratch CBs before any loops.
+    // The masks will be loaded INSIDE each loop body to ensure they're within
+    // the scope of that loop's DST acquire.
     if (rowMaskCB) {
-      rowMaskTile = rewriter
-                        .create<affine::AffineLoadOp>(
-                            loc, rowMaskCB, ValueRange{zeroIdx, zeroIdx})
-                        .getResult();
+      rewriter.create<ExperimentalWriteRowMaskTileOp>(loc, validRows, rowMaskCB);
     }
     if (colMaskCB) {
-      colMaskTile = rewriter
-                        .create<affine::AffineLoadOp>(
-                            loc, colMaskCB, ValueRange{zeroIdx, zeroIdx})
-                        .getResult();
+      rewriter.create<ExperimentalWriteColMaskTileOp>(loc, validCols, colMaskCB);
     }
 
     // Helper to create a fill tile using ExperimentalTileFillOp.
@@ -325,15 +339,17 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
           loc, input, ValueRange{rowIdx, colIdx});
       auto fillTile = createFillTile();
 
-      // Generate row mask dynamically.
-      if (rowMaskTile) {
-        // Use pre-loaded mask.
+      if (rowMaskCB) {
+        // Load mask from CB inside the loop body (within DST acquire scope).
+        auto rowMaskTile = rewriter.create<affine::AffineLoadOp>(
+            loc, rowMaskCB, ValueRange{zeroIdx, zeroIdx});
         auto result = rewriter.create<TileWhereOp>(
-            loc, tileType, rowMaskTile, inputTile.getResult(), fillTile);
+            loc, tileType, rowMaskTile.getResult(), inputTile.getResult(),
+            fillTile);
         rewriter.create<affine::AffineStoreOp>(loc, result.getResult(), output,
                                                ValueRange{rowIdx, colIdx});
       } else {
-        // Generate mask dynamically.
+        // Generate mask dynamically via SFPU.
         Value validRowsVal =
             rewriter.create<arith::ConstantIndexOp>(loc, validRowsStatic);
         auto mask = rewriter.create<ExperimentalTileRowMaskOp>(loc, tileType,
@@ -351,14 +367,17 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
           loc, input, ValueRange{rowIdx, colIdx});
       auto fillTile = createFillTile();
 
-      if (colMaskTile) {
-        // Use pre-loaded mask.
+      if (colMaskCB) {
+        // Load mask from CB inside the loop body (within DST acquire scope).
+        auto colMaskTile = rewriter.create<affine::AffineLoadOp>(
+            loc, colMaskCB, ValueRange{zeroIdx, zeroIdx});
         auto result = rewriter.create<TileWhereOp>(
-            loc, tileType, colMaskTile, inputTile.getResult(), fillTile);
+            loc, tileType, colMaskTile.getResult(), inputTile.getResult(),
+            fillTile);
         rewriter.create<affine::AffineStoreOp>(loc, result.getResult(), output,
                                                ValueRange{rowIdx, colIdx});
       } else {
-        // Generate mask dynamically.
+        // Generate mask dynamically via SFPU.
         Value validColsVal =
             rewriter.create<arith::ConstantIndexOp>(loc, validColsStatic);
         auto mask = rewriter.create<ExperimentalTileColMaskOp>(loc, tileType,
@@ -375,6 +394,43 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
       auto fillTile = createFillTile();
       rewriter.create<affine::AffineStoreOp>(loc, fillTile, output,
                                              ValueRange{rowIdx, colIdx});
+    };
+
+    // Helper to emit corner tile - applies BOTH row and col masks in sequence.
+    // This keeps both operations in the same tile_regs block, avoiding the need
+    // to read back from the output CB between masks.
+    auto emitCornerMasked = [&](Value rowIdx, Value colIdx) {
+      // Load input tile
+      auto inputTile = rewriter.create<affine::AffineLoadOp>(
+          loc, input, ValueRange{rowIdx, colIdx});
+
+      // First fill for row mask
+      auto fillTile1 = createFillTile();
+
+      // Load row mask from CB
+      auto rowMaskTile = rewriter.create<affine::AffineLoadOp>(
+          loc, rowMaskCB, ValueRange{zeroIdx, zeroIdx});
+
+      // Apply row mask: where(rowMask, input, fill) -> rowMaskedResult
+      auto rowMaskedResult = rewriter.create<TileWhereOp>(
+          loc, tileType, rowMaskTile.getResult(), inputTile.getResult(),
+          fillTile1);
+
+      // Second fill for col mask
+      auto fillTile2 = createFillTile();
+
+      // Load col mask from CB
+      auto colMaskTile = rewriter.create<affine::AffineLoadOp>(
+          loc, colMaskCB, ValueRange{zeroIdx, zeroIdx});
+
+      // Apply col mask: where(colMask, rowMaskedResult, fill) -> finalResult
+      auto finalResult = rewriter.create<TileWhereOp>(
+          loc, tileType, colMaskTile.getResult(), rowMaskedResult.getResult(),
+          fillTile2);
+
+      // Store final result
+      rewriter.create<affine::AffineStoreOp>(loc, finalResult.getResult(),
+                                             output, ValueRange{rowIdx, colIdx});
     };
 
     // === LOOP 1: Interior tiles (no masking needed) ===
@@ -448,49 +504,17 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
       }
     }
 
-    // === LOOP 3b: Corner tile - first apply row mask ===
+    // === LOOP 3b: Corner tile - apply BOTH masks in single block ===
     // When both row and col masking apply, corner needs both masks applied
-    // sequentially. First apply row mask (reads from input, writes to output).
+    // sequentially within the SAME tile_regs block to avoid CB sync issues.
+    // The combined helper applies: input -> rowMask -> colMask -> output
     if (needsRowMask && needsColMask && lastValidRow >= 0 &&
-        lastValidCol >= 0) {
+        lastValidCol >= 0 && rowMaskCB && colMaskCB) {
       rewriter.setInsertionPointAfter(insertAfter);
       auto [loop, rowIdx, colIdx] = createSingleColLoop(
-          lastValidRow, lastValidRow + 1, lastValidCol, "corner_row");
+          lastValidRow, lastValidRow + 1, lastValidCol, "corner");
       if (loop) {
-        emitRowMasked(rowIdx, colIdx);
-        insertAfter = loop;
-      }
-    }
-
-    // === LOOP 3c: Corner tile - then apply col mask ===
-    // Reads from OUTPUT where row mask was written, applies col mask.
-    if (needsRowMask && needsColMask && lastValidRow >= 0 &&
-        lastValidCol >= 0) {
-      rewriter.setInsertionPointAfter(insertAfter);
-      auto [loop, rowIdx, colIdx] = createSingleColLoop(
-          lastValidRow, lastValidRow + 1, lastValidCol, "corner_col");
-      if (loop) {
-        // Read from OUTPUT (row-masked result), not INPUT!
-        auto inputTile = rewriter.create<affine::AffineLoadOp>(
-            loc, output, ValueRange{rowIdx, colIdx});
-        auto fillTile = createFillTile();
-
-        if (colMaskTile) {
-          auto result = rewriter.create<TileWhereOp>(
-              loc, tileType, colMaskTile, inputTile.getResult(), fillTile);
-          rewriter.create<affine::AffineStoreOp>(
-              loc, result.getResult(), output, ValueRange{rowIdx, colIdx});
-        } else {
-          // Generate mask dynamically.
-          Value validColsVal =
-              rewriter.create<arith::ConstantIndexOp>(loc, validColsStatic);
-          auto mask = rewriter.create<ExperimentalTileColMaskOp>(loc, tileType,
-                                                                 validColsVal);
-          auto result = rewriter.create<TileWhereOp>(
-              loc, tileType, mask.getResult(), inputTile.getResult(), fillTile);
-          rewriter.create<affine::AffineStoreOp>(
-              loc, result.getResult(), output, ValueRange{rowIdx, colIdx});
-        }
+        emitCornerMasked(rowIdx, colIdx);
         insertAfter = loop;
       }
     } else if (needsRowMask && !needsColMask && lastValidRow >= 0 &&

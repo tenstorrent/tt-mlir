@@ -1427,48 +1427,73 @@ public:
                 op, dst, dstAccessMap, dstAccessIndices);
           });
 
-      rewriter.restoreInsertionPoint(insertionPointAfterLoopNest);
-      dataCopyGenerate<affine::AffineStoreOp>(
-          rewriter, loopNestOrOp, copyInfo.stores,
-          // Load/store dst access generation.
-          [&](PatternRewriter &rewriter, Location loc, Value cb,
-              AffineMap l1AccessMap, ValueRange l1AccessIndices,
-              AffineMap dstAccessMap, ValueRange dstAccessIndices) {
-            auto dstLoad = rewriter.create<affine::AffineLoadOp>(
-                loc, dst, dstAccessMap, dstAccessIndices);
-            Value valueToStore = dstLoad.getResult();
+      // For scheduled loops, keep stores IN-PLACE (fused with compute) instead
+      // of creating a separate loop. This prevents the fission issue where
+      // all iterations write to the same DST slot and only the last value
+      // is available when the separate pack loop runs.
+      //
+      // The correct order is:
+      // 1. DST store (save compute result to DST)
+      // 2. DST load + CB store (pack from DST to output CB)
+      //
+      // We achieve this by:
+      // 1. Replacing original CB store with DST store
+      // 2. Inserting DST load + CB store AFTER the new DST store
+      for (auto [storeOp, bcast, dstSliceIndex, guardDims] : copyInfo.stores) {
+        mlir::IRMapping emptyIRMapper;
+        auto [l1AccessMap, l1AccessIndices, dstAccessMap, dstAccessIndices] =
+            buildIndices(rewriter, storeOp.getLoc(), emptyIRMapper,
+                         storeOp.getIndices(), dstSliceIndex,
+                         storeOp.getMap());
 
-            // Insert dst reinterpret cast if destination CB type differs
-            // from dst type
-            auto cbType = mlir::cast<MemRefType>(cb.getType());
-            if (valueToStore.getType() != cbType.getElementType()) {
-              valueToStore = rewriter
-                                 .create<d2m::DstReinterpretCastOp>(
-                                     loc, cbType.getElementType(), valueToStore)
-                                 .getResult();
-            }
+        Location loc = storeOp.getLoc();
+        Value cb = storeOp.getMemRef();
+        Value valueToStore = storeOp.getValue();
 
-            rewriter.create<affine::AffineStoreOp>(
-                loc, dstLoad.getResult(), cb, l1AccessMap, l1AccessIndices);
-          },
-          // Replacement of the original store with one from dst.
-          [&](PatternRewriter &rewriter, affine::AffineStoreOp op,
-              AffineMap dstAccessMap, ValueRange dstAccessIndices) {
-            Value valueToStore = op.getValue();
-            // Insert dst reinterpret cast if value type differs from dst
-            // type
-            auto dstType = mlir::cast<MemRefType>(dst.getType());
-            if (valueToStore.getType() != dstType.getElementType()) {
-              valueToStore =
-                  rewriter
-                      .create<d2m::DstReinterpretCastOp>(
-                          op.getLoc(), dstType.getElementType(), valueToStore)
-                      .getResult();
-            }
+        // Handle type cast if needed
+        auto dstType = mlir::cast<MemRefType>(dst.getType());
+        if (valueToStore.getType() != dstType.getElementType()) {
+          rewriter.setInsertionPoint(storeOp);
+          valueToStore =
+              rewriter
+                  .create<d2m::DstReinterpretCastOp>(
+                      loc, dstType.getElementType(), valueToStore)
+                  .getResult();
+        }
 
-            rewriter.replaceOpWithNewOp<affine::AffineStoreOp>(
-                op, op.getValue(), dst, dstAccessMap, dstAccessIndices);
-          });
+        // Step 1: Replace original CB store with DST store
+        rewriter.setInsertionPoint(storeOp);
+        auto dstStore = rewriter.create<affine::AffineStoreOp>(
+            loc, valueToStore, dst, dstAccessMap, dstAccessIndices);
+
+        // Step 2: Insert DST load + CB store AFTER the DST store
+        rewriter.setInsertionPointAfter(dstStore);
+        auto dstLoad = rewriter.create<affine::AffineLoadOp>(
+            loc, dst, dstAccessMap, dstAccessIndices);
+
+        Value packValue = dstLoad.getResult();
+        auto cbType = mlir::cast<MemRefType>(cb.getType());
+        if (packValue.getType() != cbType.getElementType()) {
+          packValue = rewriter
+                          .create<d2m::DstReinterpretCastOp>(
+                              loc, cbType.getElementType(), packValue)
+                          .getResult();
+        }
+
+        rewriter.create<affine::AffineStoreOp>(loc, packValue, cb, l1AccessMap,
+                                               l1AccessIndices);
+
+        // Erase the original store
+        rewriter.eraseOp(storeOp);
+      }
+
+      // Mark this loop to prevent fission by the SFPUTileLoopFission pass.
+      // With in-place stores, fission would break the compute-pack sequence
+      // and cause DST overwrites across iterations.
+      if (auto forOp = dyn_cast<affine::AffineForOp>(loopNestOrOp)) {
+        forOp->setAttr("d2m.no_fission", rewriter.getUnitAttr());
+      }
+      (void)insertionPointAfterLoopNest; // Unused now - stores are in-place
     }
   }
 

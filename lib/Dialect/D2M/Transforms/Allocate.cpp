@@ -1436,6 +1436,20 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     TT_debug(!genericOp.isExplicitDatamovementForm());
 
     const AffineMap indexingMap = genericOp.getIndexingMap(operandIndex);
+
+    // For pure constant maps (all results are constant 0s), no streaming needed.
+    // This handles broadcast/scratch operands like mask tiles.
+    bool allConstant = true;
+    for (AffineExpr expr : indexingMap.getResults()) {
+      if (!mlir::isa<AffineConstantExpr>(expr)) {
+        allConstant = false;
+        break;
+      }
+    }
+    if (allConstant) {
+      return false;
+    }
+
     const auto broadcastDims = indexingMap.getBroadcastDims();
     const auto iteratorTypes = genericOp.getIteratorTypesValue();
 

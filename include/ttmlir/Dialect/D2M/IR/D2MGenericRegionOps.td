@@ -2129,15 +2129,17 @@ def D2M_ExperimentalWriteColIndexTileOp : D2M_GenericRegionDatamovementOp<"exper
     let assemblyFormat = [{ $output attr-dict `:` type($output) }];
 }
 
-def D2M_ExperimentalWriteRowMaskTileOp : D2M_GenericRegionDatamovementOp<"experimental::write_row_mask_tile",
+// These ops can be used in either compute or datamovement regions
+// (guards removed from experimental_padding_llks.h to allow compute usage)
+def D2M_ExperimentalWriteRowMaskTileOp : D2M_GenericRegionOp<"experimental::write_row_mask_tile",
   [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
     let summary = "Write row mask pattern to a tile CB";
     let description = [{
         The `experimental::write_row_mask_tile` operation writes a row mask pattern
         to a tile CB, where element[i,j] = 1.0 if i < validRows, else 0.0.
 
-        This is used for partial tile OOB masking. The operation runs in the dataflow
-        kernel and writes directly to L1 memory, avoiding DST register pressure.
+        This is used for partial tile OOB masking. The operation writes directly
+        to L1 memory, avoiding DST register pressure.
     }];
 
     let arguments = (ins AnyTypeOf<[Index, AnyInteger]>:$validRows,
@@ -2146,15 +2148,15 @@ def D2M_ExperimentalWriteRowMaskTileOp : D2M_GenericRegionDatamovementOp<"experi
     let assemblyFormat = [{ `(` $validRows `)` `to` $output attr-dict `:` type($validRows) `,` type($output) }];
 }
 
-def D2M_ExperimentalWriteColMaskTileOp : D2M_GenericRegionDatamovementOp<"experimental::write_col_mask_tile",
+def D2M_ExperimentalWriteColMaskTileOp : D2M_GenericRegionOp<"experimental::write_col_mask_tile",
   [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
     let summary = "Write column mask pattern to a tile CB";
     let description = [{
         The `experimental::write_col_mask_tile` operation writes a column mask pattern
         to a tile CB, where element[i,j] = 1.0 if j < validCols, else 0.0.
 
-        This is used for partial tile OOB masking. The operation runs in the dataflow
-        kernel and writes directly to L1 memory, avoiding DST register pressure.
+        This is used for partial tile OOB masking. The operation writes directly
+        to L1 memory, avoiding DST register pressure.
     }];
 
     let arguments = (ins AnyTypeOf<[Index, AnyInteger]>:$validCols,
