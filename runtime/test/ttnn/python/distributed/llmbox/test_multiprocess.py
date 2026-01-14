@@ -34,6 +34,7 @@ RANK_BINDING_PATH = f"{TT_METAL_RUNTIME_ROOT_EXTERNAL}/tests/scale_out/4x_bh_qui
 RANK_FILE_PATH_2X4BHQBAE = f"{TT_METAL_RUNTIME_ROOT_EXTERNAL}/tests/scale_out/4x_bh_quietbox/rankfile/2x4.txt"
 RANK_FILE_PATH_2X4BHQBAE_RELATIVE = "tests/scale_out/4x_bh_quietbox/rankfile/2x4.txt"
 
+using_bh_qbae = True # required for 4xbhqbae
 
 def launch_distributed_runtime_llmbox():
     assert os.path.exists(
@@ -179,7 +180,7 @@ def compare_system_descriptors(
 
 
 def test_system_desc(request):
-    system_desc_local = subprocess_get_system_descriptor(request)
+    system_desc_local = subprocess_get_system_descriptor(request, disable_eth_dispatch_on_blackhole=using_bh_qbae)
 
     launch_distributed_runtime()
 
