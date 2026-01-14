@@ -116,15 +116,21 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
     computeVirtualGridBounceShape(ArrayRef<int64_t> virtualGridShape,
                                   ArrayRef<int64_t> deviceGridShape) const {
 
-      TT_assert(virtualGridShape.size() >= 2u);
+      TT_assert(virtualGridShape.size() >= 1u);
       // Collapse all leading dimensions into the first dimension of a 2D shape.
+      // For 1D tensors, treat as [1, N].
       llvm::SmallVector<int64_t> collapsedVirtualGridShape(2);
-      collapsedVirtualGridShape[0] = virtualGridShape[0];
-      for (int64_t i = 1; i < static_cast<int64_t>(virtualGridShape.size()) - 1;
-           ++i) {
-        collapsedVirtualGridShape[0] *= virtualGridShape[i];
+      if (virtualGridShape.size() == 1) {
+        collapsedVirtualGridShape[0] = 1;
+        collapsedVirtualGridShape[1] = virtualGridShape[0];
+      } else {
+        collapsedVirtualGridShape[0] = virtualGridShape[0];
+        for (int64_t i = 1;
+             i < static_cast<int64_t>(virtualGridShape.size()) - 1; ++i) {
+          collapsedVirtualGridShape[0] *= virtualGridShape[i];
+        }
+        collapsedVirtualGridShape[1] = virtualGridShape.back();
       }
-      collapsedVirtualGridShape[1] = virtualGridShape.back();
 
       llvm::SmallVector<int64_t> bounceShape;
       for (size_t i = 0; i < collapsedVirtualGridShape.size(); i++) {
@@ -167,9 +173,16 @@ class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
       SmallVector<int64_t> tensorGridShape =
           llvm::to_vector(referenceLayout.getGridShape(referenceType));
 
-      bool virtualBounceNeeded = tensorGridShape.size() > 2 ||
-                                 ((tensorGridShape[0] > targetGridShape[0]) ||
-                                  (tensorGridShape[1] > targetGridShape[1]));
+      // For 1D tensors, the grid shape may have only 1 dimension.
+      // We need to handle this case by checking bounds before access.
+      bool virtualBounceNeeded = tensorGridShape.size() > 2;
+      if (!virtualBounceNeeded && tensorGridShape.size() >= 1) {
+        // Check if any dimension exceeds the target grid.
+        virtualBounceNeeded =
+            (tensorGridShape[0] > targetGridShape[0]) ||
+            (tensorGridShape.size() >= 2 &&
+             tensorGridShape[1] > targetGridShape[1]);
+      }
       auto newIndexMap = referenceLayout.getIndexAffineMap();
       bool hasNonTrivialIndexMap =
           !newIndexMap.isEmpty() && !newIndexMap.isIdentity();
@@ -383,10 +396,13 @@ public:
       ttcore::GridAttr grid;
       if (outputHasVirtualGrid) {
         // Check if this is actually a virtual grid (grid shape exceeds physical
-        // bounds)
-        bool isVirtualGrid =
-            (gridShape.size() > 2) || (gridShape[0] > targetGridShape[0] ||
-                                       gridShape[1] > targetGridShape[1]);
+        // bounds). For 1D tensors, the grid shape may have only 1 dimension.
+        bool isVirtualGrid = (gridShape.size() > 2);
+        if (!isVirtualGrid && gridShape.size() >= 1) {
+          isVirtualGrid = (gridShape[0] > targetGridShape[0]) ||
+                          (gridShape.size() >= 2 &&
+                           gridShape[1] > targetGridShape[1]);
+        }
 
         if (isVirtualGrid) {
           // Create the virtual grid coordinate maps and use the inverse map
@@ -932,10 +948,14 @@ public:
           targetInfo.hasLayout() ? targetInfo.getGridShape() : targetGridShape;
 
       // Check if we need to collapse a virtual grid.
-      bool needsVirtualGridCollapse =
-          currentGridShape.size() > 2 ||
-          (currentGridShape[0] > targetGridShape_layout[0]) ||
-          (currentGridShape[1] > targetGridShape_layout[1]);
+      // For 1D tensors, the grid shape may have only 1 dimension.
+      bool needsVirtualGridCollapse = currentGridShape.size() > 2;
+      if (!needsVirtualGridCollapse && currentGridShape.size() >= 1) {
+        needsVirtualGridCollapse =
+            (currentGridShape[0] > targetGridShape_layout[0]) ||
+            (currentGridShape.size() >= 2 &&
+             currentGridShape[1] > targetGridShape_layout[1]);
+      }
 
       if (needsVirtualGridCollapse && currentInfo.isL1()) {
         auto reblocked = typeBuilder.modifyDeviceType(

@@ -1,8 +1,13 @@
 // RUN: ttmlir-opt %s --split-input-file --verify-diagnostics
 
-// Test: logical_shape must have at least 2 dimensions (only 1 dimension)
-// expected-error @+1 {{logical_shape must have at least 2 dimensions, got 1}}
+// Test: 1D tensors are now supported - this should be valid.
+// Note: Previously 1D was rejected, but now we support 1D tensors by treating
+// them as [1, N] for tiling purposes. The test below is a positive test.
 #layout_1d = #ttcore.metal_layout<logical_shape = 32, dim_alignments = 32, collapsed_intervals = dense<[[0, 1]]> : tensor<1x2xi64>, undef, l1, sharded, index_map = map(0)>
+
+func.func @test_1d_layout(%arg0: tensor<1x!ttcore.tile<32x32, f32>, #layout_1d>) -> tensor<1x!ttcore.tile<32x32, f32>, #layout_1d> {
+  return %arg0 : tensor<1x!ttcore.tile<32x32, f32>, #layout_1d>
+}
 
 // -----
 

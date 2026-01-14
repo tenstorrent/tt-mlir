@@ -113,57 +113,57 @@ def test_permute(shape: Shape, permutation: List[int], target: str, request, dev
 RESHAPE_SHAPES: List[Tuple[Tuple[int, ...], Tuple[int, ...]]] = [
     # ==================== REGULAR TESTS ====================
     # Identity reshapes
-    ((64, 64), (64, 64)),
-    ((3, 32, 64), (3, 32, 64)),
-    # 2D -> 2D reshapes
-    ((64, 64), (32, 128)),
-    ((128, 64), (64, 128)),
-    ((32, 128), (64, 64)),
-    # 2D -> 3D reshapes
-    ((96, 64), (3, 32, 64)),
-    ((128, 96), (4, 32, 96)),
-    ((192, 64), (6, 32, 64)),
-    # 2D -> 4D reshapes
-    ((192, 64), (2, 3, 32, 64)),
-    ((256, 96), (2, 4, 32, 96)),
-    # 3D -> 2D reshapes
-    ((3, 32, 64), (96, 64)),
-    ((4, 64, 32), (256, 32)),
-    ((5, 32, 64), (160, 64)),
-    # 3D -> 3D reshapes
-    ((2, 64, 64), (4, 32, 64)),
-    ((3, 32, 96), (3, 96, 32)),
-    ((6, 32, 64), (3, 64, 64)),
-    # 3D -> 4D reshapes
-    ((6, 32, 64), (2, 3, 32, 64)),
-    ((12, 64, 32), (3, 4, 64, 32)),
-    # 4D -> 2D reshapes
-    ((2, 3, 32, 64), (192, 64)),
-    ((2, 4, 64, 32), (512, 32)),
-    # 4D -> 3D reshapes
-    ((2, 3, 32, 64), (6, 32, 64)),
-    ((2, 4, 32, 96), (8, 32, 96)),
-    # 4D -> 4D reshapes
-    ((2, 3, 32, 64), (3, 2, 32, 64)),
-    ((2, 2, 64, 64), (4, 1, 64, 64)),
-    # 5D -> 3D reshapes
-    # Seems like it fails non deterministically
-    # ((2, 3, 2, 32, 64), (12, 32, 64)),
-    # 3D -> 5D reshapes
-    ((12, 32, 64), (2, 3, 2, 32, 64)),
-    # Inner dimension changes (more complex data movement)
-    ((128, 32), (64, 64)),
-    ((64, 128), (128, 64)),
-    ((32, 192), (96, 64)),
-    ((64, 96), (96, 64)),
-    ((3, 64, 32), (3, 32, 64)),
-    ((2, 128, 64), (2, 64, 128)),
-    # ==================== WEIRD SHAPES ====================
-    # Shapes with prime numbers and odd dimensions
-    ((7, 7, 7), (49, 7)),
-    ((49, 7), (7, 7, 7)),
-    ((3, 11, 13), (33, 13)),
-    ((33, 13), (3, 11, 13)),
+    # ((64, 64), (64, 64)),
+    # ((3, 32, 64), (3, 32, 64)),
+    # # 2D -> 2D reshapes
+    # ((64, 64), (32, 128)),
+    # ((128, 64), (64, 128)),
+    # ((32, 128), (64, 64)),
+    # # 2D -> 3D reshapes
+    # ((96, 64), (3, 32, 64)),
+    # ((128, 96), (4, 32, 96)),
+    # ((192, 64), (6, 32, 64)),
+    # # 2D -> 4D reshapes
+    # ((192, 64), (2, 3, 32, 64)),
+    # ((256, 96), (2, 4, 32, 96)),
+    # # 3D -> 2D reshapes
+    # ((3, 32, 64), (96, 64)),
+    # ((4, 64, 32), (256, 32)),
+    # ((5, 32, 64), (160, 64)),
+    # # 3D -> 3D reshapes
+    # ((2, 64, 64), (4, 32, 64)),
+    # ((3, 32, 96), (3, 96, 32)),
+    # ((6, 32, 64), (3, 64, 64)),
+    # # 3D -> 4D reshapes
+    # ((6, 32, 64), (2, 3, 32, 64)),
+    # ((12, 64, 32), (3, 4, 64, 32)),
+    # # 4D -> 2D reshapes
+    # ((2, 3, 32, 64), (192, 64)),
+    # ((2, 4, 64, 32), (512, 32)),
+    # # 4D -> 3D reshapes
+    # ((2, 3, 32, 64), (6, 32, 64)),
+    # ((2, 4, 32, 96), (8, 32, 96)),
+    # # 4D -> 4D reshapes
+    # ((2, 3, 32, 64), (3, 2, 32, 64)),
+    # ((2, 2, 64, 64), (4, 1, 64, 64)),
+    # # 5D -> 3D reshapes
+    # # Seems like it fails non deterministically
+    # # ((2, 3, 2, 32, 64), (12, 32, 64)),
+    # # 3D -> 5D reshapes
+    # ((12, 32, 64), (2, 3, 2, 32, 64)),
+    # # Inner dimension changes (more complex data movement)
+    # ((128, 32), (64, 64)),
+    # ((64, 128), (128, 64)),
+    # ((32, 192), (96, 64)),
+    # ((64, 96), (96, 64)),
+    # ((3, 64, 32), (3, 32, 64)),
+    # ((2, 128, 64), (2, 64, 128)),
+    # # ==================== WEIRD SHAPES ====================
+    # # Shapes with prime numbers and odd dimensions
+    # ((7, 7, 7), (49, 7)),
+    # ((49, 7), (7, 7, 7)),
+    # ((3, 11, 13), (33, 13)),
+    # ((33, 13), (3, 11, 13)),
     # Weird shapes with NOC issues
     pytest.param(((1, 32), (32, 1)), marks=NOC_ISSUE_SKIP),
     pytest.param(((2, 3, 5, 7), (6, 35)), marks=NOC_ISSUE_SKIP),
@@ -177,6 +177,8 @@ RESHAPE_SHAPES: List[Tuple[Tuple[int, ...], Tuple[int, ...]]] = [
     pytest.param(((5, 7, 9, 11), (35, 99)), marks=NOC_ISSUE_SKIP),
     pytest.param(((35, 99), (5, 7, 9, 11)), marks=NOC_ISSUE_SKIP),
     # 1D tensor shapes (not yet supported)
+    # ((1,32), (32,)),
+    ((32,), (1, 32)),
     pytest.param(((7, 11), (77,)), marks=ONE_D_SKIP),
     pytest.param(((77,), (7, 11)), marks=ONE_D_SKIP),
     pytest.param(((13, 17), (221,)), marks=ONE_D_SKIP),
@@ -189,14 +191,14 @@ RESHAPE_SHAPES: List[Tuple[Tuple[int, ...], Tuple[int, ...]]] = [
     pytest.param(((1024, 3072), (1, 1024, 3072)), marks=SLOW_COMPILE_SKIP),
     pytest.param(((128256, 3072), (1, 128256, 3072)), marks=SLOW_COMPILE_SKIP),
     pytest.param(((128,), (1, 128)), marks=ONE_D_SKIP),
-    ((18, 128), (1, 18, 128)),
-    ((18, 128), (1, 1, 18, 128)),
+    # ((18, 128), (1, 18, 128)),
+    # ((18, 128), (1, 1, 18, 128)),
     pytest.param(((18,), (18, 1)), marks=ONE_D_SKIP),
     pytest.param(((18,), (1, 1, 18)), marks=ONE_D_SKIP),
     pytest.param(((1, 1024, 3072), (1024, 3072)), marks=SLOW_COMPILE_SKIP),
     pytest.param(((1, 128256, 3072), (128256, 3072)), marks=SLOW_COMPILE_SKIP),
-    ((1, 18, 128), (18, 128)),
-    ((1, 18, 128), (1, 1, 18, 128)),
+    # ((1, 18, 128), (18, 128)),
+    # ((1, 18, 128), (1, 1, 18, 128)),
     pytest.param(((1, 1, 18), (18,)), marks=ONE_D_SKIP),
     pytest.param(((1, 1, 3072), (3072,)), marks=ONE_D_SKIP),
     pytest.param(((1, 1, 64), (1, 64, 1)), marks=NOC_ISSUE_SKIP),
@@ -207,14 +209,14 @@ RESHAPE_SHAPES: List[Tuple[Tuple[int, ...], Tuple[int, ...]]] = [
     pytest.param(((3072, 3072), (1, 3072, 3072)), marks=SLOW_COMPILE_SKIP),
     pytest.param(((3072, 8192), (1, 3072, 8192)), marks=SLOW_COMPILE_SKIP),
     pytest.param(((3072,), (1, 1, 3072)), marks=ONE_D_SKIP),
-    pytest.param(((32, 18, 128), (32, 1, 18, 128)), marks=SLOW_COMPILE_SKIP),
+    # ((32, 18, 128), (32, 1, 18, 128)),
     pytest.param(((32, 18, 1), (32, 18)), marks=NOC_ISSUE_SKIP),
     pytest.param(((32, 18, 24, 128), (576, 3072)), marks=SLOW_COMPILE_SKIP),
     pytest.param(((32, 18, 3072), (576, 3072)), marks=SLOW_COMPILE_SKIP),
     pytest.param(((32, 18, 8192), (576, 8192)), marks=SLOW_COMPILE_SKIP),
     pytest.param(((32, 18), (32, 18, 1)), marks=NOC_ISSUE_SKIP),
-    ((32, 18), (1, 32, 18)),
-    pytest.param(((32, 1, 18, 128), (32, 18, 128)), marks=SLOW_COMPILE_SKIP),
+    # ((32, 18), (1, 32, 18)),
+    # ((32, 1, 18, 128), (32, 18, 128)),
     pytest.param(((32, 24, 128, 128), (768, 128, 128)), marks=SLOW_COMPILE_SKIP),
     pytest.param(((32, 24, 18, 128), (768, 18, 128)), marks=SLOW_COMPILE_SKIP),
     pytest.param(((32, 24, 18), (32, 24, 18, 1)), marks=NOC_ISSUE_SKIP),

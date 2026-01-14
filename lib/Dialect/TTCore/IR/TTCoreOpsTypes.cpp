@@ -555,8 +555,11 @@ getPhysicalGridShapeFromShapeAndMap(ArrayRef<int64_t> overallDeviceShape,
   if (map.isEmpty()) {
     return llvm::SmallVector<int64_t>(virtualGridShape);
   }
-  TT_assert(map.getNumResults() >= 2u);
-  auto gridResultMap = ttmlir::utils::affineMapTakeFrontResults(map, 2);
+  TT_assert(map.getNumResults() >= 1u);
+  // For 1D tensors, we only have 1 result; for 2D+ we take the first 2.
+  unsigned numResultsToTake = std::min(map.getNumResults(), 2u);
+  auto gridResultMap =
+      ttmlir::utils::affineMapTakeFrontResults(map, numResultsToTake);
   TT_assert(overallDeviceShape.size() == gridResultMap.getNumDims());
   return ttmlir::utils::evalShape(gridResultMap, overallDeviceShape);
 }
@@ -870,9 +873,15 @@ MetalLayoutAttr::getPhysicalShape(ArrayRef<int64_t> tileShape) const {
       applyCollapsedIntervalsAndAlignments(
           getLogicalShape(), normalizedIntervals, getDimAlignments());
 
+  // For 1D tensors, we treat them as [1, N] for device layout purposes.
+  // This ensures the device tensor is at least rank-4 (2D grid + 2D shard).
+  if (physicalShape.size() == 1) {
+    physicalShape.insert(physicalShape.begin(), 1);
+  }
+
   if (!tileShape.empty()) {
-    assert(physicalShape.size() >= 2);
     assert(tileShape.size() == 2);
+    assert(physicalShape.size() >= 2);
     assert(physicalShape[physicalShape.size() - 2] % tileShape[0] == 0);
     physicalShape[physicalShape.size() - 2] /= tileShape[0];
     assert(physicalShape[physicalShape.size() - 1] % tileShape[1] == 0);
@@ -992,22 +1001,31 @@ MetalLayoutAttr::computeTileAlignments(ArrayRef<int64_t> logicalShape,
   const int64_t logicalRank = logicalShape.size();
   const int64_t collapsedRank = normalizedIntervals.size() / 2;
 
-  assert(logicalRank >= 2);
+  assert(logicalRank >= 1);
 
   llvm::SmallVector<int64_t> alignments(logicalRank, 1);
-  // Handle the last two intervals (which will map to tiles).
-  for (int64_t idx = -1; idx >= -2; idx--) {
-    const int64_t tileIdx = tileShape.size() + idx;
-    const int64_t tileDim = tileShape[tileIdx];
 
-    const int64_t intvIdx = collapsedRank + idx;
-    // Interval end values are exclusive, so we need to subtract 1.
-    const int64_t intervalEnd = normalizedIntervals[intvIdx * 2 + 1] - 1;
+  // For 1D tensors, we only have one interval mapping to the tile width.
+  // For 2D+ tensors, we handle the last two intervals mapping to tiles.
+  if (logicalRank == 1) {
+    // 1D tensor: align the single dimension to tile width (32).
+    // The implicit height dimension is treated as 1.
+    alignments[0] = tileShape[1];
+  } else {
+    // Handle the last two intervals (which will map to tiles).
+    for (int64_t idx = -1; idx >= -2; idx--) {
+      const int64_t tileIdx = tileShape.size() + idx;
+      const int64_t tileDim = tileShape[tileIdx];
 
-    alignments[intervalEnd] = tileDim;
+      const int64_t intvIdx = collapsedRank + idx;
+      // Interval end values are exclusive, so we need to subtract 1.
+      const int64_t intervalEnd = normalizedIntervals[intvIdx * 2 + 1] - 1;
+
+      alignments[intervalEnd] = tileDim;
+    }
+    assert(alignments[logicalRank - 1] % tileShape[1] == 0);
+    assert(alignments[logicalRank - 2] % tileShape[0] == 0);
   }
-  assert(alignments[logicalRank - 1] % tileShape[1] == 0);
-  assert(alignments[logicalRank - 2] % tileShape[0] == 0);
   return alignments;
 }
 
@@ -1049,12 +1067,26 @@ llvm::SmallVector<int64_t> MetalLayoutAttr::computeGridAwareDimAlignments(
   const int64_t deviceGridRank = deviceGridShape.size();
   const int64_t tensorGridRank = normalizedIntervals.size() / 2;
 
-  assert(logicalRank >= 2);
+  assert(logicalRank >= 1);
   assert(deviceGridRank == 2);
   assert(normalizedIntervals.size() % 2 == 0);
-  assert(deviceGridRank <= tensorGridRank);
+  assert(deviceGridRank <= tensorGridRank || logicalRank == 1);
 
   llvm::SmallVector<int64_t> alignments(logicalRank, 1);
+
+  // For 1D tensors, we only align along the single dimension (tile width).
+  // The implicit height dimension is treated as 1 with no grid distribution.
+  if (logicalRank == 1) {
+    const int64_t tileDim = tileShape[1];
+    const int64_t gridDim = deviceGridShape[1];
+    const int64_t gridAlignmentThreshold = gridDim * tileDim;
+
+    const int64_t collapsedSize =
+        ttmlir::utils::alignUp(logicalShape[0], tileDim);
+    const bool alignToGrid = collapsedSize > gridAlignmentThreshold;
+    alignments[0] = alignToGrid ? gridAlignmentThreshold : tileDim;
+    return alignments;
+  }
 
   // Process the last two intervals (which map to the 2D tile shape) and apply
   // grid-aware alignments to saturate the worker grid when possible.
@@ -1116,9 +1148,18 @@ computeDefaultFlattenedIntervals(MLIRContext *context, int rank) {
 
   constexpr size_t kGridRank = 2;
 
-  // Create collapse intervals.
-  int64_t numDimsToCollapse = rank - kGridRank + 1;
   llvm::SmallVector<int64_t> flattenedIntervals;
+
+  // For 1D tensors, we have a single interval covering the one dimension.
+  // The tensor is treated as [1, N] for tiling, but the logical shape is 1D.
+  if (rank == 1) {
+    flattenedIntervals.push_back(0);
+    flattenedIntervals.push_back(1);
+    return flattenedIntervals;
+  }
+
+  // Create collapse intervals for 2D+ tensors.
+  int64_t numDimsToCollapse = rank - kGridRank + 1;
 
   // First interval will be [0, numDimsToCollapse).
   flattenedIntervals.push_back(0);
@@ -1134,12 +1175,12 @@ computeDefaultFlattenedIntervals(MLIRContext *context, int rank) {
 DenseIntElementsAttr
 MetalLayoutAttr::computeDefaultCollapsedIntervals(MLIRContext *context,
                                                   int rank) {
-  constexpr size_t kGridRank = 2;
-
   auto flattenedIntervals = computeDefaultFlattenedIntervals(context, rank);
 
-  auto intervalType = RankedTensorType::get(
-      {static_cast<int64_t>(kGridRank), 2}, IntegerType::get(context, 64));
+  // For 1D tensors, we have 1 interval; for 2D+ we have kGridRank intervals.
+  int64_t numIntervals = flattenedIntervals.size() / 2;
+  auto intervalType = RankedTensorType::get({numIntervals, 2},
+                                            IntegerType::get(context, 64));
   DenseIntElementsAttr collapsedIntervals =
       DenseIntElementsAttr::get(intervalType, flattenedIntervals);
 
@@ -1259,9 +1300,10 @@ MetalLayoutAttr MetalLayoutAttr::get(::mlir::MLIRContext *context,
 
   int64_t logicalRank = logicalShape.size();
 
-  // Logical shape must have at least 2 dimensions for tiling.
-  if (logicalRank < 2) {
-    return emitError() << "logical_shape must have at least 2 dimensions, got "
+  // Logical shape must have at least 1 dimension.
+  // 1D tensors are supported and treated as [1, N] for tiling purposes.
+  if (logicalRank < 1) {
+    return emitError() << "logical_shape must have at least 1 dimension, got "
                        << logicalRank;
   }
 
@@ -1846,19 +1888,31 @@ TileType TileType::get(Type elementType, ArrayRef<int64_t> shape) {
 
 llvm::SmallVector<int64_t>
 TileType::getScalarShape(SmallVector<int64_t> tiledShape) const {
-  assert(tiledShape.size() >= 2 && "expected at least 2D shape");
-  tiledShape[tiledShape.size() - 2] *= getHeight();
-  tiledShape[tiledShape.size() - 1] *= getWidth();
+  assert(tiledShape.size() >= 1 && "expected at least 1D shape");
+  if (tiledShape.size() == 1) {
+    // For 1D tensors, we only scale by tile width.
+    // The implicit height dimension is treated as 1.
+    tiledShape[0] *= getWidth();
+  } else {
+    tiledShape[tiledShape.size() - 2] *= getHeight();
+    tiledShape[tiledShape.size() - 1] *= getWidth();
+  }
   return tiledShape;
 }
 
 llvm::SmallVector<int64_t>
 TileType::getTiledShape(SmallVector<int64_t> scalarShape) const {
-  assert(scalarShape.size() >= 2 && "expected at least 2D shape");
-  scalarShape[scalarShape.size() - 2] =
-      (scalarShape[scalarShape.size() - 2] + getHeight() - 1) / getHeight();
-  scalarShape[scalarShape.size() - 1] =
-      (scalarShape[scalarShape.size() - 1] + getWidth() - 1) / getWidth();
+  assert(scalarShape.size() >= 1 && "expected at least 1D shape");
+  if (scalarShape.size() == 1) {
+    // For 1D tensors, we only tile by width.
+    // The implicit height dimension is treated as 1.
+    scalarShape[0] = (scalarShape[0] + getWidth() - 1) / getWidth();
+  } else {
+    scalarShape[scalarShape.size() - 2] =
+        (scalarShape[scalarShape.size() - 2] + getHeight() - 1) / getHeight();
+    scalarShape[scalarShape.size() - 1] =
+        (scalarShape[scalarShape.size() - 1] + getWidth() - 1) / getWidth();
+  }
   return scalarShape;
 }
 
