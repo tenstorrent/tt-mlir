@@ -124,10 +124,9 @@ class OpWrapper:
         attrs: Optional[OpAttributeMap] = None,
         func_op: Optional[func.FuncOp] = None,
         origin_model: str = "",
-        op_str: Optional[str] = None,
     ) -> None:
         """Constructor."""
-        self.op_string = op_str if op_str is not None else str(op)
+        self.op_string = str(op)
         self.op_name = op.name
         self.func_op_string = str(func_op) if func_op is not None else ""
 
@@ -291,9 +290,8 @@ class TTNNOpWrapper(OpWrapper):
         attrs: Optional[OpAttributeMap] = None,
         func_op: Optional[func.FuncOp] = None,
         origin_model: str = "",
-        op_str: Optional[str] = None,
     ) -> None:
-        super().__init__(op, attrs, func_op, origin_model, op_str)
+        super().__init__(op, attrs, func_op, origin_model)
         self.tt_device_op_string = str(tt_device_op)
 
     # @override
@@ -434,9 +432,8 @@ class ModuleWrapper:
         op: OpView,
         func_op: Optional[func.FuncOp] = None,
         origin_model: str = "",
-        op_str: Optional[str] = None,
     ) -> OpWrapper:
-        return OpWrapper(op, self._attributes, func_op, origin_model, op_str)
+        return OpWrapper(op, self._attributes, func_op, origin_model)
 
     # ----- Private methods and properties -----
 
@@ -533,10 +530,9 @@ class TTNNModuleWrapper(ModuleWrapper):
         op: OpView,
         func_op: Optional[func.FuncOp] = None,
         origin_model: str = "",
-        op_str: Optional[str] = None,
     ) -> TTNNOpWrapper:
         return TTNNOpWrapper(
-            op, self._tt_device_op, self._attributes, func_op, origin_model, op_str
+            op, self._tt_device_op, self._attributes, func_op, origin_model
         )
 
     # ----- Private methods and properties -----

@@ -179,11 +179,11 @@ class MLIRModuleSplitter:
                     if "stablehlo.composite" in op_str:
                         decomposition_func = self._extract_decomposition_func(op_str)
                         op_wrapper = self._module.wrap_op(
-                            op, decomposition_func, self._origin_model, op_str=op_str
+                            op, decomposition_func, self._origin_model
                         )
                     else:
                         op_wrapper = self._module.wrap_op(
-                            op, None, self._origin_model, op_str=op_str
+                            op, None, self._origin_model
                         )
 
                     self._sub_ops.append(op_wrapper)
