@@ -20,9 +20,18 @@ from ttmlir.ir import (
     Type,
 )
 
-_LOC_LINE_PATTERN = re.compile(r"^#loc.*$", re.MULTILINE)
-_LOC_INLINE_PATTERN = re.compile(r"\s*loc\((?:[^()]*(?:\([^()]*\))*)*\)")
-_SDY_MESH_PATTERN = re.compile(r"\s*sdy.mesh.*$", re.MULTILINE)
+# Patterns for preprocessing MLIR module strings
+_LOC_LINE_PATTERN = re.compile(r"^#loc.*$", re.MULTILINE)  # Match #loc lines
+_LOC_INLINE_PATTERN = re.compile(
+    r"\s*loc\((?:[^()]*(?:\([^()]*\))*)*\)"
+)  # Match inline loc(...) annotations
+_SDY_MESH_PATTERN = re.compile(r"\s*sdy.mesh.*$", re.MULTILINE)  # Match sdy.mesh lines
+
+
+def _replace_mlir_identifier(text: str, old_name: str, new_name: str) -> str:
+    """Replace SSA value name (e.g., %arg0), avoiding partial matches like %arg01."""
+    pattern = re.escape(old_name) + r"(?=[^a-zA-Z0-9_]|$)"
+    return re.sub(pattern, new_name, text)
 
 
 @dataclass(frozen=True)
@@ -114,6 +123,7 @@ class OpWrapper:
 
     Extracts and caches all necessary information from the live OpView at construction
     time, so the wrapper can outlive the MLIR context.
+    If the op has constant operands, they are stored, to later be added to the module.
     """
 
     # ----- Public methods and properties -----
@@ -130,55 +140,55 @@ class OpWrapper:
         self.op_name = op.name
         self.func_op_string = str(func_op) if func_op is not None else ""
 
-        # Collect constant operands directly from op
-        self.constant_ops_strings = []
-        self.constant_operand_indices = set()
-
-        for i, operand in enumerate(op.operands):
-            defining_op = operand.owner
-            # Check if owner is an operation (not a Block for block arguments)
-            # Block arguments don't have a defining operation within the function
-            if defining_op and hasattr(defining_op, 'name') and defining_op.name == "stablehlo.constant":
-                self.constant_ops_strings.append(str(defining_op))
-                self.constant_operand_indices.add(i)
-
-        # Create standardized operand and result names
+        # Single pass: identify constants, build mappings, collect non-constant operands
+        constant_ops = {}  # Maps operand index -> (original_name, constant_op_string)
         operand_mapping = {}
-        arg_counter = 0
+        non_constant_operands = []
+
         for i, operand in enumerate(op.operands):
             original_name = operand.get_name()
-            # Constants use different naming
-            if i in self.constant_operand_indices:
+            defining_op = operand.owner
+
+            # Check if operand comes from a constant operation
+            is_constant = (
+                defining_op
+                and hasattr(defining_op, "name")
+                and defining_op.name == "stablehlo.constant"
+            )
+
+            if is_constant:
                 standardized_name = f"%const{i}"
+                constant_ops[i] = (original_name, str(defining_op))
             else:
-                standardized_name = f"%arg{arg_counter}"
-                arg_counter += 1
+                standardized_name = f"%arg{i}"
+                non_constant_operands.append(Operand(standardized_name, operand.type))
+
             operand_mapping[original_name] = standardized_name
 
+        # Build result mapping
         result_mapping = {}
         for i, result in enumerate(op.results):
             original_name = result.get_name()
             standardized_name = f"%res{i}"
             result_mapping[original_name] = standardized_name
 
-        # Replace operand and result names in op_string and constant_ops_strings
+        # Replace all identifiers in main op string
         for original, standardized in {**result_mapping, **operand_mapping}.items():
-            pattern = re.escape(original) + r"(?=[^a-zA-Z0-9_]|$)"
-            self.op_string = re.sub(pattern, standardized, self.op_string)
-            # Also replace in constant ops
-            self.constant_ops_strings = [
-                re.sub(pattern, standardized, const_str)
-                for const_str in self.constant_ops_strings
-            ]
-
-        # Store only non-constant operands as function arguments
-        self.operands = [
-            Operand(f"%arg{j}", operand.type)
-            for j, (i, operand) in enumerate(
-                (idx, op) for idx, op in enumerate(op.operands)
-                if idx not in self.constant_operand_indices
+            self.op_string = _replace_mlir_identifier(
+                self.op_string, original, standardized
             )
-        ]
+
+        # Process constant ops: replace only the defining identifier in each
+        self.constant_ops_strings = []
+        for original_name, const_str in constant_ops.values():
+            standardized_name = operand_mapping[original_name]
+            const_str = _replace_mlir_identifier(
+                const_str, original_name, standardized_name
+            )
+            self.constant_ops_strings.append(const_str)
+
+        # Store results
+        self.operands = non_constant_operands
         self.results = [
             Result(f"%res{i}", result.type) for i, result in enumerate(op.results)
         ]

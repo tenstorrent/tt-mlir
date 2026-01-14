@@ -182,9 +182,7 @@ class MLIRModuleSplitter:
                             op, decomposition_func, self._origin_model
                         )
                     else:
-                        op_wrapper = self._module.wrap_op(
-                            op, None, self._origin_model
-                        )
+                        op_wrapper = self._module.wrap_op(op, None, self._origin_model)
 
                     self._sub_ops.append(op_wrapper)
 
