@@ -304,7 +304,7 @@ def test_flatbuffer_execution(request, num_loops, mesh_shape):
     file_manager = FileManager(logger)
     binary = Binary(logger, file_manager, binary_path)
 
-    curr_system_desc = json.loads(subprocess_get_system_descriptor(request).as_json())
+    curr_system_desc = json.loads(subprocess_get_system_descriptor(request, disable_eth_dispatch_on_blackhole=using_bh_qbae).as_json())
     binary_system_desc = binary.system_desc_dict
 
     assert (
