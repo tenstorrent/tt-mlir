@@ -131,11 +131,29 @@ class OpWrapper:
         self.op_name = op.name
         self.func_op_string = str(func_op) if func_op is not None else ""
 
+        # Collect constant operands directly from op
+        self.constant_ops_strings = []
+        self.constant_operand_indices = set()
+
+        for i, operand in enumerate(op.operands):
+            defining_op = operand.owner
+            # Check if owner is an operation (not a Block for block arguments)
+            # Block arguments don't have a defining operation within the function
+            if defining_op and hasattr(defining_op, 'name') and defining_op.name == "stablehlo.constant":
+                self.constant_ops_strings.append(str(defining_op))
+                self.constant_operand_indices.add(i)
+
         # Create standardized operand and result names
         operand_mapping = {}
+        arg_counter = 0
         for i, operand in enumerate(op.operands):
             original_name = operand.get_name()
-            standardized_name = f"%arg{i}"
+            # Constants use different naming
+            if i in self.constant_operand_indices:
+                standardized_name = f"%const{i}"
+            else:
+                standardized_name = f"%arg{arg_counter}"
+                arg_counter += 1
             operand_mapping[original_name] = standardized_name
 
         result_mapping = {}
@@ -144,14 +162,23 @@ class OpWrapper:
             standardized_name = f"%res{i}"
             result_mapping[original_name] = standardized_name
 
-        # Replace operand and result names in op_string
+        # Replace operand and result names in op_string and constant_ops_strings
         for original, standardized in {**result_mapping, **operand_mapping}.items():
             pattern = re.escape(original) + r"(?=[^a-zA-Z0-9_]|$)"
             self.op_string = re.sub(pattern, standardized, self.op_string)
+            # Also replace in constant ops
+            self.constant_ops_strings = [
+                re.sub(pattern, standardized, const_str)
+                for const_str in self.constant_ops_strings
+            ]
 
-        # Store operands and results with standardized names
+        # Store only non-constant operands as function arguments
         self.operands = [
-            Operand(f"%arg{i}", operand.type) for i, operand in enumerate(op.operands)
+            Operand(f"%arg{j}", operand.type)
+            for j, (i, operand) in enumerate(
+                (idx, op) for idx, op in enumerate(op.operands)
+                if idx not in self.constant_operand_indices
+            )
         ]
         self.results = [
             Result(f"%res{i}", result.type) for i, result in enumerate(op.results)
@@ -179,13 +206,17 @@ class OpWrapper:
         Wraps the cached op string in a MLIR `func` and then in a MLIR `module` and
         returns string representation of that module.
 
+        If the op has constant operands, they are emitted at the beginning of the
+        function body.
+
         Example
         ------
         ```
         module attributes {...} {
-            func.func main(...) -> ... {
-                %0 = <op> ...
-                return %0
+            func.func main(%arg0: tensor<...>) -> ... {
+                %const1 = stablehlo.constant dense<...> : tensor<...>
+                %res0 = <op>(%arg0, %const1) ...
+                return %res0
             }
         }
         ```
@@ -195,6 +226,11 @@ class OpWrapper:
         unpacked_operands = ", ".join(
             f"{operand.name}: {operand.type}" for operand in unique_operands
         )
+
+        # Prepare constant ops to emit in function body
+        constant_body = ""
+        if self.constant_ops_strings:
+            constant_body = "    " + "\n    ".join(self.constant_ops_strings) + "\n"
 
         if len(self.results) > 1:
             results = f"{', '.join(result.name for result in self.results)}"
@@ -218,6 +254,7 @@ class OpWrapper:
         return (
             f"module attributes {attrs} {{ \n"
             f"  func.func @main({unpacked_operands}) -> ({return_type}) {{ \n"
+            f"{constant_body}"
             f"    {self.op_string} \n"
             f"    {return_stmt} \n"
             f"  }} \n"
@@ -265,6 +302,9 @@ class TTNNOpWrapper(OpWrapper):
         Implements wrapping of the cached op string in a TTNN module which is a bit more
         complex than what base class does.
 
+        If the op has constant operands, they are emitted at the beginning of the
+        function body.
+
         Example
         -------
         ```
@@ -272,9 +312,10 @@ class TTNNOpWrapper(OpWrapper):
             ttcore.device_module {
                 builtin.module attributes {...} {
                     <tt_device_op> ...
-                    func.func main(...) -> ... {
-                        %0 = <op> ...
-                        return %0
+                    func.func main(%arg0: tensor<...>) -> ... {
+                        %const1 = stablehlo.constant dense<...> : tensor<...>
+                        %res0 = <op>(%arg0, %const1) ...
+                        return %res0
                     }
                 }
             }
@@ -286,6 +327,11 @@ class TTNNOpWrapper(OpWrapper):
         unpacked_operands = ", ".join(
             f"{operand.name}: {operand.type}" for operand in unique_operands
         )
+
+        # Prepare constant ops to emit in function body
+        constant_body = ""
+        if self.constant_ops_strings:
+            constant_body = "    " + "\n    ".join(self.constant_ops_strings) + "\n"
 
         if len(self.results) > 1:
             results = f"({', '.join(result.name for result in self.results)})"
@@ -313,6 +359,7 @@ class TTNNOpWrapper(OpWrapper):
             f"  {self.tt_device_op_string} \n"
             f"  {self.func_op_string}"
             f"  func.func @main({unpacked_operands}) -> {return_type} {{ \n"
+            f"{constant_body}"
             f"    {self.op_string} \n"
             f"    {return_stmt} \n"
             f"  }} \n"
