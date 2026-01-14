@@ -6,13 +6,8 @@
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/OpImplementation.h"
-
-#include "llvm/ADT/DenseSet.h"
-#include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/LogicalResult.h"
-#include "llvm/Support/raw_ostream.h"
 
-#include "llvm/IR/DerivedTypes.h"
 #include <string_view>
 
 using namespace mlir;

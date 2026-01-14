@@ -8,9 +8,7 @@
 
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/IR/Types.h"
-
 #include "llvm/ADT/TypeSwitch.h"
-#include "llvm/Support/Casting.h"
 #include "llvm/Support/LogicalResult.h"
 
 using namespace mlir;

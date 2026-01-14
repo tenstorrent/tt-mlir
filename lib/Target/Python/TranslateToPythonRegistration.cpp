@@ -3,11 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/EmitPy/IR/EmitPy.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Target/Python/PythonEmitter.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Tools/mlir-translate/Translation.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 
 namespace mlir::tt::emitpy {
 

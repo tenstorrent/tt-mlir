@@ -5,12 +5,9 @@
 #include "ttmlir/Conversion/TTNNToEmitPy/EmitPyConversion.h"
 #include "ttmlir/Conversion/TTNNToEmitPy/TTNNToEmitPy.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPy.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
-#include "ttmlir/Dialect/TTCore/Transforms/Passes.h"
 
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Pass/PassManager.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
 using namespace mlir;
 using namespace mlir::tt;
