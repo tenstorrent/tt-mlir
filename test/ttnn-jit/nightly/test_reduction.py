@@ -69,7 +69,6 @@ def test_reductions_l1(device, shape, max_grid, dim, op_name, op_func, dtype):
         num_inputs=1,
         buffer_type=ttnn.BufferType.L1,
         shard_strategy=ttnn.ShardStrategy.BLOCK,
-        frontend="graph_capture",
     )
 
 
@@ -95,5 +94,4 @@ def test_reductions_dram(device, shape, dim, op_name, op_func, dtype):
         reduction_func,
         num_inputs=1,
         buffer_type=ttnn.BufferType.DRAM,
-        frontend="graph_capture",
     )

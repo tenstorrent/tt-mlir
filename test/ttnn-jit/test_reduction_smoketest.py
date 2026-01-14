@@ -47,8 +47,7 @@ REDUCTION_OPS = [
     [torch.float32, torch.bfloat16],
     ids=["f32", "bf16"],
 )
-@pytest.mark.parametrize("frontend", ["graph_capture"])
-def test_reductions_l1(device, shape, max_grid, dim, op_name, op_func, dtype, frontend):
+def test_reductions_l1(device, shape, max_grid, dim, op_name, op_func, dtype):
     """Test reduction operations (max, sum) with L1 block-sharded config."""
     if op_name in ["mean", "min"]:
         pytest.xfail("[Mean/Min] reduction ops are not currently supported in D2M")
@@ -68,7 +67,6 @@ def test_reductions_l1(device, shape, max_grid, dim, op_name, op_func, dtype, fr
         num_inputs=1,
         buffer_type=ttnn.BufferType.L1,
         shard_strategy=ttnn.ShardStrategy.BLOCK,
-        frontend=frontend,
     )
 
 
@@ -86,9 +84,8 @@ def test_reductions_l1(device, shape, max_grid, dim, op_name, op_func, dtype, fr
     [torch.float32, torch.bfloat16],
     ids=["f32", "bf16"],
 )
-@pytest.mark.parametrize("frontend", ["graph_capture"])
 @pytest.mark.skip(reason="DRAM reduction ops are not currently supported")
-def test_reductions_dram(device, shape, dim, op_name, op_func, dtype, frontend):
+def test_reductions_dram(device, shape, dim, op_name, op_func, dtype):
     """Test reduction operations (max, sum) with DRAM config."""
 
     def reduction_func(input_tensor):
@@ -103,5 +100,4 @@ def test_reductions_dram(device, shape, dim, op_name, op_func, dtype, frontend):
         reduction_func,
         num_inputs=1,
         buffer_type=ttnn.BufferType.DRAM,
-        frontend=frontend,
     )
