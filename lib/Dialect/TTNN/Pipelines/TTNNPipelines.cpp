@@ -527,6 +527,23 @@ void createTTIRToEmitPyPipeline(OpPassManager &pm,
   pm.addPass(createEmitPyLinkModulesPass());
 }
 
+// Workaround pipeline for lowering mixed TTIR/TTNN to EmitPy.
+//
+// This is a temporary pipeline used when the input is already in TTNN dialect
+// (e.g., from tt-alchemist with TTNN input). It handles the case where the
+// device module contains TTNN ops but the CPU module may still need TTIR
+// processing.
+//
+// Device module: TTNN -> EmitPy.
+// CPU module: TTIR -> TTNN -> EmitPy (with golden functions).
+//
+void createWorkaroundMixedTTIRTTNNToEmitPyPipeline(
+    OpPassManager &pm, const TTNNToEmitPyDevicePipelineOptions &options) {
+  createTTNNToEmitPyDevicePipeline(pm, options);
+  createTTIRToEmitPyCPUPipeline(pm);
+  pm.addPass(createEmitPyLinkModulesPass());
+}
+
 //===----------------------------------------------------------------------===//
 // Pipeline registration.
 //===----------------------------------------------------------------------===//
@@ -576,5 +593,13 @@ void registerTTNNPipelines() {
       "Pipeline to recover structure from TTNN IR for code generation from "
       "XLA/Torch. ",
       mlir::tt::ttnn::createRecoverStructureXLATorchPipeline);
+
+  // Workaround pipeline for mixed TTIR/TTNN to EmitPy.
+  //
+  mlir::PassPipelineRegistration<
+      mlir::tt::ttnn::TTNNToEmitPyDevicePipelineOptions>(
+      "mixed-ttnn-ttir-to-emitpy-pipeline",
+      "Workaround pipeline lowering mixed TTIR/TTNN to EmitPy.",
+      mlir::tt::ttnn::createWorkaroundMixedTTIRTTNNToEmitPyPipeline);
 }
 } // namespace mlir::tt::ttnn
