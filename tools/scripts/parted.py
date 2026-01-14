@@ -10,28 +10,26 @@ import sys
 uid = -1
 
 
-def filter_dialect_ops(module, dialects=["ttir", "ttnn"]):
-    for entry in module.body.operations:
-        if isinstance(entry, func.FuncOp):
-            for block in entry.body:
-                for op in block.operations:
-                    dialect = op.name.split(".")[0]
-                    if dialect in dialects:
-                        yield op
+def filter_dialect_ops(block, dialects=["ttir", "ttnn"], op_filter={}):
+    for op in block.operations:
+        regions = op.regions
+        if len(regions) > 0:
+            assert len(regions) == 1
+            blocks = regions[0].blocks
+            assert len(blocks) == 1
+            yield from filter_dialect_ops(
+                blocks[0], dialects=dialects, op_filter=op_filter
+            )
+        else:
+            dialect = op.name.split(".")[0]
+            if dialect in dialects and (not op_filter or op.name in op_filter):
+                yield op
 
 
 def get_line_number(location):
     global uid
-    try:
-        line = str(location).split(":")[2]
-        if int(line) > 1000000:
-            uid += 1
-            return "unknown" + str(uid)
-        else:
-            return line
-    except:
-        uid += 1
-        return "unknown" + str(uid)
+    uid += 1
+    return uid
 
 
 def get_entry_name(op):
@@ -49,8 +47,6 @@ def get_op_operands(op):
         ins, outs = segments
         assert ins + outs == len(op.operands)
         return (op.operands[:ins], op.operands[ins:])
-    elif ttmlir.util.is_dps(op):
-        return (op.operands[:-1], op.operands[-1:])
     return (op.operands, [])
 
 
@@ -62,7 +58,7 @@ def emit_op_as_entry_point(op, ip=None, loc=None):
     result_types = [result.type for result in results]
     entry = func.FuncOp(get_entry_name(op), (input_types, result_types), ip=ip, loc=loc)
     entry_block = Block.create_at_start(entry.body, input_types)
-    with InsertionPoint(entry_block) as ip, Location.unknown() as loc:
+    with InsertionPoint(entry_block) as ip, op.location as loc:
         operands = [arg for arg in entry_block.arguments]
         for output_type in output_types:
             operands.append(
@@ -97,11 +93,22 @@ def emit_op_as_entry_point(op, ip=None, loc=None):
         )
 
 
-def parted(in_module):
+def stringify(op):
+    attrs = ",".join(f"{attr.name}={str(attr.attr)}" for attr in op.attributes)
+    operand_types = ",".join(str(op.type) for op in op.operands)
+    result_types = ",".join(str(res.type) for res in op.results)
+    return f"{op.name}({operand_types}) -> ({result_types}) {{{attrs}}}"
+
+
+def parted(in_module, op_filter={}):
     cursor = Location.unknown(in_module.context)
     out_module = Module.create(cursor)
+    unique = set()
     with InsertionPoint(out_module.body) as ip, Location.unknown() as loc:
-        for op in filter_dialect_ops(in_module):
+        for op in filter_dialect_ops(in_module.body, op_filter=op_filter):
+            if stringify(op) in unique:
+                continue
+            unique.add(stringify(op))
             emit_op_as_entry_point(op, ip=ip, loc=loc)
     return out_module
 
@@ -114,9 +121,12 @@ if __name__ == "__main__":
     )
 
     parser.add_argument("mlir", type=str, help="Path to the mlir file")
+    parser.add_argument(
+        "--op-filter", type=str, nargs="*", help="List of ops to filter", default=[]
+    )
     args = parser.parse_args()
 
     with Context() as ctx, open(args.mlir, "r") as mlir_fd:
         ctx.allow_unregistered_dialects = True
         module = Module.parse(mlir_fd.read())
-        print(parted(module))
+        print(parted(module, op_filter=set(args.op_filter)))
