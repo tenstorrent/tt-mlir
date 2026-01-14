@@ -1481,23 +1481,13 @@ public:
 //  - Generalize to other reduction ops
 //  - Extract and match nested operations in reduction blocks
 //===----------------------------------------------------------------------===//
-/*
+
 namespace {
+
 class StableHLOToTTIRReduceWindowOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::ReduceWindowOp> {
   using OpConversionPattern<
       mlir::stablehlo::ReduceWindowOp>::OpConversionPattern;
-
-private:
-  static DenseI64ArrayAttr prependValues(DenseI64ArrayAttr windowDimensions,
-                                         int64_t value, int64_t count,
-                                         PatternRewriter &rewriter) {
-    assert(windowDimensions.size() == count &&
-           "Window dimensions size must match number of prepending values.");
-    SmallVector<int64_t> winDims4D = SmallVector<int64_t>(count, value);
-    llvm::append_range(winDims4D, windowDimensions.asArrayRef());
-    return rewriter.getDenseI64ArrayAttr(winDims4D);
-  }
 
 public:
   LogicalResult
@@ -1516,7 +1506,6 @@ public:
     if (!initValues) {
       return rewriter.notifyMatchFailure(
           srcOp, "Unable to extract constant initialization value.");
-      ;
     }
     if (initValues->size() != srcOp.getInputs().size()) {
       return rewriter.notifyMatchFailure(
@@ -1641,19 +1630,35 @@ public:
 
       TypicalInitReductionValue initVal = (*initValues)[i];
       mlir::Operation *frontOp = reductionOps[i];
-      ttir::PoolingMethod method;
+
+      // Extract 2D attributes for Pool2d ops from the 4D adjusted attributes.
+      DenseI32ArrayAttr kernel =
+          extract2DFrom4D(adjustedWindowDimensions, rewriter);
+      DenseI32ArrayAttr stride =
+          extract2DFrom4D(adjustedWindowStrides, rewriter);
+      DenseI32ArrayAttr dilation =
+          extract2DFrom4D(adjustedWindowDilations, rewriter);
+      DenseI32ArrayAttr pool2dPadding =
+          convertPaddingTo4Element(adjustedPadding, rewriter);
+      BoolAttr ceilMode = rewriter.getBoolAttr(false);
+
+      Value result;
       if (isMaxPool(srcOp, initVal, frontOp)) {
-        method = ttir::PoolingMethod::Max;
+        // Max pooling: create MaxPool2dOp.
+        auto maxPoolOp = rewriter.create<ttir::MaxPool2dOp>(
+            srcOp.getLoc(), resultType, input, kernel, stride, dilation,
+            pool2dPadding, ceilMode);
+        result = maxPoolOp.getResult();
       } else if (isSumPool(srcOp, initVal, frontOp)) {
         std::optional<mlir::Operation *> divOp = extractDivisor(srcOp);
         if (divOp && i == 0) {
-          method = ttir::PoolingMethod::Average;
-          ttir::PoolingOp poolingOp = rewriter.create<ttir::PoolingOp>(
-              srcOp.getLoc(), resultType, input, method,
-              adjustedWindowDimensions, adjustedWindowStrides,
-              adjustedBaseDilations, adjustedWindowDilations, adjustedPadding);
-          (*divOp)->getResult(0).replaceAllUsesWith(poolingOp.getResult(0));
-          Value result = poolingOp->getResult(0);
+          // Average pooling: sum pooling followed by division.
+          // Create AvgPool2dOp directly.
+          BoolAttr countIncludePad = rewriter.getBoolAttr(true);
+          auto avgPoolOp = rewriter.create<ttir::AvgPool2dOp>(
+              srcOp.getLoc(), resultType, input, kernel, stride, dilation,
+              pool2dPadding, ceilMode, countIncludePad);
+          result = avgPoolOp.getResult();
 
           // Reshape 4D output back to 2D if needed: [1, 1, H, W] -> [H, W].
           if (needsReshape) {
@@ -1671,16 +1676,29 @@ public:
           rewriter.eraseOp(*divOp);
           continue;
         }
-        method = ttir::PoolingMethod::Sum;
+        // Sum pooling (without division): emit AvgPool2d followed by multiply.
+        BoolAttr countIncludePad = rewriter.getBoolAttr(true);
+        auto avgPoolOp = rewriter.create<ttir::AvgPool2dOp>(
+            srcOp.getLoc(), resultType, input, kernel, stride, dilation,
+            pool2dPadding, ceilMode, countIncludePad);
+
+        // Create constant with kernel size (kH * kW) to multiply.
+        int32_t kernelSize = kernel[0] * kernel[1];
+        auto elementType = resultType.getElementType();
+        auto splatAttr = DenseElementsAttr::get(
+            resultType, rewriter.getFloatAttr(elementType,
+                                              static_cast<double>(kernelSize)));
+        auto kernelSizeConst = rewriter.create<ttir::ConstantOp>(
+            srcOp.getLoc(), resultType, splatAttr);
+
+        // Multiply avg_pool result by kernel size to get sum pooling result.
+        auto mulOp = rewriter.create<ttir::MultiplyOp>(
+            srcOp.getLoc(), resultType, avgPoolOp.getResult(),
+            kernelSizeConst.getResult());
+        result = mulOp.getResult();
       } else {
         return rewriter.notifyMatchFailure(srcOp, "Unsupported pooling method");
       }
-      ttir::PoolingOp poolingOp = rewriter.create<ttir::PoolingOp>(
-          srcOp.getLoc(), resultType, input, method, adjustedWindowDimensions,
-          adjustedWindowStrides, adjustedBaseDilations, adjustedWindowDilations,
-          adjustedPadding);
-
-      Value result = poolingOp.getResult(0);
 
       // Reshape 4D output back to 2D if needed: [1, 1, H, W] -> [H, W].
       if (needsReshape) {
@@ -1826,7 +1844,7 @@ private:
       return false;
     }
     const auto &ops = blocks.front().getOperations();
-    if (ops.size() < 2) {
+    if (ops.size() != 2) {
       return false;
     }
     if (srcOp.getInputs().size() != srcOp.getResults().size()) {
@@ -1983,9 +2001,44 @@ private:
     }
     return std::nullopt;
   }
+
+  static DenseI64ArrayAttr prependValues(DenseI64ArrayAttr windowDimensions,
+                                         int64_t value, int64_t count,
+                                         PatternRewriter &rewriter) {
+    assert(windowDimensions.size() == count &&
+           "Window dimensions size must match number of prepending values.");
+    SmallVector<int64_t> winDims4D = SmallVector<int64_t>(count, value);
+    llvm::append_range(winDims4D, windowDimensions.asArrayRef());
+    return rewriter.getDenseI64ArrayAttr(winDims4D);
+  }
+
+  // Extract 2D attributes (H, W) from 4D adjusted attributes (N, H, W,).
+  // Used for kernel, stride, and dilation.
+  static DenseI32ArrayAttr extract2DFrom4D(DenseI64ArrayAttr attr4D,
+                                           PatternRewriter &rewriter) {
+    assert(attr4D.size() == 4 && "Expected 4D attribute");
+    SmallVector<int32_t> result = {static_cast<int32_t>(attr4D[1]),
+                                   static_cast<int32_t>(attr4D[2])};
+    return rewriter.getDenseI32ArrayAttr(result);
+  }
+
+  // Convert 8-element padding to 4-element padding for Pool2d ops.
+  // Input format: [N_low, N_high, C_low, C_high, H_low, H_high, W_low, W_high]
+  // Output format: [pT, pL, pB, pR] = [H_low, W_low, H_high, W_high]
+  static DenseI32ArrayAttr convertPaddingTo4Element(DenseI64ArrayAttr padding8,
+                                                    PatternRewriter &rewriter) {
+    assert(padding8.size() == 8 && "Expected 8-element padding");
+    SmallVector<int32_t> result = {
+        static_cast<int32_t>(padding8[2]), // H_low (pT - top)
+        static_cast<int32_t>(padding8[4]), // W_low (pL - left)
+        static_cast<int32_t>(padding8[3]), // H_high (pB - bottom)
+        static_cast<int32_t>(padding8[5])  // W_high (pR - right)
+    };
+    return rewriter.getDenseI32ArrayAttr(result);
+  }
 };
+
 } // namespace
-*/
 namespace {
 class StableHLOToTTIRBroadcastInDimOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::BroadcastInDimOp> {
@@ -5410,13 +5463,12 @@ static void addQuantizeOpsConversionPattern(MLIRContext *ctx,
                                                              ctx);
 }
 
-// static void addReduceWindowOpConversionPattern(MLIRContext *ctx,
-//                                                RewritePatternSet &patterns,
-//                                                TypeConverter &typeConverter)
-//                                                {
-//   patterns.add<StableHLOToTTIRReduceWindowOpConversionPattern>(typeConverter,
-//                                                                ctx);
-// }
+static void addReduceWindowOpConversionPattern(MLIRContext *ctx,
+                                               RewritePatternSet &patterns,
+                                               TypeConverter &typeConverter) {
+  patterns.add<StableHLOToTTIRReduceWindowOpConversionPattern>(typeConverter,
+                                                               ctx);
+}
 
 static void addCompareOpsConversionPatterns(MLIRContext *ctx,
                                             RewritePatternSet &patterns,
@@ -5610,7 +5662,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addTensorCreationOpsConversionPatterns(ctx, patterns, typeConverter);
   addBroadcastOpConversionPattern(ctx, patterns, typeConverter);
   addConv2dOpConversionPattern(ctx, patterns, typeConverter);
-  // addReduceWindowOpConversionPattern(ctx, patterns, typeConverter);
+  addReduceWindowOpConversionPattern(ctx, patterns, typeConverter);
   addCompareOpsConversionPatterns(ctx, patterns, typeConverter);
   addConcatOpsConversionPatterns(ctx, patterns, typeConverter);
   addTransposeOpConversionPattern(ctx, patterns, typeConverter);
