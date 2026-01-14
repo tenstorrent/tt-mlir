@@ -688,6 +688,22 @@ def TTCore_MeshesAttr : TTCore_Attr<"Meshes", "meshes"> {
   }];
 }
 
+def TTCore_RuntimeTensorShardingAttr : TTCore_Attr<"RuntimeTensorSharding", "runtime_tensor_sharding"> {
+  let summary = "Runtime tensor sharding information";
+  let description = [{
+    Holds the runtime sharding information for this tensor. 
+    This includes whether the tensor is presharded/unsharded and it's per device shape.
+  }];
+  let parameters = (ins
+    "ShardStatusAttr":$shardStatus,
+    "RankedTensorType":$localShape);
+
+  let assemblyFormat = [{
+        `shard_status` `=` $shardStatus `,`
+        `local_shape` `=` $localShape
+  }];
+}
+
 //===----------------------------------------------------------------------===//
 // TT type definitions
 //===----------------------------------------------------------------------===//

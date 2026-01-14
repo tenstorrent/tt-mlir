@@ -14,6 +14,7 @@ namespace mlir::tt::stablehlo {
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h.inc"
 
 static mlir::LogicalResult updateShardStatus(MLIRContext *context,
+                                             mlir::ModuleOp &module,
                                              mlir::OpBuilder &builder,
                                              func::FuncOp &funcOp,
                                              bool gspmdAnnotationsExist,
@@ -30,6 +31,7 @@ static mlir::LogicalResult updateShardStatus(MLIRContext *context,
     llvm::SmallVector<mlir::NamedAttribute> newArgAttrs;
     mlir::tt::ttcore::ShardStatus shardStatus =
         mlir::tt::ttcore::ShardStatus::Unsharded;
+    FailureOr<mlir::RankedTensorType> newType = mlir::cast<mlir::RankedTensorType>(arg.getType());
 
     // If the argument contains a gspmd.sharding or sdy.sharding annotation, it
     // is already pre-sharded.
@@ -39,13 +41,17 @@ static mlir::LogicalResult updateShardStatus(MLIRContext *context,
 
       if (argAttrDict.contains(annotationsKeyWord)) {
         shardStatus = mlir::tt::ttcore::ShardStatus::Presharded;
+        auto meshOp = shardy_utils::getMeshOps(module)[0];
+        auto global_shape = mlir::cast<mlir::RankedTensorType>(arg.getType());
+        mlir::sdy::TensorShardingAttr tensorShardingAttr = mlir::cast<mlir::sdy::TensorShardingAttr>(argAttrDict.get(annotationsKeyWord));
+        newType = mlir::tt::shardy_utils::populateShardedOutputType(meshOp.getMesh(), global_shape, tensorShardingAttr);
       }
     }
 
-    mlir::NamedAttribute shardStatusNamedAttr = {
-        mlir::tt::ttcore::ShardStatusAttr::name,
-        mlir::tt::ttcore::ShardStatusAttr::get(context, shardStatus)};
-    newArgAttrs.push_back(shardStatusNamedAttr);
+    mlir::NamedAttribute runtimeTensorShardingNamedAttr = {
+        mlir::tt::ttcore::RuntimeTensorShardingAttr::name,
+        mlir::tt::ttcore::RuntimeTensorShardingAttr::get(context, mlir::tt::ttcore::ShardStatusAttr::get(context, shardStatus), newType.value())};
+    newArgAttrs.push_back(runtimeTensorShardingNamedAttr);
     funcOp.setArgAttrs(arg.getArgNumber(),
                        mlir::DictionaryAttr::get(context, newArgAttrs));
 
@@ -53,7 +59,7 @@ static mlir::LogicalResult updateShardStatus(MLIRContext *context,
     // this arg.
     if (!shardyAnnotationsExist) {
       gspmd_utils::updateShardStatusForArgument(context, arg,
-                                                shardStatusNamedAttr);
+                                                runtimeTensorShardingNamedAttr);
     }
   }
 
@@ -66,6 +72,7 @@ static mlir::LogicalResult updateShardStatus(MLIRContext *context,
     llvm::SmallVector<mlir::NamedAttribute> newResultAttrs;
     mlir::tt::ttcore::ShardStatus shardStatus =
         mlir::tt::ttcore::ShardStatus::Unsharded;
+    FailureOr<mlir::RankedTensorType> newType = mlir::cast<mlir::RankedTensorType>(funcType.getResult(i));
 
     // If the result contains a gspmd.sharding or sdy.sharding annotation, it is
     // already pre-sharded.
@@ -75,13 +82,17 @@ static mlir::LogicalResult updateShardStatus(MLIRContext *context,
 
       if (resultAttrDict.contains(annotationsKeyWord)) {
         shardStatus = mlir::tt::ttcore::ShardStatus::Presharded;
+        auto meshOp = shardy_utils::getMeshOps(module)[0];
+        auto global_shape = mlir::cast<mlir::RankedTensorType>(funcType.getResult(i));
+        mlir::sdy::TensorShardingAttr tensorShardingAttr = mlir::cast<mlir::sdy::TensorShardingAttr>(resultAttrDict.get(annotationsKeyWord));
+        newType = mlir::tt::shardy_utils::populateShardedOutputType(meshOp.getMesh(), global_shape, tensorShardingAttr);
       }
     }
 
-    mlir::NamedAttribute shardStatusNamedAttr = {
-        mlir::tt::ttcore::ShardStatusAttr::name,
-        mlir::tt::ttcore::ShardStatusAttr::get(context, shardStatus)};
-    newResultAttrs.push_back(shardStatusNamedAttr);
+    mlir::NamedAttribute runtimeTensorShardingNamedAttr = {
+        mlir::tt::ttcore::RuntimeTensorShardingAttr::name,
+        mlir::tt::ttcore::RuntimeTensorShardingAttr::get(context, mlir::tt::ttcore::ShardStatusAttr::get(context, shardStatus), newType.value())};
+    newResultAttrs.push_back(runtimeTensorShardingNamedAttr);
     funcOp.setResultAttrs(i,
                           mlir::DictionaryAttr::get(context, newResultAttrs));
 
@@ -89,7 +100,7 @@ static mlir::LogicalResult updateShardStatus(MLIRContext *context,
     // this result.
     if (!shardyAnnotationsExist) {
       gspmd_utils::updateShardStatusForResult(context, funcOp, i,
-                                              shardStatusNamedAttr);
+                                              runtimeTensorShardingNamedAttr);
     }
   }
 
@@ -118,7 +129,7 @@ public:
     // is unsharded.
     rootModule.walk([&](func::FuncOp funcOp) {
       if (failed(mlir::tt::stablehlo::updateShardStatus(
-              context, builder, funcOp, gspmdAnnotationsExist,
+              context, rootModule, builder, funcOp, gspmdAnnotationsExist,
               sdyAnnotationsExist))) {
         rootModule.emitError("Failed to update shard status");
         signalPassFailure();

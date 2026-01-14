@@ -690,11 +690,11 @@ class Run:
                         inputs = []
                         outputs = []
                         for i in program.input_tensors:
-                            new_input = create_tensor(i)
+                            new_input = create_tensor(i, fb_mesh_shape)
                             inputs.append(new_input)
 
                         for i in program.output_tensors:
-                            new_output = create_tensor(i)
+                            new_output = create_tensor(i, fb_mesh_shape)
                             outputs.append(new_output)
 
                         # load output golden tensors
@@ -828,16 +828,20 @@ class Run:
                                 start_get_output = time.perf_counter_ns()
                                 output_host = ttrt.runtime.to_host(
                                     runtime_output_tensor, untilize=True
-                                )[0]
+                                )
                                 end_get_output = time.perf_counter_ns()
                                 e2e_duration_nanoseconds_output += (
                                     end_get_output - start_get_output
                                 )
 
-                                ttrt.runtime.memcpy(
-                                    outputs[i],
-                                    output_host,
-                                )
+                                if (
+                                    self["--print-input-output-tensors"]
+                                    or not self["--disable-golden"]
+                                ):
+                                    ttrt.runtime.memcpy(
+                                        outputs[i],
+                                        output_host,
+                                    )
                                 ttrt.runtime.deallocate_tensor(
                                     runtime_output_tensor, force=True
                                 )
