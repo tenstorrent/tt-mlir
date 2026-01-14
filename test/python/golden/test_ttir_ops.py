@@ -1007,6 +1007,54 @@ def test_batch_norm_training(
     )
 
 
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        [
+            (2, 3),  # input
+            (10, 4),  # weight
+            (2, 3, 4),  # in_gradient
+        ],
+        [
+            (2, 3, 4),  # input
+            (10, 5),  # weight
+            (2, 3, 4, 5),  # in_gradient
+        ],
+    ],
+)
+@pytest.mark.parametrize("dtypes", [[torch.int32, torch.float32, torch.float32]])
+def test_embedding_backward(
+    shapes: List[Shape],
+    dtypes: List[torch.dtype],
+    request,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def embedding_backward(
+            input: Operand,
+            weight: Operand,
+            in_gradient: Operand,
+            builder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+
+            return builder.embedding_backward(
+                input,
+                weight,
+                in_gradient,
+                unit_attrs=unit_attrs,
+            )
+
+    compile_and_execute_ttir(
+        module,
+        test_base=request.node.name,
+        device=device,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+    )
+
+
 # Layout is determined by spatial dim indices (where window_dimensions > 1):
 # - NCHW: spatial dims at [2, 3], window_dimensions like [1, 1, kH, kW]
 # - NHWC: spatial dims at [1, 2], window_dimensions like [1, kH, kW, 1]
