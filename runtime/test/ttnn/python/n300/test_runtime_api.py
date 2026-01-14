@@ -67,7 +67,23 @@ def test_open_mesh_device(
     ttrt.runtime.close_mesh_device(device)
 
 
+# Converts runtime device tensor to torch tensor.
+# It first moves device tensor to host, and creates torch tensor from host tensor.
+def device_tensor_to_torch_tensor(runtime_tensor):
+    host_tensor = ttrt.runtime.to_host(runtime_tensor, untilize=True)
+    assert len(host_tensor) == 1
+
+    shape = host_tensor[0].get_shape()
+    host_tensor[0].get_dtype()
+    torch_tensor = torch.zeros(
+        shape, dtype=ttrt_datatype_to_torch_dtype(host_tensor[0].get_dtype())
+    )
+    ttrt.runtime.memcpy(torch_tensor.data_ptr(), host_tensor[0])
+    return torch_tensor
+
+
 # Testing get_device_tensors API.
+# Creates random torch tensor and moves it to device. Then retrieves tensor from device and compare it with the original tensor.
 @pytest.mark.parametrize("shape", [(64, 128)])
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
 def test_get_device_tensors(shape, dtype):
@@ -93,20 +109,15 @@ def test_get_device_tensors(shape, dtype):
         ), f"Expected 2 device tensors, got {len(device_tensors)}"
 
         for t in device_tensors:
-            host_tensor = ttrt.runtime.to_host(t, untilize=True)
-            assert (
-                len(host_tensor) == 1
-            ), f"Expected 1 host tensor, got {len(host_tensor)}"
-
-            torch_output_tensor = torch.zeros(shape, dtype=dtype)
-            ttrt.runtime.memcpy(torch_output_tensor.data_ptr(), host_tensor[0])
-
+            torch_output_tensor = device_tensor_to_torch_tensor(t)
             assert_pcc(torch_tensor, torch_output_tensor, threshold=0.99)
 
         ttrt.runtime.deallocate_tensor(device_tensor, force=True)
 
 
 # Testing get_device_tensors with create_multi_device_host_tensor API.
+# Creates 2 random torch tensors, creates multi device host tensor from torch tensors and moves it to device.
+# Then retrieves tensor from device and compares it with the original tensors.
 @pytest.mark.parametrize("shape", [(64, 128)])
 @pytest.mark.parametrize("dtype", [torch.bfloat16])
 def test_get_device_tensors_multi_device(shape, dtype):
@@ -142,13 +153,7 @@ def test_get_device_tensors_multi_device(shape, dtype):
         # Get shards back from device
         host_shards = []
         for t in device_tensors:
-            host_tensor = ttrt.runtime.to_host(t, untilize=True)
-            assert len(host_tensor) == 1
-
-            shard_shape = host_tensor[0].get_shape()
-            torch_shard = torch.zeros(shard_shape, dtype=dtype)
-            ttrt.runtime.memcpy(torch_shard.data_ptr(), host_tensor[0])
-            host_shards.append(torch_shard)
+            host_shards.append(device_tensor_to_torch_tensor(t))
 
         # Verify each shard matches the original input tensor for that device
         assert_pcc(torch_tensor_0, host_shards[0], threshold=0.99)
