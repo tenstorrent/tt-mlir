@@ -150,19 +150,49 @@ static Value getOutCB(ConversionPatternRewriter &rewriter, Operation *op) {
   return getInOrOutCB<memref::StoreOp>(rewriter, op);
 }
 
+// Check if an operand comes from DST (e.g., result of TileBcastOp or prior
+// compute op in fusion). Returns true if the operand is loaded from DST memref.
+static bool operandFromDst(Value operand) {
+  // Check affine.load from DST
+  if (auto affineLoad = operand.getDefiningOp<affine::AffineLoadOp>()) {
+    return ttcore::getMemorySpace(affineLoad.getMemRef()) ==
+           ttcore::MemorySpace::RegisterDst;
+  }
+  // Check memref.load from DST (used after D2MGenericRegionsToFuncs)
+  if (auto memrefLoad = operand.getDefiningOp<memref::LoadOp>()) {
+    return ttcore::getMemorySpace(memrefLoad.getMemRef()) ==
+           ttcore::MemorySpace::RegisterDst;
+  }
+  return false;
+}
+
 static void setInsertionPointAfterOperands(OpBuilder &rewriter,
                                            llvm::ArrayRef<Value> operands,
                                            bool allowHoisting) {
   Operation *latestDefOp = nullptr;
+  Block *currentBlock = rewriter.getInsertionBlock();
+
   for (Value operand : operands) {
     Operation *definingOp = operand.getDefiningOp();
-    if (!latestDefOp ||
-        (definingOp && !definingOp->isBeforeInBlock(latestDefOp))) {
+    if (!definingOp) {
+      continue;
+    }
+
+    // Only consider ops in the current block for ordering comparison.
+    // Ops in outer blocks are already defined and don't affect insertion point.
+    if (definingOp->getBlock() != currentBlock) {
+      continue;
+    }
+
+    if (!latestDefOp || !definingOp->isBeforeInBlock(latestDefOp)) {
       latestDefOp = definingOp;
     }
   }
 
-  assert(latestDefOp != nullptr);
+  // If no operand is defined in current block, don't move insertion point.
+  if (!latestDefOp) {
+    return;
+  }
 
   // Only move the insertion point if we're pushing it downward in the
   // topological order.
@@ -814,10 +844,12 @@ public:
 namespace {
 
 // Specialized rewriter for binary ops that use FPU for tile-tile but SFPU for
-// tile-scalar operations. This is needed because:
-// 1. D2MFPUOpsRewriter doesn't support scalar operands (always calls getCB())
-// 2. D2MSFPUOpsRewriter uses SFPU binary ops, but we want FPU ops for tile-tile
-// 3. Hardware constraint: FPU reads from CBs, scalars must go through SFPU
+// tile-scalar operations. This rewriter handles multiple input source cases:
+// 1. Both operands from CB: use FPU add_tiles
+// 2. LHS from DST, RHS from CB: use FPU binary_dest_reuse (DEST_TO_SRCA)
+// 3. LHS from CB, RHS from DST: use FPU binary_dest_reuse (DEST_TO_SRCB)
+// 4. Both operands from DST: fall back to SFPU add_binary_tile
+// 5. Scalar RHS: use SFPU add_unary_tile
 template <typename ConcreteOp>
 class D2MFPUBinaryWithScalarRewriter : public OpConversionPattern<ConcreteOp> {
 public:
@@ -831,48 +863,154 @@ public:
     auto loc = op->getLoc();
 
     if (isScalarRhs) {
-      // Scalar operand - use SFPU unary path
+      // Case 5: Scalar operand - use SFPU unary path
       // LHS is already in DST
-      auto inCB = getInCB(rewriter, op);
-      auto outCB = getOutCB(rewriter, op);
+      return emitSFPUScalarAdd(rewriter, op, adaptor, loc);
+    }
 
-      auto insertionPoint = rewriter.getInsertionPoint();
-      rewriter.setInsertionPointToStart(rewriter.getInsertionBlock());
-      setInsertionPointAfterOperands(rewriter, {inCB, outCB},
-                                     /*allowHoisting*/ true);
-      rewriter.create<ttkernel::InitSFPUOp>(loc, inCB, outCB);
-      rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
+    // Tile-tile: check sources
+    bool lhsFromDst = operandFromDst(op.getLhs());
+    bool rhsFromDst = operandFromDst(op.getRhs());
 
-      rewriter.create<ttkernel::BinopWithScalarTileInitOp>(loc);
+    if (!lhsFromDst && !rhsFromDst) {
+      // Case 1: Both from CB - use FPU add_tiles
+      return emitFPUAddTiles(rewriter, op, adaptor, loc);
+    }
 
-      const auto dstIdx = adaptor.getLhs();
+    if (lhsFromDst && rhsFromDst) {
+      // Case 4: Both from DST - fall back to SFPU
+      return emitSFPUBinaryAdd(rewriter, op, adaptor, loc);
+    }
 
-      if constexpr (std::is_same_v<ConcreteOp, d2m::TileAddOp>) {
-        auto scalarParam = rewriter.create<arith::BitcastOp>(
-            loc, rewriter.getI32Type(), adaptor.getRhs());
-        rewriter.create<ttkernel::AddUnaryTileOp>(loc, dstIdx, scalarParam);
-      }
-      // TODO(ckaravasilisTT): Add other scalar ops here (sub, mul)
+    if (lhsFromDst) {
+      // Case 2: LHS from DST, RHS from CB - use DEST_TO_SRCA
+      return emitFPUBinaryDestReuse(rewriter, op, adaptor, loc,
+                                    BinaryDestReuseType::DestToSrcA);
+    }
+
+    // Case 3: LHS from CB, RHS from DST - use DEST_TO_SRCB
+    return emitFPUBinaryDestReuse(rewriter, op, adaptor, loc,
+                                  BinaryDestReuseType::DestToSrcB);
+  }
+
+private:
+  // Case 1: Both operands from CB - standard FPU path
+  LogicalResult emitFPUAddTiles(ConversionPatternRewriter &rewriter,
+                                ConcreteOp op,
+                                typename ConcreteOp::Adaptor adaptor,
+                                Location loc) const {
+    auto cbA = getCB(rewriter, op.getLhs());
+    auto cbB = getCB(rewriter, op.getRhs());
+    auto outCB = getOutCB(rewriter, op);
+
+    auto insertionPoint = rewriter.getInsertionPoint();
+    setInsertionPointAfterOperands(rewriter, {cbA, cbB, outCB},
+                                   /*allowHoisting*/ true);
+    rewriter.create<ttkernel::BinaryOpInitCommonOp>(loc, cbA, cbB, outCB);
+    rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
+
+    auto dstIdx = getDstIdxFromResult(op.getResult());
+
+    if constexpr (std::is_same_v<ConcreteOp, d2m::TileAddOp>) {
+      rewriter.create<ttkernel::AddTilesInitOp>(loc, cbA, cbB);
+      rewriter.create<ttkernel::AddTilesOp>(loc, cbA, cbB, adaptor.getLhs(),
+                                            adaptor.getRhs(), dstIdx);
+    }
+
+    rewriter.eraseOp(op);
+    return success();
+  }
+
+  // Case 2 & 3: One operand from DST, one from CB - use binary_dest_reuse
+  LogicalResult emitFPUBinaryDestReuse(ConversionPatternRewriter &rewriter,
+                                       ConcreteOp op,
+                                       typename ConcreteOp::Adaptor adaptor,
+                                       Location loc,
+                                       BinaryDestReuseType reuseType) const {
+    // Get the CB for the non-DST operand
+    Value cb;
+    Value cbTileIdx;
+    if (reuseType == BinaryDestReuseType::DestToSrcA) {
+      // LHS from DST, RHS from CB
+      cb = getCB(rewriter, op.getRhs());
+      cbTileIdx = adaptor.getRhs();
     } else {
-      // Tile-tile operation - use FPU path (reads directly from CBs)
-      auto cbA = getCB(rewriter, op.getLhs());
-      auto cbB = getCB(rewriter, op.getRhs());
-      auto outCB = getOutCB(rewriter, op);
+      // LHS from CB, RHS from DST
+      cb = getCB(rewriter, op.getLhs());
+      cbTileIdx = adaptor.getLhs();
+    }
 
-      auto insertionPoint = rewriter.getInsertionPoint();
-      setInsertionPointAfterOperands(rewriter, {cbA, cbB, outCB},
-                                     /*allowHoisting*/ true);
-      rewriter.create<ttkernel::BinaryOpInitCommonOp>(loc, cbA, cbB, outCB);
-      rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
+    auto outCB = getOutCB(rewriter, op);
 
-      auto dstIdx = getDstIdxFromResult(op.getResult());
+    // DST index is the same for input and output (reuse)
+    auto dstIdx = getDstIdxFromResult(op.getResult());
 
-      if constexpr (std::is_same_v<ConcreteOp, d2m::TileAddOp>) {
-        rewriter.create<ttkernel::AddTilesInitOp>(loc, cbA, cbB);
-        rewriter.create<ttkernel::AddTilesOp>(loc, cbA, cbB, adaptor.getLhs(),
-                                              adaptor.getRhs(), dstIdx);
-      }
-      // TODO(ckaravasilisTT): Add other FPU binary ops here (sub, mul)
+    auto insertionPoint = rewriter.getInsertionPoint();
+    setInsertionPointAfterOperands(rewriter, {cb, outCB},
+                                   /*allowHoisting*/ true);
+    rewriter.create<ttkernel::BinaryOpInitCommonOp>(loc, cb, cb, outCB);
+    rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
+
+    if constexpr (std::is_same_v<ConcreteOp, d2m::TileAddOp>) {
+      rewriter.create<ttkernel::BinaryDestReuseTilesInitOp>(loc, cb, reuseType);
+      rewriter.create<ttkernel::BinaryDestReuseTilesOp>(loc, cb, cbTileIdx,
+                                                        dstIdx, reuseType);
+    }
+
+    rewriter.eraseOp(op);
+    return success();
+  }
+
+  // Case 4: Both operands from DST - fall back to SFPU binary
+  LogicalResult emitSFPUBinaryAdd(ConversionPatternRewriter &rewriter,
+                                  ConcreteOp op,
+                                  typename ConcreteOp::Adaptor adaptor,
+                                  Location loc) const {
+    auto inCB = getInCB(rewriter, op);
+    auto outCB = getOutCB(rewriter, op);
+
+    auto insertionPoint = rewriter.getInsertionPoint();
+    rewriter.setInsertionPointToStart(rewriter.getInsertionBlock());
+    setInsertionPointAfterOperands(rewriter, {inCB, outCB},
+                                   /*allowHoisting*/ true);
+    rewriter.create<ttkernel::InitSFPUOp>(loc, inCB, outCB);
+    rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
+
+    auto dstIdx = getDstIdxFromResult(op.getResult());
+
+    if constexpr (std::is_same_v<ConcreteOp, d2m::TileAddOp>) {
+      rewriter.create<ttkernel::AddBinaryTilesInitOp>(loc);
+      rewriter.create<ttkernel::AddBinaryTilesOp>(loc, adaptor.getLhs(),
+                                                  adaptor.getRhs(), dstIdx);
+    }
+
+    rewriter.eraseOp(op);
+    return success();
+  }
+
+  // Case 5: Scalar RHS - use SFPU unary path
+  LogicalResult emitSFPUScalarAdd(ConversionPatternRewriter &rewriter,
+                                  ConcreteOp op,
+                                  typename ConcreteOp::Adaptor adaptor,
+                                  Location loc) const {
+    auto inCB = getInCB(rewriter, op);
+    auto outCB = getOutCB(rewriter, op);
+
+    auto insertionPoint = rewriter.getInsertionPoint();
+    rewriter.setInsertionPointToStart(rewriter.getInsertionBlock());
+    setInsertionPointAfterOperands(rewriter, {inCB, outCB},
+                                   /*allowHoisting*/ true);
+    rewriter.create<ttkernel::InitSFPUOp>(loc, inCB, outCB);
+    rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
+
+    rewriter.create<ttkernel::BinopWithScalarTileInitOp>(loc);
+
+    const auto dstIdx = adaptor.getLhs();
+
+    if constexpr (std::is_same_v<ConcreteOp, d2m::TileAddOp>) {
+      auto scalarParam = rewriter.create<arith::BitcastOp>(
+          loc, rewriter.getI32Type(), adaptor.getRhs());
+      rewriter.create<ttkernel::AddUnaryTileOp>(loc, dstIdx, scalarParam);
     }
 
     rewriter.eraseOp(op);

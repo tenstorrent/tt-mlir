@@ -76,4 +76,20 @@ def TTKernel_ArgType : I32EnumAttr<"ArgType", "TTKernel Argument Types",
   let cppNamespace = "::mlir::tt::ttkernel";
 }
 
+// Binary dest reuse types for FPU ops that read one operand from DST
+// DEST_TO_SRCA: DST[dst_idx] -> SRCA, CB -> SRCB
+// DEST_TO_SRCB: CB -> SRCA, DST[dst_idx] -> SRCB
+def TTKernel_BinaryDestReuseDestToSrcA
+    : I32EnumAttrCase<"DestToSrcA", 0, "dest_to_srca">;
+def TTKernel_BinaryDestReuseDestToSrcB
+    : I32EnumAttrCase<"DestToSrcB", 1, "dest_to_srcb">;
+
+def TTKernel_BinaryDestReuseType
+    : I32EnumAttr<"BinaryDestReuseType", "TTKernel Binary Dest Reuse Types",
+                  [TTKernel_BinaryDestReuseDestToSrcA,
+                   TTKernel_BinaryDestReuseDestToSrcB]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttkernel";
+}
+
 #endif
