@@ -556,7 +556,8 @@ public:
                          emitter.getMemoryConfig(matmulOp.getResult()),
                      "memory_config"),
         emitter.emit(std::nullopt, "dtype"),
-        emitter.emit(std::nullopt, "program_config"),
+        emitter.emit<ttnn_to_emitpy::MatmulProgramConfig>(
+            matmulOp.getMatmulProgramConfig(), "program_config"),
         emitter.emit(matmulOp.getActivation(), "activation"),
     };
 
@@ -594,7 +595,8 @@ public:
         emitter.emit(std::nullopt | emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
         emitter.emit(std::nullopt, "dtype"),
-        emitter.emit(std::nullopt, "program_config"),
+        emitter.emit<ttnn_to_emitpy::MatmulProgramConfig>(
+            srcOp.getMatmulProgramConfig(), "program_config"),
         emitter.emit(srcOp.getActivation(), "activation"),
     };
 
@@ -2352,6 +2354,44 @@ public:
 };
 } // namespace
 
+// PagedUpdateCacheOp
+//
+namespace {
+class PagedUpdateCacheOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::PagedUpdateCacheOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.paged_update_cache";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.experimental.paged_update_cache";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::PagedUpdateCacheOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::PagedUpdateCacheOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::PagedUpdateCacheOp>
+        emitter(srcOp, adaptor, rewriter, this->isGoldenModeEnabled());
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getCache()), emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getUpdateIndex(), "update_idxs_tensor"),
+        emitter.emit(srcOp.getShareCache(), "share_cache"),
+        emitter.emit(srcOp.getPageTable(), "page_table")};
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // GetTupleElementOp conversion pattern
 //
 namespace {
@@ -2365,17 +2405,40 @@ public:
   matchAndRewrite(mlir::tt::ttcore::GetTupleElementOp getTupleElementOp,
                   mlir::tt::ttcore::GetTupleElementOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    // SubscriptOp requires a Value object as index, which is created by
-    // invoking the emitpy::LiteralOp.
-    //
-    Value indexAsVal = rewriter.create<emitpy::LiteralOp>(
-        getTupleElementOp->getLoc(), rewriter.getIndexType(),
-        std::to_string(adaptor.getIndex()));
+    // Get the converted result type
+    auto resultType =
+        this->getTypeConverter()->convertType(getTupleElementOp.getType());
 
-    rewriter.replaceOpWithNewOp<emitpy::SubscriptOp>(
-        getTupleElementOp,
-        this->getTypeConverter()->convertType(getTupleElementOp.getType()),
-        adaptor.getOperand(), indexAsVal);
+    // Create an expression op to inline the subscript operation
+    auto loc = getTupleElementOp->getLoc();
+    auto exprOp = rewriter.create<emitpy::ExpressionOp>(
+        loc, resultType, ValueRange{adaptor.getOperand()});
+
+    // Setup the expression body
+    {
+      OpBuilder::InsertionGuard guard(rewriter);
+      Block *bodyBlock = &exprOp.getBody().emplaceBlock();
+
+      // Add block argument for the tuple operand
+      auto tupleArg =
+          bodyBlock->addArgument(adaptor.getOperand().getType(), loc);
+
+      rewriter.setInsertionPointToStart(bodyBlock);
+
+      // Create literal for the index
+      Value indexAsVal = rewriter.create<emitpy::LiteralOp>(
+          loc, rewriter.getIndexType(), std::to_string(adaptor.getIndex()));
+
+      // Create subscript operation inside the expression
+      Value subscriptResult = rewriter.create<emitpy::SubscriptOp>(
+          loc, resultType, tupleArg, indexAsVal);
+
+      // Yield the result
+      rewriter.create<emitpy::YieldOp>(loc, subscriptResult);
+    }
+
+    // Replace the original op with the expression op
+    rewriter.replaceOp(getTupleElementOp, exprOp.getResult());
 
     return success();
   }
@@ -3172,7 +3235,7 @@ public:
                          emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),
         emitter.emit(std::nullopt, "program_config"),
-        emitter.emit(std::nullopt, "compute_kernel_config"),
+        emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
     };
 
     emitter.replaceOp(*this, args);
@@ -3772,6 +3835,8 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                              enableGoldenMode);
   patterns.add<UpdateCacheOpConversionPattern>(typeConverter, ctx,
                                                enableGoldenMode);
+  patterns.add<PagedUpdateCacheOpConversionPattern>(typeConverter, ctx,
+                                                    enableGoldenMode);
 
   // Quantization ops.
   //

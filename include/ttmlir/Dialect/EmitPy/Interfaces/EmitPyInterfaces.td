@@ -24,17 +24,21 @@ def PyExpressionInterface : OpInterface<"PyExpressionInterface"> {
 
       By default operation is marked as having side effects.
 
-      ```Python
-      # Example: Pure operations like literals, arithmetic
-      class ConcreteOp:
-          def hasPythonSideEffects(self):
-              # Override for pure operations like literals, arithmetic
-              return False
+      ```c++
+      class ConcreteOp ... {
+      public:
+        bool hasSideEffects() {
+          // This way we can override the default implementation.
+          return false;
+        }
+      };
       ```
     }],
       "bool", "hasSideEffects", (ins), /*methodBody=*/[{}],
        /*defaultImplementation=*/[{
-        return true;
+        // Check if the operation has memory effects
+        // Operations without memory effects are considered pure
+        return !::mlir::isMemoryEffectFree($_op);
     }]>,
   ];
 }
