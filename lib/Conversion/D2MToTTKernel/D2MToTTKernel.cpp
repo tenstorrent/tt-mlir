@@ -178,28 +178,43 @@ static void setInsertionPointAfterOperands(OpBuilder &rewriter,
       continue;
     }
 
-    // Only consider ops in the current block for ordering comparison.
-    // Ops in outer blocks are already defined and don't affect insertion point.
-    if (definingOp->getBlock() != currentBlock) {
+    bool inCurrentBlock = (definingOp->getBlock() == currentBlock);
+
+    // When NOT hoisting, only consider ops in the current block.
+    // When hoisting, consider all ops to potentially hoist outside current
+    // block.
+    if (!allowHoisting && !inCurrentBlock) {
       continue;
     }
 
-    if (!latestDefOp || !definingOp->isBeforeInBlock(latestDefOp)) {
+    if (!latestDefOp) {
+      latestDefOp = definingOp;
+    } else if (latestDefOp->getBlock() == definingOp->getBlock()) {
+      // Same block - safe to use isBeforeInBlock
+      if (!definingOp->isBeforeInBlock(latestDefOp)) {
+        latestDefOp = definingOp;
+      }
+    } else if (inCurrentBlock) {
+      // definingOp is in currentBlock, latestDefOp is in outer block.
+      // currentBlock op is "later" in dominance order, so prefer it.
       latestDefOp = definingOp;
     }
+    // else: latestDefOp is in currentBlock or a different outer block,
+    // keep latestDefOp as it's already "later" or we can't compare.
   }
 
-  // If no operand is defined in current block, don't move insertion point.
   if (!latestDefOp) {
     return;
   }
 
-  // Only move the insertion point if we're pushing it downward in the
-  // topological order.
-  auto currentInsertionPoint = rewriter.getInsertionPoint();
-  if (allowHoisting ||
-      (latestDefOp->getBlock() == currentInsertionPoint->getBlock() &&
-       currentInsertionPoint->isBeforeInBlock(latestDefOp))) {
+  if (latestDefOp->getBlock() == currentBlock) {
+    // Operand in current block - only move if pushing downward (or hoisting)
+    auto currentInsertionPoint = rewriter.getInsertionPoint();
+    if (allowHoisting || currentInsertionPoint->isBeforeInBlock(latestDefOp)) {
+      rewriter.setInsertionPointAfter(latestDefOp);
+    }
+  } else {
+    // Operand in outer block - hoist to that block (only when allowHoisting)
     rewriter.setInsertionPointAfter(latestDefOp);
   }
 }
