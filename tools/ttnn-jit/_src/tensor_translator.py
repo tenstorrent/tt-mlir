@@ -208,7 +208,7 @@ def _create_dram_tensor_layout(ctx, tensor_arg):
 
 def _create_nd_sharded_tensor_layout(context, tensor_arg):
     data_type = ttcore_dtype_from_ttnn_dtype(tensor_arg.dtype)
-    tile_type = ttcore.ir.TileType.get(context, 32, 32, data_type)
+    tile_type = ttcore.ir.TileType.get(context, TILE_HEIGHT, TILE_WIDTH, data_type)
 
     shard_spec = tensor_arg.memory_config().nd_shard_spec
     assert shard_spec is not None, "Expected an ND sharded tensor"
@@ -219,8 +219,8 @@ def _create_nd_sharded_tensor_layout(context, tensor_arg):
 
     # Create memref, tile type only.
     shard_shape = list(shard_spec.shard_shape)
-    shard_shape[-2] = shard_shape[-2] // 32
-    shard_shape[-1] = shard_shape[-1] // 32
+    shard_shape[-2] = shard_shape[-2] // TILE_HEIGHT
+    shard_shape[-1] = shard_shape[-1] // TILE_WIDTH
     buffer_type = ttnn.ir.BufferTypeAttr.get(context, ttnn.BufferType.L1)
     memref = MemRefType.get(shard_shape, tile_type, None, buffer_type)
 
@@ -354,8 +354,8 @@ def _create_tensor_layout_with_shape(
     affine_map = _get_collapsed_linear_affine_map(ctx, new_shape, new_grid_shape)
 
     new_shard_shape = [
-        new_shape[0] // new_grid_shape[0] // 32,
-        new_shape[1] // new_grid_shape[1] // 32,
+        new_shape[0] // new_grid_shape[0] // TILE_HEIGHT,
+        new_shape[1] // new_grid_shape[1] // TILE_WIDTH,
     ]
     buffer_type = ttnn.ir.BufferTypeAttr.get(ctx, mem_space)
     with Location.unknown(ctx):
@@ -416,6 +416,8 @@ def create_tensor_layout(ctx, tensor_arg):
 
     if mem_config is not None and mem_config.is_sharded():
         if mem_config.shard_spec is None:
+            # Tensor is sharded, but there is no (legacy) shard spec.
+            # This means the sharding scheme can only be represented by an ND shard spec.
             return _create_nd_sharded_tensor_layout(ctx, tensor_arg)
         else:
             return _create_sharded_tensor_layout(ctx, tensor_arg)
