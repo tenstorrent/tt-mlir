@@ -188,6 +188,9 @@ class GoldenMapTensor:
     def __rsub__(self, other):
         return self._binary_map(other, lambda a, b: operator.sub(b, a))
 
+    def __str__(self) -> str:
+        return f"GoldenMapTensor(mesh_shape={self._mesh_shape}, shards={self._shard_map})"
+
     @staticmethod
     def _walk_tree(*trees) -> Iterable:
         # Yield leaves in a nested structure.

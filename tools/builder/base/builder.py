@@ -298,13 +298,30 @@ class Builder(metaclass=BuilderMeta):
             if arg_number == operand.arg_number:
                 new_arg_attr = {}
                 for attr in arg_attrs:
-                    new_arg_attr[attr.name.value] = attr
+                    new_arg_attr[attr.name] = attr.attr
                 new_arg_attr[new_attr_name] = new_attr
                 new_arg_attr_list.append(DictAttr.get(new_arg_attr))
             else:
                 new_arg_attr_list.append(arg_attrs)
 
         func_op.arg_attrs = ArrayAttr.get(new_arg_attr_list)
+
+    def set_runtime_tensor_sharding_attr(
+      self, operand: Operand, arg_sharding: sdy.TensorShardingAttr
+    ):
+        local_shape = self._apply_sharding_to_shape(operand.type.shape, arg_sharding)
+        local_shape_attr = RankedTensorType.get(local_shape, F32Type.get(self._ctx))
+        new_attr_name: str = "ttcore.runtime_tensor_sharding"
+        shard_status_attr = ttcore.ir.ShardStatusAttr.get(self._ctx, ttcore.ir.ShardStatus.Presharded)
+        new_attr = ttcore.ir.RuntimeTensorShardingAttr.get(self._ctx, shard_status_attr, local_shape_attr)
+
+        self.set_arg_attribute(operand, new_attr_name, new_attr)
+
+        # Generate new multi-device golden if it's presharded
+        if not self._disable_golden_check:
+            golden_tensor = self._get_golden_tensor(operand)
+            sharded_golden_tensor = self._apply_sharding_to_golden(golden_tensor, arg_sharding, True)
+            self._set_golden_tensor(operand, sharded_golden_tensor)
 
     # ----- Private methods -----
 

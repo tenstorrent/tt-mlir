@@ -34,6 +34,11 @@ updateShardStatus(MLIRContext *context, mlir::ModuleOp &module,
       newArgAttrs =
           llvm::SmallVector<mlir::NamedAttribute>(argAttrDict.getValue());
 
+      // If the argument already has a RuntimeTensorShardingAttr, we skip it.
+      if (argAttrDict.contains(mlir::tt::ttcore::RuntimeTensorShardingAttr::name)) {
+        continue;
+      }
+
       if (argAttrDict.contains(mlir::tt::gspmd_utils::kXlaShardingAttr)) {
         module.emitError("GSPMD presharding annotations are not supported.");
       }
@@ -85,6 +90,11 @@ updateShardStatus(MLIRContext *context, mlir::ModuleOp &module,
     if (resultAttrDict) {
       newResultAttrs =
           llvm::SmallVector<mlir::NamedAttribute>(resultAttrDict.getValue());
+
+      // If the result already has a RuntimeTensorShardingAttr, we skip it.
+      if (resultAttrDict.contains(mlir::tt::ttcore::RuntimeTensorShardingAttr::name)) {
+        continue;
+      }
 
       if (resultAttrDict.contains(mlir::tt::gspmd_utils::kXlaShardingAttr)) {
         module.emitError("GSPMD presharding annotations are not supported.");
