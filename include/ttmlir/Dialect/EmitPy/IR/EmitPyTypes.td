@@ -39,7 +39,7 @@ def EmitPy_OpaqueType : EmitPy_Type<"Opaque", "opaque"> {
   let genVerifyDecl = 1;
 }
 
-def EmitPy_Dict : EmitPy_Type<"Dict", "dict"> {
+def EmitPy_DictType : EmitPy_Type<"Dict", "dict"> {
   let summary = "EmitPy dictionary type";
 
   let description = [{
@@ -66,6 +66,6 @@ def EmitPy_Dict : EmitPy_Type<"Dict", "dict"> {
 }
 
 // Type constraint that matches any EmitPy dialect type
-def EmitPy_Type : AnyTypeOf<[EmitPy_OpaqueType, EmitPy_Dict]>;
+def EmitPy_Type : AnyTypeOf<[EmitPy_OpaqueType, EmitPy_DictType]>;
 
 #endif // TTMLIR_TTMLIR_DIALECT_EMITPY_IR_EMITPYTYPES_TD
