@@ -26,33 +26,13 @@
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Pass/PassManager.h"
-#include "llvm/ADT/ScopeExit.h"
+#include "llvm/ADT/DenseSet.h"
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNMATERIALIZED2M
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
 namespace {
-
-/// Clones a function into a standalone temporary ModuleOp for isolated
-/// compilation. The caller is responsible for erasing the returned module.
-static FailureOr<ModuleOp>
-cloneFuncIntoStandaloneModule(func::FuncOp origFunc) {
-  MLIRContext *ctx = origFunc.getContext();
-  Location loc = origFunc.getLoc();
-
-  OpBuilder builder(ctx);
-
-  // Create a standalone module wrapper for the D2M pipeline.
-  ModuleOp moduleWrapper = builder.create<ModuleOp>(loc, "d2m_subgraph");
-  builder.setInsertionPointToStart(moduleWrapper.getBody());
-
-  // Clone the original function into the new module.
-  IRMapping irMapper;
-  builder.clone(*origFunc.getOperation(), irMapper);
-
-  return moduleWrapper;
-}
 
 class TTNNMaterializeD2M
     : public impl::TTNNMaterializeD2MBase<TTNNMaterializeD2M> {
@@ -64,42 +44,46 @@ public:
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
 
-    // Collect functions marked for D2M compilation.
-    SmallVector<func::FuncOp> funcsToCompile;
+    // Collect dispatch ops and their referenced subgraph modules
+    SmallVector<std::pair<ttir::DispatchD2MOp, ModuleOp>> toCompile;
     SymbolTable symbolTable(moduleOp);
     moduleOp.walk([&](ttir::DispatchD2MOp dispatchD2MOp) {
-      // Look up the func symbol in the module's symbol table
-      auto funcOp = symbolTable.lookup<func::FuncOp>(dispatchD2MOp.getFunc());
-      if (funcOp) {
-        funcsToCompile.push_back(funcOp);
+      auto subgraphModule =
+          symbolTable.lookup<ModuleOp>(dispatchD2MOp.getSubgraph());
+      if (subgraphModule) {
+        toCompile.push_back({dispatchD2MOp, subgraphModule});
       }
     });
 
-    if (funcsToCompile.empty()) {
+    if (toCompile.empty()) {
       return;
     }
 
-    // Process each function that needs D2M compilation.
-    for (func::FuncOp origFunc : funcsToCompile) {
-      if (failed(compileViaD2M(origFunc))) {
+    // Process each subgraph module that needs D2M compilation.
+    // Use a set to avoid compiling the same module multiple times.
+    llvm::DenseSet<ModuleOp> compiledModules;
+    for (auto &[dispatchOp, subgraphModule] : toCompile) {
+      if (compiledModules.contains(subgraphModule)) {
+        continue;
+      }
+      if (failed(compileViaD2M(subgraphModule))) {
         signalPassFailure();
         return;
       }
+      compiledModules.insert(subgraphModule);
     }
   }
 
 private:
-  LogicalResult compileViaD2M(func::FuncOp origFunc) {
-    FailureOr<ModuleOp> tempModuleResult =
-        cloneFuncIntoStandaloneModule(origFunc);
-    if (failed(tempModuleResult)) {
-      return origFunc.emitError("Failed to clone function for D2M compilation");
-    }
-    ModuleOp tempModule = *tempModuleResult;
+  LogicalResult compileViaD2M(ModuleOp subgraphModule) {
+    // Debug: Print the subgraph module before running D2M pipeline
+    llvm::errs() << "\n=== D2M Input Module ("
+                 << subgraphModule.getSymName().value_or("unnamed")
+                 << ") ===\n";
+    subgraphModule.print(llvm::errs());
+    llvm::errs() << "\n=== End D2M Input Module ===\n\n";
 
-    auto moduleCleanup = llvm::make_scope_exit([&]() { tempModule->erase(); });
-
-    auto D2MPm = PassManager::on<ModuleOp>(tempModule.getContext());
+    auto D2MPm = PassManager::on<ModuleOp>(subgraphModule.getContext());
     D2MPm.enableIRPrinting(
         /*shouldPrintBeforePass=*/[](Pass *, Operation *) { return false; },
         /*shouldPrintAfterPass=*/[](Pass *, Operation *) { return true; },
@@ -114,17 +98,23 @@ private:
     // d2mOptions.meshShape = llvm::to_vector(meshShape);
     d2mOptions.ttnnMode = true;
 
-    // D2MPm.addPass(createConvertTTNNToTTIRPass());
     ttmetal::createTTIRToTTMetalFrontendPipeline(D2MPm, d2mOptions);
     ttmetal::createTTIRToTTMetalMiddleendPipeline(D2MPm, d2mOptions);
     ttmetal::createTTIRToTTMetalBackendPipeline(D2MPm, d2mOptions);
 
-    if (failed(D2MPm.run(tempModule))) {
-      return origFunc.emitError("D2M pipeline failed for function: ")
-             << origFunc.getName();
+    if (failed(D2MPm.run(subgraphModule))) {
+      return subgraphModule.emitError(
+                 "D2M pipeline failed for subgraph module: ")
+             << subgraphModule.getSymName().value_or("unnamed");
     }
 
-    // Extract the compiled function and merge back into original module
+    // Debug: Print the compiled module
+    llvm::errs() << "\n=== D2M Output Module ("
+                 << subgraphModule.getSymName().value_or("unnamed")
+                 << ") ===\n";
+    subgraphModule.print(llvm::errs());
+    llvm::errs() << "\n=== End D2M Output Module ===\n\n";
+
     return success();
   }
 };
