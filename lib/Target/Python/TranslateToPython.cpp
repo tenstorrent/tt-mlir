@@ -91,6 +91,7 @@ private:
   FailureOr<std::string> buildCallOpaqueExpr(CallOpaqueOp op);
   FailureOr<std::string> buildLiteralExpr(LiteralOp op);
   FailureOr<std::string> buildSubscriptExpr(SubscriptOp op);
+  FailureOr<std::string> buildGetAttrExpr(GetAttrOp op);
 
   /// Map from Value to its expression string representation
   DenseMap<Value, std::string> expressionCache;
@@ -167,6 +168,19 @@ struct PythonEmitter {
   /// Returns whether the Value is assigned to a Python variable in the scope.
   bool hasValueInScope(Value value) { return valueMapper.count(value); };
 
+  bool isInClassScope() const { return classDepth > 0; }
+
+  /// RAII helper function to manage entering/exiting Python class scopes.
+  struct ClassScope {
+    ClassScope(PythonEmitter &emitter) : emitter(emitter) {
+      emitter.classDepth++;
+    }
+    ~ClassScope() { emitter.classDepth--; }
+
+  private:
+    PythonEmitter &emitter;
+  };
+
   /// Reserve a name to prevent collisions.
   void reserveName(const std::string &name) { usedNames.top().insert(name); }
 
@@ -188,6 +202,8 @@ private:
 
   /// The set of names used in the current scope.
   std::stack<std::set<std::string>> usedNames;
+
+  int classDepth = 0;
 };
 } // namespace
 
@@ -217,6 +233,8 @@ FailureOr<std::string> ExpressionBuilder::buildExpression(Value value) {
     result = buildLiteralExpr(literalOp);
   } else if (auto subscriptOp = dyn_cast<SubscriptOp>(defOp)) {
     result = buildSubscriptExpr(subscriptOp);
+  } else if (auto getAttrOp = dyn_cast<GetAttrOp>(defOp)) {
+    result = buildGetAttrExpr(getAttrOp);
   } else {
     return defOp->emitOpError(
         "operation type not supported in inline expression");
@@ -271,6 +289,19 @@ FailureOr<std::string> ExpressionBuilder::buildSubscriptExpr(SubscriptOp op) {
   }
 
   os << *valueExpr << "[" << *indexExpr << "]";
+  return expr;
+}
+
+FailureOr<std::string> ExpressionBuilder::buildGetAttrExpr(GetAttrOp op) {
+  std::string expr;
+  llvm::raw_string_ostream os(expr);
+
+  auto objectExpr = buildExpression(op.getObject());
+  if (failed(objectExpr)) {
+    return failure();
+  }
+
+  os << *objectExpr << "." << op.getAttrName();
   return expr;
 }
 
@@ -430,13 +461,15 @@ static LogicalResult printOperation(PythonEmitter &emitter, ModuleOp moduleOp) {
 static LogicalResult printFunctionArgs(PythonEmitter &emitter, Operation &op,
                                        Region::BlockArgListType arguments) {
   raw_indented_ostream &os = emitter.ostream();
-  std::string argName = "inputs";
   func::FuncOp functionOp = mlir::cast<func::FuncOp>(op);
 
   return interleaveCommaWithError(arguments, os, [&](BlockArgument arg) {
+    std::string argName = "inputs";
     if (auto suggestNameAttr =
             functionOp.getArgAttr(arg.getArgNumber(), "emitpy.name")) {
       argName = mlir::cast<StringAttr>(suggestNameAttr).getValue();
+    } else if (emitter.isInClassScope() && arg.getArgNumber() == 0) {
+      argName = "self";
     }
     return emitter.emitOperand(arg, argName);
   });
@@ -480,7 +513,7 @@ static LogicalResult printOperation(PythonEmitter &emitter,
     return failure();
   }
 
-  if (callee == "main") {
+  if (!emitter.isInClassScope() && callee == "main") {
     os << "\n";
     os << "if __name__ == \'__main__\':\n";
     os << "  main()\n";
@@ -534,6 +567,84 @@ static LogicalResult printOperation(PythonEmitter &emitter, AssignOp assignOp) {
   }
 
   return emitter.emitOperands(*assignOp);
+}
+
+static LogicalResult printOperation(PythonEmitter &emitter,
+                                    GetAttrOp getAttrOp) {
+  if (failed(emitter.emitAssignPrefix(*getAttrOp))) {
+    return failure();
+  }
+
+  raw_indented_ostream &os = emitter.ostream();
+  if (failed(emitter.emitOperand(getAttrOp.getObject(), "object"))) {
+    return failure();
+  }
+
+  os << "." << getAttrOp.getAttrName();
+  return success();
+}
+
+static LogicalResult printOperation(PythonEmitter &emitter,
+                                    SetAttrOp setAttrOp) {
+  raw_indented_ostream &os = emitter.ostream();
+  if (failed(emitter.emitOperand(setAttrOp.getObject(), "object"))) {
+    return failure();
+  }
+
+  os << "." << setAttrOp.getAttrName() << " = ";
+  if (failed(emitter.emitOperand(setAttrOp.getValue(), "value"))) {
+    return failure();
+  }
+  return success();
+}
+
+static LogicalResult emitClassBase(Attribute baseAttr,
+                                   raw_indented_ostream &os) {
+  if (auto symbolRef = dyn_cast<SymbolRefAttr>(baseAttr)) {
+    os << symbolRef.getLeafReference();
+    return success();
+  }
+  if (auto opaque = dyn_cast<mlir::tt::emitpy::OpaqueAttr>(baseAttr)) {
+    os << opaque.getValue();
+    return success();
+  }
+  return failure();
+}
+
+static LogicalResult printOperation(PythonEmitter &emitter, ClassOp classOp) {
+  PythonEmitter::Scope scope(emitter);
+  PythonEmitter::ClassScope classScope(emitter);
+  raw_indented_ostream &os = emitter.ostream();
+
+  os << "class " << classOp.getSymName();
+  if (auto bases = classOp.getBases()) {
+    if (!bases->empty()) {
+      os << "(";
+      if (failed(interleaveCommaWithError(*bases, os, [&](Attribute baseAttr) {
+            return emitClassBase(baseAttr, os);
+          }))) {
+        return classOp.emitOpError("invalid class base attribute");
+      }
+      os << ")";
+    }
+  }
+  os << ":\n";
+
+  os.indent();
+  Block &body = classOp.getBody().front();
+  if (body.empty()) {
+    os << "pass\n";
+    os.unindent();
+    return success();
+  }
+
+  for (Operation &op : body.getOperations()) {
+    if (failed(emitter.emitOperation(op))) {
+      return failure();
+    }
+  }
+  os.unindent();
+  return success();
 }
 
 static LogicalResult printOperation(PythonEmitter &emitter,
@@ -736,10 +847,11 @@ LogicalResult PythonEmitter::emitOperation(Operation &op) {
           // Builtin ops.
           .Case<ModuleOp>([&](auto op) { return printOperation(*this, op); })
           // EmitPy ops.
-          .Case<CallOpaqueOp, ImportOp, AssignOp, ConstantOp, SubscriptOp,
-                GlobalOp, AssignGlobalOp, GlobalStatementOp, CreateDictOp,
-                SetValueForDictKeyOp, GetValueForDictKeyOp, ExpressionOp,
-                YieldOp>([&](auto op) { return printOperation(*this, op); })
+          .Case<CallOpaqueOp, ImportOp, AssignOp, GetAttrOp, SetAttrOp,
+                ConstantOp, SubscriptOp, ClassOp, GlobalOp, AssignGlobalOp,
+                GlobalStatementOp, CreateDictOp, SetValueForDictKeyOp,
+                GetValueForDictKeyOp, ExpressionOp, YieldOp>(
+              [&](auto op) { return printOperation(*this, op); })
           .Case<GetGlobalOp>([&](auto op) {
             registerDeferredValue(op.getResult(), op.getName());
             return success();
