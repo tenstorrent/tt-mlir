@@ -1350,7 +1350,7 @@ static mlir::LogicalResult verifyPooling2dOp(Pool2dOp *op) {
 // AvgPool2dOp
 //===----------------------------------------------------------------------===//
 
-// AvgPool2dOp verification
+// AvgPool2dOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::AvgPool2dOp::verify() {
   return verifyPooling2dOp(this);
 }
@@ -1363,17 +1363,21 @@ static mlir::LogicalResult verifyPooling2dOp(Pool2dOp *op) {
   return {};
 }
 
+// Rewrites operation with quantization, if possible.
 ::mlir::Operation *mlir::tt::ttir::AvgPool2dOp::rewriteWithQuantizedInputs(
     mlir::PatternRewriter &rewriter,
     mlir::ArrayRef<mlir::Value> sourceOperands) {
-  return nullptr; // TODO(acicovic): Explain.
+  // Unlike MaxPool2dOp which only compares values (scale-invariant), AvgPool2d
+  // performs a calculation which causes precision loss due to integer division
+  // truncation and scale parameter mismatch.
+  return nullptr;
 }
 
 //===----------------------------------------------------------------------===//
 // MaxPool2dOp
 //===----------------------------------------------------------------------===//
 
-// MaxPool2dOp verification
+// MaxPool2dOp verification.
 ::mlir::LogicalResult mlir::tt::ttir::MaxPool2dOp::verify() {
   return verifyPooling2dOp(this);
 }
@@ -1386,29 +1390,29 @@ static mlir::LogicalResult verifyPooling2dOp(Pool2dOp *op) {
   return {};
 }
 
+// Rewrites operation with quantization, if possible.
 ::mlir::Operation *mlir::tt::ttir::MaxPool2dOp::rewriteWithQuantizedInputs(
     mlir::PatternRewriter &rewriter,
     mlir::ArrayRef<mlir::Value> sourceOperands) {
-  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+
   mlir::Value input = sourceOperands[0];
-  if (mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(
-          input.getType())) {
+  if (mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(in.getType())) {
     return nullptr;
   }
-  RankedTensorType inType = mlir::cast<RankedTensorType>(input.getType());
+
   RankedTensorType outType =
       mlir::cast<RankedTensorType>(getResult().getType());
-  RankedTensorType newResultType = RankedTensorType::get(
-      outType.getShape(), inType.getElementType(), outType.getEncoding());
+
+  RankedTensorType newOutType = RankedTensorType::get(
+      outType.getShape(),
+      mlir::cast<RankedTensorType>(input.getType()).getElementType(),
+      outType.getEncoding());
 
   return rewriter
       .create<mlir::tt::ttir::MaxPool2dOp>(
-          getLoc(), newResultType, input, getKernelAttr(), getStrideAttrName(),
+          getLoc(), newOutType, input, getKernelAttr(), getStrideAttrName(),
           getDilationAttr(), getPaddingAttr(), getCeilModeAttr())
       .getOperation();
-  // TODO(acicovic): Check if this is correct type generation
-  // TODO(acicovic): Is NOLINT... needed?
-  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 }
 
 //===----------------------------------------------------------------------===//
