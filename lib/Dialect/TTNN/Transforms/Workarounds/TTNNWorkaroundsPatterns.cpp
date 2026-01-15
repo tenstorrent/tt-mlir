@@ -389,7 +389,7 @@ public:
     auto sizeOfDevices = meshShape[clusterAxis];
     auto inputShape = inputType.getShape();
     const auto *tensorDimDevice = llvm::find_if(
-        inputShape, [&](int64_t dim) { return dim % sizeOfDevices == 0; });
+        inputShape, [&](int64_t dim) { return dim % (sizeOfDevices * 32) == 0; });
 
     if (tensorDimDevice == inputShape.end()) {
       // If all the dimensions are not evenly divisible by the number of
