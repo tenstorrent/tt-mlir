@@ -10,6 +10,7 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/Attributes.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -19,6 +20,7 @@
 #include "mlir/Support/LLVM.h"
 #include "stablehlo/dialect/StablehloOps.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringExtras.h"
 #include <cassert>
 #include <shardy/dialect/sdy/ir/constants.h>
 #include <shardy/dialect/sdy/ir/dialect.h>
@@ -547,10 +549,14 @@ public:
       prevType = finalType;
     }
 
+    // Wrap the result in a stablehlo.composite op. During the SHLO->TTIR
+    // lowering pass, this op will be directly replaced with a ttir.mesh_shard
+    // FullToShard op.
     if (input_is_fully_replicated) {
-      // Wrap the result in a stablehlo.composite op. During the SHLO->TTIR
-      // lowering pass, this op will be directly replaced with a ttir.mesh_shard
-      // FullToShard op.
+      // Counter to track the number of sdy.all_slice ops that will be wrapped
+      // in a stablehlo.composite op.
+      static int allSliceOpNumber = 0;
+      ++allSliceOpNumber;
       if (ops.empty()) {
         return rewriter.notifyMatchFailure(
             srcOp, "Cannot create composite op: no operations to outline.");
@@ -558,38 +564,23 @@ public:
       mlir::OpBuilder builder(ops.front());
       mlir::MLIRContext *ctx = builder.getContext();
 
-      // Step 1: Calculate the shard_dims and shard_shape based on the
-      // out_sharding attribute.
+      // Step 1: Attach the out_sharding attribute to the composite op.
       mlir::sdy::TensorShardingAttr resultShardingAttr =
           srcOp.getOutShardingAttr();
-      llvm::Expected<mlir::tt::shardy_utils::ShardyMeshSharding>
-          shardyMeshSharding =
-              mlir::tt::shardy_utils::ShardyMeshSharding::generate(
-                  globalMeshOp.getMeshAttr(), resultShardingAttr,
-                  mlir::tt::ttcore::ShardStatus::Unsharded,
-                  ttcore::MeshShardDirection::FullToShard);
-      if (auto err = shardyMeshSharding.takeError()) {
-        return rewriter.notifyMatchFailure(
-            srcOp, "Error trying to parse shardy annotation when lower "
-                   "sdy.all_slice op.");
-      }
       llvm::SmallVector<mlir::NamedAttribute> compAttrsVec;
       compAttrsVec.push_back(mlir::NamedAttribute(
-          builder.getStringAttr("shard_dims"),
-          builder.getI64ArrayAttr(shardyMeshSharding->getShardDims())));
-      compAttrsVec.push_back(mlir::NamedAttribute(
-          builder.getStringAttr("shard_shape"),
-          builder.getI64ArrayAttr(shardyMeshSharding->getShardShape())));
+          mlir::StringAttr::get(ctx, "out_sharding"), resultShardingAttr));
 
       // Step 2: Create a private function for the composite op.
       mlir::func::FuncOp callee = utils::createPrivateFunction(
-          moduleOp, "", srcOp->getName().getStringRef(), inputOperand.get(),
-          result, ops);
+          moduleOp, srcOp.getOperationName(), std::to_string(allSliceOpNumber),
+          inputOperand.get(), result, ops);
       mlir::SymbolRefAttr decomp =
           mlir::SymbolRefAttr::get(ctx, callee.getSymName());
       mlir::DictionaryAttr compAttrs =
           mlir::DictionaryAttr::get(ctx, compAttrsVec);
-      mlir::StringAttr targetName = builder.getStringAttr(callee.getSymName());
+      mlir::StringAttr targetName =
+          builder.getStringAttr(srcOp.getOperationName());
 
       mlir::Location callee_loc = callee.getLoc();
 

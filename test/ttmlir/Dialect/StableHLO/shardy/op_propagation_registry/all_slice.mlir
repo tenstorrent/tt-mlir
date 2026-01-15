@@ -12,7 +12,7 @@ module {
 
 // CHECK: sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{}]>] out_shardings=[<@mesh, [{"batch"}]>] manual_axes={"model", "batch"}
 // CHECK: stablehlo.composite
-// CHECK-SAME: composite_attributes = {shard_dims = [-1, 0], shard_shape = [2]}
+// CHECK-SAME: composite_attributes = {out_sharding = #sdy.sharding<@mesh, [{"batch"}]>}
 // CHECK-SAME: (tensor<32xbf16>) -> tensor<16xbf16>
 // CHECK: sdy.return
 // CHECK: stablehlo.reshape
@@ -36,7 +36,7 @@ module {
 
 // CHECK: sdy.manual_computation(%arg0) in_shardings=[<@mesh, [{}, {}]>] out_shardings=[<@mesh, [{"batch"}, {"model"}]>] manual_axes={"model", "batch"}
 // CHECK: stablehlo.composite
-// CHECK-SAME: composite_attributes = {shard_dims = [1, 0], shard_shape = [4, 2]}
+// CHECK-SAME: composite_attributes = {out_sharding = #sdy.sharding<@mesh, [{"batch"}, {"model"}]>}
 // CHECK-SAME: (tensor<4x32xbf16>) -> tensor<1x16xbf16>
 // CHECK: sdy.return
 // CHECK: stablehlo.reshape
@@ -76,3 +76,23 @@ module {
 // CHECK: stablehlo.reshape
 // CHECK-SAME: -> tensor<1x16xbf16>
 // CHECK: sdy.return
+
+// -----
+
+module {
+  sdy.mesh @mesh = <["model"=1, "batch"=2]>
+  func.func @two_all_slices_replicated_input(%arg0: tensor<32xbf16> {sdy.sharding = #sdy.sharding<@mesh, [{}]>}, %arg1: tensor<16xbf16> {sdy.sharding = #sdy.sharding<@mesh, [{}]>}) -> (tensor<32xbf16>, tensor<16xbf16>) {
+    %0 = sdy.all_slice [{"batch"}] %arg0 out_sharding=<@mesh, [{"batch"}]> : tensor<32xbf16>
+    %1 = sdy.all_slice [{"batch"}] %arg1 out_sharding=<@mesh, [{"batch"}]> : tensor<16xbf16>
+    return %0, %1 : tensor<32xbf16>, tensor<16xbf16>
+  }
+}
+
+// CHECK: sdy.manual_computation(%arg0, %arg1) in_shardings=[<@mesh, [{}]>, <@mesh, [{}]>] out_shardings=[<@mesh, [{"batch"}]>, <@mesh, [{"batch"}]>] manual_axes={"model", "batch"}
+// CHECK: stablehlo.composite "sdy.all_slice" %arg2
+// CHECK-SAME: composite_attributes = {out_sharding = #sdy.sharding<@mesh, [{"batch"}]>}
+// CHECK-SAME:, decomposition = @sdy.all_slice3
+// CHECK: stablehlo.composite "sdy.all_slice" %arg3
+// CHECK-SAME: composite_attributes = {out_sharding = #sdy.sharding<@mesh, [{"batch"}]>}
+// CHECK-SAME:, decomposition = @sdy.all_slice4
+// CHECK: sdy.return %1, %2 : tensor<16xbf16>, tensor<8xbf16>
