@@ -502,6 +502,20 @@ static LogicalResult printOperation(PythonEmitter &emitter,
   raw_indented_ostream &os = emitter.ostream();
   StringRef callee = functionOp.getName();
   emitter.reserveName(callee.str());
+  StringRef methodKind = "";
+  if (auto methodKindAttr =
+          functionOp->getAttrOfType<StringAttr>("emitpy.method_kind")) {
+    methodKind = methodKindAttr.getValue();
+    if (!emitter.isInClassScope()) {
+      return functionOp.emitOpError(
+          "emitpy.method_kind is only valid inside a class");
+    }
+    if (methodKind == "classmethod") {
+      os << "@classmethod\n";
+    } else if (methodKind == "staticmethod") {
+      os << "@staticmethod\n";
+    }
+  }
   os << "def";
   os << " " << callee;
   os << "(";

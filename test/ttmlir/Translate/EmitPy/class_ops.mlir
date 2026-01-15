@@ -31,7 +31,9 @@ module {
 }
 
 // CHECK-LABEL: class WithMethodKinds:
+// CHECK: @classmethod
 // CHECK: def make(cls):
+// CHECK: @staticmethod
 // CHECK: def util(x):
 module {
   emitpy.class @WithMethodKinds {
