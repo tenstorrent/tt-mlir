@@ -37,6 +37,7 @@ public:
     IRRewriter rewriter(&getContext());
 
     // For simplicity, supporting only one for now, but could support multiple.
+    // TODO (#6635): Add support for multiple candidate functions.
     //
     SmallVector<func::FuncOp> candidateFns = findCandidateFns(moduleOp);
     if (candidateFns.size() != 1) {

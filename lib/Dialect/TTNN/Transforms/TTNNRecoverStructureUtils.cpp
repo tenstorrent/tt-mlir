@@ -5,6 +5,8 @@
 #include "ttmlir/Dialect/TTNN/Transforms/TTNNRecoverStructureUtils.h"
 
 #include "ttmlir/Support/Logger.h"
+
+#include "mlir/Pass/Pass.h"
 #include "llvm/Support/raw_ostream.h"
 
 namespace mlir::tt::ttnn {
@@ -61,7 +63,14 @@ PyLoc::PyLoc(Operation *op) {
   llvm::SmallVector<llvm::StringRef> locParts;
   llvm::StringRef(locStr).split(locParts, "|", -1, false);
 
-  this->opIndex = std::stoi(locParts[0].str());
+  bool parseErrorReturned =
+      llvm::StringRef(locParts[0].str()).getAsInteger(10, this->opIndex);
+  if (parseErrorReturned) {
+    emitError(op->getLoc())
+        << "Failed to parse op index from location: " << locStr;
+    this->isValid = false;
+    return;
+  }
 
   // Validate that we have at least 4 parts (funcPath, funcName, opLineNum,
   // opName)
@@ -73,7 +82,13 @@ PyLoc::PyLoc(Operation *op) {
 
   // Fill in fields from back of locParts.
   this->opName = locParts[numParts - 1].str();
-  this->opLineNum = std::stoi(locParts[numParts - 2].str());
+  parseErrorReturned = locParts[numParts - 2].getAsInteger(10, this->opLineNum);
+  if (parseErrorReturned) {
+    emitError(op->getLoc())
+        << "Failed to parse op line number from location: " << locStr;
+    this->isValid = false;
+    return;
+  }
   this->funcName = locParts[numParts - 3].str();
   this->funcPath = locParts[numParts - 4].str();
   this->modules = llvm::SmallVector<Module>();
