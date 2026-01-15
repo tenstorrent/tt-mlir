@@ -8,17 +8,15 @@
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/Attributes.h"
+#include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/Support/IndentedOstream.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/ScopedHashTable.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/LogicalResult.h"
-
-#include "mlir/IR/Attributes.h"
-#include "mlir/IR/BuiltinAttributes.h"
-#include "mlir/IR/BuiltinOps.h"
-#include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/StringMap.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <regex>
@@ -147,8 +145,8 @@ struct PythonEmitter {
   // Return the textual representation of a subscript operation.
   std::string getSubscriptName(SubscriptOp op);
 
-  /// Insert the op result into the value cache.
-  void cacheDeferredOpResult(Value value, StringRef str);
+  /// Register a value with a name so it can be referenced later.
+  void registerDeferredValue(Value value, StringRef str);
 
   bool shouldEmitFile(FileOp fileOp);
 
@@ -169,7 +167,7 @@ struct PythonEmitter {
     PythonEmitter &emitter;
   };
 
-  /// Returns wether the Value is assigned to a Python variable in the scope.
+  /// Returns whether the Value is assigned to a Python variable in the scope.
   bool hasValueInScope(Value value) { return valueMapper.count(value); };
 
   /// Reserve a name to prevent collisions.
@@ -312,7 +310,7 @@ std::string PythonEmitter::getSubscriptName(SubscriptOp op) {
   return name;
 }
 
-void PythonEmitter::cacheDeferredOpResult(Value value, StringRef str) {
+void PythonEmitter::registerDeferredValue(Value value, StringRef str) {
   if (!valueMapper.count(value)) {
     valueMapper.insert(value, str.str());
   }
@@ -585,7 +583,84 @@ static LogicalResult printOperation(PythonEmitter &emitter,
 
 static LogicalResult printOperation(PythonEmitter &emitter,
                                     GlobalStatementOp globalStatementOp) {
+  emitter.registerDeferredValue(globalStatementOp.getResult(),
+                                globalStatementOp.getName());
+
   return emitter.emitGlobalStatement(globalStatementOp);
+}
+
+static LogicalResult printOperation(PythonEmitter &emitter,
+                                    CreateDictOp createDictOp) {
+  raw_indented_ostream &os = emitter.ostream();
+  StringRef dictName = createDictOp.getDictName();
+
+  emitter.registerDeferredValue(createDictOp.getResult(), dictName);
+
+  os << dictName << " = ";
+
+  if (createDictOp.getLiteralExpr()) {
+    os << *createDictOp.getLiteralExpr();
+    return success();
+  }
+
+  os << "{";
+  auto items = createDictOp.getItems();
+  for (size_t i = 0; i < items.size(); i += 2) {
+    if (i > 0) {
+      os << ", ";
+    }
+    if (failed(emitter.emitOperand(items[i], "dict_key"))) {
+      return failure();
+    }
+    os << ": ";
+    if (failed(emitter.emitOperand(items[i + 1], "dict_value"))) {
+      return failure();
+    }
+  }
+  os << "}";
+
+  return success();
+}
+
+static LogicalResult printOperation(PythonEmitter &emitter,
+                                    SetValueForDictKeyOp op) {
+  raw_indented_ostream &os = emitter.ostream();
+
+  if (failed(emitter.emitOperand(op.getDict(), "dict_arg"))) {
+    return failure();
+  }
+
+  os << "[";
+  if (failed(emitter.emitOperand(op.getKey(), "dict_key"))) {
+    return failure();
+  }
+  os << "] = ";
+
+  if (failed(emitter.emitOperand(op.getValue(), "dict_value"))) {
+    return failure();
+  }
+  return success();
+}
+
+static LogicalResult printOperation(PythonEmitter &emitter,
+                                    GetValueForDictKeyOp op) {
+  if (failed(emitter.emitAssignPrefix(*op))) {
+    return failure();
+  }
+
+  raw_indented_ostream &os = emitter.ostream();
+
+  if (failed(emitter.emitOperand(op.getDict(), "dict_arg"))) {
+    return failure();
+  }
+
+  os << "[";
+  if (failed(emitter.emitOperand(op.getKey(), "dict_key"))) {
+    return failure();
+  }
+  os << "]";
+
+  return success();
 }
 
 static LogicalResult printOperation(PythonEmitter &emitter, YieldOp yieldOp) {
@@ -631,7 +706,7 @@ static LogicalResult printOperation(PythonEmitter &emitter,
     }
 
     // Cache the expression for deferred emission
-    emitter.cacheDeferredOpResult(expressionOp.getResult(), *exprStrResult);
+    emitter.registerDeferredValue(expressionOp.getResult(), *exprStrResult);
 
     // Return success - the expression will be emitted when it's used
     return success();
@@ -643,7 +718,7 @@ static LogicalResult printOperation(PythonEmitter &emitter,
     Block *bodyBlock = expressionOp.getBodyBlock();
     for (auto [blockArg, operand] :
          llvm::zip(bodyBlock->getArguments(), expressionOp.getOperands())) {
-      emitter.cacheDeferredOpResult(
+      emitter.registerDeferredValue(
           blockArg, emitter.getOrCreateName(operand, "expr_arg"));
     }
 
@@ -687,15 +762,16 @@ LogicalResult PythonEmitter::emitOperation(Operation &op) {
           .Case<ModuleOp>([&](auto op) { return printOperation(*this, op); })
           // EmitPy ops.
           .Case<CallOpaqueOp, ImportOp, AssignOp, ConstantOp, SubscriptOp,
-                GlobalOp, AssignGlobalOp, GlobalStatementOp, FileOp,
+                GlobalOp, AssignGlobalOp, GlobalStatementOp, CreateDictOp,
+                SetValueForDictKeyOp, GetValueForDictKeyOp, FileOp,
                 ExpressionOp, YieldOp>(
               [&](auto op) { return printOperation(*this, op); })
           .Case<GetGlobalOp>([&](auto op) {
-            cacheDeferredOpResult(op.getResult(), op.getName());
+            registerDeferredValue(op.getResult(), op.getName());
             return success();
           })
           .Case<LiteralOp>([&](auto op) {
-            cacheDeferredOpResult(op.getResult(), op.getValue());
+            registerDeferredValue(op.getResult(), op.getValue());
             return success();
           })
           // Func ops.
@@ -757,7 +833,11 @@ LogicalResult PythonEmitter::emitAttribute(Location loc, Attribute attr) {
     os << printInt(iAttr.getValue());
     return success();
   }
-
+  // Print string attributes.
+  if (auto sAttr = dyn_cast<StringAttr>(attr)) {
+    os << "\"" << sAttr.getValue() << "\"";
+    return success();
+  }
   // Print opaque attributes.
   if (auto oAttr = dyn_cast<mlir::tt::emitpy::OpaqueAttr>(attr)) {
     os << oAttr.getValue();

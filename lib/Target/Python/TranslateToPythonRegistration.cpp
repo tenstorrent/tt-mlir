@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/EmitPy/IR/EmitPy.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Target/Python/PythonEmitter.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -29,7 +30,8 @@ void registerToPythonTranslation() {
       [](DialectRegistry &registry) {
         // clang-format off
         registry.insert<emitpy::EmitPyDialect,
-                        func::FuncDialect>();
+                        func::FuncDialect,
+                        ttcore::TTCoreDialect>();
         // clang-format on
       });
 }
