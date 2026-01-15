@@ -4,11 +4,10 @@
 
 #include "ttmlir/Conversion/TTNNToEmitPy/EmitPyConversion.h"
 #include "ttmlir/Conversion/TTNNToEmitPy/TTNNToEmitPy.h"
-#include "ttmlir/Dialect/TTCore/Transforms/Passes.h"
+#include "ttmlir/Dialect/EmitPy/IR/EmitPy.h"
 
 #include "mlir/Dialect/Func/Transforms/FuncConversions.h"
 #include "mlir/Pass/PassManager.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -123,6 +122,12 @@ struct ConvertTTNNToEmitPyPass
                                      nullptr, nullptr);
     builder.create<emitpy::ImportOp>(module->getLoc(), "utils", nullptr,
                                      nullptr, nullptr, nullptr);
+
+    // Create a global cache dictionary
+    //
+    auto opaqueAttr = emitpy::OpaqueAttr::get(&getContext(), "{}");
+    builder.create<emitpy::GlobalOp>(module->getLoc(), "_CONST_EVAL_CACHE",
+                                     opaqueAttr);
 
     // TTNN -> EmitPy
     //

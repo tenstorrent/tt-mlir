@@ -49,6 +49,7 @@ try:
         set_fabric_config,
         wait,
         to_host,
+        get_device_tensors,
         to_layout,
         get_layout,
         get_op_output_tensor,

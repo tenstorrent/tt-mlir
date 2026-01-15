@@ -863,6 +863,84 @@ def test_slice(
     )
 
 
+@pytest.mark.parametrize("shape", [(1, 1, 64, 32), (1, 3, 256, 256)], ids=shape_str)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.int32], ids=["f32", "i32"])
+@pytest.mark.parametrize("is_splat", [True, False], ids=["splat", "non-splat"])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_constant(
+    shape: Shape, dtype: torch.dtype, is_splat: bool, target: str, request, device
+):
+    def constant_fn(builder: StableHLOBuilder):
+        builder.set_graph_level_check(True)
+        if is_splat:
+            if dtype.is_floating_point:
+                splat_value = torch.randn([])
+            else:
+                splat_value = torch.randint(-100, 100, [])
+            tensor = torch.full(shape, splat_value.item(), dtype=dtype)
+        else:
+            if dtype.is_floating_point:
+                tensor = torch.randn(shape, dtype=dtype)
+            else:
+                tensor = torch.randint(-100, 100, shape, dtype=dtype)
+
+        result = builder.constant(tensor)
+        return result
+
+    compile_and_execute_shlo(
+        constant_fn,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
+    "shape,start_indices_val,slice_sizes",
+    [
+        ((128, 128), [0, 0], [64, 64]),
+        ((128, 128), [32, 32], [64, 64]),
+        ((128, 128), [0, 0], [128, 64]),
+        ((256, 256), [64, 64], [128, 128]),
+    ],
+    ids=[
+        "dyn_128x128_basic",
+        "dyn_128x128_offset",
+        "dyn_128x128_fullrow",
+        "dyn_256x256_large",
+    ],
+)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_dynamic_slice(
+    shape: Shape,
+    start_indices_val: List[int],
+    slice_sizes: List[int],
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: StableHLOBuilder):
+        @builder.func([shape], [dtype])
+        def dynamic_slice(in0: Operand, builder: StableHLOBuilder):
+            builder.set_graph_level_check(True)
+            return builder.dynamic_slice(
+                in0, start_indices_val, slice_sizes=slice_sizes
+            )
+
+    compile_and_execute_shlo(
+        module,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
 # Bitwise operations tests (integer tensors)
 @pytest.mark.parametrize("shape", [(128, 128)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.int32], ids=["i32"])

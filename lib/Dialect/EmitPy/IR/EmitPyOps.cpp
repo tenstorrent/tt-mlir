@@ -6,11 +6,7 @@
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/OpImplementation.h"
-
-#include "llvm/ADT/DenseSet.h"
-#include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/LogicalResult.h"
-#include "llvm/Support/raw_ostream.h"
 
 #include <string_view>
 
@@ -571,6 +567,74 @@ LogicalResult GetGlobalOp::verify() {
 LogicalResult
 GetGlobalOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
   return verifyNearestGlobalSymbol<GetGlobalOp>(*this, symbolTable);
+}
+
+//===----------------------------------------------------------------------===//
+// CreateDictOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult CreateDictOp::verify() {
+  StringRef dictName = getDictName();
+  if (failed(isValidPythonIdentifier(getOperation(), dictName))) {
+    return emitOpError() << "dictionary name must be a valid Python identifier";
+  }
+
+  if (getLiteralExpr() && !getItems().empty()) {
+    return emitOpError(
+        "cannot have both literal_expr and items operands; use either "
+        "literal_expr for Python dict literals or items for key-value pairs");
+  }
+
+  if (!getLiteralExpr() && getItems().size() % 2 != 0) {
+    return emitOpError(
+        "items must be alternating key-value pairs (even count required)");
+  }
+
+  if (getLiteralExpr() && getLiteralExpr()->empty()) {
+    return emitOpError("literal_expr must not be empty");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// SetValueForDictKeyOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult SetValueForDictKeyOp::verify() {
+  Type keyType = getKey().getType();
+
+  // If key is an opaque type, verify it represents a string
+  if (auto opaqueType = dyn_cast<OpaqueType>(keyType)) {
+    StringRef value = opaqueType.getValue();
+    if (value != "str") {
+      return emitOpError()
+             << "key with opaque type must represent a string type "
+             << "(!emitpy.opaque<\"str\">), but got: " << opaqueType;
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// GetValueForDictKeyOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult GetValueForDictKeyOp::verify() {
+  Type keyType = getKey().getType();
+
+  // If key is an opaque type, verify it represents a string
+  if (auto opaqueType = dyn_cast<OpaqueType>(keyType)) {
+    StringRef value = opaqueType.getValue();
+    if (value != "str") {
+      return emitOpError()
+             << "key with opaque type must represent a string type "
+             << "(!emitpy.opaque<\"str\">), but got: " << opaqueType;
+    }
+  }
+
+  return success();
 }
 
 //===----------------------------------------------------------------------===//

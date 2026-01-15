@@ -474,4 +474,30 @@ def TTNNSetComputeKernelConfig: Pass<"ttnn-set-compute-kernel-config", "::mlir::
   ];
 }
 
+def TTNNRecoverStructure: Pass<"ttnn-recover-structure", "::mlir::ModuleOp"> {
+  let summary = "Recover program structure by splitting IR into multiple functions based on source locations.";
+  let description = [{
+    This pass analyzes TTNN operations and extracts Python source location information
+    from each operation. It then groups operations by their originating Python functions
+    and creates new MLIR functions based on these groups, effectively recovering the
+    original program structure from the flattened MLIR representation.
+  }];
+}
+
+def TTNNSimplifyLocsForCodegen: Pass<"ttnn-simplify-locs-for-codegen", "::mlir::ModuleOp"> {
+  let summary = "Simplify location information for code generation.";
+  let description = [{
+    This pass simplifies location information by removing nested locations from NameLocs.
+    It only processes TTNN dialect operations and skips UnknownLocs.
+  }];
+}
+
+def TTNNRemoveDeallocs: Pass<"ttnn-remove-deallocs", "::mlir::ModuleOp"> {
+  let summary = "Remove all ttnn.deallocate operations for debugging.";
+  let description = [{
+    This pass removes all ttnn.deallocate operations from the IR.
+    Useful for debugging purposes to isolate issues related to deallocation.
+  }];
+}
+
 #endif

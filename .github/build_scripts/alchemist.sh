@@ -18,6 +18,10 @@ cp $BUILD_DIR/tools/tt-alchemist/csrc/python_runner/libtt-alchemist-python-runne
 cp $WORK_DIR/tools/tt-alchemist/test/simple_test_model.py $INSTALL_DIR/tools/tt-alchemist/test/
 cp $WORK_DIR/tools/tt-alchemist/test/test_model.py $INSTALL_DIR/tools/tt-alchemist/test/
 
+# Copy test MLIR files
+mkdir -p $INSTALL_DIR/tools/tt-alchemist/test/models
+cp $WORK_DIR/tools/tt-alchemist/test/models/*.mlir $INSTALL_DIR/tools/tt-alchemist/test/models/
+
 # Copy tt-metal dependencies needed by the test executables (for $ORIGIN RPATH)
 TTMETAL_LIB_DIR=$WORK_DIR/third_party/tt-metal/src/tt-metal/build/lib
 cp $TTMETAL_LIB_DIR/libtt_metal.so $INSTALL_DIR/tools/tt-alchemist/test/
