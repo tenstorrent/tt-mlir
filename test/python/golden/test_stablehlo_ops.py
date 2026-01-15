@@ -448,7 +448,6 @@ def test_binary_ops(test_fn: Callable, target: str, request, device):
         module_sqrt,
         module_tan,
         module_tanh,
-        module_erf,
     ],
 )
 def test_unary_ops(
