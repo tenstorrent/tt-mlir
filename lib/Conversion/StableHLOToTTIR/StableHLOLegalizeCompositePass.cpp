@@ -5,9 +5,11 @@
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOLegalizeComposite.h"
 
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 
+#include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -16,6 +18,7 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "stablehlo/dialect/StablehloOps.h"
+#include "llvm/Support/LogicalResult.h"
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -290,6 +293,66 @@ public:
   }
 };
 
+class ShardyAllSliceToTTIRMeshShardConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
+public:
+  ShardyAllSliceToTTIRMeshShardConversionPattern(MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::CompositeOp>(context) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CompositeOp srcOp,
+                  mlir::stablehlo::CompositeOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (srcOp.getName() != "sdy.all_slice") {
+      return failure();
+    }
+
+    auto outputType =
+        mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
+
+    DictionaryAttr compositeAttrs = srcOp.getCompositeAttributes();
+    auto shardTypeAttr = mlir::tt::ttcore::MeshShardTypeAttr::get(
+        this->getContext(), mlir::tt::ttcore::MeshShardType::Devices);
+    auto shardDirectionAttr = mlir::tt::ttcore::MeshShardDirectionAttr::get(
+        this->getContext(), mlir::tt::ttcore::MeshShardDirection::FullToShard);
+
+    auto maybeShardShapeAttr = convertAttributeToDenseI64ArrayAttr(
+        compositeAttrs.get("shard_shape"), rewriter);
+    auto maybeShardDimsAttr = convertAttributeToDenseI64ArrayAttr(
+        compositeAttrs.get("shard_dims"), rewriter);
+
+    if (!maybeShardShapeAttr || !maybeShardDimsAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "Failed to convert shard_shape or shard_dims to DenseI64ArrayAttr");
+    }
+
+    rewriter.replaceOpWithNewOp<ttir::MeshShardOp>(
+        srcOp, outputType, adaptor.getOperands().front(), shardTypeAttr,
+        shardDirectionAttr, maybeShardShapeAttr.value(),
+        maybeShardDimsAttr.value());
+    return success();
+  }
+
+private:
+  std::optional<DenseI64ArrayAttr> convertAttributeToDenseI64ArrayAttr(
+      Attribute attr, ConversionPatternRewriter &rewriter) const {
+    SmallVector<int64_t> values;
+    if (auto denseAttr = mlir::dyn_cast<DenseIntElementsAttr>(attr)) {
+      for (auto val : denseAttr.getValues<int64_t>()) {
+        values.push_back(val);
+      }
+    } else if (auto arrayAttr = mlir::dyn_cast<ArrayAttr>(attr)) {
+      for (auto attr : arrayAttr) {
+        values.push_back(mlir::cast<IntegerAttr>(attr).getInt());
+      }
+    } else {
+      return std::nullopt;
+    }
+    return rewriter.getDenseI64ArrayAttr(values);
+  }
+};
+
 struct LegalizeStableHLOCompositeToTTIR
     : public ttir::impl::LegalizeStableHLOCompositeToTTIRBase<
           LegalizeStableHLOCompositeToTTIR> {
@@ -327,5 +390,6 @@ void populateStableHLOCompositeLegalizationPatterns(
   patterns.add<TenstorrentRMSNormConversionPattern>(context);
   patterns.add<TenstorrentLayerNormConversionPattern>(context);
   patterns.add<TenstorrentUniformToRandConversionPattern>(context);
+  patterns.add<ShardyAllSliceToTTIRMeshShardConversionPattern>(context);
 }
 } // namespace mlir::tt
