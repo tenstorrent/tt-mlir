@@ -182,9 +182,6 @@ private:
 // Return true if every dimension has no axes -> replicated.
 bool isFullyReplicatedTensor(mlir::sdy::TensorShardingAttr tsh);
 
-// Return the numbers of dimensions that are sharded across at least one axis.
-int getNumShardedDims(mlir::sdy::TensorShardingAttr tsh);
-
 // Return true if the module has any sdy tensor sharding annotations that are
 // not fully replicated.
 bool isShardedModule(mlir::ModuleOp &module);

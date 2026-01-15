@@ -653,16 +653,6 @@ bool isFullyReplicatedTensor(mlir::sdy::TensorShardingAttr tsh) {
   return true;
 }
 
-int getNumShardedDims(mlir::sdy::TensorShardingAttr tsh) {
-  int numShardedDims = 0;
-  for (auto dim : tsh.getDimShardings()) {
-    if (!dim.getAxes().empty()) {
-      numShardedDims++;
-    }
-  }
-  return numShardedDims;
-}
-
 bool isShardedModule(mlir::ModuleOp &module) {
   llvm::SmallVector<mlir::sdy::MeshOp> parsedMeshOps =
       shardy_utils::getMeshOps(module);
