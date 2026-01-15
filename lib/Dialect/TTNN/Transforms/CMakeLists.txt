@@ -15,6 +15,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNEmitPyWorkarounds.cpp
         TTNNConstEvalInputsToSystemMemory.cpp
         TTNNFusing.cpp
+        TTNNMaterializeD2M.cpp
         TTNNLayout.cpp
         TTNNRecoverStructure.cpp
         TTNNRecoverStructureUtils.cpp

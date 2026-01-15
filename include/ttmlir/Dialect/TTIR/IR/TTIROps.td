@@ -141,6 +141,26 @@ def TTIR_TTNNMetalLayoutCastOp : TTIR_Op<"ttnn_metal_layout_cast",
   let hasCanonicalizer = 1;
 }
 
+def TTIR_DispatchD2MOp : TTIR_Op<"dispatch_d2m"> {
+  let summary = "Dispatch subgraph to D2M backend.";
+  let description = [{
+    Dispatch a subgraph (referenced by a func symbol) to the D2M backend. The subgraph will
+    be lowered to one or more ttnn.generic ops. The D2M compiler must respect the input/output shapes/layouts,
+    but will have full control over intermediate tensors.
+  }];
+
+  let arguments = (ins FlatSymbolRefAttr:$func,
+                       Variadic<AnyRankedTensor>:$inputs);
+
+  let results = (outs AnyRankedTensor:$output);
+
+  let hasVerifier = 1;
+
+  let assemblyFormat = [{
+    `(` $func `,` `[` $inputs `]` `)` attr-dict `:` functional-type($inputs, $output)
+  }];
+}
+
 //===----------------------------------------------------------------------===//
 // TTIR top level ops
 //===----------------------------------------------------------------------===//
