@@ -49,7 +49,7 @@ PyLoc::PyLoc(Operation *op) {
   // Get location without "loc(" and ")" characters.
   std::string locStr = locationToStr(op->getLoc());
 
-  TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "Parsing loc: {}",
+  TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "\tParsing loc: {}",
                locStr);
 
   // Split locStr by "|" character.
@@ -117,7 +117,7 @@ void FuncGroup::generateFuncName() {
       TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "\t\t- {}",
                    module.moduleClass);
     }
-    TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "\n");
+    TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "");
   }
 
   if (opPyLocs.empty()) {
@@ -138,7 +138,7 @@ void FuncGroup::generateFuncName() {
 
   // Then go through the module class list from behind and find the first
   // one that all the ops share
-  for (size_t i = minLength - 1; i >= 0; i--) {
+  for (int i = minLength - 1; i >= 0; i--) {
     bool allMatch = true;
     std::string moduleClass = opPyLocs[0].pyLoc.modules[i].moduleClass;
     for (const OpPyLoc &opPyLoc : opPyLocs) {
