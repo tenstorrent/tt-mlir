@@ -474,4 +474,52 @@ def TTNNSetComputeKernelConfig: Pass<"ttnn-set-compute-kernel-config", "::mlir::
   ];
 }
 
+def TTNNL1LayoutPropagation : Pass<"ttnn-l1-layout-propagation", "::mlir::ModuleOp"> {
+  let summary = "Propagate tensor layouts to keep data in L1 when possible.";
+  let description = [{
+    This pass processes operations in schedule order, selecting output layouts by
+    examining ALL input edges. For each operation, it tries to find an L1 layout
+    that works with all operands, falling back to DRAM only when necessary.
+
+    Key improvement over chain-based approach: considers ALL operands when making
+    layout decisions, not just operand 0.
+
+    Algorithm:
+    1. Process ops in topological order
+    2. Extract input layouts from operands (already set by prior ops)
+    3. Try L1 sharded configs via validateOperation
+    4. If success and output is L1 sharded, update result type in-place
+    5. If no L1 config works, fall back to DRAM interleaved
+  }];
+
+  let options = [
+    Option<"tensorL1UsageCap", "tensor-l1-usage-cap", "float", /*default=*/"0.95",
+           "L1 memory usage cap (0.0-1.0)">
+  ];
+}
+
+def TTNNL1TensorManagement : Pass<"ttnn-l1-tensor-management", "::mlir::ModuleOp"> {
+  let summary = "Manage tensor lifetimes in L1 memory.";
+  let description = [{
+    This pass tracks live tensors in L1 and manages memory based on tensor
+    lifetime. When L1 budget is exceeded, it spills the tensor with the longest
+    remaining lifetime (furthest from its last use).
+
+    Handles fork patterns specially, keeping fork outputs in L1 when possible
+    to avoid unnecessary spills.
+
+    Algorithm:
+    1. Build MLIR Liveness analysis
+    2. Process ops in schedule order
+    3. Track live tensors and their sizes
+    4. When budget exceeded, spill tensor with longest remaining lifetime
+    5. Prefer spilling non-fork tensors first
+  }];
+
+  let options = [
+    Option<"tensorL1UsageCap", "tensor-l1-usage-cap", "float", /*default=*/"0.95",
+           "L1 memory usage cap (0.0-1.0)">
+  ];
+}
+
 #endif

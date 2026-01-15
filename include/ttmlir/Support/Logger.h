@@ -33,6 +33,7 @@ inline std::string opToString(mlir::Operation *op) {
 enum class LogComponent {
   Optimizer,
   DFShardingPolicy,
+  L1Optimizer,
   OpValidation,
   RMPropagation,
   Allocator,
@@ -54,6 +55,8 @@ inline constexpr const char *getLogComponentStr(LogComponent type) {
     return "optimizer";
   case LogComponent::DFShardingPolicy:
     return "df-sharding-policy";
+  case LogComponent::L1Optimizer:
+    return "l1-optimizer";
   case LogComponent::OpValidation:
     return "op-validation";
   case LogComponent::RMPropagation:

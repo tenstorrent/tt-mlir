@@ -88,7 +88,6 @@ void createTTNNPipelineAnalysisPasses(
   }
   if (options.optimizerPassEnabled) {
 #ifdef TTMLIR_ENABLE_OPMODEL
-    ttnn::TTNNOptimizerOptions optimizerOptions(options);
     // Wrap all Optimizer passes with device lifecycle management.
     DevicePassesWrapperOptions wrapperOptions;
     wrapperOptions.devicePtr = options.devicePtr;
@@ -98,21 +97,56 @@ void createTTNNPipelineAnalysisPasses(
     validationOptions.tensorL1UsageCap = options.tensorL1UsageCap;
     validationOptions.maxFallbackAttempts = options.maxFallbackAttempts;
 
-    pm.addPass(createDevicePassesWrapper(
-        [optimizerOptions, validationOptions](OpPassManager &innerPm) {
-          // All Optimizer passes will be run inside the wrapper.
-          innerPm.addPass(
-              mlir::tt::ttnn::createTTNNRowMajorLayoutPropagation());
-          innerPm.addPass(
-              mlir::tt::ttnn::createTTNNOptimizer(optimizerOptions));
-          innerPm.addPass(mlir::createCanonicalizerPass());
-          innerPm.addPass(
-              mlir::tt::ttnn::createTTNNOperationValidationAndFallback(
-                  validationOptions));
-          innerPm.addPass(
-              mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());
-        },
-        wrapperOptions));
+    if (options.useL1Optimizer) {
+      // New L1-focused optimizer passes.
+      float tensorL1Cap = options.tensorL1UsageCap;
+
+      pm.addPass(createDevicePassesWrapper(
+          [validationOptions, tensorL1Cap](OpPassManager &innerPm) {
+            // Row major layout propagation (same as existing optimizer).
+            innerPm.addPass(
+                mlir::tt::ttnn::createTTNNRowMajorLayoutPropagation());
+
+            // Pass 1: L1 Layout Propagation - tries to get L1 sharded outputs.
+            TTNNL1LayoutPropagationOptions layoutOptions;
+            layoutOptions.tensorL1UsageCap = tensorL1Cap;
+            innerPm.addPass(
+                mlir::tt::ttnn::createTTNNL1LayoutPropagation(layoutOptions));
+
+            // Pass 2: L1 Tensor Management - manages L1 budget via spilling.
+            TTNNL1TensorManagementOptions mgmtOptions;
+            mgmtOptions.tensorL1UsageCap = tensorL1Cap;
+            innerPm.addPass(
+                mlir::tt::ttnn::createTTNNL1TensorManagement(mgmtOptions));
+
+            innerPm.addPass(mlir::createCanonicalizerPass());
+            innerPm.addPass(
+                mlir::tt::ttnn::createTTNNOperationValidationAndFallback(
+                    validationOptions));
+            innerPm.addPass(
+                mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());
+          },
+          wrapperOptions));
+    } else {
+      // Existing chain-based optimizer.
+      ttnn::TTNNOptimizerOptions optimizerOptions(options);
+
+      pm.addPass(createDevicePassesWrapper(
+          [optimizerOptions, validationOptions](OpPassManager &innerPm) {
+            // All Optimizer passes will be run inside the wrapper.
+            innerPm.addPass(
+                mlir::tt::ttnn::createTTNNRowMajorLayoutPropagation());
+            innerPm.addPass(
+                mlir::tt::ttnn::createTTNNOptimizer(optimizerOptions));
+            innerPm.addPass(mlir::createCanonicalizerPass());
+            innerPm.addPass(
+                mlir::tt::ttnn::createTTNNOperationValidationAndFallback(
+                    validationOptions));
+            innerPm.addPass(
+                mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());
+          },
+          wrapperOptions));
+    }
 #else
     llvm::llvm_unreachable_internal(
         "TTNNOptimizer passes require OpModel support to be enabled.");

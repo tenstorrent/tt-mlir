@@ -58,7 +58,9 @@ validateWithMultipleAttributes(Operation *op,
                                llvm::ArrayRef<OpConfig> referenceConfigs) {
 
   std::vector<ValidationResult> results;
-  for (const auto &testConfig : opConfigs) {
+  for (size_t configIdx = 0; configIdx < opConfigs.size(); ++configIdx) {
+    const auto &testConfig = opConfigs[configIdx];
+
     // 1. Call core constraint checking.
     ValidationResult constraintResult = validateConstraints(
         op, inputLayouts, testConfig, /*additionalL1Usage=*/0);
@@ -89,8 +91,9 @@ validateWithMultipleAttributes(Operation *op,
             "No matching reference config found"));
       }
     } else {
-      // No reference configs to search - consider validation success as match.
-      results.push_back(ValidationResult::success(0, actualOutput));
+      // No reference configs to search - use the actual config index from
+      // opConfigs so the caller can retrieve the correct config.
+      results.push_back(ValidationResult::success(configIdx, actualOutput));
     }
   }
 

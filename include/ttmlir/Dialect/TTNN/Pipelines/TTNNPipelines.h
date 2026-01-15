@@ -175,6 +175,15 @@ struct TTIRToTTNNDevicePipelineOptions
           llvm::cl::desc("Specify policy for memory layout analysis."),
           llvm::cl::init(MemoryLayoutAnalysisPolicyType::DFSharding)};
 
+  // Use new L1-focused optimizer passes instead of chain-based optimizer.
+  // When enabled, uses TTNNL1LayoutPropagation and TTNNL1TensorManagement
+  // passes instead of the existing TTNNOptimizer pass.
+  //
+  Option<bool> useL1Optimizer{
+      *this, "use-l1-optimizer",
+      llvm::cl::desc("Use new L1-focused optimizer passes."),
+      llvm::cl::init(false)};
+
   // Option to provide a system descriptor flatbuffer file to compile
   // against.
   //
