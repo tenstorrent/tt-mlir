@@ -41,8 +41,7 @@ std::string getPipelineName(mlir::ModuleOp module,
     return ttnnInput ? "ttnn-to-emitc-device-pipeline"
                      : "ttir-to-emitc-pipeline";
   case CodeGenerationTarget::Python:
-    return ttnnInput ? "mixed-ttnn-ttir-to-emitpy-pipeline"
-                     : "ttir-to-emitpy-pipeline";
+    return ttnnInput ? "ttnn-to-emitpy-pipeline" : "ttir-to-emitpy-pipeline";
   }
 }
 

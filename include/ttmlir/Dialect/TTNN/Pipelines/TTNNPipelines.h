@@ -548,7 +548,7 @@ void createTTIRToEmitPyPipeline(OpPassManager &pm,
 void createRecoverStructureXLATorchPipeline(
     OpPassManager &pm, const RecoverStructureXLATorchPipelineOptions &options);
 
-void createWorkaroundMixedTTIRTTNNToEmitPyPipeline(
+void createTTNNToEmitPyPipeline(
     OpPassManager &pm, const TTNNToEmitPyDevicePipelineOptions &options);
 
 void registerTTNNPipelines();
