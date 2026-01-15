@@ -859,6 +859,46 @@ public:
     return success();
   }
 };
+
+// Arith MaxUIOp doesn't have an emitc lowering. We can lower it to a call to
+// std::max from <algorithm>.
+class ArithMaxUIRewriter : public OpConversionPattern<arith::MaxUIOp> {
+public:
+  using OpConversionPattern<arith::MaxUIOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(arith::MaxUIOp op, arith::MaxUIOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Type resultType = getTypeConverter()->convertType(op.getResult().getType());
+    if (!resultType) {
+      return failure();
+    }
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(op, resultType, "std::max",
+                                                     adaptor.getOperands());
+
+    return success();
+  }
+};
+
+class ArithMinUIRewriter : public OpConversionPattern<arith::MinUIOp> {
+public:
+  using OpConversionPattern<arith::MinUIOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(arith::MinUIOp op, arith::MinUIOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Type resultType = getTypeConverter()->convertType(op.getResult().getType());
+    if (!resultType) {
+      return failure();
+    }
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(op, resultType, "std::min",
+                                                     adaptor.getOperands());
+
+    return success();
+  }
+};
 } // namespace
 
 namespace {
@@ -1177,8 +1217,9 @@ public:
             ttkernel::InterleavedAddrGenFastGetNocAddrOp>>(typeConverter,
                                                            funcOp.getContext());
 
-    patterns.add<ArithFloorDivRewriter, ArithBitcastRewriter>(
-        typeConverter, funcOp.getContext());
+    patterns.add<ArithFloorDivRewriter, ArithBitcastRewriter,
+                 ArithMaxUIRewriter, ArithMinUIRewriter>(typeConverter,
+                                                         funcOp.getContext());
 
     return applyFullConversion(funcOp, target, std::move(patterns));
   }
