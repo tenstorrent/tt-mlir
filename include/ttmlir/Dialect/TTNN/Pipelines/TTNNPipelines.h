@@ -492,6 +492,12 @@ struct TTNNToEmitPyDevicePipelineOptions
   Option<std::string> tensorLoadFilePrefix{
       *this, "tensor-load-file-prefix",
       llvm::cl::desc("Prefix for input tensor files"), llvm::cl::init("arg")};
+
+  Option<bool> tryRecoverStructure{
+      *this, "try-recover-structure",
+      llvm::cl::desc("Enable pipelines and passes that try to recover "
+                     "structure of the original IR/code."),
+      llvm::cl::init(false)};
 };
 
 // TTIR to TTNN backend pipeline options.
@@ -520,6 +526,12 @@ struct TTIRToEmitPyPipelineOptions : public TTIRToTTNNDevicePipelineOptions,
                                      public TTNNToEmitPyDevicePipelineOptions {
 };
 
+// Recover Structure XLA/Torch pipeline options.
+struct RecoverStructureXLATorchPipelineOptions
+    : public PassPipelineOptions<RecoverStructureXLATorchPipelineOptions> {
+  // Add any future options here if needed
+};
+
 //===----------------------------------------------------------------------===//
 // End-to-end pipelines, which lower TTIR to various TTNN targets.
 //===----------------------------------------------------------------------===//
@@ -535,6 +547,9 @@ void createTTIRToEmitPyPipeline(OpPassManager &pm,
 
 void createTTNNToEmitPyPipeline(
     OpPassManager &pm, const TTNNToEmitPyDevicePipelineOptions &options);
+
+void createRecoverStructureXLATorchPipeline(
+    OpPassManager &pm, const RecoverStructureXLATorchPipelineOptions &options);
 
 void registerTTNNPipelines();
 } // namespace mlir::tt::ttnn

@@ -332,6 +332,30 @@ void createTTIRToTTNNDevicePipeline(
   }
 }
 
+void createRecoverStructureXLATorchPipeline(
+    OpPassManager &pm, const RecoverStructureXLATorchPipelineOptions &options) {
+  // Simplify locations to remove nested location information
+  //
+  // The nested locations appear for parameters, and describe original parameter
+  // names, among other info, and will be useful for naming variables in the
+  // generated code.
+  //
+  pm.addPass(createTTNNSimplifyLocsForCodegen());
+
+  // Recover program structure by splitting IR into functions based on source
+  // locations
+  //
+  pm.addPass(createTTNNRecoverStructure());
+
+  // TODO (#6297): This is a temporary workaround - deallocs aren't properly
+  // placed in structure recovery pass yet. They are often called before a
+  // tensor is last used. A good approach today is to leave deallocs in the IR
+  // and (re)move them with an LLM later, by asking it to move deallocs to after
+  // last use.
+  //
+  pm.addPass(createTTNNRemoveDeallocs());
+}
+
 // Pipeline which lowers the Device module from TTNN to EmitC dialect.
 //
 void createTTNNToEmitCDevicePipeline(
@@ -381,6 +405,10 @@ void createTTNNToEmitPyDevicePipeline(
   auto &devicePm = pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
 
   devicePm.addPass(createTTNNAdjustDeallocs());
+  if (options.tryRecoverStructure) {
+    createRecoverStructureXLATorchPipeline(
+        devicePm, RecoverStructureXLATorchPipelineOptions());
+  }
 
   // Apply EmitPy-specific workarounds before conversion
   devicePm.addPass(createTTNNEmitPyWorkarounds());
@@ -562,5 +590,14 @@ void registerTTNNPipelines() {
       mlir::tt::ttnn::TTNNToEmitPyDevicePipelineOptions>(
       "ttnn-to-emitpy-pipeline", "Pipeline lowering TTNN to EmitPy.",
       mlir::tt::ttnn::createTTNNToEmitPyPipeline);
+
+  // Recover Structure XLA/Torch pipeline.
+  //
+  mlir::PassPipelineRegistration<
+      mlir::tt::ttnn::RecoverStructureXLATorchPipelineOptions>(
+      "recover-structure-xla-torch-pipeline",
+      "Pipeline to recover structure from TTNN IR for code generation from "
+      "XLA/Torch. ",
+      mlir::tt::ttnn::createRecoverStructureXLATorchPipeline);
 }
 } // namespace mlir::tt::ttnn
