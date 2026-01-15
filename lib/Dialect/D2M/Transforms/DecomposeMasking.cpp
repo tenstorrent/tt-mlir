@@ -26,6 +26,89 @@ namespace {
 constexpr int64_t kTileHeight = 32;
 constexpr int64_t kTileWidth = 32;
 
+struct BoundsInterval {
+  Value start;
+  Value end;
+};
+
+// Compute local loop bounds for a core given a global region on one dimension
+// [globalRegionStart, globalRegionEnd).
+// Returns (localStart, localEnd) such that iterating [localStart, localEnd) in
+// local coordinates covers exactly the tiles that fall within both the global
+// region and this core's shard.
+//
+// Parameters:
+//   globalRegionStart, globalRegionEnd: compile-time constants defining the
+//   global region coreIdx: runtime value for the core's index in this dimension
+//   shardSize: compile-time constant for tiles per core in this dimension
+// static BoundsInterval
+// computeLocalBounds(PatternRewriter &rewriter, Location loc,
+//                    int64_t globalRegionStart, int64_t globalRegionEnd,
+//                    Value coreIdx, int64_t shardSize) {
+
+//   // globalCoreStart = coreIdx * shardSize
+//   // globalCoreEnd = (coreIdx + 1) * shardSize
+//   //
+//   // The intersection of [globalRegionStart, globalRegionEnd) and
+//   // [globalCoreStart, globalCoreEnd) is:
+//   //   [max(globalRegionStart, globalCoreStart), min(globalRegionEnd,
+//   //   globalCoreEnd))
+//   //
+//   // In local coordinates (subtract globalCoreStart):
+//   //   localStart = max(globalRegionStart, globalCoreStart) - globalCoreStart
+//   //              = max(globalRegionStart - globalCoreStart, 0)
+//   //   localEnd   = min(globalRegionEnd, globalCoreEnd) - globalCoreStart
+//   //              = min(globalRegionEnd - globalCoreStart, shardSize)
+//   //
+//   // To avoid underflow in unsigned math:
+//   //   max(a - b, 0) = a - min(a, b)
+//   //   min(a - b, c) = min(a, b + c) - b   [when a >= b, otherwise need care]
+//   //
+//   // Let's compute globalCoreStart first, then derive everything from that.
+
+//   Value shardSizeVal = rewriter.create<arith::ConstantIndexOp>(loc,
+//   shardSize); Value globalCoreStart =
+//       rewriter.create<arith::MulIOp>(loc, coreIdx, shardSizeVal);
+
+//   Value globalRegionStartVal =
+//       rewriter.create<arith::ConstantIndexOp>(loc, globalRegionStart);
+//   Value globalRegionEndVal =
+//       rewriter.create<arith::ConstantIndexOp>(loc, globalRegionEnd);
+
+//   // localStart = max(globalRegionStart - globalCoreStart, 0)
+//   //            = globalRegionStart - min(globalRegionStart, globalCoreStart)
+//   Value clampedStart = rewriter.create<arith::MinUIOp>(
+//       loc, globalRegionStartVal, globalCoreStart);
+//   Value localStart =
+//       rewriter.create<arith::SubIOp>(loc, globalRegionStartVal,
+//       clampedStart);
+
+//   // localEnd = min(globalRegionEnd - globalCoreStart, shardSize)
+//   // To avoid underflow:
+//   //   globalRegionEnd - globalCoreStart could underflow if globalCoreStart >
+//   //   globalRegionEnd so: localEnd = min(globalRegionEnd, globalCoreStart +
+//   //   shardSize) - globalCoreStart
+//   //                = min(globalRegionEnd, globalCoreEnd) - globalCoreStart
+//   // But we also need globalCoreStart <= min(...) to avoid underflow.
+//   //
+//   // Safe version:
+//   //   clampedEnd = min(globalRegionEnd, globalCoreEnd)
+//   //   clampedEnd = max(clampedEnd, globalCoreStart)  -- ensure no underflow
+//   //   localEnd = clampedEnd - globalCoreStart
+
+//   Value globalCoreEnd =
+//       rewriter.create<arith::AddIOp>(loc, globalCoreStart, shardSizeVal);
+//   Value clampedEnd =
+//       rewriter.create<arith::MinUIOp>(loc, globalRegionEndVal,
+//       globalCoreEnd);
+//   clampedEnd =
+//       rewriter.create<arith::MaxUIOp>(loc, clampedEnd, globalCoreStart);
+//   Value localEnd =
+//       rewriter.create<arith::SubIOp>(loc, clampedEnd, globalCoreStart);
+
+//   return BoundsInterval{localStart, localEnd};
+// }
+
 static double getFillValueAsDouble(ttcore::OOBVal oobVal) {
   switch (oobVal) {
   case ttcore::OOBVal::Undef:
@@ -87,13 +170,56 @@ struct DecomposeBlockMaskWritePattern : OpRewritePattern<BlockMaskWriteOp> {
 /// which portion of the global tile space this core is responsible for.
 ///
 /// For each loop:
-///   start = max(regionStart, stride * coreIndex)
+///   start = stride * coreIndex
 ///   end = min(regionEnd, stride * (coreIndex + 1))
 ///   localIdx = globalIdx - (stride * coreIndex)  // for memref access
 ///
-/// If start >= end, the loop doesn't run (scf.for semantics).
+/// If start >= end, the loop doesn't run--we only pad rightmost + downmost
+/// regions, so this should be correct w/o modifying start with max().
 struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
   using OpRewritePattern<BlockMaskOp>::OpRewritePattern;
+
+  // Compute local loop bounds for a core given a global region
+  // [globalRegionStart, globalRegionEnd). Returns (localStart, localEnd) such
+  // that iterating [localStart, localEnd) in local coordinates covers exactly
+  // the tiles that fall within both the global region and this core's shard.
+  static std::pair<Value, Value>
+  computeLocalBounds(PatternRewriter &rewriter, Location loc,
+                     int64_t globalRegionStart, int64_t globalRegionEnd,
+                     Value coreIdx, int64_t shardSize) {
+
+    Value shardSizeVal =
+        rewriter.create<arith::ConstantIndexOp>(loc, shardSize);
+    Value globalCoreStart =
+        rewriter.create<arith::MulIOp>(loc, coreIdx, shardSizeVal);
+
+    Value globalRegionStartVal =
+        rewriter.create<arith::ConstantIndexOp>(loc, globalRegionStart);
+    Value globalRegionEndVal =
+        rewriter.create<arith::ConstantIndexOp>(loc, globalRegionEnd);
+
+    // localStart = max(globalRegionStart - globalCoreStart, 0)
+    //            = globalRegionStart - min(globalRegionStart, globalCoreStart)
+    Value clampedStart = rewriter.create<arith::MinUIOp>(
+        loc, globalRegionStartVal, globalCoreStart);
+    Value localStart =
+        rewriter.create<arith::SubIOp>(loc, globalRegionStartVal, clampedStart);
+
+    // localEnd = min(globalRegionEnd - globalCoreStart, shardSize)
+    // Safe version to avoid underflow:
+    //   clampedEnd = max(min(globalRegionEnd, globalCoreEnd), globalCoreStart)
+    //   localEnd = clampedEnd - globalCoreStart
+    Value globalCoreEnd =
+        rewriter.create<arith::AddIOp>(loc, globalCoreStart, shardSizeVal);
+    Value clampedEnd =
+        rewriter.create<arith::MinUIOp>(loc, globalRegionEndVal, globalCoreEnd);
+    clampedEnd =
+        rewriter.create<arith::MaxUIOp>(loc, clampedEnd, globalCoreStart);
+    Value localEnd =
+        rewriter.create<arith::SubIOp>(loc, clampedEnd, globalCoreStart);
+
+    return {localStart, localEnd};
+  }
 
   LogicalResult matchAndRewrite(BlockMaskOp op,
                                 PatternRewriter &rewriter) const override {
@@ -116,7 +242,6 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
       return rewriter.notifyMatchFailure(op, "input must have at least 2 dims");
     }
 
-    // Get the enclosing GenericOp for grid info
     auto genericOp = op->getParentOfType<GenericOp>();
     if (!genericOp) {
       return rewriter.notifyMatchFailure(
@@ -130,32 +255,11 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
           op, "grid must have at least 2 dimensions");
     }
 
-    int64_t gridRowsStatic = gridShape[gridShape.size() - 2];
-    int64_t gridColsStatic = gridShape[gridShape.size() - 1];
-
     auto tileType = cast<ttcore::TileType>(inputType.getElementType());
     Type elemType = tileType.getElementType();
 
     int64_t shardTileRows = inputShape[inputShape.size() - 2];
     int64_t shardTileCols = inputShape[inputShape.size() - 1];
-
-    double fillValueDouble = getFillValueAsDouble(fillOOBVal);
-    Value fillScalar = rewriter.create<arith::ConstantOp>(
-        loc, elemType, rewriter.getFloatAttr(elemType, fillValueDouble));
-
-    // Constants
-    Value zeroIdx = rewriter.create<arith::ConstantIndexOp>(loc, 0);
-    Value oneIdx = rewriter.create<arith::ConstantIndexOp>(loc, 1);
-    Value shardTileRowsVal =
-        rewriter.create<arith::ConstantIndexOp>(loc, shardTileRows);
-    Value shardTileColsVal =
-        rewriter.create<arith::ConstantIndexOp>(loc, shardTileCols);
-
-    // Get core coordinates
-    Value coreY = rewriter.create<CoreIndexOp>(loc, rewriter.getIndexType(),
-                                               rewriter.getI64IntegerAttr(0));
-    Value coreX = rewriter.create<CoreIndexOp>(loc, rewriter.getIndexType(),
-                                               rewriter.getI64IntegerAttr(1));
 
     // Extract logical shape constants
     auto getConstantIndex = [](Value v) -> std::optional<int64_t> {
@@ -175,87 +279,55 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
     int64_t logicalRows = *logicalRowsOpt;
     int64_t logicalCols = *logicalColsOpt;
 
-    // Compute mask values at C++ compile time - these are global properties
-    int64_t validRowsStatic = logicalRows % kTileHeight;
-    if (validRowsStatic == 0) {
-      validRowsStatic = kTileHeight;
+    // Compute tile-level boundaries (compile-time constants)
+    // lastValidRow: the last tile row that contains any valid data (may be
+    // partial) lastValidCol: the last tile col that contains any valid data
+    // (may be partial)
+    int64_t lastValidRow = (logicalRows - 1) / kTileHeight;
+    int64_t lastValidCol = (logicalCols - 1) / kTileWidth;
+
+    // For masking, how many elements are valid in the last partial tile
+    int64_t validRowsInLastTile = logicalRows % kTileHeight;
+    if (validRowsInLastTile == 0) {
+      validRowsInLastTile = kTileHeight;
     }
-    int64_t validColsStatic = logicalCols % kTileWidth;
-    if (validColsStatic == 0) {
-      validColsStatic = kTileWidth;
+    int64_t validColsInLastTile = logicalCols % kTileWidth;
+    if (validColsInLastTile == 0) {
+      validColsInLastTile = kTileWidth;
     }
 
-    Value validRows =
-        rewriter.create<arith::ConstantIndexOp>(loc, validRowsStatic);
-    Value validCols =
-        rewriter.create<arith::ConstantIndexOp>(loc, validColsStatic);
+    // Total tiles in the padded shape
+    int64_t totalTileRows = shardTileRows * gridShape[gridShape.size() - 2];
+    int64_t totalTileCols = shardTileCols * gridShape[gridShape.size() - 1];
 
-    // Compute region boundaries at C++ compile time
-    int64_t logicalTileRows = (logicalRows + kTileHeight - 1) / kTileHeight;
-    int64_t logicalTileCols = (logicalCols + kTileWidth - 1) / kTileWidth;
-    int64_t lastValidRowStatic = (logicalRows - 1) / kTileHeight;
-    int64_t lastValidColStatic = (logicalCols - 1) / kTileWidth;
+    // Constants
+    Value zeroIdx = rewriter.create<arith::ConstantIndexOp>(loc, 0);
+    Value oneIdx = rewriter.create<arith::ConstantIndexOp>(loc, 1);
 
-    // Value logicalTileRowsVal = rewriter.create<arith::ConstantIndexOp>(loc,
-    // logicalTileRows); Value logicalTileColsVal =
-    // rewriter.create<arith::ConstantIndexOp>(loc, logicalTileCols);
-    Value lastValidRow =
-        rewriter.create<arith::ConstantIndexOp>(loc, lastValidRowStatic);
-    Value lastValidCol =
-        rewriter.create<arith::ConstantIndexOp>(loc, lastValidColStatic);
-    Value lastValidRowPlusOne =
-        rewriter.create<arith::ConstantIndexOp>(loc, lastValidRowStatic + 1);
-    Value lastValidColPlusOne =
-        rewriter.create<arith::ConstantIndexOp>(loc, lastValidColStatic + 1);
+    double fillValueDouble = getFillValueAsDouble(fillOOBVal);
+    Value fillScalar = rewriter.create<arith::ConstantOp>(
+        loc, elemType, rewriter.getFloatAttr(elemType, fillValueDouble));
 
-    // Write mask tiles once - all cores write the same mask values,
-    // but only the core owning the boundary tile will actually use them
+    // Get core coordinates
+    Value coreY = rewriter.create<CoreIndexOp>(loc, rewriter.getIndexType(),
+                                               rewriter.getI64IntegerAttr(0));
+    Value coreX = rewriter.create<CoreIndexOp>(loc, rewriter.getIndexType(),
+                                               rewriter.getI64IntegerAttr(1));
+
+    // Write mask tiles
+    Value validRowsVal =
+        rewriter.create<arith::ConstantIndexOp>(loc, validRowsInLastTile);
+    Value validColsVal =
+        rewriter.create<arith::ConstantIndexOp>(loc, validColsInLastTile);
+
     if (rowMaskCB) {
-      rewriter.create<ExperimentalWriteRowMaskTileOp>(loc, validRows,
+      rewriter.create<ExperimentalWriteRowMaskTileOp>(loc, validRowsVal,
                                                       rowMaskCB);
     }
     if (colMaskCB) {
-      rewriter.create<ExperimentalWriteColMaskTileOp>(loc, validCols,
+      rewriter.create<ExperimentalWriteColMaskTileOp>(loc, validColsVal,
                                                       colMaskCB);
     }
-
-    // Compute stride per core (can be done at C++ compile time too)
-    int64_t strideRowsStatic =
-        (logicalTileRows + gridRowsStatic - 1) / gridRowsStatic;
-    int64_t strideColsStatic =
-        (logicalTileCols + gridColsStatic - 1) / gridColsStatic;
-    Value strideRows =
-        rewriter.create<arith::ConstantIndexOp>(loc, strideRowsStatic);
-    Value strideCols =
-        rewriter.create<arith::ConstantIndexOp>(loc, strideColsStatic);
-
-    // Compute this core's global start offset (dynamic, depends on core index)
-    Value globalRowStart =
-        rewriter.create<arith::MulIOp>(loc, coreY, strideRows);
-    Value globalColStart =
-        rewriter.create<arith::MulIOp>(loc, coreX, strideCols);
-
-    // Compute this core's global end (used for clamping region ends)
-    Value coreYPlusOne = rewriter.create<arith::AddIOp>(loc, coreY, oneIdx);
-    Value coreXPlusOne = rewriter.create<arith::AddIOp>(loc, coreX, oneIdx);
-    Value globalRowEndRaw =
-        rewriter.create<arith::MulIOp>(loc, coreYPlusOne, strideRows);
-    Value globalColEndRaw =
-        rewriter.create<arith::MulIOp>(loc, coreXPlusOne, strideCols);
-
-    // === Helper to compute core-local loop bounds ===
-    // Given global region [regionStart, regionEnd), compute:
-    //   start = max(regionStart, globalCoreStart)
-    //   end = min(regionEnd, globalCoreEnd)
-    // Returns (start, end) in global coordinates - caller subtracts
-    // globalCoreStart for local access
-    auto clampToCore = [&](Value regionStart, Value regionEnd, Value coreStart,
-                           Value coreEndRaw) -> std::pair<Value, Value> {
-      Value start =
-          rewriter.create<arith::MaxUIOp>(loc, regionStart, coreStart);
-      Value end = rewriter.create<arith::MinUIOp>(loc, regionEnd, coreEndRaw);
-      return {start, end};
-    };
 
     // === Tile operation helpers ===
     auto createFillTile = [&]() {
@@ -284,7 +356,7 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
                                          ValueRange{localRowIdx, localColIdx});
       } else {
         auto mask = rewriter.create<ExperimentalTileRowMaskOp>(loc, tileType,
-                                                               validRows);
+                                                               validRowsVal);
         auto result = rewriter.create<TileWhereOp>(
             loc, tileType, mask.getResult(), inputTile.getResult(), fillTile);
         rewriter.create<memref::StoreOp>(loc, result.getResult(), output,
@@ -306,7 +378,7 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
                                          ValueRange{localRowIdx, localColIdx});
       } else {
         auto mask = rewriter.create<ExperimentalTileColMaskOp>(loc, tileType,
-                                                               validCols);
+                                                               validColsVal);
         auto result = rewriter.create<TileWhereOp>(
             loc, tileType, mask.getResult(), inputTile.getResult(), fillTile);
         rewriter.create<memref::StoreOp>(loc, result.getResult(), output,
@@ -339,28 +411,21 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
                                        ValueRange{localRowIdx, localColIdx});
     };
 
-    // Helper to create nested loop with global bounds, local memref access
-    auto createNestedLoop = [&](Value rowStart, Value rowEnd, Value colStart,
-                                Value colEnd, Value rowOffset, Value colOffset,
-                                std::function<void(Value, Value)> emitBody) {
+    // Helper to create a nested loop over local coordinates
+    auto createLocalLoop = [&](Value rowStart, Value rowEnd, Value colStart,
+                               Value colEnd,
+                               std::function<void(Value, Value)> emitBody) {
       auto outerLoop =
           rewriter.create<scf::ForOp>(loc, rowStart, rowEnd, oneIdx);
       outerLoop->setAttr("d2m.linalg_root", rewriter.getUnitAttr());
       outerLoop->setAttr("d2m.scheduled", rewriter.getUnitAttr());
-
       rewriter.setInsertionPointToStart(outerLoop.getBody());
-      Value globalRowIdx = outerLoop.getInductionVar();
-      Value localRowIdx =
-          rewriter.create<arith::SubIOp>(loc, globalRowIdx, rowOffset);
 
       auto innerLoop =
           rewriter.create<scf::ForOp>(loc, colStart, colEnd, oneIdx);
       rewriter.setInsertionPointToStart(innerLoop.getBody());
-      Value globalColIdx = innerLoop.getInductionVar();
-      Value localColIdx =
-          rewriter.create<arith::SubIOp>(loc, globalColIdx, colOffset);
 
-      emitBody(localRowIdx, localColIdx);
+      emitBody(outerLoop.getInductionVar(), innerLoop.getInductionVar());
 
       return outerLoop;
     };
@@ -369,133 +434,92 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
     Operation *insertionPoint = op;
 
     // =========================================================================
-    // LOOP 1: Interior tiles [0, lastValidRow) x [0, lastValidCol)
+    // LOOP 0: Interior tiles - fully valid
+    // Global region: [0, lastValidRow) x [0, lastValidCol)
     // =========================================================================
     {
       rewriter.setInsertionPointAfter(insertionPoint);
-      auto [rowStart, rowEnd] =
-          clampToCore(zeroIdx, lastValidRow, globalRowStart, globalRowEndRaw);
-      auto [colStart, colEnd] =
-          clampToCore(zeroIdx, lastValidCol, globalColStart, globalColEndRaw);
+      auto [rowStart, rowEnd] = computeLocalBounds(
+          rewriter, loc, 0, lastValidRow, coreY, shardTileRows);
+      auto [colStart, colEnd] = computeLocalBounds(
+          rewriter, loc, 0, lastValidCol, coreX, shardTileCols);
       auto loop =
-          createNestedLoop(rowStart, rowEnd, colStart, colEnd, globalRowStart,
-                           globalColStart, emitPassthrough);
+          createLocalLoop(rowStart, rowEnd, colStart, colEnd, emitPassthrough);
       insertionPoint = loop;
     }
 
     // =========================================================================
-    // LOOP 2: Last row [lastValidRow, lastValidRow+1) x [0, lastValidCol)
+    // LOOP 1: Last valid row - needs row masking
+    // Global region: [lastValidRow, lastValidRow+1) x [0, lastValidCol)
     // =========================================================================
     {
       rewriter.setInsertionPointAfter(insertionPoint);
-      auto [rowStart, rowEnd] = clampToCore(lastValidRow, lastValidRowPlusOne,
-                                            globalRowStart, globalRowEndRaw);
-      auto [colStart, colEnd] =
-          clampToCore(zeroIdx, lastValidCol, globalColStart, globalColEndRaw);
+      auto [rowStart, rowEnd] = computeLocalBounds(
+          rewriter, loc, lastValidRow, lastValidRow + 1, coreY, shardTileRows);
+      auto [colStart, colEnd] = computeLocalBounds(
+          rewriter, loc, 0, lastValidCol, coreX, shardTileCols);
       auto loop =
-          createNestedLoop(rowStart, rowEnd, colStart, colEnd, globalRowStart,
-                           globalColStart, emitRowMasked);
+          createLocalLoop(rowStart, rowEnd, colStart, colEnd, emitRowMasked);
       insertionPoint = loop;
     }
 
     // =========================================================================
-    // LOOP 3: Last col [0, lastValidRow) x [lastValidCol, lastValidCol+1)
+    // LOOP 2: Last valid col - needs col masking
+    // Global region: [0, lastValidRow) x [lastValidCol, lastValidCol+1)
     // =========================================================================
     {
       rewriter.setInsertionPointAfter(insertionPoint);
-      auto [rowStart, rowEnd] =
-          clampToCore(zeroIdx, lastValidRow, globalRowStart, globalRowEndRaw);
-      auto [colStart, colEnd] = clampToCore(lastValidCol, lastValidColPlusOne,
-                                            globalColStart, globalColEndRaw);
+      auto [rowStart, rowEnd] = computeLocalBounds(
+          rewriter, loc, 0, lastValidRow, coreY, shardTileRows);
+      auto [colStart, colEnd] = computeLocalBounds(
+          rewriter, loc, lastValidCol, lastValidCol + 1, coreX, shardTileCols);
       auto loop =
-          createNestedLoop(rowStart, rowEnd, colStart, colEnd, globalRowStart,
-                           globalColStart, emitColMasked);
+          createLocalLoop(rowStart, rowEnd, colStart, colEnd, emitColMasked);
       insertionPoint = loop;
     }
 
     // =========================================================================
-    // LOOP 4: Corner [lastValidRow, lastValidRow+1) x [lastValidCol,
+    // LOOP 3: Corner tile - needs both row and col masking
+    // Global region: [lastValidRow, lastValidRow+1) x [lastValidCol,
     // lastValidCol+1)
     // =========================================================================
     if (rowMaskCB && colMaskCB) {
       rewriter.setInsertionPointAfter(insertionPoint);
-      auto [rowStart, rowEnd] = clampToCore(lastValidRow, lastValidRowPlusOne,
-                                            globalRowStart, globalRowEndRaw);
-      auto [colStart, colEnd] = clampToCore(lastValidCol, lastValidColPlusOne,
-                                            globalColStart, globalColEndRaw);
+      auto [rowStart, rowEnd] = computeLocalBounds(
+          rewriter, loc, lastValidRow, lastValidRow + 1, coreY, shardTileRows);
+      auto [colStart, colEnd] = computeLocalBounds(
+          rewriter, loc, lastValidCol, lastValidCol + 1, coreX, shardTileCols);
       auto loop =
-          createNestedLoop(rowStart, rowEnd, colStart, colEnd, globalRowStart,
-                           globalColStart, emitCornerMasked);
+          createLocalLoop(rowStart, rowEnd, colStart, colEnd, emitCornerMasked);
       insertionPoint = loop;
     }
 
     // =========================================================================
-    // LOOP 5: OOB rows [lastValidRow+1, shardTileRows) x [0, shardTileCols)
-    // These are in local coordinates already (shard-relative)
+    // LOOP 4: OOB rows - fill entire rows beyond valid region
+    // Global region: [lastValidRow+1, totalTileRows) x [0, totalTileCols)
     // =========================================================================
     {
       rewriter.setInsertionPointAfter(insertionPoint);
-      // OOB rows start after the last valid row in this core's local space
-      // lastValidRow is global; convert to local: lastValidRow - globalRowStart
-      // But we need to handle the case where lastValidRow < globalRowStart
-      Value localLastValidRowPlusOne = rewriter.create<arith::SubIOp>(
-          loc, lastValidRowPlusOne, globalRowStart);
-      // Clamp to [0, shardTileRows]
-      localLastValidRowPlusOne = rewriter.create<arith::MaxUIOp>(
-          loc, localLastValidRowPlusOne, zeroIdx);
-      localLastValidRowPlusOne = rewriter.create<arith::MinUIOp>(
-          loc, localLastValidRowPlusOne, shardTileRowsVal);
-
-      Value localLastValidColPlusOne = rewriter.create<arith::SubIOp>(
-          loc, lastValidColPlusOne, globalColStart);
-      localLastValidColPlusOne = rewriter.create<arith::MaxUIOp>(
-          loc, localLastValidColPlusOne, zeroIdx);
-      localLastValidColPlusOne = rewriter.create<arith::MinUIOp>(
-          loc, localLastValidColPlusOne, shardTileColsVal);
-
-      auto outerLoop = rewriter.create<scf::ForOp>(
-          loc, localLastValidRowPlusOne, shardTileRowsVal, oneIdx);
-      outerLoop->setAttr("d2m.linalg_root", rewriter.getUnitAttr());
-      outerLoop->setAttr("d2m.scheduled", rewriter.getUnitAttr());
-      rewriter.setInsertionPointToStart(outerLoop.getBody());
-
-      auto innerLoop =
-          rewriter.create<scf::ForOp>(loc, zeroIdx, shardTileColsVal, oneIdx);
-      rewriter.setInsertionPointToStart(innerLoop.getBody());
-      emitFill(outerLoop.getInductionVar(), innerLoop.getInductionVar());
-
-      insertionPoint = outerLoop;
+      auto [rowStart, rowEnd] = computeLocalBounds(
+          rewriter, loc, lastValidRow + 1, totalTileRows, coreY, shardTileRows);
+      auto [colStart, colEnd] = computeLocalBounds(
+          rewriter, loc, 0, totalTileCols, coreX, shardTileCols);
+      auto loop = createLocalLoop(rowStart, rowEnd, colStart, colEnd, emitFill);
+      insertionPoint = loop;
     }
 
     // =========================================================================
-    // LOOP 6: OOB cols [0, lastValidRow+1) x [lastValidCol+1, shardTileCols)
+    // LOOP 5: OOB cols - fill columns beyond valid region (for valid rows only)
+    // Global region: [0, lastValidRow+1) x [lastValidCol+1, totalTileCols)
     // =========================================================================
     {
       rewriter.setInsertionPointAfter(insertionPoint);
-      Value localLastValidRowPlusOne = rewriter.create<arith::SubIOp>(
-          loc, lastValidRowPlusOne, globalRowStart);
-      localLastValidRowPlusOne = rewriter.create<arith::MaxUIOp>(
-          loc, localLastValidRowPlusOne, zeroIdx);
-      localLastValidRowPlusOne = rewriter.create<arith::MinUIOp>(
-          loc, localLastValidRowPlusOne, shardTileRowsVal);
-
-      Value localLastValidColPlusOne = rewriter.create<arith::SubIOp>(
-          loc, lastValidColPlusOne, globalColStart);
-      localLastValidColPlusOne = rewriter.create<arith::MaxUIOp>(
-          loc, localLastValidColPlusOne, zeroIdx);
-      localLastValidColPlusOne = rewriter.create<arith::MinUIOp>(
-          loc, localLastValidColPlusOne, shardTileColsVal);
-
-      auto outerLoop = rewriter.create<scf::ForOp>(
-          loc, zeroIdx, localLastValidRowPlusOne, oneIdx);
-      outerLoop->setAttr("d2m.linalg_root", rewriter.getUnitAttr());
-      outerLoop->setAttr("d2m.scheduled", rewriter.getUnitAttr());
-      rewriter.setInsertionPointToStart(outerLoop.getBody());
-
-      auto innerLoop = rewriter.create<scf::ForOp>(
-          loc, localLastValidColPlusOne, shardTileColsVal, oneIdx);
-      rewriter.setInsertionPointToStart(innerLoop.getBody());
-      emitFill(outerLoop.getInductionVar(), innerLoop.getInductionVar());
+      auto [rowStart, rowEnd] = computeLocalBounds(
+          rewriter, loc, 0, lastValidRow + 1, coreY, shardTileRows);
+      auto [colStart, colEnd] = computeLocalBounds(
+          rewriter, loc, lastValidCol + 1, totalTileCols, coreX, shardTileCols);
+      auto loop = createLocalLoop(rowStart, rowEnd, colStart, colEnd, emitFill);
+      insertionPoint = loop;
     }
 
     rewriter.eraseOp(op);

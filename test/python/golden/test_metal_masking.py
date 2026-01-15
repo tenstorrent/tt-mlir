@@ -287,13 +287,14 @@ def test_multicore_tile_masking(
         ((50, 50), (64, 64), 0.0, ttcore.OOBVal.Zero),
         ((50, 50), (64, 64), 1.0, ttcore.OOBVal.One),
         # 50x64: partial row masking only (cols are fully aligned)
-        ((50, 64), (64, 64), 0.0, ttcore.OOBVal.Zero),
+        ((50, 64), (64, 64), float("inf"), ttcore.OOBVal.Inf),
         # 64x50: partial col masking only (rows are fully aligned)
-        ((64, 50), (64, 64), 0.0, ttcore.OOBVal.Zero),
+        ((64, 50), (64, 64), float("-inf"), ttcore.OOBVal.NegInf),
         # 18x18: very small logical shape, most of first tile is OOB
         ((18, 18), (32, 32), 0.0, ttcore.OOBVal.Zero),
         # 100x100: spans multiple tiles, last tile is partial
         ((100, 100), (128, 128), 0.0, ttcore.OOBVal.Zero),
+        ((50, 50), (128, 128), 1.0, ttcore.OOBVal.One),
     ],
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
@@ -355,9 +356,7 @@ def test_partial_tile_masking(
             )
 
             # Output type is the aligned shape - to_layout will untilize
-            output_type = RankedTensorType.get(
-                aligned_shape, F32Type.get(builder._ctx)
-            )
+            output_type = RankedTensorType.get(aligned_shape, F32Type.get(builder._ctx))
             from_device = builder.to_layout(
                 view_with_aligned_logical,
                 output_type=output_type,
@@ -385,14 +384,12 @@ def test_partial_tile_masking(
 @pytest.mark.parametrize(
     "logical_shape,aligned_shape,grid_shape,fill_value,oobval",
     [
-        # Multicore partial tile masking: 100x100 logical with 128x128 alignment on 4x4 grid
-        # Each core gets 32x32 (1 tile), some cores have partial tiles
-        # - Core (0,0): partial tile (rows 0-31, cols 0-31 valid)
-        # - Core (0,1): partial tile (rows 0-31, cols 32-63 valid)
-        # - Core (1,0): partial tile (rows 32-63, cols 0-31 valid)
-        # - Core (1,1): partial tile (rows 32-63, cols 32-63 valid)
-        # - Cores (2,*), (*,2), etc: complete OOB
         ((100, 100), (128, 128), (4, 4), 1.0, ttcore.OOBVal.One),
+        ((60, 100), (128, 128), (4, 4), 0.0, ttcore.OOBVal.Zero),
+        ((100, 60), (128, 128), (4, 4), 1.0, ttcore.OOBVal.One),
+        ((60, 60), (128, 128), (4, 4), 1.0, ttcore.OOBVal.One),
+        ((100, 100), (128, 128), (2, 2), 1.0, ttcore.OOBVal.One),
+        ((60, 60), (128, 128), (2, 2), 1.0, ttcore.OOBVal.One),
     ],
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
@@ -450,9 +447,7 @@ def test_multicore_partial_tile_masking(
                 unit_attrs=unit_attrs,
             )
 
-            output_type = RankedTensorType.get(
-                aligned_shape, F32Type.get(builder._ctx)
-            )
+            output_type = RankedTensorType.get(aligned_shape, F32Type.get(builder._ctx))
             from_device = builder.to_layout(
                 view_with_aligned_logical,
                 output_type=output_type,

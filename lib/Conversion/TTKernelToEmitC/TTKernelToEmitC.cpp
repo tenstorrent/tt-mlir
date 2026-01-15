@@ -893,8 +893,8 @@ public:
       return failure();
     }
 
-    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(op, resultType, "std::min",
-                                                     adaptor.getOperands());
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        op, resultType, "std::min<size_t>", adaptor.getOperands());
 
     return success();
   }
