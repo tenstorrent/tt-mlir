@@ -4,10 +4,11 @@
 
 # RUN: %python %s | FileCheck %s
 
-from ttmlir.ir import *
+import ttmlir
 from ttmlir.dialects import ttcore
+from ttmlir.ir import *
 
-ctx = Context()
+ctx = ttmlir.Context()
 
 
 def updiv(n, d):

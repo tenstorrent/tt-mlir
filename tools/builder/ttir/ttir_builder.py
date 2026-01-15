@@ -11,8 +11,9 @@ from enum import Enum, auto
 import re
 from contextvars import ContextVar
 
-from ttmlir.ir import *
+import ttmlir
 from ttmlir.dialects import ttir, ttcore, tensor, quant, func
+from ttmlir.ir import *
 from ttmlir.passes import GoldenTensor, DataType
 
 from builder.base.builder import *
@@ -431,7 +432,7 @@ class TTIRBuilder(Builder):
     def reduce_scatter(
         self,
         input: Operand,
-        reduce_type: ReduceType,
+        reduce_type: ttcore.ir.ReduceType,
         scatter_dim: int,
         cluster_axis: int,
         output_type: Optional[torch.dtype] = None,
@@ -446,7 +447,7 @@ class TTIRBuilder(Builder):
             mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         input0 = self._get_golden_tensor(input)
-        reduce_type_attr = ttcore.ir.ReduceTypeAttr.get(self._ctx, reduce_type.value)
+        reduce_type_attr = ttcore.ir.ReduceTypeAttr.get(self._ctx, reduce_type)
         scatter_dim_attr = IntegerAttr.get(IntegerType.get_signed(32), scatter_dim)
         cluster_axis_attr = IntegerAttr.get(IntegerType.get_unsigned(32), cluster_axis)
         op_golden_function = get_golden_function(ttir_op)
@@ -512,7 +513,7 @@ class TTIRBuilder(Builder):
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(
                 input0,
-                reduce_type_attr,
+                ttcore.ir.ReduceTypeAttr.from_attribute(reduce_type_attr),
                 scatter_dim_attr,
                 cluster_axis_attr,
                 old_op.result.type.element_type,
@@ -530,7 +531,7 @@ class TTIRBuilder(Builder):
         self,
         input: Operand,
         cluster_axis: int,
-        reduce_type: ReduceType,
+        reduce_type: ttcore.ir.ReduceType,
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
@@ -543,7 +544,7 @@ class TTIRBuilder(Builder):
             mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
         input0 = self._get_golden_tensor(input)
-        reduce_type_attr = ttcore.ir.ReduceTypeAttr.get(self._ctx, reduce_type.value)
+        reduce_type_attr = ttcore.ir.ReduceTypeAttr.get(self._ctx, reduce_type)
         cluster_axis_attr = IntegerAttr.get(IntegerType.get_unsigned(32), cluster_axis)
         op_golden_function = get_golden_function(ttir_op)
         golden_output = op_golden_function(
@@ -601,7 +602,7 @@ class TTIRBuilder(Builder):
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(
                 input0,
-                reduce_type_attr,
+                ttcore.ir.ReduceTypeAttr.from_attribute(reduce_type_attr),
                 cluster_axis_attr,
                 old_op.result.type.element_type,
             )
@@ -3581,7 +3582,7 @@ class TTIRBuilder(Builder):
         index: Operand,
         source: Operand,
         dim: int,
-        scatter_reduce_type: ReduceType = ReduceType.Invalid,
+        scatter_reduce_type: ttcore.ir.ReduceType = ttcore.ir.ReduceType.Invalid,
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
@@ -3595,7 +3596,7 @@ class TTIRBuilder(Builder):
 
         dim_attr = IntegerAttr.get(IntegerType.get_signless(32), dim)
         scatter_reduce_type_attr = ttcore.ir.ReduceTypeAttr.get(
-            self._ctx, scatter_reduce_type.value
+            self._ctx, scatter_reduce_type
         )
         input0 = self._get_golden_tensor(in0)
         input_index = self._get_golden_tensor(index)
@@ -3672,7 +3673,7 @@ class TTIRBuilder(Builder):
                 input_index,
                 input_source,
                 dim_attr,
-                scatter_reduce_type_attr,
+                ttcore.ir.ReduceTypeAttr.from_attribute(scatter_reduce_type_attr),
                 result.element_type,
             )
             self._set_golden_tensor(new_op_result, golden_output)
@@ -3730,7 +3731,9 @@ class TTIRBuilder(Builder):
                             input_index,
                             input_source,
                             dim_attr,
-                            scatter_reduce_type_attr,
+                            ttcore.ir.ReduceTypeAttr.from_attribute(
+                                scatter_reduce_type_attr
+                            ),
                             result.element_type,
                         )
                         scatter_builder._set_golden_tensor(new_op_result, golden_output)

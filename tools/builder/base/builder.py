@@ -10,8 +10,9 @@ from enum import Enum, auto
 import re
 from collections import OrderedDict
 
-from ttmlir.ir import *
+import ttmlir
 from ttmlir.dialects import tensor, quant, func, ttir, ttcore, stablehlo, ttnn, debug
+from ttmlir.ir import *
 from ttmlir.passes import GoldenTensor, DataType
 from golden import GoldenMapTensor, get_golden_function
 

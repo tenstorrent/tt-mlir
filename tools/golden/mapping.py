@@ -18,6 +18,7 @@ import operator
 import einops
 import torch
 import torch.nn.functional
+import ttmlir
 from ttmlir.dialects import ttir, stablehlo, d2m, ttnn, ttcore, sdy, debug
 from ttmlir.ir import *
 from ttmlir.passes import DataType
@@ -3521,9 +3522,7 @@ def ttir_scatter_golden(
     output_type_mlir: Type,
 ) -> GoldenMapTensor:
     dim_value = unpack_mlir_attr(dim)
-    scatter_reduce_type = ttcore.ir.ReduceTypeAttr.maybe_downcast(
-        scatter_reduce_type_attr
-    ).value
+    scatter_reduce_type = scatter_reduce_type_attr.value
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     index_copy = index.clone()
     index_copy = index_copy.to(torch.int64)
@@ -3721,14 +3720,12 @@ def ttir_sort_golden(
 def ttir_to_layout_golden(
     input_tensor: GoldenMapTensor, output_ranked_tensor_type: RankedTensorType
 ) -> GoldenMapTensor:
-    casted_type = ttcore.ir.TileType.maybe_downcast(
-        output_ranked_tensor_type.element_type
-    )
+    element_type = output_ranked_tensor_type.element_type
 
-    if casted_type:
-        output_dtype = mlir_datatype_to_torch_dtype(casted_type.data_type)
+    if isinstance(element_type, ttcore.ir.TileType):
+        output_dtype = mlir_datatype_to_torch_dtype(element_type.datatype)
     else:
-        output_dtype = mlir_type_to_torch_dtype(output_ranked_tensor_type.element_type)
+        output_dtype = mlir_type_to_torch_dtype(element_type)
 
     output_tensor = input_tensor.clone()
     return output_tensor.to(output_dtype)
@@ -3799,7 +3796,7 @@ def ttir_all_reduce_golden(
     cluster_axis_attr: IntegerAttr,
     output_type_mlir: Type,
 ) -> GoldenMapTensor:
-    reduce_type = ttcore.ir.ReduceTypeAttr.maybe_downcast(reduce_type_attr).value
+    reduce_type = reduce_type_attr.value
     cluster_axis = unpack_mlir_attr(cluster_axis_attr)
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
 
@@ -3822,7 +3819,7 @@ def ttir_reduce_scatter_golden(
     cluster_axis_attr: IntegerAttr,
     output_type_mlir: Type,
 ) -> GoldenMapTensor:
-    reduce_type = ttcore.ir.ReduceTypeAttr.maybe_downcast(reduce_type_attr).value
+    reduce_type = reduce_type_attr.value
     cluster_axis = unpack_mlir_attr(cluster_axis_attr)
     scatter_dim = unpack_mlir_attr(scatter_dim_attr)
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)

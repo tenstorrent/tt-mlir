@@ -7,9 +7,10 @@ from __future__ import annotations
 from typing import List, Callable, Any
 import torch
 
+import ttmlir
+from ttmlir.dialects import ttnn, ttcore, func
 from ttmlir.ir import *
 from ttmlir import util
-from ttmlir.dialects import ttnn, ttcore, func
 
 from builder.base.builder import *
 from builder.base.builder_utils import *
@@ -156,7 +157,9 @@ class TTNNBuilder(Builder):
             element_type = self._get_type_from_torch_dtype(element_type)
         with self._ctx, self._loc:
             data_type = util.element_type_to_data_type(element_type)
-            tile_element_type = ttcore.ir.TileType.get(self._ctx, 32, 32, data_type)
+            tile_element_type = ttcore.ir.TileType.get(
+                self._ctx, 32, 32, ttcore.ir.DataTypeAttr.get(self._ctx, data_type)
+            )
             buffer_type = ttnn.BufferType.DRAM
             grid_attr = ttcore.ir.GridAttr.get(self._ctx, [1, 1])
             ttnn_layout_attr = ttnn.ir.TTNNLayoutAttr.get(
@@ -184,7 +187,9 @@ class TTNNBuilder(Builder):
     ) -> ttnn.ir.TTNNLayoutAttr:
         with self._ctx, self._loc:
             data_type = util.element_type_to_data_type(element_type)
-            tile_element_type = ttcore.ir.TileType.get(self._ctx, 32, 32, data_type)
+            tile_element_type = ttcore.ir.TileType.get(
+                self._ctx, 32, 32, ttcore.ir.DataTypeAttr.get(self._ctx, data_type)
+            )
             buffer_type = ttnn.BufferType.L1
             grid_attr = ttcore.ir.GridAttr.get(self._ctx, [1, 1])
             return ttnn.ir.TTNNLayoutAttr.get(

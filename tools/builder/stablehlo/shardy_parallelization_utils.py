@@ -6,8 +6,9 @@ import itertools
 from typing import Callable, List, Optional, Tuple, Union, Literal, Dict
 from collections import OrderedDict
 
-from ttmlir.ir import *
+import ttmlir
 from ttmlir.dialects import func, ttcore, ttnn, ttir, sdy
+from ttmlir.ir import *
 from ttmlir.passmanager import PassManager
 from ttmlir.passes import (
     stablehlo_pipeline,

@@ -3,8 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Bindings/Python/TTMLIRModule.h"
-
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+
+#include "ttmlir-c/TTAttrs.h"
 
 #include "mlir/CAPI/AffineMap.h"
 #include "mlir/CAPI/IR.h"
@@ -14,7 +15,141 @@
 #include <vector>
 
 namespace mlir::ttmlir::python {
+
+// Returns a vector containing elements with type T extracted from an attribute
+// using the two provided callbacks.
+template <typename T>
+std::vector<T>
+propertyVector(MlirAttribute attr,
+               llvm::function_ref<intptr_t(MlirAttribute)> sizeFn,
+               llvm::function_ref<T(MlirAttribute, intptr_t)> getFn) {
+  std::vector<T> result;
+  intptr_t size = sizeFn(attr);
+  result.reserve(size);
+  for (intptr_t i = 0; i < size; ++i) {
+    result.push_back(getFn(attr, i));
+  }
+  return result;
+}
+
 void populateTTModule(nb::module_ &m) {
+  mlir::python::nanobind_adaptors::mlir_attribute_subclass(m, "GridAttr",
+                                                           ttmlirIsGridAttr)
+      .def_classmethod(
+          "get",
+          [](nb::object cls, MlirContext ctx, std::vector<int64_t> shape) {
+            return cls(ttmlirGridAttrGet(ctx, shape.size(), shape.data()));
+          },
+          nb::arg("cls"), nb::arg("ctx"), nb::arg("shape"))
+      .def_classmethod(
+          "from_attribute",
+          [](nb::object cls, MlirAttribute attr) {
+            if (!ttmlirIsGridAttr(attr)) {
+              throw std::runtime_error("Attribute is not a GridAttr");
+            }
+            return cls(attr);
+          },
+          nb::arg("cls"), nb::arg("attr"))
+      .def_property_readonly("shape", [](MlirAttribute self) {
+        return propertyVector<int64_t>(self, ttmlirGridAttrGetShapeSize,
+                                       ttmlirGridAttrGetShapeElem);
+      });
+
+  nb::enum_<MlirReduceTypeEnum>(m, "ReduceType")
+      .value("Sum", MlirReduceTypeEnum::MlirReduceTypeSum)
+      .value("Mean", MlirReduceTypeEnum::MlirReduceTypeMean)
+      .value("Max", MlirReduceTypeEnum::MlirReduceTypeMax)
+      .value("Min", MlirReduceTypeEnum::MlirReduceTypeMin)
+      .value("Std", MlirReduceTypeEnum::MlirReduceTypeStd)
+      .value("Var", MlirReduceTypeEnum::MlirReduceTypeVar)
+      .value("Prod", MlirReduceTypeEnum::MlirReduceTypeProd)
+      .value("Invalid", MlirReduceTypeEnum::MlirReduceTypeInvalid);
+
+  mlir::python::nanobind_adaptors::mlir_attribute_subclass(
+      m, "ReduceTypeAttr", ttmlirIsReduceTypeAttr)
+      .def_classmethod(
+          "get",
+          [](nb::object cls, MlirContext ctx, MlirReduceTypeEnum value) {
+            return cls(ttmlirReduceTypeAttrGet(ctx, value));
+          },
+          nb::arg("cls"), nb::arg("ctx"), nb::arg("value"))
+      .def_classmethod(
+          "from_attribute",
+          [](nb::object cls, MlirAttribute attr) {
+            if (!ttmlirIsReduceTypeAttr(attr)) {
+              throw std::runtime_error("Attribute is not a ReduceTypeAttr");
+            }
+            return cls(attr);
+          },
+          nb::arg("cls"), nb::arg("attr"))
+      .def_property_readonly("value", [](MlirAttribute self) {
+        return ttmlirReduceTypeAttrGetValue(self);
+      });
+
+  nb::enum_<MlirDataTypeEnum>(m, "DataType")
+      .value("Float32", MlirDataTypeEnum::MlirDataTypeFloat32)
+      .value("Float16", MlirDataTypeEnum::MlirDataTypeFloat16)
+      .value("BFloat16", MlirDataTypeEnum::MlirDataTypeBFloat16)
+      .value("BFP_Float8", MlirDataTypeEnum::MlirDataTypeBFP_Float8)
+      .value("BFP_BFloat8", MlirDataTypeEnum::MlirDataTypeBFP_BFloat8)
+      .value("BFP_Float4", MlirDataTypeEnum::MlirDataTypeBFP_Float4)
+      .value("BFP_BFloat4", MlirDataTypeEnum::MlirDataTypeBFP_BFloat4)
+      .value("BFP_Float2", MlirDataTypeEnum::MlirDataTypeBFP_Float2)
+      .value("BFP_BFloat2", MlirDataTypeEnum::MlirDataTypeBFP_BFloat2)
+      .value("UInt32", MlirDataTypeEnum::MlirDataTypeUInt32)
+      .value("UInt16", MlirDataTypeEnum::MlirDataTypeUInt16)
+      .value("UInt8", MlirDataTypeEnum::MlirDataTypeUInt8)
+      .value("Int32", MlirDataTypeEnum::MlirDataTypeInt32)
+      .value("Bool", MlirDataTypeEnum::MlirDataTypeBool);
+
+  mlir::python::nanobind_adaptors::mlir_attribute_subclass(m, "DataTypeAttr",
+                                                           ttmlirIsDataTypeAttr)
+      .def_classmethod(
+          "get",
+          [](nb::object cls, MlirContext ctx, MlirDataTypeEnum value) {
+            return cls(ttmlirDataTypeAttrGet(ctx, value));
+          },
+          nb::arg("cls"), nb::arg("ctx"), nb::arg("value"))
+      .def_classmethod(
+          "from_attribute",
+          [](nb::object cls, MlirAttribute attr) {
+            if (!ttmlirIsDataTypeAttr(attr)) {
+              throw std::runtime_error("Attribute is not a DataTypeAttr");
+            }
+            return cls(attr);
+          },
+          nb::arg("cls"), nb::arg("attr"))
+      .def_property_readonly("value", [](MlirAttribute self) {
+        return ttmlirDataTypeAttrGetValue(self);
+      });
+
+  mlir::python::nanobind_adaptors::mlir_type_subclass(m, "TileType",
+                                                      ttmlirIsTileType)
+      .def_classmethod(
+          "get",
+          [](nb::object cls, MlirContext ctx, int64_t height, int64_t width,
+             MlirAttribute dataType) {
+            return cls(ttmlirTileTypeGet(ctx, height, width, dataType));
+          },
+          nb::arg("cls"), nb::arg("ctx"), nb::arg("height"), nb::arg("width"),
+          nb::arg("dataType"))
+      .def_classmethod(
+          "from_attribute",
+          [](nb::object cls, MlirType attr) {
+            if (!ttmlirIsTileType(attr)) {
+              throw std::runtime_error("Type is not a TileType");
+            }
+            return cls(attr);
+          },
+          nb::arg("cls"), nb::arg("attr"))
+      .def_property_readonly(
+          "height", [](MlirType self) { return ttmlirTileTypeGetHeight(self); })
+      .def_property_readonly(
+          "width", [](MlirType self) { return ttmlirTileTypeGetWidth(self); })
+      .def_property_readonly("datatype", [](MlirType self) {
+        return ttmlirTileTypeGetDataType(self);
+      });
+
   tt_attribute_class<tt::ttcore::MetalLayoutAttr>(m, "MetalLayoutAttr")
       // 4-arg overload (no memory_layout provided, defaults to Sharded)
       .def_static("get",
@@ -137,15 +272,6 @@ void populateTTModule(nb::module_ &m) {
         return static_cast<uint32_t>(la.getMemoryLayout());
       });
 
-  tt_attribute_class<tt::ttcore::GridAttr>(m, "GridAttr")
-      .def_static("get",
-                  [](MlirContext ctx, std::vector<int64_t> shape) {
-                    return wrap(tt::ttcore::GridAttr::get(unwrap(ctx), shape));
-                  })
-      .def_prop_ro("shape", [](const tt::ttcore::GridAttr &ga) {
-        return ga.getShape().vec();
-      });
-
   tt_attribute_class<tt::ttcore::ChipCapabilityAttr>(m, "ChipCapabilityAttr")
       .def_static("get",
                   [](MlirContext ctx, uint32_t chipCapability) {
@@ -166,17 +292,6 @@ void populateTTModule(nb::module_ &m) {
                   })
       .def_prop_ro("arch_as_int", [](tt::ttcore::ArchAttr self) {
         return static_cast<uint32_t>(self.getValue());
-      });
-
-  tt_attribute_class<tt::ttcore::DataTypeAttr>(m, "DataTypeAttr")
-      .def_static("get",
-                  [](MlirContext ctx, uint16_t *supportedDataTypes) {
-                    return wrap(tt::ttcore::DataTypeAttr::get(
-                        unwrap(ctx), static_cast<tt::ttcore::DataType>(
-                                         *supportedDataTypes)));
-                  })
-      .def_prop_ro("data_type_as_int", [](tt::ttcore::DataTypeAttr self) {
-        return static_cast<uint16_t>(self.getValue());
       });
 
   tt_attribute_class<tt::ttcore::ChipDescAttr>(m, "ChipDescAttr")
@@ -447,44 +562,6 @@ void populateTTModule(nb::module_ &m) {
   nb::enum_<mlir::tt::ttcore::TensorMemoryLayout>(m, "TensorMemoryLayout")
       .value("Interleaved", mlir::tt::ttcore::TensorMemoryLayout::Interleaved)
       .value("Sharded", mlir::tt::ttcore::TensorMemoryLayout::Sharded);
-
-  tt_type_class<tt::ttcore::TileType>(m, "TileType")
-      .def_static("get",
-                  [](MlirContext ctx, std::int64_t height, std::int64_t width,
-                     uint32_t dataType) {
-                    return wrap(tt::ttcore::TileType::get(
-                        unwrap(ctx), SmallVector<std::int64_t>{height, width},
-                        static_cast<tt::ttcore::DataType>(dataType)));
-                  })
-      .def_prop_ro("data_type_as_int",
-                   [](tt::ttcore::TileType self) {
-                     return static_cast<uint32_t>(self.getDataType());
-                   })
-      .def_prop_ro("data_type",
-                   [](tt::ttcore::TileType self) { return self.getDataType(); })
-      .def_prop_ro("shape", [](const tt::ttcore::TileType &tile) {
-        return std::vector<int64_t>({tile.getHeight(), tile.getWidth()});
-      });
-
-  nb::enum_<tt::ttcore::ReduceType>(m, "ReduceType")
-      .value("Sum", tt::ttcore::ReduceType::Sum)
-      .value("Mean", tt::ttcore::ReduceType::Mean)
-      .value("Max", tt::ttcore::ReduceType::Max)
-      .value("Min", tt::ttcore::ReduceType::Min)
-      .value("Std", tt::ttcore::ReduceType::Std)
-      .value("Var", tt::ttcore::ReduceType::Var)
-      .value("Prod", tt::ttcore::ReduceType::Prod)
-      .value("Invalid", tt::ttcore::ReduceType::Invalid);
-
-  tt_attribute_class<tt::ttcore::ReduceTypeAttr>(m, "ReduceTypeAttr")
-      .def_static("get",
-                  [](MlirContext ctx, tt::ttcore::ReduceType reduceType) {
-                    return wrap(tt::ttcore::ReduceTypeAttr::get(unwrap(ctx),
-                                                                reduceType));
-                  })
-      .def_prop_ro("value", [](tt::ttcore::ReduceTypeAttr self) {
-        return self.getValue();
-      });
 
   nb::enum_<tt::ttcore::MeshShardType>(m, "MeshShardType")
       .value("Identity", tt::ttcore::MeshShardType::Identity)

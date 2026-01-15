@@ -6,9 +6,6 @@ import pytest
 import torch
 from typing import List
 
-from ttmlir.dialects import ttcore
-from ttmlir.ir import *
-
 from builder.base.builder_utils import Operand
 from builder.d2m.d2m_builder import D2MBuilder
 from builder.base.builder_apis import compile_and_execute_d2m

@@ -81,6 +81,14 @@ NB_MODULE(_ttmlir, m) {
       },
       nb::arg("context"), nb::arg("load") = true);
 
+  m.def(
+      "context_init_hook",
+      [](MlirContext context) {
+        mlir::MLIRContext *mlirContext = unwrap(context);
+        mlirContext->loadAllAvailableDialects();
+      },
+      nb::arg("context"));
+
   auto tt_ir = m.def_submodule("tt_ir", "TT IR Bindings");
   mlir::ttmlir::python::populateTTModule(tt_ir);
   auto ttir_ir = m.def_submodule("ttir_ir", "TTIR IR Bindings");

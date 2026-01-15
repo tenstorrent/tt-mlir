@@ -10,6 +10,9 @@ from functools import reduce
 import operator
 from conftest import x86_only
 
+import ttmlir
+from ttmlir.dialects import ttcore
+
 from builder.base.builder_utils import Operand, Shape, TypeInfo
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir, build_module
@@ -2735,7 +2738,7 @@ def test_all_reduce(
 
             all_reduce0 = builder.all_reduce(
                 in_shard,
-                reduce_type=ReduceType.Sum.value,
+                reduce_type=ttcore.ir.ReduceType.Sum,
                 cluster_axis=cluster_axis,
             )
 
@@ -2829,7 +2832,7 @@ def test_reduce_scatter(
 
             reduce_scatter0 = builder.reduce_scatter(
                 in_shard,
-                reduce_type=ReduceType.Sum.value,
+                reduce_type=ttcore.ir.ReduceType.Sum,
                 scatter_dim=scatter_dim,
                 cluster_axis=cluster_axis,
             )

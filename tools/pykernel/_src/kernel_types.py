@@ -5,11 +5,14 @@
 import os
 from enum import Enum
 
-from ttmlir.dialects import ttkernel
+import ttmlir
+from ttmlir.dialects import ttkernel, ttcore
 
 
 class CircularBuffer:
-    def __init__(self, cb_id, tensor_shape=(8, 128, 128), dtype="Float32"):
+    def __init__(
+        self, cb_id, tensor_shape=(8, 128, 128), dtype=ttcore.ir.DataType.Float32
+    ):
         self.cb_id = cb_id
         self.tensor_shape = tensor_shape
         self.tile_shape = 32  # default to 32x32 tile shape

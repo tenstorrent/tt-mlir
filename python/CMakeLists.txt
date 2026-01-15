@@ -79,6 +79,12 @@ declare_mlir_dialect_python_bindings(
   DIALECT_NAME debug
 )
 
+declare_mlir_python_sources(TTMLIRPythonSources.Init
+  ROOT_DIR "${TTMLIR_PYTHON_ROOT_DIR}"
+  ADD_TO_PARENT TTMLIRPythonSources
+  SOURCES __init__.py
+)
+
 declare_mlir_python_sources(TTMLIRPythonSources.OptimizerOverrides
   ROOT_DIR "${TTMLIR_PYTHON_ROOT_DIR}"
   ADD_TO_PARENT TTMLIRPythonSources

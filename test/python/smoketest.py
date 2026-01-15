@@ -4,10 +4,11 @@
 
 # RUN: %python %s | FileCheck %s
 
-from ttmlir.ir import *
+import ttmlir
 from ttmlir.dialects import ttcore, ttir
+from ttmlir.ir import *
 
-with Context() as ctx:
+with ttmlir.Context() as ctx:
 
     module = Module.parse(
         """
