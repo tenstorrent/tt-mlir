@@ -226,6 +226,9 @@ private:
       llvm::DenseSet<Operation *> &inQueue,
       llvm::DenseMap<Operation *, OpPyLoc> &opToOpPyLoc) {
 
+    TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
+                 "Adding root operations to priority queue");
+
     for (const auto &entry : opToLocation) {
       Operation *op = entry.first;
       const PyLoc &pyLoc = entry.second;
@@ -241,11 +244,14 @@ private:
         availableOps.push(rootOpPyLoc);
         inQueue.insert(op);
         opToOpPyLoc.insert({op, rootOpPyLoc});
+        TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
+                     "\tAdded root operation: {} - {} - {}", op->getName(),
+                     pyLoc.opIndex, pyLoc.funcPath);
       }
     }
 
     TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
-                 "Initialized {} root operations", inQueue.size());
+                 "Total added root operations: {}", inQueue.size());
   }
 
   // Group operations by their source function location (funcPath) using
@@ -287,7 +293,6 @@ private:
     //   1. Operations from currentGroupFuncPath (stay in current group)
     //   2. Non-deallocate operations (deallocates processed last)
     //   3. Lower distanceFromRoot (operations closer to roots)
-    // Note: In C++ priority_queue, returning 'true' means b has higher priority
     CompareOpPyLoc comparator(&currentGroupFuncPath);
     std::priority_queue<OpPyLoc, SmallVector<OpPyLoc>, CompareOpPyLoc>
         readyOpsQueue(comparator);
@@ -296,24 +301,8 @@ private:
     initializeRootOperations(opToLocation, readyOpsQueue, opsInQueueSet,
                              opToOpPyLoc);
 
-    // Log all ops in queue.
-    //
     TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
-                 "Root ops in queue: {}", opsInQueueSet.size());
-    for ([[maybe_unused]] Operation *op : opsInQueueSet) {
-      TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "\t- {}",
-                   op->getName());
-    }
-
-    for (Operation *op : opsInQueueSet) {
-      auto it = opToOpPyLoc.find(op);
-      assert(it != opToOpPyLoc.end() && "DIDN'T FIND OP IN OPTOOPPYLOC");
-
-      [[maybe_unused]] const OpPyLoc &opPyLoc = it->second;
-      TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure, "\t- {} - {} - {}",
-                   opPyLoc.op->getName(), opPyLoc.distanceFromRoot,
-                   opPyLoc.pyLoc.funcPath);
-    }
+                 "Starting graph traversal");
 
     // Phase 2: Process operations in topological order, grouping by funcPath
     while (!readyOpsQueue.empty()) {
@@ -322,9 +311,15 @@ private:
       opsInQueueSet.erase(opPyLoc.op);
       opToOpPyLoc.erase(opPyLoc.op);
 
+      TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
+                   "\tProcessing op: {} - {} - {}", opPyLoc.op->getName(),
+                   opPyLoc.distanceFromRoot, opPyLoc.pyLoc.funcPath);
+
       // Skip if already processed (can happen with duplicates in queue).
       //
       if (processedOps.count(opPyLoc.op)) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
+                     "\t\tOp already processed, continuing");
         continue;
       }
 
@@ -333,8 +328,11 @@ private:
       // Detect group boundary: when funcPath changes, we've moved to a
       // different source function, so finalize the current group and start a
       // new one
-      if (!currentGroupFuncPath.empty() &&
-          pyLoc.funcPath != currentGroupFuncPath) {
+      bool isGroupBoundary = !currentGroupFuncPath.empty() &&
+                             pyLoc.funcPath != currentGroupFuncPath;
+      TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
+                   "\tIs group boundary: {}", isGroupBoundary);
+      if (isGroupBoundary) {
         // Log current group.
         //
         TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
@@ -912,9 +910,9 @@ private:
                    pyLoc.modules.size());
       for ([[maybe_unused]] const PyLoc::Module &module : pyLoc.modules) {
         TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
-                     "\t\t\t\tModule class: {}", module.moduleClass);
+                     "\t\t\tModule class: {}", module.moduleClass);
         TTMLIR_DEBUG(ttmlir::LogComponent::RecoverStructure,
-                     "\t\t\t\tModule name: {}", module.moduleName);
+                     "\t\t\tModule name: {}", module.moduleName);
       }
     }
   }

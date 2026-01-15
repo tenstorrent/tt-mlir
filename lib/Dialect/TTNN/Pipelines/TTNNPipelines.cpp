@@ -406,7 +406,7 @@ void createTTNNToEmitPyDevicePipeline(
   devicePm.addPass(createTTNNAdjustDeallocs());
   if (options.tryRecoverStructure) {
     createRecoverStructureXLATorchPipeline(
-        pm, RecoverStructureXLATorchPipelineOptions());
+        devicePm, RecoverStructureXLATorchPipelineOptions());
   }
 
   // Apply EmitPy-specific workarounds before conversion
