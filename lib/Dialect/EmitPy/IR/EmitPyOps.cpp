@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/OpImplementation.h"
 #include "llvm/Support/LogicalResult.h"
@@ -153,6 +154,169 @@ LogicalResult isValidPythonIdentifier(Operation *op, StringRef name) {
       return op->emitOpError() << "variable name may only contain alphanumeric "
                                   "characters and '_'";
     }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// GetAttrOp / SetAttrOp / ClassOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult GetAttrOp::verify() {
+  return isValidPythonIdentifier(*this, getAttrName());
+}
+
+LogicalResult SetAttrOp::verify() {
+  return isValidPythonIdentifier(*this, getAttrName());
+}
+
+LogicalResult ClassOp::verify() {
+  if (failed(isValidPythonIdentifier(*this, getSymName()))) {
+    return failure();
+  }
+
+  if (auto bases = getBases()) {
+    for (Attribute base : *bases) {
+      if (!isa<SymbolRefAttr, OpaqueAttr>(base)) {
+        return emitOpError("bases must be symbol refs or #emitpy.opaque");
+      }
+    }
+  }
+
+  int initCount = 0;
+  Block &body = getBody().front();
+  for (Operation &op : body.getOperations()) {
+    if (auto funcOp = dyn_cast<func::FuncOp>(op)) {
+      StringRef methodKind = "instance";
+      if (auto methodKindAttr =
+              funcOp->getAttrOfType<StringAttr>("emitpy.method_kind")) {
+        methodKind = methodKindAttr.getValue();
+        if (methodKind != "instance" && methodKind != "staticmethod" &&
+            methodKind != "classmethod") {
+          return op.emitOpError("emitpy.method_kind must be one of "
+                                "'instance', 'staticmethod', or 'classmethod'");
+        }
+      }
+
+      if (funcOp.getName() == "__init__") {
+        ++initCount;
+        if (funcOp.getFunctionType().getNumResults() != 0) {
+          return op.emitOpError("__init__ must not return a value");
+        }
+        if (methodKind != "instance") {
+          return op.emitOpError("__init__ must be an instance method");
+        }
+      }
+
+      unsigned numInputs = funcOp.getFunctionType().getNumInputs();
+      if (methodKind == "instance" || methodKind == "classmethod" ||
+          funcOp.getName() == "__init__") {
+        if (numInputs < 1) {
+          return op.emitOpError("instance and class methods must take a "
+                                "receiver argument");
+        }
+        StringRef expectedReceiver =
+            methodKind == "classmethod" ? "cls" : "self";
+        if (auto argNameAttr =
+                funcOp.getArgAttrOfType<StringAttr>(0, "emitpy.name")) {
+          if (argNameAttr.getValue() != expectedReceiver) {
+            return op.emitOpError() << "first argument must be named '"
+                                    << expectedReceiver << "' via emitpy.name";
+          }
+        }
+      }
+      continue;
+    }
+
+    // Allow EmitPy ops (e.g., class-level assignments/imports) in class body.
+    if (op.getDialect() != nullptr &&
+        op.getDialect()->getNamespace() ==
+            getOperation()->getDialect()->getNamespace()) {
+      continue;
+    }
+
+    return op.emitOpError("only emitpy or func operations are allowed in a "
+                          "class body");
+  }
+
+  if (initCount > 1) {
+    return emitOpError("class body must have at most one __init__");
+  }
+
+  return success();
+}
+
+void ClassOp::print(OpAsmPrinter &p) {
+  p << " ";
+  p.printSymbolName(getSymName());
+  if (auto bases = getBases()) {
+    if (!bases->empty()) {
+      p << "(";
+      llvm::interleaveComma(
+          *bases, p, [&](Attribute baseAttr) { p.printAttribute(baseAttr); });
+      p << ")";
+    }
+  }
+
+  bool hasExtraAttrs = false;
+  for (NamedAttribute attr : getOperation()->getAttrs()) {
+    StringRef name = attr.getName();
+    if (name == getSymNameAttrName() || name == "bases") {
+      continue;
+    }
+    hasExtraAttrs = true;
+    break;
+  }
+  if (hasExtraAttrs) {
+    p << " attributes ";
+    p.printOptionalAttrDict(getOperation()->getAttrs(),
+                            /*elidedAttrs=*/{getSymNameAttrName(), "bases"});
+  }
+  p << " ";
+  p.printRegion(getBody(), /*printEntryBlockArgs=*/false,
+                /*printBlockTerminators=*/false);
+}
+
+ParseResult ClassOp::parse(OpAsmParser &parser, OperationState &result) {
+  StringAttr nameAttr;
+  if (parser.parseSymbolName(nameAttr)) {
+    return failure();
+  }
+  result.addAttribute(mlir::SymbolTable::getSymbolAttrName(), nameAttr);
+
+  if (succeeded(parser.parseOptionalLParen())) {
+    SmallVector<Attribute> bases;
+    if (failed(parser.parseOptionalRParen())) {
+      do {
+        Attribute baseAttr;
+        if (parser.parseAttribute(baseAttr)) {
+          return failure();
+        }
+        bases.push_back(baseAttr);
+      } while (succeeded(parser.parseOptionalComma()));
+
+      if (parser.parseRParen()) {
+        return failure();
+      }
+    }
+    if (!bases.empty()) {
+      result.addAttribute("bases", ArrayAttr::get(parser.getContext(), bases));
+    }
+  }
+
+  if (succeeded(parser.parseOptionalKeyword("attributes"))) {
+    if (parser.parseOptionalAttrDict(result.attributes)) {
+      return failure();
+    }
+  }
+
+  Region *body = result.addRegion();
+  if (parser.parseRegion(*body, /*arguments=*/{}, /*argTypes=*/{})) {
+    return failure();
+  }
+  if (body->empty()) {
+    body->emplaceBlock();
   }
 
   return success();

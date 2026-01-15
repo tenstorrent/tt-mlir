@@ -157,6 +157,99 @@ def EmitPy_AssignOp : EmitPy_Op<"assign"> {
   let assemblyFormat = "$value attr-dict `:` functional-type(operands, results)";
 }
 
+def EmitPy_GetAttrOp : EmitPy_Op<"get_attr", [Pure, PyExpressionInterface]> {
+  let summary = "Get attribute from an object";
+  let description = [{
+    The `emitpy.get_attr` operation represents Python attribute access
+    via the dot operator.
+
+    Example:
+
+    ```mlir
+    %w = emitpy.get_attr %self, "weight" : (!emitpy.opaque<"Model">) -> !emitpy.opaque<"ttnn.Tensor">
+    ```
+    ```python
+    # Code emitted:
+    w = self.weight
+    ```
+  }];
+
+  let arguments = (ins
+    AnyType:$object,
+    Arg<StrAttr, "attribute name">:$attr_name
+  );
+
+  let results = (outs AnyType:$result);
+  let hasVerifier = 1;
+  let assemblyFormat = "$object `,` $attr_name attr-dict `:` functional-type(operands, results)";
+}
+
+def EmitPy_SetAttrOp : EmitPy_Op<"set_attr"> {
+  let summary = "Set attribute on an object";
+  let description = [{
+    The `emitpy.set_attr` operation represents Python attribute assignment
+    via the dot operator.
+
+    Example:
+
+    ```mlir
+    emitpy.set_attr %self, "weight", %w : (!emitpy.opaque<"Model">, !emitpy.opaque<"ttnn.Tensor">)
+    ```
+    ```python
+    # Code emitted:
+    self.weight = w
+    ```
+  }];
+
+  let arguments = (ins
+    AnyType:$object,
+    Arg<StrAttr, "attribute name">:$attr_name,
+    AnyType:$value
+  );
+
+  let hasVerifier = 1;
+  let assemblyFormat = "$object `,` $attr_name `,` $value attr-dict `:` `(` type($object) `,` type($value) `)`";
+}
+
+def EmitPy_ClassOp : EmitPy_Op<"class", [Symbol, SymbolTable, IsolatedFromAbove,
+                                        SingleBlock, NoTerminator]> {
+  let summary = "Class definition";
+  let description = [{
+    The `emitpy.class` operation represents a Python class definition.
+    It is a symbol and contains a single-region body with class members.
+
+    Class verification enforces:
+    - At most one `__init__` method.
+    - `__init__` returns nothing and is an instance method.
+    - Methods can be annotated with `emitpy.method_kind` attribute on
+      `func.func` using one of: `instance`, `staticmethod`, `classmethod`.
+    - Instance and class methods must have a receiver argument as the first
+      argument; if named, it must be `self` (instance) or `cls` (classmethod).
+
+    Example:
+
+    ```mlir
+    emitpy.class @Model(#emitpy.opaque<"torch.nn.Module">) {
+      func.func @__init__(%self: !emitpy.opaque<"Model">) {
+        %w = emitpy.call_opaque "ttnn.load_weight"() : () -> !emitpy.opaque<"ttnn.Tensor">
+        emitpy.set_attr %self, "weight", %w : (!emitpy.opaque<"Model">, !emitpy.opaque<"ttnn.Tensor">)
+        return
+      }
+    }
+    ```
+  }];
+
+  let arguments = (ins
+    SymbolNameAttr:$sym_name,
+    OptionalAttr<ArrayAttr>:$bases
+  );
+
+  let regions = (region SizedRegion<1>:$body);
+
+  let hasVerifier = 1;
+  let hasCustomAssemblyFormat = 1;
+}
+
 def EmitPy_CreateDictOp : EmitPy_Op<"create_dict", [Pure]> {
   let summary = "Create dictionary operation";
   let description = [{
