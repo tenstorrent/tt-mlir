@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
+#include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
@@ -1757,6 +1758,203 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttir::ReshapeOp op) {
 }
 
 //===----------------------------------------------------------------------===//
+// RearrangeOp
+//===----------------------------------------------------------------------===//
+
+// RearrangeOp verification
+::mlir::LogicalResult mlir::tt::ttir::RearrangeOp::verify() {
+  llvm::StringRef patternStr = getPattern();
+  llvm::SmallVector<llvm::StringRef> parts;
+  patternStr.split(parts, "->");
+
+  if (parts.size() != 2) {
+    return emitOpError() << "pattern must contain exactly one '->' separator.";
+  }
+
+  mlir::FailureOr<AffineMap> failureOrInvMap = getInvPatternMap();
+  if (failed(failureOrInvMap)) {
+    return emitOpError() << "failed to parse pattern " << patternStr << ".";
+  }
+
+  auto invMap = *failureOrInvMap;
+  if (getInput().getType().getRank() != invMap.getNumResults()) {
+    return emitOpError() << "number of dimensions in the pattern's input ("
+                         << invMap.getNumResults()
+                         << ") must match the rank of the input tensor ("
+                         << getInput().getType().getRank() << ").";
+  }
+
+  SmallVector<int64_t> expectedInputShape =
+      ttmlir::utils::evalShape(invMap, getResult().getType().getShape());
+  if (getInput().getType().getShape() !=
+      ArrayRef<int64_t>(expectedInputShape)) {
+    return emitOpError() << "input tensor shape ("
+                         << ttmlir::utils::join(
+                                getResult().getType().getShape(), ",")
+                         << ") does not match the expected shape ("
+                         << ttmlir::utils::join(expectedInputShape, ",")
+                         << ").";
+  }
+
+  return success();
+}
+
+mlir::FailureOr<::mlir::AffineMap>
+mlir::tt::ttir::RearrangeOp::getInvPatternMap(mlir::MLIRContext *context,
+                                              StringRef pattern,
+                                              ArrayRef<int64_t> shape) {
+  // We need to write a routine to convert the pattern string to an affine map.
+  // Example patterns:
+  // >>> rearrange(images, 'b h w c -> b h w c').shape
+  // (32, 30, 40, 3)
+  //
+  // # stacked and reordered axes to "b c h w" format
+  // >>> rearrange(images, 'b h w c -> b c h w').shape
+  // (32, 3, 30, 40)
+  //
+  // # concatenate images along height (vertical axis), 960 = 32 * 30
+  // >>> rearrange(images, 'b h w c -> (b h) w c').shape
+  // (960, 40, 3)
+  //
+  // # concatenated images along horizontal axis, 1280 = 32 * 40
+  // >>> rearrange(images, 'b h w c -> h (b w) c').shape
+  // (30, 1280, 3)
+  //
+  // # flattened each image into a vector, 3600 = 30 * 40 * 3
+  // >>> rearrange(images, 'b h w c -> b (c h w)').shape
+  // (32, 3600)
+  //
+  // # split each image into 4 smaller (top-left, top-right, bottom-left,
+  // bottom-right), 128 = 32 * 2 * 2
+  // >>> rearrange(images, 'b (h1 h) (w1 w) c -> (b h1 w1) h w c', h1=2,
+  // w1=2).shape (128, 15, 20, 3)
+  //
+  // # space-to-depth operation
+  // >>> rearrange(images, 'b (h h1) (w w1) c -> b h w (c h1 w1)', h1=2,
+  // w1=2).shape (32, 15, 20, 12)
+
+  llvm::SmallVector<llvm::StringRef> parts;
+  pattern.split(parts, "->");
+
+  assert(parts.size() == 2 &&
+         "RearrangeOp pattern must contain exactly one '->' separator.");
+
+  llvm::StringRef inputPattern = parts[0].trim();
+  llvm::StringRef outputPattern = parts[1].trim();
+
+  // Helper lambda to parse dimension names from a pattern.
+  auto parseDims = [](llvm::StringRef pattern)
+      -> llvm::SmallVector<llvm::SmallVector<llvm::StringRef>> {
+    llvm::SmallVector<llvm::SmallVector<llvm::StringRef>> result;
+    llvm::SmallVector<llvm::StringRef> currentGroup;
+    bool inParens = false;
+    size_t i = 0;
+
+    while (i < pattern.size()) {
+      char c = pattern[i];
+
+      if (c == '(') {
+        inParens = true;
+        i++;
+        continue;
+      }
+
+      if (c == ')') {
+        if (!currentGroup.empty()) {
+          result.push_back(currentGroup);
+          currentGroup.clear();
+        }
+        inParens = false;
+        i++;
+        continue;
+      }
+
+      if (c == ' ' && !inParens && !currentGroup.empty()) {
+        result.push_back(currentGroup);
+        currentGroup.clear();
+        i++;
+        continue;
+      }
+
+      if (c == ' ') {
+        i++;
+        continue;
+      }
+
+      // Parse dimension name.
+      size_t start = i;
+      while (i < pattern.size() && pattern[i] != ' ' && pattern[i] != ')' &&
+             pattern[i] != '(') {
+        i++;
+      }
+
+      if (i > start) {
+        currentGroup.push_back(pattern.substr(start, i - start));
+      }
+    }
+
+    if (!currentGroup.empty()) {
+      result.push_back(currentGroup);
+    }
+
+    return result;
+  };
+
+  auto inputDims = parseDims(inputPattern);
+  auto outputDims = parseDims(outputPattern);
+
+  // Build a map from dimension name to input position.
+  llvm::DenseMap<llvm::StringRef, unsigned> dimToInputPos;
+  unsigned pos = 0;
+  for (const auto &group : inputDims) {
+    if (group.size() > 1) {
+      // Input groups are currently unsupported.
+      return failure();
+    }
+
+    if (pos >= shape.size()) {
+      // OOB dimension position for provided shape.
+      return failure();
+    }
+
+    for (llvm::StringRef dim : group) {
+      dimToInputPos[dim] = pos;
+    }
+
+    pos++;
+  }
+
+  // Build the affine expressions for the output.
+  llvm::SmallVector<mlir::AffineExpr> exprs;
+  exprs.resize(inputDims.size(), nullptr);
+  for (const auto [groupPos, group] : llvm::enumerate(outputDims)) {
+    assert(!group.empty());
+    // For flattening like b h -> (b h)@d, we create inverse map: (d / h_size, d
+    // % h_size).
+    int64_t stride = 1;
+    mlir::AffineExpr expr = mlir::getAffineConstantExpr(0, context);
+    for (int64_t i = static_cast<int64_t>(group.size()) - 1; i >= 0; --i) {
+      unsigned dimPos = dimToInputPos[group[i]];
+      expr = mlir::getAffineDimExpr(groupPos, context).floorDiv(stride);
+      if (i > 0) {
+        expr = expr % shape[dimPos];
+      }
+      stride *= shape[dimPos];
+      exprs[dimPos] = expr;
+    }
+  }
+
+  return mlir::AffineMap::get(outputDims.size(), 0, exprs, context);
+}
+
+mlir::FailureOr<::mlir::AffineMap>
+mlir::tt::ttir::RearrangeOp::getInvPatternMap() {
+  return getInvPatternMap(
+      getContext(), getPattern(),
+      mlir::cast<ShapedType>(getInput().getType()).getShape());
+}
+
+//===----------------------------------------------------------------------===//
 // BroadcastOp
 //===----------------------------------------------------------------------===//
 
@@ -3426,6 +3624,53 @@ void mlir::tt::ttir::LinearOp::getCanonicalizationPatterns(
   return success();
 }
 
+// back to back producer-consumer RepeatOp can be folded
+// into a single RepeatOp.
+static mlir::OpFoldResult
+foldConsecutiveRepeat(mlir::tt::ttir::RepeatOp consumerOp) {
+
+  if (auto producerOp =
+          consumerOp.getInput().getDefiningOp<mlir::tt::ttir::RepeatOp>()) {
+
+    // If producerOp has multiple uses, do not fold
+    if (!producerOp->hasOneUse()) {
+      return nullptr;
+    }
+
+    mlir::RankedTensorType inputType = producerOp.getInput().getType();
+    size_t inputRank = static_cast<size_t>(inputType.getRank());
+
+    // Producer repeat dimensions
+    llvm::ArrayRef<int64_t> producerRepeatDims =
+        producerOp.getRepeatDimensions();
+
+    // Consumer repeat dimensions
+    llvm::ArrayRef<int64_t> consumerRepeatDims =
+        consumerOp.getRepeatDimensions();
+
+    llvm::SmallVector<int64_t> mergedRepeatDimensions(inputRank);
+    for (size_t i = 0; i < inputRank; ++i) {
+      mergedRepeatDimensions[i] = producerRepeatDims[i] * consumerRepeatDims[i];
+    }
+    llvm::ArrayRef<int64_t> mergedRepeatDimsRef(mergedRepeatDimensions);
+    consumerOp.setRepeatDimensions(mergedRepeatDimsRef);
+    consumerOp->setOperand(0, producerOp.getInput());
+    return consumerOp.getResult();
+  }
+
+  return nullptr;
+}
+
+// RepeatOp Folder
+mlir::OpFoldResult mlir::tt::ttir::RepeatOp::fold(FoldAdaptor fold) {
+
+  if (auto foldResult = foldConsecutiveRepeat(*this)) {
+    return foldResult;
+  }
+
+  return nullptr;
+}
+
 //===----------------------------------------------------------------------===//
 // RepeatInterleaveOp
 //===----------------------------------------------------------------------===//
@@ -4121,16 +4366,36 @@ void mlir::tt::ttir::ReverseOp::getCanonicalizationPatterns(
 
 // PermuteOp with identity permutation is a no-op.
 // The input can be used directly as the output.
+// This includes:
+// 1. Sorted permutations like [0, 1, 2, 3]
+// 2. Permutations where all swapped dimensions have size 1
+//    (e.g., [2, 0, 1, 3] on shape 1x1x1x64 is a no-op)
 static mlir::OpFoldResult foldIdentityPermute(mlir::tt::ttir::PermuteOp op) {
+  // Case 1: True identity permutation (sorted)
   if (llvm::is_sorted(op.getPermutation())) {
     return op.getInput();
   }
-  return nullptr;
+
+  // Case 2: All non-identity dimension swaps are between dims of size 1
+  auto inputShape = op.getInput().getType().getShape();
+  for (auto [index, permuteIndex] : llvm::enumerate(op.getPermutation())) {
+    if (permuteIndex != static_cast<int64_t>(index)) {
+      // This dim position is changed - check if both dims involved are size 1
+      if (inputShape[index] != 1 || inputShape[permuteIndex] != 1) {
+        return nullptr; // Non-trivial swap
+      }
+    }
+  }
+  return op.getInput();
 }
 
 // If the producer is a PermuteOp we can compose the permutation attributes
 // into `op`, and set the input to the producers input.
 static mlir::OpFoldResult foldConsecutivePermute(mlir::tt::ttir::PermuteOp op) {
+  // Don't fold decomposed permutes - they were intentionally split.
+  if (op->hasAttr("decomposed")) {
+    return nullptr;
+  }
   if (auto producerOp =
           op.getInput().getDefiningOp<mlir::tt::ttir::PermuteOp>()) {
     llvm::SmallVector<int64_t> composedPermutation =

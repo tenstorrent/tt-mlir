@@ -3,8 +3,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import ast
+from typing import Literal
+
 from ttnn_jit._src.ttir_ast import TTIRCompiler
 from ttnn_jit._src.graph_trace_compiler import GraphToIRTranslator
+from ttnn_jit._src.tracing_compiler import TracingCompiler
 from ttnn_jit._src.return_modifier import create_modified_function
 
 from ttnn._ttnn.graph import (
@@ -42,8 +45,13 @@ def generate_ir_from_graph(f, debug, *args, **kwargs):
     # Create a modified version of f with ttnn.identity calls before returns
     g = create_modified_function(f)
 
+    # Filter out internal kwargs (like _tensor_args) before calling the function
+    # These are used by the compiler but shouldn't be passed to the actual function
+    internal_kwargs = {"_tensor_args"}
+    function_kwargs = {k: v for k, v in kwargs.items() if k not in internal_kwargs}
+
     begin_graph_capture(RunMode.NO_DISPATCH)
-    g(*args)
+    g(*args, **function_kwargs)
     captured_graph = end_graph_capture()
     # visualize(captured_graph, file_name=f.__name__ + "_graph.svg")
 
@@ -55,6 +63,13 @@ def generate_ir_from_graph(f, debug, *args, **kwargs):
 
     print_and_verify_ir(ir, "GraphToIRTranslator (Graph-based)", debug)
 
+    return ir
+
+
+def generate_ir_from_tracing(f, debug, *args, **kwargs):
+    compiler = TracingCompiler(f, *args, **kwargs)
+    ir = compiler.compile()
+    print_and_verify_ir(ir, "TracingCompiler (Tracing-based)", debug)
     return ir
 
 
@@ -80,8 +95,17 @@ def compare_ir(ir_graph, ir_ast):
     assert ir_str_graph == ir_str_ast, "IRs are different"
 
 
-def generate_ir(graph_capture, source_code, f, debug, *args, **kwargs):
-    if graph_capture:
+def generate_ir(
+    frontend: Literal["ast", "graph_capture", "tracing"],
+    source_code,
+    f,
+    debug,
+    *args,
+    **kwargs,
+):
+    if frontend == "tracing":
+        return generate_ir_from_tracing(f, debug, *args, **kwargs)
+    elif frontend == "graph_capture":
         return generate_ir_from_graph(f, debug, *args, **kwargs)
-    else:
+    else:  # frontend == "ast"
         return generate_ir_from_ast(source_code, debug, *args, **kwargs)

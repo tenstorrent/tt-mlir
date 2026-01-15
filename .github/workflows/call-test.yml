@@ -41,7 +41,7 @@ jobs:
 
     container:
       image: ${{ matrix.build.sh-run && format('harbor.ci.tenstorrent.net/{0}', inputs.docker_image) || inputs.docker_image }}
-      options: ${{ matrix.build.container-options || '--device /dev/tenstorrent' }}
+      options: ${{ matrix.build.no-device && ' ' || '--device /dev/tenstorrent' }}
       volumes:
         - /dev/hugepages:/dev/hugepages
         - /dev/hugepages-1G:/dev/hugepages-1G
@@ -111,6 +111,8 @@ jobs:
         source env/activate
         if [ "${{ matrix.build.runs-on }}" == "tg" ] || [ "${{ matrix.build.runs-on }}" == "p150" ]; then
           ttrt query --save-artifacts --disable-eth-dispatch
+        elif [ "${{ matrix.build.runs-on }}" == "builder" ]; then
+          echo "Running on builder, skipping system descriptor generation"
         else
           ttrt query --save-artifacts
         fi
@@ -129,8 +131,10 @@ jobs:
         mkdir -p test_reports
         rm -rf ttrt_results || true
         mkdir -p ttrt_results
-        llvm-lit --filter-out="optimizer" --xunit-xml-output ${{ steps.strings.outputs.work-dir }}/test_reports/report_lit_${{matrix.build.runs-on}}_${{ matrix.build.image }}_${{strategy.job-index}}_${{steps.fetch-job-id.outputs.job_id}}.xml \
-          ${{ steps.strings.outputs.build-output-dir }}/test
+        if [ "${{ matrix.build.runs-on }}" != "builder" ]; then
+          llvm-lit --filter-out="optimizer|ttnn-jit" --xunit-xml-output ${{ steps.strings.outputs.work-dir }}/test_reports/report_lit_${{matrix.build.runs-on}}_${{ matrix.build.image }}_${{strategy.job-index}}_${{steps.fetch-job-id.outputs.job_id}}.xml \
+            ${{ steps.strings.outputs.build-output-dir }}/test
+        fi
 
     - name: Run Tests
       shell: bash

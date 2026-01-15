@@ -78,16 +78,21 @@ def get_target_path(output_path, builder_dir, filename, target):
     return os.path.join(target_dir, filename)
 
 
-def emitc_to_executable(module, filepath: str, golden_map, module_cache):
-    py = translate_to_cpp(module)
-    with open(filepath, "w") as f:
-        f.write(py)
+def get_artifact_dir(output_root, builder_type, test_base, make_dir=True):
+    artifact_path = os.path.join(
+        output_root, "builder-artifacts", builder_type, test_base
+    )
+    if make_dir and not os.path.exists(artifact_path):
+        os.makedirs(artifact_path)
+    return artifact_path
 
 
-def emitpy_to_executable(module, filepath: str, golden_map, module_cache):
-    cpp = translate_to_python(module)
-    with open(filepath, "w") as f:
-        f.write(cpp)
+def emitc_to_executable(module):
+    return translate_to_cpp(module)
+
+
+def emitpy_to_executable(module):
+    return translate_to_python(module)
 
 
 def _convert_to_mlir_value(obj):
@@ -142,7 +147,7 @@ def run_ttir_pipeline(
     module,
     pipeline_fn: Callable,
     pipeline_options: Optional[List[str]] = None,
-    dump_to_file: bool = True,
+    save_artifacts: bool = False,
     output_file_name: str = "test.mlir",
     system_desc_path: Optional[str] = None,
     mesh_dict: OrderedDict[str, int] = OrderedDict([("x", 1), ("y", 1)]),
@@ -170,7 +175,7 @@ def run_ttir_pipeline(
     pipeline_fn(module, " ".join(pipeline_options))
 
     # Optionally dump to file.
-    if dump_to_file:
+    if save_artifacts:
         with open(output_file_name, "w") as f:
             f.write(str(module))
 
@@ -188,6 +193,7 @@ def get_metal_tensor_layout(
     memory_layout: Optional[
         ttcore.TensorMemoryLayout
     ] = ttcore.TensorMemoryLayout.Sharded,
+    dim_alignments: Optional[Tuple[int, ...]] = None,
 ) -> RankedTensorType:
     """
     Create a metal tensor layout.
@@ -211,12 +217,18 @@ def get_metal_tensor_layout(
         Grid shape for sharding
     index_map : Optional[AffineMap]
         Optional affine map for layout transformation
+    dim_alignments : Optional[Tuple[int, ...]]
+        Optional explicit dimension alignments. When specified, the tensor
+        will be padded to these alignments regardless of tile size. Useful
+        for testing masking of complete out-of-bounds tiles.
 
     Returns
     -------
     RankedTensorType
         The metal tensor type with layout
     """
+    import numpy as np
+
     # Create grid shape by 1s filling logical rank.
     if grid is None:
         original_rank = len(logical_shape)
@@ -225,7 +237,27 @@ def get_metal_tensor_layout(
         grid_shape = list(grid)
 
     # Create layout with original logical shape.
-    if index_map is None:
+    if dim_alignments is not None:
+        # Use 8-arg overload with explicit dim_alignments.
+        # Create collapse_intervals as [[0, rank-1]] (collapse all dims).
+        rank = len(logical_shape)
+        intervals_np = np.array([[0, rank - 1]], dtype=np.int64)
+        collapse_intervals = DenseElementsAttr.get(intervals_np)
+
+        if index_map is None:
+            index_map = AffineMap.get_identity(2 * rank, ctx)
+
+        layout = ttcore.ir.MetalLayoutAttr.get(
+            ctx,
+            logical_shape,
+            oobVal,
+            memorySpace,
+            memory_layout,
+            collapse_intervals,
+            list(dim_alignments),
+            index_map,
+        )
+    elif index_map is None:
         layout = ttcore.ir.MetalLayoutAttr.get(
             ctx, logical_shape, oobVal, memorySpace, memory_layout
         )
@@ -258,9 +290,16 @@ def get_metal_tensor_layout(
     if tiled:
         elemType = ttcore.ir.TileType.get(ctx, 32, 32, ttcore.DataType.Float32)
         if grid is None or grid == (1, 1):
-            # For default 1x1 grid, use exact tile count.
-            tile_count_h = (logical_shape[-2] + 31) // 32
-            tile_count_w = (logical_shape[-1] + 31) // 32
+            # For default 1x1 grid, use tile count based on aligned shape.
+            # If dim_alignments is specified, use that; otherwise use logical_shape.
+            if dim_alignments is not None:
+                aligned_h = dim_alignments[-2]
+                aligned_w = dim_alignments[-1]
+            else:
+                aligned_h = logical_shape[-2]
+                aligned_w = logical_shape[-1]
+            tile_count_h = (aligned_h + 31) // 32
+            tile_count_w = (aligned_w + 31) // 32
             device_shape[-2] = tile_count_h
             device_shape[-1] = tile_count_w
         else:

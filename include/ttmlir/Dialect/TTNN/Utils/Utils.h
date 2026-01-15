@@ -101,6 +101,10 @@ createShardSpecIfNeeded(TensorMemoryLayoutAttr tensorMemoryLayout,
                         mlir::tt::ttcore::GridAttr shardGrid,
                         mlir::tt::ttcore::GridAttr deviceGrid);
 
+// Helper method to create a NDShardSpecAttr if needed.
+std::optional<NDShardSpecAttr>
+createNDShardSpecIfNeeded(TTNNNDLayoutAttr layout);
+
 bool isTTNNTraceFunc(func::FuncOp funcOp);
 bool isTTNNHoistGenericViaD2MOp(mlir::Operation *op);
 
@@ -129,6 +133,16 @@ bool producesShardedL1Layout(Operation *op);
 bool hasFirstOperandInDRAM(Operation *op);
 
 mlir::RankedTensorType getTraceIdType(MLIRContext *ctx);
+
+// Convert activation string to UnaryWithParamAttr.
+// Returns nullptr if activation is not set or not recognized.
+UnaryWithParamAttr getActivationAttr(MLIRContext *ctx,
+                                     std::optional<StringRef> activation);
+
+// Compute the bounding box grid dimensions from a layout's shard grid.
+// Returns {gridX, gridY} representing the physical core grid extent.
+std::pair<int64_t, int64_t> getPhysicalGridDimensions(TTNNLayoutAttr layout);
+
 } // namespace mlir::tt::ttnn::utils
 
 #endif // TTMLIR_DIALECT_TTNN_UTILS_UTILS_H

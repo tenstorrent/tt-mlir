@@ -262,7 +262,9 @@ public:
 
       template_args.push_back(packTileOp.getOutOfOrderAttr());
       return ArrayAttr::get(op.getContext(), template_args);
-    } else if constexpr (std::is_same_v<SourceOp, ttkernel::TypecastTileOp>) {
+    } else if constexpr (std::is_same_v<SourceOp, ttkernel::TypecastTileOp> ||
+                         std::is_same_v<SourceOp,
+                                        ttkernel::TypecastTileInitOp>) {
       SmallVector<Attribute, 2> template_args;
       template_args.push_back(
           datatypeToDataformatEnumValue(builder, op.getInDtype()));
@@ -533,29 +535,59 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     if (op.getResult().getUses().empty()) {
       rewriter.eraseOp(op);
-    } else {
-      auto name = op.getOperation()->getName().getStringRef().drop_front(9);
-
-      // cta and crta are both passed through the template instead of operands
-      ValueRange operands;
-      SmallVector<Attribute, 2> template_args;
-      auto cta_base = op.getCtaBase();
-      auto crta_base = op.getCrtaBase();
-      auto cta_base_attr = cta_base.getDefiningOp<arith::ConstantOp>();
-      auto crta_base_attr = crta_base.getDefiningOp<arith::ConstantOp>();
-      if (!cta_base_attr || !crta_base_attr) {
-        llvm_unreachable(
-            "MakeTensorAccessorArgsOp should have constant operands");
-      }
-      template_args.push_back(cta_base_attr.getValue());
-      template_args.push_back(crta_base_attr.getValue());
-
-      rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-          op, this->getTypeConverter()->convertType(op->getResultTypes()[0]),
-          name, nullptr, ArrayAttr::get(op.getContext(), template_args),
-          operands);
+      return success();
     }
 
+    // Generate unique variable name from SSA number (pattern from
+    // TTKernelClassMethodRewriter).
+    std::string ssaName;
+    llvm::raw_string_ostream os(ssaName);
+    mlir::OpPrintingFlags flags;
+    op->getResult(0).printAsOperand(os, flags);
+    os.flush();
+    std::string varName = "tensor_accessor_args_" + ssaName.substr(1);
+
+    // Build CTA/CRTA expression with priority: expr attr > chaining > literal.
+    auto buildArgExpr = [&](StringAttr exprAttr, Value baseValue,
+                            StringRef chainMethodName) -> std::string {
+      if (exprAttr) {
+        // Explicit constexpr string expression (overrides chaining).
+        return exprAttr.getValue().str();
+      }
+      if (op.getPrevArgs()) {
+        // Chaining from previous accessor.
+        auto prevLiteral =
+            adaptor.getPrevArgs().getDefiningOp<emitc::LiteralOp>();
+        TT_assertv(prevLiteral,
+                   "prev_args should be emitc.literal after conversion.");
+        return prevLiteral.getValue().str() + "." + chainMethodName.str() +
+               "()";
+      }
+      // Literal integer constant (verifier ensures this is a constant).
+      auto baseAttr = baseValue.getDefiningOp<arith::ConstantOp>();
+      TT_assertv(baseAttr, "base should be constant.");
+      return std::to_string(cast<IntegerAttr>(baseAttr.getValue()).getInt());
+    };
+
+    std::string ctaArg = buildArgExpr(op.getCtaExprAttr(), op.getCtaBase(),
+                                      "next_compile_time_args_offset");
+    std::string crtaArg = buildArgExpr(op.getCrtaExprAttr(), op.getCrtaBase(),
+                                       "next_common_runtime_args_offset");
+
+    // Emit: auto tensor_accessor_args_N = TensorAccessorArgs<ctaArg,
+    // crtaArg>();
+    std::string code = "auto " + varName + " = TensorAccessorArgs<" + ctaArg +
+                       ", " + crtaArg + ">();";
+    rewriter.create<emitc::VerbatimOp>(op.getLoc(), code);
+
+    // Create literal to reference the variable (pattern from
+    // TTKernelClassMethodRewriter).
+    auto resultType =
+        this->getTypeConverter()->convertType(op->getResultTypes()[0]);
+    auto literalOp =
+        rewriter.create<emitc::LiteralOp>(op.getLoc(), resultType, varName);
+
+    rewriter.replaceOp(op, literalOp.getResult());
     return success();
   }
 };
@@ -676,6 +708,83 @@ public:
 
     rewriter.replaceOpWithNewOp<arith::DivSIOp>(op, op.getResult().getType(),
                                                 op.getOperands());
+
+    return success();
+  }
+};
+
+// Convert arith.bitcast to a call to float_to_bits helper.
+// This is needed for scalar tile ops that pass float values as integer params.
+// The helper function is defined in TTKernelToCpp.cpp during code generation.
+class ArithBitcastRewriter : public OpConversionPattern<arith::BitcastOp> {
+public:
+  using OpConversionPattern<arith::BitcastOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(arith::BitcastOp op, arith::BitcastOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Type resultType = getTypeConverter()->convertType(op.getResult().getType());
+    if (!resultType) {
+      return failure();
+    }
+
+    // Call the float_to_bits helper which uses memcpy to bitcast float to int.
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        op, resultType, "float_to_bits",
+        /*args=*/nullptr,
+        /*templateArgs=*/nullptr, adaptor.getOperands());
+
+    return success();
+  }
+};
+
+// Rewriter for scalar unary tile ops (add_unary_tile, mul_unary_tile, etc).
+// These ops take a tile index and a scalar parameter. The custom GCC may not
+// see the data dependency between the scalar value and the SFPU intrinsic,
+// potentially optimizing away the scalar computation.
+//
+// We bounce the scalar through a volatile variable to prevent this:
+//   volatile int32_t __scalar = param;
+//   mul_unary_tile(idx, __scalar);
+template <typename SourceOp, typename Adaptor = typename SourceOp::Adaptor>
+class TTKernelScalarUnaryTileOpRewriter : public OpConversionPattern<SourceOp> {
+public:
+  TTKernelScalarUnaryTileOpRewriter(TTKernelToEmitCTypeConverter &typeConverter,
+                                    MLIRContext *ctx)
+      : OpConversionPattern<SourceOp>(typeConverter, ctx) {}
+
+  StringRef getOpName(SourceOp op) const {
+    auto name = op.getOperation()->getName().getStringRef();
+    if (name.starts_with("ttkernel.")) {
+      return name.drop_front(9);
+    }
+    return name;
+  }
+
+  LogicalResult
+  matchAndRewrite(SourceOp op, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto operands = adaptor.getOperands();
+    // Expect (dst_index, scalar_param).
+    if (operands.size() != 2) {
+      return rewriter.notifyMatchFailure(
+          op, "Expected exactly 2 operands for scalar unary tile op");
+    }
+
+    Value dstIndex = operands[0];
+    Value scalarParam = operands[1];
+
+    // Use verbatim to emit the volatile bounce directly.
+    // This works around EmitC's strict type checking, and avoid sfpi-gcc bug.
+    //
+    // Emits: { volatile int32_t __s = <scalar>; <op>(<idx>, __s); }
+    // Note that apparently "{{" produces "{" but "}" is not escaped in EmitC.
+    std::string code =
+        "{{ volatile int32_t __s = {}; " + getOpName(op).str() + "({}, __s); }";
+    rewriter.create<emitc::VerbatimOp>(op->getLoc(),
+                                       rewriter.getStringAttr(code),
+                                       ValueRange{scalarParam, dstIndex});
+    rewriter.eraseOp(op);
 
     return success();
   }
@@ -809,10 +918,10 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::CosTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::AddBinaryTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::AddBinaryTilesOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::AddUnaryTileOp>,
+        TTKernelScalarUnaryTileOpRewriter<ttkernel::AddUnaryTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::DivBinaryTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::DivBinaryTilesOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::DivUnaryTileOp>,
+        TTKernelScalarUnaryTileOpRewriter<ttkernel::DivUnaryTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ErfTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ErfTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ErfcTileInitOp>,
@@ -851,10 +960,10 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::LezTileI32Op>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MulBinaryTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MulBinaryTilesOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::MulUnaryTileOp>,
+        TTKernelScalarUnaryTileOpRewriter<ttkernel::MulUnaryTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SubBinaryTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SubBinaryTilesOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::SubUnaryTileOp>,
+        TTKernelScalarUnaryTileOpRewriter<ttkernel::SubUnaryTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryMaxTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryMaxTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryMinTileInitOp>,
@@ -970,7 +1079,8 @@ public:
             ttkernel::InterleavedAddrGenFastGetNocAddrOp>>(typeConverter,
                                                            funcOp.getContext());
 
-    patterns.add<ArithFloorDivRewriter>(typeConverter, funcOp.getContext());
+    patterns.add<ArithFloorDivRewriter, ArithBitcastRewriter>(
+        typeConverter, funcOp.getContext());
 
     return applyFullConversion(funcOp, target, std::move(patterns));
   }

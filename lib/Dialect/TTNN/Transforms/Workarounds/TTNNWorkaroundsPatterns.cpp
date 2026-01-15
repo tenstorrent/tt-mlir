@@ -24,6 +24,8 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LinearOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/MultiplyOpDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/PagedUpdateCacheOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/PointToPointOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RMSNormConfigRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceScatterOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RotaryEmbeddingOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScaledDotProductAttentionDecodeConfigRewritePattern.h"
@@ -590,7 +592,9 @@ public:
           workarounds::decomposition::
               ScaledDotProductAttentionDecodeConfigRewritePattern,
           workarounds::decomposition::
-              ScaledDotProductAttentionPadTileDimsRewritePattern>(
+              ScaledDotProductAttentionPadTileDimsRewritePattern,
+          workarounds::decomposition::PointToPointOpRewritePattern,
+          workarounds::decomposition::RMSNormConfigRewritePattern>(
           &getContext());
 
       runRewritePatterns(std::move(patterns),

@@ -63,6 +63,17 @@ cd /tmp/test-generate-python
 [ -d /tmp/test-generate-python ] || { echo "Directory not found: /tmp/test-generate-python" >&2; exit 1; }
 # ./run  # TODO: enable when fixed
 
+echo "Run tt-alchemist API test - generate-python (TTNN input)"
+# First convert TTIR to TTNN using ttmlir-opt
+TTNN_MLIR=/tmp/test-ttnn-input.mlir
+ttmlir-opt --ttir-to-ttnn-backend-pipeline $WORK_DIR/tools/tt-alchemist/test/models/add.mlir -o $TTNN_MLIR
+# Then run tt-alchemist on the TTNN input
+rm -rf /tmp/test-generate-python-ttnn
+tt-alchemist generate-python $TTNN_MLIR --output /tmp/test-generate-python-ttnn
+cd /tmp/test-generate-python-ttnn
+[ -d /tmp/test-generate-python-ttnn ] || { echo "Directory not found: /tmp/test-generate-python-ttnn" >&2; exit 1; }
+# ./run  # TODO: enable when fixed
+
 echo "Test Passed. Doing cleanup"
 deactivate
 rm -rf testenv
@@ -77,6 +88,7 @@ export LD_LIBRARY_PATH="$INSTALL_DIR/tools/tt-alchemist/test:$INSTALL_DIR/lib:$I
 # Add paths to PYTHONPATH: test directory for test_model.py, ttnn and tt-metal for the ttnn module
 export PYTHONPATH="$INSTALL_DIR/tools/tt-alchemist/test:$INSTALL_DIR/tt-metal/ttnn:$INSTALL_DIR/tt-metal:${PYTHONPATH:-}"
 cd "$INSTALL_DIR/tools/tt-alchemist/test"
+
 
 echo "Run test_python_runner_simple"
 ./test_python_runner_simple

@@ -206,11 +206,16 @@ std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
                                           bool untilize = false,
                                           bool blocking = true);
 
+std::vector<::tt::runtime::Tensor>
+getDeviceTensors(::tt::runtime::Tensor tensor);
+
 ::tt::runtime::Tensor toLayout(::tt::runtime::Tensor tensor, Device device,
                                Layout layout,
                                std::optional<bool> retain = std::nullopt);
 
 bool hasLayout(Tensor tensor, Layout layout);
+
+Layout getTensorLayout(Tensor tensor);
 
 Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
                  std::uint32_t inputIndex);

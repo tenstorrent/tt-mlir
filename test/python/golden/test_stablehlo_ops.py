@@ -5,6 +5,7 @@
 import pytest
 import torch
 from typing import Callable, List, Optional, Tuple
+from collections import OrderedDict
 
 from builder.base.builder_utils import Operand, Shape, TypeInfo
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
@@ -229,14 +230,14 @@ def module_log(builder: StableHLOBuilder):
 
 def module_and_int(builder: StableHLOBuilder):
     @builder.func([(128, 128), (128, 128)], [torch.int32, torch.int32])
-    def and_(
+    def logical_and(
         in0: Operand,
         in1: Operand,
         builder: StableHLOBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
         builder.set_graph_level_check(True)
-        return builder.and_(in0, in1, unit_attrs=unit_attrs)
+        return builder.logical_and(in0, in1, unit_attrs=unit_attrs)
 
 
 def module_or_int(builder: StableHLOBuilder):
@@ -265,14 +266,14 @@ def module_xor_int(builder: StableHLOBuilder):
 
 def module_and_bool(builder: StableHLOBuilder):
     @builder.func([(128, 128), (128, 128)], [torch.bool, torch.bool])
-    def and_(
+    def logical_and(
         in0: Operand,
         in1: Operand,
         builder: StableHLOBuilder,
         unit_attrs: Optional[List[str]] = None,
     ):
         builder.set_graph_level_check(True)
-        return builder.and_(in0, in1, unit_attrs=unit_attrs)
+        return builder.logical_and(in0, in1, unit_attrs=unit_attrs)
 
 
 def module_or_bool(builder: StableHLOBuilder):
@@ -382,7 +383,6 @@ def module_subtract(builder: StableHLOBuilder):
         builder.set_graph_level_check(True)
         return builder.subtract(in0, in1, unit_attrs=unit_attrs)
 
-
 def module_broadcast_in_dim(builder: StableHLOBuilder):
     @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
     def broadcast_in_dim(
@@ -484,26 +484,26 @@ def test_unary_ops(
 
 
 _RESHAPE_CASES = [
-    # shapes, semantic id, xfail_ttmetal?
+    # shapes, semantic id, skip_ttmetal?
     ([(2, 3), (3, 2)], "swap", True),
     ([(2, 3), (6,)], "flatten", True),
     ([(1, 784), (1, 28, 28)], "unflatten", True),
     ([(4, 8, 16), (4, 128)], "3d_to_2d", True),
     ([(64, 512), (64, 1, 512)], "expand_dims", True),
     ([(128, 128), (64, 256)], "rearrange_2d", True),
-    ([(10,), (10,)], "identity", False),
+    ([(10,), (10,)], "identity", True),
     ([(0, 6), (0, 2, 3)], "zero_dim", True),
 ]
 
 _RESHAPE_PARAMS = []
-for shapes, case_id, xfail_ttmetal in _RESHAPE_CASES:
+for shapes, case_id, skip_ttmetal in _RESHAPE_CASES:
     # ttnn: expected to pass
     _RESHAPE_PARAMS.append(pytest.param(shapes, "ttnn", id=f"{case_id}-ttnn"))
-    # ttmetal: mark as xfail for cases known to be unsupported
+    # ttmetal: skip cases known to be unsupported
     marks = []
-    if xfail_ttmetal:
+    if skip_ttmetal:
         marks.append(
-            pytest.mark.xfail(
+            pytest.mark.skip(
                 reason="reshape lowering not yet supported in TTMetal backend"
             )
         )
@@ -677,6 +677,50 @@ def test_transpose(
     )
 
 
+@pytest.mark.parametrize("shape", [(2, 3)], ids=shape_str)
+@pytest.mark.parametrize("padding", [[1, 1, 1, 1], [1, 0, 0, 1]])
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize(
+    "target",
+    [
+        "ttnn",
+        pytest.param(
+            "ttmetal",
+            marks=pytest.mark.skip(
+                reason="ttir.pad lowering not supported on ttmetal, failed to legalize"
+            ),
+        ),
+    ],
+)
+def test_pad(
+    shape: Shape,
+    padding: List[int],
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: StableHLOBuilder):
+        @builder.func([shape], [dtype])
+        def pad(
+            in0: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            # 0-rank tensor constant
+            padding_value = builder.constant(torch.tensor(0.0, dtype=dtype))
+            return builder.pad(in0, padding_value, padding, unit_attrs=unit_attrs)
+
+    compile_and_execute_shlo(
+        module,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
 @pytest.mark.parametrize(
     "shapes,dim",
     [
@@ -811,7 +855,7 @@ def test_logical_unary_ops(
     ids=["128x128_basic", "128x128_offset", "128x128_stride", "256x256_large"],
 )
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("target", ["ttnn", "ttmetal"])
 def test_slice(
     shape: Shape,
     start_indices: List[int],
@@ -1170,6 +1214,185 @@ def test_select(target: str, request, device):
     )
 
 
+def module_batch_norm_training(builder: StableHLOBuilder):
+    @builder.func(
+        [(1, 32, 64, 64), (64,), (64,)],
+        [torch.float32, torch.float32, torch.float32],
+    )
+    def batch_norm_training(
+        operand: Operand,
+        scale: Operand,
+        offset: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.batch_norm_training(
+            operand, scale, offset, epsilon=1e-5, feature_index=3
+        )
+
+
+def module_batch_norm_inference(builder: StableHLOBuilder):
+    @builder.func(
+        [(1, 32, 64, 64), (64,), (64,), (64,), (64,)],
+        [torch.float32] * 5,
+    )
+    def batch_norm_inference(
+        operand: Operand,
+        scale: Operand,
+        offset: Operand,
+        mean: Operand,
+        variance: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.batch_norm_inference(
+            operand,
+            scale,
+            offset,
+            mean,
+            variance,
+            epsilon=1e-5,
+            feature_index=3,
+        )
+
+
+def module_batch_norm_grad(builder: StableHLOBuilder):
+    @builder.func(
+        [(1, 32, 64, 64), (64,), (64,), (64,), (1, 32, 64, 64)],
+        [torch.float32] * 5,
+    )
+    def batch_norm_grad(
+        operand: Operand,
+        scale: Operand,
+        mean: Operand,
+        variance: Operand,
+        grad_output: Operand,
+        builder: StableHLOBuilder,
+        unit_attrs: Optional[List[str]] = None,
+    ):
+        builder.set_graph_level_check(True)
+        return builder.batch_norm_grad(
+            operand,
+            scale,
+            mean,
+            variance,
+            grad_output,
+            epsilon=1e-5,
+            feature_index=3,
+        )
+
+
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize(
+    "test_fn",
+    [
+        module_batch_norm_training,
+    ],
+)
+def test_batch_norm_training_op(test_fn: Callable, target: str, request, device):
+    # Disable fp32 accumulation for this test to maintain expected PCC
+    pipeline_options = ["compute-cfg-fp32-dest-acc-en=false"]
+
+    compile_and_execute_shlo(
+        test_fn,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+        ttir_pipeline_options=pipeline_options,
+    )
+
+
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize(
+    "test_fn",
+    [
+        module_batch_norm_inference,
+    ],
+)
+def test_batch_norm_inference_op(test_fn: Callable, target: str, request, device):
+    compile_and_execute_shlo(
+        test_fn,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize(
+    "test_fn",
+    [
+        module_batch_norm_grad,
+    ],
+)
+def test_batch_norm_grad_op(test_fn: Callable, target: str, request, device):
+    compile_and_execute_shlo(
+        test_fn,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_all_gather(target: str, request, device):
+    def module_all_gather(builder: StableHLOBuilder):
+        @builder.func([(1, 1, 32, 32)], [torch.float32])
+        def my_modela(in0: Operand, builder: StableHLOBuilder):
+            def single_device_func(in0: Operand, builder: StableHLOBuilder):
+                all_gather0 = builder.all_gather(in0, 3, [[0]])
+                return all_gather0
+
+            tensor_sharding_attr = builder.tensor_sharding_attr(
+                mesh_name="mesh",
+                dimension_shardings=[
+                    builder.dimension_sharding_attr(
+                        axes=[],
+                        is_closed=True,
+                    ),
+                    builder.dimension_sharding_attr(
+                        axes=[],
+                        is_closed=True,
+                    ),
+                    builder.dimension_sharding_attr(
+                        axes=[builder.axis_ref_attr(name="x")],
+                        is_closed=True,
+                    ),
+                    builder.dimension_sharding_attr(
+                        axes=[builder.axis_ref_attr(name="y")],
+                        is_closed=True,
+                    ),
+                ],
+            )
+
+            manual_computation_op0 = builder.manual_computation(
+                single_device_func,
+                [in0],
+                in_shardings=[tensor_sharding_attr],
+                out_shardings=[tensor_sharding_attr],
+                manual_axes=["x", "y"],
+            )
+            return manual_computation_op0
+
+    compile_and_execute_shlo(
+        module_all_gather,
+        test_base=request.node.name,
+        output_root=request.config.getoption("--path"),
+        system_desc_path=request.config.getoption("--sys-desc"),
+        target=target,
+        device=device,
+        mesh_dict=OrderedDict([("x", 1), ("y", 1)]),
+    )
+
+    
 @pytest.mark.parametrize("shape", [(128,)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn"])

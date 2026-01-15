@@ -98,4 +98,33 @@ module @test_conv_transpose {
     // CHECK-SAME: -> tensor<1x32x1x25600xf32>
     return %5 : tensor<1x32x1x25600xf32>
   }
+   func.func @grouped_conv_transpose2d(%arg0: tensor<1x7x7x1088xf32>, %arg1: tensor<3x3x1088x64xf32>) -> tensor<1x14x14x1088xf32> {
+    // CHECK: "ttir.reshape"
+    // CHECK-SAME: (tensor<64x1088x3x3xf32>) -> tensor<64x17x64x3x3xf32>
+    // CHECK: "ttir.permute"
+    // CHECK-SAME: <{permutation = array<i64: 1, 0, 2, 3, 4>}>
+    // CHECK: "ttir.reshape"
+    // CHECK-SAME: (tensor<17x64x64x3x3xf32>) -> tensor<1088x64x3x3xf32>
+    // CHECK: "ttir.conv_transpose2d"
+    %0 = "ttir.convolution"(%arg0, %arg1) <{
+        batch_group_count = 1 : i64,
+        convolution_layout = #ttir<
+            convolution_layout input_batch = 0,
+            input_feature = 3,
+            input_spatial_dimensions = 1x2,
+            kernel_output_feature = 2,
+            kernel_input_feature = 3,
+            kernel_spatial_dimensions = 0x1,
+            output_batch = 0,
+            output_feature = 3,
+            output_spatial_dimensions = 1x2>,
+        feature_group_count = 17 : i64,
+        input_dilation = array<i64: 2, 2>,
+        padding = array<i64: 1, 2, 1, 2>,
+        weight_dilation = array<i64: 1, 1>,
+        window_reversal = array<i1: false, false>,
+        window_strides = array<i64: 1, 1>
+        }> : (tensor<1x7x7x1088xf32>, tensor<3x3x1088x64xf32>) -> tensor<1x14x14x1088xf32>
+    return %0 : tensor<1x14x14x1088xf32>
+    }
 }

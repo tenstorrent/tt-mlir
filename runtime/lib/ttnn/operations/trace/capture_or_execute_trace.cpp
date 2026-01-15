@@ -11,6 +11,7 @@
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/types.h"
 #include "tt/runtime/workarounds.h"
+#include "ttnn/tensor/tensor_impl.hpp"
 
 namespace tt::runtime::ttnn::operations::trace {
 
@@ -28,14 +29,14 @@ static void copyTensor(const ::tt::target::ttnn::TensorRef *srcTensorDesc,
                        ::ttnn::Tensor &dstTensor) {
 
   if (::tt::runtime::ttnn::utils::inSystemMemory(srcTensorDesc)) {
-    ::tt::tt_metal::write_tensor(srcTensor, dstTensor, /*blocking=*/false);
+    ::tt::tt_metal::tensor_impl::copy_to_device(srcTensor, dstTensor);
     return;
   }
 
   LOG_ASSERT(::tt::runtime::workaround::Env::get().traceImplicitFromDevice,
              "traceImplicitFromDevice workaround must be enabled.");
   ::ttnn::Tensor hostSrcTensor = ::ttnn::from_device(srcTensor);
-  ::tt::tt_metal::write_tensor(hostSrcTensor, dstTensor, /*blocking=*/false);
+  ::tt::tt_metal::tensor_impl::copy_to_device(hostSrcTensor, dstTensor);
 }
 
 static void runTraceProgramAndCaptureTrace(

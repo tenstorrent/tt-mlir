@@ -746,6 +746,56 @@ private:
           static_cast<int32_t>(adaptor.getInputDilation()[SPATIAL_DIM_HEIGHT]),
           static_cast<int32_t>(adaptor.getInputDilation()[SPATIAL_DIM_WIDTH]),
       });
+
+      if (int64_t groups = adaptor.getFeatureGroupCount(); groups > 1) {
+        // Stablehlo.convolution/ttir.convolution op weights are in the format:
+        // (C/G, O, K_H, K_W). Torch and TTNN expect the weights to be in the
+        // format (C, O/G, K_H, K_W). Therefore it is necessary to transform the
+        // weights.
+        // (C/G, O, K_H, K_W) -> (C/G, G, O/G, K_H, K_W) -> (G, C/G,O/G, K_H,
+        // K_W) -> (C, O/G, K_H, K_W)
+        auto permutedWeightType =
+            mlir::cast<RankedTensorType>(permutedWeight.getType());
+        auto permutedWeightShape = permutedWeightType.getShape();
+
+        int64_t inChannelsPerGroup = permutedWeightShape[0];
+        int64_t totalOutChannels = permutedWeightShape[1];
+        int64_t kH = permutedWeightShape[2];
+        int64_t kW = permutedWeightShape[3];
+        int64_t outChannelsPerGroup = totalOutChannels / groups;
+        int64_t totalInChannels = inChannelsPerGroup * groups;
+
+        // Reshape (C/G, O, K_H, K_W) -> (C/G, G, O/G, K_H, K_W)
+        llvm::SmallVector<int64_t> extractedGroupsShape = {
+            inChannelsPerGroup, groups, outChannelsPerGroup, kH, kW};
+        auto extractedGroups = ttir::utils::createReshapeOp(
+            rewriter,
+            ttmlir::utils::appendLocationSuffix(op.getLoc(),
+                                                "_weight_extracted_groups"),
+            permutedWeight, extractedGroupsShape);
+
+        // Permute (C/G, G, O/G, K_H, K_W) -> (G, C/G, O/G, K_H, K_W)
+        llvm::SmallVector<int64_t> permuteOrder = {1, 0, 2, 3, 4};
+        llvm::SmallVector<int64_t> permutedGroupsShape =
+            ttmlir::utils::applyPermutation(
+                llvm::ArrayRef(extractedGroupsShape),
+                llvm::ArrayRef(permuteOrder));
+        auto permutedGroups = rewriter.create<ttir::PermuteOp>(
+            ttmlir::utils::appendLocationSuffix(op.getLoc(),
+                                                "_weight_permuted_groups"),
+            permutedWeightType.cloneWith(permutedGroupsShape,
+                                         permutedWeightType.getElementType()),
+            extractedGroups, permuteOrder);
+
+        // Reshape (G, C/G, O/G, K_H, K_W) -> (C, O/G, K_H, K_W)
+        llvm::SmallVector<int64_t> mergedGroupsShape = {
+            totalInChannels, outChannelsPerGroup, kH, kW};
+        permutedWeight = ttir::utils::createReshapeOp(
+            rewriter,
+            ttmlir::utils::appendLocationSuffix(op.getLoc(),
+                                                "_weight_merged_groups"),
+            permutedGroups, mergedGroupsShape);
+      }
       newConv = rewriter.create<ttir::ConvTranspose2dOp>(
           op.getLoc(), outputType, Value(permutedInput), Value(permutedWeight),
           biasValue, inputDilationAttr, paddingAttr, outputPaddingAttr,
@@ -2454,8 +2504,9 @@ public:
 // is performed by decomposing/converting into reduction sum (ttnn.sum op).
 // If ttnn.sum output is zero then reduce_or output is false; otherwise the
 // output is true.
+// This is a performance optimization specific to TTNN backend.
 namespace {
-struct ReductionOrPattern : public OpConversionPattern<ttir::ReduceOrOp> {
+struct ReductionOrTTNNPattern : public OpConversionPattern<ttir::ReduceOrOp> {
 public:
   using OpConversionPattern<ttir::ReduceOrOp>::OpConversionPattern;
 
@@ -2468,6 +2519,53 @@ public:
     rewriter.replaceOpWithNewOp<ttir::SumOp>(
         op, reduceOutputType, adaptor.getInput(), op.getKeepDim(),
         op.getDimArgAttr());
+
+    return success();
+  }
+};
+} // namespace
+
+// TTNN complete Decomposition for reduce_or Op.
+namespace {
+struct ReductionOrPattern : public OpConversionPattern<ttir::ReduceOrOp> {
+public:
+  using OpConversionPattern<ttir::ReduceOrOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::ReduceOrOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    RankedTensorType reduceOutputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(op.getResult().getType()));
+
+    mlir::Value sumOp = rewriter.create<ttir::SumOp>(
+        op.getLoc(), reduceOutputType, adaptor.getInput(), op.getKeepDim(),
+        op.getDimArgAttr());
+
+    // Create zero constant.
+    auto elementType = reduceOutputType.getElementType();
+    Attribute zerAttr;
+    if (mlir::isa<mlir::FloatType>(elementType)) {
+      zerAttr = rewriter.getFloatAttr(elementType, 0.0);
+    } else if (mlir::isa<mlir::IntegerType>(elementType)) {
+      zerAttr = rewriter.getIntegerAttr(elementType, 0);
+    } else {
+      return rewriter.notifyMatchFailure(
+          op, "reduce_or decomposition only supports floating-point and "
+              "integer element types");
+    }
+
+    ElementsAttr zeroConstantAttr =
+        DenseElementsAttr::get(reduceOutputType, zerAttr);
+    mlir::Value zeroConstant = rewriter.create<ttir::ConstantOp>(
+        ttmlir::utils::appendLocationSuffix(op.getLoc(), "_zeroConstant"),
+        reduceOutputType, zeroConstantAttr);
+
+    // Compare sum != 0.
+    mlir::Value cmpOp = rewriter.create<ttir::NotEqualOp>(
+        op.getLoc(), reduceOutputType, sumOp, zeroConstant);
+
+    // Typecast boolean result to float type.
+    rewriter.replaceOpWithNewOp<ttir::TypecastOp>(op, reduceOutputType, cmpOp);
 
     return success();
   }
@@ -3093,7 +3191,8 @@ public:
 
 void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
                                              RewritePatternSet &patterns,
-                                             TypeConverter &typeConverter) {
+                                             TypeConverter &typeConverter,
+                                             DecompMode decompConfig) {
   patterns.add<PoolingToPool2dPattern>(typeConverter, ctx);
   patterns.add<PoolingToFullOp>(typeConverter, ctx);
   patterns.add<IndexToSliceConversionPattern>(typeConverter, ctx);
@@ -3105,7 +3204,6 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<ArangeForceLastDimensionPattern>(typeConverter, ctx);
   patterns.add<DotGeneralToMatmulConversionPattern>(typeConverter, ctx);
   patterns.add<ReductionAndPattern>(typeConverter, ctx);
-  patterns.add<ReductionOrPattern>(typeConverter, ctx);
   patterns.add<BatchNormInferencePattern>(typeConverter, ctx);
   patterns.add<BatchNormTrainingPattern>(typeConverter, ctx);
   patterns.add<QuantizeOpPattern>(typeConverter, ctx);
@@ -3113,6 +3211,17 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<RequantizeOpPattern>(typeConverter, ctx);
   patterns.add<ReductionProdPattern>(typeConverter, ctx);
   patterns.add<ReverseOpConversionPattern>(typeConverter, ctx);
+
+  // Configure which ReductionPattern to add base on the configuration
+  switch (decompConfig) {
+  case DecompMode::CPUFallback:
+    patterns.add<ReductionOrPattern>(typeConverter, ctx);
+    break;
+  case DecompMode::TTNN:
+  case DecompMode::TTMetal:
+    patterns.add<ReductionOrTTNNPattern>(typeConverter, ctx);
+    break;
+  }
 }
 
 } // namespace mlir::tt

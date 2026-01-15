@@ -4,13 +4,9 @@
 
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
 
-#include "ttmlir/Dialect/EmitPy/IR/EmitPyInterfaces.h"
-
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/OpImplementation.h"
-
 #include "llvm/Support/LogicalResult.h"
-#include "llvm/Support/raw_ostream.h"
 
 #include <string_view>
 
@@ -571,6 +567,248 @@ LogicalResult GetGlobalOp::verify() {
 LogicalResult
 GetGlobalOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
   return verifyNearestGlobalSymbol<GetGlobalOp>(*this, symbolTable);
+}
+
+//===----------------------------------------------------------------------===//
+// CreateDictOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult CreateDictOp::verify() {
+  StringRef dictName = getDictName();
+  if (failed(isValidPythonIdentifier(getOperation(), dictName))) {
+    return emitOpError() << "dictionary name must be a valid Python identifier";
+  }
+
+  if (getLiteralExpr() && !getItems().empty()) {
+    return emitOpError(
+        "cannot have both literal_expr and items operands; use either "
+        "literal_expr for Python dict literals or items for key-value pairs");
+  }
+
+  if (!getLiteralExpr() && getItems().size() % 2 != 0) {
+    return emitOpError(
+        "items must be alternating key-value pairs (even count required)");
+  }
+
+  if (getLiteralExpr() && getLiteralExpr()->empty()) {
+    return emitOpError("literal_expr must not be empty");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// SetValueForDictKeyOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult SetValueForDictKeyOp::verify() {
+  Type keyType = getKey().getType();
+
+  // If key is an opaque type, verify it represents a string
+  if (auto opaqueType = dyn_cast<OpaqueType>(keyType)) {
+    StringRef value = opaqueType.getValue();
+    if (value != "str") {
+      return emitOpError()
+             << "key with opaque type must represent a string type "
+             << "(!emitpy.opaque<\"str\">), but got: " << opaqueType;
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// GetValueForDictKeyOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult GetValueForDictKeyOp::verify() {
+  Type keyType = getKey().getType();
+
+  // If key is an opaque type, verify it represents a string
+  if (auto opaqueType = dyn_cast<OpaqueType>(keyType)) {
+    StringRef value = opaqueType.getValue();
+    if (value != "str") {
+      return emitOpError()
+             << "key with opaque type must represent a string type "
+             << "(!emitpy.opaque<\"str\">), but got: " << opaqueType;
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// ExpressionOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult ExpressionOp::verify() {
+  Type resultType = getResult().getType();
+  Region &region = getRegion();
+
+  Block &body = region.front();
+
+  // Ensure the body has a terminator
+  if (!body.mightHaveTerminator()) {
+    return emitOpError("must yield a value at termination");
+  }
+
+  // Ensure the terminator is a yield op
+  auto yield = cast<YieldOp>(body.getTerminator());
+  Value yieldResult = yield.getResult();
+
+  // Ensure the yield result is valid
+  if (!yieldResult) {
+    return emitOpError("must yield a value at termination");
+  }
+
+  Operation *rootOp = yieldResult.getDefiningOp();
+
+  // Ensure the yield result is defined within the expression
+  if (!rootOp) {
+    return emitOpError("yielded value has no defining op");
+  }
+
+  // Check if the rootOp is in a block (required for getParentOp())
+  if (!rootOp->getBlock()) {
+    return emitOpError("yielded value's defining op is not in a block");
+  }
+
+  // Ensure the yield result op is defined within the expression
+  if (rootOp->getParentOp() != getOperation()) {
+    return emitOpError("yielded value not defined within expression");
+  }
+
+  // Ensure the yielded type matches the expression return type
+  Type yieldType = yieldResult.getType();
+
+  if (resultType != yieldType) {
+    return emitOpError("requires yielded type to match return type");
+  }
+
+  for (Operation &op : region.front().without_terminator()) {
+    auto expressionInterface = dyn_cast<PyExpressionInterface>(op);
+    // Ensure each operation implements the expression interface
+    if (!expressionInterface) {
+      return emitOpError("contains an unsupported operation");
+    }
+    // Ensure each operation has exactly one result
+    if (op.getNumResults() != 1) {
+      return emitOpError("requires exactly one result for each operation");
+    }
+    Value result = op.getResult(0);
+    // Ensure each operation's result is used at least once
+    if (result.use_empty()) {
+      return emitOpError("contains an unused operation");
+    }
+  }
+
+  // Make sure any operation with side effect is only reachable once from
+  // the root op, otherwise emission will be replicating side effects.
+  SmallPtrSet<Operation *, 16> visited;
+  SmallVector<Operation *> worklist;
+  worklist.push_back(rootOp);
+  while (!worklist.empty()) {
+    Operation *op = worklist.back();
+    worklist.pop_back();
+    if (visited.contains(op)) {
+      if (cast<PyExpressionInterface>(op).hasSideEffects()) {
+        return emitOpError(
+            "requires exactly one use for operations with side effects");
+      }
+    }
+    visited.insert(op);
+    for (Value operand : op->getOperands()) {
+      if (Operation *def = operand.getDefiningOp()) {
+        worklist.push_back(def);
+      }
+    }
+  }
+
+  return success();
+}
+
+void ExpressionOp::print(OpAsmPrinter &p) {
+  p << " ";
+  if (!getOperands().empty()) {
+    p << "(";
+    llvm::interleaveComma(getOperands(), p);
+    p << ") ";
+  }
+
+  if (getDoNotInline()) {
+    p << "{do_not_inline} ";
+  }
+
+  p << ": ";
+  if (!getOperands().empty()) {
+    p << "(";
+    llvm::interleaveComma(getOperands().getTypes(), p);
+    p << ") ";
+  }
+  p << "-> " << getResult().getType() << " ";
+
+  p.printRegion(getBody(), /*printEntryBlockArgs=*/true,
+                /*printBlockTerminators=*/true);
+}
+
+ParseResult ExpressionOp::parse(OpAsmParser &parser, OperationState &result) {
+  // Parse operands
+  SmallVector<OpAsmParser::UnresolvedOperand> operands;
+  SmallVector<Type> operandTypes;
+
+  if (succeeded(parser.parseOptionalLParen())) {
+    if (parser.parseOperandList(operands) || parser.parseRParen()) {
+      return failure();
+    }
+  }
+
+  // Parse optional do_not_inline attribute
+  if (succeeded(parser.parseOptionalLBrace())) {
+    if (parser.parseKeyword("do_not_inline") || parser.parseRBrace()) {
+      return failure();
+    }
+    result.addAttribute("do_not_inline", parser.getBuilder().getUnitAttr());
+  }
+
+  // Parse types
+  if (parser.parseColon()) {
+    return failure();
+  }
+
+  if (!operands.empty()) {
+    if (parser.parseLParen() || parser.parseTypeList(operandTypes) ||
+        parser.parseRParen()) {
+      return failure();
+    }
+  }
+
+  Type resultType;
+  if (parser.parseArrow() || parser.parseType(resultType)) {
+    return failure();
+  }
+
+  result.addTypes(resultType);
+
+  // Parse region
+  Region *body = result.addRegion();
+  SmallVector<OpAsmParser::Argument> regionArgs;
+  for (auto type : operandTypes) {
+    OpAsmParser::Argument arg;
+    arg.type = type;
+    regionArgs.push_back(arg);
+  }
+
+  if (parser.parseRegion(*body, regionArgs)) {
+    return failure();
+  }
+
+  // Resolve operands
+  if (parser.resolveOperands(operands, operandTypes, parser.getNameLoc(),
+                             result.operands)) {
+    return failure();
+  }
+
+  return success();
 }
 
 #define GET_OP_CLASSES

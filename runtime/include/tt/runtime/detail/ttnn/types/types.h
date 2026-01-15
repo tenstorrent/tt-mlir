@@ -8,13 +8,13 @@
 #include "tt/runtime/detail/common/dylib.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
-#include "tt/runtime/tensor_cache.h"
 #include "tt/runtime/types.h"
 
 #include <atomic>
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <shared_mutex>
 #include <unordered_map>
 #include <variant>
 #include <vector>
@@ -25,6 +25,8 @@ using OptionalMeshDeviceRef =
 using TensorMap = std::unordered_map<uint32_t, ::tt::runtime::Tensor>;
 using TensorPtrMap = std::unordered_map<uint32_t, ::tt::runtime::Tensor *>;
 using TensorPtrMapIterator = typename TensorPtrMap::iterator;
+class TTNNTensorWrapper;
+using OnDestroyTensorCallback = std::function<void(TTNNTensorWrapper *)>;
 
 // Wrapper for ttnn::Tensor that contains
 // additional metadata specific to our ttnn runtime
@@ -36,6 +38,12 @@ public:
       bool retain = false)
       : tensor(tensor), meshEvent(meshEvent), retain(retain),
         version(getLatestVersion()) {}
+
+  ~TTNNTensorWrapper() {
+    for (const auto &callback : onDestroyCallbacks) {
+      callback(this);
+    }
+  }
 
   TTNNTensorWrapper(const TTNNTensorWrapper &other) = delete;
   TTNNTensorWrapper &operator=(const TTNNTensorWrapper &other) = delete;
@@ -52,6 +60,10 @@ public:
   void setMeshEvent(const ::ttnn::MeshEvent &meshEvent) {
     std::unique_lock<std::shared_mutex> lock(meshEventMutex);
     this->meshEvent = meshEvent;
+  }
+
+  void registerOnDestroyCallback(OnDestroyTensorCallback callback) {
+    onDestroyCallbacks.push_back(callback);
   }
 
   bool shouldRetain() const { return retain.load(std::memory_order_relaxed); }
@@ -86,6 +98,12 @@ private:
   std::atomic<uint64_t> version;
 
   static uint64_t getLatestVersion();
+
+  // Callbacks to be called on destruction of the tensor.
+  // Used for cleaning up any associated resources with this tensor.
+  // E.g., used in consteval caching to remove cache entries associated with an
+  // input tensor, once the input tensor is destroyed.
+  std::vector<OnDestroyTensorCallback> onDestroyCallbacks;
 };
 
 struct LayoutDesc {
@@ -230,13 +248,6 @@ public:
   ProgramTensorPool &getTensorPool() { return tensorPool; }
 
   const ProgramTensorPool &getTensorPool() const { return tensorPool; }
-
-  //
-  // Executable Handle Operations
-  //
-  std::shared_ptr<TensorCache> getConstEvalTensorCache() {
-    return executableHandle.getConstEvalTensorCache();
-  }
 
   Binary &getExecutableHandle() { return executableHandle; }
 

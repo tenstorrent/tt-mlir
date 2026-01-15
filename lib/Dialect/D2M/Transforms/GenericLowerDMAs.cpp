@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/AffineMapAnalysis.h"
 #include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
@@ -42,7 +43,14 @@ getLoopBounds(OpBuilder &builder, Location loc, ArrayRef<int64_t> shardShape) {
 namespace {
 class D2MGenericLowerAffineDMAsRewritePattern : public OpRewritePattern<DMAOp> {
 public:
-  using OpRewritePattern<DMAOp>::OpRewritePattern;
+  D2MGenericLowerAffineDMAsRewritePattern(MLIRContext *context,
+                                          bool debugCoalescingInference)
+      : OpRewritePattern<DMAOp>(context),
+        debugCoalescingInference(debugCoalescingInference) {}
+
+private:
+  static constexpr size_t coalescingFactorSamplingFallbackThreshold = 16;
+  bool debugCoalescingInference;
 
   // Returns a tuple of the stream index and the index bounds. The stream index
   // represents the position in the stream that the DMA is currently accessing,
@@ -73,7 +81,8 @@ public:
     SmallVector<Value> physicalCoreIndices(numPhysicalGridDims);
     for (unsigned gridIndex = 0; gridIndex < numPhysicalGridDims; gridIndex++) {
       physicalCoreIndices[gridIndex] = builder.create<CoreIndexOp>(
-          loc, builder.getIndexType(), builder.getI64IntegerAttr(gridIndex));
+          loc, builder.getIndexType(), builder.getI64IntegerAttr(gridIndex),
+          nullptr);
     }
     SmallVector<Value> virtualGridIndices;
     if (!coreVirtualizationMap.isEmpty()) {
@@ -181,48 +190,6 @@ public:
                            std::multiplies<int64_t>());
   }
 
-  // For now we'll do just a simple brute force check and sample the entire map
-  // to calculate the coalescing factor. In the future there are some simple
-  // checks we could do for the common case that would be much faster.
-  static size_t calculateCoalescingFactor(AffineMap memoryMap,
-                                          ArrayRef<int64_t> gridShape,
-                                          ArrayRef<int64_t> shardShape,
-                                          size_t elemSizeBytes) {
-    size_t coalescingFactor = ttmlir::utils::volume(shardShape);
-    SmallVector<int64_t> memoryIndex;
-    memoryIndex.resize(gridShape.size() + shardShape.size());
-    ttmlir::utils::sample(gridShape, [&](ArrayRef<int64_t> gridIndex) {
-      size_t currentCoalescingFactor = 0;
-      SmallVector<int64_t, 4> nextAddress;
-      ttmlir::utils::sample(shardShape, [&](ArrayRef<int64_t> shardIndex) {
-        for (unsigned i = 0; i < gridIndex.size(); i++) {
-          memoryIndex[i] = gridIndex[i];
-        }
-        for (unsigned i = 0; i < shardIndex.size(); i++) {
-          memoryIndex[gridIndex.size() + i] = shardIndex[i];
-        }
-        SmallVector<int64_t, 4> address = memoryMap.compose(memoryIndex);
-        if (nextAddress.empty() || nextAddress == address) {
-          ++currentCoalescingFactor;
-        } else {
-          coalescingFactor =
-              std::gcd(coalescingFactor, currentCoalescingFactor);
-          // If coalescing factor reaches unit size, it cannot change further.
-          // Early exit to save on runtime.
-          if (coalescingFactor == 1) {
-            return;
-          }
-          // current memory access can potentially be coalesced with next
-          // access!
-          currentCoalescingFactor = 1;
-        }
-        nextAddress = address;
-        nextAddress.back() += elemSizeBytes;
-      });
-    });
-    return coalescingFactor;
-  }
-
   // Uses coalescing factor to build an optimized gather loop with uniform
   // packet size.
   static scf::LoopNest buildCoalescedGatherLoop(OpBuilder &builder,
@@ -305,7 +272,8 @@ public:
   static std::pair<SmallVector<Value>, size_t>
   analyzeStream(PatternRewriter &rewriter, Location loc,
                 AffineMap dmaIndexingMap, MemRefType memref,
-                ViewOpInterface viewInterface, GenericOp genericParent) {
+                ViewOpInterface viewInterface, GenericOp genericParent,
+                bool debugCoalescingInference) {
     size_t elemSizeBytes = getElementSizeBytes(memref);
     ttcore::DeviceLayoutInterface layout =
         mlir::cast<ttcore::DeviceLayoutInterface>(memref.getLayout());
@@ -337,8 +305,77 @@ public:
         viewInterface.applyViews();
     AffineMap memoryMap = device.getMemoryMap(underlyingMemrefAndView,
                                               0 /* use default page size*/);
-    size_t coalescingFactor = calculateCoalescingFactor(
-        memoryMap, memrefGridShape, memrefShardShape, elemSizeBytes);
+
+    auto coalescingFactor = ttmlir::utils::computeCoalescingFactorAnalytically(
+        memoryMap, memref.getShape(), memrefGridShape.size(), elemSizeBytes);
+
+    // If the analytical coalescing factor is less than the sampling fallback
+    // threshold, use the sampling-based approach to see if we can do better.
+    bool shouldFallbackToSampling =
+        coalescingFactor <= coalescingFactorSamplingFallbackThreshold;
+
+    // When debug mode is enabled, also run the slow sampling-based coalescing
+    // factor computation and compares results. If there is a discrepancy, the
+    // sampled value is used as the fallback.
+    if (shouldFallbackToSampling || debugCoalescingInference) {
+      if (shouldFallbackToSampling) {
+        llvm::dbgs() << "Analytical coalescing factor below threshold, "
+                        "falling back to sampling based coalescing factor...\n";
+      } else {
+        llvm::dbgs()
+            << "--------------------------[CoalescingFactor]------------"
+               "--------------------\n";
+        llvm::dbgs() << "Computing sampling based coalescing factor...\n";
+      }
+      size_t sampledCoalescingFactor = ttmlir::utils::calculateCoalescingFactor(
+          memoryMap, memref.getShape(), elemSizeBytes, memrefGridShape.size());
+
+      if (debugCoalescingInference) {
+
+        if (coalescingFactor == sampledCoalescingFactor) {
+          llvm::dbgs() << "  [✓] Analytical and sampled coalescing "
+                          "factors MATCH = "
+                       << coalescingFactor << "\n";
+        } else if (coalescingFactor != sampledCoalescingFactor &&
+                   sampledCoalescingFactor % coalescingFactor == 0) {
+          llvm::dbgs() << "  [✓] Analytical coalescing factor is "
+                          "valid, but "
+                          "smaller than the sampled coalescing factor!\n";
+          llvm::dbgs() << "    analytical = " << coalescingFactor
+                       << " vs sampled = " << sampledCoalescingFactor << "\n";
+          llvm::dbgs() << "    Map: " << memoryMap << "\n";
+          llvm::dbgs() << "    Shape: "
+                       << ttmlir::utils::formatIterable(memref.getShape(), "x")
+                       << "\n";
+          llvm::dbgs() << "  Setting coalescing factor to "
+                          "fallback sampled value = "
+                       << sampledCoalescingFactor << "\n";
+          coalescingFactor = sampledCoalescingFactor;
+        }
+
+        if (sampledCoalescingFactor % coalescingFactor != 0) {
+          llvm::dbgs()
+              << "  [ERROR] Analytical coalescing factor is "
+                 "not a divisor of sampled coalescing factor! Generated "
+                 "DMA indexing is "
+                 "likely incorrect!\n";
+          llvm::dbgs() << "    Sampled coalescing factor: "
+                       << sampledCoalescingFactor << "\n";
+          llvm::dbgs() << "    Analytical coalescing factor: "
+                       << coalescingFactor << "\n";
+          llvm::dbgs() << "    Map: " << memoryMap << "\n";
+          llvm::dbgs() << "    Shape: "
+                       << ttmlir::utils::formatIterable(memref.getShape(), "x")
+                       << "\n";
+          llvm::dbgs() << "  Setting coalescing factor to "
+                          "fallback sampled value = "
+                       << sampledCoalescingFactor << "\n";
+          coalescingFactor = sampledCoalescingFactor;
+        }
+      }
+      llvm::dbgs() << "--------------------------------------------------------"
+                      "-------------\n";
+    }
 
     return {streamIndices, coalescingFactor};
   }
@@ -363,9 +400,9 @@ public:
     // StreamIndices are the index values of the remote buffer.
     // CoalescingFactor is the greatest common divisor of the number of elements
     // that can be coalesced into a single DMA operation.
-    auto [streamIndices, coalescingFactor] =
-        analyzeStream(rewriter, dma.getLoc(), *affine_map, memref, defining_op,
-                      dma->getParentOfType<d2m::GenericOp>());
+    auto [streamIndices, coalescingFactor] = analyzeStream(
+        rewriter, dma.getLoc(), *affine_map, memref, defining_op,
+        dma->getParentOfType<d2m::GenericOp>(), debugCoalescingInference);
 
     ArrayRef<int64_t> memrefShardShape =
         mlir::cast<ttcore::DeviceLayoutInterface>(memref.getLayout())
@@ -590,8 +627,9 @@ public:
 
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    patterns.add<D2MGenericLowerAffineDMAsRewritePattern,
-                 D2MGenericLowerImplicitSizedDMARewritePattern,
+    patterns.add<D2MGenericLowerAffineDMAsRewritePattern>(
+        &getContext(), debugCoalescingInference);
+    patterns.add<D2MGenericLowerImplicitSizedDMARewritePattern,
                  D2MGenericLowerFullyIndexedDMARewritePattern>(&getContext());
     populateAffineToStdConversionPatterns(patterns);
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {

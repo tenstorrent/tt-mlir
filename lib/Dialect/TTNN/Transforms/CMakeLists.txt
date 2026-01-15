@@ -16,6 +16,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNConstEvalInputsToSystemMemory.cpp
         TTNNFusing.cpp
         TTNNLayout.cpp
+        TTNNSetComputeKernelConfig.cpp
         TTNNToCpp.cpp
         TTNNToPython.cpp
         TTNNTraceHoistTransform.cpp
@@ -28,6 +29,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/ConcatenateHeadsOpRewritePattern.cpp
         Workarounds/Decomposition/ConcatOpReshapeRewritePattern.cpp
         Workarounds/Decomposition/PagedUpdateCacheOpRewritePattern.cpp
+        Workarounds/Decomposition/PointToPointOpRewritePattern.cpp
         Workarounds/Decomposition/SplitQueryKeyValueAndSplitHeadsOpRewritePattern.cpp
         Workarounds/Decomposition/CumSumOpDimRewritePattern.cpp
         Workarounds/Decomposition/CumSumOpRankRewritePattern.cpp
@@ -39,6 +41,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/ScaledDotProductAttentionDecodeConfigRewritePattern.cpp
         Workarounds/Decomposition/ScaledDotProductAttentionPadSequenceDimRewriterPattern.cpp
         Workarounds/Decomposition/UpsampleOpRewritePattern.cpp
+        Workarounds/Decomposition/RMSNormConfigRewritePattern.cpp
         Workarounds/Decomposition/RotaryEmbeddingOpRewritePattern.cpp
         Workarounds/Decomposition/SubtractOpImplicitBroadcastRewritePattern.cpp
         Workarounds/Decomposition/ExplicateOperandBroadcastsRewritePattern.cpp

@@ -52,3 +52,4 @@
   - [Runtime Stitching](./specs/runtime-stitching.md)
   - [Tensor Layout](./specs/tensor-layout.md)
   - [Device](./specs/device.md)
+  - [TTNN Optimizer](./specs/ttnn-optimizer.md)

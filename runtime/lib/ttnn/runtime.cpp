@@ -38,17 +38,6 @@ namespace tt::runtime::ttnn {
 
 using ::tt::runtime::DeviceRuntime;
 
-template <typename T>
-static ::ttnn::Tensor createBorrowedTTNNTensor(void *rawData,
-                                               const ::ttnn::Shape &shape) {
-  std::uint64_t numElements = shape.volume();
-  T *typedData = static_cast<T *>(rawData);
-  ::ttsl::Span<T> data(typedData, typedData + numElements);
-  ::ttnn::Tensor tensor =
-      ::ttnn::Tensor::from_borrowed_data(data, shape, []() {}, []() {});
-  return tensor;
-}
-
 static ::ttnn::Tensor
 createOwnedTTNNTensor(const void *data, const std::vector<std::uint32_t> &shape,
                       const std::vector<std::uint32_t> &stride,
@@ -195,22 +184,22 @@ createBorrowedHostTensor(void *data, const std::vector<std::uint32_t> &shape,
   switch (dataType) {
   case ::tt::target::DataType::Float32:
     return utils::createRuntimeTensorFromTTNN(
-        createBorrowedTTNNTensor<float>(data, ttnnShape));
+        utils::createBorrowedTTNNTensor<float>(data, ttnnShape));
   case ::tt::target::DataType::BFloat16:
     return utils::createRuntimeTensorFromTTNN(
-        createBorrowedTTNNTensor<bfloat16>(data, ttnnShape));
+        utils::createBorrowedTTNNTensor<bfloat16>(data, ttnnShape));
   case ::tt::target::DataType::UInt32:
     return utils::createRuntimeTensorFromTTNN(
-        createBorrowedTTNNTensor<uint32_t>(data, ttnnShape));
+        utils::createBorrowedTTNNTensor<uint32_t>(data, ttnnShape));
   case ::tt::target::DataType::UInt16:
     return utils::createRuntimeTensorFromTTNN(
-        createBorrowedTTNNTensor<uint16_t>(data, ttnnShape));
+        utils::createBorrowedTTNNTensor<uint16_t>(data, ttnnShape));
   case ::tt::target::DataType::UInt8:
     return utils::createRuntimeTensorFromTTNN(
-        createBorrowedTTNNTensor<uint8_t>(data, ttnnShape));
+        utils::createBorrowedTTNNTensor<uint8_t>(data, ttnnShape));
   case ::tt::target::DataType::Int32:
     return utils::createRuntimeTensorFromTTNN(
-        createBorrowedTTNNTensor<int32_t>(data, ttnnShape));
+        utils::createBorrowedTTNNTensor<int32_t>(data, ttnnShape));
   default:
     LOG_FATAL("Unsupported data type");
   }
@@ -286,7 +275,7 @@ createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
           layoutDesc.dataType, ::ttnn::PageConfig(layoutDesc.layout),
           layoutDesc.memoryConfig.value_or(::ttnn::MemoryConfig{})));
   ::ttnn::Tensor tensor =
-      ::tt::tt_metal::allocate_tensor_on_device(tensorSpec, &meshDevice);
+      ::tt::tt_metal::create_device_tensor(tensorSpec, &meshDevice);
 
   return utils::createRuntimeTensorFromTTNN(tensor);
 }
@@ -747,6 +736,26 @@ std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
   return hostTensors;
 }
 
+std::vector<::tt::runtime::Tensor>
+getDeviceTensors(::tt::runtime::Tensor tensor) {
+  const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper =
+      tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
+
+  std::vector<::ttnn::Tensor> ttnnTensors =
+      ::ttnn::distributed::get_device_tensors(tensorWrapper.getTensor());
+
+  std::vector<Tensor> runtime_tensors;
+  runtime_tensors.reserve(ttnnTensors.size());
+
+  for (const ::ttnn::Tensor &ttnnTensor : ttnnTensors) {
+    runtime_tensors.emplace_back(utils::createRuntimeTensorFromTTNN(
+        ttnnTensor, tensorWrapper.getMeshEvent(),
+        tensorWrapper.shouldRetain()));
+  }
+
+  return runtime_tensors;
+}
+
 ::tt::runtime::Tensor toLayout(::tt::runtime::Tensor tensor, Device device,
                                Layout layout, std::optional<bool> retain) {
   const std::shared_ptr<LayoutDesc> tensorLayoutDesc =
@@ -784,6 +793,14 @@ bool hasLayout(::tt::runtime::Tensor tensor, Layout layout) {
       layout.as<LayoutDesc>(DeviceRuntime::TTNN);
 
   return *tensorLayoutDesc == desiredLayoutDesc;
+}
+
+// Return the layout of a given runtime Tensor as a Layout handle
+Layout getTensorLayout(::tt::runtime::Tensor tensor) {
+  const std::shared_ptr<LayoutDesc> tensorLayoutDesc =
+      LayoutDesc::fromTensor(tensor);
+  return Layout(std::static_pointer_cast<void>(tensorLayoutDesc),
+                DeviceRuntime::TTNN);
 }
 
 Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
@@ -1172,10 +1189,6 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_ReduceScatterOp()->out();
     break;
   }
-  case ::tt::target::ttnn::OpType::CollectivePermuteOp: {
-    tensorRef = opContext.type_as_CollectivePermuteOp()->out();
-    break;
-  }
   case ::tt::target::ttnn::OpType::MeshShardOp: {
     tensorRef = opContext.type_as_MeshShardOp()->out();
     break;
@@ -1284,6 +1297,18 @@ getOpOutputRef(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::DistributeTensorOp: {
     tensorRef = opContext.type_as_DistributeTensorOp()->out();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AnnotateOp: {
+    tensorRef = opContext.type_as_AnnotateOp()->result();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::BreakpointOp: {
+    tensorRef = opContext.type_as_BreakpointOp()->result();
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MemorySnapshotOp: {
+    tensorRef = opContext.type_as_MemorySnapshotOp()->result();
     break;
   }
   case ::tt::target::ttnn::OpType::NONE: {
@@ -1552,10 +1577,6 @@ getOpInputRefs(OpContext opContextHandle,
     tensorRefs = {opContext.type_as_ReduceScatterOp()->in()};
     break;
   }
-  case ::tt::target::ttnn::OpType::CollectivePermuteOp: {
-    tensorRefs = {opContext.type_as_CollectivePermuteOp()->in()};
-    break;
-  }
   case ::tt::target::ttnn::OpType::MeshShardOp: {
     tensorRefs = {opContext.type_as_MeshShardOp()->in()};
     break;
@@ -1733,6 +1754,18 @@ getOpInputRefs(OpContext opContextHandle,
   }
   case ::tt::target::ttnn::OpType::DistributeTensorOp: {
     tensorRefs = {opContext.type_as_DistributeTensorOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AnnotateOp: {
+    tensorRefs = {opContext.type_as_AnnotateOp()->operand()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::BreakpointOp: {
+    tensorRefs = {opContext.type_as_BreakpointOp()->operand()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MemorySnapshotOp: {
+    tensorRefs = {opContext.type_as_MemorySnapshotOp()->operand()};
     break;
   }
   case ::tt::target::ttnn::OpType::NONE: {

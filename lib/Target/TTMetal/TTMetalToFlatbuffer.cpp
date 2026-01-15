@@ -438,8 +438,19 @@ memrefTypeToCircularBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
   auto extendedMapping = extendMappingForHigherDimGrid(
       device.getWorkerGrid().getMapping(), memrefGridShape.size());
 
+  // We default to the worker grid shape since memrefGridShape may be larger
+  // than the available grid due to block factors. Directly using the
+  // memrefGridShape will lead to crashes when initializing CBs, therefore we
+  // spoof the shape here.
+  SmallVector<int64_t> workerGridShape =
+      llvm::to_vector(device.getWorkerGrid().getShape());
+  if (workerGridShape.size() < memrefGridShape.size()) {
+    workerGridShape.insert(workerGridShape.begin(),
+                           memrefGridShape.size() - workerGridShape.size(), 1);
+  }
+
   std::vector<target::Dim2dRange> coreRangeSet =
-      toFlatbuffer(cache, memrefGridShape, extendedMapping);
+      toFlatbuffer(cache, workerGridShape, extendedMapping);
 
   uint64_t pageSize = device.getMemrefCBPageSizeBytes(memref);
   uint64_t shardSize =
@@ -892,12 +903,16 @@ std::shared_ptr<void> translateTTMetalToFlatbuffer(
         for (auto input : cpuOp.getOperands()) {
           ins.push_back(cache.at<target::metal::BufferRef>(input));
         }
+        std::vector<flatbuffers::Offset<target::metal::BufferRef>> outs;
+        outs.reserve(cpuOp.getResults().size());
+        for (auto result : cpuOp.getResults()) {
+          outs.push_back(cache.getOrCreate(result, bufferValueToFlatbuffer,
+                                           systemDesc, 0));
+        }
         llvm::SmallString<24> funcName =
             utils::convertDylibFuncName(cpuOp.getCallee());
-        auto out = cache.getOrCreate(cpuOp.getResults()[0],
-                                     bufferValueToFlatbuffer, systemDesc, 0);
         cqBuilder.appendCommand(target::metal::CreateCpuCommandDirect(
-                                    fbb, &ins, out, funcName.c_str(), 0),
+                                    fbb, &ins, &outs, funcName.c_str(), 0),
                                 op);
       } else if (auto returnOp = dyn_cast_if_present<func::ReturnOp>(op);
                  returnOp) {

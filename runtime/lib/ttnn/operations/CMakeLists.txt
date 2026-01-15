@@ -1,14 +1,16 @@
+find_package(Python REQUIRED COMPONENTS Interpreter Development.Module Development.Embed)
+
 if (NOT TTNN_RUNTIME_ENABLED)
   add_library(TTRuntimeTTNNOps INTERFACE)
   return()
 endif()
 
 set(TTNN_OPS_SRCS
+  ${CMAKE_CURRENT_SOURCE_DIR}/debug/debug.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/cache/load_cached.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/aggregate_tensor.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_gather.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_reduce.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/ccl/collective_permute.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/distribute_tensor.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/mesh_shard.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/point_to_point.cpp
@@ -113,7 +115,7 @@ target_include_directories(TTRuntimeTTNNOps PUBLIC
 
 target_include_directories(TTRuntimeTTNNOps SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
 target_link_libraries(TTRuntimeTTNNOps PUBLIC TTNN_LIBRARY TTRuntimeTTNNDebug TTRuntimeTTNNTypes TTRuntimeTTNNUtils TRACY_LIBRARY)
-target_link_libraries(TTRuntimeTTNNOps PUBLIC coverage_config)
+target_link_libraries(TTRuntimeTTNNOps PUBLIC coverage_config Python::Python)
 
 
 add_dependencies(TTRuntimeTTNNOps TTNN_LIBRARY tt-metal FBS_GENERATION TTRuntimeTTNNTypes TTRuntimeTTNNDebug RUNTIME_FBS_GENERATION)
