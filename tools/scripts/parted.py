@@ -10,7 +10,7 @@ import sys
 uid = -1
 
 
-def filter_dialect_ops(block, dialects=["ttir", "ttnn"], op_filter={}):
+def filter_dialect_ops(block, dialects=["ttir", "ttnn"], op_filter=None):
     for op in block.operations:
         regions = op.regions
         if len(regions) > 0:
@@ -22,7 +22,7 @@ def filter_dialect_ops(block, dialects=["ttir", "ttnn"], op_filter={}):
             )
         else:
             dialect = op.name.split(".")[0]
-            if dialect in dialects and (not op_filter or op.name in op_filter):
+            if dialect in dialects and (op_filter == None or op.name == op_filter):
                 yield op
 
 
@@ -87,7 +87,7 @@ def emit_op_as_entry_point(op, ip=None, loc=None):
         ret_op = Operation.create(
             name="func.return",
             results=[],
-            operands=[new_op.result],
+            operands=new_op.results,
             loc=loc,
             ip=ip,
         )
@@ -100,16 +100,19 @@ def stringify(op):
     return f"{op.name}({operand_types}) -> ({result_types}) {{{attrs}}}"
 
 
-def parted(in_module, op_filter={}):
-    cursor = Location.unknown(in_module.context)
+def parted(in_modules, op_filter=None):
+    if len(in_modules) == 0:
+        return None
+    cursor = Location.unknown(in_modules[0].context)
     out_module = Module.create(cursor)
     unique = set()
     with InsertionPoint(out_module.body) as ip, Location.unknown() as loc:
-        for op in filter_dialect_ops(in_module.body, op_filter=op_filter):
-            if stringify(op) in unique:
-                continue
-            unique.add(stringify(op))
-            emit_op_as_entry_point(op, ip=ip, loc=loc)
+        for in_module in in_modules:
+            for op in filter_dialect_ops(in_module.body, op_filter=op_filter):
+                if stringify(op) in unique:
+                    continue
+                unique.add(stringify(op))
+                emit_op_as_entry_point(op, ip=ip, loc=loc)
     return out_module
 
 
@@ -120,13 +123,13 @@ if __name__ == "__main__":
         description="parted: a tool for filtering out operations from a module for isolated op testing"
     )
 
-    parser.add_argument("mlir", type=str, help="Path to the mlir file")
+    parser.add_argument("mlir", nargs="*", type=str, help="Path to the mlir file")
     parser.add_argument(
-        "--op-filter", type=str, nargs="*", help="List of ops to filter", default=[]
+        "--op-filter", type=str, help="List of ops to filter", default=None
     )
     args = parser.parse_args()
 
-    with Context() as ctx, open(args.mlir, "r") as mlir_fd:
+    with Context() as ctx:
         ctx.allow_unregistered_dialects = True
-        module = Module.parse(mlir_fd.read())
-        print(parted(module, op_filter=set(args.op_filter)))
+        modules = [Module.parse(open(mlir, "r").read()) for mlir in args.mlir]
+        print(parted(modules, op_filter=args.op_filter))
