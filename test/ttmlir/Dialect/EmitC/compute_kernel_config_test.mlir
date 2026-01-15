@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path%" --ttnn-set-compute-kernel-config="math-fidelity=lofi" --ttnn-to-emitc-device-pipeline -o %t %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% compute-cfg-math-fidelity=lofi" --ttnn-to-emitc-device-pipeline -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // CHECK: ::MathFidelity::LoFi

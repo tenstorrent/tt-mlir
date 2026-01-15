@@ -2,12 +2,9 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Interfaces/TTNNTensorSpecInterface.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
-#include "ttmlir/Dialect/TTNN/Utils/MathFidelityParser.h"
-#include "ttmlir/Support/Logger.h"
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNSETCOMPUTEKERNELCONFIG
@@ -24,7 +21,14 @@ public:
     ModuleOp moduleOp = getOperation();
     MLIRContext *context = &getContext();
 
-    std::optional<MathFidelity> mathFidelityOverride = mathFidelity;
+    // Convert OptionalMathFidelity to std::optional<MathFidelity>
+    // If Undefined, leave as nullopt (don't override math fidelity)
+    // Otherwise convert to corresponding MathFidelity value
+    std::optional<MathFidelity> mathFidelityOverride;
+    if (mathFidelity != OptionalMathFidelity::Undefined) {
+      mathFidelityOverride =
+          static_cast<MathFidelity>(static_cast<int>(mathFidelity.getValue()));
+    }
 
     // Walk through all operations in the moduleOp
     moduleOp->walk([&](Operation *op) {
