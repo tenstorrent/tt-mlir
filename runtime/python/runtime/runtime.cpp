@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <sstream>
+#include <cstdlib>
 
 #include "tt/runtime/debug.h"
 #include "tt/runtime/perf.h"
@@ -16,6 +17,28 @@ namespace nb = nanobind;
 
 namespace tt::runtime::python {
 void registerRuntimeBindings(nb::module_ &m) {
+  // Detect arch and set env var if not already set
+  if (std::getenv("ARCH_NAME") == nullptr) {
+    ::tt::target::Arch arch = ::tt::runtime::getArch();
+    const char *arch_str = nullptr;
+
+    switch (arch) {
+    case ::tt::target::Arch::Grayskull:
+      arch_str = "grayskull";
+      break;
+    case ::tt::target::Arch::Wormhole_b0:
+      arch_str = "wormhole_b0";
+      break;
+    case ::tt::target::Arch::Blackhole:
+      arch_str = "blackhole";
+      break;
+    }
+
+    if (arch_str) {
+      setenv("ARCH_NAME", arch_str, 0);
+    }
+  }
+
   nb::class_<tt::runtime::MemoryView>(m, "MemoryView")
       .def_ro("num_banks", &tt::runtime::MemoryView::numBanks)
       .def_ro("total_bytes_per_bank",
