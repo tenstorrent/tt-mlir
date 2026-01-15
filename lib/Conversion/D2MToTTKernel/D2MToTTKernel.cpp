@@ -433,6 +433,20 @@ public:
     auto dstIndex =
         computeLinearIndex(store.getLoc(), store.getMemRefType().getShape(),
                            adaptor.getIndices(), rewriter);
+
+    // Use walk functions to find both L1 CBs
+    // (even though we already have inCB via load.getMemref(),
+    // we need outCB which we can't get directly)
+    auto inCB = getInCB(rewriter, store);   // walks to find L1 load
+    auto outCB = getOutCB(rewriter, store); // walks to find L1 store
+
+    auto insertionPoint = rewriter.getInsertionPoint();
+    rewriter.setInsertionPointToStart(rewriter.getInsertionBlock());
+    setInsertionPointAfterOperands(rewriter, {inCB, outCB},
+                                   /*allowHoisting*/ true);
+    rewriter.create<ttkernel::InitSFPUOp>(store.getLoc(), inCB, outCB);
+    rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
+
     rewriter.create<ttkernel::CopyTileInitOp>(store.getLoc(), cb);
     rewriter.replaceOpWithNewOp<ttkernel::CopyTileOp>(store, cb, cbIndex,
                                                       dstIndex);
