@@ -1394,9 +1394,10 @@ static mlir::LogicalResult verifyPooling2dOp(Pool2dOp *op) {
 ::mlir::Operation *mlir::tt::ttir::MaxPool2dOp::rewriteWithQuantizedInputs(
     mlir::PatternRewriter &rewriter,
     mlir::ArrayRef<mlir::Value> sourceOperands) {
+  using mlir::quant::UniformQuantizedPerAxisType;
 
   mlir::Value input = sourceOperands[0];
-  if (mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(in.getType())) {
+  if (mlir::dyn_cast<UniformQuantizedPerAxisType>(input.getType())) {
     return nullptr;
   }
 

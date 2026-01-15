@@ -1201,6 +1201,73 @@ private:
 // Pool2dOp with updated padding.
 template <typename Pool2dOp>
 class PadPool2dFusionPattern : public mlir::OpRewritePattern<Pool2dOp> {
+public:
+  using mlir::OpRewritePattern<Pool2dOp>::OpRewritePattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(Pool2dOp op, mlir::PatternRewriter &rewriter) const final {
+    // Pool2dOp implicitly pads with zero. Fusing can be performed only if PadOp
+    // also pads with zero.
+    PadOp padOp = op.getInput().template getDefiningOp<PadOp>();
+    if (!padOp || !padOp.getValue().isZero()) {
+      return failure();
+    }
+
+    // PadOp padding is [N_low, N_high, H_low, H_high, W_low, W_high, C_low,
+    // C_high] for 4D NHWC tensors. Pool2dOp only operates on spatial dimensions
+    // (H, W), therefore fusing can be performed only if N and C paddings are 0.
+    ArrayRef<int32_t> padOpPadding = padOp.getPadding();
+    if (padOpPadding.size() != PAD_OP_NHWC_ARRAY_SIZE) {
+      return failure();
+    }
+    if (padOpPadding[PAD_OP_N_LOW] != 0 || padOpPadding[PAD_OP_N_HIGH] != 0 ||
+        padOpPadding[PAD_OP_C_LOW] != 0 || padOpPadding[PAD_OP_C_HIGH] != 0) {
+      return failure();
+    }
+
+    // Pool2dOp padding attribute can be:
+    // - i32: same padding for all sides.
+    // - array<2xi32>: same padding for H and W dimensions, respectively.
+    // - array<4xi32>: [top, left, bottom, right] format.
+    // All 3 cases are covered here.
+    mlir::Attribute paddingAttr = op.getPaddingAttr();
+    SmallVector<int32_t> newPadding;
+    if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(paddingAttr)) {
+      int32_t poolHWPadding = static_cast<int32_t>(intAttr.getInt());
+      newPadding = {padOpPadding[PAD_OP_H_LOW] + poolHWPadding,
+                    padOpPadding[PAD_OP_W_LOW] + poolHWPadding,
+                    padOpPadding[PAD_OP_H_HIGH] + poolHWPadding,
+                    padOpPadding[PAD_OP_W_HIGH] + poolHWPadding};
+    } else if (auto arrayAttr =
+                   mlir::dyn_cast<mlir::DenseI32ArrayAttr>(paddingAttr)) {
+
+      size_t arrayAttrSize = arrayAttr.size();
+      TT_assertv((arrayAttrSize == 2 || arrayAttrSize == 4),
+                 "Invalid 2D pooling op attribute size.");
+
+      if (arrayAttrSize == 2) {
+        newPadding = {padOpPadding[PAD_OP_H_LOW] + arrayAttr[0],   // H
+                      padOpPadding[PAD_OP_W_LOW] + arrayAttr[1],   // W
+                      padOpPadding[PAD_OP_H_HIGH] + arrayAttr[0],  // H
+                      padOpPadding[PAD_OP_W_HIGH] + arrayAttr[1]}; // W
+      } else {
+        newPadding = {padOpPadding[PAD_OP_H_LOW] + arrayAttr[POOL_OP_H_LOW],
+                      padOpPadding[PAD_OP_W_LOW] + arrayAttr[POOL_OP_W_LOW],
+                      padOpPadding[PAD_OP_H_HIGH] + arrayAttr[POOL_OP_H_HIGH],
+                      padOpPadding[PAD_OP_W_HIGH] + arrayAttr[POOL_OP_W_HIGH]};
+      }
+    } else {
+      TT_assertv(false, "Invalid 2D pooling op attribute type.");
+    }
+
+    rewriter.modifyOpInPlace(op, [&]() {
+      op.getInputMutable().assign(padOp.getInput());
+      op.setPaddingAttr(rewriter.getDenseI32ArrayAttr(newPadding));
+    });
+
+    return success();
+  }
+
 private:
   // PadOp padding indices for 4D NHWC tensors:
   // [N_low, N_high, H_low, H_high, W_low, W_high, C_low, C_high]
@@ -1212,98 +1279,15 @@ private:
   static constexpr size_t PAD_OP_W_HIGH = 5;
   static constexpr size_t PAD_OP_C_LOW = 6;
   static constexpr size_t PAD_OP_C_HIGH = 7;
-  static constexpr size_t PAD_OP_PADDING_SIZE = 8;
 
-  // Pool2dOp padding indices for the array<4xi32> format:
-  // [pTop, pLeft, pBottom, pRight]
+  // Padding array size in PadOp for NHWC tensors.
+  static constexpr size_t PAD_OP_NHWC_ARRAY_SIZE = 8;
+
+  // Pool2dOp padding indices for the [top, left, bottom, right] attr. format:
   static constexpr size_t POOL_OP_H_LOW = 0;
   static constexpr size_t POOL_OP_W_LOW = 1;
   static constexpr size_t POOL_OP_H_HIGH = 2;
   static constexpr size_t POOL_OP_W_HIGH = 3;
-
-public:
-  using mlir::OpRewritePattern<Pool2dOp>::OpRewritePattern;
-
-  mlir::LogicalResult
-  matchAndRewrite(Pool2dOp op, mlir::PatternRewriter &rewriter) const final {
-    PadOp padOp = op.getInput().template getDefiningOp<PadOp>();
-    if (!padOp) {
-      return failure();
-    }
-
-    // Pool2dOp implicitly pads with zero. We can only fuse if PadOp also
-    // pads with zero.
-    if (!padOp.getValue().isZero()) {
-      return failure();
-    }
-
-    // PadOp padding is [N_low, N_high, H_low, H_high, W_low, W_high, C_low,
-    // C_high] for 4D NHWC tensors. Pool2dOp only operates on spatial dimensions
-    // (H, W), so we can only fuse if batch (N) and channel (C) padding are
-    // zero.
-    ArrayRef<int32_t> padOpPadding = padOp.getPadding();
-    if (padOpPadding.size() != PAD_OP_PADDING_SIZE) {
-      return failure();
-    }
-    if (padOpPadding[PAD_OP_N_LOW] != 0 || padOpPadding[PAD_OP_N_HIGH] != 0 ||
-        padOpPadding[PAD_OP_C_LOW] != 0 || padOpPadding[PAD_OP_C_HIGH] != 0) {
-      return failure();
-    }
-
-    // Extract spatial padding from PadOp.
-    int32_t padHLow = padOpPadding[PAD_OP_H_LOW];
-    int32_t padHHigh = padOpPadding[PAD_OP_H_HIGH];
-    int32_t padWLow = padOpPadding[PAD_OP_W_LOW];
-    int32_t padWHigh = padOpPadding[PAD_OP_W_HIGH];
-
-    // Pool2dOp padding can be:
-    // - i32: same padding for all sides (p)
-    // - array<2xi32>: [pH, pW] same padding for H and W dimensions
-    // - array<4xi32>: [pTop, pLeft, pBottom, pRight]
-    // Combine PadOp spatial padding with Pool2dOp padding into
-    // [pTop, pLeft, pBottom, pRight] format.
-    SmallVector<int32_t> opPadding;
-    mlir::Attribute paddingAttr = op.getPaddingAttr();
-    if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(
-            paddingAttr)) { // TODO: Can this be I32Attr?
-      opPadding.push_back(static_cast<int32_t>(intAttr.getInt()));
-    } else if (auto arrayAttr =
-                   mlir::dyn_cast<mlir::DenseI32ArrayAttr>(paddingAttr)) {
-      opPadding = SmallVector<int32_t>(arrayAttr.asArrayRef());
-    }
-
-    SmallVector<int32_t> newPadding;
-    switch (opPadding.size()) {
-    case 1: {
-      // Same padding for all sides.
-      newPadding = {padHLow + opPadding[0], padWLow + opPadding[0],
-                    padHHigh + opPadding[0], padWHigh + opPadding[0]};
-      break;
-    }
-    case 2: {
-      // [pH, pW] -> [pTop=pH, pLeft=pW, pBottom=pH, pRight=pW].
-      newPadding = {padHLow + opPadding[0], padWLow + opPadding[1],
-                    padHHigh + opPadding[0], padWHigh + opPadding[1]};
-      break;
-    }
-    case 4:
-      // Already in [pTop, pLeft, pBottom, pRight] format.
-      newPadding = {padHLow + opPadding[POOL_OP_H_LOW],
-                    padWLow + opPadding[POOL_OP_W_LOW],
-                    padHHigh + opPadding[POOL_OP_H_HIGH],
-                    padWHigh + opPadding[POOL_OP_W_HIGH]};
-      break;
-    default:
-      return failure();
-    }
-
-    rewriter.modifyOpInPlace(op, [&]() {
-      op.getInputMutable().assign(padOp.getInput());
-      op.setPaddingAttr(rewriter.getDenseI32ArrayAttr(newPadding));
-    });
-
-    return success();
-  }
 };
 
 // Fuse MatmulOp followed by AddOp into a single LinearOp.
