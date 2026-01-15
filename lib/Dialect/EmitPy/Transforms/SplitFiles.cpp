@@ -48,11 +48,35 @@ public:
       importOp.erase();
     }
 
+    builder.setInsertionPointToEnd(&mainFile.getBodyRegion().front());
+    builder.create<emitpy::ImportOp>(
+        mainFile.getLoc(), builder.getStringAttr("consteval"),
+        /*module_alias=*/nullptr,
+        /*members_to_import=*/
+        builder.getStrArrayAttr({"_execute_all_consteval"}),
+        /*member_aliases=*/nullptr,
+        /*import_all=*/nullptr);
+
     // Move all operations to the appropriate file operation body regions.
     for (auto &op : llvm::make_early_inc_range(moduleOp.getOps())) {
       // Skip the FileOps themselves.
-      if (isa<FileOp>(op)) {
+      if (isa<emitpy::FileOp>(op)) {
         continue;
+      }
+
+      if (isa<func::FuncOp>(op) &&
+          op.getName().getStringRef().equals_insensitive("_main")) {
+        auto executeAllConstevalOp = builder.create<func::FuncOp>(
+            constevalFile.getLoc(), "_execute_all_consteval",
+            builder.getFunctionType({}, {}));
+        op.walk([&](Operation *nestedOp) {
+          if (isConstevalOp(nestedOp)) {
+            nestedOp->moveBefore(&executeAllConstevalOp.getBody().front(),
+                                 executeAllConstevalOp.getBody().front().end());
+          }
+        });
+        builder.create<func::CallOp>(mainFile.getLoc(), executeAllConstevalOp,
+                                     ValueRange{});
       }
 
       if (isConstevalOp(&op)) {
@@ -62,7 +86,7 @@ public:
         op.moveBefore(&mainFile.getBodyRegion().front(),
                       mainFile.getBodyRegion().front().end());
       }
-    }
+    };
   };
 };
 

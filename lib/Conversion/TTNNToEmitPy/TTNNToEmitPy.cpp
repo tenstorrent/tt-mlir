@@ -2509,6 +2509,7 @@ public:
     auto constantOp = rewriter.create<emitpy::ConstantOp>(
         loadCachedOp.getLoc(), calleeType,
         emitpy::OpaqueAttr::get(rewriter.getContext(), calleeName));
+    constantOp->setAttr("emitpy.consteval", rewriter.getUnitAttr());
     auto callee = constantOp->getResult(0);
 
     llvm::SmallVector<Value> operands;
@@ -2545,6 +2546,7 @@ public:
     //
     auto getGlobalOp = rewriter.create<emitpy::GetGlobalOp>(
         loadCachedOp.getLoc(), tensorListType, globalSymbol);
+    getGlobalOp->setAttr("emitpy.consteval", rewriter.getUnitAttr());
     auto globalVar = getGlobalOp->getResult(0);
     operands.push_back(globalVar);
 
