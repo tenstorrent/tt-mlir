@@ -1273,8 +1273,6 @@ def module_batch_norm_grad(builder: StableHLOBuilder):
     ],
 )
 def test_batch_norm_training_op(test_fn: Callable, target: str, request, device):
-    # Disable fp32 accumulation for this test to maintain expected PCC
-    pipeline_options = ["compute-cfg-fp32-dest-acc-en=false"]
 
     compile_and_execute_shlo(
         test_fn,
@@ -1283,7 +1281,6 @@ def test_batch_norm_training_op(test_fn: Callable, target: str, request, device)
         system_desc_path=request.config.getoption("--sys-desc"),
         target=target,
         device=device,
-        ttir_pipeline_options=pipeline_options,
     )
 
 
