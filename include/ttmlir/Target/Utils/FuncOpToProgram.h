@@ -13,6 +13,8 @@
 #include "ttmlir/Target/Utils/FlatbufferObjectCache.h"
 #include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
 
+#include <iostream>
+
 namespace mlir::tt::ttnn {
 
 template <typename OpT>
@@ -72,8 +74,7 @@ funcOpToProgram(FlatbufferObjectCache &cache, func::FuncOp entry, FnT fn,
   program.name = entry.getSymName().data();            
 
   for (auto &input : entry.getBody().getArguments()) {
-    ttcore::ShardStatus shardStatus = ttcore::ShardStatus::Unsharded;   
-    mlir::RankedTensorType localShape = mlir::cast<mlir::RankedTensorType>(input.getType());
+    ttcore::ShardStatus shardStatus = ttcore::ShardStatus::Unsharded;
     
     // Get argument encoding to determine sharding status
     mlir::DictionaryAttr argAttrDict = entry.getArgAttrDict(input.getArgNumber());
@@ -83,11 +84,12 @@ funcOpToProgram(FlatbufferObjectCache &cache, func::FuncOp entry, FnT fn,
       if (runtimeTensorShardingAttr) {
         auto rtsAttr = mlir::cast<mlir::tt::ttcore::RuntimeTensorShardingAttr>(runtimeTensorShardingAttr);
         shardStatus = rtsAttr.getShardStatus().getValue();
-        localShape = rtsAttr.getLocalShape();
+        program.inputs.push_back(cache.getOrCreate(input, tensorValueToFlatbuffer, rtsAttr.getLocalShape(), shardStatus));
       }
     }
-
-    program.inputs.push_back(cache.getOrCreate(input, tensorValueToFlatbuffer, localShape, shardStatus));
+    else {
+        program.inputs.push_back(cache.getOrCreate(input, tensorValueToFlatbuffer, mlir::cast<mlir::RankedTensorType>(input.getType()), shardStatus));
+    }
   }
 
   mlir::AsmState printState(entry, printFlags);

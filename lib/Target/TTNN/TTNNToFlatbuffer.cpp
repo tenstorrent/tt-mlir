@@ -48,6 +48,8 @@
 #include "llvm/Support/SHA256.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <iostream>
+
 namespace mlir::tt::ttnn {
 
 #define GEN_PASS_DEF_TTNNSERIALIZETOBINARY
@@ -207,8 +209,13 @@ tensorTypeToFlatbuffer(FlatbufferObjectCache &cache, Type type,
 flatbuffers::Offset<::tt::target::ttnn::TensorRef>
 tensorValueToFlatbuffer(FlatbufferObjectCache &cache, Value value, std::optional<mlir::RankedTensorType> localShape, mlir::tt::ttcore::ShardStatus shardStatus) {
   auto tensorType = mlir::cast<RankedTensorType>(value.getType());
+  mlir::RankedTensorType tapsType;
   if (!localShape.has_value()) {
-    localShape = tensorType;
+    tapsType = mlir::RankedTensorType::get(tensorType.getShape(),
+                                            tensorType.getElementType());
+  }
+  else {
+    tapsType = mlir::RankedTensorType::get(localShape->getShape(), localShape->getElementType());
   }
   
   auto deviceAttr = ttcore::lookupDevice(value.getParentBlock()->getParentOp());
@@ -222,8 +229,7 @@ tensorValueToFlatbuffer(FlatbufferObjectCache &cache, Value value, std::optional
     tensorType = mlir::RankedTensorType::get(tensorType.getShape(), elementType,
                                              tensorType.getEncoding());
   }
-  auto tensorDesc =
-      cache.getOrCreate(tensorType, tensorTypeToFlatbuffer, deviceAttr, *localShape, shardStatus);
+  auto tensorDesc = tensorTypeToFlatbuffer(cache, tensorType, deviceAttr, tapsType, shardStatus);
   return ::tt::target::ttnn::CreateTensorRef(*cache.fbb, cache.global_id++,
                                              tensorDesc);
 }

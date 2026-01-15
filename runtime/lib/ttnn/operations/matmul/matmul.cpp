@@ -12,6 +12,8 @@
 
 #include <optional>
 
+#include <iostream>
+
 namespace tt::runtime::ttnn::operations::matmul {
 
 // ANCHOR: adding_an_op_matmul_runtime_operations
