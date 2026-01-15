@@ -142,14 +142,18 @@ def TTIR_TTNNMetalLayoutCastOp : TTIR_Op<"ttnn_metal_layout_cast",
 }
 
 def TTIR_DispatchD2MOp : TTIR_Op<"dispatch_d2m"> {
-  let summary = "Dispatch subgraph to D2M backend.";
+  let summary = "Dispatch subgraph module to D2M backend.";
   let description = [{
-    Dispatch a subgraph (referenced by a func symbol) to the D2M backend. The subgraph will
+    Dispatch a subgraph (contained in a nested module) to the D2M backend. The subgraph will
     be lowered to one or more ttnn.generic ops. The D2M compiler must respect the input/output shapes/layouts,
     but will have full control over intermediate tensors.
+
+    The `subgraph` attribute references a nested module containing the subgraph to compile.
+    The module should contain a function with the same name as the module that serves as the
+    entry point.
   }];
 
-  let arguments = (ins FlatSymbolRefAttr:$func,
+  let arguments = (ins FlatSymbolRefAttr:$subgraph,
                        Variadic<AnyRankedTensor>:$inputs);
 
   let results = (outs AnyRankedTensor:$output);
@@ -157,7 +161,7 @@ def TTIR_DispatchD2MOp : TTIR_Op<"dispatch_d2m"> {
   let hasVerifier = 1;
 
   let assemblyFormat = [{
-    `(` $func `,` `[` $inputs `]` `)` attr-dict `:` functional-type($inputs, $output)
+    `(` $subgraph `,` `[` $inputs `]` `)` attr-dict `:` functional-type($inputs, $output)
   }];
 }
 
