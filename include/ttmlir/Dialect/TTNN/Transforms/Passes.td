@@ -502,6 +502,8 @@ def TTNNRemoveDeallocs: Pass<"ttnn-remove-deallocs", "::mlir::ModuleOp"> {
     This pass removes all ttnn.deallocate operations from the IR.
     Useful for debugging purposes to isolate issues related to deallocation.
   }];
+}
+
 def TTNNMaterializeD2M : Pass<"ttnn-materialize-d2m", "::mlir::ModuleOp"> {
   let summary = "Compile subgraphs identified by ttir.dispatch_d2m ops through the D2M (Direct-to-Metal) pipeline.";
   let description = [{
@@ -537,6 +539,13 @@ def TTNNMaterializeD2M : Pass<"ttnn-materialize-d2m", "::mlir::ModuleOp"> {
     ListOption<"meshShape", "mesh-shape", "int64_t",
                "Shape of the device mesh">
   ];
+}
+
+def TTNNCollaspeD2M : Pass<"ttnn-collaspe-d2m", "::mlir::ModuleOp"> {
+  let summary = "Collapse D2M subgraph modules(s) back into original module.";
+  let description = [{
+    This pass collapses D2M subgraph modules(s) back into original module.
+  }];
 }
 
 #endif
