@@ -5410,4 +5410,8 @@ mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp::verify() {
   return success();
 }
 
+::mlir::LogicalResult mlir::tt::ttir::DispatchD2MOp::verify() {
+  return success();
+}
+
 } // namespace mlir::tt::ttir

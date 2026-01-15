@@ -502,6 +502,41 @@ def TTNNRemoveDeallocs: Pass<"ttnn-remove-deallocs", "::mlir::ModuleOp"> {
     This pass removes all ttnn.deallocate operations from the IR.
     Useful for debugging purposes to isolate issues related to deallocation.
   }];
+def TTNNMaterializeD2M : Pass<"ttnn-materialize-d2m", "::mlir::ModuleOp"> {
+  let summary = "Compile subgraphs identified by ttir.dispatch_d2m ops through the D2M (Direct-to-Metal) pipeline.";
+  let description = [{
+    This pass finds functions or subgraphs marked for D2M compilation and
+    processes them through the D2M pipeline to generate optimized kernel code.
+  }];
+
+  // Dialects used by the D2M pipeline that must be pre-loaded.
+  // Not sure if there's a better way to do this.
+  let dependentDialects = [
+    "mlir::affine::AffineDialect",
+    "mlir::arith::ArithDialect",
+    "mlir::vector::VectorDialect",
+    "mlir::bufferization::BufferizationDialect",
+    "mlir::linalg::LinalgDialect",
+    "mlir::memref::MemRefDialect",
+    "mlir::scf::SCFDialect",
+    "mlir::emitc::EmitCDialect",
+    "mlir::tensor::TensorDialect",
+    "mlir::func::FuncDialect",
+    "mlir::tt::ttir::TTIRDialect",
+    "mlir::tt::ttnn::TTNNDialect",
+    "mlir::tt::ttmetal::TTMetalDialect",
+    "mlir::tt::ttkernel::TTKernelDialect",
+    "mlir::tt::d2m::D2MDialect"
+  ];
+
+  let options = [
+    Option<"systemDescPath", "system-desc-path", "std::string", /*default=*/"\"\"",
+           "Path to the system descriptor file">,
+    Option<"mockSystemDescArch", "mock-system-desc-arch", "std::string", /*default=*/"\"\"",
+           "Mock system descriptor architecture for testing">,
+    ListOption<"meshShape", "mesh-shape", "int64_t",
+               "Shape of the device mesh">
+  ];
 }
 
 #endif
