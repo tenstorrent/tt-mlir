@@ -797,11 +797,12 @@ bool tryConfigFallbacks(Operation *operation,
 
   const auto &conv2dAttrs =
       std::get<Conv2dAttrs>(originalConfig.opSpecificAttrs);
-  if (!conv2dAttrs.conv2dConfig.has_value()) {
-    return false;
-  }
 
-  Conv2dConfigAttr originalConfigAttr = conv2dAttrs.conv2dConfig.value();
+  // Use existing config or default if none exists
+  Conv2dConfigAttr originalConfigAttr =
+      conv2dAttrs.conv2dConfig.has_value()
+          ? conv2dAttrs.conv2dConfig.value()
+          : Conv2dConfigAttr::getDefault(operation->getContext());
 
   // Create search space focused on act_block_h_override
   // Try all multiples of 32 from 1024 down to 32
