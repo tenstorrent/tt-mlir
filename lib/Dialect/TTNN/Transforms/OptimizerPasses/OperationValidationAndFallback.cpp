@@ -837,18 +837,96 @@ bool tryConfigFallbacks(Operation *operation,
   // Use TypeSwitch to handle both Conv2dOp and ConvTranspose2dOp
   bool foundConfig =
       llvm::TypeSwitch<Operation *, bool>(operation)
-          .Case<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp>([&](auto convOp) {
-            // Set DRAM slice config to avoid L1 memory usage during OOM
-            // fallback. This is set here because tryConfigFallbacks is only
-            // called for OOM errors. Only Conv2dOp supports slice config.
-            if constexpr (std::is_same_v<decltype(convOp), ttnn::Conv2dOp>) {
-              auto conv2dSliceConfig = Conv2dSliceConfigAttr::get(
-                  convOp->getContext(), Conv2dSliceType::DramHeight, 0);
-              convOp.setConv2dSliceConfigAttr(conv2dSliceConfig);
-            }
+          .Case<ttnn::Conv2dOp>([&](ttnn::Conv2dOp convOp) {
+            // Conv2dOp supports all slice configs
+            llvm::SmallVector<Conv2dSliceType> sliceConfigsToTry = {
+                Conv2dSliceType::L1Full, Conv2dSliceType::DramWidth,
+                Conv2dSliceType::DramHeight};
 
+            for (Conv2dSliceType sliceType : sliceConfigsToTry) {
+              Conv2dConfigSearchSpace currentSearchSpace = searchSpace;
+
+              auto conv2dSliceConfig = Conv2dSliceConfigAttr::get(
+                  convOp->getContext(), sliceType, 0);
+              convOp.setConv2dSliceConfigAttr(conv2dSliceConfig);
+
+              // Remove act_block_h_override=0 for DRAM slice configs
+              // TODO(bmalesevic, #6634): Remove when tt-metal backend supports
+              // act_block_h=0
+              if (sliceType != Conv2dSliceType::L1Full) {
+                currentSearchSpace.actBlockHOverride.erase(
+                    std::remove(currentSearchSpace.actBlockHOverride.begin(),
+                                currentSearchSpace.actBlockHOverride.end(), 0),
+                    currentSearchSpace.actBlockHOverride.end());
+              }
+
+              Conv2dConfigGenerator configGenerator(
+                  &convOp, baseConfig, currentSearchSpace, filterOutFn);
+
+              TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+                           "Trying slice config: {} with {} act_block_h values",
+                           static_cast<int>(sliceType),
+                           currentSearchSpace.actBlockHOverride.size());
+
+              // Iterate through generated configs
+              while (Conv2dConfigAttr configAttr =
+                         configGenerator.getNextConfig()) {
+                // Test this config
+                OpConfig testConfig = originalConfig;
+                auto &testConv2dAttrs =
+                    std::get<Conv2dAttrs>(testConfig.opSpecificAttrs);
+                testConv2dAttrs.conv2dConfig = configAttr;
+
+                auto result = testFallbackCombination(operation, testConfig,
+                                                      originalInputLayouts);
+
+                if (result.isSuccess()) {
+                  workingConfig = configAttr;
+                  workingResult = result;
+                  TTMLIR_DEBUG(
+                      ttmlir::LogComponent::OpValidation,
+                      "Found working config with slice type {} after {} "
+                      "failed attempts",
+                      static_cast<int>(sliceType), failedAttempts);
+                  return true;
+                }
+
+                failedAttempts++;
+                TTMLIR_TRACE(ttmlir::LogComponent::OpValidation,
+                             "Config fallback failed (status: {}): {}",
+                             static_cast<int>(result.status),
+                             result.errorMessage);
+
+                // Check if we've exceeded the maximum attempts (if limit is
+                // set)
+                if (maxAttempts > 0 &&
+                    failedAttempts >= static_cast<size_t>(maxAttempts)) {
+                  TTMLIR_DEBUG(
+                      ttmlir::LogComponent::OpValidation,
+                      "Reached maximum fallback attempts ({}) for "
+                      "operation {} at {}. Terminating early for slice type "
+                      "{}.",
+                      maxAttempts, operation->getName(), operation->getLoc(),
+                      static_cast<int>(sliceType));
+                  return false;
+                }
+              }
+            }
+            TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+                         "No working config found after {} failed attempts",
+                         failedAttempts);
+            return false;
+          })
+          // ConvTranspose2dOp doesn't support slice config attribute yet
+          // TODO(bmalesevic, #6639): Move ConvTranspose2dOp to case above when
+          // slice config attribute is supported
+          .Case<ttnn::ConvTranspose2dOp>([&](ttnn::ConvTranspose2dOp convOp) {
             Conv2dConfigGenerator configGenerator(&convOp, baseConfig,
                                                   searchSpace, filterOutFn);
+
+            TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+                         "Trying config fallback with {} act_block_h values",
+                         searchSpace.actBlockHOverride.size());
 
             // Iterate through generated configs
             while (Conv2dConfigAttr configAttr =
@@ -865,7 +943,7 @@ bool tryConfigFallbacks(Operation *operation,
               if (result.isSuccess()) {
                 workingConfig = configAttr;
                 workingResult = result;
-                TTMLIR_TRACE(ttmlir::LogComponent::OpValidation,
+                TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
                              "Found working config after {} failed attempts",
                              failedAttempts);
                 return true;
