@@ -5,6 +5,7 @@
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOLegalizeComposite.h"
 
 #include "ttmlir/Conversion/StableHLOToTTIR/StableHLOToTTIR.h"
+#include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
@@ -19,6 +20,7 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "stablehlo/dialect/StablehloOps.h"
 #include "llvm/Support/LogicalResult.h"
+#include <shardy/dialect/sdy/ir/dialect.h>
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -311,45 +313,42 @@ public:
         mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
 
     DictionaryAttr compositeAttrs = srcOp.getCompositeAttributes();
-    auto shardTypeAttr = mlir::tt::ttcore::MeshShardTypeAttr::get(
-        this->getContext(), mlir::tt::ttcore::MeshShardType::Devices);
-    auto shardDirectionAttr = mlir::tt::ttcore::MeshShardDirectionAttr::get(
-        this->getContext(), mlir::tt::ttcore::MeshShardDirection::FullToShard);
-
-    auto maybeShardShapeAttr = convertAttributeToDenseI64ArrayAttr(
-        compositeAttrs.get("shard_shape"), rewriter);
-    auto maybeShardDimsAttr = convertAttributeToDenseI64ArrayAttr(
-        compositeAttrs.get("shard_dims"), rewriter);
-
-    if (!maybeShardShapeAttr || !maybeShardDimsAttr) {
-      return rewriter.notifyMatchFailure(
-          srcOp,
-          "Failed to convert shard_shape or shard_dims to DenseI64ArrayAttr");
+    auto maybeOutShardingAttr = compositeAttrs.get("out_sharding");
+    if (!maybeOutShardingAttr) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "out_sharding attribute is required");
     }
+    // Extract the out_sharding attribute
+    mlir::ModuleOp moduleOp = srcOp->getParentOfType<mlir::ModuleOp>();
+    mlir::sdy::MeshOp globalMeshOp = shardy_utils::getMeshOps(moduleOp)[0];
+    mlir::sdy::TensorShardingAttr outShardingAttr =
+        mlir::cast<mlir::sdy::TensorShardingAttr>(maybeOutShardingAttr);
+
+    // Calculate the attributes for the ttir.mesh_shard op.
+    llvm::Expected<mlir::tt::shardy_utils::ShardyMeshSharding>
+        shardyMeshSharding =
+            mlir::tt::shardy_utils::ShardyMeshSharding::generate(
+                globalMeshOp.getMeshAttr(), outShardingAttr,
+                mlir::tt::ttcore::ShardStatus::Unsharded,
+                ttcore::MeshShardDirection::FullToShard);
+    if (auto err = shardyMeshSharding.takeError()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Error trying to parse shardy annotation when legalizing "
+                 "sdy.all_slice composite op.");
+    }
+    auto shardTypeAttr = mlir::tt::ttcore::MeshShardTypeAttr::get(
+        this->getContext(), shardyMeshSharding->getShardType());
+    auto shardDirectionAttr = mlir::tt::ttcore::MeshShardDirectionAttr::get(
+        this->getContext(), shardyMeshSharding->getShardDirection());
+    auto shardShapeAttr =
+        rewriter.getDenseI64ArrayAttr(shardyMeshSharding->getShardShape());
+    auto shardDimsAttr =
+        rewriter.getDenseI64ArrayAttr(shardyMeshSharding->getShardDims());
 
     rewriter.replaceOpWithNewOp<ttir::MeshShardOp>(
         srcOp, outputType, adaptor.getOperands().front(), shardTypeAttr,
-        shardDirectionAttr, maybeShardShapeAttr.value(),
-        maybeShardDimsAttr.value());
+        shardDirectionAttr, shardShapeAttr, shardDimsAttr);
     return success();
-  }
-
-private:
-  std::optional<DenseI64ArrayAttr> convertAttributeToDenseI64ArrayAttr(
-      Attribute attr, ConversionPatternRewriter &rewriter) const {
-    SmallVector<int64_t> values;
-    if (auto denseAttr = mlir::dyn_cast<DenseIntElementsAttr>(attr)) {
-      for (auto val : denseAttr.getValues<int64_t>()) {
-        values.push_back(val);
-      }
-    } else if (auto arrayAttr = mlir::dyn_cast<ArrayAttr>(attr)) {
-      for (auto attr : arrayAttr) {
-        values.push_back(mlir::cast<IntegerAttr>(attr).getInt());
-      }
-    } else {
-      return std::nullopt;
-    }
-    return rewriter.getDenseI64ArrayAttr(values);
   }
 };
 
