@@ -533,7 +533,7 @@ void createTTIRToEmitCPipeline(OpPassManager &pm,
 void createTTIRToEmitPyPipeline(OpPassManager &pm,
                                 const TTIRToEmitPyPipelineOptions &options);
 
-void createWorkaroundMixedTTIRTTNNToEmitPyPipeline(
+void createTTNNToEmitPyPipeline(
     OpPassManager &pm, const TTNNToEmitPyDevicePipelineOptions &options);
 
 void registerTTNNPipelines();
