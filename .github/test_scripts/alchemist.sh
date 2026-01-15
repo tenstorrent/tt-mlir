@@ -63,6 +63,17 @@ cd /tmp/test-generate-python
 [ -d /tmp/test-generate-python ] || { echo "Directory not found: /tmp/test-generate-python" >&2; exit 1; }
 # ./run  # TODO: enable when fixed
 
+echo "Run tt-alchemist API test - generate-python (TTNN input)"
+# First convert TTIR to TTNN using ttmlir-opt
+TTNN_MLIR=/tmp/test-ttnn-input.mlir
+ttmlir-opt --ttir-to-ttnn-backend-pipeline $WORK_DIR/tools/tt-alchemist/test/models/add.mlir -o $TTNN_MLIR
+# Then run tt-alchemist on the TTNN input
+rm -rf /tmp/test-generate-python-ttnn
+tt-alchemist generate-python $TTNN_MLIR --output /tmp/test-generate-python-ttnn
+cd /tmp/test-generate-python-ttnn
+[ -d /tmp/test-generate-python-ttnn ] || { echo "Directory not found: /tmp/test-generate-python-ttnn" >&2; exit 1; }
+# ./run  # TODO: enable when fixed
+
 echo "Test Passed. Doing cleanup"
 deactivate
 rm -rf testenv

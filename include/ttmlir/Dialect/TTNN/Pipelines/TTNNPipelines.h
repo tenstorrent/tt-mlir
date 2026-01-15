@@ -533,6 +533,9 @@ void createTTIRToEmitCPipeline(OpPassManager &pm,
 void createTTIRToEmitPyPipeline(OpPassManager &pm,
                                 const TTIRToEmitPyPipelineOptions &options);
 
+void createTTNNToEmitPyPipeline(
+    OpPassManager &pm, const TTNNToEmitPyDevicePipelineOptions &options);
+
 void registerTTNNPipelines();
 } // namespace mlir::tt::ttnn
 

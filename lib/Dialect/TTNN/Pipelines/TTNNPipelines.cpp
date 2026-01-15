@@ -500,6 +500,21 @@ void createTTIRToEmitPyPipeline(OpPassManager &pm,
   pm.addPass(createEmitPyLinkModulesPass());
 }
 
+// Complete pipeline for lowering TTNN to EmitPy.
+//
+// This pipeline is used when the input is already in TTNN dialect, and assumes
+// the CPU module is still in TTIR.
+//
+// Device module: TTNN -> EmitPy.
+// CPU module: TTIR -> TTNN -> EmitPy (with golden functions).
+//
+void createTTNNToEmitPyPipeline(
+    OpPassManager &pm, const TTNNToEmitPyDevicePipelineOptions &options) {
+  createTTNNToEmitPyDevicePipeline(pm, options);
+  createTTIRToEmitPyCPUPipeline(pm);
+  pm.addPass(createEmitPyLinkModulesPass());
+}
+
 //===----------------------------------------------------------------------===//
 // Pipeline registration.
 //===----------------------------------------------------------------------===//
@@ -540,5 +555,12 @@ void registerTTNNPipelines() {
   mlir::PassPipelineRegistration<mlir::tt::ttnn::TTIRToEmitPyPipelineOptions>(
       "ttir-to-emitpy-pipeline", "Pipeline lowering TTIR to EmitPy.",
       mlir::tt::ttnn::createTTIRToEmitPyPipeline);
+
+  // TTNN to EmitPy pipeline.
+  //
+  mlir::PassPipelineRegistration<
+      mlir::tt::ttnn::TTNNToEmitPyDevicePipelineOptions>(
+      "ttnn-to-emitpy-pipeline", "Pipeline lowering TTNN to EmitPy.",
+      mlir::tt::ttnn::createTTNNToEmitPyPipeline);
 }
 } // namespace mlir::tt::ttnn
