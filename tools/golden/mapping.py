@@ -4327,6 +4327,13 @@ def stablehlo_rsqrt_golden(
     return torch.rsqrt(input_tensor).to(output_dtype)
 
 
+def stablehlo_erf_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.erf(input_tensor).to(output_dtype)
+
+
 def stablehlo_slice_golden(
     input_tensor: GoldenMapTensor,
     start_indices_attr: DenseI64ArrayAttr,
@@ -5335,6 +5342,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     stablehlo.SqrtOp: stablehlo_sqrt_golden,
     stablehlo.TanOp: stablehlo_tan_golden,
     stablehlo.TanhOp: stablehlo_tanh_golden,
+    stablehlo.ErfOp: stablehlo_erf_golden,
     stablehlo.AndOp: stablehlo_and_golden,
     stablehlo.OrOp: stablehlo_or_golden,
     stablehlo.XorOp: stablehlo_xor_golden,
