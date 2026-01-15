@@ -66,6 +66,7 @@ class CMakeBuild(build_ext):
             "-DTTMLIR_ENABLE_RUNTIME_TESTS=OFF",
             "-DTTMLIR_ENABLE_TESTS=OFF",
             "-DTTMLIR_ENABLE_RUNTIME=OFF",
+            "-DTTMLIR_ENABLE_TOOLS=OFF",
             "-DTTMLIR_ENABLE_STABLEHLO=OFF",
             "-DTTMLIR_ENABLE_OPMODEL=OFF",
             "-DTTMLIR_ENABLE_EXPLORER=OFF",
