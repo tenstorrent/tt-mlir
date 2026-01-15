@@ -274,25 +274,15 @@ void createTTIRToTTNNDevicePipeline(
     }
 
     // Apply ComputeKernelConfig settings before analysis passes.
-    // This ensures that analysis passes see the configured values.
-    // Check if math fidelity is explicitly set (CLI or programmatic).
-    bool mathFidelityExplicitlySet =
-        options.computeCfgMathFidelitySet ||
-        (options.computeCfgMathFidelity.getNumOccurrences() > 0);
+    // Create options struct and forward pipeline options.
+    TTNNSetComputeKernelConfigOptions setConfigOptions;
 
-    // Run pass only when at least one compute config option is explicitly set.
-    if (mathFidelityExplicitlySet || options.computeCfgFp32DestAccEn) {
-      // Create options struct and forward pipeline options.
-      TTNNSetComputeKernelConfigOptions setConfigOptions;
+    // Forward the OptionalMathFidelity value directly
+    setConfigOptions.mathFidelity = options.computeCfgMathFidelity.getValue();
+    setConfigOptions.fp32DestAccEn = options.computeCfgFp32DestAccEn.getValue();
 
-      // Forward math fidelity only if explicitly set.
-      if (mathFidelityExplicitlySet) {
-        setConfigOptions.mathFidelity = options.computeCfgMathFidelity;
-      }
-
-      // Forward fp32DestAccEn value (defaults to true).
-      setConfigOptions.fp32DestAccEn = options.computeCfgFp32DestAccEn;
-
+    if (setConfigOptions.fp32DestAccEn ||
+        setConfigOptions.mathFidelity != OptionalMathFidelity::Undefined) {
       devicePm.addPass(createTTNNSetComputeKernelConfig(setConfigOptions));
     }
 

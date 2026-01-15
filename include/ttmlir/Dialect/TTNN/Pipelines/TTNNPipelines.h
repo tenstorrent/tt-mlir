@@ -349,30 +349,29 @@ struct TTIRToTTNNDevicePipelineOptions
       llvm::cl::init(false)};
 
   // ComputeKernelConfig options
-  // Note: computeCfgMathFidelity default value (HiFi4) is not used unless
-  // computeCfgMathFidelitySet is true. The default exists only to satisfy
-  // Option<T>'s requirement for an initialized value.
-  Option<MathFidelity> computeCfgMathFidelity{
+  // Note: computeCfgMathFidelity default value is HiFi4
+  // And computeCfgFp32DestAccEn default value is true.
+  // This is done as part of generality effort,
+  // to boost accuracy on all operations exposing compute kernel config by
+  // default.
+  Option<OptionalMathFidelity> computeCfgMathFidelity{
       *this, "compute-cfg-math-fidelity",
       llvm::cl::desc("Set math fidelity for all ttnn operations exposing "
                      "compute kernel config."),
       llvm::cl::values(
-          clEnumValN(MathFidelity::LoFi, "lofi", "Low fidelity math"),
-          clEnumValN(MathFidelity::HiFi2, "hifi2", "High fidelity 2"),
-          clEnumValN(MathFidelity::HiFi3, "hifi3", "High fidelity 3"),
-          clEnumValN(MathFidelity::HiFi4, "hifi4", "High fidelity 4")),
-      llvm::cl::init(MathFidelity::HiFi4)};
-
-  // Internal flag to track whether computeCfgMathFidelity was explicitly set.
-  // This enables distinguishing "unset" from "explicitly set to any value".
-  // Frontend propagation must use setComputeCfgMathFidelity() to set this flag.
-  bool computeCfgMathFidelitySet = false;
+          clEnumValN(OptionalMathFidelity::LoFi, "lofi", "Low fidelity math"),
+          clEnumValN(OptionalMathFidelity::HiFi2, "hifi2", "High fidelity 2"),
+          clEnumValN(OptionalMathFidelity::HiFi3, "hifi3", "High fidelity 3"),
+          clEnumValN(OptionalMathFidelity::HiFi4, "hifi4", "High fidelity 4"),
+          clEnumValN(OptionalMathFidelity::Undefined, "undefined",
+                     "Undefined math fidelity")),
+      llvm::cl::init(OptionalMathFidelity::HiFi4)};
 
   Option<bool> computeCfgFp32DestAccEn{
       *this, "compute-cfg-fp32-dest-acc-en",
       llvm::cl::desc("Set fp32 destination accumulation for all ttnn "
                      "operations exposing compute kernel config."),
-      llvm::cl::init(false)};
+      llvm::cl::init(true)};
 
   Option<bool> ttnnPerfMetricsEnabled{
       *this, "ttnn-perf-metrics-enabled",
@@ -425,14 +424,6 @@ struct TTIRToTTNNDevicePipelineOptions
     if (memoryLayoutAnalysisEnabled.getNumOccurrences() == 0) {
       memoryLayoutAnalysisEnabled = (optimizationLevel >= 2);
     }
-  }
-
-  // Helper to set computeCfgMathFidelity programmatically (e.g., from
-  // frontend). This setter ensures both the value and the presence flag are
-  // updated together.
-  void setComputeCfgMathFidelity(MathFidelity v) {
-    computeCfgMathFidelity = v;
-    computeCfgMathFidelitySet = true;
   }
 };
 
