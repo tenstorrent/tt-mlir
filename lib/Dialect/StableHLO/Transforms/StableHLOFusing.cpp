@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
@@ -29,9 +29,9 @@ namespace mlir::tt::stablehlo {
 // The concatenate -> reshape fusion pattern is valid when the number of repeats
 // (3 in this example) appears in the reshape output shape before the
 // concatenate dimension. Here, the repeat count 3 appears at dimension 0 in the
-// output shape <3x2x4xbf16>, which comes before the original concatenate
-// dimension 0 (now dimension 1 in the output: <3x2x4xbf16>). The broadcast dims
-// [1, 2] correspond to the original tensor dimensions, while dimension 0
+// output shape <3x2x4xbf16>, which comes just before the original concatenate
+// dimension 0 (now dimension 1 in the output: <3x2x4xbf16>). The broadcast
+// dims [1, 2] correspond to the original tensor dimensions, while dimension 0
 // handles the repeat.
 //
 // Fusion is skipped if any of the operations involved have sharded inputs or
@@ -52,7 +52,7 @@ public:
     // Fuse concat -> reshape.
     // To find broadcast dims, remove the concat dim from reshape output shape.
     ::mlir::stablehlo::ReshapeOp reshapeOp =
-        mlir::dyn_cast<::mlir::stablehlo::ReshapeOp>(
+        mlir::cast<::mlir::stablehlo::ReshapeOp>(
             *concatOp.getResult().getUsers().begin());
     ArrayRef<int64_t> reshapeOutputShape =
         reshapeOp.getResult().getType().getShape();
@@ -76,15 +76,7 @@ public:
 private:
   bool isFusable(::mlir::stablehlo::ConcatenateOp concatOp) const {
     // Check all arguments of concat are the same.
-    Value firstArg = concatOp.getInputs()[0];
-    for (auto arg : concatOp.getInputs()) {
-      if (arg != firstArg) {
-        return false;
-      }
-    }
-
-    // Check if any inputs or outputs of concat are sharded. If so, don't fuse.
-    if (shardy_utils::opHasShardySharding(concatOp.getOperation())) {
+    if (!::llvm::all_equal(concatOp.getInputs())) {
       return false;
     }
 
@@ -96,8 +88,10 @@ private:
         if (!checkConcatThenReshape(concatOp, reshapeOp)) {
           return false;
         }
-        // Check if the reshape output is sharded. If so, don't fuse.
-        if (shardy_utils::opHasShardySharding(reshapeOp.getOperation())) {
+        // Do not fuse if either concatenate or reshape op inputs or outputs are
+        // sharded.
+        if (shardy_utils::opHasShardySharding(reshapeOp.getOperation()) ||
+            shardy_utils::opHasShardySharding(concatOp.getOperation())) {
           return false;
         }
         return true;
@@ -107,6 +101,7 @@ private:
     // Note: Not yet added support for reshape -> concat fusion.
     return false;
   }
+
   bool checkConcatThenReshape(::mlir::stablehlo::ConcatenateOp concatOp,
                               ::mlir::stablehlo::ReshapeOp reshapeOp) const {
     auto concatInput =
@@ -135,11 +130,11 @@ private:
   }
 };
 
-struct StablehloFusingPass
-    : public impl::StablehloFusingPassBase<StablehloFusingPass> {
+struct StableHLOFusingPass
+    : public impl::StableHLOFusingPassBase<StableHLOFusingPass> {
 public:
-  using impl::StablehloFusingPassBase<
-      StablehloFusingPass>::StablehloFusingPassBase;
+  using impl::StableHLOFusingPassBase<
+      StableHLOFusingPass>::StableHLOFusingPassBase;
 
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
