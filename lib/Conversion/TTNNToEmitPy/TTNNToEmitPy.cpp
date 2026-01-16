@@ -1315,6 +1315,12 @@ public:
 namespace {
 class DropoutOpConversionPattern
     : public TTNNToEmitPyBaseOpConversionPattern<tt::ttnn::DropoutOp> {
+private:
+  std::string getPrefixSearchPattern() const override { return "ttnn.dropout"; }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.experimental.dropout";
+  }
+
 public:
   using TTNNToEmitPyBaseOpConversionPattern<
       tt::ttnn::DropoutOp>::TTNNToEmitPyBaseOpConversionPattern;
