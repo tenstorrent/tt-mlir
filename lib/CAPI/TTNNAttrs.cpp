@@ -180,3 +180,60 @@ MlirAttribute ttmlirTTNNTTNNLayoutAttrGet(MlirContext ctx, MlirAffineMap linear,
                           mlir::cast<mlir::MemRefType>(unwrap(memref)),
                           memLayoutAttr, tensorMeshAttr));
 }
+
+MlirAttribute ttmlirShardOrientationAttrGet(MlirContext ctx,
+                                            MlirStringRef value) {
+  std::optional<ShardOrientation> shardOrientation =
+      symbolizeShardOrientation(unwrap(value));
+  if (!shardOrientation) {
+    llvm::report_fatal_error("Invalid shard orientation");
+  }
+  return wrap(ShardOrientationAttr::get(unwrap(ctx), shardOrientation.value()));
+}
+
+bool ttmlirIsShardOrientationAttr(MlirAttribute attr) {
+  return mlir::isa<ShardOrientationAttr>(unwrap(attr));
+}
+
+MlirStringRef ttmlirShardOrientationAttrGetValue(MlirAttribute attr) {
+  return wrap(stringifyShardOrientation(
+      mlir::cast<ShardOrientationAttr>(unwrap(attr)).getValue()));
+}
+
+MlirAttribute ttmlirShardDistributionStrategyAttrGet(MlirContext ctx,
+                                                     MlirStringRef value) {
+  std::optional<ShardDistributionStrategy> shardDistributionStrategy =
+      symbolizeShardDistributionStrategy(unwrap(value));
+  if (!shardDistributionStrategy) {
+    llvm::report_fatal_error("Invalid shard distribution strategy");
+  }
+  return wrap(ShardDistributionStrategyAttr::get(
+      unwrap(ctx), shardDistributionStrategy.value()));
+}
+
+bool ttmlirIsShardDistributionStrategyAttr(MlirAttribute attr) {
+  return mlir::isa<ShardDistributionStrategyAttr>(unwrap(attr));
+}
+
+MlirStringRef ttmlirShardDistributionStrategyAttrGetValue(MlirAttribute attr) {
+  return wrap(stringifyShardDistributionStrategy(
+      mlir::cast<ShardDistributionStrategyAttr>(unwrap(attr)).getValue()));
+}
+
+MlirAttribute
+ttmlirTTNNNDLayoutAttrGet(MlirContext ctx, MlirAttribute grid, MlirType memref,
+                          MlirAttribute memLayout,
+                          MlirAttribute shardOrientation,
+                          MlirAttribute shardDistributionStrategy) {
+  return wrap(TTNNNDLayoutAttr::get(
+      unwrap(ctx), mlir::cast<mlir::tt::ttcore::GridAttr>(unwrap(grid)),
+      mlir::cast<mlir::MemRefType>(unwrap(memref)),
+      mlir::cast<TensorMemoryLayoutAttr>(unwrap(memLayout)),
+      mlir::cast<ShardOrientationAttr>(unwrap(shardOrientation)),
+      mlir::cast<ShardDistributionStrategyAttr>(
+          unwrap(shardDistributionStrategy))));
+}
+
+bool ttmlirIsTTNNNDLayoutAttr(MlirAttribute attr) {
+  return mlir::isa<TTNNNDLayoutAttr>(unwrap(attr));
+}

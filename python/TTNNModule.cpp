@@ -11,6 +11,11 @@
 #include <optional>
 
 namespace mlir::ttmlir::python {
+
+static auto toPyString(MlirStringRef mlirStringRef) {
+  return nb::str(mlirStringRef.data, mlirStringRef.length);
+}
+
 void populateTTNNModule(nb::module_ &m) {
 
   tt_attribute_class<tt::ttnn::LayoutAttr>(m, "LayoutAttr")
@@ -35,29 +40,47 @@ void populateTTNNModule(nb::module_ &m) {
         return static_cast<uint32_t>(self.getValue());
       });
 
-  tt_attribute_class<tt::ttnn::ShardOrientationAttr>(m, "ShardOrientationAttr")
-      .def_static("get",
-                  [](MlirContext ctx, uint32_t shardOrientation) {
-                    return wrap(tt::ttnn::ShardOrientationAttr::get(
-                        unwrap(ctx), static_cast<tt::ttnn::ShardOrientation>(
-                                         shardOrientation)));
-                  })
-      .def_prop_ro("value", [](tt::ttnn::ShardOrientationAttr self) {
-        return static_cast<uint32_t>(self.getValue());
+  mlir::python::nanobind_adaptors::mlir_attribute_subclass(
+      m, "ShardOrientationAttr", ttmlirIsShardOrientationAttr)
+      .def_classmethod(
+          "get",
+          [](nb::object cls, MlirContext ctx, const std::string &value) {
+            return cls(ttmlirShardOrientationAttrGet(
+                ctx, mlirStringRefCreate(value.c_str(), value.size())));
+          })
+      .def_classmethod("from_attribute",
+                       [](nb::object cls, MlirAttribute attr) {
+                         if (!ttmlirIsShardOrientationAttr(attr)) {
+                           throw std::runtime_error(
+                               "Attribute is not a ShardOrientationAttr");
+                         }
+                         return cls(attr);
+                       })
+      .def_property_readonly("value", [](MlirAttribute self) {
+        return toPyString(ttmlirShardOrientationAttrGetValue(self));
       });
 
-  tt_attribute_class<tt::ttnn::ShardDistributionStrategyAttr>(
-      m, "ShardDistributionStrategyAttr")
-      .def_static(
+  mlir::python::nanobind_adaptors::mlir_attribute_subclass(
+      m, "ShardDistributionStrategyAttr", ttmlirIsShardDistributionStrategyAttr)
+      .def_classmethod(
           "get",
-          [](MlirContext ctx, uint32_t shardDistributionStrategy) {
-            return wrap(tt::ttnn::ShardDistributionStrategyAttr::get(
-                unwrap(ctx), static_cast<tt::ttnn::ShardDistributionStrategy>(
-                                 shardDistributionStrategy)));
+          [](nb::object cls, MlirContext ctx, const std::string &value) {
+            return cls(ttmlirShardDistributionStrategyAttrGet(
+                ctx, mlirStringRefCreate(value.c_str(), value.size())));
           })
-      .def_prop_ro("value", [](tt::ttnn::ShardDistributionStrategyAttr self) {
-        return static_cast<uint32_t>(self.getValue());
+      .def_classmethod(
+          "from_attribute",
+          [](nb::object cls, MlirAttribute attr) {
+            if (!ttmlirIsShardDistributionStrategyAttr(attr)) {
+              throw std::runtime_error(
+                  "Attribute is not a ShardDistributionStrategyAttr");
+            }
+            return cls(attr);
+          })
+      .def_property_readonly("value", [](MlirAttribute self) {
+        return toPyString(ttmlirShardDistributionStrategyAttrGetValue(self));
       });
+
   tt_attribute_class<tt::ttnn::BufferTypeAttr>(m, "BufferTypeAttr")
       .def_static(
           "get",
@@ -216,81 +239,24 @@ void populateTTNNModule(nb::module_ &m) {
         return static_cast<uint32_t>(self.getDataType());
       });
 
-  tt_attribute_class<tt::ttnn::TTNNNDLayoutAttr>(m, "TTNNNDLayoutAttr")
-      .def_static(
-          "get",
-          [](MlirContext ctx, MlirAttribute grid, MlirType memref,
-             MlirAttribute memLayout,
-             std::optional<unsigned> shardOrientation = std::nullopt,
-             std::optional<unsigned> shardDistributionStrategy = std::nullopt) {
-            tt::ttnn::ShardOrientationAttr shardOrientationAttr =
-                tt::ttnn::ShardOrientationAttr::get(
-                    unwrap(ctx), tt::ttnn::ShardOrientation::RowMajor);
-            if (shardOrientation.has_value()) {
-              shardOrientationAttr = tt::ttnn::ShardOrientationAttr::get(
-                  unwrap(ctx), static_cast<tt::ttnn::ShardOrientation>(
-                                   shardOrientation.value()));
+  mlir::python::nanobind_adaptors::mlir_attribute_subclass(
+      m, "TTNNNDLayoutAttr", ttmlirIsTTNNNDLayoutAttr)
+      .def_classmethod("get",
+                       [](nb::object cls, MlirContext ctx, MlirAttribute grid,
+                          MlirType memref, MlirAttribute memLayout,
+                          MlirAttribute shardOrientation,
+                          MlirAttribute shardDistributionStrategy) {
+                         return cls(ttmlirTTNNNDLayoutAttrGet(
+                             ctx, grid, memref, memLayout, shardOrientation,
+                             shardDistributionStrategy));
+                       })
+      .def_classmethod(
+          "from_attribute", [](nb::object cls, MlirAttribute attr) {
+            if (!ttmlirIsTTNNNDLayoutAttr(attr)) {
+              throw std::runtime_error("Attribute is not a TTNNNDLayoutAttr");
             }
-            tt::ttnn::ShardDistributionStrategyAttr
-                shardDistributionStrategyAttr =
-                    tt::ttnn::ShardDistributionStrategyAttr::get(
-                        unwrap(ctx),
-                        tt::ttnn::ShardDistributionStrategy::Grid2D);
-            if (shardDistributionStrategy.has_value()) {
-              shardDistributionStrategyAttr =
-                  tt::ttnn::ShardDistributionStrategyAttr::get(
-                      unwrap(ctx),
-                      static_cast<tt::ttnn::ShardDistributionStrategy>(
-                          shardDistributionStrategy.value()));
-            }
-            return wrap(tt::ttnn::TTNNNDLayoutAttr::get(
-                unwrap(ctx), mlir::cast<tt::ttcore::GridAttr>(unwrap(grid)),
-                mlir::cast<MemRefType>(unwrap(memref)),
-                mlir::cast<tt::ttnn::TensorMemoryLayoutAttr>(unwrap(memLayout)),
-                shardOrientationAttr, shardDistributionStrategyAttr));
-          },
-          nb::arg("ctx"), nb::arg("grid"), nb::arg("memref"),
-          nb::arg("memLayout"), nb::arg("shardOrientation") = nb::none(),
-          nb::arg("shardDistributionStrategy") = nb::none())
-
-      .def_prop_ro("grid_attr", &tt::ttnn::TTNNNDLayoutAttr::getGrid)
-      .def_prop_ro("grid_shape",
-                   [](tt::ttnn::TTNNNDLayoutAttr self) {
-                     auto shape = self.getGrid().getShape();
-                     return std::vector<int64_t>(shape.begin(), shape.end());
-                   })
-      .def_prop_ro("memref",
-                   [](tt::ttnn::TTNNNDLayoutAttr self) {
-                     return wrap(self.getMemref());
-                   })
-      .def_prop_ro("tensor_memory_layout_as_int",
-                   [](tt::ttnn::TTNNNDLayoutAttr self)
-                       -> std::variant<uint32_t, nb::object> {
-                     if (!self.getMemLayout()) {
-                       return nb::none();
-                     }
-                     return static_cast<uint32_t>(
-                         self.getMemLayout().getValue());
-                   })
-      .def_prop_ro("memory_layout_as_int",
-                   [](tt::ttnn::TTNNNDLayoutAttr self) {
-                     return static_cast<uint32_t>(
-                         self.getMemLayout().getValue());
-                   })
-      .def_prop_ro("memory_space",
-                   [](tt::ttnn::TTNNNDLayoutAttr self) {
-                     return wrap(self.getMemref().getMemorySpace());
-                   })
-      .def_prop_ro("shard_orientation_as_int",
-                   [](tt::ttnn::TTNNNDLayoutAttr self) {
-                     return static_cast<uint32_t>(
-                         self.getShardOrientation().getValue());
-                   })
-      .def_prop_ro("shard_distribution_strategy_as_int",
-                   [](tt::ttnn::TTNNNDLayoutAttr self) {
-                     return static_cast<uint32_t>(
-                         self.getShardDistributionStrategy().getValue());
-                   });
+            return cls(attr);
+          });
 
   tt_attribute_class<tt::ttnn::Conv2dConfigAttr>(m, "Conv2dConfigAttr")
       .def_static(

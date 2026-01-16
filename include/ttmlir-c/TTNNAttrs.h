@@ -87,6 +87,30 @@ MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTNNTTNNLayoutAttrGet(
     MlirContext ctx, MlirAffineMap linear, MlirAttribute grid, MlirType memref,
     unsigned memLayout);
 
+MLIR_CAPI_EXPORTED MlirAttribute
+ttmlirShardOrientationAttrGet(MlirContext ctx, MlirStringRef value);
+
+MLIR_CAPI_EXPORTED bool ttmlirIsShardOrientationAttr(MlirAttribute attr);
+
+MLIR_CAPI_EXPORTED MlirStringRef
+ttmlirShardOrientationAttrGetValue(MlirAttribute attr);
+
+MLIR_CAPI_EXPORTED MlirAttribute
+ttmlirShardDistributionStrategyAttrGet(MlirContext ctx, MlirStringRef value);
+
+MLIR_CAPI_EXPORTED bool
+ttmlirIsShardDistributionStrategyAttr(MlirAttribute attr);
+
+MLIR_CAPI_EXPORTED MlirStringRef
+ttmlirShardDistributionStrategyAttrGetValue(MlirAttribute attr);
+
+MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTNNNDLayoutAttrGet(
+    MlirContext ctx, MlirAttribute grid, MlirType memref,
+    MlirAttribute memLayout, MlirAttribute shardOrientation,
+    MlirAttribute shardDistributionStrategy);
+
+MLIR_CAPI_EXPORTED bool ttmlirIsTTNNNDLayoutAttr(MlirAttribute attr);
+
 #ifdef __cplusplus
 }
 #endif

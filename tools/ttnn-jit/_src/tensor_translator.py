@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+import ttmlir
 from ttmlir.ir import *
 from ttmlir.dialects import ttnn, ttcore
 from ttnn_jit._src.conversions import (
@@ -231,18 +232,18 @@ def _create_nd_sharded_tensor_layout(context, tensor_arg):
         ),
     )
     shard_orientation = ttnn.ir.ShardOrientationAttr.get(
-        context, int(shard_spec.orientation.value)
+        context, str(shard_spec.orientation)
     )
     shard_distribution_strategy = ttnn.ir.ShardDistributionStrategyAttr.get(
-        context, int(shard_spec.shard_distribution_strategy.value)
+        context, str(shard_spec.shard_distribution_strategy)
     )
     ttnn_layout = ttnn.ir.TTNNNDLayoutAttr.get(
         context,
         grid,
         memref,
         mem_layout,
-        int(shard_spec.orientation.value),
-        int(shard_spec.shard_distribution_strategy.value),
+        shard_orientation,
+        shard_distribution_strategy,
     )
     return ttnn_layout
 
