@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Tuple, Optional
 import math
 import sys
 from pathlib import Path
+from contextlib import nullcontext
 
 # Add tt-alchemist utils.py to path for EmitPy tests
 TT_MLIR_HOME = Path(os.environ.get("TT_MLIR_HOME", os.getcwd())).resolve()
@@ -187,25 +188,46 @@ def log_global_env_facts(record_testsuite_property, pytestconfig):
         record_testsuite_property("git_sha", "unknown")
 
 
+# Global variable to store the trace context
+trace_context = None
+
+
+def profiler_setup(pytestconfig):
+    global trace_context
+    enable_profiler = pytestconfig.getoption("--enable-profiler")
+    profiler_log_dir = pytestconfig.getoption("--profiler-log-dir")
+    port = pytestconfig.getoption("--port")
+
+    if enable_profiler:
+        from profiler import trace
+
+        trace_context = trace(
+            log_dir=profiler_log_dir, port=int(port) if port else None, host_only=False
+        )
+        trace_context.__enter__()
+    return nullcontext()
+
+
 @pytest.fixture(scope="function")
 def device(request, pytestconfig):
     """Device fixture that is reevaluated for every test to determine if the
     runtime mode needs to be switched from the last test, i.e. the device must
     be reinitialized
     """
-    # default target is ttnn elsewhere, if no "target" is supplied it will compile to ttnn
-    target = "ttnn"
-    mesh_shape = (1, 1)
+    # Profile setup context manager
+    with profiler_setup(pytestconfig):
+        target = "ttnn"
+        mesh_shape = (1, 1)
 
-    if hasattr(request.node, "callspec"):
-        target = request.node.callspec.params.get("target", "ttnn")
+        if hasattr(request.node, "callspec"):
+            target = request.node.callspec.params.get("target", "ttnn")
 
-        # Support for other backends coming soon.
-        if target not in ["ttnn", "ttmetal", "emitpy", "emitc"]:
-            return None
+            # Support for other backends coming soon.
+            if target not in ["ttnn", "ttmetal", "emitpy", "emitc"]:
+                return None
 
-        mesh_shape = request.node.callspec.params.get("mesh_shape", (1, 1))
-    return _get_device_for_target(target, mesh_shape, pytestconfig)
+            mesh_shape = request.node.callspec.params.get("mesh_shape", (1, 1))
+        return _get_device_for_target(target, mesh_shape, pytestconfig)
 
 
 def pytest_addoption(parser):
@@ -256,6 +278,22 @@ def pytest_addoption(parser):
         "--use-loc-for-kernel-name",
         action="store_true",
         help="Use location info for kernel filenames when dumping",
+    )
+    parser.addoption(
+        "--enable-profiler",
+        action="store_true",
+        help="Enable profiler during test execution",
+    )
+    parser.addoption(
+        "--profiler-log-dir",
+        action="store",
+        default=".",
+        help="Directory to store profiler logs",
+    )
+    parser.addoption(
+        "--port",
+        action="store",
+        help="Port for profiler to use (default: auto-select available port)",
     )
 
 
@@ -725,3 +763,8 @@ def pytest_sessionfinish(session):
         _current_device = None
         _current_device_target = None
         _current_device_mesh_shape = None
+
+    global trace_context
+    if trace_context:
+        trace_context.__exit__(None, None, None)
+        trace_context = None

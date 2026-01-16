@@ -8,13 +8,15 @@ import sys
 import signal
 import subprocess
 import shutil
+import socket
 
 from tracy.process_ops_logs import process_ops
 
 
 @contextmanager
-def trace(log_dir: str, port: int):
+def trace(log_dir: str, port: int = None, host_only: bool = False):
     os.makedirs(log_dir, exist_ok=True)
+    port = port if port else get_available_port()
 
     TT_METAL_RUNTIME_ROOT = os.environ.get(
         "TT_METAL_RUNTIME_ROOT", "third_party/tt-metal/src/tt-metal"
@@ -28,8 +30,15 @@ def trace(log_dir: str, port: int):
     profiler_csv_file_path = (
         TT_METAL_RUNTIME_ROOT + "/generated/profiler/reports/ops_perf_results.csv"
     )
+    os.environ["TRACY_PORT"] = str(port)
+    if not host_only:
+        os.environ["TT_METAL_CLEAR_L1"] = "1"
+        os.environ["TT_METAL_DEVICE_PROFILER"] = "1"
+        os.environ["TTNN_OP_PROFILER"] = "1"
+        os.environ["TT_METAL_DEVICE_PROFILER_DISPATCH"] = "0"
 
-    shutil.rmtree(profiler_logs_dir)
+    if os.path.exists(profiler_logs_dir):
+        shutil.rmtree(profiler_logs_dir)
     os.makedirs(profiler_logs_dir)
 
     tracy_capture_tool_command = (
@@ -82,3 +91,17 @@ def trace(log_dir: str, port: int):
 
         if os.path.exists(profiler_csv_file_path):
             shutil.copy(profiler_csv_file_path, log_dir)
+
+
+def get_available_port():
+    ip = socket.gethostbyname(socket.gethostname())
+
+    for port in range(8086, 8500):
+        try:
+            serv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            return port
+        except PermissionError as e:
+            pass
+        except OSError as e:
+            pass
+    return None
