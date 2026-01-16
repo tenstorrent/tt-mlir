@@ -2907,6 +2907,20 @@ def ttir_rand_golden(
     return GoldenMapTensor({0: rand_tensor}, (1, 1))
 
 
+def ttir_dropout_golden(
+    input_tensor: GoldenMapTensor,
+    prob: FloatAttr,
+    scale: FloatAttr,
+    seed: IntegerAttr,
+    use_per_device_seed: BoolAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    prob_val = unpack_mlir_attr(prob)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+
+    return torch.dropout(input_tensor, prob_val, True).to(output_dtype)
+
+
 def ttir_cos_golden(
     input_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -5582,6 +5596,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.FullOp: ttir_full_golden,
     ttir.ArangeOp: ttir_arange_golden,
     ttir.RandOp: ttir_rand_golden,
+    ttir.DropoutOp: ttir_dropout_golden,
     # Quantization operations
     ttir.QuantizeOp: quantize_golden,
     ttir.DequantizeOp: torch.dequantize,

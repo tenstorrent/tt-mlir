@@ -315,3 +315,14 @@ table ExperimentalEltwiseBinaryBackwardOp {
   memory_config: tt.target.ttnn.MemoryConfig;
   out: tt.target.ttnn.TensorRef;
 }
+
+table DropoutOp {
+  in: tt.target.ttnn.TensorRef;
+  prob: float;
+  scale: float;
+  seed: uint32;
+  use_per_device_seed: bool = true;
+  output_dtype: tt.target.DataType = null;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
+}

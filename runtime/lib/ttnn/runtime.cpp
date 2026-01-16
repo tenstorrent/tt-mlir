@@ -1086,6 +1086,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_RandOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::DropoutOp: {
+    tensorRef = opContext.type_as_DropoutOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::ReductionArgMaxOp: {
     tensorRef = opContext.type_as_ReductionArgMaxOp()->out();
     break;
@@ -1371,6 +1375,10 @@ getOpInputRefs(OpContext opContextHandle,
     break;
   }
   case ::tt::target::ttnn::OpType::RandOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::DropoutOp: {
+    tensorRefs = {opContext.type_as_DropoutOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::ToMemoryConfigOp: {
