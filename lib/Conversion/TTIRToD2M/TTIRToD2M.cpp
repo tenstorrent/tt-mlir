@@ -1772,6 +1772,30 @@ class D2MEmptyOpRewriter : public OpConversionPattern<ttir::EmptyOp> {
   matchAndRewrite(ttir::EmptyOp op, ttir::EmptyOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto resultType = op.getResult().getType();
+    bool outputIsTTNN =
+        mlir::isa_and_nonnull<ttnn::TTNNLayoutAttr>(resultType.getEncoding());
+    if (outputIsTTNN) {
+      llvm::errs() << "empty op ttnn\n";
+      op.dump();
+
+      // Check if this empty is used as a layout buffer in to_layout
+      bool isLayoutBuffer = false;
+      for (Operation *user : op->getUsers()) {
+        if (auto toLayoutOp = dyn_cast<ttir::ToLayoutOp>(user)) {
+          if (toLayoutOp.getOutput() == op.getResult()) {
+            isLayoutBuffer = true;
+            break;
+          }
+        }
+      }
+
+      // If this is a layout buffer, remove the ttir empty. In to_layout, a d2m
+      // empty is created.
+      if (isLayoutBuffer) {
+        rewriter.eraseOp(op);
+        return success();
+      }
+    }
     auto tensorType = cast<RankedTensorType>(resultType);
     bool outputIsTTNN =
         mlir::isa_and_nonnull<ttnn::TTNNLayoutAttr>(resultType.getEncoding());
