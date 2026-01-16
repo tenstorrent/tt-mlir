@@ -4,7 +4,7 @@
 // CHECK-LABEL: func @test_set_fp32_dest_acc
 func.func @test_set_fp32_dest_acc(%arg0: tensor<1x1x1024x64xbf16>, %arg1: tensor<64x64x3x3xbf16>, %device: !ttnn.device) -> tensor<1x1x900x64xbf16> {
   // CHECK: ttnn.conv2d
-  // CHECK-SAME: compute_config = #ttnn.device_compute_kernel_config<>
+  // CHECK-SAME: compute_config = #ttnn.device_compute_kernel_config<math_fidelity = hifi4>
   %result = "ttnn.conv2d"(%arg0, %arg1, %device) {
     in_channels = 64: i32,
     out_channels = 64: i32,
