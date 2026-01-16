@@ -94,6 +94,16 @@ MultiProcessArgs &MultiProcessArgs::withExtraMpiArgs(
   return *this;
 }
 
+MultiProcessArgs &
+MultiProcessArgs::withControllerHostname(std::string_view hostname) {
+  controllerHostname_ = std::string(hostname);
+  return *this;
+}
+
+std::optional<std::string> MultiProcessArgs::getControllerHostname() const {
+  return controllerHostname_;
+}
+
 std::string MultiProcessArgs::toArgString() const {
   std::ostringstream oss;
 
@@ -125,7 +135,7 @@ std::string MultiProcessArgs::toArgString() const {
   // Rank file
   if (!rankFilePath_.empty()) {
     oss << " ";
-    oss << "--map-by rankfile:file=" << rankFilePath_;
+    oss << "--map-by rankfile:file=" << rankFilePath_.string();
   }
 
   // MCA options

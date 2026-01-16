@@ -150,7 +150,7 @@ class DeviceContext:
         ttrt.runtime.close_mesh_device(self.device)
 
 
-def subprocess_get_system_descriptor(request):
+def subprocess_get_system_descriptor(request, disable_eth_dispatch_on_blackhole=False):
     import shutil
     import subprocess
 
@@ -158,7 +158,14 @@ def subprocess_get_system_descriptor(request):
     artifacts_dir = f"{os.getcwd()}/{folder_name}"
 
     result = subprocess.run(
-        ["ttrt", "query", "--save-artifacts", "--artifact-dir", artifacts_dir],
+        [
+            "ttrt",
+            "query",
+            "--save-artifacts",
+            "--artifact-dir",
+            artifacts_dir,
+            "--disable-eth-dispatch" if disable_eth_dispatch_on_blackhole else "",
+        ],
         capture_output=True,
         text=True,
     )
