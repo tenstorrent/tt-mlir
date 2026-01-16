@@ -4,11 +4,13 @@
 import time
 import torch
 import ttnn
+import os
 
-LAYER_SIZE = 1024
-DEPTH = 4
-BATCH_SIZE = 1024
-TRACE_REGION_SIZE = 675840
+# Get parameters from environment variables with defaults
+LAYER_SIZE = int(os.getenv("LAYER_SIZE", "1024"))
+DEPTH = int(os.getenv("DEPTH", "16"))
+BATCH_SIZE = int(os.getenv("BATCH_SIZE", "512"))
+TRACE_REGION_SIZE = int(os.getenv("TRACE_REGION_SIZE", "773120"))
 
 # this file works for collecting perf with no jit
 class LinearResNetBlock:
