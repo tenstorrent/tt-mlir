@@ -865,7 +865,7 @@ bool tryConfigFallbacks(Operation *operation,
 
               TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
                            "Trying slice config: {} with {} act_block_h values",
-                           static_cast<int>(sliceType),
+                           stringifyEnum(sliceType),
                            currentSearchSpace.actBlockHOverride.size());
 
               // Iterate through generated configs
@@ -887,7 +887,7 @@ bool tryConfigFallbacks(Operation *operation,
                       ttmlir::LogComponent::OpValidation,
                       "Found working config with slice type {} after {} "
                       "failed attempts",
-                      static_cast<int>(sliceType), failedAttempts);
+                      stringifyEnum(sliceType), failedAttempts);
                   return true;
                 }
 
@@ -901,13 +901,11 @@ bool tryConfigFallbacks(Operation *operation,
                 // set)
                 if (maxAttempts > 0 &&
                     failedAttempts >= static_cast<size_t>(maxAttempts)) {
-                  TTMLIR_DEBUG(
-                      ttmlir::LogComponent::OpValidation,
-                      "Reached maximum fallback attempts ({}) for "
-                      "operation {} at {}. Terminating early for slice type "
-                      "{}.",
-                      maxAttempts, operation->getName(), operation->getLoc(),
-                      static_cast<int>(sliceType));
+                  TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
+                               "Reached maximum fallback attempts ({}) for "
+                               "operation {} at {}. Terminating early.",
+                               maxAttempts, operation->getName(),
+                               operation->getLoc());
                   return false;
                 }
               }
