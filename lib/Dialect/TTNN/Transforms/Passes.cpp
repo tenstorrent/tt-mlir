@@ -248,9 +248,7 @@ protected:
         rewriter.modifyOpInPlace(funcOp, [&]() { funcOp.setSymName("_main"); });
       }
 
-      // Apply transform only to forward functions.
-      //
-      if (!ttmlir::utils::isForwardDeviceFunc(funcOp)) {
+      if (funcOp.isPrivate()) {
         return mlir::WalkResult::skip();
       }
 
@@ -564,9 +562,9 @@ public:
     SmallVector<func::FuncOp, 1> targetFuncOpsInput;
     SmallVector<func::FuncOp, 1> targetFuncOpsResult;
     block->walk([&](func::FuncOp funcOp) {
-      // Skip CPU-hoisted function declarations.
+      // Skip private functions that are not const-eval functions.
       //
-      if (ttmlir::utils::isForwardCPUDeclarationFunc(funcOp)) {
+      if (funcOp.isPrivate() && !ttmlir::utils::isConstEvalFunc(funcOp)) {
         return mlir::WalkResult::skip();
       }
 
