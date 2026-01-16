@@ -87,6 +87,14 @@ MLIR_CAPI_EXPORTED MlirAttribute ttmlirTTNNTTNNLayoutAttrGet(
     MlirContext ctx, MlirAffineMap linear, MlirAttribute grid, MlirType memref,
     unsigned memLayout);
 
+MLIR_CAPI_EXPORTED MlirAttribute
+ttmlirShardOrientationAttrGet(MlirContext ctx, uint32_t shardOrientation);
+
+MLIR_CAPI_EXPORTED bool ttmlirIsShardOrientationAttr(MlirAttribute attr);
+
+MLIR_CAPI_EXPORTED uint32_t
+ttmlirShardOrientationAttrGetValue(MlirAttribute attr);
+
 #ifdef __cplusplus
 }
 #endif

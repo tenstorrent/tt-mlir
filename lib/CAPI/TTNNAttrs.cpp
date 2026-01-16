@@ -180,3 +180,18 @@ MlirAttribute ttmlirTTNNTTNNLayoutAttrGet(MlirContext ctx, MlirAffineMap linear,
                           mlir::cast<mlir::MemRefType>(unwrap(memref)),
                           memLayoutAttr, tensorMeshAttr));
 }
+
+MlirAttribute ttmlirShardOrientationAttrGet(MlirContext ctx,
+                                            uint32_t shardOrientation) {
+  return wrap(ShardOrientationAttr::get(
+      unwrap(ctx), static_cast<ShardOrientation>(shardOrientation)));
+}
+
+bool ttmlirIsShardOrientationAttr(MlirAttribute attr) {
+  return mlir::isa<ShardOrientationAttr>(unwrap(attr));
+}
+
+uint32_t ttmlirShardOrientationAttrGetValue(MlirAttribute attr) {
+  return static_cast<uint32_t>(
+      mlir::cast<ShardOrientationAttr>(unwrap(attr)).getValue());
+}

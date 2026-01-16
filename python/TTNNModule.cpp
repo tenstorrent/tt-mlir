@@ -35,15 +35,23 @@ void populateTTNNModule(nb::module_ &m) {
         return static_cast<uint32_t>(self.getValue());
       });
 
-  tt_attribute_class<tt::ttnn::ShardOrientationAttr>(m, "ShardOrientationAttr")
-      .def_static("get",
-                  [](MlirContext ctx, uint32_t shardOrientation) {
-                    return wrap(tt::ttnn::ShardOrientationAttr::get(
-                        unwrap(ctx), static_cast<tt::ttnn::ShardOrientation>(
-                                         shardOrientation)));
-                  })
-      .def_prop_ro("value", [](tt::ttnn::ShardOrientationAttr self) {
-        return static_cast<uint32_t>(self.getValue());
+  mlir::python::nanobind_adaptors::mlir_attribute_subclass(
+      m, "ShardOrientationAttr", ttmlirIsShardOrientationAttr)
+      .def_classmethod(
+          "get",
+          [](nb::object cls, MlirContext ctx, uint32_t shardOrientation) {
+            return cls(ttmlirShardOrientationAttrGet(ctx, shardOrientation));
+          })
+      .def_classmethod("from_attribute",
+                       [](nb::object cls, MlirAttribute attr) {
+                         if (!ttmlirIsShardOrientationAttr(attr)) {
+                           throw std::runtime_error(
+                               "Attribute is not a ShardOrientationAttr");
+                         }
+                         return cls(attr);
+                       })
+      .def_property_readonly("value", [](MlirAttribute self) {
+        return ttmlirShardOrientationAttrGetValue(self);
       });
 
   tt_attribute_class<tt::ttnn::ShardDistributionStrategyAttr>(
