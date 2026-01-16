@@ -212,6 +212,600 @@ class TTNNBuilder(Builder):
         lineno = caller_frame.lineno
         return Location.name(f"{filename}:{lineno}")
 
+    # ----- TTCore Op Parsers ----
+
+    @parse(ttcore.LoadCachedOp)
+    def load_cached_parser(
+        self,
+        old_op: ttcore.LoadCachedOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        """
+        Parser for ttcore.LoadCachedOp.
+
+        This op calls a precomputed function with given arguments and returns
+        its results. It is typically used to load constant or hoisted computation
+        results.
+        """
+        callee_name = old_op.callee.value
+        nested_func_op = self._func_name_to_op[callee_name]
+
+        # Get golden inputs for the operands
+        new_golden_inputs = []
+        if not self._disable_golden_check:
+            for operand in old_op.inputs:
+                owner = operand.owner
+                if isinstance(owner, Block):
+                    queried_operand = operand
+                else:
+                    queried_operand = owner.result
+                new_golden_inputs.append(
+                    self._get_golden_tensor(global_dict[queried_operand])
+                )
+
+        # Parse the nested function
+        with InsertionPoint(self._current_module_insertion_point):
+            new_func_op = self.parse_nested_func(nested_func_op, new_golden_inputs)
+
+        # Map operands to new operands
+        new_operands = [global_dict[operand] for operand in old_op.inputs]
+
+        # Get result types from old op
+        result_types = [result.type for result in old_op.results_]
+
+        # Create new LoadCachedOp
+        new_op = ttcore.LoadCachedOp(
+            results_=result_types,
+            callee=new_func_op.name.value,
+            inputs=new_operands,
+            loc=old_op.location,
+        )
+
+        # Set goldens for new results
+        if not self._disable_golden_check:
+            ordered_inputs, ordered_outputs = self._func_ops_generated[new_func_op]
+            for index, output in enumerate(ordered_outputs):
+                self._set_golden_tensor(
+                    new_op.results_[index], self._get_golden_tensor(output)
+                )
+
+        # Map old results to new results
+        op_map_dictionary = {}
+        for old_result, new_result in zip(old_op.results_, new_op.results_):
+            op_map_dictionary[old_result] = new_result
+
+        return new_op, op_map_dictionary
+
+    # ----- Device Op Parsers ----
+
+    @parse(ttnn.GetDeviceOp)
+    def get_device_parser(
+        self,
+        old_op: ttnn.GetDeviceOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        """
+        Parser for ttnn.GetDeviceOp.
+
+        This op takes no operands and returns a device handle. It has optional
+        mesh_shape and mesh_offset attributes that define the submesh.
+        """
+        result_type = old_op.result.type
+
+        # Create the new GetDeviceOp with the same attributes
+        # Note: GetDeviceOp uses keyword-only arguments
+        new_op = ttnn.GetDeviceOp(
+            results=[result_type],
+            mesh_shape=old_op.mesh_shape,
+            mesh_offset=old_op.mesh_offset,
+            loc=old_op.location,
+        )
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op.result
+        return new_op, op_map_dictionary
+
+    @parse(ttnn.ConstantOp)
+    def constant_parser(
+        self,
+        old_op: ttnn.ConstantOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        """
+        Parser for ttnn.ConstantOp.
+
+        This op creates a tensor filled with a constant value.
+        """
+        result_type = old_op.result.type
+
+        # Get the device operand if present
+        device = None
+        if old_op.device is not None:
+            device = global_dict[old_op.device]
+
+        new_op = ttnn.ConstantOp(
+            result_type,
+            old_op.value,
+            device=device,
+            dtype=old_op.dtype,
+            layout=old_op.layout,
+            memory_config=old_op.memory_config,
+            loc=old_op.location,
+        )
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op.result
+        return new_op, op_map_dictionary
+
+    @parse(ttnn.FullOp)
+    def full_parser(
+        self,
+        old_op: ttnn.FullOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        """
+        Parser for ttnn.FullOp.
+
+        This op creates a tensor filled with a specified value.
+        """
+        result_type = old_op.result.type
+
+        # Get the device operand if present
+        device = None
+        if old_op.device is not None:
+            device = global_dict[old_op.device]
+
+        new_op = ttnn.FullOp(
+            result_type,
+            old_op.shape,
+            old_op.fill_value,
+            device=device,
+            dtype=old_op.dtype,
+            layout=old_op.layout,
+            memory_config=old_op.memory_config,
+            loc=old_op.location,
+        )
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op.result
+        return new_op, op_map_dictionary
+
+    @parse(ttnn.ReshapeOp)
+    def reshape_parser(
+        self,
+        old_op: ttnn.ReshapeOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        """
+        Parser for ttnn.ReshapeOp.
+
+        This op reshapes an input tensor to a new shape.
+        """
+        result_type = old_op.result.type
+        input_tensor = global_dict[old_op.input]
+
+        new_op = ttnn.ReshapeOp(
+            result_type,
+            input_tensor,
+            old_op.shape,
+            memory_config=old_op.memory_config,
+            loc=old_op.location,
+        )
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op.result
+        return new_op, op_map_dictionary
+
+    @parse(ttnn.DeallocateOp)
+    def deallocate_parser(
+        self,
+        old_op: ttnn.DeallocateOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        """Parser for ttnn.DeallocateOp."""
+        input_tensor = global_dict[old_op.input]
+
+        new_op = ttnn.DeallocateOp(
+            input_tensor,
+            force=old_op.force,
+            loc=old_op.location,
+        )
+
+        return new_op, {}
+
+    @parse(ttnn.FromDeviceOp)
+    def from_device_parser(
+        self,
+        old_op: ttnn.FromDeviceOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        """Parser for ttnn.FromDeviceOp."""
+        result_type = old_op.result.type
+        input_tensor = global_dict[old_op.input]
+
+        new_op = ttnn.FromDeviceOp(
+            result_type,
+            input_tensor,
+            loc=old_op.location,
+        )
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op.result
+        return new_op, op_map_dictionary
+
+    @parse(ttnn.ToDeviceOp)
+    def to_device_parser(
+        self,
+        old_op: ttnn.ToDeviceOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        """Parser for ttnn.ToDeviceOp."""
+        result_type = old_op.result.type
+        input_tensor = global_dict[old_op.input]
+        device = global_dict[old_op.device]
+
+        new_op = ttnn.ToDeviceOp(
+            result_type,
+            input_tensor,
+            device,
+            memory_config=old_op.memory_config,
+            loc=old_op.location,
+        )
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op.result
+        return new_op, op_map_dictionary
+
+    @parse(ttnn.ToLayoutOp)
+    def to_layout_parser(
+        self,
+        old_op: ttnn.ToLayoutOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        """Parser for ttnn.ToLayoutOp."""
+        result_type = old_op.result.type
+        input_tensor = global_dict[old_op.input]
+
+        new_op = ttnn.ToLayoutOp(
+            result_type,
+            input_tensor,
+            old_op.layout,
+            dtype=old_op.dtype,
+            memory_config=old_op.memory_config,
+            loc=old_op.location,
+        )
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op.result
+        return new_op, op_map_dictionary
+
+    @parse(ttnn.ToMemoryConfigOp)
+    def to_memory_config_parser(
+        self,
+        old_op: ttnn.ToMemoryConfigOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        """Parser for ttnn.ToMemoryConfigOp."""
+        result_type = old_op.result.type
+        input_tensor = global_dict[old_op.input]
+
+        new_op = ttnn.ToMemoryConfigOp(
+            result_type,
+            input_tensor,
+            old_op.memory_config,
+            loc=old_op.location,
+        )
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op.result
+        return new_op, op_map_dictionary
+
+    @parse(ttnn.PermuteOp)
+    def permute_parser(
+        self,
+        old_op: ttnn.PermuteOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        """Parser for ttnn.PermuteOp."""
+        result_type = old_op.result.type
+        input_tensor = global_dict[old_op.input]
+
+        new_op = ttnn.PermuteOp(
+            result_type,
+            input_tensor,
+            old_op.permutation,
+            memory_config=old_op.memory_config,
+            pad_value=old_op.pad_value,
+            loc=old_op.location,
+        )
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op.result
+        return new_op, op_map_dictionary
+
+    @parse(ttnn.ConcatenateHeadsOp)
+    def concatenate_heads_parser(
+        self,
+        old_op: ttnn.ConcatenateHeadsOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        """Parser for ttnn.ConcatenateHeadsOp."""
+        result_type = old_op.result.type
+        input_tensor = global_dict[old_op.input]
+
+        new_op = ttnn.ConcatenateHeadsOp(
+            result_type,
+            input_tensor,
+            memory_config=old_op.memory_config,
+            loc=old_op.location,
+        )
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op.result
+        return new_op, op_map_dictionary
+
+    @parse(ttnn.Conv2dOp)
+    def conv2d_parser(
+        self,
+        old_op: ttnn.Conv2dOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        """Parser for ttnn.Conv2dOp."""
+        result_type = old_op.result.type
+        input_tensor = global_dict[old_op.input]
+        weight = global_dict[old_op.weight]
+        device = global_dict[old_op.device]
+
+        # Get optional bias
+        bias = None
+        if old_op.bias is not None:
+            bias = global_dict[old_op.bias]
+
+        new_op = ttnn.Conv2dOp(
+            result_type,
+            input_tensor,
+            weight,
+            device,
+            old_op.in_channels,
+            old_op.out_channels,
+            old_op.batch_size,
+            old_op.input_height,
+            old_op.input_width,
+            old_op.kernel_size,
+            old_op.stride,
+            old_op.padding,
+            old_op.dilation,
+            old_op.groups,
+            bias=bias,
+            dtype=old_op.dtype,
+            conv2d_config=old_op.conv2d_config,
+            compute_config=old_op.compute_config,
+            conv2d_slice_config=old_op.conv2d_slice_config,
+            loc=old_op.location,
+        )
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op.result
+        return new_op, op_map_dictionary
+
+    @parse(ttnn.MeanOp)
+    def mean_parser(
+        self,
+        old_op: ttnn.MeanOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        """Parser for ttnn.MeanOp."""
+        result_type = old_op.result.type
+        input_tensor = global_dict[old_op.input]
+
+        new_op = ttnn.MeanOp(
+            result_type,
+            input_tensor,
+            old_op.keep_dim,
+            dim_arg=old_op.dim_arg,
+            compute_config=old_op.compute_config,
+            loc=old_op.location,
+        )
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op.result
+        return new_op, op_map_dictionary
+
+    @parse(ttnn.PrepareConv2dBiasOp)
+    def prepare_conv2d_bias_parser(
+        self,
+        old_op: ttnn.PrepareConv2dBiasOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        """Parser for ttnn.PrepareConv2dBiasOp."""
+        result_type = old_op.result.type
+        bias_tensor = global_dict[old_op.bias_tensor]
+        device = global_dict[old_op.device]
+
+        new_op = ttnn.PrepareConv2dBiasOp(
+            result_type,
+            bias_tensor,
+            old_op.input_memory_config,
+            old_op.input_tensor_layout,
+            old_op.in_channels,
+            old_op.out_channels,
+            old_op.batch_size,
+            old_op.input_height,
+            old_op.input_width,
+            old_op.kernel_size,
+            old_op.stride,
+            old_op.padding,
+            old_op.dilation,
+            old_op.groups,
+            device,
+            old_op.input_dtype,
+            output_dtype=old_op.output_dtype,
+            conv2d_config=old_op.conv2d_config,
+            compute_config=old_op.compute_config,
+            conv2d_slice_config=old_op.conv2d_slice_config,
+            loc=old_op.location,
+        )
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op.result
+        return new_op, op_map_dictionary
+
+    @parse(ttnn.PrepareConv2dWeightsOp)
+    def prepare_conv2d_weights_parser(
+        self,
+        old_op: ttnn.PrepareConv2dWeightsOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        """Parser for ttnn.PrepareConv2dWeightsOp."""
+        result_type = old_op.result.type
+        weight_tensor = global_dict[old_op.weight_tensor]
+        device = global_dict[old_op.device]
+
+        new_op = ttnn.PrepareConv2dWeightsOp(
+            result_type,
+            weight_tensor,
+            old_op.input_memory_config,
+            old_op.input_tensor_layout,
+            old_op.weights_format,
+            old_op.in_channels,
+            old_op.out_channels,
+            old_op.batch_size,
+            old_op.input_height,
+            old_op.input_width,
+            old_op.kernel_size,
+            old_op.stride,
+            old_op.padding,
+            old_op.dilation,
+            old_op.has_bias,
+            old_op.groups,
+            device,
+            old_op.input_dtype,
+            output_dtype=old_op.output_dtype,
+            conv2d_config=old_op.conv2d_config,
+            compute_config=old_op.compute_config,
+            conv2d_slice_config=old_op.conv2d_slice_config,
+            loc=old_op.location,
+        )
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op.result
+        return new_op, op_map_dictionary
+
+    @parse(ttnn.RMSNormOp)
+    def rms_norm_parser(
+        self,
+        old_op: ttnn.RMSNormOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        """Parser for ttnn.RMSNormOp."""
+        result_type = old_op.result.type
+        input_tensor = global_dict[old_op.input]
+
+        # Get optional weight and bias
+        weight = None
+        if old_op.weight is not None:
+            weight = global_dict[old_op.weight]
+        bias = None
+        if old_op.bias is not None:
+            bias = global_dict[old_op.bias]
+
+        new_op = ttnn.RMSNormOp(
+            result_type,
+            input_tensor,
+            weight=weight,
+            bias=bias,
+            epsilon=old_op.epsilon,
+            memory_config=old_op.memory_config,
+            compute_config=old_op.compute_config,
+            loc=old_op.location,
+        )
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op.result
+        return new_op, op_map_dictionary
+
+    @parse(ttnn.SoftmaxOp)
+    def softmax_parser(
+        self,
+        old_op: ttnn.SoftmaxOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        """Parser for ttnn.SoftmaxOp."""
+        result_type = old_op.result.type
+        input_tensor = global_dict[old_op.input]
+
+        new_op = ttnn.SoftmaxOp(
+            result_type,
+            input_tensor,
+            old_op.dimension,
+            numericStable=old_op.numericStable,
+            compute_config=old_op.compute_config,
+            loc=old_op.location,
+        )
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op.result
+        return new_op, op_map_dictionary
+
+    @parse(ttnn.SplitQueryKeyValueAndSplitHeadsOp)
+    def split_query_key_value_and_split_heads_parser(
+        self,
+        old_op: ttnn.SplitQueryKeyValueAndSplitHeadsOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        """Parser for ttnn.SplitQueryKeyValueAndSplitHeadsOp."""
+        query_type = old_op.query.type
+        key_type = old_op.key.type
+        value_type = old_op.value.type
+        input_tensor = global_dict[old_op.input_tensor]
+
+        # Get optional kv_input_tensor
+        kv_input_tensor = None
+        if old_op.kv_input_tensor is not None:
+            kv_input_tensor = global_dict[old_op.kv_input_tensor]
+
+        new_op = ttnn.SplitQueryKeyValueAndSplitHeadsOp(
+            query_type,
+            key_type,
+            value_type,
+            input_tensor,
+            old_op.num_heads,
+            old_op.transpose_key,
+            kv_input_tensor=kv_input_tensor,
+            num_kv_heads=old_op.num_kv_heads,
+            memory_config=old_op.memory_config,
+            loc=old_op.location,
+        )
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.query] = new_op.query
+        op_map_dictionary[old_op.key] = new_op.key
+        op_map_dictionary[old_op.value] = new_op.value
+        return new_op, op_map_dictionary
+
+    @parse(ttnn.SumOp)
+    def sum_parser(
+        self,
+        old_op: ttnn.SumOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        """Parser for ttnn.SumOp."""
+        result_type = old_op.result.type
+        input_tensor = global_dict[old_op.input]
+
+        new_op = ttnn.SumOp(
+            result_type,
+            input_tensor,
+            old_op.keep_dim,
+            dim_arg=old_op.dim_arg,
+            compute_config=old_op.compute_config,
+            loc=old_op.location,
+        )
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op.result
+        return new_op, op_map_dictionary
+
     # ----- Public TTNN Op Generators ----
 
     ############### ttnn.AddOp ###############
@@ -4755,10 +5349,13 @@ class TTNNBuilder(Builder):
         if golden_inputs is None:
             golden_inputs = {}
 
+        # Disable golden checking when loading from MLIR file without golden inputs
+        disable_golden = len(golden_inputs) == 0
+
         root_module = Module.parse(mlir_text, ctx)
         loc = Location.unknown(ctx)
         with ctx, loc:
-            ttnn_builder = TTNNBuilder(ctx, loc)
+            ttnn_builder = TTNNBuilder(ctx, loc, disable_golden_check=disable_golden)
             new_module = ttnn_builder.parse_root_module(root_module, golden_inputs)
 
         return new_module, ttnn_builder

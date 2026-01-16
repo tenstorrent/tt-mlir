@@ -830,6 +830,35 @@ class Builder(metaclass=BuilderMeta):
                             self._nested_funcs.append(inner_op.callee.value)
 
         new_root_module = Module.create()
+        # Copy attributes from original module (e.g., system_desc)
+        for attr in parsed_root_module.operation.attributes:
+            new_root_module.operation.attributes[attr.name] = attr.attr
+
+        # If system_desc is not on the root module, look for it in nested modules
+        # (e.g., inside ttcore.DeviceModuleOp -> builtin.module)
+        system_desc_attr_name = "ttcore.system_desc"
+        if system_desc_attr_name not in new_root_module.operation.attributes:
+            for entry in parsed_root_module.body.operations:
+                if isinstance(entry, ttcore.DeviceModuleOp):
+                    builtin_module = entry.regions[0].blocks[0].operations[0]
+                    # Copy system_desc from nested builtin.module to root module
+                    if (
+                        hasattr(builtin_module, "operation")
+                        and system_desc_attr_name in builtin_module.operation.attributes
+                    ):
+                        new_root_module.operation.attributes[
+                            system_desc_attr_name
+                        ] = builtin_module.operation.attributes[system_desc_attr_name]
+                        break
+                    elif (
+                        hasattr(builtin_module, "attributes")
+                        and system_desc_attr_name in builtin_module.attributes
+                    ):
+                        new_root_module.operation.attributes[
+                            system_desc_attr_name
+                        ] = builtin_module.attributes[system_desc_attr_name]
+                        break
+
         self._root_module_insertion_point = new_root_module.body
         self._current_module_insertion_point = new_root_module.body
 
@@ -868,6 +897,11 @@ class Builder(metaclass=BuilderMeta):
     ):
         new_builtin_module = Module.create()
         cloned_op = new_builtin_module.operation.clone()
+
+        # Copy attributes from original builtin module (including system_desc)
+        for attr in parsed_builtin_module.operation.attributes:
+            cloned_op.attributes[attr.name] = attr.attr
+
         self._current_module_insertion_point = cloned_op.regions[0].blocks[0]
 
         with InsertionPoint(cloned_op.regions[0].blocks[0]):
@@ -951,10 +985,11 @@ class Builder(metaclass=BuilderMeta):
                 if hasattr(global_result, "__iter__")
                 else (global_result,)
             )
-            output_goldens: Dict[Operand, GoldenMapTensor] = {}
-            for op in outputs:
-                output_goldens[op] = self._get_golden_tensor(op)
-            self._set_goldens(output_goldens)
+            if not self._disable_golden_check:
+                output_goldens: Dict[Operand, GoldenMapTensor] = {}
+                for op in outputs:
+                    output_goldens[op] = self._get_golden_tensor(op)
+                self._set_goldens(output_goldens)
             ordered_outputs.extend(outputs)
 
             return process_multi_return_result(global_result)
@@ -1003,10 +1038,11 @@ class Builder(metaclass=BuilderMeta):
                 if hasattr(global_result, "__iter__")
                 else (global_result,)
             )
-            output_goldens: Dict[Operand, GoldenMapTensor] = {}
-            for op in outputs:
-                output_goldens[op] = self._get_golden_tensor(op)
-            self._set_goldens(output_goldens)
+            if not self._disable_golden_check:
+                output_goldens: Dict[Operand, GoldenMapTensor] = {}
+                for op in outputs:
+                    output_goldens[op] = self._get_golden_tensor(op)
+                self._set_goldens(output_goldens)
             ordered_outputs.extend(outputs)
 
             return process_multi_return_result(global_result)
