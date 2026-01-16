@@ -15,12 +15,12 @@ void run(const ::tt::target::ttnn::UpsampleOp *op, ProgramContext &context) {
 
   ::ttnn::Tensor &input = tensorPool.getTTNNTensorAndValidate(op->in());
 
-  std::variant<int32_t, std::array<uint32_t, 2>> scaleFactor;
+  std::variant<int, std::array<int, 2>, float, std::array<float, 2>> scaleFactor;
   if (op->scale_factor_type() == ::tt::target::ttnn::Scale2D::UniformScale2D) {
-    scaleFactor = op->scale_factor_as_UniformScale2D()->scale();
+    scaleFactor = static_cast<int>(op->scale_factor_as_UniformScale2D()->scale());
   } else if (op->scale_factor_type() ==
              ::tt::target::ttnn::Scale2D::NonUniformScale2D) {
-    std::array<uint32_t, 2> scaleHW;
+    std::array<int, 2> scaleHW;
     const ::flatbuffers::Vector<int32_t> *fbScaleFactor =
         op->scale_factor_as_NonUniformScale2D()->scale();
     std::copy(fbScaleFactor->begin(), fbScaleFactor->end(), scaleHW.begin());

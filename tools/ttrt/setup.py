@@ -126,6 +126,7 @@ if enable_runtime:
         "third_party/json",
         "third_party/magic_enum",
         "third_party/tracy",
+        "third_party/umd/compile_commands.json",
     ]
 
     def tt_metal_ignore_folders(folder, contents):
