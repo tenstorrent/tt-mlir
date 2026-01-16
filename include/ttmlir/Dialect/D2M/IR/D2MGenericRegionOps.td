@@ -151,7 +151,7 @@ defvar D2M_TileComputeOpTraitBundle = [
 // Type constraint that accepts either a Tile or a scalar value (float/int)
 def TileOrScalar : AnyTypeOf<[TTCore_Tile, AnyFloat, AnyInteger]>;
 
-def D2M_TileAddOp : D2M_GenericRegionComputeFPUBinaryWithScalarOptionOp<"tile_add", [D2M_TileComputeOpTraitBundle, D2M_SkipOpEltwiseFusionTrait]> {
+def D2M_TileAddOp : D2M_GenericRegionComputeFPUBinaryWithScalarOptionOp<"tile_add", [Pure, D2M_SkipOpEltwiseFusionTrait]> {
     let summary = "D2M Tile Add Op";
     let description = [{
         The `tile_add` operation adds two tiles element-wise on the FPU,
@@ -163,7 +163,7 @@ def D2M_TileAddOp : D2M_GenericRegionComputeFPUBinaryWithScalarOptionOp<"tile_ad
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileSubOp : D2M_GenericRegionComputeFPUBinaryWithScalarOptionOp<"tile_sub", [D2M_TileComputeOpTraitBundle, D2M_SkipOpEltwiseFusionTrait]> {
+def D2M_TileSubOp : D2M_GenericRegionComputeFPUBinaryWithScalarOptionOp<"tile_sub", [Pure, D2M_SkipOpEltwiseFusionTrait]> {
     let summary = "D2M Tile Sub Op";
     let description = [{
         The `tile_sub` operation subtracts two tiles element-wise on the FPU,
@@ -175,7 +175,7 @@ def D2M_TileSubOp : D2M_GenericRegionComputeFPUBinaryWithScalarOptionOp<"tile_su
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileMulOp : D2M_GenericRegionComputeFPUBinaryWithScalarOptionOp<"tile_mul", [D2M_TileComputeOpTraitBundle, D2M_SkipOpEltwiseFusionTrait]> {
+def D2M_TileMulOp : D2M_GenericRegionComputeFPUBinaryWithScalarOptionOp<"tile_mul", [Pure, D2M_SkipOpEltwiseFusionTrait]> {
     let summary = "D2M Tile Mul Op";
     let description = [{
         The `tile_mul` operation multiplies two tiles element-wise on the FPU,
