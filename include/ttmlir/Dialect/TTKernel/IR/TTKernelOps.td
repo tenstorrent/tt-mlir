@@ -599,6 +599,36 @@ def TTKernel_BinaryMinTileOp : TTKernel_SFPUOp<"binary_min_tile", [TTKernel_Bina
     }];
 }
 
+def TTKernel_ClampScalarTileInitOp : TTKernel_InitOp<"clamp_tile_init"> {
+    let summary = "Init function for clamp_scalar_tile operation.";
+    let description = [{
+      Must be run before clamp_scalar_tile.
+    }];
+
+    let arguments = (ins);
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_ClampScalarTileOp : TTKernel_SFPUOp<"clamp_tile", [TTKernel_UnaryOpTrait]> {
+    let summary = "Clamp tile elements to scalar range";
+    let description = [{
+      Performs element-wise clamping of tile values to the range [min, max]
+      DST[dst_index] <- clamp(DST[dst_index], min, max)
+      on DST register operand. The DST register buffer must be in
+      acquired state via *tile_regs_acquire* call.
+      min and max are uint 32-bit representations of the float values.
+    }];
+
+    let arguments = (ins IndexLike:$dst_index, I32:$min_param, I32:$max_param);
+
+    let assemblyFormat = [{
+      `(` $dst_index `,` $min_param `,` $max_param `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_WhereTileInitOp : TTKernel_InitOp<"where_tile_init"> {
     let summary = "Short init function";
     let description = [{

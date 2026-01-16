@@ -384,6 +384,7 @@ using ComputeOpMap = OpMap<
   std::pair<d2m::TileLtzOp,         std::pair<ttkernel::LtzTileInitOp,             ttkernel::LtzTileOp>>,
   std::pair<d2m::TileLezOp,         std::pair<ttkernel::LezTileInitOp,             ttkernel::LezTileOp>>,
   std::pair<d2m::TileTypecastOp,    std::pair<ttkernel::TypecastTileInitOp,        ttkernel::TypecastTileOp>>,
+  std::pair<d2m::TileClampScalarOp, std::pair<ttkernel::ClampScalarTileInitOp,     ttkernel::ClampScalarTileOp>>,
 
   // Elementwise SFPU Binary (can also handle scalar operands).
   std::pair<d2m::TileAddOp,         std::pair<ttkernel::AddBinaryTilesInitOp,      ttkernel::AddBinaryTilesOp>>,
@@ -732,6 +733,19 @@ public:
           mlir::cast<ttcore::TileType>(op.getResult().getType()).getDataType();
       rewriter.create<ttkernel::TypecastTileOp>(
           op->getLoc(), adaptor.getInput(), inDtype, outDtype);
+    } else if constexpr (std::is_same_v<SFPUOp, ttkernel::ClampScalarTileOp>) {
+      // ClampScalarOp has min/max F32 attributes that need to be bitcast to i32
+      auto loc = op->getLoc();
+      auto minFloat = rewriter.create<arith::ConstantOp>(
+          loc, rewriter.getF32FloatAttr(op.getMin().convertToFloat()));
+      auto maxFloat = rewriter.create<arith::ConstantOp>(
+          loc, rewriter.getF32FloatAttr(op.getMax().convertToFloat()));
+      auto minParam = rewriter.create<arith::BitcastOp>(
+          loc, rewriter.getI32Type(), minFloat);
+      auto maxParam = rewriter.create<arith::BitcastOp>(
+          loc, rewriter.getI32Type(), maxFloat);
+      rewriter.create<ttkernel::ClampScalarTileOp>(loc, adaptor.getInput(),
+                                                   minParam, maxParam);
     } else if constexpr (arity == 1) {
       rewriter.create<SFPUOp>(op->getLoc(), adaptor.getInput());
     } else if constexpr (arity == 2) {
@@ -1662,6 +1676,7 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MSFPUOpsRewriter<d2m::TileLtzOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileLezOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileTypecastOp>,
+               ttkernel::D2MSFPUOpsRewriter<d2m::TileClampScalarOp>,
 
                // Elementwise SFPU Binary (also handles scalar operands).
                ttkernel::D2MSFPUOpsRewriter<d2m::TileAddOp>,
