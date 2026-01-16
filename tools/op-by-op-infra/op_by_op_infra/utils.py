@@ -27,6 +27,14 @@ _LOC_INLINE_PATTERN = re.compile(
 )  # Match inline loc(...) annotations
 _SDY_MESH_PATTERN = re.compile(r"\s*sdy.mesh.*$", re.MULTILINE)  # Match sdy.mesh lines
 
+# Operations that must be preserved in the function body rather than parameterized as inputs.
+# - stablehlo.constant: Sometimes required by stablehlo spec, otherwise improves test accuracy with real constant values
+# - ttnn.get_device: Returns device handle, cannot be replaced with test input
+PRESERVED_OP_NAMES = [
+    "stablehlo.constant",
+    "ttnn.get_device",
+]
+
 
 def _replace_mlir_identifier(text: str, old_name: str, new_name: str) -> str:
     """Replace SSA value name (e.g., %arg0), avoiding partial matches like %arg01."""
@@ -123,7 +131,7 @@ class OpWrapper:
 
     Extracts and caches all necessary information from the live OpView at construction
     time, so the wrapper can outlive the MLIR context.
-    If the op has constant operands, they are stored, to later be added to the module.
+    If the op has preserved operands, they are stored, to later be added to the module.
     """
 
     # ----- Public methods and properties -----
@@ -140,28 +148,28 @@ class OpWrapper:
         self.op_name = op.name
         self.func_op_string = str(func_op) if func_op is not None else ""
 
-        # Single pass: identify constants, build mappings, collect non-constant operands
-        constant_ops = {}  # Maps operand index -> (original_name, constant_op_string)
+        # Single pass: identify preserved ops, build mappings, collect parameterized operands
+        preserved_ops = {}  # Maps operand index -> (original_name, preserved_op_string)
         operand_mapping = {}
-        non_constant_operands = []
+        parameterized_operands = []
 
         for i, operand in enumerate(op.operands):
             original_name = operand.get_name()
             defining_op = operand.owner
 
-            # Check if operand comes from a constant operation
-            is_constant = (
+            # Check if operand comes from a preserved operation
+            is_preserved = (
                 defining_op
                 and hasattr(defining_op, "name")
-                and defining_op.name == "stablehlo.constant"
+                and defining_op.name in PRESERVED_OP_NAMES
             )
 
-            if is_constant:
-                standardized_name = f"%const{i}"
-                constant_ops[i] = (original_name, str(defining_op))
+            if is_preserved:
+                standardized_name = f"%pres{i}"
+                preserved_ops[i] = (original_name, str(defining_op))
             else:
                 standardized_name = f"%arg{i}"
-                non_constant_operands.append(Operand(standardized_name, operand.type))
+                parameterized_operands.append(Operand(standardized_name, operand.type))
 
             operand_mapping[original_name] = standardized_name
 
@@ -178,17 +186,17 @@ class OpWrapper:
                 self.op_string, original, standardized
             )
 
-        # Process constant ops: replace only the defining identifier in each
-        self.constant_ops_strings = []
-        for original_name, const_str in constant_ops.values():
+        # Process preserved ops: replace only the defining identifier in each
+        self.preserved_ops_strings = []
+        for original_name, pres_str in preserved_ops.values():
             standardized_name = operand_mapping[original_name]
-            const_str = _replace_mlir_identifier(
-                const_str, original_name, standardized_name
+            pres_str = _replace_mlir_identifier(
+                pres_str, original_name, standardized_name
             )
-            self.constant_ops_strings.append(const_str)
+            self.preserved_ops_strings.append(pres_str)
 
         # Store results
-        self.operands = non_constant_operands
+        self.operands = parameterized_operands
         self.results = [
             Result(f"%res{i}", result.type) for i, result in enumerate(op.results)
         ]
@@ -215,7 +223,7 @@ class OpWrapper:
         Wraps the cached op string in a MLIR `func` and then in a MLIR `module` and
         returns string representation of that module.
 
-        If the op has constant operands, they are emitted at the beginning of the
+        If the op has preserved operands, they are emitted at the beginning of the
         function body.
 
         Example
@@ -223,8 +231,8 @@ class OpWrapper:
         ```
         module attributes {...} {
             func.func main(%arg0: tensor<...>) -> ... {
-                %const1 = stablehlo.constant dense<...> : tensor<...>
-                %res0 = <op>(%arg0, %const1) ...
+                %pres1 = stablehlo.constant dense<...> : tensor<...>
+                %res0 = <op>(%arg0, %pres1) ...
                 return %res0
             }
         }
@@ -236,10 +244,10 @@ class OpWrapper:
             f"{operand.name}: {operand.type}" for operand in unique_operands
         )
 
-        # Prepare constant ops to emit in function body
-        constant_body = ""
-        if self.constant_ops_strings:
-            constant_body = "    " + "\n    ".join(self.constant_ops_strings) + "\n"
+        # Prepare preserved ops to emit in function body
+        preserved_body = ""
+        if self.preserved_ops_strings:
+            preserved_body = "    " + "\n    ".join(self.preserved_ops_strings) + "\n"
 
         if len(self.results) > 1:
             results = f"{', '.join(result.name for result in self.results)}"
@@ -263,7 +271,7 @@ class OpWrapper:
         return (
             f"module attributes {attrs} {{ \n"
             f'  func.func @main({unpacked_operands}) -> ({return_type}) attributes {{tt.function_type = "forward_device"}} {{ \n'
-            f"{constant_body}"
+            f"{preserved_body}"
             f"    {self.op_string} \n"
             f"    {return_stmt} \n"
             f"  }} \n"
@@ -310,7 +318,7 @@ class TTNNOpWrapper(OpWrapper):
         Implements wrapping of the cached op string in a TTNN module which is a bit more
         complex than what base class does.
 
-        If the op has constant operands, they are emitted at the beginning of the
+        If the op has preserved operands, they are emitted at the beginning of the
         function body.
 
         Example
@@ -321,8 +329,8 @@ class TTNNOpWrapper(OpWrapper):
                 builtin.module attributes {...} {
                     <tt_device_op> ...
                     func.func main(%arg0: tensor<...>) -> ... {
-                        %const1 = stablehlo.constant dense<...> : tensor<...>
-                        %res0 = <op>(%arg0, %const1) ...
+                        %pres1 = stablehlo.constant dense<...> : tensor<...>
+                        %res0 = <op>(%arg0, %pres1) ...
                         return %res0
                     }
                 }
@@ -336,10 +344,10 @@ class TTNNOpWrapper(OpWrapper):
             f"{operand.name}: {operand.type}" for operand in unique_operands
         )
 
-        # Prepare constant ops to emit in function body
-        constant_body = ""
-        if self.constant_ops_strings:
-            constant_body = "    " + "\n    ".join(self.constant_ops_strings) + "\n"
+        # Prepare preserved ops to emit in function body
+        preserved_body = ""
+        if self.preserved_ops_strings:
+            preserved_body = "    " + "\n    ".join(self.preserved_ops_strings) + "\n"
 
         if len(self.results) > 1:
             results = f"({', '.join(result.name for result in self.results)})"
@@ -367,7 +375,7 @@ class TTNNOpWrapper(OpWrapper):
             f"  {self.tt_device_op_string} \n"
             f"  {self.func_op_string}"
             f'  func.func @main({unpacked_operands}) -> {return_type} attributes {{tt.function_type = "forward_device"}} {{ \n'
-            f"{constant_body}"
+            f"{preserved_body}"
             f"    {self.op_string} \n"
             f"    {return_stmt} \n"
             f"  }} \n"
