@@ -14,7 +14,7 @@ from tracy.process_ops_logs import process_ops
 
 
 @contextmanager
-def trace(log_dir: str, port: int = None):
+def trace(log_dir: str, port: int = None, host_only: bool = False):
     os.makedirs(log_dir, exist_ok=True)
     port = port if port else get_available_port()
 
@@ -41,6 +41,12 @@ def trace(log_dir: str, port: int = None):
     tracy_capture_tool_process = subprocess.Popen(
         tracy_capture_tool_command, shell=True, start_new_session=True
     )
+    os.environ["TRACY_PORT"] = str(port)
+    if not host_only:
+        os.environ["TT_METAL_CLEAR_L1"] = "1"
+        os.environ["TT_METAL_DEVICE_PROFILER"] = "1"
+        os.environ["TTNN_OP_PROFILER"] = "1"
+        os.environ["TT_METAL_DEVICE_PROFILER_DISPATCH"] = "0"
 
     def signal_handler(sig, frame):
         os.killpg(os.getpgid(testProcess.pid), signal.SIGTERM)
@@ -68,7 +74,6 @@ def trace(log_dir: str, port: int = None):
                 stdout=csv_file,
                 stderr=subprocess.DEVNULL,
             )
-
         with open(tracy_ops_data_file_path, "w") as csv_file:
             subprocess.run(
                 f'{tracy_csvexport_tool_path} -m -s ";" {tracy_file_path}',
@@ -77,12 +82,10 @@ def trace(log_dir: str, port: int = None):
                 stdout=csv_file,
                 stderr=subprocess.DEVNULL,
             )
-
         shutil.copy(tracy_file_path, profiler_logs_dir)
         shutil.copy(tracy_ops_times_file_path, profiler_logs_dir)
         shutil.copy(tracy_ops_data_file_path, profiler_logs_dir)
         process_ops(None, None, False)
-
         if os.path.exists(profiler_csv_file_path):
             shutil.copy(profiler_csv_file_path, log_dir)
 
@@ -93,7 +96,6 @@ def get_available_port():
     for port in range(8086, 8500):
         try:
             serv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            serv.bind((ip, port))
             return port
         except PermissionError as e:
             pass

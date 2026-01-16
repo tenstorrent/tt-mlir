@@ -645,91 +645,91 @@ def execute_fb(
     if bypass_ops is None:
         bypass_ops = []
 
-    callback_runtime_config = CallbackRuntimeConfig(
-        device=device,
-        pcc=pcc,
-        atol=atol,
-        rtol=rtol,
-        check_pcc=check_pcc,
-        check_atol=check_atol,
-        check_rtol=check_rtol,
-        goldens=golden_intermediate_torch_tensors,
-        bypass_ops=bypass_ops,
-        save_artifacts=save_artifacts,
-        artifact_dir=artifact_dir,
-    )
-
-    if enable_intermediate_verification or bypass_ops:
-        tt_runtime.runtime.DebugHooks.get(
-            pre_op_get_callback_fn(callback_runtime_config),
-            post_op_get_callback_fn(callback_runtime_config),
+    os.makedirs(artifact_dir, exist_ok=True)
+    with _maybe_trace(enable_trace, artifact_dir, port):
+        callback_runtime_config = CallbackRuntimeConfig(
+            device=device,
+            pcc=pcc,
+            atol=atol,
+            rtol=rtol,
+            check_pcc=check_pcc,
+            check_atol=check_atol,
+            check_rtol=check_rtol,
+            goldens=golden_intermediate_torch_tensors,
+            bypass_ops=bypass_ops,
+            save_artifacts=save_artifacts,
+            artifact_dir=artifact_dir,
         )
 
-    for program_index in program_indices:
-        program_artifact_dir = f"{artifact_dir}/program_{program_index}"
-        if fbb.is_program_private(program_index):
-            continue
+        if enable_intermediate_verification or bypass_ops:
+            tt_runtime.runtime.DebugHooks.get(
+                pre_op_get_callback_fn(callback_runtime_config),
+                post_op_get_callback_fn(callback_runtime_config),
+            )
 
-        callback_runtime_config.start_new_program(
-            f"{artifact_dir}/program_{program_index}"
-        )
-        program_golden_report = {}
-        program_output_tensors = {}
+        for program_index in program_indices:
+            program_artifact_dir = f"{artifact_dir}/program_{program_index}"
+            if fbb.is_program_private(program_index):
+                continue
 
-        input_dict = program_inputs_as_dict(fbb, program_index)
-        output_dict = program_outputs_as_dict(fbb, program_index)
+            callback_runtime_config.start_new_program(
+                f"{artifact_dir}/program_{program_index}"
+            )
+            program_golden_report = {}
+            program_output_tensors = {}
 
-        golden_inputs_torch = []
-        for i, i_dict in enumerate(input_dict):
-            if not disable_golden:
-                golden_inputs_torch.append(
-                    golden_input_output_tensors[program_index][f"input_{i}"][0]
-                )
-            else:
-                torch_tensor = torch.randn(
-                    i_dict["desc"]["shape"],
+            input_dict = program_inputs_as_dict(fbb, program_index)
+            output_dict = program_outputs_as_dict(fbb, program_index)
+
+            golden_inputs_torch = []
+            for i, i_dict in enumerate(input_dict):
+                if not disable_golden:
+                    golden_inputs_torch.append(
+                        golden_input_output_tensors[program_index][f"input_{i}"][0]
+                    )
+                else:
+                    torch_tensor = torch.randn(
+                        i_dict["desc"]["shape"],
+                        dtype=runtime_str_dtype_to_torch_dtype(
+                            i_dict["desc"]["layout"]["memory_desc"]["data_type"]
+                        ),
+                    )
+                    golden_inputs_torch.append(torch_tensor)
+
+            golden_outputs_torch = []
+            outputs_torch = []
+            for i, o_dict in enumerate(output_dict):
+                if not disable_golden:
+                    golden_outputs_torch.append(
+                        golden_input_output_tensors[program_index][f"output_{i}"][0]
+                    )
+
+                torch_tensor = torch.zeros(
+                    o_dict["desc"]["shape"],
                     dtype=runtime_str_dtype_to_torch_dtype(
-                        i_dict["desc"]["layout"]["memory_desc"]["data_type"]
+                        o_dict["desc"]["layout"]["memory_desc"]["data_type"]
                     ),
                 )
-                golden_inputs_torch.append(torch_tensor)
+                outputs_torch.append(torch_tensor)
 
-        golden_outputs_torch = []
-        outputs_torch = []
-        for i, o_dict in enumerate(output_dict):
-            if not disable_golden:
-                golden_outputs_torch.append(
-                    golden_input_output_tensors[program_index][f"output_{i}"][0]
-                )
-
-            torch_tensor = torch.zeros(
-                o_dict["desc"]["shape"],
-                dtype=runtime_str_dtype_to_torch_dtype(
-                    o_dict["desc"]["layout"]["memory_desc"]["data_type"]
-                ),
+            inputs = []
+            outputs = []
+            for i in golden_inputs_torch:
+                new_input = create_tensor(i)
+                inputs.append(new_input)
+            converted_inputs = convert_input_layouts(
+                device,
+                inputs,
+                fbb=fbb,
+                program_index=program_index,
             )
-            outputs_torch.append(torch_tensor)
 
-        inputs = []
-        outputs = []
-        for i in golden_inputs_torch:
-            new_input = create_tensor(i)
-            inputs.append(new_input)
-        converted_inputs = convert_input_layouts(
-            device,
-            inputs,
-            fbb=fbb,
-            program_index=program_index,
-        )
+            for i in outputs_torch:
+                new_output = create_tensor(i)
+                outputs.append(new_output)
 
-        for i in outputs_torch:
-            new_output = create_tensor(i)
-            outputs.append(new_output)
-
-        start_submit = time.perf_counter_ns()
-        try:
-            with _maybe_trace(enable_trace, program_artifact_dir, port):
-                print("******")
+            start_submit = time.perf_counter_ns()
+            try:
                 runtime_outputs = tt_runtime.runtime.submit(
                     device,
                     fbb,
@@ -737,87 +737,91 @@ def execute_fb(
                     converted_inputs,
                 )
                 tt_runtime.runtime.wait(runtime_outputs)
-                print("******")
-        except Exception as e:
-            raise TTBuilderRuntimeException(e)
-        finally:
-            tt_runtime.runtime.unregister_hooks()
-        end_submit = time.perf_counter_ns()
-        e2e_duration_nanoseconds_submit = end_submit - start_submit
+            except Exception as e:
+                raise TTBuilderRuntimeException(e)
+            finally:
+                tt_runtime.runtime.unregister_hooks()
+            end_submit = time.perf_counter_ns()
+            e2e_duration_nanoseconds_submit = end_submit - start_submit
 
-        e2e_duration_nanoseconds_output = 0
-        for i, runtime_output_tensor in enumerate(runtime_outputs):
-            start_get_output = time.perf_counter_ns()
-            output_host = tt_runtime.runtime.to_host(
-                runtime_output_tensor, untilize=True
-            )[0]
-            end_get_output = time.perf_counter_ns()
-            e2e_duration_nanoseconds_output += end_get_output - start_get_output
+            e2e_duration_nanoseconds_output = 0
+            for i, runtime_output_tensor in enumerate(runtime_outputs):
+                start_get_output = time.perf_counter_ns()
+                output_host = tt_runtime.runtime.to_host(
+                    runtime_output_tensor, untilize=True
+                )[0]
+                end_get_output = time.perf_counter_ns()
+                e2e_duration_nanoseconds_output += end_get_output - start_get_output
 
-            if disable_golden:
-                continue
+                if disable_golden:
+                    continue
 
-            tt_runtime.runtime.memcpy(
-                outputs[i],
-                output_host,
-            )
-            tt_runtime.runtime.deallocate_tensor(runtime_output_tensor, force=True)
-
-            data_buffer = bytearray(outputs[i].get_data_buffer())
-
-            if len(data_buffer) == 0:
-                output_tensor_torch = torch.empty(
-                    outputs[i].get_shape(),
-                    dtype=runtime_dtype_to_torch_dtype(outputs[i].get_dtype()),
+                tt_runtime.runtime.memcpy(
+                    outputs[i],
+                    output_host,
                 )
-            else:
-                output_tensor_torch = torch.frombuffer(
-                    data_buffer,
-                    dtype=runtime_dtype_to_torch_dtype(outputs[i].get_dtype()),
-                ).reshape(outputs[i].get_shape())
+                tt_runtime.runtime.deallocate_tensor(runtime_output_tensor, force=True)
 
-            golden_tensor_torch = golden_outputs_torch[i]
-            results = check_outputs(
-                golden_tensor_torch,
-                output_tensor_torch,
-                f"output_{i}",
-                pcc,
-                atol,
-                rtol,
-                check_pcc,
-                check_atol,
-                check_rtol,
-            )
+                data_buffer = bytearray(outputs[i].get_data_buffer())
 
-            program_golden_report[f"output_{i}"] = {0: results}
-            program_output_tensors[f"device_output_{i}"] = output_tensor_torch
-            program_output_tensors[f"golden_output_{i}"] = golden_tensor_torch
+                if len(data_buffer) == 0:
+                    output_tensor_torch = torch.empty(
+                        outputs[i].get_shape(),
+                        dtype=runtime_dtype_to_torch_dtype(outputs[i].get_dtype()),
+                    )
+                else:
+                    output_tensor_torch = torch.frombuffer(
+                        data_buffer,
+                        dtype=runtime_dtype_to_torch_dtype(outputs[i].get_dtype()),
+                    ).reshape(outputs[i].get_shape())
 
-            if save_artifacts:
-                save_torch_tensor(
-                    output_tensor_torch,
-                    program_artifact_dir,
-                    f"device_output_{i}.pt",
-                )
-                save_torch_tensor(
+                golden_tensor_torch = golden_outputs_torch[i]
+                results = check_outputs(
                     golden_tensor_torch,
-                    program_artifact_dir,
-                    f"golden_output_{i}.pt",
+                    output_tensor_torch,
+                    f"output_{i}",
+                    pcc,
+                    atol,
+                    rtol,
+                    check_pcc,
+                    check_atol,
+                    check_rtol,
                 )
 
-        if not disable_golden:
-            for loc, device_results in callback_runtime_config.golden_report.items():
-                program_golden_report[loc] = device_results
+                program_golden_report[f"output_{i}"] = {0: results}
+                program_output_tensors[f"device_output_{i}"] = output_tensor_torch
+                program_output_tensors[f"golden_output_{i}"] = golden_tensor_torch
 
-            if save_artifacts:
-                artifact_file = os.path.join(
-                    artifact_dir, f"program_{program_index}", "golden_report.json"
-                )
-                with open(artifact_file, "w") as f:
-                    json.dump(program_golden_report, f, indent=4)
+                if save_artifacts:
+                    save_torch_tensor(
+                        output_tensor_torch,
+                        program_artifact_dir,
+                        f"device_output_{i}.pt",
+                    )
+                    save_torch_tensor(
+                        golden_tensor_torch,
+                        program_artifact_dir,
+                        f"golden_output_{i}.pt",
+                    )
 
-            golden_report[f"program_{program_index}"] = program_golden_report
-            output_tensors[f"program_{program_index}"] = program_output_tensors
+            if not disable_golden:
+                for (
+                    loc,
+                    device_results,
+                ) in callback_runtime_config.golden_report.items():
+                    program_golden_report[loc] = device_results
+
+                if save_artifacts:
+                    artifact_file = os.path.join(
+                        artifact_dir, f"program_{program_index}", "golden_report.json"
+                    )
+                    with open(artifact_file, "w") as f:
+                        json.dump(program_golden_report, f, indent=4)
+
+                golden_report[f"program_{program_index}"] = program_golden_report
+                output_tensors[f"program_{program_index}"] = program_output_tensors
+
+        device.read_device_profiler_results()
 
     return golden_report, output_tensors
 
