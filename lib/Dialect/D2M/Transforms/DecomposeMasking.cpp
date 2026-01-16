@@ -53,9 +53,9 @@ static double getFillValueAsDouble(ttcore::OOBVal oobVal) {
 /// which portion of the global tile space this core is responsible for.
 ///
 /// For each loop:
-///   start = stride * coreIndex
-///   end = min(regionEnd, stride * (coreIndex + 1))
-///   localIdx = globalIdx - (stride * coreIndex)  // for memref access
+///   start = stride * coreIndex.
+///   end = min(regionEnd, stride * (coreIndex + 1)).
+///   localIdx = globalIdx - (stride * coreIndex).
 ///
 /// If start >= end, the loop doesn't run--we only pad rightmost + downmost
 /// regions, so this should be correct w/o modifying start with max().
@@ -81,17 +81,17 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
     Value globalRegionEndVal =
         rewriter.create<arith::ConstantIndexOp>(loc, globalRegionEnd);
 
-    // localStart = max(globalRegionStart - globalCoreStart, 0)
-    //            = globalRegionStart - min(globalRegionStart, globalCoreStart)
+    // localStart = max(globalRegionStart - globalCoreStart, 0).
+    //            = globalRegionStart - min(globalRegionStart, globalCoreStart).
     Value clampedStart = rewriter.create<arith::MinUIOp>(
         loc, globalRegionStartVal, globalCoreStart);
     Value localStart =
         rewriter.create<arith::SubIOp>(loc, globalRegionStartVal, clampedStart);
 
-    // localEnd = min(globalRegionEnd - globalCoreStart, shardSize)
+    // localEnd = min(globalRegionEnd - globalCoreStart, shardSize).
     // Safe version to avoid underflow:
-    //   clampedEnd = max(min(globalRegionEnd, globalCoreEnd), globalCoreStart)
-    //   localEnd = clampedEnd - globalCoreStart
+    //   clampedEnd = max(min(globalRegionEnd, globalCoreEnd), globalCoreStart).
+    //   localEnd = clampedEnd - globalCoreStart.
     Value globalCoreEnd =
         rewriter.create<arith::AddIOp>(loc, globalCoreStart, shardSizeVal);
     Value clampedEnd =
@@ -144,7 +144,7 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
     int64_t shardTileRows = inputShape[inputShape.size() - 2];
     int64_t shardTileCols = inputShape[inputShape.size() - 1];
 
-    // Extract logical shape constants
+    // Extract the logical shape constants.
     auto getConstantIndex = [](Value v) -> std::optional<int64_t> {
       if (auto constOp = v.getDefiningOp<arith::ConstantIndexOp>()) {
         return constOp.value();
@@ -162,14 +162,16 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
     int64_t logicalRows = *logicalRowsOpt;
     int64_t logicalCols = *logicalColsOpt;
 
-    // Compute tile-level boundaries (compile-time constants)
+    // Compute tile-level boundaries (compile-time constants).
     // lastValidRow: the last tile row that contains any valid data (may be
-    // partial) lastValidCol: the last tile col that contains any valid data
-    // (may be partial)
+    // partial).
+    // lastValidCol: the last tile col that contains any valid data
+    // (may be partial).
     int64_t lastValidRow = (logicalRows - 1) / kTileHeight;
     int64_t lastValidCol = (logicalCols - 1) / kTileWidth;
 
-    // For masking, how many elements are valid in the last partial tile
+    // Computehow many elements are valid in the last partial tile to generate
+    // bitmask.
     int64_t validRowsInLastTile = logicalRows % kTileHeight;
     if (validRowsInLastTile == 0) {
       validRowsInLastTile = kTileHeight;
@@ -179,11 +181,10 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
       validColsInLastTile = kTileWidth;
     }
 
-    // Total tiles in the padded shape
+    // Total tiles in the padded shape.
     int64_t totalTileRows = shardTileRows * gridShape[gridShape.size() - 2];
     int64_t totalTileCols = shardTileCols * gridShape[gridShape.size() - 1];
 
-    // Constants
     Value zeroIdx = rewriter.create<arith::ConstantIndexOp>(loc, 0);
     Value oneIdx = rewriter.create<arith::ConstantIndexOp>(loc, 1);
 
@@ -191,13 +192,13 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
     Value fillScalar = rewriter.create<arith::ConstantOp>(
         loc, elemType, rewriter.getFloatAttr(elemType, fillValueDouble));
 
-    // Get core coordinates
+    // Get this core's coordinates.
     Value coreY = rewriter.create<CoreIndexOp>(
         loc, rewriter.getIndexType(), rewriter.getI64IntegerAttr(0), nullptr);
     Value coreX = rewriter.create<CoreIndexOp>(
         loc, rewriter.getIndexType(), rewriter.getI64IntegerAttr(1), nullptr);
 
-    // Write mask tiles
+    // Write the mask tiles.
     Value validRowsVal =
         rewriter.create<arith::ConstantIndexOp>(loc, validRowsInLastTile);
     Value validColsVal =
@@ -274,7 +275,7 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
                                        ValueRange{localRowIdx, localColIdx});
     };
 
-    // Helper to create a nested loop over local coordinates
+    // Helper to create a nested loop over local coordinates.
     auto createLocalLoop = [&](Value rowStart, Value rowEnd, Value colStart,
                                Value colEnd,
                                std::function<void(Value, Value)> emitBody) {
@@ -297,8 +298,8 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
     Operation *insertionPoint = op;
 
     // =========================================================================
-    // LOOP 0: Interior tiles - fully valid
-    // Global region: [0, lastValidRow) x [0, lastValidCol)
+    // LOOP 0: Interior tiles - fully valid.
+    // Global region: [0, lastValidRow) x [0, lastValidCol).
     // =========================================================================
     {
       rewriter.setInsertionPointAfter(insertionPoint);
@@ -312,8 +313,8 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
     }
 
     // =========================================================================
-    // LOOP 1: Last valid row - needs row masking
-    // Global region: [lastValidRow, lastValidRow+1) x [0, lastValidCol)
+    // LOOP 1: Last valid row - needs row masking.
+    // Global region: [lastValidRow, lastValidRow+1) x [0, lastValidCol).
     // =========================================================================
     {
       rewriter.setInsertionPointAfter(insertionPoint);
@@ -327,8 +328,8 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
     }
 
     // =========================================================================
-    // LOOP 2: Last valid col - needs col masking
-    // Global region: [0, lastValidRow) x [lastValidCol, lastValidCol+1)
+    // LOOP 2: Last valid col - needs col masking.
+    // Global region: [0, lastValidRow) x [lastValidCol, lastValidCol+1).
     // =========================================================================
     {
       rewriter.setInsertionPointAfter(insertionPoint);
@@ -342,9 +343,9 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
     }
 
     // =========================================================================
-    // LOOP 3: Corner tile - needs both row and col masking
+    // LOOP 3: Corner tile - needs both row and col masking.
     // Global region: [lastValidRow, lastValidRow+1) x [lastValidCol,
-    // lastValidCol+1)
+    // lastValidCol+1).
     // =========================================================================
     if (rowMaskCB && colMaskCB) {
       rewriter.setInsertionPointAfter(insertionPoint);
@@ -358,8 +359,8 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
     }
 
     // =========================================================================
-    // LOOP 4: OOB rows - fill entire rows beyond valid region
-    // Global region: [lastValidRow+1, totalTileRows) x [0, totalTileCols)
+    // LOOP 4: OOB rows - fill entire rows beyond valid region.
+    // Global region: [lastValidRow+1, totalTileRows) x [0, totalTileCols).
     // =========================================================================
     {
       rewriter.setInsertionPointAfter(insertionPoint);
@@ -372,8 +373,9 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
     }
 
     // =========================================================================
-    // LOOP 5: OOB cols - fill columns beyond valid region (for valid rows only)
-    // Global region: [0, lastValidRow+1) x [lastValidCol+1, totalTileCols)
+    // LOOP 5: OOB cols - fill columns beyond valid region (for valid rows
+    // only). Global region: [0, lastValidRow+1) x [lastValidCol+1,
+    // totalTileCols).
     // =========================================================================
     {
       rewriter.setInsertionPointAfter(insertionPoint);

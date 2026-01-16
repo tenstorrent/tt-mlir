@@ -97,17 +97,6 @@ static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
   llvm_unreachable("Expected load or subview op");
 }
 
-// // Find the DST memref from a store operation.
-// static Value getDstMemrefFromStore(Operation *storeOp) {
-//   if (auto affineStore = mlir::dyn_cast<affine::AffineStoreOp>(storeOp)) {
-//     return affineStore.getMemRef();
-//   }
-//   if (auto memrefStore = mlir::dyn_cast<memref::StoreOp>(storeOp)) {
-//     return memrefStore.getMemRef();
-//   }
-//   return nullptr;
-// }
-
 // Find the DST index from a store operation.
 static Value getDstIdxFromStore(Operation *storeOp) {
   if (auto affineStore = mlir::dyn_cast<affine::AffineStoreOp>(storeOp)) {
@@ -137,7 +126,7 @@ static bool isStoreToDst(Operation *op) {
 }
 
 // Get DST index from where a compute op result is stored.
-// Handles both affine.store (before lower-affine) and memref.store (after).
+// Handles both affine.store and memref.store.
 // When a value has multiple stores to different DST memrefs (due to value
 // reuse across DST regions after LICM), we prefer stores in the same block
 // as the defining op. This ensures we get the DST index for the correct
@@ -146,7 +135,7 @@ static Value getDstIdxFromResult(Value d2mOpResult) {
   Operation *defOp = d2mOpResult.getDefiningOp();
   Block *defBlock = defOp ? defOp->getBlock() : nullptr;
 
-  // Collect stores, preferring same-block stores
+  // Collect stores, preferring same-block stores.
   Operation *sameBlockStore = nullptr;
   Operation *anyStore = nullptr;
 
@@ -154,11 +143,11 @@ static Value getDstIdxFromResult(Value d2mOpResult) {
     if (isStoreToDst(op)) {
       anyStore = op;
       if (defBlock && op->getBlock() == defBlock) {
-        // Found a store in the same block - prefer this one
+        // Found a store in the same block - prefer this one.
         if (!sameBlockStore) {
           sameBlockStore = op;
         } else {
-          // Multiple same-block stores - pick the one that comes first
+          // Multiple same-block stores - pick the one that comes first.
           if (op->isBeforeInBlock(sameBlockStore)) {
             sameBlockStore = op;
           }
@@ -167,7 +156,7 @@ static Value getDstIdxFromResult(Value d2mOpResult) {
     }
   }
 
-  // Prefer same-block store, fall back to any store
+  // Prefer same-block store, fall back to any store.
   Operation *selectedStore = sameBlockStore ? sameBlockStore : anyStore;
   if (!selectedStore) {
     llvm_unreachable("Expected at least one store to DST");
@@ -176,11 +165,11 @@ static Value getDstIdxFromResult(Value d2mOpResult) {
 }
 
 // Get DST index for an operand value. The operand can either be:
-// 1. The result of a compute op that stores to DST (look at users for store)
-// 2. An affine.load from DST (look at defining op for load index)
-// 3. A memref.load from DST (after lower-affine converts affine.load)
+// 1. The result of a compute op that stores to DST (look at users for store).
+// 2. An affine.load from DST (look at defining op for load index).
+// 3. A memref.load from DST (after lower-affine converts affine.load).
 static Value getDstIdxFromOperand(Value operand) {
-  // Case 1: Check if it's an affine.load from DST
+  // Case 1: Check if it's an affine.load from DST.
   if (auto loadOp = operand.getDefiningOp<affine::AffineLoadOp>()) {
     if (ttcore::getMemorySpace(loadOp.getMemRef()) ==
         ttcore::MemorySpace::RegisterDst) {
@@ -190,7 +179,7 @@ static Value getDstIdxFromOperand(Value operand) {
     }
   }
 
-  // Case 2: Check if it's a memref.load from DST (after lower-affine)
+  // Case 2: Check if it's a memref.load from DST (after lower-affine).
   if (auto loadOp = operand.getDefiningOp<memref::LoadOp>()) {
     if (ttcore::getMemorySpace(loadOp.getMemRef()) ==
         ttcore::MemorySpace::RegisterDst) {
@@ -200,7 +189,7 @@ static Value getDstIdxFromOperand(Value operand) {
     }
   }
 
-  // Case 3: Look for store to DST in users (for compute op results)
+  // Case 3: Look for store to DST in users (for compute op results).
   return getDstIdxFromResult(operand);
 }
 
@@ -376,7 +365,7 @@ public:
 
 // Helper to compute linear index from multi-dimensional indices.
 // For shape <d0, d1, d2, ...> and indices [i0, i1, i2, ...]:
-// linear = i0 * (d1*d2*...) + i1 * (d2*d3*...) + ... + i_last
+// linear = i0 * (d1*d2*...) + i1 * (d2*d3*...) + ... + i_last.
 static Value computeLinearIndex(Location loc, ArrayRef<int64_t> shape,
                                 ValueRange indices,
                                 ConversionPatternRewriter &rewriter) {
@@ -434,11 +423,8 @@ public:
         computeLinearIndex(store.getLoc(), store.getMemRefType().getShape(),
                            adaptor.getIndices(), rewriter);
 
-    // Use walk functions to find both L1 CBs
-    // (even though we already have inCB via load.getMemref(),
-    // we need outCB which we can't get directly)
-    auto inCB = getInCB(rewriter, store);   // walks to find L1 load
-    auto outCB = getOutCB(rewriter, store); // walks to find L1 store
+    auto inCB = getInCB(rewriter, store);
+    auto outCB = getOutCB(rewriter, store);
 
     auto insertionPoint = rewriter.getInsertionPoint();
     rewriter.setInsertionPointToStart(rewriter.getInsertionBlock());
@@ -486,7 +472,7 @@ public:
     bool storeToDst = ttcore::getMemorySpace(op.getMemRef()) ==
                       ttcore::MemorySpace::RegisterDst;
 
-    // Check if the load is from L1 (CB), not from DST
+    // Check if the load is from L1 (CB), not from DST.
     bool loadFromL1 = load && ttcore::getMemorySpace(load.getMemRef()) ==
                                   ttcore::MemorySpace::DeviceL1;
 
@@ -966,19 +952,19 @@ public:
           rewriter.create<ttkernel::PowUnaryTileOp>(loc, dstIdx, scalarParam);
         }
         // Scalar ops operate in-place on DST slot - replace with the same
-        // dstIdx
+        // dstIdx.
         rewriter.replaceOp(op, dstIdx);
         return success();
-      } else {
-        // Binary tile operation
-        OpBuilder::InsertionGuard guard(rewriter);
-        const auto dstIdx = getDstIdxFromResult(op.getResult());
-        setInsertionPointAfterOperands(
-            rewriter, {adaptor.getLhs(), adaptor.getRhs(), dstIdx},
-            /*allowHoisting*/ false);
-        rewriter.create<SFPUOp>(op->getLoc(), adaptor.getLhs(),
-                                adaptor.getRhs(), dstIdx);
       }
+      // Otherwise, this is a binary tile operation.
+      OpBuilder::InsertionGuard guard(rewriter);
+      const auto dstIdx = getDstIdxFromResult(op.getResult());
+      setInsertionPointAfterOperands(
+          rewriter, {adaptor.getLhs(), adaptor.getRhs(), dstIdx},
+          /*allowHoisting*/ false);
+      rewriter.create<SFPUOp>(op->getLoc(), adaptor.getLhs(), adaptor.getRhs(),
+                              dstIdx);
+
     } else {
       // Ternary tile operation (arity == 3)
       OpBuilder::InsertionGuard guard(rewriter);
@@ -987,8 +973,8 @@ public:
       // For ternary ops like TileWhereOp, get DST indices directly from the
       // source operands, not from the adaptor. This ensures correct indices
       // regardless of conversion order. Operands can be either:
-      // - Results of compute ops (stored to DST)
-      // - affine.load from DST (for copied input tiles)
+      // - Results of compute ops (stored to DST).
+      // - affine.load from DST (for copied input tiles).
       Value condDstIdx = getDstIdxFromOperand(op.getCondition());
       Value trueDstIdx = getDstIdxFromOperand(op.getTrueValue());
       Value falseDstIdx = getDstIdxFromOperand(op.getFalseValue());
@@ -1214,14 +1200,11 @@ public:
   matchAndRewrite(d2m::ExperimentalTileFillOp op,
                   d2m::ExperimentalTileFillOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    // Get the DST index from the result usage
     Value dstIdx = getDstIdxFromResult(op.getResult());
 
-    // Get the fill value - should already be F32
     Value fillValue = adaptor.getValue();
     Location loc = op->getLoc();
 
-    // Create the TTKernel experimental tile fill operation
     rewriter.create<ttkernel::ExperimentalTileFillOp>(loc, dstIdx, fillValue);
 
     // Replace the op with its DST index so users (like TileWhereOp) get the

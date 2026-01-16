@@ -138,29 +138,6 @@ struct ConvertD2MToTTKernel
       return ttkernel::SemaphoreType::get(semaphore.getContext());
     });
 
-    // Target materialization: called when framework needs to convert a value
-    // from source type to target type (e.g., memref<#dst> → index).
-    // This is needed to break circular dependencies during conversion.
-    typeConverter.addTargetMaterialization(
-        [](OpBuilder &builder, Type resultType, ValueRange inputs,
-           Location loc) -> Value {
-          if (inputs.size() != 1) {
-            return nullptr;
-          }
-
-          // Only handle DST memref → index conversion.
-          // DST is implicit in TTKernel; return constant 0 as a placeholder.
-          auto memrefType = mlir::dyn_cast<MemRefType>(inputs[0].getType());
-          if (memrefType && resultType.isIndex() &&
-              ttcore::getMemorySpace(memrefType) ==
-                  ttcore::MemorySpace::RegisterDst) {
-            return builder.create<arith::ConstantIndexOp>(loc, 0);
-          }
-
-          // For other types, let the framework handle it (may create a cast).
-          return nullptr;
-        });
-
     d2m::AssociatedDMAWaits associatedDMAWaits =
         getAnalysis<d2m::AssociatedDMAWaits>();
 

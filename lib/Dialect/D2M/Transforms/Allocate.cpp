@@ -1437,8 +1437,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
     const AffineMap indexingMap = genericOp.getIndexingMap(operandIndex);
 
-    // For pure constant maps (all results are constant 0s), no streaming needed.
-    // This handles broadcast/scratch operands like mask tiles.
+    // For pure constant maps (all results are constant 0s), no streaming
+    // needed. This handles scratch operands like mask tiles.
     bool allConstant = true;
     for (AffineExpr expr : indexingMap.getResults()) {
       if (!mlir::isa<AffineConstantExpr>(expr)) {

@@ -695,7 +695,7 @@ public:
   //
   // Strategy: Use CB-based mask generation (L1 writes + copy_tile).
   // This is more reliable than SFPU-based mask generation which has
-  // complex face iteration.
+  // complex face iteration pattern, at cost of extra memory usage.
   Value lowerMaskingGeneric(PatternRewriter &rewriter, Value input,
                             Value output, Location loc,
                             ArrayRef<int64_t> logicalShape,
@@ -705,31 +705,22 @@ public:
     int64_t logicalCols = logicalShape[logicalShape.size() - 1];
 
     // Check if partial masking is needed (non-tile-aligned shape).
-    constexpr int64_t tileH = 32;
-    constexpr int64_t tileW = 32;
-    bool needsPartialMasking =
-        (logicalRows % tileH != 0) || (logicalCols % tileW != 0);
-
-    if (!needsPartialMasking) {
-      // For tile-aligned shapes (no partial masking), all tiles are fully
-      // valid. No masking is needed - just return the input unchanged.
-      return input;
-    }
 
     auto inputType = mlir::cast<RankedTensorType>(input.getType());
     auto inputLayout =
         mlir::cast<ttcore::MetalLayoutAttr>(inputType.getEncoding());
-    // shardRank is the shard shape rank (used for indexing maps)
+    // shardRank is the shard shape rank (used for indexing maps).
     const size_t shardRank = inputLayout.getShardShape(inputType).size();
 
     // Create scratch mask tensors (single tile each).
     // These are used as scratch CBs to write masks via L1, then copy to DST.
-    // The mask tensor must have same rank as input tensor for GenericOp to work.
-    // Use the input's logical shape but with 1s except last two dims (32x32).
+    // The mask tensor must have same rank as input tensor for GenericOp to
+    // work. Use the input's logical shape but with 1s except last two dims
+    // (32x32).
     auto inputLogicalShape = inputLayout.getLogicalShape();
     SmallVector<int64_t> maskLogicalShape(inputLogicalShape.begin(),
                                           inputLogicalShape.end());
-    // Set all dims to 1 except last two which are 32x32 (single tile)
+    // Set all dims to 1 except last two which are 32x32 (single tile).
     for (size_t i = 0; i < maskLogicalShape.size(); ++i) {
       if (i < maskLogicalShape.size() - 2) {
         maskLogicalShape[i] = 1;
@@ -742,15 +733,15 @@ public:
         ttcore::MemorySpace::DeviceL1, ttcore::TensorMemoryLayout::Sharded);
 
     auto elemType = inputType.getElementType();
-    // Mask tensor shape: [grid_shape..., 1, 1] in tile coordinates
-    // The grid part matches the input's grid, shard part is single tile (1x1)
+    // Mask tensor shape: [grid_shape..., ..., 1, 1] in tile coordinates.
+    // This is a single tile on each core.
     auto gridShape = inputLayout.getGridShape(inputType);
     SmallVector<int64_t> maskShape;
     for (auto dim : gridShape) {
       maskShape.push_back(dim);
     }
-    maskShape.push_back(1); // shard row = 1 tile
-    maskShape.push_back(1); // shard col = 1 tile
+    maskShape.push_back(1);
+    maskShape.push_back(1);
 
     Value rowMaskTensor =
         rewriter.create<d2m::EmptyOp>(loc, maskShape, elemType, maskLayout)
@@ -763,18 +754,18 @@ public:
     SmallVector<Value> allInputs = {input, rowMaskTensor, colMaskTensor};
     SmallVector<Value> allOutputs = {output};
 
-    // Build indexing maps based on shard rank (iteration space)
+    // Build indexing maps based on shard rank (iteration space).
     AffineMap identityMap = rewriter.getMultiDimIdentityMap(shardRank);
-    // For mask operands: broadcast (constant 0 for each grid/shard dim)
+    // For mask operands: broadcast (constant 0 for each grid/shard dim).
     SmallVector<AffineExpr> zeroExprs(shardRank,
                                       rewriter.getAffineConstantExpr(0));
     AffineMap constantMap =
         AffineMap::get(shardRank, 0, zeroExprs, rewriter.getContext());
     SmallVector<AffineMap> indexingMaps = {
-        identityMap, // input: iterate over all tiles
-        constantMap, // rowMask: single tile, constant
-        constantMap, // colMask: single tile, constant
-        identityMap  // output: iterate over all tiles
+        identityMap, // input: iterate over all tiles.
+        constantMap, // rowMask: single tile, constant.
+        constantMap, // colMask: single tile, constant.
+        identityMap  // output: iterate over all tiles.
     };
     Attribute parallel = rewriter.getAttr<ttcore::IteratorTypeAttr>(
         ttcore::IteratorType::Parallel);
@@ -786,7 +777,7 @@ public:
         loc, ValueRange(allInputs), ValueRange(allOutputs), indexingMapsAttr,
         iteratorTypesAttr,
         [&](OpBuilder &builder, Location innerLoc, ValueRange blockArgs) {
-          // blockArgs: [inputCB, rowMaskCB, colMaskCB, outputCB]
+          // blockArgs: [inputCB, rowMaskCB, colMaskCB, outputCB].
           Value src =
               builder.create<WaitOp>(innerLoc, blockArgs[0]).getResult();
           Value rowMaskCB =

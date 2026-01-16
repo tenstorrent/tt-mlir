@@ -861,7 +861,7 @@ public:
 };
 
 // Arith MaxUIOp doesn't have an emitc lowering. We can lower it to a call to
-// std::max from <algorithm>.
+// std::max.
 class ArithMaxUIRewriter : public OpConversionPattern<arith::MaxUIOp> {
 public:
   using OpConversionPattern<arith::MaxUIOp>::OpConversionPattern;
@@ -874,13 +874,15 @@ public:
       return failure();
     }
 
-    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(op, resultType, "std::max",
-                                                     adaptor.getOperands());
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        op, resultType, "std::max<size_t>", adaptor.getOperands());
 
     return success();
   }
 };
 
+// Arith MinUIOp doesn't have an emitc lowering. We can lower it to a call to
+// std::min.
 class ArithMinUIRewriter : public OpConversionPattern<arith::MinUIOp> {
 public:
   using OpConversionPattern<arith::MinUIOp>::OpConversionPattern;
@@ -893,6 +895,9 @@ public:
       return failure();
     }
 
+    // Explicit type template needed for some edge cases where emitc might lower
+    // an int literal into the call with a size_t arg, creating sfpi compiler
+    // error.
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
         op, resultType, "std::min<size_t>", adaptor.getOperands());
 
