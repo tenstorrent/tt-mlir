@@ -2813,6 +2813,49 @@ def TTKernel_ConvertLogicalYToTranslatedOp : TTKernel_Op<"experimental::convert_
 }
 
 //===----------------------------------------------------------------------===//
+// TTKernel Fabric API operations
+//===----------------------------------------------------------------------===//
+
+def TTKernel_GetMyDeviceIdOp : TTKernel_Op<"experimental::get_my_device_id", [Pure]> {
+  let summary = "GetMyDeviceId";
+  let description = [{
+    Get my device id. This is a 16 bit value.
+  }];
+
+  let arguments = (ins);
+  let results = (outs I16:$my_device_id);
+
+  let assemblyFormat = [{
+    `(` `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+def TTKernel_FabricWriteOp : TTKernel_Op<"experimental::fabric_fast_write_any_len"> {
+  let summary = "FabricWriteOp";
+  let description = [{
+    FabricWriteOp
+  }];
+
+  let arguments = (ins I16:$dst_mesh_id, I16:$dst_dev_id, TTKernel_NocAddr:$dst_addr, I32:$src_addr, I32:$len_bytes);
+  let results = (outs);
+
+  let assemblyFormat = [{
+    `(` $dst_mesh_id `,` $dst_dev_id `,` $dst_addr `,` $src_addr `,` $len_bytes `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+def TTKernel_CloseFabricConnectionsOp : TTKernel_Op<"experimental::close_fabric_connections"> {
+  let summary = "CloseFabricConnections";
+  let description = [{
+    Close fabric connections.
+  }];
+
+  let assemblyFormat = [{
+    `(` `)` attr-dict `:` functional-type(operands, results)
+  }];
+}
+
+//===----------------------------------------------------------------------===//
 // TTKernel Multicast NoC operations
 //===----------------------------------------------------------------------===//
 

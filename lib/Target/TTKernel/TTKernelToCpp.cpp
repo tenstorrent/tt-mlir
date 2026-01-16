@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 
 #include "ttmlir/Target/TTKernel/LLKs/experimental_coord_translation_generated.h"
+#include "ttmlir/Target/TTKernel/LLKs/experimental_fabric_api_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_dataflow_api_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_invoke_sfpi_llks_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_matmul_llks_generated.h"
@@ -270,6 +271,15 @@ void dprint(Arg &&arg, ArgV&&... argv) {
           StringRef(experimental_coord_translation_generated,
                     experimental_coord_translation_generated_len);
       builder->create<emitc::VerbatimOp>(loc, experimentalCoordTranslationLLKs);
+    }
+
+    if (hasCall("experimental::close_fabric_connections") || 
+        hasCall("experimental::get_my_device_id") || 
+        hasCall("experimental::fabric_fast_write_any_len")) {
+      auto experimentalFabricAPILLKs =
+          StringRef(experimental_fabric_api_generated,
+                    experimental_fabric_api_generated_len);
+      builder->create<emitc::VerbatimOp>(loc, experimentalFabricAPILLKs);
     }
 
     if (hasCall("experimental::matmul_block")) {
