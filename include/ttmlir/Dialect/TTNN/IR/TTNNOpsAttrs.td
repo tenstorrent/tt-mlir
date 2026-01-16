@@ -775,6 +775,18 @@ def TTNN_MeshOffsetAttr : TTNN_Mesh2DCoordAttr<"MeshOffset", "mesh_offset"> {
   }];
 }
 
+def TTNN_MeshRangeAttr : TTNN_Attr<"MeshRange", "mesh_range"> {
+  let summary = "TTNN Mesh range";
+  let description = [{
+    TTNN mesh range representing a range of coordinates in a mesh. This attribute mirrors MeshCoordinateRange in ttnn proper.
+  }];
+
+  let parameters = (ins "MeshOffsetAttr":$start_coord, "MeshOffsetAttr":$end_coord);
+  let assemblyFormat = "`<` custom<CoordBracketStyle>($start_coord) `,` custom<CoordBracketStyle>($end_coord) `>`";
+
+  let genVerifyDecl = 1;
+}
+
 def TTNN_TTNNLayoutAttr: TTNN_Attr<"TTNNLayout", "ttnn_layout"> {
   let summary = "Tensor encoding attribute used for types in ttnn";
   let description = [{
@@ -1068,6 +1080,30 @@ def TTNN_ProgramAttr: TTNN_Attr<"Program", "program"> {
                         OptionalArrayRefParameter<"KernelCBAttr">:$cbs,
                         OptionalArrayRefParameter<"KernelSemaphoreAttr">:$semaphores);
   let assemblyFormat = "`<` `kernels` `=` `[` $kernels `]` `,` `cbs` `=` `[` (`]`) : ($cbs^ `]`)? `,` `semaphores` `=` `[` (`]`) : ($semaphores^ `]`)? `>`";
+
+  let genVerifyDecl = 1;
+}
+
+def TTNN_MeshProgramAttr : TTNN_Attr<"MeshProgram", "mesh_program"> {
+  let summary = "Mesh program";
+  let description = [{
+    Mesh program describing the program to be executed on a specified range of devices on a mesh.
+  }];
+
+  let parameters = (ins "MeshRangeAttr":$mesh_range, "ProgramAttr":$program);
+  let assemblyFormat = "`<` $mesh_range `:` $program `>`";
+
+  let genVerifyDecl = 1;
+}
+
+def TTNN_MeshProgramDescriptorAttr : TTNN_Attr<"MeshProgramDescriptor", "mesh_program_descriptor"> {
+  let summary = "Mesh program descriptor";
+  let description = [{
+    Mesh program descriptor for TTNN generic operation.
+  }];
+
+  let parameters = (ins ArrayRefParameter<"MeshProgramAttr">:$mesh_programs);
+  let assemblyFormat = "'<' 'mesh_programs' '=' `[` $mesh_programs `]` '>'";
 
   let genVerifyDecl = 1;
 }
