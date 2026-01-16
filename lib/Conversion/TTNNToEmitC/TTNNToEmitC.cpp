@@ -996,7 +996,7 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit<int32_t>(srcOp.getScaleFactor()) |
-            emitter.emit<std::array<uint32_t, 2>>(srcOp.getScaleFactor()),
+            emitter.emit<std::array<int, 2>>(srcOp.getScaleFactor()),
         emitter.emit(srcOp.getMode()),
         emitter.emit(srcOp.getMemoryConfig()) |
             emitter.getMemoryConfig(srcOp.getResult()),

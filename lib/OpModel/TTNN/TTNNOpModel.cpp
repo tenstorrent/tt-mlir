@@ -6448,17 +6448,18 @@ llvm::Expected<OpConstraints> OpModel<UpsampleOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   // Convert params
-  std::variant<int, ::tt::tt_metal::Array2D> convertedScaleFactor;
+  std::variant<int, std::array<int, 2>, float, std::array<float, 2>>
+      convertedScaleFactor;
   if (auto value = mlir::dyn_cast<mlir::IntegerAttr>(scaleFactor)) {
     convertedScaleFactor = static_cast<int>(value.getSInt());
   } else if (auto tuple =
                  mlir::dyn_cast<::mlir::detail::DenseArrayAttrImpl<int32_t>>(
                      scaleFactor);
              tuple.size() == 2) {
-    std::array<uint32_t, 2> arr;
-    arr[0] = static_cast<uint32_t>(tuple[0]);
-    arr[1] = static_cast<uint32_t>(tuple[1]);
-    convertedScaleFactor = ::tt::tt_metal::Array2D(arr);
+    std::array<int, 2> arr;
+    arr[0] = static_cast<int>(tuple[0]);
+    arr[1] = static_cast<int>(tuple[1]);
+    convertedScaleFactor = arr;
   } else {
     return llvm::createStringError("Invalid scaleFactor");
   }
@@ -6494,17 +6495,18 @@ llvm::Expected<size_t> OpModel<UpsampleOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   // Convert parameters
-  std::variant<int, ::tt::tt_metal::Array2D> convertedScaleFactor;
+  std::variant<int, std::array<int, 2>, float, std::array<float, 2>>
+      convertedScaleFactor;
   if (auto value = mlir::dyn_cast<mlir::IntegerAttr>(scaleFactor)) {
     convertedScaleFactor = static_cast<int>(value.getSInt());
   } else if (auto tuple =
                  mlir::dyn_cast<::mlir::detail::DenseArrayAttrImpl<int32_t>>(
                      scaleFactor);
              tuple.size() == 2) {
-    std::array<uint32_t, 2> arr;
-    arr[0] = static_cast<uint32_t>(tuple[0]);
-    arr[1] = static_cast<uint32_t>(tuple[1]);
-    convertedScaleFactor = ::tt::tt_metal::Array2D(arr);
+    std::array<int, 2> arr;
+    arr[0] = static_cast<int>(tuple[0]);
+    arr[1] = static_cast<int>(tuple[1]);
+    convertedScaleFactor = arr;
   } else {
     return llvm::createStringError("Invalid scaleFactor");
   }
