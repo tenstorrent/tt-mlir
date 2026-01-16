@@ -408,6 +408,11 @@ class Perf:
                         env_vars["TT_METAL_DEVICE_PROFILER"] = "1"
                         env_vars["TTNN_OP_PROFILER"] = "1"
                         env_vars["TT_METAL_DEVICE_PROFILER_DISPATCH"] = "0"
+                        env_vars["TT_METAL_PROFILE_PERF_COUNTERS"] = "1"
+                        env_vars["TT_METAL_DEVICE_PROFILER_NOC_EVENTS"] = "1"
+                        env_vars[
+                            "TT_METAL_DEVICE_PROFILER_NOC_EVENTS_RPT_PATH"
+                        ] = os.path.dirname(profiler_device_side_log_path)
 
                     tracy_capture_tool_command = f"{self.tracy_capture_tool_path} -o {tracy_file_path} -f -p {port}"
                     self.tracy_capture_tool_process = subprocess.Popen(
@@ -538,7 +543,7 @@ class Perf:
                             perf_folder_path, profiler_device_side_log_path
                         )
 
-                    process_ops(None, None, False)
+                    process_ops(None, None, False, False, True)
 
                     # Add post-processing steps to insert location data into the ops_perf data file
                     # Get the op location to it's global call count mapping
