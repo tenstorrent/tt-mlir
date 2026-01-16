@@ -31,84 +31,6 @@ struct BoundsInterval {
   Value end;
 };
 
-// Compute local loop bounds for a core given a global region on one dimension
-// [globalRegionStart, globalRegionEnd).
-// Returns (localStart, localEnd) such that iterating [localStart, localEnd) in
-// local coordinates covers exactly the tiles that fall within both the global
-// region and this core's shard.
-//
-// Parameters:
-//   globalRegionStart, globalRegionEnd: compile-time constants defining the
-//   global region coreIdx: runtime value for the core's index in this dimension
-//   shardSize: compile-time constant for tiles per core in this dimension
-// static BoundsInterval
-// computeLocalBounds(PatternRewriter &rewriter, Location loc,
-//                    int64_t globalRegionStart, int64_t globalRegionEnd,
-//                    Value coreIdx, int64_t shardSize) {
-
-//   // globalCoreStart = coreIdx * shardSize
-//   // globalCoreEnd = (coreIdx + 1) * shardSize
-//   //
-//   // The intersection of [globalRegionStart, globalRegionEnd) and
-//   // [globalCoreStart, globalCoreEnd) is:
-//   //   [max(globalRegionStart, globalCoreStart), min(globalRegionEnd,
-//   //   globalCoreEnd))
-//   //
-//   // In local coordinates (subtract globalCoreStart):
-//   //   localStart = max(globalRegionStart, globalCoreStart) - globalCoreStart
-//   //              = max(globalRegionStart - globalCoreStart, 0)
-//   //   localEnd   = min(globalRegionEnd, globalCoreEnd) - globalCoreStart
-//   //              = min(globalRegionEnd - globalCoreStart, shardSize)
-//   //
-//   // To avoid underflow in unsigned math:
-//   //   max(a - b, 0) = a - min(a, b)
-//   //   min(a - b, c) = min(a, b + c) - b   [when a >= b, otherwise need care]
-//   //
-//   // Let's compute globalCoreStart first, then derive everything from that.
-
-//   Value shardSizeVal = rewriter.create<arith::ConstantIndexOp>(loc,
-//   shardSize); Value globalCoreStart =
-//       rewriter.create<arith::MulIOp>(loc, coreIdx, shardSizeVal);
-
-//   Value globalRegionStartVal =
-//       rewriter.create<arith::ConstantIndexOp>(loc, globalRegionStart);
-//   Value globalRegionEndVal =
-//       rewriter.create<arith::ConstantIndexOp>(loc, globalRegionEnd);
-
-//   // localStart = max(globalRegionStart - globalCoreStart, 0)
-//   //            = globalRegionStart - min(globalRegionStart, globalCoreStart)
-//   Value clampedStart = rewriter.create<arith::MinUIOp>(
-//       loc, globalRegionStartVal, globalCoreStart);
-//   Value localStart =
-//       rewriter.create<arith::SubIOp>(loc, globalRegionStartVal,
-//       clampedStart);
-
-//   // localEnd = min(globalRegionEnd - globalCoreStart, shardSize)
-//   // To avoid underflow:
-//   //   globalRegionEnd - globalCoreStart could underflow if globalCoreStart >
-//   //   globalRegionEnd so: localEnd = min(globalRegionEnd, globalCoreStart +
-//   //   shardSize) - globalCoreStart
-//   //                = min(globalRegionEnd, globalCoreEnd) - globalCoreStart
-//   // But we also need globalCoreStart <= min(...) to avoid underflow.
-//   //
-//   // Safe version:
-//   //   clampedEnd = min(globalRegionEnd, globalCoreEnd)
-//   //   clampedEnd = max(clampedEnd, globalCoreStart)  -- ensure no underflow
-//   //   localEnd = clampedEnd - globalCoreStart
-
-//   Value globalCoreEnd =
-//       rewriter.create<arith::AddIOp>(loc, globalCoreStart, shardSizeVal);
-//   Value clampedEnd =
-//       rewriter.create<arith::MinUIOp>(loc, globalRegionEndVal,
-//       globalCoreEnd);
-//   clampedEnd =
-//       rewriter.create<arith::MaxUIOp>(loc, clampedEnd, globalCoreStart);
-//   Value localEnd =
-//       rewriter.create<arith::SubIOp>(loc, clampedEnd, globalCoreStart);
-
-//   return BoundsInterval{localStart, localEnd};
-// }
-
 static double getFillValueAsDouble(ttcore::OOBVal oobVal) {
   switch (oobVal) {
   case ttcore::OOBVal::Undef:
@@ -124,45 +46,6 @@ static double getFillValueAsDouble(ttcore::OOBVal oobVal) {
   }
   return 0.0;
 }
-
-struct DecomposeBlockMaskWritePattern : OpRewritePattern<BlockMaskWriteOp> {
-  using OpRewritePattern<BlockMaskWriteOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(BlockMaskWriteOp op,
-                                PatternRewriter &rewriter) const override {
-    Location loc = op.getLoc();
-    Value rowMaskCB = op.getRowMaskCb();
-    Value colMaskCB = op.getColMaskCb();
-    Value logicalRowsVal = op.getLogicalRows();
-    Value logicalColsVal = op.getLogicalCols();
-
-    Value tileHeightVal =
-        rewriter.create<arith::ConstantIndexOp>(loc, kTileHeight);
-    Value tileWidthVal =
-        rewriter.create<arith::ConstantIndexOp>(loc, kTileWidth);
-    Value zeroIdx = rewriter.create<arith::ConstantIndexOp>(loc, 0);
-
-    Value rowRemainder =
-        rewriter.create<arith::RemUIOp>(loc, logicalRowsVal, tileHeightVal);
-    Value rowRemIsZero = rewriter.create<arith::CmpIOp>(
-        loc, arith::CmpIPredicate::eq, rowRemainder, zeroIdx);
-    Value validRows = rewriter.create<arith::SelectOp>(
-        loc, rowRemIsZero, tileHeightVal, rowRemainder);
-
-    Value colRemainder =
-        rewriter.create<arith::RemUIOp>(loc, logicalColsVal, tileWidthVal);
-    Value colRemIsZero = rewriter.create<arith::CmpIOp>(
-        loc, arith::CmpIPredicate::eq, colRemainder, zeroIdx);
-    Value validCols = rewriter.create<arith::SelectOp>(
-        loc, colRemIsZero, tileWidthVal, colRemainder);
-
-    rewriter.create<ExperimentalWriteRowMaskTileOp>(loc, validRows, rowMaskCB);
-    rewriter.create<ExperimentalWriteColMaskTileOp>(loc, validCols, colMaskCB);
-
-    rewriter.eraseOp(op);
-    return success();
-  }
-};
 
 /// Decompose BlockMaskOp with multi-core support.
 ///
@@ -320,14 +203,12 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
     Value validColsVal =
         rewriter.create<arith::ConstantIndexOp>(loc, validColsInLastTile);
 
-    if (rowMaskCB) {
-      rewriter.create<ExperimentalWriteRowMaskTileOp>(loc, validRowsVal,
-                                                      rowMaskCB);
-    }
-    if (colMaskCB) {
-      rewriter.create<ExperimentalWriteColMaskTileOp>(loc, validColsVal,
-                                                      colMaskCB);
-    }
+    TT_assert(rowMaskCB);
+    rewriter.create<ExperimentalWriteRowMaskTileOp>(loc, validRowsVal,
+                                                    rowMaskCB);
+    TT_assert(colMaskCB);
+    rewriter.create<ExperimentalWriteColMaskTileOp>(loc, validColsVal,
+                                                    colMaskCB);
 
     // === Tile operation helpers ===
     auto createFillTile = [&]() {
@@ -346,44 +227,26 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
       auto inputTile = rewriter.create<memref::LoadOp>(
           loc, input, ValueRange{localRowIdx, localColIdx});
       auto fillTile = createFillTile();
-      if (rowMaskCB) {
-        auto rowMaskTile = rewriter.create<memref::LoadOp>(
-            loc, rowMaskCB, ValueRange{zeroIdx, zeroIdx});
-        auto result =
-            rewriter.create<TileWhereOp>(loc, tileType, rowMaskTile.getResult(),
-                                         inputTile.getResult(), fillTile);
-        rewriter.create<memref::StoreOp>(loc, result.getResult(), output,
-                                         ValueRange{localRowIdx, localColIdx});
-      } else {
-        auto mask = rewriter.create<ExperimentalTileRowMaskOp>(loc, tileType,
-                                                               validRowsVal);
-        auto result = rewriter.create<TileWhereOp>(
-            loc, tileType, mask.getResult(), inputTile.getResult(), fillTile);
-        rewriter.create<memref::StoreOp>(loc, result.getResult(), output,
-                                         ValueRange{localRowIdx, localColIdx});
-      }
+      auto rowMaskTile = rewriter.create<memref::LoadOp>(
+          loc, rowMaskCB, ValueRange{zeroIdx, zeroIdx});
+      auto result =
+          rewriter.create<TileWhereOp>(loc, tileType, rowMaskTile.getResult(),
+                                       inputTile.getResult(), fillTile);
+      rewriter.create<memref::StoreOp>(loc, result.getResult(), output,
+                                       ValueRange{localRowIdx, localColIdx});
     };
 
     auto emitColMasked = [&](Value localRowIdx, Value localColIdx) {
       auto inputTile = rewriter.create<memref::LoadOp>(
           loc, input, ValueRange{localRowIdx, localColIdx});
       auto fillTile = createFillTile();
-      if (colMaskCB) {
-        auto colMaskTile = rewriter.create<memref::LoadOp>(
-            loc, colMaskCB, ValueRange{zeroIdx, zeroIdx});
-        auto result =
-            rewriter.create<TileWhereOp>(loc, tileType, colMaskTile.getResult(),
-                                         inputTile.getResult(), fillTile);
-        rewriter.create<memref::StoreOp>(loc, result.getResult(), output,
-                                         ValueRange{localRowIdx, localColIdx});
-      } else {
-        auto mask = rewriter.create<ExperimentalTileColMaskOp>(loc, tileType,
-                                                               validColsVal);
-        auto result = rewriter.create<TileWhereOp>(
-            loc, tileType, mask.getResult(), inputTile.getResult(), fillTile);
-        rewriter.create<memref::StoreOp>(loc, result.getResult(), output,
-                                         ValueRange{localRowIdx, localColIdx});
-      }
+      auto colMaskTile = rewriter.create<memref::LoadOp>(
+          loc, colMaskCB, ValueRange{zeroIdx, zeroIdx});
+      auto result =
+          rewriter.create<TileWhereOp>(loc, tileType, colMaskTile.getResult(),
+                                       inputTile.getResult(), fillTile);
+      rewriter.create<memref::StoreOp>(loc, result.getResult(), output,
+                                       ValueRange{localRowIdx, localColIdx});
     };
 
     auto emitCornerMasked = [&](Value localRowIdx, Value localColIdx) {
@@ -532,7 +395,6 @@ struct D2MDecomposeMasking
   void runOnOperation() override {
     MLIRContext *ctx = &getContext();
     RewritePatternSet patterns(ctx);
-    patterns.add<DecomposeBlockMaskWritePattern>(ctx);
     patterns.add<DecomposeBlockMaskPattern>(ctx);
 
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
