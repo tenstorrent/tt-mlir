@@ -392,12 +392,6 @@ def TTKernel_MulTilesOp : TTKernel_FPUOp<"mul_tiles", [TTKernel_BinaryOpTrait]> 
     }];
 }
 
-//===----------------------------------------------------------------------===//
-// TTKernel Binary Dest Reuse operations
-// These ops perform element-wise binary ops where one operand is in DST
-// and one operand comes from a CB. The result is written back to DST.
-//===----------------------------------------------------------------------===//
-
 def TTKernel_BinaryDestReuseTilesInitOp : TTKernel_InitOp<"binary_dest_reuse_tiles_init"> {
     let summary = "Init for binary op with dest reuse";
     let description = [{

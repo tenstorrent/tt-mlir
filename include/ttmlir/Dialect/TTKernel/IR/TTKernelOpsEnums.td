@@ -76,9 +76,6 @@ def TTKernel_ArgType : I32EnumAttr<"ArgType", "TTKernel Argument Types",
   let cppNamespace = "::mlir::tt::ttkernel";
 }
 
-// Binary dest reuse types for FPU ops that read one operand from DST
-// DEST_TO_SRCA: DST[dst_idx] -> SRCA, CB -> SRCB
-// DEST_TO_SRCB: CB -> SRCA, DST[dst_idx] -> SRCB
 def TTKernel_BinaryDestReuseDestToSrcA
     : I32EnumAttrCase<"DestToSrcA", 0, "dest_to_srca">;
 def TTKernel_BinaryDestReuseDestToSrcB
@@ -92,7 +89,6 @@ def TTKernel_BinaryDestReuseType
   let cppNamespace = "::mlir::tt::ttkernel";
 }
 
-// Binary operation types for FPU elementwise ops (add, sub, mul)
 def TTKernel_EltwiseBinaryTypeAdd : I32EnumAttrCase<"Add", 0, "add">;
 def TTKernel_EltwiseBinaryTypeSub : I32EnumAttrCase<"Sub", 1, "sub">;
 def TTKernel_EltwiseBinaryTypeMul : I32EnumAttrCase<"Mul", 2, "mul">;

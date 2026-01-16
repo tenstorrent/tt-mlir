@@ -276,8 +276,6 @@ public:
                          std::is_same_v<SourceOp,
                                         ttkernel::BinaryDestReuseTilesOp>) {
       SmallVector<Attribute, 2> template_args;
-      // Template: binary_dest_reuse_tiles<ELWADD/ELWSUB/ELWMUL,
-      // EltwiseBinaryReuseDestType>
       StringRef eltwiseType;
       switch (op.getEltwiseBinaryType()) {
       case ttkernel::EltwiseBinaryType::Add:

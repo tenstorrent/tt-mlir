@@ -150,15 +150,12 @@ static Value getOutCB(ConversionPatternRewriter &rewriter, Operation *op) {
   return getInOrOutCB<memref::StoreOp>(rewriter, op);
 }
 
-// Check if an operand comes from DST (e.g., result of TileBcastOp or prior
-// compute op in fusion). Returns true if the operand is loaded from DST memref.
+// Check if an operand comes from DST.
 static bool operandFromDst(Value operand) {
-  // Check affine.load from DST
   if (auto affineLoad = operand.getDefiningOp<affine::AffineLoadOp>()) {
     return ttcore::getMemorySpace(affineLoad.getMemRef()) ==
            ttcore::MemorySpace::RegisterDst;
   }
-  // Check memref.load from DST (used after D2MGenericRegionsToFuncs)
   if (auto memrefLoad = operand.getDefiningOp<memref::LoadOp>()) {
     return ttcore::getMemorySpace(memrefLoad.getMemRef()) ==
            ttcore::MemorySpace::RegisterDst;
@@ -180,9 +177,6 @@ static void setInsertionPointAfterOperands(OpBuilder &rewriter,
 
     bool inCurrentBlock = (definingOp->getBlock() == currentBlock);
 
-    // When NOT hoisting, only consider ops in the current block.
-    // When hoisting, consider all ops to potentially hoist outside current
-    // block.
     if (!allowHoisting && !inCurrentBlock) {
       continue;
     }
@@ -190,17 +184,12 @@ static void setInsertionPointAfterOperands(OpBuilder &rewriter,
     if (!latestDefOp) {
       latestDefOp = definingOp;
     } else if (latestDefOp->getBlock() == definingOp->getBlock()) {
-      // Same block - safe to use isBeforeInBlock
       if (!definingOp->isBeforeInBlock(latestDefOp)) {
         latestDefOp = definingOp;
       }
     } else if (inCurrentBlock) {
-      // definingOp is in currentBlock, latestDefOp is in outer block.
-      // currentBlock op is "later" in dominance order, so prefer it.
       latestDefOp = definingOp;
     }
-    // else: latestDefOp is in currentBlock or a different outer block,
-    // keep latestDefOp as it's already "later" or we can't compare.
   }
 
   if (!latestDefOp) {
@@ -208,13 +197,12 @@ static void setInsertionPointAfterOperands(OpBuilder &rewriter,
   }
 
   if (latestDefOp->getBlock() == currentBlock) {
-    // Operand in current block - only move if pushing downward (or hoisting)
     auto currentInsertionPoint = rewriter.getInsertionPoint();
     if (allowHoisting || currentInsertionPoint->isBeforeInBlock(latestDefOp)) {
       rewriter.setInsertionPointAfter(latestDefOp);
     }
   } else {
-    // Operand in outer block - hoist to that block (only when allowHoisting)
+    // Hoist to outer block (only reachable when allowHoisting=true)
     rewriter.setInsertionPointAfter(latestDefOp);
   }
 }
@@ -431,8 +419,6 @@ using ComputeOpMap = OpMap<
   std::pair<d2m::TileTypecastOp,    std::pair<ttkernel::TypecastTileInitOp,        ttkernel::TypecastTileOp>>,
 
   // Elementwise SFPU Binary (can also handle scalar operands).
-  // NOTE: TileAddOp, TileSubOp, TileMulOp are NOT here - they use FPU path
-  // via D2MFPUBinaryWithScalarRewriter.
   std::pair<d2m::TileBitwiseAndOp,  std::pair<ttkernel::BinaryBitwiseTileInitOp,   ttkernel::BitwiseAndBinaryTilesOp>>,
   std::pair<d2m::TileBitwiseOrOp,   std::pair<ttkernel::BinaryBitwiseTileInitOp,   ttkernel::BitwiseOrBinaryTilesOp>>,
   std::pair<d2m::TileBitwiseXorOp,  std::pair<ttkernel::BinaryBitwiseTileInitOp,   ttkernel::BitwiseXorBinaryTilesOp>>,
@@ -844,13 +830,7 @@ public:
 
 namespace {
 
-// Specialized rewriter for binary ops that use FPU for tile-tile but SFPU for
-// tile-scalar operations. This rewriter handles multiple input source cases:
-// 1. Both operands from CB: use FPU add/sub/mul_tiles
-// 2. LHS from DST, RHS from CB: use FPU binary_dest_reuse (DEST_TO_SRCA)
-// 3. LHS from CB, RHS from DST: use FPU binary_dest_reuse (DEST_TO_SRCB)
-// 4. Both operands from DST: fall back to SFPU add/sub/mul_binary_tile
-// 5. Scalar RHS: use SFPU add/sub/mul_unary_tile
+// Specialized rewriter for binary ops that may use either FPU or SFPU.
 template <typename ConcreteOp>
 class D2MFPUBinaryWithScalarRewriter : public OpConversionPattern<ConcreteOp> {
 public:
@@ -864,8 +844,7 @@ public:
     auto loc = op->getLoc();
 
     if (isScalarRhs) {
-      // Case 5: Scalar operand - use SFPU unary path
-      // LHS is already in DST
+      // Scalar operand (SFPU)
       return emitSFPUScalar(rewriter, op, adaptor, loc);
     }
 
@@ -874,22 +853,21 @@ public:
     bool rhsFromDst = operandFromDst(op.getRhs());
 
     if (!lhsFromDst && !rhsFromDst) {
-      // Case 1: Both from CB - use FPU tiles ops
+      // Both from Cb (FPU)
       return emitFPUTiles(rewriter, op, adaptor, loc);
     }
 
     if (lhsFromDst && rhsFromDst) {
-      // Case 4: Both from DST - fall back to SFPU
+      // Both from Dst (SFPU)
       return emitSFPUBinary(rewriter, op, adaptor, loc);
     }
 
     if (lhsFromDst) {
-      // Case 2: LHS from DST, RHS from CB - use DEST_TO_SRCA
+      // LHS from Dst, RHS from Cb (FPU - DEST_TO_SRCA)
       return emitFPUBinaryDestReuse(rewriter, op, adaptor, loc,
                                     BinaryDestReuseType::DestToSrcA);
     }
 
-    // Case 3: LHS from CB, RHS from DST - use DEST_TO_SRCB
     return emitFPUBinaryDestReuse(rewriter, op, adaptor, loc,
                                   BinaryDestReuseType::DestToSrcB);
   }
@@ -906,7 +884,7 @@ private:
     }
   }
 
-  // Case 1: Both operands from CB - standard FPU path
+  // Standard FPU path
   LogicalResult emitFPUTiles(ConversionPatternRewriter &rewriter, ConcreteOp op,
                              typename ConcreteOp::Adaptor adaptor,
                              Location loc) const {
@@ -940,28 +918,27 @@ private:
     return success();
   }
 
-  // Case 2 & 3: One operand from DST, one from CB - use binary_dest_reuse
+  // One operand from Dst, use binary_dest_reuse
   LogicalResult emitFPUBinaryDestReuse(ConversionPatternRewriter &rewriter,
                                        ConcreteOp op,
                                        typename ConcreteOp::Adaptor adaptor,
                                        Location loc,
                                        BinaryDestReuseType reuseType) const {
-    // Get the CB for the non-DST operand
+    // Get the Cb for the non-Dst operand
     Value cb;
     Value cbTileIdx;
     if (reuseType == BinaryDestReuseType::DestToSrcA) {
-      // LHS from DST, RHS from CB
+      // LHS from Dst, RHS from Cb
       cb = getCB(rewriter, op.getRhs());
       cbTileIdx = adaptor.getRhs();
     } else {
-      // LHS from CB, RHS from DST
       cb = getCB(rewriter, op.getLhs());
       cbTileIdx = adaptor.getLhs();
     }
 
     auto outCB = getOutCB(rewriter, op);
 
-    // DST index is the same for input and output (reuse)
+    // Dst index is the same for input and output
     auto dstIdx = getDstIdxFromResult(op.getResult());
 
     auto insertionPoint = rewriter.getInsertionPoint();
@@ -980,7 +957,7 @@ private:
     return success();
   }
 
-  // Case 4: Both operands from DST - fall back to SFPU binary
+  // Both operands from Dst (SFPU)
   LogicalResult emitSFPUBinary(ConversionPatternRewriter &rewriter,
                                ConcreteOp op,
                                typename ConcreteOp::Adaptor adaptor,
@@ -1015,7 +992,7 @@ private:
     return success();
   }
 
-  // Case 5: Scalar RHS - use SFPU unary path
+  // Scalar RHS (SFPU)
   LogicalResult emitSFPUScalar(ConversionPatternRewriter &rewriter,
                                ConcreteOp op,
                                typename ConcreteOp::Adaptor adaptor,
@@ -1902,7 +1879,7 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MSFPUOpsRewriter<d2m::TileLezOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileTypecastOp>,
 
-               // FPU Binary with scalar option (uses FPU for tile-tile, SFPU for tile-scalar).
+               // FPU Binary with scalar option.
                ttkernel::D2MFPUBinaryWithScalarRewriter<d2m::TileAddOp>,
                ttkernel::D2MFPUBinaryWithScalarRewriter<d2m::TileSubOp>,
                ttkernel::D2MFPUBinaryWithScalarRewriter<d2m::TileMulOp>,
