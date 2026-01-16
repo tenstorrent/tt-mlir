@@ -592,7 +592,7 @@ private:
 
     // If function is marked as const-eval leave inputs as is.
     // TTNNConstEvalInputsToSystemMemory pass will handle them.
-    if (owningFunc->hasAttr(ttmlir::utils::g_constEvalAttrName)) {
+    if (ttmlir::utils::isConstEvalFunc(owningFunc)) {
       return false;
     }
 
