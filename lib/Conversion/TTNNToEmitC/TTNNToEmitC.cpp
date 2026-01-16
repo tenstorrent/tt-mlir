@@ -2218,6 +2218,12 @@ public:
 namespace {
 class DropoutOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::DropoutOp> {
+private:
+  std::string getPrefixSearchPattern() const override { return "ttnn.dropout"; }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::experimental::dropout";
+  }
+
 public:
   using TTNNToEmitCBaseOpConversionPattern<
       mlir::tt::ttnn::DropoutOp>::TTNNToEmitCBaseOpConversionPattern;
