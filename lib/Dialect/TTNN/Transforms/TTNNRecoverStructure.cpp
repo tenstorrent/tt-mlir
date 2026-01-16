@@ -96,7 +96,8 @@ public:
 
 private:
   bool isCandidateFn(func::FuncOp funcOp) {
-    return ttmlir::utils::isForwardDeviceFunc(funcOp);
+    return ttmlir::utils::isForwardDeviceFunc(funcOp) &&
+           !funcOp.getFunctionType().getInputs().empty();
   }
 
   bool isCandidateOp(Operation *op) {
