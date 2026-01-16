@@ -12237,8 +12237,8 @@ class TTIRBuilder(Builder):
             input0,
             weight=weight0,
             bias=bias0,
-            normalized_shape=normalized_shape,
-            epsilon=epsilon,
+            normalized_shape=normalized_shape_attr,
+            epsilon=epsilon_attr,
             output_type_mlir=mlir_output_type,
         )
         result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
@@ -12297,16 +12297,14 @@ class TTIRBuilder(Builder):
             input0 = self._get_golden_tensor(in0)
             weight0 = self._get_golden_tensor(weight) if weight is not None else None
             bias0 = self._get_golden_tensor(bias) if bias is not None else None
-            normalized_shape = list(normalized_shape_attr)
-            epsilon = float(epsilon_attr.value)
             op_golden_function = get_golden_function(ttir_op)
             golden_output = op_golden_function(
                 input0,
+                weight0,
+                bias0,
+                normalized_shape_attr,
+                epsilon_attr,
                 result.element_type,
-                weight=weight0,
-                bias=bias0,
-                normalized_shape=normalized_shape,
-                epsilon=epsilon,
             )
             self._set_golden_tensor(new_op_result, golden_output)
 
@@ -12372,17 +12370,15 @@ class TTIRBuilder(Builder):
                             if old_op.bias is not None
                             else None
                         )
-                        normalized_shape = list(old_op.normalized_shape)
-                        epsilon = float(old_op.epsilon.value)
 
                         op_golden_function = get_golden_function(ttir_op)
                         golden_output = op_golden_function(
                             input0,
+                            weight0,
+                            bias0,
+                            old_op.normalized_shape,
+                            old_op.epsilon,
                             result.element_type,
-                            weight=weight0,
-                            bias=bias0,
-                            normalized_shape=normalized_shape,
-                            epsilon=epsilon,
                         )
                         layer_norm_builder._set_golden_tensor(
                             new_op_result, golden_output

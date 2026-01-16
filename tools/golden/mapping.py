@@ -828,11 +828,11 @@ def rms_norm_golden(
 
 def ttir_layer_norm_golden(
     input: GoldenMapTensor,
-    weight: Optional[GoldenMapTensor] = None,
-    bias: Optional[GoldenMapTensor] = None,
-    normalized_shape: ArrayAttr = None,
-    epsilon: FloatAttr = None,
-    output_type_mlir: Type = None,
+    weight: Optional[GoldenMapTensor],
+    bias: Optional[GoldenMapTensor],
+    normalized_shape: ArrayAttr,
+    epsilon: FloatAttr,
+    output_type_mlir: Type,
 ) -> GoldenMapTensor:
     normalized_shape = unpack_mlir_attr(normalized_shape)
     epsilon = unpack_mlir_attr(epsilon)
@@ -5078,6 +5078,28 @@ def ttnn_linear_golden(
     return torch.add(output, bias_tensor).to(output_dtype)
 
 
+def ttnn_layer_norm_golden(
+    input: GoldenMapTensor,
+    weight: Optional[GoldenMapTensor],
+    bias: Optional[GoldenMapTensor],
+    normalized_shape: ArrayAttr,
+    epsilon: FloatAttr,
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    normalized_shape = unpack_mlir_attr(normalized_shape)
+    epsilon = unpack_mlir_attr(epsilon)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    input_float = input.float()
+
+    return torch.nn.functional.layer_norm(
+        input_float,
+        normalized_shape=normalized_shape,
+        weight=weight,
+        bias=bias,
+        eps=epsilon,
+    ).to(output_dtype)
+
+
 def ttnn_concat_golden(
     input_tensors: List[GoldenMapTensor], dim_attr: IntegerAttr, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -5454,7 +5476,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # Complex operations
     ttnn.MatmulOp: ttnn_matmul_golden,
     ttnn.LinearOp: ttnn_linear_golden,
-    ttnn.LayerNormOp: ttir_layer_norm_golden,
+    ttnn.LayerNormOp: ttnn_layer_norm_golden,
     ttnn.RMSNormOp: rms_norm_golden,
     # Tensor manipulation
     ttnn.ConcatOp: ttnn_concat_golden,
