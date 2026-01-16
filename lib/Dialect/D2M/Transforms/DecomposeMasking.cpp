@@ -192,10 +192,10 @@ struct DecomposeBlockMaskPattern : OpRewritePattern<BlockMaskOp> {
         loc, elemType, rewriter.getFloatAttr(elemType, fillValueDouble));
 
     // Get core coordinates
-    Value coreY = rewriter.create<CoreIndexOp>(loc, rewriter.getIndexType(),
-                                               rewriter.getI64IntegerAttr(0));
-    Value coreX = rewriter.create<CoreIndexOp>(loc, rewriter.getIndexType(),
-                                               rewriter.getI64IntegerAttr(1));
+    Value coreY = rewriter.create<CoreIndexOp>(
+        loc, rewriter.getIndexType(), rewriter.getI64IntegerAttr(0), nullptr);
+    Value coreX = rewriter.create<CoreIndexOp>(
+        loc, rewriter.getIndexType(), rewriter.getI64IntegerAttr(1), nullptr);
 
     // Write mask tiles
     Value validRowsVal =

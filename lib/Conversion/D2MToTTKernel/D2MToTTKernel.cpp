@@ -486,8 +486,12 @@ public:
     bool storeToDst = ttcore::getMemorySpace(op.getMemRef()) ==
                       ttcore::MemorySpace::RegisterDst;
 
-    if (load && storeToDst) {
-      // If we are coming from a load, then we are a copy tile. Pattern:
+    // Check if the load is from L1 (CB), not from DST
+    bool loadFromL1 = load && ttcore::getMemorySpace(load.getMemRef()) ==
+                                  ttcore::MemorySpace::DeviceL1;
+
+    if (loadFromL1 && storeToDst) {
+      // If we are coming from a load from L1, then we are a copy tile. Pattern:
       //    %0 = memref.load %arg0, %c0 : memref<1x!tt.tile, l1>
       //    tt.store %0, %arg1, %c0 : memref<1x!tt.tile, dst>
       // OR with dst reinterpret cast:
