@@ -403,14 +403,16 @@ def TTKernel_BinaryDestReuseTilesInitOp : TTKernel_InitOp<"binary_dest_reuse_til
     let description = [{
       Init function for binary_dest_reuse_tiles operation.
       Must be run before binary_dest_reuse_tiles.
-      Template args (ELWADD/ELWSUB/ELWMUL, reuse_type) are added during EmitC lowering.
+      `eltwise_binary_type` specifies the operation (add/sub/mul).
+      `reuse_type` specifies which source register gets the DST operand.
     }];
 
     let arguments = (ins TTKernel_CB:$in_cb,
+                         TTKernel_EltwiseBinaryTypeAttr:$eltwise_binary_type,
                          TTKernel_BinaryDestReuseTypeAttr:$reuse_type);
 
     let assemblyFormat = [{
-      `(` $in_cb `,` $reuse_type `)` attr-dict `:` functional-type(operands, results)
+      `(` $in_cb `,` $eltwise_binary_type `,` $reuse_type `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -422,16 +424,17 @@ def TTKernel_BinaryDestReuseTilesOp : TTKernel_FPUOp<"binary_dest_reuse_tiles"> 
       to SRCA and CB tile is loaded to SRCB. If dest_to_srcb, the opposite.
       Result is written back to DST[dst_tile_index].
       The DST register buffer must be in acquired state via *tile_regs_acquire* call.
-      Template args (ELWADD/ELWSUB/ELWMUL, reuse_type) are added during EmitC lowering.
+      `eltwise_binary_type` specifies the operation (add/sub/mul).
     }];
 
     let arguments = (ins TTKernel_CB:$in_cb,
                          IndexLike:$in_tile_index,
                          IndexLike:$dst_tile_index,
+                         TTKernel_EltwiseBinaryTypeAttr:$eltwise_binary_type,
                          TTKernel_BinaryDestReuseTypeAttr:$reuse_type);
 
     let assemblyFormat = [{
-      `(` $in_cb `,` $in_tile_index `,` $dst_tile_index `,` $reuse_type `)` attr-dict `:` functional-type(operands, results)
+      `(` $in_cb `,` $in_tile_index `,` $dst_tile_index `,` $eltwise_binary_type `,` $reuse_type `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 

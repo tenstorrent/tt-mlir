@@ -92,4 +92,18 @@ def TTKernel_BinaryDestReuseType
   let cppNamespace = "::mlir::tt::ttkernel";
 }
 
+// Binary operation types for FPU elementwise ops (add, sub, mul)
+def TTKernel_EltwiseBinaryTypeAdd : I32EnumAttrCase<"Add", 0, "add">;
+def TTKernel_EltwiseBinaryTypeSub : I32EnumAttrCase<"Sub", 1, "sub">;
+def TTKernel_EltwiseBinaryTypeMul : I32EnumAttrCase<"Mul", 2, "mul">;
+
+def TTKernel_EltwiseBinaryType
+    : I32EnumAttr<"EltwiseBinaryType", "TTKernel Elementwise Binary Op Types",
+                  [TTKernel_EltwiseBinaryTypeAdd,
+                   TTKernel_EltwiseBinaryTypeSub,
+                   TTKernel_EltwiseBinaryTypeMul]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttkernel";
+}
+
 #endif

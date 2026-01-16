@@ -276,9 +276,22 @@ public:
                          std::is_same_v<SourceOp,
                                         ttkernel::BinaryDestReuseTilesOp>) {
       SmallVector<Attribute, 2> template_args;
-      // Template: binary_dest_reuse_tiles<ELWADD, EltwiseBinaryReuseDestType>
+      // Template: binary_dest_reuse_tiles<ELWADD/ELWSUB/ELWMUL,
+      // EltwiseBinaryReuseDestType>
+      StringRef eltwiseType;
+      switch (op.getEltwiseBinaryType()) {
+      case ttkernel::EltwiseBinaryType::Add:
+        eltwiseType = "ELWADD";
+        break;
+      case ttkernel::EltwiseBinaryType::Sub:
+        eltwiseType = "ELWSUB";
+        break;
+      case ttkernel::EltwiseBinaryType::Mul:
+        eltwiseType = "ELWMUL";
+        break;
+      }
       template_args.push_back(
-          emitc::OpaqueAttr::get(op.getContext(), "ELWADD"));
+          emitc::OpaqueAttr::get(op.getContext(), eltwiseType));
       StringRef reuseType =
           op.getReuseType() == ttkernel::BinaryDestReuseType::DestToSrcA
               ? "EltwiseBinaryReuseDestType::DEST_TO_SRCA"

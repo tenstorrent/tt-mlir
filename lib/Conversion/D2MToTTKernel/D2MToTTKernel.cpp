@@ -431,16 +431,15 @@ using ComputeOpMap = OpMap<
   std::pair<d2m::TileTypecastOp,    std::pair<ttkernel::TypecastTileInitOp,        ttkernel::TypecastTileOp>>,
 
   // Elementwise SFPU Binary (can also handle scalar operands).
-  // NOTE: TileAddOp is NOT here - it uses FPU path via D2MFPUBinaryWithScalarRewriter.
+  // NOTE: TileAddOp, TileSubOp, TileMulOp are NOT here - they use FPU path
+  // via D2MFPUBinaryWithScalarRewriter.
   std::pair<d2m::TileBitwiseAndOp,  std::pair<ttkernel::BinaryBitwiseTileInitOp,   ttkernel::BitwiseAndBinaryTilesOp>>,
   std::pair<d2m::TileBitwiseOrOp,   std::pair<ttkernel::BinaryBitwiseTileInitOp,   ttkernel::BitwiseOrBinaryTilesOp>>,
   std::pair<d2m::TileBitwiseXorOp,  std::pair<ttkernel::BinaryBitwiseTileInitOp,   ttkernel::BitwiseXorBinaryTilesOp>>,
   std::pair<d2m::TileDivOp,         std::pair<ttkernel::DivBinaryTilesInitOp,      ttkernel::DivBinaryTilesOp>>,
   std::pair<d2m::TileMaximumOp,     std::pair<ttkernel::BinaryMaxTileInitOp,       ttkernel::BinaryMaxTileOp>>,
   std::pair<d2m::TileMinimumOp,     std::pair<ttkernel::BinaryMinTileInitOp,       ttkernel::BinaryMinTileOp>>,
-  std::pair<d2m::TileMulOp,         std::pair<ttkernel::MulBinaryTilesInitOp,      ttkernel::MulBinaryTilesOp>>,
   std::pair<d2m::TilePowOp,         std::pair<ttkernel::PowBinaryTilesInitOp,      ttkernel::PowBinaryTilesOp>>,
-  std::pair<d2m::TileSubOp,         std::pair<ttkernel::SubBinaryTilesInitOp,      ttkernel::SubBinaryTilesOp>>,
 
   // Elementwise SFPU Ternary.
   std::pair<d2m::TileWhereOp,       std::pair<ttkernel::WhereTileInitOp,           ttkernel::WhereTileOp>>
@@ -790,20 +789,7 @@ public:
         auto loc = op->getLoc();
 
         // Create the appropriate unary scalar op based on the D2M op type
-        if constexpr (std::is_same_v<ConcreteOp, d2m::TileAddOp>) {
-          // Bitcast the scalar value to i32 to pass as parameter
-          auto scalarParam = rewriter.create<arith::BitcastOp>(
-              loc, rewriter.getI32Type(), adaptor.getRhs());
-          rewriter.create<ttkernel::AddUnaryTileOp>(loc, dstIdx, scalarParam);
-        } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileSubOp>) {
-          auto scalarParam = rewriter.create<arith::BitcastOp>(
-              loc, rewriter.getI32Type(), adaptor.getRhs());
-          rewriter.create<ttkernel::SubUnaryTileOp>(loc, dstIdx, scalarParam);
-        } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileMulOp>) {
-          auto scalarParam = rewriter.create<arith::BitcastOp>(
-              loc, rewriter.getI32Type(), adaptor.getRhs());
-          rewriter.create<ttkernel::MulUnaryTileOp>(loc, dstIdx, scalarParam);
-        } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileDivOp>) {
+        if constexpr (std::is_same_v<ConcreteOp, d2m::TileDivOp>) {
           auto scalarParam = rewriter.create<arith::BitcastOp>(
               loc, rewriter.getI32Type(), adaptor.getRhs());
           rewriter.create<ttkernel::DivUnaryTileOp>(loc, dstIdx, scalarParam);
@@ -860,11 +846,11 @@ namespace {
 
 // Specialized rewriter for binary ops that use FPU for tile-tile but SFPU for
 // tile-scalar operations. This rewriter handles multiple input source cases:
-// 1. Both operands from CB: use FPU add_tiles
+// 1. Both operands from CB: use FPU add/sub/mul_tiles
 // 2. LHS from DST, RHS from CB: use FPU binary_dest_reuse (DEST_TO_SRCA)
 // 3. LHS from CB, RHS from DST: use FPU binary_dest_reuse (DEST_TO_SRCB)
-// 4. Both operands from DST: fall back to SFPU add_binary_tile
-// 5. Scalar RHS: use SFPU add_unary_tile
+// 4. Both operands from DST: fall back to SFPU add/sub/mul_binary_tile
+// 5. Scalar RHS: use SFPU add/sub/mul_unary_tile
 template <typename ConcreteOp>
 class D2MFPUBinaryWithScalarRewriter : public OpConversionPattern<ConcreteOp> {
 public:
@@ -880,7 +866,7 @@ public:
     if (isScalarRhs) {
       // Case 5: Scalar operand - use SFPU unary path
       // LHS is already in DST
-      return emitSFPUScalarAdd(rewriter, op, adaptor, loc);
+      return emitSFPUScalar(rewriter, op, adaptor, loc);
     }
 
     // Tile-tile: check sources
@@ -888,13 +874,13 @@ public:
     bool rhsFromDst = operandFromDst(op.getRhs());
 
     if (!lhsFromDst && !rhsFromDst) {
-      // Case 1: Both from CB - use FPU add_tiles
-      return emitFPUAddTiles(rewriter, op, adaptor, loc);
+      // Case 1: Both from CB - use FPU tiles ops
+      return emitFPUTiles(rewriter, op, adaptor, loc);
     }
 
     if (lhsFromDst && rhsFromDst) {
       // Case 4: Both from DST - fall back to SFPU
-      return emitSFPUBinaryAdd(rewriter, op, adaptor, loc);
+      return emitSFPUBinary(rewriter, op, adaptor, loc);
     }
 
     if (lhsFromDst) {
@@ -909,11 +895,21 @@ public:
   }
 
 private:
+  // Get the EltwiseBinaryType for this op
+  static constexpr ttkernel::EltwiseBinaryType getEltwiseBinaryType() {
+    if constexpr (std::is_same_v<ConcreteOp, d2m::TileAddOp>) {
+      return ttkernel::EltwiseBinaryType::Add;
+    } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileSubOp>) {
+      return ttkernel::EltwiseBinaryType::Sub;
+    } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileMulOp>) {
+      return ttkernel::EltwiseBinaryType::Mul;
+    }
+  }
+
   // Case 1: Both operands from CB - standard FPU path
-  LogicalResult emitFPUAddTiles(ConversionPatternRewriter &rewriter,
-                                ConcreteOp op,
-                                typename ConcreteOp::Adaptor adaptor,
-                                Location loc) const {
+  LogicalResult emitFPUTiles(ConversionPatternRewriter &rewriter, ConcreteOp op,
+                             typename ConcreteOp::Adaptor adaptor,
+                             Location loc) const {
     auto cbA = getCB(rewriter, op.getLhs());
     auto cbB = getCB(rewriter, op.getRhs());
     auto outCB = getOutCB(rewriter, op);
@@ -929,6 +925,14 @@ private:
     if constexpr (std::is_same_v<ConcreteOp, d2m::TileAddOp>) {
       rewriter.create<ttkernel::AddTilesInitOp>(loc, cbA, cbB);
       rewriter.create<ttkernel::AddTilesOp>(loc, cbA, cbB, adaptor.getLhs(),
+                                            adaptor.getRhs(), dstIdx);
+    } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileSubOp>) {
+      rewriter.create<ttkernel::SubTilesInitOp>(loc, cbA, cbB);
+      rewriter.create<ttkernel::SubTilesOp>(loc, cbA, cbB, adaptor.getLhs(),
+                                            adaptor.getRhs(), dstIdx);
+    } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileMulOp>) {
+      rewriter.create<ttkernel::MulTilesInitOp>(loc, cbA, cbB);
+      rewriter.create<ttkernel::MulTilesOp>(loc, cbA, cbB, adaptor.getLhs(),
                                             adaptor.getRhs(), dstIdx);
     }
 
@@ -966,21 +970,21 @@ private:
     rewriter.create<ttkernel::BinaryOpInitCommonOp>(loc, cb, cb, outCB);
     rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
 
-    if constexpr (std::is_same_v<ConcreteOp, d2m::TileAddOp>) {
-      rewriter.create<ttkernel::BinaryDestReuseTilesInitOp>(loc, cb, reuseType);
-      rewriter.create<ttkernel::BinaryDestReuseTilesOp>(loc, cb, cbTileIdx,
-                                                        dstIdx, reuseType);
-    }
+    auto eltwiseType = getEltwiseBinaryType();
+    rewriter.create<ttkernel::BinaryDestReuseTilesInitOp>(loc, cb, eltwiseType,
+                                                          reuseType);
+    rewriter.create<ttkernel::BinaryDestReuseTilesOp>(
+        loc, cb, cbTileIdx, dstIdx, eltwiseType, reuseType);
 
     rewriter.eraseOp(op);
     return success();
   }
 
   // Case 4: Both operands from DST - fall back to SFPU binary
-  LogicalResult emitSFPUBinaryAdd(ConversionPatternRewriter &rewriter,
-                                  ConcreteOp op,
-                                  typename ConcreteOp::Adaptor adaptor,
-                                  Location loc) const {
+  LogicalResult emitSFPUBinary(ConversionPatternRewriter &rewriter,
+                               ConcreteOp op,
+                               typename ConcreteOp::Adaptor adaptor,
+                               Location loc) const {
     auto inCB = getInCB(rewriter, op);
     auto outCB = getOutCB(rewriter, op);
 
@@ -997,6 +1001,14 @@ private:
       rewriter.create<ttkernel::AddBinaryTilesInitOp>(loc);
       rewriter.create<ttkernel::AddBinaryTilesOp>(loc, adaptor.getLhs(),
                                                   adaptor.getRhs(), dstIdx);
+    } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileSubOp>) {
+      rewriter.create<ttkernel::SubBinaryTilesInitOp>(loc);
+      rewriter.create<ttkernel::SubBinaryTilesOp>(loc, adaptor.getLhs(),
+                                                  adaptor.getRhs(), dstIdx);
+    } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileMulOp>) {
+      rewriter.create<ttkernel::MulBinaryTilesInitOp>(loc);
+      rewriter.create<ttkernel::MulBinaryTilesOp>(loc, adaptor.getLhs(),
+                                                  adaptor.getRhs(), dstIdx);
     }
 
     rewriter.eraseOp(op);
@@ -1004,10 +1016,10 @@ private:
   }
 
   // Case 5: Scalar RHS - use SFPU unary path
-  LogicalResult emitSFPUScalarAdd(ConversionPatternRewriter &rewriter,
-                                  ConcreteOp op,
-                                  typename ConcreteOp::Adaptor adaptor,
-                                  Location loc) const {
+  LogicalResult emitSFPUScalar(ConversionPatternRewriter &rewriter,
+                               ConcreteOp op,
+                               typename ConcreteOp::Adaptor adaptor,
+                               Location loc) const {
     auto inCB = getInCB(rewriter, op);
     auto outCB = getOutCB(rewriter, op);
 
@@ -1021,11 +1033,15 @@ private:
     rewriter.create<ttkernel::BinopWithScalarTileInitOp>(loc);
 
     const auto dstIdx = adaptor.getLhs();
+    auto scalarParam = rewriter.create<arith::BitcastOp>(
+        loc, rewriter.getI32Type(), adaptor.getRhs());
 
     if constexpr (std::is_same_v<ConcreteOp, d2m::TileAddOp>) {
-      auto scalarParam = rewriter.create<arith::BitcastOp>(
-          loc, rewriter.getI32Type(), adaptor.getRhs());
       rewriter.create<ttkernel::AddUnaryTileOp>(loc, dstIdx, scalarParam);
+    } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileSubOp>) {
+      rewriter.create<ttkernel::SubUnaryTileOp>(loc, dstIdx, scalarParam);
+    } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileMulOp>) {
+      rewriter.create<ttkernel::MulUnaryTileOp>(loc, dstIdx, scalarParam);
     }
 
     rewriter.eraseOp(op);
@@ -1888,6 +1904,8 @@ void populateD2MToTTKernelPatterns(
 
                // FPU Binary with scalar option (uses FPU for tile-tile, SFPU for tile-scalar).
                ttkernel::D2MFPUBinaryWithScalarRewriter<d2m::TileAddOp>,
+               ttkernel::D2MFPUBinaryWithScalarRewriter<d2m::TileSubOp>,
+               ttkernel::D2MFPUBinaryWithScalarRewriter<d2m::TileMulOp>,
 
                // Elementwise SFPU Binary (also handles scalar operands).
                ttkernel::D2MSFPUOpsRewriter<d2m::TileBitwiseAndOp>,
@@ -1896,9 +1914,7 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MSFPUOpsRewriter<d2m::TileDivOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileMaximumOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TileMinimumOp>,
-               ttkernel::D2MSFPUOpsRewriter<d2m::TileMulOp>,
                ttkernel::D2MSFPUOpsRewriter<d2m::TilePowOp>,
-               ttkernel::D2MSFPUOpsRewriter<d2m::TileSubOp>,
 
                // Elementwise SFPU Ternary.
                ttkernel::D2MSFPUOpsRewriter<d2m::TileWhereOp>,
