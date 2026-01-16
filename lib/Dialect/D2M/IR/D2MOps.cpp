@@ -1725,6 +1725,28 @@ static mlir::LogicalResult verifyAffineBlocking(
 
   return success();
 }
+// Spatialop verification
+::mlir::LogicalResult d2m::SpatialOp::verify() {
+  auto gridRanges = getGridRanges();
+  auto coreRanges = gridRanges.getCoreRanges();
+
+  // Check that grid_ranges has at least 1 CoreRange
+  if (coreRanges.empty()) {
+    return emitOpError("grid_ranges must contain at least one CoreRange");
+  }
+
+  // Check that the number of CoreRanges matches the number of Regions
+  size_t numCoreRanges = coreRanges.size();
+  size_t numRegions = getNumRegions();
+
+  if (numCoreRanges != numRegions) {
+    return emitOpError("number of CoreRanges (")
+           << numCoreRanges << ") must match the number of Regions ("
+           << numRegions << ")";
+  }
+
+  return success();
+}
 
 void GenericOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
                                             mlir::MLIRContext *context) {

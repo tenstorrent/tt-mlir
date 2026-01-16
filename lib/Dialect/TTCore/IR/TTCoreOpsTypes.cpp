@@ -1898,4 +1898,53 @@ void TTCoreDialect::registerTypes() {
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.cpp.inc"
       >();
 }
+
+bool CoreRangeAttr::intersects(CoreRangeAttr other) const {
+  bool thisEndsBeforeOtherStarts =
+      this->getEndCoord().getX() < other.getStartCoord().getX();
+  bool thisStartsAfterOtherEnds =
+      this->getStartCoord().getX() > other.getEndCoord().getX();
+  bool thisEndsBelowOtherStarts =
+      this->getEndCoord().getY() < other.getStartCoord().getY();
+  bool thisStartsAboveOtherEnds =
+      this->getStartCoord().getY() > other.getEndCoord().getY();
+
+  return !(thisEndsBeforeOtherStarts || thisStartsAfterOtherEnds ||
+           thisEndsBelowOtherStarts || thisStartsAboveOtherEnds);
+}
+
+::llvm::LogicalResult CoreRangeAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    mlir::tt::ttcore::CoreCoordAttr startCoord,
+    mlir::tt::ttcore::CoreCoordAttr endCoord) {
+  if (startCoord.getX() > endCoord.getX() ||
+      startCoord.getY() > endCoord.getY()) {
+    return emitError() << "Start coordinates " << startCoord
+                       << " must be less than or equal to end coordinates "
+                       << endCoord;
+  }
+
+  return ::llvm::success();
+}
+::llvm::LogicalResult CoreRangeSetAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    llvm::ArrayRef<mlir::tt::ttcore::CoreRangeAttr> coreRanges) {
+  if (coreRanges.size() < 2) {
+    return ::llvm::success();
+  }
+
+  // Check each pair of core ranges for intersections
+  for (size_t i = 0; i < coreRanges.size() - 1; ++i) {
+    for (size_t j = i + 1; j < coreRanges.size(); ++j) {
+      CoreRangeAttr firstCoreRange = coreRanges[i];
+      CoreRangeAttr secondCoreRange = coreRanges[j];
+      if (firstCoreRange.intersects(secondCoreRange)) {
+        return emitError() << "Core ranges overlap: " << firstCoreRange
+                           << " and " << secondCoreRange;
+      }
+    }
+  }
+
+  return ::llvm::success();
+}
 } // namespace mlir::tt::ttcore

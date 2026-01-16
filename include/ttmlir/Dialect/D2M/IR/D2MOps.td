@@ -362,6 +362,97 @@ def D2M_GenericOp
       }
     }];
 }
+def D2M_SpatialOp: D2M_Op<"spatial",
+[ AttrSizedOperandSegments
+  , NoTerminator
+  , DestinationStyleOpInterface
+  // , DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmBlockNames"]>
+  // , DeclareOpInterfaceMethods<BufferizableOpInterface, [
+  //     "bufferizesToMemoryRead",
+  //     "bufferizesToMemoryWrite",
+  //     "bufferize",
+  //     "getAliasingValues",
+  //     "getBufferType",
+  //     "isWritable",
+  //     "hasTensorSemantics",
+  //   ]>
+  // , DeclareOpInterfaceMethods<MemoryEffectsOpInterface>
+  ]> {
+    let summary = "Spatial op.";
+    let description = [{
+      Spatial op.
+    }];
+    let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$inputs,
+                         Variadic<AnyRankedTensorOrMemRef>:$outputs,
+                         TTCore_CoreRangeSetAttr:$grid_ranges);
+    let results = (outs Variadic<AnyRankedTensor>:$results);
+    let regions = (region VariadicRegion<AnyRegion>:$regions);
+
+    let assemblyFormat = [{ attr-dict `\n`
+    ` ` ` ` ` ` ` ` `ins` `(` $inputs (`:` type($inputs)^)? `)` `\n`
+    ` ` ` ` ` ` ` ` `outs` `(` $outputs  `:` type($outputs) `)` ` `  $regions (`:`  type($results)^ )?
+    }];
+
+    let hasVerifier = 1;
+    // let hasCanonicalizer = 1;
+
+    let extraClassDeclaration = [{
+      // Required by DestinationStyleOpInterface
+      MutableOperandRange getDpsInitsMutable() {
+        return getOutputsMutable();
+      }
+      // static std::pair<ArrayAttr, ArrayAttr> buildParallelAffineMapsAndIteratorTypes(mlir::OpBuilder &builder, size_t arity, size_t rank) {
+      //   auto map = builder.getMultiDimIdentityMap(rank);
+      //   Attribute parallel = builder.getAttr<ttcore::IteratorTypeAttr>(ttcore::IteratorType::Parallel);
+      //   return std::make_pair(builder.getAffineMapArrayAttr(SmallVector<AffineMap>(arity, map)),
+      //                         builder.getArrayAttr(SmallVector<Attribute>(rank, parallel)));
+      // }
+      // ThreadType getRegionThreadType(unsigned regionIndex) {
+      //   auto arr = getThreadsAttr().getValue();
+      //   return mlir::cast<ThreadAttr>(arr[regionIndex]).getThreadType();
+      // }
+      // SmallVector<ttcore::IteratorType> getIteratorTypesValue();
+      // bool isComputeOnlyForm() {
+      //   auto threads = getThreads();
+      //   return threads.size() == 1 && mlir::cast<ThreadAttr>(threads[0]).getThreadType() == ThreadType::Compute;
+      // }
+      // bool isDMAOnlyForm() {
+      //   return llvm::none_of(getThreads(), [](Attribute attr) {
+      //     return mlir::cast<d2m::ThreadAttr>(attr).getThreadType() ==
+      //           d2m::ThreadType::Compute;
+      //   });
+      // }
+      // bool isAffineMapForm() { return !getIndexingMaps().empty(); }
+      // bool isLoweredLoopForm() { return !isAffineMapForm(); }
+      // bool isExplicitDatamovementForm() {
+      //   return getBlockFactors().empty() &&
+      //          getIndexingMaps().empty() &&
+      //          getIteratorTypes().empty();
+      // }
+      // bool isExternalSymbolForm() { return getRegions().empty(); }
+      // SmallVector<SmallVector<int64_t>> getOperandGridShapes();
+      // SmallVector<int64_t> getLoopBounds();
+      // SmallVector<AffineMap> getIndexingMapsValue();
+      // SmallVector<int64_t> getBlockFactorsValue();
+      // SmallVector<int64_t> getFullBlockFactors();
+      // ttcore::DeviceAttr getDevice();
+      // SmallVector<int64_t> getParticipatingLoopDims(int64_t operandIndex);
+      // SmallVector<int64_t> getNonParticipatingLoopDims(int64_t operandIndex);
+      // SmallVector<int64_t> getPhysicalGridShape();
+      // SmallVector<SmallVector<int64_t>> getOperandShardShapes(bool convertTileToScalar = false);
+      // std::optional<SmallVector<int64_t>> computeGridDimConstraints(std::function<bool(ttcore::MetalLayoutAttr, bool)> operandFilterPredicate);
+      // unsigned getNumLoops();
+      // unsigned getNumDims();
+      // AffineMap getIndexingMap(int64_t operandIndex);
+      // bool hasCompatibleBlocking(GenericOp gOp);
+      // bool hasSkipOpEltwiseFusionTrait();
+      // bool hasReduction();
+      // bool hasMultiUseInputOperand();
+      // bool isAllParallel();
+      // bool hasComputeOpsInRegion(unsigned regionIndex = 0);
+      // bool isNontriviallyEltwiseFused();
+    }];
+}
 
 // Simple creation op needed by LowerToLayout splitting
 
