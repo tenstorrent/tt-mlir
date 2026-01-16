@@ -49,10 +49,6 @@ public:
                                      bool markRootLoops) {
     if (markRootLoops) {
       rootLoopNest->setAttr("d2m.linalg_root", rewriter.getUnitAttr());
-      // If linalg was marked to skip scheduling, transfer that to the loop.
-      if (linalgGenericOp->hasAttr("d2m.skip_scheduling")) {
-        rootLoopNest->setAttr("d2m.scheduled", rewriter.getUnitAttr());
-      }
     }
     rewriter.replaceOp(linalgGenericOp, rootLoopNest);
   }

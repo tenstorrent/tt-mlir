@@ -10,7 +10,6 @@ set(LLK_HEADERS
     ${CMAKE_SOURCE_DIR}/include/ttmlir/Target/TTKernel/LLKs/experimental_matmul_llks.h
     ${CMAKE_SOURCE_DIR}/include/ttmlir/Target/TTKernel/LLKs/experimental_padding_llks.h
     ${CMAKE_SOURCE_DIR}/include/ttmlir/Target/TTKernel/LLKs/experimental_coord_translation.h
-    ${CMAKE_SOURCE_DIR}/include/ttmlir/Target/TTKernel/LLKs/experimental_index_tile_llks.h
 )
 
 # Set the output directory for generated headers
