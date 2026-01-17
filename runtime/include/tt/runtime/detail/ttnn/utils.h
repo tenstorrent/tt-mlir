@@ -27,6 +27,10 @@ bool isSharded(
 
 bool canUntilizeDataTypeOnDevice(const ::ttnn::DataType &dataType);
 
+bool canUntilizeOnDevice(
+    const ::ttnn::DataType &dataType,
+    const std::optional<::ttnn::MemoryConfig> &memoryConfig);
+
 bool canTilizeOnDevice(const ::ttnn::DataType &dataType,
                        const std::optional<::ttnn::MemoryConfig> &memoryConfig);
 
@@ -93,6 +97,9 @@ toTTNNShardOrientation(tt::target::ttnn::ShardOrientation orientation);
 
 ::tt::target::ttnn::ShardOrientation
 fromTTNNShardOrientation(::ttnn::ShardOrientation orientation);
+
+tt::tt_metal::ShardDistributionStrategy toTTNNShardDistributionStrategy(
+    tt::target::ttnn::ShardDistributionStrategy distributionStrategy);
 
 ::flatbuffers::Offset<::tt::target::ttnn::ShardSpec>
 fromTTNNShardSpec(::flatbuffers::FlatBufferBuilder &fbb,
