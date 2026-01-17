@@ -1780,7 +1780,7 @@ class StableHLOBuilder(Builder):
                 ]
 
         return floor_module, floor_builder
-      
+
     def broadcast_in_dim(
         self,
         in0: Operand,
@@ -1832,6 +1832,7 @@ class StableHLOBuilder(Builder):
             unit_attrs=unit_attrs,
             sharding_attr=sharding_attr,
         )
+
     ################ stablehlo.LogOp ###############
 
     @tag(stablehlo.LogOp)

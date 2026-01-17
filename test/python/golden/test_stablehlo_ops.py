@@ -383,6 +383,7 @@ def module_subtract(builder: StableHLOBuilder):
         builder.set_graph_level_check(True)
         return builder.subtract(in0, in1, unit_attrs=unit_attrs)
 
+
 def module_broadcast_in_dim(builder: StableHLOBuilder):
     @builder.func([(128, 128), (128, 128)], [torch.float32, torch.float32])
     def broadcast_in_dim(
@@ -1392,7 +1393,7 @@ def test_all_gather(target: str, request, device):
         mesh_dict=OrderedDict([("x", 1), ("y", 1)]),
     )
 
-    
+
 @pytest.mark.parametrize("shape", [(128,)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
 @pytest.mark.parametrize("target", ["ttnn"])
